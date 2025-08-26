@@ -222,6 +222,8 @@ def verify(devices: list[dict[str,str]], commands: list[str], verbose: bool = Fa
 
 
 def get_args():
+    """Creates arguments for the headless CLI tool"""
+
     parser = argparse.ArgumentParser(description="A Network Automation tool to roll out configuration snippets on a"
                                                  "set of devices.")
     parser.add_argument("-d", "--devices", help="Path to a csv file. Required fields are ip, platform,"
