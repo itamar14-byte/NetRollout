@@ -2,21 +2,23 @@ import os
 import datetime
 import socket
 
-def log(string):
-    now = datetime.datetime.now()
-    logfile = now.strftime("rollout_%Y%m%d_%H%M%S.log")
-    with open(logfile, "a") as log:
-        log.write(string)
+NOW = datetime.datetime.now()
+LOGFILE = NOW.strftime("rollout_%Y%m%d_%H%M%S.log")
+
+def log(name,string):
+    with open(name, "a") as file:
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        file.write(f"{timestamp}   {string}\n")
 
 
 def validate_file_extension(path, extension):
     if not os.path.isfile(path):
         print(f"\033[91m{path}\033[0m is not a file\033[0m")
-        log(path + " is not a file")
+        log(LOGFILE,path + " is not a file")
         return False
     if not path.lower().endswith(extension):
         print(f"\033[91mfile must be {extension}\033[0m")
-        log(path + "must be " + extension)
+        log(LOGFILE,path + "must be " + extension)
         return False
     return True
 
