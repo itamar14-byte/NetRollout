@@ -1,6 +1,7 @@
 import os
 import datetime
 import socket
+import ipaddress
 
 NOW = datetime.datetime.now()
 LOGFILE = NOW.strftime("rollout_%Y%m%d_%H%M%S.log")
@@ -21,6 +22,26 @@ def validate_file_extension(path, extension):
         log(LOGFILE,path + "must be " + extension)
         return False
     return True
+
+
+def validate_device_data(device):
+    try :
+        ipaddress.ip_address(device['ip'])
+    except ValueError:
+        print(f"\033[91m{device['ip']}\033[0m is not a valid IPv4 address")
+        return False
+
+    if not (device['port'].isnumeric() and 0 < int(device['port'])<= 65535) :
+        print(f"\033[91m{device['port']}\033[0m is not a valid port number")
+        return False
+
+    if device['device_type'] not in {"fortinet", "paloalto_panos", "cisco_ios", "cisco_nxos", "cisco_xe", "cisco_xr",
+                                     "juniper_junos", "arista_eos", "aruba_aoscx", "checkpoint_gaia", "hp_procurve",
+                                     "hp_comware"}:
+        print(f"\033[91m{device['device_type']}\033[0m is not supported")
+        return False
+    return True
+
 
 
 def test_tcp_port(ip, port=22):
