@@ -1,68 +1,101 @@
 import csv
+import sys
 import netmiko
 from napalm import get_network_driver
 import argparse
-from Helper import log, test_tcp_port, validate_file_extension, validate_device_data, LOGFILE
+from Helper import log, test_tcp_port, validate_file_extension, validate_device_data
 
 
-def parse_files(device_path: str, commands_path: str, verbose: bool = False) -> tuple[list[dict[str, str]], list[str]]:
+def parse_files(
+    device_path: str, commands_path: str, verbose: bool = False
+) -> tuple[list[dict[str, str]], list[str]]:
     """This function accepts paths to a csv file detailing devices (using the fields ip,user,password,platform,secret,port)
-     as well as a txt file with a configuration file needed to push. The function then parses the files
-      into objects that can be further processed.
-      :param device_path: file path to a csv of network devices
-      :param commands_path: file path to a txt file with commands
-      :param verbose: boolean flags stating whether the user wishes to see progress messages on the console
-      :return: a list of dictionaries with fields and values for the devices and a list of commands. In case of failure
-      a tuple of empty lists
-      """
+    as well as a txt file with a configuration file needed to push. The function then parses the files
+     into objects that can be further processed.
+     :param device_path: file path to a csv of network devices
+     :param commands_path: file path to a txt file with commands
+     :param verbose: boolean flags stating whether the user wishes to see progress messages on the console
+     :return: a list of dictionaries with fields and values for the devices and a list of commands. In case of failure
+     a tuple of empty lists
+    """
 
-    #normalise Windows file paths
+    # normalise Windows file paths
     device_path = device_path.strip('"')
     commands_path = commands_path.strip('"')
 
-    #Checks file names are valid and exist
-    if validate_file_extension(commands_path, "txt") and validate_file_extension(device_path, "csv"):
+    # Checks file names are valid and exist
+    if validate_file_extension(commands_path, "txt") and validate_file_extension(
+        device_path, "csv"
+    ):
 
         try:
-            #Reads devices CSV
+            # Reads devices CSV
             with open(device_path, "r", encoding="utf-8-sig") as file:
 
-                required_keys = {"ip", "username", "password", "device_type", "secret", "port"}
-                #Parses csv file into an iterable of dictionaries with the headers as keys
+                required_keys = {
+                    "ip",
+                    "username",
+                    "password",
+                    "device_type",
+                    "secret",
+                    "port",
+                }
+                # Parses csv file into an iterable of dictionaries with the headers as keys
                 reader = csv.DictReader(file)
 
-                #Check if all required fields are there
+                # Check if all required fields are there
                 missing_keys = required_keys - set(reader.fieldnames)
                 if missing_keys:
                     raise ValueError("Missing keys: {}".format(missing_keys))
 
-                #process all validated devices into a list of dictionaries
+                # process all validated devices into a list of dictionaries
                 devices = []
                 for item in reader:
-                    if item['ip'] and validate_device_data(item):
+                    if item["ip"] and validate_device_data(item):
+                        item["platform"] = item["platform"].lower()
                         devices.append(item)
                         if verbose:
-                            print(f"\033[92mDevice {item['device_type']}: {item['ip']} successfully added\033[0m")
-                        log(LOGFILE, "Device" + item['device_type'] + ":" + item['ip'] + " successfully added")
+                            print(
+                                f"\033[92mDevice {item['device_type']}: {item['ip']} successfully added\033[0m"
+                            )
+                        log(
+                            "Device"
+                            + item["device_type"]
+                            + ":"
+                            + item["ip"]
+                            + " successfully added"
+                        )
                     else:
                         continue
 
-            #Parses command file directly into a list where each element is a command
+            # Parses command file directly into a list where each element is a command
             with open(commands_path, "r") as file:
                 commands = file.readlines()
 
-            #logs summary of file processing workflow
+            # logs summary of file processing workflow
             if verbose:
-                print(f"\033[92mDevices file successfully processed. {len(devices)} devices found\033[0m")
-                print(f"\033[92mDevices file successfully processed. {len(commands)} commands will be executed\033[0m")
-            log(LOGFILE, "Devices file successfully processed." + str(len(devices)) + "devices found")
-            log(LOGFILE, "Devices file successfully processed." + str(len(commands)) + "commands will be executed")
+                print(
+                    f"\033[92mDevices file successfully processed. {len(devices)} devices found\033[0m"
+                )
+                print(
+                    f"\033[92mDevices file successfully processed. {len(commands)} commands will be executed\033[0m"
+                )
+            log(
+                "Devices file successfully processed."
+                + str(len(devices))
+                + "devices found"
+            )
+            log(
+                "Devices file successfully processed."
+                + str(len(commands))
+                + "commands will be executed"
+            )
 
-            #return the processed data
+            # return the processed data
             return devices, commands
 
-        #if an exception is thrown in parsing or validation fails, an error message is printed,
-        #and the function returns a tuple of empty lists
+        # if an exception is thrown in parsing or validation fails, an error message is printed,
+        # and the function returns a tuple of empty lists
 
         except FileNotFoundError:
             print(f"\033[91mfile not found\033[0m")
@@ -79,7 +112,9 @@ def parse_files(device_path: str, commands_path: str, verbose: bool = False) -> 
         return [], []
 
 
-def push_config(devices: list[dict[str, str]], commands: list[str], verbose: bool = False) -> None:
+def push_config(
+    devices: list[dict[str, str]], commands: list[str], verbose: bool = False
+) -> None:
     """
     The function will accept device and command data, as processed by parse_files and push the configuration,
     utilizing netmiko for SSH connections over the provided ip and port
@@ -89,100 +124,123 @@ def push_config(devices: list[dict[str, str]], commands: list[str], verbose: boo
     :param verbose: boolean flag determining weather logs would be displayed in console
     :return: the function does not return anything, but executes the commands
     """
-    #Goes over the dictionaries list, each time focusing on a single device
+    # Goes over the dictionaries list, each time focusing on a single device
     for device in devices:
         if verbose:
             print(f"connecting to {device['ip']}:{device['port']}")
-        log(LOGFILE, "connecting to" + device['ip'] + ":" + device['port'])
+        log("connecting to" + device["ip"] + ":" + device["port"])
 
-        #Tests tcp connectivity to the device on the requested port
-        if test_tcp_port(device['ip'], int(device['port'])):
+        # Tests tcp connectivity to the device on the requested port
+        if test_tcp_port(device["ip"], int(device["port"])):
             try:
-                #Initialise a netmiko connection object
+                # Initialise a netmiko connection object
                 net_connect = netmiko.ConnectHandler(**device)
                 if verbose:
                     print(f"\033[92m{device['ip']} connected successfully\033[0m")
-                log(LOGFILE, device['ip'] + " connected successfully")
+                log(device["ip"] + " connected successfully")
 
-                #Goes into privileged config mode, depending on platform
+                # Goes into privileged config mode, depending on platform
                 net_connect.enable()
                 net_connect.config_mode()
 
-                #Runs all commands in order, and checks that the command was accepted in the device
-                #In case of syntax error or rejection, an error message is printed, and we move to the next command
+                # Runs all commands in order, and checks that the command was accepted in the device
+                # In case of syntax error or rejection, an error message is printed, and we move to the next command
                 for command in commands:
-                    output = net_connect.send_config_set([command.strip()], exit_config_mode=False)
+                    output = net_connect.send_config_set(
+                        [command.strip()], exit_config_mode=False
+                    )
                     errors = ["Invalid", "unrecognized", "unknown"]
-                    if any(err.lower() in output or err.capitalize() in output for err in errors):
-                        print(f"\033[91m{command} failed on {device['ip']}: {output}\033[0m")
-                        log(LOGFILE, command + " failed on " + device['ip'])
+                    if any(
+                        err.lower() in output or err.capitalize() in output
+                        for err in errors
+                    ):
+                        print(
+                            f"\033[91m{command} failed on {device['ip']}: {output}\033[0m"
+                        )
+                        log(command + " failed on " + device["ip"])
                         continue
 
-                #After commands finish running, the configuration is saved and we gracefully close the SSH session
+                # After commands finish running, the configuration is saved and we gracefully close the SSH session
                 net_connect.exit_config_mode()
                 net_connect.save_config()
                 net_connect.disconnect()
 
-
-            #In case of exception or issue in connecting and executing the commands,
+            # In case of exception or issue in connecting and executing the commands,
             # an error message will be printed, and we move to the next device
             except netmiko.NetMikoAuthenticationException:
                 print(f"\033[91m{device['ip']} authentication failed\033[0m")
-                log(LOGFILE, device['ip'] + " authentication failed")
+                log(device["ip"] + " authentication failed")
                 continue
             except netmiko.NetmikoTimeoutException:
                 print(f"\033[91m{device['ip']} timed out\033[0m")
-                log(LOGFILE, device['ip'] + " timed out")
+                log(device["ip"] + " timed out")
                 continue
             except Exception as e:
                 print(f"\033[91m{device['ip']} failed: {e}\033[0m")
-                log(LOGFILE, device['ip'] + " failed")
+                log(device["ip"] + " failed")
                 continue
 
         else:
             print(f"\033[91m{device['ip']} is not reachable\033[0m")
-            print(test_tcp_port(device["ip"], device["port"]))
-            log(LOGFILE, device['ip'] + " is not reachable")
+            log(device["ip"] + " is not reachable")
 
 
-def fetch_config(device: dict[str,str]) -> str | bool:
+def fetch_config(device: dict[str, str]) -> str | bool:
     """
     The function is tasked with connecting to a device and getting the running configuration, saved into a string,
     which will be searched downstream
     :param device: a dictionary with device dataset
     :return: if connection is successful, the function returns the running config as a string and returns false otherwise
     """
-    #Translation dictionary mapping Netmiko device type values to corresponding NAPALM values
-    netmiko_to_napalm = {"fortinet": "fortios", "paloalto_panos": "panos", "cisco_ios": "ios", "cisco_nxos": "nxos",
-                         "cisco_xe": "iosxe", "cisco_xr": "iosxr", "juniper_junos": "junos", "arista_eos": "eos",
-                         "aruba_aoscx": "aoscx", "checkpoint_gaia": False, "hp_procurve": "procurve",
-                         "hp_comware": False}
+    # Translation dictionary mapping Netmiko device type values to corresponding NAPALM values
+    netmiko_to_napalm = {
+        "fortinet": "fortios",
+        "paloalto_panos": "panos",
+        "cisco_ios": "ios",
+        "cisco_nxos": "nxos",
+        "cisco_xe": "iosxe",
+        "cisco_xr": "iosxr",
+        "juniper_junos": "junos",
+        "arista_eos": "eos",
+        "aruba_aoscx": "aoscx",
+        "checkpoint_gaia": False,
+        "hp_procurve": "procurve",
+        "hp_comware": False,
+    }
 
     try:
-        #Attempts to establish a NAPALM connection to the device, using the translated platform value
+        # Attempts to establish a NAPALM connection to the device, using the translated platform value
         # and other device fields, contingent on if the platform has a supported NAPALM driver
-        if netmiko_to_napalm.get(device['device_type']):
+        if netmiko_to_napalm.get(device["device_type"]):
             driver = get_network_driver(netmiko_to_napalm.get(device["device_type"]))
-            node = driver(hostname=device["ip"], username=device["username"], password=device["password"],
-                          optional_args={"secret": device["secret"]})
-            #Opens a connection to the device and saves the running config
+            node = driver(
+                hostname=device["ip"],
+                username=device["username"],
+                password=device["password"],
+                optional_args={"secret": device["secret"]},
+            )
+            # Opens a connection to the device and saves the running config
             node.open()
             config = node.get_config()["running"]
             node.close()
             return config
-        #If we encounter an issue in connection, an error message is printed and logged and we return false
+        # If we encounter an issue in connection, an error message is printed and logged and we return false
         else:
-            print(f"\033[91m{device['device_type']} is not supported for verification\033[0m")
-            log(LOGFILE, device['device_type'] + " is not supported for verification")
+            print(
+                f"\033[91m{device['device_type']} is not supported for verification\033[0m"
+            )
+            log(device["device_type"] + " is not supported for verification")
             return False
 
     except Exception as e:
         print(f"\033[91mcould not connect to {device['ip']}: {e}\033[0m")
-        log(LOGFILE, "could not connect to " + device['ip'] + ": " + str(e))
+        log("could not connect to " + device["ip"] + ": " + str(e))
         return False
 
 
-def verify(devices: list[dict[str,str]], commands: list[str], verbose: bool = False) -> dict[str,int]:
+def verify(
+    devices: list[dict[str, str]], commands: list[str], verbose: bool = False
+) -> dict[str, int]:
     """
     The function gets the list of devices and verifies which devices have been successfully configured
     by comparing the commands to the config file from fetch_config()
@@ -193,70 +251,110 @@ def verify(devices: list[dict[str,str]], commands: list[str], verbose: bool = Fa
     :return: returns a counter of successful matches
     """
     result = {}
-    #Loops through the devices and gets the running config, using fetch config function
+    # Loops through the devices and gets the running config, using fetch config function
     for device in devices:
         successful_commands = 0
         config = fetch_config(device)
-        #If there is a config file, we go through the commands list and check it against the running config string
+        # If there is a config file, we go through the commands list and check it against the running config string
         if config:
             rejects = []
             for command in commands:
                 command = command.strip()
-                #If a command has no match in the config, we print a notification. On a successful match,
+                # If a command has no match in the config, we print a notification. On a successful match,
                 # we increment the counter
                 if command not in config:
                     rejects.append(command)
                     print(f"\033[91m{command} not configured on {device['ip']}\033[0m")
-                    log(LOGFILE, command + " not configured on " + device['ip'])
+                    log(command + " not configured on " + device["ip"])
                 else:
                     successful_commands += 1
             # when a device has no rejects, such that all commands match, we increment the counter, notify the user and
-            #move to the next device
+            # move to the next device
             if not rejects:
                 if verbose:
                     print(f"\033[92m{device['ip']} successfully configured\033[0m")
-                log(LOGFILE, device['ip'] + "successfully configured")
-            #Updates the result dictionary with the device ip and the number of successful commands
-            result.update({device['ip']: successful_commands})
+                log(device["ip"] + "successfully configured")
+            # Updates the result dictionary with the device ip and the number of successful commands
+            result.update({device["ip"]: successful_commands})
     return result
 
 
 def get_args():
     """Creates arguments for the headless CLI tool"""
 
-    parser = argparse.ArgumentParser(description="A Network Automation tool to roll out configuration snippets on a"
-                                                 "set of devices.")
-    parser.add_argument("-d", "--devices", help="Path to a csv file. Required fields are ip, platform,"
-                                                " username, password, secret and SSH port")
-    parser.add_argument("-c", "--commands", help="Path to a txt file. Must contain the requested commands,"
-                                                 " in order")
-    parser.add_argument("-vy", "--verify", help="Test configuration file to verify successful running",
-                        action="store_const", const=True,
-                        default=None)
-    parser.add_argument("-vb", "--verbose", help="Prints logs to console", action="store_true")
+    parser = argparse.ArgumentParser(
+        description="A Network Automation tool to roll out configuration snippets on a"
+        "set of devices."
+    )
+    parser.add_argument(
+        "-d",
+        "--devices",
+        help="Path to a csv file. Required fields are ip, platform,"
+        " username, password, secret and SSH port",
+    )
+    parser.add_argument(
+        "-c",
+        "--commands",
+        help="Path to a txt file. Must contain the requested commands," " in order",
+    )
+    parser.add_argument(
+        "-vy",
+        "--verify",
+        help="Test configuration file to verify successful running",
+        action="store_const",
+        const=True,
+        default=None,
+    )
+    parser.add_argument(
+        "-vb", "--verbose", help="Prints logs to console", action="store_true"
+    )
 
     return parser.parse_args()
 
 
 def main():
+    """
+    The main function, running and orchestrating the automation workflow. The function takes the user-facing parameters
+    and runs the process until completion of the configuration push
+    """
+    # Gets the parameters from file paths and boolean flag status. If no input was entered through cli,
+    # user will be prompted to enter the data
     args = get_args()
     devices_path = args.devices or input("Enter the device file path: ")
     commands_path = args.commands or input("Enter the commands file path: ")
+
+    # If the verify flag was supplied, we activate verification, if other flags were supplied we disable it
+    # and if no flags were supplied we prompt for verification alongside the other flag prompts
     if args.verify is True:
-        verify_rollout = args.verify
+        verify_rollout = True
+    elif args.devices and args.commands:
+        verify_rollout = False
     else:
-        verify_rollout = True if input("Do you want to verify roll out? (y/n): ").lower() == "y" else False
+        verify_rollout = (
+            True
+            if input("Do you want to verify roll out? (y/n): ").lower() == "y"
+            else False
+        )
     verbose = args.verbose
 
+    # Runs parse_files to get data from the provided file paths
     try:
         devices, commands = parse_files(devices_path, commands_path, verbose)
+
+        # If parsing was successful and the output of the function was not empty lists, we continue the process
         if devices and commands:
+
+            # Runs the config push procedure
             push_config(devices, commands, verbose)
+
+            # If the verify flag is activated, runs the verify, getting a dictionary
+            # of the devices and the successful commands count
             if verify_rollout:
                 device_count = verify(devices, commands, verbose)
                 failed, partial, successful = 0, 0, 0
 
-                #Number of successful commands in each device and status of device
+                # Number of successful commands in each device and status of device,
+                # based on comparing the value to the list of commands
                 for node in device_count.items():
                     if node[1] == 0:
                         failed += 1
@@ -265,25 +363,47 @@ def main():
                     else:
                         successful += 1
 
-                    log(LOGFILE, node[0] + "successfully configured with" + str(node[1]) + "/" + str(len(commands)) + "commands")
+                    log(
+                        node[0]
+                        + "successfully configured with"
+                        + str(node[1])
+                        + "/"
+                        + str(len(commands))
+                        + "commands"
+                    )
                     if verbose:
-                        print(f"\033[92m{node[0]} successfully configured with{node[1]}/{len(commands)} commands\033[0m")
+                        print(
+                            f"\033[92m{node[0]} successfully configured with{node[1]}/{len(commands)} commands\033[0m"
+                        )
 
+                # Logs and prints (if verbose), the rollout status per device and the summary
                 if verbose:
                     print(f"\033[91m{failed} devices failed rollout\033[0m")
-                    print(f"\033[91m{partial} devices with problems in configuration\033[0m")
-                    print(f"\033[92m{successful} devices successfully configured\033[0m")
+                    print(
+                        f"\033[91m{partial} devices with problems in configuration\033[0m"
+                    )
+                    print(
+                        f"\033[92m{successful} devices successfully configured\033[0m"
+                    )
 
-                log(LOGFILE,str(failed) + "devices failed rollout")
-                log(LOGFILE,str(partial) + "devices with problems in configuration")
-                log(LOGFILE,str(successful) + "devices with problems in configuration")
+                log(str(failed) + "devices failed rollout")
+                log(str(partial) + "devices with problems in configuration")
+                log(str(successful) + "devices with problems in configuration")
 
         else:
             print(f"\033[91mDevice file invalid\033[0m")
-            log(LOGFILE, "Device file invalid")
+            log("Device file invalid")
 
     except ValueError as e:
         print(f"\033[91mDevice file invalid: {e}\033[0m")
-        log(LOGFILE, "Device file invalid" + ":" + str(e))
+        log("Device file invalid" + ":" + str(e))
 
-main()
+
+if __name__ == "__main__":
+
+    # Runs the main function that executes the tool. In Ctrl+C from the suer, the system exits
+    try:
+        main()
+    except KeyboardInterrupt:
+        print(f"\033[91mInterrupted by User. Exiting Program\033[0m")
+        sys.exit(0)
