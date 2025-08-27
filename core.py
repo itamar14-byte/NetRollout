@@ -3,7 +3,13 @@ import sys
 import netmiko
 from napalm import get_network_driver
 import argparse
-from Helper import log, test_tcp_port, validate_file_extension, validate_device_data
+from Helper import (
+    log,
+    test_tcp_port,
+    validate_file_extension,
+    validate_device_data,
+    msg,
+)
 
 
 def parse_files(
@@ -52,11 +58,14 @@ def parse_files(
                 devices = []
                 for item in reader:
                     if item["ip"] and validate_device_data(item):
-                        item["platform"] = item["platform"].lower()
+                        item["device_type"] = item["device_type"].lower()
                         devices.append(item)
                         if verbose:
                             print(
-                                f"\033[92mDevice {item['device_type']}: {item['ip']} successfully added\033[0m"
+                                msg(
+                                    f"Device {item['device_type']}: {item['ip']} successfully added",
+                                    "green",
+                                )
                             )
                         log(
                             "Device"
@@ -75,18 +84,17 @@ def parse_files(
             # logs summary of file processing workflow
             if verbose:
                 print(
-                    f"\033[92mDevices file successfully processed. {len(devices)} devices found\033[0m"
-                )
-                print(
-                    f"\033[92mDevices file successfully processed. {len(commands)} commands will be executed\033[0m"
+                    msg(
+                        f"Devices file successfully processed\n."
+                        f" {len(devices)} devices found\n"
+                        f"{len(commands)} commands will be executed",
+                        "green",
+                    )
                 )
             log(
                 "Devices file successfully processed."
                 + str(len(devices))
                 + "devices found"
-            )
-            log(
-                "Devices file successfully processed."
                 + str(len(commands))
                 + "commands will be executed"
             )
@@ -98,15 +106,15 @@ def parse_files(
         # and the function returns a tuple of empty lists
 
         except FileNotFoundError:
-            print(f"\033[91mfile not found\033[0m")
+            print(msg(f"file not found", "red"))
             return [], []
 
         except PermissionError:
-            print(f"\033[91mcan't access file\033[0m")
+            print(msg(f"can't access file", "red"))
             return [], []
 
         except Exception as e:
-            print(f"\033[91mParsing failed: {e}\033[0m")
+            print(msg(f"Parsing failed: {e}", "red"))
             return [], []
     else:
         return [], []
@@ -136,7 +144,12 @@ def push_config(
                 # Initialise a netmiko connection object
                 net_connect = netmiko.ConnectHandler(**device)
                 if verbose:
-                    print(f"\033[92m{device['ip']} connected successfully\033[0m")
+                    print(
+                        msg(
+                            f"{device['ip']} connected successfully",
+                            "green",
+                        )
+                    )
                 log(device["ip"] + " connected successfully")
 
                 # Goes into privileged config mode, depending on platform
@@ -150,13 +163,8 @@ def push_config(
                         [command.strip()], exit_config_mode=False
                     )
                     errors = ["Invalid", "unrecognized", "unknown"]
-                    if any(
-                        err.lower() in output or err.capitalize() in output
-                        for err in errors
-                    ):
-                        print(
-                            f"\033[91m{command} failed on {device['ip']}: {output}\033[0m"
-                        )
+                    if any(err.lower() in output.lower() for err in errors):
+                        print(f"{command} failed on {device['ip']}: {output}")
                         log(command + " failed on " + device["ip"])
                         continue
 
@@ -168,20 +176,20 @@ def push_config(
             # In case of exception or issue in connecting and executing the commands,
             # an error message will be printed, and we move to the next device
             except netmiko.NetMikoAuthenticationException:
-                print(f"\033[91m{device['ip']} authentication failed\033[0m")
+                print(msg(f"{device['ip']} authentication failed", "red"))
                 log(device["ip"] + " authentication failed")
                 continue
             except netmiko.NetmikoTimeoutException:
-                print(f"\033[91m{device['ip']} timed out\033[0m")
+                print(msg(f"{device['ip']} timed out", "red"))
                 log(device["ip"] + " timed out")
                 continue
             except Exception as e:
-                print(f"\033[91m{device['ip']} failed: {e}\033[0m")
+                print(msg(f"{device['ip']} failed: {e}", "red"))
                 log(device["ip"] + " failed")
                 continue
 
         else:
-            print(f"\033[91m{device['ip']} is not reachable\033[0m")
+            print(msg(f"{device['ip']} is not reachable", "red"))
             log(device["ip"] + " is not reachable")
 
 
@@ -226,14 +234,12 @@ def fetch_config(device: dict[str, str]) -> str | bool:
             return config
         # If we encounter an issue in connection, an error message is printed and logged and we return false
         else:
-            print(
-                f"\033[91m{device['device_type']} is not supported for verification\033[0m"
-            )
+            print(f"{device['device_type']} is not supported for verification")
             log(device["device_type"] + " is not supported for verification")
             return False
 
     except Exception as e:
-        print(f"\033[91mcould not connect to {device['ip']}: {e}\033[0m")
+        print(msg(f"could not connect to {device['ip']}: {e}", "red"))
         log("could not connect to " + device["ip"] + ": " + str(e))
         return False
 
@@ -264,7 +270,12 @@ def verify(
                 # we increment the counter
                 if command not in config:
                     rejects.append(command)
-                    print(f"\033[91m{command} not configured on {device['ip']}\033[0m")
+                    print(
+                        msg(
+                            f"{command} not configured on {device['ip']}",
+                            "red",
+                        )
+                    )
                     log(command + " not configured on " + device["ip"])
                 else:
                     successful_commands += 1
@@ -272,7 +283,12 @@ def verify(
             # move to the next device
             if not rejects:
                 if verbose:
-                    print(f"\033[92m{device['ip']} successfully configured\033[0m")
+                    print(
+                        msg(
+                            f"{device['ip']} successfully configured",
+                            "green",
+                        )
+                    )
                 log(device["ip"] + "successfully configured")
             # Updates the result dictionary with the device ip and the number of successful commands
             result.update({device["ip"]: successful_commands})
@@ -373,29 +389,33 @@ def main():
                     )
                     if verbose:
                         print(
-                            f"\033[92m{node[0]} successfully configured with{node[1]}/{len(commands)} commands\033[0m"
+                            msg(
+                                f"{node[0]} successfully configured with{node[1]}/{len(commands)} commands",
+                                "green",
+                            )
                         )
 
                 # Logs and prints (if verbose), the rollout status per device and the summary
                 if verbose:
-                    print(f"\033[91m{failed} devices failed rollout\033[0m")
+                    print(msg(f"{failed} devices failed rollout", "red"))
                     print(
-                        f"\033[91m{partial} devices with problems in configuration\033[0m"
+                        msg(
+                            f"{partial} devices with problems in configuration",
+                            "yellow",
+                        )
                     )
-                    print(
-                        f"\033[92m{successful} devices successfully configured\033[0m"
-                    )
+                    print(msg(f"{successful} devices successfully configured", "green"))
 
                 log(str(failed) + "devices failed rollout")
                 log(str(partial) + "devices with problems in configuration")
-                log(str(successful) + "devices with problems in configuration")
+                log(str(successful) + "successfully configured devices")
 
         else:
-            print(f"\033[91mDevice file invalid\033[0m")
+            print(msg(f"Device file invalid", "red"))
             log("Device file invalid")
 
     except ValueError as e:
-        print(f"\033[91mDevice file invalid: {e}\033[0m")
+        print(msg(f"Device file invalid: {e}", "red"))
         log("Device file invalid" + ":" + str(e))
 
 
@@ -405,5 +425,5 @@ if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        print(f"\033[91mInterrupted by User. Exiting Program\033[0m")
+        print(msg("Interrupted by User. Exiting Program", "red"))
         sys.exit(0)
