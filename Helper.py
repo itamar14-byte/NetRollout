@@ -32,6 +32,7 @@ TCP_RETRY_DELAY = 1
 RED = "\033[91m"
 GREEN = "\033[92m"
 YELLOW = "\033[93m"
+REGULAR = "\033[1m"
 END = "\033[0m"
 colors = {
     "RED": RED,
@@ -40,12 +41,12 @@ colors = {
 }
 
 
-def msg(string: str, color: str) -> str:
+def msg(string: str, color: str = None) -> str:
     """Adds ANSI escape sequences to terminal color for progress and error messages"""
     color = colors.get(color.upper())
     if color:
         return color + string + END
-    return string
+    return REGULAR + string + END
 
 
 def log(string: str, file_name: str = LOGFILE) -> None:
@@ -61,6 +62,15 @@ def log(string: str, file_name: str = LOGFILE) -> None:
         file.write(f"{timestamp}\t{string}\n")
 
 
+def notify(string: str, color: str = None, verbose: bool = True) -> None:
+    """A wrapper logging function. All ,messages are logged to the file.
+    Additionally, error messages, or messages generated in verbose mode are printed to console
+    """
+    if verbose:
+        print(msg(string, color))
+    log(string)
+
+
 def validate_file_extension(path: str, extension: str) -> bool:
     """
     This function validates the file extensions part of file parsing,
@@ -72,13 +82,11 @@ def validate_file_extension(path: str, extension: str) -> bool:
     if not os.path.isfile(path):
         # Verifies file extension indeed exists in the system
         # and is a recognised file type (not directory or something else)
-        print(msg(f"{path} is not a file", "red"))
-        log(path + " is not a file")
+        notify(f"{path} is not a file", "red")
         return False
     if not path.lower().endswith(extension):
         # Verifies the type of the file indeed conforms to the extension we expect for the file
-        print(msg(f"file must be {extension}", "red"))
-        log(path + "must be " + extension)
+        notify(f"file must be {extension}", "red")
         return False
     return True
 
@@ -103,7 +111,7 @@ def validate_port(port: str) -> bool:
 
 def validate_platform(platform: str) -> bool:
     """checks that platform is supported by the app"""
-    if platform.lower() not in SUPPORTED_PLATFORMS:
+    if platform not in SUPPORTED_PLATFORMS:
         return False
     return True
 
@@ -129,16 +137,13 @@ def validate_device_data(device: dict[str, str]) -> bool:
                 return True
 
             else:
-                print(msg(f"{device['device_type']} is not supported", "red"))
-                log(device["device_type"] + " is not supported")
+                notify(f"{device['device_type']} is not supported", "red")
 
         else:
-            print(msg(f"{device['port']} is not a valid port number", "red"))
-            log(device["device_type"] + " is not a valid port number")
+            notify(f"{device['port']} is not a valid port number", "red")
 
     else:
-        print(msg(f"{device['ip']} is not a valid IPv4 address", "red"))
-        log(device["ip"] + " is not a valid IPv4 address")
+        notify(f"{device['ip']} is not a valid IPv4 address", "red")
 
     return False
 
