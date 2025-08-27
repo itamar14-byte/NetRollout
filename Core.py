@@ -1,30 +1,33 @@
+import argparse
 import csv
 import sys
+from typing import Optional
+
 import netmiko
 from napalm import get_network_driver
-import argparse
-from typing import Optional
+
 from Helper import test_tcp_port, validate_file_extension, validate_device_data, notify
 
 
 def parse_files(
     device_path: str, commands_path: str, verbose: bool = False
 ) -> tuple[list[dict[str, str]], list[str]]:
-    """This function accepts paths to a csv file detailing devices (using the fields ip,user,password,platform,secret,port)
+    """This function accepts paths to a csv file detailing devices
+     (using the fields ip,user,password, platform, secret, port)
     as well as a txt file with a configuration file needed to push. The function then parses the files
      into objects that can be further processed.
-     :param device_path: file path to a csv of network devices
-     :param commands_path: file path to a txt file with commands
+     :param device_path: A file path to a csv of network devices
+     :param commands_path: A file path to a txt file with commands
      :param verbose: boolean flags stating whether the user wishes to see progress messages on the console
-     :return: a list of dictionaries with fields and values for the devices and a list of commands. In case of failure
+     :return: a list of dictionaries with fields and values for the devices and a list of commands. In case of failure,
      a tuple of empty lists
     """
 
-    # normalise Windows file paths
+    # normalize Windows file paths
     device_path = device_path.strip('"')
     commands_path = commands_path.strip('"')
 
-    # Checks file names are valid and exist
+    # Check file names are valid and exist
     if validate_file_extension(commands_path, "txt") and validate_file_extension(
         device_path, "csv"
     ):
@@ -99,14 +102,15 @@ def push_config(
 ) -> None:
     """
     The function will accept device and command data, as processed by parse_files and push the configuration,
-    utilizing netmiko for SSH connections over the provided ip and port
+    using netmiko for SSH connections over the provided ip and port
 
     :param devices: list of dictionaries with device data
-    :param commands: list of the commands to be executed, in order
-    :param verbose: boolean flag determining weather logs would be displayed in console
+    :param commands: lists of the commands to be executed, in order
+    :param verbose: a boolean flag determining weather logs would be
+    displayed in console
     :return: the function does not return anything, but executes the commands
     """
-    # Goes over the dictionaries list, each time focusing on a single device
+    # Goes over the dictionary list, each time focusing on a single device
     for device in devices:
         notify(f"connecting to {device['ip']}:{device['port']}", "yellow", verbose)
 
@@ -116,12 +120,14 @@ def push_config(
                 # Initialise a netmiko connection object
                 net_connect = netmiko.ConnectHandler(**device)
                 notify(f"{device['ip']} connected successfully", "green", verbose)
-                # Goes into privileged config mode, depending on platform
+                # Goes into privileged config mode, depending on the platform
                 net_connect.enable()
                 net_connect.config_mode()
 
-                # Runs all commands in order, and checks that the command was accepted in the device
-                # In case of syntax error or rejection, an error message is printed, and we move to the next command
+                # Runs all commands in order,
+                # and checks that the command was accepted in the device
+                # In case of syntax error or rejection, an error message is printed,
+                # and we move to the next command
                 for command in commands:
                     output = net_connect.send_config_set(
                         [command.strip()], exit_config_mode=False
@@ -135,7 +141,8 @@ def push_config(
                         )
                         continue
 
-                # After commands finish running, the configuration is saved and we gracefully close the SSH session
+                # After commands finish running,
+                # the configuration is saved and we gracefully close the SSH session
                 net_connect.exit_config_mode()
                 net_connect.save_config()
                 net_connect.disconnect()
@@ -195,7 +202,8 @@ def fetch_config(device: dict[str, str]) -> Optional[str]:
             config = node.get_config()["running"]
             node.close()
             return config
-        # If we encounter an issue in connection, an error message is printed and logged and we return false
+        # If we encounter an issue in connection,
+        # an error message is printed and logged, and we return false
         else:
             notify(
                 f"issue verifying {device['ip']}: {device['device_type']} is not supported for verification",
@@ -215,9 +223,9 @@ def verify(
     The function gets the list of devices and verifies which devices have been successfully configured
     by comparing the commands to the config file from fetch_config()
 
-    :param devices: a dictionary dataset with device information
+    :param devices: a dictionary dataset with a device information
     :param commands: list of expected commands
-    :param verbose: boolean flag determining weather logs would be displayed in console
+    :param verbose: a boolean flag determining weather logs would be displayed in console
     :return: returns a counter of successful matches
     """
     result = {}
@@ -225,7 +233,9 @@ def verify(
     for device in devices:
         successful_commands = 0
         config = fetch_config(device)
-        # If there is a config file, we go through the commands list and check it against the running config string
+        # If there is a config file,
+        # we go through the command list
+        # and check it against the running config string
         if config:
             rejects = []
             for command in commands:
@@ -292,7 +302,8 @@ def main():
     devices_path = args.devices or input("Enter the device file path: ")
     commands_path = args.commands or input("Enter the commands file path: ")
 
-    # If the verify flag was supplied, we activate verification, if other flags were supplied we disable it
+    # If the verify flag was supplied, we activate verification, and if other
+    # flags were supplied we disable it,
     # and if no flags were supplied we prompt for verification alongside the other flag prompts
     if args.verify is True:
         verify_rollout = True
@@ -317,7 +328,9 @@ def main():
             # Runs the config push procedure
             push_config(devices, commands, verbose)
 
-            # If the verify flag is activated, runs the verify, getting a dictionary
+            # If the verify flag is activated, runs the verify function,
+            # getting a
+            # dictionary
             # of the devices and the successful commands count
             if verify_rollout:
                 notify(
@@ -326,7 +339,8 @@ def main():
                 device_count = verify(devices, commands, verbose)
                 failed, partial, successful = 0, 0, 0
 
-                # Number of successful commands in each device and status of device,
+                # Number of successful commands in each device and status of
+                # devices,
                 # based on comparing the value to the list of commands
                 for node in device_count.items():
                     if node[1] == 0:

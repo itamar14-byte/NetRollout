@@ -1,14 +1,14 @@
-import os
 import datetime
-import socket
 import ipaddress
+import os
+import socket
 import time
 
 # Creates a timestamp for the defined globally at every running of Core.py.
-# variable will be calculated when importing helper
+# Variable will be calculated when importing helper
 LOGFILE = datetime.datetime.now().strftime("rollout_%Y%m%d_%H%M%S.log")
 
-# Defines supported platform for app
+# Defines supported platforms for app
 SUPPORTED_PLATFORMS = {
     "fortinet",
     "paloalto_panos",
@@ -41,10 +41,10 @@ colors = {
 }
 
 
-def msg(string: str, color: str = None) -> str:
+def msg(string: str, color: str = "") -> str:
     """Adds ANSI escape sequences to terminal color for progress and error messages"""
-    color = colors.get(color.upper())
     if color:
+        color = colors.get(color.upper())
         return color + string + END
     return REGULAR + string + END
 
@@ -63,7 +63,8 @@ def log(string: str, file_name: str = LOGFILE) -> None:
 
 
 def notify(string: str, color: str = None, verbose: bool = True) -> None:
-    """A wrapper logging function. All ,messages are logged to the file.
+    """A wrapper logging function.
+     All messages are logged to the file.
     Additionally, error messages, or messages generated in verbose mode are printed to console
     """
     if verbose:
@@ -81,7 +82,8 @@ def validate_file_extension(path: str, extension: str) -> bool:
     """
     if not os.path.isfile(path):
         # Verifies file extension indeed exists in the system
-        # and is a recognised file type (not directory or something else)
+        # and is a recognized file type
+        # (not directory or something else)
         notify(f"{path} is not a file", "red")
         return False
     if not path.lower().endswith(extension):
@@ -124,7 +126,8 @@ def validate_device_data(device: dict[str, str]) -> bool:
     :param device: device dictionary unpacked from csv file
     :return: True if device data is correct, False otherwise
     """
-    # Uses ipaddress library to verify the ip address is in the X.X.X.X ipv4 format,
+    # Uses the ipaddress library to verify the ip address is in the X.X.X.X ipv4
+    # format,
     # such that x is an int in the range 0-255
     if validate_ip(device["ip"]):
         # Verifies supplied port number matches expected TCP port values - a number in the 1-65535 range
@@ -153,7 +156,7 @@ def test_tcp_port(ip: str, port: int = 22) -> bool:
     A wrapper for the socket libray used to test connectivity to the device over the supplied SSH port
     :param ip: ip address of the device
     :param port: TCP port used for SSH connection
-    :return: True if device is reachable, False otherwise
+    :return: True if the device is reachable, and false otherwise
     """
     # Creates a Connection object which will be used to probe the device. Connection is gracefully closed by socket
     # Connection will run for 3 attempts, with a 1-second delay between tries
@@ -164,7 +167,8 @@ def test_tcp_port(ip: str, port: int = 22) -> bool:
             try:
                 conn.connect((ip, port))
                 # Returns True if the connection is successful.
-                # Otherwise, socket thrown an exception and device is deemed unreachable
+                # Otherwise, socket throws an exception and a device is deemed
+                # unreachable
                 return True
             except OSError:
                 if attempt < TCP_RETRIES - 1:
