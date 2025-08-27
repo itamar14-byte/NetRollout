@@ -56,7 +56,7 @@ def parse_files(
                     if item["ip"] and validate_device_data(item):
                         devices.append(item)
                         notify(
-                            "Device {item['device_type']}: {item['ip']} successfully added",
+                            f"Device {item['device_type']}: {item['ip']} successfully added",
                             "green",
                             verbose,
                         )
@@ -320,7 +320,9 @@ def main():
             # If the verify flag is activated, runs the verify, getting a dictionary
             # of the devices and the successful commands count
             if verify_rollout:
-                notify("Configuration rollout finished. Initating verification process")
+                notify(
+                    "Configuration rollout finished. Initiating verification process"
+                )
                 device_count = verify(devices, commands, verbose)
                 failed, partial, successful = 0, 0, 0
 
@@ -347,15 +349,21 @@ def main():
                     "yellow",
                 )
                 notify(f"{successful} devices successfully configured", "green")
-                return
+                sys.exit(0)
+
+            notify(
+                f"Configuration rollout complete. {len(devices)} devices configured",
+                "green",
+            )
+            sys.exit(0)
 
         else:
             notify(f"Device file invalid", "red")
-            return
+            sys.exit(1)
 
     except ValueError as e:
         notify(f"Device file invalid: {e}", "red")
-        return
+        sys.exit(1)
 
 
 if __name__ == "__main__":
