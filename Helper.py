@@ -4,7 +4,7 @@ import socket
 import ipaddress
 import time
 
-# Creates a timestamp for the defined globally at every running of core.py.
+# Creates a timestamp for the defined globally at every running of Core.py.
 # variable will be calculated when importing helper
 LOGFILE = datetime.datetime.now().strftime("rollout_%Y%m%d_%H%M%S.log")
 
@@ -77,7 +77,7 @@ def validate_file_extension(path: str, extension: str) -> bool:
         return False
     if not path.lower().endswith(extension):
         # Verifies the type of the file indeed conforms to the extension we expect for the file
-        print(f"file must be {extension}", "red")
+        print(msg(f"file must be {extension}", "red"))
         log(path + "must be " + extension)
         return False
     return True
@@ -130,7 +130,6 @@ def validate_device_data(device: dict[str, str]) -> bool:
 
             else:
                 print(msg(f"{device['device_type']} is not supported", "red"))
-                log(device["device_type"] + " is not supported")
                 log(device["device_type"] + " is not supported")
 
         else:

@@ -3,6 +3,7 @@ import sys
 import netmiko
 from napalm import get_network_driver
 import argparse
+from typing import Optional
 from Helper import (
     log,
     test_tcp_port,
@@ -57,8 +58,8 @@ def parse_files(
                 # process all validated devices into a list of dictionaries
                 devices = []
                 for item in reader:
+                    item["device_type"] = item["device_type"].lower()
                     if item["ip"] and validate_device_data(item):
-                        item["device_type"] = item["device_type"].lower()
                         devices.append(item)
                         if verbose:
                             print(
@@ -193,7 +194,7 @@ def push_config(
             log(device["ip"] + " is not reachable")
 
 
-def fetch_config(device: dict[str, str]) -> str | bool:
+def fetch_config(device: dict[str, str]) -> Optional[str]:
     """
     The function is tasked with connecting to a device and getting the running configuration, saved into a string,
     which will be searched downstream
@@ -236,12 +237,12 @@ def fetch_config(device: dict[str, str]) -> str | bool:
         else:
             print(f"{device['device_type']} is not supported for verification")
             log(device["device_type"] + " is not supported for verification")
-            return False
+            return None
 
     except Exception as e:
         print(msg(f"could not connect to {device['ip']}: {e}", "red"))
         log("could not connect to " + device["ip"] + ": " + str(e))
-        return False
+        return None
 
 
 def verify(
@@ -408,7 +409,7 @@ def main():
 
                 log(str(failed) + "devices failed rollout")
                 log(str(partial) + "devices with problems in configuration")
-                log(str(successful) + "successfully configured devices")
+                log(str(successful) + "devices successfully configured")
 
         else:
             print(msg(f"Device file invalid", "red"))
