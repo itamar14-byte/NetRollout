@@ -24,9 +24,28 @@ SUPPORTED_PLATFORMS = {
     "hp_comware",
 }
 
+
 TCP_TIMEOUT = 5
 TCP_RETRIES = 3
 TCP_RETRY_DELAY = 1
+
+RED = "\033[91m"
+GREEN = "\033[92m"
+YELLOW = "\033[93m"
+END = "\033[0m"
+colors = {
+    "RED": RED,
+    "GREEN": GREEN,
+    "YELLOW": YELLOW,
+}
+
+
+def msg(string: str, color: str) -> str:
+    """Adds ANSI escape sequences to terminal color for progress and error messages"""
+    color = colors.get(color.upper())
+    if color:
+        return color + string + END
+    return string
 
 
 def log(string: str, file_name: str = LOGFILE) -> None:
@@ -53,12 +72,12 @@ def validate_file_extension(path: str, extension: str) -> bool:
     if not os.path.isfile(path):
         # Verifies file extension indeed exists in the system
         # and is a recognised file type (not directory or something else)
-        print(f"\033[91m{path}\033[0m is not a file\033[0m")
+        print(msg(f"{path} is not a file", "red"))
         log(path + " is not a file")
         return False
     if not path.lower().endswith(extension):
         # Verifies the type of the file indeed conforms to the extension we expect for the file
-        print(f"\033[91mfile must be {extension}\033[0m")
+        print(f"file must be {extension}", "red")
         log(path + "must be " + extension)
         return False
     return True
@@ -108,15 +127,18 @@ def validate_device_data(device: dict[str, str]) -> bool:
             if validate_platform(device["device_type"]):
                 # If all required validations pass, the function returns true and the device may be parsed
                 return True
+
             else:
-                print(f"\033[91m{device['device_type']}\033[0m is not supported")
+                print(msg(f"{device['device_type']} is not supported", "red"))
+                log(device["device_type"] + " is not supported")
                 log(device["device_type"] + " is not supported")
 
         else:
-            print(f"\033[91m{device['port']}\033[0m is not a valid port number")
+            print(msg(f"{device['port']} is not a valid port number", "red"))
             log(device["device_type"] + " is not a valid port number")
+
     else:
-        print(f"\033[91m{device['ip']}\033[0m is not a valid IPv4 address")
+        print(msg(f"{device['ip']} is not a valid IPv4 address", "red"))
         log(device["ip"] + " is not a valid IPv4 address")
 
     return False
