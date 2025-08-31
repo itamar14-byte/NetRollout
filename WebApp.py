@@ -23,5 +23,10 @@ def upload():
     return render_template("upload.html")
 
 
+@app.route("/validate_device", methods=["POST"])
+def validate_device():
+    data = request.get_json()
+
+
 if __name__ == "__main__":
     app.run(debug=True)
