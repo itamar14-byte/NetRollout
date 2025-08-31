@@ -1,11 +1,10 @@
 import argparse
 import csv
 import sys
+import time
 from typing import Optional
-
 import netmiko
 from napalm import get_network_driver
-
 from Helper import test_tcp_port, validate_file_extension, validate_device_data, notify
 
 
@@ -57,12 +56,16 @@ def parse_files(
                 for item in reader:
                     item["device_type"] = item["device_type"].lower()
                     if item["ip"] and validate_device_data(item):
-                        devices.append(item)
-                        notify(
-                            f"Device {item['device_type']}: {item['ip']} successfully added",
-                            "green",
-                            verbose,
-                        )
+                        if test_tcp_port(item["ip"], int(item["port"])):
+                            devices.append(item)
+                            notify(
+                                f"Device {item['device_type']}: {item['ip']} successfully added",
+                                "green",
+                                verbose,
+                            )
+                        else:
+                            notify(f"{item['ip']} is not reachable", "red")
+                            continue
                     else:
                         continue
 
@@ -71,7 +74,7 @@ def parse_files(
                 commands = file.readlines()
                 # logs summary of file processing workflow
                 notify(
-                    f"Devices file successfully processed\n."
+                    f"Devices file successfully processed\n"
                     f" {len(devices)} devices found\n"
                     f"{len(commands)} commands will be executed",
                     "green",
@@ -115,52 +118,48 @@ def push_config(
         notify(f"connecting to {device['ip']}:{device['port']}", "yellow", verbose)
 
         # Tests tcp connectivity to the device on the requested port
-        if test_tcp_port(device["ip"], int(device["port"])):
-            try:
-                # Initialise a netmiko connection object
-                net_connect = netmiko.ConnectHandler(**device)
-                notify(f"{device['ip']} connected successfully", "green", verbose)
-                # Goes into privileged config mode, depending on the platform
-                net_connect.enable()
-                net_connect.config_mode()
+        try:
+            # Initialise a netmiko connection object
+            net_connect = netmiko.ConnectHandler(**device)
+            notify(f"{device['ip']} connected successfully", "green", verbose)
+            # Goes into privileged config mode, depending on the platform
+            net_connect.enable()
+            net_connect.config_mode()
 
-                # Runs all commands in order,
-                # and checks that the command was accepted in the device
-                # In case of syntax error or rejection, an error message is printed,
-                # and we move to the next command
-                for command in commands:
-                    output = net_connect.send_config_set(
-                        [command.strip()], exit_config_mode=False
+            # Runs all commands in order,
+            # and checks that the command was accepted in the device
+            # In case of syntax error or rejection, an error message is printed,
+            # and we move to the next command
+            for command in commands:
+                output = net_connect.send_config_set(
+                    [command.strip()], exit_config_mode=False
+                )
+                errors = ["Invalid", "unrecognized", "unknown"]
+                if any(err.lower() in output.lower() for err in errors):
+                    notify(
+                        f"{command} failed on {device['ip']}: {output}",
+                        "red",
+                        verbose,
                     )
-                    errors = ["Invalid", "unrecognized", "unknown"]
-                    if any(err.lower() in output.lower() for err in errors):
-                        notify(
-                            f"{command} failed on {device['ip']}: {output}",
-                            "red",
-                            verbose,
-                        )
-                        continue
+                    continue
 
-                # After commands finish running,
-                # the configuration is saved and we gracefully close the SSH session
-                net_connect.exit_config_mode()
-                net_connect.save_config()
-                net_connect.disconnect()
+            # After commands finish running,
+            # the configuration is saved and we gracefully close the SSH session
+            net_connect.exit_config_mode()
+            net_connect.save_config()
+            net_connect.disconnect()
 
-            # In case of exception or issue in connecting and executing the commands,
-            # an error message will be printed, and we move to the next device
-            except netmiko.NetMikoAuthenticationException:
-                notify(f"{device['ip']} authentication failed", "red")
-                continue
-            except netmiko.NetmikoTimeoutException:
-                notify(f"{device['ip']} timed out", "red")
-                continue
-            except Exception as e:
-                notify(f"{device['ip']} failed: {e}", "red")
-                continue
-
-        else:
-            notify(f"{device['ip']} is not reachable", "red")
+        # In case of exception or issue in connecting and executing the commands,
+        # an error message will be printed, and we move to the next device
+        except netmiko.NetMikoAuthenticationException:
+            notify(f"{device['ip']} authentication failed", "red")
+            continue
+        except netmiko.NetmikoTimeoutException:
+            notify(f"{device['ip']} timed out", "red")
+            continue
+        except Exception as e:
+            notify(f"{device['ip']} failed: {e}", "red")
+            continue
 
 
 def fetch_config(device: dict[str, str]) -> Optional[str]:
@@ -351,7 +350,7 @@ def main():
                         successful += 1
 
                     notify(
-                        f"{node[0]} successfully configured with{node[1]}/{len(commands)} commands",
+                        f"{node[0]} successfully configured with {node[1]}/{len(commands)} commands",
                         "green",
                         verbose,
                     )
@@ -369,6 +368,7 @@ def main():
                 f"Configuration rollout complete. {len(devices)} devices configured",
                 "green",
             )
+            time.sleep(10)
             sys.exit(0)
 
         else:
