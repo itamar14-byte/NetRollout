@@ -66,20 +66,22 @@
                     <input class="form-control mb-2" name="username" placeholder="Username" required>
                     <input class="form-control mb-2" name="password" placeholder="Password" type="password" required>
                               <!-- Platform dropdown -->
-                    <select class="form-control mb-2" name="platform" required>
-                        <option value="" disabled selected>Select Platform</option>
-                        <option value="cisco_ios">Cisco IOS</option>
-                        <option value="cisco_nxos">Cisco Nexus</option>
-                        <option value="cisco_xe">Cisco IOS-XE</option>
-                        <option value="cisco_xr">Cisco IOS-XR</option>
-                        <option value="arista_eos">Arista EOS</option>
-                        <option value="juniper_junos">Juniper Junos</option>
-                        <option value="fortinet">Fortinet FortiOS (Fortigate)</option>
-                        <option value="paloalto_panos">Palo Alto PAN-OS</option>
-                        <option value="aruba_aoscx">Aruba AOS-CX</option>
-                        <option value="hp_procurve">HP ProCurve</option>
-                        <option value="hp_comware">HP Comware</option>
+                    <select class="form-control mb-2 selectpicker" name="platform" data-live-search="true" required>
+                      <option value="" disabled selected>Select Platform</option>
+                      <option value="fortinet">Fortinet FortiOS</option>
+                      <option value="paloalto_panos">Palo Alto PAN-OS</option>
+                      <option value="cisco_ios">Cisco IOS</option>
+                      <option value="cisco_nxos">Cisco NX-OS</option>
+                      <option value="cisco_xe">Cisco IOS-XE</option>
+                      <option value="cisco_xr">Cisco IOS-XR</option>
+                      <option value="juniper_junos">Juniper JunOS</option>
+                      <option value="arista_eos">Arista EOS</option>
+                      <option value="aruba_aoscx">Aruba AOS-CX</option>
+                      <option value="checkpoint_gaia">Checkpoint GAiA</option>
+                      <option value="hp_procurve">HP ProCurve</option>
+                      <option value="hp_comware">HP Comware</option>
                     </select>
+
                     <input class="form-control mb-2" name="secret" placeholder="Secret">
                     <input class="form-control mb-2" name="port" placeholder="Port" type="number" value="22" required>
                   </form>
