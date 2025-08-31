@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Network Rollout Tool</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+      body {
+        transition: background-color 0.3s, color 0.3s;
+      }
+      .dark-mode {
+        background-color: #121212 !important;
+        color: #e0e0e0 !important;
+      }
+      .dark-mode .lead,
+      .dark-mode p,
+      .dark-mode h1 {
+        color: #e0e0e0 !important;
+      }
+
+      /* Default primary button (light mode uses Bootstrap default) */
+      .btn-primary {
+        transition: background-color 0.3s, box-shadow 0.3s;
+      }
+
+      /* Dark mode primary button */
+      .dark-mode .btn-primary {
+        background-color: #00bcd4 !important;  /* cyan */
+        border-color: #00bcd4 !important;
+        color: #121212 !important;             /* dark text for contrast */
+        box-shadow: 0 0 10px rgba(0, 188, 212, 0.7);
+      }
+      .dark-mode .btn-primary:hover {
+        background-color: #00e5ff !important;  /* brighter cyan on hover */
+        border-color: #00e5ff !important;
+        box-shadow: 0 0 15px rgba(0, 229, 255, 0.9);
+      }
+
+      .footer {
+        margin-top: 2rem;
+        font-size: 0.9rem;
+        color: #6c757d;
+      }
+      .dark-mode .footer {
+        color: #aaa;
+      }
+
+      /* Override alert in dark mode */
+      .dark-mode .alert-info {
+        background-color: #1e3a5f !important;  /* dark navy */
+        color: #cce4ff !important;            /* soft light blue text */
+        border-color: #335a8a !important;
+      }
+    </style>
+  </head>
+  <body class="bg-light text-center p-4">
+    <div class="container">
+      <h1 class="mb-3">🚀 Network Rollout Tool</h1>
+      <p class="lead mb-4">Upload your device list and command set to get started.</p>
+      <a class="btn btn-primary mb-3" href="/upload">Get Started</a>
+
+      <!-- short explanation -->
+      <div class="alert alert-info mx-auto w-75">
+        This tool helps you automate configuration rollout across multiple network devices,
+        verify the changes, and save time compared to manual CLI work.
+      </div>
+
+      <button id="darkModeToggle" class="btn btn-secondary mt-3">🌙 Toggle Dark Mode</button>
+
+      <!-- footer -->
+      <div class="footer mt-4">
+        Created by Itamar — © 2025
+      </div>
+    </div>
+
+    <script>
+      const toggle = document.getElementById("darkModeToggle");
+      const body = document.body;
+
+      // Load preference
+      if (localStorage.getItem("darkMode") === "enabled") {
+        body.classList.add("dark-mode");
+        toggle.textContent = "☀️ Toggle Light Mode";
+      }
+
+      toggle.addEventListener("click", () => {
+        body.classList.toggle("dark-mode");
+        if (body.classList.contains("dark-mode")) {
+          localStorage.setItem("darkMode", "enabled");
+          toggle.textContent = "☀️ Toggle Light Mode";
+        } else {
+          localStorage.setItem("darkMode", "disabled");
+          toggle.textContent = "🌙 Toggle Dark Mode";
+        }
+      });
+    </script>
+  </body>
+</html>
