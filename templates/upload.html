@@ -20,21 +20,38 @@
                  data-bs-parent="#setupAccordion">
                 <div class="accordion-body">
                     <label class="form-label">Upload Devices CSV</label>
-                    <input id="deviceFileInput" class="form-control mb-3"
-                           type="file" name="device_file" accept=".csv">
-                    <button class="btn btn-primary" type="button"
-                            onclick="document.getElementById('deviceFileInput').click()">
-                        Upload CSV
-                    </button>
-                    <small id="deviceFileName"
-                           class="text-muted d-block mt-2"></small>
+                    <div class="input-group mb-3">
+                        <input id="deviceFileInput" class="form-control"
+                               type="file" name="device_file" accept=".csv">
+                        <button id="deviceClearBtn"
+                                class="btn btn-outline-danger" type="button"
+                                style="display: none;">
+                            ❌
+                        </button>
+                    </div>
 
                     <script>
-                        const input = document.getElementById("deviceFileInput");
-                        const fileNameDisplay = document.getElementById("deviceFileName");
-                        input.addEventListener("change", (event) => {
+                        const deviceInput = document.getElementById("deviceFileInput");
+                        const deviceClearBtn = document.getElementById("deviceClearBtn");
+
+                        function resetDeviceState() {
+                            deviceInput.value = "";
+                            deviceClearBtn.style.display = "none";
+                        }
+
+                        // Show ❌ when a file is chosen
+                        deviceInput.addEventListener("change", (event) => {
                             const file = event.target.files[0];
-                            fileNameDisplay.textContent = file ? "Selected: " + file.name : "";
+                            if (file) {
+                                deviceClearBtn.style.display = "inline-block";
+                            } else {
+                                resetDeviceState();
+                            }
+                        });
+
+                        // Clear file when ❌ clicked
+                        deviceClearBtn.addEventListener("click", () => {
+                            resetDeviceState();
                         });
                     </script>
 
