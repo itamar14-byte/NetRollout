@@ -30,6 +30,9 @@
                         </button>
                     </div>
 
+                    <!-- Hidden input to carry devices as JSON -->
+                    <input type="hidden" name="devices_json" id="devicesJson">
+
                     <script>
                         const deviceInput = document.getElementById("deviceFileInput");
                         const deviceClearBtn = document.getElementById("deviceClearBtn");
@@ -39,7 +42,6 @@
                             deviceClearBtn.style.display = "none";
                         }
 
-                        // Show ❌ when a file is chosen
                         deviceInput.addEventListener("change", (event) => {
                             const file = event.target.files[0];
                             if (file) {
@@ -49,7 +51,6 @@
                             }
                         });
 
-                        // Clear file when ❌ clicked
                         deviceClearBtn.addEventListener("click", () => {
                             resetDeviceState();
                         });
@@ -77,20 +78,25 @@
                                 </div>
                                 <div class="modal-body">
                                     <div id="deviceForm">
-                                        <input class="form-control mb-2"
-                                               name="ip"
-                                               placeholder="IP Address"
-                                               required>
+                                        <div class="mb-2">
+                                            <input class="form-control"
+                                                   name="ip"
+                                                   placeholder="IP Address">
+                                            <div class="invalid-feedback">
+                                                Please enter a valid IPv4 address (e.g., 192.168.1.1).
+                                            </div>
+                                        </div>
+
                                         <input class="form-control mb-2"
                                                name="username"
-                                               placeholder="Username" required>
+                                               placeholder="Username">
 
                                         <!-- Password with toggle -->
                                         <div class="input-group mb-2">
                                             <input class="form-control"
                                                    name="password"
                                                    placeholder="Password"
-                                                   type="password" required>
+                                                   type="password">
                                             <button class="btn btn-outline-secondary toggle-password"
                                                     type="button">👁
                                             </button>
@@ -98,47 +104,22 @@
 
                                         <select class="form-control mb-2 selectpicker"
                                                 name="platform"
-                                                data-live-search="true"
-                                                required>
+                                                data-live-search="true">
                                             <option value="" disabled selected>
                                                 Select Platform
                                             </option>
-                                            <option value="fortinet">Fortinet
-                                                FortiOS(Fortigate)
-                                            </option>
-                                            <option value="paloalto_panos">Palo
-                                                Alto PAN-OS
-                                            </option>
-                                            <option value="cisco_ios">Cisco
-                                                IOS
-                                            </option>
-                                            <option value="cisco_nxos">Cisco
-                                                Nexus
-                                            </option>
-                                            <option value="cisco_xe">Cisco
-                                                IOS-XE
-                                            </option>
-                                            <option value="cisco_xr">Cisco
-                                                IOS-XR
-                                            </option>
-                                            <option value="juniper_junos">
-                                                Juniper Junos
-                                            </option>
-                                            <option value="arista_eos">Arista
-                                                EOS
-                                            </option>
-                                            <option value="aruba_aoscx">Aruba
-                                                AOS-CX
-                                            </option>
-                                            <option value="checkpoint_gaia">
-                                                Checkpoint GAiA
-                                            </option>
-                                            <option value="hp_procurve">HP
-                                                ProCurve
-                                            </option>
-                                            <option value="hp_comware">HP
-                                                Comware
-                                            </option>
+                                            <option value="fortinet">Fortinet FortiOS (Fortigate)</option>
+                                            <option value="paloalto_panos">Palo Alto PAN-OS</option>
+                                            <option value="checkpoint_gaia">Checkpoint GAiA</option>
+                                            <option value="cisco_ios">Cisco IOS</option>
+                                            <option value="cisco_nxos">Cisco Nexus</option>
+                                            <option value="cisco_xe">Cisco IOS-XE</option>
+                                            <option value="cisco_xr">Cisco IOS-XR</option>
+                                            <option value="juniper_junos">Juniper Junos</option>
+                                            <option value="arista_eos">Arista EOS</option>
+                                            <option value="aruba_aoscx">Aruba AOS-CX</option>
+                                            <option value="hp_procurve">HP ProCurve</option>
+                                            <option value="hp_comware">HP Comware</option>
                                         </select>
 
                                         <!-- Secret with toggle -->
@@ -152,10 +133,15 @@
                                             </button>
                                         </div>
 
-                                        <input class="form-control mb-2"
-                                               name="port" placeholder="Port"
-                                               type="number" value="22"
-                                               required>
+                                        <div class="mb-2">
+                                            <input class="form-control"
+                                                   name="port"
+                                                   placeholder="Port"
+                                                   type="number" value="22">
+                                            <div class="invalid-feedback">
+                                                Port must be between 1 and 65535.
+                                            </div>
+                                        </div>
                                     </div>
                                     <div id="deviceError"
                                          class="text-danger"></div>
@@ -208,60 +194,114 @@
                                 });
                             });
 
-                            document.getElementById("saveDeviceBtn").addEventListener("click", function () {
-                                const form = document.getElementById("deviceForm");
+                            // Inputs
+                            const ipInput = document.querySelector("[name='ip']");
+                            const usernameInput = document.querySelector("[name='username']");
+                            const passwordInput = document.querySelector("[name='password']");
+                            const platformInput = document.querySelector("[name='platform']");
+                            const secretInput = document.querySelector("[name='secret']");
+                            const portInput = document.querySelector("[name='port']");
+                            const deviceError = document.getElementById("deviceError");
 
-                                const ip = form.querySelector("[name='ip']").value;
-                                const username = form.querySelector("[name='username']").value;
-                                const platformSelect = form.querySelector("[name='platform']");
-                                const platformValue = platformSelect.value;
-                                const platformLabel = platformSelect.options[platformSelect.selectedIndex].text; // ✅ show label
-                                const port = form.querySelector("[name='port']").value;
-
-                                if (!ip || !username || !platformValue || !port) {
-                                    document.getElementById("deviceError").textContent = "All fields are required.";
-                                    return;
-                                }
-
-                                // Add row with the human-readable platform
-                                const tableBody = document.querySelector("#deviceTable tbody");
-                                const row = document.createElement("tr");
-                                row.innerHTML = `
-        <td>${ip}</td>
-        <td>${username}</td>
-        <td>${platformLabel}</td> <!-- ✅ use label -->
-        <td>${port}</td>
-        <td><button class="btn btn-sm btn-danger delete-btn">Delete</button></td>
-    `;
-                                tableBody.appendChild(row);
-
-                                // Delete event
-                                row.querySelector(".delete-btn").addEventListener("click", function () {
-                                    row.remove();
-                                });
-
-                                // Reset inputs (but keep port = 22)
-                                form.querySelectorAll("input").forEach(el => {
-                                    if (el.name === "port") {
-                                        el.value = "22";  // ✅ reset to default
-                                    } else {
-                                        el.value = "";
-                                    }
-                                });
-
-                                // Reset dropdown
-                                platformSelect.value = "";
-                                $('.selectpicker').selectpicker('val', '');
-
-                                document.getElementById("deviceError").textContent = "";
-
-                                // Close modal
-                                const modal = bootstrap.Modal.getInstance(document.getElementById("deviceModal"));
-                                modal.hide();
+                            // Live validation
+                            ipInput.addEventListener("input", () => {
+                                const ipRegex = /^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
+                                ipInput.classList.toggle("is-invalid", !ipRegex.test(ipInput.value.trim()));
                             });
 
+                            portInput.addEventListener("input", () => {
+                                const port = parseInt(portInput.value, 10);
+                                portInput.classList.toggle("is-invalid", isNaN(port) || port < 1 || port > 65535);
+                            });
+
+                            // 🔑 Sync devices table → hidden JSON
+                            function updateDevicesJson() {
+                                const rows = document.querySelectorAll("#deviceTable tbody tr");
+                                const devices = [];
+                                rows.forEach(row => {
+                                    const cols = row.querySelectorAll("td");
+                                    devices.push({
+                                        ip: cols[0].innerText,
+                                        username: cols[1].innerText,
+                                        password: row.dataset.password || "",
+                                        device_type: cols[2].innerText,
+                                        secret: row.dataset.secret || "",
+                                        port: cols[3].innerText
+                                    });
+                                });
+                                document.getElementById("devicesJson").value = JSON.stringify(devices);
+                            }
+
+                            // Save device
+                            document.getElementById("saveDeviceBtn").addEventListener("click", function () {
+                                let hasError = false;
+                                deviceError.textContent = "";
+
+                                // Helper to validate required fields
+                                function validateRequired(input, message) {
+                                    if (!input.value.trim()) {
+                                        input.classList.add("is-invalid");
+                                        if (!deviceError.textContent) deviceError.textContent = message;
+                                        hasError = true;
+                                    } else {
+                                        input.classList.remove("is-invalid");
+                                    }
+                                }
+
+                                // Validate each field
+                                validateRequired(ipInput, "IP address is required.");
+                                validateRequired(usernameInput, "Username is required.");
+                                validateRequired(passwordInput, "Password is required.");
+                                validateRequired(platformInput, "Platform is required.");
+                                validateRequired(portInput, "Port is required.");
+
+                                // If already invalid, show specific error
+                                if (ipInput.classList.contains("is-invalid")) {
+                                    deviceError.textContent = "Please enter a valid IPv4 address.";
+                                    hasError = true;
+                                }
+                                if (portInput.classList.contains("is-invalid")) {
+                                    deviceError.textContent = "Port must be between 1 and 65535.";
+                                    hasError = true;
+                                }
+
+                                if (hasError) return;
+
+                                // ✅ Add row if valid
+                                const tableBody = document.querySelector("#deviceTable tbody");
+                                const row = document.createElement("tr");
+                                row.dataset.password = passwordInput.value;
+                                row.dataset.secret = secretInput.value;
+
+                                const platformLabel = platformInput.options[platformInput.selectedIndex].text;
+                                row.innerHTML = `
+                <td>${ipInput.value}</td>
+                <td>${usernameInput.value}</td>
+                <td>${platformLabel}</td>
+                <td>${portInput.value}</td>
+                <td><button class="btn btn-sm btn-danger delete-btn">Delete</button></td>
+            `;
+                                tableBody.appendChild(row);
+
+                                row.querySelector(".delete-btn").addEventListener("click", function () {
+                                    row.remove();
+                                    updateDevicesJson();
+                                });
+
+                                // Reset fields
+                                [ipInput, usernameInput, passwordInput, secretInput].forEach(el => el.value = "");
+                                portInput.value = "22";
+                                platformInput.value = "";
+                                $('.selectpicker').selectpicker('val', '');
+                                deviceError.textContent = "";
+
+                                updateDevicesJson();
+
+                                bootstrap.Modal.getInstance(document.getElementById("deviceModal")).hide();
+                            });
                         });
                     </script>
+
                 </div>
             </div>
         </div> <!-- ✅ close Devices -->
@@ -330,11 +370,7 @@
 
             // When textarea is typed into, disable upload
             manualCommands.addEventListener("input", () => {
-                if (manualCommands.value.trim().length > 0) {
-                    commandsInput.disabled = true;
-                } else {
-                    commandsInput.disabled = false;
-                }
+                commandsInput.disabled = manualCommands.value.trim().length > 0;
             });
         </script>
 

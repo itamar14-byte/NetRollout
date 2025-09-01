@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Rollout Test{% endblock %}
+
+{% block content %}
+<h2>🚀 Rollout Parameters</h2>
+
+<h4>Uploaded Files</h4>
+<ul>
+  <li>Device CSV: {{ device_file or "None" }}</li>
+  <li>Commands TXT: {{ commands_file or "None" }}</li>
+</ul>
+
+<h4>Manual Devices</h4>
+{% if devices and devices|length > 0 %}
+  <pre>{{ devices | tojson(indent=2) }}</pre>
+{% else %}
+  <p>No manual devices added.</p>
+{% endif %}
+
+<h4>Manual Commands</h4>
+{% if manual_commands %}
+  <pre>{{ manual_commands }}</pre>
+{% else %}
+  <p>No manual commands entered.</p>
+{% endif %}
+
+<h4>General Options</h4>
+<ul>
+  <li>Verbose: {{ verbose }}</li>
+  <li>Verify: {{ verify }}</li>
+</ul>
+{% endblock %}
