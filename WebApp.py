@@ -1,20 +1,18 @@
+import csv
 import io
 import json
-import csv
 from itertools import chain
-from flask_sse import sse
-
-import Helper
-import Core
 
 from flask import (
     Flask,
     render_template,
     request,
 )
-
+from waitress import serve
 from werkzeug.datastructures import FileStorage
 
+import Core
+import Helper
 
 app = Flask(__name__)
 
@@ -37,6 +35,8 @@ def start_rollout():
 
     # Manual Entry
     devices_json = request.form.get("devices_json", "[]")
+    if not devices_json:
+        devices_json = "[]"
     manual_commands = request.form.get("manual_commands", "").strip()
 
     # General options
@@ -54,17 +54,17 @@ def start_rollout():
 
     activate_tool(devices, commands, verbose_bool, verify_bool)
 
-    """context = {
+    context = {
         "device_file": device_file.filename if device_file else None,
         "commands_file": commands_file.filename if commands_file else None,
-        "devices": devices,
+        "devices": json.dumps(devices_json) if devices_json else None,
         "manual_commands": manual_commands,
         "verbose": verbose_bool,
         "verify": verify_bool,
-    }"""
+    }
 
-    # return render_template("rollout.html" **context)
-    return render_template("rollout.html")
+    return render_template("rollout.html", **context)
+    #return render_template("rollout.html")
 
 
 def webapp_input(
@@ -75,7 +75,6 @@ def webapp_input(
     verbose_flag: str,
     verify_flag: str,
 ) -> tuple[list[dict[str, str]], list[str], bool, bool]:
-
     # Process Webapp input
     reader = (
         csv.DictReader(io.TextIOWrapper(device_file.stream, encoding="utf-8-sig"))
@@ -83,6 +82,7 @@ def webapp_input(
         else []
     )
     manual_devices = json.loads(devices_json)
+
 
     txt_commands = (
         [line.decode("utf-8").strip() for line in commands_file.stream]
@@ -93,7 +93,8 @@ def webapp_input(
         line.strip() for line in manual_commands.splitlines() if line.strip()
     ]
 
-    # Check which commands option contains content and was chosen by the user, and assigns the list of lines to the variable
+    # Check which command option contains content and was chosen by the user,
+    # and assigns the list of lines to the variable
     if txt_commands:
         commands = txt_commands
     else:
@@ -201,4 +202,4 @@ def activate_tool(devices, commands, verbose_bool, verify_bool):
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=8080)
+    serve(app, host="0.0.0.0", port=8080)

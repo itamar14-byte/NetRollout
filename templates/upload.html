@@ -4,7 +4,8 @@
 {% block content %}
 <h2 class="mb-4">⚙️ Configuration Rollout Setup</h2>
 
-<form id="rolloutForm" method="post" action="/start_rollout" enctype="multipart/form-data">
+<form id="rolloutForm" method="post" action="/start_rollout"
+      enctype="multipart/form-data">
     <div class="accordion" id="setupAccordion">
 
         <!-- Devices Section -->
@@ -83,7 +84,8 @@
                                                    name="ip"
                                                    placeholder="IP Address">
                                             <div class="invalid-feedback">
-                                                Please enter a valid IPv4 address (e.g., 192.168.1.1).
+                                                Please enter a valid IPv4
+                                                address (e.g., 192.168.1.1).
                                             </div>
                                         </div>
 
@@ -108,18 +110,42 @@
                                             <option value="" disabled selected>
                                                 Select Platform
                                             </option>
-                                            <option value="fortinet">Fortinet FortiOS (Fortigate)</option>
-                                            <option value="paloalto_panos">Palo Alto PAN-OS</option>
-                                            <option value="checkpoint_gaia">Checkpoint GAiA</option>
-                                            <option value="cisco_ios">Cisco IOS</option>
-                                            <option value="cisco_nxos">Cisco Nexus</option>
-                                            <option value="cisco_xe">Cisco IOS-XE</option>
-                                            <option value="cisco_xr">Cisco IOS-XR</option>
-                                            <option value="juniper_junos">Juniper Junos</option>
-                                            <option value="arista_eos">Arista EOS</option>
-                                            <option value="aruba_aoscx">Aruba AOS-CX</option>
-                                            <option value="hp_procurve">HP ProCurve</option>
-                                            <option value="hp_comware">HP Comware</option>
+                                            <option value="fortinet">Fortinet
+                                                FortiOS (Fortigate)
+                                            </option>
+                                            <option value="paloalto_panos">Palo
+                                                Alto PAN-OS
+                                            </option>
+                                            <option value="checkpoint_gaia">
+                                                Checkpoint GAiA
+                                            </option>
+                                            <option value="cisco_ios">Cisco
+                                                IOS
+                                            </option>
+                                            <option value="cisco_nxos">Cisco
+                                                Nexus
+                                            </option>
+                                            <option value="cisco_xe">Cisco
+                                                IOS-XE
+                                            </option>
+                                            <option value="cisco_xr">Cisco
+                                                IOS-XR
+                                            </option>
+                                            <option value="juniper_junos">
+                                                Juniper Junos
+                                            </option>
+                                            <option value="arista_eos">Arista
+                                                EOS
+                                            </option>
+                                            <option value="aruba_aoscx">Aruba
+                                                AOS-CX
+                                            </option>
+                                            <option value="hp_procurve">HP
+                                                ProCurve
+                                            </option>
+                                            <option value="hp_comware">HP
+                                                Comware
+                                            </option>
                                         </select>
 
                                         <!-- Secret with toggle -->
@@ -139,7 +165,8 @@
                                                    placeholder="Port"
                                                    type="number" value="22">
                                             <div class="invalid-feedback">
-                                                Port must be between 1 and 65535.
+                                                Port must be between 1 and
+                                                65535.
                                             </div>
                                         </div>
                                     </div>
@@ -389,12 +416,14 @@
                     <div class="form-check d-flex justify-content-center align-items-center mb-2">
                         <input class="form-check-input me-2" type="checkbox"
                                name="verbose" id="verbose">
-                        <label class="form-check-label" for="verbose">Verbose Output</label>
+                        <label class="form-check-label" for="verbose">Verbose
+                            Output</label>
                     </div>
                     <div class="form-check d-flex justify-content-center align-items-center mb-2">
                         <input class="form-check-input me-2" type="checkbox"
                                name="verify" id="verify">
-                        <label class="form-check-label" for="verify">Verify Configuration</label>
+                        <label class="form-check-label" for="verify">Verify
+                            Configuration</label>
                     </div>
                 </div>
             </div>
@@ -403,7 +432,8 @@
     </div> <!-- ✅ close accordion -->
 
     <!-- Error Box -->
-    <div id="formError" class="alert alert-danger mt-3" style="display:none;"></div>
+    <div id="formError" class="alert alert-danger mt-3"
+         style="display:none;"></div>
 
     <!-- Submit button -->
     <div class="d-flex justify-content-center mt-4">
@@ -432,7 +462,7 @@
         // Commands check (must be exactly one)
         if ((commandsFile && manualCommands) || (!commandsFile && !manualCommands)) {
             errors.push("Please provide commands either by file OR manual text (not both).");
-             // 🔑 auto-open Commands accordion
+            // 🔑 auto-open Commands accordion
             const commandsSection = document.getElementById("collapseCommands");
             commandsSection.classList.add("show");
         }
@@ -444,6 +474,30 @@
             errorBox.style.display = "block";
             return false;
         }
+    });
+</script>
+
+<script>
+    window.addEventListener("pageshow", function (event) {
+
+        // Clear file inputs
+        document.querySelectorAll("input[type='file']").forEach(input => {
+            input.value = "";
+        });
+
+        // Clear textareas
+        document.querySelectorAll("textarea").forEach(txt => {
+            txt.value = "";
+        });
+
+        // Hide any ❌ buttons
+        document.querySelectorAll(".btn-outline-danger").forEach(btn => {
+            btn.style.display = "none";
+        });
+
+        // Also reset hidden JSON (so stale devices don't leak)
+        const devicesJson = document.getElementById("devicesJson");
+        if (devicesJson) devicesJson.value = "[]";
     });
 </script>
 {% endblock %}

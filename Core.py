@@ -3,9 +3,12 @@ import csv
 import sys
 import time
 from typing import Optional
+
 import netmiko
 from napalm import get_network_driver
-from Helper import test_tcp_port, validate_file_extension, validate_device_data, notify
+
+from Helper import test_tcp_port, validate_file_extension, validate_device_data, \
+    notify
 
 
 def parse_files(
