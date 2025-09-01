@@ -1,13 +1,12 @@
+import io
 import os
 import json
 import csv
+import Helper
 from flask import (
     Flask,
     render_template,
     request,
-    redirect,
-    url_for,
-    send_from_directory,
 )
 from flask_sse import sse
 from Core import parse_files, push_config, verify
@@ -30,7 +29,12 @@ def upload():
 def start_rollout():
     #File uploads
     device_file = request.files.get("device_file")
+    #reader = csv.DictReader(io.TextIOWrapper(device_file.stream, encoding="utf-8-sig")) if device_file else []
+    #devices = list(reader)
     commands_file = request.files.get("commands_file")
+    commands = [line.decode("utf-8").strip() for line in commands_file.stream()] if commands_file else []
+
+
 
     #Manual Entry
     devices_json = request.form.get("devices_json","[]")
@@ -43,17 +47,20 @@ def start_rollout():
     verbose_bool = True if verbose_flag else False
     verify_bool = True if verify_flag else False
 
-    context = {
+    '''context = {
         "device_file": device_file.filename if device_file else None,
         "commands_file": commands_file.filename if commands_file else None,
         "devices": devices,
         "manual_commands": manual_commands,
         "verbose": verbose_bool,
         "verify": verify_bool,
-    }
+    }'''
 
-    return render_template("rollout.html", **context)
+    #return render_template("rollout.html", **context)
 
+
+def webapp_input():
+    pass
 
 def active_config():
     pass
@@ -61,4 +68,4 @@ def active_config():
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=True, port=80)
