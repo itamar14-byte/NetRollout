@@ -62,14 +62,21 @@ def log(string: str, file_name: str = LOGFILE) -> None:
         file.write(f"{timestamp}\t{string}\n")
 
 
-def notify(string: str, color: str = None, verbose: bool = True) -> None:
+def notify(
+    string: str, color: str = None, verbose: bool = True, webapp: bool = False
+) -> None | str:
     """A wrapper logging function.
      All messages are logged to the file.
     Additionally, error messages, or messages generated in verbose mode are printed to console
     """
-    if verbose:
-        print(msg(string, color))
-    log(string)
+    if webapp:
+        log(string)
+        return msg(string, color)
+    else:
+        if verbose:
+            print(msg(string, color))
+        log(string)
+        return None
 
 
 def validate_file_extension(path: str, extension: str) -> bool:

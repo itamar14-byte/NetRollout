@@ -3,7 +3,7 @@
   <component name="Black">
     <option name="enabledOnReformat" value="true" />
     <option name="enabledOnSave" value="true" />
-    <option name="sdkName" value="Python 3.12 (Network-bulk-configuration)" />
+    <option name="sdkName" value="Python 3.13 (Netowrk Configuration Tool)" />
   </component>
   <component name="ProjectRootManager" version="2" project-jdk-name="Python 3.13 (Netowrk Configuration Tool)" project-jdk-type="Python SDK" />
 </project>
