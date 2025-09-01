@@ -328,9 +328,7 @@ def main():
             push_config(devices, commands, verbose)
 
             # If the verify flag is activated, runs the verify function,
-            # getting a
-            # dictionary
-            # of the devices and the successful commands count
+            # getting a dictionary of the devices and the successful commands count
             if verify_rollout:
                 notify(
                     "Configuration rollout finished. Initiating verification process"

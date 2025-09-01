@@ -4,7 +4,7 @@
 {% block content %}
 <h2 class="mb-4">⚙️ Configuration Rollout Setup</h2>
 
-<form method="post" action="/start_rollout" enctype="multipart/form-data">
+<form id="rolloutForm" method="post" action="/start_rollout" enctype="multipart/form-data">
     <div class="accordion" id="setupAccordion">
 
         <!-- Devices Section -->
@@ -375,7 +375,6 @@
         </script>
 
 
-        <!-- General Options -->
         <div class="accordion-item">
             <h2 class="accordion-header" id="headingOptions">
                 <button class="accordion-button collapsed" type="button"
@@ -390,14 +389,12 @@
                     <div class="form-check d-flex justify-content-center align-items-center mb-2">
                         <input class="form-check-input me-2" type="checkbox"
                                name="verbose" id="verbose">
-                        <label class="form-check-label" for="verbose">Verbose
-                            Output</label>
+                        <label class="form-check-label" for="verbose">Verbose Output</label>
                     </div>
                     <div class="form-check d-flex justify-content-center align-items-center mb-2">
                         <input class="form-check-input me-2" type="checkbox"
                                name="verify" id="verify">
-                        <label class="form-check-label" for="verify">Verify
-                            Configuration</label>
+                        <label class="form-check-label" for="verify">Verify Configuration</label>
                     </div>
                 </div>
             </div>
@@ -405,9 +402,48 @@
 
     </div> <!-- ✅ close accordion -->
 
+    <!-- Error Box -->
+    <div id="formError" class="alert alert-danger mt-3" style="display:none;"></div>
+
     <!-- Submit button -->
     <div class="d-flex justify-content-center mt-4">
         <button class="btn btn-success" type="submit">🚀 Start Rollout</button>
     </div>
 </form>
+
+<script>
+    document.getElementById("rolloutForm").addEventListener("submit", function (e) {
+        const deviceFile = document.getElementById("deviceFileInput").files.length > 0;
+        const deviceRows = document.querySelectorAll("#deviceTable tbody tr").length > 0;
+
+        const commandsFile = document.getElementById("commandsFileInput").files.length > 0;
+        const manualCommands = document.getElementById("manualCommands").value.trim().length > 0;
+
+        let errors = [];
+
+        // Devices check
+        if (!deviceFile && !deviceRows) {
+            errors.push("Please add at least one device (CSV or manual).");
+            // 🔑 auto-open Devices accordion
+            const devicesSection = document.getElementById("collapseDevices");
+            devicesSection.classList.add("show");
+        }
+
+        // Commands check (must be exactly one)
+        if ((commandsFile && manualCommands) || (!commandsFile && !manualCommands)) {
+            errors.push("Please provide commands either by file OR manual text (not both).");
+             // 🔑 auto-open Commands accordion
+            const commandsSection = document.getElementById("collapseCommands");
+            commandsSection.classList.add("show");
+        }
+
+        if (errors.length > 0) {
+            e.preventDefault();
+            const errorBox = document.getElementById("formError");
+            errorBox.innerHTML = errors.join("<br>");
+            errorBox.style.display = "block";
+            return false;
+        }
+    });
+</script>
 {% endblock %}
