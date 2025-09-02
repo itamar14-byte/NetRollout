@@ -1,32 +1,38 @@
 {% extends "base.html" %}
-{% block title %}Rollout Test{% endblock %}
+{% block title %}Live Rollout - Network Rollout Tool{% endblock %}
 
 {% block content %}
-<h2>🚀 Rollout Parameters</h2>
+<h2 class="mb-4 text-center">🚀 Rollout in Progress</h2>
 
-<h4>Uploaded Files</h4>
-<ul>
-    <li>Device CSV: {{ device_file or "None" }}</li>
-    <li>Commands TXT: {{ commands_file or "None" }}</li>
-</ul>
+<!-- Log window -->
+<div id="logWindow" class="bg-dark text-light p-3 rounded"
+     style="height: 400px; overflow-y: auto; font-family: monospace; white-space: pre-wrap; border: 1px solid #444;">
+    <em>Waiting for logs...</em>
+</div>
 
-<h4>Manual Devices</h4>
-{% if devices and devices|length > 0 %}
-<pre>{{ devices | tojson(indent=2) }}</pre>
-{% else %}
-<p>No manual devices added.</p>
-{% endif %}
+<!-- Cancel button (optional) -->
+<div class="d-flex justify-content-center mt-3">
+    <button id="cancelBtn" class="btn btn-danger">❌ Cancel Rollout</button>
+</div>
 
-<h4>Manual Commands</h4>
-{% if manual_commands %}
-<pre>{{ manual_commands }}</pre>
-{% else %}
-<p>No manual commands entered.</p>
-{% endif %}
+<script>
+    // Connect to SSE endpoint
+    const logWindow = document.getElementById("logWindow");
 
-<h4>General Options</h4>
-<ul>
-    <li>Verbose: {{ verbose }}</li>
-    <li>Verify: {{ verify }}</li>
-</ul>
+    const eventSource = new EventSource("/rollout_stream");
+
+    eventSource.onmessage = function(event) {
+        const newLine = document.createElement("div");
+        newLine.innerHTML = event.data;  // already contains colored <span>
+        logWindow.appendChild(newLine);
+        logWindow.scrollTop = logWindow.scrollHeight; // auto scroll
+    };
+
+    eventSource.onerror = function() {
+        const newLine = document.createElement("div");
+        newLine.innerHTML = "<span style='color:red;'>⚠️ Connection lost.</span>";
+        logWindow.appendChild(newLine);
+        eventSource.close();
+    };
+</script>
 {% endblock %}

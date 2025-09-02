@@ -251,7 +251,7 @@
                                         ip: cols[0].innerText,
                                         username: cols[1].innerText,
                                         password: row.dataset.password || "",
-                                        device_type: cols[2].innerText,
+                                        device_type: platformInput.value,
                                         secret: row.dataset.secret || "",
                                         port: cols[3].innerText
                                     });
