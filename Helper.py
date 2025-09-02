@@ -34,19 +34,37 @@ GREEN = "\033[92m"
 YELLOW = "\033[93m"
 REGULAR = "\033[1m"
 END = "\033[0m"
-colors = {
+
+WEBAPP_RED= "<div class=\"text-danger\">"
+WEBAPP_GREEN= "<div class=\"text-success\">"
+WEBAPP_YELLOW= "<div class=\"text-warning\">"
+WEBAPP_END = "</div>"
+
+COLORS = {
     "RED": RED,
     "GREEN": GREEN,
     "YELLOW": YELLOW,
 }
 
+ANSI_TO_HTML = {"RED": WEBAPP_RED,
+    "GREEN": WEBAPP_GREEN,
+    "YELLOW": WEBAPP_YELLOW}
 
-def msg(string: str, color: str = "") -> str:
+
+
+
+def msg(string: str, color: str = "", webapp: bool =False) -> str:
     """Adds ANSI escape sequences to terminal color for progress and error messages"""
-    if color:
-        color = colors.get(color.upper())
-        return color + string + END
-    return REGULAR + string + END
+    if webapp:
+        if color:
+            color = ANSI_TO_HTML.get(color.upper())
+            return color + string + WEBAPP_END
+        return string
+    else:
+        if color:
+            color = COLORS.get(color.upper())
+            return color + string + END
+        return string
 
 
 def log(string: str, file_name: str = LOGFILE) -> None:

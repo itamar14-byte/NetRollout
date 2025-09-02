@@ -382,7 +382,6 @@ def main():
 
 
 if __name__ == "__main__":
-
     # Runs the main function that executes the tool. In Ctrl+C from the user, the system exits
     try:
         main()
