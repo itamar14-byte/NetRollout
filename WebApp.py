@@ -12,7 +12,6 @@ from waitress import serve
 import Core
 import Helper
 
-
 app = Flask(__name__)
 app.config["CURRENT_THREAD"] = None
 app.config["CANCEL_SENT"] = threading.Event()
@@ -29,12 +28,12 @@ def upload():
 
 
 def background_rollout(
-    device_file_stream,
-    commands_file_stream,
-    devices_json,
-    manual_commands,
-    verbose_flag,
-    verify_flag,
+        device_file_stream,
+        commands_file_stream,
+        devices_json,
+        manual_commands,
+        verbose_flag,
+        verify_flag,
 ):
     try:
         device_file = io.BytesIO(device_file_stream) if device_file_stream else None
@@ -59,12 +58,12 @@ def background_rollout(
 
 
 def webapp_input(
-    device_file: io.BytesIO,
-    commands_file: io.BytesIO,
-    devices_json: str,
-    manual_commands: str,
-    verbose_flag: str,
-    verify_flag: str,
+        device_file: io.BytesIO,
+        commands_file: io.BytesIO,
+        devices_json: str,
+        manual_commands: str,
+        verbose_flag: str,
+        verify_flag: str,
 ) -> tuple[list[dict[str, str]], list[str], bool, bool]:
     # Process Webapp input
     reader = (
@@ -146,7 +145,6 @@ def webapp_input(
 
 
 def activate_tool(devices, commands, verbose_bool, verify_bool):
-
     push = Core.push_config(
         devices,
         commands,
@@ -270,10 +268,6 @@ def cancel_rollout():
         return {"status": "no_active_rollout"}
 
 
-if __name__ == "__main__":
-    serve(app, host="0.0.0.0", port=8080)
-
-
 @app.route("/rollout_status")
 def get_rollout_status():
     thread = app.config["CURRENT_THREAD"]
@@ -302,3 +296,7 @@ def sse_stream():
         mimetype="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+if __name__ == "__main__":
+    serve(app, host="0.0.0.0", port=8080)
