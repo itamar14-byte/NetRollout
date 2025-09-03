@@ -3,11 +3,19 @@ import csv
 import sys
 import time
 from typing import Optional
+from threading import Event
 
 import netmiko
 from napalm import get_network_driver
 
-from Helper import test_tcp_port, validate_file_extension, validate_device_data, notify
+from Helper import (
+    test_tcp_port,
+    validate_file_extension,
+    validate_device_data,
+    notify,
+    BASEDIR,
+    LOGFILE,
+)
 
 
 def parse_files(
@@ -107,11 +115,13 @@ def push_config(
     commands: list[str],
     verbose: bool = False,
     webapp: bool = False,
-) -> None:
+    cancel_event: Event = None,
+) -> str | None:
     """
     The function will accept device and command data, as processed by parse_files and push the configuration,
     using netmiko for SSH connections over the provided ip and port
 
+    :param cancel_event: Threading object that allows to check if the cancel event is set
     :param webapp: boolean value stating weather the function was called as part of a web deployment.
      In that case, notifications will be added to SSE queue
     :param devices: list of dictionaries with device data
@@ -122,62 +132,67 @@ def push_config(
     """
     # Goes over the dictionary list, each time focusing on a single device
     for device in devices:
-        notify(
-            f"connecting to {device['ip']}:{device['port']}",
-            "yellow",
-            verbose,
-            webapp=webapp,
-        )
-
-        # Tests tcp connectivity to the device on the requested port
-        try:
-            # Initialise a netmiko connection object
-            net_connect = netmiko.ConnectHandler(**device)
+        if cancel_event and cancel_event.is_set():
+            notify("Rollout Canceled By User", color="red", webapp=webapp)
+            return "cancel_sent"
+        else:
             notify(
-                f"{device['ip']} connected successfully",
-                "green",
+                f"connecting to {device['ip']}:{device['port']}",
+                "yellow",
                 verbose,
                 webapp=webapp,
             )
-            # Goes into privileged config mode, depending on the platform
-            net_connect.enable()
-            net_connect.config_mode()
 
-            # Runs all commands in order,
-            # and checks that the command was accepted in the device
-            # In case of syntax error or rejection, an error message is printed,
-            # and we move to the next command
-            for command in commands:
-                output = net_connect.send_config_set(
-                    [command.strip()], exit_config_mode=False
+            # Tests tcp connectivity to the device on the requested port
+            try:
+                # Initialise a netmiko connection object
+                net_connect = netmiko.ConnectHandler(**device)
+                notify(
+                    f"{device['ip']} connected successfully",
+                    "green",
+                    verbose,
+                    webapp=webapp,
                 )
-                errors = ["Invalid", "unrecognized", "unknown"]
-                if any(err.lower() in output.lower() for err in errors):
-                    notify(
-                        f"{command} failed on {device['ip']}: {output}",
-                        "red",
-                        verbose,
-                        webapp=webapp,
+                # Goes into privileged config mode, depending on the platform
+                net_connect.enable()
+                net_connect.config_mode()
+
+                # Runs all commands in order,
+                # and checks that the command was accepted in the device
+                # In case of syntax error or rejection, an error message is printed,
+                # and we move to the next command
+                for command in commands:
+                    output = net_connect.send_config_set(
+                        [command.strip()], exit_config_mode=False
                     )
-                    continue
+                    errors = ["Invalid", "unrecognized", "unknown"]
+                    if any(err.lower() in output.lower() for err in errors):
+                        notify(
+                            f"{command} failed on {device['ip']}: {output}",
+                            "red",
+                            verbose,
+                            webapp=webapp,
+                        )
+                        continue
 
-            # After commands finish running,
-            # the configuration is saved and we gracefully close the SSH session
-            net_connect.exit_config_mode()
-            net_connect.save_config()
-            net_connect.disconnect()
+                # After commands finish running,
+                # the configuration is saved and we gracefully close the SSH session
+                net_connect.exit_config_mode()
+                net_connect.save_config()
+                net_connect.disconnect()
 
-        # In case of exception or issue in connecting and executing the commands,
-        # an error message will be printed, and we move to the next device
-        except netmiko.NetMikoAuthenticationException:
-            notify(f"{device['ip']} authentication failed", "red", webapp=webapp)
-            continue
-        except netmiko.NetmikoTimeoutException:
-            notify(f"{device['ip']} timed out", "red", webapp=webapp)
-            continue
-        except Exception as e:
-            notify(f"{device['ip']} failed: {e}", "red", webapp=webapp)
-            continue
+            # In case of exception or issue in connecting and executing the commands,
+            # an error message will be printed, and we move to the next device
+            except netmiko.NetMikoAuthenticationException:
+                notify(f"{device['ip']} authentication failed", "red", webapp=webapp)
+                continue
+            except netmiko.NetmikoTimeoutException:
+                notify(f"{device['ip']} timed out", "red", webapp=webapp)
+                continue
+            except Exception as e:
+                notify(f"{device['ip']} failed: {e}", "red", webapp=webapp)
+                continue
+    return None
 
 
 def fetch_config(device: dict[str, str], webapp: bool = False) -> Optional[str]:
@@ -241,11 +256,13 @@ def verify(
     commands: list[str],
     verbose: bool = False,
     webapp: bool = False,
-) -> dict[str, int]:
+    cancel_event: Event = None,
+) -> dict[str, int] | str:
     """
     The function gets the list of devices and verifies which devices have been successfully configured
     by comparing the commands to the config file from fetch_config()
 
+    :param cancel_event: Threading object that allows to check if the cancel event is set
     :param webapp: boolean value stating weather the function was called as part of a web deployment.
      In that case, notifications will be added to SSE queue
     :param devices: a dictionary dataset with a device information
@@ -256,6 +273,10 @@ def verify(
     result = {}
     # Loops through the devices and gets the running config, using fetch config function
     for device in devices:
+        if cancel_event and cancel_event.is_set():
+            notify("Rollout Canceled By User", color="red", webapp=webapp)
+            return "cancel_sent"
+
         successful_commands = 0
         config = fetch_config(device)
         # If there is a config file,
@@ -394,12 +415,17 @@ def main():
                     "yellow",
                 )
                 notify(f"{successful} devices successfully configured", "green")
+                notify(f"Please see Execution logs in {BASEDIR}\\{LOGFILE}")
+
+                time.sleep(10)
                 sys.exit(0)
 
             notify(
                 f"Configuration rollout complete. {len(devices)} devices configured",
                 "green",
             )
+            notify(f"Please see Execution logs in {BASEDIR}\\{LOGFILE}")
+
             time.sleep(10)
             sys.exit(0)
 
