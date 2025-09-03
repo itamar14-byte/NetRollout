@@ -65,9 +65,11 @@
 <div class="container">
     {% if request.path != '/' %}
     <div class="d-flex justify-content-start mb-3">
+        {% block home_button %}
         <a href="{{ url_for('home') }}" class="btn btn-outline-primary">
             🏠 Back to Home
         </a>
+        {% endblock %}
     </div>
     {% endif %}
     {% block content %}{% endblock %}

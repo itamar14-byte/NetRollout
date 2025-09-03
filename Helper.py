@@ -9,6 +9,7 @@ import time
 # Variable will be calculated when importing helper
 LOGFILE = datetime.datetime.now().strftime("rollout_%Y%m%d_%H%M%S.log")
 LOG_QUEUE = queue.Queue()
+BASEDIR = os.path.abspath(os.path.dirname(__file__))
 
 # Defines supported platforms for app
 SUPPORTED_PLATFORMS = {
@@ -86,8 +87,9 @@ def notify(
     Additionally, error messages, or messages generated in verbose mode are printed to console
     """
     if webapp:
+        if verbose:
+            LOG_QUEUE.put(msg(string, color, webapp=True))
         log(string)
-        LOG_QUEUE.put(msg(string, color, webapp=True))
         return None
     else:
         if verbose:
