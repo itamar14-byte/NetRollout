@@ -7,8 +7,7 @@ from typing import Optional
 import netmiko
 from napalm import get_network_driver
 
-from Helper import test_tcp_port, validate_file_extension, validate_device_data, \
-    notify
+from Helper import test_tcp_port, validate_file_extension, validate_device_data, notify
 
 
 def parse_files(
@@ -104,12 +103,17 @@ def parse_files(
 
 
 def push_config(
-    devices: list[dict[str, str]], commands: list[str], verbose: bool = False
+    devices: list[dict[str, str]],
+    commands: list[str],
+    verbose: bool = False,
+    webapp: bool = False,
 ) -> None:
     """
     The function will accept device and command data, as processed by parse_files and push the configuration,
     using netmiko for SSH connections over the provided ip and port
 
+    :param webapp: boolean value stating weather the function was called as part of a web deployment.
+     In that case, notifications will be added to SSE queue
     :param devices: list of dictionaries with device data
     :param commands: lists of the commands to be executed, in order
     :param verbose: a boolean flag determining weather logs would be
@@ -118,13 +122,23 @@ def push_config(
     """
     # Goes over the dictionary list, each time focusing on a single device
     for device in devices:
-        notify(f"connecting to {device['ip']}:{device['port']}", "yellow", verbose)
+        notify(
+            f"connecting to {device['ip']}:{device['port']}",
+            "yellow",
+            verbose,
+            webapp=webapp,
+        )
 
         # Tests tcp connectivity to the device on the requested port
         try:
             # Initialise a netmiko connection object
             net_connect = netmiko.ConnectHandler(**device)
-            notify(f"{device['ip']} connected successfully", "green", verbose)
+            notify(
+                f"{device['ip']} connected successfully",
+                "green",
+                verbose,
+                webapp=webapp,
+            )
             # Goes into privileged config mode, depending on the platform
             net_connect.enable()
             net_connect.config_mode()
@@ -143,6 +157,7 @@ def push_config(
                         f"{command} failed on {device['ip']}: {output}",
                         "red",
                         verbose,
+                        webapp=webapp,
                     )
                     continue
 
@@ -155,20 +170,22 @@ def push_config(
         # In case of exception or issue in connecting and executing the commands,
         # an error message will be printed, and we move to the next device
         except netmiko.NetMikoAuthenticationException:
-            notify(f"{device['ip']} authentication failed", "red")
+            notify(f"{device['ip']} authentication failed", "red", webapp=webapp)
             continue
         except netmiko.NetmikoTimeoutException:
-            notify(f"{device['ip']} timed out", "red")
+            notify(f"{device['ip']} timed out", "red", webapp=webapp)
             continue
         except Exception as e:
-            notify(f"{device['ip']} failed: {e}", "red")
+            notify(f"{device['ip']} failed: {e}", "red", webapp=webapp)
             continue
 
 
-def fetch_config(device: dict[str, str]) -> Optional[str]:
+def fetch_config(device: dict[str, str], webapp: bool = False) -> Optional[str]:
     """
     The function is tasked with connecting to a device and getting the running configuration, saved into a string,
     which will be searched downstream
+    :param webapp: boolean value stating weather the function was called as part of a web deployment.
+     In that case, notifications will be added to SSE queue
     :param device: a dictionary with device dataset
     :return: if connection is successful, the function returns the running config as a string and returns false otherwise
     """
@@ -210,21 +227,27 @@ def fetch_config(device: dict[str, str]) -> Optional[str]:
             notify(
                 f"issue verifying {device['ip']}: {device['device_type']} is not supported for verification",
                 "red",
+                webapp=webapp,
             )
             return None
 
     except Exception as e:
-        notify(f"could not connect to {device['ip']}: {e}", "red")
+        notify(f"could not connect to {device['ip']}: {e}", "red", webapp=webapp)
         return None
 
 
 def verify(
-    devices: list[dict[str, str]], commands: list[str], verbose: bool = False
+    devices: list[dict[str, str]],
+    commands: list[str],
+    verbose: bool = False,
+    webapp: bool = False,
 ) -> dict[str, int]:
     """
     The function gets the list of devices and verifies which devices have been successfully configured
     by comparing the commands to the config file from fetch_config()
 
+    :param webapp: boolean value stating weather the function was called as part of a web deployment.
+     In that case, notifications will be added to SSE queue
     :param devices: a dictionary dataset with a device information
     :param commands: list of expected commands
     :param verbose: a boolean flag determining weather logs would be displayed in console
@@ -247,14 +270,22 @@ def verify(
                 if command not in config:
                     rejects.append(command)
                     notify(
-                        f"{command} not configured on {device['ip']}", "red", verbose
+                        f"{command} not configured on {device['ip']}",
+                        "red",
+                        verbose,
+                        webapp=webapp,
                     )
                 else:
                     successful_commands += 1
             # when a device has no rejects, such that all commands match, we increment the counter, notify the user and
             # move to the next device
             if not rejects:
-                notify(f"{device['ip']} successfully configured", "green", verbose)
+                notify(
+                    f"{device['ip']} successfully configured",
+                    "green",
+                    verbose,
+                    webapp=webapp,
+                )
             # Updates the result dictionary with the device ip and the number of successful commands
             result.update({device["ip"]: successful_commands})
     return result

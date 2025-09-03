@@ -1,12 +1,14 @@
 import datetime
 import ipaddress
 import os
+import queue
 import socket
 import time
 
 # Creates a timestamp for the defined globally at every running of Core.py.
 # Variable will be calculated when importing helper
 LOGFILE = datetime.datetime.now().strftime("rollout_%Y%m%d_%H%M%S.log")
+LOG_QUEUE = queue.Queue()
 
 # Defines supported platforms for app
 SUPPORTED_PLATFORMS = {
@@ -35,9 +37,9 @@ YELLOW = "\033[93m"
 REGULAR = "\033[1m"
 END = "\033[0m"
 
-WEBAPP_RED= "<div class=\"text-danger\">"
-WEBAPP_GREEN= "<div class=\"text-success\">"
-WEBAPP_YELLOW= "<div class=\"text-warning\">"
+WEBAPP_RED = '<div class="text-danger">'
+WEBAPP_GREEN = '<div class="text-success">'
+WEBAPP_YELLOW = '<div class="text-warning">'
 WEBAPP_END = "</div>"
 
 COLORS = {
@@ -46,14 +48,10 @@ COLORS = {
     "YELLOW": YELLOW,
 }
 
-ANSI_TO_HTML = {"RED": WEBAPP_RED,
-    "GREEN": WEBAPP_GREEN,
-    "YELLOW": WEBAPP_YELLOW}
+ANSI_TO_HTML = {"RED": WEBAPP_RED, "GREEN": WEBAPP_GREEN, "YELLOW": WEBAPP_YELLOW}
 
 
-
-
-def msg(string: str, color: str = "", webapp: bool =False) -> str:
+def msg(string: str, color: str = "", webapp: bool = False) -> str:
     """Adds ANSI escape sequences to terminal color for progress and error messages"""
     if webapp:
         if color:
@@ -82,14 +80,15 @@ def log(string: str, file_name: str = LOGFILE) -> None:
 
 def notify(
     string: str, color: str = None, verbose: bool = True, webapp: bool = False
-) -> None | str:
+) -> None:
     """A wrapper logging function.
      All messages are logged to the file.
     Additionally, error messages, or messages generated in verbose mode are printed to console
     """
     if webapp:
         log(string)
-        return msg(string, color)
+        LOG_QUEUE.put(msg(string, color, webapp=True))
+        return None
     else:
         if verbose:
             print(msg(string, color))
@@ -143,11 +142,13 @@ def validate_platform(platform: str) -> bool:
     return True
 
 
-def validate_device_data(device: dict[str, str]) -> bool:
+def validate_device_data(device: dict[str, str], webapp: bool = False) -> bool:
     """
     This function runs as part of the device files parsing and is used to validate values of the device data,
     when unpacking the csv iterable of dictionaries into a list. As we run on the provided devices, the function checks
     applicable values such as ip address and tcp port and makes sure they are in correct format
+    :param webapp: boolean value stating weather the function was called as part of a web deployment.
+     In that case, notifications will be added to SSE queue
     :param device: device dictionary unpacked from csv file
     :return: True if device data is correct, False otherwise
     """
@@ -165,13 +166,15 @@ def validate_device_data(device: dict[str, str]) -> bool:
                 return True
 
             else:
-                notify(f"{device['device_type']} is not supported", "red")
+                notify(
+                    f"{device['device_type']} is not supported", "red", webapp=webapp
+                )
 
         else:
-            notify(f"{device['port']} is not a valid port number", "red")
+            notify(f"{device['port']} is not a valid port number", "red", webapp=webapp)
 
     else:
-        notify(f"{device['ip']} is not a valid IPv4 address", "red")
+        notify(f"{device['ip']} is not a valid IPv4 address", "red", webapp=webapp)
 
     return False
 
