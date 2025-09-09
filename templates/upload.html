@@ -2,502 +2,519 @@
 {% block title %}Upload Configuration - Network Rollout Tool{% endblock %}
 
 {% block content %}
-<h2 class="mb-4">⚙️ Configuration Rollout Setup</h2>
+    <h2 class="mb-4">⚙️ Configuration Rollout Setup</h2>
 
-<form id="rolloutForm" method="post" action="/start_rollout"
-      enctype="multipart/form-data">
-    <div class="accordion" id="setupAccordion">
+    <form id="rolloutForm" method="post" action="/start_rollout"
+          enctype="multipart/form-data">
+        <div class="accordion" id="setupAccordion">
 
-        <!-- Devices Section -->
-        <div class="accordion-item">
-            <h2 class="accordion-header" id="headingDevices">
-                <button class="accordion-button" type="button"
-                        data-bs-toggle="collapse"
-                        data-bs-target="#collapseDevices">
-                    Devices
-                </button>
-            </h2>
-            <div id="collapseDevices" class="accordion-collapse collapse show"
-                 data-bs-parent="#setupAccordion">
-                <div class="accordion-body">
-                    <label class="form-label">Upload Devices CSV</label>
-                    <div class="input-group mb-3">
-                        <input id="deviceFileInput" class="form-control"
-                               type="file" name="device_file" accept=".csv">
-                        <button id="deviceClearBtn"
-                                class="btn btn-outline-danger" type="button"
-                                style="display: none;">
-                            ❌
-                        </button>
-                    </div>
-
-                    <!-- Hidden input to carry devices as JSON -->
-                    <input type="hidden" name="devices_json" id="devicesJson">
-
-                    <script>
-                        const deviceInput = document.getElementById("deviceFileInput");
-                        const deviceClearBtn = document.getElementById("deviceClearBtn");
-
-                        function resetDeviceState() {
-                            deviceInput.value = "";
-                            deviceClearBtn.style.display = "none";
-                        }
-
-                        deviceInput.addEventListener("change", (event) => {
-                            const file = event.target.files[0];
-                            if (file) {
-                                deviceClearBtn.style.display = "inline-block";
-                            } else {
-                                resetDeviceState();
-                            }
-                        });
-
-                        deviceClearBtn.addEventListener("click", () => {
-                            resetDeviceState();
-                        });
-                    </script>
-
-                    <hr>
-                    <p>Or add devices manually:</p>
-                    <button class="btn btn-secondary" type="button"
-                            data-bs-toggle="modal"
-                            data-bs-target="#deviceModal">
-                        ➕ Add Device
+            <!-- Devices Section -->
+            <div class="accordion-item">
+                <h2 class="accordion-header" id="headingDevices">
+                    <button class="accordion-button" type="button"
+                            data-bs-toggle="collapse"
+                            data-bs-target="#collapseDevices">
+                        Devices
                     </button>
+                </h2>
+                <div id="collapseDevices" class="accordion-collapse collapse show"
+                     data-bs-parent="#setupAccordion">
+                    <div class="accordion-body">
+                        <label class="form-label">Upload Devices CSV</label>
+                        <div class="input-group mb-3">
+                            <input id="deviceFileInput" class="form-control"
+                                   type="file" name="device_file" accept=".csv">
+                            <button id="deviceClearBtn"
+                                    class="btn btn-outline-danger" type="button"
+                                    style="display: none;">
+                                ❌
+                            </button>
+                        </div>
 
-                    <!-- Modal -->
-                    <div class="modal fade" id="deviceModal" tabindex="-1"
-                         aria-labelledby="deviceModalLabel" aria-hidden="true">
-                        <div class="modal-dialog">
-                            <div class="modal-content">
-                                <div class="modal-header">
-                                    <h5 class="modal-title"
-                                        id="deviceModalLabel">Add Device</h5>
-                                    <button type="button" class="btn-close"
-                                            data-bs-dismiss="modal"
-                                            aria-label="Close"></button>
-                                </div>
-                                <div class="modal-body">
-                                    <div id="deviceForm">
-                                        <div class="mb-2">
-                                            <input class="form-control"
-                                                   name="ip"
-                                                   placeholder="IP Address">
-                                            <div class="invalid-feedback">
-                                                Please enter a valid IPv4
-                                                address (e.g., 192.168.1.1).
-                                            </div>
-                                        </div>
+                        <!-- Hidden input to carry devices as JSON -->
+                        <input type="hidden" name="devices_json" id="devicesJson">
 
-                                        <input class="form-control mb-2"
-                                               name="username"
-                                               placeholder="Username">
+                        <script>
+                            const deviceInput = document.getElementById("deviceFileInput");
+                            const deviceClearBtn = document.getElementById("deviceClearBtn");
 
-                                        <!-- Password with toggle -->
-                                        <div class="input-group mb-2">
-                                            <input class="form-control"
-                                                   name="password"
-                                                   placeholder="Password"
-                                                   type="password">
-                                            <button class="btn btn-outline-secondary toggle-password"
-                                                    type="button">👁
-                                            </button>
-                                        </div>
+                            function resetDeviceState() {
+                                deviceInput.value = "";
+                                deviceClearBtn.style.display = "none";
+                            }
 
-                                        <select class="form-control mb-2 selectpicker"
-                                                name="platform"
-                                                data-live-search="true">
-                                            <option value="" disabled selected>
-                                                Select Platform
-                                            </option>
-                                            <option value="fortinet">Fortinet
-                                                FortiOS (Fortigate)
-                                            </option>
-                                            <option value="paloalto_panos">Palo
-                                                Alto PAN-OS
-                                            </option>
-                                            <option value="checkpoint_gaia">
-                                                Checkpoint GAiA
-                                            </option>
-                                            <option value="cisco_ios">Cisco
-                                                IOS
-                                            </option>
-                                            <option value="cisco_nxos">Cisco
-                                                Nexus
-                                            </option>
-                                            <option value="cisco_xe">Cisco
-                                                IOS-XE
-                                            </option>
-                                            <option value="cisco_xr">Cisco
-                                                IOS-XR
-                                            </option>
-                                            <option value="juniper_junos">
-                                                Juniper Junos
-                                            </option>
-                                            <option value="arista_eos">Arista
-                                                EOS
-                                            </option>
-                                            <option value="aruba_aoscx">Aruba
-                                                AOS-CX
-                                            </option>
-                                            <option value="hp_procurve">HP
-                                                ProCurve
-                                            </option>
-                                            <option value="hp_comware">HP
-                                                Comware
-                                            </option>
-                                        </select>
+                            deviceInput.addEventListener("change", (event) => {
+                                const file = event.target.files[0];
+                                if (file) {
+                                    deviceClearBtn.style.display = "inline-block";
+                                } else {
+                                    resetDeviceState();
+                                }
+                            });
 
-                                        <!-- Secret with toggle -->
-                                        <div class="input-group mb-2">
-                                            <input class="form-control"
-                                                   name="secret"
-                                                   placeholder="Secret"
-                                                   type="password">
-                                            <button class="btn btn-outline-secondary toggle-password"
-                                                    type="button">👁
-                                            </button>
-                                        </div>
+                            deviceClearBtn.addEventListener("click", () => {
+                                resetDeviceState();
+                            });
+                        </script>
 
-                                        <div class="mb-2">
-                                            <input class="form-control"
-                                                   name="port"
-                                                   placeholder="Port"
-                                                   type="number" value="22">
-                                            <div class="invalid-feedback">
-                                                Port must be between 1 and
-                                                65535.
-                                            </div>
-                                        </div>
+                        <hr>
+                        <p>Or add devices manually:</p>
+                        <button class="btn btn-secondary" type="button"
+                                data-bs-toggle="modal"
+                                data-bs-target="#deviceModal">
+                            ➕ Add Device
+                        </button>
+
+                        <!-- Modal -->
+                        <div class="modal fade" id="deviceModal" tabindex="-1"
+                             aria-labelledby="deviceModalLabel" aria-hidden="true">
+                            <div class="modal-dialog">
+                                <div class="modal-content">
+                                    <div class="modal-header">
+                                        <h5 class="modal-title"
+                                            id="deviceModalLabel">Add Device</h5>
+                                        <button type="button" class="btn-close"
+                                                data-bs-dismiss="modal"
+                                                aria-label="Close"></button>
                                     </div>
-                                    <div id="deviceError"
-                                         class="text-danger"></div>
-                                </div>
-                                <div class="modal-footer">
-                                    <button class="btn btn-primary"
-                                            type="button" id="saveDeviceBtn">
-                                        Save Device
-                                    </button>
+                                    <div class="modal-body">
+                                        <div id="deviceForm">
+                                            <div class="mb-2">
+                                                <input class="form-control"
+                                                       name="ip"
+                                                       placeholder="IP Address">
+                                                <div class="invalid-feedback">
+                                                    Please enter a valid IPv4
+                                                    address (e.g., 192.168.1.1).
+                                                </div>
+                                            </div>
+
+                                            <input class="form-control mb-2"
+                                                   name="username"
+                                                   placeholder="Username">
+
+                                            <!-- Password with toggle -->
+                                            <div class="input-group mb-2">
+                                                <input class="form-control"
+                                                       name="password"
+                                                       placeholder="Password"
+                                                       type="password">
+                                                <button class="btn btn-outline-secondary toggle-password"
+                                                        type="button">👁
+                                                </button>
+                                            </div>
+
+                                            <select class="form-control mb-2 selectpicker"
+                                                    name="platform"
+                                                    data-live-search="true">
+                                                <option value="" disabled selected>
+                                                    Select Platform
+                                                </option>
+                                                <option value="fortinet">Fortinet
+                                                    FortiOS (Fortigate)
+                                                </option>
+                                                <option value="paloalto_panos">Palo
+                                                    Alto PAN-OS
+                                                </option>
+                                                <option value="checkpoint_gaia">
+                                                    Checkpoint GAiA
+                                                </option>
+                                                <option value="cisco_ios">Cisco
+                                                    IOS
+                                                </option>
+                                                <option value="cisco_nxos">Cisco
+                                                    Nexus
+                                                </option>
+                                                <option value="cisco_xe">Cisco
+                                                    IOS-XE
+                                                </option>
+                                                <option value="cisco_xr">Cisco
+                                                    IOS-XR
+                                                </option>
+                                                <option value="juniper_junos">
+                                                    Juniper Junos
+                                                </option>
+                                                <option value="arista_eos">Arista
+                                                    EOS
+                                                </option>
+                                                <option value="aruba_aoscx">Aruba
+                                                    AOS-CX
+                                                </option>
+                                                <option value="hp_procurve">HP
+                                                    ProCurve
+                                                </option>
+                                                <option value="hp_comware">HP
+                                                    Comware
+                                                </option>
+                                            </select>
+
+                                            <!-- Secret with toggle -->
+                                            <div class="input-group mb-2">
+                                                <input class="form-control"
+                                                       name="secret"
+                                                       placeholder="Secret"
+                                                       type="password">
+                                                <button class="btn btn-outline-secondary toggle-password"
+                                                        type="button">👁
+                                                </button>
+                                            </div>
+
+                                            <div class="mb-2">
+                                                <input class="form-control"
+                                                       name="port"
+                                                       placeholder="Port"
+                                                       type="number" value="22">
+                                                <div class="invalid-feedback">
+                                                    Port must be between 1 and
+                                                    65535.
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div id="deviceError"
+                                             class="text-danger"></div>
+                                    </div>
+                                    <div class="modal-footer">
+                                        <button class="btn btn-primary"
+                                                type="button" id="saveDeviceBtn">
+                                            Save Device
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         </div>
-                    </div>
 
-                    <!-- Device Table -->
-                    <div id="deviceList" class="mt-3">
-                        <table class="table table-striped" id="deviceTable">
-                            <thead>
-                            <tr>
-                                <th>IP</th>
-                                <th>Username</th>
-                                <th>Platform</th>
-                                <th>Port</th>
-                                <th>Action</th>
-                            </tr>
-                            </thead>
-                            <tbody></tbody>
-                        </table>
-                    </div>
+                        <!-- Device Table -->
+                        <div id="deviceList" class="mt-3">
+                            <table class="table table-striped" id="deviceTable">
+                                <thead>
+                                <tr>
+                                    <th>IP</th>
+                                    <th>Username</th>
+                                    <th>Platform</th>
+                                    <th>Port</th>
+                                    <th>Action</th>
+                                </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
 
-                    <script>
-                        document.addEventListener("DOMContentLoaded", function () {
-                            $('.selectpicker').selectpicker();
+                        <script>
+                            document.addEventListener("DOMContentLoaded", function () {
+                                $('.selectpicker').selectpicker();
 
-                            $('#deviceModal').on('shown.bs.modal', function () {
-                                $('.selectpicker').selectpicker('render');
-                            });
-
-                            // 👁 toggle logic
-                            document.querySelectorAll(".toggle-password").forEach(btn => {
-                                btn.addEventListener("click", function () {
-                                    const input = this.previousElementSibling;
-                                    if (input.type === "password") {
-                                        input.type = "text";
-                                        this.textContent = "🙈";
-                                    } else {
-                                        input.type = "password";
-                                        this.textContent = "👁";
-                                    }
+                                $('#deviceModal').on('shown.bs.modal', function () {
+                                    $('.selectpicker').selectpicker('render');
                                 });
-                            });
 
-                            // Inputs
-                            const ipInput = document.querySelector("[name='ip']");
-                            const usernameInput = document.querySelector("[name='username']");
-                            const passwordInput = document.querySelector("[name='password']");
-                            const platformInput = document.querySelector("[name='platform']");
-                            const secretInput = document.querySelector("[name='secret']");
-                            const portInput = document.querySelector("[name='port']");
-                            const deviceError = document.getElementById("deviceError");
-
-                            // Live validation
-                            ipInput.addEventListener("input", () => {
-                                const ipRegex = /^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
-                                ipInput.classList.toggle("is-invalid", !ipRegex.test(ipInput.value.trim()));
-                            });
-
-                            portInput.addEventListener("input", () => {
-                                const port = parseInt(portInput.value, 10);
-                                portInput.classList.toggle("is-invalid", isNaN(port) || port < 1 || port > 65535);
-                            });
-
-                            // 🔑 Sync devices table → hidden JSON
-                            function updateDevicesJson() {
-                                const rows = document.querySelectorAll("#deviceTable tbody tr");
-                                const devices = [];
-                                rows.forEach(row => {
-                                    const cols = row.querySelectorAll("td");
-                                    devices.push({
-                                        ip: cols[0].innerText,
-                                        username: cols[1].innerText,
-                                        password: row.dataset.password || "",
-                                        device_type: platformInput.value,
-                                        secret: row.dataset.secret || "",
-                                        port: cols[3].innerText
+                                // 👁 toggle logic
+                                document.querySelectorAll(".toggle-password").forEach(btn => {
+                                    btn.addEventListener("click", function () {
+                                        const input = this.previousElementSibling;
+                                        if (input.type === "password") {
+                                            input.type = "text";
+                                            this.textContent = "🙈";
+                                        } else {
+                                            input.type = "password";
+                                            this.textContent = "👁";
+                                        }
                                     });
                                 });
-                                document.getElementById("devicesJson").value = JSON.stringify(devices);
-                            }
 
-                            // Save device
-                            document.getElementById("saveDeviceBtn").addEventListener("click", function () {
-                                let hasError = false;
-                                deviceError.textContent = "";
+                                $('#deviceModal').on('show.bs.modal', function () {
+                                    // Reset all password fields in the modal
+                                    const pwInputs = this.querySelectorAll("input[type='text'][name='password'], input[type='text'][name='secret']");
+                                    pwInputs.forEach(inp => {
+                                        inp.type = "password";
+                                    });
 
-                                // Helper to validate required fields
-                                function validateRequired(input, message) {
-                                    if (!input.value.trim()) {
-                                        input.classList.add("is-invalid");
-                                        if (!deviceError.textContent) deviceError.textContent = message;
-                                        hasError = true;
-                                    } else {
-                                        input.classList.remove("is-invalid");
+                                    // Reset toggle buttons back to 👁
+                                    const toggleBtns = this.querySelectorAll(".toggle-password");
+                                    toggleBtns.forEach(btn => {
+                                        btn.textContent = "👁";
+                                    });
+                                });
+
+                                // Inputs
+                                const ipInput = document.querySelector("[name='ip']");
+                                const usernameInput = document.querySelector("[name='username']");
+                                const passwordInput = document.querySelector("[name='password']");
+                                const platformInput = document.querySelector("[name='platform']");
+                                const secretInput = document.querySelector("[name='secret']");
+                                const portInput = document.querySelector("[name='port']");
+                                const deviceError = document.getElementById("deviceError");
+
+                                // Live validation
+                                ipInput.addEventListener("input", () => {
+                                    const ipRegex = /^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
+                                    ipInput.classList.toggle("is-invalid", !ipRegex.test(ipInput.value.trim()));
+                                });
+
+                                portInput.addEventListener("input", () => {
+                                    const port = parseInt(portInput.value, 10);
+                                    portInput.classList.toggle("is-invalid", isNaN(port) || port < 1 || port > 65535);
+                                });
+
+                                // 🔑 Sync devices table → hidden JSON
+                                function updateDevicesJson() {
+                                    const rows = document.querySelectorAll("#deviceTable tbody tr");
+                                    const devices = [];
+                                    rows.forEach(row => {
+                                        const cols = row.querySelectorAll("td");
+                                        devices.push({
+                                            ip: cols[0].innerText,
+                                            username: cols[1].innerText,
+                                            password: row.dataset.password || "",
+                                            device_type: row.dataset.platform,
+                                            secret: row.dataset.secret || "",
+                                            port: cols[3].innerText
+                                        });
+                                    });
+                                    document.getElementById("devicesJson").value = JSON.stringify(devices);
+                                }
+
+                                // Save device
+                                document.getElementById("saveDeviceBtn").addEventListener("click", function () {
+                                    let hasError = false;
+                                    deviceError.textContent = "";
+
+                                    // Helper to validate required fields
+                                    function validateRequired(input, message) {
+                                        if (!input.value.trim()) {
+                                            input.classList.add("is-invalid");
+                                            if (!deviceError.textContent) deviceError.textContent = message;
+                                            hasError = true;
+                                        } else {
+                                            input.classList.remove("is-invalid");
+                                        }
                                     }
-                                }
 
-                                // Validate each field
-                                validateRequired(ipInput, "IP address is required.");
-                                validateRequired(usernameInput, "Username is required.");
-                                validateRequired(passwordInput, "Password is required.");
-                                validateRequired(platformInput, "Platform is required.");
-                                validateRequired(portInput, "Port is required.");
+                                    // Validate each field
+                                    validateRequired(ipInput, "IP address is required.");
+                                    validateRequired(usernameInput, "Username is required.");
+                                    validateRequired(passwordInput, "Password is required.");
+                                    validateRequired(platformInput, "Platform is required.");
+                                    validateRequired(portInput, "Port is required.");
 
-                                // If already invalid, show specific error
-                                if (ipInput.classList.contains("is-invalid")) {
-                                    deviceError.textContent = "Please enter a valid IPv4 address.";
-                                    hasError = true;
-                                }
-                                if (portInput.classList.contains("is-invalid")) {
-                                    deviceError.textContent = "Port must be between 1 and 65535.";
-                                    hasError = true;
-                                }
+                                    // If already invalid, show specific error
+                                    if (ipInput.classList.contains("is-invalid")) {
+                                        deviceError.textContent = "Please enter a valid IPv4 address.";
+                                        hasError = true;
+                                    }
+                                    if (portInput.classList.contains("is-invalid")) {
+                                        deviceError.textContent = "Port must be between 1 and 65535.";
+                                        hasError = true;
+                                    }
 
-                                if (hasError) return;
+                                    if (hasError) return;
 
-                                // ✅ Add row if valid
-                                const tableBody = document.querySelector("#deviceTable tbody");
-                                const row = document.createElement("tr");
-                                row.dataset.password = passwordInput.value;
-                                row.dataset.secret = secretInput.value;
+                                    // ✅ Add row if valid
+                                    const tableBody = document.querySelector("#deviceTable tbody");
+                                    const row = document.createElement("tr");
+                                    row.dataset.password = passwordInput.value;
+                                    row.dataset.secret = secretInput.value;
 
-                                const platformLabel = platformInput.options[platformInput.selectedIndex].text;
-                                row.innerHTML = `
+                                    const selectedPlatform = platformInput.value;
+                                    const platformLabel = platformInput.options[platformInput.selectedIndex].text;
+
+                                    row.dataset.platform = selectedPlatform;
+                                    row.innerHTML = `
                 <td>${ipInput.value}</td>
                 <td>${usernameInput.value}</td>
                 <td>${platformLabel}</td>
                 <td>${portInput.value}</td>
                 <td><button class="btn btn-sm btn-danger delete-btn">Delete</button></td>
             `;
-                                tableBody.appendChild(row);
+                                    tableBody.appendChild(row);
 
-                                row.querySelector(".delete-btn").addEventListener("click", function () {
-                                    row.remove();
+                                    row.querySelector(".delete-btn").addEventListener("click", function () {
+                                        row.remove();
+                                        updateDevicesJson();
+                                    });
+
+                                    // Reset fields
+                                    [ipInput, usernameInput, passwordInput, secretInput].forEach(el => el.value = "");
+                                    portInput.value = "22";
+                                    platformInput.value = "";
+                                    $('.selectpicker').selectpicker('val', '');
+                                    deviceError.textContent = "";
+
                                     updateDevicesJson();
+
+                                    bootstrap.Modal.getInstance(document.getElementById("deviceModal")).hide();
                                 });
-
-                                // Reset fields
-                                [ipInput, usernameInput, passwordInput, secretInput].forEach(el => el.value = "");
-                                portInput.value = "22";
-                                platformInput.value = "";
-                                $('.selectpicker').selectpicker('val', '');
-                                deviceError.textContent = "";
-
-                                updateDevicesJson();
-
-                                bootstrap.Modal.getInstance(document.getElementById("deviceModal")).hide();
                             });
-                        });
-                    </script>
+                        </script>
 
-                </div>
-            </div>
-        </div> <!-- ✅ close Devices -->
-
-        <!-- Commands Section -->
-        <div class="accordion-item">
-            <h2 class="accordion-header" id="headingCommands">
-                <button class="accordion-button collapsed" type="button"
-                        data-bs-toggle="collapse"
-                        data-bs-target="#collapseCommands">
-                    Commands
-                </button>
-            </h2>
-            <div id="collapseCommands" class="accordion-collapse collapse"
-                 data-bs-parent="#setupAccordion">
-                <div class="accordion-body">
-
-                    <label class="form-label">Upload Commands TXT</label>
-                    <div class="input-group mb-3">
-                        <!-- Visible file input -->
-                        <input id="commandsFileInput" class="form-control"
-                               type="file" name="commands_file" accept=".txt">
-                        <button id="commandsClearBtn"
-                                class="btn btn-outline-danger" type="button"
-                                style="display: none;">
-                            ❌
-                        </button>
                     </div>
+                </div>
+            </div> <!-- ✅ close Devices -->
 
-                    <hr>
-                    <label class="form-label">Or type commands manually</label>
-                    <textarea id="manualCommands" class="form-control"
-                              name="manual_commands" rows="5"
-                              placeholder="Enter one command per line"></textarea>
+            <!-- Commands Section -->
+            <div class="accordion-item">
+                <h2 class="accordion-header" id="headingCommands">
+                    <button class="accordion-button collapsed" type="button"
+                            data-bs-toggle="collapse"
+                            data-bs-target="#collapseCommands">
+                        Commands
+                    </button>
+                </h2>
+                <div id="collapseCommands" class="accordion-collapse collapse"
+                     data-bs-parent="#setupAccordion">
+                    <div class="accordion-body">
+
+                        <label class="form-label">Upload Commands TXT</label>
+                        <div class="input-group mb-3">
+                            <!-- Visible file input -->
+                            <input id="commandsFileInput" class="form-control"
+                                   type="file" name="commands_file" accept=".txt">
+                            <button id="commandsClearBtn"
+                                    class="btn btn-outline-danger" type="button"
+                                    style="display: none;">
+                                ❌
+                            </button>
+                        </div>
+
+                        <hr>
+                        <label class="form-label">Or type commands manually</label>
+                        <textarea id="manualCommands" class="form-control"
+                                  name="manual_commands" rows="5"
+                                  placeholder="Enter one command per line"></textarea>
+                    </div>
                 </div>
             </div>
+
+            <script>
+                const commandsInput = document.getElementById("commandsFileInput");
+                const commandsClearBtn = document.getElementById("commandsClearBtn");
+                const manualCommands = document.getElementById("manualCommands");
+
+                function resetCommandsState() {
+                    commandsInput.value = "";
+                    commandsClearBtn.style.display = "none";
+                    manualCommands.disabled = false;
+                    commandsInput.disabled = false;
+                }
+
+                // When a file is chosen, disable textarea and show X button
+                commandsInput.addEventListener("change", (event) => {
+                    const file = event.target.files[0];
+                    if (file) {
+                        manualCommands.disabled = true;
+                        commandsClearBtn.style.display = "inline-block";
+                    } else {
+                        resetCommandsState();
+                    }
+                });
+
+                // Clear file when ❌ clicked
+                commandsClearBtn.addEventListener("click", () => {
+                    resetCommandsState();
+                });
+
+                // When textarea is typed into, disable upload
+                manualCommands.addEventListener("input", () => {
+                    commandsInput.disabled = manualCommands.value.trim().length > 0;
+                });
+            </script>
+
+
+            <div class="accordion-item">
+                <h2 class="accordion-header" id="headingOptions">
+                    <button class="accordion-button collapsed" type="button"
+                            data-bs-toggle="collapse"
+                            data-bs-target="#collapseOptions">
+                        General Options
+                    </button>
+                </h2>
+                <div id="collapseOptions" class="accordion-collapse collapse"
+                     data-bs-parent="#setupAccordion">
+                    <div class="accordion-body">
+                        <div class="form-check d-flex justify-content-center align-items-center mb-2">
+                            <input class="form-check-input me-2" type="checkbox"
+                                   name="verbose" id="verbose">
+                            <label class="form-check-label" for="verbose">Verbose
+                                Output</label>
+                        </div>
+                        <div class="form-check d-flex justify-content-center align-items-center mb-2">
+                            <input class="form-check-input me-2" type="checkbox"
+                                   name="verify" id="verify">
+                            <label class="form-check-label" for="verify">Verify
+                                Configuration</label>
+                        </div>
+                    </div>
+                </div>
+            </div> <!-- ✅ close Options -->
+
+        </div> <!-- ✅ close accordion -->
+
+        <!-- Error Box -->
+        <div id="formError" class="alert alert-danger mt-3"
+             style="display:none;"></div>
+
+        <!-- Submit button -->
+        <div class="d-flex justify-content-center mt-4">
+            <button class="btn btn-success" type="submit">🚀 Start Rollout</button>
         </div>
+    </form>
 
-        <script>
-            const commandsInput = document.getElementById("commandsFileInput");
-            const commandsClearBtn = document.getElementById("commandsClearBtn");
-            const manualCommands = document.getElementById("manualCommands");
+    <script>
+        document.getElementById("rolloutForm").addEventListener("submit", function (e) {
+            const deviceFile = document.getElementById("deviceFileInput").files.length > 0;
+            const deviceRows = document.querySelectorAll("#deviceTable tbody tr").length > 0;
 
-            function resetCommandsState() {
-                commandsInput.value = "";
-                commandsClearBtn.style.display = "none";
-                manualCommands.disabled = false;
-                commandsInput.disabled = false;
+            const commandsFile = document.getElementById("commandsFileInput").files.length > 0;
+            const manualCommands = document.getElementById("manualCommands").value.trim().length > 0;
+
+            let errors = [];
+
+            // Devices check
+            if (!deviceFile && !deviceRows) {
+                errors.push("Please add at least one device (CSV or manual).");
+                // 🔑 auto-open Devices accordion
+                const devicesSection = document.getElementById("collapseDevices");
+                devicesSection.classList.add("show");
             }
 
-            // When a file is chosen, disable textarea and show X button
-            commandsInput.addEventListener("change", (event) => {
-                const file = event.target.files[0];
-                if (file) {
-                    manualCommands.disabled = true;
-                    commandsClearBtn.style.display = "inline-block";
-                } else {
-                    resetCommandsState();
-                }
+            // Commands check (must be exactly one)
+            if ((commandsFile && manualCommands) || (!commandsFile && !manualCommands)) {
+                errors.push("Please provide commands either by file OR manual text (not both).");
+                // 🔑 auto-open Commands accordion
+                const commandsSection = document.getElementById("collapseCommands");
+                commandsSection.classList.add("show");
+            }
+
+            if (errors.length > 0) {
+                e.preventDefault();
+                const errorBox = document.getElementById("formError");
+                errorBox.innerHTML = errors.join("<br>");
+                errorBox.style.display = "block";
+                return false;
+            }
+        });
+    </script>
+
+    <script>
+        window.addEventListener("pageshow", function (event) {
+
+            // Clear file inputs
+            document.querySelectorAll("input[type='file']").forEach(input => {
+                input.value = "";
             });
 
-            // Clear file when ❌ clicked
-            commandsClearBtn.addEventListener("click", () => {
-                resetCommandsState();
+            // Clear textareas
+            document.querySelectorAll("textarea").forEach(txt => {
+                txt.value = "";
             });
 
-            // When textarea is typed into, disable upload
-            manualCommands.addEventListener("input", () => {
-                commandsInput.disabled = manualCommands.value.trim().length > 0;
+            // Hide any ❌ buttons
+            document.querySelectorAll(".btn-outline-danger").forEach(btn => {
+                btn.style.display = "none";
             });
-        </script>
 
-
-        <div class="accordion-item">
-            <h2 class="accordion-header" id="headingOptions">
-                <button class="accordion-button collapsed" type="button"
-                        data-bs-toggle="collapse"
-                        data-bs-target="#collapseOptions">
-                    General Options
-                </button>
-            </h2>
-            <div id="collapseOptions" class="accordion-collapse collapse"
-                 data-bs-parent="#setupAccordion">
-                <div class="accordion-body">
-                    <div class="form-check d-flex justify-content-center align-items-center mb-2">
-                        <input class="form-check-input me-2" type="checkbox"
-                               name="verbose" id="verbose">
-                        <label class="form-check-label" for="verbose">Verbose
-                            Output</label>
-                    </div>
-                    <div class="form-check d-flex justify-content-center align-items-center mb-2">
-                        <input class="form-check-input me-2" type="checkbox"
-                               name="verify" id="verify">
-                        <label class="form-check-label" for="verify">Verify
-                            Configuration</label>
-                    </div>
-                </div>
-            </div>
-        </div> <!-- ✅ close Options -->
-
-    </div> <!-- ✅ close accordion -->
-
-    <!-- Error Box -->
-    <div id="formError" class="alert alert-danger mt-3"
-         style="display:none;"></div>
-
-    <!-- Submit button -->
-    <div class="d-flex justify-content-center mt-4">
-        <button class="btn btn-success" type="submit">🚀 Start Rollout</button>
-    </div>
-</form>
-
-<script>
-    document.getElementById("rolloutForm").addEventListener("submit", function (e) {
-        const deviceFile = document.getElementById("deviceFileInput").files.length > 0;
-        const deviceRows = document.querySelectorAll("#deviceTable tbody tr").length > 0;
-
-        const commandsFile = document.getElementById("commandsFileInput").files.length > 0;
-        const manualCommands = document.getElementById("manualCommands").value.trim().length > 0;
-
-        let errors = [];
-
-        // Devices check
-        if (!deviceFile && !deviceRows) {
-            errors.push("Please add at least one device (CSV or manual).");
-            // 🔑 auto-open Devices accordion
-            const devicesSection = document.getElementById("collapseDevices");
-            devicesSection.classList.add("show");
-        }
-
-        // Commands check (must be exactly one)
-        if ((commandsFile && manualCommands) || (!commandsFile && !manualCommands)) {
-            errors.push("Please provide commands either by file OR manual text (not both).");
-            // 🔑 auto-open Commands accordion
-            const commandsSection = document.getElementById("collapseCommands");
-            commandsSection.classList.add("show");
-        }
-
-        if (errors.length > 0) {
-            e.preventDefault();
-            const errorBox = document.getElementById("formError");
-            errorBox.innerHTML = errors.join("<br>");
-            errorBox.style.display = "block";
-            return false;
-        }
-    });
-</script>
-
-<script>
-    window.addEventListener("pageshow", function (event) {
-
-        // Clear file inputs
-        document.querySelectorAll("input[type='file']").forEach(input => {
-            input.value = "";
+            // Also reset hidden JSON (so stale devices don't leak)
+            const devicesJson = document.getElementById("devicesJson");
+            if (devicesJson) devicesJson.value = "[]";
         });
-
-        // Clear textareas
-        document.querySelectorAll("textarea").forEach(txt => {
-            txt.value = "";
-        });
-
-        // Hide any ❌ buttons
-        document.querySelectorAll(".btn-outline-danger").forEach(btn => {
-            btn.style.display = "none";
-        });
-
-        // Also reset hidden JSON (so stale devices don't leak)
-        const devicesJson = document.getElementById("devicesJson");
-        if (devicesJson) devicesJson.value = "[]";
-    });
-</script>
+    </script>
 {% endblock %}
