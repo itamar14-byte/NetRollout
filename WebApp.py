@@ -123,6 +123,8 @@ def webapp_input(
 
 
     # logs summary of file processing workflow
+    Helper.notify(f"Devices object: {devices}",webapp=True,verbose=False)
+
     Helper.notify(
         f"Devices file successfully processed\n"
         f" {len(devices)} devices found\n"
