@@ -3,7 +3,6 @@ import io
 import json
 import queue
 import time
-from itertools import chain
 import threading
 
 from flask import Flask, render_template, request, redirect, url_for, Response
@@ -14,7 +13,7 @@ import Helper
 
 app = Flask(__name__)
 app.config["CURRENT_THREAD"] = None
-app.config["CANCEL_SENT"] = threading.Event()
+cancel_event = threading.Event()
 
 
 @app.route("/")
@@ -49,8 +48,13 @@ def background_rollout(
             verbose_flag,
             verify_flag,
         )
-        if all([devices, commands, verbose_bool, verify_bool]):
-            activate_tool(devices, commands, verbose_bool, verify_bool)
+        if devices and commands:
+            Core.rollout_runner(devices=devices,
+                                commands=commands,
+                                verify_rollout=verify_bool,
+                                verbose=verbose_bool,
+                                webapp=True,
+                                cancel_event=cancel_event)
             return None
         return None
     except Exception as e:
@@ -69,9 +73,9 @@ def webapp_input(
     reader = (
         csv.DictReader(io.TextIOWrapper(device_file, encoding="utf-8-sig"))
         if device_file
-        else []
+        else None
     )
-    manual_devices = json.loads(devices_json)
+    manual_devices = json.loads(devices_json) if devices_json else []
 
     txt_commands = (
         [line.decode("utf-8").strip() for line in commands_file.readlines()]
@@ -107,30 +111,16 @@ def webapp_input(
         if missing_keys:
             raise ValueError("Missing keys: {}".format(missing_keys))
     else:
-        reader = []
+        reader = None
 
     # process all validated devices from both sources into a list of dictionaries
-    devices = []
-    for item in chain(reader, manual_devices):
-        if app.config["CANCEL_SENT"].is_set():
-            Helper.notify("Rollout Canceled By User", color="red", webapp=True)
-            return [], [], False, False
+    csv_devices = list(reader) if reader else []
+    raw_devices = csv_devices + manual_devices
+    devices = Core.prepare_devices(raw_devices=raw_devices
+                                   ,verbose=verbose_bool,
+                                   webapp=True,
+                                   cancel_event=cancel_event)
 
-        item["device_type"] = item["device_type"].lower()
-        if item["ip"] and Helper.validate_device_data(item, webapp=True):
-            if Helper.test_tcp_port(item["ip"], int(item["port"])):
-                devices.append(item)
-                Helper.notify(
-                    f"Device {item['device_type']}: {item['ip']} successfully added",
-                    "green",
-                    verbose_bool,
-                    webapp=True,
-                )
-            else:
-                Helper.notify(f"{item['ip']} is not reachable", "red", webapp=True)
-                continue
-        else:
-            continue
 
     # logs summary of file processing workflow
     Helper.notify(
@@ -144,81 +134,9 @@ def webapp_input(
     return devices, commands, verbose_bool, verify_bool
 
 
-def activate_tool(devices, commands, verbose_bool, verify_bool):
-    push = Core.push_config(
-        devices,
-        commands,
-        verbose_bool,
-        webapp=True,
-        cancel_event=app.config["CANCEL_SENT"],
-    )
-    if push == "cancel_sent":
-        return None
-
-    # If the verify flag is activated, runs the verify function,
-    # getting a dictionary of the devices and the successful commands count
-    if verify_bool:
-        Helper.notify(
-            "Configuration rollout finished. Initiating verification process",
-            webapp=True,
-        )
-        device_count = Core.verify(
-            devices,
-            commands,
-            verbose_bool,
-            webapp=True,
-            cancel_event=app.config["CANCEL_SENT"],
-        )
-        if device_count == "cancel_sent":
-            return None
-
-        failed, partial, successful = 0, 0, 0
-
-        # Number of successful commands in each device and status of
-        # devices,
-        # based on comparing the value to the list of commands
-        for node in device_count.items():
-            if node[1] == 0:
-                failed += 1
-            elif 0 < node[1] < len(commands):
-                partial += 1
-            else:
-                successful += 1
-
-            Helper.notify(
-                f"{node[0]} successfully configured with {node[1]}/{len(commands)} commands",
-                "green",
-                verbose_bool,
-            )
-
-        # Logs and prints (if verbose_bool), the rollout status per device and the summary
-        Helper.notify(f"{failed} devices failed rollout", "red", webapp=True)
-        Helper.notify(
-            f"{partial} devices with problems in configuration", "yellow", webapp=True
-        )
-        Helper.notify(
-            f"{successful} devices successfully configured", "green", webapp=True
-        )
-        Helper.notify(
-            f"Please see Execution logs in {Helper.BASEDIR}\\{Helper.LOGFILE} ",
-            webapp=True,
-        )
-        return None
-
-    Helper.notify(
-        f"Configuration rollout complete. {len(devices)} devices configured",
-        "green",
-        webapp=True,
-    )
-    Helper.notify(
-        f"Please see Execution logs in {Helper.BASEDIR}\\{Helper.LOGFILE} ", webapp=True
-    )
-    return None
-
-
 @app.route("/start_rollout", methods=["POST"])
 def start_rollout():
-    app.config["CANCEL_SENT"].clear()
+    cancel_event.clear()
 
     # File uploads
     device_file = request.files.get("device_file")
@@ -262,7 +180,7 @@ def rollout():
 @app.route("/cancel_rollout")
 def cancel_rollout():
     if app.config["CURRENT_THREAD"] and app.config["CURRENT_THREAD"].is_alive():
-        app.config["CANCEL_SENT"].set()
+        cancel_event.set()
         return {"status": "canceled"}
     else:
         return {"status": "no_active_rollout"}
@@ -271,7 +189,7 @@ def cancel_rollout():
 @app.route("/rollout_status")
 def get_rollout_status():
     thread = app.config["CURRENT_THREAD"]
-    if thread and thread.is_alive() and not app.config["CANCEL_SENT"].is_set():
+    if thread and thread.is_alive() and not cancel_event.is_set():
         return {"status": "active"}
     else:
         return {"status": "idle"}
@@ -281,7 +199,7 @@ def get_rollout_status():
 def sse_stream():
     def generate():
         while True:
-            if app.config["CANCEL_SENT"].is_set():
+            if cancel_event.is_set():
                 yield "data: Rollout Canceled By User\n\n"
                 break
             try:
@@ -296,7 +214,6 @@ def sse_stream():
         mimetype="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
-
 
 if __name__ == "__main__":
     serve(app, host="0.0.0.0", port=8080)
