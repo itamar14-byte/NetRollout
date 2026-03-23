@@ -1,19 +1,19 @@
-import csv
-import io
-import json
-import queue
-import time
-import threading
+from csv import DictReader
+from io import TextIOWrapper, BytesIO
+from json import loads
+from queue import Empty
+from time import sleep
+from threading import Event, Thread
 
-from flask import Flask, render_template, request, redirect, url_for, Response
+from flask import *
 from waitress import serve
 
-import Core
-import Helper
+from Core import prepare_devices, rollout_runner
+from logging_utils import LOG_QUEUE, notify
 
 app = Flask(__name__)
 app.config["CURRENT_THREAD"] = None
-cancel_event = threading.Event()
+cancel_event = Event()
 
 
 @app.route("/")
@@ -35,9 +35,9 @@ def background_rollout(
         verify_flag,
 ):
     try:
-        device_file = io.BytesIO(device_file_stream) if device_file_stream else None
+        device_file = BytesIO(device_file_stream) if device_file_stream else None
         commands_file = (
-            io.BytesIO(commands_file_stream) if commands_file_stream else None
+            BytesIO(commands_file_stream) if commands_file_stream else None
         )
 
         devices, commands, verbose_bool, verify_bool = webapp_input(
@@ -49,21 +49,21 @@ def background_rollout(
             verify_flag,
         )
         if devices and commands:
-            Core.rollout_runner(devices=devices,
-                                commands=commands,
-                                verify_rollout=verify_bool,
-                                verbose=verbose_bool,
-                                webapp=True,
-                                cancel_event=cancel_event)
+            rollout_runner(devices=devices,
+                           commands=commands,
+                           verify_rollout=verify_bool,
+                           verbose=verbose_bool,
+                           webapp=True,
+                           cancel_event=cancel_event)
             return None
         return None
     except Exception as e:
-        Helper.notify(f"Rollout failed: {e}", "red", webapp=True)
+        notify(f"Rollout failed: {e}", "red", webapp=True)
 
 
 def webapp_input(
-        device_file: io.BytesIO,
-        commands_file: io.BytesIO,
+        device_file: BytesIO,
+        commands_file: BytesIO,
         devices_json: str,
         manual_commands: str,
         verbose_flag: str,
@@ -71,11 +71,11 @@ def webapp_input(
 ) -> tuple[list[dict[str, str]], list[str], bool, bool]:
     # Process Webapp input
     reader = (
-        csv.DictReader(io.TextIOWrapper(device_file, encoding="utf-8-sig"))
+        DictReader(TextIOWrapper(device_file, encoding="utf-8-sig"))
         if device_file
         else None
     )
-    manual_devices = json.loads(devices_json) if devices_json else []
+    manual_devices = loads(devices_json) if devices_json else []
 
     txt_commands = (
         [line.decode("utf-8").strip() for line in commands_file.readlines()]
@@ -116,16 +116,16 @@ def webapp_input(
     # process all validated devices from both sources into a list of dictionaries
     csv_devices = list(reader) if reader else []
     raw_devices = csv_devices + manual_devices
-    devices = Core.prepare_devices(raw_devices=raw_devices
-                                   ,verbose=verbose_bool,
-                                   webapp=True,
-                                   cancel_event=cancel_event)
+    devices = prepare_devices(raw_devices=raw_devices
+                              , verbose=verbose_bool,
+                              webapp=True,
+                              cancel_event=cancel_event)
 
 
     # logs summary of file processing workflow
-    Helper.notify(f"Devices object: {devices}",webapp=True,verbose=False)
+    notify(f"Devices object: {devices}", webapp=True, verbose=False)
 
-    Helper.notify(
+    notify(
         f"Devices file successfully processed\n"
         f" {len(devices)} devices found\n"
         f"{len(commands)} commands will be executed",
@@ -157,7 +157,7 @@ def start_rollout():
     verify_flag = request.form.get("verify", "")
 
     # Runs the configuration push as a background task
-    thread = threading.Thread(
+    thread = Thread(
         target=lambda: background_rollout(
             device_file_stream,
             commands_file_stream,
@@ -205,11 +205,11 @@ def sse_stream():
                 yield "data: Rollout Canceled By User\n\n"
                 break
             try:
-                msg = Helper.LOG_QUEUE.get(timeout=1)
+                msg = LOG_QUEUE.get(timeout=1)
                 yield f"data: {msg}\n\n"
-            except queue.Empty:
+            except Empty:
                 yield "data: \n\n"
-                time.sleep(0.5)
+                sleep(0.5)
 
     return Response(
         generate(),

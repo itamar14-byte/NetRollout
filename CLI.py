@@ -1,15 +1,15 @@
-import argparse
-import sys
-import time
+from argparse import ArgumentParser
+from sys import exit
+from time import sleep
 
-import Core
-from Helper import notify
+from Core import parse_files, rollout_runner
+from logging_utils import notify
 
 
 def get_args():
     """Creates arguments for the headless CLI tool"""
 
-    parser = argparse.ArgumentParser(
+    parser = ArgumentParser(
         description="A Network Automation tool to roll out configuration snippets on a"
         "set of devices."
     )
@@ -60,16 +60,16 @@ def main():
             else False
         )
     verbose = args.verbose
-    devices, commands = Core.parse_files(devices_path, commands_path, verbose)
+    devices, commands = parse_files(devices_path, commands_path, verbose)
 
-    exit_code = Core.rollout_runner(
+    exit_code = rollout_runner(
 	    devices=devices,
 	    commands=commands,
 	    verify_rollout=verify_rollout,
 	    verbose=verbose
     )
-    time.sleep(10)
-    sys.exit(exit_code)
+    sleep(10)
+    exit(exit_code)
 
 
 
@@ -79,4 +79,4 @@ if __name__ == "__main__":
         main()
     except KeyboardInterrupt:
         notify("Interrupted by User. Exiting Program")
-        sys.exit(0)
+        exit(0)

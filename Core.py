@@ -1,25 +1,19 @@
-import csv
-import threading
+from csv import DictReader
 from threading import Event
 from typing import Optional
 
-import netmiko
+from netmiko import *
 from napalm import get_network_driver
 
-from Helper import (
-	test_tcp_port,
-	validate_file_extension,
-	validate_device_data,
-	notify,
-	BASEDIR,
-	LOGFILE,
-)
+from validation import (test_tcp_port, validate_file_extension,
+                        validate_device_data)
+from logging_utils import notify, BASEDIR, LOGFILE
 
 
 def prepare_devices(raw_devices: list[dict[str, str]],
                     verbose: bool,
                     webapp: bool = False,
-                    cancel_event:Optional[threading.Event] = None) \
+                    cancel_event:Optional[Event] = None) \
 		-> list[dict[str, str]]:
 	"""Helper function for the file parser that processes the device dictionary
 		 :param raw_devices: preprocessed device list
@@ -93,7 +87,7 @@ def parse_files(
 					"port",
 				}
 				# Parses csv file into an iterable of dictionaries with the headers as keys
-				reader = csv.DictReader(file)
+				reader = DictReader(file)
 
 				# Check if all required fields are there
 				missing_keys = required_keys - set(reader.fieldnames)
@@ -168,7 +162,7 @@ def push_config(
 			# Tests tcp connectivity to the device on the requested port
 			try:
 				# Initialise a netmiko connection object
-				net_connect = netmiko.ConnectHandler(**device)
+				net_connect = ConnectHandler(**device)
 				notify(
 					f"{device['ip']} connected successfully",
 					"green",
@@ -205,11 +199,11 @@ def push_config(
 
 			# In case of exception or issue in connecting and executing the commands,
 			# an error message will be printed, and we move to the next device
-			except netmiko.NetMikoAuthenticationException:
+			except NetMikoAuthenticationException:
 				notify(f"{device['ip']} authentication failed", "red",
 				       webapp=webapp)
 				continue
-			except netmiko.NetmikoTimeoutException:
+			except NetmikoTimeoutException:
 				notify(f"{device['ip']} timed out", "red", webapp=webapp)
 				continue
 			except Exception as e:
@@ -342,7 +336,7 @@ def rollout_runner(devices: list[dict[str, str]],
                    verify_rollout: bool = False,
                    verbose: bool = False,
                    webapp: bool = False,
-                   cancel_event:Optional[threading.Event] = None) -> int:
+                   cancel_event:Optional[Event] = None) -> int:
 	notify("Starting configuration rollout")
 	# Runs parse_files to get data from the provided file paths
 	try:
