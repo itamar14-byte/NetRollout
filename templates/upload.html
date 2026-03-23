@@ -251,7 +251,8 @@
                                         ip: cols[0].innerText,
                                         username: cols[1].innerText,
                                         password: row.dataset.password || "",
-                                        device_type: platformInput.value,
+                                        device_type:row.dataset.platformValue
+                                            || "",
                                         secret: row.dataset.secret || "",
                                         port: cols[3].innerText
                                     });
@@ -297,10 +298,13 @@
                                 // ✅ Add row if valid
                                 const tableBody = document.querySelector("#deviceTable tbody");
                                 const row = document.createElement("tr");
+                                const platformValue = platformInput.value;
+                                const platformLabel = platformInput.options[platformInput.selectedIndex].text;
+
                                 row.dataset.password = passwordInput.value;
                                 row.dataset.secret = secretInput.value;
+                                row.dataset.platformValue = platformValue;
 
-                                const platformLabel = platformInput.options[platformInput.selectedIndex].text;
                                 row.innerHTML = `
                 <td>${ipInput.value}</td>
                 <td>${usernameInput.value}</td>
