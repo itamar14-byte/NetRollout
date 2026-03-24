@@ -27,6 +27,17 @@ class Device:
 	secret: str = field(repr=False)
 	port: int
 
+	def netmiko_connector(self) -> dict[str,str]:
+		params = {
+			"ip" : self.ip,
+			"username" : self.username,
+			"password" : self.password,
+			"device_type" : self.device_type,
+			"port" : self.port,
+			"secret" : self.secret
+		}
+		return params
+
 	def fetch_config(self, webapp: bool = False) -> Optional[
 		str]:
 		"""
@@ -243,7 +254,8 @@ class RolloutEngine:
 				# Tests tcp connectivity to the device on the requested port
 				try:
 					# Initialise a netmiko connection object
-					net_connect = netmiko.ConnectHandler(vars(device))
+					net_connect = (netmiko.ConnectHandler
+					               (**(device.netmiko_connector())))
 					self.notify(
 						f"{device.ip} connected successfully",
 						"green")
@@ -309,7 +321,7 @@ class RolloutEngine:
 					command = command.strip()
 					# If a command has no match in the config, we print a notification. On a successful match,
 					# we increment the counter
-					if command.lower() not in config:
+					if command.lower() not in config.lower():
 						rejects.append(command)
 						self.notify(
 							f"{command} not configured on {device.ip}",

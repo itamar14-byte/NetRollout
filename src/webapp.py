@@ -5,7 +5,8 @@ from queue import Empty
 from threading import Event, Thread
 from time import sleep
 
-from flask import *
+from flask import (app, redirect, Response, request, render_template, url_for, \
+	Flask)
 from waitress import serve
 
 from core import prepare_devices, RolloutEngine, RolloutOptions
@@ -85,7 +86,7 @@ def webapp_input(
 	                               cancel_event=cancel_event)
 
 	# logs summary of file processing workflow
-	base_notify(f"Devices object: {devices}", webapp=True, verbose=False)
+	base_notify(f"Devices loaded: {devices}", webapp=True, verbose=False)
 
 	base_notify(
 		f"Devices file successfully processed\n"
@@ -181,7 +182,7 @@ def rollout():
 	return render_template("rollout.html")
 
 
-@app.route("/cancel_rollout")
+@app.route("/cancel_rollout", methods=["POST"])
 def cancel_rollout():
 	if app.config["CURRENT_THREAD"] and app.config["CURRENT_THREAD"].is_alive():
 		cancel_event.set()

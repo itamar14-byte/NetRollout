@@ -3,7 +3,7 @@ import os
 import socket
 import time
 
-from logging_utils import notify
+from logging_utils import base_notify
 
 
 # Defines supported platforms for app
@@ -39,11 +39,11 @@ def validate_file_extension(path: str, extension: str) -> bool:
         # Verifies file extension indeed exists in the system
         # and is a recognized file type
         # (not directory or something else)
-        notify(f"{path} is not a file", "red")
+        base_notify(f"{path} is not a file", "red")
         return False
     if not path.lower().endswith(extension):
         # Verifies the type of the file indeed conforms to the extension we expect for the file
-        notify(f"file must be {extension}", "red")
+        base_notify(f"file must be {extension}", "red")
         return False
     return True
 
@@ -97,15 +97,17 @@ def validate_device_data(device: dict[str, str], webapp: bool = False) -> bool:
                 return True
 
             else:
-                notify(
+                base_notify(
                     f"{device['device_type']} is not supported", "red", webapp=webapp
                 )
 
         else:
-            notify(f"{device['port']} is not a valid port number", "red", webapp=webapp)
+            base_notify(f"{device['port']} is not a valid port number", "red",
+                    webapp=webapp)
 
     else:
-        notify(f"{device['ip']} is not a valid IPv4 address", "red", webapp=webapp)
+        base_notify(f"{device['ip']} is not a valid IPv4 address", "red",
+                webapp=webapp)
 
     return False
 

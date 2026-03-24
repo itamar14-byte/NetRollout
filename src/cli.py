@@ -75,12 +75,12 @@ def main():
 	# In Ctrl+C from the user, the system exits
 	try:
 		exit_code = run_instance.run()
-		time.sleep(10)
+		input("Press Enter to continue...")
 		sys.exit(exit_code)
 	except KeyboardInterrupt:
 		run_instance.cancel_event.set()
 		base_notify("Interrupted by User. Exiting Program")
-		exit(0)
+		sys.exit(0)
 
 
 if __name__ == "__main__":
