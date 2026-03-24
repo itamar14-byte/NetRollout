@@ -309,7 +309,7 @@ class RolloutEngine:
 					command = command.strip()
 					# If a command has no match in the config, we print a notification. On a successful match,
 					# we increment the counter
-					if command not in config:
+					if command.lower() not in config:
 						rejects.append(command)
 						self.notify(
 							f"{command} not configured on {device.ip}",
