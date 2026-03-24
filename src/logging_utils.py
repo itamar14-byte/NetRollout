@@ -2,7 +2,7 @@ import datetime
 import os
 import queue
 
-# Creates a timestamp for the defined globally at every running of Core.py.
+# Creates a timestamp for the defined globally at every running of core.py.
 # Variable will be calculated when importing helper
 LOGFILE = datetime.datetime.now().strftime("rollout_%Y%m%d_%H%M%S.log")
 LOG_QUEUE = queue.Queue()
