@@ -56,13 +56,12 @@ def log(string: str, file_name: str = LOGFILE) -> None:
         file.write(f"{timestamp}\t{string}\n")
 
 
-def notify(
-    string: str, color: str = None, verbose: bool = True, webapp: bool = False
-) -> None:
+def base_notify(string: str, color: str = None,
+                verbose: bool = False, webapp: bool = False) -> None:
     """A wrapper logging function.
-     All messages are logged to the file.
-    Additionally, error messages, or messages generated in verbose mode are printed to console
-    """
+	 All messages are logged to the file.
+	Additionally, error messages, or messages generated in verbose mode are printed to console
+	"""
     if webapp:
         if verbose:
             LOG_QUEUE.put(msg(string, color, webapp=True))
@@ -72,5 +71,3 @@ def notify(
         if verbose:
             print(msg(string, color))
         log(string)
-
-

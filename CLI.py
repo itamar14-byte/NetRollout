@@ -1,9 +1,9 @@
 from argparse import ArgumentParser
-from sys import exit
-from time import sleep
+import sys
+import time
 
-from Core import parse_files, rollout_runner
-from logging_utils import notify
+from Core import parse_files,RolloutOptions, RolloutEngine
+from logging_utils import base_notify
 
 
 def get_args():
@@ -59,18 +59,19 @@ def main():
             if input("Do you want to verify roll out? (y/n): ").lower() == "y"
             else False
         )
-    verbose = args.verbose
-    devices, commands = parse_files(devices_path, commands_path, verbose)
-
-    exit_code = rollout_runner(
-	    devices=devices,
-	    commands=commands,
-	    verify_rollout=verify_rollout,
-	    verbose=verbose
+    params = RolloutOptions(verbose=args.verbose,
+                            verify=verify_rollout,
+                            webapp=False)
+    devices, commands = parse_files(devices_path, commands_path, params.verbose)
+    run_instance = RolloutEngine(
+        param=params,
+        devices=devices,
+        commands=commands
     )
-    sleep(10)
-    exit(exit_code)
 
+    exit_code = run_instance.run()
+    time.sleep(10)
+    sys.exit(exit_code)
 
 
 if __name__ == "__main__":
@@ -78,5 +79,5 @@ if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        notify("Interrupted by User. Exiting Program")
+        base_notify("Interrupted by User. Exiting Program")
         exit(0)

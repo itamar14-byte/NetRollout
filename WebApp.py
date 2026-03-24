@@ -8,57 +8,12 @@ from threading import Event, Thread
 from flask import *
 from waitress import serve
 
-from Core import prepare_devices, rollout_runner
-from logging_utils import LOG_QUEUE, notify
+from Core import prepare_devices, RolloutEngine, RolloutOptions
+from logging_utils import LOG_QUEUE, base_notify
 
 app = Flask(__name__)
 app.config["CURRENT_THREAD"] = None
 cancel_event = Event()
-
-
-@app.route("/")
-def home():
-    return render_template("index.html")
-
-
-@app.route("/upload")
-def upload():
-    return render_template("upload.html")
-
-
-def background_rollout(
-        device_file_stream,
-        commands_file_stream,
-        devices_json,
-        manual_commands,
-        verbose_flag,
-        verify_flag,
-):
-    try:
-        device_file = BytesIO(device_file_stream) if device_file_stream else None
-        commands_file = (
-            BytesIO(commands_file_stream) if commands_file_stream else None
-        )
-
-        devices, commands, verbose_bool, verify_bool = webapp_input(
-            device_file,
-            commands_file,
-            devices_json,
-            manual_commands,
-            verbose_flag,
-            verify_flag,
-        )
-        if devices and commands:
-            rollout_runner(devices=devices,
-                           commands=commands,
-                           verify_rollout=verify_bool,
-                           verbose=verbose_bool,
-                           webapp=True,
-                           cancel_event=cancel_event)
-            return None
-        return None
-    except Exception as e:
-        notify(f"Rollout failed: {e}", "red", webapp=True)
 
 
 def webapp_input(
@@ -68,7 +23,7 @@ def webapp_input(
         manual_commands: str,
         verbose_flag: str,
         verify_flag: str,
-) -> tuple[list[dict[str, str]], list[str], bool, bool]:
+) -> RolloutEngine:
     # Process Webapp input
     reader = (
         DictReader(TextIOWrapper(device_file, encoding="utf-8-sig"))
@@ -120,12 +75,19 @@ def webapp_input(
                               , verbose=verbose_bool,
                               webapp=True,
                               cancel_event=cancel_event)
+    params = RolloutOptions(verbose=verbose_bool,
+                            verify=verify_bool,
+                            webapp=True)
 
+    rollout_engine = RolloutEngine(param=params,
+                                   devices=devices,
+                                   commands=commands,
+                                   cancel_event=cancel_event)
 
     # logs summary of file processing workflow
-    notify(f"Devices object: {devices}", webapp=True, verbose=False)
+    base_notify(f"Devices object: {devices}", webapp=True, verbose=False)
 
-    notify(
+    base_notify(
         f"Devices file successfully processed\n"
         f" {len(devices)} devices found\n"
         f"{len(commands)} commands will be executed",
@@ -133,7 +95,47 @@ def webapp_input(
         webapp=True,
     )
     # return the processed data
-    return devices, commands, verbose_bool, verify_bool
+    return rollout_engine
+
+def background_rollout(
+        device_file_stream,
+        commands_file_stream,
+        devices_json,
+        manual_commands,
+        verbose_flag,
+        verify_flag,):
+    try:
+        device_file = BytesIO(device_file_stream) if device_file_stream else None
+        commands_file = (
+            BytesIO(commands_file_stream) if commands_file_stream else None
+        )
+
+        run_engine = webapp_input(
+            device_file,
+            commands_file,
+            devices_json,
+            manual_commands,
+            verbose_flag,
+            verify_flag,
+        )
+        if run_engine.devices and run_engine.commands:
+            run_engine.run()
+            return None
+        return None
+    except Exception as e:
+        base_notify(f"Rollout failed: {e}", "red", webapp=True)
+
+
+
+@app.route("/")
+def home():
+    return render_template("index.html")
+
+
+@app.route("/upload")
+def upload():
+    return render_template("upload.html")
+
 
 
 @app.route("/start_rollout", methods=["POST"])
