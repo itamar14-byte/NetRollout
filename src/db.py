@@ -1,6 +1,5 @@
 import os
 from contextlib import contextmanager
-from logging import exception
 
 from sqlalchemy.orm import sessionmaker,DeclarativeBase
 from sqlalchemy import create_engine
@@ -19,7 +18,7 @@ def get_session():
 	try:
 		yield session
 		session.commit()
-	except exception():
+	except Exception:
 		session.rollback()
 	finally:
 		session.close()
