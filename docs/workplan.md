@@ -1,5 +1,5 @@
 # Development Workplan
-_Last updated: 2026-04-05_
+_Last updated: 2026-04-06_
 
 ---
 
@@ -7,20 +7,29 @@ _Last updated: 2026-04-05_
 
 Self-contained deliverable: a working register/login/logout flow wired into the existing webapp.
 No dependency on the architecture decisions coming in Phase 2.
+Using **Flask-Login** (not manual sessions) for session management.
 
-### 1.1 Password hashing
-`User.password_hash` exists but nothing hashes yet.
-Use `werkzeug.security` (`generate_password_hash` / `check_password_hash`) — already a Flask dependency, no new install needed.
+### 1.1 Flask-Login setup ✅
+- `flask-login` installed, added to `requirements.txt`
+- `UserMixin` added to `User` model in `tables.py`
+- `LoginManager` initialized in `webapp.py`, login view set to `"home"`
+- `user_loader` callback wired to DB via `get_session()`
+- `@login_required` applied to all protected routes
 
-### 1.2 Auth routes — backend
-Add routes: `POST /register`, `POST /login`, `GET /logout`.
-Use Flask sessions (`secret_key`) to track the logged-in user.
-Protect `/upload`, `/start_rollout`, `/rollout`, `/rollout_stream` with a login required decorator.
+### 1.2 Frontend ✅
+- `templates/index.html` — replaced Get Started with login card + flash messages + register link
+- `templates/base.html` — user widget dropdown (username, My Account, Logout) shown when authenticated
 
-### 1.3 Auth flow — frontend
-Add login and register pages (templates).
-Redirect unauthenticated users to login.
-Show logged-in username in the nav.
+### 1.3 Auth routes — backend (in progress)
+- `POST /login` — fetch user from DB, `check_password_hash`, `login_user()`
+- `POST /register` — `generate_password_hash`, create `User`, commit to DB
+- `GET /logout` — `logout_user()`, redirect to home
+- `GET /account` — user stats placeholder (full stats wired in Phase 2)
+- Password hashing via `werkzeug.security` in the register route (server-side only, DB never sees plaintext)
+
+### 1.4 Frontend — remaining
+- `templates/register.html` — registration form
+- `templates/account.html` — account page (username, member since, stats placeholder)
 
 ---
 
