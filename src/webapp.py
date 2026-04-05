@@ -7,16 +7,30 @@ from time import sleep
 
 from flask import (redirect, Response, request, render_template, url_for, \
 	Flask)
+from flask_login import LoginManager, login_required
 
 from waitress import serve
 
 from core import prepare_devices, RolloutEngine, RolloutOptions
 from logging_utils import LOG_QUEUE, base_notify
 
+from tables import User
+from db import get_session
+
+
 app = Flask(__name__)
 app.config["CURRENT_THREAD"] = None
 cancel_event = Event()
 
+login_mng=LoginManager()
+login_mng.init_app(app)
+login_mng.login_view = "home"
+
+
+@login_mng.user_loader
+def load_user(user_id):
+	with get_session() as session:
+		return session.get(User,int(user_id))
 
 def webapp_input(
 		device_file: BytesIO,
@@ -136,11 +150,13 @@ def home():
 
 
 @app.route("/upload")
+@login_required
 def upload():
 	return render_template("upload.html")
 
 
 @app.route("/start_rollout", methods=["POST"])
+@login_required
 def start_rollout():
 	cancel_event.clear()
 
@@ -179,11 +195,13 @@ def start_rollout():
 
 
 @app.route("/rollout")
+@login_required
 def rollout():
 	return render_template("rollout.html")
 
 
 @app.route("/cancel_rollout", methods=["POST"])
+@login_required
 def cancel_rollout():
 	if app.config["CURRENT_THREAD"] and app.config["CURRENT_THREAD"].is_alive():
 		cancel_event.set()
@@ -193,6 +211,7 @@ def cancel_rollout():
 
 
 @app.route("/rollout_status")
+@login_required
 def get_rollout_status():
 	thread = app.config["CURRENT_THREAD"]
 	if thread and thread.is_alive() and not cancel_event.is_set():
@@ -202,6 +221,7 @@ def get_rollout_status():
 
 
 @app.route("/rollout_stream")
+@login_required
 def sse_stream():
 	def generate():
 		while True:
