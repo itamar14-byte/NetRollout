@@ -7,61 +7,26 @@ Status key: 🔴 Open · ✅ Fixed
 
 ## Critical
 
-### 🔴 `db.py:22` — `except exception()` swallows nothing
-`exception` on line 3 is imported from `logging` (`from logging import exception`).
-Calling `except exception():` invokes `logging.exception()` rather than catching `Exception`.
-Any database error during a session will skip the rollback and leave the session open.
+### 🔴 `logging_utils.py:36-37` — webapp path of `msg()` crashes on unknown color
+The fix applied to the CLI path was not mirrored in the webapp path.
+`ANSI_TO_HTML.get("UNKNOWN")` returns `None`, then `None + string + WEBAPP_END` raises `TypeError`.
 ```python
 # current (broken)
-except exception():
+if color:
+    color = ANSI_TO_HTML.get(color.upper())
+    return color + string + WEBAPP_END   # color may be None here
 
-# fix
-except Exception:
-```
-
----
-
-### 🔴 `logging_utils.py` — webapp error messages silently dropped
-`base_notify()` only enqueues to `LOG_QUEUE` when `verbose=True`.
-Error messages (e.g. auth failure, device unreachable) are passed with no `verbose` flag,
-so in the webapp they are logged to file but never sent to the SSE stream.
-The user sees nothing when a device fails.
-Confirmed by test: `TestRolloutEngineNotify::test_verbose_webapp_enqueues` passes only because
-it explicitly sets `verbose=True` — non-verbose error paths are invisible.
-```python
-# current (broken) — errors silenced unless verbose
-if verbose:
-    LOG_QUEUE.put(msg(string, color, webapp=True))
-
-# fix — always enqueue errors
-if verbose or color == "red":
-    LOG_QUEUE.put(msg(string, color, webapp=True))
+# fix — same guard as the CLI path
+if color:
+    color = ANSI_TO_HTML.get(color.upper())
+    if color:
+        return color + string + WEBAPP_END
+return string
 ```
 
 ---
 
 ## Medium
-
-### 🔴 `validation.py:124-137` — socket reused after failed `connect()` on Windows
-`test_tcp_port()` creates one socket and retries `connect()` on it.
-On Windows, calling `connect()` on a socket that already failed raises
-`OSError: [WinError 10056] A connect request was already made`.
-A new socket must be created per attempt.
-```python
-# fix — move socket creation inside the loop
-for attempt in range(TCP_RETRIES):
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as conn:
-        conn.settimeout(TCP_TIMEOUT)
-        try:
-            conn.connect((ip, port))
-            return True
-        except OSError:
-            if attempt < TCP_RETRIES - 1:
-                time.sleep(TCP_RETRY_DELAY)
-return False
-```
-
----
 
 ### 🔴 `webapp.py:18` — `cancel_event` is a module-level singleton
 `cancel_event` is created once at import time and shared across all requests.
@@ -115,7 +80,7 @@ No code path inside it raises `ValueError`. The except clause is unreachable dea
 ---
 
 ### 🔴 `logging_utils.py` — redundant double-uppercasing in `msg()`
-`COLORS` dict keys are already uppercase (`"RED"`, `"GREEN"`, `"YELLOW"`).
+`COLORS` and `ANSI_TO_HTML` dict keys are already uppercase.
 `msg()` calls `.upper()` on the caller-supplied color string before the lookup.
 No functional impact, just noise.
 
@@ -123,7 +88,23 @@ No functional impact, just noise.
 
 ## Fixed
 
-### ✅ `logging_utils.py` — unknown color string caused `TypeError`
+### ✅ `db.py:22` — `except exception()` swallowed all DB errors
+`exception` was imported from `logging`, so `except exception():` never matched anything.
+Rollback never ran, session was never properly closed on error.
+Fixed: bad import removed, changed to `except Exception:`.
+
+### ✅ `logging_utils.py` — webapp error messages silently dropped
+`base_notify()` only enqueued to `LOG_QUEUE` when `verbose=True`.
+Error messages (red) were never sent to the SSE stream in the webapp.
+Fixed: condition changed to `if verbose or color == "red":` in both CLI and webapp branches.
+
+### ✅ `logging_utils.py:41-43` — CLI path of `msg()` crashed on unknown color
 `COLORS.get("UNKNOWN")` returned `None`, then `None + string + END` raised `TypeError`.
 Fixed by guarding: `if color: return color + string + END`.
 Covered by `TestMsg::test_unknown_color_returns_plain`.
+
+### ✅ `validation.py:124` — socket reused after failed `connect()` on Windows
+A single socket was created outside the retry loop. After a failed `connect()`, the socket
+is in an error state and re-calling `connect()` raises `WinError 10056` on Windows,
+making retries 2 and 3 immediately fail without attempting a connection.
+Fixed: socket creation moved inside the loop so each attempt gets a fresh socket.
