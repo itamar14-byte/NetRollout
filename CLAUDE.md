@@ -1,0 +1,106 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Overview
+
+Network bulk configuration tool that pushes configuration snippets to multiple network devices simultaneously. It has two interfaces:
+- **CLI** (`src/cli.py`): headless tool invoked directly
+- **Web app** (`src/webapp.py`): Flask app served via Waitress on port 8080
+
+## Commands
+
+### Run the CLI
+```bash
+cd src
+python cli.py -d <devices.csv> -c <commands.txt> [-vy] [-vb]
+```
+- `-vy` / `--verify`: verify config was applied after push (uses NAPALM)
+- `-vb` / `--verbose`: print logs to console (always written to timestamped `.log` file)
+
+### Run the web app
+```bash
+cd src
+python webapp.py
+```
+App available at `http://localhost:8080`.
+
+### Initialize the database
+Requires `DATABASE_URL` environment variable (PostgreSQL URL via psycopg).
+```bash
+cd src
+python db_install.py
+```
+
+### Run tests
+```bash
+python -m pytest tests/
+```
+> Note: `tests/test.py` is a stub — tests need to be written.
+
+### Install dependencies
+```bash
+pip install -r requirements.txt
+```
+
+## Architecture
+
+All source code lives in `src/`. Scripts import each other directly (no package `__init__.py`), so they must be run from the `src/` directory.
+
+### Data flow
+
+1. **Input parsing** — `core.py:parse_files()` reads a CSV of devices and a `.txt` of commands. For the webapp, `webapp.py:webapp_input()` does equivalent parsing from uploaded files or JSON form data.
+2. **Device preparation** — `core.py:prepare_devices()` validates each device row (via `validation.py`) and tests TCP reachability before constructing `Device` objects.
+3. **Config push** — `RolloutEngine.push_config()` iterates devices and uses **Netmiko** (`ConnectHandler`) to SSH in, enter config mode, and send each command.
+4. **Verification** (optional) — `RolloutEngine.verify()` re-connects via **NAPALM** (`get_config()`) and checks each command appears in the running config string.
+5. **Cancellation** — A `threading.Event` (`cancel_event`) is checked at each device iteration; the webapp sets it via `POST /cancel_rollout`.
+
+### Key files
+
+| File | Responsibility |
+|---|---|
+| `src/core.py` | `Device` dataclass, `RolloutEngine`, `parse_files`, `prepare_devices` |
+| `src/cli.py` | Argument parsing, CLI entry point |
+| `src/webapp.py` | Flask routes, SSE stream (`/rollout_stream`), background thread management |
+| `src/validation.py` | IP/port/platform validation, TCP reachability probe (`test_tcp_port`) |
+| `src/logging_utils.py` | ANSI/HTML color formatting, `log()` to timestamped file, `LOG_QUEUE` for SSE |
+| `src/db.py` | SQLAlchemy engine/session from `DATABASE_URL` env var |
+| `src/tables.py` | `User` ORM model |
+| `src/db_install.py` | Creates all tables (`Base.metadata.create_all`) |
+
+### Webapp real-time logging
+
+The webapp uses **Server-Sent Events** (SSE). `LOG_QUEUE` (a `queue.Queue`) in `logging_utils.py` is the shared channel — `base_notify(..., webapp=True)` enqueues HTML-colored messages, and `/rollout_stream` streams them to the browser.
+
+### Supported platforms (Netmiko device types)
+
+`cisco_ios`, `cisco_nxos`, `cisco_xe`, `cisco_xr`, `juniper_junos`, `arista_eos`, `fortinet`, `paloalto_panos`, `aruba_aoscx`, `checkpoint_gaia`, `hp_procurve`, `hp_comware`
+
+NAPALM verification is not supported for `checkpoint_gaia` and `hp_comware`.
+
+### Device CSV format
+
+Required columns: `ip`, `username`, `password`, `device_type`, `secret`, `port`
+
+## Active development (as of 2026-04-05)
+
+### 1. DB implementation (in progress)
+- `tables.py` — `User` model (SQLAlchemy 2.0 `Mapped`/`mapped_column` style) ✓
+- `db_install.py` — `create_all` with error handling ✓
+- `db.py` — needs engine + `Base` setup (currently only has `import postgresql`)
+- Next: design `RolloutSession` and `DeviceResult` tables → wire into `RolloutEngine.run()`
+
+### 2. OOP restructuring (do alongside DB — `run()` will be touched for both)
+Known gaps identified during OOP course review:
+1. `logging_utils.py` uses module-level global state (`LOG_QUEUE`, `logfile`, `basedir`) — should become a `RolloutLogger` class injected into `RolloutEngine`
+2. `push_config()`, `verify()`, `notify()` on `RolloutEngine` should be prefixed `_` (private)
+3. `netmiko_connector()` on `Device` should be `_netmiko_connector()` (private)
+4. `validation.py` standalone functions should be wrapped in a class
+5. `parse_files()` / `prepare_devices()` are tightly coupled to engine workflow — should move into a class
+
+## Working style
+- The developer writes the code; Claude reviews, advises, and discusses design
+- Always read actual source before suggesting changes
+- Frame architecture feedback in terms of encapsulation, minimal API, abstraction, and information hiding
+- Developer has real networking domain knowledge (3+ years network engineering, Netmiko/NAPALM fluency) — no need to explain networking basics
+- Distinguish critical issues from design improvements from minor polish when reviewing
