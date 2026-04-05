@@ -218,7 +218,7 @@ class RolloutEngine:
 		self.param = param
 		self.devices = devices
 		self.commands = commands
-		self.cancel_event = cancel_event if cancel_event else None
+		self.cancel_event = cancel_event
 
 	def notify(self,string: str, color: str = None) -> None:
 		"""A wrapper logging function.
