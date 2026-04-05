@@ -4,11 +4,61 @@
 {% block content %}
   <h1 class="mb-3">🚀 Network Rollout Tool</h1>
   <p class="lead mb-4">Upload your device list and command set to get started.</p>
-  <a class="btn btn-primary mb-3" href="/upload">Get Started</a>
+
+  <!-- Flash messages -->
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      {% for category, message in messages %}
+        <div class="alert alert-{{ category }} alert-dismissible fade show mx-auto w-75" role="alert">
+          {{ message }}
+          <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+      {% endfor %}
+    {% endif %}
+  {% endwith %}
+
+  <!-- Login Card -->
+  <div class="card shadow-sm mx-auto mb-4" style="max-width: 400px;">
+    <div class="card-body p-4">
+      <h5 class="card-title mb-4">Sign In</h5>
+      <form method="POST" action="{{ url_for('login') }}">
+        <div class="mb-3 text-start">
+          <label for="username" class="form-label">Username</label>
+          <input type="text" class="form-control" id="username"
+                 name="username" placeholder="Enter username" required autofocus>
+        </div>
+        <div class="mb-4 text-start">
+          <label for="password" class="form-label">Password</label>
+          <div class="input-group">
+            <input type="password" class="form-control" id="password"
+                   name="password" placeholder="Enter password" required>
+            <button class="btn btn-outline-secondary toggle-password" type="button">👁</button>
+          </div>
+        </div>
+        <div class="d-grid">
+          <button type="submit" class="btn btn-primary">Login</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <p class="text-muted mb-4">
+    Don't have an account? <a href="{{ url_for('register') }}">Register here</a>
+  </p>
 
   <!-- short explanation -->
   <div class="alert alert-info mx-auto w-75">
     This tool helps you automate configuration rollout across multiple network devices,
     verify the changes, and save time compared to manual CLI work.
   </div>
+
+  <script>
+    document.querySelectorAll(".toggle-password").forEach(btn => {
+      btn.addEventListener("click", function () {
+        const input = this.previousElementSibling;
+        input.type = input.type === "password" ? "text" : "password";
+        this.textContent = input.type === "password" ? "👁" : "🙈";
+      });
+    });
+  </script>
 {% endblock %}

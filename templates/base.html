@@ -63,15 +63,31 @@
 </head>
 <body class="bg-light text-center p-4">
 <div class="container">
-    {% if request.path != '/' %}
-    <div class="d-flex justify-content-start mb-3">
-        {% block home_button %}
-        <a href="{{ url_for('home') }}" class="btn btn-outline-primary">
-            🏠 Back to Home
-        </a>
-        {% endblock %}
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <div>
+            {% if request.path != '/' %}
+            {% block home_button %}
+            <a href="{{ url_for('home') }}" class="btn btn-outline-primary">
+                🏠 Back to Home
+            </a>
+            {% endblock %}
+            {% endif %}
+        </div>
+
+        {% if current_user.is_authenticated %}
+        <div class="dropdown">
+            <button class="btn btn-outline-secondary dropdown-toggle" type="button"
+                    data-bs-toggle="dropdown" aria-expanded="false">
+                👤 {{ current_user.username }}
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end">
+                <li><a class="dropdown-item" href="{{ url_for('account') }}">📊 My Account</a></li>
+                <li><hr class="dropdown-divider"></li>
+                <li><a class="dropdown-item" href="{{ url_for('logout') }}">🚪 Logout</a></li>
+            </ul>
+        </div>
+        {% endif %}
     </div>
-    {% endif %}
     {% block content %}{% endblock %}
 
     <button id="darkModeToggle" class="btn btn-secondary mt-3">🌙 Dark Mode
