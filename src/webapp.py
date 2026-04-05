@@ -18,7 +18,7 @@ from tables import User
 from db import get_session
 
 
-app = Flask(__name__, template_folder='templates')
+app = Flask(__name__, template_folder='../templates')
 app.config["CURRENT_THREAD"] = None
 cancel_event = Event()
 
