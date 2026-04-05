@@ -1,14 +1,11 @@
 import os
 import sys
-import queue
-import socket
 import tempfile
 import threading
 import unittest
-from io import StringIO
-from unittest.mock import MagicMock, patch, mock_open, call
+from unittest.mock import MagicMock, patch
 
-# Add src to path so imports resolve
+# Add src to path so imports resolve without src. prefix (avoids dual module instances)
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from validation import (
@@ -124,7 +121,8 @@ class TestValidatePlatform(unittest.TestCase):
 
 class TestValidateDeviceData(unittest.TestCase):
 
-    def _device(self, **overrides):
+    @staticmethod
+    def _device(**overrides):
         base = {
             "ip": "10.0.0.1",
             "port": "22",
@@ -250,11 +248,9 @@ class TestMsg(unittest.TestCase):
         result = msg("plain", webapp=True)
         self.assertEqual(result, "plain")
 
-    def test_unknown_color_raises(self):
-        # Bug: unknown color causes COLORS.get() to return None, then None + str crashes.
-        # This test documents current behavior — fix is to guard against None in msg().
-        with self.assertRaises(TypeError):
-            msg("hello", "purple")
+    def test_unknown_color_returns_plain(self):
+        result = msg("hello", "purple")
+        self.assertEqual(result, "hello")
 
 
 class TestLog(unittest.TestCase):
@@ -388,7 +384,8 @@ class TestDeviceFetchConfig(unittest.TestCase):
 
 class TestPrepareDevices(unittest.TestCase):
 
-    def _raw(self, **overrides):
+    @staticmethod
+    def _raw(**overrides):
         base = {
             "ip": "10.0.0.1",
             "username": "admin",
@@ -442,7 +439,8 @@ class TestPrepareDevices(unittest.TestCase):
 
 class TestParseFiles(unittest.TestCase):
 
-    def _write_csv(self, path, rows):
+    @staticmethod
+    def _write_csv(path, rows):
         with open(path, "w", encoding="utf-8") as f:
             f.write("ip,username,password,device_type,secret,port\n")
             for row in rows:
@@ -450,7 +448,8 @@ class TestParseFiles(unittest.TestCase):
                                  ("ip", "username", "password",
                                   "device_type", "secret", "port")) + "\n")
 
-    def _write_commands(self, path, commands):
+    @staticmethod
+    def _write_commands(path, commands):
         with open(path, "w") as f:
             f.write("\n".join(commands))
 
@@ -539,7 +538,8 @@ class TestRolloutEngineNotify(unittest.TestCase):
 
 class TestRolloutEnginePushConfig(unittest.TestCase):
 
-    def _make_engine(self, devices=None, commands=None, cancel=None, **opt_kwargs):
+    @staticmethod
+    def _make_engine(devices=None, commands=None, cancel=None, **opt_kwargs):
         return RolloutEngine(
             param=make_options(**opt_kwargs),
             devices=devices or [make_device()],
@@ -607,7 +607,8 @@ class TestRolloutEnginePushConfig(unittest.TestCase):
 
 class TestRolloutEngineVerify(unittest.TestCase):
 
-    def _make_engine(self, devices=None, commands=None, cancel=None):
+    @staticmethod
+    def _make_engine(devices=None, commands=None, cancel=None):
         return RolloutEngine(
             param=make_options(verify=True),
             devices=devices or [make_device()],
@@ -703,7 +704,7 @@ class TestRolloutEngineRun(unittest.TestCase):
     def test_cancel_during_push_returns_1(self, mock_ch):
         cancel = threading.Event()
 
-        def fake_connect(**kwargs):
+        def fake_connect():
             cancel.set()
             raise Exception("cancelled")
 
@@ -855,7 +856,7 @@ class TestFullRolloutAndVerifyPipeline(unittest.TestCase):
     def test_full_pipeline_cancel_mid_rollout(self, _tcp, mock_netmiko_ch):
         cancel = threading.Event()
 
-        def slow_connect(**kwargs):
+        def slow_connect():
             cancel.set()
             raise Exception("connection failed")
 

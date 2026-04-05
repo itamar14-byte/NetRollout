@@ -39,7 +39,8 @@ def msg(string: str, color: str = "", webapp: bool = False) -> str:
     else:
         if color:
             color = COLORS.get(color.upper())
-            return color + string + END
+            if color:
+                return color + string + END
         return string
 
 
