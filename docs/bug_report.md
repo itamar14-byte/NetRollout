@@ -5,27 +5,6 @@ Status key: 🔴 Open · ✅ Fixed
 
 ---
 
-## Critical
-
-### 🔴 `logging_utils.py:36-37` — webapp path of `msg()` crashes on unknown color
-The fix applied to the CLI path was not mirrored in the webapp path.
-`ANSI_TO_HTML.get("UNKNOWN")` returns `None`, then `None + string + WEBAPP_END` raises `TypeError`.
-```python
-# current (broken)
-if color:
-    color = ANSI_TO_HTML.get(color.upper())
-    return color + string + WEBAPP_END   # color may be None here
-
-# fix — same guard as the CLI path
-if color:
-    color = ANSI_TO_HTML.get(color.upper())
-    if color:
-        return color + string + WEBAPP_END
-return string
-```
-
----
-
 ## Medium
 
 ### 🔴 `webapp.py:18` — `cancel_event` is a module-level singleton
@@ -98,9 +77,10 @@ Fixed: bad import removed, changed to `except Exception:`.
 Error messages (red) were never sent to the SSE stream in the webapp.
 Fixed: condition changed to `if verbose or color == "red":` in both CLI and webapp branches.
 
-### ✅ `logging_utils.py:41-43` — CLI path of `msg()` crashed on unknown color
-`COLORS.get("UNKNOWN")` returned `None`, then `None + string + END` raised `TypeError`.
-Fixed by guarding: `if color: return color + string + END`.
+### ✅ `logging_utils.py` — `msg()` crashed on unknown or None color (both paths)
+CLI path: `COLORS.get("UNKNOWN")` returned `None`, then `None + string + END` raised `TypeError`.
+Webapp path: same issue with `ANSI_TO_HTML`, plus `None.upper()` crash when `color=None` passed from `base_notify`.
+Fixed: CLI path guards with `if color:` after lookup; webapp path uses `ANSI_TO_HTML.get(color.upper()) if color else None` then guards before concatenation.
 Covered by `TestMsg::test_unknown_color_returns_plain`.
 
 ### ✅ `validation.py:124` — socket reused after failed `connect()` on Windows

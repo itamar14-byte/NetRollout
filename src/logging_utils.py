@@ -32,8 +32,8 @@ ANSI_TO_HTML = {"RED": WEBAPP_RED, "GREEN": WEBAPP_GREEN, "YELLOW": WEBAPP_YELLO
 def msg(string: str, color: str = "", webapp: bool = False) -> str:
     """Adds ANSI escape sequences to terminal color for progress and error messages"""
     if webapp:
+        color = ANSI_TO_HTML.get(color.upper()) if color else None
         if color:
-            color = ANSI_TO_HTML.get(color.upper())
             return color + string + WEBAPP_END
         return string
     else:
