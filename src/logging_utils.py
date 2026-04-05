@@ -64,11 +64,11 @@ def base_notify(string: str, color: str = None,
 	Additionally, error messages, or messages generated in verbose mode are printed to console
 	"""
     if webapp:
-        if verbose:
+        if verbose or color == "red":
             LOG_QUEUE.put(msg(string, color, webapp=True))
         log(string)
         return None
     else:
-        if verbose:
+        if verbose or color == "red":
             print(msg(string, color))
         log(string)

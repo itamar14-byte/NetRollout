@@ -119,21 +119,22 @@ def test_tcp_port(ip: str, port: int = 22) -> bool:
     :param port: TCP port used for SSH connection
     :return: True if the device is reachable, and false otherwise
     """
-    # Creates a Connection object which will be used to probe the device. Connection is gracefully closed by socket
-    # Connection will run for 3 attempts, with a 1-second delay between tries
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as conn:
-        conn.settimeout(TCP_TIMEOUT)
-        for attempt in range(TCP_RETRIES):
-            # Tries a connection to the device over the supplied ip and port
-            try:
+    # Connection will run for 3 attempts, with a 1-second delay between tries.
+    # A fresh socket is created per attempt — reusing a failed socket raises WinError 10056 on Windows.
+    for attempt in range(TCP_RETRIES):
+        # Creates a Connection object which will be used to probe the device. Connection is gracefully closed by socket
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as conn:
+                conn.settimeout(TCP_TIMEOUT)
+                # Tries a connection to the device over the supplied ip and port
                 conn.connect((ip, port))
                 # Returns True if the connection is successful.
                 # Otherwise, socket throws an exception and a device is deemed
                 # unreachable
                 return True
-            except OSError:
-                if attempt < TCP_RETRIES - 1:
-                    time.sleep(TCP_RETRY_DELAY)
-                    continue
-        return False
+        except OSError:
+            if attempt < TCP_RETRIES - 1:
+                time.sleep(TCP_RETRY_DELAY)
+                continue
+    return False
 
