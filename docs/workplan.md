@@ -20,15 +20,22 @@ Using **Flask-Login** (not manual sessions) for session management.
 - `templates/index.html` — replaced Get Started with login card + flash messages + register link
 - `templates/base.html` — user widget dropdown (username, My Account, Logout) shown when authenticated
 
-### 1.3 Auth routes — backend (in progress)
-- `POST /login` — fetch user from DB, `check_password_hash`, `login_user()`
-- `POST /register` — `generate_password_hash`, create `User`, commit to DB
-- `GET /logout` — `logout_user()`, redirect to home
-- `GET /account` — user stats placeholder (full stats wired in Phase 2)
-- Password hashing via `werkzeug.security` in the register route (server-side only, DB never sees plaintext)
+### 1.3 Webapp infrastructure ✅
+- `app = Flask(__name__, template_folder='../templates')` — templates resolved from project root
+- `app.config["SECRET_KEY"] = "dev"` — required for flash/session (swap for env var in Phase 4)
+- `flash` imported — ready for auth feedback messages
+- `DATABASE_URL` must use `postgresql+psycopg2://` dialect (psycopg2-binary is installed, not psycopg3)
 
-### 1.4 Frontend — remaining
-- `templates/register.html` — registration form
+### 1.4 Auth routes — backend (next session)
+Dummy stubs in place (all redirect to home). Replace each with real logic:
+- `POST /login` — fetch user by username, `check_password_hash`, `login_user()`, redirect to upload; flash error on failure
+- `POST /register` — check username not taken, `generate_password_hash`, create `User`, commit, `login_user()`, redirect to upload; flash error on conflict
+- `GET /logout` — `logout_user()`, redirect to home
+- `GET /account` — render `account.html` with `current_user` (stats placeholder until Phase 2)
+- Password hashing via `werkzeug.security` in the register route — server-side only, DB stores hash never plaintext
+
+### 1.5 Frontend — remaining (next session)
+- `templates/register.html` — registration form (username + password + confirm password), flash messages, link back to login, same Bootstrap/dark-mode style as index.html
 - `templates/account.html` — account page (username, member since, stats placeholder)
 
 ---

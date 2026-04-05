@@ -6,7 +6,7 @@ from threading import Event, Thread
 from time import sleep
 
 from flask import (redirect, Response, request, render_template, url_for, \
-	Flask)
+	Flask, flash)
 from flask_login import LoginManager, login_required
 
 from waitress import serve
@@ -19,6 +19,7 @@ from db import get_session
 
 
 app = Flask(__name__, template_folder='../templates')
+app.config["SECRET_KEY"] = "dev"
 app.config["CURRENT_THREAD"] = None
 cancel_event = Event()
 
@@ -147,6 +148,27 @@ def background_rollout(
 @app.route("/")
 def home():
 	return render_template("index.html")
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    return redirect(url_for("home"))
+
+
+@app.route("/register", methods=["GET", "POST"])
+def register():
+    return redirect(url_for("home"))
+
+
+@app.route("/logout")
+def logout():
+    return redirect(url_for("home"))
+
+
+@app.route("/account")
+@login_required
+def account():
+    return "account page - coming soon"
 
 
 @app.route("/upload")

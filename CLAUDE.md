@@ -90,20 +90,24 @@ Full plan in `docs/workplan.md`. Current state:
 **Done:**
 - `tables.py` — `User` model has `UserMixin` from Flask-Login ✓
 - `db.py` — engine, Base, `get_session()` context manager ✓
-- `db_install.py` — `create_all` with error handling ✓
+- `db_install.py` — `create_all` with error handling ✓, tables created in DB ✓
 - `webapp.py` — `LoginManager` initialized, `user_loader` callback, `@login_required` on all protected routes ✓
+- `webapp.py` — `template_folder='../templates'`, `SECRET_KEY`, `flash` import, dummy stubs for all auth routes ✓
 - `templates/index.html` — login card with flash messages, register link ✓
 - `templates/base.html` — user widget dropdown (account + logout) shown when authenticated ✓
 - `requirements.txt` — trimmed to direct dependencies only ✓
 - `requirements-dev.txt` — pytest/pytest-cov as dev deps ✓
+- Landing page renders correctly ✓
 
-**Still to do:**
-- `POST /login` route — fetch user from DB, `check_password_hash`, `login_user()`
-- `POST /register` route — `generate_password_hash`, create `User`, commit to DB
-- `GET /logout` route — `logout_user()`, redirect to home
-- `GET /account` route — show user stats (placeholder until Phase 2 DB wiring)
-- `templates/register.html` — registration form
-- `templates/account.html` — account/stats page
+**Still to do (next session — start here):**
+1. Replace `/login` stub — fetch user by username, `check_password_hash`, `login_user()`, redirect to upload; flash "Invalid credentials" on failure
+2. Replace `/register` stub — check username not taken, `generate_password_hash`, create `User`, commit, `login_user()`, redirect to upload; flash error on conflict
+3. Replace `/logout` stub — `logout_user()`, redirect to home
+4. Replace `/account` stub — `render_template("account.html")` with `current_user`
+5. Write `templates/register.html` — form with username/password/confirm, flash messages, back to login link
+6. Write `templates/account.html` — username, member since, stats placeholder
+
+**DB env var:** `DATABASE_URL=postgresql+psycopg2://dbadmin:Pass123@localhost:5432/rollout_db` (lowercase `postgresql`, `+psycopg2` suffix — psycopg2-binary is installed)
 
 ### 2. OOP restructuring (Phase 2 — after architecture session)
 Known gaps:
