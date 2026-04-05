@@ -82,21 +82,36 @@ NAPALM verification is not supported for `checkpoint_gaia` and `hp_comware`.
 
 Required columns: `ip`, `username`, `password`, `device_type`, `secret`, `port`
 
-## Active development (as of 2026-04-05)
+## Active development (as of 2026-04-06)
 
-### 1. DB implementation (in progress)
-- `tables.py` — `User` model (SQLAlchemy 2.0 `Mapped`/`mapped_column` style) ✓
+### Phase 1 — User Auth Pipeline (in progress)
+Full plan in `docs/workplan.md`. Current state:
+
+**Done:**
+- `tables.py` — `User` model has `UserMixin` from Flask-Login ✓
+- `db.py` — engine, Base, `get_session()` context manager ✓
 - `db_install.py` — `create_all` with error handling ✓
-- `db.py` — needs engine + `Base` setup (currently only has `import postgresql`)
-- Next: design `RolloutSession` and `DeviceResult` tables → wire into `RolloutEngine.run()`
+- `webapp.py` — `LoginManager` initialized, `user_loader` callback, `@login_required` on all protected routes ✓
+- `templates/index.html` — login card with flash messages, register link ✓
+- `templates/base.html` — user widget dropdown (account + logout) shown when authenticated ✓
+- `requirements.txt` — trimmed to direct dependencies only ✓
+- `requirements-dev.txt` — pytest/pytest-cov as dev deps ✓
 
-### 2. OOP restructuring (do alongside DB — `run()` will be touched for both)
-Known gaps identified during OOP course review:
-1. `logging_utils.py` uses module-level global state (`LOG_QUEUE`, `logfile`, `basedir`) — should become a `RolloutLogger` class injected into `RolloutEngine`
-2. `push_config()`, `verify()`, `notify()` on `RolloutEngine` should be prefixed `_` (private)
-3. `netmiko_connector()` on `Device` should be `_netmiko_connector()` (private)
-4. `validation.py` standalone functions should be wrapped in a class
-5. `parse_files()` / `prepare_devices()` are tightly coupled to engine workflow — should move into a class
+**Still to do:**
+- `POST /login` route — fetch user from DB, `check_password_hash`, `login_user()`
+- `POST /register` route — `generate_password_hash`, create `User`, commit to DB
+- `GET /logout` route — `logout_user()`, redirect to home
+- `GET /account` route — show user stats (placeholder until Phase 2 DB wiring)
+- `templates/register.html` — registration form
+- `templates/account.html` — account/stats page
+
+### 2. OOP restructuring (Phase 2 — after architecture session)
+Known gaps:
+1. `logging_utils.py` global state → `RolloutLogger` class injected into `RolloutEngine`
+2. `push_config()`, `verify()`, `notify()` on `RolloutEngine` → prefix `_`
+3. `netmiko_connector()` on `Device` → `_netmiko_connector()`
+4. `validation.py` → `Validator` class
+5. `parse_files()` / `prepare_devices()` → `InputParser` class
 
 ## Working style
 - The developer writes the code; Claude reviews, advises, and discusses design
