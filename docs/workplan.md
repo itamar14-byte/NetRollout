@@ -38,6 +38,26 @@ Dummy stubs in place (all redirect to home). Replace each with real logic:
 - `templates/register.html` — registration form (username + password + confirm password), flash messages, link back to login, same Bootstrap/dark-mode style as index.html
 - `templates/account.html` — account page (username, member since, stats placeholder)
 
+### 1.6 TOTP (2FA) — after 1.4 and 1.5 are solid
+Add time-based one-time password support via `pyotp`:
+- Add `totp_secret` (String) and `totp_enabled` (Boolean, default False) columns to `User`
+- `GET /account/setup-2fa` — generate secret, render QR code (via `qrcode` lib) for Google Authenticator / Authy
+- `POST /account/setup-2fa` — verify first code to confirm setup, set `totp_enabled = True`
+- `/login` — if `user.totp_enabled`, redirect to a second step (`GET/POST /login/verify-otp`) before calling `login_user()`
+- `templates/login_otp.html` — single 6-digit code input, same style
+- No recovery codes needed for portfolio scope
+
+### 1.7 LDAP / Active Directory auth — after 1.6
+Allow enterprise users to authenticate against a local AD/LDAP server instead of a stored password hash.
+Strongest portfolio differentiator — shows real enterprise awareness.
+- `ldap3` library (no Flask extension needed)
+- New `auth_type` column on `User`: `"local"` or `"ldap"`
+- `/login` branches: local users go through `check_password_hash`, LDAP users bind against the configured server
+- Config via env vars: `LDAP_SERVER`, `LDAP_BASE_DN`, `LDAP_DOMAIN`
+- LDAP users are auto-provisioned on first successful bind (no registration flow needed)
+- `templates/index.html` — add LDAP login option or detect automatically by domain suffix
+- Requires an AD/LDAP server for testing (OpenLDAP in Docker works for dev)
+
 ---
 
 ## Architecture Session (between Phase 1 and Phase 2)
