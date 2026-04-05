@@ -24,24 +24,6 @@ receiving a done sentinel from the stream itself.
 
 ---
 
-### 🔴 `core.py:263` — `enable()` silent failure with empty secret
-If a device's `secret` field is empty and `enable` mode is required,
-Netmiko will either hang waiting for a password prompt or raise an exception.
-The exception is caught by the broad `except Exception` on line 295 but the resulting
-error message gives no indication that the secret was missing.
-
----
-
-### 🔴 `core.py:221` — redundant `cancel_event` ternary
-```python
-# current — assigns None either way
-self.cancel_event = cancel_event if cancel_event else None
-
-# fix
-self.cancel_event = cancel_event
-```
-
----
 
 ## Minor
 
@@ -82,6 +64,10 @@ CLI path: `COLORS.get("UNKNOWN")` returned `None`, then `None + string + END` ra
 Webapp path: same issue with `ANSI_TO_HTML`, plus `None.upper()` crash when `color=None` passed from `base_notify`.
 Fixed: CLI path guards with `if color:` after lookup; webapp path uses `ANSI_TO_HTML.get(color.upper()) if color else None` then guards before concatenation.
 Covered by `TestMsg::test_unknown_color_returns_plain`.
+
+### ✅ `core.py:221` — redundant `cancel_event` ternary
+`self.cancel_event = cancel_event if cancel_event else None` assigned `None` either way.
+Fixed: simplified to `self.cancel_event = cancel_event`.
 
 ### ✅ `validation.py:124` — socket reused after failed `connect()` on Windows
 A single socket was created outside the retry loop. After a failed `connect()`, the socket
