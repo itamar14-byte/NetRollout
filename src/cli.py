@@ -27,9 +27,7 @@ def get_args():
 		"-vy",
 		"--verify",
 		help="Test configuration file to verify successful running",
-		action="store_const",
-		const=True,
-		default=None,
+		action="store_true",
 	)
 	parser.add_argument(
 		"-vb", "--verbose", help="Prints logs to console", action="store_true"
@@ -48,7 +46,7 @@ def main():
 	# If the verify flag was supplied, we activate verification, and if other
 	# flags were supplied we disable it,
 	# and if no flags were supplied we prompt for verification alongside the other flag prompts
-	if args.verify is True:
+	if args.verify:
 		verify_rollout = True
 	elif args.devices and args.commands:
 		verify_rollout = False

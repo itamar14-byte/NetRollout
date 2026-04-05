@@ -342,62 +342,58 @@ class RolloutEngine:
 	def run(self) -> int:
 		self.notify("Starting configuration rollout")
 		# Runs parse_files to get data from the provided file paths
-		try:
-			# If parsing was successful and the output of the function was not empty lists, we continue the process
-			if self.devices and self.commands:
+		# If parsing was successful and the output of the function was not empty lists, we continue the process
+		if self.devices and self.commands:
 
-				# Runs the config push procedure
-				push = self.push_config()
-				if push == "cancel_sent":
-					return 1
+			# Runs the config push procedure
+			push = self.push_config()
+			if push == "cancel_sent":
+				return 1
 
-				# If the verify flag is activated, runs the verify function,
-				# getting a dictionary of the devices and the successful commands count
-				if self.param.verify:
-					self.notify(
-						"Configuration rollout finished. Initiating verification process"
-					)
-					device_count = self.verify()
-					if device_count == "cancel_sent":
-						return 1
-					failed, partial, successful = 0, 0, 0
-
-					# Number of successful commands in each device and status of
-					# devices,
-					# based on comparing the value to the list of commands
-					for node in device_count.items():
-						if node[1] == 0:
-							failed += 1
-						elif 0 < node[1] < len(self.commands):
-							partial += 1
-						else:
-							successful += 1
-
-						self.notify(
-							f"{node[0]} successfully configured with"
-							f" {node[1]}/{len(self.commands)} commands")
-
-					# Logs and prints (if verbose), the rollout status per device and the summary
-					self.notify(f"{failed} devices failed rollout", "red")
-					self.notify(
-						f"{partial} devices with problems in configuration",
-						"yellow")
-					self.notify(f"{successful} devices successfully configured",
-					       "green")
-					self.notify(f"Please see Execution logs in {BASEDIR}\\{LOGFILE}")
-					return 0
-
+			# If the verify flag is activated, runs the verify function,
+			# getting a dictionary of the devices and the successful commands count
+			if self.param.verify:
 				self.notify(
-					f"Configuration rollout complete. "
-					f"{len(self.devices)} devices configured",
-					"green")
+					"Configuration rollout finished. Initiating verification process"
+				)
+				device_count = self.verify()
+				if device_count == "cancel_sent":
+					return 1
+				failed, partial, successful = 0, 0, 0
+
+				# Number of successful commands in each device and status of
+				# devices,
+				# based on comparing the value to the list of commands
+				for node in device_count.items():
+					if node[1] == 0:
+						failed += 1
+					elif 0 < node[1] < len(self.commands):
+						partial += 1
+					else:
+						successful += 1
+
+					self.notify(
+						f"{node[0]} successfully configured with"
+						f" {node[1]}/{len(self.commands)} commands")
+
+				# Logs and prints (if verbose), the rollout status per device and the summary
+				self.notify(f"{failed} devices failed rollout", "red")
+				self.notify(
+					f"{partial} devices with problems in configuration",
+					"yellow")
+				self.notify(f"{successful} devices successfully configured",
+				       "green")
 				self.notify(f"Please see Execution logs in {BASEDIR}\\{LOGFILE}")
 				return 0
 
-			else:
-				self.notify(f"Device input invalid", "red")
-				return 1
+			self.notify(
+				f"Configuration rollout complete. "
+				f"{len(self.devices)} devices configured",
+				"green")
+			self.notify(f"Please see Execution logs in {BASEDIR}\\{LOGFILE}")
+			return 0
 
-		except ValueError as e:
-			self.notify(f"Device input invalid: {e}", "red")
+		else:
+			self.notify(f"Device input invalid", "red")
 			return 1
+
