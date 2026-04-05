@@ -25,21 +25,6 @@ receiving a done sentinel from the stream itself.
 ---
 
 
-## Minor
-
-### 🔴 `core.py:401-402` — dead `except ValueError` in `run()`
-The `try` block only evaluates a boolean condition (`if self.devices and self.commands`).
-No code path inside it raises `ValueError`. The except clause is unreachable dead code.
-
----
-
-### 🔴 `logging_utils.py` — redundant double-uppercasing in `msg()`
-`COLORS` and `ANSI_TO_HTML` dict keys are already uppercase.
-`msg()` calls `.upper()` on the caller-supplied color string before the lookup.
-No functional impact, just noise.
-
----
-
 ## Fixed
 
 ### ✅ `db.py:22` — `except exception()` swallowed all DB errors
@@ -61,6 +46,10 @@ Covered by `TestMsg::test_unknown_color_returns_plain`.
 ### ✅ `cli.py:27-33` — `store_const` / `default=None` on `--verify` was unnecessary
 `action="store_const", const=True, default=None` created a three-state flag requiring `is True` checks downstream.
 Fixed: changed to `action="store_true"` and simplified `if args.verify is True` → `if args.verify`.
+
+### ✅ `core.py` — dead `except ValueError` in `run()`
+`run()` wrapped a boolean condition in a `try/except ValueError` that could never trigger.
+Fixed: removed the `try/except` wrapper, leaving the `if/else` logic unchanged.
 
 ### ✅ `core.py:221` — redundant `cancel_event` ternary
 `self.cancel_event = cancel_event if cancel_event else None` assigned `None` either way.
