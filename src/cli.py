@@ -1,6 +1,5 @@
 import sys
 import threading
-import time
 from argparse import ArgumentParser
 from core import parse_files, RolloutOptions, RolloutEngine
 from logging_utils import base_notify

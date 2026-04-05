@@ -5,8 +5,9 @@ from queue import Empty
 from threading import Event, Thread
 from time import sleep
 
-from flask import (app, redirect, Response, request, render_template, url_for, \
+from flask import (redirect, Response, request, render_template, url_for, \
 	Flask)
+
 from waitress import serve
 
 from core import prepare_devices, RolloutEngine, RolloutOptions
