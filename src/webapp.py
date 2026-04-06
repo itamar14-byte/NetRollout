@@ -1,4 +1,7 @@
 import uuid
+import pyotp
+import qrcode
+import base64
 from csv import DictReader
 from io import TextIOWrapper, BytesIO
 from json import loads
@@ -6,36 +9,37 @@ from queue import Empty
 from threading import Event, Thread
 from time import sleep
 
-from sqlalchemy.exc import IntegrityError
-
 from flask import (redirect, Response, request, render_template, url_for, \
-	Flask, flash)
+                   Flask, flash, session)
 from flask_login import (LoginManager, login_required,
-                         login_user, logout_user, current_user)
-from werkzeug.security import generate_password_hash, check_password_hash
+                         logout_user, current_user, login_user)
+from sqlalchemy.exc import IntegrityError
 from waitress import serve
+from werkzeug.security import generate_password_hash, check_password_hash
 
 from core import prepare_devices, RolloutEngine, RolloutOptions
-from logging_utils import LOG_QUEUE, base_notify
-
-from tables import User
 from db import get_session
-
+from logging_utils import LOG_QUEUE, base_notify
+from tables import User
 
 app = Flask(__name__, template_folder='../templates')
 app.config["SECRET_KEY"] = "dev"
 app.config["CURRENT_THREAD"] = None
 cancel_event = Event()
 
-login_mng=LoginManager()
+login_mng = LoginManager()
 login_mng.init_app(app)
 login_mng.login_view = "home"
 
 
 @login_mng.user_loader
 def load_user(user_id):
-	with get_session() as session:
-		return session.get(User,uuid.UUID(user_id))
+	with get_session() as db_session:
+		user = db_session.get(User, uuid.UUID(user_id))
+		if user:
+			db_session.expunge(user)
+		return user
+
 
 def webapp_input(
 		device_file: BytesIO,
@@ -158,11 +162,30 @@ def home():
 def login():
 	username = request.form["username"]
 	password = request.form["password"]
-	with get_session() as session:
-		user = session.query(User).filter_by(username=username).first()
+	with get_session() as db_session:
+		user = db_session.query(User).filter_by(username=username).first()
+		# checks credentials are correct
 		if user and check_password_hash(user.password_hash, password):
-			login_user(user)
-			return redirect(url_for("upload"))
+			#checks user was activated
+			if user.is_active:
+				if user.username == "admin":
+					login_user(user)
+					return redirect(url_for("upload"))
+				#checks otp enrollment
+				elif user.otp_secret:
+					session["pre_auth_user_id"] = str(user.id)
+					return redirect(url_for("otp_verify"))
+				else:
+					flash("To complete enrollment,"
+					      " you are referred to OPT set up portal"
+					      , "info")
+					session["pre_auth_user_id"] = str(user.id)
+					return redirect(url_for("otp_enroll"))
+			else:
+				flash("User still pending admin approval",
+				      "danger")
+				return redirect(url_for("home"))
+
 		flash("invalid credentials", "danger")
 		return redirect(url_for("home"))
 
@@ -171,6 +194,7 @@ def login():
 def register_form():
 	return render_template("register.html")
 
+
 @app.route("/register", methods=["POST"])
 def register():
 	username = request.form["username"]
@@ -178,7 +202,7 @@ def register():
 	email = request.form["email"]
 	full_name = request.form["full_name"]
 	role = request.form["role"]
-	position = request.form.get("position",None)
+	position = request.form.get("position", None)
 
 	new_user = User(username=username,
 	                password_hash=pass_hash,
@@ -187,15 +211,74 @@ def register():
 	                role=role,
 	                position=position)
 
-	with get_session() as session:
+	with get_session() as db_session:
 		try:
-			session.add(new_user)
-			session.flush()
+			db_session.add(new_user)
+			db_session.flush()
+			flash("Registration successful -"
+			      " your account is pending admin "
+			      "approval.", "success")
 			return redirect(url_for("home"))
 		except IntegrityError:
 			flash("email or username already exists", "danger")
 			return redirect(url_for("register_form"))
 
+@app.route("/otp_enroll", methods=["GET","POST"])
+def otp_enroll():
+	if request.method == "GET":
+		user_id = session.get("pre_auth_user_id",None)
+		if not user_id:
+			return redirect(url_for("home"))
+		with get_session() as db_session:
+			user = db_session.query(User).filter_by(id=user_id).first()
+			db_session.expunge(user)
+		totp = pyotp.random_base32()
+		secret = session.get("pending_totp_secret",None) or totp
+		session["pending_totp_secret"] = secret
+		uri = pyotp.TOTP(session["pending_totp_secret"]).provisioning_uri(
+			user.username,issuer_name="NetRollout")
+		img = qrcode.make(uri)
+		buffer = BytesIO()
+		img.save(buffer,format="png")
+		buffer.seek(0)
+		qr_b64 = base64.b64encode(buffer.getvalue()).decode("utf8")
+		return render_template("otp_enroll.html",qr=qr_b64)
+
+	if request.method == "POST":
+		user_id = session.get("pre_auth_user_id",None)
+		if not user_id:
+			return redirect(url_for("home"))
+		otp_secret = session.get("pending_totp_secret",None)
+		user_code = request.form["code"]
+		if pyotp.TOTP(otp_secret).verify(user_code):
+			with get_session() as db_session:
+				user = db_session.query(User).filter_by(id=user_id).first()
+				user.otp_secret = otp_secret
+			session.pop("pending_totp_secret")
+			session.pop("pre_auth_user_id")
+			login_user(user)
+			return redirect(url_for("upload"))
+		flash("invalid code, please try again", "danger")
+		return redirect(url_for("otp_enroll"))
+
+@app.route("/otp_verify", methods=["GET","POST"])
+def otp_verify():
+	if request.method == "POST":
+		user_id = session.get("pre_auth_user_id", None)
+		if not user_id:
+			return redirect(url_for("home"))
+		user_code = request.form["code"]
+		with get_session() as db_session:
+			user = db_session.query(User).filter_by(id=user_id).first()
+			db_session.expunge(user)
+		if pyotp.TOTP(user.otp_secret).verify(user_code):
+			login_user(user)
+			session.pop("pre_auth_user_id")
+			return redirect(url_for("upload"))
+		flash("invalid code, please try again", "danger")
+		return redirect(url_for("otp_verify"))
+	elif request.method == "GET":
+		return render_template("otp_verify.html")
 
 
 @app.route("/logout")
