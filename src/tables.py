@@ -19,6 +19,8 @@ class User(UserMixin, Base):
 	position: Mapped[str] = mapped_column(String(64),nullable=True)
 	is_active: Mapped[bool] = mapped_column(Boolean, default=False,
 	                                      nullable=False)
+	is_approved: Mapped[bool] = mapped_column(Boolean, default=False,
+	                                      nullable=False)
 	created_at: Mapped[datetime] = mapped_column(DateTime,default=datetime.now,
 	                                             nullable=False)
 	otp_secret: Mapped[str] = mapped_column(String(32),nullable=True)

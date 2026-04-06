@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% block title %}Admin Panel - Network Rollout Tool{% endblock %}
+
+{% block home_button %}
+<a href="{{ url_for('home') }}" class="btn btn-outline-primary">🏠 Back to Home</a>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex text-start" style="min-height: 75vh; gap: 1rem;">
+
+  <!-- Sidebar -->
+  <nav id="adminSidebar" class="d-flex flex-column p-2 flex-shrink-0"
+       style="width: 56px; background-color: #1a1a2e; border-radius: 12px;
+              transition: width 0.25s ease; overflow: hidden;">
+
+    <!-- Toggle button -->
+    <button id="sidebarToggle" onclick="toggleSidebar()"
+            style="background: none; border: none; color: #00bcd4; font-size: 1.2rem;
+                   cursor: pointer; padding: 0.4rem; margin-bottom: 0.5rem;
+                   align-self: flex-end; line-height: 1;">
+      &#9776;
+    </button>
+
+    <!-- Brand (only visible when expanded) -->
+    <div class="sidebar-brand mb-3">
+      <span style="color: #00bcd4; font-size: 0.8rem; font-weight: 700;
+                   letter-spacing: 1px; white-space: nowrap;">ADMIN PANEL</span>
+    </div>
+
+    <!-- Nav links -->
+    <a href="{{ url_for('admin_users') }}"
+       class="sidebar-link {% if active_section == 'users' %}active{% endif %}"
+       title="User Management">
+      <span class="sidebar-icon">👥</span>
+      <span class="sidebar-label">User Management</span>
+    </a>
+
+    <a href="#" class="sidebar-link disabled-link" title="Audit Logs">
+      <span class="sidebar-icon">📋</span>
+      <span class="sidebar-label">Audit Logs
+        <span class="badge bg-secondary ms-1" style="font-size: 0.6rem;">P2</span>
+      </span>
+    </a>
+
+    <a href="#" class="sidebar-link disabled-link" title="Query">
+      <span class="sidebar-icon">🔍</span>
+      <span class="sidebar-label">Query
+        <span class="badge bg-secondary ms-1" style="font-size: 0.6rem;">P2</span>
+      </span>
+    </a>
+
+  </nav>
+
+  <!-- Main content -->
+  <div class="flex-grow-1" style="min-width: 0;">
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+            {{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+          </div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    {% block admin_content %}{% endblock %}
+
+  </div>
+</div>
+
+<style>
+  .sidebar-link {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.6rem 0.5rem;
+    margin-bottom: 0.2rem;
+    border-radius: 8px;
+    color: #aaa;
+    text-decoration: none;
+    font-size: 0.88rem;
+    white-space: nowrap;
+    overflow: hidden;
+    transition: background 0.2s, color 0.2s;
+  }
+  .sidebar-link:hover:not(.disabled-link) {
+    background-color: #162032;
+    color: #00bcd4;
+  }
+  .sidebar-link.active {
+    background-color: #162032;
+    color: #00bcd4;
+    font-weight: 600;
+  }
+  .sidebar-link.disabled-link {
+    opacity: 0.45;
+    cursor: default;
+    pointer-events: none;
+  }
+  .sidebar-icon {
+    font-size: 1.1rem;
+    flex-shrink: 0;
+    width: 24px;
+    text-align: center;
+  }
+  .sidebar-label {
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    pointer-events: none;
+  }
+  .sidebar-brand {
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    padding-left: 0.5rem;
+  }
+  #adminSidebar.expanded {
+    width: 200px !important;
+  }
+  #adminSidebar.expanded .sidebar-label,
+  #adminSidebar.expanded .sidebar-brand {
+    opacity: 1;
+    pointer-events: auto;
+  }
+</style>
+
+<script>
+  const sidebar = document.getElementById("adminSidebar");
+  const expanded = localStorage.getItem("adminSidebarExpanded") === "true";
+  if (expanded) sidebar.classList.add("expanded");
+
+  function toggleSidebar() {
+    sidebar.classList.toggle("expanded");
+    localStorage.setItem("adminSidebarExpanded", sidebar.classList.contains("expanded"));
+  }
+</script>
+{% endblock %}

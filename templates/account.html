@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %}My Account - Network Rollout Tool{% endblock %}
+
+{% block content %}
+<h2 class="mb-4">My Account</h2>
+
+<div class="card shadow-sm mx-auto mb-4" style="max-width: 520px;">
+  <div class="card-body p-4 text-start">
+
+    <div class="mb-3">
+      <span class="text-muted small">Username</span>
+      <div class="fw-bold fs-5">{{ user.username }}</div>
+    </div>
+
+    <hr>
+
+    <div class="mb-3">
+      <span class="text-muted small">Full Name</span>
+      <div>{{ user.full_name }}</div>
+    </div>
+
+    <div class="mb-3">
+      <span class="text-muted small">Email</span>
+      <div>{{ user.email }}</div>
+    </div>
+
+    <div class="mb-3">
+      <span class="text-muted small">Role</span>
+      <div>
+        {% if user.role == "admin" %}
+          <span class="badge bg-danger">Admin</span>
+        {% else %}
+          <span class="badge bg-secondary">User</span>
+        {% endif %}
+      </div>
+    </div>
+
+    {% if user.position %}
+    <div class="mb-3">
+      <span class="text-muted small">Position</span>
+      <div>{{ user.position }}</div>
+    </div>
+    {% endif %}
+
+    <hr>
+
+    <div class="mb-3">
+      <span class="text-muted small">Member Since</span>
+      <div>
+        {{ user.created_at.strftime("%B %d, %Y") }}
+        <span class="text-muted small">
+          (<span id="ageCounter">calculating...</span> old)
+        </span>
+      </div>
+    </div>
+
+    <hr>
+
+    <div class="mb-1">
+      <span class="text-muted small">Rollout Stats</span>
+      <div class="text-muted fst-italic">Coming in Phase 2</div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  const createdAt = new Date("{{ user.created_at.isoformat() }}");
+
+  function updateCounter() {
+    const now = new Date();
+    let diff = Math.floor((now - createdAt) / 1000);
+
+    const seconds = diff % 60; diff = Math.floor(diff / 60);
+    const minutes = diff % 60; diff = Math.floor(diff / 60);
+    const hours   = diff % 24; diff = Math.floor(diff / 24);
+    const days    = diff % 30; diff = Math.floor(diff / 30);
+    const months  = diff % 12;
+    const years   = Math.floor(diff / 12);
+
+    const parts = [];
+    if (years)   parts.push(`${years}y`);
+    if (months)  parts.push(`${months}mo`);
+    if (days)    parts.push(`${days}d`);
+    if (hours)   parts.push(`${hours}h`);
+    if (minutes) parts.push(`${minutes}m`);
+    parts.push(`${seconds}s`);
+
+    document.getElementById("ageCounter").textContent = parts.join(" ");
+  }
+
+  updateCounter();
+  setInterval(updateCounter, 1000);
+</script>
+{% endblock %}

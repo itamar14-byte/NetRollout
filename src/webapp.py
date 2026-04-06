@@ -1,7 +1,5 @@
-import uuid
-import pyotp
-import qrcode
 import base64
+import uuid
 from csv import DictReader
 from io import TextIOWrapper, BytesIO
 from json import loads
@@ -9,6 +7,8 @@ from queue import Empty
 from threading import Event, Thread
 from time import sleep
 
+import pyotp
+import qrcode
 from flask import (redirect, Response, request, render_template, url_for, \
                    Flask, flash, session)
 from flask_login import (LoginManager, login_required,
@@ -166,21 +166,26 @@ def login():
 		user = db_session.query(User).filter_by(username=username).first()
 		# checks credentials are correct
 		if user and check_password_hash(user.password_hash, password):
-			#checks user was activated
-			if user.is_active:
-				if user.username == "admin":
-					login_user(user)
-					return redirect(url_for("upload"))
-				#checks otp enrollment
-				elif user.otp_secret:
-					session["pre_auth_user_id"] = str(user.id)
-					return redirect(url_for("otp_verify"))
+			# checks user was activated
+			if user.is_approved:
+				if user.is_active:
+					if user.username == "admin":
+						login_user(user)
+						return redirect(url_for("upload"))
+					# checks otp enrollment
+					elif user.otp_secret:
+						session["pre_auth_user_id"] = str(user.id)
+						return redirect(url_for("otp_verify"))
+					else:
+						flash("To complete enrollment,"
+						      " you are referred to OPT set up portal"
+						      , "info")
+						session["pre_auth_user_id"] = str(user.id)
+						return redirect(url_for("otp_enroll"))
 				else:
-					flash("To complete enrollment,"
-					      " you are referred to OPT set up portal"
-					      , "info")
-					session["pre_auth_user_id"] = str(user.id)
-					return redirect(url_for("otp_enroll"))
+					flash("User disabled, please check with administrator",
+					      "danger")
+					return redirect(url_for("home"))
 			else:
 				flash("User still pending admin approval",
 				      "danger")
@@ -223,32 +228,33 @@ def register():
 			flash("email or username already exists", "danger")
 			return redirect(url_for("register_form"))
 
-@app.route("/otp_enroll", methods=["GET","POST"])
+
+@app.route("/otp_enroll", methods=["GET", "POST"])
 def otp_enroll():
 	if request.method == "GET":
-		user_id = session.get("pre_auth_user_id",None)
+		user_id = session.get("pre_auth_user_id", None)
 		if not user_id:
 			return redirect(url_for("home"))
 		with get_session() as db_session:
 			user = db_session.query(User).filter_by(id=user_id).first()
 			db_session.expunge(user)
 		totp = pyotp.random_base32()
-		secret = session.get("pending_totp_secret",None) or totp
+		secret = session.get("pending_totp_secret", None) or totp
 		session["pending_totp_secret"] = secret
 		uri = pyotp.TOTP(session["pending_totp_secret"]).provisioning_uri(
-			user.username,issuer_name="NetRollout")
+			user.username, issuer_name="NetRollout")
 		img = qrcode.make(uri)
 		buffer = BytesIO()
-		img.save(buffer,format="png")
+		img.save(buffer, format="png")
 		buffer.seek(0)
 		qr_b64 = base64.b64encode(buffer.getvalue()).decode("utf8")
-		return render_template("otp_enroll.html",qr=qr_b64)
+		return render_template("otp_enroll.html", qr=qr_b64)
 
 	if request.method == "POST":
-		user_id = session.get("pre_auth_user_id",None)
+		user_id = session.get("pre_auth_user_id", None)
 		if not user_id:
 			return redirect(url_for("home"))
-		otp_secret = session.get("pending_totp_secret",None)
+		otp_secret = session.get("pending_totp_secret", None)
 		user_code = request.form["code"]
 		if pyotp.TOTP(otp_secret).verify(user_code, valid_window=2):
 			with get_session() as db_session:
@@ -263,7 +269,8 @@ def otp_enroll():
 		flash("invalid code, please try again", "danger")
 		return redirect(url_for("otp_enroll"))
 
-@app.route("/otp_verify", methods=["GET","POST"])
+
+@app.route("/otp_verify", methods=["GET", "POST"])
 def otp_verify():
 	if request.method == "POST":
 		user_id = session.get("pre_auth_user_id", None)
@@ -386,6 +393,48 @@ def sse_stream():
 		mimetype="text/event-stream",
 		headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
 	)
+
+
+@app.route("/admin")
+@login_required
+def admin_panel():
+	if current_user.role != "admin":
+		return redirect(url_for("upload"))
+	return redirect(url_for("admin_users"))
+
+
+@app.route("/admin/users")
+@login_required
+def admin_users():
+	if current_user.role != "admin":
+		return redirect(url_for("upload"))
+	with get_session() as db_session:
+		users = db_session.query(User).order_by(User.created_at).all()
+		db_session.expunge_all()
+	return render_template("admin_users.html", users=users,
+	                       active_section="users")
+
+
+@app.route("/admin/users/<user_id>/<action>", methods=["POST"])
+@login_required
+def user_action(user_id, action):
+	if current_user.role != "admin":
+		return redirect(url_for("upload"))
+	with get_session() as db_session:
+		user = db_session.query(User).filter_by(id=user_id).first()
+
+		if action == "approve":
+			user.is_approved = True
+		elif action == "enable":
+			user.is_active = True
+		elif action == "disable":
+			user.is_active = False
+		elif action == "promote":
+			user.role = "admin"
+		elif action == "demote":
+			user.role = "user"
+
+	return redirect(url_for("admin_users"))
 
 
 if __name__ == "__main__":

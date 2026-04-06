@@ -13,7 +13,8 @@ try:
 			            email="example@test.com",
 			            full_name="Net Rollout",
 			            role="admin",
-			            is_active=True)
+			            is_active=True,
+			            is_approved=True)
 			session.add(user)
 			session.flush()
 	print("DB Initialized")

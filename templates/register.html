@@ -1,0 +1,267 @@
+{% extends "base.html" %}
+{% block title %}Register - Network Rollout Tool{% endblock %}
+
+{% block content %}
+<h2 class="mb-4">Create Account</h2>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    {% for category, message in messages %}
+      <div class="alert alert-{{ category }} alert-dismissible fade show mx-auto w-75" role="alert">
+        {{ message }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+      </div>
+    {% endfor %}
+  {% endif %}
+{% endwith %}
+
+<div class="card shadow-sm mx-auto mb-4" style="max-width: 480px;">
+  <div class="card-body p-4">
+    <form method="POST" action="{{ url_for('register') }}" id="registerForm" novalidate>
+
+      <!-- Username -->
+      <div class="mb-3 text-start">
+        <label for="username" class="form-label">Username <span class="text-danger">*</span></label>
+        <input type="text" class="form-control" id="username" name="username"
+               placeholder="Enter username" autocomplete="off">
+        <div class="invalid-feedback" id="usernameError"></div>
+      </div>
+
+      <!-- Email -->
+      <div class="mb-3 text-start">
+        <label for="email" class="form-label">Email <span class="text-danger">*</span></label>
+        <input type="text" class="form-control" id="email" name="email"
+               placeholder="Enter email" autocomplete="off">
+        <div class="invalid-feedback" id="emailError"></div>
+      </div>
+
+      <!-- Full Name -->
+      <div class="mb-3 text-start">
+        <label for="full_name" class="form-label">Full Name <span class="text-danger">*</span></label>
+        <input type="text" class="form-control" id="full_name" name="full_name"
+               placeholder="Enter full name">
+        <div class="invalid-feedback" id="fullNameError"></div>
+      </div>
+
+      <!-- Role -->
+      <div class="mb-3 text-start">
+        <label for="role" class="form-label">Role <span class="text-danger">*</span></label>
+        <select class="form-control" id="role" name="role">
+          <option value="" disabled selected>Select role</option>
+          <option value="user">User</option>
+          <option value="admin">Admin</option>
+        </select>
+        <div class="invalid-feedback" id="roleError"></div>
+      </div>
+
+      <!-- Position (optional) -->
+      <div class="mb-3 text-start">
+        <label for="position" class="form-label">Position</label>
+        <input type="text" class="form-control" id="position" name="position"
+               placeholder="e.g. Network Engineer, CTO (optional)">
+      </div>
+
+      <!-- Password -->
+      <div class="mb-3 text-start">
+        <label for="password" class="form-label">Password <span class="text-danger">*</span></label>
+        <div class="input-group">
+          <input type="password" class="form-control" id="password" name="password"
+                 placeholder="Enter password" autocomplete="new-password">
+          <button class="btn btn-outline-secondary toggle-password" type="button"
+                  data-target="password">👁</button>
+        </div>
+        <div class="invalid-feedback d-block" id="passwordError" style="display:none !important;"></div>
+      </div>
+
+      <!-- Confirm Password -->
+      <div class="mb-4 text-start">
+        <label for="confirm_password" class="form-label">Confirm Password <span class="text-danger">*</span></label>
+        <div class="input-group">
+          <input type="password" class="form-control" id="confirm_password"
+                 placeholder="Repeat password" autocomplete="new-password">
+          <button class="btn btn-outline-secondary toggle-password" type="button"
+                  data-target="confirm_password">👁</button>
+        </div>
+        <div class="invalid-feedback d-block" id="confirmError" style="display:none !important;"></div>
+      </div>
+
+      <!-- Submit -->
+      <div class="d-grid">
+        <button type="submit" class="btn btn-primary" id="submitBtn" disabled>Register</button>
+      </div>
+
+    </form>
+  </div>
+</div>
+
+<p class="text-muted mb-2">
+  Already have an account? <a href="{{ url_for('home') }}">Sign in here</a>
+</p>
+<p class="text-muted small">
+  <span class="text-danger">*</span> Required fields &nbsp;|&nbsp;
+  Your account will be inactive until approved by an administrator.
+</p>
+
+<script>
+  const usernameInput = document.getElementById("username");
+  const emailInput    = document.getElementById("email");
+  const fullNameInput = document.getElementById("full_name");
+  const roleInput     = document.getElementById("role");
+  const passwordInput = document.getElementById("password");
+  const confirmInput  = document.getElementById("confirm_password");
+  const submitBtn     = document.getElementById("submitBtn");
+
+  const usernameError = document.getElementById("usernameError");
+  const emailError    = document.getElementById("emailError");
+  const fullNameError = document.getElementById("fullNameError");
+  const roleError     = document.getElementById("roleError");
+  const passwordError = document.getElementById("passwordError");
+  const confirmError  = document.getElementById("confirmError");
+
+  // --- Validators ---
+
+  function validateUsername() {
+    const val = usernameInput.value.trim();
+    if (!val) {
+      showError(usernameInput, usernameError, "Username is required.");
+      return false;
+    }
+    clearError(usernameInput, usernameError);
+    return true;
+  }
+
+  function validateEmail() {
+    const val = emailInput.value.trim();
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!val) {
+      showError(emailInput, emailError, "Email is required.");
+      return false;
+    }
+    if (!emailRegex.test(val)) {
+      showError(emailInput, emailError, "Please enter a valid email address.");
+      return false;
+    }
+    clearError(emailInput, emailError);
+    return true;
+  }
+
+  function validateFullName() {
+    const val = fullNameInput.value.trim();
+    if (!val) {
+      showError(fullNameInput, fullNameError, "Full name is required.");
+      return false;
+    }
+    clearError(fullNameInput, fullNameError);
+    return true;
+  }
+
+  function validateRole() {
+    if (!roleInput.value) {
+      showError(roleInput, roleError, "Please select a role.");
+      return false;
+    }
+    clearError(roleInput, roleError);
+    return true;
+  }
+
+  function validatePassword() {
+    const val = passwordInput.value;
+    const username = usernameInput.value.trim().toLowerCase();
+
+    // ASCII printable only (no unicode letters like Hebrew)
+    if (/[^\x20-\x7E]/.test(val)) {
+      showError(passwordInput, passwordError, "Password must contain only ASCII characters.");
+      return false;
+    }
+    if (val.length < 8) {
+      showError(passwordInput, passwordError, "Password must be at least 8 characters.");
+      return false;
+    }
+    if (username && val.toLowerCase().includes(username)) {
+      showError(passwordInput, passwordError, "Password cannot contain your username.");
+      return false;
+    }
+
+    // At least 2 of 3 groups: letters, numbers, special chars
+    const hasLetters  = /[a-zA-Z]/.test(val);
+    const hasNumbers  = /[0-9]/.test(val);
+    const hasSpecial  = /[^a-zA-Z0-9]/.test(val);
+    const groupCount  = [hasLetters, hasNumbers, hasSpecial].filter(Boolean).length;
+
+    if (groupCount < 2) {
+      showError(passwordInput, passwordError,
+        "Password must contain at least 2 of: letters, numbers, special characters.");
+      return false;
+    }
+
+    clearError(passwordInput, passwordError);
+    return true;
+  }
+
+  function validateConfirm() {
+    if (confirmInput.value !== passwordInput.value) {
+      showError(confirmInput, confirmError, "Passwords do not match.");
+      return false;
+    }
+    if (!confirmInput.value) {
+      showError(confirmInput, confirmError, "Please confirm your password.");
+      return false;
+    }
+    clearError(confirmInput, confirmError);
+    return true;
+  }
+
+  // --- Helpers ---
+
+  function showError(input, errorEl, message) {
+    input.classList.add("is-invalid");
+    errorEl.textContent = message;
+    errorEl.style.display = "block";
+  }
+
+  function clearError(input, errorEl) {
+    input.classList.remove("is-invalid");
+    errorEl.textContent = "";
+    errorEl.style.display = "none";
+  }
+
+  function checkAllValid() {
+    const allFilled =
+      usernameInput.value.trim() &&
+      emailInput.value.trim() &&
+      fullNameInput.value.trim() &&
+      roleInput.value &&
+      passwordInput.value &&
+      confirmInput.value;
+
+    const noErrors = document.querySelectorAll("#registerForm .is-invalid").length === 0;
+
+    submitBtn.disabled = !(allFilled && noErrors);
+  }
+
+  // --- Live validation listeners ---
+
+  usernameInput.addEventListener("input", () => { validateUsername(); validatePassword(); checkAllValid(); });
+  emailInput.addEventListener("input",    () => { validateEmail();    checkAllValid(); });
+  fullNameInput.addEventListener("input", () => { validateFullName(); checkAllValid(); });
+  roleInput.addEventListener("change",    () => { validateRole();     checkAllValid(); });
+  passwordInput.addEventListener("input", () => { validatePassword(); if (confirmInput.value) validateConfirm(); checkAllValid(); });
+  confirmInput.addEventListener("input",  () => { validateConfirm();  checkAllValid(); });
+
+  // --- Password toggle ---
+
+  document.querySelectorAll(".toggle-password").forEach(btn => {
+    btn.addEventListener("click", function () {
+      const targetId = this.dataset.target;
+      const input = document.getElementById(targetId);
+      if (input.type === "password") {
+        input.type = "text";
+        this.textContent = "🙈";
+      } else {
+        input.type = "password";
+        this.textContent = "👁";
+      }
+    });
+  });
+</script>
+{% endblock %}

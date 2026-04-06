@@ -1,0 +1,194 @@
+{% extends "admin.html" %}
+{% block title %}User Management - Admin Panel{% endblock %}
+
+{% block admin_content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="mb-0">👥 User Management</h4>
+  <input type="text" id="userSearch" class="form-control form-control-sm w-auto"
+         placeholder="🔍 Search users..." style="min-width: 220px;">
+</div>
+
+<div class="table-responsive">
+  <table class="table table-hover align-middle" id="userTable">
+    <thead>
+      <tr>
+        <th class="sortable" data-col="0">Username <span class="sort-icon">⇅</span></th>
+        <th class="sortable" data-col="1">Full Name <span class="sort-icon">⇅</span></th>
+        <th class="sortable" data-col="2">Email <span class="sort-icon">⇅</span></th>
+        <th class="sortable" data-col="3">Role <span class="sort-icon">⇅</span></th>
+        <th>Position</th>
+        <th class="sortable" data-col="5">Member Since <span class="sort-icon">⇅</span></th>
+        <th class="sortable" data-col="6">Status <span class="sort-icon">⇅</span></th>
+        <th class="text-center">Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for user in users %}
+      {% if user.is_approved and user.is_active %}
+        {% set status = "active" %}
+      {% elif user.is_approved and not user.is_active %}
+        {% set status = "inactive" %}
+      {% else %}
+        {% set status = "pending" %}
+      {% endif %}
+      <tr data-status="{{ status }}">
+        <td class="fw-bold">{{ user.username }}</td>
+        <td>{{ user.full_name }}</td>
+        <td>{{ user.email }}</td>
+        <td>
+          {% if user.role == "admin" %}
+            <span class="badge bg-danger">Admin</span>
+          {% else %}
+            <span class="badge bg-secondary">User</span>
+          {% endif %}
+        </td>
+        <td>{{ user.position or "—" }}</td>
+        <td>{{ user.created_at.strftime("%b %d, %Y") }}</td>
+        <td>
+          {% if status == "active" %}
+            <span class="badge bg-success">Active</span>
+          {% elif status == "inactive" %}
+            <span class="badge bg-danger">Inactive</span>
+          {% else %}
+            <span class="badge bg-warning text-dark">Pending</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if user.username == "admin" %}
+            <span class="text-muted small fst-italic">Factory user</span>
+          {% else %}
+          <div class="d-flex justify-content-center gap-2">
+
+            <!-- Single status action -->
+            {% if status == 'pending' %}
+            <form method="POST" action="{{ url_for('admin_user_action', user_id=user.id, action='approve') }}">
+              <button type="submit" class="action-btn approve-btn" title="Approve user">
+                <span class="action-icon">✅</span>
+                <span class="action-label">Approve</span>
+              </button>
+            </form>
+            {% elif status == 'active' %}
+            <form method="POST" action="{{ url_for('admin_user_action', user_id=user.id, action='disable') }}">
+              <button type="submit" class="action-btn disable-btn" title="Disable user">
+                <span class="action-icon">🔒</span>
+                <span class="action-label">Disable</span>
+              </button>
+            </form>
+            {% elif status == 'inactive' %}
+            <form method="POST" action="{{ url_for('admin_user_action', user_id=user.id, action='enable') }}">
+              <button type="submit" class="action-btn enable-btn" title="Enable user">
+                <span class="action-icon">🔓</span>
+                <span class="action-label">Enable</span>
+              </button>
+            </form>
+            {% endif %}
+
+            <!-- Promote / Demote -->
+            {% if user.role == "user" %}
+            <form method="POST" action="{{ url_for('admin_user_action', user_id=user.id, action='promote') }}">
+              <button type="submit" class="action-btn promote-btn" title="Promote to Admin">
+                <span class="action-icon">⬆️</span>
+              </button>
+            </form>
+            {% else %}
+            <form method="POST" action="{{ url_for('admin_user_action', user_id=user.id, action='demote') }}">
+              <button type="submit" class="action-btn demote-btn" title="Demote to User">
+                <span class="action-icon">⬇️</span>
+              </button>
+            </form>
+            {% endif %}
+
+          </div>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- Status filter buttons -->
+<div class="d-flex gap-2 mt-3">
+  <span class="text-muted small me-1 align-self-center">Filter:</span>
+  <button class="btn btn-sm btn-outline-secondary filter-btn active-filter" data-filter="all">All</button>
+  <button class="btn btn-sm btn-outline-warning filter-btn" data-filter="pending">Pending</button>
+  <button class="btn btn-sm btn-outline-success filter-btn" data-filter="active">Active</button>
+  <button class="btn btn-sm btn-outline-danger filter-btn" data-filter="inactive">Inactive</button>
+</div>
+
+<style>
+  .sortable { cursor: pointer; user-select: none; }
+  .sortable:hover { background-color: rgba(0,188,212,0.08); }
+  .sort-icon { font-size: 0.75rem; color: #aaa; }
+  .filter-btn.active-filter { background-color: #00bcd4 !important; border-color: #00bcd4 !important; color: #121212 !important; }
+
+  .action-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    border: none;
+    border-radius: 20px;
+    padding: 0.3rem 0.75rem;
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 0.15s, box-shadow 0.15s;
+  }
+  .action-btn:hover { transform: translateY(-1px); box-shadow: 0 3px 8px rgba(0,0,0,0.25); }
+  .action-icon { font-size: 0.95rem; }
+
+  .approve-btn  { background-color: #28a745; color: #fff; }
+  .approve-btn:hover  { background-color: #218838; }
+  .disable-btn  { background-color: #fd7e14; color: #fff; }
+  .disable-btn:hover  { background-color: #e8690b; }
+  .enable-btn   { background-color: #00bcd4; color: #121212; }
+  .enable-btn:hover   { background-color: #00e5ff; }
+  .promote-btn  { background-color: #dc3545; color: #fff; }
+  .promote-btn:hover  { background-color: #c82333; }
+  .demote-btn   { background-color: #6c757d; color: #fff; }
+  .demote-btn:hover   { background-color: #5a6268; }
+</style>
+
+<script>
+  const tbody = document.querySelector("#userTable tbody");
+  const rows  = Array.from(tbody.querySelectorAll("tr"));
+
+  // --- Search ---
+  document.getElementById("userSearch").addEventListener("input", function () {
+    const q = this.value.toLowerCase();
+    rows.forEach(row => {
+      const text = row.textContent.toLowerCase();
+      row.style.display = text.includes(q) ? "" : "none";
+    });
+  });
+
+  // --- Status filter ---
+  document.querySelectorAll(".filter-btn").forEach(btn => {
+    btn.addEventListener("click", function () {
+      document.querySelectorAll(".filter-btn").forEach(b => b.classList.remove("active-filter"));
+      this.classList.add("active-filter");
+      const filter = this.dataset.filter;
+      rows.forEach(row => {
+        row.style.display = (filter === "all" || row.dataset.status === filter) ? "" : "none";
+      });
+    });
+  });
+
+  // --- Column sort ---
+  let sortDir = {};
+  document.querySelectorAll(".sortable").forEach(th => {
+    th.addEventListener("click", function () {
+      const col = parseInt(this.dataset.col);
+      sortDir[col] = !sortDir[col];
+      const sorted = rows.slice().sort((a, b) => {
+        const aText = a.cells[col]?.textContent.trim().toLowerCase() || "";
+        const bText = b.cells[col]?.textContent.trim().toLowerCase() || "";
+        return sortDir[col] ? aText.localeCompare(bText) : bText.localeCompare(aText);
+      });
+      sorted.forEach(row => tbody.appendChild(row));
+      document.querySelectorAll(".sort-icon").forEach(i => i.textContent = "⇅");
+      this.querySelector(".sort-icon").textContent = sortDir[col] ? "▲" : "▼";
+    });
+  });
+</script>
+{% endblock %}

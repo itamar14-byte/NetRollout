@@ -261,6 +261,9 @@
             </button>
             <ul class="dropdown-menu dropdown-menu-end">
                 <li><a class="dropdown-item" href="{{ url_for('account') }}">📊 My Account</a></li>
+                {% if current_user.role == "admin" %}
+                <li><a class="dropdown-item" href="{{ url_for('admin_panel') }}">⚙️ Admin Panel</a></li>
+                {% endif %}
                 <li><hr class="dropdown-divider"></li>
                 <li><a class="dropdown-item" href="{{ url_for('logout') }}">🚪 Logout</a></li>
             </ul>

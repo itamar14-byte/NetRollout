@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+{% block title %}Two-Factor Authentication - Network Rollout Tool{% endblock %}
+
+{% block content %}
+<h2 class="mb-2">Two-Factor Authentication</h2>
+<p class="text-muted mb-4">Enter the 6-digit code from your authenticator app.</p>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    {% for category, message in messages %}
+      <div class="alert alert-{{ category }} alert-dismissible fade show mx-auto w-75" role="alert">
+        {{ message }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+      </div>
+    {% endfor %}
+  {% endif %}
+{% endwith %}
+
+<div class="card shadow-sm mx-auto mb-4" style="max-width: 400px;">
+  <div class="card-body p-4">
+
+    <!-- Timer -->
+    <div class="d-flex justify-content-center align-items-center mb-4 gap-3">
+      <div style="position: relative; width: 56px; height: 56px;">
+        <svg width="56" height="56" style="transform: rotate(-90deg);">
+          <circle cx="28" cy="28" r="24" fill="none" stroke="#e0e0e0" stroke-width="4"/>
+          <circle id="timerCircle" cx="28" cy="28" r="24" fill="none"
+                  stroke="#28a745" stroke-width="4"
+                  stroke-dasharray="150.8"
+                  stroke-dashoffset="0"
+                  stroke-linecap="round"
+                  style="transition: stroke-dashoffset 1s linear, stroke 0.5s;"/>
+        </svg>
+        <span id="timerText"
+              style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+                     font-size: 1rem; font-weight: bold; color: #e0e0e0;">30</span>
+      </div>
+      <span class="text-muted small">seconds until code refresh</span>
+    </div>
+
+    <!-- OTP Input Form -->
+    <form method="POST" action="{{ url_for('otp_verify') }}" id="otpForm">
+      <div class="d-flex justify-content-center gap-2 mb-3" id="otpBoxes">
+        <input type="text" maxlength="1" class="otp-box form-control text-center fw-bold fs-4"
+               inputmode="numeric" pattern="[0-9]" autocomplete="off">
+        <input type="text" maxlength="1" class="otp-box form-control text-center fw-bold fs-4"
+               inputmode="numeric" pattern="[0-9]" autocomplete="off">
+        <input type="text" maxlength="1" class="otp-box form-control text-center fw-bold fs-4"
+               inputmode="numeric" pattern="[0-9]" autocomplete="off">
+        <input type="text" maxlength="1" class="otp-box form-control text-center fw-bold fs-4"
+               inputmode="numeric" pattern="[0-9]" autocomplete="off">
+        <input type="text" maxlength="1" class="otp-box form-control text-center fw-bold fs-4"
+               inputmode="numeric" pattern="[0-9]" autocomplete="off">
+        <input type="text" maxlength="1" class="otp-box form-control text-center fw-bold fs-4"
+               inputmode="numeric" pattern="[0-9]" autocomplete="off">
+      </div>
+      <input type="hidden" name="code" id="codeInput">
+      <div class="d-grid">
+        <button type="submit" class="btn btn-primary" id="submitBtn" disabled>Verify</button>
+      </div>
+    </form>
+
+  </div>
+</div>
+
+<style>
+  .otp-box {
+    width: 48px;
+    height: 56px;
+    padding: 0;
+    border-radius: 8px;
+    font-size: 1.5rem;
+  }
+  .otp-box:focus {
+    border-color: #00bcd4;
+    box-shadow: 0 0 0 0.2rem rgba(0, 188, 212, 0.35);
+  }
+  @keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    20%       { transform: translateX(-6px); }
+    40%       { transform: translateX(6px); }
+    60%       { transform: translateX(-4px); }
+    80%       { transform: translateX(4px); }
+  }
+  .shake {
+    animation: shake 0.4s ease;
+  }
+</style>
+
+<script>
+  const boxes = document.querySelectorAll(".otp-box");
+  const codeInput = document.getElementById("codeInput");
+  const submitBtn = document.getElementById("submitBtn");
+  const otpBoxes = document.getElementById("otpBoxes");
+
+  // --- OTP box navigation ---
+  boxes.forEach((box, i) => {
+    box.addEventListener("input", () => {
+      box.value = box.value.replace(/[^0-9]/g, "");
+      if (box.value && i < boxes.length - 1) boxes[i + 1].focus();
+      syncCode();
+    });
+    box.addEventListener("keydown", (e) => {
+      if (e.key === "Backspace" && !box.value && i > 0) {
+        boxes[i - 1].focus();
+        boxes[i - 1].value = "";
+        syncCode();
+      }
+    });
+    box.addEventListener("paste", (e) => {
+      e.preventDefault();
+      const pasted = e.clipboardData.getData("text").replace(/[^0-9]/g, "").slice(0, 6);
+      pasted.split("").forEach((char, idx) => {
+        if (boxes[idx]) boxes[idx].value = char;
+      });
+      const next = Math.min(pasted.length, boxes.length - 1);
+      boxes[next].focus();
+      syncCode();
+    });
+  });
+
+  function syncCode() {
+    const code = Array.from(boxes).map(b => b.value).join("");
+    codeInput.value = code;
+    submitBtn.disabled = code.length !== 6;
+  }
+
+  // --- Flash shake on page load if there was an error ---
+  {% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+  document.addEventListener("DOMContentLoaded", () => {
+    otpBoxes.classList.add("shake");
+    otpBoxes.addEventListener("animationend", () => otpBoxes.classList.remove("shake"), { once: true });
+  });
+  {% endif %}
+  {% endwith %}
+
+  // --- TOTP 30-second countdown timer ---
+  const circle = document.getElementById("timerCircle");
+  const timerText = document.getElementById("timerText");
+  const circumference = 2 * Math.PI * 24;
+
+  function updateTimer() {
+    const now = Math.floor(Date.now() / 1000);
+    const secondsLeft = 30 - (now % 30);
+    const fraction = secondsLeft / 30;
+
+    timerText.textContent = secondsLeft;
+    circle.style.strokeDashoffset = circumference * (1 - fraction);
+
+    if (secondsLeft <= 10) {
+      circle.style.stroke = "#dc3545";
+    } else if (secondsLeft <= 20) {
+      circle.style.stroke = "#ffc107";
+    } else {
+      circle.style.stroke = "#28a745";
+    }
+  }
+
+  updateTimer();
+  setInterval(updateTimer, 1000);
+</script>
+{% endblock %}
