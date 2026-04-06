@@ -61,7 +61,7 @@ def validate_port(port: str) -> bool:
     """checks that port is a valid port number in the tcp IETF range"""
     if not port.isnumeric():
         return False
-    elif int(port) < 0 or int(port) > 65535:
+    elif int(port) < 1 or int(port) > 65535:
         return False
     return True
 
