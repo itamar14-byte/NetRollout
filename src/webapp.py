@@ -170,6 +170,7 @@ def login():
 			if user.is_approved:
 				if user.is_active:
 					if user.username == "admin":
+						db_session.expunge(user)
 						login_user(user)
 						return redirect(url_for("upload"))
 					# checks otp enrollment
@@ -190,9 +191,9 @@ def login():
 				flash("User still pending admin approval",
 				      "danger")
 				return redirect(url_for("home"))
-
-		flash("invalid credentials", "danger")
-		return redirect(url_for("home"))
+		else:
+			flash("invalid credentials", "danger")
+			return redirect(url_for("home"))
 
 
 @app.route("/register", methods=["GET"])
@@ -236,7 +237,7 @@ def otp_enroll():
 		if not user_id:
 			return redirect(url_for("home"))
 		with get_session() as db_session:
-			user = db_session.query(User).filter_by(id=user_id).first()
+			user = db_session.query(User).filter_by(id=uuid.UUID(user_id)).first()
 			db_session.expunge(user)
 		totp = pyotp.random_base32()
 		secret = session.get("pending_totp_secret", None) or totp
@@ -258,7 +259,8 @@ def otp_enroll():
 		user_code = request.form["code"]
 		if pyotp.TOTP(otp_secret).verify(user_code, valid_window=2):
 			with get_session() as db_session:
-				user = db_session.query(User).filter_by(id=user_id).first()
+				user = db_session.query(User).filter_by(id=uuid.UUID(
+					user_id)).first()
 				user.otp_secret = otp_secret
 				db_session.flush()
 				db_session.expunge(user)
@@ -278,7 +280,7 @@ def otp_verify():
 			return redirect(url_for("home"))
 		user_code = request.form["code"]
 		with get_session() as db_session:
-			user = db_session.query(User).filter_by(id=user_id).first()
+			user = db_session.query(User).filter_by(id=uuid.UUID(user_id)).first()
 			db_session.expunge(user)
 		if pyotp.TOTP(user.otp_secret).verify(user_code, valid_window=2):
 			login_user(user)
@@ -421,7 +423,7 @@ def user_action(user_id, action):
 	if current_user.role != "admin":
 		return redirect(url_for("upload"))
 	with get_session() as db_session:
-		user = db_session.query(User).filter_by(id=user_id).first()
+		user = db_session.query(User).filter_by(id=uuid.UUID(user_id)).first()
 
 		if action == "approve":
 			user.is_approved = True
