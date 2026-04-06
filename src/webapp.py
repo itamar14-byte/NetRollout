@@ -250,10 +250,11 @@ def otp_enroll():
 			return redirect(url_for("home"))
 		otp_secret = session.get("pending_totp_secret",None)
 		user_code = request.form["code"]
-		if pyotp.TOTP(otp_secret).verify(user_code):
+		if pyotp.TOTP(otp_secret).verify(user_code, valid_window=2):
 			with get_session() as db_session:
 				user = db_session.query(User).filter_by(id=user_id).first()
 				user.otp_secret = otp_secret
+				db_session.expunge(user)
 			session.pop("pending_totp_secret")
 			session.pop("pre_auth_user_id")
 			login_user(user)
@@ -271,7 +272,7 @@ def otp_verify():
 		with get_session() as db_session:
 			user = db_session.query(User).filter_by(id=user_id).first()
 			db_session.expunge(user)
-		if pyotp.TOTP(user.otp_secret).verify(user_code):
+		if pyotp.TOTP(user.otp_secret).verify(user_code, valid_window=2):
 			login_user(user)
 			session.pop("pre_auth_user_id")
 			return redirect(url_for("upload"))
