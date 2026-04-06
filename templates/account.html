@@ -1,64 +1,62 @@
 {% extends "base.html" %}
-{% block title %}My Account - Network Rollout Tool{% endblock %}
+{% block title %}My Account — NetRollout{% endblock %}
 
 {% block content %}
-<h2 class="mb-4">My Account</h2>
 
-<div class="card shadow-sm mx-auto mb-4" style="max-width: 520px;">
-  <div class="card-body p-4 text-start">
+<!-- Hero -->
+<div class="mb-4">
+  <div class="nr-badge">MY ACCOUNT</div>
+  <h2 style="font-family:'JetBrains Mono',monospace; font-size:1.9rem; font-weight:700; color:#e0e0e0; letter-spacing:-0.5px; margin-bottom:0.3rem;">
+    {{ user.username }}
+  </h2>
+  <p style="font-size:0.83rem; color:#444; margin:0;">
+    {% if user.role == "admin" %}
+      <span class="badge bg-danger" style="font-size:0.68rem; vertical-align:middle; margin-right:0.4rem;">Admin</span>
+    {% else %}
+      <span class="badge bg-secondary" style="font-size:0.68rem; vertical-align:middle; margin-right:0.4rem;">User</span>
+    {% endif %}
+    Member since {{ user.created_at.strftime("%B %Y") }}
+  </p>
+</div>
 
-    <div class="mb-3">
-      <span class="text-muted small">Username</span>
-      <div class="fw-bold fs-5">{{ user.username }}</div>
+<div class="nr-card mx-auto mb-4 text-start" style="max-width:500px;">
+  <div class="nr-card-accent"></div>
+  <div class="nr-card-body">
+
+    <div class="mb-4">
+      <div class="nr-label">Full Name</div>
+      <div style="color:#e0e0e0; font-size:0.95rem;">{{ user.full_name }}</div>
     </div>
 
-    <hr>
-
-    <div class="mb-3">
-      <span class="text-muted small">Full Name</span>
-      <div>{{ user.full_name }}</div>
-    </div>
-
-    <div class="mb-3">
-      <span class="text-muted small">Email</span>
-      <div>{{ user.email }}</div>
-    </div>
-
-    <div class="mb-3">
-      <span class="text-muted small">Role</span>
-      <div>
-        {% if user.role == "admin" %}
-          <span class="badge bg-danger">Admin</span>
-        {% else %}
-          <span class="badge bg-secondary">User</span>
-        {% endif %}
-      </div>
+    <div class="mb-4">
+      <div class="nr-label">Email</div>
+      <div style="color:#e0e0e0; font-size:0.95rem;">{{ user.email }}</div>
     </div>
 
     {% if user.position %}
-    <div class="mb-3">
-      <span class="text-muted small">Position</span>
-      <div>{{ user.position }}</div>
+    <div class="mb-4">
+      <div class="nr-label">Position</div>
+      <div style="color:#e0e0e0; font-size:0.95rem;">{{ user.position }}</div>
     </div>
     {% endif %}
 
     <hr>
 
-    <div class="mb-3">
-      <span class="text-muted small">Member Since</span>
-      <div>
+    <div class="mb-4">
+      <div class="nr-label">Member Since</div>
+      <div style="color:#e0e0e0; font-size:0.95rem; display:flex; align-items:baseline; gap:0.6rem;">
         {{ user.created_at.strftime("%B %d, %Y") }}
-        <span class="text-muted small">
-          (<span id="ageCounter">calculating...</span> old)
+        <span style="font-family:'JetBrains Mono',monospace; font-size:0.78rem; color:#00bcd4;">
+          (<span id="ageCounter">calculating...</span>)
         </span>
       </div>
     </div>
 
     <hr>
 
-    <div class="mb-1">
-      <span class="text-muted small">Rollout Stats</span>
-      <div class="text-muted fst-italic">Coming in Phase 2</div>
+    <div>
+      <div class="nr-label">Rollout Stats</div>
+      <div style="color:#333; font-size:0.8rem; font-style:italic;">Available in Phase 2</div>
     </div>
 
   </div>

@@ -1,10 +1,8 @@
 {% extends "base.html" %}
-{% block title %}Live Rollout - Network Rollout Tool{% endblock %}
+{% block title %}Live Rollout — NetRollout{% endblock %}
 
 {% block home_button %}
-<button id="homeBtn" class="btn btn-outline-primary" disabled>
-    🏠 Back to Home
-</button>
+<button id="homeBtn" class="nr-back-btn" disabled>← Home</button>
 <script>
     const homeBtn = document.getElementById("homeBtn");
 
@@ -30,18 +28,47 @@
 {% endblock %}
 
 {% block content %}
-<h2 class="mb-4 text-center">🚀 Rollout in Progress</h2>
 
-<!-- Log window -->
-<div id="logWindow" class="bg-dark text-light p-3 rounded"
-     style="height: 400px; overflow-y: auto; font-family: monospace; white-space: pre-wrap; border: 1px solid #444;">
-    <em>Waiting for logs...</em>
+<!-- Header -->
+<div class="mb-3">
+  <div class="nr-badge">LIVE ROLLOUT</div>
+  <h2 style="font-family:'JetBrains Mono',monospace; font-size:1.9rem; font-weight:700; color:#e0e0e0; letter-spacing:-0.5px; margin-bottom:0;">
+    Executing
+  </h2>
 </div>
 
-<!-- Cancel button (optional) -->
+<!-- Terminal window -->
+<div style="background:#0a0a0a; border:1px solid #1a1a1a; border-radius:10px; overflow:hidden;
+            box-shadow:0 0 0 1px rgba(0,188,212,0.07), 0 20px 60px rgba(0,0,0,0.7);
+            margin-bottom:1rem;">
+
+  <!-- Title bar -->
+  <div style="background:#111; border-bottom:1px solid #1a1a1a; padding:0.5rem 1rem;
+              display:flex; align-items:center; gap:0.5rem;">
+    <div style="width:9px;height:9px;border-radius:50%;background:#2a2a2a;"></div>
+    <div style="width:9px;height:9px;border-radius:50%;background:#2a2a2a;"></div>
+    <div style="width:9px;height:9px;border-radius:50%;background:#2a2a2a;"></div>
+    <span style="font-family:'JetBrains Mono',monospace; font-size:0.62rem; color:#333;
+                 margin-left:0.6rem; letter-spacing:1.5px;">ROLLOUT LOG</span>
+  </div>
+
+  <!-- Log output -->
+  <div id="logWindow"
+       style="height:420px; overflow-y:auto; font-family:'JetBrains Mono',monospace;
+              font-size:0.8rem; white-space:pre-wrap; padding:1rem 1.25rem;
+              color:#666; line-height:1.65;">
+    <em style="color:#2a2a2a;">Initializing...</em>
+  </div>
+</div>
+
+<!-- Cancel button -->
 <div class="d-flex justify-content-center mt-3">
-    <button id="cancelBtn" class="btn btn-danger">❌ Cancel Rollout</button>
+  <button id="cancelBtn" class="btn btn-outline-danger"
+          style="font-family:'Inter',sans-serif; font-size:0.82rem; padding:0.45rem 1.5rem; letter-spacing:0.3px;">
+    Cancel Rollout
+  </button>
 </div>
+
 <script>
     document.getElementById("cancelBtn").addEventListener("click", () => {
         if (confirm("Are you sure you want to cancel the rollout? " +
@@ -74,7 +101,6 @@
         logWindow.appendChild(newLine);
         logWindow.scrollTop = logWindow.scrollHeight; // auto scroll
 
-
         // ✅ Close SSE when rollout finishes or cancels
         if (event.data.includes("Rollout Canceled By User") ||
             event.data.includes("Configuration rollout complete") ||
@@ -87,18 +113,18 @@
     };
 
     // 🚨 Warn user if leaving mid-rollout
-window.addEventListener("beforeunload", function (e) {
-    if (rolloutActive) {
-        e.preventDefault();
-        //Required for Chrome,Firefox,Safari
-        // noinspection JSDeprecatedSymbols
-        e.returnValue = "";
-    }
-});
+    window.addEventListener("beforeunload", function (e) {
+        if (rolloutActive) {
+            e.preventDefault();
+            //Required for Chrome,Firefox,Safari
+            // noinspection JSDeprecatedSymbols
+            e.returnValue = "";
+        }
+    });
 
     eventSource.onerror = function () {
         const newLine = document.createElement("div");
-        newLine.innerHTML = "<span style='color:red;'>⚠️ Connection lost.</span>";
+        newLine.innerHTML = "<span style='color:#ef5350;'>⚠️ Connection lost.</span>";
         logWindow.appendChild(newLine);
         eventSource.close();
     };

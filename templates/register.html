@@ -1,13 +1,13 @@
 {% extends "base.html" %}
-{% block title %}Register - Network Rollout Tool{% endblock %}
+{% block title %}NetRollout — Request Access{% endblock %}
 
 {% block content %}
-<h2 class="mb-4">Create Account</h2>
 
+<!-- Flash messages -->
 {% with messages = get_flashed_messages(with_categories=true) %}
   {% if messages %}
     {% for category, message in messages %}
-      <div class="alert alert-{{ category }} alert-dismissible fade show mx-auto w-75" role="alert">
+      <div class="alert alert-{{ category }} alert-dismissible fade show mx-auto mb-3" style="max-width:480px;" role="alert">
         {{ message }}
         <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
       </div>
@@ -15,44 +15,55 @@
   {% endif %}
 {% endwith %}
 
-<div class="card shadow-sm mx-auto mb-4" style="max-width: 480px;">
-  <div class="card-body p-4">
+<!-- Hero -->
+<div class="mb-4">
+  <div class="nr-badge">REQUEST ACCESS</div>
+  <h2 style="font-family:'JetBrains Mono',monospace; font-size:1.9rem; font-weight:700; color:#e0e0e0; letter-spacing:-0.5px; margin-bottom:0.4rem;">
+    Join NetRollout
+  </h2>
+  <p style="font-size:0.85rem; color:#555; font-weight:300;">
+    Your account will be reviewed by an administrator before activation.
+  </p>
+</div>
+
+<!-- Registration Card -->
+<div class="nr-card mx-auto mb-4" style="max-width:460px;">
+  <div class="nr-card-accent"></div>
+  <div class="nr-card-body">
     <form method="POST" action="{{ url_for('register') }}" id="registerForm" novalidate>
 
-      <!-- Username -->
       <div class="mb-3 text-start">
-        <label for="username" class="form-label">Username <span class="text-danger">*</span></label>
+        <label for="username" class="nr-label">Username <span style="color:#ef5350;">*</span></label>
         <input type="text" class="form-control" id="username" name="username"
                placeholder="Enter username" autocomplete="off">
         <div class="invalid-feedback" id="usernameError"></div>
       </div>
 
-      <!-- Email -->
       <div class="mb-3 text-start">
-        <label for="email" class="form-label">Email <span class="text-danger">*</span></label>
+        <label for="email" class="nr-label">Email <span style="color:#ef5350;">*</span></label>
         <input type="text" class="form-control" id="email" name="email"
                placeholder="Enter email" autocomplete="off">
         <div class="invalid-feedback" id="emailError"></div>
       </div>
 
-      <!-- Full Name -->
       <div class="mb-3 text-start">
-        <label for="full_name" class="form-label">Full Name <span class="text-danger">*</span></label>
+        <label for="full_name" class="nr-label">Full Name <span style="color:#ef5350;">*</span></label>
         <input type="text" class="form-control" id="full_name" name="full_name"
                placeholder="Enter full name">
         <div class="invalid-feedback" id="fullNameError"></div>
       </div>
 
-      <!-- Position (optional) -->
       <div class="mb-3 text-start">
-        <label for="position" class="form-label">Position</label>
+        <label for="position" class="nr-label">
+          Position
+          <span style="color:#444; font-size:0.65rem; letter-spacing:0; text-transform:none; font-weight:400;">— optional</span>
+        </label>
         <input type="text" class="form-control" id="position" name="position"
-               placeholder="e.g. Network Engineer, CTO (optional)">
+               placeholder="e.g. Network Engineer, CTO">
       </div>
 
-      <!-- Password -->
       <div class="mb-3 text-start">
-        <label for="password" class="form-label">Password <span class="text-danger">*</span></label>
+        <label for="password" class="nr-label">Password <span style="color:#ef5350;">*</span></label>
         <div class="input-group">
           <input type="password" class="form-control" id="password" name="password"
                  placeholder="Enter password" autocomplete="new-password">
@@ -62,9 +73,8 @@
         <div class="invalid-feedback d-block" id="passwordError" style="display:none !important;"></div>
       </div>
 
-      <!-- Confirm Password -->
       <div class="mb-4 text-start">
-        <label for="confirm_password" class="form-label">Confirm Password <span class="text-danger">*</span></label>
+        <label for="confirm_password" class="nr-label">Confirm Password <span style="color:#ef5350;">*</span></label>
         <div class="input-group">
           <input type="password" class="form-control" id="confirm_password"
                  placeholder="Repeat password" autocomplete="new-password">
@@ -74,21 +84,17 @@
         <div class="invalid-feedback d-block" id="confirmError" style="display:none !important;"></div>
       </div>
 
-      <!-- Submit -->
       <div class="d-grid">
-        <button type="submit" class="btn btn-primary" id="submitBtn" disabled>Register</button>
+        <button type="submit" class="btn btn-primary" id="submitBtn" disabled>Request Access</button>
       </div>
 
     </form>
   </div>
 </div>
 
-<p class="text-muted mb-2">
-  Already have an account? <a href="{{ url_for('home') }}">Sign in here</a>
-</p>
-<p class="text-muted small">
-  <span class="text-danger">*</span> Required fields &nbsp;|&nbsp;
-  Your account will be inactive until approved by an administrator.
+<p style="font-size:0.82rem; color:#444; margin-bottom:2rem;">
+  Already have an account?
+  <a href="{{ url_for('home') }}" style="color:#00bcd4; text-decoration:none; font-weight:500;">Sign in</a>
 </p>
 
 <script>

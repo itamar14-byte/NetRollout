@@ -1,64 +1,266 @@
 {% extends "base.html" %}
-{% block title %}Home - Network Rollout Tool{% endblock %}
+{% block title %}NetRollout — Sign In{% endblock %}
 
 {% block content %}
-  <h1 class="mb-3">🚀 Network Rollout Tool</h1>
-  <p class="lead mb-4">Upload your device list and command set to get started.</p>
 
-  <!-- Flash messages -->
-  {% with messages = get_flashed_messages(with_categories=true) %}
-    {% if messages %}
-      {% for category, message in messages %}
-        <div class="alert alert-{{ category }} alert-dismissible fade show mx-auto w-75" role="alert">
-          {{ message }}
-          <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-        </div>
-      {% endfor %}
-    {% endif %}
-  {% endwith %}
+<!-- Background grid -->
+<div class="login-bg-grid" aria-hidden="true"></div>
 
-  <!-- Login Card -->
-  <div class="card shadow-sm mx-auto mb-4" style="max-width: 400px;">
-    <div class="card-body p-4">
-      <h5 class="card-title mb-4">Sign In</h5>
-      <form method="POST" action="{{ url_for('login') }}">
-        <div class="mb-3 text-start">
-          <label for="username" class="form-label">Username</label>
-          <input type="text" class="form-control" id="username"
-                 name="username" placeholder="Enter username" required autofocus>
+<!-- Flash messages -->
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    {% for category, message in messages %}
+      <div class="alert alert-{{ category }} alert-dismissible fade show mx-auto" style="max-width:480px;" role="alert">
+        {{ message }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+      </div>
+    {% endfor %}
+  {% endif %}
+{% endwith %}
+
+<!-- Hero -->
+<div class="login-hero mb-4">
+  <div class="login-badge">NETWORK AUTOMATION</div>
+  <h1 class="login-title">NetRollout</h1>
+  <p class="login-subtitle">Push configurations. Verify changes. Own your network.</p>
+</div>
+
+<!-- Login Card -->
+<div class="login-card mx-auto mb-4">
+  <div class="login-card-accent"></div>
+  <div class="login-card-body">
+    <h5 class="login-card-title">Sign In</h5>
+    <form method="POST" action="{{ url_for('login') }}">
+      <div class="mb-3 text-start">
+        <label for="username" class="login-label">Username</label>
+        <input type="text" class="form-control login-input" id="username"
+               name="username" placeholder="Enter username" required autofocus>
+      </div>
+      <div class="mb-4 text-start">
+        <label for="password" class="login-label">Password</label>
+        <div class="input-group">
+          <input type="password" class="form-control login-input" id="password"
+                 name="password" placeholder="Enter password" required>
+          <button class="btn btn-outline-secondary toggle-password login-toggle" type="button">👁</button>
         </div>
-        <div class="mb-4 text-start">
-          <label for="password" class="form-label">Password</label>
-          <div class="input-group">
-            <input type="password" class="form-control" id="password"
-                   name="password" placeholder="Enter password" required>
-            <button class="btn btn-outline-secondary toggle-password" type="button">👁</button>
-          </div>
-        </div>
-        <div class="d-grid">
-          <button type="submit" class="btn btn-primary">Login</button>
-        </div>
-      </form>
-    </div>
+      </div>
+      <div class="d-grid">
+        <button type="submit" class="btn login-btn">Sign In</button>
+      </div>
+    </form>
   </div>
+</div>
 
-  <p class="text-muted mb-4">
-    Don't have an account? <a href="{{ url_for('register') }}">Register here</a>
-  </p>
+<p class="login-register-text mb-5">
+  Don't have an account? <a href="{{ url_for('register') }}" class="login-link">Request access</a>
+</p>
 
-  <!-- short explanation -->
-  <div class="alert alert-info mx-auto w-75">
-    This tool helps you automate configuration rollout across multiple network devices,
-    verify the changes, and save time compared to manual CLI work.
-  </div>
+<!-- Feature pills -->
+<div class="login-features mx-auto">
+  <div class="feature-pill">⚡ Multi-vendor push</div>
+  <div class="feature-pill">✅ Config verification</div>
+  <div class="feature-pill">🔐 TOTP 2FA</div>
+  <div class="feature-pill">📋 Audit trail</div>
+</div>
 
-  <script>
-    document.querySelectorAll(".toggle-password").forEach(btn => {
-      btn.addEventListener("click", function () {
-        const input = this.previousElementSibling;
-        input.type = input.type === "password" ? "text" : "password";
-        this.textContent = input.type === "password" ? "👁" : "🙈";
-      });
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@300;400;500;600&display=swap');
+
+  .login-bg-grid {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background-image:
+      radial-gradient(circle at 20% 20%, rgba(0, 188, 212, 0.06) 0%, transparent 50%),
+      radial-gradient(circle at 80% 80%, rgba(0, 188, 212, 0.04) 0%, transparent 50%),
+      linear-gradient(rgba(0,188,212,0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,188,212,0.04) 1px, transparent 1px);
+    background-size: 100% 100%, 100% 100%, 40px 40px, 40px 40px;
+  }
+
+  .login-hero {
+    position: relative;
+    z-index: 1;
+  }
+
+  .login-badge {
+    display: inline-block;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 3px;
+    color: #00bcd4;
+    border: 1px solid rgba(0,188,212,0.4);
+    padding: 0.25rem 0.75rem;
+    border-radius: 2px;
+    margin-bottom: 0.75rem;
+  }
+
+  .login-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 2.8rem;
+    font-weight: 700;
+    color: #e0e0e0;
+    letter-spacing: -1px;
+    margin-bottom: 0.5rem;
+  }
+
+  .login-subtitle {
+    font-family: 'Inter', sans-serif;
+    font-size: 0.95rem;
+    font-weight: 300;
+    color: #888;
+    letter-spacing: 0.5px;
+  }
+
+  .login-card {
+    position: relative;
+    z-index: 1;
+    max-width: 420px;
+    background: #1a1a1a;
+    border: 1px solid #2a2a2a;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow:
+      0 0 0 1px rgba(0,188,212,0.1),
+      0 20px 60px rgba(0,0,0,0.5),
+      0 0 40px rgba(0,188,212,0.05);
+    transition: box-shadow 0.3s;
+  }
+
+  .login-card:hover {
+    box-shadow:
+      0 0 0 1px rgba(0,188,212,0.2),
+      0 20px 60px rgba(0,0,0,0.6),
+      0 0 60px rgba(0,188,212,0.08);
+  }
+
+  .login-card-accent {
+    height: 3px;
+    background: linear-gradient(90deg, #00bcd4, #00e5ff, transparent);
+  }
+
+  .login-card-body {
+    padding: 2rem;
+  }
+
+  .login-card-title {
+    font-family: 'Inter', sans-serif;
+    font-weight: 600;
+    font-size: 1.1rem;
+    color: #e0e0e0;
+    margin-bottom: 1.5rem;
+    letter-spacing: 0.3px;
+  }
+
+  .login-label {
+    font-family: 'Inter', sans-serif;
+    font-size: 0.8rem;
+    font-weight: 500;
+    letter-spacing: 0.5px;
+    color: #888;
+    text-transform: uppercase;
+    margin-bottom: 0.4rem;
+    display: block;
+  }
+
+  .login-input {
+    background: #222 !important;
+    border: 1px solid #333 !important;
+    color: #e0e0e0 !important;
+    border-radius: 6px !important;
+    font-family: 'Inter', sans-serif;
+    font-size: 0.9rem;
+    padding: 0.6rem 0.85rem;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+
+  .login-input:focus {
+    border-color: #00bcd4 !important;
+    box-shadow: 0 0 0 3px rgba(0,188,212,0.12) !important;
+    background: #252525 !important;
+  }
+
+  .login-input::placeholder { color: #555 !important; }
+
+  .login-toggle {
+    background: #222 !important;
+    border: 1px solid #333 !important;
+    border-left: none !important;
+    color: #888 !important;
+  }
+
+  .login-btn {
+    background: linear-gradient(135deg, #00bcd4, #00acc1);
+    border: none;
+    color: #0a0a0a;
+    font-family: 'Inter', sans-serif;
+    font-weight: 600;
+    font-size: 0.9rem;
+    letter-spacing: 0.5px;
+    padding: 0.7rem;
+    border-radius: 6px;
+    transition: all 0.2s;
+  }
+
+  .login-btn:hover {
+    background: linear-gradient(135deg, #00e5ff, #00bcd4);
+    box-shadow: 0 0 20px rgba(0,188,212,0.4);
+    transform: translateY(-1px);
+  }
+
+  .login-register-text {
+    position: relative;
+    z-index: 1;
+    font-family: 'Inter', sans-serif;
+    font-size: 0.85rem;
+    color: #666;
+  }
+
+  .login-link {
+    color: #00bcd4;
+    text-decoration: none;
+    font-weight: 500;
+  }
+
+  .login-link:hover { color: #00e5ff; text-decoration: underline; }
+
+  .login-features {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    max-width: 500px;
+  }
+
+  .feature-pill {
+    font-family: 'Inter', sans-serif;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: #666;
+    border: 1px solid #2a2a2a;
+    border-radius: 20px;
+    padding: 0.3rem 0.85rem;
+    background: rgba(255,255,255,0.02);
+    transition: border-color 0.2s, color 0.2s;
+  }
+
+  .feature-pill:hover {
+    border-color: rgba(0,188,212,0.3);
+    color: #00bcd4;
+  }
+</style>
+
+<script>
+  document.querySelectorAll(".toggle-password").forEach(btn => {
+    btn.addEventListener("click", function () {
+      const input = this.previousElementSibling;
+      input.type = input.type === "password" ? "text" : "password";
+      this.textContent = input.type === "password" ? "👁" : "🙈";
     });
-  </script>
+  });
+</script>
 {% endblock %}

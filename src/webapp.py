@@ -1,4 +1,5 @@
 import base64
+import secrets
 import uuid
 from csv import DictReader
 from io import TextIOWrapper, BytesIO
@@ -26,7 +27,7 @@ from logging_utils import LOG_QUEUE, base_notify
 from tables import User
 
 app = Flask(__name__, template_folder='../templates')
-app.config["SECRET_KEY"] = "dev"
+app.config["SECRET_KEY"] = secrets.token_urlsafe(32)
 app.config["CURRENT_THREAD"] = None
 cancel_event = Event()
 
@@ -34,7 +35,8 @@ login_mng = LoginManager()
 login_mng.init_app(app)
 login_mng.login_view = "home"
 
-conn_limit = Limiter(get_remote_address, app=app, default_limits=[])
+conn_limit = Limiter(get_remote_address, app=app, default_limits=[],
+                     storage_uri="memory://")
 
 @login_mng.user_loader
 def load_user(user_id):
@@ -445,6 +447,9 @@ def admin_users():
 def admin_user_action(user_id, action):
 	if current_user.role != "admin":
 		return redirect(url_for("upload"))
+	if action == "disable" and uuid.UUID(user_id) == current_user.id:
+		flash("You cannot disable your own account.", "danger")
+		return redirect(url_for("admin_users"))
 	with get_session() as db_session:
 		try:
 			user = db_session.query(User).filter_by(

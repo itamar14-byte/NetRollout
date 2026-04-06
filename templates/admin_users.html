@@ -1,11 +1,18 @@
 {% extends "admin.html" %}
-{% block title %}User Management - Admin Panel{% endblock %}
+{% block title %}User Management — Admin Panel{% endblock %}
 
 {% block admin_content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <h4 class="mb-0">👥 User Management</h4>
-  <input type="text" id="userSearch" class="form-control form-control-sm w-auto"
-         placeholder="🔍 Search users..." style="min-width: 220px;">
+
+<div class="d-flex justify-content-between align-items-start mb-4">
+  <div>
+    <div class="nr-badge" style="margin-bottom:0.35rem;">USER MANAGEMENT</div>
+    <h4 class="mb-0" style="font-family:'Inter',sans-serif; font-weight:600; font-size:1.15rem; color:#e0e0e0;">
+      All Users
+    </h4>
+  </div>
+  <input type="text" id="userSearch" class="form-control form-control-sm"
+         placeholder="Search users..."
+         style="max-width:210px; font-size:0.82rem; margin-top:0.25rem;">
 </div>
 
 <div class="table-responsive">
@@ -32,9 +39,9 @@
         {% set status = "pending" %}
       {% endif %}
       <tr data-status="{{ status }}">
-        <td class="fw-bold">{{ user.username }}</td>
-        <td>{{ user.full_name }}</td>
-        <td>{{ user.email }}</td>
+        <td style="font-family:'JetBrains Mono',monospace; font-size:0.83rem; color:#e0e0e0; font-weight:600;">{{ user.username }}</td>
+        <td style="font-size:0.88rem;">{{ user.full_name }}</td>
+        <td style="color:#555; font-size:0.82rem;">{{ user.email }}</td>
         <td>
           {% if user.role == "admin" %}
             <span class="badge bg-danger">Admin</span>
@@ -42,8 +49,8 @@
             <span class="badge bg-secondary">User</span>
           {% endif %}
         </td>
-        <td>{{ user.position or "—" }}</td>
-        <td>{{ user.created_at.strftime("%b %d, %Y") }}</td>
+        <td style="color:#555; font-size:0.82rem;">{{ user.position or "—" }}</td>
+        <td style="color:#444; font-size:0.78rem; font-family:'JetBrains Mono',monospace;">{{ user.created_at.strftime("%b %d, %Y") }}</td>
         <td>
           {% if status == "active" %}
             <span class="badge bg-success">Active</span>
@@ -69,7 +76,9 @@
             </form>
             {% elif status == 'active' %}
             <form method="POST" action="{{ url_for('admin_user_action', user_id=user.id, action='disable') }}">
-              <button type="submit" class="action-btn disable-btn" title="Disable user">
+              <button type="submit" class="action-btn disable-btn {{ 'disabled-self' if user.id == current_user.id }}"
+                      title="{{ 'Cannot disable yourself' if user.id == current_user.id else 'Disable user' }}"
+                      {{ 'disabled' if user.id == current_user.id }}>
                 <span class="action-icon">🔒</span>
                 <span class="action-label">Disable</span>
               </button>
@@ -108,45 +117,64 @@
 </div>
 
 <!-- Status filter buttons -->
-<div class="d-flex gap-2 mt-3">
-  <span class="text-muted small me-1 align-self-center">Filter:</span>
-  <button class="btn btn-sm btn-outline-secondary filter-btn active-filter" data-filter="all">All</button>
-  <button class="btn btn-sm btn-outline-warning filter-btn" data-filter="pending">Pending</button>
-  <button class="btn btn-sm btn-outline-success filter-btn" data-filter="active">Active</button>
-  <button class="btn btn-sm btn-outline-danger filter-btn" data-filter="inactive">Inactive</button>
+<div class="d-flex gap-2 mt-3 align-items-center">
+  <span style="font-family:'Inter',sans-serif; font-size:0.68rem; color:#444; letter-spacing:1px; text-transform:uppercase; font-weight:600;">Filter</span>
+  <button class="filter-btn active-filter" data-filter="all">All</button>
+  <button class="filter-btn" data-filter="pending">Pending</button>
+  <button class="filter-btn" data-filter="active">Active</button>
+  <button class="filter-btn" data-filter="inactive">Inactive</button>
 </div>
 
 <style>
   .sortable { cursor: pointer; user-select: none; }
-  .sortable:hover { background-color: rgba(0,188,212,0.08); }
-  .sort-icon { font-size: 0.75rem; color: #aaa; }
-  .filter-btn.active-filter { background-color: #00bcd4 !important; border-color: #00bcd4 !important; color: #121212 !important; }
+  .sortable:hover { background-color: rgba(0,188,212,0.03); }
+  .sort-icon { font-size: 0.68rem; color: #333; margin-left: 0.2rem; }
+
+  .filter-btn {
+    font-family: 'Inter', sans-serif;
+    font-size: 0.73rem;
+    font-weight: 500;
+    background: transparent;
+    border: 1px solid #222;
+    color: #555;
+    border-radius: 20px;
+    padding: 0.22rem 0.75rem;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .filter-btn:hover { border-color: #333 !important; color: #888 !important; background: rgba(255,255,255,0.02) !important; }
+  .filter-btn.active-filter {
+    background: rgba(0,188,212,0.1) !important;
+    border-color: rgba(0,188,212,0.3) !important;
+    color: #00bcd4 !important;
+  }
 
   .action-btn {
     display: inline-flex;
     align-items: center;
-    gap: 0.35rem;
-    border: none;
+    gap: 0.3rem;
     border-radius: 20px;
-    padding: 0.3rem 0.75rem;
-    font-size: 0.82rem;
+    padding: 0.22rem 0.65rem;
+    font-family: 'Inter', sans-serif;
+    font-size: 0.76rem;
     font-weight: 600;
     cursor: pointer;
-    transition: transform 0.15s, box-shadow 0.15s;
+    transition: transform 0.15s, box-shadow 0.15s, opacity 0.15s;
   }
-  .action-btn:hover { transform: translateY(-1px); box-shadow: 0 3px 8px rgba(0,0,0,0.25); }
-  .action-icon { font-size: 0.95rem; }
+  .action-btn:hover { transform: translateY(-1px); box-shadow: 0 3px 8px rgba(0,0,0,0.3); }
+  .action-icon { font-size: 0.85rem; }
 
-  .approve-btn  { background-color: #28a745; color: #fff; }
-  .approve-btn:hover  { background-color: #218838; }
-  .disable-btn  { background-color: #fd7e14; color: #fff; }
-  .disable-btn:hover  { background-color: #e8690b; }
-  .enable-btn   { background-color: #00bcd4; color: #121212; }
-  .enable-btn:hover   { background-color: #00e5ff; }
-  .promote-btn  { background-color: #dc3545; color: #fff; }
-  .promote-btn:hover  { background-color: #c82333; }
-  .demote-btn   { background-color: #6c757d; color: #fff; }
-  .demote-btn:hover   { background-color: #5a6268; }
+  .approve-btn { background: rgba(40,167,69,0.15);  color: #a5d6a7; border: 1px solid rgba(40,167,69,0.25); }
+  .approve-btn:hover  { background: rgba(40,167,69,0.25); }
+  .disable-btn  { background: rgba(253,126,20,0.15); color: #ffcc80; border: 1px solid rgba(253,126,20,0.25); }
+  .disable-btn:hover  { background: rgba(253,126,20,0.25); }
+  .enable-btn   { background: rgba(0,188,212,0.12);  color: #80deea; border: 1px solid rgba(0,188,212,0.2); }
+  .enable-btn:hover   { background: rgba(0,188,212,0.22); }
+  .promote-btn  { background: rgba(220,53,69,0.12);  color: #ef9a9a; border: 1px solid rgba(220,53,69,0.2); }
+  .promote-btn:hover  { background: rgba(220,53,69,0.22); }
+  .demote-btn   { background: rgba(108,117,125,0.12); color: #aaa;   border: 1px solid rgba(108,117,125,0.2); }
+  .demote-btn:hover   { background: rgba(108,117,125,0.22); }
+  .disabled-self { opacity: 0.2 !important; cursor: not-allowed !important; transform: none !important; box-shadow: none !important; }
 </style>
 
 <script>
