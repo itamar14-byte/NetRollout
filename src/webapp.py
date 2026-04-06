@@ -1,3 +1,4 @@
+import uuid
 from csv import DictReader
 from io import TextIOWrapper, BytesIO
 from json import loads
@@ -5,7 +6,6 @@ from queue import Empty
 from threading import Event, Thread
 from time import sleep
 
-import sqlalchemy
 from sqlalchemy.exc import IntegrityError
 
 from flask import (redirect, Response, request, render_template, url_for, \
@@ -35,7 +35,7 @@ login_mng.login_view = "home"
 @login_mng.user_loader
 def load_user(user_id):
 	with get_session() as session:
-		return session.get(User,int(user_id))
+		return session.get(User,uuid.UUID(user_id))
 
 def webapp_input(
 		device_file: BytesIO,
@@ -167,6 +167,10 @@ def login():
 		return redirect(url_for("home"))
 
 
+@app.route("/register", methods=["GET"])
+def register_form():
+	return render_template("register.html")
+
 @app.route("/register", methods=["POST"])
 def register():
 	username = request.form["username"]
@@ -190,19 +194,20 @@ def register():
 			return redirect(url_for("home"))
 		except IntegrityError:
 			flash("email or username already exists", "danger")
-			return redirect(url_for("register"))
+			return redirect(url_for("register_form"))
 
 
 
 @app.route("/logout")
 def logout():
-    return redirect(url_for("home"))
+	logout_user()
+	return redirect(url_for("home"))
 
 
 @app.route("/account")
 @login_required
 def account():
-    return "account page - coming soon"
+	return render_template("account.html", user=current_user)
 
 
 @app.route("/upload")
