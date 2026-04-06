@@ -13,7 +13,10 @@ from flask import (redirect, Response, request, render_template, url_for, \
                    Flask, flash, session)
 from flask_login import (LoginManager, login_required,
                          logout_user, current_user, login_user)
-from sqlalchemy.exc import IntegrityError, NoResultFound
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+
+from sqlalchemy.exc import IntegrityError
 from waitress import serve
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -31,6 +34,7 @@ login_mng = LoginManager()
 login_mng.init_app(app)
 login_mng.login_view = "home"
 
+conn_limit = Limiter(get_remote_address, app=app, default_limits=[])
 
 @login_mng.user_loader
 def load_user(user_id):
@@ -162,6 +166,7 @@ def home():
 
 
 @app.route("/login", methods=["POST"])
+@conn_limit.limit("10 per minute")
 def login():
 	username = request.form["username"]
 	password = request.form["password"]

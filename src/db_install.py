@@ -20,4 +20,3 @@ try:
 	print("DB Initialized")
 except SQLAlchemyError as e:
 	print(f"Initialization Error: {e}")
-
