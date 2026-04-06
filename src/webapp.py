@@ -254,6 +254,7 @@ def otp_enroll():
 			with get_session() as db_session:
 				user = db_session.query(User).filter_by(id=user_id).first()
 				user.otp_secret = otp_secret
+				db_session.flush()
 				db_session.expunge(user)
 			session.pop("pending_totp_secret")
 			session.pop("pre_auth_user_id")

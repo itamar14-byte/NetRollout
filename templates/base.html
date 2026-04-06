@@ -15,6 +15,7 @@
             transition: background-color 0.3s, color 0.3s;
         }
 
+        /* --- Dark mode base --- */
         .dark-mode {
             background-color: #121212 !important;
             color: #e0e0e0 !important;
@@ -23,10 +24,67 @@
         .dark-mode .lead,
         .dark-mode p,
         .dark-mode h1,
-        .dark-mode h2 {
+        .dark-mode h2,
+        .dark-mode h3,
+        .dark-mode h4,
+        .dark-mode h5,
+        .dark-mode label,
+        .dark-mode .form-label,
+        .dark-mode .text-muted {
+            color: #aaaaaa !important;
+        }
+
+        .dark-mode h1,
+        .dark-mode h2,
+        .dark-mode h3,
+        .dark-mode .card-title,
+        .dark-mode .fw-bold {
             color: #e0e0e0 !important;
         }
 
+        /* --- Cards --- */
+        .dark-mode .card {
+            background-color: #1e1e1e !important;
+            border-color: #333 !important;
+        }
+
+        .dark-mode .card-body {
+            background-color: #1e1e1e !important;
+        }
+
+        /* --- Form controls --- */
+        .dark-mode .form-control,
+        .dark-mode .form-select {
+            background-color: #2a2a2a !important;
+            color: #e0e0e0 !important;
+            border-color: #444 !important;
+        }
+
+        .dark-mode .form-control:focus,
+        .dark-mode .form-select:focus {
+            background-color: #2a2a2a !important;
+            color: #e0e0e0 !important;
+            border-color: #00bcd4 !important;
+            box-shadow: 0 0 0 0.2rem rgba(0, 188, 212, 0.25) !important;
+        }
+
+        .dark-mode .form-control::placeholder {
+            color: #666 !important;
+        }
+
+        .dark-mode .form-control:disabled {
+            background-color: #1a1a1a !important;
+            color: #555 !important;
+        }
+
+        /* --- Input groups --- */
+        .dark-mode .input-group-text {
+            background-color: #2a2a2a !important;
+            border-color: #444 !important;
+            color: #e0e0e0 !important;
+        }
+
+        /* --- Buttons --- */
         .btn-primary {
             transition: background-color 0.3s, box-shadow 0.3s;
         }
@@ -44,6 +102,133 @@
             box-shadow: 0 0 15px rgba(0, 229, 255, 0.9);
         }
 
+        .dark-mode .btn-primary:disabled {
+            background-color: #007a8a !important;
+            border-color: #007a8a !important;
+            box-shadow: none !important;
+        }
+
+        .dark-mode .btn-outline-secondary {
+            color: #aaa !important;
+            border-color: #555 !important;
+        }
+
+        .dark-mode .btn-outline-secondary:hover {
+            background-color: #333 !important;
+            color: #e0e0e0 !important;
+        }
+
+        .dark-mode .btn-outline-primary {
+            color: #00bcd4 !important;
+            border-color: #00bcd4 !important;
+        }
+
+        .dark-mode .btn-outline-primary:hover {
+            background-color: #00bcd4 !important;
+            color: #121212 !important;
+        }
+
+        .dark-mode .btn-outline-danger {
+            color: #f44336 !important;
+            border-color: #f44336 !important;
+        }
+
+        /* --- Accordion --- */
+        .dark-mode .accordion-item {
+            background-color: #1e1e1e !important;
+            border-color: #333 !important;
+        }
+
+        .dark-mode .accordion-button {
+            background-color: #252525 !important;
+            color: #e0e0e0 !important;
+        }
+
+        .dark-mode .accordion-button:not(.collapsed) {
+            background-color: #1a3a3a !important;
+            color: #00bcd4 !important;
+            box-shadow: none !important;
+        }
+
+        .dark-mode .accordion-body {
+            background-color: #1e1e1e !important;
+            color: #e0e0e0 !important;
+        }
+
+        /* --- Tables --- */
+        .dark-mode .table {
+            color: #e0e0e0 !important;
+        }
+
+        .dark-mode .table-striped > tbody > tr:nth-of-type(odd) {
+            background-color: #252525 !important;
+            color: #e0e0e0 !important;
+        }
+
+        .dark-mode .table > :not(caption) > * > * {
+            background-color: transparent !important;
+            color: #e0e0e0 !important;
+        }
+
+        /* --- Alerts --- */
+        .dark-mode .alert-info {
+            background-color: #1e3a5f !important;
+            color: #cce4ff !important;
+            border-color: #335a8a !important;
+        }
+
+        .dark-mode .alert-danger {
+            background-color: #3a1e1e !important;
+            color: #ffcccc !important;
+            border-color: #8a3333 !important;
+        }
+
+        .dark-mode .alert-success {
+            background-color: #1e3a1e !important;
+            color: #ccffcc !important;
+            border-color: #338a33 !important;
+        }
+
+        /* --- Dropdowns --- */
+        .dark-mode .dropdown-menu {
+            background-color: #1e1e1e !important;
+            border-color: #333 !important;
+        }
+
+        .dark-mode .dropdown-item {
+            color: #e0e0e0 !important;
+        }
+
+        .dark-mode .dropdown-item:hover {
+            background-color: #2a2a2a !important;
+        }
+
+        .dark-mode .dropdown-divider {
+            border-color: #333 !important;
+        }
+
+        /* --- Modals --- */
+        .dark-mode .modal-content {
+            background-color: #1e1e1e !important;
+            border-color: #333 !important;
+            color: #e0e0e0 !important;
+        }
+
+        .dark-mode .modal-header,
+        .dark-mode .modal-footer {
+            border-color: #333 !important;
+        }
+
+        .dark-mode .btn-close {
+            filter: invert(1);
+        }
+
+        /* --- HR --- */
+        .dark-mode hr {
+            border-color: #333 !important;
+        }
+
+        /* --- Footer --- */
         .footer {
             margin-top: 2rem;
             font-size: 0.9rem;
@@ -51,13 +236,7 @@
         }
 
         .dark-mode .footer {
-            color: #aaa;
-        }
-
-        .dark-mode .alert-info {
-            background-color: #1e3a5f !important;
-            color: #cce4ff !important;
-            border-color: #335a8a !important;
+            color: #555 !important;
         }
     </style>
 </head>
