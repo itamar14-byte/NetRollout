@@ -43,17 +43,6 @@
         <div class="invalid-feedback" id="fullNameError"></div>
       </div>
 
-      <!-- Role -->
-      <div class="mb-3 text-start">
-        <label for="role" class="form-label">Role <span class="text-danger">*</span></label>
-        <select class="form-control" id="role" name="role">
-          <option value="" disabled selected>Select role</option>
-          <option value="user">User</option>
-          <option value="admin">Admin</option>
-        </select>
-        <div class="invalid-feedback" id="roleError"></div>
-      </div>
-
       <!-- Position (optional) -->
       <div class="mb-3 text-start">
         <label for="position" class="form-label">Position</label>
@@ -106,7 +95,6 @@
   const usernameInput = document.getElementById("username");
   const emailInput    = document.getElementById("email");
   const fullNameInput = document.getElementById("full_name");
-  const roleInput     = document.getElementById("role");
   const passwordInput = document.getElementById("password");
   const confirmInput  = document.getElementById("confirm_password");
   const submitBtn     = document.getElementById("submitBtn");
@@ -114,7 +102,6 @@
   const usernameError = document.getElementById("usernameError");
   const emailError    = document.getElementById("emailError");
   const fullNameError = document.getElementById("fullNameError");
-  const roleError     = document.getElementById("roleError");
   const passwordError = document.getElementById("passwordError");
   const confirmError  = document.getElementById("confirmError");
 
@@ -152,15 +139,6 @@
       return false;
     }
     clearError(fullNameInput, fullNameError);
-    return true;
-  }
-
-  function validateRole() {
-    if (!roleInput.value) {
-      showError(roleInput, roleError, "Please select a role.");
-      return false;
-    }
-    clearError(roleInput, roleError);
     return true;
   }
 
@@ -230,7 +208,6 @@
       usernameInput.value.trim() &&
       emailInput.value.trim() &&
       fullNameInput.value.trim() &&
-      roleInput.value &&
       passwordInput.value &&
       confirmInput.value;
 
@@ -244,7 +221,6 @@
   usernameInput.addEventListener("input", () => { validateUsername(); validatePassword(); checkAllValid(); });
   emailInput.addEventListener("input",    () => { validateEmail();    checkAllValid(); });
   fullNameInput.addEventListener("input", () => { validateFullName(); checkAllValid(); });
-  roleInput.addEventListener("change",    () => { validateRole();     checkAllValid(); });
   passwordInput.addEventListener("input", () => { validatePassword(); if (confirmInput.value) validateConfirm(); checkAllValid(); });
   confirmInput.addEventListener("input",  () => { validateConfirm();  checkAllValid(); });
 

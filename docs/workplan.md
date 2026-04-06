@@ -101,6 +101,8 @@ Topics to cover:
 - `InputParser` and `Validator` class interfaces
 - Private method boundaries across all classes
 - Concurrency model — `RolloutJob` per rollout, webapp stores dict of active jobs
+- **Variable substitution system** — commands file supports `$$VAR$$` tokens substituted per-device from `Device` properties before pushing. Design: token extraction at parse time, fail-fast validation (all devices must have required properties before rollout starts), per-device substitution in `RolloutEngine`. Variable mappings (`$$VAR$$` → device property name) stored per-user in DB (`user.variable_mappings` relationship). User manages mappings from account page. Device dataclass to be expanded with more relevant properties. Webform device entry and CSV to support new properties. Commands file template is portable — same file works across rollouts.
+- **`VariableMapping` table** — per-user store of `$$VAR$$` → device property mappings, FK to User, loaded as `user.variable_mappings`
 
 ---
 
@@ -111,6 +113,7 @@ Add to `tables.py`:
 - `RolloutSession` — one row per rollout run (timestamp, status, initiated_by FK to User)
 - `DeviceResult` — one row per device per session (ip, device_type, commands_sent, commands_verified, status, FK to RolloutSession)
 - `Inventory` — per-user device store (FK to User), encrypted credentials (design TBD in architecture session)
+- `VariableMapping` — per-user `$$VAR$$` → device property mappings (FK to User), loaded as `user.variable_mappings`
 
 ### 2.2 `RolloutJob` object
 Replace module-level `cancel_event` and `LOG_QUEUE` globals in `webapp.py` with a per-job object:

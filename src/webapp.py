@@ -13,7 +13,7 @@ from flask import (redirect, Response, request, render_template, url_for, \
                    Flask, flash, session)
 from flask_login import (LoginManager, login_required,
                          logout_user, current_user, login_user)
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, NoResultFound
 from waitress import serve
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -35,7 +35,10 @@ login_mng.login_view = "home"
 @login_mng.user_loader
 def load_user(user_id):
 	with get_session() as db_session:
-		user = db_session.get(User, uuid.UUID(user_id))
+		try:
+			user = db_session.get(User, uuid.UUID(user_id))
+		except ValueError:
+			return None
 		if user:
 			db_session.expunge(user)
 		return user
@@ -186,13 +189,16 @@ def login():
 				else:
 					flash("User disabled, please check with administrator",
 					      "danger")
+					session.pop("pre_auth_user_id", None)
 					return redirect(url_for("home"))
 			else:
 				flash("User still pending admin approval",
 				      "danger")
+				session.pop("pre_auth_user_id", None)
 				return redirect(url_for("home"))
 		else:
 			flash("invalid credentials", "danger")
+			session.pop("pre_auth_user_id", None)
 			return redirect(url_for("home"))
 
 
@@ -207,14 +213,13 @@ def register():
 	pass_hash = generate_password_hash(request.form["password"])
 	email = request.form["email"]
 	full_name = request.form["full_name"]
-	role = request.form["role"]
 	position = request.form.get("position", None)
 
 	new_user = User(username=username,
 	                password_hash=pass_hash,
 	                email=email,
 	                full_name=full_name,
-	                role=role,
+	                role="user",
 	                position=position)
 
 	with get_session() as db_session:
@@ -237,7 +242,11 @@ def otp_enroll():
 		if not user_id:
 			return redirect(url_for("home"))
 		with get_session() as db_session:
-			user = db_session.query(User).filter_by(id=uuid.UUID(user_id)).first()
+			try:
+				user = db_session.query(User).filter_by(
+					id=uuid.UUID(user_id)).first()
+			except ValueError:
+				return redirect(url_for("home"))
 			db_session.expunge(user)
 		totp = pyotp.random_base32()
 		secret = session.get("pending_totp_secret", None) or totp
@@ -257,10 +266,13 @@ def otp_enroll():
 			return redirect(url_for("home"))
 		otp_secret = session.get("pending_totp_secret", None)
 		user_code = request.form["code"]
-		if pyotp.TOTP(otp_secret).verify(user_code, valid_window=2):
+		if pyotp.TOTP(otp_secret).verify(user_code, valid_window=1):
 			with get_session() as db_session:
-				user = db_session.query(User).filter_by(id=uuid.UUID(
-					user_id)).first()
+				try:
+					user = db_session.query(User).filter_by(id=uuid.UUID(
+						user_id)).first()
+				except ValueError:
+					return redirect(url_for("home"))
 				user.otp_secret = otp_secret
 				db_session.flush()
 				db_session.expunge(user)
@@ -280,9 +292,15 @@ def otp_verify():
 			return redirect(url_for("home"))
 		user_code = request.form["code"]
 		with get_session() as db_session:
-			user = db_session.query(User).filter_by(id=uuid.UUID(user_id)).first()
+			try:
+				user = db_session.query(User).filter_by(
+					id=uuid.UUID(user_id)).first()
+			except ValueError:
+				return redirect(url_for("home"))
 			db_session.expunge(user)
-		if pyotp.TOTP(user.otp_secret).verify(user_code, valid_window=2):
+		if not user.otp_secret:
+			return redirect(url_for("otp_enroll"))
+		if pyotp.TOTP(user.otp_secret).verify(user_code, valid_window=1):
 			login_user(user)
 			session.pop("pre_auth_user_id")
 			return redirect(url_for("upload"))
@@ -423,7 +441,12 @@ def admin_user_action(user_id, action):
 	if current_user.role != "admin":
 		return redirect(url_for("upload"))
 	with get_session() as db_session:
-		user = db_session.query(User).filter_by(id=uuid.UUID(user_id)).first()
+		try:
+			user = db_session.query(User).filter_by(
+				id=uuid.UUID(user_id)).first()
+		except ValueError:
+			return redirect(url_for("upload"))
+
 
 		if action == "approve":
 			user.is_approved = True
