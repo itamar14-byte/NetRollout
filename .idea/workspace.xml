@@ -4,9 +4,12 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="27240518-82b3-4a70-8f71-cc3b690d164c" name="Changes" comment="● Auth pipeline: admin panel with user management, approval flow, and collapsible sidebar">
+    <list default="true" id="27240518-82b3-4a70-8f71-cc3b690d164c" name="Changes" comment="bug fixes">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/CLAUDE.md" beforeDir="false" afterPath="$PROJECT_DIR$/CLAUDE.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/workplan.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/workplan.md" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/webapp.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/webapp.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/templates/base.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/base.html" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -200,7 +203,7 @@
       <workItem from="1775400518215" duration="8699000" />
       <workItem from="1775428706071" duration="152000" />
       <workItem from="1775428873628" duration="1396000" />
-      <workItem from="1775465302574" duration="16880000" />
+      <workItem from="1775465302574" duration="18536000" />
     </task>
     <task id="LOCAL-00001" summary="Bug Fixes and configuration of executble packing">
       <option name="closed" value="true" />
@@ -458,7 +461,15 @@
       <option name="project" value="LOCAL" />
       <updated>1775483362763</updated>
     </task>
-    <option name="localTasksCounter" value="33" />
+    <task id="LOCAL-00033" summary="bug fixes">
+      <option name="closed" value="true" />
+      <created>1775483969259</created>
+      <option name="number" value="00033" />
+      <option name="presentableId" value="LOCAL-00033" />
+      <option name="project" value="LOCAL" />
+      <updated>1775483969259</updated>
+    </task>
+    <option name="localTasksCounter" value="34" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -500,12 +511,13 @@
     <MESSAGE value="● Auth pipeline: implement TOTP enrollment and verification with QR code and animated OTP input" />
     <MESSAGE value="● Auth pipeline: fix TOTP secret persistence, complete dark mode, polish OTP timer display" />
     <MESSAGE value="● Auth pipeline: admin panel with user management, approval flow, and collapsible sidebar" />
-    <option name="LAST_COMMIT_MESSAGE" value="● Auth pipeline: admin panel with user management, approval flow, and collapsible sidebar" />
+    <MESSAGE value="bug fixes" />
+    <option name="LAST_COMMIT_MESSAGE" value="bug fixes" />
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
     <SUITE FILE_PATH="coverage/core_py$WebApp.coverage" NAME="WebApp Coverage Results" MODIFIED="1756760459810" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/WebApp_py$WebApp.coverage" NAME="WebApp Coverage Results" MODIFIED="1756940263036" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
-    <SUITE FILE_PATH="coverage/Network_bulk_configuration$webapp.coverage" NAME="webapp Coverage Results" MODIFIED="1775429635017" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/src" />
+    <SUITE FILE_PATH="coverage/Network_bulk_configuration$webapp.coverage" NAME="webapp Coverage Results" MODIFIED="1775485524918" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/src" />
     <SUITE FILE_PATH="coverage/Network_bulk_configuration$Network_bulk_configuration.coverage" NAME="Network-bulk-configuration Coverage Results" MODIFIED="1775481589218" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/core_py$Helper.coverage" NAME="Helper Coverage Results" MODIFIED="1756330739506" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/Network_bulk_configuration$db.coverage" NAME="db Coverage Results" MODIFIED="1774396400735" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/src" />

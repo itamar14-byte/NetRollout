@@ -84,38 +84,38 @@ Required columns: `ip`, `username`, `password`, `device_type`, `secret`, `port`
 
 ## Active development (as of 2026-04-06)
 
-### Phase 1 — User Auth Pipeline (in progress)
-Full plan in `docs/workplan.md`. Current state:
+### Phase 1 — User Auth Pipeline ✅ COMPLETE
+Full detail in `docs/workplan.md`.
 
-**Done:**
-- `tables.py` — `User` model has `UserMixin` from Flask-Login ✓
-- `db.py` — engine, Base, `get_session()` context manager ✓
-- `db_install.py` — `create_all` with error handling ✓, tables created in DB ✓
-- `webapp.py` — `LoginManager` initialized, `user_loader` callback, `@login_required` on all protected routes ✓
-- `webapp.py` — `template_folder='../templates'`, `SECRET_KEY`, `flash` import, dummy stubs for all auth routes ✓
-- `templates/index.html` — login card with flash messages, register link ✓
-- `templates/base.html` — user widget dropdown (account + logout) shown when authenticated ✓
-- `requirements.txt` — trimmed to direct dependencies only ✓
-- `requirements-dev.txt` — pytest/pytest-cov as dev deps ✓
-- Landing page renders correctly ✓
+**What was built:**
+- Full login decision tree: credentials → is_approved → is_active → admin bypass → TOTP flow
+- Register with hashing, integrity error handling, pending approval flash
+- Mandatory TOTP 2FA for all non-admin users — enrollment on first login, pre-auth session guard
+- Admin panel with collapsible sidebar — user management table (approve/enable/disable/promote/demote)
+- Ternary user status: pending / active / inactive (is_approved + is_active booleans)
+- UUID primary keys, data minimization security posture (no device credentials stored)
+- Full dark mode, all templates written and polished
 
-**Still to do (next session — start here):**
-1. Replace `/login` stub — fetch user by username, `check_password_hash`, `login_user()`, redirect to upload; flash "Invalid credentials" on failure
-2. Replace `/register` stub — check username not taken, `generate_password_hash`, create `User`, commit, `login_user()`, redirect to upload; flash error on conflict
-3. Replace `/logout` stub — `logout_user()`, redirect to home
-4. Replace `/account` stub — `render_template("account.html")` with `current_user`
-5. Write `templates/register.html` — form with username/password/confirm, flash messages, back to login link
-6. Write `templates/account.html` — username, member since, stats placeholder
+**User model final schema:** UUID PK, username, password_hash, email, full_name, role, position, is_active, is_approved, otp_secret (nullable), created_at
 
-**DB env var:** `DATABASE_URL=postgresql+psycopg2://dbadmin:Pass123@localhost:5432/rollout_db` (lowercase `postgresql`, `+psycopg2` suffix — psycopg2-binary is installed)
+**DB env var:** `DATABASE_URL=postgresql+psycopg2://dbadmin:Pass123@localhost:5432/rollout_db`
 
-### 2. OOP restructuring (Phase 2 — after architecture session)
-Known gaps:
+**New templates:** `register.html`, `account.html`, `otp_enroll.html`, `otp_verify.html`, `admin.html`, `admin_users.html`
+
+**New dependencies:** `pyotp==2.9.0`, `qrcode==8.2`, `pillow==11.0.0`
+
+### Next — Architecture Session (before any Phase 2 code)
+Design topics: `RolloutJob`, `RolloutLogger`, `RolloutSession`/`DeviceResult` schema, `Inventory` table (per-user device store via FK + relationship), encrypted credential storage tradeoff, `InputParser`/`Validator` classes, private method boundaries, concurrency model.
+Full detail in `docs/workplan.md`.
+
+### Phase 2 — Architecture Refactor & DB Integration (after session)
+Known OOP gaps:
 1. `logging_utils.py` global state → `RolloutLogger` class injected into `RolloutEngine`
 2. `push_config()`, `verify()`, `notify()` on `RolloutEngine` → prefix `_`
 3. `netmiko_connector()` on `Device` → `_netmiko_connector()`
 4. `validation.py` → `Validator` class
 5. `parse_files()` / `prepare_devices()` → `InputParser` class
+6. Module-level `cancel_event` + `LOG_QUEUE` singletons → per-job `RolloutJob` object
 
 ## Working style
 - The developer writes the code; Claude reviews, advises, and discusses design

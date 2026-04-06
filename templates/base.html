@@ -228,6 +228,12 @@
             border-color: #333 !important;
         }
 
+        /* --- Card body text --- */
+        .dark-mode .card-body div,
+        .dark-mode .card-body span:not(.badge):not(.text-muted) {
+            color: #e0e0e0 !important;
+        }
+
         /* --- Footer --- */
         .footer {
             margin-top: 2rem;
@@ -246,7 +252,7 @@
         <div>
             {% if request.path != '/' %}
             {% block home_button %}
-            <a href="{{ url_for('home') }}" class="btn btn-outline-primary">
+            <a href="{{ url_for('upload') if current_user.is_authenticated else url_for('home') }}" class="btn btn-outline-primary">
                 🏠 Back to Home
             </a>
             {% endblock %}

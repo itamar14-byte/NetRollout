@@ -419,7 +419,7 @@ def admin_users():
 
 @app.route("/admin/users/<user_id>/<action>", methods=["POST"])
 @login_required
-def user_action(user_id, action):
+def admin_user_action(user_id, action):
 	if current_user.role != "admin":
 		return redirect(url_for("upload"))
 	with get_session() as db_session:
@@ -427,6 +427,7 @@ def user_action(user_id, action):
 
 		if action == "approve":
 			user.is_approved = True
+			user.is_active = True
 		elif action == "enable":
 			user.is_active = True
 		elif action == "disable":
