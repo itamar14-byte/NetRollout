@@ -5,10 +5,14 @@ from queue import Empty
 from threading import Event, Thread
 from time import sleep
 
+import sqlalchemy
+from sqlalchemy.exc import IntegrityError
+
 from flask import (redirect, Response, request, render_template, url_for, \
 	Flask, flash)
-from flask_login import LoginManager, login_required
-
+from flask_login import (LoginManager, login_required,
+                         login_user, logout_user, current_user)
+from werkzeug.security import generate_password_hash, check_password_hash
 from waitress import serve
 
 from core import prepare_devices, RolloutEngine, RolloutOptions
@@ -150,14 +154,44 @@ def home():
 	return render_template("index.html")
 
 
-@app.route("/login", methods=["GET", "POST"])
+@app.route("/login", methods=["POST"])
 def login():
-    return redirect(url_for("home"))
+	username = request.form["username"]
+	password = request.form["password"]
+	with get_session() as session:
+		user = session.query(User).filter_by(username=username).first()
+		if user and check_password_hash(user.password_hash, password):
+			login_user(user)
+			return redirect(url_for("upload"))
+		flash("invalid credentials", "danger")
+		return redirect(url_for("home"))
 
 
-@app.route("/register", methods=["GET", "POST"])
+@app.route("/register", methods=["POST"])
 def register():
-    return redirect(url_for("home"))
+	username = request.form["username"]
+	pass_hash = generate_password_hash(request.form["password"])
+	email = request.form["email"]
+	full_name = request.form["full_name"]
+	role = request.form["role"]
+	position = request.form.get("position",None)
+
+	new_user = User(username=username,
+	                password_hash=pass_hash,
+	                email=email,
+	                full_name=full_name,
+	                role=role,
+	                position=position)
+
+	with get_session() as session:
+		try:
+			session.add(new_user)
+			session.flush()
+			return redirect(url_for("home"))
+		except IntegrityError:
+			flash("email or username already exists", "danger")
+			return redirect(url_for("register"))
+
 
 
 @app.route("/logout")
