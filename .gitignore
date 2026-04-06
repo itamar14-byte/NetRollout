@@ -1,3 +1,10 @@
 /dist/
 /.venv/
 /build/
+__pycache__/
+*.pyc
+.coverage
+.idea/
+docs/credentials
+*.env
+.env
