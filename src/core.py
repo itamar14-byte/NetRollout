@@ -1,15 +1,11 @@
 import threading
-from csv import DictReader
 from dataclasses import dataclass, field
-from threading import Event
 from typing import Optional
 
 import netmiko
 import napalm
 
-from validation import (test_tcp_port, validate_file_extension,
-                        validate_device_data)
-from logging_utils import base_notify, BASEDIR, LOGFILE, LOG_QUEUE, msg, log
+# logging_utils imports removed — RolloutLogger injected in Step 2.5
 
 @dataclass (slots=True, kw_only=True)
 class RolloutOptions:
@@ -21,11 +17,14 @@ class RolloutOptions:
 @dataclass (kw_only=True)
 class Device:
 	ip: str
+	label: str
 	username: str
 	password: str = field(repr=False)
 	device_type: str
 	secret: str = field(repr=False)
 	port: int
+
+
 
 	def netmiko_connector(self) -> dict[str,str]:
 		params = {
@@ -95,120 +94,10 @@ class Device:
 			       webapp=webapp)
 			return None
 
-def prepare_devices(raw_devices: list[dict[str, str]],
-                    verbose: bool = False,
-                    webapp: bool = False,
-                    cancel_event:Optional[Event] = None) \
-		-> list[Device]:
-	"""Helper function for the file parser that processes the device dictionary
-		 :param raw_devices: preprocessed device list
-		 :param verbose: boolean flags
-		 stating whether the user wishes to see progress messages on the console
-		 :param webapp: boolean flag indicating the requester is the GUI app
-		 :param cancel_event: threading.Event instance indicating a cancel
-		 request from user
-		 :return: a list of dictionaries with fields and values for the devices.
-		 In case of failure, an empty list
-		"""
-	# process all validated devices into a list of dictionaries
-	devices = []
-	for item in raw_devices:
-		if cancel_event and cancel_event.is_set():
-			base_notify("Rollout Canceled By User", color="red", webapp=webapp)
-			return []
 
-		item["device_type"] = item["device_type"].lower()
-		if item["ip"] and validate_device_data(item,webapp=webapp):
-			if test_tcp_port(item["ip"], int(item["port"])):
-				devices.append(Device(**item))
-				base_notify(
-					f"Device {item['device_type']}: {item['ip']} successfully added",
-					"green",
-					verbose,webapp=webapp
-				)
-			else:
-				base_notify(f"{item['ip']} is not reachable", "red",
-				       webapp=webapp)
-				continue
-		else:
-			continue
-	return devices
-
-
-def parse_files(
-		device_path: str, commands_path: str, verbose: bool = False
-) -> tuple[list[Device], list[str]]:
-	"""This function accepts paths to a csv file detailing devices
-	 (using the fields ip,user,password, platform, secret, port)
-	as well as a txt file with a configuration file needed to push. The function then parses the files
-	 into objects that can be further processed.
-	 :param device_path: A file path to a csv of network devices
-	 :param commands_path: A file path to a txt file with commands
-	 :param verbose: boolean flags stating whether the user wishes to see progress messages on the console
-	 :return: a list of dictionaries with fields and values for the devices and a list of commands. In case of failure,
-	 a tuple of empty lists
-	"""
-
-	# normalize Windows file paths
-	device_path = device_path.strip('"')
-	commands_path = commands_path.strip('"')
-
-	# Check file names are valid and exist
-	if validate_file_extension(commands_path,
-	                           "txt") and validate_file_extension(
-		device_path, "csv"
-	):
-
-		try:
-			# Reads devices CSV
-			with open(device_path, "r", encoding="utf-8-sig") as file:
-
-				required_keys = {
-					"ip",
-					"username",
-					"password",
-					"device_type",
-					"secret",
-					"port",
-				}
-				# Parses csv file into an iterable of dictionaries with the headers as keys
-				reader = DictReader(file)
-
-				# Check if all required fields are there
-				missing_keys = required_keys - set(reader.fieldnames)
-				if missing_keys:
-					raise ValueError("Missing keys: {}".format(missing_keys))
-
-				devices = prepare_devices(list(reader), verbose)
-			# Parses command file directly into a list where each element is a command
-			with open(commands_path, "r") as file:
-				commands = file.readlines()
-				# logs summary of file processing workflow
-				base_notify(
-					f"Devices file successfully processed\n"
-					f" {len(devices)} devices found\n"
-					f"{len(commands)} commands will be executed",
-					"green",
-				)
-			# return the processed data
-			return devices, commands
-
-		# if an exception is thrown in parsing or validation fails, an error message is printed,
-		# and the function returns a tuple of empty lists
-
-		except FileNotFoundError:
-			base_notify(f"file not found", "red")
-			return [], []
-
-		except PermissionError:
-			base_notify(f"can't access file", "red")
-			return [], []
-
-		except Exception as e:
-			base_notify(f"Parsing failed: {e}", "red")
-			return [], []
-	else:
-		return [], []
+	@classmethod
+	def from_inventory(cls, devices):
+		pass
 
 
 class RolloutEngine:

@@ -2,11 +2,6 @@ import datetime
 import os
 import queue
 
-# Creates a timestamp for the defined globally at every running of core.py.
-# Variable will be calculated when importing helper
-LOGFILE = datetime.datetime.now().strftime("rollout_%Y%m%d_%H%M%S.log")
-LOG_QUEUE = queue.Queue()
-BASEDIR = os.path.abspath(os.path.dirname(__file__))
 
 RED = "\033[91m"
 GREEN = "\033[92m"
@@ -27,48 +22,54 @@ COLORS = {
 
 ANSI_TO_HTML = {"RED": WEBAPP_RED, "GREEN": WEBAPP_GREEN, "YELLOW": WEBAPP_YELLOW}
 
+class RolloutLogger:
+    def __init__(self, webapp: bool, verbose: bool, logfile: str = None):
+        self.queue = queue.Queue()
+        self.logfile = (logfile or datetime.datetime.now().
+                        strftime("rollout_%Y%m%d_%H%M%S.log"))
+        self.webapp = webapp
+        self.verbose = verbose
 
+    def log(self, message: str) -> None:
+        """
+        A logging function that writes a message to a logfile with
+         the globally configured name and attaches the message to a timestamp
+        :param message: message to write in the log
+        """
 
-def msg(string: str, color: str = "", webapp: bool = False) -> str:
-    """Adds ANSI escape sequences to terminal color for progress and error messages"""
-    if webapp:
-        color = ANSI_TO_HTML.get(color.upper()) if color else None
-        if color:
-            return color + string + WEBAPP_END
-        return string
-    else:
-        if color:
-            color = COLORS.get(color.upper())
+        with open(self.logfile, "a") as file:
+            # Sets the current timestamp for the time of call and adds the stamped message to the log file
+            timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            file.write(f"{timestamp}\t{message}\n")
+
+    def notify(self, message: str, color: str = "") -> None:
+        """A wrapper logging function.
+        	 All messages are logged to the file.
+        	Additionally, error messages, or messages generated in verbose mode are printed to console
+        	"""
+        if self.webapp:
+            if self.verbose or color == "red":
+                self.queue.put(self.msg(message, color))
+            self.log(message)
+            return None
+        else:
+            if self.verbose or color == "red":
+                print(self.msg(message, color))
+            self.log(message)
+
+    def msg(self,message: str, color: str = "") -> str:
+        """Adds ANSI escape sequences to terminal color for progress and error messages"""
+        if self.webapp:
+            color = ANSI_TO_HTML.get(color.upper()) if color else None
             if color:
-                return color + string + END
-        return string
+                return color + message + WEBAPP_END
+            return message
+        else:
+            if color:
+                color = COLORS.get(color.upper())
+                if color:
+                    return color + message + END
+            return message
 
-
-def log(string: str, file_name: str = LOGFILE) -> None:
-    """
-    A logging function that writes a message to a logfile with
-     the globally configured name and attaches the message to a timestamp
-    :param file_name: TIme stamped name for the logfile that is written too when log is called
-    :param string: message to write in the log
-    """
-    with open(file_name, "a") as file:
-        # Sets the current timestamp for the time of call and adds the stamped message to the log file
-        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        file.write(f"{timestamp}\t{string}\n")
-
-
-def base_notify(string: str, color: str = None,
-                verbose: bool = False, webapp: bool = False) -> None:
-    """A wrapper logging function.
-	 All messages are logged to the file.
-	Additionally, error messages, or messages generated in verbose mode are printed to console
-	"""
-    if webapp:
-        if verbose or color == "red":
-            LOG_QUEUE.put(msg(string, color, webapp=True))
-        log(string)
-        return None
-    else:
-        if verbose or color == "red":
-            print(msg(string, color))
-        log(string)
+    def get(self):
+        return self.queue.get()

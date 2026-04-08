@@ -1,0 +1,451 @@
+# NetRollout — Architecture Document
+_Written: 2026-04-07_
+
+---
+
+## 1. Overview
+
+NetRollout is structured around five layers:
+
+1. **Data classes** — pure runtime objects, no DB coupling
+2. **ORM models** — DB schema, all anchored to `User` as the master table
+3. **Service classes** — business logic, validation, parsing, logging
+4. **Job execution classes** — orchestration, pipeline, concurrency
+5. **Webapp layer** — Flask routes, thin delegation to orchestrator
+
+The central design principle is that `User` is the master table. All persistent entities — devices, credentials, variable mappings, active jobs, and result history — are owned by a user via foreign key relationships.
+
+At runtime, `RolloutOrchestrator` is the concurrency manager — it owns the active jobs dict, coordinates multithreading, and keeps the DB and in-memory state in sync. `RolloutJob` is the lifecycle owner for a single job — it owns the thread, cancel event, logger, and engine. All execution context flows as arguments at call time — no hanging state on `RolloutEngine`.
+
+**Configuration** (`db_install.py` install script asks for these at setup, falls back to documented defaults if skipped):
+- `NETROLLOUT_ENCRYPTION_KEY` — Fernet key for credential encryption. Default: auto-generated, written to `~/.netrollout/encryption.key`
+- `MAX_CONCURRENT_JOBS` — orchestrator thread concurrency limit. Default: `4`
+- `DATABASE_URL` — PostgreSQL connection string. Default: `postgresql+psycopg2://dbadmin:Pass123@localhost:5432/rollout_db`
+- `SECRET_KEY` — Flask session key. Default: auto-generated via `secrets.token_urlsafe(32)`
+
+---
+
+## 2. Data Classes
+
+Data classes are pure Python objects with no SQLAlchemy coupling. They exist at runtime only.
+
+---
+
+### `RolloutOptions`
+Configuration flags for a rollout run. Pure data, no behavior.
+
+**Attributes:**
+| Name | Type | Description |
+|---|---|---|
+| `verify` | `bool` | Run post-push verification via NAPALM |
+| `verbose` | `bool` | Print progress to console (CLI mode) |
+| `webapp` | `bool` | Enqueue log messages for SSE stream |
+
+---
+
+### `Device`
+Represents a single network device at runtime. Constructed from an `Inventory` row via `from_inventory()`.
+
+**Public attributes:**
+| Name | Type | Description |
+|---|---|---|
+| `ip` | `str` | Device IPv4 address |
+| `username` | `str` | SSH username (decrypted at construction) |
+| `password` | `str` | SSH password (decrypted at construction) |
+| `device_type` | `str` | Netmiko platform string |
+| `secret` | `str` | Enable secret (decrypted at construction) |
+| `port` | `int` | SSH port |
+| `label` | `str` | Friendly name from inventory |
+
+**Public methods:**
+| Method | Signature | Description |
+|---|---|---|
+| `from_inventory` | `cls(row: Inventory) -> Device` | Factory. Constructs Device from Inventory row, decrypting credentials from the assigned SecurityProfile |
+| `fetch_config` | `(logger: RolloutLogger) -> str \| None` | Opens NAPALM connection, returns running config string. Used by `RolloutEngine._verify()` |
+
+**Private methods:**
+| Method | Signature | Description |
+|---|---|---|
+| `_netmiko_connector` | `() -> dict` | Builds Netmiko `ConnectHandler` params dict. Only called by `RolloutEngine._push_config()` |
+
+---
+
+## 3. ORM Models
+
+All ORM models live in `src/tables.py`. All use UUID primary keys. `User` is the master table — every other table has a foreign key back to it.
+
+---
+
+### `User`
+Master table. Anchor of the entire data model. Owns all persistent entities.
+
+**Attributes:**
+| Name | Type | Description |
+|---|---|---|
+| `id` | `UUID` | Primary key, non-sequential |
+| `username` | `str(64)` | Unique, indexed |
+| `password_hash` | `str(255)` | pbkdf2:sha256 hash |
+| `email` | `str(120)` | Unique |
+| `full_name` | `str(120)` | |
+| `role` | `str(40)` | `"user"` or `"admin"` |
+| `position` | `str(64)` | Nullable |
+| `is_active` | `bool` | False by default |
+| `is_approved` | `bool` | False by default |
+| `otp_secret` | `str(32)` | Nullable — null means unenrolled |
+| `created_at` | `DateTime` | Set at creation |
+
+**Relationships:**
+| Name | Target | Description |
+|---|---|---|
+| `inventory` | `[Inventory]` | User's saved devices |
+| `security_profiles` | `[SecurityProfile]` | User's credential profiles |
+| `variable_mappings` | `[VariableMapping]` | User's `$$VAR$$` token definitions |
+| `sessions` | `[RolloutSession]` | Active/pending rollout jobs |
+| `results` | `[DeviceResult]` | Completed rollout archive |
+
+---
+
+### `Inventory`
+Per-user device store. Stores device topology only — no credentials. Credentials are assigned via `SecurityProfile`.
+
+**Attributes:**
+| Name | Type | Description |
+|---|---|---|
+| `id` | `UUID` | Primary key |
+| `user_id` | `UUID` | FK → `User` |
+| `profile_id` | `UUID` | FK → `SecurityProfile`, nullable |
+| `ip` | `str` | Device IPv4 address |
+| `device_type` | `str` | Netmiko platform string |
+| `port` | `int` | SSH port |
+| `label` | `str` | Friendly name, nullable |
+
+**Relationships:**
+| Name | Target | Description |
+|---|---|---|
+| `security_profile` | `SecurityProfile` | Assigned credential profile |
+
+---
+
+### `SecurityProfile`
+Per-user encrypted credential store. One profile can be assigned to many inventory devices.
+
+**Attributes:**
+| Name | Type | Description |
+|---|---|---|
+| `id` | `UUID` | Primary key |
+| `user_id` | `UUID` | FK → `User` |
+| `label` | `str` | Friendly name, e.g. `"DC-Admin"` |
+| `username` | `str` | Encrypted |
+| `password` | `str` | Encrypted |
+| `secret` | `str` | Encrypted |
+
+**Encryption:** Fernet (AES-128-CBC). Key loaded from `NETROLLOUT_ENCRYPTION_KEY` environment variable. If absent, a key is generated at startup and written to `~/.netrollout/encryption.key`. The user is responsible for securing this file.
+
+---
+
+### `VariableMapping`
+Per-user store of `$$TOKEN$$` → Device property name mappings. Used by the variable substitution system (Phase 3).
+
+**Attributes:**
+| Name | Type | Description |
+|---|---|---|
+| `id` | `UUID` | Primary key |
+| `user_id` | `UUID` | FK → `User` |
+| `token` | `str` | The `$$VAR$$` token string |
+| `property_name` | `str` | Key in `dataclasses.asdict(device)` |
+
+---
+
+### `RolloutSession`
+The "RAM" table. Tracks active and pending rollout jobs. The webapp job manager treats this as its work docket. Rows are deleted on job completion or cancellation.
+
+**Attributes:**
+| Name | Type | Description |
+|---|---|---|
+| `id` | `UUID` | Primary key — maps to `RolloutJob.id` in memory |
+| `user_id` | `UUID` | FK → `User` |
+| `status` | `str` | `pending` / `active` / `cancelling` |
+| `created_at` | `DateTime` | |
+
+---
+
+### `DeviceResult`
+The "MEMORY" table. Long-term archive of completed rollout outcomes, one row per device per job. No FK to `RolloutSession` — the session row is deleted by the time results are written. `job_id` is a soft reference for grouping.
+
+**Attributes:**
+| Name | Type | Description |
+|---|---|---|
+| `id` | `UUID` | Primary key |
+| `user_id` | `UUID` | FK → `User` |
+| `job_id` | `UUID` | Soft reference to the originating session |
+| `completed_at` | `DateTime` | |
+| `device_ip` | `str` | |
+| `device_type` | `str` | |
+| `commands_sent` | `int` | |
+| `commands_verified` | `int` | |
+| `status` | `str` | `success` / `partial` / `failed` / `cancelled` |
+
+---
+
+## 4. Service Classes
+
+---
+
+### `Validator`
+Wraps all input validation logic. All methods are static — the class is a namespace for validation concerns.
+
+**Public static methods:**
+| Method | Signature | Description |
+|---|---|---|
+| `validate_ip` | `(ip: str) -> bool` | Valid IPv4 address |
+| `validate_port` | `(port: str) -> bool` | Integer in 1–65535 range |
+| `validate_platform` | `(platform: str) -> bool` | In supported platforms set |
+| `validate_device_data` | `(device: dict) -> bool` | Runs ip + port + platform checks |
+| `validate_file_extension` | `(path: str, ext: str) -> bool` | File exists and has correct extension |
+| `test_tcp_port` | `(ip: str, port: int) -> bool` | TCP reachability probe, 3 attempts |
+
+---
+
+### `InputParser`
+Inventory is the single source of truth for rollout. CSV upload and web form are import mechanisms that populate the `Inventory` table — rollout always runs from inventory. Injected with a `Validator` instance.
+
+**Constructor:**
+```
+InputParser(validator: Validator)
+```
+
+**Public methods:**
+| Method | Signature | Description |
+|---|---|---|
+| `import_from_csv` | `(device_path: str, user_id: UUID) -> list[Device]` | Validates CSV rows, writes to `Inventory` table |
+| `import_from_form` | `(devices_json: str, user_id: UUID) -> list[Device]` | Validates web form/JSON devices, writes to `Inventory` table |
+| `from_inventory` | `(inventory: list[Inventory], commands: list[str]) -> tuple[list[Device], list[str]]` | Single rollout path. Constructs Device objects from user's saved inventory rows |
+
+**Private methods:**
+| Method | Signature | Description |
+|---|---|---|
+| `_prepare_devices` | `(raw_devices: list[dict]) -> list[Device]` | Validates and constructs Device objects. Shared by import methods |
+
+---
+
+### `RolloutLogger`
+Owns all logging I/O for a single rollout job. One instance per `RolloutJob`. Replaces `logging_utils.py` module-level globals.
+
+**Constructor:**
+```
+RolloutLogger(logfile: str)
+```
+
+**Attributes:**
+| Name | Type | Description |
+|---|---|---|
+| `queue` | `Queue` | SSE message queue, consumed by `sse_stream` |
+| `logfile` | `str` | Timestamped log file path |
+
+**Public methods:**
+| Method | Signature | Description |
+|---|---|---|
+| `log` | `(string: str) -> None` | Writes timestamped message to log file |
+| `notify` | `(string: str, color: str) -> None` | Enqueues HTML-colored message for SSE and writes to log |
+| `get` | `() -> str` | Blocking get from queue, consumed by `sse_stream` |
+
+---
+
+## 5. Job Execution Classes
+
+---
+
+### `RolloutOrchestrator`
+Concurrency manager and single source of truth for active jobs. Singleton instantiated at app startup. Owns the in-memory jobs dict and keeps it in sync with `RolloutSession` in the DB. The webapp delegates all job lifecycle operations to it — routes are thin.
+
+**Constructor:**
+```
+RolloutOrchestrator(max_concurrent: int = MAX_CONCURRENT_JOBS)
+```
+
+**Attributes:**
+| Name | Type | Description |
+|---|---|---|
+| `jobs` | `dict[UUID, RolloutJob]` | In-memory registry of all active and pending jobs |
+| `max_concurrent` | `int` | Maximum simultaneously executing jobs |
+
+**Public methods:**
+| Method | Signature | Description |
+|---|---|---|
+| `submit` | `(job: RolloutJob) -> None` | Adds job to dict, writes `RolloutSession(status="pending")` to DB, calls `_dispatch()` |
+| `cancel` | `(job_id: UUID) -> None` | Looks up job, calls `job.cancel()`, updates `RolloutSession(status="cancelling")` |
+| `get` | `(job_id: UUID) -> RolloutJob` | Returns job from dict — used by SSE stream and status endpoint |
+
+**Private methods:**
+| Method | Signature | Description |
+|---|---|---|
+| `_dispatch` | `() -> None` | Counts active jobs. If below `max_concurrent`, picks next pending job, calls `job.start()`, updates `RolloutSession(status="active")` |
+| `_cleanup` | `(job_id: UUID) -> None` | Called on job completion. Removes from dict, deletes `RolloutSession` row, writes `DeviceResult` rows, calls `_dispatch()` to fill the freed slot |
+
+**Dispatch loop:**
+```
+submit(job)
+  → write RolloutSession(status="pending")
+  → _dispatch()
+       → active_count < max_concurrent?
+            yes → job.start(), RolloutSession(status="active")
+            no  → job waits in dict
+
+job completes
+  → _cleanup(job_id)
+       → delete RolloutSession
+       → write DeviceResult rows
+       → _dispatch()   # slot freed, start next pending job
+```
+
+---
+
+### `RolloutEngine`
+Owns the network pipeline — push and verify. Pure pipeline object. Receives execution context as arguments at call time, not at construction.
+
+**Constructor:**
+```
+RolloutEngine(param: RolloutOptions, devices: list[Device], commands: list[str])
+```
+
+**Attributes:**
+| Name | Type | Description |
+|---|---|---|
+| `param` | `RolloutOptions` | Run flags |
+| `devices` | `list[Device]` | Devices to configure |
+| `commands` | `list[str]` | Commands to push |
+
+**Public methods:**
+| Method | Signature | Description |
+|---|---|---|
+| `run` | `(cancel_event: Event, logger: RolloutLogger) -> int` | Entry point. Calls `_push_config`, optionally `_verify`. Returns 0 on success, 1 on failure or cancel |
+
+**Private methods:**
+| Method | Signature | Description |
+|---|---|---|
+| `_push_config` | `(cancel_event: Event, logger: RolloutLogger) -> str \| None` | Iterates devices, opens Netmiko, sends commands |
+| `_verify` | `(cancel_event: Event, logger: RolloutLogger) -> dict \| str` | Iterates devices, calls `device.fetch_config(logger)`, compares to commands |
+
+---
+
+### `RolloutJob`
+Lifecycle owner for a single rollout execution. Owns the thread, cancel event, engine, and logger. Created by the webapp on `POST /start_rollout` and stored in the active jobs registry.
+
+**Constructor:**
+```
+RolloutJob(id: UUID, engine: RolloutEngine, logger: RolloutLogger)
+```
+
+**Attributes:**
+| Name | Type | Description |
+|---|---|---|
+| `id` | `UUID` | Maps to `RolloutSession.id` in DB |
+| `thread` | `Thread` | Background execution thread |
+| `cancel_event` | `Event` | Cancellation signal — owned here, read by engine |
+| `engine` | `RolloutEngine` | The pipeline |
+| `logger` | `RolloutLogger` | The logger |
+
+**Public methods:**
+| Method | Signature | Description |
+|---|---|---|
+| `start` | `() -> None` | Creates and starts thread. Calls `engine.run(self.cancel_event, self.logger)` |
+| `cancel` | `() -> None` | Sets `cancel_event`. Engine polls this during iteration |
+
+---
+
+## 6. Relationship Map
+
+```
+                        ┌─────────────────────────────────┐
+                        │              User                │
+                        │  id, username, role, otp_secret  │
+                        └──────────────┬──────────────────┘
+                                       │ owns (FK)
+          ┌──────────────┬─────────────┼──────────────┬──────────────┐
+          ▼              ▼             ▼              ▼              ▼
+    ┌──────────┐  ┌─────────────┐  ┌────────┐  ┌──────────┐  ┌──────────────┐
+    │Inventory │  │SecurityProf.│  │Variable│  │Rollout   │  │DeviceResult  │
+    │          │  │             │  │Mapping │  │Session   │  │(archive)     │
+    │ip        │  │label        │  │        │  │          │  │              │
+    │device_typ│  │username(enc)│  │token   │  │status    │  │job_id (soft) │
+    │port      │  │password(enc)│  │prop_   │  │created_at│  │device_ip     │
+    │label     │  │secret (enc) │  │name    │  │          │  │status        │
+    │profile_id│  └─────────────┘  └────────┘  └──────────┘  │cmds_sent    │
+    └────┬─────┘        ▲                                      │cmds_verified│
+         │              │ assigns                              └──────────────┘
+         └──────────────┘
+
+
+                    RUNTIME (not persisted)
+                    ───────────────────────
+
+    ┌─────────────────────────────────────────────────────┐
+    │                    RolloutJob                        │
+    │  id, thread, cancel_event                           │
+    │                                                     │
+    │   ┌───────────────┐      ┌─────────────────────┐   │
+    │   │ RolloutLogger │      │    RolloutEngine     │   │
+    │   │               │      │                     │   │
+    │   │ queue         │      │ param               │   │
+    │   │ logfile       │      │ devices             │   │
+    │   │               │      │ commands            │   │
+    │   │ log()         │      │                     │   │
+    │   │ notify()      │      │ run(cancel, logger) │   │
+    │   │ get()         │      │ _push_config()      │   │
+    │   └───────────────┘      │ _verify()           │   │
+    │          ▲               └──────────┬──────────┘   │
+    │          │ injected at call time    │ uses          │
+    │          └──────────────────────────┘              │
+    └─────────────────────────────────────────────────────┘
+              │                        │
+              ▼                        ▼
+       sse_stream()              Device objects
+       consumes queue            (built from Inventory
+                                  via from_inventory())
+
+
+    RolloutOrchestrator (singleton, app startup):
+    ┌──────────────────────────────────────────┐
+    │  jobs: { job_id: RolloutJob }            │
+    │  max_concurrent: int                     │
+    │                                          │
+    │  submit() ──► write RolloutSession (DB)  │
+    │               _dispatch()                │
+    │                                          │
+    │  _dispatch() ─► job.start() if slot free │
+    │                 update RolloutSession     │
+    │                                          │
+    │  _cleanup() ─► delete RolloutSession     │
+    │                write DeviceResult rows   │
+    │                _dispatch() (next job)    │
+    └──────────────────────────────────────────┘
+
+    webapp.py routes (thin):
+    POST /start_rollout  →  orchestrator.submit(job)
+    POST /cancel_rollout →  orchestrator.cancel(job_id)
+    GET  /rollout_stream →  orchestrator.get(job_id).logger.get()
+    GET  /rollout_status →  orchestrator.get(job_id)
+
+
+    InputParser ──uses──► Validator
+    InputParser ──produces──► (list[Device], list[str])
+                               └──► RolloutEngine constructor
+```
+
+---
+
+## 7. Key Design Decisions
+
+| Decision | Choice | Rationale |
+|---|---|---|
+| `cancel_event` ownership | `RolloutJob` | Lifecycle concern, not logging or pipeline |
+| Execution context passing | Arguments at call time | No hanging state on `RolloutEngine` |
+| Credential storage | `SecurityProfile` table, encrypted | Separates topology from credentials, one profile → many devices |
+| Encryption key source | Env var → fallback to `~/.netrollout/encryption.key` | User owns their security posture |
+| `Device` construction | `from_inventory()` factory | Single boundary where decryption happens |
+| Results schema | One row per device per job | Enables per-device analytics and audit via SQL aggregation |
+| `RolloutOrchestrator` | Singleton at app startup | Single owner of concurrency logic — webapp routes delegate to it |
+| `RolloutOrchestrator._dispatch()` | Called on submit and cleanup | Fills available slots automatically, no polling needed |
+| `RolloutSession` lifetime | Deleted on completion | Keeps the "RAM" table small; archive lives in `DeviceResult` |
+| Config/env vars | Asked at install time via `db_install.py`, defaults provided | User controls their own environment; no hardcoded secrets in code |
+| `Validator` design | All static methods | Pure namespace — no instance state needed |

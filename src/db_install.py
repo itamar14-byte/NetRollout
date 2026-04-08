@@ -2,7 +2,8 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from db import Base, engine, get_session
 from werkzeug.security import generate_password_hash
-from tables import User
+from tables import (User, Inventory, SecurityProfile, VariableMapping,
+                    RolloutSession, DeviceResult)
 
 try:
 	Base.metadata.create_all(bind=engine)
