@@ -1,5 +1,5 @@
 # Development Workplan
-_Last updated: 2026-04-06 — Phase 1 complete_
+_Last updated: 2026-04-07 — Architecture session complete_
 
 ---
 
@@ -87,60 +87,104 @@ User
 
 ---
 
-## Architecture Session (next — before any Phase 2 code)
+## Architecture Session ✅ COMPLETE (2026-04-07)
 
-Before writing Phase 2 code, design the full extended OOP architecture.
-No code before the session.
+Full architecture documented in `docs/architecture.md`.
 
-Topics to cover:
-- `RolloutJob` interface and lifecycle — replaces module-level `cancel_event` + `LOG_QUEUE` singletons (documented in bug_report.md). Each job owns its own event and queue, stored in webapp dict keyed by job ID.
-- `RolloutLogger` class design and injection points — one instance per `RolloutJob`, injected into `RolloutEngine`
-- `RolloutSession` and `DeviceResult` DB schema — one session per rollout run, one result row per device
-- `Inventory` table design — per-user device store, foreign key to `User`, loaded as `user.inventory` via SQLAlchemy relationship. This is a "query as a field" — one flat table indexed by user UUID, each user sees only their rows.
-- Encrypted credential storage decision — tradeoff: user convenience vs attack surface + key management complexity. To be decided in session.
-- `InputParser` and `Validator` class interfaces
-- Private method boundaries across all classes
-- Concurrency model — `RolloutJob` per rollout, webapp stores dict of active jobs
-- **Variable substitution system** — commands file supports `$$VAR$$` tokens substituted per-device from `Device` properties before pushing. Design: token extraction at parse time, fail-fast validation (all devices must have required properties before rollout starts), per-device substitution in `RolloutEngine`. Variable mappings (`$$VAR$$` → device property name) stored per-user in DB (`user.variable_mappings` relationship). User manages mappings from account page. Device dataclass to be expanded with more relevant properties. Webform device entry and CSV to support new properties. Commands file template is portable — same file works across rollouts.
-- **`VariableMapping` table** — per-user store of `$$VAR$$` → device property mappings, FK to User, loaded as `user.variable_mappings`
+**Decisions made:**
+- `RolloutJob` is the lifecycle owner — owns `thread`, `cancel_event`, `engine`, `logger`
+- `cancel_event` passed as argument at call time to `RolloutEngine.run()`, `_push_config()`, `_verify()` — no hanging state on engine
+- `RolloutLogger` is purely I/O — owns `queue` and `logfile`, replaces `logging_utils.py` globals
+- `Validator` — all static methods, pure namespace
+- `InputParser` — three entry points: `from_files()`, `from_web()`, `from_inventory()`
+- `Device.from_inventory()` factory — single boundary where decryption happens
+- `SecurityProfile` — separate table, FK to both `User` (ownership) and `Inventory` (assignment). Encrypted with Fernet. Key from `NETROLLOUT_ENCRYPTION_KEY` env var, fallback to `~/.netrollout/encryption.key`
+- `RolloutSession` — "RAM" table, ephemeral, deleted on job completion
+- `RolloutOrchestrator` — singleton at app startup, owns `{job_id: RolloutJob}` dict, coordinates multithreading via `_dispatch()`, syncs DB and in-memory state. Webapp routes are thin delegators.
+- Config env vars (`NETROLLOUT_ENCRYPTION_KEY`, `MAX_CONCURRENT_JOBS`, `DATABASE_URL`, `SECRET_KEY`) asked interactively in `db_install.py` at install time, with sensible defaults
+- `DeviceResult` — "MEMORY" table, one row per device per job, soft `job_id` ref, used for analytics and audit
+- `VariableMapping` — Phase 3, hook points designed but not implemented yet
+- `User` owns five relationships: `inventory`, `security_profiles`, `variable_mappings`, `sessions`, `results`
 
 ---
 
 ## Phase 2 — Architecture Refactor & DB Integration
+_Started: 2026-04-07 — In progress as of 2026-04-08_
 
-### 2.1 DB schema
-Add to `tables.py`:
-- `RolloutSession` — one row per rollout run (timestamp, status, initiated_by FK to User)
-- `DeviceResult` — one row per device per session (ip, device_type, commands_sent, commands_verified, status, FK to RolloutSession)
-- `Inventory` — per-user device store (FK to User), encrypted credentials (design TBD in architecture session)
-- `VariableMapping` — per-user `$$VAR$$` → device property mappings (FK to User), loaded as `user.variable_mappings`
+### 2.1 DB schema — `tables.py` ✅
+Add new ORM models:
+- `Inventory` — per-user device topology store, FK to `User` and `SecurityProfile`
+- `SecurityProfile` — encrypted credentials (Fernet), FK to `User`, loaded as `user.security_profiles`
+- `VariableMapping` — `$$VAR$$` → device property name, FK to `User`, loaded as `user.variable_mappings`
+- `RolloutSession` — ephemeral active jobs table ("RAM"), FK to `User`, loaded as `user.sessions`
+- `DeviceResult` — permanent archive ("MEMORY"), FK to `User`, soft `job_id` ref, loaded as `user.results`
 
-### 2.2 `RolloutJob` object
-Replace module-level `cancel_event` and `LOG_QUEUE` globals in `webapp.py` with a per-job object:
-```
-RolloutJob
-  id: str                  # maps to RolloutSession.id in DB
-  cancel_event: Event
-  log_queue: Queue
-  engine: RolloutEngine
-  thread: Thread
-```
-Webapp stores active jobs in a dict keyed by job ID.
-SSE stream consumes from `job.log_queue` — stream terminates on done sentinel (fixes medium bug).
-Cancel hits `job.cancel_event` only (fixes cancel_event singleton medium bug).
+Add relationships to `User`: `inventory`, `security_profiles`, `variable_mappings`, `sessions`, `results`
 
-### 2.3 `RolloutLogger` class
-Refactor `logging_utils.py` module-level globals into a `RolloutLogger` class owning a queue and log file.
-One instance per `RolloutJob`, injected into `RolloutEngine`.
+### 2.2 Encryption layer ✅
+- Fernet encryption/decryption helpers for `SecurityProfile` fields
+- Key resolution: `NETROLLOUT_ENCRYPTION_KEY` env var → fallback generate + write to `~/.netrollout/encryption.key`
 
-### 2.4 Wire `RolloutEngine.run()` into DB
-Open a `RolloutSession` at rollout start, write `DeviceResult` rows per device, close session on completion.
+### 2.3 `RolloutLogger` class — `logging_utils.py` (class complete, cleanup pending)
+Refactor module-level globals (`LOG_QUEUE`, `LOGFILE`, `BASEDIR`) into a `RolloutLogger` class.
+Owns `queue` and `logfile`. Methods: `log()`, `notify()`, `get()`.
 
-### 2.5 Remaining OOP gaps
-- `push_config()`, `verify()`, `notify()` on `RolloutEngine` → prefix `_`
-- `netmiko_connector()` on `Device` → `_netmiko_connector()`
-- `validation.py` → `Validator` class
-- `parse_files()` / `prepare_devices()` → `InputParser` class
+**Done:** Class written, tests rewritten (TestMsg/TestLog/TestBaseNotify use RolloutLogger), engine/device test classes disabled (_DISABLED suffix, TODO Step 2.5).
+
+**Closing 2.3:** Happens naturally as part of 2.5 — logger injection into engine/parser/validator removes all `base_notify` imports automatically. No separate cleanup step needed.
+
+### 2.4 `RolloutJob` class — `core.py` or new `job.py`
+New class owning job lifecycle: `id`, `thread`, `cancel_event`, `engine`, `logger`.
+Methods: `start()`, `cancel()`.
+`start()` launches thread and runs `engine.run(self.cancel_event, self.logger)`.
+`cancel()` sets `cancel_event` only — DB writes handled by orchestrator.
+
+### 2.4a `RolloutOrchestrator` class — new `orchestrator.py`
+Singleton instantiated at app startup. Owns `jobs: dict[UUID, RolloutJob]` and `max_concurrent: int`.
+Public: `submit(job)`, `cancel(job_id)`, `get(job_id)`.
+Private: `_dispatch()` — fills available slots up to `max_concurrent` by calling `job.start()`.
+Private: `_cleanup(job_id)` — called on job completion, deletes `RolloutSession`, writes `DeviceResult` rows, calls `_dispatch()`.
+Webapp routes become thin delegators — no job logic in route handlers.
+
+### 2.4b Install script — `db_install.py`
+Extend to interactively ask for config values at setup time, write to `.env`:
+- `NETROLLOUT_ENCRYPTION_KEY` — default: auto-generate, write to `~/.netrollout/encryption.key`
+- `MAX_CONCURRENT_JOBS` — default: `4`
+- `DATABASE_URL` — default: `postgresql+psycopg2://dbadmin:Pass123@localhost:5432/rollout_db`
+- `SECRET_KEY` — default: auto-generate via `secrets.token_urlsafe(32)`
+
+### 2.5 `RolloutEngine` refactor — `core.py`
+- Remove `cancel_event` from constructor — passed as argument to `run()`, `_push_config()`, `_verify()`
+- Replace `notify()` with injected `RolloutLogger` passed at call time
+- Rename `push_config()` → `_push_config()`, `verify()` → `_verify()`
+- Strip `base_notify` from `validation.py` and inject logger into `parser.py` — closes 2.3
+- **After 2.5 complete:** review and update `CLAUDE.md` to reflect new class structure
+
+### 2.6 `Device` updates — `core.py`
+- Add `label` field
+- Rename `netmiko_connector()` → `_netmiko_connector()`
+- Add `from_inventory(cls, row: Inventory) -> Device` factory
+- `fetch_config()` receives `logger: RolloutLogger` as argument instead of calling `base_notify()` directly
+
+### 2.7 `Validator` class — `validation.py` ✅ (implemented before 2.3–2.6 due to no dependencies)
+Wrap existing standalone functions as `@staticmethod` methods on a `Validator` class.
+
+### 2.8 `InputParser` class — new `parser.py` ✅ (implemented before 2.3–2.6 due to no dependencies)
+Inventory is the single rollout path. CSV and form are import mechanisms that populate `Inventory` table.
+Constructor takes `Validator` instance.
+- `csv_to_inventory(device_path, user_id, db_session)` — validates CSV, writes to `Inventory` table
+- `form_to_inventory(devices_json, user_id, db_session)` — validates form/JSON, writes to `Inventory` table
+- `import_from_inventory(inventory, commands)` — single rollout path, produces `(list[Device], list[str])`
+- `_prepare_devices(raw_devices)` — private, shared by import methods
+- `parse_commands(commands_path)` — reads command file, returns list of strings
+`parse_files()` and `prepare_devices()` in `core.py` removed. `webapp_input()` in `webapp.py` removed.
+
+**Key insight (2026-04-08):** `Inventory` is the decoupling boundary between parsing and rollout. Import (CSV/form) and rollout are independent operations — import populates the table once, rollout reads from it any number of times. This also enables per-job `DeviceResult` history against a stable inventory row.
+
+### 2.9 Inventory management UI
+- Account page gains inventory panel — add/edit/remove devices
+- Account page gains security profiles panel — add/edit/remove profiles
+- Upload page updated to support launching rollout from inventory (calls `InputParser.from_inventory()`)
 
 ---
 
@@ -154,25 +198,64 @@ Open a `RolloutSession` at rollout start, write `DeviceResult` rows per device, 
 
 ## Phase 4 — Packaging & Deployment
 
-### 4.1 Module packaging
-Structure the project as a proper Python package with `pyproject.toml` / `setup.py`.
-
-### 4.2 Executable
-Build a standalone `.exe` using PyInstaller for client distribution.
-Bundles the CLI tool — no Python install required on client machines.
-
-### 4.3 Docker stack
+### 4.1 Docker image
+Build and publish image to Docker Hub as `itamar14/netrollout:latest` and `itamar14/netrollout:v1.0`.
 `docker-compose.yml` with three services:
-- `app` — Waitress serving the Flask webapp
+- `app` — Waitress serving the Flask webapp, pulls from Docker Hub
 - `db` — PostgreSQL
-- `nginx` — reverse proxy in front of `app`, handles TLS termination
+- `nginx` — reverse proxy, handles TLS termination
 
-Environment-based config (`DATABASE_URL`, `SECRET_KEY`) via `.env`.
+### 4.2 Install script — `install.py`
+Single script, zero manual steps. User runs `python install.py` and gets a fully running stack.
+Interactively asks for config values, falls back to defaults:
+- `DATABASE_URL` — default: `postgresql+psycopg2://dbadmin:Pass123@localhost:5432/rollout_db`
+- `MAX_CONCURRENT_JOBS` — default: `4`
+- `NETROLLOUT_ENCRYPTION_KEY` — default: auto-generate, write to `~/.netrollout/encryption.key`
+- `SECRET_KEY` — default: auto-generate via `secrets.token_urlsafe(32)`
 
-### 4.4 Documentation
-- `README.md` — project overview, quick start, CLI usage, CSV format reference, security posture section (data minimization rationale)
+Then automatically:
+1. Writes `.env` with resolved values
+2. Runs `docker compose pull` — pulls latest image from Docker Hub
+3. Runs `docker compose up -d` — starts app + db + nginx
+4. Initializes DB tables
+5. Seeds factory admin user (admin/admin)
+6. Prints `NetRollout is running at http://localhost:8080`
+
+Re-running the script later pulls the latest image and restarts — doubles as the update mechanism.
+
+### 4.3 Update mechanism
+Three options (all documented in README, admin chooses based on comfort level):
+
+**Option A — Re-run install script:**
+```
+python install.py
+```
+Pulls `:latest` from Docker Hub, restarts stack, re-applies config. Simplest, no extra tooling.
+
+**Option B — In-container update script (`update.py`):**
+```
+docker exec netrollout-app python update.py
+```
+Hits Docker Hub API to compare current vs latest version, prompts user, pulls and restarts if confirmed.
+Keeps webapp unprivileged — no Docker socket exposure.
+
+**Option C — In-app update button (Admin Panel):**
+Version check widget in admin panel hits Docker Hub API (`hub.docker.com/v2/repositories/itamar14/netrollout/tags/latest`).
+Displays current vs latest version. On user confirmation, triggers pull and restart.
+Most user-friendly but requires Docker socket mounted into container (`/var/run/docker.sock`) — root-equivalent host privilege. Must be documented clearly in security posture section.
+Decision deferred to Phase 4.
+
+### 4.4 Release
+Tag v1.0 on GitHub, push `v1.0` and `latest` tags to Docker Hub.
+
+### 4.5 Executable (CLI)
+Build a standalone `.exe` using PyInstaller for the CLI tool.
+Bundles `cli.py` — no Python install required on client machines.
+
+### 4.6 Documentation
+- `README.md` — project overview, quick start (install.py), CLI usage, CSV format reference, security posture section, update instructions
 - Inline docs review — docstrings consistent across all public APIs
-- Deployment guide — Docker setup, environment variables, first-run DB init
+- Security posture section: data minimization rationale, encryption key management, Docker socket decision
 
 ---
 
