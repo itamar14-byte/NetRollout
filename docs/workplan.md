@@ -163,10 +163,23 @@ Constructor takes `Validator` + `RolloutLogger`. Methods: `csv_to_inventory`, `f
 
 ---
 
-## Phase 3 — Testing
+## Phase 3 — Testing & Performance
 
+### 3.1 Per-job device concurrency
+Refactor `RolloutEngine._push_config()` and `_verify()` to push to devices concurrently using `ThreadPoolExecutor`.
+
+- Each device SSH session runs in its own worker thread
+- `max_workers` configurable — new field on `RolloutOptions` or separate env var
+- Results collected via futures return values (no shared dict, no race condition)
+- Summary (failed/partial/successful) printed after all futures complete
+- SSE streams device logs as they arrive — first come first served, interleaving is intentional
+- `cancel_event` already passed as argument — works correctly with thread pool
+- `RolloutLogger.notify()` already thread-safe via `queue.Queue`
+
+### 3.2 Test suite
 - Auth route tests (Flask test client)
 - Tests for `RolloutJob`, `RolloutLogger`, refactored OOP classes
+- Re-enable `_DISABLED` test classes and update to final API
 - Update existing tests to target new class instances instead of module-level globals
 
 ---
