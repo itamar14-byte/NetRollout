@@ -1,5 +1,5 @@
 # NetRollout — Architecture Document
-_Written: 2026-04-07_
+_Written: 2026-04-07 — Updated: 2026-04-09 (post Phase 2 refactor)_
 
 ---
 
@@ -63,10 +63,10 @@ Represents a single network device at runtime. Constructed from an `Inventory` r
 | `from_inventory` | `cls(row: Inventory) -> Device` | Factory. Constructs Device from Inventory row, decrypting credentials from the assigned SecurityProfile |
 | `fetch_config` | `(logger: RolloutLogger) -> str \| None` | Opens NAPALM connection, returns running config string. Used by `RolloutEngine._verify()` |
 
-**Private methods:**
+**Public methods (kept public):**
 | Method | Signature | Description |
 |---|---|---|
-| `_netmiko_connector` | `() -> dict` | Builds Netmiko `ConnectHandler` params dict. Only called by `RolloutEngine._push_config()` |
+| `netmiko_connector` | `() -> dict` | Builds Netmiko `ConnectHandler` params dict. Called by `RolloutEngine._push_config()`. Kept public — private would be bad practice when called from a different class |
 
 ---
 
@@ -192,39 +192,53 @@ The "MEMORY" table. Long-term archive of completed rollout outcomes, one row per
 ---
 
 ### `Validator`
-Wraps all input validation logic. All methods are static — the class is a namespace for validation concerns.
+Wraps all input validation logic. Takes a `RolloutLogger` instance — methods that produce user-facing error messages are instance methods; pure computation methods remain static.
 
-**Public static methods:**
+**Constructor:**
+```
+Validator(logger: RolloutLogger)
+```
+
+**Instance methods:**
+| Method | Signature | Description |
+|---|---|---|
+| `validate_device_data` | `(device: dict) -> bool` | Runs ip + port + platform checks, logs failures |
+| `validate_file_extension` | `(path: str, ext: str) -> bool` | File exists and has correct extension, logs failures |
+
+**Static methods:**
 | Method | Signature | Description |
 |---|---|---|
 | `validate_ip` | `(ip: str) -> bool` | Valid IPv4 address |
 | `validate_port` | `(port: str) -> bool` | Integer in 1–65535 range |
 | `validate_platform` | `(platform: str) -> bool` | In supported platforms set |
-| `validate_device_data` | `(device: dict) -> bool` | Runs ip + port + platform checks |
-| `validate_file_extension` | `(path: str, ext: str) -> bool` | File exists and has correct extension |
 | `test_tcp_port` | `(ip: str, port: int) -> bool` | TCP reachability probe, 3 attempts |
+
+_Note: original design had all methods static. Logger injection required promoting two methods to instance methods._
 
 ---
 
 ### `InputParser`
-Inventory is the single source of truth for rollout. CSV upload and web form are import mechanisms that populate the `Inventory` table — rollout always runs from inventory. Injected with a `Validator` instance.
+Inventory is the single source of truth for rollout. CSV upload and web form are import mechanisms that populate the `Inventory` table — rollout always runs from inventory. Injected with a `Validator` and `RolloutLogger` instance.
 
 **Constructor:**
 ```
-InputParser(validator: Validator)
+InputParser(validator: Validator, logger: RolloutLogger)
 ```
 
 **Public methods:**
 | Method | Signature | Description |
 |---|---|---|
-| `import_from_csv` | `(device_path: str, user_id: UUID) -> list[Device]` | Validates CSV rows, writes to `Inventory` table |
-| `import_from_form` | `(devices_json: str, user_id: UUID) -> list[Device]` | Validates web form/JSON devices, writes to `Inventory` table |
-| `from_inventory` | `(inventory: list[Inventory], commands: list[str]) -> tuple[list[Device], list[str]]` | Single rollout path. Constructs Device objects from user's saved inventory rows |
+| `csv_to_inventory` | `(device_path: str, user_id: UUID, db_session: Session) -> list[Device]` | Validates CSV rows, writes to `Inventory` table |
+| `form_to_inventory` | `(devices_json: str, user_id: UUID, db_session: Session) -> list[Device]` | Validates web form/JSON devices, writes to `Inventory` table |
+| `import_from_inventory` | `(inventory: list[Inventory]) -> list[Device]` | Static. Single rollout path. Constructs Device objects from user's saved inventory rows via `Device.from_inventory()` |
+| `parse_commands` | `(commands_path: str) -> list[str]` | Reads command file, returns list of strings |
 
 **Private methods:**
 | Method | Signature | Description |
 |---|---|---|
 | `_prepare_devices` | `(raw_devices: list[dict]) -> list[Device]` | Validates and constructs Device objects. Shared by import methods |
+
+_Note: original design had `import_from_csv`, `import_from_form`, `from_inventory` as names, and no logger in constructor. Names updated to better reflect intent. Logger added for import-path notifications._
 
 ---
 
@@ -233,7 +247,7 @@ Owns all logging I/O for a single rollout job. One instance per `RolloutJob`. Re
 
 **Constructor:**
 ```
-RolloutLogger(logfile: str)
+RolloutLogger(webapp: bool, verbose: bool, logfile: str = None)
 ```
 
 **Attributes:**
@@ -241,13 +255,17 @@ RolloutLogger(logfile: str)
 |---|---|---|
 | `queue` | `Queue` | SSE message queue, consumed by `sse_stream` |
 | `logfile` | `str` | Timestamped log file path |
+| `webapp` | `bool` | Enqueue messages for SSE instead of printing |
+| `verbose` | `bool` | Surface non-error messages |
 
 **Public methods:**
 | Method | Signature | Description |
 |---|---|---|
 | `log` | `(string: str) -> None` | Writes timestamped message to log file |
-| `notify` | `(string: str, color: str) -> None` | Enqueues HTML-colored message for SSE and writes to log |
+| `notify` | `(string: str, color: str) -> None` | Routes message to queue (webapp) or console (CLI). Red always surfaces; others only if verbose |
 | `get` | `() -> str` | Blocking get from queue, consumed by `sse_stream` |
+
+_Note: original design had `RolloutLogger(logfile: str)` only. `webapp` and `verbose` moved here from `RolloutOptions` — logger owns output routing, engine only needs `verify` flag._
 
 ---
 
@@ -266,21 +284,24 @@ RolloutOrchestrator(max_concurrent: int = MAX_CONCURRENT_JOBS)
 **Attributes:**
 | Name | Type | Description |
 |---|---|---|
-| `jobs` | `dict[UUID, RolloutJob]` | In-memory registry of all active and pending jobs |
+| `_jobs` | `dict[UUID, RolloutJob]` | Private. In-memory registry of all active and pending jobs |
 | `max_concurrent` | `int` | Maximum simultaneously executing jobs |
+| `_lock` | `Lock` | Protects `_jobs` from concurrent access |
 
 **Public methods:**
 | Method | Signature | Description |
 |---|---|---|
-| `submit` | `(job: RolloutJob) -> None` | Adds job to dict, writes `RolloutSession(status="pending")` to DB, calls `_dispatch()` |
-| `cancel` | `(job_id: UUID) -> None` | Looks up job, calls `job.cancel()`, updates `RolloutSession(status="cancelling")` |
-| `get` | `(job_id: UUID) -> RolloutJob` | Returns job from dict — used by SSE stream and status endpoint |
+| `submit` | `(devices, commands, params: RolloutOptions) -> UUID` | Builds engine + job internally, adds to `_jobs`, writes `RolloutSession` (TODO), calls `_dispatch()`, returns `job_id` |
+| `cancel` | `(job_id: UUID) -> None` | Looks up job, calls `job.cancel()`. DB update TODO |
+| `get` | `(job_id: UUID) -> RolloutJob \| None` | Returns job from dict — used by SSE stream and status endpoint |
 
 **Private methods:**
 | Method | Signature | Description |
 |---|---|---|
-| `_dispatch` | `() -> None` | Counts active jobs. If below `max_concurrent`, picks next pending job, calls `job.start()`, updates `RolloutSession(status="active")` |
-| `_cleanup` | `(job_id: UUID) -> None` | Called on job completion. Removes from dict, deletes `RolloutSession` row, writes `DeviceResult` rows, calls `_dispatch()` to fill the freed slot |
+| `_dispatch` | `() -> None` | Snapshots state under lock, then starts pending jobs outside lock up to `max_concurrent`. Calls `job.start(self._cleanup)` |
+| `_cleanup` | `(job_id: UUID) -> None` | Called on job completion via callback. Removes from `_jobs`, writes `DeviceResult` rows (TODO), deletes `RolloutSession` (TODO), calls `_dispatch()` |
+
+_Note: original design had `submit(job: RolloutJob)`. Revised: orchestrator builds engine + job internally from raw inputs. `jobs` dict made private (`_jobs`). DB writes in `submit` and `_cleanup` are stubbed — pending Phase 2 DB integration._
 
 **Dispatch loop:**
 ```
@@ -311,7 +332,7 @@ RolloutEngine(param: RolloutOptions, devices: list[Device], commands: list[str])
 **Attributes:**
 | Name | Type | Description |
 |---|---|---|
-| `param` | `RolloutOptions` | Run flags |
+| `_verify_flag` | `bool` | Extracted from `param.verify`. Only flag engine needs — `webapp`/`verbose` live in logger |
 | `devices` | `list[Device]` | Devices to configure |
 | `commands` | `list[str]` | Commands to push |
 
@@ -329,27 +350,32 @@ RolloutEngine(param: RolloutOptions, devices: list[Device], commands: list[str])
 ---
 
 ### `RolloutJob`
-Lifecycle owner for a single rollout execution. Owns the thread, cancel event, engine, and logger. Created by the webapp on `POST /start_rollout` and stored in the active jobs registry.
+Lifecycle owner for a single rollout execution. Owns the thread, cancel flag, engine, and logger. Created by `RolloutOrchestrator.submit()` and stored in the active jobs registry.
 
 **Constructor:**
 ```
-RolloutJob(id: UUID, engine: RolloutEngine, logger: RolloutLogger)
+RolloutJob(job_id: UUID, engine: RolloutEngine, options: RolloutOptions)
 ```
+Constructs its own `RolloutLogger` from `options.webapp` and `options.verbose` internally.
 
 **Attributes:**
 | Name | Type | Description |
 |---|---|---|
 | `id` | `UUID` | Maps to `RolloutSession.id` in DB |
-| `thread` | `Thread` | Background execution thread |
-| `cancel_event` | `Event` | Cancellation signal — owned here, read by engine |
+| `_thread` | `Thread` | Private. Background execution thread |
+| `cancel_flag` | `Event` | Cancellation signal — owned here, passed to engine at call time |
 | `engine` | `RolloutEngine` | The pipeline |
-| `logger` | `RolloutLogger` | The logger |
+| `logger` | `RolloutLogger` | Constructed internally from options |
 
 **Public methods:**
 | Method | Signature | Description |
 |---|---|---|
-| `start` | `() -> None` | Creates and starts thread. Calls `engine.run(self.cancel_event, self.logger)` |
-| `cancel` | `() -> None` | Sets `cancel_event`. Engine polls this during iteration |
+| `start` | `(on_complete: Callable[[UUID], None]) -> None` | Creates thread via closure, starts it. Thread calls `engine.run(cancel_flag, logger)` then fires `on_complete(self.id)` |
+| `cancel` | `() -> None` | Sets `cancel_flag`. Engine polls this during iteration |
+| `is_alive` | `() -> bool` | Returns whether thread is running |
+| `is_pending` | `() -> bool` | Returns whether thread has not started yet |
+
+_Note: original design had `RolloutJob(id, engine, logger)` and `start()` with no args. Revised: job takes `options` and constructs logger internally. `start()` takes `on_complete` callback to notify orchestrator on completion — avoids circular import. `_thread` privatized._
 
 ---
 
@@ -448,4 +474,4 @@ RolloutJob(id: UUID, engine: RolloutEngine, logger: RolloutLogger)
 | `RolloutOrchestrator._dispatch()` | Called on submit and cleanup | Fills available slots automatically, no polling needed |
 | `RolloutSession` lifetime | Deleted on completion | Keeps the "RAM" table small; archive lives in `DeviceResult` |
 | Config/env vars | Asked at install time via `db_install.py`, defaults provided | User controls their own environment; no hardcoded secrets in code |
-| `Validator` design | All static methods | Pure namespace — no instance state needed |
+| `Validator` design | Logger-injected instance class | `validate_device_data` and `validate_file_extension` need logger to surface errors; pure computation methods stay static |

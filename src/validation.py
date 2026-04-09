@@ -3,10 +3,12 @@ import os
 import socket
 import time
 
-from logging_utils import base_notify
+from logging_utils import RolloutLogger
 
 
 class Validator:
+    def __init__(self, logger: RolloutLogger):
+        self.logger = logger
 
     # Defines supported platforms for app
     SUPPORTED_PLATFORMS = {
@@ -28,8 +30,7 @@ class Validator:
     TCP_RETRIES = 3
     TCP_RETRY_DELAY = 1
 
-    @staticmethod
-    def validate_file_extension(path: str, extension: str) -> bool:
+    def validate_file_extension(self,path: str, extension: str) -> bool:
         """
         This function validates the file extensions part of file parsing,
          and makes sure the files are correct and fit the expected type
@@ -41,11 +42,11 @@ class Validator:
             # Verifies file extension indeed exists in the system
             # and is a recognized file type
             # (not directory or something else)
-            base_notify(f"{path} is not a file", "red")
+            self.logger.notify(f"{path} is not a file", "red")
             return False
         if not path.lower().endswith(extension):
             # Verifies the type of the file indeed conforms to the extension we expect for the file
-            base_notify(f"file must be {extension}", "red")
+            self.logger.notify(f"file must be {extension}", "red")
             return False
         return True
 
@@ -78,18 +79,16 @@ class Validator:
         return True
 
 
-    @staticmethod
-    def validate_device_data(device: dict[str, str], webapp: bool = False) -> bool:
+    def validate_device_data(self,device: dict[str, str]) -> bool:
         """
         This function runs as part of the device files parsing and is used to validate values of the device data,
         when unpacking the csv iterable of dictionaries into a list. As we run on the provided devices, the function checks
         applicable values such as ip address and tcp port and makes sure they are in correct format
-        :param webapp: boolean value stating weather the function was called as part of a web deployment.
          In that case, notifications will be added to SSE queue
         :param device: device dictionary unpacked from csv file
         :return: True if device data is correct, False otherwise
         """
-        # Uses the ipaddress library to verify the ip address is in the X.X.X.X ipv4
+        # Uses the ipaddress library to _verify the ip address is in the X.X.X.X ipv4
         # format,
         # such that x is an int in the range 0-255
         if Validator.validate_ip(device["ip"]):
@@ -103,17 +102,17 @@ class Validator:
                     return True
 
                 else:
-                    base_notify(
-                        f"{device['device_type']} is not supported", "red", webapp=webapp
-                    )
+                    self.logger.notify(
+                        f"{device['device_type']} is not supported",
+                        "red")
 
             else:
-                base_notify(f"{device['port']} is not a valid port number", "red",
-                        webapp=webapp)
+                self.logger.notify(f"{device['port']} is not a valid port "
+                                   f"number", "red")
 
         else:
-            base_notify(f"{device['ip']} is not a valid IPv4 address", "red",
-                    webapp=webapp)
+            self.logger.notify(f"{device['ip']} is not a valid IPv4 address",
+                               "red")
 
         return False
 

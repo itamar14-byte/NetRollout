@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from validation import Validator
 from logging_utils import RolloutLogger
 from core import Device, RolloutOptions, RolloutEngine
-from parser import InputParser
+from input_parser import InputParser
 
 
 # ---------------------------------------------------------------------------
@@ -115,6 +115,9 @@ class TestValidatePlatform(unittest.TestCase):
 
 class TestValidateDeviceData(unittest.TestCase):
 
+    def setUp(self):
+        self.validator = Validator(RolloutLogger(webapp=False, verbose=False))
+
     @staticmethod
     def _device(**overrides):
         base = {
@@ -129,30 +132,33 @@ class TestValidateDeviceData(unittest.TestCase):
         return base
 
     def test_valid_device(self):
-        self.assertTrue(Validator.validate_device_data(self._device()))
+        self.assertTrue(self.validator.validate_device_data(self._device()))
 
     def test_invalid_ip(self):
-        self.assertFalse(Validator.validate_device_data(self._device(ip="bad_ip")))
+        self.assertFalse(self.validator.validate_device_data(self._device(ip="bad_ip")))
 
     def test_invalid_port(self):
-        self.assertFalse(Validator.validate_device_data(self._device(port="99999")))
+        self.assertFalse(self.validator.validate_device_data(self._device(port="99999")))
 
     def test_invalid_platform(self):
-        self.assertFalse(Validator.validate_device_data(self._device(device_type="unknown")))
+        self.assertFalse(self.validator.validate_device_data(self._device(device_type="unknown")))
 
     def test_webapp_flag_does_not_affect_result(self):
-        self.assertTrue(Validator.validate_device_data(self._device(), webapp=True))
-        self.assertFalse(Validator.validate_device_data(self._device(ip="x"),
-                                              webapp=True))
+        validator_web = Validator(RolloutLogger(webapp=True, verbose=False))
+        self.assertTrue(validator_web.validate_device_data(self._device()))
+        self.assertFalse(validator_web.validate_device_data(self._device(ip="x")))
 
 
 class TestValidateFileExtension(unittest.TestCase):
+
+    def setUp(self):
+        self.validator = Validator(RolloutLogger(webapp=False, verbose=False))
 
     def test_valid_csv(self):
         with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as f:
             path = f.name
         try:
-            self.assertTrue(Validator.validate_file_extension(path, "csv"))
+            self.assertTrue(self.validator.validate_file_extension(path, "csv"))
         finally:
             os.unlink(path)
 
@@ -160,7 +166,7 @@ class TestValidateFileExtension(unittest.TestCase):
         with tempfile.NamedTemporaryFile(suffix=".txt", delete=False) as f:
             path = f.name
         try:
-            self.assertTrue(Validator.validate_file_extension(path, "txt"))
+            self.assertTrue(self.validator.validate_file_extension(path, "txt"))
         finally:
             os.unlink(path)
 
@@ -168,18 +174,18 @@ class TestValidateFileExtension(unittest.TestCase):
         with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as f:
             path = f.name
         try:
-            self.assertFalse(Validator.validate_file_extension(path, "txt"))
+            self.assertFalse(self.validator.validate_file_extension(path, "txt"))
         finally:
             os.unlink(path)
 
     def test_file_not_found(self):
-        self.assertFalse(Validator.validate_file_extension("/nonexistent/path/file.csv", "csv"))
+        self.assertFalse(self.validator.validate_file_extension("/nonexistent/path/file.csv", "csv"))
 
     def test_case_insensitive_extension(self):
         with tempfile.NamedTemporaryFile(suffix=".CSV", delete=False) as f:
             path = f.name
         try:
-            self.assertTrue(Validator.validate_file_extension(path, "csv"))
+            self.assertTrue(self.validator.validate_file_extension(path, "csv"))
         finally:
             os.unlink(path)
 
@@ -218,48 +224,48 @@ class TestMsg(unittest.TestCase):
 
     def test_no_color_terminal(self):
         logger = RolloutLogger(webapp=False, verbose=False)
-        self.assertEqual(logger.msg("hello"), "hello")
+        self.assertEqual(logger._msg("hello"), "hello")
 
     def test_red_terminal(self):
         logger = RolloutLogger(webapp=False, verbose=False)
-        result = logger.msg("error", "red")
+        result = logger._msg("error", "red")
         self.assertIn("error", result)
         self.assertIn("\033[", result)
 
     def test_green_terminal(self):
         logger = RolloutLogger(webapp=False, verbose=False)
-        result = logger.msg("ok", "green")
+        result = logger._msg("ok", "green")
         self.assertIn("ok", result)
         self.assertIn("\033[", result)
 
     def test_webapp_red(self):
         logger = RolloutLogger(webapp=True, verbose=False)
-        result = logger.msg("error", "red")
+        result = logger._msg("error", "red")
         self.assertIn("text-danger", result)
         self.assertIn("error", result)
 
     def test_webapp_green(self):
         logger = RolloutLogger(webapp=True, verbose=False)
-        result = logger.msg("ok", "green")
+        result = logger._msg("ok", "green")
         self.assertIn("text-success", result)
 
     def test_webapp_no_color(self):
         logger = RolloutLogger(webapp=True, verbose=False)
-        self.assertEqual(logger.msg("plain"), "plain")
+        self.assertEqual(logger._msg("plain"), "plain")
 
     def test_unknown_color_returns_plain(self):
         logger = RolloutLogger(webapp=False, verbose=False)
-        self.assertEqual(logger.msg("hello", "purple"), "hello")
+        self.assertEqual(logger._msg("hello", "purple"), "hello")
 
 
 class TestLog(unittest.TestCase):
 
     def test_writes_message_to_file(self):
-        with tempfile.NamedTemporaryFile(mode="r", suffix=".log", delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="r", suffix="._log", delete=False) as f:
             path = f.name
         try:
             logger = RolloutLogger(webapp=False, verbose=False, logfile=path)
-            logger.log("test message")
+            logger._log("test message")
             with open(path) as f:
                 content = f.read()
             self.assertIn("test message", content)
@@ -267,12 +273,12 @@ class TestLog(unittest.TestCase):
             os.unlink(path)
 
     def test_includes_timestamp(self):
-        with tempfile.NamedTemporaryFile(mode="r", suffix=".log", delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="r", suffix="._log", delete=False) as f:
             path = f.name
         try:
             import re
             logger = RolloutLogger(webapp=False, verbose=False, logfile=path)
-            logger.log("timestamped")
+            logger._log("timestamped")
             with open(path) as f:
                 content = f.read()
             self.assertRegex(content, r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}")
@@ -280,12 +286,12 @@ class TestLog(unittest.TestCase):
             os.unlink(path)
 
     def test_appends_multiple_entries(self):
-        with tempfile.NamedTemporaryFile(mode="r", suffix=".log", delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="r", suffix="._log", delete=False) as f:
             path = f.name
         try:
             logger = RolloutLogger(webapp=False, verbose=False, logfile=path)
-            logger.log("first")
-            logger.log("second")
+            logger._log("first")
+            logger._log("second")
             with open(path) as f:
                 lines = f.readlines()
             self.assertEqual(len(lines), 2)
@@ -296,7 +302,7 @@ class TestLog(unittest.TestCase):
 class TestBaseNotify(unittest.TestCase):
 
     def setUp(self):
-        f = tempfile.NamedTemporaryFile(mode="r", suffix=".log", delete=False)
+        f = tempfile.NamedTemporaryFile(mode="r", suffix="._log", delete=False)
         self.logfile = f.name
         f.close()
 
@@ -363,6 +369,9 @@ class TestDeviceNetmikoConnector(unittest.TestCase):
 # (old body removed — Step 2.6 will rewrite)
 class _TestDeviceFetchConfig_DISABLED(unittest.TestCase):
 
+    def setUp(self):
+        self.logger = RolloutLogger(webapp=False, verbose=False)
+
     def test_returns_config_string_on_success(self):
         device = make_device(device_type="cisco_ios")
         mock_driver = MagicMock()
@@ -371,12 +380,12 @@ class _TestDeviceFetchConfig_DISABLED(unittest.TestCase):
         mock_driver.return_value = mock_node
 
         with patch("napalm.get_network_driver", return_value=mock_driver):
-            result = device.fetch_config()
+            result = device.fetch_config(self.logger)
         self.assertEqual(result, "interface GigabitEthernet0/0")
 
     def test_returns_none_for_unsupported_platform(self):
         device = make_device(device_type="checkpoint_gaia")
-        result = device.fetch_config()
+        result = device.fetch_config(self.logger)
         self.assertIsNone(result)
 
     def test_returns_none_on_connection_exception(self):
@@ -387,7 +396,7 @@ class _TestDeviceFetchConfig_DISABLED(unittest.TestCase):
         mock_driver.return_value = mock_node
 
         with patch("napalm.get_network_driver", return_value=mock_driver):
-            result = device.fetch_config()
+            result = device.fetch_config(self.logger)
         self.assertIsNone(result)
 
 
@@ -396,55 +405,52 @@ class _TestDeviceFetchConfig_DISABLED(unittest.TestCase):
 # TODO Phase 3: rewrite for InputParser._prepare_devices API
 # ---------------------------------------------------------------------------
 
-# class TestPrepareDevices(unittest.TestCase):
-#     TODO Phase 3: rewrite for InputParser._prepare_devices API
-#
-#     @staticmethod
-#     def _raw(**overrides):
-#         base = {
-#             "ip": "10.0.0.1",
-#             "username": "admin",
-#             "password": "pass",
-#             "device_type": "cisco_ios",
-#             "secret": "s",
-#             "port": "22",
-#         }
-#         base.update(overrides)
-#         return base
-#
-#     @patch("validation.Validator.test_tcp_port", return_value=True)
-#     def test_valid_device_is_added(self, _):
-#         devices = InputParser._prepare_devices([self._raw()])
-#         self.assertEqual(len(devices), 1)
-#         self.assertIsInstance(devices[0], Device)
-#
-#     @patch("validation.Validator.test_tcp_port", return_value=False)
-#     def test_unreachable_device_excluded(self, _):
-#         devices = InputParser._prepare_devices([self._raw()])
-#         self.assertEqual(len(devices), 0)
-#
-#     @patch("validation.Validator.test_tcp_port", return_value=True)
-#     def test_invalid_ip_excluded(self, _):
-#         devices = InputParser._prepare_devices([self._raw(ip="bad")])
-#         self.assertEqual(len(devices), 0)
-#
-#     @patch("validation.Validator.test_tcp_port", return_value=True)
-#     def test_cancel_event_stops_processing(self, _):
-#         cancel = threading.Event()
-#         cancel.set()
-#         devices = InputParser._prepare_devices([self._raw(), self._raw(ip="10.0.0.2")])
-#         self.assertEqual(devices, [])
-#
-#     @patch("validation.Validator.test_tcp_port", return_value=True)
-#     def test_device_type_lowercased(self, _):
-#         devices = InputParser._prepare_devices([self._raw(device_type="CISCO_IOS")])
-#         self.assertEqual(devices[0].device_type, "cisco_ios")
-#
-#     @patch("validation.Validator.test_tcp_port", return_value=True)
-#     def test_multiple_devices(self, _):
-#         raw = [self._raw(ip=f"10.0.0.{i}") for i in range(1, 4)]
-#         devices = InputParser._prepare_devices(raw)
-#         self.assertEqual(len(devices), 3)
+class TestPrepareDevices(unittest.TestCase):
+
+    def setUp(self):
+        logger = RolloutLogger(webapp=False, verbose=False)
+        validator = Validator(logger)
+        self.parser = InputParser(validator, logger)
+
+    @staticmethod
+    def _raw(**overrides):
+        base = {
+            "ip": "10.0.0.1",
+            "username": "admin",
+            "password": "pass",
+            "device_type": "cisco_ios",
+            "secret": "s",
+            "port": "22",
+        }
+        base.update(overrides)
+        return base
+
+    @patch("validation.Validator.test_tcp_port", return_value=True)
+    def test_valid_device_is_added(self, _):
+        devices = self.parser._prepare_devices([self._raw()])
+        self.assertEqual(len(devices), 1)
+        self.assertIsInstance(devices[0], Device)
+
+    @patch("validation.Validator.test_tcp_port", return_value=False)
+    def test_unreachable_device_excluded(self, _):
+        devices = self.parser._prepare_devices([self._raw()])
+        self.assertEqual(len(devices), 0)
+
+    @patch("validation.Validator.test_tcp_port", return_value=True)
+    def test_invalid_ip_excluded(self, _):
+        devices = self.parser._prepare_devices([self._raw(ip="bad")])
+        self.assertEqual(len(devices), 0)
+
+    @patch("validation.Validator.test_tcp_port", return_value=True)
+    def test_device_type_lowercased(self, _):
+        devices = self.parser._prepare_devices([self._raw(device_type="CISCO_IOS")])
+        self.assertEqual(devices[0].device_type, "cisco_ios")
+
+    @patch("validation.Validator.test_tcp_port", return_value=True)
+    def test_multiple_devices(self, _):
+        raw = [self._raw(ip=f"10.0.0.{i}") for i in range(1, 4)]
+        devices = self.parser._prepare_devices(raw)
+        self.assertEqual(len(devices), 3)
 
 
 # ---------------------------------------------------------------------------
@@ -452,62 +458,79 @@ class _TestDeviceFetchConfig_DISABLED(unittest.TestCase):
 # TODO Phase 3: rewrite for InputParser.csv_to_inventory / parse_commands API
 # ---------------------------------------------------------------------------
 
-# class TestParseFiles(unittest.TestCase):
-#
-#     @staticmethod
-#     def _write_csv(path, rows):
-#         with open(path, "w", encoding="utf-8") as f:
-#             f.write("ip,username,password,device_type,secret,port\n")
-#             for row in rows:
-#                 f.write(",".join(str(row[k]) for k in
-#                                  ("ip", "username", "password",
-#                                   "device_type", "secret", "port")) + "\n")
-#
-#     @staticmethod
-#     def _write_commands(path, commands):
-#         with open(path, "w") as f:
-#             f.write("\n".join(commands))
-#
-#     @patch("validation.Validator.test_tcp_port", return_value=True)
-#     def test_valid_files_return_devices_and_commands(self, _):
-#         with tempfile.TemporaryDirectory() as tmpdir:
-#             csv_path = os.path.join(tmpdir, "devices.csv")
-#             txt_path = os.path.join(tmpdir, "commands.txt")
-#             self._write_csv(csv_path, [
-#                 {"ip": "10.0.0.1", "username": "admin", "password": "pass",
-#                  "device_type": "cisco_ios", "secret": "s", "port": "22"}
-#             ])
-#             self._write_commands(txt_path, ["ip route 0.0.0.0 0.0.0.0 10.0.0.254"])
-#             devices, commands = parse_files(csv_path, txt_path)
-#         self.assertEqual(len(devices), 1)
-#         self.assertEqual(len(commands), 1)
-#
-#     def test_nonexistent_csv_returns_empty(self):
-#         with tempfile.TemporaryDirectory() as tmpdir:
-#             txt_path = os.path.join(tmpdir, "commands.txt")
-#             self._write_commands(txt_path, ["no command"])
-#             devices, commands = parse_files("/no/such/file.csv", txt_path)
-#         self.assertEqual(devices, [])
-#         self.assertEqual(commands, [])
-#
-#     def test_wrong_extension_returns_empty(self):
-#         with tempfile.TemporaryDirectory() as tmpdir:
-#             csv_path = os.path.join(tmpdir, "devices.txt")
-#             txt_path = os.path.join(tmpdir, "commands.txt")
-#             open(csv_path, "w").close()
-#             self._write_commands(txt_path, ["cmd"])
-#             devices, commands = parse_files(csv_path, txt_path)
-#         self.assertEqual(devices, [])
-#
-#     def test_missing_csv_columns_returns_empty(self):
-#         with tempfile.TemporaryDirectory() as tmpdir:
-#             csv_path = os.path.join(tmpdir, "devices.csv")
-#             txt_path = os.path.join(tmpdir, "commands.txt")
-#             with open(csv_path, "w") as f:
-#                 f.write("ip,username\n10.0.0.1,admin\n")
-#             self._write_commands(txt_path, ["cmd"])
-#             devices, commands = parse_files(csv_path, txt_path)
-#         self.assertEqual(devices, [])
+class TestParseFiles(unittest.TestCase):
+
+    def setUp(self):
+        self.logger = RolloutLogger(webapp=False, verbose=False)
+        self.validator = Validator(self.logger)
+        self.parser = InputParser(self.validator, self.logger)
+        self.db_session = MagicMock()
+        import uuid
+        self.user_id = uuid.uuid4()
+
+    @staticmethod
+    def _write_csv(path, rows):
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("ip,username,password,device_type,secret,port\n")
+            for row in rows:
+                f.write(",".join(str(row[k]) for k in
+                                 ("ip", "username", "password",
+                                  "device_type", "secret", "port")) + "\n")
+
+    @staticmethod
+    def _write_commands(path, commands):
+        with open(path, "w") as f:
+            f.write("\n".join(commands))
+
+    @patch("validation.Validator.test_tcp_port", return_value=True)
+    def test_csv_to_inventory_returns_devices(self, _):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            csv_path = os.path.join(tmpdir, "devices.csv")
+            self._write_csv(csv_path, [
+                {"ip": "10.0.0.1", "username": "admin", "password": "pass",
+                 "device_type": "cisco_ios", "secret": "s", "port": "22"}
+            ])
+            devices = self.parser.csv_to_inventory(csv_path, self.user_id, self.db_session)
+        self.assertEqual(len(devices), 1)
+        self.assertIsInstance(devices[0], Device)
+
+    def test_csv_to_inventory_nonexistent_file_returns_empty(self):
+        devices = self.parser.csv_to_inventory("/no/such/file.csv", self.user_id, self.db_session)
+        self.assertEqual(devices, [])
+
+    def test_csv_to_inventory_wrong_extension_returns_empty(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bad_path = os.path.join(tmpdir, "devices.txt")
+            open(bad_path, "w").close()
+            devices = self.parser.csv_to_inventory(bad_path, self.user_id, self.db_session)
+        self.assertEqual(devices, [])
+
+    def test_csv_to_inventory_missing_columns_returns_empty(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            csv_path = os.path.join(tmpdir, "devices.csv")
+            with open(csv_path, "w") as f:
+                f.write("ip,username\n10.0.0.1,admin\n")
+            devices = self.parser.csv_to_inventory(csv_path, self.user_id, self.db_session)
+        self.assertEqual(devices, [])
+
+    def test_parse_commands_returns_list(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            txt_path = os.path.join(tmpdir, "commands.txt")
+            self._write_commands(txt_path, ["ip route 0.0.0.0 0.0.0.0 10.0.0.254"])
+            commands = self.parser.parse_commands(txt_path)
+        self.assertEqual(len(commands), 1)
+        self.assertIn("ip route", commands[0])
+
+    def test_parse_commands_wrong_extension_returns_empty(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bad_path = os.path.join(tmpdir, "commands.csv")
+            open(bad_path, "w").close()
+            commands = self.parser.parse_commands(bad_path)
+        self.assertEqual(commands, [])
+
+    def test_parse_commands_nonexistent_file_returns_empty(self):
+        commands = self.parser.parse_commands("/no/such/commands.txt")
+        self.assertEqual(commands, [])
 
 
 # ---------------------------------------------------------------------------
@@ -535,8 +558,11 @@ class _TestRolloutEnginePushConfig_DISABLED(unittest.TestCase):
             param=make_options(**opt_kwargs),
             devices=devices or [make_device()],
             commands=commands or ["ip route 0.0.0.0 0.0.0.0 1.1.1.1"],
-            cancel_event=cancel,
         )
+
+    def setUp(self):
+        self.logger = RolloutLogger(webapp=False, verbose=False)
+        self.cancel = threading.Event()
 
     @patch("netmiko.ConnectHandler")
     def test_successful_push_returns_none(self, mock_ch):
@@ -545,8 +571,7 @@ class _TestRolloutEnginePushConfig_DISABLED(unittest.TestCase):
         mock_ch.return_value = mock_conn
 
         engine = self._make_engine()
-        with patch("logging_utils.log"):
-            result = engine.push_config()
+        result = engine._push_config(self.cancel, self.logger)
         self.assertIsNone(result)
         mock_conn.save_config.assert_called_once()
         mock_conn.disconnect.assert_called_once()
@@ -558,8 +583,7 @@ class _TestRolloutEnginePushConfig_DISABLED(unittest.TestCase):
         mock_ch.return_value = mock_conn
 
         engine = self._make_engine(commands=["bad command", "good command"])
-        with patch("logging_utils.log"):
-            result = engine.push_config()
+        result = engine._push_config(self.cancel, self.logger)
         self.assertIsNone(result)
         # Both commands were attempted despite first error
         self.assertEqual(mock_conn.send_config_set.call_count, 2)
@@ -569,17 +593,15 @@ class _TestRolloutEnginePushConfig_DISABLED(unittest.TestCase):
         import netmiko as nm
         mock_ch.side_effect = nm.NetMikoAuthenticationException("auth failed")
         engine = self._make_engine()
-        with patch("logging_utils.log"):
-            result = engine.push_config()
+        result = engine._push_config(self.cancel, self.logger)
         self.assertIsNone(result)
 
     @patch("netmiko.ConnectHandler")
     def test_cancel_event_stops_rollout(self, mock_ch):
         cancel = threading.Event()
         cancel.set()
-        engine = self._make_engine(cancel=cancel)
-        with patch("logging_utils.log"):
-            result = engine.push_config()
+        engine = self._make_engine()
+        result = engine._push_config(cancel, self.logger)
         self.assertEqual(result, "cancel_sent")
         mock_ch.assert_not_called()
 
@@ -591,21 +613,23 @@ class _TestRolloutEnginePushConfig_DISABLED(unittest.TestCase):
 
         devices = [make_device(ip=f"10.0.0.{i}") for i in range(1, 4)]
         engine = self._make_engine(devices=devices)
-        with patch("logging_utils.log"):
-            engine.push_config()
+        engine._push_config(self.cancel, self.logger)
         self.assertEqual(mock_ch.call_count, 3)
 
 
 class _TestRolloutEngineVerify_DISABLED(unittest.TestCase):
 
     @staticmethod
-    def _make_engine(devices=None, commands=None, cancel=None):
+    def _make_engine(devices=None, commands=None):
         return RolloutEngine(
             param=make_options(verify=True),
             devices=devices or [make_device()],
             commands=commands or ["ip route 0.0.0.0 0.0.0.0 1.1.1.1"],
-            cancel_event=cancel,
         )
+
+    def setUp(self):
+        self.logger = RolloutLogger(webapp=False, verbose=False)
+        self.cancel = threading.Event()
 
     def test_command_found_in_config(self):
         device = make_device()
@@ -615,8 +639,7 @@ class _TestRolloutEngineVerify_DISABLED(unittest.TestCase):
         )
         with patch.object(device, "fetch_config",
                           return_value="ip route 0.0.0.0 0.0.0.0 1.1.1.1"):
-            with patch("logging_utils.log"):
-                result = engine.verify()
+            result = engine._verify(self.cancel, self.logger)
         self.assertEqual(result["192.168.1.1"], 1)
 
     def test_command_not_in_config(self):
@@ -626,24 +649,21 @@ class _TestRolloutEngineVerify_DISABLED(unittest.TestCase):
             commands=["ip route 0.0.0.0 0.0.0.0 1.1.1.1"],
         )
         with patch.object(device, "fetch_config", return_value="no relevant config"):
-            with patch("logging_utils.log"):
-                result = engine.verify()
+            result = engine._verify(self.cancel, self.logger)
         self.assertEqual(result["192.168.1.1"], 0)
 
     def test_fetch_config_returns_none_skips_device(self):
         device = make_device()
         engine = self._make_engine(devices=[device])
         with patch.object(device, "fetch_config", return_value=None):
-            with patch("logging_utils.log"):
-                result = engine.verify()
+            result = engine._verify(self.cancel, self.logger)
         self.assertEqual(result.get("192.168.1.1", 0), 0)
 
     def test_cancel_event_stops_verify(self):
         cancel = threading.Event()
         cancel.set()
-        engine = self._make_engine(cancel=cancel)
-        with patch("logging_utils.log"):
-            result = engine.verify()
+        engine = self._make_engine()
+        result = engine._verify(cancel, self.logger)
         self.assertEqual(result, "cancel_sent")
 
     def test_partial_commands_matched(self):
@@ -652,12 +672,15 @@ class _TestRolloutEngineVerify_DISABLED(unittest.TestCase):
         config = "ip route 0.0.0.0 0.0.0.0 1.1.1.1\nno relevant line"
         engine = self._make_engine(devices=[device], commands=commands)
         with patch.object(device, "fetch_config", return_value=config):
-            with patch("logging_utils.log"):
-                result = engine.verify()
+            result = engine._verify(self.cancel, self.logger)
         self.assertEqual(result["192.168.1.1"], 1)
 
 
 class _TestRolloutEngineRun_DISABLED(unittest.TestCase):
+
+    def setUp(self):
+        self.logger = RolloutLogger(webapp=False, verbose=False)
+        self.cancel = threading.Event()
 
     def test_empty_devices_returns_1(self):
         engine = RolloutEngine(
@@ -665,8 +688,7 @@ class _TestRolloutEngineRun_DISABLED(unittest.TestCase):
             devices=[],
             commands=["cmd"],
         )
-        with patch("logging_utils.log"):
-            self.assertEqual(engine.run(), 1)
+        self.assertEqual(engine.run(self.cancel, self.logger), 1)
 
     def test_empty_commands_returns_1(self):
         engine = RolloutEngine(
@@ -674,8 +696,7 @@ class _TestRolloutEngineRun_DISABLED(unittest.TestCase):
             devices=[make_device()],
             commands=[],
         )
-        with patch("logging_utils.log"):
-            self.assertEqual(engine.run(), 1)
+        self.assertEqual(engine.run(self.cancel, self.logger), 1)
 
     @patch("netmiko.ConnectHandler")
     def test_successful_run_without_verify_returns_0(self, mock_ch):
@@ -688,8 +709,7 @@ class _TestRolloutEngineRun_DISABLED(unittest.TestCase):
             devices=[make_device()],
             commands=["ip route 0.0.0.0 0.0.0.0 1.1.1.1"],
         )
-        with patch("logging_utils.log"):
-            self.assertEqual(engine.run(), 0)
+        self.assertEqual(engine.run(self.cancel, self.logger), 0)
 
     @patch("netmiko.ConnectHandler")
     def test_cancel_during_push_returns_1(self, mock_ch):
@@ -704,10 +724,8 @@ class _TestRolloutEngineRun_DISABLED(unittest.TestCase):
             param=make_options(),
             devices=[make_device()],
             commands=["cmd"],
-            cancel_event=cancel,
         )
-        with patch("logging_utils.log"):
-            result = engine.run()
+        result = engine.run(cancel, self.logger)
         # Either 0 (push finished before cancel seen) or 1 (cancel caught)
         self.assertIn(result, [0, 1])
 
@@ -717,55 +735,144 @@ class _TestRolloutEngineRun_DISABLED(unittest.TestCase):
 # TODO Phase 3: rewrite for inventory-based pipeline
 # ---------------------------------------------------------------------------
 
-# class TestFullRolloutAndVerifyPipeline(unittest.TestCase):
-#     """
-#     End-to-end test of the full pipeline:
-#       import_from_inventory -> RolloutEngine.run() with verify=True
-#     All network I/O is mocked: TCP probe, Netmiko SSH, NAPALM config fetch.
-#     """
-#
-#     COMMAND = "ip route 0.0.0.0 0.0.0.0 10.0.0.254"
-#     DEVICE_ROW = {
-#         "ip": "10.0.0.1",
-#         "username": "admin",
-#         "password": "password",
-#         "device_type": "cisco_ios",
-#         "secret": "enablepass",
-#         "port": "22",
-#     }
-#
-#     def _write_csv(self, path):
-#         with open(path, "w", encoding="utf-8") as f:
-#             f.write("ip,username,password,device_type,secret,port\n")
-#             row = self.DEVICE_ROW
-#             f.write(f"{row['ip']},{row['username']},{row['password']},"
-#                     f"{row['device_type']},{row['secret']},{row['port']}\n")
-#
-#     def _write_commands(self, path):
-#         with open(path, "w") as f:
-#             f.write(self.COMMAND + "\n")
-#
-#     @patch("netmiko.ConnectHandler")
-#     @patch("napalm.get_network_driver")
-#     @patch("validation.Validator.test_tcp_port", return_value=True)
-#     def test_full_pipeline_all_commands_verified(self, _tcp, mock_napalm_driver, mock_netmiko_ch):
-#         pass  # rewrite in Phase 3
-#
-#     @patch("netmiko.ConnectHandler")
-#     @patch("validation.Validator.test_tcp_port", return_value=True)
-#     def test_full_pipeline_push_only_no_verify(self, _tcp, mock_netmiko_ch):
-#         pass  # rewrite in Phase 3
-#
-#     @patch("netmiko.ConnectHandler")
-#     @patch("napalm.get_network_driver")
-#     @patch("validation.Validator.test_tcp_port", return_value=True)
-#     def test_full_pipeline_verify_fails_command_not_in_config(self, _tcp, mock_napalm_driver, mock_netmiko_ch):
-#         pass  # rewrite in Phase 3
-#
-#     @patch("netmiko.ConnectHandler")
-#     @patch("validation.Validator.test_tcp_port", return_value=True)
-#     def test_full_pipeline_cancel_mid_rollout(self, _tcp, mock_netmiko_ch):
-#         pass  # rewrite in Phase 3
+class TestFullRolloutAndVerifyPipeline(unittest.TestCase):
+    """
+    End-to-end test of the full pipeline:
+      import_from_inventory -> RolloutEngine.run() with _verify=True
+    All network I/O is mocked: Netmiko SSH, NAPALM config fetch.
+    Device.from_inventory is mocked because it is currently stubbed (returns None).
+    """
+
+    COMMAND = "ip route 0.0.0.0 0.0.0.0 10.0.0.254"
+
+    def _make_inventory_row(self):
+        """Return a minimal mock Inventory row."""
+        return MagicMock()
+
+    def _make_device(self):
+        return make_device(
+            ip="10.0.0.1",
+            username="admin",
+            password="password",
+            device_type="cisco_ios",
+            secret="enablepass",
+            port=22,
+            label="test-router",
+        )
+
+    @patch("netmiko.ConnectHandler")
+    @patch("napalm.get_network_driver")
+    @patch("core.Device.from_inventory")
+    def test_full_pipeline_all_commands_verified(self, mock_from_inv, mock_napalm_driver, mock_netmiko_ch):
+        device = self._make_device()
+        mock_from_inv.return_value = device
+
+        # Mock netmiko push
+        mock_conn = MagicMock()
+        mock_conn.send_config_set.return_value = "ok"
+        mock_netmiko_ch.return_value = mock_conn
+
+        # Mock napalm verify — config contains the command
+        mock_driver = MagicMock()
+        mock_node = MagicMock()
+        mock_node.get_config.return_value = {"running": self.COMMAND}
+        mock_driver.return_value = mock_node
+        mock_napalm_driver.return_value = mock_driver
+
+        inventory_rows = [self._make_inventory_row()]
+        devices = InputParser.import_from_inventory(inventory_rows)
+
+        engine = RolloutEngine(
+            param=make_options(verify=True),
+            devices=devices,
+            commands=[self.COMMAND],
+        )
+        cancel = threading.Event()
+        logger = RolloutLogger(webapp=False, verbose=False)
+        result = engine.run(cancel, logger)
+        self.assertEqual(result, 0)
+
+    @patch("netmiko.ConnectHandler")
+    @patch("core.Device.from_inventory")
+    def test_full_pipeline_push_only_no_verify(self, mock_from_inv, mock_netmiko_ch):
+        device = self._make_device()
+        mock_from_inv.return_value = device
+
+        mock_conn = MagicMock()
+        mock_conn.send_config_set.return_value = "ok"
+        mock_netmiko_ch.return_value = mock_conn
+
+        inventory_rows = [self._make_inventory_row()]
+        devices = InputParser.import_from_inventory(inventory_rows)
+
+        engine = RolloutEngine(
+            param=make_options(verify=False),
+            devices=devices,
+            commands=[self.COMMAND],
+        )
+        cancel = threading.Event()
+        logger = RolloutLogger(webapp=False, verbose=False)
+        result = engine.run(cancel, logger)
+        self.assertEqual(result, 0)
+
+    @patch("netmiko.ConnectHandler")
+    @patch("napalm.get_network_driver")
+    @patch("core.Device.from_inventory")
+    def test_full_pipeline_verify_fails_command_not_in_config(self, mock_from_inv, mock_napalm_driver, mock_netmiko_ch):
+        device = self._make_device()
+        mock_from_inv.return_value = device
+
+        mock_conn = MagicMock()
+        mock_conn.send_config_set.return_value = "ok"
+        mock_netmiko_ch.return_value = mock_conn
+
+        # NAPALM returns config WITHOUT the command
+        mock_driver = MagicMock()
+        mock_node = MagicMock()
+        mock_node.get_config.return_value = {"running": "no relevant config"}
+        mock_driver.return_value = mock_node
+        mock_napalm_driver.return_value = mock_driver
+
+        inventory_rows = [self._make_inventory_row()]
+        devices = InputParser.import_from_inventory(inventory_rows)
+
+        engine = RolloutEngine(
+            param=make_options(verify=True),
+            devices=devices,
+            commands=[self.COMMAND],
+        )
+        cancel = threading.Event()
+        logger = RolloutLogger(webapp=False, verbose=False)
+        # Pipeline completes (returns 0) even when verify finds mismatches
+        result = engine.run(cancel, logger)
+        self.assertEqual(result, 0)
+
+    @patch("netmiko.ConnectHandler")
+    @patch("core.Device.from_inventory")
+    def test_full_pipeline_cancel_mid_rollout(self, mock_from_inv, mock_netmiko_ch):
+        device = self._make_device()
+        mock_from_inv.return_value = device
+
+        cancel = threading.Event()
+
+        def fake_connect(**kwargs):
+            cancel.set()
+            raise Exception("cancelled mid rollout")
+
+        mock_netmiko_ch.side_effect = fake_connect
+
+        inventory_rows = [self._make_inventory_row()]
+        devices = InputParser.import_from_inventory(inventory_rows)
+
+        engine = RolloutEngine(
+            param=make_options(verify=False),
+            devices=devices,
+            commands=[self.COMMAND],
+        )
+        logger = RolloutLogger(webapp=False, verbose=False)
+        result = engine.run(cancel, logger)
+        # Cancel may be caught during push (returns 1) or push finishes first (returns 0)
+        self.assertIn(result, [0, 1])
 
 
 if __name__ == "__main__":

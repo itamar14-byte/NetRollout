@@ -25,8 +25,8 @@ def get_args():
 	)
 	parser.add_argument(
 		"-vy",
-		"--verify",
-		help="Test configuration file to verify successful running",
+		"--_verify",
+		help="Test configuration file to _verify successful running",
 		action="store_true",
 	)
 	parser.add_argument(
@@ -43,7 +43,7 @@ def main():
 	devices_path = args.devices or input("Enter the device file path: ")
 	commands_path = args.commands or input("Enter the commands file path: ")
 
-	# If the verify flag was supplied, we activate verification, and if other
+	# If the _verify flag was supplied, we activate verification, and if other
 	# flags were supplied we disable it,
 	# and if no flags were supplied we prompt for verification alongside the other flag prompts
 	if args.verify:
@@ -53,7 +53,7 @@ def main():
 	else:
 		verify_rollout = (
 			True
-			if input("Do you want to verify roll out? (y/n): ").lower() == "y"
+			if input("Do you want to _verify roll out? (y/n): ").lower() == "y"
 			else False
 		)
 	params = RolloutOptions(verbose=args.verbose,
