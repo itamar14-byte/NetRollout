@@ -4,16 +4,20 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="27240518-82b3-4a70-8f71-cc3b690d164c" name="Changes" comment="● Phase 1 complete: fix admin_user_action endpoint name, home button redirect for authenticated users, dark mode account page text">
-      <change afterPath="$PROJECT_DIR$/src/orchestration.py" afterDir="false" />
+    <list default="true" id="27240518-82b3-4a70-8f71-cc3b690d164c" name="Changes" comment="    refactor: implement Phase 2 execution pipeline&#10;&#10;    - Add RolloutJob and RolloutOrchestrator (orchestration.py)&#10;    - Refactor RolloutEngine: cancel_event and logger injected at call time, methods privatized&#10;    - Refactor RolloutLogger: webapp/verbose baked in at construction&#10;    - Refactor Validator: logger injected, instance methods for error-surfacing validation&#10;    - Rename parser.py → input_parser.py, add logger to InputParser constructor&#10;    - Implement Device.from_inventory() with Fernet decryption from SecurityProfile&#10;    - Rewire webapp routes as thin orchestrator delegators, remove cancel_event global&#10;    - Fix and uncomment all disabled tests — 83/83 passing&#10;    - Update architecture.md to reflect deviations from original design">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/architecture.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/architecture.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/CLAUDE.md" beforeDir="false" afterPath="$PROJECT_DIR$/CLAUDE.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/workplan.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/workplan.md" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/cli.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/cli.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/core.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/core.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/input_parser.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/input_parser.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/logging_utils.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/logging_utils.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/parser.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/input_parser.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/orchestration.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/orchestration.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/tables.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/tables.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/validation.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/validation.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/webapp.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/webapp.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/templates/rollout.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/rollout.html" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/templates/upload.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/upload.html" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/tests/test.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -214,7 +218,7 @@
       <workItem from="1775428873628" duration="1396000" />
       <workItem from="1775465302574" duration="18964000" />
       <workItem from="1775499852820" duration="7096000" />
-      <workItem from="1775569421684" duration="33312000" />
+      <workItem from="1775569421684" duration="34889000" />
     </task>
     <task id="LOCAL-00001" summary="Bug Fixes and configuration of executble packing">
       <option name="closed" value="true" />
@@ -496,7 +500,15 @@
       <option name="project" value="LOCAL" />
       <updated>1775503060278</updated>
     </task>
-    <option name="localTasksCounter" value="36" />
+    <task id="LOCAL-00036" summary="    refactor: implement Phase 2 execution pipeline&#10;&#10;    - Add RolloutJob and RolloutOrchestrator (orchestration.py)&#10;    - Refactor RolloutEngine: cancel_event and logger injected at call time, methods privatized&#10;    - Refactor RolloutLogger: webapp/verbose baked in at construction&#10;    - Refactor Validator: logger injected, instance methods for error-surfacing validation&#10;    - Rename parser.py → input_parser.py, add logger to InputParser constructor&#10;    - Implement Device.from_inventory() with Fernet decryption from SecurityProfile&#10;    - Rewire webapp routes as thin orchestrator delegators, remove cancel_event global&#10;    - Fix and uncomment all disabled tests — 83/83 passing&#10;    - Update architecture.md to reflect deviations from original design">
+      <option name="closed" value="true" />
+      <created>1775699405129</created>
+      <option name="number" value="00036" />
+      <option name="presentableId" value="LOCAL-00036" />
+      <option name="project" value="LOCAL" />
+      <updated>1775699405129</updated>
+    </task>
+    <option name="localTasksCounter" value="37" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -514,7 +526,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="Bug fixes and GUI features" />
     <MESSAGE value="Bug Fixes and sever upgrade" />
     <MESSAGE value="Broought up SSE integration and rollout page" />
     <MESSAGE value="Brought up SSE integration and rollout page" />
@@ -539,7 +550,8 @@
     <MESSAGE value="● Auth pipeline: admin panel with user management, approval flow, and collapsible sidebar" />
     <MESSAGE value="bug fixes" />
     <MESSAGE value="● Phase 1 complete: fix admin_user_action endpoint name, home button redirect for authenticated users, dark mode account page text" />
-    <option name="LAST_COMMIT_MESSAGE" value="● Phase 1 complete: fix admin_user_action endpoint name, home button redirect for authenticated users, dark mode account page text" />
+    <MESSAGE value="    refactor: implement Phase 2 execution pipeline&#10;&#10;    - Add RolloutJob and RolloutOrchestrator (orchestration.py)&#10;    - Refactor RolloutEngine: cancel_event and logger injected at call time, methods privatized&#10;    - Refactor RolloutLogger: webapp/verbose baked in at construction&#10;    - Refactor Validator: logger injected, instance methods for error-surfacing validation&#10;    - Rename parser.py → input_parser.py, add logger to InputParser constructor&#10;    - Implement Device.from_inventory() with Fernet decryption from SecurityProfile&#10;    - Rewire webapp routes as thin orchestrator delegators, remove cancel_event global&#10;    - Fix and uncomment all disabled tests — 83/83 passing&#10;    - Update architecture.md to reflect deviations from original design" />
+    <option name="LAST_COMMIT_MESSAGE" value="    refactor: implement Phase 2 execution pipeline&#10;&#10;    - Add RolloutJob and RolloutOrchestrator (orchestration.py)&#10;    - Refactor RolloutEngine: cancel_event and logger injected at call time, methods privatized&#10;    - Refactor RolloutLogger: webapp/verbose baked in at construction&#10;    - Refactor Validator: logger injected, instance methods for error-surfacing validation&#10;    - Rename parser.py → input_parser.py, add logger to InputParser constructor&#10;    - Implement Device.from_inventory() with Fernet decryption from SecurityProfile&#10;    - Rewire webapp routes as thin orchestrator delegators, remove cancel_event global&#10;    - Fix and uncomment all disabled tests — 83/83 passing&#10;    - Update architecture.md to reflect deviations from original design" />
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
     <SUITE FILE_PATH="coverage/core_py$WebApp.coverage" NAME="WebApp Coverage Results" MODIFIED="1756760459810" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />

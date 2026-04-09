@@ -35,7 +35,7 @@ class Validator:
         This function validates the file extensions part of file parsing,
          and makes sure the files are correct and fit the expected type
         :param path: file path provided by the user
-        :param extension: expected file type - csv for devices, txt for commands
+        :param extension: expected file type - csv for _devices, txt for _commands
         :return: True if file extension is correct, False otherwise
         """
         if not os.path.isfile(path):
@@ -82,9 +82,9 @@ class Validator:
     def validate_device_data(self,device: dict[str, str]) -> bool:
         """
         This function runs as part of the device files parsing and is used to validate values of the device data,
-        when unpacking the csv iterable of dictionaries into a list. As we run on the provided devices, the function checks
+        when unpacking the csv iterable of dictionaries into a list. As we run on the provided _devices, the function checks
         applicable values such as ip address and tcp port and makes sure they are in correct format
-         In that case, notifications will be added to SSE queue
+         In that case, notifications will be added to SSE _queue
         :param device: device dictionary unpacked from csv file
         :return: True if device data is correct, False otherwise
         """

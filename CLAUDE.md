@@ -13,7 +13,7 @@ Network bulk configuration tool that pushes configuration snippets to multiple n
 ### Run the CLI
 ```bash
 cd src
-python cli.py -d <devices.csv> -c <commands.txt> [-vy] [-vb]
+python cli.py -d <_devices.csv> -c <_commands.txt> [-vy] [-vb]
 ```
 - `-vy` / `--verify`: verify config was applied after push (uses NAPALM)
 - `-vb` / `--verbose`: print logs to console (always written to timestamped `.log` file)
@@ -21,7 +21,7 @@ python cli.py -d <devices.csv> -c <commands.txt> [-vy] [-vb]
 ### Run the web app
 ```bash
 cd src
-python webapp.py
+python _webapp.py
 ```
 App available at `http://localhost:8080`.
 

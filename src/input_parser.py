@@ -19,10 +19,10 @@ class InputParser:
 		"""Helper function for the file parser that processes the device dictionary
 		 :param raw_devices: preprocessed device list
 		 stating whether the user wishes to see progress messages on the console
-		 :return: a list of dictionaries with fields and values for the devices.
+		 :return: a list of dictionaries with fields and values for the _devices.
 		 In case of failure, an empty list
 		"""
-		# process all validated devices into a list of dictionaries
+		# process all validated _devices into a list of dictionaries
 		devices = []
 		for item in raw_devices:
 			item["device_type"] = item["device_type"].lower()
@@ -51,7 +51,7 @@ class InputParser:
 		device_path = device_path.strip('"')
 		if self.validator.validate_file_extension(device_path, "csv"):
 			try:
-				# Reads devices CSV
+				# Reads _devices CSV
 				with open(device_path, "r", encoding="utf-8-sig") as file:
 					required_keys = {
 						"ip",
@@ -98,7 +98,7 @@ class InputParser:
 
 		self.logger.notify(
 			f"Devices file successfully processed\n"
-			f" {len(devices)} devices found",
+			f" {len(devices)} _devices found",
 			"green")
 		for device in devices:
 			row = Inventory(user_id=user_id, ip=device.ip,

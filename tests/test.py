@@ -324,12 +324,12 @@ class TestBaseNotify(unittest.TestCase):
     def test_verbose_webapp_enqueues(self):
         logger = RolloutLogger(webapp=True, verbose=True, logfile=self.logfile)
         logger.notify("hello", "green")
-        self.assertFalse(logger.queue.empty())
+        self.assertFalse(logger._queue.empty())
 
     def test_non_verbose_webapp_does_not_enqueue(self):
         logger = RolloutLogger(webapp=True, verbose=False, logfile=self.logfile)
         logger.notify("hello", "green")
-        self.assertTrue(logger.queue.empty())
+        self.assertTrue(logger._queue.empty())
 
     def test_always_logs_to_file(self):
         logger = RolloutLogger(webapp=False, verbose=False, logfile=self.logfile)
@@ -485,7 +485,7 @@ class TestParseFiles(unittest.TestCase):
     @patch("validation.Validator.test_tcp_port", return_value=True)
     def test_csv_to_inventory_returns_devices(self, _):
         with tempfile.TemporaryDirectory() as tmpdir:
-            csv_path = os.path.join(tmpdir, "devices.csv")
+            csv_path = os.path.join(tmpdir, "_devices.csv")
             self._write_csv(csv_path, [
                 {"ip": "10.0.0.1", "username": "admin", "password": "pass",
                  "device_type": "cisco_ios", "secret": "s", "port": "22"}
@@ -500,14 +500,14 @@ class TestParseFiles(unittest.TestCase):
 
     def test_csv_to_inventory_wrong_extension_returns_empty(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            bad_path = os.path.join(tmpdir, "devices.txt")
+            bad_path = os.path.join(tmpdir, "_devices.txt")
             open(bad_path, "w").close()
             devices = self.parser.csv_to_inventory(bad_path, self.user_id, self.db_session)
         self.assertEqual(devices, [])
 
     def test_csv_to_inventory_missing_columns_returns_empty(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            csv_path = os.path.join(tmpdir, "devices.csv")
+            csv_path = os.path.join(tmpdir, "_devices.csv")
             with open(csv_path, "w") as f:
                 f.write("ip,username\n10.0.0.1,admin\n")
             devices = self.parser.csv_to_inventory(csv_path, self.user_id, self.db_session)
@@ -515,7 +515,7 @@ class TestParseFiles(unittest.TestCase):
 
     def test_parse_commands_returns_list(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            txt_path = os.path.join(tmpdir, "commands.txt")
+            txt_path = os.path.join(tmpdir, "_commands.txt")
             self._write_commands(txt_path, ["ip route 0.0.0.0 0.0.0.0 10.0.0.254"])
             commands = self.parser.parse_commands(txt_path)
         self.assertEqual(len(commands), 1)
@@ -523,13 +523,13 @@ class TestParseFiles(unittest.TestCase):
 
     def test_parse_commands_wrong_extension_returns_empty(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            bad_path = os.path.join(tmpdir, "commands.csv")
+            bad_path = os.path.join(tmpdir, "_commands.csv")
             open(bad_path, "w").close()
             commands = self.parser.parse_commands(bad_path)
         self.assertEqual(commands, [])
 
     def test_parse_commands_nonexistent_file_returns_empty(self):
-        commands = self.parser.parse_commands("/no/such/commands.txt")
+        commands = self.parser.parse_commands("/no/such/_commands.txt")
         self.assertEqual(commands, [])
 
 
@@ -585,7 +585,7 @@ class _TestRolloutEnginePushConfig_DISABLED(unittest.TestCase):
         engine = self._make_engine(commands=["bad command", "good command"])
         result = engine._push_config(self.cancel, self.logger)
         self.assertIsNone(result)
-        # Both commands were attempted despite first error
+        # Both _commands were attempted despite first error
         self.assertEqual(mock_conn.send_config_set.call_count, 2)
 
     @patch("netmiko.ConnectHandler")

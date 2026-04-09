@@ -23,11 +23,11 @@ ANSI_TO_HTML = {"RED": WEBAPP_RED, "GREEN": WEBAPP_GREEN, "YELLOW": WEBAPP_YELLO
 
 class RolloutLogger:
     def __init__(self, webapp: bool, verbose: bool, logfile: str = None):
-        self.queue = queue.Queue()
+        self._queue = queue.Queue()
+        self._webapp = webapp
+        self._verbose = verbose
         self.logfile = (logfile or datetime.datetime.now().
                         strftime("rollout_%Y%m%d_%H%M%S._log"))
-        self.webapp = webapp
-        self.verbose = verbose
 
     def _log(self, message: str) -> None:
         """
@@ -43,7 +43,7 @@ class RolloutLogger:
 
     def _msg(self, message: str, color: str = "") -> str:
         """Adds ANSI escape sequences to terminal color for progress and error messages"""
-        if self.webapp:
+        if self._webapp:
             color = ANSI_TO_HTML.get(color.upper()) if color else None
             if color:
                 return color + message + WEBAPP_END
@@ -59,18 +59,17 @@ class RolloutLogger:
     def notify(self, message: str, color: str = "") -> None:
         """A wrapper logging function.
         	 All messages are logged to the file.
-        	Additionally, error messages, or messages generated in verbose mode are printed to console
+        	Additionally, error messages, or messages generated in _verbose mode are printed to console
         	"""
-        if self.webapp:
-            if self.verbose or color == "red":
-                self.queue.put(self._msg(message, color))
+        if self._webapp:
+            if self._verbose or color == "red":
+                self._queue.put(self._msg(message, color))
             self._log(message)
             return None
         else:
-            if self.verbose or color == "red":
+            if self._verbose or color == "red":
                 print(self._msg(message, color))
             self._log(message)
 
-
-    def get(self):
-        return self.queue.get()
+    def get(self) -> str:
+        return self._queue.get(timeout=1)

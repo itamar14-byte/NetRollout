@@ -125,66 +125,41 @@ Add relationships to `User`: `inventory`, `security_profiles`, `variable_mapping
 - Fernet encryption/decryption helpers for `SecurityProfile` fields
 - Key resolution: `NETROLLOUT_ENCRYPTION_KEY` env var → fallback generate + write to `~/.netrollout/encryption.key`
 
-### 2.3 `RolloutLogger` class — `logging_utils.py` (class complete, cleanup pending)
-Refactor module-level globals (`LOG_QUEUE`, `LOGFILE`, `BASEDIR`) into a `RolloutLogger` class.
-Owns `queue` and `logfile`. Methods: `log()`, `notify()`, `get()`.
+### 2.3 `RolloutLogger` class — `logging_utils.py` ✅
+Refactored module-level globals into `RolloutLogger(webapp, verbose, logfile=None)`. Owns `queue` and `logfile`. Methods: `log()`, `notify()`, `get()`. All `base_notify` imports removed from entire codebase.
 
-**Done:** Class written, tests rewritten (TestMsg/TestLog/TestBaseNotify use RolloutLogger), engine/device test classes disabled (_DISABLED suffix, TODO Step 2.5).
+### 2.4 `RolloutJob` + `RolloutOrchestrator` — `orchestration.py` ✅
+Both classes in one file. `RolloutJob(id, engine, options)` — constructs own logger, owns thread + cancel_flag. `start(on_complete)` uses closure + callback pattern. `RolloutOrchestrator(max_concurrent=4)` — singleton, builds engine+job internally in `submit()`, `_dispatch()` uses `is_alive()`/`is_pending()` for slot management. DB writes (RolloutSession, DeviceResult) stubbed as TODO — pending 2.9.
 
-**Closing 2.3:** Happens naturally as part of 2.5 — logger injection into engine/parser/validator removes all `base_notify` imports automatically. No separate cleanup step needed.
+### 2.4b Install script — moved to Phase 4.
 
-### 2.4 `RolloutJob` class — `core.py` or new `job.py`
-New class owning job lifecycle: `id`, `thread`, `cancel_event`, `engine`, `logger`.
-Methods: `start()`, `cancel()`.
-`start()` launches thread and runs `engine.run(self.cancel_event, self.logger)`.
-`cancel()` sets `cancel_event` only — DB writes handled by orchestrator.
+### 2.5 `RolloutEngine` refactor — `core.py` ✅
+- `cancel_event` removed from constructor — passed as argument to `run(cancel_event, logger)`, `_push_config()`, `_verify()`
+- `notify()` method deleted — replaced by injected `RolloutLogger` at all callsites
+- `push_config()` → `_push_config()`, `verify()` → `_verify()`
+- `webapp`/`verbose` flags removed from engine — live in logger now, engine only reads `_verify_flag`
+- Logfile path surfaced via `os.path.abspath(logger.logfile)`
 
-### 2.4a `RolloutOrchestrator` class — new `orchestrator.py`
-Singleton instantiated at app startup. Owns `jobs: dict[UUID, RolloutJob]` and `max_concurrent: int`.
-Public: `submit(job)`, `cancel(job_id)`, `get(job_id)`.
-Private: `_dispatch()` — fills available slots up to `max_concurrent` by calling `job.start()`.
-Private: `_cleanup(job_id)` — called on job completion, deletes `RolloutSession`, writes `DeviceResult` rows, calls `_dispatch()`.
-Webapp routes become thin delegators — no job logic in route handlers.
+### 2.6 `Device` updates — `core.py` ✅
+- `label` field added
+- `netmiko_connector()` kept public (called from different class — private would be bad practice)
+- `from_inventory(cls, row: Inventory) -> Device` factory implemented — decrypts credentials from linked `SecurityProfile` via `encryption.decrypt()`
+- `fetch_config(logger: RolloutLogger)` — logger injected, `base_notify` removed
 
-### 2.4b Install script — `db_install.py`
-Extend to interactively ask for config values at setup time, write to `.env`:
-- `NETROLLOUT_ENCRYPTION_KEY` — default: auto-generate, write to `~/.netrollout/encryption.key`
-- `MAX_CONCURRENT_JOBS` — default: `4`
-- `DATABASE_URL` — default: `postgresql+psycopg2://dbadmin:Pass123@localhost:5432/rollout_db`
-- `SECRET_KEY` — default: auto-generate via `secrets.token_urlsafe(32)`
+### 2.7 `Validator` class — `validation.py` ✅
+Logger-injected instance class. `validate_device_data` and `validate_file_extension` are instance methods (need logger). `validate_ip`, `validate_port`, `validate_platform`, `test_tcp_port` remain static.
 
-### 2.5 `RolloutEngine` refactor — `core.py`
-- Remove `cancel_event` from constructor — passed as argument to `run()`, `_push_config()`, `_verify()`
-- Replace `notify()` with injected `RolloutLogger` passed at call time
-- Rename `push_config()` → `_push_config()`, `verify()` → `_verify()`
-- Strip `base_notify` from `validation.py` and inject logger into `parser.py` — closes 2.3
-- **After 2.5 complete:** review and update `CLAUDE.md` to reflect new class structure
+### 2.8 `InputParser` class — `input_parser.py` ✅ (renamed from parser.py)
+Constructor takes `Validator` + `RolloutLogger`. Methods: `csv_to_inventory`, `form_to_inventory`, `parse_commands`, `_prepare_devices`. Static: `import_from_inventory(inventory) -> list[Device]`. `parse_files()` and `prepare_devices()` removed from codebase. `webapp_input()` and `background_rollout()` removed from webapp.
 
-### 2.6 `Device` updates — `core.py`
-- Add `label` field
-- Rename `netmiko_connector()` → `_netmiko_connector()`
-- Add `from_inventory(cls, row: Inventory) -> Device` factory
-- `fetch_config()` receives `logger: RolloutLogger` as argument instead of calling `base_notify()` directly
+**Webapp rewire ✅** — routes are thin delegators. `cancel_event` global removed. `start_rollout` loads inventory from DB, calls `import_from_inventory`, submits to orchestrator, stores `job_id` in Flask session. SSE reads from `job.logger.queue`.
 
-### 2.7 `Validator` class — `validation.py` ✅ (implemented before 2.3–2.6 due to no dependencies)
-Wrap existing standalone functions as `@staticmethod` methods on a `Validator` class.
+**Tests: 83/83 passing.** All previously disabled test classes updated to new API and passing.
 
-### 2.8 `InputParser` class — new `parser.py` ✅ (implemented before 2.3–2.6 due to no dependencies)
-Inventory is the single rollout path. CSV and form are import mechanisms that populate `Inventory` table.
-Constructor takes `Validator` instance.
-- `csv_to_inventory(device_path, user_id, db_session)` — validates CSV, writes to `Inventory` table
-- `form_to_inventory(devices_json, user_id, db_session)` — validates form/JSON, writes to `Inventory` table
-- `import_from_inventory(inventory, commands)` — single rollout path, produces `(list[Device], list[str])`
-- `_prepare_devices(raw_devices)` — private, shared by import methods
-- `parse_commands(commands_path)` — reads command file, returns list of strings
-`parse_files()` and `prepare_devices()` in `core.py` removed. `webapp_input()` in `webapp.py` removed.
-
-**Key insight (2026-04-08):** `Inventory` is the decoupling boundary between parsing and rollout. Import (CSV/form) and rollout are independent operations — import populates the table once, rollout reads from it any number of times. This also enables per-job `DeviceResult` history against a stable inventory row.
-
-### 2.9 Inventory management UI
-- Account page gains inventory panel — add/edit/remove devices
-- Account page gains security profiles panel — add/edit/remove profiles
-- Upload page updated to support launching rollout from inventory (calls `InputParser.from_inventory()`)
+### 2.9 Inventory management UI — pending
+- Account page: inventory panel (add/edit/remove devices), security profiles panel
+- Orchestrator DB writes (RolloutSession on submit, DeviceResult + delete session on cleanup)
+- Import error surfacing via flash messages (no SSE at import time)
 
 ---
 

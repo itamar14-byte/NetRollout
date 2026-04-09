@@ -10,18 +10,18 @@ def get_args():
 
 	parser = ArgumentParser(
 		description="A Network Automation tool to roll out configuration snippets on a"
-		            "set of devices."
+		            "set of _devices."
 	)
 	parser.add_argument(
 		"-d",
-		"--devices",
+		"--_devices",
 		help="Path to a csv file. Required fields are ip, platform,"
 		     " username, password, secret and SSH port",
 	)
 	parser.add_argument(
 		"-c",
-		"--commands",
-		help="Path to a txt file. Must contain the requested commands," " in order",
+		"--_commands",
+		help="Path to a txt file. Must contain the requested _commands," " in order",
 	)
 	parser.add_argument(
 		"-vy",
@@ -30,7 +30,7 @@ def get_args():
 		action="store_true",
 	)
 	parser.add_argument(
-		"-vb", "--verbose", help="Prints logs to console", action="store_true"
+		"-vb", "--_verbose", help="Prints logs to console", action="store_true"
 	)
 
 	return parser.parse_args()
@@ -41,7 +41,7 @@ def main():
 	# user will be prompted to enter the data
 	args = get_args()
 	devices_path = args.devices or input("Enter the device file path: ")
-	commands_path = args.commands or input("Enter the commands file path: ")
+	commands_path = args.commands or input("Enter the _commands file path: ")
 
 	# If the _verify flag was supplied, we activate verification, and if other
 	# flags were supplied we disable it,

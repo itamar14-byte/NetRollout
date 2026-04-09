@@ -73,7 +73,7 @@ class VariableMapping(Base):
     __tablename__ = 'variable_mappings'
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     label: Mapped[str] = mapped_column(String(64), nullable=True)
-    # token to replace in commands, in $$token$$ format
+    # token to replace in _commands, in $$token$$ format
     token: Mapped[str] = mapped_column(String(64), nullable=False)
     # device attribute name to substitute
     property_name: Mapped[str] = mapped_column(String(64), nullable=False)

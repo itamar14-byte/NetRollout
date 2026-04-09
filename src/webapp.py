@@ -239,7 +239,7 @@ def start_rollout():
 		            line.strip()]
 
 	#Options
-	verbose_flag = request.form.get("verbose", "")
+	verbose_flag = request.form.get("_verbose", "")
 	verify_flag = request.form.get("_verify", "")
 	options = RolloutOptions(verify=bool(verify_flag),
 	                         verbose=bool(verbose_flag),
@@ -301,7 +301,7 @@ def sse_stream():
 			return
 		while job.is_alive():
 			try:
-				msg = job.logger.queue.get(timeout=1)
+				msg = job.get_log()
 				yield f"data: {msg}\n\n"
 			except Empty:
 				yield "data: \n\n"

@@ -10,27 +10,30 @@ class RolloutJob:
 	def __init__(self, job_id: uuid.UUID, engine: RolloutEngine,
 	             options: RolloutOptions) -> None:
 		self.id = job_id
-		self.engine = engine
-		self.logger = RolloutLogger(options.webapp, options.verbose)
-		self.cancel_flag = threading.Event()
+		self._engine = engine
+		self._logger = RolloutLogger(options.webapp, options.verbose)
+		self._cancel_flag = threading.Event()
 		self._thread = None
 
 	def start(self, on_complete: Callable[[uuid.UUID], None]) -> None:
 		def _engine_run():
-			self.engine.run(self.cancel_flag, self.logger)
+			self._engine.run(self._cancel_flag, self._logger)
 			on_complete(self.id)
 
 		self._thread = threading.Thread(target=_engine_run, daemon=True)
 		self._thread.start()
 
 	def cancel(self) -> None:
-		self.cancel_flag.set()
+		self._cancel_flag.set()
 
 	def is_alive(self) -> bool:
 		return self._thread is not None and self._thread.is_alive()
 
 	def is_pending(self) -> bool:
 		return self._thread is None
+
+	def get_log(self) -> str:
+		return self._logger.get()
 
 
 class RolloutOrchestrator:
