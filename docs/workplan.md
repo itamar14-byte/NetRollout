@@ -109,7 +109,7 @@ Full architecture documented in `docs/architecture.md`.
 ---
 
 ## Phase 2 — Architecture Refactor & DB Integration
-_Started: 2026-04-07 — In progress as of 2026-04-08_
+_Started: 2026-04-07 — Updated: 2026-04-09_
 
 ### 2.1 DB schema — `tables.py` ✅
 Add new ORM models:

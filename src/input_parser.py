@@ -7,21 +7,18 @@ from sqlalchemy.orm import Session
 from tables import Inventory
 from validation import Validator
 from core import Device
-from logging_utils import base_notify
+from logging_utils import RolloutLogger
 
 
 class InputParser:
-	def __init__(self, validator: Validator):
+	def __init__(self, validator: Validator, logger: RolloutLogger):
 		self.validator = validator
+		self.logger = logger
 
-	def _prepare_devices(self, raw_devices: list[dict[str, str]],
-	                    verbose: bool = False,
-	                    webapp: bool = False) -> list[Device]:
+	def _prepare_devices(self, raw_devices: list[dict[str, str]]) -> list[Device]:
 		"""Helper function for the file parser that processes the device dictionary
 		 :param raw_devices: preprocessed device list
-		 :param verbose: boolean flags
 		 stating whether the user wishes to see progress messages on the console
-		 :param webapp: boolean flag indicating the requester is the GUI app
 		 :return: a list of dictionaries with fields and values for the devices.
 		 In case of failure, an empty list
 		"""
@@ -30,27 +27,24 @@ class InputParser:
 		for item in raw_devices:
 			item["device_type"] = item["device_type"].lower()
 			if item["ip"] and self.validator.validate_device_data(item,
-			                                                      webapp=webapp):
+			                                                      ):
 				if self.validator.test_tcp_port(item["ip"], int(item["port"])):
 					item.setdefault("label", item["ip"])
 					devices.append(Device(**item))
-					base_notify(
+					self.logger.notify(
 						f"Device {item['device_type']}: {item['ip']} successfully added",
-						"green",
-						verbose, webapp=webapp
-					)
+						"green")
 				else:
-					base_notify(f"{item['ip']} is not reachable", "red",
-					            webapp=webapp)
+					self.logger.notify(f"{item['ip']} is not reachable",
+					                   "red")
 					continue
 			else:
 				continue
 		return devices
 
 	@staticmethod
-	def import_from_inventory(devices: list[Inventory], commands: list[
-		str]) -> tuple[list[Device],list[str]]:
-		return [Device.from_inventory(row) for row in devices], commands
+	def import_from_inventory(raw_devices: list[Inventory]) -> list[Device]:
+		return [Device.from_inventory(row) for row in raw_devices]
 
 	def csv_to_inventory(self, device_path: str, user_id: uuid.UUID,
 	                     db_session: Session, label: str = None) -> list[Device]:
@@ -83,13 +77,13 @@ class InputParser:
 					return devices
 
 			except FileNotFoundError:
-				base_notify(f"file not found", "red")
+				self.logger.notify(f"file not found", "red")
 				return []
 			except PermissionError:
-				base_notify(f"can't access file", "red")
+				self.logger.notify(f"can't access file", "red")
 				return []
 			except Exception as e:
-				base_notify(f"Parsing failed: {e}", "red")
+				self.logger.notify(f"Parsing failed: {e}", "red")
 				return []
 
 		else:
@@ -98,16 +92,14 @@ class InputParser:
 	def form_to_inventory(self, devices_json: str, user_id: uuid.UUID,
 	                      db_session: Session) -> list[Device]:
 		raw_devices = loads(devices_json) if devices_json else []
-		devices = self._prepare_devices(raw_devices=raw_devices, webapp=True)
+		devices = self._prepare_devices(raw_devices=raw_devices)
 		# logs summary of file processing workflow
-		base_notify(f"Devices loaded: {devices}", webapp=True, verbose=False)
+		self.logger.notify(f"Devices loaded: {devices}")
 
-		base_notify(
+		self.logger.notify(
 			f"Devices file successfully processed\n"
 			f" {len(devices)} devices found",
-			"green",
-			webapp=True,
-		)
+			"green")
 		for device in devices:
 			row = Inventory(user_id=user_id, ip=device.ip,
 			                port=device.port,
@@ -125,25 +117,24 @@ class InputParser:
 				with open(commands_path, "r") as file:
 					commands = file.readlines()
 					# logs summary of file processing workflow
-					base_notify(
+					self.logger.notify(
 						f"Devices file successfully processed\n"
 						f"{len(commands)} commands will be executed",
-						"green",
-					)
+						"green")
 				return commands
 				# if an exception is thrown in parsing or validation fails, an error message is printed,
 				# and the function returns a tuple of empty lists
 
 			except FileNotFoundError:
-				base_notify(f"file not found", "red")
+				self.logger.notify(f"file not found", "red")
 				return []
 
 			except PermissionError:
-				base_notify(f"can't access file", "red")
+				self.logger.notify(f"can't access file", "red")
 				return []
 
 			except Exception as e:
-				base_notify(f"Parsing failed: {e}", "red")
+				self.logger.notify(f"Parsing failed: {e}", "red")
 				return []
 		else:
 			return []

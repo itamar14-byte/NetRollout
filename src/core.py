@@ -1,11 +1,14 @@
+import os
 import threading
 from dataclasses import dataclass, field
 from typing import Optional
-
+import encryption
 import netmiko
 import napalm
 
-# logging_utils imports removed — RolloutLogger injected in Step 2.5
+from logging_utils import RolloutLogger
+from tables import Inventory
+
 
 @dataclass (slots=True, kw_only=True)
 class RolloutOptions:
@@ -37,12 +40,10 @@ class Device:
 		}
 		return params
 
-	def fetch_config(self, webapp: bool = False) -> Optional[
-		str]:
+	def fetch_config(self, logger: RolloutLogger) -> Optional[str]:
 		"""
 		The function is tasked with connecting to a device and getting the running configuration, saved into a string,
 		which will be searched downstream
-		:param webapp: boolean value stating weather the function was called as part of a web deployment.
 		 In that case, notifications will be added to SSE queue
 		:return: if connection is successful, the function returns the running config as a string and returns false otherwise
 		"""
@@ -82,49 +83,37 @@ class Device:
 			# If we encounter an issue in connection,
 			# an error message is printed and logged, and we return false
 			else:
-				base_notify(
+				logger.notify(
 					f"issue verifying {self.ip}: {self.device_type} is not supported for verification",
-					"red",
-					webapp=webapp,
-				)
+					"red")
 				return None
 
 		except Exception as e:
-			base_notify(f"could not connect to {self.ip}: {e}", "red",
-			       webapp=webapp)
+			logger.notify(f"could not connect to {self.ip}: {e}", "red")
 			return None
 
 
 	@classmethod
-	def from_inventory(cls, devices):
-		pass
+	def from_inventory(cls, row: Inventory) -> "Device":
+		profile = row.security_profiles
+		if not profile:
+			raise ValueError(f"no security profiles assigned to {row.ip}")
+		return cls(ip=row.ip,label=row.label,device_type=row.device_type,
+		           port=row.port,username=encryption.decrypt(
+				profile.username),password=encryption.decrypt(
+				profile.password_secret),secret=encryption.decrypt(
+				profile.enable_secret) if profile.enable_secret else "")
 
 
 class RolloutEngine:
 	def __init__(self, param: RolloutOptions, devices: list[Device],
-	             commands: list[str], cancel_event: threading.Event = None)\
-				-> None:
-		self.param = param
+	             commands: list[str])-> None:
+		self._verify_flag = param.verify
 		self.devices = devices
 		self.commands = commands
-		self.cancel_event = cancel_event
 
-	def notify(self,string: str, color: str = None) -> None:
-		"""A wrapper logging function.
-		 All messages are logged to the file.
-		Additionally, error messages, or messages generated in verbose mode are printed to console
-		"""
-		if self.param.webapp:
-			if self.param.verbose:
-				LOG_QUEUE.put(msg(string, color, webapp=True))
-			log(string)
-			return None
-		else:
-			if self.param.verbose:
-				print(msg(string, color))
-			log(string)
-
-	def push_config(self) -> str | None:
+	def _push_config(self, cancel_event: threading.Event,
+	                 logger: RolloutLogger) -> str | None:
 		"""
 		The function will accept device and command data, as processed by parse_files and push the configuration,
 		using netmiko for SSH connections over the provided ip and port
@@ -132,11 +121,11 @@ class RolloutEngine:
 		"""
 		# Goes over the dictionary list, each time focusing on a single device
 		for device in self.devices:
-			if self.cancel_event and self.cancel_event.is_set():
-				self.notify("Rollout Canceled By User", color="red")
+			if cancel_event and cancel_event.is_set():
+				logger.notify("Rollout Canceled By User", color="red")
 				return "cancel_sent"
 			else:
-				self.notify(
+				logger.notify(
 					f"connecting to {device.ip}:{device.port}",
 					"yellow")
 
@@ -145,7 +134,7 @@ class RolloutEngine:
 					# Initialise a netmiko connection object
 					net_connect = (netmiko.ConnectHandler
 					               (**(device.netmiko_connector())))
-					self.notify(
+					logger.notify(
 						f"{device.ip} connected successfully",
 						"green")
 					# Goes into privileged config mode, depending on the platform
@@ -162,7 +151,7 @@ class RolloutEngine:
 						)
 						errors = ["Invalid", "unrecognized", "unknown"]
 						if any(err.lower() in output.lower() for err in errors):
-							self.notify(
+							logger.notify(
 								f"{command} failed on {device.ip}: {output}",
 								"red")
 							continue
@@ -176,17 +165,18 @@ class RolloutEngine:
 				# In case of exception or issue in connecting and executing the commands,
 				# an error message will be printed, and we move to the next device
 				except netmiko.NetMikoAuthenticationException:
-					self.notify(f"{device.ip} authentication failed", "red")
+					logger.notify(f"{device.ip} authentication failed", "red")
 					continue
 				except netmiko.NetmikoTimeoutException:
-					self.notify(f"{device.ip} timed out", "red")
+					logger.notify(f"{device.ip} timed out", "red")
 					continue
 				except Exception as e:
-					self.notify(f"{device.ip} failed: {e}", "red")
+					logger.notify(f"{device.ip} failed: {e}", "red")
 					continue
 		return None
 
-	def verify(self) -> dict[str, int] | str:
+	def _verify(self, cancel_event: threading.Event,
+	                 logger: RolloutLogger) -> dict[str, int] | str:
 		"""
 		The function gets the list of devices and verifies which devices have been successfully configured
 		by comparing the commands to the config file from fetch_config()
@@ -195,12 +185,12 @@ class RolloutEngine:
 		result = {}
 		# Loops through the devices and gets the running config, using fetch config function
 		for device in self.devices:
-			if self.cancel_event and self.cancel_event.is_set():
-				self.notify("Rollout Canceled By User", color="red")
+			if cancel_event and cancel_event.is_set():
+				logger.notify("Rollout Canceled By User", color="red")
 				return "cancel_sent"
 
 			successful_commands = 0
-			config = device.fetch_config(webapp=self.param.webapp)
+			config = device.fetch_config(logger)
 			# If there is a config file,
 			# we go through the command list
 			# and check it against the running config string
@@ -212,7 +202,7 @@ class RolloutEngine:
 					# we increment the counter
 					if command.lower() not in config.lower():
 						rejects.append(command)
-						self.notify(
+						logger.notify(
 							f"{command} not configured on {device.ip}",
 							"red")
 					else:
@@ -220,7 +210,7 @@ class RolloutEngine:
 				# when a device has no rejects, such that all commands match, we increment the counter, self.notify the user and
 				# move to the next device
 				if not rejects:
-					self.notify(
+					logger.notify(
 						f"{device.ip} successfully configured",
 						"green")
 				# Updates the result dictionary with the device ip and the number of successful commands
@@ -228,24 +218,23 @@ class RolloutEngine:
 		return result
 
 
-	def run(self) -> int:
-		self.notify("Starting configuration rollout")
+	def run(self, cancel_flag: threading.Event, logger:RolloutLogger) -> int:
+		logger.notify("Starting configuration rollout")
 		# Runs parse_files to get data from the provided file paths
 		# If parsing was successful and the output of the function was not empty lists, we continue the process
 		if self.devices and self.commands:
-
 			# Runs the config push procedure
-			push = self.push_config()
+			push = self._push_config(cancel_flag, logger)
 			if push == "cancel_sent":
 				return 1
 
-			# If the verify flag is activated, runs the verify function,
+			# If the _verify flag is activated, runs the _verify function,
 			# getting a dictionary of the devices and the successful commands count
-			if self.param.verify:
-				self.notify(
+			if self._verify_flag:
+				logger.notify(
 					"Configuration rollout finished. Initiating verification process"
 				)
-				device_count = self.verify()
+				device_count = self._verify(cancel_flag, logger)
 				if device_count == "cancel_sent":
 					return 1
 				failed, partial, successful = 0, 0, 0
@@ -261,28 +250,29 @@ class RolloutEngine:
 					else:
 						successful += 1
 
-					self.notify(
+					logger.notify(
 						f"{node[0]} successfully configured with"
 						f" {node[1]}/{len(self.commands)} commands")
 
 				# Logs and prints (if verbose), the rollout status per device and the summary
-				self.notify(f"{failed} devices failed rollout", "red")
-				self.notify(
+				logger.notify(f"{failed} devices failed rollout", "red")
+				logger.notify(
 					f"{partial} devices with problems in configuration",
 					"yellow")
-				self.notify(f"{successful} devices successfully configured",
+				logger.notify(f"{successful} devices successfully configured",
 				       "green")
-				self.notify(f"Please see Execution logs in {BASEDIR}\\{LOGFILE}")
+				logger.notify(f"Please see Execution logs in "
+				              f"{os.path.abspath(logger.logfile)}")
 				return 0
 
-			self.notify(
+			logger.notify(
 				f"Configuration rollout complete. "
 				f"{len(self.devices)} devices configured",
 				"green")
-			self.notify(f"Please see Execution logs in {BASEDIR}\\{LOGFILE}")
+			logger.notify(f"Please see Execution logs in {os.path.abspath
+			(logger.logfile)}")
 			return 0
 
 		else:
-			self.notify(f"Device input invalid", "red")
+			logger.notify(f"Device input invalid", "red")
 			return 1
-
