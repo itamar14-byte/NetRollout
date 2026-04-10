@@ -1,5 +1,5 @@
 # NetRollout — Architecture Document
-_Written: 2026-04-07 — Updated: 2026-04-09 (post Phase 2 refactor)_
+_Written: 2026-04-07 — Updated: 2026-04-10 (DB integration complete)_
 
 ---
 
@@ -113,7 +113,7 @@ Per-user device store. Stores device topology only — no credentials. Credentia
 |---|---|---|
 | `id` | `UUID` | Primary key |
 | `user_id` | `UUID` | FK → `User` |
-| `profile_id` | `UUID` | FK → `SecurityProfile`, nullable |
+| `sec_profile_id` | `UUID` | FK → `SecurityProfile`, nullable |
 | `ip` | `str` | Device IPv4 address |
 | `device_type` | `str` | Netmiko platform string |
 | `port` | `int` | SSH port |
@@ -178,11 +178,12 @@ The "MEMORY" table. Long-term archive of completed rollout outcomes, one row per
 | `id` | `UUID` | Primary key |
 | `user_id` | `UUID` | FK → `User` |
 | `job_id` | `UUID` | Soft reference to the originating session |
-| `completed_at` | `DateTime` | |
+| `started_at` | `DateTime` | When the job started |
+| `completed_at` | `DateTime` | When the job finished |
 | `device_ip` | `str` | |
 | `device_type` | `str` | |
 | `commands_sent` | `int` | |
-| `commands_verified` | `int` | |
+| `commands_verified` | `int \| None` | Null if verify was not run |
 | `status` | `str` | `success` / `partial` / `failed` / `cancelled` |
 
 ---
@@ -291,17 +292,17 @@ RolloutOrchestrator(max_concurrent: int = MAX_CONCURRENT_JOBS)
 **Public methods:**
 | Method | Signature | Description |
 |---|---|---|
-| `submit` | `(devices, commands, params: RolloutOptions) -> UUID` | Builds engine + job internally, adds to `_jobs`, writes `RolloutSession` (TODO), calls `_dispatch()`, returns `job_id` |
-| `cancel` | `(job_id: UUID) -> None` | Looks up job, calls `job.cancel()`. DB update TODO |
+| `submit` | `(devices, commands, params: RolloutOptions, user_id: UUID) -> UUID` | Builds engine + job internally, adds to `_jobs`, writes `RolloutSession(status="pending")`, calls `_dispatch()`, returns `job_id` |
+| `cancel` | `(job_id: UUID) -> None` | Looks up job, calls `job.cancel()`, sets `RolloutSession.status = "cancelling"` |
 | `get` | `(job_id: UUID) -> RolloutJob \| None` | Returns job from dict — used by SSE stream and status endpoint |
 
 **Private methods:**
 | Method | Signature | Description |
 |---|---|---|
-| `_dispatch` | `() -> None` | Snapshots state under lock, then starts pending jobs outside lock up to `max_concurrent`. Calls `job.start(self._cleanup)` |
-| `_cleanup` | `(job_id: UUID) -> None` | Called on job completion via callback. Removes from `_jobs`, writes `DeviceResult` rows (TODO), deletes `RolloutSession` (TODO), calls `_dispatch()` |
+| `_dispatch` | `() -> None` | Snapshots state under lock, then starts pending jobs outside lock up to `max_concurrent`. Updates `RolloutSession.status = "active"`. Calls `job.start(self._cleanup)` |
+| `_cleanup` | `(job_id: UUID) -> None` | Called on job completion via callback. Removes from `_jobs`, writes `DeviceResult` rows, deletes `RolloutSession`, calls `_dispatch()` |
 
-_Note: original design had `submit(job: RolloutJob)`. Revised: orchestrator builds engine + job internally from raw inputs. `jobs` dict made private (`_jobs`). DB writes in `submit` and `_cleanup` are stubbed — pending Phase 2 DB integration._
+_Note: original design had `submit(job: RolloutJob)`. Revised: orchestrator builds engine + job internally from raw inputs. `jobs` dict made private (`_jobs`)._
 
 **Dispatch loop:**
 ```
@@ -339,13 +340,13 @@ RolloutEngine(param: RolloutOptions, devices: list[Device], commands: list[str])
 **Public methods:**
 | Method | Signature | Description |
 |---|---|---|
-| `run` | `(cancel_event: Event, logger: RolloutLogger) -> int` | Entry point. Calls `_push_config`, optionally `_verify`. Returns 0 on success, 1 on failure or cancel |
+| `run` | `(cancel_event: Event, logger: RolloutLogger) -> list[DeviceResultDict]` | Entry point. Calls `_push_config`, optionally `_verify`. Returns structured per-device results |
 
 **Private methods:**
 | Method | Signature | Description |
 |---|---|---|
-| `_push_config` | `(cancel_event: Event, logger: RolloutLogger) -> str \| None` | Iterates devices, opens Netmiko, sends commands |
-| `_verify` | `(cancel_event: Event, logger: RolloutLogger) -> dict \| str` | Iterates devices, calls `device.fetch_config(logger)`, compares to commands |
+| `_push_config` | `(cancel_event: Event, logger: RolloutLogger) -> tuple[str \| None, dict[str, bool]]` | Iterates devices, opens Netmiko, sends commands. Returns cancel signal + per-device success map |
+| `_verify` | `(logger: RolloutLogger) -> dict[str, int]` | Iterates devices, calls `device.fetch_config(logger)`, compares to commands. Runs to completion — not cancellable |
 
 ---
 
@@ -354,18 +355,21 @@ Lifecycle owner for a single rollout execution. Owns the thread, cancel flag, en
 
 **Constructor:**
 ```
-RolloutJob(job_id: UUID, engine: RolloutEngine, options: RolloutOptions)
+RolloutJob(job_id: UUID, user_id: UUID, engine: RolloutEngine, options: RolloutOptions)
 ```
 Constructs its own `RolloutLogger` from `options.webapp` and `options.verbose` internally.
 
 **Attributes:**
 | Name | Type | Description |
 |---|---|---|
-| `id` | `UUID` | Maps to `RolloutSession.id` in DB |
+| `job_id` | `UUID` | Maps to `RolloutSession.id` in DB |
+| `user_id` | `UUID` | FK owner — used by `_cleanup` to write `DeviceResult` rows |
+| `started_at` | `datetime \| None` | Set in `start()`, always populated before `_cleanup` runs |
+| `results` | `list[DeviceResultDict]` | Populated by `engine.run()`, consumed by `_cleanup` |
 | `_thread` | `Thread` | Private. Background execution thread |
-| `cancel_flag` | `Event` | Cancellation signal — owned here, passed to engine at call time |
-| `engine` | `RolloutEngine` | The pipeline |
-| `logger` | `RolloutLogger` | Constructed internally from options |
+| `_cancel_flag` | `Event` | Private. Cancellation signal — owned here, passed to engine at call time |
+| `_engine` | `RolloutEngine` | Private. The pipeline |
+| `_logger` | `RolloutLogger` | Private. Constructed internally from options |
 
 **Public methods:**
 | Method | Signature | Description |

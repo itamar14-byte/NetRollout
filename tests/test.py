@@ -402,7 +402,7 @@ class _TestDeviceFetchConfig_DISABLED(unittest.TestCase):
 
 # ---------------------------------------------------------------------------
 # core.py — prepare_devices
-# TODO Phase 3: rewrite for InputParser._prepare_devices API
+# TODO Phase 3: rewrite for InputParser.prepare_devices API
 # ---------------------------------------------------------------------------
 
 class TestPrepareDevices(unittest.TestCase):
@@ -427,29 +427,29 @@ class TestPrepareDevices(unittest.TestCase):
 
     @patch("validation.Validator.test_tcp_port", return_value=True)
     def test_valid_device_is_added(self, _):
-        devices = self.parser._prepare_devices([self._raw()])
+        devices = self.parser.prepare_devices([self._raw()])
         self.assertEqual(len(devices), 1)
         self.assertIsInstance(devices[0], Device)
 
     @patch("validation.Validator.test_tcp_port", return_value=False)
     def test_unreachable_device_excluded(self, _):
-        devices = self.parser._prepare_devices([self._raw()])
+        devices = self.parser.prepare_devices([self._raw()])
         self.assertEqual(len(devices), 0)
 
     @patch("validation.Validator.test_tcp_port", return_value=True)
     def test_invalid_ip_excluded(self, _):
-        devices = self.parser._prepare_devices([self._raw(ip="bad")])
+        devices = self.parser.prepare_devices([self._raw(ip="bad")])
         self.assertEqual(len(devices), 0)
 
     @patch("validation.Validator.test_tcp_port", return_value=True)
     def test_device_type_lowercased(self, _):
-        devices = self.parser._prepare_devices([self._raw(device_type="CISCO_IOS")])
+        devices = self.parser.prepare_devices([self._raw(device_type="CISCO_IOS")])
         self.assertEqual(devices[0].device_type, "cisco_ios")
 
     @patch("validation.Validator.test_tcp_port", return_value=True)
     def test_multiple_devices(self, _):
         raw = [self._raw(ip=f"10.0.0.{i}") for i in range(1, 4)]
-        devices = self.parser._prepare_devices(raw)
+        devices = self.parser.prepare_devices(raw)
         self.assertEqual(len(devices), 3)
 
 
@@ -485,7 +485,7 @@ class TestParseFiles(unittest.TestCase):
     @patch("validation.Validator.test_tcp_port", return_value=True)
     def test_csv_to_inventory_returns_devices(self, _):
         with tempfile.TemporaryDirectory() as tmpdir:
-            csv_path = os.path.join(tmpdir, "_devices.csv")
+            csv_path = os.path.join(tmpdir, "devices.csv")
             self._write_csv(csv_path, [
                 {"ip": "10.0.0.1", "username": "admin", "password": "pass",
                  "device_type": "cisco_ios", "secret": "s", "port": "22"}
@@ -500,14 +500,14 @@ class TestParseFiles(unittest.TestCase):
 
     def test_csv_to_inventory_wrong_extension_returns_empty(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            bad_path = os.path.join(tmpdir, "_devices.txt")
+            bad_path = os.path.join(tmpdir, "devices.txt")
             open(bad_path, "w").close()
             devices = self.parser.csv_to_inventory(bad_path, self.user_id, self.db_session)
         self.assertEqual(devices, [])
 
     def test_csv_to_inventory_missing_columns_returns_empty(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            csv_path = os.path.join(tmpdir, "_devices.csv")
+            csv_path = os.path.join(tmpdir, "devices.csv")
             with open(csv_path, "w") as f:
                 f.write("ip,username\n10.0.0.1,admin\n")
             devices = self.parser.csv_to_inventory(csv_path, self.user_id, self.db_session)
@@ -639,7 +639,7 @@ class _TestRolloutEngineVerify_DISABLED(unittest.TestCase):
         )
         with patch.object(device, "fetch_config",
                           return_value="ip route 0.0.0.0 0.0.0.0 1.1.1.1"):
-            result = engine._verify(self.cancel, self.logger)
+            result = engine._verify(self.logger)
         self.assertEqual(result["192.168.1.1"], 1)
 
     def test_command_not_in_config(self):
@@ -649,21 +649,21 @@ class _TestRolloutEngineVerify_DISABLED(unittest.TestCase):
             commands=["ip route 0.0.0.0 0.0.0.0 1.1.1.1"],
         )
         with patch.object(device, "fetch_config", return_value="no relevant config"):
-            result = engine._verify(self.cancel, self.logger)
+            result = engine._verify(self.logger)
         self.assertEqual(result["192.168.1.1"], 0)
 
     def test_fetch_config_returns_none_skips_device(self):
         device = make_device()
         engine = self._make_engine(devices=[device])
         with patch.object(device, "fetch_config", return_value=None):
-            result = engine._verify(self.cancel, self.logger)
+            result = engine._verify(self.logger)
         self.assertEqual(result.get("192.168.1.1", 0), 0)
 
     def test_cancel_event_stops_verify(self):
         cancel = threading.Event()
         cancel.set()
         engine = self._make_engine()
-        result = engine._verify(cancel, self.logger)
+        result = engine._verify(self.logger)
         self.assertEqual(result, "cancel_sent")
 
     def test_partial_commands_matched(self):
@@ -672,7 +672,7 @@ class _TestRolloutEngineVerify_DISABLED(unittest.TestCase):
         config = "ip route 0.0.0.0 0.0.0.0 1.1.1.1\nno relevant line"
         engine = self._make_engine(devices=[device], commands=commands)
         with patch.object(device, "fetch_config", return_value=config):
-            result = engine._verify(self.cancel, self.logger)
+            result = engine._verify(self.logger)
         self.assertEqual(result["192.168.1.1"], 1)
 
 

@@ -19,47 +19,129 @@
   </p>
 </div>
 
-<div class="nr-card mx-auto mb-4 text-start" style="max-width:500px;">
-  <div class="nr-card-accent"></div>
-  <div class="nr-card-body">
+<div class="row g-3 justify-content-center">
 
-    <div class="mb-4">
-      <div class="nr-label">Full Name</div>
-      <div style="color:#e0e0e0; font-size:0.95rem;">{{ user.full_name }}</div>
-    </div>
+  <!-- ── Profile card ── -->
+  <div class="col-12 col-md-5">
+    <div class="nr-card h-100">
+      <div class="nr-card-accent"></div>
+      <div class="nr-card-body">
 
-    <div class="mb-4">
-      <div class="nr-label">Email</div>
-      <div style="color:#e0e0e0; font-size:0.95rem;">{{ user.email }}</div>
-    </div>
+        <div class="nr-badge" style="margin-bottom:0.5rem;">IDENTITY</div>
 
-    {% if user.position %}
-    <div class="mb-4">
-      <div class="nr-label">Position</div>
-      <div style="color:#e0e0e0; font-size:0.95rem;">{{ user.position }}</div>
-    </div>
-    {% endif %}
+        <div class="mb-3">
+          <div class="nr-label">Full Name</div>
+          <div style="color:#e0e0e0; font-size:0.95rem;">{{ user.full_name }}</div>
+        </div>
 
-    <hr>
+        <div class="mb-3">
+          <div class="nr-label">Email</div>
+          <div style="color:#e0e0e0; font-size:0.95rem;">{{ user.email }}</div>
+        </div>
 
-    <div class="mb-4">
-      <div class="nr-label">Member Since</div>
-      <div style="color:#e0e0e0; font-size:0.95rem; display:flex; align-items:baseline; gap:0.6rem;">
-        {{ user.created_at.strftime("%B %d, %Y") }}
-        <span style="font-family:'JetBrains Mono',monospace; font-size:0.78rem; color:#00bcd4;">
-          (<span id="ageCounter">calculating...</span>)
-        </span>
+        {% if user.position %}
+        <div class="mb-3">
+          <div class="nr-label">Position</div>
+          <div style="color:#e0e0e0; font-size:0.95rem;">{{ user.position }}</div>
+        </div>
+        {% endif %}
+
+        <hr>
+
+        <div class="mb-3">
+          <div class="nr-label">Member Since</div>
+          <div style="color:#e0e0e0; font-size:0.95rem; display:flex; align-items:baseline; gap:0.6rem; flex-wrap:wrap;">
+            {{ user.created_at.strftime("%B %d, %Y") }}
+            <span style="font-family:'JetBrains Mono',monospace; font-size:0.78rem; color:#00bcd4;">
+              (<span id="ageCounter">calculating...</span>)
+            </span>
+          </div>
+        </div>
+
+        <div>
+          <div class="nr-label">2FA Status</div>
+          {% if user.otp_secret %}
+            <span style="font-size:0.82rem; color:#a5d6a7;">
+              <i class="bi bi-shield-check me-1"></i>Enrolled
+            </span>
+          {% else %}
+            <span style="font-size:0.82rem; color:#ef9a9a;">
+              <i class="bi bi-shield-x me-1"></i>Not enrolled
+            </span>
+          {% endif %}
+        </div>
+
       </div>
     </div>
-
-    <hr>
-
-    <div>
-      <div class="nr-label">Rollout Stats</div>
-      <div style="color:#333; font-size:0.8rem; font-style:italic;">Available in Phase 2</div>
-    </div>
-
   </div>
+
+  <!-- ── Stats card ── -->
+  <div class="col-12 col-md-5">
+    <div class="nr-card h-100">
+      <div class="nr-card-accent" style="background:linear-gradient(90deg,rgba(0,188,212,0.5),rgba(0,188,212,0.15),transparent);"></div>
+      <div class="nr-card-body">
+
+        <div class="nr-badge" style="margin-bottom:0.5rem;">ROLLOUT STATS</div>
+
+        <!-- Total rollouts -->
+        <div class="d-flex justify-content-between align-items-center py-2"
+             style="border-bottom:1px solid #1a1a1a;">
+          <span class="nr-label" style="margin-bottom:0;">Total Rollouts</span>
+          <span style="font-family:'JetBrains Mono',monospace; font-size:1.1rem; font-weight:700; color:#00bcd4;">
+            {{ total_rollouts }}
+          </span>
+        </div>
+
+        <!-- Total devices -->
+        <div class="d-flex justify-content-between align-items-center py-2"
+             style="border-bottom:1px solid #1a1a1a;">
+          <span class="nr-label" style="margin-bottom:0;">Devices Configured</span>
+          <span style="font-family:'JetBrains Mono',monospace; font-size:1.1rem; font-weight:700; color:#e0e0e0;">
+            {{ total_devices }}
+          </span>
+        </div>
+
+        <!-- Commands pushed -->
+        <div class="d-flex justify-content-between align-items-center py-2"
+             style="border-bottom:1px solid #1a1a1a;">
+          <span class="nr-label" style="margin-bottom:0;">Commands Pushed</span>
+          <span style="font-family:'JetBrains Mono',monospace; font-size:1.1rem; font-weight:700; color:#e0e0e0;">
+            {{ total_commands }}
+          </span>
+        </div>
+
+        <!-- Success rate -->
+        <div class="d-flex justify-content-between align-items-center py-2"
+             style="border-bottom:1px solid #1a1a1a;">
+          <span class="nr-label" style="margin-bottom:0;">Success Rate</span>
+          {% if success_rate is not none %}
+            <span style="font-family:'JetBrains Mono',monospace; font-size:1.1rem; font-weight:700;
+                         color:{% if success_rate >= 80 %}#a5d6a7{% elif success_rate >= 50 %}#ffe082{% else %}#ef9a9a{% endif %};">
+              {{ success_rate }}%
+            </span>
+          {% else %}
+            <span style="font-family:'JetBrains Mono',monospace; font-size:0.85rem; color:#333;">—</span>
+          {% endif %}
+        </div>
+
+        <!-- Most common platform -->
+        <div class="d-flex justify-content-between align-items-center pt-2">
+          <span class="nr-label" style="margin-bottom:0;">Top Platform</span>
+          {% if most_common_platform %}
+            <span style="font-family:'JetBrains Mono',monospace; font-size:0.78rem; color:#00bcd4;
+                         background:rgba(0,188,212,0.07); border:1px solid rgba(0,188,212,0.15);
+                         padding:0.15rem 0.5rem; border-radius:3px;">
+              {{ most_common_platform }}
+            </span>
+          {% else %}
+            <span style="font-family:'JetBrains Mono',monospace; font-size:0.85rem; color:#333;">—</span>
+          {% endif %}
+        </div>
+
+      </div>
+    </div>
+  </div>
+
 </div>
 
 <script>
@@ -90,4 +172,5 @@
   updateCounter();
   setInterval(updateCounter, 1000);
 </script>
+
 {% endblock %}

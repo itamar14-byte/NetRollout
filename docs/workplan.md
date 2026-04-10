@@ -156,10 +156,19 @@ Constructor takes `Validator` + `RolloutLogger`. Methods: `csv_to_inventory`, `f
 
 **Tests: 83/83 passing.** All previously disabled test classes updated to new API and passing.
 
-### 2.9 Inventory management UI — pending
-- Account page: inventory panel (add/edit/remove devices), security profiles panel
-- Orchestrator DB writes (RolloutSession on submit, DeviceResult + delete session on cleanup)
-- Import error surfacing via flash messages (no SSE at import time)
+### 2.9 Inventory management UI — in progress
+
+**Done (2026-04-10):**
+- Operator zone restructure: `operator_base.html` with collapsible sidebar, dashboard, account, inventory stub, results stub
+- `DeviceResultDict` TypedDict in `core.py` — typed return from `run()`, consumed by `_cleanup()`
+- Orchestrator DB writes: `RolloutSession` written on `submit()`, promoted to "active" in `_dispatch()`, `DeviceResult` rows written + session deleted in `_cleanup()`
+- `tables.py` fully fixed: ForeignKeys, `back_populates` pairs, `commands_verified: Mapped[int | None]`, `Inventory.security_profile` singular
+- Dashboard route: groupby logic, active job detection, last 5 jobs table, system summary stats
+- Account route + page: total rollouts, devices configured, commands pushed, success rate (color-coded), top platform, 2FA status, live tenure counter
+
+**Remaining:**
+- Inventory management UI: add/edit/remove devices + security profiles (CRUD routes + frontend)
+- Import error surfacing via flash messages when CSV/form parse fails
 
 ---
 
@@ -240,7 +249,10 @@ Tag v1.0 on GitHub, push `v1.0` and `latest` tags to Docker Hub.
 Build a standalone `.exe` using PyInstaller for the CLI tool.
 Bundles `cli.py` — no Python install required on client machines.
 
-### 4.6 Documentation
+### 4.6 Alembic migrations
+Replace `db_install.py` `create_all` approach with Alembic for proper schema migrations. Required for production — `create_all` silently skips existing tables, so schema changes never apply to live DBs. `install.py` runs `alembic upgrade head` instead of calling `db_install.py` directly.
+
+### 4.7 Documentation
 - `README.md` — project overview, quick start (install.py), CLI usage, CSV format reference, security posture section, update instructions
 - Inline docs review — docstrings consistent across all public APIs
 - Security posture section: data minimization rationale, encryption key management, Docker socket decision
