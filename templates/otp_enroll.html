@@ -65,6 +65,7 @@
 
     <!-- OTP Input Form -->
     <form method="POST" action="{{ url_for('otp_enroll') }}" id="otpForm">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <div class="d-flex justify-content-center gap-2 mb-4" id="otpBoxes">
         <input type="text" maxlength="1" class="otp-box form-control text-center fw-bold"
                inputmode="numeric" pattern="[0-9]" autocomplete="off">

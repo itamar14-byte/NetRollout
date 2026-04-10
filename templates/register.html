@@ -31,6 +31,7 @@
   <div class="nr-card-accent"></div>
   <div class="nr-card-body">
     <form method="POST" action="{{ url_for('register') }}" id="registerForm" novalidate>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
       <div class="mb-3 text-start">
         <label for="username" class="nr-label">Username <span style="color:#ef5350;">*</span></label>

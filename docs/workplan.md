@@ -166,9 +166,12 @@ Constructor takes `Validator` + `RolloutLogger`. Methods: `csv_to_inventory`, `f
 - Dashboard route: groupby logic, active job detection, last 5 jobs table, system summary stats
 - Account route + page: total rollouts, devices configured, commands pushed, success rate (color-coded), top platform, 2FA status, live tenure counter
 
-**Remaining:**
-- Inventory management UI: add/edit/remove devices + security profiles (CRUD routes + frontend)
+**Remaining (next session):**
+- Security Profiles UI: CRUD for credential profiles (`/security` route + frontend). `encryption.encrypt()` on write, `encryption.decrypt()` only at rollout time via `Device.from_inventory()`
+- Inventory UI: CRUD for devices + assign security profile via `sec_profile_id` (`/inventory` route + frontend)
 - Import error surfacing via flash messages when CSV/form parse fails
+
+**After 2.9:** Phase 2 complete.
 
 ---
 

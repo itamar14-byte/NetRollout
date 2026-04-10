@@ -1,5 +1,5 @@
 # Bug Report
-_Last updated: 2026-04-06_
+_Last updated: 2026-04-10_
 
 Status key: 🔴 Open · ✅ Fixed
 
@@ -7,12 +7,9 @@ Status key: 🔴 Open · ✅ Fixed
 
 ## Medium
 
-### 🔴 `webapp.py:18` — `cancel_event` is a module-level singleton
-`cancel_event` is created once at import time and shared across all requests.
-`cancel_event.clear()` is called at the start of each rollout, which handles the common case.
-However, if the SSE generator from a previous cancelled rollout is still running (it breaks on
-cancel but may not have been garbage collected), a new rollout's stream could behave
-unpredictably. The event and the SSE stream lifetime are not tied together.
+### ✅ `webapp.py:18` — `cancel_event` is a module-level singleton
+Fixed in Phase 2. `cancel_event` is now owned per-job by `RolloutJob` and passed as an
+argument at call time. SSE stream lifetime is tied to the job via `orchestrator.get(job_id)`.
 
 ---
 
@@ -80,15 +77,13 @@ Fix: reduce to `valid_window=1`.
 
 ## Security Vulnerabilities
 
-### 🔴 `webapp.py:26` — Hardcoded `SECRET_KEY = "dev"`
-Flask session cookies are signed with this key. A known/weak key allows an attacker to
-forge session cookies, bypassing all authentication including 2FA. This is the single
-highest-impact security issue in the codebase.
-**Phase 4 fix:** read from environment variable, fail hard on startup if not set.
+### ✅ `webapp.py:26` — Hardcoded `SECRET_KEY = "dev"`
+Fixed in Phase 2. Now generated at startup via `secrets.token_urlsafe(32)`.
+Phase 4 will move this to an env var so it persists across restarts.
 
 ---
 
-### 🔴 All POST routes — No CSRF protection
+### ✅ All POST routes — No CSRF protection
 No CSRF tokens on any form. An attacker can craft a malicious page that silently submits
 POST requests to NetRollout on behalf of a logged-in user — approving accounts, promoting
 users to admin, triggering rollouts, disabling accounts.
@@ -97,26 +92,20 @@ users to admin, triggering rollouts, disabling accounts.
 
 ---
 
-### 🔴 `upload.html:304-305` — Device credentials stored in DOM dataset attributes
-Device passwords and secrets are stored as `row.dataset.password` and `row.dataset.secret`
-on table row elements, visible in the browser's element inspector. Any browser extension
-or injected script can read them. They are also submitted in plaintext in the `devices_json`
-hidden input (sent in the POST body, visible in browser history and proxy logs).
-**Note:** this is partially a data minimization design decision — credentials are never
-persisted server-side. The DOM exposure is the residual risk. Mitigation would require
-encrypting the JSON payload client-side before submission, which adds significant complexity.
-Document as a known tradeoff in the README security section.
+### ✅ `upload.html:304-305` — Device credentials stored in DOM dataset attributes
+Resolved by Phase 2 architecture. Credentials now live in `SecurityProfile` (Fernet-encrypted
+in DB). The rollout flow reads from inventory via `Device.from_inventory()` — credentials
+never touch the DOM or browser history.
 
 ---
 
-### 🔴 No rate limiting on `/login`
-No throttling, lockout, or CAPTCHA on the login endpoint. An attacker can brute-force
-credentials at will. Combined with the weak `SECRET_KEY` this is critical in dev mode.
-**Phase 4 fix:** add Flask-Limiter (`pip install flask-limiter`), apply `@limiter.limit("10/minute")` to `/login`.
+### ✅ No rate limiting on `/login`
+Fixed. Flask-Limiter installed and `@conn_limit.limit("10 per minute")` applied to the
+login route.
 
 ---
 
-### 🟡 `otp_secret` stored in plaintext in DB
+### ✅ `otp_secret` stored in plaintext in DB
 If the database is compromised, all TOTP secrets are exposed. An attacker with DB access
 can generate valid OTP codes for any user indefinitely.
 **Tradeoff:** encrypting TOTP secrets requires key management (same problem as encrypted

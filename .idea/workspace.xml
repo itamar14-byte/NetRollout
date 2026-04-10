@@ -4,24 +4,17 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="27240518-82b3-4a70-8f71-cc3b690d164c" name="Changes" comment="updated attrbiute specifications">
+    <list default="true" id="27240518-82b3-4a70-8f71-cc3b690d164c" name="Changes" comment="  Phase 2 completion: DB integration, operator UI, admin bulk actions, CLI rewrite&#10;&#10;  - Orchestrator DB writes fully wired: RolloutSession on submit/dispatch,&#10;    DeviceResult rows + session cleanup on job completion&#10;  - DeviceResultDict TypedDict introduced in core.py for typed run() return&#10;  - tables.py: fixed all ForeignKeys (users.id), cascade delete-orphan on all&#10;    User relationships, commands_verified Mapped[int | None], security_profile&#10;    singular on Inventory, started_at added to DeviceResult&#10;  - Operator sidebar: Security Profiles zone (bi-shield-lock), Admin entry&#10;    (bi-gear), conditional render for admins only&#10;  - Admin user management rebuilt: multi-select toolbar, per-action rules engine,&#10;    contextual tooltips, bulk backend route, delete modal with count confirmation&#10;  - cli.py rewritten to use new architecture: InputParser.prepare_devices(),&#10;    RolloutLogger, RolloutEngine.run(cancel, logger)&#10;  - db_install.py: create_all limitation documented, Alembic migration noted&#10;    for Phase 4&#10;  - workplan, architecture, CLAUDE.md, memory updated to reflect current state">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/CLAUDE.md" beforeDir="false" afterPath="$PROJECT_DIR$/CLAUDE.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/architecture.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/architecture.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/bug_report.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/bug_report.md" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/docs/workplan.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/workplan.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/cli.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/cli.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/core.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/core.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/db.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/db.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/db_install.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/db_install.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/input_parser.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/input_parser.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/orchestration.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/orchestration.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/tables.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/tables.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/validation.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/validation.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/webapp.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/webapp.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/templates/account.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/account.html" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/templates/admin_users.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/admin_users.html" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/templates/base.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/base.html" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/templates/rollout.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/rollout.html" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/templates/index.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/index.html" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/templates/otp_enroll.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/otp_enroll.html" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/templates/otp_verify.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/otp_verify.html" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/templates/register.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/register.html" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/templates/upload.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/upload.html" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/tests/test.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test.py" afterDir="false" />
     </list>
@@ -77,34 +70,35 @@
     <option name="sortByType" value="true" />
     <option name="sortKey" value="BY_TYPE" />
   </component>
-  <component name="PropertiesComponent">{
-  &quot;keyToString&quot;: {
-    &quot;ASKED_MARK_IGNORED_FILES_AS_EXCLUDED&quot;: &quot;true&quot;,
-    &quot;ASKED_SHARE_PROJECT_CONFIGURATION_FILES&quot;: &quot;true&quot;,
-    &quot;Flask server.Network-bulk-configuration.executor&quot;: &quot;Run&quot;,
-    &quot;Python tests.Python tests in test.py.executor&quot;: &quot;Run&quot;,
-    &quot;Python.Core.executor&quot;: &quot;Run&quot;,
-    &quot;Python.Helper.executor&quot;: &quot;Run&quot;,
-    &quot;Python.Network-bulk-configuration.executor&quot;: &quot;Run&quot;,
-    &quot;Python.WebApp.executor&quot;: &quot;Run&quot;,
-    &quot;Python.db.executor&quot;: &quot;Run&quot;,
-    &quot;Python.db_install.executor&quot;: &quot;Run&quot;,
-    &quot;Python.tables.executor&quot;: &quot;Run&quot;,
-    &quot;Python.webapp.executor&quot;: &quot;Run&quot;,
-    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
-    &quot;git-widget-placeholder&quot;: &quot;master&quot;,
-    &quot;ignore.virus.scanning.warn.message&quot;: &quot;true&quot;,
-    &quot;last_opened_file_path&quot;: &quot;C:/Users/itama/Documents/Coding/Network-bulk-configuration&quot;,
-    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
-    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
-    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
-    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
-    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
-    &quot;settings.editor.selected.configurable&quot;: &quot;preferences.pluginManager&quot;,
-    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "ASKED_MARK_IGNORED_FILES_AS_EXCLUDED": "true",
+    "ASKED_SHARE_PROJECT_CONFIGURATION_FILES": "true",
+    "Flask server.Network-bulk-configuration.executor": "Run",
+    "Python tests.Python tests in test.py.executor": "Run",
+    "Python tests.Python tests in test_rate_limit.py.executor": "Run",
+    "Python.Core.executor": "Run",
+    "Python.Helper.executor": "Run",
+    "Python.Network-bulk-configuration.executor": "Run",
+    "Python.WebApp.executor": "Run",
+    "Python.db.executor": "Run",
+    "Python.db_install.executor": "Run",
+    "Python.tables.executor": "Run",
+    "Python.webapp.executor": "Run",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "git-widget-placeholder": "master",
+    "ignore.virus.scanning.warn.message": "true",
+    "last_opened_file_path": "C:/Users/itama/Documents/Coding/Network-bulk-configuration",
+    "node.js.detected.package.eslint": "true",
+    "node.js.detected.package.tslint": "true",
+    "node.js.selected.package.eslint": "(autodetect)",
+    "node.js.selected.package.tslint": "(autodetect)",
+    "nodejs_package_manager_path": "npm",
+    "settings.editor.selected.configurable": "preferences.pluginManager",
+    "vue.rearranger.settings.migration": "true"
   }
-}</component>
+}]]></component>
   <component name="RecentsManager">
     <key name="MoveFile.RECENT_KEYS">
       <recent name="C:\Users\itama\Documents\Coding\Network-bulk-configuration\docs" />
@@ -224,7 +218,7 @@
       <workItem from="1775465302574" duration="18964000" />
       <workItem from="1775499852820" duration="7096000" />
       <workItem from="1775569421684" duration="35459000" />
-      <workItem from="1775743396570" duration="19628000" />
+      <workItem from="1775743396570" duration="22109000" />
     </task>
     <task id="LOCAL-00001" summary="Bug Fixes and configuration of executble packing">
       <option name="closed" value="true" />
@@ -530,7 +524,15 @@
       <option name="project" value="LOCAL" />
       <updated>1775701440989</updated>
     </task>
-    <option name="localTasksCounter" value="39" />
+    <task id="LOCAL-00039" summary="  Phase 2 completion: DB integration, operator UI, admin bulk actions, CLI rewrite&#10;&#10;  - Orchestrator DB writes fully wired: RolloutSession on submit/dispatch,&#10;    DeviceResult rows + session cleanup on job completion&#10;  - DeviceResultDict TypedDict introduced in core.py for typed run() return&#10;  - tables.py: fixed all ForeignKeys (users.id), cascade delete-orphan on all&#10;    User relationships, commands_verified Mapped[int | None], security_profile&#10;    singular on Inventory, started_at added to DeviceResult&#10;  - Operator sidebar: Security Profiles zone (bi-shield-lock), Admin entry&#10;    (bi-gear), conditional render for admins only&#10;  - Admin user management rebuilt: multi-select toolbar, per-action rules engine,&#10;    contextual tooltips, bulk backend route, delete modal with count confirmation&#10;  - cli.py rewritten to use new architecture: InputParser.prepare_devices(),&#10;    RolloutLogger, RolloutEngine.run(cancel, logger)&#10;  - db_install.py: create_all limitation documented, Alembic migration noted&#10;    for Phase 4&#10;  - workplan, architecture, CLAUDE.md, memory updated to reflect current state">
+      <option name="closed" value="true" />
+      <created>1775828076414</created>
+      <option name="number" value="00039" />
+      <option name="presentableId" value="LOCAL-00039" />
+      <option name="project" value="LOCAL" />
+      <updated>1775828076414</updated>
+    </task>
+    <option name="localTasksCounter" value="40" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -548,7 +550,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="Broought up SSE integration and rollout page" />
     <MESSAGE value="Brought up SSE integration and rollout page" />
     <MESSAGE value="Did some refactoring, with seperation of backendlogic to Core and Webappand cli used as interfaces" />
     <MESSAGE value="Merge remote-tracking branch 'origin/master'&#10;&#10;# Conflicts:&#10;#&#9;templates/upload.html" />
@@ -573,13 +574,14 @@
     <MESSAGE value="● Phase 1 complete: fix admin_user_action endpoint name, home button redirect for authenticated users, dark mode account page text" />
     <MESSAGE value="    refactor: implement Phase 2 execution pipeline&#10;&#10;    - Add RolloutJob and RolloutOrchestrator (orchestration.py)&#10;    - Refactor RolloutEngine: cancel_event and logger injected at call time, methods privatized&#10;    - Refactor RolloutLogger: webapp/verbose baked in at construction&#10;    - Refactor Validator: logger injected, instance methods for error-surfacing validation&#10;    - Rename parser.py → input_parser.py, add logger to InputParser constructor&#10;    - Implement Device.from_inventory() with Fernet decryption from SecurityProfile&#10;    - Rewire webapp routes as thin orchestrator delegators, remove cancel_event global&#10;    - Fix and uncomment all disabled tests — 83/83 passing&#10;    - Update architecture.md to reflect deviations from original design" />
     <MESSAGE value="updated attrbiute specifications" />
-    <option name="LAST_COMMIT_MESSAGE" value="updated attrbiute specifications" />
+    <MESSAGE value="  Phase 2 completion: DB integration, operator UI, admin bulk actions, CLI rewrite&#10;&#10;  - Orchestrator DB writes fully wired: RolloutSession on submit/dispatch,&#10;    DeviceResult rows + session cleanup on job completion&#10;  - DeviceResultDict TypedDict introduced in core.py for typed run() return&#10;  - tables.py: fixed all ForeignKeys (users.id), cascade delete-orphan on all&#10;    User relationships, commands_verified Mapped[int | None], security_profile&#10;    singular on Inventory, started_at added to DeviceResult&#10;  - Operator sidebar: Security Profiles zone (bi-shield-lock), Admin entry&#10;    (bi-gear), conditional render for admins only&#10;  - Admin user management rebuilt: multi-select toolbar, per-action rules engine,&#10;    contextual tooltips, bulk backend route, delete modal with count confirmation&#10;  - cli.py rewritten to use new architecture: InputParser.prepare_devices(),&#10;    RolloutLogger, RolloutEngine.run(cancel, logger)&#10;  - db_install.py: create_all limitation documented, Alembic migration noted&#10;    for Phase 4&#10;  - workplan, architecture, CLAUDE.md, memory updated to reflect current state" />
+    <option name="LAST_COMMIT_MESSAGE" value="  Phase 2 completion: DB integration, operator UI, admin bulk actions, CLI rewrite&#10;&#10;  - Orchestrator DB writes fully wired: RolloutSession on submit/dispatch,&#10;    DeviceResult rows + session cleanup on job completion&#10;  - DeviceResultDict TypedDict introduced in core.py for typed run() return&#10;  - tables.py: fixed all ForeignKeys (users.id), cascade delete-orphan on all&#10;    User relationships, commands_verified Mapped[int | None], security_profile&#10;    singular on Inventory, started_at added to DeviceResult&#10;  - Operator sidebar: Security Profiles zone (bi-shield-lock), Admin entry&#10;    (bi-gear), conditional render for admins only&#10;  - Admin user management rebuilt: multi-select toolbar, per-action rules engine,&#10;    contextual tooltips, bulk backend route, delete modal with count confirmation&#10;  - cli.py rewritten to use new architecture: InputParser.prepare_devices(),&#10;    RolloutLogger, RolloutEngine.run(cancel, logger)&#10;  - db_install.py: create_all limitation documented, Alembic migration noted&#10;    for Phase 4&#10;  - workplan, architecture, CLAUDE.md, memory updated to reflect current state" />
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
     <SUITE FILE_PATH="coverage/core_py$WebApp.coverage" NAME="WebApp Coverage Results" MODIFIED="1756760459810" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/WebApp_py$WebApp.coverage" NAME="WebApp Coverage Results" MODIFIED="1756940263036" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
-    <SUITE FILE_PATH="coverage/Network_bulk_configuration$.coverage" NAME=" Coverage Results" MODIFIED="1775604789863" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/tests" />
-    <SUITE FILE_PATH="coverage/Network_bulk_configuration$webapp.coverage" NAME="webapp Coverage Results" MODIFIED="1775826652866" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/src" />
+    <SUITE FILE_PATH="coverage/Network_bulk_configuration$webapp.coverage" NAME="webapp Coverage Results" MODIFIED="1775829317534" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/src" />
+    <SUITE FILE_PATH="coverage/Network_bulk_configuration$.coverage" NAME=" Coverage Results" MODIFIED="1775830389406" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/tests" />
     <SUITE FILE_PATH="coverage/Network_bulk_configuration$Network_bulk_configuration.coverage" NAME="Network-bulk-configuration Coverage Results" MODIFIED="1775505381589" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/core_py$Helper.coverage" NAME="Helper Coverage Results" MODIFIED="1756330739506" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/Network_bulk_configuration$db.coverage" NAME="db Coverage Results" MODIFIED="1774396400735" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/src" />

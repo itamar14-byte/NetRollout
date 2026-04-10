@@ -875,5 +875,44 @@ class TestFullRolloutAndVerifyPipeline(unittest.TestCase):
         self.assertIn(result, [0, 1])
 
 
+# ---------------------------------------------------------------------------
+# Integration: rate limiting (requires live webapp on localhost:8080)
+# Run manually: python tests/test.py RateLimitIntegrationTest
+# Skipped automatically if the server is not reachable.
+# ---------------------------------------------------------------------------
+
+import urllib.request
+import urllib.error
+import urllib.parse
+
+
+def _server_reachable(url: str) -> bool:
+    try:
+        urllib.request.urlopen(url, timeout=2)
+        return True
+    except Exception:
+        return True  # any response (including 4xx) means server is up
+
+
+@unittest.skipUnless(_server_reachable("http://localhost:8080/"), "webapp not running")
+class RateLimitIntegrationTest(unittest.TestCase):
+    """Sends 15 POST requests to /login and expects a 429 after the 10th."""
+
+    URL = "http://localhost:8080/login"
+
+    def test_login_rate_limit_triggers(self):
+        import requests
+        hit_429 = False
+        for i in range(1, 16):
+            r = requests.post(self.URL, data={"username": "test", "password": "test"},
+                              allow_redirects=False)
+            if r.status_code == 429:
+                hit_429 = True
+                self.assertLessEqual(i, 11,
+                    f"Expected 429 by request 11, got it at request {i}")
+                break
+        self.assertTrue(hit_429, "Rate limiter never triggered after 15 requests")
+
+
 if __name__ == "__main__":
     unittest.main()

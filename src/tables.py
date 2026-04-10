@@ -22,7 +22,7 @@ class User(UserMixin, Base):
     is_approved: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now,
                                                  nullable=False)
-    otp_secret: Mapped[str] = mapped_column(String(32), nullable=True)
+    otp_secret: Mapped[str] = mapped_column(String(255), nullable=True)
 
     security_profiles: Mapped[list["SecurityProfile"]] = relationship(
         back_populates="user", cascade="all, delete-orphan")

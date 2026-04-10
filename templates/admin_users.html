@@ -144,6 +144,7 @@
 <!-- Hidden bulk form -->
 <form id="bulkForm" method="POST" action="">
   <input type="hidden" id="bulkIds" name="user_ids">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 </form>
 
 <!-- Delete confirmation modal -->

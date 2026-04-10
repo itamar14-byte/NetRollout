@@ -15,10 +15,13 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from flask_login import (LoginManager, login_required,
                          logout_user, current_user, login_user)
+from flask_wtf import CSRFProtect
+
 from sqlalchemy.exc import IntegrityError
 from waitress import serve
 from werkzeug.security import generate_password_hash, check_password_hash
 
+import encryption
 import input_parser
 from core import RolloutOptions
 from db import get_session
@@ -36,6 +39,8 @@ login_mng.login_view = "home"
 
 conn_limit = Limiter(get_remote_address, app=app, default_limits=[],
                      storage_uri="memory://")
+
+csrf = CSRFProtect(app)
 
 
 @login_mng.user_loader
@@ -168,7 +173,7 @@ def otp_enroll():
 						user_id)).first()
 				except ValueError:
 					return redirect(url_for("home"))
-				user.otp_secret = otp_secret
+				user.otp_secret = encryption.encrypt(otp_secret)
 				db_session.flush()
 				db_session.expunge(user)
 			session.pop("pending_totp_secret")
@@ -195,7 +200,7 @@ def otp_verify():
 			db_session.expunge(user)
 		if not user.otp_secret:
 			return redirect(url_for("otp_enroll"))
-		if pyotp.TOTP(user.otp_secret).verify(user_code, valid_window=1):
+		if pyotp.TOTP(encryption.decrypt(user.otp_secret)).verify(user_code, valid_window=1):
 			login_user(user)
 			session.pop("pre_auth_user_id")
 			return redirect(url_for("dashboard"))
