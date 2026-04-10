@@ -9,6 +9,10 @@ from collections import Counter
 
 import pyotp
 import qrcode
+from netmiko import ConnectHandler
+from netmiko.exceptions import NetmikoTimeoutException, \
+	NetmikoAuthenticationException
+
 from flask import (redirect, Response, request, render_template, url_for, \
                    Flask, flash, session)
 from flask_limiter import Limiter
@@ -23,10 +27,11 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 import encryption
 import input_parser
-from core import RolloutOptions
+from core import RolloutOptions, Device
+from validation import Validator
 from db import get_session
 from orchestration import RolloutOrchestrator
-from tables import User, DeviceResult
+from tables import User, DeviceResult, SecurityProfile, Inventory
 
 app = Flask(__name__, template_folder='../templates')
 app.config["SECRET_KEY"] = secrets.token_urlsafe(32)
@@ -200,7 +205,8 @@ def otp_verify():
 			db_session.expunge(user)
 		if not user.otp_secret:
 			return redirect(url_for("otp_enroll"))
-		if pyotp.TOTP(encryption.decrypt(user.otp_secret)).verify(user_code, valid_window=1):
+		if pyotp.TOTP(encryption.decrypt(user.otp_secret)).verify(user_code,
+		                                                          valid_window=1):
 			login_user(user)
 			session.pop("pre_auth_user_id")
 			return redirect(url_for("dashboard"))
@@ -241,7 +247,7 @@ def account():
 	# Most configured device type
 	if user_results:
 		most_common_platform = \
-		Counter(r.device_type for r in user_results).most_common(1)[0][0]
+			Counter(r.device_type for r in user_results).most_common(1)[0][0]
 	else:
 		most_common_platform = None
 
@@ -377,7 +383,8 @@ def admin_users():
 def admin_user_action(user_id, action):
 	if current_user.role != "admin":
 		return redirect(url_for("dashboard"))
-	if action in ("disable", "delete") and uuid.UUID(user_id) == current_user.id:
+	if action in ("disable", "delete") and uuid.UUID(
+			user_id) == current_user.id:
 		flash("You cannot perform this action on your own account.", "danger")
 		return redirect(url_for("admin_users"))
 	with get_session() as db_session:
@@ -414,7 +421,8 @@ def admin_bulk_action(action):
 		return redirect(url_for("dashboard"))
 	raw = request.form.get("user_ids", "")
 	try:
-		user_ids = [uuid.UUID(uid.strip()) for uid in raw.split(",") if uid.strip()]
+		user_ids = [uuid.UUID(uid.strip()) for uid in raw.split(",") if
+		            uid.strip()]
 	except ValueError:
 		return redirect(url_for("admin_users"))
 	with get_session() as db_session:
@@ -446,9 +454,11 @@ def job_status(rows: list[DeviceResult]) -> str:
 		return "cancelled"
 	if all(r.status == "failed" for r in rows):
 		return "failed"
-	if any(r.status in ("failed","partial") for r in rows):
+	if any(r.status in ("failed", "partial") for r in rows):
 		return "partial"
 	return "success"
+
+
 @app.route("/dashboard")
 @login_required
 def dashboard():
@@ -475,8 +485,8 @@ def dashboard():
 	total_rollouts = len(job_summaries)
 	last_status = job_summaries[0]['status'] if job_summaries else None
 
-	#get active job
-	job_id = session.get("job_id",None)
+	# get active job
+	job_id = session.get("job_id", None)
 	active_job = orchestrator.get(uuid.UUID(job_id)) if job_id else None
 
 	active_job_data = None
@@ -487,7 +497,6 @@ def dashboard():
 			"started_at": active_job.started_at.strftime("%H:%M:%S"),
 			"started_at_iso": active_job.started_at.isoformat()
 		}
-
 
 	return render_template("dashboard.html",
 	                       active_section="dashboard",
@@ -516,9 +525,135 @@ def results():
 @app.route("/security")
 @login_required
 def security():
+	with get_session() as db_session:
+		user = db_session.get(User, current_user.id)
+		profiles = user.security_profiles
+		_ = [p.inventory for p in profiles]
+		devices = user.inventory
+		db_session.expunge_all()
+
 	return render_template("security.html",
+	                       profiles=profiles,
+	                       devices=devices,
 	                       active_section="security")
 
+
+@app.route("/security/create", methods=["POST"])
+@login_required
+def security_create():
+	label = request.form.get("label", "").strip() or None
+	username = request.form["username"]
+	password = request.form["password"]
+	enable_secret = request.form.get("enable_secret", "").strip() or None
+
+	profile = SecurityProfile(label=label,
+	                          username=username,
+	                          password_secret=encryption.encrypt(password),
+	                          enable_secret=encryption.encrypt(enable_secret)
+	                          if enable_secret else None,
+	                          user_id=current_user.id)
+
+	with get_session() as db_session:
+		db_session.add(profile)
+	flash("Security profile created.", "success")
+	return redirect(url_for("security"))
+
+
+@app.route("/security/<profile_id>/edit", methods=["POST"])
+@login_required
+def security_edit(profile_id):
+	with get_session() as db_session:
+		try:
+			profile = db_session.query(SecurityProfile).filter_by(id=uuid.UUID(
+				profile_id), user_id=current_user.id).first()
+		except ValueError:
+			return redirect(url_for("security"))
+		if not profile:
+			return redirect(url_for("security"))
+
+		profile.label = request.form.get("label", "").strip() or None
+		profile.username = request.form["username"]
+
+		new_password = request.form.get("password", "").strip()
+		if new_password:
+			profile.password_secret = encryption.encrypt(new_password)
+
+		new_secret = request.form.get("enable_secret", "").strip()
+		if new_secret:
+			profile.enable_secret = encryption.encrypt(new_secret)
+		elif request.form.get("clear_enable_secret"):
+			profile.enable_secret = None
+
+	flash("Security profile updated.", "success")
+	return redirect(url_for("security"))
+
+
+@app.route("/security/<profile_id>/delete", methods=["POST"])
+@login_required
+def security_delete(profile_id):
+	with get_session() as db_session:
+		try:
+			profile = db_session.query(SecurityProfile).filter_by(
+				id=uuid.UUID(profile_id), user_id=current_user.id).first()
+		except ValueError:
+			return redirect(url_for("security"))
+		if not profile:
+			return redirect(url_for("security"))
+
+		if profile.inventory:
+			flash(f"Cannot delete '{profile.label or profile.username}' — "
+			      f"{len(profile.inventory)} device(s) assigned. "
+			      f"Delete or reassign them first.", "danger")
+			return redirect(url_for("security"))
+		db_session.delete(profile)
+		flash("Profile deleted.", "success")
+	return redirect(url_for("security"))
+
+
+@app.route("/security/<profile_id>/test", methods=["POST"])
+@login_required
+def security_test(profile_id):
+	data = request.get_json()
+	if not data or not data.get("device_id"):
+		return {"status": "error", "message": "No device selected"}
+
+	with get_session() as db_session:
+		try:
+			profile = db_session.query(SecurityProfile).filter_by(
+				id=uuid.UUID(profile_id),user_id=current_user.id).first()
+			device = db_session.query(Inventory).filter_by(id=uuid.UUID(data[
+				                                                    "device_id"]),
+			                                            user_id=current_user.id).first()
+		except ValueError:
+			return {"status": "error", "message": "Invalid request"}
+		if not profile or not device:
+			return {"status": "error", "message": "Profile or device not found"}
+		if not Validator.test_tcp_port(device.ip,device.port):
+			return {"status": "error", "message":
+				f"TCP port {device.port} unreachable on {device.ip}"}
+		db_session.expunge_all()
+
+	device_obj = Device(ip=device.ip,
+	                    port=device.port,
+	                    device_type=device.device_type,
+	                    label=device.label,
+	                    username=profile.username,
+	                    password=encryption.decrypt(profile.password_secret),
+	                    secret=encryption.decrypt(profile.enable_secret)
+	                    if profile.enable_secret else ""
+	                    )
+	try:
+		conn = ConnectHandler(**device_obj.netmiko_connector())
+		conn.disconnect()
+		return {"status": "success", "message": f"Connected successfully to {device.ip}"}
+	except NetmikoAuthenticationException:
+		return {"status": "error",
+		        "message": "Authentication failed — check username and password"}
+	except NetmikoTimeoutException:
+		return {"status": "error",
+		        "message": f"Connection timed out on {device.ip}:{device.port}"}
+	except Exception as e:
+		return {"status": "error", "message": str(e)}
 
 if __name__ == "__main__":
 	serve(app, host="0.0.0.0", port=8080)

@@ -252,10 +252,15 @@ Tag v1.0 on GitHub, push `v1.0` and `latest` tags to Docker Hub.
 Build a standalone `.exe` using PyInstaller for the CLI tool.
 Bundles `cli.py` — no Python install required on client machines.
 
-### 4.6 Alembic migrations
+### 4.6 Server-side sessions (Flask-Session)
+Replace client-side cookie sessions with Flask-Session backed by the DB or memory store.
+On server restart, all sessions are invalidated and users are kicked to login — FortiGate-style behavior.
+Drop-in swap, no session API changes needed.
+
+### 4.7 Alembic migrations
 Replace `db_install.py` `create_all` approach with Alembic for proper schema migrations. Required for production — `create_all` silently skips existing tables, so schema changes never apply to live DBs. `install.py` runs `alembic upgrade head` instead of calling `db_install.py` directly.
 
-### 4.7 Documentation
+### 4.8 Documentation
 - `README.md` — project overview, quick start (install.py), CLI usage, CSV format reference, security posture section, update instructions
 - Inline docs review — docstrings consistent across all public APIs
 - Security posture section: data minimization rationale, encryption key management, Docker socket decision
