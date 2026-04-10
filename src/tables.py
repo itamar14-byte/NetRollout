@@ -25,15 +25,15 @@ class User(UserMixin, Base):
     otp_secret: Mapped[str] = mapped_column(String(32), nullable=True)
 
     security_profiles: Mapped[list["SecurityProfile"]] = relationship(
-        back_populates="users")
+        back_populates="user", cascade="all, delete-orphan")
     inventory: Mapped[list["Inventory"]] = relationship(
-        back_populates="users")
+        back_populates="user", cascade="all, delete-orphan")
     variable_mappings: Mapped[list["VariableMapping"]] = relationship(
-        back_populates="users")
-    rollout_sessions: Mapped[list["RolloutSession"]] = relationship(
-        back_populates="users")
-    device_results: Mapped[list["DeviceResult"]] = relationship(
-        back_populates="users")
+        back_populates="user", cascade="all, delete-orphan")
+    sessions: Mapped[list["RolloutSession"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan")
+    results: Mapped[list["DeviceResult"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan")
 
 
 class SecurityProfile(Base):
@@ -47,8 +47,8 @@ class SecurityProfile(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id"),
                                                nullable=False)
 
-    users: Mapped["User"] = relationship(back_populates="security_profiles")
-    inventory: Mapped[list["Inventory"]] = relationship(back_populates="security_profiles")
+    user: Mapped["User"] = relationship(back_populates="security_profiles")
+    inventory: Mapped[list["Inventory"]] = relationship(back_populates="security_profile")
 
 
 class Inventory(Base):
@@ -64,9 +64,9 @@ class Inventory(Base):
     sec_profile_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey(
         "security_profiles.id"), nullable=True)
 
-    security_profiles: Mapped["SecurityProfile"] = relationship(
+    security_profile: Mapped["SecurityProfile"] = relationship(
         back_populates="inventory")
-    users: Mapped["User"] = relationship(back_populates="inventory")
+    user: Mapped["User"] = relationship(back_populates="inventory")
 
 
 class VariableMapping(Base):
@@ -81,7 +81,7 @@ class VariableMapping(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id"),
                                                nullable=False)
 
-    users: Mapped["User"] = relationship(back_populates="variable_mappings")
+    user: Mapped["User"] = relationship(back_populates="variable_mappings")
 
 
 class RolloutSession(Base):
@@ -94,21 +94,22 @@ class RolloutSession(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id"),
                                                nullable=False)
 
-    users: Mapped["User"] = relationship(back_populates="rollout_sessions")
+    user: Mapped["User"] = relationship(back_populates="sessions")
 
 
 class DeviceResult(Base):
     __tablename__ = 'device_results'
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     job_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    started_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     completed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     device_ip: Mapped[str] = mapped_column(String(64), nullable=False)
     device_type: Mapped[str] = mapped_column(String(64), nullable=False)
     commands_sent: Mapped[int] = mapped_column(Integer, nullable=False)
-    commands_verified: Mapped[int] = mapped_column(Integer, nullable=True)
+    commands_verified: Mapped[int| None] = mapped_column(Integer, nullable=True)
     status: Mapped[str] = mapped_column(String(64), nullable=False)
 
     user_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id"),
                                                nullable=False)
 
-    users: Mapped["User"] = relationship(back_populates="device_results")
+    user: Mapped["User"] = relationship(back_populates="results")

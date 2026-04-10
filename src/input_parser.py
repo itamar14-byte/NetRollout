@@ -15,14 +15,14 @@ class InputParser:
 		self.validator = validator
 		self.logger = logger
 
-	def _prepare_devices(self, raw_devices: list[dict[str, str]]) -> list[Device]:
+	def prepare_devices(self, raw_devices: list[dict[str, str]]) -> list[Device]:
 		"""Helper function for the file parser that processes the device dictionary
 		 :param raw_devices: preprocessed device list
 		 stating whether the user wishes to see progress messages on the console
-		 :return: a list of dictionaries with fields and values for the _devices.
+		 :return: a list of dictionaries with fields and values for the devices.
 		 In case of failure, an empty list
 		"""
-		# process all validated _devices into a list of dictionaries
+		# process all validated devices into a list of dictionaries
 		devices = []
 		for item in raw_devices:
 			item["device_type"] = item["device_type"].lower()
@@ -51,7 +51,7 @@ class InputParser:
 		device_path = device_path.strip('"')
 		if self.validator.validate_file_extension(device_path, "csv"):
 			try:
-				# Reads _devices CSV
+				# Reads devices CSV
 				with open(device_path, "r", encoding="utf-8-sig") as file:
 					required_keys = {
 						"ip",
@@ -67,7 +67,7 @@ class InputParser:
 						raise ValueError(
 							"Missing keys: {}".format(missing_keys))
 
-					devices = self._prepare_devices(list(reader))
+					devices = self.prepare_devices(list(reader))
 					for device in devices:
 						row = Inventory(user_id=user_id, ip=device.ip,
 						                port=device.port,
@@ -92,13 +92,13 @@ class InputParser:
 	def form_to_inventory(self, devices_json: str, user_id: uuid.UUID,
 	                      db_session: Session) -> list[Device]:
 		raw_devices = loads(devices_json) if devices_json else []
-		devices = self._prepare_devices(raw_devices=raw_devices)
+		devices = self.prepare_devices(raw_devices=raw_devices)
 		# logs summary of file processing workflow
 		self.logger.notify(f"Devices loaded: {devices}")
 
 		self.logger.notify(
 			f"Devices file successfully processed\n"
-			f" {len(devices)} _devices found",
+			f" {len(devices)} devices found",
 			"green")
 		for device in devices:
 			row = Inventory(user_id=user_id, ip=device.ip,

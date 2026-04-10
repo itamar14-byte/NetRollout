@@ -3,7 +3,7 @@
 
 {% block admin_content %}
 
-<div class="d-flex justify-content-between align-items-start mb-4">
+<div class="d-flex justify-content-between align-items-start mb-3">
   <div>
     <div class="nr-badge" style="margin-bottom:0.35rem;">USER MANAGEMENT</div>
     <h4 class="mb-0" style="font-family:'Inter',sans-serif; font-weight:600; font-size:1.15rem; color:#e0e0e0;">
@@ -15,18 +15,69 @@
          style="max-width:210px; font-size:0.82rem; margin-top:0.25rem;">
 </div>
 
+<!-- Action Toolbar -->
+<div class="admin-toolbar mb-3">
+  <span class="toolbar-label" id="selectionInfo">SELECT USERS TO PERFORM ACTIONS</span>
+  <div class="d-flex gap-2 align-items-center flex-wrap">
+
+    <span class="tip-wrap" id="wrapApprove">
+      <button class="tb-btn approve-tb" id="btnApprove" disabled>
+        <i class="bi bi-check-circle me-1"></i>Approve
+      </button>
+    </span>
+
+    <span class="tip-wrap" id="wrapEnable">
+      <button class="tb-btn enable-tb" id="btnEnable" disabled>
+        <i class="bi bi-unlock me-1"></i>Enable
+      </button>
+    </span>
+
+    <span class="tip-wrap" id="wrapDisable">
+      <button class="tb-btn disable-tb" id="btnDisable" disabled>
+        <i class="bi bi-lock me-1"></i>Disable
+      </button>
+    </span>
+
+    <div class="tb-divider"></div>
+
+    <span class="tip-wrap" id="wrapPromote">
+      <button class="tb-btn promote-tb" id="btnPromote" disabled>
+        <i class="bi bi-arrow-up-circle me-1"></i>Promote
+      </button>
+    </span>
+
+    <span class="tip-wrap" id="wrapDemote">
+      <button class="tb-btn demote-tb" id="btnDemote" disabled>
+        <i class="bi bi-arrow-down-circle me-1"></i>Demote
+      </button>
+    </span>
+
+    <div class="tb-divider"></div>
+
+    <span class="tip-wrap" id="wrapDelete">
+      <button class="tb-btn delete-tb" id="btnDelete" disabled>
+        <i class="bi bi-trash3 me-1"></i>Delete
+      </button>
+    </span>
+
+  </div>
+</div>
+
+<!-- Table -->
 <div class="table-responsive">
   <table class="table table-hover align-middle" id="userTable">
     <thead>
       <tr>
-        <th class="sortable" data-col="0">Username <span class="sort-icon">⇅</span></th>
-        <th class="sortable" data-col="1">Full Name <span class="sort-icon">⇅</span></th>
-        <th class="sortable" data-col="2">Email <span class="sort-icon">⇅</span></th>
-        <th class="sortable" data-col="3">Role <span class="sort-icon">⇅</span></th>
+        <th style="width:36px; padding-right:0;">
+          <input type="checkbox" id="selectAll" class="form-check-input" style="margin:0; cursor:pointer;">
+        </th>
+        <th class="sortable" data-col="1">Username <span class="sort-icon">⇅</span></th>
+        <th class="sortable" data-col="2">Full Name <span class="sort-icon">⇅</span></th>
+        <th class="sortable" data-col="3">Email <span class="sort-icon">⇅</span></th>
+        <th class="sortable" data-col="4">Role <span class="sort-icon">⇅</span></th>
         <th>Position</th>
-        <th class="sortable" data-col="5">Member Since <span class="sort-icon">⇅</span></th>
-        <th class="sortable" data-col="6">Status <span class="sort-icon">⇅</span></th>
-        <th class="text-center">Actions</th>
+        <th class="sortable" data-col="6">Member Since <span class="sort-icon">⇅</span></th>
+        <th class="sortable" data-col="7">Status <span class="sort-icon">⇅</span></th>
       </tr>
     </thead>
     <tbody>
@@ -38,8 +89,23 @@
       {% else %}
         {% set status = "pending" %}
       {% endif %}
-      <tr data-status="{{ status }}">
-        <td style="font-family:'JetBrains Mono',monospace; font-size:0.83rem; color:#e0e0e0; font-weight:600;">{{ user.username }}</td>
+      <tr data-status="{{ status }}"
+          data-user='{{ {"id": user.id|string, "username": user.username, "role": user.role, "approved": user.is_approved, "active": user.is_active, "is_self": (user.id == current_user.id), "is_factory": (user.username == "admin")}|tojson }}'>
+
+        <td style="padding-right:0;">
+          {% if user.username != "admin" %}
+          <input type="checkbox" class="form-check-input row-cb" style="margin:0; cursor:pointer;" value="{{ user.id }}">
+          {% else %}
+          <span style="color:#252525; font-size:0.7rem; display:block; text-align:center;">—</span>
+          {% endif %}
+        </td>
+
+        <td style="font-family:'JetBrains Mono',monospace; font-size:0.83rem; color:#e0e0e0; font-weight:600;">
+          {{ user.username }}
+          {% if user.username == "admin" %}
+            <span style="font-family:'Inter',sans-serif; font-size:0.62rem; color:#2a2a2a; font-weight:400; margin-left:0.35rem; letter-spacing:0.5px;">factory</span>
+          {% endif %}
+        </td>
         <td style="font-size:0.88rem;">{{ user.full_name }}</td>
         <td style="color:#555; font-size:0.82rem;">{{ user.email }}</td>
         <td>
@@ -60,56 +126,6 @@
             <span class="badge bg-warning text-dark">Pending</span>
           {% endif %}
         </td>
-        <td>
-          {% if user.username == "admin" %}
-            <span class="text-muted small fst-italic">Factory user</span>
-          {% else %}
-          <div class="d-flex justify-content-center gap-2">
-
-            <!-- Single status action -->
-            {% if status == 'pending' %}
-            <form method="POST" action="{{ url_for('admin_user_action', user_id=user.id, action='approve') }}">
-              <button type="submit" class="action-btn approve-btn" title="Approve user">
-                <span class="action-icon">✅</span>
-                <span class="action-label">Approve</span>
-              </button>
-            </form>
-            {% elif status == 'active' %}
-            <form method="POST" action="{{ url_for('admin_user_action', user_id=user.id, action='disable') }}">
-              <button type="submit" class="action-btn disable-btn {{ 'disabled-self' if user.id == current_user.id }}"
-                      title="{{ 'Cannot disable yourself' if user.id == current_user.id else 'Disable user' }}"
-                      {{ 'disabled' if user.id == current_user.id }}>
-                <span class="action-icon">🔒</span>
-                <span class="action-label">Disable</span>
-              </button>
-            </form>
-            {% elif status == 'inactive' %}
-            <form method="POST" action="{{ url_for('admin_user_action', user_id=user.id, action='enable') }}">
-              <button type="submit" class="action-btn enable-btn" title="Enable user">
-                <span class="action-icon">🔓</span>
-                <span class="action-label">Enable</span>
-              </button>
-            </form>
-            {% endif %}
-
-            <!-- Promote / Demote -->
-            {% if user.role == "user" %}
-            <form method="POST" action="{{ url_for('admin_user_action', user_id=user.id, action='promote') }}">
-              <button type="submit" class="action-btn promote-btn" title="Promote to Admin">
-                <span class="action-icon">⬆️</span>
-              </button>
-            </form>
-            {% else %}
-            <form method="POST" action="{{ url_for('admin_user_action', user_id=user.id, action='demote') }}">
-              <button type="submit" class="action-btn demote-btn" title="Demote to User">
-                <span class="action-icon">⬇️</span>
-              </button>
-            </form>
-            {% endif %}
-
-          </div>
-          {% endif %}
-        </td>
       </tr>
       {% endfor %}
     </tbody>
@@ -125,11 +141,111 @@
   <button class="filter-btn" data-filter="inactive">Inactive</button>
 </div>
 
+<!-- Hidden bulk form -->
+<form id="bulkForm" method="POST" action="">
+  <input type="hidden" id="bulkIds" name="user_ids">
+</form>
+
+<!-- Delete confirmation modal -->
+<div class="modal fade" id="deleteModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered" style="max-width:430px;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <div class="nr-badge" style="margin-bottom:0.3rem; border-color:rgba(239,83,80,0.4); color:#ef9a9a;">IRREVERSIBLE ACTION</div>
+          <h5 class="modal-title" style="color:#ef9a9a;">Delete Users</h5>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size:0.88rem; color:#ccc; margin-bottom:0.6rem;">
+          You are about to permanently delete
+          <span id="delCount" style="font-family:'JetBrains Mono',monospace; color:#ef9a9a; font-weight:700;"></span> user(s):
+        </p>
+        <p id="delNames" style="font-family:'JetBrains Mono',monospace; font-size:0.78rem; color:#555; margin-bottom:1rem; word-break:break-all;"></p>
+        <p style="font-size:0.82rem; color:#555; margin-bottom:1.25rem;">
+          All associated data — inventory, security profiles, rollout history, and results — will be permanently removed. This cannot be undone.
+        </p>
+        <div>
+          <label style="font-size:0.75rem; color:#555; text-transform:uppercase; letter-spacing:0.8px; font-weight:600; margin-bottom:0.4rem; display:block;">
+            Type <span id="delCountLabel" style="color:#ef9a9a; font-family:'JetBrains Mono',monospace; font-weight:700;"></span> to confirm
+          </label>
+          <input type="number" id="delConfirmInput" class="form-control" placeholder="Enter number" min="1"
+                 style="font-size:0.88rem; max-width:160px;">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-danger btn-sm" id="delConfirmBtn" disabled>
+          <i class="bi bi-trash3 me-1"></i>Delete permanently
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <style>
+  /* Toolbar */
+  .admin-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 1.25rem;
+    background: #0f0f0f;
+    border: 1px solid #1a1a1a;
+    border-radius: 8px;
+    padding: 0.6rem 1rem;
+    flex-wrap: wrap;
+  }
+  .toolbar-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.62rem;
+    color: #333;
+    letter-spacing: 1.5px;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .tb-divider {
+    width: 1px;
+    height: 20px;
+    background: #1e1e1e;
+    flex-shrink: 0;
+  }
+  .tip-wrap { display: inline-block; }
+
+  .tb-btn {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 20px;
+    padding: 0.22rem 0.75rem;
+    font-family: 'Inter', sans-serif;
+    font-size: 0.76rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 0.15s, box-shadow 0.15s, opacity 0.15s;
+    white-space: nowrap;
+  }
+  .tb-btn:disabled { opacity: 0.2; cursor: not-allowed; transform: none !important; box-shadow: none !important; pointer-events: none; }
+  .tb-btn:not(:disabled):hover { transform: translateY(-1px); box-shadow: 0 3px 8px rgba(0,0,0,0.3); }
+
+  .approve-tb { background: rgba(40,167,69,0.15);  color: #a5d6a7; border: 1px solid rgba(40,167,69,0.25); }
+  .approve-tb:not(:disabled):hover  { background: rgba(40,167,69,0.25); }
+  .enable-tb  { background: rgba(0,188,212,0.12);  color: #80deea; border: 1px solid rgba(0,188,212,0.2); }
+  .enable-tb:not(:disabled):hover   { background: rgba(0,188,212,0.22); }
+  .disable-tb { background: rgba(253,126,20,0.15); color: #ffcc80; border: 1px solid rgba(253,126,20,0.25); }
+  .disable-tb:not(:disabled):hover  { background: rgba(253,126,20,0.25); }
+  .promote-tb { background: rgba(220,53,69,0.12);  color: #ef9a9a; border: 1px solid rgba(220,53,69,0.2); }
+  .promote-tb:not(:disabled):hover  { background: rgba(220,53,69,0.22); }
+  .demote-tb  { background: rgba(108,117,125,0.12); color: #aaa;  border: 1px solid rgba(108,117,125,0.2); }
+  .demote-tb:not(:disabled):hover   { background: rgba(108,117,125,0.22); }
+  .delete-tb  { background: rgba(183,28,28,0.12);  color: #ef9a9a; border: 1px solid rgba(183,28,28,0.2); }
+  .delete-tb:not(:disabled):hover   { background: rgba(183,28,28,0.25); }
+
+  /* Table */
   .sortable { cursor: pointer; user-select: none; }
   .sortable:hover { background-color: rgba(0,188,212,0.03); }
   .sort-icon { font-size: 0.68rem; color: #333; margin-left: 0.2rem; }
 
+  /* Filter */
   .filter-btn {
     font-family: 'Inter', sans-serif;
     font-size: 0.73rem;
@@ -142,81 +258,193 @@
     cursor: pointer;
     transition: all 0.15s;
   }
-  .filter-btn:hover { border-color: #333 !important; color: #888 !important; background: rgba(255,255,255,0.02) !important; }
+  .filter-btn:hover { border-color: #333 !important; color: #888 !important; }
   .filter-btn.active-filter {
     background: rgba(0,188,212,0.1) !important;
     border-color: rgba(0,188,212,0.3) !important;
     color: #00bcd4 !important;
   }
 
-  .action-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.3rem;
-    border-radius: 20px;
-    padding: 0.22rem 0.65rem;
-    font-family: 'Inter', sans-serif;
-    font-size: 0.76rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: transform 0.15s, box-shadow 0.15s, opacity 0.15s;
-  }
-  .action-btn:hover { transform: translateY(-1px); box-shadow: 0 3px 8px rgba(0,0,0,0.3); }
-  .action-icon { font-size: 0.85rem; }
-
-  .approve-btn { background: rgba(40,167,69,0.15);  color: #a5d6a7; border: 1px solid rgba(40,167,69,0.25); }
-  .approve-btn:hover  { background: rgba(40,167,69,0.25); }
-  .disable-btn  { background: rgba(253,126,20,0.15); color: #ffcc80; border: 1px solid rgba(253,126,20,0.25); }
-  .disable-btn:hover  { background: rgba(253,126,20,0.25); }
-  .enable-btn   { background: rgba(0,188,212,0.12);  color: #80deea; border: 1px solid rgba(0,188,212,0.2); }
-  .enable-btn:hover   { background: rgba(0,188,212,0.22); }
-  .promote-btn  { background: rgba(220,53,69,0.12);  color: #ef9a9a; border: 1px solid rgba(220,53,69,0.2); }
-  .promote-btn:hover  { background: rgba(220,53,69,0.22); }
-  .demote-btn   { background: rgba(108,117,125,0.12); color: #aaa;   border: 1px solid rgba(108,117,125,0.2); }
-  .demote-btn:hover   { background: rgba(108,117,125,0.22); }
-  .disabled-self { opacity: 0.2 !important; cursor: not-allowed !important; transform: none !important; box-shadow: none !important; }
+  /* Row highlight on check */
+  tr.row-selected { background: rgba(0,188,212,0.04) !important; }
 </style>
 
 <script>
-  const tbody = document.querySelector("#userTable tbody");
-  const rows  = Array.from(tbody.querySelectorAll("tr"));
+  // ── Data ──
+  const ACTIONS = ["Approve","Enable","Disable","Promote","Demote","Delete"];
 
-  // --- Search ---
-  document.getElementById("userSearch").addEventListener("input", function () {
-    const q = this.value.toLowerCase();
-    rows.forEach(row => {
-      const text = row.textContent.toLowerCase();
-      row.style.display = text.includes(q) ? "" : "none";
+  const rules = {
+    Approve: sel => {
+      if (!sel.length) return "No users selected";
+      const n = sel.filter(u => u.approved).length;
+      return n ? `${n} user(s) already approved` : null;
+    },
+    Enable: sel => {
+      if (!sel.length) return "No users selected";
+      const notApproved = sel.filter(u => !u.approved).length;
+      if (notApproved) return `${notApproved} user(s) not yet approved`;
+      const active = sel.filter(u => u.active).length;
+      return active ? `${active} user(s) already active` : null;
+    },
+    Disable: sel => {
+      if (!sel.length) return "No users selected";
+      if (sel.some(u => u.is_self)) return "Cannot disable your own account";
+      const n = sel.filter(u => !u.active).length;
+      return n ? `${n} user(s) already inactive` : null;
+    },
+    Promote: sel => {
+      if (!sel.length) return "No users selected";
+      const n = sel.filter(u => u.role === "admin").length;
+      return n ? `${n} user(s) already admin` : null;
+    },
+    Demote: sel => {
+      if (!sel.length) return "No users selected";
+      if (sel.some(u => u.is_self)) return "Cannot demote your own account";
+      const n = sel.filter(u => u.role !== "admin").length;
+      return n ? `${n} user(s) are not admin` : null;
+    },
+    Delete: sel => {
+      if (!sel.length) return "No users selected";
+      if (sel.some(u => u.is_factory)) return "Factory user cannot be deleted";
+      if (sel.some(u => u.is_self))    return "Cannot delete your own account";
+      return null;
+    }
+  };
+
+  // ── Tooltip registry ──
+  const tooltips = {};
+
+  function getSelected() {
+    return Array.from(document.querySelectorAll(".row-cb:checked"))
+      .map(cb => JSON.parse(cb.closest("tr").dataset.user));
+  }
+
+  function updateToolbar() {
+    const sel = getSelected();
+
+    // Selection info label
+    const info = document.getElementById("selectionInfo");
+    info.textContent = sel.length === 0
+      ? "SELECT USERS TO PERFORM ACTIONS"
+      : `${sel.length} USER${sel.length !== 1 ? "S" : ""} SELECTED`;
+    info.style.color = sel.length ? "#00bcd4" : "#333";
+
+    ACTIONS.forEach(name => {
+      const btn  = document.getElementById("btn" + name);
+      const wrap = document.getElementById("wrap" + name);
+      const reason = rules[name](sel);
+
+      btn.disabled = !!reason;
+
+      // Dispose existing tooltip
+      if (tooltips[name]) { tooltips[name].dispose(); delete tooltips[name]; }
+
+      if (reason && sel.length > 0) {
+        wrap.setAttribute("data-bs-toggle", "tooltip");
+        wrap.setAttribute("data-bs-placement", "top");
+        wrap.setAttribute("data-bs-title", reason);
+        tooltips[name] = new bootstrap.Tooltip(wrap, { trigger: "hover" });
+      } else {
+        wrap.removeAttribute("data-bs-toggle");
+        wrap.removeAttribute("data-bs-title");
+      }
+    });
+  }
+
+  // ── Checkboxes ──
+  document.querySelectorAll(".row-cb").forEach(cb => {
+    cb.addEventListener("change", function() {
+      this.closest("tr").classList.toggle("row-selected", this.checked);
+      updateToolbar();
     });
   });
 
-  // --- Status filter ---
+  document.getElementById("selectAll").addEventListener("change", function() {
+    const visible = Array.from(document.querySelectorAll("#userTable tbody tr"))
+      .filter(r => r.style.display !== "none")
+      .map(r => r.querySelector(".row-cb"))
+      .filter(Boolean);
+    visible.forEach(cb => {
+      cb.checked = this.checked;
+      cb.closest("tr").classList.toggle("row-selected", this.checked);
+    });
+    updateToolbar();
+  });
+
+  // ── Bulk action buttons (non-delete) ──
+  ["Approve","Enable","Disable","Promote","Demote"].forEach(name => {
+    document.getElementById("btn" + name).addEventListener("click", () => {
+      const sel = getSelected();
+      document.getElementById("bulkIds").value = sel.map(u => u.id).join(",");
+      document.getElementById("bulkForm").action = `/admin/users/bulk/${name.toLowerCase()}`;
+      document.getElementById("bulkForm").submit();
+    });
+  });
+
+  // ── Delete flow ──
+  document.getElementById("btnDelete").addEventListener("click", () => {
+    const sel = getSelected();
+    document.getElementById("delCount").textContent = sel.length;
+    document.getElementById("delCountLabel").textContent = sel.length;
+    document.getElementById("delNames").textContent = sel.map(u => u.username).join(", ");
+    document.getElementById("delConfirmInput").value = "";
+    document.getElementById("delConfirmBtn").disabled = true;
+    new bootstrap.Modal(document.getElementById("deleteModal")).show();
+  });
+
+  document.getElementById("delConfirmInput").addEventListener("input", function() {
+    const n = getSelected().length;
+    document.getElementById("delConfirmBtn").disabled = parseInt(this.value) !== n;
+  });
+
+  document.getElementById("delConfirmBtn").addEventListener("click", () => {
+    const sel = getSelected();
+    document.getElementById("bulkIds").value = sel.map(u => u.id).join(",");
+    document.getElementById("bulkForm").action = "/admin/users/bulk/delete";
+    document.getElementById("bulkForm").submit();
+  });
+
+  // ── Search ──
+  document.getElementById("userSearch").addEventListener("input", function() {
+    const q = this.value.toLowerCase();
+    document.querySelectorAll("#userTable tbody tr").forEach(row => {
+      row.style.display = row.textContent.toLowerCase().includes(q) ? "" : "none";
+    });
+    updateToolbar();
+  });
+
+  // ── Status filter ──
   document.querySelectorAll(".filter-btn").forEach(btn => {
-    btn.addEventListener("click", function () {
+    btn.addEventListener("click", function() {
       document.querySelectorAll(".filter-btn").forEach(b => b.classList.remove("active-filter"));
       this.classList.add("active-filter");
       const filter = this.dataset.filter;
-      rows.forEach(row => {
+      document.querySelectorAll("#userTable tbody tr").forEach(row => {
         row.style.display = (filter === "all" || row.dataset.status === filter) ? "" : "none";
       });
+      updateToolbar();
     });
   });
 
-  // --- Column sort ---
+  // ── Column sort ──
   let sortDir = {};
   document.querySelectorAll(".sortable").forEach(th => {
-    th.addEventListener("click", function () {
+    th.addEventListener("click", function() {
       const col = parseInt(this.dataset.col);
       sortDir[col] = !sortDir[col];
-      const sorted = rows.slice().sort((a, b) => {
-        const aText = a.cells[col]?.textContent.trim().toLowerCase() || "";
-        const bText = b.cells[col]?.textContent.trim().toLowerCase() || "";
-        return sortDir[col] ? aText.localeCompare(bText) : bText.localeCompare(aText);
-      });
-      sorted.forEach(row => tbody.appendChild(row));
+      const tbody = document.querySelector("#userTable tbody");
+      const rows  = Array.from(tbody.querySelectorAll("tr"));
+      rows.sort((a, b) => {
+        const aT = a.cells[col]?.textContent.trim().toLowerCase() || "";
+        const bT = b.cells[col]?.textContent.trim().toLowerCase() || "";
+        return sortDir[col] ? aT.localeCompare(bT) : bT.localeCompare(aT);
+      }).forEach(r => tbody.appendChild(r));
       document.querySelectorAll(".sort-icon").forEach(i => i.textContent = "⇅");
       this.querySelector(".sort-icon").textContent = sortDir[col] ? "▲" : "▼";
     });
   });
+
+  // ── Init ──
+  updateToolbar();
 </script>
 {% endblock %}

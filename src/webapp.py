@@ -2,28 +2,28 @@ import base64
 import secrets
 import uuid
 from io import BytesIO
+from itertools import groupby
 from queue import Empty
 from time import sleep
+from collections import Counter
 
 import pyotp
 import qrcode
 from flask import (redirect, Response, request, render_template, url_for, \
                    Flask, flash, session)
-from flask_login import (LoginManager, login_required,
-                         logout_user, current_user, login_user)
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
-
+from flask_login import (LoginManager, login_required,
+                         logout_user, current_user, login_user)
 from sqlalchemy.exc import IntegrityError
 from waitress import serve
 from werkzeug.security import generate_password_hash, check_password_hash
 
 import input_parser
 from core import RolloutOptions
-from orchestration import RolloutOrchestrator
 from db import get_session
-from logging_utils import RolloutLogger
-from tables import User
+from orchestration import RolloutOrchestrator
+from tables import User, DeviceResult
 
 app = Flask(__name__, template_folder='../templates')
 app.config["SECRET_KEY"] = secrets.token_urlsafe(32)
@@ -36,6 +36,7 @@ login_mng.login_view = "home"
 
 conn_limit = Limiter(get_remote_address, app=app, default_limits=[],
                      storage_uri="memory://")
+
 
 @login_mng.user_loader
 def load_user(user_id):
@@ -69,7 +70,7 @@ def login():
 					if user.username == "admin":
 						db_session.expunge(user)
 						login_user(user)
-						return redirect(url_for("upload"))
+						return redirect(url_for("dashboard"))
 					# checks otp enrollment
 					elif user.otp_secret:
 						session["pre_auth_user_id"] = str(user.id)
@@ -173,7 +174,7 @@ def otp_enroll():
 			session.pop("pending_totp_secret")
 			session.pop("pre_auth_user_id")
 			login_user(user)
-			return redirect(url_for("upload"))
+			return redirect(url_for("dashboard"))
 		flash("invalid code, please try again", "danger")
 		return redirect(url_for("otp_enroll"))
 
@@ -197,7 +198,7 @@ def otp_verify():
 		if pyotp.TOTP(user.otp_secret).verify(user_code, valid_window=1):
 			login_user(user)
 			session.pop("pre_auth_user_id")
-			return redirect(url_for("upload"))
+			return redirect(url_for("dashboard"))
 		flash("invalid code, please try again", "danger")
 		return redirect(url_for("otp_verify"))
 	elif request.method == "GET":
@@ -213,7 +214,42 @@ def logout():
 @app.route("/account")
 @login_required
 def account():
-	return render_template("account.html", user=current_user)
+	with get_session() as db_session:
+		user = db_session.get(User, current_user.id)
+		user_results = user.results
+		db_session.expunge_all()
+
+	# Total rollouts
+	total_rollouts = len(set(r.job_id for r in user_results))
+
+	# Total devices configured
+	total_devices = len(user_results)
+
+	# Success rate
+	if total_rollouts > 0:
+		successful = len(
+			set(r.job_id for r in user_results if r.status == 'success'))
+		success_rate = round((successful / total_rollouts) * 100)
+	else:
+		success_rate = None
+
+	# Most configured device type
+	if user_results:
+		most_common_platform = \
+		Counter(r.device_type for r in user_results).most_common(1)[0][0]
+	else:
+		most_common_platform = None
+
+	# Total commands pushed
+	total_commands = sum(r.commands_sent for r in user_results)
+
+	return render_template("account.html",
+	                       user=current_user,
+	                       total_rollouts=total_rollouts,
+	                       total_devices=total_devices,
+	                       success_rate=success_rate,
+	                       most_common_platform=most_common_platform,
+	                       total_commands=total_commands)
 
 
 @app.route("/upload")
@@ -225,7 +261,6 @@ def upload():
 @app.route("/start_rollout", methods=["POST"])
 @login_required
 def start_rollout():
-
 	# File upload
 	commands_file = request.files.get("commands_file")
 	# Manual Entry
@@ -233,28 +268,27 @@ def start_rollout():
 
 	if commands_file:
 		commands = [line.decode("utf-8").strip() for line in
-	            commands_file.readlines()]
+		            commands_file.readlines()]
 	else:
 		commands = [line.strip() for line in manual_commands.splitlines() if
 		            line.strip()]
 
-	#Options
+	# Options
 	verbose_flag = request.form.get("_verbose", "")
 	verify_flag = request.form.get("_verify", "")
 	options = RolloutOptions(verify=bool(verify_flag),
 	                         verbose=bool(verbose_flag),
 	                         webapp=True)
 
-
-	#Load inventory from db
+	# Load inventory from db
 	with get_session() as db_session:
-		user = db_session.get(User,current_user.id)
-		inventory = user.inventory
+		user = db_session.get(User, current_user.id)
+		device_inventory = user.inventory
 		db_session.expunge_all()
 
-	#Parse and Submit
-	devices = input_parser.InputParser.import_from_inventory(inventory)
-	job_id = orchestrator.submit(devices, commands, options)
+	# Parse and Submit
+	devices = input_parser.InputParser.import_from_inventory(device_inventory)
+	job_id = orchestrator.submit(devices, commands, options, current_user.id)
 	session["job_id"] = str(job_id)
 
 	return redirect(url_for("rollout"))
@@ -274,7 +308,6 @@ def cancel_rollout():
 		orchestrator.cancel(uuid.UUID(job_id))
 		return {"status": "cancelled"}
 	return {"status": "no_active_rollout"}
-
 
 
 @app.route("/rollout_status")
@@ -318,7 +351,7 @@ def sse_stream():
 @login_required
 def admin_panel():
 	if current_user.role != "admin":
-		return redirect(url_for("upload"))
+		return redirect(url_for("dashboard"))
 	return redirect(url_for("admin_users"))
 
 
@@ -326,7 +359,7 @@ def admin_panel():
 @login_required
 def admin_users():
 	if current_user.role != "admin":
-		return redirect(url_for("upload"))
+		return redirect(url_for("dashboard"))
 	with get_session() as db_session:
 		users = db_session.query(User).order_by(User.created_at).all()
 		db_session.expunge_all()
@@ -338,17 +371,19 @@ def admin_users():
 @login_required
 def admin_user_action(user_id, action):
 	if current_user.role != "admin":
-		return redirect(url_for("upload"))
-	if action == "disable" and uuid.UUID(user_id) == current_user.id:
-		flash("You cannot disable your own account.", "danger")
+		return redirect(url_for("dashboard"))
+	if action in ("disable", "delete") and uuid.UUID(user_id) == current_user.id:
+		flash("You cannot perform this action on your own account.", "danger")
 		return redirect(url_for("admin_users"))
 	with get_session() as db_session:
 		try:
 			user = db_session.query(User).filter_by(
 				id=uuid.UUID(user_id)).first()
 		except ValueError:
-			return redirect(url_for("upload"))
+			return redirect(url_for("dashboard"))
 
+		if not user or user.username == "admin":
+			return redirect(url_for("admin_users"))
 
 		if action == "approve":
 			user.is_approved = True
@@ -361,8 +396,123 @@ def admin_user_action(user_id, action):
 			user.role = "admin"
 		elif action == "demote":
 			user.role = "user"
+		elif action == "delete":
+			db_session.delete(user)
 
 	return redirect(url_for("admin_users"))
+
+
+@app.route("/admin/users/bulk/<action>", methods=["POST"])
+@login_required
+def admin_bulk_action(action):
+	if current_user.role != "admin":
+		return redirect(url_for("dashboard"))
+	raw = request.form.get("user_ids", "")
+	try:
+		user_ids = [uuid.UUID(uid.strip()) for uid in raw.split(",") if uid.strip()]
+	except ValueError:
+		return redirect(url_for("admin_users"))
+	with get_session() as db_session:
+		for uid in user_ids:
+			user = db_session.get(User, uid)
+			if not user or user.username == "admin":
+				continue
+			if action in ("disable", "delete") and uid == current_user.id:
+				continue
+			if action == "approve":
+				user.is_approved = True
+				user.is_active = True
+			elif action == "enable":
+				user.is_active = True
+			elif action == "disable":
+				user.is_active = False
+			elif action == "promote":
+				user.role = "admin"
+			elif action == "demote":
+				user.role = "user"
+			elif action == "delete":
+				db_session.delete(user)
+	return redirect(url_for("admin_users"))
+
+
+def job_status(rows: list[DeviceResult]) -> str:
+	statuses = {r.status for r in rows}
+	if "cancelled" in statuses:
+		return "cancelled"
+	if all(r.status == "failed" for r in rows):
+		return "failed"
+	if any(r.status in ("failed","partial") for r in rows):
+		return "partial"
+	return "success"
+@app.route("/dashboard")
+@login_required
+def dashboard():
+	with get_session() as db_session:
+		user = db_session.get(User, current_user.id)
+		inventory_count = len(user.inventory)
+		profile_count = len(user.security_profiles)
+		jobs_results = user.results  # DeviceResult rows
+		db_session.expunge_all()
+
+	sorted_results = sorted(jobs_results, key=lambda x: x.job_id)
+	job_summaries = []
+	for job_id, rows in groupby(sorted_results, key=lambda x: x.job_id):
+		rows = list(rows)
+		job_summaries.append({"job_id": job_id,
+		                      "completed_at": max(r.completed_at for r in
+		                                          rows),
+		                      "device_count": len(rows),
+		                      "commands_sent": rows[0].commands_sent,
+		                      "status": job_status(rows)})
+
+	job_summaries.sort(key=lambda x: x['completed_at'], reverse=True)
+	recent_jobs = job_summaries[:5]
+	total_rollouts = len(job_summaries)
+	last_status = job_summaries[0]['status'] if job_summaries else None
+
+	#get active job
+	job_id = session.get("job_id",None)
+	active_job = orchestrator.get(uuid.UUID(job_id)) if job_id else None
+
+	active_job_data = None
+	if active_job and active_job.is_alive():
+		active_job_data = {
+			"job_id": job_id,
+			"device_count": active_job.get_device_count(),
+			"started_at": active_job.started_at.strftime("%H:%M:%S"),
+			"started_at_iso": active_job.started_at.isoformat()
+		}
+
+
+	return render_template("dashboard.html",
+	                       active_section="dashboard",
+	                       active_job=active_job_data,
+	                       recent_jobs=recent_jobs,
+	                       inventory_count=inventory_count,
+	                       profile_count=profile_count,
+	                       total_rollouts=total_rollouts,
+	                       last_status=last_status)
+
+
+@app.route("/inventory")
+@login_required
+def inventory():
+	return render_template("inventory.html",
+	                       active_section="inventory")
+
+
+@app.route("/results")
+@login_required
+def results():
+	return render_template("results.html",
+	                       active_section="results")
+
+
+@app.route("/security")
+@login_required
+def security():
+	return render_template("security.html",
+	                       active_section="security")
 
 
 if __name__ == "__main__":

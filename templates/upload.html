@@ -40,7 +40,7 @@
                                 style="display: none; border-left: none;">✕</button>
                     </div>
 
-                    <!-- Hidden input to carry _devices as JSON -->
+                    <!-- Hidden input to carry devices as JSON -->
                     <input type="hidden" name="devices_json" id="devicesJson">
 
                     <script>
@@ -132,7 +132,7 @@
                                 portInput.classList.toggle("is-invalid", isNaN(port) || port < 1 || port > 65535);
                             });
 
-                            // 🔑 Sync _devices table → hidden JSON
+                            // 🔑 Sync devices table → hidden JSON
                             function updateDevicesJson() {
                                 const rows = document.querySelectorAll("#deviceTable tbody tr");
                                 const devices = [];
@@ -460,7 +460,7 @@
             btn.style.display = "none";
         });
 
-        // Also reset hidden JSON (so stale _devices don't leak)
+        // Also reset hidden JSON (so stale devices don't leak)
         const devicesJson = document.getElementById("devicesJson");
         if (devicesJson) devicesJson.value = "[]";
     });

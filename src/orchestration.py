@@ -1,24 +1,32 @@
+import datetime
 import threading
 import uuid
 from typing import Callable
 
-from core import RolloutEngine, RolloutOptions, Device
+from core import RolloutEngine, RolloutOptions, Device, DeviceResultDict
+from db import get_session
 from logging_utils import RolloutLogger
+from tables import RolloutSession, DeviceResult
 
 
 class RolloutJob:
-	def __init__(self, job_id: uuid.UUID, engine: RolloutEngine,
-	             options: RolloutOptions) -> None:
-		self.id = job_id
+	def __init__(self, job_id: uuid.UUID, user_id: uuid.UUID,
+	             engine: RolloutEngine, options: RolloutOptions) -> None:
+		self.job_id = job_id
+		self.user_id = user_id
+		self.started_at: datetime.datetime | None = None
+		self.results: list[DeviceResultDict] = []
 		self._engine = engine
 		self._logger = RolloutLogger(options.webapp, options.verbose)
 		self._cancel_flag = threading.Event()
 		self._thread = None
 
 	def start(self, on_complete: Callable[[uuid.UUID], None]) -> None:
+		self.started_at = datetime.datetime.now()
+
 		def _engine_run():
-			self._engine.run(self._cancel_flag, self._logger)
-			on_complete(self.id)
+			self.results = self._engine.run(self._cancel_flag, self._logger)
+			on_complete(self.job_id)
 
 		self._thread = threading.Thread(target=_engine_run, daemon=True)
 		self._thread.start()
@@ -35,6 +43,9 @@ class RolloutJob:
 	def get_log(self) -> str:
 		return self._logger.get()
 
+	def get_device_count(self) -> int:
+		return len(self._engine.devices)
+
 
 class RolloutOrchestrator:
 	def __init__(self, max_concurrent: int = 4) -> None:
@@ -43,27 +54,34 @@ class RolloutOrchestrator:
 		self._lock = threading.Lock()
 
 	def submit(self, devices: list[Device], commands: list[str],
-	           params: RolloutOptions) -> uuid.UUID:
+	           params: RolloutOptions, user_id: uuid.UUID) -> uuid.UUID:
 		engine = RolloutEngine(params, devices, commands)
-		job = RolloutJob(uuid.uuid4(), engine, params)
+		job = RolloutJob(uuid.uuid4(), user_id, engine, params)
 
 		with self._lock:
-			self._jobs[job.id] = job
-		# TODO add write to DB rollutsession
+			self._jobs[job.job_id] = job
+		with get_session() as db_session:
+			db_session.add(RolloutSession(id=job.job_id,
+			                              user_id=user_id,
+			                              status="pending"
+			                              ))
 		self._dispatch()
 
-		return job.id
+		return job.job_id
 
 	def cancel(self, job_id: uuid.UUID) -> None:
 		with self._lock:
-			job = self._jobs.get(job_id,None)
+			job = self._jobs.get(job_id, None)
 		if job:
 			job.cancel()
-			#TODO update DB rollout session
+			with get_session() as db_session:
+				session_row = db_session.get(RolloutSession, job.job_id)
+				if session_row:
+					session_row.status = "cancelling"
 
 	def get(self, job_id: uuid.UUID) -> RolloutJob | None:
 		with self._lock:
-			job = self._jobs.get(job_id,None)
+			job = self._jobs.get(job_id, None)
 		return job
 
 	def _dispatch(self) -> None:
@@ -76,9 +94,29 @@ class RolloutOrchestrator:
 				break
 			job.start(self._cleanup)
 			num_active += 1
+			with get_session() as db_session:
+				session_row = db_session.get(RolloutSession, job.job_id)
+				if session_row:
+					session_row.status = "active"
 
 	def _cleanup(self, job_id: uuid.UUID) -> None:
 		with self._lock:
-			self._jobs.pop(job_id, None)
-		# TODO: write DeviceResult rows, delete RolloutSession
+			job = self._jobs.pop(job_id, None)
+		if job:
+			with get_session() as db_session:
+				for result in job.results:
+					db_session.add(DeviceResult(user_id=job.user_id,
+					                            job_id=job.job_id,
+					                            started_at=job.started_at,
+					                            completed_at=datetime.datetime.now(),
+					                            device_ip=result["device_ip"],
+					                            commands_sent=result["commands_sent"],
+					                            commands_verified=result[
+						                            "commands_verified"],
+					                            status=result["status"]
+					                            ))
+				session_row = db_session.get(RolloutSession, job.job_id)
+				if session_row:
+					db_session.delete(session_row)
+
 		self._dispatch()

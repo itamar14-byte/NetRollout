@@ -13,7 +13,7 @@ Network bulk configuration tool that pushes configuration snippets to multiple n
 ### Run the CLI
 ```bash
 cd src
-python cli.py -d <_devices.csv> -c <_commands.txt> [-vy] [-vb]
+python cli.py -d <devices.csv> -c <_commands.txt> [-vy] [-vb]
 ```
 - `-vy` / `--verify`: verify config was applied after push (uses NAPALM)
 - `-vb` / `--verbose`: print logs to console (always written to timestamped `.log` file)
@@ -111,7 +111,7 @@ Always-dark enterprise aesthetic — permanently dark, no toggle. Key design ele
 - **Phase 1 — Auth pipeline ✅ COMPLETE (2026-04-06)**
 - **Frontend redesign ✅ COMPLETE (2026-04-07)**
 - **Architecture session ✅ COMPLETE (2026-04-07)** — see `docs/architecture.md`
-- **Phase 2 — Architecture refactor + DB integration (next)**
+- **Phase 2 — Architecture refactor + DB integration (IN PROGRESS)** — all core refactoring + DB wiring done. Remaining: inventory management UI (CRUD for devices + security profiles)
 - **Phase 3 — Testing**
 - **Phase 4 — Packaging**
 
