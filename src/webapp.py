@@ -27,11 +27,13 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 import encryption
 import input_parser
+import validation
 from core import RolloutOptions, Device
 from validation import Validator
 from db import get_session
 from orchestration import RolloutOrchestrator
-from tables import User, DeviceResult, SecurityProfile, Inventory
+from tables import User, DeviceResult, SecurityProfile, Inventory, \
+    VariableMapping
 
 app = Flask(__name__, template_folder='../templates')
 app.config["SECRET_KEY"] = secrets.token_urlsafe(32)
@@ -396,21 +398,16 @@ def admin_users():
                            active_section="users")
 
 
-@app.route("/admin/users/<user_id>/<action>", methods=["POST"])
+@app.route("/admin/users/<uuid:user_id>/<action>", methods=["POST"])
 @login_required
 def admin_user_action(user_id, action):
     if current_user.role != "admin":
         return redirect(url_for("dashboard"))
-    if action in ("disable", "delete") and uuid.UUID(
-            user_id) == current_user.id:
+    if action in ("disable", "delete") and user_id == current_user.id:
         flash("You cannot perform this action on your own account.", "danger")
         return redirect(url_for("admin_users"))
     with get_session() as db_session:
-        try:
-            user = db_session.query(User).filter_by(
-                id=uuid.UUID(user_id)).first()
-        except ValueError:
-            return redirect(url_for("dashboard"))
+        user = db_session.query(User).filter_by(id=user_id).first()
 
         if not user or user.username == "admin":
             return redirect(url_for("admin_users"))
@@ -694,15 +691,12 @@ def security_create():
     return redirect(url_for("security"))
 
 
-@app.route("/security/<profile_id>/edit", methods=["POST"])
+@app.route("/security/<uuid:profile_id>/edit", methods=["POST"])
 @login_required
 def security_edit(profile_id):
     with get_session() as db_session:
-        try:
-            profile = db_session.query(SecurityProfile).filter_by(id=uuid.UUID(
-                profile_id), user_id=current_user.id).first()
-        except ValueError:
-            return redirect(url_for("security"))
+        profile = db_session.query(SecurityProfile).filter_by(
+            id=profile_id, user_id=current_user.id).first()
         if not profile:
             return redirect(url_for("security"))
 
@@ -723,15 +717,12 @@ def security_edit(profile_id):
     return redirect(url_for("security"))
 
 
-@app.route("/security/<profile_id>/delete", methods=["POST"])
+@app.route("/security/<uuid:profile_id>/delete", methods=["POST"])
 @login_required
 def security_delete(profile_id):
     with get_session() as db_session:
-        try:
-            profile = db_session.query(SecurityProfile).filter_by(
-                id=uuid.UUID(profile_id), user_id=current_user.id).first()
-        except ValueError:
-            return redirect(url_for("security"))
+        profile = db_session.query(SecurityProfile).filter_by(
+            id=profile_id, user_id=current_user.id).first()
         if not profile:
             return redirect(url_for("security"))
 
@@ -745,22 +736,23 @@ def security_delete(profile_id):
     return redirect(url_for("security"))
 
 
-@app.route("/security/<profile_id>/test", methods=["POST"])
+@app.route("/security/<uuid:profile_id>/test", methods=["POST"])
 @login_required
 def security_test(profile_id):
     data = request.get_json()
     if not data or not data.get("device_id"):
         return {"status": "error", "message": "No device selected"}
 
+    try:
+        device_id = uuid.UUID(data["device_id"])
+    except ValueError:
+        return {"status": "error", "message": "Invalid request"}
+
     with get_session() as db_session:
-        try:
-            profile = db_session.query(SecurityProfile).filter_by(
-                id=uuid.UUID(profile_id),user_id=current_user.id).first()
-            device = db_session.query(Inventory).filter_by(id=uuid.UUID(data[
-                                                                    "device_id"]),
-                                                        user_id=current_user.id).first()
-        except ValueError:
-            return {"status": "error", "message": "Invalid request"}
+        profile = db_session.query(SecurityProfile).filter_by(
+            id=profile_id, user_id=current_user.id).first()
+        device = db_session.query(Inventory).filter_by(
+            id=device_id, user_id=current_user.id).first()
         if not profile or not device:
             return {"status": "error", "message": "Profile or device not found"}
         if not Validator.test_tcp_port(device.ip,device.port):
@@ -789,6 +781,174 @@ def security_test(profile_id):
                 "message": f"Connection timed out on {device.ip}:{device.port}"}
     except Exception as e:
         return {"status": "error", "message": str(e)}
+
+
+@app.route("/mappings")
+@login_required
+def mappings():
+    with get_session() as db_session:
+        user = db_session.get(User, current_user.id)
+        var_binds = user.variable_mappings
+        _ = [m.devices for m in var_binds]
+        devices = user.inventory
+        db_session.expunge_all()
+
+    return render_template("variable_mappings.html",mappings=var_binds,
+                           devices=devices,active_section="mappings")
+
+@app.route("/mappings/create",methods=["POST"])
+@login_required
+def mappings_create():
+    label = request.form.get("label", "").strip() or None
+    inner_token = request.form["token_inner"].strip().upper()
+    property_name = request.form["property_name"]
+    index = int(request.form.get("index", "").strip()) if request.form.get(
+        "index", "").strip() else None
+
+    status, msg = Validator.validate_var_map_inner_token(inner_token)
+    if not status:
+        flash(msg, "danger")
+        return redirect(url_for("mappings"))
+
+    status, msg = Validator.validate_var_map_property_name(property_name)
+    if not status:
+        flash(msg, "danger")
+        return redirect(url_for("mappings"))
+
+    status, msg = Validator.validate_var_index(index, property_name)
+    if not status:
+        flash(msg, "danger")
+        return redirect(url_for("mappings"))
+
+    token = f"$${inner_token}$$"
+    row = VariableMapping(label=label,token=token,
+                          index=index,user_id = current_user.id)
+    with get_session() as db_session:
+        db_session.add(row)
+        flash("Mapping created.", "success")
+        return redirect(url_for("mappings"))
+
+@app.route("/mappings/<uuid:mapping_id>/edit",methods=["POST"])
+@login_required
+def mappings_edit(mapping_id):
+    label = request.form.get("label", "").strip() or None
+    inner_token = request.form["token_inner"].strip().upper()
+    property_name = request.form["property_name"]
+    index = int(request.form.get("index", "").strip()) if request.form.get(
+        "index", "").strip() else None
+
+    status, msg = Validator.validate_var_map_inner_token(inner_token)
+    if not status:
+        flash(msg, "danger")
+        return redirect(url_for("mappings"))
+
+    status, msg = Validator.validate_var_map_property_name(property_name)
+    if not status:
+        flash(msg, "danger")
+        return redirect(url_for("mappings"))
+
+    status, msg = Validator.validate_var_index(index, property_name)
+    if not status:
+        flash(msg, "danger")
+        return redirect(url_for("mappings"))
+
+    token = f"$${inner_token}$$"
+
+    with (get_session() as db_session):
+        mapping = db_session.query(VariableMapping).filter_by(
+            id=mapping_id,user_id=current_user.id).first()
+        if not mapping:
+            flash("Mapping not found.", "danger")
+            return redirect(url_for("mappings"))
+
+        mapping.label = label
+        mapping.token = token
+        mapping.property_name = property_name
+        mapping.index = index
+
+        flash("Mapping updated.", "success")
+        return redirect(url_for("mappings"))
+
+@app.route("/mappings/<uuid:mapping_id>/delete",methods=["POST"])
+@login_required
+def mappings_delete(mapping_id):
+    with get_session() as db_session:
+        mapping = db_session.query(VariableMapping).filter_by(
+            id=mapping_id, user_id=current_user.id).first()
+        if not mapping:
+            return redirect(url_for("mappings"))
+
+        db_session.delete(mapping)
+        flash("Mapping deleted.", "success")
+    return redirect(url_for("mappings"))
+
+@app.route("/mappings/bulk_assign",methods=["POST"])
+@login_required
+def mappings_bulk_assign():
+    """
+    Assigns a list of inventory devices to a variable mapping via the
+    many-to-many join table. Accepts a JSON body with mapping_id and
+    device_ids. For each device, three checks are enforced before appending:
+      1. Ownership  — device must belong to current_user
+      2. Eligibility — device.var_maps must contain mapping.property_name
+      3. Duplicate   — device must not already be assigned to this mapping
+    Invalid or ineligible device IDs are silently skipped.
+    The mapping ownership check is done once before the loop.
+    """
+    # Parse JSON body — bail immediately if malformed or missing
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({"status": "error","message": "Invalid request"}),400
+    mapping_id = data.get("mapping_id", None)
+    device_ids = data.get("device_ids", [])
+
+    if not device_ids:
+        return jsonify({"status": "error","message": "No devices provided"}),400
+
+    # mapping_id comes from JSON, not a URL parameter — manual UUID cast needed
+    try:
+        parsed_mapping_id = uuid.UUID(mapping_id)
+    except (ValueError, TypeError):
+        return jsonify({"status": "error", "message": "Invalid mapping ID"}),400
+
+    with get_session() as db_session:
+        # Ownership check on mapping — done once before the loop
+        mapping = db_session.query(VariableMapping).filter_by(
+            id=parsed_mapping_id, user_id=current_user.id).first()
+        if not mapping:
+            return jsonify({"status": "error", "message": "Mapping not found"}),404
+
+        # Snapshot already-assigned IDs before the loop to avoid re-querying
+        # the relationship on every iteration
+        assigned_ids = {d.id for d in mapping.devices}
+
+        for device_id_str in device_ids:
+            # Parse each device UUID — skip silently if malformed
+            try:
+                device = db_session.query(Inventory).filter_by(
+                    id=uuid.UUID(device_id_str), user_id=current_user.id).first()
+            except (ValueError, TypeError):
+                continue
+            # Skip if device not found or not owned by current_user
+            if not device:
+                continue
+            # Eligibility check — device must have the mapped attribute set
+            # and the value must be truthy (empty string/list would produce
+            # garbage substitution at rollout time)
+            if not (device.var_maps or {}).get(mapping.property_name):
+                continue
+            # Skip if already assigned to avoid duplicate join table rows
+            if device.id in assigned_ids:
+                continue
+            mapping.devices.append(device)
+
+    return jsonify({"status": "success"})
+
+
+
+
+
+
 
 if __name__ == "__main__":
     serve(app, host="0.0.0.0", port=8080)
