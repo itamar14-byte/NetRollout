@@ -1,4 +1,5 @@
 import datetime
+import html
 import queue
 
 
@@ -44,6 +45,7 @@ class RolloutLogger:
     def _msg(self, message: str, color: str = "") -> str:
         """Adds ANSI escape sequences to terminal color for progress and error messages"""
         if self._webapp:
+            message = html.escape(message)
             color = ANSI_TO_HTML.get(color.upper()) if color else None
             if color:
                 return color + message + WEBAPP_END
