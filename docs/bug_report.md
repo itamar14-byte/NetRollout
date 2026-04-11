@@ -1,5 +1,5 @@
 # Bug Report
-_Last updated: 2026-04-10_
+_Last updated: 2026-04-11_
 
 Status key: 🔴 Open · ✅ Fixed
 
@@ -59,12 +59,13 @@ Fix: change to `int(port) < 1`.
 
 ---
 
-### 🔴 `rollout.html` — SSE log output inserted as `innerHTML` (potential XSS)
+### ✅ `rollout.html` — SSE log output inserted as `innerHTML` (potential XSS)
 Log messages from `base_notify()` are inserted via `innerHTML` in the frontend.
 If a device hostname, IP, or command output contains `<script>` or other HTML, it will
 be rendered as markup. The content originates from network devices so risk is low but present.
-Fix: sanitize output in `logging_utils.py` or use `textContent` for plain parts and only
-`innerHTML` for the intentional HTML color wrappers.
+Fixed: `html.escape()` applied to the message in `RolloutLogger._msg()` before wrapping
+in the colored `<div>`. User-controlled content is escaped; the HTML color wrappers are
+hardcoded constants and are unaffected.
 
 ---
 

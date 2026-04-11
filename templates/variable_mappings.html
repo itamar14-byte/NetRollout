@@ -1,10 +1,7 @@
 {% extends "operator_base.html" %}
 {% block title %}Variable Mappings — NetRollout{% endblock %}
 {% block page_title %}Variable Mappings{% endblock %}
-
-{% block extra_style %}
-
-/* ── Attribute definitions (used inline) ── */
+{# ── Attribute definitions (accessible in both CSS and HTML blocks) ── #}
 {% set ATTR_DEFS = [
     ("hostname",       "bi-type-h1"),
     ("loopback_ip",    "bi-hdd-network"),
@@ -16,6 +13,10 @@
     ("timezone",       "bi-clock"),
     ("vrfs",           "bi-layers"),
 ] %}
+{% set ATTR_ICON_MAP = dict(ATTR_DEFS) %}
+
+{% block extra_style %}
+
 
 /* ── Mapping card ── */
 .mapping-card {
@@ -245,19 +246,6 @@
 
 {% block operator_content %}
 
-{# ── Attribute definitions (accessible in both CSS and HTML blocks) ── #}
-{% set ATTR_DEFS = [
-    ("hostname",       "bi-type-h1"),
-    ("loopback_ip",    "bi-hdd-network"),
-    ("asn",            "bi-diagram-3"),
-    ("mgmt_vrf",       "bi-box"),
-    ("mgmt_interface", "bi-ethernet"),
-    ("site",           "bi-geo-alt"),
-    ("domain",         "bi-globe2"),
-    ("timezone",       "bi-clock"),
-    ("vrfs",           "bi-layers"),
-] %}
-{% set ATTR_ICON_MAP = dict(ATTR_DEFS) %}
 
 {# ── Flash messages ── #}
 {% set flash_messages = get_flashed_messages(with_categories=true) %}
