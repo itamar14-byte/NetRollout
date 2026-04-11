@@ -230,13 +230,23 @@ Fill in `results.html` stub — query `DeviceResult` rows for the current user.
 - Color-coded status badges
 - Filterable by status and platform
 
-### 3.4 Analytics
-Extend dashboard and results into a full analytics view.
+### 3.4 Analytics & Audit logging
+Extend dashboard and results into a full analytics view, and replace the
+current ad-hoc logfile behavior with a structured activity logging system.
 
+**Analytics:**
 - Per-platform success rate breakdown
 - Commands pushed over time (simple bar or sparkline)
 - Most-used tokens, most-failed devices
 - Data sourced entirely from `DeviceResult` — no new tables needed
+
+**Activity logging:**
+- Replace `RolloutLogger`'s auto-generated `rollout_YYYYMMDD_HHMMSS._log`
+  filename with operation-prefixed names: `rollout_`, `import_`, etc.
+- All web operations that currently use temp logfiles (e.g. `import_csv`)
+  get a proper named logfile instead, cleaned up or archived as appropriate
+- Consider a `logs/` directory under the project root with per-operation files
+- Logfiles accessible from the results/audit page for download or inline view
 
 ### 3.5 Test suite
 - Re-enable `_DISABLED` test classes (already updated to new API)
