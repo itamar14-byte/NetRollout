@@ -25,10 +25,15 @@ from sqlalchemy.exc import IntegrityError
 from waitress import serve
 from werkzeug.security import generate_password_hash, check_password_hash
 
+import os
+import tempfile
+
 import encryption
 import input_parser
 import validation
 from core import RolloutOptions, Device
+from input_parser import InputParser
+from logging_utils import RolloutLogger
 from validation import Validator
 from db import get_session
 from orchestration import RolloutOrchestrator
@@ -613,6 +618,67 @@ def inventory_delete(device_id):
         db_session.delete(device)
 
     flash(f"{label} removed from inventory.", "success")
+    return redirect(url_for("inventory"))
+
+
+@app.route("/inventory/import_csv", methods=["POST"])
+@login_required
+def inventory_import_csv():
+    """
+    Bulk-imports devices from an uploaded CSV file into the user's inventory.
+    Saves the upload to a temp file, delegates to InputParser.csv_to_inventory
+    which validates each row and TCP-checks each device before writing.
+    NOTE: TCP checks are sequential — large CSVs will block the web process.
+          Phase 3.6 per-device concurrency will address this.
+    Error messages from the parser are captured by draining the logger queue
+    after the call and flashed to the user.
+    """
+    csv_file = request.files.get("csv_file")
+    if not csv_file or not csv_file.filename:
+        flash("No file selected.", "danger")
+        return redirect(url_for("inventory"))
+
+    label = request.form.get("label", "").strip() or None
+
+    # Save upload to a temp file — csv_to_inventory takes a path, not a file object
+    with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as tmp:
+        tmp_path = tmp.name
+        csv_file.save(tmp_path)
+
+    # Temp logfile — RolloutLogger always writes to disk, we don't need it here.
+    # Phase 3 will add a proper activity logging workflow.
+    log_path = tempfile.mktemp(suffix=".log")
+
+    try:
+        logger = RolloutLogger(webapp=True, verbose=False, logfile=log_path)
+        validator = Validator(logger)
+        parser = InputParser(validator, logger)
+
+        with get_session() as db_session:
+            devices = parser.csv_to_inventory(
+                tmp_path, current_user.id, db_session, label=label)
+
+        # Drain error messages queued by the parser (red-colored notify calls)
+        errors = []
+        while True:
+            try:
+                errors.append(logger._queue.get_nowait())
+            except Empty:
+                break
+
+        if errors:
+            for msg in errors:
+                flash(msg, "danger")
+        if devices:
+            flash(f"{len(devices)} device{'s' if len(devices) != 1 else ''} imported successfully.", "success")
+        elif not errors:
+            flash("No valid devices found in CSV.", "warning")
+
+    finally:
+        os.unlink(tmp_path)
+        if os.path.exists(log_path):
+            os.unlink(log_path)
+
     return redirect(url_for("inventory"))
 
 
