@@ -4,10 +4,17 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="27240518-82b3-4a70-8f71-cc3b690d164c" name="Changes" comment="● Security hardening: CSRF protection, OTP encryption, rate limit test&#10;&#10;  - Flask-WTF CSRFProtect wired; csrf_token added to all POST forms&#10;    (login, register, otp_enroll, otp_verify, upload, cancel_rollout,&#10;    admin bulk action)&#10;  - otp_secret encrypted at enrollment via encryption.encrypt(),&#10;    decrypted before pyotp.TOTP() at verify — column widened to varchar(255)&#10;  - cancel_event, SECRET_KEY, DOM credentials, rate limiting bugs&#10;    marked fixed in bug_report.md&#10;  - RateLimitIntegrationTest added to test.py (skipped if server not running),&#10;    standalone test_rate_limit.py removed">
+    <list default="true" id="27240518-82b3-4a70-8f71-cc3b690d164c" name="Changes" comment="● Implement Security Profiles UI — CRUD, encrypted credentials, connection test">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/CLAUDE.md" beforeDir="false" afterPath="$PROJECT_DIR$/CLAUDE.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/architecture.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/architecture.md" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/docs/workplan.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/workplan.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/core.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/core.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/input_parser.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/input_parser.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/tables.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/tables.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/webapp.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/webapp.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/templates/base.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/base.html" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/templates/index.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/index.html" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -97,7 +104,7 @@
       <recent name="C:\Users\itama\Documents\Coding\Network-bulk-configuration\src" />
     </key>
   </component>
-  <component name="RunManager" selected="Python.webapp">
+  <component name="RunManager">
     <configuration name="Network-bulk-configuration" type="PythonConfigurationType" factoryName="Python">
       <module name="Network-bulk-configuration" />
       <option name="ENV_FILES" value="" />
@@ -210,7 +217,7 @@
       <workItem from="1775499852820" duration="7096000" />
       <workItem from="1775569421684" duration="35459000" />
       <workItem from="1775743396570" duration="22733000" />
-      <workItem from="1775856108190" duration="3847000" />
+      <workItem from="1775856108190" duration="11031000" />
     </task>
     <task id="LOCAL-00001" summary="Bug Fixes and configuration of executble packing">
       <option name="closed" value="true" />
@@ -532,7 +539,15 @@
       <option name="project" value="LOCAL" />
       <updated>1775830742098</updated>
     </task>
-    <option name="localTasksCounter" value="41" />
+    <task id="LOCAL-00041" summary="● Implement Security Profiles UI — CRUD, encrypted credentials, connection test">
+      <option name="closed" value="true" />
+      <created>1775859982299</created>
+      <option name="number" value="00041" />
+      <option name="presentableId" value="LOCAL-00041" />
+      <option name="project" value="LOCAL" />
+      <updated>1775859982299</updated>
+    </task>
+    <option name="localTasksCounter" value="42" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -550,7 +565,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="Did some refactoring, with seperation of backendlogic to Core and Webappand cli used as interfaces" />
     <MESSAGE value="Merge remote-tracking branch 'origin/master'&#10;&#10;# Conflicts:&#10;#&#9;templates/upload.html" />
     <MESSAGE value="Split Helper to Modules" />
     <MESSAGE value="Fosnihed OOP architecture and organised webapp" />
@@ -575,18 +589,19 @@
     <MESSAGE value="updated attrbiute specifications" />
     <MESSAGE value="  Phase 2 completion: DB integration, operator UI, admin bulk actions, CLI rewrite&#10;&#10;  - Orchestrator DB writes fully wired: RolloutSession on submit/dispatch,&#10;    DeviceResult rows + session cleanup on job completion&#10;  - DeviceResultDict TypedDict introduced in core.py for typed run() return&#10;  - tables.py: fixed all ForeignKeys (users.id), cascade delete-orphan on all&#10;    User relationships, commands_verified Mapped[int | None], security_profile&#10;    singular on Inventory, started_at added to DeviceResult&#10;  - Operator sidebar: Security Profiles zone (bi-shield-lock), Admin entry&#10;    (bi-gear), conditional render for admins only&#10;  - Admin user management rebuilt: multi-select toolbar, per-action rules engine,&#10;    contextual tooltips, bulk backend route, delete modal with count confirmation&#10;  - cli.py rewritten to use new architecture: InputParser.prepare_devices(),&#10;    RolloutLogger, RolloutEngine.run(cancel, logger)&#10;  - db_install.py: create_all limitation documented, Alembic migration noted&#10;    for Phase 4&#10;  - workplan, architecture, CLAUDE.md, memory updated to reflect current state" />
     <MESSAGE value="● Security hardening: CSRF protection, OTP encryption, rate limit test&#10;&#10;  - Flask-WTF CSRFProtect wired; csrf_token added to all POST forms&#10;    (login, register, otp_enroll, otp_verify, upload, cancel_rollout,&#10;    admin bulk action)&#10;  - otp_secret encrypted at enrollment via encryption.encrypt(),&#10;    decrypted before pyotp.TOTP() at verify — column widened to varchar(255)&#10;  - cancel_event, SECRET_KEY, DOM credentials, rate limiting bugs&#10;    marked fixed in bug_report.md&#10;  - RateLimitIntegrationTest added to test.py (skipped if server not running),&#10;    standalone test_rate_limit.py removed" />
-    <option name="LAST_COMMIT_MESSAGE" value="● Security hardening: CSRF protection, OTP encryption, rate limit test&#10;&#10;  - Flask-WTF CSRFProtect wired; csrf_token added to all POST forms&#10;    (login, register, otp_enroll, otp_verify, upload, cancel_rollout,&#10;    admin bulk action)&#10;  - otp_secret encrypted at enrollment via encryption.encrypt(),&#10;    decrypted before pyotp.TOTP() at verify — column widened to varchar(255)&#10;  - cancel_event, SECRET_KEY, DOM credentials, rate limiting bugs&#10;    marked fixed in bug_report.md&#10;  - RateLimitIntegrationTest added to test.py (skipped if server not running),&#10;    standalone test_rate_limit.py removed" />
+    <MESSAGE value="● Implement Security Profiles UI — CRUD, encrypted credentials, connection test" />
+    <option name="LAST_COMMIT_MESSAGE" value="● Implement Security Profiles UI — CRUD, encrypted credentials, connection test" />
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
     <SUITE FILE_PATH="coverage/core_py$WebApp.coverage" NAME="WebApp Coverage Results" MODIFIED="1756760459810" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/WebApp_py$WebApp.coverage" NAME="WebApp Coverage Results" MODIFIED="1756940263036" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/Network_bulk_configuration$.coverage" NAME=" Coverage Results" MODIFIED="1775830389406" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/tests" />
-    <SUITE FILE_PATH="coverage/Network_bulk_configuration$webapp.coverage" NAME="webapp Coverage Results" MODIFIED="1775859680796" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/src" />
+    <SUITE FILE_PATH="coverage/Network_bulk_configuration$webapp.coverage" NAME="webapp Coverage Results" MODIFIED="1775870789279" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/src" />
     <SUITE FILE_PATH="coverage/Network_bulk_configuration$Network_bulk_configuration.coverage" NAME="Network-bulk-configuration Coverage Results" MODIFIED="1775855749865" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/core_py$Helper.coverage" NAME="Helper Coverage Results" MODIFIED="1756330739506" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/Network_bulk_configuration$db.coverage" NAME="db Coverage Results" MODIFIED="1774396400735" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/src" />
     <SUITE FILE_PATH="coverage/core_py$Core.coverage" NAME="Core Coverage Results" MODIFIED="1756330745282" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
-    <SUITE FILE_PATH="coverage/Network_bulk_configuration$db_install.coverage" NAME="db_install Coverage Results" MODIFIED="1775825273740" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/src" />
+    <SUITE FILE_PATH="coverage/Network_bulk_configuration$db_install.coverage" NAME="db_install Coverage Results" MODIFIED="1775867344808" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/src" />
     <SUITE FILE_PATH="coverage/Network_bulk_configuration$tables.coverage" NAME="tables Coverage Results" MODIFIED="1775824334820" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/src" />
   </component>
 </project>

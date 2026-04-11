@@ -48,41 +48,33 @@ Full architecture documented in `docs/architecture.md`. Workplan in `docs/workpl
 
 All source code lives in `src/`. Scripts import each other directly (no package `__init__.py`), so they must be run from the `src/` directory.
 
-### Target class structure (Phase 2 — not yet implemented)
+### Current class structure (Phase 2 — implemented)
 
-**Data classes:**
+**Data classes (`core.py`):**
 - `RolloutOptions` — flags: verify, verbose, webapp
-- `Device` — ip, username, password, device_type, secret, port, label. Factory: `from_inventory()`. Private: `_netmiko_connector()`. Public: `fetch_config(logger)`
+- `Device` — ip, username, password, device_type, secret, port, label, extra (dict, default `{}`). Factory: `from_inventory()`. Public: `netmiko_connector()`, `fetch_config(logger)`
+- `DeviceResultDict` — TypedDict for `run()` return value
 
 **ORM models (`tables.py`):**
 - `User` — master table. Relationships: inventory, security_profiles, variable_mappings, sessions, results
-- `Inventory` — device topology, FK to User + SecurityProfile
-- `SecurityProfile` — encrypted credentials (Fernet), FK to User
-- `VariableMapping` — $$TOKEN$$ → device property name, FK to User
-- `RolloutSession` — ephemeral active jobs ("RAM" table), FK to User
+- `Inventory` — device topology, FK to User + SecurityProfile (nullable). `var_maps` JSON column stores optional per-device substitution attributes (hostname, loopback_ip, asn, mgmt_vrf, mgmt_interface, site, domain, timezone, vrfs[])
+- `SecurityProfile` — label (nullable), username (plaintext), password_secret (Fernet-encrypted), enable_secret (Fernet-encrypted, nullable). FK to User
+- `VariableMapping` — free-text `$$TOKEN$$` → `property_name` + nullable `index` (int). `index=None` = string substitution; `index=N` = `device.extra[property_name][N]`. FK to User
+- `RolloutSession` — ephemeral active jobs ("RAM" table), FK to User. Deleted on completion
 - `DeviceResult` — permanent archive ("MEMORY" table), one row per device per job, FK to User
 
 **Service classes:**
-- `Validator` — all @staticmethod validation methods
-- `InputParser(validator)` — from_files(), from_web(), from_inventory()
-- `RolloutLogger` — owns queue + logfile. log(), notify(), get()
+- `Validator(logger)` — instance methods: validate_device_data(), validate_file_extension(). Static: validate_ip(), validate_port(), validate_platform(), test_tcp_port()
+- `InputParser(validator, logger)` — csv_to_inventory(), form_to_inventory(), parse_commands(), _prepare_devices(). Static: import_from_inventory()
+- `RolloutLogger(webapp, verbose, logfile)` — log(), notify(), get()
 
 **Job execution:**
-- `RolloutEngine(param, devices, commands)` — run(cancel_event, logger), _push_config(), _verify()
-- `RolloutJob(id, engine, logger)` — owns thread + cancel_event. start(), cancel()
-- `RolloutOrchestrator(max_concurrent)` — singleton. Owns {job_id: RolloutJob}. submit(), cancel(), get(), _dispatch(), _cleanup()
-
-### Current class structure (pre-Phase 2, what exists now)
-- `RolloutOptions` — dataclass, flags only
-- `Device` — dataclass, netmiko_connector() (should be private), fetch_config()
-- `RolloutEngine` — public: run(). Should-be-private: push_config(), verify(), notify()
-- `User` — ORM model, auth only, no relationships yet
-- `logging_utils.py` — module-level globals (OOP gap)
-- `validation.py` — standalone functions (OOP gap)
-- `cancel_event` — module-level singleton in webapp.py (concurrency bug)
+- `RolloutEngine(param, devices, commands)` — run(cancel_event, logger) → list[DeviceResultDict], _push_config(), _verify()
+- `RolloutJob(job_id, user_id, engine, options)` — owns thread + cancel_flag + logger. start(on_complete), cancel(), is_alive(), is_pending()
+- `RolloutOrchestrator(max_concurrent=4)` — singleton. submit(), cancel(), get(), _dispatch(), _cleanup()
 
 ### Webapp real-time logging
-Server-Sent Events (SSE). `LOG_QUEUE` in `logging_utils.py` is the shared channel — `base_notify(..., webapp=True)` enqueues HTML-colored messages, `/rollout_stream` streams them to the browser. In Phase 2 this moves to per-job `RolloutLogger`.
+Server-Sent Events (SSE). Per-job `RolloutLogger` owns the queue. `/rollout_stream` calls `job.get_log()` which blocks on the queue. Messages are HTML-colored strings enqueued by `logger.notify()`.
 
 ### Supported platforms (Netmiko device types)
 `cisco_ios`, `cisco_nxos`, `cisco_xe`, `cisco_xr`, `juniper_junos`, `arista_eos`, `fortinet`, `paloalto_panos`, `aruba_aoscx`, `checkpoint_gaia`, `hp_procurve`, `hp_comware`
@@ -105,13 +97,17 @@ Always-dark enterprise aesthetic — permanently dark, no toggle. Key design ele
 - **Dot-grid background:** `body::before` at `z-index: -1` (NOT 0 — traps modals)
 - **`.container` must NOT have z-index** — breaks Bootstrap modal stacking
 - All Bootstrap components overridden in `base.html` to match dark theme
-- All pages extend `base.html`. Topbar and footer are automatic.
+- All operator pages extend `operator_base.html`. Topbar and footer are automatic.
+- **Vendor logos**: `VENDOR_LOGOS` dict in `webapp.py` maps Netmiko device_type → Simple Icons CDN URL. Registered as Jinja2 global — available in all templates as `VENDOR_LOGOS`.
+- **NrSelect widget**: custom FortiGate-style dropdown in `inventory.html` — search box, scrollable list, shield icon, cyan checkmark. Init with `initNrSelect(containerId)`, returns `{getValue, setValue, reset}`.
+- **Inventory cards**: thin horizontal rectangles — vendor badge (CDN SVG + BI router fallback) + label + IP. Hover tooltip (FortiGate-style fixed panel). Click → edit modal.
+- **Security profiles drag-assign**: devices modal has "+" button that widens modal to split view. Right panel: draggable unassigned device cards. Left panel: assigned list + dashed drop zone. Drop triggers `cardLand` animation. Save via AJAX to `/inventory/bulk_assign`.
 
 ## Phase status
 - **Phase 1 — Auth pipeline ✅ COMPLETE (2026-04-06)**
 - **Frontend redesign ✅ COMPLETE (2026-04-07)**
 - **Architecture session ✅ COMPLETE (2026-04-07)** — see `docs/architecture.md`
-- **Phase 2 — Architecture refactor + DB integration (IN PROGRESS)** — all core refactoring + DB wiring done. Remaining: inventory management UI (CRUD for devices + security profiles)
+- **Phase 2 — Architecture refactor + DB integration (IN PROGRESS)** — all core refactoring + DB wiring done. Security Profiles UI complete. Inventory UI frontend complete. Remaining: inventory backend routes (create/edit/delete/bulk_assign)
 - **Phase 3 — Testing**
 - **Phase 4 — Packaging**
 

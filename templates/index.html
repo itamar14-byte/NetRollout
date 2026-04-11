@@ -30,12 +30,13 @@
   <div class="login-card-accent"></div>
   <div class="login-card-body">
     <h5 class="login-card-title">Sign In</h5>
-    <form method="POST" action="{{ url_for('login') }}">
+    <form method="POST" action="{{ url_for('login') }}" novalidate>
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <div class="mb-3 text-start">
         <label for="username" class="login-label">Username</label>
         <input type="text" class="form-control login-input" id="username"
                name="username" placeholder="Enter username" required autofocus>
+        <div class="field-error">Username is required.</div>
       </div>
       <div class="mb-4 text-start">
         <label for="password" class="login-label">Password</label>

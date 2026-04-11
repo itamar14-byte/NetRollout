@@ -35,6 +35,7 @@ class Device:
     device_type: str
     secret: str = field(repr=False)
     port: int
+    extra: dict = field(default_factory=dict)
 
     def netmiko_connector(self) -> dict[str, str]:
         params = {
@@ -105,10 +106,10 @@ class Device:
         if not profile:
             raise ValueError(f"no security profiles assigned to {row.ip}")
         return cls(ip=row.ip, label=row.label, device_type=row.device_type,
-                   port=row.port, username=encryption.decrypt(
-                profile.username), password=encryption.decrypt(
-                profile.password_secret), secret=encryption.decrypt(
-                profile.enable_secret) if profile.enable_secret else "")
+                   port=row.port, username=profile.username,
+                   password=encryption.decrypt(profile.password_secret),
+                   secret=encryption.decrypt(profile.enable_secret) if
+                   profile.enable_secret else "",extra=row.var_maps or {})
 
 
 class RolloutEngine:

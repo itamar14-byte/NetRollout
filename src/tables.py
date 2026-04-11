@@ -2,7 +2,7 @@ from db import Base
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, String, Boolean, Integer, Uuid, ForeignKey
+from sqlalchemy import DateTime, String, Boolean, Integer, Uuid, ForeignKey,JSON
 import uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from flask_login import UserMixin
@@ -58,6 +58,7 @@ class Inventory(Base):
     device_type: Mapped[str] = mapped_column(String(64), nullable=False)
     port: Mapped[int] = mapped_column(Integer, nullable=False)
     label: Mapped[str] = mapped_column(String(64), nullable=False)
+    var_maps: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     user_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id"),
                                                nullable=False)
@@ -90,6 +91,7 @@ class RolloutSession(Base):
     status: Mapped[str] = mapped_column(String(64), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now,
                                                  nullable=False)
+    index: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     user_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id"),
                                                nullable=False)

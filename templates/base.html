@@ -438,6 +438,26 @@
             color: #2e2e2e;
             letter-spacing: 1.5px;
         }
+        /* ── Form validation ── */
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            18%       { transform: translateX(-7px); }
+            36%       { transform: translateX(7px); }
+            54%       { transform: translateX(-4px); }
+            72%       { transform: translateX(4px); }
+        }
+        input.form-control:invalid:not(:placeholder-shown) {
+            border-color: #ef5350 !important;
+            box-shadow: none !important;
+        }
+        .field-error {
+            font-size: 0.73rem;
+            color: #ef5350;
+            margin-top: 0.28rem;
+            display: none;
+        }
+        input.form-control:invalid:not(:placeholder-shown) + .field-error { display: block; }
+        .pw-group:has(input.form-control:invalid:not(:placeholder-shown)) + .field-error { display: block; }
     </style>
 </head>
 <body>
@@ -493,6 +513,25 @@
     document.addEventListener("DOMContentLoaded", function () {
         $('.selectpicker').selectpicker();
     });
+</script>
+<script>
+// Suppress browser validation tooltips — shake invalid fields on submit instead
+document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('form[novalidate]').forEach(form => {
+        form.addEventListener('submit', e => {
+            if (!form.checkValidity()) {
+                e.preventDefault();
+                form.querySelectorAll(':invalid').forEach(field => {
+                    field.style.animation = 'none';
+                    void field.offsetHeight;
+                    field.style.animation = 'shake 0.4s ease';
+                    field.addEventListener('animationend',
+                        () => { field.style.animation = ''; }, { once: true });
+                });
+            }
+        });
+    });
+});
 </script>
 </body>
 </html>

@@ -24,13 +24,29 @@ class InputParser:
 		"""
 		# process all validated devices into a list of dictionaries
 		devices = []
+		core_keys = {"ip", "device_type", "port", "label", "username",
+		             "password", "secret"}
 		for item in raw_devices:
 			item["device_type"] = item["device_type"].lower()
 			if item["ip"] and self.validator.validate_device_data(item,
 			                                                      ):
 				if self.validator.test_tcp_port(item["ip"], int(item["port"])):
 					item.setdefault("label", item["ip"])
-					devices.append(Device(**item))
+					core, var_mappings = {}, {}
+					for k,v in item.items():
+						if not v:
+							continue
+						elif k in core_keys:
+							core[k] = v
+						else:
+							var_mappings[k] = v
+
+					if "vrfs" in var_mappings:
+						var_mappings["vrfs"] = [vrf.strip() for vrf in
+						                        var_mappings["vrfs"].split(",")
+						                        if vrf.strip()]
+
+					devices.append(Device(**core,extra=var_mappings))
 					self.logger.notify(
 						f"Device {item['device_type']}: {item['ip']} successfully added",
 						"green")
@@ -94,7 +110,7 @@ class InputParser:
 		raw_devices = loads(devices_json) if devices_json else []
 		devices = self.prepare_devices(raw_devices=raw_devices)
 		# logs summary of file processing workflow
-		self.logger.notify(f"Devices loaded: {devices}")
+		self.logger.notify(f"Devices loaded: {devices}","green")
 
 		self.logger.notify(
 			f"Devices file successfully processed\n"

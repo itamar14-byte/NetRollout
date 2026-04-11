@@ -1,5 +1,5 @@
 # Development Workplan
-_Last updated: 2026-04-07 — Architecture session complete_
+_Last updated: 2026-04-11 — Phase 2 complete_
 
 ---
 
@@ -108,14 +108,14 @@ Full architecture documented in `docs/architecture.md`.
 
 ---
 
-## Phase 2 — Architecture Refactor & DB Integration
-_Started: 2026-04-07 — Updated: 2026-04-09_
+## Phase 2 — Architecture Refactor & DB Integration ✅ COMPLETE
+_Started: 2026-04-07 — Completed: 2026-04-11_
 
 ### 2.1 DB schema — `tables.py` ✅
 Add new ORM models:
 - `Inventory` — per-user device topology store, FK to `User` and `SecurityProfile`
 - `SecurityProfile` — encrypted credentials (Fernet), FK to `User`, loaded as `user.security_profiles`
-- `VariableMapping` — `$$VAR$$` → device property name, FK to `User`, loaded as `user.variable_mappings`
+- `VariableMapping` — `$$TOKEN$$` (free text) → `property_name` + optional `index` (nullable int), FK to `User`, loaded as `user.variable_mappings`. `index=None` = simple string attribute; `index=N` = positional element of a list attribute (e.g. `vrfs[1]`). Validator checks list length at rollout time.
 - `RolloutSession` — ephemeral active jobs table ("RAM"), FK to `User`, loaded as `user.sessions`
 - `DeviceResult` — permanent archive ("MEMORY"), FK to `User`, soft `job_id` ref, loaded as `user.results`
 
@@ -156,7 +156,7 @@ Constructor takes `Validator` + `RolloutLogger`. Methods: `csv_to_inventory`, `f
 
 **Tests: 83/83 passing.** All previously disabled test classes updated to new API and passing.
 
-### 2.9 Inventory management UI — in progress
+### 2.9 Inventory management UI ✅
 
 **Done (2026-04-10):**
 - Operator zone restructure: `operator_base.html` with collapsible sidebar, dashboard, account, inventory stub, results stub
@@ -166,12 +166,19 @@ Constructor takes `Validator` + `RolloutLogger`. Methods: `csv_to_inventory`, `f
 - Dashboard route: groupby logic, active job detection, last 5 jobs table, system summary stats
 - Account route + page: total rollouts, devices configured, commands pushed, success rate (color-coded), top platform, 2FA status, live tenure counter
 
-**Remaining (next session):**
-- Security Profiles UI: CRUD for credential profiles (`/security` route + frontend). `encryption.encrypt()` on write, `encryption.decrypt()` only at rollout time via `Device.from_inventory()`
-- Inventory UI: CRUD for devices + assign security profile via `sec_profile_id` (`/inventory` route + frontend)
-- Import error surfacing via flash messages when CSV/form parse fails
-
-**After 2.9:** Phase 2 complete.
+**Done (2026-04-11):**
+- Security Profiles UI: full CRUD (`/security`, `/security/create`, `/security/<id>/edit`, `/security/<id>/delete`, `/security/<id>/test`)
+- Card grid layout — label or username fallback, 10-dot masked password/enable secret, attached devices modal, test connection modal
+- Test connection: full Netmiko connect via `Device` + `netmiko_connector()`, TCP check first via `Validator.test_tcp_port()`, AJAX with spinner, inline pass/fail result
+- Delete blocked with flash if profile has assigned inventory devices (FK safety)
+- Eager load of `profile.inventory` inside session before `expunge_all()` — prevents DetachedInstanceError
+- AGPL v3 license added to repo; footer license notice in `operator_base.html`
+- Inventory UI frontend: thin card grid, vendor badge (Simple Icons CDN via `VENDOR_LOGOS` Jinja2 global), FortiGate hover tooltip, NrSelect custom dropdown, edit modal with variable attributes expand section (hostname, loopback_ip, asn, mgmt_vrf, mgmt_interface, site, domain, timezone, vrfs)
+- Security profiles drag-assign: split-view modal, draggable device cards, dashed drop zone, cardLand animation, AJAX to `/inventory/bulk_assign`
+- `Inventory.var_maps` JSON column, `Device.extra` dict field, `VariableMapping.index` nullable int
+- Inventory backend: `create`, `edit`, `delete`, `bulk_assign` all implemented and ownership-guarded
+- `edit` rebuilds `var_maps` from `attr_*` form fields; vrfs split to list; empty keys omitted
+- Form validation: `novalidate` + `.field-error` + shake animation on all forms site-wide; CSS `:has()` rule handles password inputs inside `.pw-group` wrappers; validation CSS/JS added to `base.html` so login page is also covered
 
 ---
 

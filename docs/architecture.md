@@ -1,5 +1,5 @@
 # NetRollout — Architecture Document
-_Written: 2026-04-07 — Updated: 2026-04-10 (DB integration complete)_
+_Written: 2026-04-07 — Updated: 2026-04-11 (Inventory UI + schema updates)_
 
 ---
 
@@ -56,6 +56,7 @@ Represents a single network device at runtime. Constructed from an `Inventory` r
 | `secret` | `str` | Enable secret (decrypted at construction) |
 | `port` | `int` | SSH port |
 | `label` | `str` | Friendly name from inventory |
+| `extra` | `dict` | Optional per-device attributes for `$$TOKEN$$` substitution. Populated from `Inventory.var_maps`. Defaults to `{}` if not set. |
 
 **Public methods:**
 | Method | Signature | Description |
@@ -118,6 +119,7 @@ Per-user device store. Stores device topology only — no credentials. Credentia
 | `device_type` | `str` | Netmiko platform string |
 | `port` | `int` | SSH port |
 | `label` | `str` | Friendly name, nullable |
+| `var_maps` | `JSON` | Nullable. Per-device optional attributes dict. v1.0 keys: `hostname`, `loopback_ip`, `asn`, `mgmt_vrf`, `mgmt_interface`, `site`, `domain`, `timezone` (strings), `vrfs` (list of strings — positional substitution via `VariableMapping.index`). |
 
 **Relationships:**
 | Name | Target | Description |
@@ -134,12 +136,14 @@ Per-user encrypted credential store. One profile can be assigned to many invento
 |---|---|---|
 | `id` | `UUID` | Primary key |
 | `user_id` | `UUID` | FK → `User` |
-| `label` | `str` | Friendly name, e.g. `"DC-Admin"` |
-| `username` | `str` | Encrypted |
-| `password` | `str` | Encrypted |
-| `secret` | `str` | Encrypted |
+| `label` | `str(64)` | Friendly name, nullable — falls back to username in UI |
+| `username` | `str(64)` | Plaintext — not a secret |
+| `password_secret` | `str(255)` | Fernet-encrypted password |
+| `enable_secret` | `str(255)` | Fernet-encrypted enable secret, nullable |
 
-**Encryption:** Fernet (AES-128-CBC). Key loaded from `NETROLLOUT_ENCRYPTION_KEY` environment variable. If absent, a key is generated at startup and written to `~/.netrollout/encryption.key`. The user is responsible for securing this file.
+**Encryption:** Fernet (AES-128-CBC) applied to `password_secret` and `enable_secret` only. `username` is stored plaintext. Key loaded from `NETROLLOUT_ENCRYPTION_KEY` environment variable. If absent, a key is generated at startup and written to `~/.netrollout/encryption.key`. The user is responsible for securing this file.
+
+**Delete safety:** deletion is blocked at the route level if any `Inventory` rows reference this profile (`profile.inventory` non-empty). User must reassign or delete those devices first.
 
 ---
 
@@ -151,8 +155,9 @@ Per-user store of `$$TOKEN$$` → Device property name mappings. Used by the var
 |---|---|---|
 | `id` | `UUID` | Primary key |
 | `user_id` | `UUID` | FK → `User` |
-| `token` | `str` | The `$$VAR$$` token string |
-| `property_name` | `str` | Key in `dataclasses.asdict(device)` |
+| `token` | `str` | Free-text token string, e.g. `$$HOSTNAME$$`. Name is user's choice — no system meaning |
+| `property_name` | `str` | Key in `device.extra` (or core Device field name) |
+| `index` | `int \| None` | Nullable. `None` = simple string substitution. `N` = positional element of a list attribute (`device.extra[property_name][N]`). Validator checks `len >= index + 1` at rollout time. |
 
 ---
 
@@ -397,7 +402,7 @@ _Note: original design had `RolloutJob(id, engine, logger)` and `start()` with n
     │Inventory │  │SecurityProf.│  │Variable│  │Rollout   │  │DeviceResult  │
     │          │  │             │  │Mapping │  │Session   │  │(archive)     │
     │ip        │  │label        │  │        │  │          │  │              │
-    │device_typ│  │username(enc)│  │token   │  │status    │  │job_id (soft) │
+    │device_typ│  │username     │  │token   │  │status    │  │job_id (soft) │
     │port      │  │password(enc)│  │prop_   │  │created_at│  │device_ip     │
     │label     │  │secret (enc) │  │name    │  │          │  │status        │
     │profile_id│  └─────────────┘  └────────┘  └──────────┘  │cmds_sent    │
