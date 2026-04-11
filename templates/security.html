@@ -1,0 +1,1100 @@
+{% extends "operator_base.html" %}
+{% block title %}Security Profiles — NetRollout{% endblock %}
+{% block page_title %}Security Profiles{% endblock %}
+
+{% block extra_style %}
+
+.profile-card {
+    position: relative;
+    background: #1a1a1a;
+    border: 1px solid #222;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 0 0 1px rgba(0,188,212,0.08), 0 16px 48px rgba(0,0,0,0.4);
+    transition: box-shadow 0.25s, border-color 0.25s;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+.profile-card:hover {
+    box-shadow: 0 0 0 1px rgba(0,188,212,0.18), 0 20px 60px rgba(0,0,0,0.5);
+    border-color: #2a2a2a;
+}
+
+.profile-card-body {
+    padding: 1.5rem 1.5rem 1rem;
+    flex: 1;
+}
+
+.profile-card-footer {
+    padding: 0.75rem 1.5rem;
+    border-top: 1px solid #1e1e1e;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: rgba(0,0,0,0.15);
+}
+
+.profile-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #e0e0e0;
+    margin-bottom: 0.1rem;
+}
+
+.profile-subtitle {
+    font-family: 'Inter', sans-serif;
+    font-size: 0.72rem;
+    color: #3a3a3a;
+}
+
+.profile-field {
+    margin-bottom: 0.9rem;
+}
+
+.password-dots {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.72rem;
+    color: #3a3a3a;
+    letter-spacing: 3px;
+}
+
+.secret-none {
+    font-size: 0.75rem;
+    color: #2a2a2a;
+    font-style: italic;
+}
+
+/* Card action links */
+.card-action-link {
+    font-family: 'Inter', sans-serif;
+    font-size: 0.75rem;
+    color: #444;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    transition: color 0.15s;
+    cursor: pointer;
+    background: none;
+    border: none;
+    padding: 0;
+}
+.card-action-link:hover { color: #00bcd4; }
+.card-action-link.danger:hover { color: #ef5350; }
+
+/* Icon action buttons */
+.btn-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.78rem;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+    border: 1px solid transparent;
+    background: transparent;
+}
+.btn-icon.edit   { color: #555; border-color: #1e1e1e; }
+.btn-icon.edit:hover { color: #00bcd4; background: rgba(0,188,212,0.08); border-color: rgba(0,188,212,0.2); }
+.btn-icon.delete { color: #555; border-color: #1e1e1e; }
+.btn-icon.delete:hover { color: #ef5350; background: rgba(239,83,80,0.08); border-color: rgba(239,83,80,0.2); }
+
+/* Password input group */
+.pw-group { position: relative; }
+.pw-toggle {
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    color: #444;
+    cursor: pointer;
+    padding: 0;
+    font-size: 0.85rem;
+    transition: color 0.15s;
+    z-index: 5;
+}
+.pw-toggle:hover { color: #00bcd4; }
+
+/* Empty state */
+.empty-state {
+    text-align: center;
+    padding: 4rem 2rem;
+    color: #333;
+}
+.empty-state i { font-size: 3rem; margin-bottom: 1rem; display: block; color: #222; }
+.empty-state p { font-size: 0.88rem; color: #3a3a3a; margin-bottom: 1.5rem; }
+
+/* Test result area */
+.test-result {
+    border-radius: 6px;
+    padding: 0.65rem 0.9rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.78rem;
+    margin-top: 0.75rem;
+    display: none;
+}
+.test-result.success {
+    background: rgba(76,175,80,0.08);
+    border: 1px solid rgba(76,175,80,0.2);
+    color: #a5d6a7;
+    display: block;
+}
+.test-result.error {
+    background: rgba(239,83,80,0.08);
+    border: 1px solid rgba(239,83,80,0.2);
+    color: #ef9a9a;
+    display: block;
+}
+
+/* Devices list in modal */
+.device-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.55rem 0;
+    border-bottom: 1px solid #1a1a1a;
+    font-size: 0.83rem;
+}
+.device-row:last-child { border-bottom: none; }
+.device-ip {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.8rem;
+    color: #00bcd4;
+    flex-shrink: 0;
+    min-width: 130px;
+}
+
+/* ── Split assign view ── */
+.modal-dialog-devices { transition: max-width 0.32s cubic-bezier(0.4,0,0.2,1); }
+.devices-panels { display: flex; min-height: 160px; }
+.devices-panel {
+    flex: 1;
+    padding: 1rem 1.25rem;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    overflow: hidden;
+}
+.devices-panel.right-panel {
+    flex: 1;
+    border-left: 1px solid #1a1a1a;
+    max-width: 0;
+    padding: 0;
+    opacity: 0;
+    transform: translateX(18px);
+    transition: max-width 0.32s ease, padding 0.32s ease,
+                opacity 0.22s 0.18s ease, transform 0.22s 0.18s ease;
+    pointer-events: none;
+    overflow: hidden;
+}
+.split-mode .devices-panel.right-panel {
+    max-width: 50%;
+    padding: 1rem 1.25rem;
+    opacity: 1;
+    transform: translateX(0);
+    pointer-events: all;
+}
+.panel-header {
+    font-family: 'Inter', sans-serif;
+    font-size: 0.68rem;
+    color: #333;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: 0.65rem;
+    padding-bottom: 0.45rem;
+    border-bottom: 1px solid #191919;
+    flex-shrink: 0;
+}
+.panel-scroll { overflow-y: auto; flex: 1; max-height: 240px; }
+.panel-scroll::-webkit-scrollbar { width: 3px; }
+.panel-scroll::-webkit-scrollbar-thumb { background: #1e1e1e; border-radius: 2px; }
+
+/* Drop zone */
+.drop-zone {
+    border: 2px dashed #1a3a3e;
+    border-radius: 8px;
+    padding: 1rem;
+    text-align: center;
+    color: #1e4a50;
+    font-size: 0.78rem;
+    font-family: 'Inter', sans-serif;
+    margin-top: 0.7rem;
+    transition: border-color 0.15s, background 0.15s, color 0.15s;
+    display: none;
+    flex-shrink: 0;
+    cursor: default;
+}
+.drop-zone i { display: block; font-size: 1.2rem; margin-bottom: 0.35rem; }
+.split-mode .drop-zone { display: block; }
+.drop-zone.drag-over {
+    border-color: #00bcd4;
+    background: rgba(0,188,212,0.05);
+    color: #00bcd4;
+}
+
+/* Draggable cards */
+.drag-card {
+    background: #141414;
+    border: 1px solid #1e1e1e;
+    border-radius: 7px;
+    padding: 0.45rem 0.65rem;
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    cursor: grab;
+    transition: border-color 0.18s, box-shadow 0.18s, opacity 0.18s;
+    user-select: none;
+    margin-bottom: 0.3rem;
+}
+.drag-card:hover {
+    border-color: rgba(0,188,212,0.2);
+    box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+}
+.drag-card.is-dragging { opacity: 0.3; cursor: grabbing; }
+.drag-card-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.78rem;
+    color: #ccc;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.drag-card-ip {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.68rem;
+    color: #2a2a2a;
+    flex-shrink: 0;
+}
+.drag-vendor-badge {
+    width: 24px; height: 24px; min-width: 24px;
+    border-radius: 5px;
+    background: #111;
+    border: 1px solid #1e1e1e;
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden; flex-shrink: 0;
+}
+.drag-vendor-img { width: 15px; height: 15px; object-fit: contain; }
+
+@keyframes cardLand {
+    from { opacity: 0; transform: translateY(-5px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+.card-landing { animation: cardLand 0.2s ease; }
+
+{% endblock %}
+
+{% block operator_content %}
+
+<!-- Header -->
+<div class="d-flex justify-content-between align-items-start mb-4">
+    <div>
+        <div class="nr-badge">SECURITY PROFILES</div>
+        <h4 class="mb-0" style="font-weight:600; font-size:1.15rem;">Credential Profiles</h4>
+        <p class="mt-1 mb-0" style="font-size:0.82rem; color:#444;">
+            {{ profiles|length }} profile{{ "s" if profiles|length != 1 else "" }} configured
+        </p>
+    </div>
+    <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addModal"
+            style="margin-top:0.2rem;">
+        <i class="bi bi-plus-lg me-1"></i>Add Profile
+    </button>
+</div>
+
+<!-- Empty state -->
+{% if not profiles %}
+<div class="empty-state">
+    <i class="bi bi-shield-lock"></i>
+    <p>No credential profiles yet.<br>Add a profile to store encrypted credentials for your devices.</p>
+    <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addModal">
+        <i class="bi bi-plus-lg me-1"></i>Add First Profile
+    </button>
+</div>
+
+{% else %}
+
+<!-- Profile cards -->
+<div class="row g-3">
+    {% for profile in profiles %}
+    {% set ns = namespace(devs=[]) %}
+    {% for d in profile.inventory %}
+      {% set ns.devs = ns.devs + [{"label": d.label, "ip": d.ip, "device_type": d.device_type}] %}
+    {% endfor %}
+    <div class="col-md-6 col-xl-4">
+        <div class="profile-card"
+             data-profile='{{ {"id": profile.id|string, "label": profile.label or "", "username": profile.username, "has_enable": profile.enable_secret != none}|tojson }}'
+             data-devices='{{ ns.devs|tojson }}'>
+
+            <div class="nr-card-accent"></div>
+            <div class="profile-card-body">
+
+                <!-- Profile header -->
+                <div class="d-flex align-items-start gap-2 mb-3">
+                    <i class="bi bi-shield-lock" style="color:#00bcd4; font-size:1.05rem; margin-top:0.1rem; flex-shrink:0;"></i>
+                    <div>
+                        <div class="profile-title">{{ profile.label or profile.username }}</div>
+                        {% if profile.label %}
+                        <div class="profile-subtitle">{{ profile.username }}</div>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- Username -->
+                <div class="profile-field">
+                    <span class="nr-label">USERNAME</span>
+                    <span style="font-family:'JetBrains Mono',monospace; font-size:0.83rem; color:#ccc;">{{ profile.username }}</span>
+                </div>
+
+                <!-- Password -->
+                <div class="profile-field">
+                    <span class="nr-label">PASSWORD</span>
+                    <span class="password-dots">&#9679;&#9679;&#9679;&#9679;&#9679;&#9679;&#9679;&#9679;&#9679;&#9679;</span>
+                </div>
+
+                <!-- Enable Secret -->
+                <div class="profile-field" style="margin-bottom:0;">
+                    <span class="nr-label">ENABLE SECRET</span>
+                    {% if profile.enable_secret %}
+                    <span class="password-dots">&#9679;&#9679;&#9679;&#9679;&#9679;&#9679;&#9679;&#9679;&#9679;&#9679;</span>
+                    {% else %}
+                    <span class="secret-none">Not configured</span>
+                    {% endif %}
+                </div>
+
+            </div>
+
+            <!-- Card footer -->
+            <div class="profile-card-footer">
+                <div class="d-flex gap-3">
+                    <button class="card-action-link devices-btn" title="View attached devices">
+                        <i class="bi bi-server"></i>
+                        {{ profile.inventory|length }} device{{ "s" if profile.inventory|length != 1 else "" }}
+                    </button>
+                    <button class="card-action-link test-btn" title="Test connection">
+                        <i class="bi bi-plug"></i>
+                        Test
+                    </button>
+                </div>
+                <div class="d-flex gap-1">
+                    <button class="btn-icon edit edit-btn" title="Edit profile">
+                        <i class="bi bi-pencil"></i>
+                    </button>
+                    <button class="btn-icon delete delete-btn" title="Delete profile">
+                        <i class="bi bi-trash3"></i>
+                    </button>
+                </div>
+            </div>
+
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+{% endif %}
+
+
+<!-- ══════════════════════════════════════
+     ADD PROFILE MODAL
+══════════════════════════════════════ -->
+<div class="modal fade" id="addModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered" style="max-width:460px;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div>
+                    <div class="nr-badge" style="margin-bottom:0.3rem;">NEW PROFILE</div>
+                    <h5 class="modal-title">Add Credential Profile</h5>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST" action="{{ url_for('security_create') }}" novalidate>
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="modal-body">
+
+                    <div class="mb-3">
+                        <label class="nr-label" for="addLabel">LABEL <span style="color:#2a2a2a;">(optional)</span></label>
+                        <input type="text" class="form-control" id="addLabel" name="label"
+                               placeholder="e.g. Core Switches, Edge Firewalls">
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="nr-label" for="addUsername">USERNAME</label>
+                        <input type="text" class="form-control" id="addUsername" name="username"
+                               placeholder="admin" required autocomplete="off">
+                        <div class="field-error">Username is required.</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="nr-label" for="addPassword">PASSWORD</label>
+                        <div class="pw-group">
+                            <input type="password" class="form-control" id="addPassword" name="password"
+                                   placeholder="Password" required autocomplete="new-password"
+                                   style="padding-right:2.5rem;">
+                            <button type="button" class="pw-toggle" onclick="togglePw('addPassword', this)">
+                                <i class="bi bi-eye"></i>
+                            </button>
+                        </div>
+                        <div class="field-error">Password is required.</div>
+                    </div>
+
+                    <div class="mb-1">
+                        <label class="nr-label" for="addEnableSecret">ENABLE SECRET <span style="color:#2a2a2a;">(optional)</span></label>
+                        <div class="pw-group">
+                            <input type="password" class="form-control" id="addEnableSecret" name="enable_secret"
+                                   placeholder="Leave blank if not required" autocomplete="new-password"
+                                   style="padding-right:2.5rem;">
+                            <button type="button" class="pw-toggle" onclick="togglePw('addEnableSecret', this)">
+                                <i class="bi bi-eye"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary btn-sm">
+                        <i class="bi bi-plus-lg me-1"></i>Add Profile
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+
+<!-- ══════════════════════════════════════
+     EDIT PROFILE MODAL
+══════════════════════════════════════ -->
+<div class="modal fade" id="editModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered" style="max-width:460px;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div>
+                    <div class="nr-badge" style="margin-bottom:0.3rem;">EDIT PROFILE</div>
+                    <h5 class="modal-title" id="editModalTitle">Edit Profile</h5>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST" id="editForm" action="" novalidate>
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="modal-body">
+
+                    <div class="mb-3">
+                        <label class="nr-label" for="editLabel">LABEL <span style="color:#2a2a2a;">(optional)</span></label>
+                        <input type="text" class="form-control" id="editLabel" name="label"
+                               placeholder="e.g. Core Switches, Edge Firewalls">
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="nr-label" for="editUsername">USERNAME</label>
+                        <input type="text" class="form-control" id="editUsername" name="username"
+                               required autocomplete="off">
+                        <div class="field-error">Username is required.</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="nr-label" for="editPassword">PASSWORD</label>
+                        <div class="pw-group">
+                            <input type="password" class="form-control" id="editPassword" name="password"
+                                   placeholder="Leave blank to keep current" autocomplete="new-password"
+                                   style="padding-right:2.5rem;">
+                            <button type="button" class="pw-toggle" onclick="togglePw('editPassword', this)">
+                                <i class="bi bi-eye"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="mb-2">
+                        <label class="nr-label" for="editEnableSecret">ENABLE SECRET</label>
+                        <div class="pw-group">
+                            <input type="password" class="form-control" id="editEnableSecret" name="enable_secret"
+                                   placeholder="Leave blank to keep current" autocomplete="new-password"
+                                   style="padding-right:2.5rem;">
+                            <button type="button" class="pw-toggle" onclick="togglePw('editEnableSecret', this)">
+                                <i class="bi bi-eye"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div id="clearEnableWrap" class="mb-1" style="display:none;">
+                        <div class="form-check" style="margin-top:0.5rem;">
+                            <input class="form-check-input" type="checkbox" id="clearEnable" name="clear_enable_secret" value="1">
+                            <label class="form-check-label" for="clearEnable" style="font-size:0.8rem; color:#555;">
+                                Clear enable secret
+                            </label>
+                        </div>
+                    </div>
+
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary btn-sm">
+                        <i class="bi bi-check-lg me-1"></i>Save Changes
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+
+<!-- ══════════════════════════════════════
+     DELETE PROFILE MODAL
+══════════════════════════════════════ -->
+<div class="modal fade" id="deleteModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered" style="max-width:420px;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div>
+                    <div class="nr-badge" style="margin-bottom:0.3rem; border-color:rgba(239,83,80,0.4); color:#ef9a9a;">IRREVERSIBLE ACTION</div>
+                    <h5 class="modal-title" style="color:#ef9a9a;">Delete Profile</h5>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p style="font-size:0.88rem; color:#ccc; margin-bottom:0.4rem;">
+                    Delete credential profile
+                    <span id="deleteProfileName" style="font-family:'JetBrains Mono',monospace; color:#ef9a9a; font-weight:700;"></span>?
+                </p>
+                <p style="font-size:0.82rem; color:#555; margin-bottom:0;">
+                    This cannot be undone. Devices assigned to this profile will need to be reassigned before deletion is allowed.
+                </p>
+            </div>
+            <div class="modal-footer">
+                <form method="POST" id="deleteForm" action="">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-danger btn-sm">
+                        <i class="bi bi-trash3 me-1"></i>Delete
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+<!-- ══════════════════════════════════════
+     ATTACHED DEVICES MODAL
+══════════════════════════════════════ -->
+<div class="modal fade" id="devicesModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-dialog-devices" style="max-width:460px;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div style="flex:1;">
+                    <div class="nr-badge" style="margin-bottom:0.3rem;">ATTACHED DEVICES</div>
+                    <h5 class="modal-title" id="devicesModalTitle">Devices</h5>
+                </div>
+                <button type="button" class="btn-icon edit me-2" id="splitToggleBtn"
+                        title="Assign devices" onclick="activateSplit()">
+                    <i class="bi bi-plus-lg"></i>
+                </button>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" style="padding:0; min-height:120px;">
+                <div class="devices-panels" id="devicesPanels">
+
+                    <!-- Left: assigned devices + drop zone -->
+                    <div class="devices-panel">
+                        <div class="panel-header" id="assignedPanelHeader">ASSIGNED</div>
+                        <div class="panel-scroll" id="assignedList"></div>
+                        <div class="drop-zone" id="dropZone">
+                            <i class="bi bi-arrow-down-circle"></i>
+                            Drag here to assign
+                        </div>
+                    </div>
+
+                    <!-- Right: available devices (hidden until split activated) -->
+                    <div class="devices-panel right-panel">
+                        <div class="panel-header">AVAILABLE</div>
+                        <div class="panel-scroll" id="availableList"></div>
+                    </div>
+
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary btn-sm"
+                        data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-primary btn-sm"
+                        id="saveSplitBtn" onclick="saveBulkAssign()"
+                        style="display:none;">
+                    <i class="bi bi-check-lg me-1"></i>Save Assignments
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+<!-- ══════════════════════════════════════
+     TEST CONNECTION MODAL
+══════════════════════════════════════ -->
+<div class="modal fade" id="testModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered" style="max-width:460px;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div>
+                    <div class="nr-badge" style="margin-bottom:0.3rem;">CONNECTION TEST</div>
+                    <h5 class="modal-title" id="testModalTitle">Test Profile</h5>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p style="font-size:0.82rem; color:#555; margin-bottom:1.2rem;">
+                    Select a device from your inventory to test this credential profile against.
+                    A full Netmiko connection will be attempted.
+                </p>
+
+                <label class="nr-label">DEVICE</label>
+                {% if devices %}
+                <div class="nr-select" id="testDevSelect">
+                    <div class="nr-select-trigger">
+                        <div class="nr-select-display">
+                            <span class="nr-select-placeholder">Select a device…</span>
+                        </div>
+                        <i class="bi bi-chevron-down nr-select-arrow"></i>
+                    </div>
+                    <div class="nr-select-panel">
+                        <div class="nr-select-search-wrap">
+                            <input type="text" class="nr-select-search" placeholder="Search devices…">
+                        </div>
+                        <div class="nr-select-list">
+                            {% for d in devices %}
+                            <div class="nr-select-option"
+                                 data-value="{{ d.id|string }}"
+                                 data-label="{{ d.label }}"
+                                 data-ip="{{ d.ip }}"
+                                 data-type="{{ d.device_type }}">
+                                <img src="{{ VENDOR_LOGOS.get(d.device_type, '') }}"
+                                     width="16" height="16"
+                                     style="border-radius:3px; flex-shrink:0; opacity:0.85;"
+                                     onerror="this.style.display='none'">
+                                <span class="opt-label">{{ d.label }}</span>
+                                <span class="opt-sub">{{ d.ip }}</span>
+                                <i class="bi bi-check2 opt-check"></i>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    <input type="hidden" id="testDeviceHidden" value="">
+                </div>
+                {% else %}
+                <div style="font-size:0.82rem; color:#3a3a3a; font-style:italic; padding:0.5rem 0;">
+                    No devices in inventory. Add devices first.
+                </div>
+                {% endif %}
+
+                <div id="testResult" class="test-result"></div>
+
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+                {% if devices %}
+                <button type="button" class="btn btn-primary btn-sm" id="testBtn"
+                        onclick="runTest()" {% if not devices %}disabled{% endif %}>
+                    <i class="bi bi-plug me-1"></i>Test Connection
+                </button>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+
+{% block extra_script %}
+<script>
+const CSRF_TOKEN = "{{ csrf_token() }}";
+let activeProfileId = null;
+
+// All inventory devices — used for the split assign view
+{% set ns = namespace(all_devs=[]) %}
+{% for d in devices %}
+{% set ns.all_devs = ns.all_devs + [{"id": d.id|string, "label": d.label, "ip": d.ip, "device_type": d.device_type, "sec_profile_id": d.sec_profile_id|string if d.sec_profile_id else ""}] %}
+{% endfor %}
+const DEVICES_ALL = {{ ns.all_devs | tojson }};
+const VENDOR_LOGOS = {{ VENDOR_LOGOS | tojson }};
+
+// ── Show/hide password toggle ──
+function togglePw(inputId, btn) {
+    const input = document.getElementById(inputId);
+    const isHidden = input.type === 'password';
+    input.type = isHidden ? 'text' : 'password';
+    btn.querySelector('i').className = isHidden ? 'bi bi-eye-slash' : 'bi bi-eye';
+}
+
+// ── Wire up card buttons ──
+document.querySelectorAll('.profile-card').forEach(card => {
+    const profile = JSON.parse(card.dataset.profile);
+    const devices = JSON.parse(card.dataset.devices);
+
+    card.querySelector('.edit-btn').addEventListener('click', () => openEdit(profile));
+    card.querySelector('.delete-btn').addEventListener('click', () => openDelete(profile));
+    card.querySelector('.devices-btn').addEventListener('click', () => openDevices(profile, devices));
+    card.querySelector('.test-btn').addEventListener('click', () => openTest(profile));
+});
+
+// ── Edit modal ──
+function openEdit(profile) {
+    document.getElementById('editModalTitle').textContent =
+        'Edit — ' + (profile.label || profile.username);
+    document.getElementById('editLabel').value    = profile.label || '';
+    document.getElementById('editUsername').value = profile.username;
+    document.getElementById('editPassword').value       = '';
+    document.getElementById('editEnableSecret').value   = '';
+    document.getElementById('clearEnable').checked      = false;
+
+    // Show "clear enable secret" checkbox only if profile has one
+    document.getElementById('clearEnableWrap').style.display =
+        profile.has_enable ? 'block' : 'none';
+
+    document.getElementById('editForm').action =
+        '/security/' + profile.id + '/edit';
+
+    new bootstrap.Modal(document.getElementById('editModal')).show();
+}
+
+// ── Delete modal ──
+function openDelete(profile) {
+    document.getElementById('deleteProfileName').textContent =
+        profile.label || profile.username;
+    document.getElementById('deleteForm').action =
+        '/security/' + profile.id + '/delete';
+
+    new bootstrap.Modal(document.getElementById('deleteModal')).show();
+}
+
+// ── Devices modal ──
+let activeDevicesProfileId = null;
+let pendingAssignments = [];
+
+function openDevices(profile, assignedDevices) {
+    activeDevicesProfileId = profile.id;
+    pendingAssignments = [];
+
+    document.getElementById('devicesModalTitle').textContent =
+        (profile.label || profile.username) + ' — Attached Devices';
+    document.getElementById('assignedPanelHeader').textContent = 'ASSIGNED';
+
+    renderAssignedList(assignedDevices);
+
+    // Reset split state
+    const dialog = document.querySelector('#devicesModal .modal-dialog');
+    dialog.classList.remove('split-mode');
+    dialog.style.maxWidth = '460px';
+    document.getElementById('saveSplitBtn').style.display = 'none';
+    document.getElementById('splitToggleBtn').style.display = '';
+    document.getElementById('availableList').innerHTML = '';
+
+    new bootstrap.Modal(document.getElementById('devicesModal')).show();
+}
+
+function renderAssignedList(devices) {
+    const list = document.getElementById('assignedList');
+    if (!devices.length) {
+        list.innerHTML = '<p style="font-size:0.82rem; color:#2e2e2e; font-style:italic; margin:0; padding:0.5rem 0;">No devices assigned.</p>';
+    } else {
+        list.innerHTML = devices.map(d => `
+            <div class="device-row">
+                <span class="device-ip">${d.ip}</span>
+                <span style="color:#888; font-size:0.82rem; flex:1;">${d.label}</span>
+                <span style="font-family:'JetBrains Mono',monospace; font-size:0.7rem; color:#444;">${d.device_type}</span>
+            </div>`).join('');
+    }
+}
+
+// ── Split assign view ──
+function activateSplit() {
+    const dialog = document.querySelector('#devicesModal .modal-dialog');
+    dialog.classList.add('split-mode');
+    dialog.style.maxWidth = '780px';
+    document.getElementById('saveSplitBtn').style.display = '';
+    document.getElementById('splitToggleBtn').style.display = 'none';
+
+    // Devices not assigned to this profile
+    const available = DEVICES_ALL.filter(d => d.sec_profile_id !== activeDevicesProfileId);
+    const list = document.getElementById('availableList');
+
+    if (!available.length) {
+        list.innerHTML = '<p style="font-size:0.82rem; color:#2e2e2e; font-style:italic; margin:0; padding:0.5rem 0;">All devices already assigned to this profile.</p>';
+        return;
+    }
+
+    list.innerHTML = available.map(d => {
+        const logoUrl = VENDOR_LOGOS[d.device_type] || '';
+        return `
+        <div class="drag-card" draggable="true" data-device-id="${d.id}">
+            <div class="drag-vendor-badge">
+                ${logoUrl
+                    ? `<img src="${logoUrl}" class="drag-vendor-img"
+                           onerror="this.style.display='none';this.nextElementSibling.style.display='block';">
+                       <i class="bi bi-router" style="display:none; font-size:0.7rem; color:#2a2a2a;"></i>`
+                    : `<i class="bi bi-router" style="font-size:0.7rem; color:#2a2a2a;"></i>`
+                }
+            </div>
+            <span class="drag-card-label">${d.label}</span>
+            <span class="drag-card-ip">${d.ip}</span>
+        </div>`;
+    }).join('');
+
+    list.querySelectorAll('.drag-card').forEach(card => {
+        card.addEventListener('dragstart', onDragStart);
+        card.addEventListener('dragend',   onDragEnd);
+    });
+}
+
+// ── Drag and drop ──
+let draggingId = null;
+
+function onDragStart(e) {
+    draggingId = this.dataset.deviceId;
+    this.classList.add('is-dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', draggingId);
+}
+
+function onDragEnd() {
+    this.classList.remove('is-dragging');
+    draggingId = null;
+}
+
+const dropZone = document.getElementById('dropZone');
+
+dropZone.addEventListener('dragover', e => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    dropZone.classList.add('drag-over');
+});
+
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+
+dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+
+    const deviceId = e.dataTransfer.getData('text/plain');
+    const device   = DEVICES_ALL.find(d => d.id === deviceId);
+    if (!device) return;
+
+    // Track assignment
+    if (!pendingAssignments.includes(deviceId)) pendingAssignments.push(deviceId);
+
+    // Remove from available
+    const dragCard = document.querySelector(`[data-device-id="${deviceId}"]`);
+    if (dragCard) dragCard.remove();
+
+    // Add to assigned with animation
+    const assignedList = document.getElementById('assignedList');
+    const emptyMsg = assignedList.querySelector('p');
+    if (emptyMsg) emptyMsg.remove();
+
+    const row = document.createElement('div');
+    row.className = 'device-row card-landing';
+    row.innerHTML = `
+        <span class="device-ip">${device.ip}</span>
+        <span style="color:#888; font-size:0.82rem; flex:1;">${device.label}</span>
+        <span style="font-family:'JetBrains Mono',monospace; font-size:0.7rem; color:#444;">${device.device_type}</span>`;
+    assignedList.appendChild(row);
+    setTimeout(() => row.classList.remove('card-landing'), 250);
+});
+
+// ── Save bulk assignment ──
+async function saveBulkAssign() {
+    if (!pendingAssignments.length) return;
+
+    const btn = document.getElementById('saveSplitBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status"></span>Saving…';
+
+    try {
+        const resp = await fetch('/inventory/bulk_assign', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN },
+            body: JSON.stringify({ profile_id: activeDevicesProfileId, device_ids: pendingAssignments })
+        });
+        const data = await resp.json();
+
+        if (data.status === 'success') {
+            bootstrap.Modal.getInstance(document.getElementById('devicesModal')).hide();
+            location.reload();
+        } else {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Save Assignments';
+        }
+    } catch {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Save Assignments';
+    }
+}
+
+// ── Clear validation state on modal close ──
+['addModal', 'editModal'].forEach(id => {
+    document.getElementById(id).addEventListener('hidden.bs.modal', () => {
+        const form = document.getElementById(id).querySelector('form');
+        if (!form) return;
+        form.querySelectorAll('.nr-submitted').forEach(el => el.classList.remove('nr-submitted'));
+        form.querySelectorAll('.field-error').forEach(el => el.style.display = '');
+    });
+});
+
+// ── Reset split on modal close ──
+document.getElementById('devicesModal').addEventListener('hidden.bs.modal', () => {
+    const dialog = document.querySelector('#devicesModal .modal-dialog');
+    dialog.classList.remove('split-mode');
+    dialog.style.maxWidth = '460px';
+    document.getElementById('saveSplitBtn').style.display = 'none';
+    document.getElementById('splitToggleBtn').style.display = '';
+    document.getElementById('availableList').innerHTML = '';
+    pendingAssignments = [];
+    activeDevicesProfileId = null;
+});
+
+// ── Test device NrSelect ──
+let testDevSelect = null;
+
+function initTestDevSelect() {
+    const container = document.getElementById('testDevSelect');
+    if (!container) return;
+
+    const trigger  = container.querySelector('.nr-select-trigger');
+    const search   = container.querySelector('.nr-select-search');
+    const options  = container.querySelectorAll('.nr-select-option');
+    const hidden   = document.getElementById('testDeviceHidden');
+    const display  = container.querySelector('.nr-select-display');
+
+    function renderDisplay(label, ip, deviceType) {
+        if (!label) {
+            display.innerHTML = '<span class="nr-select-placeholder">Select a device…</span>';
+        } else {
+            const logoUrl = VENDOR_LOGOS[deviceType] || '';
+            const logoHtml = logoUrl
+                ? `<img src="${logoUrl}" width="16" height="16"
+                        style="border-radius:3px;opacity:0.85;flex-shrink:0;"
+                        onerror="this.style.display='none'">`
+                : '<i class="bi bi-router" style="font-size:0.85rem;color:#555;flex-shrink:0;"></i>';
+            display.innerHTML =
+                logoHtml +
+                `<span class="nr-select-display-label">${label.replace(/</g,'&lt;')}</span>` +
+                `<span class="opt-sub" style="margin-left:0.3rem;">${ip}</span>`;
+        }
+    }
+
+    function selectOption(value, label, ip, deviceType) {
+        hidden.value = value;
+        renderDisplay(label, ip, deviceType);
+        options.forEach(o => o.classList.toggle('selected', o.dataset.value === value));
+        close();
+    }
+
+    function filterOptions(q) {
+        const lq = q.toLowerCase();
+        options.forEach(o => {
+            const match = !q
+                || (o.dataset.label || '').toLowerCase().includes(lq)
+                || (o.dataset.ip   || '').toLowerCase().includes(lq);
+            o.style.display = match ? '' : 'none';
+        });
+    }
+
+    function open()  { container.classList.add('open'); search.focus(); }
+    function close() { container.classList.remove('open'); search.value = ''; filterOptions(''); }
+
+    trigger.addEventListener('click', e => {
+        e.stopPropagation();
+        container.classList.contains('open') ? close() : open();
+    });
+    search.addEventListener('input',  () => filterOptions(search.value));
+    search.addEventListener('click',  e => e.stopPropagation());
+    options.forEach(opt => {
+        opt.addEventListener('click', e => {
+            e.stopPropagation();
+            selectOption(opt.dataset.value, opt.dataset.label, opt.dataset.ip, opt.dataset.type);
+        });
+    });
+    document.addEventListener('click', close);
+    document.getElementById('testModal').addEventListener('hidden.bs.modal', close);
+
+    testDevSelect = {
+        getValue: () => hidden.value,
+        reset()   { selectOption('', '', '', ''); }
+    };
+}
+
+document.addEventListener('DOMContentLoaded', initTestDevSelect);
+
+// ── Test connection modal ──
+function openTest(profile) {
+    activeProfileId = profile.id;
+    document.getElementById('testModalTitle').textContent =
+        'Test — ' + (profile.label || profile.username);
+
+    const result = document.getElementById('testResult');
+    result.className = 'test-result';
+    result.textContent = '';
+    result.style.display = 'none';
+
+    if (testDevSelect) testDevSelect.reset();
+
+    new bootstrap.Modal(document.getElementById('testModal')).show();
+}
+
+// ── Reset test result when modal closes ──
+document.getElementById('testModal').addEventListener('hidden.bs.modal', () => {
+    const result = document.getElementById('testResult');
+    result.className = 'test-result';
+    result.textContent = '';
+    result.style.display = 'none';
+    activeProfileId = null;
+});
+
+// ── Run connection test ──
+async function runTest() {
+    const deviceId = testDevSelect ? testDevSelect.getValue() : '';
+    if (!deviceId) return;
+
+    const btn = document.getElementById('testBtn');
+    const result = document.getElementById('testResult');
+
+    // Spinner
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status"></span>Testing…';
+    result.style.display = 'none';
+    result.className = 'test-result';
+
+    try {
+        const resp = await fetch(`/security/${activeProfileId}/test`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': CSRF_TOKEN
+            },
+            body: JSON.stringify({ device_id: deviceId })
+        });
+        const data = await resp.json();
+
+        if (data.status === 'success') {
+            result.className = 'test-result success';
+            result.innerHTML = '<i class="bi bi-check-circle me-2"></i>' + data.message;
+        } else {
+            result.className = 'test-result error';
+            result.innerHTML = '<i class="bi bi-x-circle me-2"></i>' + data.message;
+        }
+        result.style.display = 'block';
+
+    } catch (e) {
+        result.className = 'test-result error';
+        result.innerHTML = '<i class="bi bi-x-circle me-2"></i>Request failed — server unreachable';
+        result.style.display = 'block';
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-plug me-1"></i>Test Connection';
+    }
+}
+</script>
+{% endblock %}

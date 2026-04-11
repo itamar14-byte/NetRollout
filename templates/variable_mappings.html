@@ -1,0 +1,1021 @@
+{% extends "operator_base.html" %}
+{% block title %}Variable Mappings — NetRollout{% endblock %}
+{% block page_title %}Variable Mappings{% endblock %}
+
+{% block extra_style %}
+
+/* ── Attribute definitions (used inline) ── */
+{% set ATTR_DEFS = [
+    ("hostname",       "bi-type-h1"),
+    ("loopback_ip",    "bi-hdd-network"),
+    ("asn",            "bi-diagram-3"),
+    ("mgmt_vrf",       "bi-box"),
+    ("mgmt_interface", "bi-ethernet"),
+    ("site",           "bi-geo-alt"),
+    ("domain",         "bi-globe2"),
+    ("timezone",       "bi-clock"),
+    ("vrfs",           "bi-layers"),
+] %}
+
+/* ── Mapping card ── */
+.mapping-card {
+    position: relative;
+    background: #1a1a1a;
+    border: 1px solid #222;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 0 0 1px rgba(0,188,212,0.08), 0 16px 48px rgba(0,0,0,0.4);
+    transition: box-shadow 0.25s, border-color 0.25s;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+.mapping-card:hover {
+    box-shadow: 0 0 0 1px rgba(0,188,212,0.18), 0 20px 60px rgba(0,0,0,0.5);
+    border-color: #2a2a2a;
+}
+.mapping-card-body {
+    padding: 1.5rem 1.5rem 1rem;
+    flex: 1;
+}
+.mapping-card-footer {
+    padding: 0.75rem 1.5rem;
+    border-top: 1px solid #1e1e1e;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: rgba(0,0,0,0.15);
+}
+
+/* Token display */
+.mapping-token {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1rem;
+    font-weight: 700;
+    color: #00bcd4;
+    letter-spacing: 0.5px;
+}
+.mapping-label-text {
+    font-family: 'Inter', sans-serif;
+    font-size: 0.75rem;
+    color: #3a3a3a;
+    margin-top: 0.1rem;
+}
+
+/* Attribute chip */
+.attr-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    background: rgba(0,188,212,0.05);
+    border: 1px solid rgba(0,188,212,0.12);
+    border-radius: 6px;
+    padding: 0.28rem 0.65rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.78rem;
+    color: #55c9d8;
+}
+.attr-chip i { font-size: 0.82rem; color: #00bcd4; }
+
+.index-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    background: rgba(255,224,130,0.05);
+    border: 1px solid rgba(255,224,130,0.12);
+    border-radius: 5px;
+    padding: 0.2rem 0.5rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.72rem;
+    color: #ffe082;
+    margin-left: 0.35rem;
+}
+
+/* Card action links */
+.card-action-link {
+    font-family: 'Inter', sans-serif;
+    font-size: 0.75rem;
+    color: #444;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    transition: color 0.15s;
+    cursor: pointer;
+    background: none;
+    border: none;
+    padding: 0;
+}
+.card-action-link:hover { color: #00bcd4; }
+
+.btn-icon {
+    width: 28px; height: 28px;
+    border-radius: 6px;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 0.78rem; cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+    border: 1px solid transparent; background: transparent;
+}
+.btn-icon.edit   { color: #555; border-color: #1e1e1e; }
+.btn-icon.edit:hover   { color: #00bcd4; background: rgba(0,188,212,0.08); border-color: rgba(0,188,212,0.2); }
+.btn-icon.delete { color: #555; border-color: #1e1e1e; }
+.btn-icon.delete:hover { color: #ef5350; background: rgba(239,83,80,0.08); border-color: rgba(239,83,80,0.2); }
+
+/* Empty state */
+.empty-state { text-align: center; padding: 4rem 2rem; }
+.empty-state i { font-size: 3rem; margin-bottom: 1rem; display: block; color: #222; }
+.empty-state p { font-size: 0.88rem; color: #3a3a3a; margin-bottom: 1.5rem; }
+
+/* Token input group ($$...$$) */
+.token-addon {
+    background: #141414 !important;
+    border-color: #2a2a2a !important;
+    color: #00bcd4 !important;
+    font-family: 'JetBrains Mono', monospace !important;
+    font-size: 0.9rem !important;
+    font-weight: 700 !important;
+    letter-spacing: 1px !important;
+    padding: 0 0.65rem !important;
+    user-select: none;
+}
+
+/* Index field visibility */
+.index-field-wrap { display: none; }
+.index-field-wrap.visible { display: block; }
+
+/* Devices list in modal */
+.device-row {
+    display: flex; align-items: center; gap: 0.75rem;
+    padding: 0.55rem 0;
+    border-bottom: 1px solid #1a1a1a;
+    font-size: 0.83rem;
+}
+.device-row:last-child { border-bottom: none; }
+.device-ip {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.8rem; color: #00bcd4;
+    flex-shrink: 0; min-width: 130px;
+}
+.device-val {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.72rem; color: #388e9e;
+    flex-shrink: 0; max-width: 140px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* ── Split assign view ── */
+.modal-dialog-devices { transition: max-width 0.32s cubic-bezier(0.4,0,0.2,1); }
+.devices-panels { display: flex; min-height: 160px; }
+.devices-panel {
+    flex: 1; padding: 1rem 1.25rem;
+    display: flex; flex-direction: column;
+    min-width: 0; overflow: hidden;
+}
+.devices-panel.right-panel {
+    flex: 1; border-left: 1px solid #1a1a1a;
+    max-width: 0; padding: 0; opacity: 0;
+    transform: translateX(18px);
+    transition: max-width 0.32s ease, padding 0.32s ease,
+                opacity 0.22s 0.18s ease, transform 0.22s 0.18s ease;
+    pointer-events: none; overflow: hidden;
+}
+.split-mode .devices-panel.right-panel {
+    max-width: 50%; padding: 1rem 1.25rem;
+    opacity: 1; transform: translateX(0);
+    pointer-events: all;
+}
+.panel-header {
+    font-family: 'Inter', sans-serif; font-size: 0.68rem; color: #333;
+    letter-spacing: 0.1em; text-transform: uppercase;
+    margin-bottom: 0.65rem; padding-bottom: 0.45rem;
+    border-bottom: 1px solid #191919; flex-shrink: 0;
+}
+.panel-scroll { overflow-y: auto; flex: 1; max-height: 240px; }
+.panel-scroll::-webkit-scrollbar { width: 3px; }
+.panel-scroll::-webkit-scrollbar-thumb { background: #1e1e1e; border-radius: 2px; }
+
+.drop-zone {
+    border: 2px dashed #1a3a3e; border-radius: 8px;
+    padding: 1rem; text-align: center;
+    color: #1e4a50; font-size: 0.78rem; font-family: 'Inter', sans-serif;
+    margin-top: 0.7rem;
+    transition: border-color 0.15s, background 0.15s, color 0.15s;
+    display: none; flex-shrink: 0; cursor: default;
+}
+.drop-zone i { display: block; font-size: 1.2rem; margin-bottom: 0.35rem; }
+.split-mode .drop-zone { display: block; }
+.drop-zone.drag-over { border-color: #00bcd4; background: rgba(0,188,212,0.05); color: #00bcd4; }
+
+/* Drag cards */
+.drag-card {
+    background: #141414; border: 1px solid #1e1e1e; border-radius: 7px;
+    padding: 0.45rem 0.65rem;
+    display: flex; align-items: center; gap: 0.55rem;
+    cursor: grab;
+    transition: border-color 0.18s, box-shadow 0.18s, opacity 0.18s;
+    user-select: none; margin-bottom: 0.3rem;
+}
+.drag-card:hover { border-color: rgba(0,188,212,0.2); box-shadow: 0 2px 10px rgba(0,0,0,0.3); }
+.drag-card.is-dragging { opacity: 0.3; cursor: grabbing; }
+.drag-card-label {
+    font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; color: #ccc;
+    flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.drag-card-val {
+    font-family: 'JetBrains Mono', monospace; font-size: 0.68rem; color: #00bcd4;
+    flex-shrink: 0; max-width: 130px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.drag-vendor-badge {
+    width: 24px; height: 24px; min-width: 24px;
+    border-radius: 5px; background: #111; border: 1px solid #1e1e1e;
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden; flex-shrink: 0;
+}
+.drag-vendor-img { width: 15px; height: 15px; object-fit: contain; }
+
+@keyframes cardLand {
+    from { opacity: 0; transform: translateY(-5px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+.card-landing { animation: cardLand 0.2s ease; }
+
+{% endblock %}
+
+
+{% block operator_content %}
+
+{# ── Attribute definitions (accessible in both CSS and HTML blocks) ── #}
+{% set ATTR_DEFS = [
+    ("hostname",       "bi-type-h1"),
+    ("loopback_ip",    "bi-hdd-network"),
+    ("asn",            "bi-diagram-3"),
+    ("mgmt_vrf",       "bi-box"),
+    ("mgmt_interface", "bi-ethernet"),
+    ("site",           "bi-geo-alt"),
+    ("domain",         "bi-globe2"),
+    ("timezone",       "bi-clock"),
+    ("vrfs",           "bi-layers"),
+] %}
+{% set ATTR_ICON_MAP = dict(ATTR_DEFS) %}
+
+{# ── Flash messages ── #}
+{% set flash_messages = get_flashed_messages(with_categories=true) %}
+{% if flash_messages %}
+<div class="mb-3">
+    {% for cat, msg in flash_messages %}
+    <div class="alert alert-{{ 'danger' if cat == 'error' else cat }} alert-dismissible fade show" role="alert">
+        {{ msg }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
+<!-- ── Page header ── -->
+<div class="d-flex justify-content-between align-items-start mb-4">
+    <div>
+        <div class="nr-badge">VARIABLE MAPPINGS</div>
+        <h4 class="mb-0" style="font-weight:600; font-size:1.15rem;">Token Bindings</h4>
+        <p class="mt-1 mb-0" style="font-size:0.82rem; color:#444;">
+            {{ mappings|length }} mapping{{ "s" if mappings|length != 1 else "" }} configured
+        </p>
+    </div>
+    <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addModal"
+            style="margin-top:0.2rem;">
+        <i class="bi bi-plus-lg me-1"></i>Add Mapping
+    </button>
+</div>
+
+<!-- ── Empty state ── -->
+{% if not mappings %}
+<div class="empty-state">
+    <i class="bi bi-braces"></i>
+    <p>No variable mappings yet.<br>Create a mapping to substitute <span style="font-family:'JetBrains Mono',monospace; color:#2a3a3e;">$$TOKENS$$</span> in commands with per-device attribute values at rollout time.</p>
+    <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addModal">
+        <i class="bi bi-plus-lg me-1"></i>Add First Mapping
+    </button>
+</div>
+
+{% else %}
+
+<!-- ── Mapping cards ── -->
+<div class="row g-3">
+    {% for mapping in mappings %}
+
+    {# Build assigned device list with var_maps for JS #}
+    {% set ns = namespace(devs=[]) %}
+    {% for d in mapping.devices %}
+        {% set ns.devs = ns.devs + [{"id": d.id|string, "label": d.label, "ip": d.ip, "device_type": d.device_type, "var_maps": d.var_maps or {}}] %}
+    {% endfor %}
+
+    <div class="col-md-6 col-xl-4">
+        <div class="mapping-card"
+             data-mapping='{{ {"id": mapping.id|string, "label": mapping.label or "", "token": mapping.token, "property_name": mapping.property_name, "index": mapping.index}|tojson }}'
+             data-devices='{{ ns.devs|tojson }}'>
+
+            <div class="nr-card-accent"></div>
+            <div class="mapping-card-body">
+
+                <!-- Token + label -->
+                <div class="d-flex align-items-start gap-2 mb-3">
+                    <i class="bi bi-braces" style="color:#00bcd4; font-size:1rem; margin-top:0.18rem; flex-shrink:0;"></i>
+                    <div>
+                        <div class="mapping-token">{{ mapping.token }}</div>
+                        {% if mapping.label %}
+                        <div class="mapping-label-text">{{ mapping.label }}</div>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- Arrow + attribute chip + optional index badge -->
+                <div class="d-flex align-items-center flex-wrap gap-1">
+                    <i class="bi bi-arrow-right" style="color:#252525; font-size:0.85rem;"></i>
+                    <span class="attr-chip">
+                        <i class="bi {{ ATTR_ICON_MAP.get(mapping.property_name, 'bi-tag') }}"></i>
+                        {{ mapping.property_name }}
+                    </span>
+                    {% if mapping.index is not none %}
+                    <span class="index-badge">
+                        <i class="bi bi-list-ol"></i>[{{ mapping.index }}]
+                    </span>
+                    {% endif %}
+                </div>
+
+            </div>
+
+            <!-- Card footer -->
+            <div class="mapping-card-footer">
+                <button class="card-action-link devices-btn" title="View assigned devices">
+                    <i class="bi bi-server"></i>
+                    {{ mapping.devices|length }} device{{ "s" if mapping.devices|length != 1 else "" }}
+                </button>
+                <div class="d-flex gap-1">
+                    <button class="btn-icon edit edit-btn" title="Edit mapping">
+                        <i class="bi bi-pencil"></i>
+                    </button>
+                    <button class="btn-icon delete delete-btn" title="Delete mapping">
+                        <i class="bi bi-trash3"></i>
+                    </button>
+                </div>
+            </div>
+
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
+
+<!-- ══════════════════════════════════════
+     ADD MAPPING MODAL
+══════════════════════════════════════ -->
+<div class="modal fade" id="addModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered" style="max-width:460px;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div>
+                    <div class="nr-badge" style="margin-bottom:0.3rem;">NEW MAPPING</div>
+                    <h5 class="modal-title">Add Token Binding</h5>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST" action="{{ url_for('mappings_create') }}" novalidate>
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="modal-body">
+
+                    <div class="mb-3">
+                        <label class="nr-label" for="addLabel">LABEL <span style="color:#2a2a2a;">(optional)</span></label>
+                        <input type="text" class="form-control" id="addLabel" name="label"
+                               placeholder="e.g. Loopback address for BGP">
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="nr-label" for="addTokenInner">TOKEN</label>
+                        <div class="input-group">
+                            <span class="input-group-text token-addon">$$</span>
+                            <input type="text" class="form-control" id="addTokenInner" name="token_inner"
+                                   placeholder="LOOPBACK" required autocomplete="off"
+                                   style="font-family:'JetBrains Mono',monospace; text-transform:uppercase; letter-spacing:0.5px;">
+                            <span class="input-group-text token-addon">$$</span>
+                        </div>
+                        <div class="field-error">Token name is required.</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="nr-label">ATTRIBUTE</label>
+                        <div class="nr-select" id="addAttrSelect">
+                            <div class="nr-select-trigger">
+                                <div class="nr-select-display">
+                                    <span class="nr-select-placeholder">Select an attribute…</span>
+                                </div>
+                                <i class="bi bi-chevron-down nr-select-arrow"></i>
+                            </div>
+                            <div class="nr-select-panel">
+                                <div class="nr-select-search-wrap">
+                                    <input type="text" class="nr-select-search" placeholder="Search attributes…">
+                                </div>
+                                <div class="nr-select-list">
+                                    {% for attr_name, attr_icon in ATTR_DEFS %}
+                                    <div class="nr-select-option"
+                                         data-value="{{ attr_name }}"
+                                         data-icon="{{ attr_icon }}">
+                                        <i class="bi {{ attr_icon }}" style="color:#00bcd4; font-size:0.82rem; width:16px; text-align:center; flex-shrink:0;"></i>
+                                        <span class="opt-label">{{ attr_name }}</span>
+                                        {% if attr_name == 'vrfs' %}<span class="opt-sub">list</span>{% endif %}
+                                        <i class="bi bi-check2 opt-check"></i>
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                            <input type="hidden" id="addAttrHidden" name="property_name">
+                        </div>
+                        <div class="field-error" id="addAttrError" style="display:none;">Attribute is required.</div>
+                    </div>
+
+                    <div class="mb-1 index-field-wrap" id="addIndexWrap">
+                        <label class="nr-label" for="addIndex">VRF INDEX
+                            <span style="color:#2a2a2a; text-transform:none; letter-spacing:0;">(0-based position in vrfs list)</span>
+                        </label>
+                        <input type="number" class="form-control" id="addIndex" name="index"
+                               min="0" placeholder="0" style="width:100px;">
+                    </div>
+
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary btn-sm" id="addSubmitBtn">
+                        <i class="bi bi-plus-lg me-1"></i>Add Mapping
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+
+<!-- ══════════════════════════════════════
+     EDIT MAPPING MODAL
+══════════════════════════════════════ -->
+<div class="modal fade" id="editModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered" style="max-width:460px;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div>
+                    <div class="nr-badge" style="margin-bottom:0.3rem;">EDIT MAPPING</div>
+                    <h5 class="modal-title" id="editModalTitle">Edit Mapping</h5>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST" id="editForm" action="" novalidate>
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="modal-body">
+
+                    <div class="mb-3">
+                        <label class="nr-label" for="editLabel">LABEL <span style="color:#2a2a2a;">(optional)</span></label>
+                        <input type="text" class="form-control" id="editLabel" name="label">
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="nr-label" for="editTokenInner">TOKEN</label>
+                        <div class="input-group">
+                            <span class="input-group-text token-addon">$$</span>
+                            <input type="text" class="form-control" id="editTokenInner" name="token_inner"
+                                   required autocomplete="off"
+                                   style="font-family:'JetBrains Mono',monospace; text-transform:uppercase; letter-spacing:0.5px;">
+                            <span class="input-group-text token-addon">$$</span>
+                        </div>
+                        <div class="field-error">Token name is required.</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="nr-label">ATTRIBUTE</label>
+                        <div class="nr-select" id="editAttrSelect">
+                            <div class="nr-select-trigger">
+                                <div class="nr-select-display">
+                                    <span class="nr-select-placeholder">Select an attribute…</span>
+                                </div>
+                                <i class="bi bi-chevron-down nr-select-arrow"></i>
+                            </div>
+                            <div class="nr-select-panel">
+                                <div class="nr-select-search-wrap">
+                                    <input type="text" class="nr-select-search" placeholder="Search attributes…">
+                                </div>
+                                <div class="nr-select-list">
+                                    {% for attr_name, attr_icon in ATTR_DEFS %}
+                                    <div class="nr-select-option"
+                                         data-value="{{ attr_name }}"
+                                         data-icon="{{ attr_icon }}">
+                                        <i class="bi {{ attr_icon }}" style="color:#00bcd4; font-size:0.82rem; width:16px; text-align:center; flex-shrink:0;"></i>
+                                        <span class="opt-label">{{ attr_name }}</span>
+                                        {% if attr_name == 'vrfs' %}<span class="opt-sub">list</span>{% endif %}
+                                        <i class="bi bi-check2 opt-check"></i>
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                            <input type="hidden" id="editAttrHidden" name="property_name">
+                        </div>
+                        <div class="field-error" id="editAttrError" style="display:none;">Attribute is required.</div>
+                    </div>
+
+                    <div class="mb-1 index-field-wrap" id="editIndexWrap">
+                        <label class="nr-label" for="editIndex">VRF INDEX
+                            <span style="color:#2a2a2a; text-transform:none; letter-spacing:0;">(0-based position in vrfs list)</span>
+                        </label>
+                        <input type="number" class="form-control" id="editIndex" name="index"
+                               min="0" placeholder="0" style="width:100px;">
+                    </div>
+
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary btn-sm">
+                        <i class="bi bi-check-lg me-1"></i>Save Changes
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+
+<!-- ══════════════════════════════════════
+     DELETE MAPPING MODAL
+══════════════════════════════════════ -->
+<div class="modal fade" id="deleteModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered" style="max-width:420px;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div>
+                    <div class="nr-badge" style="margin-bottom:0.3rem; border-color:rgba(239,83,80,0.4); color:#ef9a9a;">IRREVERSIBLE ACTION</div>
+                    <h5 class="modal-title" style="color:#ef9a9a;">Delete Mapping</h5>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p style="font-size:0.88rem; color:#ccc; margin-bottom:0.4rem;">
+                    Delete mapping
+                    <span id="deleteMappingToken" style="font-family:'JetBrains Mono',monospace; color:#00bcd4; font-weight:700;"></span>?
+                </p>
+                <p style="font-size:0.82rem; color:#555; margin-bottom:0;">
+                    This will remove the token binding and all device assignments. This cannot be undone.
+                </p>
+            </div>
+            <div class="modal-footer">
+                <form method="POST" id="deleteForm" action="">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-danger btn-sm">
+                        <i class="bi bi-trash3 me-1"></i>Delete
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+<!-- ══════════════════════════════════════
+     DEVICE ASSIGNMENTS MODAL
+══════════════════════════════════════ -->
+<div class="modal fade" id="devicesModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-dialog-devices" style="max-width:460px;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div style="flex:1;">
+                    <div class="nr-badge" style="margin-bottom:0.3rem;">DEVICE ASSIGNMENTS</div>
+                    <h5 class="modal-title" id="devicesModalTitle">Assignments</h5>
+                </div>
+                <button type="button" class="btn-icon edit me-2" id="splitToggleBtn"
+                        title="Assign devices" onclick="activateSplit()">
+                    <i class="bi bi-plus-lg"></i>
+                </button>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" style="padding:0; min-height:120px;">
+                <div class="devices-panels" id="devicesPanels">
+
+                    <!-- Left: assigned devices + drop zone -->
+                    <div class="devices-panel">
+                        <div class="panel-header" id="assignedPanelHeader">ASSIGNED</div>
+                        <div class="panel-scroll" id="assignedList"></div>
+                        <div class="drop-zone" id="dropZone">
+                            <i class="bi bi-arrow-down-circle"></i>
+                            Drag here to assign
+                        </div>
+                    </div>
+
+                    <!-- Right: eligible devices (hidden until split activated) -->
+                    <div class="devices-panel right-panel">
+                        <div class="panel-header" id="availablePanelHeader">ELIGIBLE</div>
+                        <div class="panel-scroll" id="availableList"></div>
+                    </div>
+
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-primary btn-sm" id="saveSplitBtn"
+                        onclick="saveBulkAssign()" style="display:none;">
+                    <i class="bi bi-check-lg me-1"></i>Save Assignments
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+
+{% block extra_script %}
+<script>
+const CSRF_TOKEN = "{{ csrf_token() }}";
+
+// ── Static data ──
+{% set ns = namespace(all_devs=[]) %}
+{% for d in devices %}
+    {% set ns.all_devs = ns.all_devs + [{"id": d.id|string, "label": d.label, "ip": d.ip, "device_type": d.device_type, "var_maps": d.var_maps or {}}] %}
+{% endfor %}
+const DEVICES_ALL  = {{ ns.all_devs | tojson }};
+const VENDOR_LOGOS = {{ VENDOR_LOGOS | tojson }};
+const ATTR_ICONS   = {{ dict(ATTR_DEFS) | tojson }};
+
+// ── Active mapping context (set when devices modal opens) ──
+let activeMappingId    = null;
+let activeMappingProp  = null;
+let activeMappingIndex = null;
+let assignedDeviceIds  = new Set();
+let pendingAssignments = [];
+
+// ── Wire up card buttons ──
+document.querySelectorAll('.mapping-card').forEach(card => {
+    const mapping = JSON.parse(card.dataset.mapping);
+    const devices = JSON.parse(card.dataset.devices);
+    card.querySelector('.edit-btn').addEventListener('click',    () => openEdit(mapping));
+    card.querySelector('.delete-btn').addEventListener('click',  () => openDelete(mapping));
+    card.querySelector('.devices-btn').addEventListener('click', () => openDevices(mapping, devices));
+});
+
+
+// ══════════════════════════════════════
+//  ATTRIBUTE NrSelect FACTORY
+// ══════════════════════════════════════
+function initAttrSelect(containerId, hiddenId, indexWrapId) {
+    const container = document.getElementById(containerId);
+    const hidden    = document.getElementById(hiddenId);
+    const indexWrap = indexWrapId ? document.getElementById(indexWrapId) : null;
+    const trigger   = container.querySelector('.nr-select-trigger');
+    const search    = container.querySelector('.nr-select-search');
+    const options   = container.querySelectorAll('.nr-select-option');
+    const display   = container.querySelector('.nr-select-display');
+
+    function renderDisplay(value, icon) {
+        if (!value) {
+            display.innerHTML = '<span class="nr-select-placeholder">Select an attribute…</span>';
+        } else {
+            const listTag = value === 'vrfs'
+                ? '<span class="opt-sub" style="margin-left:0.3rem;">list</span>' : '';
+            display.innerHTML =
+                `<i class="bi ${icon}" style="color:#00bcd4; font-size:0.85rem; flex-shrink:0;"></i>` +
+                `<span class="nr-select-display-label">${value}</span>` + listTag;
+        }
+    }
+
+    function selectOption(value, icon) {
+        hidden.value = value;
+        renderDisplay(value, icon);
+        options.forEach(o => o.classList.toggle('selected', o.dataset.value === value));
+        if (indexWrap) indexWrap.classList.toggle('visible', value === 'vrfs');
+        close();
+    }
+
+    function filterOptions(q) {
+        const lq = q.toLowerCase();
+        options.forEach(o => {
+            o.style.display = !q || o.dataset.value.includes(lq) ? '' : 'none';
+        });
+    }
+
+    function open()  { container.classList.add('open'); search.focus(); }
+    function close() { container.classList.remove('open'); search.value = ''; filterOptions(''); }
+
+    trigger.addEventListener('click', e => {
+        e.stopPropagation();
+        container.classList.contains('open') ? close() : open();
+    });
+    search.addEventListener('input',  () => filterOptions(search.value));
+    search.addEventListener('click',  e => e.stopPropagation());
+    options.forEach(opt => {
+        opt.addEventListener('click', e => {
+            e.stopPropagation();
+            selectOption(opt.dataset.value, opt.dataset.icon);
+        });
+    });
+    document.addEventListener('click', () => close());
+
+    return {
+        getValue: ()      => hidden.value,
+        setValue: (value) => {
+            const opt = Array.from(options).find(o => o.dataset.value === value);
+            if (opt) selectOption(value, opt.dataset.icon);
+        },
+        reset: () => {
+            hidden.value = '';
+            renderDisplay('', '');
+            options.forEach(o => o.classList.remove('selected'));
+            if (indexWrap) indexWrap.classList.remove('visible');
+        }
+    };
+}
+
+const addAttrSel  = initAttrSelect('addAttrSelect',  'addAttrHidden',  'addIndexWrap');
+const editAttrSel = initAttrSelect('editAttrSelect', 'editAttrHidden', 'editIndexWrap');
+
+
+// ══════════════════════════════════════
+//  EDIT MODAL
+// ══════════════════════════════════════
+function openEdit(mapping) {
+    document.getElementById('editModalTitle').textContent = 'Edit — ' + mapping.token;
+    document.getElementById('editLabel').value      = mapping.label || '';
+    // Strip outer $$ to show just the inner name
+    document.getElementById('editTokenInner').value =
+        mapping.token.replace(/^\$\$|\$\$$/g, '');
+    editAttrSel.setValue(mapping.property_name);
+    document.getElementById('editIndex').value =
+        mapping.index !== null && mapping.index !== undefined ? mapping.index : '';
+    document.getElementById('editForm').action = '/mappings/' + mapping.id + '/edit';
+    new bootstrap.Modal(document.getElementById('editModal')).show();
+}
+
+
+// ══════════════════════════════════════
+//  DELETE MODAL
+// ══════════════════════════════════════
+function openDelete(mapping) {
+    document.getElementById('deleteMappingToken').textContent = mapping.token;
+    document.getElementById('deleteForm').action = '/mappings/' + mapping.id + '/delete';
+    new bootstrap.Modal(document.getElementById('deleteModal')).show();
+}
+
+
+// ══════════════════════════════════════
+//  DEVICES MODAL
+// ══════════════════════════════════════
+function openDevices(mapping, assignedDevices) {
+    activeMappingId    = mapping.id;
+    activeMappingProp  = mapping.property_name;
+    activeMappingIndex = mapping.index;
+    assignedDeviceIds  = new Set(assignedDevices.map(d => d.id));
+    pendingAssignments = [];
+
+    document.getElementById('devicesModalTitle').textContent =
+        mapping.token + ' — Assignments';
+
+    // Count eligible devices (have attribute set + not already assigned)
+    const eligibleCount = DEVICES_ALL.filter(d => {
+        const vm = d.var_maps || {};
+        return !!vm[activeMappingProp] && !assignedDeviceIds.has(d.id);
+    }).length;
+    document.getElementById('availablePanelHeader').textContent =
+        'ELIGIBLE (' + eligibleCount + ')';
+
+    renderAssignedList(assignedDevices);
+
+    // Reset split state
+    const dialog = document.querySelector('#devicesModal .modal-dialog');
+    dialog.classList.remove('split-mode');
+    dialog.style.maxWidth = '460px';
+    document.getElementById('saveSplitBtn').style.display = 'none';
+    document.getElementById('splitToggleBtn').style.display = '';
+    document.getElementById('availableList').innerHTML = '';
+
+    new bootstrap.Modal(document.getElementById('devicesModal')).show();
+}
+
+// Get the resolved attribute value string for a device given the active mapping context
+function getDeviceVal(device) {
+    const vm  = device.var_maps || {};
+    let   val = vm[activeMappingProp];
+    if (val === undefined || val === null) return '—';
+    if (Array.isArray(val)) {
+        if (activeMappingIndex !== null && activeMappingIndex !== undefined) {
+            const v = val[activeMappingIndex];
+            return v !== undefined ? String(v) : '?';
+        }
+        // Show abbreviated list
+        const shown = val.slice(0, 3).join(', ');
+        return val.length > 3 ? shown + '…' : shown;
+    }
+    return String(val);
+}
+
+function renderAssignedList(devices) {
+    const list = document.getElementById('assignedList');
+    if (!devices.length) {
+        list.innerHTML = '<p style="font-size:0.82rem; color:#2e2e2e; font-style:italic; margin:0; padding:0.5rem 0;">No devices assigned.</p>';
+        return;
+    }
+    list.innerHTML = devices.map(d => `
+        <div class="device-row">
+            <span class="device-ip">${d.ip}</span>
+            <span style="color:#888; font-size:0.82rem; flex:1;">${d.label}</span>
+            <span class="device-val">${getDeviceVal(d)}</span>
+        </div>`).join('');
+}
+
+// ── Split assign view ──
+function activateSplit() {
+    const dialog = document.querySelector('#devicesModal .modal-dialog');
+    dialog.classList.add('split-mode');
+    dialog.style.maxWidth = '780px';
+    document.getElementById('saveSplitBtn').style.display = '';
+    document.getElementById('splitToggleBtn').style.display = 'none';
+    renderAvailableList();
+}
+
+function renderAvailableList() {
+    const pendingSet = new Set(pendingAssignments);
+    const pool = DEVICES_ALL.filter(d => {
+        const vm = d.var_maps || {};
+        return !!vm[activeMappingProp]
+            && !assignedDeviceIds.has(d.id)
+            && !pendingSet.has(d.id);
+    });
+
+    const list = document.getElementById('availableList');
+    if (!pool.length) {
+        list.innerHTML = '<p style="font-size:0.82rem; color:#2e2e2e; font-style:italic; margin:0; padding:0.5rem 0;">No eligible devices available.</p>';
+        return;
+    }
+
+    list.innerHTML = pool.map(d => {
+        const logoUrl = VENDOR_LOGOS[d.device_type] || '';
+        const val     = getDeviceVal(d);
+        const logoHtml = logoUrl
+            ? `<img src="${logoUrl}" class="drag-vendor-img"
+                    onerror="this.style.display='none';this.nextElementSibling.style.display='block';">
+               <i class="bi bi-router" style="display:none; font-size:0.7rem; color:#2a2a2a;"></i>`
+            : `<i class="bi bi-router" style="font-size:0.7rem; color:#2a2a2a;"></i>`;
+        return `
+        <div class="drag-card" draggable="true" data-device-id="${d.id}">
+            <div class="drag-vendor-badge">${logoHtml}</div>
+            <span class="drag-card-label">${d.label}</span>
+            <span class="drag-card-val">${val}</span>
+        </div>`;
+    }).join('');
+
+    list.querySelectorAll('.drag-card').forEach(card => {
+        card.addEventListener('dragstart', onDragStart);
+        card.addEventListener('dragend',   onDragEnd);
+    });
+}
+
+
+// ══════════════════════════════════════
+//  DRAG AND DROP
+// ══════════════════════════════════════
+let draggingId = null;
+
+function onDragStart(e) {
+    draggingId = this.dataset.deviceId;
+    this.classList.add('is-dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', draggingId);
+}
+function onDragEnd() {
+    this.classList.remove('is-dragging');
+    draggingId = null;
+}
+
+const dropZone = document.getElementById('dropZone');
+
+dropZone.addEventListener('dragover', e => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    dropZone.classList.add('drag-over');
+});
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+
+dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+
+    const deviceId = e.dataTransfer.getData('text/plain');
+    const device   = DEVICES_ALL.find(d => d.id === deviceId);
+    if (!device) return;
+
+    if (!pendingAssignments.includes(deviceId)) pendingAssignments.push(deviceId);
+
+    // Remove from available list
+    const dragCard = document.querySelector(`[data-device-id="${deviceId}"]`);
+    if (dragCard) dragCard.remove();
+
+    // Add to assigned list with animation
+    const assignedList = document.getElementById('assignedList');
+    const emptyMsg = assignedList.querySelector('p');
+    if (emptyMsg) emptyMsg.remove();
+
+    const val = getDeviceVal(device);
+    const row = document.createElement('div');
+    row.className = 'device-row card-landing';
+    row.innerHTML = `
+        <span class="device-ip">${device.ip}</span>
+        <span style="color:#888; font-size:0.82rem; flex:1;">${device.label}</span>
+        <span class="device-val">${val}</span>`;
+    assignedList.appendChild(row);
+    setTimeout(() => row.classList.remove('card-landing'), 250);
+});
+
+
+// ══════════════════════════════════════
+//  SAVE BULK ASSIGNMENT
+// ══════════════════════════════════════
+async function saveBulkAssign() {
+    if (!pendingAssignments.length) return;
+
+    const btn = document.getElementById('saveSplitBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status"></span>Saving…';
+
+    try {
+        const resp = await fetch('/mappings/bulk_assign', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN },
+            body:    JSON.stringify({ mapping_id: activeMappingId, device_ids: pendingAssignments })
+        });
+        const data = await resp.json();
+        if (data.status === 'success') {
+            bootstrap.Modal.getInstance(document.getElementById('devicesModal')).hide();
+            location.reload();
+        } else {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Save Assignments';
+        }
+    } catch {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Save Assignments';
+    }
+}
+
+
+// ══════════════════════════════════════
+//  FORM SUBMIT VALIDATION
+// ══════════════════════════════════════
+document.querySelectorAll('form[novalidate]').forEach(form => {
+    form.addEventListener('submit', e => {
+        let valid = true;
+
+        // Standard required inputs
+        form.querySelectorAll('input[required]').forEach(el => {
+            if (!el.value.trim()) {
+                el.classList.add('nr-submitted');
+                valid = false;
+            }
+        });
+
+        // Attribute NrSelect (hidden input, show custom error)
+        const attrHidden = form.querySelector('input[name="property_name"]');
+        const attrError  = form.querySelector('[id$="AttrError"]');
+        if (attrHidden && !attrHidden.value) {
+            if (attrError) attrError.style.display = 'block';
+            valid = false;
+        }
+
+        if (!valid) {
+            e.preventDefault();
+            form.style.animation = 'none';
+            void form.offsetHeight;
+            form.style.animation = 'shake 0.45s ease';
+        }
+    });
+});
+
+// ── Clear validation state on modal close ──
+['addModal', 'editModal'].forEach(id => {
+    document.getElementById(id).addEventListener('hidden.bs.modal', () => {
+        const form = document.getElementById(id).querySelector('form');
+        if (!form) return;
+        form.querySelectorAll('.nr-submitted').forEach(el => el.classList.remove('nr-submitted'));
+        form.querySelectorAll('[id$="AttrError"]').forEach(el => el.style.display = 'none');
+        form.style.animation = '';
+    });
+});
+
+// ── Reset split on devices modal close ──
+document.getElementById('devicesModal').addEventListener('hidden.bs.modal', () => {
+    const dialog = document.querySelector('#devicesModal .modal-dialog');
+    dialog.classList.remove('split-mode');
+    dialog.style.maxWidth = '460px';
+    document.getElementById('saveSplitBtn').style.display = 'none';
+    document.getElementById('splitToggleBtn').style.display = '';
+    document.getElementById('availableList').innerHTML = '';
+    pendingAssignments = [];
+    activeMappingId    = null;
+    activeMappingProp  = null;
+    activeMappingIndex = null;
+    assignedDeviceIds  = new Set();
+});
+</script>
+{% endblock %}

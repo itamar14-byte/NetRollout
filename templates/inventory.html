@@ -1,0 +1,1032 @@
+{% extends "operator_base.html" %}
+{% block title %}Inventory — NetRollout{% endblock %}
+{% block page_title %}Inventory{% endblock %}
+
+{% set platforms = [
+    ('cisco_ios',      'Cisco IOS'),
+    ('cisco_xe',       'Cisco IOS-XE'),
+    ('cisco_xr',       'Cisco IOS-XR'),
+    ('cisco_nxos',     'Cisco NX-OS'),
+    ('juniper_junos',  'Juniper JunOS'),
+    ('arista_eos',     'Arista EOS'),
+    ('fortinet',       'Fortinet FortiOS'),
+    ('paloalto_panos', 'Palo Alto PAN-OS'),
+    ('aruba_aoscx',    'Aruba AOS-CX'),
+    ('checkpoint_gaia','Check Point Gaia'),
+    ('hp_procurve',    'HP ProCurve'),
+    ('hp_comware',     'HP Comware'),
+] %}
+
+{% block extra_style %}
+
+/* ── Vendor badge ── */
+.vendor-badge {
+    width: 36px;
+    height: 36px;
+    min-width: 36px;
+    border-radius: 7px;
+    background: #111;
+    border: 1px solid #1e1e1e;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+}
+.vendor-img {
+    width: 22px;
+    height: 22px;
+    object-fit: contain;
+    filter: brightness(0.85);
+}
+
+/* ── Inventory card ── */
+.inv-card {
+    background: #1a1a1a;
+    border: 1px solid #222;
+    border-radius: 8px;
+    padding: 0.6rem 0.8rem;
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    cursor: pointer;
+    transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
+    position: relative;
+    user-select: none;
+}
+.inv-card:hover {
+    border-color: rgba(0,188,212,0.22);
+    box-shadow: 0 0 0 1px rgba(0,188,212,0.07), 0 4px 18px rgba(0,0,0,0.3);
+    background: #1c1c1c;
+}
+.inv-card-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: #ddd;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+.inv-card-ip {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.71rem;
+    color: #2e2e2e;
+    flex-shrink: 0;
+}
+.card-delete-btn {
+    opacity: 0;
+    transition: opacity 0.15s, color 0.15s;
+    background: none;
+    border: none;
+    padding: 0 0.1rem;
+    color: #2e2e2e;
+    font-size: 0.78rem;
+    cursor: pointer;
+    flex-shrink: 0;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+}
+.inv-card:hover .card-delete-btn { opacity: 1; }
+.card-delete-btn:hover { color: #ef5350 !important; }
+
+/* ── Hover tooltip ── */
+.inv-tooltip {
+    position: fixed;
+    z-index: 1035;
+    background: #0c0c0c;
+    border: 1px solid #1a1a1a;
+    border-top: 2px solid rgba(0,188,212,0.45);
+    border-radius: 0 0 8px 8px;
+    padding: 0.65rem 0.85rem;
+    min-width: 210px;
+    pointer-events: none;
+    opacity: 0;
+    transform: translateY(-5px);
+    transition: opacity 0.14s, transform 0.14s;
+    box-shadow: 0 10px 36px rgba(0,0,0,0.55);
+}
+.inv-tooltip.visible {
+    opacity: 1;
+    transform: translateY(0);
+}
+.tt-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 1.2rem;
+    padding: 0.2rem 0;
+}
+.tt-row:not(:last-child) { border-bottom: 1px solid #141414; }
+.tt-key {
+    font-family: 'Inter', sans-serif;
+    font-size: 0.67rem;
+    font-weight: 500;
+    color: #777;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    flex-shrink: 0;
+}
+.tt-val {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.74rem;
+    color: #999;
+    text-align: right;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.tt-val.cyan { color: #00bcd4; }
+
+/* ── Expand section (variable attributes) ── */
+.expand-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    background: none;
+    border: none;
+    border-top: 1px solid #1c1c1c;
+    width: 100%;
+    padding: 0.6rem 0 0;
+    margin-top: 0.9rem;
+    color: #777;
+    font-family: 'Inter', sans-serif;
+    font-size: 0.72rem;
+    font-weight: 500;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: color 0.15s;
+    text-align: left;
+}
+.expand-toggle:hover { color: #aaa; }
+.expand-arrow { transition: transform 0.2s; font-size: 0.68rem; }
+.expand-toggle.open .expand-arrow { transform: rotate(180deg); }
+.expand-body { display: none; padding-top: 0.75rem; }
+.expand-body.open { display: block; }
+.expand-hint {
+    font-size: 0.75rem;
+    color: #2a2a2a;
+    margin-bottom: 0.9rem;
+    line-height: 1.5;
+}
+
+/* ── Empty state ── */
+.empty-state {
+    text-align: center;
+    padding: 4rem 2rem;
+}
+.empty-state i { font-size: 3rem; margin-bottom: 1rem; display: block; color: #1e1e1e; }
+.empty-state p { font-size: 0.88rem; color: #333; margin-bottom: 1.5rem; }
+
+/* Platform select error state */
+.nr-select.nr-platform-error .nr-select-trigger {
+    border-color: #ef5350 !important;
+    box-shadow: none !important;
+}
+
+{% endblock %}
+
+
+{% block operator_content %}
+
+{# VENDOR_LOGOS is a Jinja2 global registered in webapp.py #}
+
+<!-- Header -->
+<div class="d-flex justify-content-between align-items-start mb-4">
+    <div>
+        <div class="nr-badge">INVENTORY</div>
+        <h4 class="mb-0" style="font-weight:600; font-size:1.15rem;">Device Inventory</h4>
+        <p class="mt-1 mb-0" style="font-size:0.82rem; color:#444;">
+            {{ devices|length }} device{{ "s" if devices|length != 1 else "" }} configured
+        </p>
+    </div>
+    <div class="d-flex gap-2" style="margin-top:0.2rem;">
+        <button class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#importCsvModal">
+            <i class="bi bi-filetype-csv me-1"></i>Import CSV
+        </button>
+        <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addDeviceModal">
+            <i class="bi bi-plus-lg me-1"></i>Add Device
+        </button>
+    </div>
+</div>
+
+
+{% if not devices %}
+
+<!-- Empty state -->
+<div class="empty-state">
+    <i class="bi bi-server"></i>
+    <p>No devices in inventory.<br>Add your first device to get started.</p>
+    <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addDeviceModal">
+        <i class="bi bi-plus-lg me-1"></i>Add First Device
+    </button>
+</div>
+
+{% else %}
+
+<!-- Device card grid -->
+<div class="row g-2">
+    {% for device in devices %}
+    {% set logo_url = VENDOR_LOGOS.get(device.device_type, '') %}
+    {% set prof_label = (device.security_profile.label or device.security_profile.username) if device.security_profile else '' %}
+    <div class="col-sm-6 col-xl-4">
+        <div class="inv-card"
+             data-device='{{ {
+                 "id":               device.id|string,
+                 "label":            device.label,
+                 "ip":               device.ip,
+                 "device_type":      device.device_type,
+                 "port":             device.port,
+                 "sec_profile_id":   device.sec_profile_id|string if device.sec_profile_id else "",
+                 "sec_profile_label": prof_label,
+                 "var_maps":         device.var_maps or {}
+             }|tojson }}'>
+
+            <!-- Vendor badge -->
+            <div class="vendor-badge">
+                {% if logo_url %}
+                <img src="{{ logo_url }}"
+                     alt="{{ device.device_type }}"
+                     class="vendor-img"
+                     onerror="this.style.display='none';this.nextElementSibling.style.display='block';">
+                {% endif %}
+                <i class="bi bi-router" style="{{ 'display:none;' if logo_url else '' }} font-size:0.95rem; color:#2a2a2a;"></i>
+            </div>
+
+            <!-- Label -->
+            <span class="inv-card-label">{{ device.label }}</span>
+
+            <!-- IP (secondary, hidden on hover by CSS transition if needed) -->
+            <span class="inv-card-ip">{{ device.ip }}</span>
+
+            <!-- Delete icon — hover-reveal, stops card click propagation -->
+            <button class="card-delete-btn" title="Remove device">
+                <i class="bi bi-trash3"></i>
+            </button>
+
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+{% endif %}
+
+
+<!-- ── Shared hover tooltip ── -->
+<div id="invTooltip" class="inv-tooltip" aria-hidden="true">
+    <div class="tt-row">
+        <span class="tt-key">IP</span>
+        <span class="tt-val cyan" id="ttIp">—</span>
+    </div>
+    <div class="tt-row">
+        <span class="tt-key">TYPE</span>
+        <span class="tt-val" id="ttType">—</span>
+    </div>
+    <div class="tt-row">
+        <span class="tt-key">PORT</span>
+        <span class="tt-val" id="ttPort">—</span>
+    </div>
+    <div class="tt-row">
+        <span class="tt-key">PROFILE</span>
+        <span class="tt-val" id="ttProfile">—</span>
+    </div>
+</div>
+
+
+<!-- ══════════════════════════════════════
+     ADD DEVICE MODAL
+══════════════════════════════════════ -->
+<div class="modal fade" id="addDeviceModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered" style="max-width:480px;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div>
+                    <div class="nr-badge" style="margin-bottom:0.3rem;">NEW DEVICE</div>
+                    <h5 class="modal-title">Add Device</h5>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST" action="/inventory/create" novalidate>
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="modal-body">
+
+                    <div class="mb-3">
+                        <label class="nr-label" for="addDevLabel">LABEL</label>
+                        <input type="text" class="form-control" id="addDevLabel" name="label"
+                               placeholder="e.g. Core-SW-01" required autocomplete="off">
+                        <div class="field-error">Label is required.</div>
+                    </div>
+
+                    <div class="row g-3 mb-3">
+                        <div class="col-8">
+                            <label class="nr-label" for="addDevIp">IP ADDRESS</label>
+                            <input type="text" class="form-control" id="addDevIp" name="ip"
+                                   placeholder="192.168.1.1" required autocomplete="off"
+                                   pattern="^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$"
+                                   title="Enter a valid IPv4 address">
+                            <div class="field-error">Enter a valid IPv4 address.</div>
+                        </div>
+                        <div class="col-4">
+                            <label class="nr-label" for="addDevPort">PORT</label>
+                            <input type="number" class="form-control" id="addDevPort" name="port"
+                                   value="22" min="1" max="65535" required>
+                            <div class="field-error">Port must be 1–65535.</div>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="nr-label">DEVICE TYPE</label>
+                        <div class="nr-select" id="addPlatformSelect">
+                            <div class="nr-select-trigger">
+                                <div class="nr-select-display">
+                                    <span class="nr-select-placeholder">Select platform…</span>
+                                </div>
+                                <i class="bi bi-chevron-down nr-select-arrow"></i>
+                            </div>
+                            <div class="nr-select-panel">
+                                <div class="nr-select-search-wrap">
+                                    <input type="text" class="nr-select-search" placeholder="Search platforms…">
+                                </div>
+                                <div class="nr-select-list">
+                                    {% for val, lbl in platforms %}
+                                    <div class="nr-select-option" data-value="{{ val }}" data-label="{{ lbl }}">
+                                        <img src="{{ VENDOR_LOGOS.get(val, '') }}" width="16" height="16"
+                                             style="border-radius:3px;opacity:0.85;flex-shrink:0;"
+                                             onerror="this.style.display='none'">
+                                        <span class="opt-label">{{ lbl }}</span>
+                                        <i class="bi bi-check2 opt-check"></i>
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                            <input type="hidden" id="addDevTypeHidden" name="device_type" value="">
+                        </div>
+                        <div class="field-error" id="addPlatformError">Please select a platform.</div>
+                    </div>
+
+                    <div class="mb-1">
+                        <label class="nr-label">SECURITY PROFILE
+                            <span style="color:#272727;">(optional)</span>
+                        </label>
+                        <div class="nr-select" id="addSecSelect">
+                            <div class="nr-select-trigger">
+                                <div class="nr-select-display">
+                                    <span class="nr-select-placeholder">No profile assigned</span>
+                                </div>
+                                <i class="bi bi-chevron-down nr-select-arrow"></i>
+                            </div>
+                            <div class="nr-select-panel">
+                                <div class="nr-select-search-wrap">
+                                    <input type="text" class="nr-select-search" placeholder="Search profiles…">
+                                </div>
+                                <div class="nr-select-list">
+                                    <div class="nr-select-option none-opt selected"
+                                         data-value="" data-label="">
+                                        <span class="opt-label">No profile</span>
+                                        <i class="bi bi-check2 opt-check"></i>
+                                    </div>
+                                    {% for p in profiles %}
+                                    <div class="nr-select-option"
+                                         data-value="{{ p.id|string }}"
+                                         data-label="{{ p.label or p.username }}">
+                                        <i class="bi bi-shield-lock opt-shield"></i>
+                                        <span class="opt-label">{{ p.label or p.username }}</span>
+                                        <i class="bi bi-check2 opt-check"></i>
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                            <input type="hidden" name="sec_profile_id" value="">
+                        </div>
+                    </div>
+
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary btn-sm">
+                        <i class="bi bi-plus-lg me-1"></i>Add Device
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+
+<!-- ══════════════════════════════════════
+     EDIT DEVICE MODAL
+══════════════════════════════════════ -->
+<div class="modal fade" id="editDeviceModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered" style="max-width:480px;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div>
+                    <div class="nr-badge" style="margin-bottom:0.3rem;">EDIT DEVICE</div>
+                    <h5 class="modal-title" id="editDevTitle">Edit Device</h5>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST" id="editDevForm" action="" novalidate>
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="modal-body">
+
+                    <div class="mb-3">
+                        <label class="nr-label" for="editDevLabel">LABEL</label>
+                        <input type="text" class="form-control" id="editDevLabel" name="label"
+                               required autocomplete="off">
+                        <div class="field-error">Label is required.</div>
+                    </div>
+
+                    <div class="row g-3 mb-3">
+                        <div class="col-8">
+                            <label class="nr-label" for="editDevIp">IP ADDRESS</label>
+                            <input type="text" class="form-control" id="editDevIp" name="ip" required
+                                   pattern="^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$"
+                                   title="Enter a valid IPv4 address">
+                            <div class="field-error">Enter a valid IPv4 address.</div>
+                        </div>
+                        <div class="col-4">
+                            <label class="nr-label" for="editDevPort">PORT</label>
+                            <input type="number" class="form-control" id="editDevPort" name="port"
+                                   min="1" max="65535" required>
+                            <div class="field-error">Port must be 1–65535.</div>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="nr-label">DEVICE TYPE</label>
+                        <div class="nr-select" id="editPlatformSelect">
+                            <div class="nr-select-trigger">
+                                <div class="nr-select-display">
+                                    <span class="nr-select-placeholder">Select platform…</span>
+                                </div>
+                                <i class="bi bi-chevron-down nr-select-arrow"></i>
+                            </div>
+                            <div class="nr-select-panel">
+                                <div class="nr-select-search-wrap">
+                                    <input type="text" class="nr-select-search" placeholder="Search platforms…">
+                                </div>
+                                <div class="nr-select-list">
+                                    {% for val, lbl in platforms %}
+                                    <div class="nr-select-option" data-value="{{ val }}" data-label="{{ lbl }}">
+                                        <img src="{{ VENDOR_LOGOS.get(val, '') }}" width="16" height="16"
+                                             style="border-radius:3px;opacity:0.85;flex-shrink:0;"
+                                             onerror="this.style.display='none'">
+                                        <span class="opt-label">{{ lbl }}</span>
+                                        <i class="bi bi-check2 opt-check"></i>
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                            <input type="hidden" id="editDevTypeHidden" name="device_type" value="">
+                        </div>
+                        <div class="field-error" id="editPlatformError">Please select a platform.</div>
+                    </div>
+
+                    <div class="mb-1">
+                        <label class="nr-label">SECURITY PROFILE
+                            <span style="color:#272727;">(optional)</span>
+                        </label>
+                        <div class="nr-select" id="editSecSelect">
+                            <div class="nr-select-trigger">
+                                <div class="nr-select-display">
+                                    <span class="nr-select-placeholder">No profile assigned</span>
+                                </div>
+                                <i class="bi bi-chevron-down nr-select-arrow"></i>
+                            </div>
+                            <div class="nr-select-panel">
+                                <div class="nr-select-search-wrap">
+                                    <input type="text" class="nr-select-search" placeholder="Search profiles…">
+                                </div>
+                                <div class="nr-select-list">
+                                    <div class="nr-select-option none-opt"
+                                         data-value="" data-label="">
+                                        <span class="opt-label">No profile</span>
+                                        <i class="bi bi-check2 opt-check"></i>
+                                    </div>
+                                    {% for p in profiles %}
+                                    <div class="nr-select-option"
+                                         data-value="{{ p.id|string }}"
+                                         data-label="{{ p.label or p.username }}">
+                                        <i class="bi bi-shield-lock opt-shield"></i>
+                                        <span class="opt-label">{{ p.label or p.username }}</span>
+                                        <i class="bi bi-check2 opt-check"></i>
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                            <input type="hidden" name="sec_profile_id" value="">
+                        </div>
+                    </div>
+
+                    <!-- Variable attributes (expand) -->
+                    <button type="button" class="expand-toggle" id="varAttrToggle">
+                        <i class="bi bi-chevron-down expand-arrow"></i>
+                        VARIABLE ATTRIBUTES
+                    </button>
+                    <div class="expand-body" id="varAttrBody">
+                        <p class="expand-hint">
+                            Optional per-device values for $$TOKEN$$ substitution in rollout commands.
+                        </p>
+
+                        <div class="row g-2 mb-2">
+                            <div class="col-6">
+                                <label class="nr-label" for="attrHostname">HOSTNAME</label>
+                                <input type="text" class="form-control form-control-sm"
+                                       id="attrHostname" name="attr_hostname"
+                                       placeholder="Core-SW-01" autocomplete="off">
+                            </div>
+                            <div class="col-6">
+                                <label class="nr-label" for="attrLoopback">LOOPBACK IP</label>
+                                <input type="text" class="form-control form-control-sm"
+                                       id="attrLoopback" name="attr_loopback_ip"
+                                       placeholder="10.0.0.1" autocomplete="off">
+                            </div>
+                        </div>
+
+                        <div class="row g-2 mb-2">
+                            <div class="col-6">
+                                <label class="nr-label" for="attrAsn">ASN</label>
+                                <input type="text" class="form-control form-control-sm"
+                                       id="attrAsn" name="attr_asn"
+                                       placeholder="65001" autocomplete="off">
+                            </div>
+                            <div class="col-6">
+                                <label class="nr-label" for="attrMgmtVrf">MGMT VRF</label>
+                                <input type="text" class="form-control form-control-sm"
+                                       id="attrMgmtVrf" name="attr_mgmt_vrf"
+                                       placeholder="MGMT" autocomplete="off">
+                            </div>
+                        </div>
+
+                        <div class="row g-2 mb-2">
+                            <div class="col-6">
+                                <label class="nr-label" for="attrMgmtIntf">MGMT INTERFACE</label>
+                                <input type="text" class="form-control form-control-sm"
+                                       id="attrMgmtIntf" name="attr_mgmt_interface"
+                                       placeholder="GigabitEthernet0/0" autocomplete="off">
+                            </div>
+                            <div class="col-6">
+                                <label class="nr-label" for="attrSite">SITE</label>
+                                <input type="text" class="form-control form-control-sm"
+                                       id="attrSite" name="attr_site"
+                                       placeholder="NYC-DC1" autocomplete="off">
+                            </div>
+                        </div>
+
+                        <div class="row g-2 mb-2">
+                            <div class="col-6">
+                                <label class="nr-label" for="attrDomain">DOMAIN</label>
+                                <input type="text" class="form-control form-control-sm"
+                                       id="attrDomain" name="attr_domain"
+                                       placeholder="corp.example.com" autocomplete="off">
+                            </div>
+                            <div class="col-6">
+                                <label class="nr-label" for="attrTimezone">TIMEZONE</label>
+                                <input type="text" class="form-control form-control-sm"
+                                       id="attrTimezone" name="attr_timezone"
+                                       placeholder="UTC+2" autocomplete="off">
+                            </div>
+                        </div>
+
+                        <div class="mb-1">
+                            <label class="nr-label" for="attrVrfs">VRFs
+                                <span style="color:#272727;">(comma-separated)</span>
+                            </label>
+                            <input type="text" class="form-control form-control-sm"
+                                   id="attrVrfs" name="attr_vrfs"
+                                   placeholder="MGMT, PROD, GUEST" autocomplete="off">
+                        </div>
+                    </div>
+
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary btn-sm"
+                            data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary btn-sm">
+                        <i class="bi bi-check-lg me-1"></i>Save Changes
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+
+<!-- ══════════════════════════════════════
+     DELETE DEVICE MODAL
+══════════════════════════════════════ -->
+<div class="modal fade" id="deleteDeviceModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered" style="max-width:420px;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div>
+                    <div class="nr-badge"
+                         style="margin-bottom:0.3rem; border-color:rgba(239,83,80,0.4); color:#ef9a9a;">
+                        IRREVERSIBLE ACTION
+                    </div>
+                    <h5 class="modal-title" style="color:#ef9a9a;">Remove Device</h5>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p style="font-size:0.88rem; color:#ccc; margin-bottom:0.4rem;">
+                    Remove
+                    <span id="deleteDevName"
+                          style="font-family:'JetBrains Mono',monospace; color:#ef9a9a; font-weight:700;">
+                    </span>
+                    from inventory?
+                </p>
+                <p style="font-size:0.82rem; color:#444; margin-bottom:0;">
+                    This cannot be undone.
+                </p>
+            </div>
+            <div class="modal-footer">
+                <form method="POST" id="deleteDevForm" action="">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="button" class="btn btn-secondary btn-sm"
+                            data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-danger btn-sm">
+                        <i class="bi bi-trash3 me-1"></i>Remove
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+<!-- ══════════════════════════════════════
+     IMPORT CSV MODAL
+══════════════════════════════════════ -->
+<div class="modal fade" id="importCsvModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered" style="max-width:460px;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div>
+                    <div class="nr-badge" style="margin-bottom:0.3rem;">BULK IMPORT</div>
+                    <h5 class="modal-title">Import from CSV</h5>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST" action="{{ url_for('inventory_import_csv') }}"
+                  enctype="multipart/form-data" novalidate>
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="modal-body">
+
+                    <p style="font-size:0.82rem; color:#555; margin-bottom:1.2rem;">
+                        CSV must include columns:
+                        <span style="font-family:'JetBrains Mono',monospace; color:#388e9e;">ip, device_type, port</span>.
+                        Optional:
+                        <span style="font-family:'JetBrains Mono',monospace; color:#555;">username, password, secret, label</span>
+                        and any variable attribute columns.
+                        Each device will be TCP-checked before import.
+                    </p>
+
+                    <div class="mb-3">
+                        <label class="nr-label" for="csvFile">CSV FILE</label>
+                        <input type="file" class="form-control" id="csvFile" name="csv_file"
+                               accept=".csv" required>
+                        <div class="field-error">Please select a CSV file.</div>
+                    </div>
+
+                    <div class="mb-1">
+                        <label class="nr-label" for="csvLabel">LABEL
+                            <span style="color:#2a2a2a;">(optional — applied to all imported devices)</span>
+                        </label>
+                        <input type="text" class="form-control" id="csvLabel" name="label"
+                               placeholder="e.g. Branch Routers">
+                    </div>
+
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary btn-sm">
+                        <i class="bi bi-upload me-1"></i>Import
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+
+{% block extra_script %}
+<script>
+const CSRF_TOKEN = "{{ csrf_token() }}";
+
+// ════════════════════════════════════════
+//  NrSelect — custom dropdown widget
+// ════════════════════════════════════════
+function initNrSelect(containerId) {
+    const container = document.getElementById(containerId);
+    if (!container) return null;
+
+    const trigger   = container.querySelector('.nr-select-trigger');
+    const search    = container.querySelector('.nr-select-search');
+    const options   = container.querySelectorAll('.nr-select-option');
+    const hidden    = container.querySelector('input[type="hidden"]');
+    const display   = container.querySelector('.nr-select-display');
+
+    function renderDisplay(label) {
+        if (!label) {
+            display.innerHTML = '<span class="nr-select-placeholder">No profile assigned</span>';
+        } else {
+            display.innerHTML =
+                '<i class="bi bi-shield-lock opt-shield" style="font-size:0.82rem;"></i>' +
+                '<span class="nr-select-display-label">' +
+                label.replace(/</g, '&lt;').replace(/>/g, '&gt;') +
+                '</span>';
+        }
+    }
+
+    function selectOption(value, label) {
+        hidden.value = value;
+        renderDisplay(label || '');
+        options.forEach(o => o.classList.toggle('selected', o.dataset.value === value));
+        close();
+    }
+
+    function filterOptions(q) {
+        const lq = q.toLowerCase();
+        options.forEach(o => {
+            const match = !q
+                || o.classList.contains('none-opt')
+                || (o.dataset.label || '').toLowerCase().includes(lq);
+            o.style.display = match ? '' : 'none';
+        });
+    }
+
+    function open() {
+        container.classList.add('open');
+        search.focus();
+    }
+
+    function close() {
+        container.classList.remove('open');
+        search.value = '';
+        filterOptions('');
+    }
+
+    trigger.addEventListener('click', e => {
+        e.stopPropagation();
+        container.classList.contains('open') ? close() : open();
+    });
+
+    search.addEventListener('input', () => filterOptions(search.value));
+    search.addEventListener('click', e => e.stopPropagation());
+
+    options.forEach(opt => {
+        opt.addEventListener('click', e => {
+            e.stopPropagation();
+            selectOption(opt.dataset.value, opt.dataset.label);
+        });
+    });
+
+    document.addEventListener('click', close);
+
+    const modal = container.closest('.modal');
+    if (modal) modal.addEventListener('hidden.bs.modal', close);
+
+    return {
+        getValue: () => hidden.value,
+        setValue(value, label) { selectOption(value || '', label || ''); },
+        reset()               { selectOption('', ''); }
+    };
+}
+
+// Init security profile selects
+const addSecSelect  = initNrSelect('addSecSelect');
+let   editSecSelect = initNrSelect('editSecSelect');
+
+// ════════════════════════════════════════
+//  Platform NrSelect
+// ════════════════════════════════════════
+const PLATFORM_LABELS = {
+    {% for val, lbl in platforms %}'{{ val }}': '{{ lbl }}',
+    {% endfor %}
+};
+
+function initPlatformSelect(containerId, hiddenId, errorId) {
+    const container = document.getElementById(containerId);
+    const hidden    = document.getElementById(hiddenId);
+    const errorEl   = document.getElementById(errorId);
+    if (!container || !hidden) return null;
+
+    const trigger = container.querySelector('.nr-select-trigger');
+    const search  = container.querySelector('.nr-select-search');
+    const options = container.querySelectorAll('.nr-select-option');
+    const display = container.querySelector('.nr-select-display');
+
+    function renderDisplay(value, label) {
+        if (!value) {
+            display.innerHTML = '<span class="nr-select-placeholder">Select platform…</span>';
+        } else {
+            const logoUrl = (typeof VENDOR_LOGOS !== 'undefined') ? (VENDOR_LOGOS[value] || '') : '';
+            const logoHtml = logoUrl
+                ? `<img src="${logoUrl}" width="16" height="16"
+                        style="border-radius:3px;opacity:0.85;flex-shrink:0;"
+                        onerror="this.style.display='none'">`
+                : '';
+            display.innerHTML =
+                logoHtml +
+                `<span class="nr-select-display-label">${label.replace(/</g,'&lt;')}</span>`;
+        }
+    }
+
+    function selectOption(value, label) {
+        hidden.value = value;
+        renderDisplay(value, label);
+        options.forEach(o => o.classList.toggle('selected', o.dataset.value === value));
+        container.classList.remove('nr-platform-error');
+        if (errorEl) errorEl.style.display = 'none';
+        close();
+    }
+
+    function filterOptions(q) {
+        const lq = q.toLowerCase();
+        options.forEach(o => {
+            o.style.display = (!q || (o.dataset.label||'').toLowerCase().includes(lq)) ? '' : 'none';
+        });
+    }
+
+    function open()  { container.classList.add('open'); search.focus(); }
+    function close() { container.classList.remove('open'); search.value = ''; filterOptions(''); }
+
+    trigger.addEventListener('click', e => {
+        e.stopPropagation();
+        container.classList.contains('open') ? close() : open();
+    });
+    search.addEventListener('input', () => filterOptions(search.value));
+    search.addEventListener('click', e => e.stopPropagation());
+    options.forEach(opt => {
+        opt.addEventListener('click', e => {
+            e.stopPropagation();
+            selectOption(opt.dataset.value, opt.dataset.label);
+        });
+    });
+    document.addEventListener('click', close);
+    const modal = container.closest('.modal');
+    if (modal) modal.addEventListener('hidden.bs.modal', close);
+
+    return {
+        getValue: ()            => hidden.value,
+        setValue: (value)       => selectOption(value, PLATFORM_LABELS[value] || value),
+        reset:    ()            => selectOption('', ''),
+        markError: ()           => {
+            container.classList.add('nr-platform-error');
+            if (errorEl) errorEl.style.display = 'block';
+            trigger.style.animation = 'none';
+            void trigger.offsetHeight;
+            trigger.style.animation = 'shake 0.4s ease';
+            trigger.addEventListener('animationend', () => { trigger.style.animation = ''; }, { once: true });
+        }
+    };
+}
+
+const addPlatformSel  = initPlatformSelect('addPlatformSelect',  'addDevTypeHidden',  'addPlatformError');
+let   editPlatformSel = initPlatformSelect('editPlatformSelect', 'editDevTypeHidden', 'editPlatformError');
+
+// Validate platform on form submit
+document.getElementById('addDeviceModal').querySelector('form')
+    .addEventListener('submit', e => {
+        if (!addPlatformSel.getValue()) {
+            e.preventDefault();
+            addPlatformSel.markError();
+        }
+    });
+document.getElementById('editDeviceModal').querySelector('form')
+    .addEventListener('submit', e => {
+        if (!editPlatformSel.getValue()) {
+            e.preventDefault();
+            editPlatformSel.markError();
+        }
+    });
+
+
+// ════════════════════════════════════════
+//  Tooltip
+// ════════════════════════════════════════
+const tooltip = document.getElementById('invTooltip');
+let   ttTimer = null;
+
+function showTooltip(card, device) {
+    document.getElementById('ttIp').textContent      = device.ip;
+    document.getElementById('ttType').textContent    = device.device_type;
+    document.getElementById('ttPort').textContent    = device.port;
+    document.getElementById('ttProfile').textContent = device.sec_profile_label || '—';
+
+    const rect = card.getBoundingClientRect();
+    tooltip.style.width = Math.max(rect.width, 210) + 'px';
+    tooltip.style.left  = rect.left + 'px';
+
+    // Position below unless < 130px space
+    if (window.innerHeight - rect.bottom < 130) {
+        tooltip.style.top = (rect.top - 130) + 'px';
+    } else {
+        tooltip.style.top = (rect.bottom + 5) + 'px';
+    }
+
+    ttTimer = setTimeout(() => tooltip.classList.add('visible'), 110);
+}
+
+function hideTooltip() {
+    clearTimeout(ttTimer);
+    tooltip.classList.remove('visible');
+}
+
+
+// ════════════════════════════════════════
+//  Card wiring
+// ════════════════════════════════════════
+document.querySelectorAll('.inv-card').forEach(card => {
+    const device = JSON.parse(card.dataset.device);
+
+    card.addEventListener('mouseenter', () => showTooltip(card, device));
+    card.addEventListener('mouseleave', hideTooltip);
+
+    card.addEventListener('click', () => {
+        hideTooltip();
+        openEdit(device);
+    });
+
+    const deleteBtn = card.querySelector('.card-delete-btn');
+    if (deleteBtn) {
+        deleteBtn.addEventListener('click', e => {
+            e.stopPropagation();
+            hideTooltip();
+            openDelete(device);
+        });
+    }
+});
+
+
+// ════════════════════════════════════════
+//  Edit modal
+// ════════════════════════════════════════
+function openEdit(device) {
+    document.getElementById('editDevTitle').textContent = device.label;
+    document.getElementById('editDevLabel').value       = device.label;
+    document.getElementById('editDevIp').value          = device.ip;
+    document.getElementById('editDevPort').value        = device.port;
+    if (editPlatformSel) editPlatformSel.setValue(device.device_type);
+    document.getElementById('editDevForm').action       = '/inventory/' + device.id + '/edit';
+
+    // Reset expand section
+    document.getElementById('varAttrToggle').classList.remove('open');
+    document.getElementById('varAttrBody').classList.remove('open');
+
+    // Populate optional attributes
+    const vm = device.var_maps || {};
+    document.getElementById('attrHostname').value  = vm.hostname        || '';
+    document.getElementById('attrLoopback').value  = vm.loopback_ip     || '';
+    document.getElementById('attrAsn').value       = vm.asn             || '';
+    document.getElementById('attrMgmtVrf').value   = vm.mgmt_vrf        || '';
+    document.getElementById('attrMgmtIntf').value  = vm.mgmt_interface  || '';
+    document.getElementById('attrSite').value      = vm.site            || '';
+    document.getElementById('attrDomain').value    = vm.domain          || '';
+    document.getElementById('attrTimezone').value  = vm.timezone        || '';
+    document.getElementById('attrVrfs').value      = (vm.vrfs || []).join(', ');
+
+    if (editSecSelect) {
+        editSecSelect.setValue(device.sec_profile_id, device.sec_profile_label);
+    }
+
+    new bootstrap.Modal(document.getElementById('editDeviceModal')).show();
+}
+
+document.getElementById('varAttrToggle').addEventListener('click', () => {
+    document.getElementById('varAttrToggle').classList.toggle('open');
+    document.getElementById('varAttrBody').classList.toggle('open');
+});
+
+
+// ════════════════════════════════════════
+//  Delete modal
+// ════════════════════════════════════════
+function openDelete(device) {
+    document.getElementById('deleteDevName').textContent = device.label;
+    document.getElementById('deleteDevForm').action = '/inventory/' + device.id + '/delete';
+    new bootstrap.Modal(document.getElementById('deleteDeviceModal')).show();
+}
+
+
+// ════════════════════════════════════════
+//  Add modal — reset on close
+// ════════════════════════════════════════
+document.getElementById('addDeviceModal').addEventListener('hidden.bs.modal', () => {
+    const form = document.getElementById('addDeviceModal').querySelector('form');
+    form.reset();
+    document.getElementById('addDevPort').value = '22';
+    if (addSecSelect)   addSecSelect.reset();
+    if (addPlatformSel) addPlatformSel.reset();
+    form.querySelectorAll('.nr-submitted').forEach(el => el.classList.remove('nr-submitted'));
+    form.querySelectorAll('.field-error').forEach(el => el.style.display = '');
+});
+</script>
+{% endblock %}

@@ -1,5 +1,5 @@
 # Development Workplan
-_Last updated: 2026-04-11 — Phase 2 complete_
+_Last updated: 2026-04-11 — Phase 2 complete, all UI polish done_
 
 ---
 
@@ -179,27 +179,80 @@ Constructor takes `Validator` + `RolloutLogger`. Methods: `csv_to_inventory`, `f
 - Inventory backend: `create`, `edit`, `delete`, `bulk_assign` all implemented and ownership-guarded
 - `edit` rebuilds `var_maps` from `attr_*` form fields; vrfs split to list; empty keys omitted
 - Form validation: `novalidate` + `.field-error` + shake animation on all forms site-wide; CSS `:has()` rule handles password inputs inside `.pw-group` wrappers; validation CSS/JS added to `base.html` so login page is also covered
+- `nr-submitted` class stamps invalid fields on submit so empty required fields also show red border + error text (independent of the "bad input while typing" path via `:placeholder-shown`)
+- `nr-touched` class on selects so empty state doesn't alert on page load — only on submit
+- Validation state fully cleared on modal close (`nr-submitted` stripped, `.field-error` inline styles reset)
+- Platform (device type) selector replaced with NrSelect widget showing vendor logos in both add and edit modals
+- Test connection device dropdown replaced with NrSelect widget showing vendor logo + IP
+- NrSelect CSS moved to `operator_base.html` — available site-wide
+- Double flash bug fixed in `inventory.html` (removed duplicate `get_flashed_messages`)
+- OTP shake was silently broken (double `get_flashed_messages` drained queue) — fixed with `{% set flash_messages %}`
+- Variable attributes expand toggle color matches `nr-label` (`#777`, weight 500)
+- Tooltip label keys (IP/TYPE/PORT/PROFILE) color matches `nr-label`
 
 ---
 
-## Phase 3 — Testing & Performance
+## Phase 3 — Functionality, Logic & Testing
 
-### 3.1 Per-job device concurrency
-Refactor `RolloutEngine._push_config()` and `_verify()` to push to devices concurrently using `ThreadPoolExecutor`.
+### 3.1 Variable mapping builder ✅ COMPLETE (2026-04-11)
+- `variable_mappings.html` — card grid, add/edit/delete modals, split-view drag-assign
+- `$$`...`$$` token input group, NrSelect attribute picker, index field for vrfs only
+- Drag cards show resolved attribute value per device
+- `var_mapping_to_devices` join table, many-to-many relationships, cascade delete
+- `UniqueConstraint('token', 'user_id')` on `VariableMapping`
+- `Validator` extended with 3 static methods returning `(bool, str|None)`
+- Routes: GET/POST create/edit/delete/bulk_assign — ownership + eligibility guards
+- UUID converter on all ID routes app-wide
+- DB synced: new columns, constraints, join table
 
-- Each device SSH session runs in its own worker thread
-- `max_workers` configurable — new field on `RolloutOptions` or separate env var
-- Results collected via futures return values (no shared dict, no race condition)
-- Summary (failed/partial/successful) printed after all futures complete
-- SSE streams device logs as they arrive — first come first served, interleaving is intentional
-- `cancel_event` already passed as argument — works correctly with thread pool
+### 3.1b CSV import to inventory ✅ COMPLETE (2026-04-11)
+- "Import CSV" button on inventory page opens a modal (file input + optional label)
+- `POST /inventory/import_csv` — saves upload to temp file, delegates to
+  `InputParser.csv_to_inventory`, drains logger queue for per-device errors, flashes result
+- Both temp files (CSV + log) cleaned up in `finally` block
+- NOTE: TCP checks are sequential — Phase 3.6 concurrency will fix large-CSV blocking
+- Phase 3 TODO: proper activity logging with operation-prefixed filenames
+
+### 3.2 Rollout initiation from web UI
+Wire the upload/rollout page to pull from inventory + apply variable substitution.
+
+- `upload.html` updated — device source toggle: CSV upload vs. inventory
+- When inventory mode: `InputParser.import_from_inventory(user.inventory)` used directly
+- Variable substitution applied at engine time: `$$TOKEN$$` replaced with `device.extra[property_name]` (or `[index]` for lists). Validator checks list length, fails per-device with named error if out of bounds
+- Commands still pasted/uploaded as text
+- SSE streaming and cancel unchanged
+
+### 3.3 Results page
+Fill in `results.html` stub — query `DeviceResult` rows for the current user.
+
+- Job history table: job ID, timestamp, device count, success/fail counts, platform
+- Expandable per-job detail: one row per `DeviceResult` with status, commands pushed/verified
+- Color-coded status badges
+- Filterable by status and platform
+
+### 3.4 Analytics
+Extend dashboard and results into a full analytics view.
+
+- Per-platform success rate breakdown
+- Commands pushed over time (simple bar or sparkline)
+- Most-used tokens, most-failed devices
+- Data sourced entirely from `DeviceResult` — no new tables needed
+
+### 3.5 Test suite
+- Re-enable `_DISABLED` test classes (already updated to new API)
+- New tests: `RolloutEngine` with variable substitution (token replacement, list index, out-of-bounds)
+- DB-integrated path: inventory → `import_from_inventory` → orchestrator → `DeviceResult` written
+- Route tests for inventory CRUD + security profile CRUD + bulk_assign (Flask test client)
+- Auth route tests: login, register, OTP flow
+
+### 3.6 Per-job device concurrency
+Refactor `RolloutEngine._push_config()` and `_verify()` to push to devices concurrently.
+
+- `ThreadPoolExecutor` — each device SSH session in its own worker thread
+- `max_workers` configurable via `RolloutOptions` or env var
+- Results collected via futures (no shared dict, no race condition)
+- `cancel_event` already argument-passed — works correctly with thread pool
 - `RolloutLogger.notify()` already thread-safe via `queue.Queue`
-
-### 3.2 Test suite
-- Auth route tests (Flask test client)
-- Tests for `RolloutJob`, `RolloutLogger`, refactored OOP classes
-- Re-enable `_DISABLED` test classes and update to final API
-- Update existing tests to target new class instances instead of module-level globals
 
 ---
 
