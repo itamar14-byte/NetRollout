@@ -456,8 +456,10 @@
             margin-top: 0.28rem;
             display: none;
         }
-        input.form-control:invalid:not(:placeholder-shown) + .field-error { display: block; }
-        .pw-group:has(input.form-control:invalid:not(:placeholder-shown)) + .field-error { display: block; }
+        input.form-control:invalid:not(:placeholder-shown) + .field-error,
+        input.form-control.nr-submitted:invalid + .field-error { display: block; }
+        .pw-group:has(input.form-control:invalid:not(:placeholder-shown)) + .field-error,
+        .pw-group:has(input.form-control.nr-submitted:invalid) + .field-error { display: block; }
     </style>
 </head>
 <body>
@@ -522,6 +524,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!form.checkValidity()) {
                 e.preventDefault();
                 form.querySelectorAll(':invalid').forEach(field => {
+                    field.classList.add('nr-submitted');
                     field.style.animation = 'none';
                     void field.offsetHeight;
                     field.style.animation = 'shake 0.4s ease';

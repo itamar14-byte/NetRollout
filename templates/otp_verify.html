@@ -2,18 +2,17 @@
 {% block title %}Two-Factor Authentication — NetRollout{% endblock %}
 
 {% block content %}
+{% set flash_messages = get_flashed_messages(with_categories=true) %}
 
 <!-- Flash messages -->
-{% with messages = get_flashed_messages(with_categories=true) %}
-  {% if messages %}
-    {% for category, message in messages %}
-      <div class="alert alert-{{ category }} alert-dismissible fade show mx-auto mb-3" style="max-width:400px;" role="alert">
-        {{ message }}
-        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-      </div>
-    {% endfor %}
-  {% endif %}
-{% endwith %}
+{% if flash_messages %}
+  {% for category, message in flash_messages %}
+    <div class="alert alert-{{ category }} alert-dismissible fade show mx-auto mb-3" style="max-width:400px;" role="alert">
+      {{ message }}
+      <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+  {% endfor %}
+{% endif %}
 
 <!-- Hero -->
 <div class="mb-4">
@@ -142,14 +141,12 @@
   }
 
   // --- Flash shake on page load if there was an error ---
-  {% with messages = get_flashed_messages(with_categories=true) %}
-  {% if messages %}
+  {% if flash_messages %}
   document.addEventListener("DOMContentLoaded", () => {
     otpBoxes.classList.add("shake");
     otpBoxes.addEventListener("animationend", () => otpBoxes.classList.remove("shake"), { once: true });
   });
   {% endif %}
-  {% endwith %}
 
   // --- TOTP 30-second countdown timer ---
   const circle = document.getElementById("timerCircle");
