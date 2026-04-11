@@ -154,4 +154,3 @@ class InputParser:
 				return []
 		else:
 			return []
-

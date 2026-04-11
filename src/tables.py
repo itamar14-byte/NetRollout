@@ -2,10 +2,20 @@ from db import Base
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, String, Boolean, Integer, Uuid, ForeignKey,JSON
+from sqlalchemy import (DateTime, String, Boolean, Integer, Uuid, ForeignKey,
+                        JSON, Table, Column, UniqueConstraint)
 import uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from flask_login import UserMixin
+
+var_mapping_to_devices = Table("var_mapping_to_devices",
+                               Base.metadata,
+                               Column("mapping_id",Uuid,
+                                      ForeignKey("variable_mappings.id"),
+                                      primary_key=True),
+                               Column("device_id",Uuid,ForeignKey(
+                                   "inventory.id"),primary_key=True),
+                               )
 
 
 class User(UserMixin, Base):
@@ -68,21 +78,30 @@ class Inventory(Base):
     security_profile: Mapped["SecurityProfile"] = relationship(
         back_populates="inventory")
     user: Mapped["User"] = relationship(back_populates="inventory")
+    var_mappings: Mapped[list["VariableMapping"]] =\
+        relationship(secondary=var_mapping_to_devices,back_populates="devices")
 
 
 class VariableMapping(Base):
     __tablename__ = 'variable_mappings'
+    __table_args__ = (UniqueConstraint('token', 'user_id'),)
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     label: Mapped[str] = mapped_column(String(64), nullable=True)
     # token to replace in _commands, in $$token$$ format
     token: Mapped[str] = mapped_column(String(64), nullable=False)
     # device attribute name to substitute
     property_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    #Optional positional argument
+    index: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
 
     user_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id"),
                                                nullable=False)
 
     user: Mapped["User"] = relationship(back_populates="variable_mappings")
+    devices: Mapped[list["Inventory"]] = relationship(
+        secondary=var_mapping_to_devices, back_populates="var_mappings",
+        cascade="all, delete")
 
 
 class RolloutSession(Base):
@@ -91,7 +110,6 @@ class RolloutSession(Base):
     status: Mapped[str] = mapped_column(String(64), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now,
                                                  nullable=False)
-    index: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     user_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id"),
                                                nullable=False)

@@ -2,6 +2,7 @@ import ipaddress
 import os
 import socket
 import time
+import re
 
 from logging_utils import RolloutLogger
 
@@ -24,6 +25,18 @@ class Validator:
     "checkpoint_gaia",
     "hp_procurve",
     "hp_comware",
+    }
+
+    VALID_PROPERTIES = {
+        "hostname",
+        "loopback_ip",
+        "asn",
+        "mgmt_vrf",
+        "mgmt_interface",
+        "site",
+        "domain",
+        "timezone",
+        "vrfs"
     }
 
     TCP_TIMEOUT = 5
@@ -143,4 +156,37 @@ class Validator:
                     time.sleep(Validator.TCP_RETRY_DELAY)
                     continue
         return False
+
+    @staticmethod
+    def validate_var_map_inner_token(token: str) -> tuple[bool, str | None]:
+        if token.strip():
+            if re.match(r'^[A-Za-z0-9_]+$', token):
+                if len(token) <= 64:
+                    return True, None
+                return False, "Token must be maximum 64 characters long"
+            return False, "Token must contain only letters, numbers and underscores"
+        return False, "Token cannot be empty"
+
+    @staticmethod
+    def validate_var_map_property_name(property_name: str) ->\
+            tuple[bool, str | None]:
+        if property_name.strip().lower() not in Validator.VALID_PROPERTIES:
+            return False, f"Property name {property_name} is not valid"
+        return True, None
+
+    @staticmethod
+    def validate_var_index(index: int | None, property_name: str) ->\
+            tuple[bool, str | None]:
+        if property_name != "vrfs" and index is not None:
+            return False, f"Property {property_name} can not be indexed"
+        elif property_name == "vrfs" and index is not None and index < 0:
+            return False, "Index cannot be negative"
+        else:
+            return True, None
+
+
+
+
+
+
 
