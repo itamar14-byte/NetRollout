@@ -41,7 +41,7 @@ class RolloutJob:
 		return self._thread is None
 
 	def get_log(self) -> str:
-		return self._logger.get()
+		return self._logger.get(1)
 
 	def get_device_count(self) -> int:
 		return len(self._engine.devices)

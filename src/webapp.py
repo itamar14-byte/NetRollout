@@ -1,18 +1,16 @@
 import base64
+import os
 import secrets
+import tempfile
 import uuid
+from collections import Counter
 from io import BytesIO
 from itertools import groupby
 from queue import Empty
 from time import sleep
-from collections import Counter
 
 import pyotp
 import qrcode
-from netmiko import ConnectHandler
-from netmiko.exceptions import NetmikoTimeoutException, \
-    NetmikoAuthenticationException
-
 from flask import (redirect, Response, request, render_template, url_for, \
                    Flask, flash, session, jsonify)
 from flask_limiter import Limiter
@@ -20,25 +18,23 @@ from flask_limiter.util import get_remote_address
 from flask_login import (LoginManager, login_required,
                          logout_user, current_user, login_user)
 from flask_wtf import CSRFProtect
-
+from netmiko import ConnectHandler
+from netmiko.exceptions import NetmikoTimeoutException, \
+    NetmikoAuthenticationException
 from sqlalchemy.exc import IntegrityError
 from waitress import serve
 from werkzeug.security import generate_password_hash, check_password_hash
 
-import os
-import tempfile
-
 import encryption
 import input_parser
-import validation
 from core import RolloutOptions, Device
+from db import get_session
 from input_parser import InputParser
 from logging_utils import RolloutLogger
-from validation import Validator
-from db import get_session
 from orchestration import RolloutOrchestrator
 from tables import User, DeviceResult, SecurityProfile, Inventory, \
     VariableMapping
+from validation import Validator
 
 app = Flask(__name__, template_folder='../templates')
 app.config["SECRET_KEY"] = secrets.token_urlsafe(32)
@@ -46,18 +42,18 @@ app.config["SECRET_KEY"] = secrets.token_urlsafe(32)
 # Vendor logo URLs from Simple Icons CDN — keyed by Netmiko device_type
 _CDN = "https://cdn.simpleicons.org"
 VENDOR_LOGOS = {
-    'cisco_ios':       f'{_CDN}/cisco',
-    'cisco_xe':        f'{_CDN}/cisco',
-    'cisco_xr':        f'{_CDN}/cisco',
-    'cisco_nxos':      f'{_CDN}/cisco',
-    'juniper_junos':   f'{_CDN}/junipernetworks',
-    'arista_eos':      f'{_CDN}/aristanetworks',
-    'fortinet':        f'{_CDN}/fortinet',
-    'paloalto_panos':  f'{_CDN}/paloaltonetworks',
-    'aruba_aoscx':     f'{_CDN}/arubanetworks',
+    'cisco_ios': f'{_CDN}/cisco',
+    'cisco_xe': f'{_CDN}/cisco',
+    'cisco_xr': f'{_CDN}/cisco',
+    'cisco_nxos': f'{_CDN}/cisco',
+    'juniper_junos': f'{_CDN}/junipernetworks',
+    'arista_eos': f'{_CDN}/aristanetworks',
+    'fortinet': f'{_CDN}/fortinet',
+    'paloalto_panos': f'{_CDN}/paloaltonetworks',
+    'aruba_aoscx': f'{_CDN}/arubanetworks',
     'checkpoint_gaia': f'{_CDN}/checkpoint',
-    'hp_procurve':     f'{_CDN}/hp',
-    'hp_comware':      f'{_CDN}/hp',
+    'hp_procurve': f'{_CDN}/hp',
+    'hp_comware': f'{_CDN}/hp',
 }
 app.jinja_env.globals['VENDOR_LOGOS'] = VENDOR_LOGOS
 
@@ -382,6 +378,132 @@ def sse_stream():
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
+@app.route("/new_rollout")
+@login_required
+def new_rollout():
+    with get_session() as db_session:
+        user = db_session.get(User, current_user.id)
+        devices = user.inventory
+        sp = [d.security_profile for d in devices]
+        vm = [d.var_mappings for d in devices]
+        db_session.expunge_all()
+
+    return render_template("new_rollout.html",
+                           devices=devices,
+                           active_section="rollout"
+                           )
+
+@app.route("/new_start_rollout", methods=["POST"])
+@login_required
+def new_start_rollout():
+
+    # 1) Collect selected device IDs from the form.
+    # The frontend sends repeated "device_ids" fields for the chosen inventory rows.
+    raw_device_ids = request.form.getlist("device_ids")
+    if not raw_device_ids:
+        flash("Select at least one device.", "danger")
+        return redirect(url_for("new_rollout"))
+
+    # 2) Validate that the submitted device IDs are well-formed UUIDs.
+    # This protects the backend from malformed or tampered requests.
+    try:
+        selected_ids = [uuid.UUID(device_id) for device_id in raw_device_ids]
+    except ValueError:
+        flash("Invalid device selection.", "danger")
+        return redirect(url_for("new_rollout"))
+
+    # 3) Collect commands from either uploaded file or manual text input.
+    # The frontend allows one of two sources:
+    #    - commands_file → uploaded .txt file
+    #    - manual_commands → pasted multiline text
+    commands_file = request.files.get("commands_file")
+    manual_commands = request.form.get("manual_commands", "").strip()
+
+    commands = []
+
+    if commands_file and commands_file.filename:
+        if not commands_file.filename.lower().endswith(".txt"):
+            flash("Command file must be a .txt file.", "danger")
+            return redirect(url_for("new_rollout"))
+
+        try:
+            for raw_line in commands_file.readlines():
+                line = raw_line.decode("utf-8").strip()
+                if line:
+                    commands.append(line)
+        except UnicodeDecodeError:
+            flash("Command file must be valid UTF-8 text.", "danger")
+            return redirect(url_for("new_rollout"))
+    else:
+        commands = [line.strip() for line in manual_commands.splitlines() if line.strip()]
+
+    # 4) Require at least one command.
+    if not commands:
+        flash("Provide commands by pasting text or uploading a command file.", "danger")
+        return redirect(url_for("new_rollout"))
+
+    # 5) Collect rollout options from the form.
+    verify_flag = request.form.get("_verify", "")
+    verbose_flag = request.form.get("_verbose", "")
+    options = RolloutOptions(
+        verify=bool(verify_flag),
+        verbose=bool(verbose_flag),
+        webapp=True
+    )
+
+    # 6) Load the selected inventory rows belonging to the current user.
+    with get_session() as db_session:
+        selected_rows = (
+            db_session.query(Inventory)
+            .filter(
+                Inventory.user_id == current_user.id,
+                Inventory.id.in_(selected_ids)
+            )
+            .all()
+        )
+
+        # Preload relationships needed for runtime device construction.
+        _ = [row.security_profile for row in selected_rows]
+        _ = [row.var_mappings for row in selected_rows]
+
+        db_session.expunge_all()
+
+    # 7) Validate the selected devices.
+    if not selected_rows:
+        flash("No valid devices selected.", "danger")
+        return redirect(url_for("new_rollout"))
+
+    if len(selected_rows) != len(set(selected_ids)):
+        flash("One or more selected devices were not found.", "danger")
+        return redirect(url_for("new_rollout"))
+
+    # 8) Ensure every device has a security profile.
+    missing_profiles = [row.label or row.ip for row in selected_rows if not row.security_profile]
+    if missing_profiles:
+        flash(
+            "These devices have no security profile assigned: "
+            + ", ".join(missing_profiles),
+            "danger"
+        )
+        return redirect(url_for("new_rollout"))
+
+    # 9) Convert ORM inventory rows into runtime Device objects.
+    try:
+        devices = InputParser.import_from_inventory(selected_rows)
+    except ValueError as e:
+        flash(str(e), "danger")
+        return redirect(url_for("new_rollout"))
+
+    # 10) Submit the rollout job to the orchestrator.
+    job_id = orchestrator.submit(devices, commands, options, current_user.id)
+
+    # 11) Notify the user and redirect to results.
+    flash(
+        f"Started rollout job for {len(devices)} "
+        f"device{'s' if len(devices) != 1 else ''}.",
+        "success"
+    )
+    return redirect(url_for("results"))
 
 @app.route("/admin")
 @login_required
@@ -577,13 +699,14 @@ def inventory_edit(device_id):
             flash("Device not found.", "danger")
             return redirect(url_for("inventory"))
 
-        device.label       = request.form.get("label", "").strip()
-        device.ip          = request.form.get("ip", "").strip()
-        device.port        = int(request.form.get("port", 22))
+        device.label = request.form.get("label", "").strip()
+        device.ip = request.form.get("ip", "").strip()
+        device.port = int(request.form.get("port", 22))
         device.device_type = request.form.get("device_type", "").strip()
 
         sec_profile_id = request.form.get("sec_profile_id", "").strip()
-        device.sec_profile_id = uuid.UUID(sec_profile_id) if sec_profile_id else None
+        device.sec_profile_id = uuid.UUID(
+            sec_profile_id) if sec_profile_id else None
 
         var_map_keys = [
             "hostname", "loopback_ip", "asn", "mgmt_vrf",
@@ -662,7 +785,8 @@ def inventory_import_csv():
         errors = []
         while True:
             try:
-                errors.append(logger._queue.get_nowait())
+
+                errors.append(logger.get(0))
             except Empty:
                 break
 
@@ -670,7 +794,9 @@ def inventory_import_csv():
             for msg in errors:
                 flash(msg, "danger")
         if devices:
-            flash(f"{len(devices)} device{'s' if len(devices) != 1 else ''} imported successfully.", "success")
+            flash(
+                f"{len(devices)} device{'s' if len(devices) != 1 else ''} imported successfully.",
+                "success")
         elif not errors:
             flash("No valid devices found in CSV.", "warning")
 
@@ -693,7 +819,8 @@ def inventory_bulk_assign():
     device_ids = data.get("device_ids", [])
 
     if not device_ids:
-        return jsonify({"status": "error", "message": "No devices provided"}), 400
+        return jsonify(
+            {"status": "error", "message": "No devices provided"}), 400
 
     parsed_profile_id = uuid.UUID(profile_id) if profile_id else None
 
@@ -702,7 +829,8 @@ def inventory_bulk_assign():
             profile = db_session.query(SecurityProfile).filter_by(
                 id=parsed_profile_id, user_id=current_user.id).first()
             if not profile:
-                return jsonify({"status": "error", "message": "Profile not found"}), 404
+                return jsonify(
+                    {"status": "error", "message": "Profile not found"}), 404
 
         for device_id_str in device_ids:
             device = db_session.query(Inventory).filter_by(
@@ -821,7 +949,7 @@ def security_test(profile_id):
             id=device_id, user_id=current_user.id).first()
         if not profile or not device:
             return {"status": "error", "message": "Profile or device not found"}
-        if not Validator.test_tcp_port(device.ip,device.port):
+        if not Validator.test_tcp_port(device.ip, device.port):
             return {"status": "error", "message":
                 f"TCP port {device.port} unreachable on {device.ip}"}
         db_session.expunge_all()
@@ -838,7 +966,8 @@ def security_test(profile_id):
     try:
         conn = ConnectHandler(**device_obj.netmiko_connector())
         conn.disconnect()
-        return {"status": "success", "message": f"Connected successfully to {device.ip}"}
+        return {"status": "success",
+                "message": f"Connected successfully to {device.ip}"}
     except NetmikoAuthenticationException:
         return {"status": "error",
                 "message": "Authentication failed — check username and password"}
@@ -859,10 +988,11 @@ def mappings():
         devices = user.inventory
         db_session.expunge_all()
 
-    return render_template("variable_mappings.html",mappings=var_binds,
-                           devices=devices,active_section="mappings")
+    return render_template("variable_mappings.html", mappings=var_binds,
+                           devices=devices, active_section="mappings")
 
-@app.route("/mappings/create",methods=["POST"])
+
+@app.route("/mappings/create", methods=["POST"])
 @login_required
 def mappings_create():
     label = request.form.get("label", "").strip() or None
@@ -887,14 +1017,25 @@ def mappings_create():
         return redirect(url_for("mappings"))
 
     token = f"$${inner_token}$$"
-    row = VariableMapping(label=label,token=token,
-                          index=index,user_id = current_user.id)
-    with get_session() as db_session:
-        db_session.add(row)
-        flash("Mapping created.", "success")
-        return redirect(url_for("mappings"))
+    row = VariableMapping(
+        label=label,
+        token=token,
+        index=index,
+        property_name=property_name,
+        user_id=current_user.id
+    )
 
-@app.route("/mappings/<uuid:mapping_id>/edit",methods=["POST"])
+    try:
+        with get_session() as db_session:
+            db_session.add(row)
+        flash("Mapping created.", "success")
+    except IntegrityError:
+        flash("A mapping with that token already exists.", "danger")
+
+    return redirect(url_for("mappings"))
+
+
+@app.route("/mappings/<uuid:mapping_id>/edit", methods=["POST"])
 @login_required
 def mappings_edit(mapping_id):
     label = request.form.get("label", "").strip() or None
@@ -920,22 +1061,29 @@ def mappings_edit(mapping_id):
 
     token = f"$${inner_token}$$"
 
-    with (get_session() as db_session):
-        mapping = db_session.query(VariableMapping).filter_by(
-            id=mapping_id,user_id=current_user.id).first()
-        if not mapping:
-            flash("Mapping not found.", "danger")
-            return redirect(url_for("mappings"))
+    try:
+        with get_session() as db_session:
+            mapping = db_session.query(VariableMapping).filter_by(
+                id=mapping_id, user_id=current_user.id
+            ).first()
 
-        mapping.label = label
-        mapping.token = token
-        mapping.property_name = property_name
-        mapping.index = index
+            if not mapping:
+                flash("Mapping not found.", "danger")
+                return redirect(url_for("mappings"))
+
+            mapping.label = label
+            mapping.token = token
+            mapping.property_name = property_name
+            mapping.index = index
 
         flash("Mapping updated.", "success")
-        return redirect(url_for("mappings"))
+    except IntegrityError:
+        flash("A mapping with that token already exists.", "danger")
 
-@app.route("/mappings/<uuid:mapping_id>/delete",methods=["POST"])
+    return redirect(url_for("mappings"))
+
+
+@app.route("/mappings/<uuid:mapping_id>/delete", methods=["POST"])
 @login_required
 def mappings_delete(mapping_id):
     with get_session() as db_session:
@@ -948,7 +1096,8 @@ def mappings_delete(mapping_id):
         flash("Mapping deleted.", "success")
     return redirect(url_for("mappings"))
 
-@app.route("/mappings/bulk_assign",methods=["POST"])
+
+@app.route("/mappings/bulk_assign", methods=["POST"])
 @login_required
 def mappings_bulk_assign():
     """
@@ -964,25 +1113,28 @@ def mappings_bulk_assign():
     # Parse JSON body — bail immediately if malformed or missing
     data = request.get_json(silent=True)
     if not data:
-        return jsonify({"status": "error","message": "Invalid request"}),400
+        return jsonify({"status": "error", "message": "Invalid request"}), 400
     mapping_id = data.get("mapping_id", None)
     device_ids = data.get("device_ids", [])
 
     if not device_ids:
-        return jsonify({"status": "error","message": "No devices provided"}),400
+        return jsonify(
+            {"status": "error", "message": "No devices provided"}), 400
 
     # mapping_id comes from JSON, not a URL parameter — manual UUID cast needed
     try:
         parsed_mapping_id = uuid.UUID(mapping_id)
     except (ValueError, TypeError):
-        return jsonify({"status": "error", "message": "Invalid mapping ID"}),400
+        return jsonify(
+            {"status": "error", "message": "Invalid mapping ID"}), 400
 
     with get_session() as db_session:
         # Ownership check on mapping — done once before the loop
         mapping = db_session.query(VariableMapping).filter_by(
             id=parsed_mapping_id, user_id=current_user.id).first()
         if not mapping:
-            return jsonify({"status": "error", "message": "Mapping not found"}),404
+            return jsonify(
+                {"status": "error", "message": "Mapping not found"}), 404
 
         # Snapshot already-assigned IDs before the loop to avoid re-querying
         # the relationship on every iteration
@@ -992,7 +1144,8 @@ def mappings_bulk_assign():
             # Parse each device UUID — skip silently if malformed
             try:
                 device = db_session.query(Inventory).filter_by(
-                    id=uuid.UUID(device_id_str), user_id=current_user.id).first()
+                    id=uuid.UUID(device_id_str),
+                    user_id=current_user.id).first()
             except (ValueError, TypeError):
                 continue
             # Skip if device not found or not owned by current_user
@@ -1009,11 +1162,6 @@ def mappings_bulk_assign():
             mapping.devices.append(device)
 
     return jsonify({"status": "success"})
-
-
-
-
-
 
 
 if __name__ == "__main__":

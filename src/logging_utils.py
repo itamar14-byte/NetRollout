@@ -73,5 +73,5 @@ class RolloutLogger:
                 print(self._msg(message, color))
             self._log(message)
 
-    def get(self) -> str:
-        return self._queue.get(timeout=1)
+    def get(self,timeout: int) -> str:
+        return self._queue.get(timeout=timeout)

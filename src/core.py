@@ -35,6 +35,7 @@ class Device:
     device_type: str
     secret: str = field(repr=False)
     port: int
+    var_map_subs: dict[str, tuple[str | list[str], str  | None]]
     extra: dict = field(default_factory=dict)
 
     def netmiko_connector(self) -> dict[str, str]:
@@ -103,13 +104,19 @@ class Device:
     @classmethod
     def from_inventory(cls, row: Inventory) -> "Device":
         profile = row.security_profile
+        mappings = row.var_mappings
         if not profile:
             raise ValueError(f"no security profiles assigned to {row.ip}")
+
+        parsed_mappings = {m.token: (m.property_name, m.index) for m in mappings}
+
         return cls(ip=row.ip, label=row.label, device_type=row.device_type,
                    port=row.port, username=profile.username,
                    password=encryption.decrypt(profile.password_secret),
                    secret=encryption.decrypt(profile.enable_secret) if
-                   profile.enable_secret else "",extra=row.var_maps or {})
+                   profile.enable_secret else "",
+                   var_map_subs=parsed_mappings,
+                   extra=row.var_maps or {})
 
 
 class RolloutEngine:
@@ -118,6 +125,21 @@ class RolloutEngine:
         self.devices = devices
         self._verify_flag = param.verify
         self._commands = commands
+
+    def _substitute_commands(self, device: Device) -> list[str]:
+        device_mappings = device.var_map_subs
+        commands_copy = self._commands.copy()
+        for token, (property_name, index) in device_mappings.items():
+            property_value = device.extra[property_name]
+            if index is not None:
+                property_value = property_value[index]
+
+            property_value = str(property_value).strip()
+            commands_copy = [command.replace(token, property_value)
+                             for command in commands_copy]
+        return commands_copy
+
+
 
     def _push_config(self, cancel_event: threading.Event,
                      logger: RolloutLogger) -> tuple[
@@ -154,7 +176,7 @@ class RolloutEngine:
                     # and checks that the command was accepted in the device
                     # In case of syntax error or rejection, an error message is printed,
                     # and we move to the next command
-                    for command in self._commands:
+                    for command in self._substitute_commands(device):
                         output = net_connect.send_config_set(
                             [command.strip()], exit_config_mode=False
                         )
@@ -188,6 +210,8 @@ class RolloutEngine:
                     continue
         return None, push_results
 
+
+
     def _verify(self,logger: RolloutLogger) -> dict[str, int]:
         """
         The function gets the list of devices and verifies which devices have been successfully configured
@@ -204,7 +228,7 @@ class RolloutEngine:
             # and check it against the running config string
             if config:
                 rejects = []
-                for command in self._commands:
+                for command in self._substitute_commands(device):
                     command = command.strip()
                     # If a command has no match in the config, we print a notification. On a successful match,
                     # we increment the counter
