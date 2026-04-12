@@ -1,4 +1,5 @@
 import base64
+import json
 import os
 import secrets
 import tempfile
@@ -20,7 +21,7 @@ from flask_login import (LoginManager, login_required,
 from flask_wtf import CSRFProtect
 from netmiko import ConnectHandler
 from netmiko.exceptions import NetmikoTimeoutException, \
-    NetmikoAuthenticationException
+	NetmikoAuthenticationException
 from sqlalchemy.exc import IntegrityError
 from waitress import serve
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -33,7 +34,7 @@ from input_parser import InputParser
 from logging_utils import RolloutLogger
 from orchestration import RolloutOrchestrator
 from tables import User, DeviceResult, SecurityProfile, Inventory, \
-    VariableMapping
+	VariableMapping, RolloutSession
 from validation import Validator
 
 app = Flask(__name__, template_folder='../templates')
@@ -42,18 +43,18 @@ app.config["SECRET_KEY"] = secrets.token_urlsafe(32)
 # Vendor logo URLs from Simple Icons CDN — keyed by Netmiko device_type
 _CDN = "https://cdn.simpleicons.org"
 VENDOR_LOGOS = {
-    'cisco_ios': f'{_CDN}/cisco',
-    'cisco_xe': f'{_CDN}/cisco',
-    'cisco_xr': f'{_CDN}/cisco',
-    'cisco_nxos': f'{_CDN}/cisco',
-    'juniper_junos': f'{_CDN}/junipernetworks',
-    'arista_eos': f'{_CDN}/aristanetworks',
-    'fortinet': f'{_CDN}/fortinet',
-    'paloalto_panos': f'{_CDN}/paloaltonetworks',
-    'aruba_aoscx': f'{_CDN}/arubanetworks',
-    'checkpoint_gaia': f'{_CDN}/checkpoint',
-    'hp_procurve': f'{_CDN}/hp',
-    'hp_comware': f'{_CDN}/hp',
+	'cisco_ios': f'{_CDN}/cisco',
+	'cisco_xe': f'{_CDN}/cisco',
+	'cisco_xr': f'{_CDN}/cisco',
+	'cisco_nxos': f'{_CDN}/cisco',
+	'juniper_junos': f'{_CDN}/junipernetworks',
+	'arista_eos': f'{_CDN}/aristanetworks',
+	'fortinet': f'{_CDN}/fortinet',
+	'paloalto_panos': f'{_CDN}/paloaltonetworks',
+	'aruba_aoscx': f'{_CDN}/arubanetworks',
+	'checkpoint_gaia': f'{_CDN}/checkpoint',
+	'hp_procurve': f'{_CDN}/hp',
+	'hp_comware': f'{_CDN}/hp',
 }
 app.jinja_env.globals['VENDOR_LOGOS'] = VENDOR_LOGOS
 
@@ -71,1098 +72,1290 @@ csrf = CSRFProtect(app)
 
 @login_mng.user_loader
 def load_user(user_id):
-    with get_session() as db_session:
-        try:
-            user = db_session.get(User, uuid.UUID(user_id))
-        except ValueError:
-            return None
-        if user:
-            db_session.expunge(user)
-        return user
+	with get_session() as db_session:
+		try:
+			user = db_session.get(User, uuid.UUID(user_id))
+		except ValueError:
+			return None
+		if user:
+			db_session.expunge(user)
+		return user
 
 
 @app.route("/")
 def home():
-    return render_template("index.html")
+	return render_template("index.html")
 
 
 @app.route("/login", methods=["POST"])
 @conn_limit.limit("10 per minute")
 def login():
-    username = request.form["username"]
-    password = request.form["password"]
-    with get_session() as db_session:
-        user = db_session.query(User).filter_by(username=username).first()
-        # checks credentials are correct
-        if user and check_password_hash(user.password_hash, password):
-            # checks user was activated
-            if user.is_approved:
-                if user.is_active:
-                    if user.username == "admin":
-                        db_session.expunge(user)
-                        login_user(user)
-                        return redirect(url_for("dashboard"))
-                    # checks otp enrollment
-                    elif user.otp_secret:
-                        session["pre_auth_user_id"] = str(user.id)
-                        return redirect(url_for("otp_verify"))
-                    else:
-                        flash("To complete enrollment,"
-                              " you are referred to OPT set up portal"
-                              , "info")
-                        session["pre_auth_user_id"] = str(user.id)
-                        return redirect(url_for("otp_enroll"))
-                else:
-                    flash("User disabled, please check with administrator",
-                          "danger")
-                    session.pop("pre_auth_user_id", None)
-                    return redirect(url_for("home"))
-            else:
-                flash("User still pending admin approval",
-                      "danger")
-                session.pop("pre_auth_user_id", None)
-                return redirect(url_for("home"))
-        else:
-            flash("invalid credentials", "danger")
-            session.pop("pre_auth_user_id", None)
-            return redirect(url_for("home"))
+	username = request.form["username"]
+	password = request.form["password"]
+	with get_session() as db_session:
+		user = db_session.query(User).filter_by(username=username).first()
+		# checks credentials are correct
+		if user and check_password_hash(user.password_hash, password):
+			# checks user was activated
+			if user.is_approved:
+				if user.is_active:
+					if user.username == "admin":
+						db_session.expunge(user)
+						login_user(user)
+						return redirect(url_for("dashboard"))
+					# checks otp enrollment
+					elif user.otp_secret:
+						session["pre_auth_user_id"] = str(user.id)
+						return redirect(url_for("otp_verify"))
+					else:
+						flash("To complete enrollment,"
+						      " you are referred to OPT set up portal"
+						      , "info")
+						session["pre_auth_user_id"] = str(user.id)
+						return redirect(url_for("otp_enroll"))
+				else:
+					flash("User disabled, please check with administrator",
+					      "danger")
+					session.pop("pre_auth_user_id", None)
+					return redirect(url_for("home"))
+			else:
+				flash("User still pending admin approval",
+				      "danger")
+				session.pop("pre_auth_user_id", None)
+				return redirect(url_for("home"))
+		else:
+			flash("invalid credentials", "danger")
+			session.pop("pre_auth_user_id", None)
+			return redirect(url_for("home"))
 
 
 @app.route("/register", methods=["GET"])
 def register_form():
-    return render_template("register.html")
+	return render_template("register.html")
 
 
 @app.route("/register", methods=["POST"])
 def register():
-    username = request.form["username"]
-    pass_hash = generate_password_hash(request.form["password"])
-    email = request.form["email"]
-    full_name = request.form["full_name"]
-    position = request.form.get("position", None)
+	username = request.form["username"]
+	pass_hash = generate_password_hash(request.form["password"])
+	email = request.form["email"]
+	full_name = request.form["full_name"]
+	position = request.form.get("position", None)
 
-    new_user = User(username=username,
-                    password_hash=pass_hash,
-                    email=email,
-                    full_name=full_name,
-                    role="user",
-                    position=position)
+	new_user = User(username=username,
+	                password_hash=pass_hash,
+	                email=email,
+	                full_name=full_name,
+	                role="user",
+	                position=position)
 
-    with get_session() as db_session:
-        try:
-            db_session.add(new_user)
-            db_session.flush()
-            flash("Registration successful -"
-                  " your account is pending admin "
-                  "approval.", "success")
-            return redirect(url_for("home"))
-        except IntegrityError:
-            flash("email or username already exists", "danger")
-            return redirect(url_for("register_form"))
+	with get_session() as db_session:
+		try:
+			db_session.add(new_user)
+			db_session.flush()
+			flash("Registration successful -"
+			      " your account is pending admin "
+			      "approval.", "success")
+			return redirect(url_for("home"))
+		except IntegrityError:
+			flash("email or username already exists", "danger")
+			return redirect(url_for("register_form"))
 
 
 @app.route("/otp_enroll", methods=["GET", "POST"])
 def otp_enroll():
-    if request.method == "GET":
-        user_id = session.get("pre_auth_user_id", None)
-        if not user_id:
-            return redirect(url_for("home"))
-        with get_session() as db_session:
-            try:
-                user = db_session.query(User).filter_by(
-                    id=uuid.UUID(user_id)).first()
-            except ValueError:
-                return redirect(url_for("home"))
-            db_session.expunge(user)
-        totp = pyotp.random_base32()
-        secret = session.get("pending_totp_secret", None) or totp
-        session["pending_totp_secret"] = secret
-        uri = pyotp.TOTP(session["pending_totp_secret"]).provisioning_uri(
-            user.username, issuer_name="NetRollout")
-        img = qrcode.make(uri)
-        buffer = BytesIO()
-        img.save(buffer, format="png")
-        buffer.seek(0)
-        qr_b64 = base64.b64encode(buffer.getvalue()).decode("utf8")
-        return render_template("otp_enroll.html", qr=qr_b64)
+	if request.method == "GET":
+		user_id = session.get("pre_auth_user_id", None)
+		if not user_id:
+			return redirect(url_for("home"))
+		with get_session() as db_session:
+			try:
+				user = db_session.query(User).filter_by(
+					id=uuid.UUID(user_id)).first()
+			except ValueError:
+				return redirect(url_for("home"))
+			db_session.expunge(user)
+		totp = pyotp.random_base32()
+		secret = session.get("pending_totp_secret", None) or totp
+		session["pending_totp_secret"] = secret
+		uri = pyotp.TOTP(session["pending_totp_secret"]).provisioning_uri(
+			user.username, issuer_name="NetRollout")
+		img = qrcode.make(uri)
+		buffer = BytesIO()
+		img.save(buffer, format="png")
+		buffer.seek(0)
+		qr_b64 = base64.b64encode(buffer.getvalue()).decode("utf8")
+		return render_template("otp_enroll.html", qr=qr_b64)
 
-    if request.method == "POST":
-        user_id = session.get("pre_auth_user_id", None)
-        if not user_id:
-            return redirect(url_for("home"))
-        otp_secret = session.get("pending_totp_secret", None)
-        user_code = request.form["code"]
-        if pyotp.TOTP(otp_secret).verify(user_code, valid_window=1):
-            with get_session() as db_session:
-                try:
-                    user = db_session.query(User).filter_by(id=uuid.UUID(
-                        user_id)).first()
-                except ValueError:
-                    return redirect(url_for("home"))
-                user.otp_secret = encryption.encrypt(otp_secret)
-                db_session.flush()
-                db_session.expunge(user)
-            session.pop("pending_totp_secret")
-            session.pop("pre_auth_user_id")
-            login_user(user)
-            return redirect(url_for("dashboard"))
-        flash("invalid code, please try again", "danger")
-        return redirect(url_for("otp_enroll"))
+	if request.method == "POST":
+		user_id = session.get("pre_auth_user_id", None)
+		if not user_id:
+			return redirect(url_for("home"))
+		otp_secret = session.get("pending_totp_secret", None)
+		user_code = request.form["code"]
+		if pyotp.TOTP(otp_secret).verify(user_code, valid_window=1):
+			with get_session() as db_session:
+				try:
+					user = db_session.query(User).filter_by(id=uuid.UUID(
+						user_id)).first()
+				except ValueError:
+					return redirect(url_for("home"))
+				user.otp_secret = encryption.encrypt(otp_secret)
+				db_session.flush()
+				db_session.expunge(user)
+			session.pop("pending_totp_secret")
+			session.pop("pre_auth_user_id")
+			login_user(user)
+			return redirect(url_for("dashboard"))
+		flash("invalid code, please try again", "danger")
+		return redirect(url_for("otp_enroll"))
 
 
 @app.route("/otp_verify", methods=["GET", "POST"])
 def otp_verify():
-    if request.method == "POST":
-        user_id = session.get("pre_auth_user_id", None)
-        if not user_id:
-            return redirect(url_for("home"))
-        user_code = request.form["code"]
-        with get_session() as db_session:
-            try:
-                user = db_session.query(User).filter_by(
-                    id=uuid.UUID(user_id)).first()
-            except ValueError:
-                return redirect(url_for("home"))
-            db_session.expunge(user)
-        if not user.otp_secret:
-            return redirect(url_for("otp_enroll"))
-        if pyotp.TOTP(encryption.decrypt(user.otp_secret)).verify(user_code,
-                                                                  valid_window=1):
-            login_user(user)
-            session.pop("pre_auth_user_id")
-            return redirect(url_for("dashboard"))
-        flash("invalid code, please try again", "danger")
-        return redirect(url_for("otp_verify"))
-    elif request.method == "GET":
-        return render_template("otp_verify.html")
+	if request.method == "POST":
+		user_id = session.get("pre_auth_user_id", None)
+		if not user_id:
+			return redirect(url_for("home"))
+		user_code = request.form["code"]
+		with get_session() as db_session:
+			try:
+				user = db_session.query(User).filter_by(
+					id=uuid.UUID(user_id)).first()
+			except ValueError:
+				return redirect(url_for("home"))
+			db_session.expunge(user)
+		if not user.otp_secret:
+			return redirect(url_for("otp_enroll"))
+		if pyotp.TOTP(encryption.decrypt(user.otp_secret)).verify(user_code,
+		                                                          valid_window=1):
+			login_user(user)
+			session.pop("pre_auth_user_id")
+			return redirect(url_for("dashboard"))
+		flash("invalid code, please try again", "danger")
+		return redirect(url_for("otp_verify"))
+	elif request.method == "GET":
+		return render_template("otp_verify.html")
 
 
 @app.route("/logout")
 def logout():
-    logout_user()
-    return redirect(url_for("home"))
+	logout_user()
+	return redirect(url_for("home"))
 
 
 @app.route("/account")
 @login_required
 def account():
-    with get_session() as db_session:
-        user = db_session.get(User, current_user.id)
-        user_results = user.results
-        db_session.expunge_all()
+	with get_session() as db_session:
+		user = db_session.get(User, current_user.id)
+		user_results = user.results
+		db_session.expunge_all()
 
-    # Total rollouts
-    total_rollouts = len(set(r.job_id for r in user_results))
+	# Total rollouts
+	total_rollouts = len(set(r.job_id for r in user_results))
 
-    # Total devices configured
-    total_devices = len(user_results)
+	# Total devices configured
+	total_devices = len(user_results)
 
-    # Success rate
-    if total_rollouts > 0:
-        successful = len(
-            set(r.job_id for r in user_results if r.status == 'success'))
-        success_rate = round((successful / total_rollouts) * 100)
-    else:
-        success_rate = None
+	# Success rate
+	if total_rollouts > 0:
+		successful = len(
+			set(r.job_id for r in user_results if r.status == 'success'))
+		success_rate = round((successful / total_rollouts) * 100)
+	else:
+		success_rate = None
 
-    # Most configured device type
-    if user_results:
-        most_common_platform = \
-            Counter(r.device_type for r in user_results).most_common(1)[0][0]
-    else:
-        most_common_platform = None
+	# Most configured device type
+	if user_results:
+		most_common_platform = \
+			Counter(r.device_type for r in user_results).most_common(1)[0][0]
+	else:
+		most_common_platform = None
 
-    # Total commands pushed
-    total_commands = sum(r.commands_sent for r in user_results)
+	# Total commands pushed
+	total_commands = sum(r.commands_sent for r in user_results)
 
-    return render_template("account.html",
-                           user=current_user,
-                           total_rollouts=total_rollouts,
-                           total_devices=total_devices,
-                           success_rate=success_rate,
-                           most_common_platform=most_common_platform,
-                           total_commands=total_commands)
+	return render_template("account.html",
+	                       user=current_user,
+	                       total_rollouts=total_rollouts,
+	                       total_devices=total_devices,
+	                       success_rate=success_rate,
+	                       most_common_platform=most_common_platform,
+	                       total_commands=total_commands)
 
 
 @app.route("/upload")
 @login_required
 def upload():
-    return render_template("upload.html")
+	return render_template("upload.html")
 
 
 @app.route("/start_rollout", methods=["POST"])
 @login_required
 def start_rollout():
-    # File upload
-    commands_file = request.files.get("commands_file")
-    # Manual Entry
-    manual_commands = request.form.get("manual_commands", "").strip()
+	# File upload
+	commands_file = request.files.get("commands_file")
+	# Manual Entry
+	manual_commands = request.form.get("manual_commands", "").strip()
 
-    if commands_file:
-        commands = [line.decode("utf-8").strip() for line in
-                    commands_file.readlines()]
-    else:
-        commands = [line.strip() for line in manual_commands.splitlines() if
-                    line.strip()]
+	if commands_file:
+		commands = [line.decode("utf-8").strip() for line in
+		            commands_file.readlines()]
+	else:
+		commands = [line.strip() for line in manual_commands.splitlines() if
+		            line.strip()]
 
-    # Options
-    verbose_flag = request.form.get("_verbose", "")
-    verify_flag = request.form.get("_verify", "")
-    options = RolloutOptions(verify=bool(verify_flag),
-                             verbose=bool(verbose_flag),
-                             webapp=True)
+	# Options
+	verbose_flag = request.form.get("_verbose", "")
+	verify_flag = request.form.get("_verify", "")
+	options = RolloutOptions(verify=bool(verify_flag),
+	                         verbose=bool(verbose_flag),
+	                         webapp=True)
 
-    # Load inventory from db
-    with get_session() as db_session:
-        user = db_session.get(User, current_user.id)
-        device_inventory = user.inventory
-        db_session.expunge_all()
+	# Load inventory from db
+	with get_session() as db_session:
+		user = db_session.get(User, current_user.id)
+		device_inventory = user.inventory
+		db_session.expunge_all()
 
-    # Parse and Submit
-    devices = input_parser.InputParser.import_from_inventory(device_inventory)
-    job_id = orchestrator.submit(devices, commands, options, current_user.id)
-    session["job_id"] = str(job_id)
+	# Parse and Submit
+	devices = input_parser.InputParser.import_from_inventory(device_inventory)
+	job_id = orchestrator.submit(devices, commands, options, current_user.id)
+	session["job_id"] = str(job_id)
 
-    return redirect(url_for("rollout"))
+	return redirect(url_for("rollout"))
 
 
 @app.route("/rollout")
 @login_required
 def rollout():
-    return render_template("rollout.html")
+	return render_template("rollout.html")
 
 
 @app.route("/cancel_rollout", methods=["POST"])
 @login_required
 def cancel_rollout():
-    job_id = session.get("job_id", None)
-    if job_id:
-        orchestrator.cancel(uuid.UUID(job_id))
-        return {"status": "cancelled"}
-    return {"status": "no_active_rollout"}
+	raw = request.form.get("job_id", "").strip()
+	if not raw:
+		return {"status": "no_active_rollout"}
+	try:
+		job_id = uuid.UUID(raw)
+	except ValueError:
+		return {"status": "invalid_job_id"}
+	job = orchestrator.get(job_id)
+	if not job:
+		return {"status": "job_not_found"}
+	if job.user_id != current_user.id:
+		return {"status": "job_not_found_under_user"}
+	orchestrator.cancel(job_id)
+	return {"status": "cancelled"}
 
 
 @app.route("/rollout_status")
 @login_required
 def get_rollout_status():
-    job_id = session.get("job_id", None)
-    if job_id:
-        job = orchestrator.get(uuid.UUID(job_id))
-        if job and job.is_alive():
-            return {"status": "active"}
-        return {"status": "idle"}
-    return {"status": "idle"}
+	job_id = session.get("job_id", None)
+	if job_id:
+		job = orchestrator.get(uuid.UUID(job_id))
+		if job and job.is_alive():
+			return {"status": "active"}
+		return {"status": "idle"}
+	return {"status": "idle"}
 
 
 @app.route("/rollout_stream")
 @login_required
 def sse_stream():
-    def generate():
-        job_id = session.get("job_id", None)
-        if not job_id:
-            return
-        job = orchestrator.get(uuid.UUID(job_id))
-        if not job:
-            return
-        while job.is_alive():
-            try:
-                msg = job.get_log()
-                yield f"data: {msg}\n\n"
-            except Empty:
-                yield "data: \n\n"
-                sleep(0.5)
+	def generate():
+		job_id = session.get("job_id", None)
+		if not job_id:
+			return
+		job = orchestrator.get(uuid.UUID(job_id))
+		if not job:
+			return
+		while job.is_alive():
+			try:
+				msg = job.get_log()
+				yield f"data: {msg}\n\n"
+			except Empty:
+				yield "data: \n\n"
+				sleep(0.5)
 
-    return Response(
-        generate(),
-        mimetype="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
+	return Response(
+		generate(),
+		mimetype="text/event-stream",
+		headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+	)
+
 
 @app.route("/new_rollout")
 @login_required
 def new_rollout():
-    with get_session() as db_session:
-        user = db_session.get(User, current_user.id)
-        devices = user.inventory
-        sp = [d.security_profile for d in devices]
-        vm = [d.var_mappings for d in devices]
-        db_session.expunge_all()
+	with get_session() as db_session:
+		user = db_session.get(User, current_user.id)
+		devices = user.inventory
+		_ = [d.security_profile for d in devices]
+		_ = [d.var_mappings for d in devices]
+		db_session.expunge_all()
 
-    return render_template("new_rollout.html",
-                           devices=devices,
-                           active_section="rollout"
-                           )
+	return render_template("new_rollout.html",
+	                       devices=devices,
+	                       active_section="rollout"
+	                       )
+
 
 @app.route("/new_start_rollout", methods=["POST"])
 @login_required
 def new_start_rollout():
+	# 1) Collect selected device IDs from the form.
+	# The frontend sends repeated "device_ids" fields for the chosen inventory rows.
+	raw_device_ids = request.form.getlist("device_ids")
+	if not raw_device_ids:
+		flash("Select at least one device.", "danger")
+		return redirect(url_for("new_rollout"))
 
-    # 1) Collect selected device IDs from the form.
-    # The frontend sends repeated "device_ids" fields for the chosen inventory rows.
-    raw_device_ids = request.form.getlist("device_ids")
-    if not raw_device_ids:
-        flash("Select at least one device.", "danger")
-        return redirect(url_for("new_rollout"))
+	# 2) Validate that the submitted device IDs are well-formed UUIDs.
+	# This protects the backend from malformed or tampered requests.
+	try:
+		selected_ids = list(
+			{uuid.UUID(device_id) for device_id in raw_device_ids})
+	except ValueError:
+		flash("Invalid device selection.", "danger")
+		return redirect(url_for("new_rollout"))
 
-    # 2) Validate that the submitted device IDs are well-formed UUIDs.
-    # This protects the backend from malformed or tampered requests.
-    try:
-        selected_ids = [uuid.UUID(device_id) for device_id in raw_device_ids]
-    except ValueError:
-        flash("Invalid device selection.", "danger")
-        return redirect(url_for("new_rollout"))
+	# 3) Detect single vs multi-platform mode early.
+	# The frontend sends a JSON field "platform_commands" when multiple platforms
+	# are selected, and omits it (or sends empty) for single-platform rollouts.
+	raw_platform_commands = request.form.get("platform_commands", "").strip()
+	is_multi_platform = bool(raw_platform_commands)
 
-    # 3) Collect commands from either uploaded file or manual text input.
-    # The frontend allows one of two sources:
-    #    - commands_file → uploaded .txt file
-    #    - manual_commands → pasted multiline text
-    commands_file = request.files.get("commands_file")
-    manual_commands = request.form.get("manual_commands", "").strip()
+	# 4) Collect and validate commands based on mode.
+	if is_multi_platform:
+		# Multi-platform: parse the JSON map of platform → command text.
+		try:
+			platform_commands_map = json.loads(raw_platform_commands)
+		except json.JSONDecodeError:
+			flash("Invalid platform commands format.", "danger")
+			return redirect(url_for("new_rollout"))
+		# commands is unused in multi-platform mode — each platform has its own
+		commands = None
+	else:
+		# Single-platform: file upload or pasted text, same as before.
+		platform_commands_map = {}
+		commands_file = request.files.get("commands_file")
+		manual_commands = request.form.get("manual_commands", "").strip()
+		commands = []
 
-    commands = []
+		if commands_file and commands_file.filename:
+			if not commands_file.filename.lower().endswith(".txt"):
+				flash("Command file must be a .txt file.", "danger")
+				return redirect(url_for("new_rollout"))
+			try:
+				for raw_line in commands_file.readlines():
+					line = raw_line.decode("utf-8").strip()
+					if line:
+						commands.append(line)
+			except UnicodeDecodeError:
+				flash("Command file must be valid UTF-8 text.", "danger")
+				return redirect(url_for("new_rollout"))
+		else:
+			commands = [l.strip() for l in manual_commands.splitlines() if
+			            l.strip()]
 
-    if commands_file and commands_file.filename:
-        if not commands_file.filename.lower().endswith(".txt"):
-            flash("Command file must be a .txt file.", "danger")
-            return redirect(url_for("new_rollout"))
+		if not commands:
+			flash(
+				"Provide commands by pasting text or uploading a command file.",
+				"danger")
+			return redirect(url_for("new_rollout"))
 
-        try:
-            for raw_line in commands_file.readlines():
-                line = raw_line.decode("utf-8").strip()
-                if line:
-                    commands.append(line)
-        except UnicodeDecodeError:
-            flash("Command file must be valid UTF-8 text.", "danger")
-            return redirect(url_for("new_rollout"))
-    else:
-        commands = [line.strip() for line in manual_commands.splitlines() if line.strip()]
+	# 5) Collect rollout options from the form.
+	verify_flag = request.form.get("_verify", "")
+	verbose_flag = request.form.get("_verbose", "")
+	options = RolloutOptions(
+		verify=bool(verify_flag),
+		verbose=bool(verbose_flag),
+		webapp=True
+	)
 
-    # 4) Require at least one command.
-    if not commands:
-        flash("Provide commands by pasting text or uploading a command file.", "danger")
-        return redirect(url_for("new_rollout"))
+	# 6) Load the selected inventory rows belonging to the current user.
+	with get_session() as db_session:
+		selected_rows = (
+			db_session.query(Inventory)
+			.filter(
+				Inventory.user_id == current_user.id,
+				Inventory.id.in_(selected_ids)
+			)
+			.all()
+		)
 
-    # 5) Collect rollout options from the form.
-    verify_flag = request.form.get("_verify", "")
-    verbose_flag = request.form.get("_verbose", "")
-    options = RolloutOptions(
-        verify=bool(verify_flag),
-        verbose=bool(verbose_flag),
-        webapp=True
-    )
+		# Preload relationships needed for runtime device construction.
+		_ = [row.security_profile for row in selected_rows]
+		_ = [row.var_mappings for row in selected_rows]
 
-    # 6) Load the selected inventory rows belonging to the current user.
-    with get_session() as db_session:
-        selected_rows = (
-            db_session.query(Inventory)
-            .filter(
-                Inventory.user_id == current_user.id,
-                Inventory.id.in_(selected_ids)
-            )
-            .all()
-        )
+		db_session.expunge_all()
 
-        # Preload relationships needed for runtime device construction.
-        _ = [row.security_profile for row in selected_rows]
-        _ = [row.var_mappings for row in selected_rows]
+	# 7) Validate the selected devices.
+	if not selected_rows:
+		flash("No valid devices selected.", "danger")
+		return redirect(url_for("new_rollout"))
 
-        db_session.expunge_all()
+	if len(selected_rows) != len(selected_ids):
+		flash("One or more selected devices were not found.", "danger")
+		return redirect(url_for("new_rollout"))
 
-    # 7) Validate the selected devices.
-    if not selected_rows:
-        flash("No valid devices selected.", "danger")
-        return redirect(url_for("new_rollout"))
+	# 8) Ensure every device has a security profile.
+	missing_profiles = [row.label or row.ip for row in selected_rows if
+	                    not row.security_profile]
+	if missing_profiles:
+		flash(
+			"These devices have no security profile assigned: "
+			+ ", ".join(missing_profiles),
+			"danger"
+		)
+		return redirect(url_for("new_rollout"))
 
-    if len(selected_rows) != len(set(selected_ids)):
-        flash("One or more selected devices were not found.", "danger")
-        return redirect(url_for("new_rollout"))
+	# 9) Convert ORM inventory rows into runtime Device objects.
+	try:
+		devices = InputParser.import_from_inventory(selected_rows)
+	except ValueError as e:
+		flash(str(e), "danger")
+		return redirect(url_for("new_rollout"))
 
-    # 8) Ensure every device has a security profile.
-    missing_profiles = [row.label or row.ip for row in selected_rows if not row.security_profile]
-    if missing_profiles:
-        flash(
-            "These devices have no security profile assigned: "
-            + ", ".join(missing_profiles),
-            "danger"
-        )
-        return redirect(url_for("new_rollout"))
+	# 10) Submit jobs to the orchestrator.
+	audit_comment = request.form.get("comment", "").strip() or None
 
-    # 9) Convert ORM inventory rows into runtime Device objects.
-    try:
-        devices = InputParser.import_from_inventory(selected_rows)
-    except ValueError as e:
-        flash(str(e), "danger")
-        return redirect(url_for("new_rollout"))
+	if is_multi_platform:
+		# Backend enforces multi-platform — never trust the frontend alone.
+		actual_platforms = {d.device_type for d in devices}
+		if len(actual_platforms) < 2:
+			flash("Expected multiple platforms but only one found.", "danger")
+			return redirect(url_for("new_rollout"))
 
-    # 10) Submit the rollout job to the orchestrator.
-    job_id = orchestrator.submit(devices, commands, options, current_user.id)
+		devices.sort(key=lambda d: d.device_type)
+		job_id = None
+		for platform, group in groupby(devices, key=lambda d: d.device_type):
+			curr_commands = [l.strip() for l in
+			                 platform_commands_map.get(platform,
+			                                           "").splitlines()
+			                 if l.strip()]
+			if not curr_commands:
+				flash(f"No commands provided for {platform}.", "danger")
+				return redirect(url_for("new_rollout"))
+			first_job = orchestrator.submit(list(group), curr_commands, options,
+			                                current_user.id, audit_comment)
+			if job_id is None:
+				job_id = first_job
+	else:
+		job_id = orchestrator.submit(devices, commands, options,
+		                             current_user.id,audit_comment)
 
-    # 11) Notify the user and redirect to results.
-    flash(
-        f"Started rollout job for {len(devices)} "
-        f"device{'s' if len(devices) != 1 else ''}.",
-        "success"
-    )
-    return redirect(url_for("results"))
+	# 11) Notify the user and redirect to active jobs.
+	flash(
+		f"Rollout started for {len(devices)} "
+		f"device{'s' if len(devices) != 1 else ''}.",
+		"success"
+	)
+	return redirect(url_for("active_jobs", new=str(job_id)))
+
 
 @app.route("/admin")
 @login_required
 def admin_panel():
-    if current_user.role != "admin":
-        return redirect(url_for("dashboard"))
-    return redirect(url_for("admin_users"))
+	if current_user.role != "admin":
+		return redirect(url_for("dashboard"))
+	return redirect(url_for("admin_users"))
 
 
 @app.route("/admin/users")
 @login_required
 def admin_users():
-    if current_user.role != "admin":
-        return redirect(url_for("dashboard"))
-    with get_session() as db_session:
-        users = db_session.query(User).order_by(User.created_at).all()
-        db_session.expunge_all()
-    return render_template("admin_users.html", users=users,
-                           active_section="users")
+	if current_user.role != "admin":
+		return redirect(url_for("dashboard"))
+	with get_session() as db_session:
+		users = db_session.query(User).order_by(User.created_at).all()
+		db_session.expunge_all()
+	return render_template("admin_users.html", users=users,
+	                       active_section="users")
 
 
 @app.route("/admin/users/<uuid:user_id>/<action>", methods=["POST"])
 @login_required
 def admin_user_action(user_id, action):
-    if current_user.role != "admin":
-        return redirect(url_for("dashboard"))
-    if action in ("disable", "delete") and user_id == current_user.id:
-        flash("You cannot perform this action on your own account.", "danger")
-        return redirect(url_for("admin_users"))
-    with get_session() as db_session:
-        user = db_session.query(User).filter_by(id=user_id).first()
+	if current_user.role != "admin":
+		return redirect(url_for("dashboard"))
+	if action in ("disable", "delete") and user_id == current_user.id:
+		flash("You cannot perform this action on your own account.", "danger")
+		return redirect(url_for("admin_users"))
+	with get_session() as db_session:
+		user = db_session.query(User).filter_by(id=user_id).first()
 
-        if not user or user.username == "admin":
-            return redirect(url_for("admin_users"))
+		if not user or user.username == "admin":
+			return redirect(url_for("admin_users"))
 
-        if action == "approve":
-            user.is_approved = True
-            user.is_active = True
-        elif action == "enable":
-            user.is_active = True
-        elif action == "disable":
-            user.is_active = False
-        elif action == "promote":
-            user.role = "admin"
-        elif action == "demote":
-            user.role = "user"
-        elif action == "delete":
-            db_session.delete(user)
+		if action == "approve":
+			user.is_approved = True
+			user.is_active = True
+		elif action == "enable":
+			user.is_active = True
+		elif action == "disable":
+			user.is_active = False
+		elif action == "promote":
+			user.role = "admin"
+		elif action == "demote":
+			user.role = "user"
+		elif action == "delete":
+			db_session.delete(user)
 
-    return redirect(url_for("admin_users"))
+	return redirect(url_for("admin_users"))
 
 
 @app.route("/admin/users/bulk/<action>", methods=["POST"])
 @login_required
 def admin_bulk_action(action):
-    if current_user.role != "admin":
-        return redirect(url_for("dashboard"))
-    raw = request.form.get("user_ids", "")
-    try:
-        user_ids = [uuid.UUID(uid.strip()) for uid in raw.split(",") if
-                    uid.strip()]
-    except ValueError:
-        return redirect(url_for("admin_users"))
-    with get_session() as db_session:
-        for uid in user_ids:
-            user = db_session.get(User, uid)
-            if not user or user.username == "admin":
-                continue
-            if action in ("disable", "delete") and uid == current_user.id:
-                continue
-            if action == "approve":
-                user.is_approved = True
-                user.is_active = True
-            elif action == "enable":
-                user.is_active = True
-            elif action == "disable":
-                user.is_active = False
-            elif action == "promote":
-                user.role = "admin"
-            elif action == "demote":
-                user.role = "user"
-            elif action == "delete":
-                db_session.delete(user)
-    return redirect(url_for("admin_users"))
+	if current_user.role != "admin":
+		return redirect(url_for("dashboard"))
+	raw = request.form.get("user_ids", "")
+	try:
+		user_ids = [uuid.UUID(uid.strip()) for uid in raw.split(",") if
+		            uid.strip()]
+	except ValueError:
+		return redirect(url_for("admin_users"))
+	with get_session() as db_session:
+		for uid in user_ids:
+			user = db_session.get(User, uid)
+			if not user or user.username == "admin":
+				continue
+			if action in ("disable", "delete") and uid == current_user.id:
+				continue
+			if action == "approve":
+				user.is_approved = True
+				user.is_active = True
+			elif action == "enable":
+				user.is_active = True
+			elif action == "disable":
+				user.is_active = False
+			elif action == "promote":
+				user.role = "admin"
+			elif action == "demote":
+				user.role = "user"
+			elif action == "delete":
+				db_session.delete(user)
+	return redirect(url_for("admin_users"))
 
 
 def job_status(rows: list[DeviceResult]) -> str:
-    statuses = {r.status for r in rows}
-    if "cancelled" in statuses:
-        return "cancelled"
-    if all(r.status == "failed" for r in rows):
-        return "failed"
-    if any(r.status in ("failed", "partial") for r in rows):
-        return "partial"
-    return "success"
+	statuses = {r.status for r in rows}
+	if "cancelled" in statuses:
+		return "cancelled"
+	if all(r.status == "failed" for r in rows):
+		return "failed"
+	if any(r.status in ("failed", "partial") for r in rows):
+		return "partial"
+	return "success"
 
 
 @app.route("/dashboard")
 @login_required
 def dashboard():
-    with get_session() as db_session:
-        user = db_session.get(User, current_user.id)
-        inventory_count = len(user.inventory)
-        profile_count = len(user.security_profiles)
-        jobs_results = user.results  # DeviceResult rows
-        db_session.expunge_all()
+	with get_session() as db_session:
+		user = db_session.get(User, current_user.id)
+		inventory_count = len(user.inventory)
+		profile_count = len(user.security_profiles)
+		jobs_results = user.results  # DeviceResult rows
+		db_session.expunge_all()
 
-    sorted_results = sorted(jobs_results, key=lambda x: x.job_id)
-    job_summaries = []
-    for job_id, rows in groupby(sorted_results, key=lambda x: x.job_id):
-        rows = list(rows)
-        job_summaries.append({"job_id": job_id,
-                              "completed_at": max(r.completed_at for r in
-                                                  rows),
-                              "device_count": len(rows),
-                              "commands_sent": rows[0].commands_sent,
-                              "status": job_status(rows)})
+	sorted_results = sorted(jobs_results, key=lambda x: x.job_id)
+	job_summaries = []
+	for job_id, rows in groupby(sorted_results, key=lambda x: x.job_id):
+		rows = list(rows)
+		job_summaries.append({"job_id": job_id,
+		                      "completed_at": max(r.completed_at for r in
+		                                          rows),
+		                      "device_count": len(rows),
+		                      "commands_sent": rows[0].commands_sent,
+		                      "status": job_status(rows)})
 
-    job_summaries.sort(key=lambda x: x['completed_at'], reverse=True)
-    recent_jobs = job_summaries[:5]
-    total_rollouts = len(job_summaries)
-    last_status = job_summaries[0]['status'] if job_summaries else None
+	job_summaries.sort(key=lambda x: x['completed_at'], reverse=True)
+	recent_jobs = job_summaries[:5]
+	total_rollouts = len(job_summaries)
+	last_status = job_summaries[0]['status'] if job_summaries else None
 
-    # get active job
-    job_id = session.get("job_id", None)
-    active_job = orchestrator.get(uuid.UUID(job_id)) if job_id else None
+	# get_queue an active job
+	job_id = session.get("job_id", None)
+	active_job = orchestrator.get(uuid.UUID(job_id)) if job_id else None
 
-    active_job_data = None
-    if active_job and active_job.is_alive():
-        active_job_data = {
-            "job_id": job_id,
-            "device_count": active_job.get_device_count(),
-            "started_at": active_job.started_at.strftime("%H:%M:%S"),
-            "started_at_iso": active_job.started_at.isoformat()
-        }
+	active_job_data = None
+	if active_job and active_job.is_alive():
+		active_job_data = {
+			"job_id": job_id,
+			"device_count": active_job.get_device_count(),
+			"started_at": active_job.started_at.strftime("%H:%M:%S"),
+			"started_at_iso": active_job.started_at.isoformat()
+		}
 
-    return render_template("dashboard.html",
-                           active_section="dashboard",
-                           active_job=active_job_data,
-                           recent_jobs=recent_jobs,
-                           inventory_count=inventory_count,
-                           profile_count=profile_count,
-                           total_rollouts=total_rollouts,
-                           last_status=last_status)
+	return render_template("dashboard.html",
+	                       active_section="dashboard",
+	                       active_job=active_job_data,
+	                       recent_jobs=recent_jobs,
+	                       inventory_count=inventory_count,
+	                       profile_count=profile_count,
+	                       total_rollouts=total_rollouts,
+	                       last_status=last_status)
 
 
 @app.route("/inventory")
 @login_required
 def inventory():
-    with get_session() as db_session:
-        user = db_session.get(User, current_user.id)
-        devices = user.inventory
-        profiles = user.security_profiles
-        _ = [d.security_profile for d in devices]
-        db_session.expunge_all()
-    return render_template("inventory.html",
-                           devices=devices,
-                           profiles=profiles,
-                           active_section="inventory")
+	with get_session() as db_session:
+		user = db_session.get(User, current_user.id)
+		devices = user.inventory
+		profiles = user.security_profiles
+		_ = [d.security_profile for d in devices]
+		db_session.expunge_all()
+	return render_template("inventory.html",
+	                       devices=devices,
+	                       profiles=profiles,
+	                       active_section="inventory")
 
 
 @app.route("/inventory/create", methods=["POST"])
 @login_required
 def inventory_create():
-    label = request.form.get("label", "").strip()
-    ip = request.form.get("ip", "").strip()
-    port = request.form.get("port", "22").strip()
-    device_type = request.form.get("device_type", "").strip()
-    sec_profile_id = request.form.get("sec_profile_id", "").strip()
+	label = request.form.get("label", "").strip()
+	ip = request.form.get("ip", "").strip()
+	port = request.form.get("port", "22").strip()
+	device_type = request.form.get("device_type", "").strip()
+	sec_profile_id = request.form.get("sec_profile_id", "").strip()
 
-    with get_session() as db_session:
-        row = Inventory(
-            user_id=current_user.id,
-            label=label,
-            ip=ip,
-            port=int(port),
-            device_type=device_type,
-            sec_profile_id=uuid.UUID(sec_profile_id) if sec_profile_id else None
-        )
-        db_session.add(row)
+	with get_session() as db_session:
+		row = Inventory(
+			user_id=current_user.id,
+			label=label,
+			ip=ip,
+			port=int(port),
+			device_type=device_type,
+			sec_profile_id=uuid.UUID(sec_profile_id) if sec_profile_id else None
+		)
+		db_session.add(row)
 
-    flash(f"{label} added to inventory.", "success")
-    return redirect(url_for("inventory"))
+	flash(f"{label} added to inventory.", "success")
+	return redirect(url_for("inventory"))
 
 
 @app.route("/inventory/<uuid:device_id>/edit", methods=["POST"])
 @login_required
 def inventory_edit(device_id):
-    with get_session() as db_session:
-        device = db_session.query(Inventory).filter_by(
-            id=device_id, user_id=current_user.id).first()
-        if not device:
-            flash("Device not found.", "danger")
-            return redirect(url_for("inventory"))
+	with get_session() as db_session:
+		device = db_session.query(Inventory).filter_by(
+			id=device_id, user_id=current_user.id).first()
+		if not device:
+			flash("Device not found.", "danger")
+			return redirect(url_for("inventory"))
 
-        device.label = request.form.get("label", "").strip()
-        device.ip = request.form.get("ip", "").strip()
-        device.port = int(request.form.get("port", 22))
-        device.device_type = request.form.get("device_type", "").strip()
+		device.label = request.form.get("label", "").strip()
+		device.ip = request.form.get("ip", "").strip()
+		device.port = int(request.form.get("port", 22))
+		device.device_type = request.form.get("device_type", "").strip()
 
-        sec_profile_id = request.form.get("sec_profile_id", "").strip()
-        device.sec_profile_id = uuid.UUID(
-            sec_profile_id) if sec_profile_id else None
+		sec_profile_id = request.form.get("sec_profile_id", "").strip()
+		device.sec_profile_id = uuid.UUID(
+			sec_profile_id) if sec_profile_id else None
 
-        var_map_keys = [
-            "hostname", "loopback_ip", "asn", "mgmt_vrf",
-            "mgmt_interface", "site", "domain", "timezone", "vrfs",
-        ]
-        var_maps = {}
-        for key in var_map_keys:
-            val = request.form.get(f"attr_{key}", "").strip()
-            if not val:
-                continue
-            if key == "vrfs":
-                var_maps[key] = [v.strip() for v in val.split(",") if v.strip()]
-            else:
-                var_maps[key] = val
-        device.var_maps = var_maps or None
-        label = device.label
+		var_map_keys = [
+			"hostname", "loopback_ip", "asn", "mgmt_vrf",
+			"mgmt_interface", "site", "domain", "timezone", "vrfs",
+		]
+		var_maps = {}
+		for key in var_map_keys:
+			val = request.form.get(f"attr_{key}", "").strip()
+			if not val:
+				continue
+			if key == "vrfs":
+				var_maps[key] = [v.strip() for v in val.split(",") if v.strip()]
+			else:
+				var_maps[key] = val
+		device.var_maps = var_maps or None
+		label = device.label
 
-    flash(f"{label} updated.", "success")
-    return redirect(url_for("inventory"))
+	flash(f"{label} updated.", "success")
+	return redirect(url_for("inventory"))
 
 
 @app.route("/inventory/<uuid:device_id>/delete", methods=["POST"])
 @login_required
 def inventory_delete(device_id):
-    with get_session() as db_session:
-        device = db_session.query(Inventory).filter_by(
-            id=device_id, user_id=current_user.id).first()
-        if not device:
-            flash("Device not found.", "danger")
-            return redirect(url_for("inventory"))
-        label = device.label
-        db_session.delete(device)
+	with get_session() as db_session:
+		device = db_session.query(Inventory).filter_by(
+			id=device_id, user_id=current_user.id).first()
+		if not device:
+			flash("Device not found.", "danger")
+			return redirect(url_for("inventory"))
+		label = device.label
+		db_session.delete(device)
 
-    flash(f"{label} removed from inventory.", "success")
-    return redirect(url_for("inventory"))
+	flash(f"{label} removed from inventory.", "success")
+	return redirect(url_for("inventory"))
 
 
 @app.route("/inventory/import_csv", methods=["POST"])
 @login_required
 def inventory_import_csv():
-    """
-    Bulk-imports devices from an uploaded CSV file into the user's inventory.
-    Saves the upload to a temp file, delegates to InputParser.csv_to_inventory
-    which validates each row and TCP-checks each device before writing.
-    NOTE: TCP checks are sequential — large CSVs will block the web process.
-          Phase 3.6 per-device concurrency will address this.
-    Error messages from the parser are captured by draining the logger queue
-    after the call and flashed to the user.
-    """
-    csv_file = request.files.get("csv_file")
-    if not csv_file or not csv_file.filename:
-        flash("No file selected.", "danger")
-        return redirect(url_for("inventory"))
+	"""
+	Bulk-imports devices from an uploaded CSV file into the user's inventory.
+	Saves the upload to a temp file, delegates to InputParser.csv_to_inventory,
+	which validates each row and TCP-checks each device before writing.
+	NOTE: TCP checks are sequential — large CSVs will block the web process.
+		  Phase 3.6 per-device concurrency will address this.
+	Error messages from the parser are captured by draining the logger queue
+	after the call and flashed to the user.
+	"""
+	csv_file = request.files.get("csv_file")
+	if not csv_file or not csv_file.filename:
+		flash("No file selected.", "danger")
+		return redirect(url_for("inventory"))
 
-    label = request.form.get("label", "").strip() or None
+	label = request.form.get("label", "").strip() or None
 
-    # Save upload to a temp file — csv_to_inventory takes a path, not a file object
-    with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as tmp:
-        tmp_path = tmp.name
-        csv_file.save(tmp_path)
+	# Save upload to a temp file — csv_to_inventory takes a path, not a file object
+	with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as tmp:
+		tmp_path = tmp.name
+		csv_file.save(tmp_path)
 
-    # Temp logfile — RolloutLogger always writes to disk, we don't need it here.
-    # Phase 3 will add a proper activity logging workflow.
-    log_path = tempfile.mktemp(suffix=".log")
+	# Temp logfile — RolloutLogger always writes to disk, we don't need it here.
+	# Phase 3 will add a proper activity logging workflow.
+	log_path = tempfile.mktemp(suffix=".log")
 
-    try:
-        logger = RolloutLogger(webapp=True, verbose=False, logfile=log_path)
-        validator = Validator(logger)
-        parser = InputParser(validator, logger)
+	try:
+		logger = RolloutLogger(webapp=True, verbose=False, logfile=log_path)
+		validator = Validator(logger)
+		parser = InputParser(validator, logger)
 
-        with get_session() as db_session:
-            devices = parser.csv_to_inventory(
-                tmp_path, current_user.id, db_session, label=label)
+		with get_session() as db_session:
+			devices = parser.csv_to_inventory(
+				tmp_path, current_user.id, db_session, label=label)
 
-        # Drain error messages queued by the parser (red-colored notify calls)
-        errors = []
-        while True:
-            try:
+		# Drain error messages queued by the parser (red-colored notify calls)
+		errors = []
+		while True:
+			try:
 
-                errors.append(logger.get(0))
-            except Empty:
-                break
+				errors.append(logger.get_queue(0))
+			except Empty:
+				break
 
-        if errors:
-            for msg in errors:
-                flash(msg, "danger")
-        if devices:
-            flash(
-                f"{len(devices)} device{'s' if len(devices) != 1 else ''} imported successfully.",
-                "success")
-        elif not errors:
-            flash("No valid devices found in CSV.", "warning")
+		if errors:
+			for msg in errors:
+				flash(msg, "danger")
+		if devices:
+			flash(
+				f"{len(devices)} device{'s' if len(devices) != 1 else ''} imported successfully.",
+				"success")
+		elif not errors:
+			flash("No valid devices found in CSV.", "warning")
 
-    finally:
-        os.unlink(tmp_path)
-        if os.path.exists(log_path):
-            os.unlink(log_path)
+	finally:
+		os.unlink(tmp_path)
+		if os.path.exists(log_path):
+			os.unlink(log_path)
 
-    return redirect(url_for("inventory"))
+	return redirect(url_for("inventory"))
 
 
 @app.route("/inventory/bulk_assign", methods=["POST"])
 @login_required
 def inventory_bulk_assign():
-    data = request.get_json(silent=True)
-    if not data:
-        return jsonify({"status": "error", "message": "Invalid request"}), 400
+	data = request.get_json(silent=True)
+	if not data:
+		return jsonify({"status": "error", "message": "Invalid request"}), 400
 
-    profile_id = data.get("profile_id")
-    device_ids = data.get("device_ids", [])
+	profile_id = data.get("profile_id")
+	device_ids = data.get("device_ids", [])
 
-    if not device_ids:
-        return jsonify(
-            {"status": "error", "message": "No devices provided"}), 400
+	if not device_ids:
+		return jsonify(
+			{"status": "error", "message": "No devices provided"}), 400
 
-    parsed_profile_id = uuid.UUID(profile_id) if profile_id else None
+	parsed_profile_id = uuid.UUID(profile_id) if profile_id else None
 
-    with get_session() as db_session:
-        if parsed_profile_id:
-            profile = db_session.query(SecurityProfile).filter_by(
-                id=parsed_profile_id, user_id=current_user.id).first()
-            if not profile:
-                return jsonify(
-                    {"status": "error", "message": "Profile not found"}), 404
+	with get_session() as db_session:
+		if parsed_profile_id:
+			profile = db_session.query(SecurityProfile).filter_by(
+				id=parsed_profile_id, user_id=current_user.id).first()
+			if not profile:
+				return jsonify(
+					{"status": "error", "message": "Profile not found"}), 404
 
-        for device_id_str in device_ids:
-            device = db_session.query(Inventory).filter_by(
-                id=uuid.UUID(device_id_str), user_id=current_user.id).first()
-            if device:
-                device.sec_profile_id = parsed_profile_id
+		for device_id_str in device_ids:
+			device = db_session.query(Inventory).filter_by(
+				id=uuid.UUID(device_id_str), user_id=current_user.id).first()
+			if device:
+				device.sec_profile_id = parsed_profile_id
 
-    return jsonify({"status": "success"})
+	return jsonify({"status": "success"})
+
+
+@app.route("/active_jobs")
+@login_required
+def active_jobs():
+	with get_session() as db_session:
+		sessions = db_session.query(RolloutSession).filter_by(
+			user_id=current_user.id).all()
+		db_session.expunge_all()
+
+	jobs = []
+	for s in sessions:
+		job = orchestrator.get(s.id)
+		jobs.append({
+			"id": str(s.id),
+			"status": s.status,
+			"created_at": s.created_at,
+			"device_count": job.get_device_count() if job else "—",
+			"started_at": job.started_at.strftime(
+				"%H:%M:%S") if job and job.started_at else "—",
+			"started_at_iso": job.started_at.isoformat() if job and job.started_at else "",
+		})
+
+	new_job_id = request.args.get("new", "")
+	return render_template("active_jobs.html", jobs=jobs,
+	                       new_job_id=new_job_id, active_section="rollout")
+
+
+@app.route("/rollout_stream/<uuid:job_id>")
+@login_required
+def rollout_stream(job_id):
+	job = orchestrator.get(job_id)
+	if not job or job.user_id != current_user.id:
+		return Response(status=403)
+
+	def generate():
+		snapshot = job.get_log_history()
+		for msg in snapshot:
+			yield f"data: {msg}\n\n"
+
+		while job.is_alive():
+			try:
+				msg = job.get_log_queue()
+				yield f"data: {msg}\n\n"
+			except Empty:
+				yield "data: \n\n"
+				sleep(0.5)
+
+	return Response(
+		generate(),
+		mimetype="text/event-stream",
+		headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+	)
+
+
+@app.route("/rollback/<uuid:job_id>", methods=["POST"])
+@login_required
+def rollback(job_id):
+	#Get successful devices
+	with get_session() as db_session:
+		result = db_session.query(DeviceResult).filter_by(
+			user_id=current_user.id,
+			job_id=job_id,
+			status="success").all()
+		successful_ips = {r.device_ip for r in result}
+
+		rows = db_session.query(Inventory).filter(
+			Inventory.user_id == current_user.id,
+			Inventory.ip.in_(successful_ips)).all()
+		if not rows:
+			return jsonify({"status": "error",
+			                "message": "No successfully configured"
+			                           " devices found for this job."}), 400
+
+		_ = [row.security_profile for row in rows]
+		_ = [row.var_mappings for row in rows]
+		db_session.expunge_all()
+
+	#Fetch compensatory commands
+	data = request.get_json(silent=True)
+	if not data or not data.get("commands", "").strip():
+		return jsonify(
+			{"status": "error", "message": "No commands provided"}), 400
+
+	commands = [l.strip() for l in data["commands"].splitlines() if l.strip()]
+	devices = input_parser.InputParser.import_from_inventory(rows)
+	options = RolloutOptions(
+		verify=bool(data.get("verify", False)),
+		verbose=bool(data.get("verbose", False)),
+		webapp=True
+	)
+	job_id = orchestrator.submit(devices,commands,options,current_user.id)
+	return jsonify({"status": "ok","job_id": str(job_id)})
+
+
+
+
+
+
+
+
+
 
 
 @app.route("/results")
 @login_required
 def results():
-    return render_template("results.html",
-                           active_section="results")
+	with get_session() as db_session:
+		user = db_session.get(User, current_user.id)
+		raw_results = user.results
+		metadata_rows = user.job_metadata
+		db_session.expunge_all()
+
+	metadata_by_job = {m.job_id: m for m in metadata_rows}
+
+	sorted_results = sorted(raw_results, key=lambda x: x.job_id)
+	jobs = []
+	for job_id, rows in groupby(sorted_results, key=lambda x: x.job_id):
+		rows = list(rows)
+		meta = metadata_by_job.get(job_id)
+		jobs.append({
+			"job_id": str(job_id),
+			"started_at": min(r.started_at for r in rows),
+			"completed_at": max(r.completed_at for r in rows),
+			"device_count": len(rows),
+			"commands_sent": rows[0].commands_sent,
+			"status": job_status(rows),
+			"comment": meta.comment if meta else None,
+			"commands": meta.commands if meta else [],
+			"devices": [
+				{
+					"ip": r.device_ip,
+					"device_type": r.device_type,
+					"status": r.status,
+					"commands_sent": r.commands_sent,
+					"commands_verified": r.commands_verified,
+				}
+				for r in rows
+			]
+		})
+
+	jobs.sort(key=lambda x: x["completed_at"], reverse=True)
+
+	return render_template("results.html",
+	                       active_section="results",
+	                       jobs=jobs)
 
 
 @app.route("/security")
 @login_required
 def security():
-    with get_session() as db_session:
-        user = db_session.get(User, current_user.id)
-        profiles = user.security_profiles
-        _ = [p.inventory for p in profiles]
-        devices = user.inventory
-        db_session.expunge_all()
+	with get_session() as db_session:
+		user = db_session.get(User, current_user.id)
+		profiles = user.security_profiles
+		_ = [p.inventory for p in profiles]
+		devices = user.inventory
+		db_session.expunge_all()
 
-    return render_template("security.html",
-                           profiles=profiles,
-                           devices=devices,
-                           active_section="security")
+	return render_template("security.html",
+	                       profiles=profiles,
+	                       devices=devices,
+	                       active_section="security")
 
 
 @app.route("/security/create", methods=["POST"])
 @login_required
 def security_create():
-    label = request.form.get("label", "").strip() or None
-    username = request.form["username"]
-    password = request.form["password"]
-    enable_secret = request.form.get("enable_secret", "").strip() or None
+	label = request.form.get("label", "").strip() or None
+	username = request.form["username"]
+	password = request.form["password"]
+	enable_secret = request.form.get("enable_secret", "").strip() or None
 
-    profile = SecurityProfile(label=label,
-                              username=username,
-                              password_secret=encryption.encrypt(password),
-                              enable_secret=encryption.encrypt(enable_secret)
-                              if enable_secret else None,
-                              user_id=current_user.id)
+	profile = SecurityProfile(label=label,
+	                          username=username,
+	                          password_secret=encryption.encrypt(password),
+	                          enable_secret=encryption.encrypt(enable_secret)
+	                          if enable_secret else None,
+	                          user_id=current_user.id)
 
-    with get_session() as db_session:
-        db_session.add(profile)
-    flash("Security profile created.", "success")
-    return redirect(url_for("security"))
+	with get_session() as db_session:
+		db_session.add(profile)
+	flash("Security profile created.", "success")
+	return redirect(url_for("security"))
 
 
 @app.route("/security/<uuid:profile_id>/edit", methods=["POST"])
 @login_required
 def security_edit(profile_id):
-    with get_session() as db_session:
-        profile = db_session.query(SecurityProfile).filter_by(
-            id=profile_id, user_id=current_user.id).first()
-        if not profile:
-            return redirect(url_for("security"))
+	with get_session() as db_session:
+		profile = db_session.query(SecurityProfile).filter_by(
+			id=profile_id, user_id=current_user.id).first()
+		if not profile:
+			return redirect(url_for("security"))
 
-        profile.label = request.form.get("label", "").strip() or None
-        profile.username = request.form["username"]
+		profile.label = request.form.get("label", "").strip() or None
+		profile.username = request.form["username"]
 
-        new_password = request.form.get("password", "").strip()
-        if new_password:
-            profile.password_secret = encryption.encrypt(new_password)
+		new_password = request.form.get("password", "").strip()
+		if new_password:
+			profile.password_secret = encryption.encrypt(new_password)
 
-        new_secret = request.form.get("enable_secret", "").strip()
-        if new_secret:
-            profile.enable_secret = encryption.encrypt(new_secret)
-        elif request.form.get("clear_enable_secret"):
-            profile.enable_secret = None
+		new_secret = request.form.get("enable_secret", "").strip()
+		if new_secret:
+			profile.enable_secret = encryption.encrypt(new_secret)
+		elif request.form.get("clear_enable_secret"):
+			profile.enable_secret = None
 
-    flash("Security profile updated.", "success")
-    return redirect(url_for("security"))
+	flash("Security profile updated.", "success")
+	return redirect(url_for("security"))
 
 
 @app.route("/security/<uuid:profile_id>/delete", methods=["POST"])
 @login_required
 def security_delete(profile_id):
-    with get_session() as db_session:
-        profile = db_session.query(SecurityProfile).filter_by(
-            id=profile_id, user_id=current_user.id).first()
-        if not profile:
-            return redirect(url_for("security"))
+	with get_session() as db_session:
+		profile = db_session.query(SecurityProfile).filter_by(
+			id=profile_id, user_id=current_user.id).first()
+		if not profile:
+			return redirect(url_for("security"))
 
-        if profile.inventory:
-            flash(f"Cannot delete '{profile.label or profile.username}' — "
-                  f"{len(profile.inventory)} device(s) assigned. "
-                  f"Delete or reassign them first.", "danger")
-            return redirect(url_for("security"))
-        db_session.delete(profile)
-        flash("Profile deleted.", "success")
-    return redirect(url_for("security"))
+		if profile.inventory:
+			flash(f"Cannot delete '{profile.label or profile.username}' — "
+			      f"{len(profile.inventory)} device(s) assigned. "
+			      f"Delete or reassign them first.", "danger")
+			return redirect(url_for("security"))
+		db_session.delete(profile)
+		flash("Profile deleted.", "success")
+	return redirect(url_for("security"))
 
 
 @app.route("/security/<uuid:profile_id>/test", methods=["POST"])
 @login_required
 def security_test(profile_id):
-    data = request.get_json()
-    if not data or not data.get("device_id"):
-        return {"status": "error", "message": "No device selected"}
+	data = request.get_json()
+	if not data or not data.get_queue("device_id"):
+		return {"status": "error", "message": "No device selected"}
 
-    try:
-        device_id = uuid.UUID(data["device_id"])
-    except ValueError:
-        return {"status": "error", "message": "Invalid request"}
+	try:
+		device_id = uuid.UUID(data["device_id"])
+	except ValueError:
+		return {"status": "error", "message": "Invalid request"}
 
-    with get_session() as db_session:
-        profile = db_session.query(SecurityProfile).filter_by(
-            id=profile_id, user_id=current_user.id).first()
-        device = db_session.query(Inventory).filter_by(
-            id=device_id, user_id=current_user.id).first()
-        if not profile or not device:
-            return {"status": "error", "message": "Profile or device not found"}
-        if not Validator.test_tcp_port(device.ip, device.port):
-            return {"status": "error", "message":
-                f"TCP port {device.port} unreachable on {device.ip}"}
-        db_session.expunge_all()
+	with get_session() as db_session:
+		profile = db_session.query(SecurityProfile).filter_by(
+			id=profile_id, user_id=current_user.id).first()
+		device = db_session.query(Inventory).filter_by(
+			id=device_id, user_id=current_user.id).first()
+		if not profile or not device:
+			return {"status": "error", "message": "Profile or device not found"}
+		if not Validator.test_tcp_port(device.ip, device.port):
+			return {"status": "error", "message":
+				f"TCP port {device.port} unreachable on {device.ip}"}
+		db_session.expunge_all()
 
-    device_obj = Device(ip=device.ip,
-                        port=device.port,
-                        device_type=device.device_type,
-                        label=device.label,
-                        username=profile.username,
-                        password=encryption.decrypt(profile.password_secret),
-                        secret=encryption.decrypt(profile.enable_secret)
-                        if profile.enable_secret else ""
-                        )
-    try:
-        conn = ConnectHandler(**device_obj.netmiko_connector())
-        conn.disconnect()
-        return {"status": "success",
-                "message": f"Connected successfully to {device.ip}"}
-    except NetmikoAuthenticationException:
-        return {"status": "error",
-                "message": "Authentication failed — check username and password"}
-    except NetmikoTimeoutException:
-        return {"status": "error",
-                "message": f"Connection timed out on {device.ip}:{device.port}"}
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
+	device_obj = Device(ip=device.ip,
+	                    port=device.port,
+	                    device_type=device.device_type,
+	                    label=device.label,
+	                    username=profile.username,
+	                    password=encryption.decrypt(profile.password_secret),
+	                    secret=encryption.decrypt(profile.enable_secret)
+	                    if profile.enable_secret else ""
+	                    )
+	try:
+		conn = ConnectHandler(**device_obj.netmiko_connector())
+		conn.disconnect()
+		return {"status": "success",
+		        "message": f"Connected successfully to {device.ip}"}
+	except NetmikoAuthenticationException:
+		return {"status": "error",
+		        "message": "Authentication failed — check username and password"}
+	except NetmikoTimeoutException:
+		return {"status": "error",
+		        "message": f"Connection timed out on {device.ip}:{device.port}"}
+	except Exception as e:
+		return {"status": "error", "message": str(e)}
 
 
 @app.route("/mappings")
 @login_required
 def mappings():
-    with get_session() as db_session:
-        user = db_session.get(User, current_user.id)
-        var_binds = user.variable_mappings
-        _ = [m.devices for m in var_binds]
-        devices = user.inventory
-        db_session.expunge_all()
+	with get_session() as db_session:
+		user = db_session.get(User, current_user.id)
+		var_binds = user.variable_mappings
+		_ = [m.devices for m in var_binds]
+		devices = user.inventory
+		db_session.expunge_all()
 
-    return render_template("variable_mappings.html", mappings=var_binds,
-                           devices=devices, active_section="mappings")
+	return render_template("variable_mappings.html", mappings=var_binds,
+	                       devices=devices, active_section="mappings")
 
 
 @app.route("/mappings/create", methods=["POST"])
 @login_required
 def mappings_create():
-    label = request.form.get("label", "").strip() or None
-    inner_token = request.form["token_inner"].strip().upper()
-    property_name = request.form["property_name"]
-    index = int(request.form.get("index", "").strip()) if request.form.get(
-        "index", "").strip() else None
+	label = request.form.get("label", "").strip() or None
+	inner_token = request.form["token_inner"].strip().upper()
+	property_name = request.form["property_name"]
+	index = int(request.form.get("index", "").strip()) if request.form.get(
+		"index", "").strip() else None
 
-    status, msg = Validator.validate_var_map_inner_token(inner_token)
-    if not status:
-        flash(msg, "danger")
-        return redirect(url_for("mappings"))
+	status, msg = Validator.validate_var_map_inner_token(inner_token)
+	if not status:
+		flash(msg, "danger")
+		return redirect(url_for("mappings"))
 
-    status, msg = Validator.validate_var_map_property_name(property_name)
-    if not status:
-        flash(msg, "danger")
-        return redirect(url_for("mappings"))
+	status, msg = Validator.validate_var_map_property_name(property_name)
+	if not status:
+		flash(msg, "danger")
+		return redirect(url_for("mappings"))
 
-    status, msg = Validator.validate_var_index(index, property_name)
-    if not status:
-        flash(msg, "danger")
-        return redirect(url_for("mappings"))
+	status, msg = Validator.validate_var_index(index, property_name)
+	if not status:
+		flash(msg, "danger")
+		return redirect(url_for("mappings"))
 
-    token = f"$${inner_token}$$"
-    row = VariableMapping(
-        label=label,
-        token=token,
-        index=index,
-        property_name=property_name,
-        user_id=current_user.id
-    )
+	token = f"$${inner_token}$$"
+	row = VariableMapping(
+		label=label,
+		token=token,
+		index=index,
+		property_name=property_name,
+		user_id=current_user.id
+	)
 
-    try:
-        with get_session() as db_session:
-            db_session.add(row)
-        flash("Mapping created.", "success")
-    except IntegrityError:
-        flash("A mapping with that token already exists.", "danger")
+	try:
+		with get_session() as db_session:
+			db_session.add(row)
+		flash("Mapping created.", "success")
+	except IntegrityError:
+		flash("A mapping with that token already exists.", "danger")
 
-    return redirect(url_for("mappings"))
+	return redirect(url_for("mappings"))
 
 
 @app.route("/mappings/<uuid:mapping_id>/edit", methods=["POST"])
 @login_required
 def mappings_edit(mapping_id):
-    label = request.form.get("label", "").strip() or None
-    inner_token = request.form["token_inner"].strip().upper()
-    property_name = request.form["property_name"]
-    index = int(request.form.get("index", "").strip()) if request.form.get(
-        "index", "").strip() else None
+	label = request.form.get("label", "").strip() or None
+	inner_token = request.form["token_inner"].strip().upper()
+	property_name = request.form["property_name"]
+	index = int(request.form.get("index", "").strip()) if request.form.get(
+		"index", "").strip() else None
 
-    status, msg = Validator.validate_var_map_inner_token(inner_token)
-    if not status:
-        flash(msg, "danger")
-        return redirect(url_for("mappings"))
+	status, msg = Validator.validate_var_map_inner_token(inner_token)
+	if not status:
+		flash(msg, "danger")
+		return redirect(url_for("mappings"))
 
-    status, msg = Validator.validate_var_map_property_name(property_name)
-    if not status:
-        flash(msg, "danger")
-        return redirect(url_for("mappings"))
+	status, msg = Validator.validate_var_map_property_name(property_name)
+	if not status:
+		flash(msg, "danger")
+		return redirect(url_for("mappings"))
 
-    status, msg = Validator.validate_var_index(index, property_name)
-    if not status:
-        flash(msg, "danger")
-        return redirect(url_for("mappings"))
+	status, msg = Validator.validate_var_index(index, property_name)
+	if not status:
+		flash(msg, "danger")
+		return redirect(url_for("mappings"))
 
-    token = f"$${inner_token}$$"
+	token = f"$${inner_token}$$"
 
-    try:
-        with get_session() as db_session:
-            mapping = db_session.query(VariableMapping).filter_by(
-                id=mapping_id, user_id=current_user.id
-            ).first()
+	try:
+		with get_session() as db_session:
+			mapping = db_session.query(VariableMapping).filter_by(
+				id=mapping_id, user_id=current_user.id
+			).first()
 
-            if not mapping:
-                flash("Mapping not found.", "danger")
-                return redirect(url_for("mappings"))
+			if not mapping:
+				flash("Mapping not found.", "danger")
+				return redirect(url_for("mappings"))
 
-            mapping.label = label
-            mapping.token = token
-            mapping.property_name = property_name
-            mapping.index = index
+			mapping.label = label
+			mapping.token = token
+			mapping.property_name = property_name
+			mapping.index = index
 
-        flash("Mapping updated.", "success")
-    except IntegrityError:
-        flash("A mapping with that token already exists.", "danger")
+		flash("Mapping updated.", "success")
+	except IntegrityError:
+		flash("A mapping with that token already exists.", "danger")
 
-    return redirect(url_for("mappings"))
+	return redirect(url_for("mappings"))
 
 
 @app.route("/mappings/<uuid:mapping_id>/delete", methods=["POST"])
 @login_required
 def mappings_delete(mapping_id):
-    with get_session() as db_session:
-        mapping = db_session.query(VariableMapping).filter_by(
-            id=mapping_id, user_id=current_user.id).first()
-        if not mapping:
-            return redirect(url_for("mappings"))
+	with get_session() as db_session:
+		mapping = db_session.query(VariableMapping).filter_by(
+			id=mapping_id, user_id=current_user.id).first()
+		if not mapping:
+			return redirect(url_for("mappings"))
 
-        db_session.delete(mapping)
-        flash("Mapping deleted.", "success")
-    return redirect(url_for("mappings"))
+		db_session.delete(mapping)
+		flash("Mapping deleted.", "success")
+	return redirect(url_for("mappings"))
 
 
 @app.route("/mappings/bulk_assign", methods=["POST"])
 @login_required
 def mappings_bulk_assign():
-    """
-    Assigns a list of inventory devices to a variable mapping via the
-    many-to-many join table. Accepts a JSON body with mapping_id and
-    device_ids. For each device, three checks are enforced before appending:
-      1. Ownership  — device must belong to current_user
-      2. Eligibility — device.var_maps must contain mapping.property_name
-      3. Duplicate   — device must not already be assigned to this mapping
-    Invalid or ineligible device IDs are silently skipped.
-    The mapping ownership check is done once before the loop.
-    """
-    # Parse JSON body — bail immediately if malformed or missing
-    data = request.get_json(silent=True)
-    if not data:
-        return jsonify({"status": "error", "message": "Invalid request"}), 400
-    mapping_id = data.get("mapping_id", None)
-    device_ids = data.get("device_ids", [])
+	"""
+	Assigns a list of inventory devices to a variable mapping via the
+	many-to-many join table. Accepts a JSON body with mapping_id and
+	device_ids. For each device, three checks are enforced before appending:
+	  1. Ownership — the device must belong to current_user
+	  2. Eligibility — device.var_maps must contain mapping.property_name
+	  3. Duplicate — the device must not already be assigned to this mapping
+	Invalid or ineligible device IDs are silently skipped.
+	The mapping ownership check is done once before the loop.
+	"""
+	# Parse JSON body — bail immediately if malformed or missing
+	data = request.get_json(silent=True)
+	if not data:
+		return jsonify({"status": "error", "message": "Invalid request"}), 400
+	mapping_id = data.get("mapping_id", None)
+	device_ids = data.get("device_ids", [])
 
-    if not device_ids:
-        return jsonify(
-            {"status": "error", "message": "No devices provided"}), 400
+	if not device_ids:
+		return jsonify(
+			{"status": "error", "message": "No devices provided"}), 400
 
-    # mapping_id comes from JSON, not a URL parameter — manual UUID cast needed
-    try:
-        parsed_mapping_id = uuid.UUID(mapping_id)
-    except (ValueError, TypeError):
-        return jsonify(
-            {"status": "error", "message": "Invalid mapping ID"}), 400
+	# mapping_id comes from JSON, not a URL parameter — manual UUID cast needed
+	try:
+		parsed_mapping_id = uuid.UUID(mapping_id)
+	except (ValueError, TypeError):
+		return jsonify(
+			{"status": "error", "message": "Invalid mapping ID"}), 400
 
-    with get_session() as db_session:
-        # Ownership check on mapping — done once before the loop
-        mapping = db_session.query(VariableMapping).filter_by(
-            id=parsed_mapping_id, user_id=current_user.id).first()
-        if not mapping:
-            return jsonify(
-                {"status": "error", "message": "Mapping not found"}), 404
+	with get_session() as db_session:
+		# Ownership check on mapping — done once before the loop
+		mapping = db_session.query(VariableMapping).filter_by(
+			id=parsed_mapping_id, user_id=current_user.id).first()
+		if not mapping:
+			return jsonify(
+				{"status": "error", "message": "Mapping not found"}), 404
 
-        # Snapshot already-assigned IDs before the loop to avoid re-querying
-        # the relationship on every iteration
-        assigned_ids = {d.id for d in mapping.devices}
+		# Snapshot already-assigned IDs before the loop to avoid re-querying
+		# the relationship on every iteration
+		assigned_ids = {d.id for d in mapping.devices}
 
-        for device_id_str in device_ids:
-            # Parse each device UUID — skip silently if malformed
-            try:
-                device = db_session.query(Inventory).filter_by(
-                    id=uuid.UUID(device_id_str),
-                    user_id=current_user.id).first()
-            except (ValueError, TypeError):
-                continue
-            # Skip if device not found or not owned by current_user
-            if not device:
-                continue
-            # Eligibility check — device must have the mapped attribute set
-            # and the value must be truthy (empty string/list would produce
-            # garbage substitution at rollout time)
-            if not (device.var_maps or {}).get(mapping.property_name):
-                continue
-            # Skip if already assigned to avoid duplicate join table rows
-            if device.id in assigned_ids:
-                continue
-            mapping.devices.append(device)
+		for device_id_str in device_ids:
+			# Parse each device UUID — skip silently if malformed
+			try:
+				device = db_session.query(Inventory).filter_by(
+					id=uuid.UUID(device_id_str),
+					user_id=current_user.id).first()
+			except (ValueError, TypeError):
+				continue
+			# Skip if device not found or not owned by current_user
+			if not device:
+				continue
+			# Eligibility check — device must have the mapped attribute set,
+			# and the value must be truthy (empty string/list would produce
+			# garbage substitution at rollout time)
+			if not (device.var_maps or {}).get(mapping.property_name):
+				continue
+			# Skip if already assigned to avoid duplicate join table rows
+			if device.id in assigned_ids:
+				continue
+			mapping.devices.append(device)
 
-    return jsonify({"status": "success"})
+	return jsonify({"status": "success"})
 
 
 if __name__ == "__main__":
-    serve(app, host="0.0.0.0", port=8080)
+	serve(app, host="0.0.0.0", port=8080)

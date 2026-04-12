@@ -25,6 +25,7 @@ ANSI_TO_HTML = {"RED": WEBAPP_RED, "GREEN": WEBAPP_GREEN, "YELLOW": WEBAPP_YELLO
 class RolloutLogger:
     def __init__(self, webapp: bool, verbose: bool, logfile: str = None):
         self._queue = queue.Queue()
+        self.buffer = []
         self._webapp = webapp
         self._verbose = verbose
         self.logfile = (logfile or datetime.datetime.now().
@@ -58,20 +59,24 @@ class RolloutLogger:
             return message
 
 
-    def notify(self, message: str, color: str = "") -> None:
+    def notify(self, message: str, color: str = "", important: bool = False) -> \
+            None:
         """A wrapper logging function.
         	 All messages are logged to the file.
         	Additionally, error messages, or messages generated in _verbose mode are printed to console
         	"""
         if self._webapp:
-            if self._verbose or color == "red":
-                self._queue.put(self._msg(message, color))
+            if important or self._verbose or color == "red":
+                content = self._msg(message, color)
+                self._queue.put(content)
+                self.buffer.append(content)
             self._log(message)
             return None
         else:
-            if self._verbose or color == "red":
+            if important or self._verbose or color == "red":
                 print(self._msg(message, color))
             self._log(message)
 
-    def get(self,timeout: int) -> str:
+    def get_queue(self, timeout: int) -> str:
         return self._queue.get(timeout=timeout)
+
