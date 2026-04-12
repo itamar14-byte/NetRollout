@@ -435,9 +435,7 @@
                             <input type="password" class="form-control" id="addPassword" name="password"
                                    placeholder="Password" required autocomplete="new-password"
                                    style="padding-right:2.5rem;">
-                            <button type="button" class="pw-toggle" onclick="togglePw('addPassword', this)">
-                                <i class="bi bi-eye"></i>
-                            </button>
+                            <button type="button" class="pw-toggle" onclick="togglePw('addPassword', this)">👁</button>
                         </div>
                         <div class="field-error">Password is required.</div>
                     </div>
@@ -448,9 +446,7 @@
                             <input type="password" class="form-control" id="addEnableSecret" name="enable_secret"
                                    placeholder="Leave blank if not required" autocomplete="new-password"
                                    style="padding-right:2.5rem;">
-                            <button type="button" class="pw-toggle" onclick="togglePw('addEnableSecret', this)">
-                                <i class="bi bi-eye"></i>
-                            </button>
+                            <button type="button" class="pw-toggle" onclick="togglePw('addEnableSecret', this)">👁</button>
                         </div>
                     </div>
 
@@ -503,9 +499,7 @@
                             <input type="password" class="form-control" id="editPassword" name="password"
                                    placeholder="Leave blank to keep current" autocomplete="new-password"
                                    style="padding-right:2.5rem;">
-                            <button type="button" class="pw-toggle" onclick="togglePw('editPassword', this)">
-                                <i class="bi bi-eye"></i>
-                            </button>
+                            <button type="button" class="pw-toggle" onclick="togglePw('editPassword', this)">👁</button>
                         </div>
                     </div>
 
@@ -515,9 +509,7 @@
                             <input type="password" class="form-control" id="editEnableSecret" name="enable_secret"
                                    placeholder="Leave blank to keep current" autocomplete="new-password"
                                    style="padding-right:2.5rem;">
-                            <button type="button" class="pw-toggle" onclick="togglePw('editEnableSecret', this)">
-                                <i class="bi bi-eye"></i>
-                            </button>
+                            <button type="button" class="pw-toggle" onclick="togglePw('editEnableSecret', this)">👁</button>
                         </div>
                     </div>
 
@@ -726,7 +718,8 @@ function togglePw(inputId, btn) {
     const input = document.getElementById(inputId);
     const isHidden = input.type === 'password';
     input.type = isHidden ? 'text' : 'password';
-    btn.querySelector('i').className = isHidden ? 'bi bi-eye-slash' : 'bi bi-eye';
+    btn.querySelector('i').className = '';
+    btn.textContent = isHidden ? '🙈' : '👁';
 }
 
 // ── Wire up card buttons ──

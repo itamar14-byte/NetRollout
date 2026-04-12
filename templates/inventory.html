@@ -140,6 +140,53 @@
 }
 .tt-val.cyan { color: #00bcd4; }
 
+/* ── Mapping tooltip chips ── */
+.mapping-chip {
+    background: #111;
+    border: 1px solid #222;
+    border-radius: 5px;
+    padding: 0.25rem 0.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+.mapping-chip-token {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.68rem;
+    color: #00bcd4;
+    white-space: nowrap;
+}
+.mapping-chip-prop {
+    font-family: 'Inter', sans-serif;
+    font-size: 0.63rem;
+    color: #555;
+    white-space: nowrap;
+}
+
+/* ── Mapping multi-select option ── */
+.mapping-opt {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.35rem 0.75rem;
+    cursor: pointer;
+    transition: background 0.12s;
+}
+.mapping-opt:hover { background: rgba(255,255,255,0.02); }
+.edit-mapping-cb:checked {
+    background: #00bcd4 !important;
+    border-color: #00bcd4 !important;
+}
+.edit-mapping-cb:checked::after {
+    content: '';
+    position: absolute;
+    left: 3px; top: 1px;
+    width: 4px; height: 7px;
+    border: 2px solid #000;
+    border-top: none; border-left: none;
+    transform: rotate(45deg);
+}
+
 /* ── Expand section (variable attributes) ── */
 .expand-toggle {
     display: flex;
@@ -232,17 +279,25 @@
     {% for device in devices %}
     {% set logo_url = VENDOR_LOGOS.get(device.device_type, '') %}
     {% set prof_label = (device.security_profile.label or device.security_profile.username) if device.security_profile else '' %}
+    {% set assigned_mappings = device.var_mappings | sort(attribute='token') %}
+    {% set ns = namespace(am_list=[]) %}
+    {% for m in assigned_mappings %}
+        {% set prop = m.property_name ~ ("[" ~ m.index ~ "]" if m.index is not none else "") %}
+        {% set ns.am_list = ns.am_list + [{"token": m.token, "property": prop, "id": m.id|string}] %}
+    {% endfor %}
     <div class="col-sm-6 col-xl-4">
         <div class="inv-card"
              data-device='{{ {
-                 "id":               device.id|string,
-                 "label":            device.label,
-                 "ip":               device.ip,
-                 "device_type":      device.device_type,
-                 "port":             device.port,
-                 "sec_profile_id":   device.sec_profile_id|string if device.sec_profile_id else "",
-                 "sec_profile_label": prof_label,
-                 "var_maps":         device.var_maps or {}
+                 "id":                    device.id|string,
+                 "label":                 device.label,
+                 "ip":                    device.ip,
+                 "device_type":           device.device_type,
+                 "port":                  device.port,
+                 "sec_profile_id":        device.sec_profile_id|string if device.sec_profile_id else "",
+                 "sec_profile_label":     prof_label,
+                 "var_maps":              device.var_maps or {},
+                 "assigned_mapping_ids":  ns.am_list | map(attribute='id') | list,
+                 "assigned_mappings":     ns.am_list
              }|tojson }}'>
 
             <!-- Vendor badge -->
@@ -292,6 +347,13 @@
     <div class="tt-row">
         <span class="tt-key">PROFILE</span>
         <span class="tt-val" id="ttProfile">—</span>
+    </div>
+    <div id="ttMappingsRow" style="display:none; margin-top:0.5rem; border-top:1px solid #141414; padding-top:0.45rem;">
+        <div style="font-family:'Inter',sans-serif; font-size:0.67rem; font-weight:500;
+                    color:#777; letter-spacing:0.8px; text-transform:uppercase; margin-bottom:0.35rem;">
+            Mappings
+        </div>
+        <div id="ttMappings" style="display:flex; flex-wrap:wrap; gap:0.4rem;"></div>
     </div>
 </div>
 
@@ -521,6 +583,45 @@
                             <input type="hidden" name="sec_profile_id" value="">
                         </div>
                     </div>
+
+                    <!-- Variable Mappings multi-select -->
+                    {% if mappings %}
+                    <div class="mb-3">
+                        <label class="nr-label">VARIABLE MAPPINGS
+                            <span style="color:#272727;">(optional)</span>
+                        </label>
+                        <div id="editMappingSelect"
+                             style="background:#111; border:1px solid #222; border-radius:8px; overflow:hidden;">
+                            <div style="padding:0.4rem 0.75rem; border-bottom:1px solid #1a1a1a;">
+                                <input type="text" id="editMappingSearch"
+                                       placeholder="Search mappings…"
+                                       style="background:transparent; border:none; outline:none;
+                                              color:#aaa; font-family:'Inter',sans-serif;
+                                              font-size:0.78rem; width:100%;">
+                            </div>
+                            <div id="editMappingList"
+                                 style="max-height:160px; overflow-y:auto; padding:0.3rem 0;">
+                                {% for m in mappings | sort(attribute='token') %}
+                                <label class="mapping-opt" data-token="{{ m.token }}">
+                                    <input type="checkbox" name="mapping_ids"
+                                           value="{{ m.id|string }}"
+                                           class="edit-mapping-cb"
+                                           style="appearance:none; -webkit-appearance:none;
+                                                  width:13px; height:13px; border:1px solid #333;
+                                                  border-radius:3px; background:#1a1a1a;
+                                                  flex-shrink:0; position:relative;
+                                                  cursor:pointer; margin:0;">
+                                    <span style="font-family:'JetBrains Mono',monospace;
+                                                 font-size:0.72rem; color:#00bcd4;">{{ m.token }}</span>
+                                    <span style="font-size:0.7rem; color:#555; margin-left:4px;">
+                                        → {{ m.property_name }}{% if m.index is not none %}[{{ m.index }}]{% endif %}
+                                    </span>
+                                </label>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
 
                     <!-- Variable attributes (expand) -->
                     <button type="button" class="expand-toggle" id="varAttrToggle">
@@ -921,13 +1022,28 @@ function showTooltip(card, device) {
     document.getElementById('ttPort').textContent    = device.port;
     document.getElementById('ttProfile').textContent = device.sec_profile_label || '—';
 
+    const assignedMappings = device.assigned_mappings || [];
+    const mappingsRow = document.getElementById('ttMappingsRow');
+    const ttMappings   = document.getElementById('ttMappings');
+    if (assignedMappings.length > 0) {
+        ttMappings.innerHTML = assignedMappings.map(m => `
+            <div class="mapping-chip">
+                <span class="mapping-chip-token">${m.token}</span>
+                <span class="mapping-chip-prop">→ ${m.property}</span>
+            </div>`).join('');
+        mappingsRow.style.display = '';
+    } else {
+        mappingsRow.style.display = 'none';
+    }
+
     const rect = card.getBoundingClientRect();
     tooltip.style.width = Math.max(rect.width, 210) + 'px';
     tooltip.style.left  = rect.left + 'px';
 
-    // Position below unless < 130px space
-    if (window.innerHeight - rect.bottom < 130) {
-        tooltip.style.top = (rect.top - 130) + 'px';
+    // Position below unless not enough space — use actual tooltip height
+    const ttHeight = tooltip.offsetHeight || 160;
+    if (window.innerHeight - rect.bottom < ttHeight + 10) {
+        tooltip.style.top = (rect.top - ttHeight - 5) + 'px';
     } else {
         tooltip.style.top = (rect.bottom + 5) + 'px';
     }
@@ -997,7 +1113,24 @@ function openEdit(device) {
         editSecSelect.setValue(device.sec_profile_id, device.sec_profile_label);
     }
 
+    // Populate mapping checkboxes
+    const assignedIds = new Set((device.assigned_mappings || []).map(m => m.id));
+    document.querySelectorAll('.edit-mapping-cb').forEach(cb => {
+        cb.checked = assignedIds.has(cb.value);
+    });
+
     new bootstrap.Modal(document.getElementById('editDeviceModal')).show();
+}
+
+// Mapping search filter
+const mappingSearch = document.getElementById('editMappingSearch');
+if (mappingSearch) {
+    mappingSearch.addEventListener('input', function() {
+        const q = this.value.toLowerCase();
+        document.querySelectorAll('.mapping-opt').forEach(opt => {
+            opt.style.display = opt.dataset.token.toLowerCase().includes(q) ? '' : 'none';
+        });
+    });
 }
 
 document.getElementById('varAttrToggle').addEventListener('click', () => {
@@ -1017,6 +1150,19 @@ function openDelete(device) {
 
 
 // ════════════════════════════════════════
+//  Edit modal — reset search on close
+// ════════════════════════════════════════
+document.getElementById('editDeviceModal').addEventListener('hidden.bs.modal', () => {
+    const search = document.getElementById('editMappingSearch');
+    if (search) {
+        search.value = '';
+        document.querySelectorAll('.mapping-opt').forEach(o => o.style.display = '');
+    }
+    const form = document.getElementById('editDeviceModal').querySelector('form');
+    form.querySelectorAll('.nr-submitted').forEach(el => el.classList.remove('nr-submitted'));
+    form.querySelectorAll('.field-error').forEach(el => el.style.display = '');
+});
+
 //  Add modal — reset on close
 // ════════════════════════════════════════
 document.getElementById('addDeviceModal').addEventListener('hidden.bs.modal', () => {

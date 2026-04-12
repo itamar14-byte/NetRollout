@@ -247,19 +247,6 @@
 {% block operator_content %}
 
 
-{# ── Flash messages ── #}
-{% set flash_messages = get_flashed_messages(with_categories=true) %}
-{% if flash_messages %}
-<div class="mb-3">
-    {% for cat, msg in flash_messages %}
-    <div class="alert alert-{{ 'danger' if cat == 'error' else cat }} alert-dismissible fade show" role="alert">
-        {{ msg }}
-        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-    </div>
-    {% endfor %}
-</div>
-{% endif %}
-
 <!-- ── Page header ── -->
 <div class="d-flex justify-content-between align-items-start mb-4">
     <div>

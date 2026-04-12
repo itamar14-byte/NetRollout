@@ -602,6 +602,8 @@ def admin_user_action(user_id, action):
 			user.is_active = False
 		elif action == "promote":
 			user.role = "admin"
+			user.is_approved = True
+			user.is_active = True
 		elif action == "demote":
 			user.role = "user"
 		elif action == "delete":
@@ -637,6 +639,8 @@ def admin_bulk_action(action):
 				user.is_active = False
 			elif action == "promote":
 				user.role = "admin"
+				user.is_approved = True
+				user.is_active = True
 			elif action == "demote":
 				user.role = "user"
 			elif action == "delete":
@@ -662,6 +666,7 @@ def dashboard():
 		user = db_session.get(User, current_user.id)
 		inventory_count = len(user.inventory)
 		profile_count = len(user.security_profiles)
+		mapping_count = len(user.variable_mappings)
 		jobs_results = user.results  # DeviceResult rows
 		db_session.expunge_all()
 
@@ -700,6 +705,7 @@ def dashboard():
 	                       recent_jobs=recent_jobs,
 	                       inventory_count=inventory_count,
 	                       profile_count=profile_count,
+	                       mapping_count=mapping_count,
 	                       total_rollouts=total_rollouts,
 	                       last_status=last_status)
 
@@ -711,11 +717,14 @@ def inventory():
 		user = db_session.get(User, current_user.id)
 		devices = user.inventory
 		profiles = user.security_profiles
+		mappings = user.variable_mappings
 		_ = [d.security_profile for d in devices]
+		_ = [d.var_mappings for d in devices]
 		db_session.expunge_all()
 	return render_template("inventory.html",
 	                       devices=devices,
 	                       profiles=profiles,
+	                       mappings=mappings,
 	                       active_section="inventory")
 
 
@@ -776,6 +785,17 @@ def inventory_edit(device_id):
 			else:
 				var_maps[key] = val
 		device.var_maps = var_maps or None
+
+		mapping_ids = request.form.getlist("mapping_ids")
+		if mapping_ids:
+			selected = db_session.query(VariableMapping).filter(
+				VariableMapping.id.in_([uuid.UUID(mid) for mid in mapping_ids]),
+				VariableMapping.user_id == current_user.id
+			).all()
+			device.var_mappings = selected
+		else:
+			device.var_mappings = []
+
 		label = device.label
 
 	flash(f"{label} updated.", "success")
@@ -918,7 +938,7 @@ def active_jobs():
 
 	new_job_id = request.args.get("new", "")
 	return render_template("active_jobs.html", jobs=jobs,
-	                       new_job_id=new_job_id, active_section="rollout")
+	                       new_job_id=new_job_id, active_section="active_jobs")
 
 
 @app.route("/rollout_stream/<uuid:job_id>")

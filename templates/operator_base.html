@@ -675,18 +675,25 @@
             <span class="sb-label">Security Profiles</span>
         </a>
 
-        <a href="{{ url_for('upload') }}"
+        <a href="{{ url_for('mappings') }}"
+           class="sb-link {% if active_section == 'mappings' %}active{% endif %}"
+           title="Variable Mappings">
+            <i class="bi bi-braces sb-icon"></i>
+            <span class="sb-label">Variable Mappings</span>
+        </a>
+
+        <a href="{{ url_for('new_rollout') }}"
            class="sb-link {% if active_section == 'rollout' %}active{% endif %}"
            title="Launch Rollout">
             <i class="bi bi-send sb-icon"></i>
             <span class="sb-label">Launch Rollout</span>
         </a>
 
-        <a href="{{ url_for('mappings') }}"
-           class="sb-link {% if active_section == 'mappings' %}active{% endif %}"
-           title="Variable Mappings">
-            <i class="bi bi-braces sb-icon"></i>
-            <span class="sb-label">Variable Mappings</span>
+        <a href="{{ url_for('active_jobs') }}"
+           class="sb-link {% if active_section == 'active_jobs' %}active{% endif %}"
+           title="Active Jobs">
+            <i class="bi bi-activity sb-icon"></i>
+            <span class="sb-label">Active Jobs</span>
         </a>
 
         <a href="{{ url_for('results') }}"
@@ -702,7 +709,7 @@
            class="sb-link {% if active_section == 'admin' %}active{% endif %}"
            title="Admin Panel">
             <i class="bi bi-gear sb-icon"></i>
-            <span class="sb-label">Admin</span>
+            <span class="sb-label">Admin Panel</span>
         </a>
         {% endif %}
 

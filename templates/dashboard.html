@@ -215,7 +215,7 @@
                             Ready to deploy
                         </div>
                     </div>
-                    <a href="{{ url_for('upload') }}" class="btn btn-outline-primary btn-sm"
+                    <a href="{{ url_for('new_rollout') }}" class="btn btn-outline-primary btn-sm"
                        style="font-size:0.78rem;">
                         <i class="bi bi-send me-1"></i>Launch Rollout
                     </a>
@@ -320,6 +320,10 @@
                     <span class="term bright">{{ profile_count }} profile{{ 's' if profile_count != 1 }}</span>
                 </div>
                 <div class="sys-row">
+                    <span class="nr-label" style="margin-bottom:0;">Variable Mappings</span>
+                    <span class="term bright">{{ mapping_count }} mapping{{ 's' if mapping_count != 1 }}</span>
+                </div>
+                <div class="sys-row">
                     <span class="nr-label" style="margin-bottom:0;">Total Rollouts</span>
                     <span class="term bright">{{ total_rollouts }}</span>
                 </div>
@@ -380,7 +384,7 @@
                        style="font-size:0.8rem; padding:0.45rem 0.8rem;">
                         <i class="bi bi-server me-2" style="color:#00bcd4;"></i>Manage Inventory
                     </a>
-                    <a href="{{ url_for('upload') }}" class="btn btn-outline-primary btn-sm text-start"
+                    <a href="{{ url_for('new_rollout') }}" class="btn btn-outline-primary btn-sm text-start"
                        style="font-size:0.8rem; padding:0.45rem 0.8rem;">
                         <i class="bi bi-send me-2"></i>Launch Rollout
                     </a>
