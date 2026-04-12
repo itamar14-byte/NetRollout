@@ -35,7 +35,8 @@ class Device:
     device_type: str
     secret: str = field(repr=False)
     port: int
-    var_map_subs: dict[str, tuple[str | list[str], str  | None]]
+    var_map_subs: dict[str, tuple[str | list[str], str  | None]]  = field(
+        default_factory=dict)
     extra: dict = field(default_factory=dict)
 
     def netmiko_connector(self) -> dict[str, str]:
@@ -250,8 +251,8 @@ class RolloutEngine:
         return result
 
     def run(self, cancel_flag: threading.Event, logger: RolloutLogger) -> list[DeviceResultDict]:
-        logger.notify("Starting configuration rollout")
-        # Runs parse_files to get data from the provided file paths
+        logger.notify("Starting configuration rollout", important=True)
+        # Runs parse_files to get_queue data from the provided file paths
         # If parsing was successful and the output of the function was not empty lists, we continue the process
         if self.devices and self._commands:
             # Runs the config push procedure
@@ -262,7 +263,8 @@ class RolloutEngine:
             verify_results = {}
             if self._verify_flag and cancel_signal != "cancel_sent":
                 logger.notify(
-                    "Configuration rollout finished. Initiating verification process"
+                    "Configuration rollout finished. Initiating verification process",
+                    important=True
                 )
                 verify_results = self._verify(logger)
                 failed, partial, successful = 0, 0, 0
@@ -280,22 +282,24 @@ class RolloutEngine:
 
                     logger.notify(
                         f"{node[0]} successfully configured with"
-                        f" {node[1]}/{len(self._commands)} _commands")
+                        f" {node[1]}/{len(self._commands)} _commands",
+                        important=True)
 
                 # Logs and prints (if _verbose), the rollout status per device and the summary
                 logger.notify(f"{failed} devices failed rollout", "red")
                 logger.notify(
                     f"{partial} devices with problems in configuration",
-                    "yellow")
+                    "yellow", important=True)
                 logger.notify(f"{successful} devices successfully configured",
-                              "green")
+                              "green", important=True)
 
             logger.notify(
                 f"Configuration rollout complete. "
                 f"{len(self.devices)} devices configured",
-                "green")
-            logger.notify(f"Please see Execution logs in {os.path.abspath
-            (logger.logfile)}")
+                "green", important=True)
+            logger.notify(
+                f"Please see Execution logs in {os.path.abspath(logger.logfile)}",
+                important=True)
 
             results = []
             for device in self.devices:

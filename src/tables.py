@@ -44,6 +44,8 @@ class User(UserMixin, Base):
         back_populates="user", cascade="all, delete-orphan")
     results: Mapped[list["DeviceResult"]] = relationship(
         back_populates="user", cascade="all, delete-orphan")
+    job_metadata: Mapped[list["JobMetadata"]] = relationship(back_populates="user",
+                                                             cascade="all, delete-orphan")
 
 
 class SecurityProfile(Base):
@@ -133,3 +135,19 @@ class DeviceResult(Base):
                                                nullable=False)
 
     user: Mapped["User"] = relationship(back_populates="results")
+
+class JobMetadata(Base):
+    __tablename__ = 'job_metadata'
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    job_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    commands: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    comment: Mapped[str] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime,
+                                                 default=datetime.now,
+                                                 nullable=False)
+
+    user_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id"),
+                                               nullable=False)
+
+    user: Mapped["User"] = relationship(back_populates="job_metadata")
+

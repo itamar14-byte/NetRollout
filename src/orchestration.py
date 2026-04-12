@@ -3,10 +3,11 @@ import threading
 import uuid
 from typing import Callable
 
+
 from core import RolloutEngine, RolloutOptions, Device, DeviceResultDict
 from db import get_session
 from logging_utils import RolloutLogger
-from tables import RolloutSession, DeviceResult
+from tables import RolloutSession, DeviceResult, JobMetadata
 
 
 class RolloutJob:
@@ -40,8 +41,11 @@ class RolloutJob:
 	def is_pending(self) -> bool:
 		return self._thread is None
 
-	def get_log(self) -> str:
-		return self._logger.get(1)
+	def get_log_queue(self) -> str:
+		return self._logger.get_queue(1)
+
+	def get_log_history(self):
+		return self._logger.buffer
 
 	def get_device_count(self) -> int:
 		return len(self._engine.devices)
@@ -53,8 +57,8 @@ class RolloutOrchestrator:
 		self._jobs: dict[uuid.UUID, RolloutJob] = {}
 		self._lock = threading.Lock()
 
-	def submit(self, devices: list[Device], commands: list[str],
-	           params: RolloutOptions, user_id: uuid.UUID) -> uuid.UUID:
+	def submit(self, devices: list[Device], commands: list[str], params:
+	RolloutOptions, user_id: uuid.UUID, comment: str | None = None) -> uuid.UUID:
 		engine = RolloutEngine(params, devices, commands)
 		job = RolloutJob(uuid.uuid4(), user_id, engine, params)
 
@@ -65,6 +69,11 @@ class RolloutOrchestrator:
 			                              user_id=user_id,
 			                              status="pending"
 			                              ))
+			db_session.add(JobMetadata(job_id = job.job_id,
+			                           user_id = user_id,
+			                           commands=commands,
+			                           comment=comment))
+
 		self._dispatch()
 
 		return job.job_id
@@ -110,6 +119,7 @@ class RolloutOrchestrator:
 					                            started_at=job.started_at,
 					                            completed_at=datetime.datetime.now(),
 					                            device_ip=result["device_ip"],
+					                            device_type=result["device_type"],
 					                            commands_sent=result["commands_sent"],
 					                            commands_verified=result[
 						                            "commands_verified"],

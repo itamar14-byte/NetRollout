@@ -1,5 +1,5 @@
 # Development Workplan
-_Last updated: 2026-04-11 — Phase 2 complete, all UI polish done_
+_Last updated: 2026-04-12 — Phase 3.2 complete, job_metadata + pg_cron live_
 
 ---
 
@@ -213,14 +213,29 @@ Constructor takes `Validator` + `RolloutLogger`. Methods: `csv_to_inventory`, `f
 - NOTE: TCP checks are sequential — Phase 3.6 concurrency will fix large-CSV blocking
 - Phase 3 TODO: proper activity logging with operation-prefixed filenames
 
-### 3.2 Rollout initiation from web UI
-Wire the upload/rollout page to pull from inventory + apply variable substitution.
+### 3.2 Rollout initiation from web UI ✅ COMPLETE (2026-04-12)
 
-- `upload.html` updated — device source toggle: CSV upload vs. inventory
-- When inventory mode: `InputParser.import_from_inventory(user.inventory)` used directly
-- Variable substitution applied at engine time: `$$TOKEN$$` replaced with `device.extra[property_name]` (or `[index]` for lists). Validator checks list length, fails per-device with named error if out of bounds
-- Commands still pasted/uploaded as text
-- SSE streaming and cancel unchanged
+- `new_rollout.html` — device selection table with checkboxes, vendor logos, platform tags, green/red profile dots, disabled rows for devices with no profile
+- Multi-platform detection: amber warning banner when multiple platforms selected; UI rebuilds one command block per platform with vendor logo in header
+- Per-platform command blocks: paste/file toggle, text preserved on rebuild
+- Verify `?` tooltip (best-effort text match warning), verbose toggle, optional rollout note (audit comment)
+- Single-platform submits natively; multi-platform JS packages `platform_commands` JSON hidden field
+- `new_start_rollout` route: multi-platform detection via `platform_commands` field, groupby per device_type, one `orchestrator.submit()` per group, redirects to `active_jobs?new=<job_id>`
+- `active_jobs.html` — stats bar (Running/Queued/Devices in flight/live clock), job table with pulsing status dot, elapsed timer, 3 action buttons per row
+- Log button: toggles inline SSE terminal, replays `RolloutLogger._buffer` (history) then tails live queue
+- Cancel button: POST to `cancel_rollout`, updates `RolloutSession.status` to "cancelling"
+- Rollback button: modal with compensatory commands textarea, verify/verbose toggles with `?` tooltip, device attributes warning note. On confirm, `fetch('/rollback/<job_id>')`, redirects to `active_jobs?new=<job_id>` with same glow animation
+- `job-new` CSS glow animation on new job row; auto-refresh strips `?new=` so glow fires once only
+- `RolloutLogger` dual-write: `_queue` for live SSE delivery, `_buffer` for full history replay
+- `important=True` flag on key engine messages (rollout start, verify start, per-device summary, completion)
+- `JobMetadata` table: soft `job_id` ref, JSON `commands` (pre-substitution), nullable `comment`, `user_id` FK — written in same DB session as `RolloutSession` on submit
+- pg_cron installed on PostgreSQL 17-bookworm container; `cron.database_name = 'rollout_db'` set via `ALTER SYSTEM`
+- Two cron jobs: `job_metadata_retention` (7 days) + `device_result_retention` (30 days), idempotent via DO block unschedule-then-schedule pattern
+- Old routes (`/start_rollout`, `/upload`, old `sse_stream`) retained but superseded — retirement deferred to Phase 4
+
+**Pending / loose threads:**
+- Rollback jobs have no audit comment in `job_metadata`
+- pg_cron installation is manual (apt-get exec) — not baked into Docker image yet (Phase 4)
 
 ### 3.3 Results page
 Fill in `results.html` stub — query `DeviceResult` rows for the current user.
@@ -267,6 +282,20 @@ Refactor `RolloutEngine._push_config()` and `_verify()` to push to devices concu
 ---
 
 ## Phase 4 — Packaging & Deployment
+
+### 4.0 Webapp modularisation — Flask Blueprints
+Split `webapp.py` into logical Blueprint modules once feature set is stable:
+- `auth.py` — login, register, OTP enroll/verify, logout
+- `inventory.py` — inventory CRUD, bulk assign, CSV import
+- `security.py` — security profile CRUD, test connection
+- `mappings.py` — variable mapping CRUD, bulk assign
+- `rollout.py` — new_rollout, new_start_rollout, active_jobs, rollout stream, cancel, rollback
+- `admin.py` — admin panel, user actions, bulk actions
+- `webapp.py` — thin entry point: app factory, blueprint registration, Waitress serve
+
+Shared state (`orchestrator`, `csrf`, `login_mng`, `VENDOR_LOGOS`) lives in a `extensions.py` module imported by all blueprints. All `url_for` calls need blueprint prefix (e.g. `url_for('rollout.active_jobs')`).
+
+
 
 ### 4.1 Docker image
 Build and publish image to Docker Hub as `itamar14/netrollout:latest` and `itamar14/netrollout:v1.0`.
