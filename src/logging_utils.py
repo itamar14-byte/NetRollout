@@ -1,6 +1,9 @@
 import datetime
 import html
+import os
 import queue
+
+LOGS_DIR = os.path.join(os.path.dirname(__file__), "..", "logs")
 
 
 RED = "\033[91m"
@@ -23,13 +26,19 @@ COLORS = {
 ANSI_TO_HTML = {"RED": WEBAPP_RED, "GREEN": WEBAPP_GREEN, "YELLOW": WEBAPP_YELLOW}
 
 class RolloutLogger:
-    def __init__(self, webapp: bool, verbose: bool, logfile: str = None):
+    def __init__(self, webapp: bool, verbose: bool,
+                 job_id: str = None, timestamp: str = None):
         self._queue = queue.Queue()
         self.buffer = []
         self._webapp = webapp
         self._verbose = verbose
-        self.logfile = (logfile or datetime.datetime.now().
-                        strftime("rollout_%Y%m%d_%H%M%S._log"))
+        if job_id and timestamp:
+            os.makedirs(LOGS_DIR, exist_ok=True)
+            self.logfile = os.path.join(LOGS_DIR,
+                                        f"rollout_{timestamp}_{job_id}.log")
+        else:
+            self.logfile = datetime.datetime.now().strftime(
+                "rollout_%Y%m%d_%H%M%S.log")
 
     def _log(self, message: str) -> None:
         """

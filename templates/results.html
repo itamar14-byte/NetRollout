@@ -69,7 +69,7 @@
 }
 .device-table tr:last-child td { border-bottom: none; }
 
-/* ── Command snippet ── */
+/* ── Command snippet (modal) ── */
 .cmd-snippet {
     background: #0d0d0d;
     border: 1px solid #222;
@@ -78,10 +78,32 @@
     font-family: 'JetBrains Mono', monospace;
     font-size: 0.78rem;
     color: #aaa;
-    max-height: 120px;
-    overflow-y: auto;
     white-space: pre-wrap;
-    margin-top: 10px;
+    margin: 0;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+/* ── Job action buttons ── */
+.job-action-btn {
+    background: transparent;
+    border: 1px solid #2a2a2a;
+    color: #777;
+    border-radius: 5px;
+    padding: 4px 10px;
+    font-size: 0.75rem;
+    font-family: 'Inter', sans-serif;
+    cursor: pointer;
+    transition: all 0.15s;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+.job-action-btn:hover {
+    border-color: #00bcd4;
+    color: #00bcd4;
+    background: rgba(0,188,212,0.06);
 }
 
 /* ── Filters ── */
@@ -135,6 +157,48 @@
     vertical-align: middle;
 }
 
+/* ── Diff mode ── */
+.diff-checkbox {
+    display: none;
+    accent-color: #00bcd4;
+    width: 14px;
+    height: 14px;
+    cursor: pointer;
+    vertical-align: middle;
+    margin-right: 6px;
+}
+#job-list.diff-mode .diff-checkbox { display: inline-block; }
+#job-list.diff-mode .job-row.dimmed { opacity: 0.2; pointer-events: none; }
+#job-list.diff-mode .job-row.diff-selected { border-color: #00bcd4; }
+#job-list.diff-mode .chevron { display: none; }
+
+/* ── Diff table ── */
+.diff-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.78rem;
+}
+.diff-table td { padding: 3px 8px; vertical-align: top; white-space: pre-wrap; word-break: break-all; }
+.diff-num {
+    width: 32px;
+    text-align: right;
+    color: #444;
+    user-select: none;
+    border-right: 1px solid #222;
+    padding-right: 6px !important;
+}
+.diff-cell { width: calc(50% - 32px); color: #ccc; }
+.diff-sep { width: 1px; background: #222; padding: 0 !important; }
+
+.diff-del   { background: rgba(239,83,80,0.1);  color: #ef9a9a; }
+.diff-ins   { background: rgba(76,175,80,0.1);  color: #a5d6a7; }
+.diff-chg   { background: rgba(255,193,7,0.08); color: #ffe082; }
+.diff-del-num { background: rgba(239,83,80,0.06);  color: #ef5350; }
+.diff-ins-num { background: rgba(76,175,80,0.06);  color: #66bb6a; }
+.diff-chg-num { background: rgba(255,193,7,0.05);  color: #ffc107; }
+.diff-sign { font-weight: 700; margin-right: 4px; }
+
 /* ── Empty state ── */
 .empty-state {
     text-align: center;
@@ -161,6 +225,14 @@
     <button class="filter-btn" data-filter="partial">Partial</button>
     <button class="filter-btn" data-filter="failed">Failed</button>
     <button class="filter-btn" data-filter="cancelled">Cancelled</button>
+    <div class="ms-auto d-flex gap-2 align-items-center">
+        <button id="diffModeBtn" class="filter-btn" onclick="toggleDiffMode()">
+            <i class="bi bi-file-diff me-1"></i>Compare
+        </button>
+        <button id="compareBtn" class="job-action-btn" style="display:none;" onclick="runDiff()">
+            <i class="bi bi-layout-split me-1"></i>Diff
+        </button>
+    </div>
 </div>
 
 <!-- Column headers -->
@@ -176,10 +248,18 @@
 <!-- Job rows -->
 <div id="job-list">
 {% for job in jobs %}
-<div class="job-row" data-status="{{ job.status }}" onclick="toggleJob(this)">
+<div class="job-row"
+     data-status="{{ job.status }}"
+     data-job-id="{{ job.job_id }}"
+     data-commands="{{ job.commands | tojson | e }}"
+     data-started-at="{{ job.started_at.isoformat() }}"
+     data-comment="{{ job.comment | e if job.comment else '' }}"
+     onclick="toggleJob(this)">
     <div class="job-summary">
         <!-- Job ID + comment -->
         <div>
+            <input type="checkbox" class="diff-checkbox"
+                   onclick="event.stopPropagation(); handleDiffSelect(this)">
             <span style="font-family:'JetBrains Mono',monospace; font-size:0.78rem; color:#777;">
                 {{ job.job_id[:8] }}…
             </span>
@@ -220,55 +300,54 @@
 
     <!-- Expanded detail -->
     <div class="job-detail" onclick="event.stopPropagation()">
-        <div class="row g-3">
-            <!-- Device table -->
-            <div class="col-12 col-xl-7">
-                <div style="color:#555; font-size:0.72rem; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:8px;">Devices</div>
-                <table class="device-table">
-                    <thead>
-                        <tr>
-                            <th>IP</th>
-                            <th>Platform</th>
-                            <th>Sent</th>
-                            <th>Verified</th>
-                            <th>Status</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for d in job.devices %}
-                        <tr>
-                            <td style="font-family:'JetBrains Mono',monospace; font-size:0.8rem;">{{ d.ip }}</td>
-                            <td>
-                                {% if VENDOR_LOGOS.get(d.device_type) %}
-                                <img src="{{ VENDOR_LOGOS[d.device_type] }}" width="14" height="14"
-                                     style="filter:brightness(0) invert(0.7); margin-right:5px; vertical-align:middle;">
-                                {% endif %}
-                                <span style="font-size:0.78rem; color:#888;">{{ d.device_type }}</span>
-                            </td>
-                            <td style="font-family:'JetBrains Mono',monospace;">{{ d.commands_sent }}</td>
-                            <td style="font-family:'JetBrains Mono',monospace;">
-                                {% if d.commands_verified is not none %}{{ d.commands_verified }}{% else %}<span style="color:#444;">—</span>{% endif %}
-                            </td>
-                            <td><span class="status-pill pill-{{ d.status }}">{{ d.status }}</span></td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-
-            <!-- Commands snippet -->
-            <div class="col-12 col-xl-5">
-                <div style="color:#555; font-size:0.72rem; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:8px;">
-                    Commands sent
-                    <span style="color:#444; font-weight:400; text-transform:none; font-size:0.68rem;">(pre-substitution)</span>
-                </div>
-                {% if job.commands %}
-                <div class="cmd-snippet">{{ job.commands | join('\n') }}</div>
-                {% else %}
-                <div style="color:#444; font-size:0.8rem; font-style:italic;">No command record available</div>
-                {% endif %}
-            </div>
+        <!-- Action buttons -->
+        <div class="d-flex gap-2 mb-3">
+            {% if job.commands %}
+            <button class="job-action-btn"
+                    onclick="showCommands({{ job.commands | tojson }})">
+                <i class="bi bi-terminal"></i> See Commands
+            </button>
+            {% endif %}
+            {% if job.has_log %}
+            <a class="job-action-btn"
+               href="{{ url_for('download_log', job_id=job.job_id) }}">
+                <i class="bi bi-download"></i> Download Log
+            </a>
+            {% endif %}
         </div>
+
+        <!-- Device table -->
+        <div style="color:#555; font-size:0.72rem; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:8px;">Devices</div>
+        <table class="device-table">
+            <thead>
+                <tr>
+                    <th>IP</th>
+                    <th>Platform</th>
+                    <th>Sent</th>
+                    <th>Verified</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for d in job.devices %}
+                <tr>
+                    <td style="font-family:'JetBrains Mono',monospace; font-size:0.8rem;">{{ d.ip }}</td>
+                    <td>
+                        {% if VENDOR_LOGOS.get(d.device_type) %}
+                        <img src="{{ VENDOR_LOGOS[d.device_type] }}" width="14" height="14"
+                             style="filter:brightness(0) invert(0.7); margin-right:5px; vertical-align:middle;">
+                        {% endif %}
+                        <span style="font-size:0.78rem; color:#888;">{{ d.device_type }}</span>
+                    </td>
+                    <td style="font-family:'JetBrains Mono',monospace;">{{ d.commands_sent }}</td>
+                    <td style="font-family:'JetBrains Mono',monospace;">
+                        {% if d.commands_verified is not none %}{{ d.commands_verified }}{% else %}<span style="color:#444;">—</span>{% endif %}
+                    </td>
+                    <td><span class="status-pill pill-{{ d.status }}">{{ d.status }}</span></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
     </div>
 </div>
 {% endfor %}
@@ -286,13 +365,78 @@
 
 {% endblock %}
 
+<!-- Diff modal -->
+<div class="modal fade" id="diffModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header" style="border-bottom:1px solid #222;">
+                <div class="d-flex gap-4 align-items-center flex-grow-1">
+                    <div>
+                        <div style="font-size:0.65rem; color:#555; text-transform:uppercase; letter-spacing:1px;">Older</div>
+                        <span id="diffLeftLabel" style="font-family:'JetBrains Mono',monospace; font-size:0.78rem; color:#ef9a9a;"></span>
+                    </div>
+                    <div style="color:#333;">→</div>
+                    <div>
+                        <div style="font-size:0.65rem; color:#555; text-transform:uppercase; letter-spacing:1px;">Newer</div>
+                        <span id="diffRightLabel" style="font-family:'JetBrains Mono',monospace; font-size:0.78rem; color:#a5d6a7;"></span>
+                    </div>
+                </div>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" style="padding:0; max-height:70vh; overflow-y:auto;">
+                <!-- Column headers -->
+                <table class="diff-table" style="border-bottom:1px solid #1e1e1e;">
+                    <tr style="background:#111;">
+                        <td class="diff-num"></td>
+                        <td class="diff-cell" style="color:#555; font-size:0.65rem; text-transform:uppercase; letter-spacing:1px; padding:6px 8px;">Left</td>
+                        <td class="diff-sep"></td>
+                        <td class="diff-num"></td>
+                        <td class="diff-cell" style="color:#555; font-size:0.65rem; text-transform:uppercase; letter-spacing:1px; padding:6px 8px;">Right</td>
+                    </tr>
+                </table>
+                <table class="diff-table">
+                    <tbody id="diffTbody"></tbody>
+                </table>
+                <div id="diffEmpty" style="display:none; text-align:center; padding:2rem; color:#555; font-size:0.85rem;">
+                    Commands are identical.
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Commands modal -->
+<div class="modal fade" id="commandsModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header" style="border-bottom:1px solid #222;">
+                <h6 class="modal-title"
+                    style="font-family:'JetBrains Mono',monospace; color:#00bcd4;">
+                    Commands <span style="color:#555; font-weight:400; font-size:0.8rem;">(pre-substitution)</span>
+                </h6>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <pre id="commandsModalBody" class="cmd-snippet"></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
 {% block extra_script %}
 <script>
+// ── Expand/collapse ──────────────────────────────────────────────────────────
 function toggleJob(row) {
+    if (diffMode) return;
     row.classList.toggle('expanded');
 }
 
-// Filter buttons
+function showCommands(commands) {
+    document.getElementById('commandsModalBody').textContent = commands.join('\n');
+    new bootstrap.Modal(document.getElementById('commandsModal')).show();
+}
+
+// ── Filter buttons ───────────────────────────────────────────────────────────
 document.querySelectorAll('.filter-btn').forEach(btn => {
     btn.addEventListener('click', function() {
         document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
@@ -303,5 +447,167 @@ document.querySelectorAll('.filter-btn').forEach(btn => {
         });
     });
 });
+
+// ── Diff mode ────────────────────────────────────────────────────────────────
+let diffMode = false;
+let selectedJobs = [];
+
+function toggleDiffMode() {
+    diffMode = !diffMode;
+    document.getElementById('job-list').classList.toggle('diff-mode', diffMode);
+    document.getElementById('diffModeBtn').classList.toggle('active', diffMode);
+    if (!diffMode) resetDiffSelection();
+}
+
+function resetDiffSelection() {
+    selectedJobs = [];
+    document.querySelectorAll('.diff-checkbox').forEach(cb => {
+        cb.checked = false;
+        cb.disabled = false;
+    });
+    document.querySelectorAll('.job-row').forEach(r =>
+        r.classList.remove('dimmed', 'diff-selected'));
+    document.getElementById('compareBtn').style.display = 'none';
+}
+
+function handleDiffSelect(checkbox) {
+    const row = checkbox.closest('.job-row');
+    const jobId = row.dataset.jobId;
+
+    if (checkbox.checked) {
+        if (selectedJobs.length >= 2) { checkbox.checked = false; return; }
+        selectedJobs.push({
+            jobId,
+            commands: JSON.parse(row.dataset.commands),
+            startedAt: row.dataset.startedAt,
+            label: jobId.slice(0, 8) + '… · ' +
+                   row.dataset.startedAt.slice(0, 16).replace('T', ' ') +
+                   (row.dataset.comment ? ' · ' + row.dataset.comment : '')
+        });
+        row.classList.add('diff-selected');
+    } else {
+        selectedJobs = selectedJobs.filter(j => j.jobId !== jobId);
+        row.classList.remove('diff-selected');
+    }
+
+    const allRows = document.querySelectorAll('.job-row');
+    if (selectedJobs.length === 2) {
+        allRows.forEach(r => {
+            if (!r.classList.contains('diff-selected')) {
+                r.classList.add('dimmed');
+                r.querySelector('.diff-checkbox').disabled = true;
+            }
+        });
+        document.getElementById('compareBtn').style.display = 'inline-flex';
+    } else {
+        allRows.forEach(r => {
+            r.classList.remove('dimmed');
+            r.querySelector('.diff-checkbox').disabled = false;
+        });
+        document.getElementById('compareBtn').style.display = 'none';
+    }
+}
+
+// ── LCS diff ─────────────────────────────────────────────────────────────────
+function computeLCS(a, b) {
+    const m = a.length, n = b.length;
+    const dp = Array.from({length: m + 1}, () => new Array(n + 1).fill(0));
+    for (let i = 1; i <= m; i++)
+        for (let j = 1; j <= n; j++)
+            dp[i][j] = a[i-1] === b[j-1]
+                ? dp[i-1][j-1] + 1
+                : Math.max(dp[i-1][j], dp[i][j-1]);
+
+    const ops = [];
+    let i = m, j = n;
+    while (i > 0 || j > 0) {
+        if (i > 0 && j > 0 && a[i-1] === b[j-1]) {
+            ops.unshift({type: 'equal', left: a[i-1], right: b[j-1]});
+            i--; j--;
+        } else if (j > 0 && (i === 0 || dp[i][j-1] >= dp[i-1][j])) {
+            ops.unshift({type: 'insert', left: null, right: b[j-1]});
+            j--;
+        } else {
+            ops.unshift({type: 'delete', left: a[i-1], right: null});
+            i--;
+        }
+    }
+    return ops;
+}
+
+function mergeDiff(ops) {
+    const out = [];
+    let i = 0;
+    while (i < ops.length) {
+        if (ops[i].type === 'delete' && i + 1 < ops.length && ops[i+1].type === 'insert') {
+            out.push({type: 'change', left: ops[i].left, right: ops[i+1].right});
+            i += 2;
+        } else {
+            out.push(ops[i++]);
+        }
+    }
+    return out;
+}
+
+function esc(s) {
+    return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ── Run & render diff ─────────────────────────────────────────────────────────
+function runDiff() {
+    if (selectedJobs.length !== 2) return;
+
+    const sorted = [...selectedJobs].sort((a, b) =>
+        a.startedAt.localeCompare(b.startedAt));
+    const left = sorted[0], right = sorted[1];
+
+    document.getElementById('diffLeftLabel').textContent  = left.label;
+    document.getElementById('diffRightLabel').textContent = right.label;
+
+    const ops = mergeDiff(computeLCS(left.commands, right.commands));
+    const tbody = document.getElementById('diffTbody');
+    const empty = document.getElementById('diffEmpty');
+    tbody.innerHTML = '';
+
+    const allEqual = ops.every(o => o.type === 'equal');
+    empty.style.display = allEqual ? 'block' : 'none';
+
+    let ln = 1, rn = 1;
+    ops.forEach(op => {
+        const tr = document.createElement('tr');
+        if (op.type === 'equal') {
+            tr.innerHTML =
+                `<td class="diff-num">${ln++}</td>` +
+                `<td class="diff-cell">${esc(op.left)}</td>` +
+                `<td class="diff-sep"></td>` +
+                `<td class="diff-num">${rn++}</td>` +
+                `<td class="diff-cell">${esc(op.right)}</td>`;
+        } else if (op.type === 'delete') {
+            tr.innerHTML =
+                `<td class="diff-num diff-del-num">${ln++}</td>` +
+                `<td class="diff-cell diff-del"><span class="diff-sign">−</span>${esc(op.left)}</td>` +
+                `<td class="diff-sep"></td>` +
+                `<td class="diff-num"></td>` +
+                `<td class="diff-cell diff-del" style="opacity:0.2;"></td>`;
+        } else if (op.type === 'insert') {
+            tr.innerHTML =
+                `<td class="diff-num"></td>` +
+                `<td class="diff-cell diff-ins" style="opacity:0.2;"></td>` +
+                `<td class="diff-sep"></td>` +
+                `<td class="diff-num diff-ins-num">${rn++}</td>` +
+                `<td class="diff-cell diff-ins"><span class="diff-sign">+</span>${esc(op.right)}</td>`;
+        } else {
+            tr.innerHTML =
+                `<td class="diff-num diff-chg-num">${ln++}</td>` +
+                `<td class="diff-cell diff-chg"><span class="diff-sign">~</span>${esc(op.left)}</td>` +
+                `<td class="diff-sep"></td>` +
+                `<td class="diff-num diff-chg-num">${rn++}</td>` +
+                `<td class="diff-cell diff-chg"><span class="diff-sign">~</span>${esc(op.right)}</td>`;
+        }
+        tbody.appendChild(tr);
+    });
+
+    new bootstrap.Modal(document.getElementById('diffModal')).show();
+}
 </script>
 {% endblock %}

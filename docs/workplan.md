@@ -1,5 +1,5 @@
 # Development Workplan
-_Last updated: 2026-04-12 — Phase 3.2 complete, job_metadata + pg_cron live_
+_Last updated: 2026-04-13 — Phase 3.3 complete, UI polish session done_
 
 ---
 
@@ -237,13 +237,27 @@ Constructor takes `Validator` + `RolloutLogger`. Methods: `csv_to_inventory`, `f
 - Rollback jobs have no audit comment in `job_metadata`
 - pg_cron installation is manual (apt-get exec) — not baked into Docker image yet (Phase 4)
 
-### 3.3 Results page
-Fill in `results.html` stub — query `DeviceResult` rows for the current user.
+### 3.3 Results page ✅ COMPLETE (2026-04-13)
+- Job history grouped by `job_id`, sorted by `completed_at` desc
+- Filter bar: All / Success / Partial / Failed / Cancelled
+- Expandable rows: device sub-table (IP, platform logo, sent/verified, status pill) + command snippet panel (pre-substitution, from `job_metadata`)
+- Duration calculated from `started_at` / `completed_at`, comment shown as cyan italic tag
+- Empty state for users with no completed jobs
 
-- Job history table: job ID, timestamp, device count, success/fail counts, platform
-- Expandable per-job detail: one row per `DeviceResult` with status, commands pushed/verified
-- Color-coded status badges
-- Filterable by status and platform
+### 3.3b UI polish ✅ COMPLETE (2026-04-13)
+- Dark custom checkboxes (`appearance:none`, cyan fill on check) + indeterminate state
+- Verify/verbose options replaced with sliding toggle switches
+- `🙈` monkey easter egg replaces `bi-eye-slash` on password reveal toggle (security.html, register.html, index.html)
+- Disabled device rows in rollout: styled tooltip on hover + footer warning with link to Inventory
+- Select-all excludes disabled (no-profile) devices
+- Paste/file toggle bug fixed (stale `.remove()` call was deleting DOM elements)
+- Sidebar: Variable Mappings moved above Launch Rollout; Admin → Admin Panel; Active Jobs tab added
+- All Launch Rollout links updated to `new_rollout` route
+- Promote pending user implicitly approves + activates
+- Variable mapping chips in inventory tooltip (token/property stacked, cyan + muted)
+- Mapping multi-select in device edit modal (searchable checkboxes, pre-populated, updates many-to-many)
+- Dashboard system summary includes variable mapping count
+- Double flash fixed in `variable_mappings.html`
 
 ### 3.4 Analytics & Audit logging
 Extend dashboard and results into a full analytics view, and replace the
@@ -264,11 +278,13 @@ current ad-hoc logfile behavior with a structured activity logging system.
 - Logfiles accessible from the results/audit page for download or inline view
 
 ### 3.5 Test suite
+- **Approach**: spin up EVE-NG with real virtual devices (Cisco IOS, Juniper, etc.), push actual configurations end-to-end, observe failures and edge cases, then use findings to drive test cases
 - Re-enable `_DISABLED` test classes (already updated to new API)
 - New tests: `RolloutEngine` with variable substitution (token replacement, list index, out-of-bounds)
 - DB-integrated path: inventory → `import_from_inventory` → orchestrator → `DeviceResult` written
 - Route tests for inventory CRUD + security profile CRUD + bulk_assign (Flask test client)
 - Auth route tests: login, register, OTP flow
+- EVE-NG findings will also drive improvements to logs/results screens
 
 ### 3.6 Per-job device concurrency
 Refactor `RolloutEngine._push_config()` and `_verify()` to push to devices concurrently.

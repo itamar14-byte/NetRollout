@@ -1,4 +1,5 @@
 import base64
+import glob
 import json
 import os
 import secrets
@@ -13,7 +14,7 @@ from time import sleep
 import pyotp
 import qrcode
 from flask import (redirect, Response, request, render_template, url_for, \
-                   Flask, flash, session, jsonify)
+                   Flask, flash, session, jsonify, send_file)
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from flask_login import (LoginManager, login_required,
@@ -31,10 +32,10 @@ import input_parser
 from core import RolloutOptions, Device
 from db import get_session
 from input_parser import InputParser
-from logging_utils import RolloutLogger
+from logging_utils import RolloutLogger, LOGS_DIR
 from orchestration import RolloutOrchestrator
 from tables import User, DeviceResult, SecurityProfile, Inventory, \
-	VariableMapping, RolloutSession
+	VariableMapping, RolloutSession, AuditLog, JobMetadata
 from validation import Validator
 
 app = Flask(__name__, template_folder='../templates')
@@ -82,6 +83,27 @@ def load_user(user_id):
 		return user
 
 
+def audit(action, *, object_type=None, object_id=None, object_label=None,
+          detail=None, success=True, username=None, actor_id=None):
+	"""Write one append-only audit row. Opens its own session so the write
+	commits independently of the calling route's transaction."""
+	if username is None:
+		username = current_user.username if current_user.is_authenticated else "anonymous"
+	if actor_id is None:
+		actor_id = current_user.id if current_user.is_authenticated else None
+	with get_session() as db_session:
+		db_session.add(AuditLog(
+			actor_id=actor_id,
+			actor_username=username,
+			action=action,
+			object_type=object_type,
+			object_id=object_id,
+			object_label=object_label,
+			success=success,
+			ip_address=request.remote_addr,
+		))
+
+
 @app.route("/")
 def home():
 	return render_template("index.html")
@@ -102,29 +124,43 @@ def login():
 					if user.username == "admin":
 						db_session.expunge(user)
 						login_user(user)
+						audit("auth.login", success=True,
+						      username=user.username, actor_id=user.id)
 						return redirect(url_for("dashboard"))
 					# checks otp enrollment
 					elif user.otp_secret:
 						session["pre_auth_user_id"] = str(user.id)
+						audit("auth.login", success=True,
+						      username=user.username, actor_id=user.id)
 						return redirect(url_for("otp_verify"))
 					else:
 						flash("To complete enrollment,"
 						      " you are referred to OPT set up portal"
 						      , "info")
 						session["pre_auth_user_id"] = str(user.id)
+						audit("auth.login", success=True,
+						      username=user.username, actor_id=user.id)
 						return redirect(url_for("otp_enroll"))
 				else:
 					flash("User disabled, please check with administrator",
 					      "danger")
+					audit("auth.login", success=False,
+					      username=user.username, actor_id=user.id,
+					      detail={"reason": "account_disabled"})
 					session.pop("pre_auth_user_id", None)
 					return redirect(url_for("home"))
 			else:
 				flash("User still pending admin approval",
 				      "danger")
+				audit("auth.login", success=False,
+				      username=user.username, actor_id=user.id,
+				      detail={"reason": "pending_approval"})
 				session.pop("pre_auth_user_id", None)
 				return redirect(url_for("home"))
 		else:
 			flash("invalid credentials", "danger")
+			audit("auth.login", success=False, username=username,
+			      detail={"reason": "invalid_credentials"})
 			session.pop("pre_auth_user_id", None)
 			return redirect(url_for("home"))
 
@@ -153,11 +189,15 @@ def register():
 		try:
 			db_session.add(new_user)
 			db_session.flush()
+			audit("auth.register", success=True, username=username,
+			      object_type="User", object_label=username)
 			flash("Registration successful -"
 			      " your account is pending admin "
 			      "approval.", "success")
 			return redirect(url_for("home"))
 		except IntegrityError:
+			audit("auth.register", success=False, username=username,
+			      detail={"reason": "duplicate_username_or_email"})
 			flash("email or username already exists", "danger")
 			return redirect(url_for("register_form"))
 
@@ -240,6 +280,7 @@ def otp_verify():
 
 @app.route("/logout")
 def logout():
+	audit("auth.logout")
 	logout_user()
 	return redirect(url_for("home"))
 
@@ -284,55 +325,6 @@ def account():
 	                       most_common_platform=most_common_platform,
 	                       total_commands=total_commands)
 
-
-@app.route("/upload")
-@login_required
-def upload():
-	return render_template("upload.html")
-
-
-@app.route("/start_rollout", methods=["POST"])
-@login_required
-def start_rollout():
-	# File upload
-	commands_file = request.files.get("commands_file")
-	# Manual Entry
-	manual_commands = request.form.get("manual_commands", "").strip()
-
-	if commands_file:
-		commands = [line.decode("utf-8").strip() for line in
-		            commands_file.readlines()]
-	else:
-		commands = [line.strip() for line in manual_commands.splitlines() if
-		            line.strip()]
-
-	# Options
-	verbose_flag = request.form.get("_verbose", "")
-	verify_flag = request.form.get("_verify", "")
-	options = RolloutOptions(verify=bool(verify_flag),
-	                         verbose=bool(verbose_flag),
-	                         webapp=True)
-
-	# Load inventory from db
-	with get_session() as db_session:
-		user = db_session.get(User, current_user.id)
-		device_inventory = user.inventory
-		db_session.expunge_all()
-
-	# Parse and Submit
-	devices = input_parser.InputParser.import_from_inventory(device_inventory)
-	job_id = orchestrator.submit(devices, commands, options, current_user.id)
-	session["job_id"] = str(job_id)
-
-	return redirect(url_for("rollout"))
-
-
-@app.route("/rollout")
-@login_required
-def rollout():
-	return render_template("rollout.html")
-
-
 @app.route("/cancel_rollout", methods=["POST"])
 @login_required
 def cancel_rollout():
@@ -349,44 +341,8 @@ def cancel_rollout():
 	if job.user_id != current_user.id:
 		return {"status": "job_not_found_under_user"}
 	orchestrator.cancel(job_id)
+	audit("rollout.cancel", object_id=job_id)
 	return {"status": "cancelled"}
-
-
-@app.route("/rollout_status")
-@login_required
-def get_rollout_status():
-	job_id = session.get("job_id", None)
-	if job_id:
-		job = orchestrator.get(uuid.UUID(job_id))
-		if job and job.is_alive():
-			return {"status": "active"}
-		return {"status": "idle"}
-	return {"status": "idle"}
-
-
-@app.route("/rollout_stream")
-@login_required
-def sse_stream():
-	def generate():
-		job_id = session.get("job_id", None)
-		if not job_id:
-			return
-		job = orchestrator.get(uuid.UUID(job_id))
-		if not job:
-			return
-		while job.is_alive():
-			try:
-				msg = job.get_log()
-				yield f"data: {msg}\n\n"
-			except Empty:
-				yield "data: \n\n"
-				sleep(0.5)
-
-	return Response(
-		generate(),
-		mimetype="text/event-stream",
-		headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-	)
 
 
 @app.route("/new_rollout")
@@ -551,6 +507,8 @@ def new_start_rollout():
 		                             current_user.id,audit_comment)
 
 	# 11) Notify the user and redirect to active jobs.
+	audit("rollout.start", object_id=job_id,
+	      detail={"device_count": len(devices), "comment": audit_comment})
 	flash(
 		f"Rollout started for {len(devices)} "
 		f"device{'s' if len(devices) != 1 else ''}.",
@@ -593,6 +551,8 @@ def admin_user_action(user_id, action):
 		if not user or user.username == "admin":
 			return redirect(url_for("admin_users"))
 
+		target_username = user.username
+		target_id = user.id
 		if action == "approve":
 			user.is_approved = True
 			user.is_active = True
@@ -609,6 +569,8 @@ def admin_user_action(user_id, action):
 		elif action == "delete":
 			db_session.delete(user)
 
+	audit(f"user.{action}", object_type="User",
+	      object_id=target_id, object_label=target_username)
 	return redirect(url_for("admin_users"))
 
 
@@ -623,6 +585,7 @@ def admin_bulk_action(action):
 		            uid.strip()]
 	except ValueError:
 		return redirect(url_for("admin_users"))
+	affected = 0
 	with get_session() as db_session:
 		for uid in user_ids:
 			user = db_session.get(User, uid)
@@ -645,7 +608,44 @@ def admin_bulk_action(action):
 				user.role = "user"
 			elif action == "delete":
 				db_session.delete(user)
+			affected += 1
+	audit(f"user.bulk_{action}", detail={"count": affected})
 	return redirect(url_for("admin_users"))
+
+
+@app.route("/admin/audit")
+@login_required
+def admin_audit():
+	if current_user.role != "admin":
+		return redirect(url_for("dashboard"))
+
+	filter_actor = request.args.get("actor", "").strip()
+	filter_action = request.args.get("action", "").strip()
+	filter_success = request.args.get("success", "")
+
+	with get_session() as db_session:
+		q = db_session.query(AuditLog).order_by(AuditLog.timestamp.desc())
+		if filter_actor:
+			q = q.filter(AuditLog.actor_username.ilike(f"%{filter_actor}%"))
+		if filter_action:
+			q = q.filter(AuditLog.action == filter_action)
+		if filter_success == "true":
+			q = q.filter(AuditLog.success == True)
+		elif filter_success == "false":
+			q = q.filter(AuditLog.success == False)
+		entries = q.limit(500).all()
+		distinct_actions = [r[0] for r in
+		                    db_session.query(AuditLog.action).distinct()
+		                    .order_by(AuditLog.action).all()]
+		db_session.expunge_all()
+
+	return render_template("admin_audit.html",
+	                       entries=entries,
+	                       distinct_actions=distinct_actions,
+	                       filter_actor=filter_actor,
+	                       filter_action=filter_action,
+	                       filter_success=filter_success,
+	                       active_section="audit")
 
 
 def job_status(rows: list[DeviceResult]) -> str:
@@ -748,6 +748,7 @@ def inventory_create():
 		)
 		db_session.add(row)
 
+	audit("inventory.create", object_type="Inventory", object_label=label)
 	flash(f"{label} added to inventory.", "success")
 	return redirect(url_for("inventory"))
 
@@ -798,6 +799,8 @@ def inventory_edit(device_id):
 
 		label = device.label
 
+	audit("inventory.edit", object_type="Inventory",
+	      object_id=device_id, object_label=label)
 	flash(f"{label} updated.", "success")
 	return redirect(url_for("inventory"))
 
@@ -814,6 +817,8 @@ def inventory_delete(device_id):
 		label = device.label
 		db_session.delete(device)
 
+	audit("inventory.delete", object_type="Inventory",
+	      object_id=device_id, object_label=label)
 	flash(f"{label} removed from inventory.", "success")
 	return redirect(url_for("inventory"))
 
@@ -868,6 +873,7 @@ def inventory_import_csv():
 			for msg in errors:
 				flash(msg, "danger")
 		if devices:
+			audit("inventory.import_csv", detail={"count": len(devices)})
 			flash(
 				f"{len(devices)} device{'s' if len(devices) != 1 else ''} imported successfully.",
 				"success")
@@ -912,6 +918,8 @@ def inventory_bulk_assign():
 			if device:
 				device.sec_profile_id = parsed_profile_id
 
+	audit("inventory.bulk_assign", detail={
+		"count": len(device_ids), "profile_id": str(profile_id) if profile_id else None})
 	return jsonify({"status": "success"})
 
 
@@ -1004,8 +1012,10 @@ def rollback(job_id):
 		verbose=bool(data.get("verbose", False)),
 		webapp=True
 	)
-	job_id = orchestrator.submit(devices,commands,options,current_user.id)
-	return jsonify({"status": "ok","job_id": str(job_id)})
+	new_job_id = orchestrator.submit(devices, commands, options, current_user.id)
+	audit("rollout.rollback", object_id=job_id,
+	      detail={"new_job_id": str(new_job_id), "device_count": len(devices)})
+	return jsonify({"status": "ok", "job_id": str(new_job_id)})
 
 
 
@@ -1033,8 +1043,10 @@ def results():
 	for job_id, rows in groupby(sorted_results, key=lambda x: x.job_id):
 		rows = list(rows)
 		meta = metadata_by_job.get(job_id)
+		log_matches = glob.glob(os.path.join(LOGS_DIR, f"rollout_*_{job_id}.log"))
 		jobs.append({
 			"job_id": str(job_id),
+			"has_log": bool(log_matches),
 			"started_at": min(r.started_at for r in rows),
 			"completed_at": max(r.completed_at for r in rows),
 			"device_count": len(rows),
@@ -1059,6 +1071,21 @@ def results():
 	return render_template("results.html",
 	                       active_section="results",
 	                       jobs=jobs)
+
+
+@app.route("/results/download_log/<uuid:job_id>")
+@login_required
+def download_log(job_id):
+	with get_session() as db_session:
+		owned = db_session.query(DeviceResult).filter_by(
+			job_id=job_id, user_id=current_user.id).first()
+	if not owned:
+		return Response("Not found", status=404)
+	matches = glob.glob(os.path.join(LOGS_DIR, f"rollout_*_{job_id}.log"))
+	if not matches:
+		return Response("Log file not found", status=404)
+	return send_file(matches[0], as_attachment=True,
+	                 download_name=os.path.basename(matches[0]))
 
 
 @app.route("/security")
@@ -1094,6 +1121,8 @@ def security_create():
 
 	with get_session() as db_session:
 		db_session.add(profile)
+	audit("security_profile.create", object_type="SecurityProfile",
+	      object_label=label or username)
 	flash("Security profile created.", "success")
 	return redirect(url_for("security"))
 
@@ -1120,6 +1149,8 @@ def security_edit(profile_id):
 		elif request.form.get("clear_enable_secret"):
 			profile.enable_secret = None
 
+	audit("security_profile.edit", object_type="SecurityProfile",
+	      object_id=profile_id)
 	flash("Security profile updated.", "success")
 	return redirect(url_for("security"))
 
@@ -1138,8 +1169,11 @@ def security_delete(profile_id):
 			      f"{len(profile.inventory)} device(s) assigned. "
 			      f"Delete or reassign them first.", "danger")
 			return redirect(url_for("security"))
+		label_or_user = profile.label or profile.username
 		db_session.delete(profile)
 		flash("Profile deleted.", "success")
+	audit("security_profile.delete", object_type="SecurityProfile",
+	      object_id=profile_id, object_label=label_or_user)
 	return redirect(url_for("security"))
 
 
@@ -1241,8 +1275,12 @@ def mappings_create():
 	try:
 		with get_session() as db_session:
 			db_session.add(row)
+		audit("mapping.create", object_type="VariableMapping",
+		      object_label=token)
 		flash("Mapping created.", "success")
 	except IntegrityError:
+		audit("mapping.create", success=False,
+		      detail={"reason": "duplicate_token", "token": token})
 		flash("A mapping with that token already exists.", "danger")
 
 	return redirect(url_for("mappings"))
@@ -1289,8 +1327,12 @@ def mappings_edit(mapping_id):
 			mapping.property_name = property_name
 			mapping.index = index
 
+		audit("mapping.edit", object_type="VariableMapping",
+		      object_id=mapping_id, object_label=token)
 		flash("Mapping updated.", "success")
 	except IntegrityError:
+		audit("mapping.edit", success=False,
+		      detail={"reason": "duplicate_token", "token": token})
 		flash("A mapping with that token already exists.", "danger")
 
 	return redirect(url_for("mappings"))
@@ -1305,8 +1347,11 @@ def mappings_delete(mapping_id):
 		if not mapping:
 			return redirect(url_for("mappings"))
 
+		token_label = mapping.token
 		db_session.delete(mapping)
 		flash("Mapping deleted.", "success")
+	audit("mapping.delete", object_type="VariableMapping",
+	      object_id=mapping_id, object_label=token_label)
 	return redirect(url_for("mappings"))
 
 
@@ -1374,6 +1419,8 @@ def mappings_bulk_assign():
 				continue
 			mapping.devices.append(device)
 
+	audit("mapping.bulk_assign", object_type="VariableMapping",
+	      object_id=parsed_mapping_id, detail={"count": len(device_ids)})
 	return jsonify({"status": "success"})
 
 

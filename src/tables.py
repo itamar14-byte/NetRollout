@@ -151,3 +151,21 @@ class JobMetadata(Base):
 
     user: Mapped["User"] = relationship(back_populates="job_metadata")
 
+
+class AuditLog(Base):
+    __tablename__ = 'audit_log'
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    timestamp: Mapped[datetime] = mapped_column(DateTime, default=datetime.now,
+                                                nullable=False, index=True)
+    # Denormalized — survives user deletion (actor_id goes NULL, username stays)
+    actor_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    actor_username: Mapped[str] = mapped_column(String(64), nullable=False)
+    # Dot-namespaced: "inventory.create", "auth.login", "rollout.start", etc.
+    action: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    object_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    object_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    object_label: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    success: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    ip_address: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
