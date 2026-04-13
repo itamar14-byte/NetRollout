@@ -261,10 +261,11 @@ class TestMsg(unittest.TestCase):
 class TestLog(unittest.TestCase):
 
     def test_writes_message_to_file(self):
-        with tempfile.NamedTemporaryFile(mode="r", suffix="._log", delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="r", suffix=".log", delete=False) as f:
             path = f.name
         try:
-            logger = RolloutLogger(webapp=False, verbose=False, logfile=path)
+            logger = RolloutLogger(webapp=False, verbose=False)
+            logger.logfile = path
             logger._log("test message")
             with open(path) as f:
                 content = f.read()
@@ -273,11 +274,12 @@ class TestLog(unittest.TestCase):
             os.unlink(path)
 
     def test_includes_timestamp(self):
-        with tempfile.NamedTemporaryFile(mode="r", suffix="._log", delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="r", suffix=".log", delete=False) as f:
             path = f.name
         try:
             import re
-            logger = RolloutLogger(webapp=False, verbose=False, logfile=path)
+            logger = RolloutLogger(webapp=False, verbose=False)
+            logger.logfile = path
             logger._log("timestamped")
             with open(path) as f:
                 content = f.read()
@@ -286,10 +288,11 @@ class TestLog(unittest.TestCase):
             os.unlink(path)
 
     def test_appends_multiple_entries(self):
-        with tempfile.NamedTemporaryFile(mode="r", suffix="._log", delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="r", suffix=".log", delete=False) as f:
             path = f.name
         try:
-            logger = RolloutLogger(webapp=False, verbose=False, logfile=path)
+            logger = RolloutLogger(webapp=False, verbose=False)
+            logger.logfile = path
             logger._log("first")
             logger._log("second")
             with open(path) as f:
@@ -302,7 +305,7 @@ class TestLog(unittest.TestCase):
 class TestBaseNotify(unittest.TestCase):
 
     def setUp(self):
-        f = tempfile.NamedTemporaryFile(mode="r", suffix="._log", delete=False)
+        f = tempfile.NamedTemporaryFile(mode="r", suffix=".log", delete=False)
         self.logfile = f.name
         f.close()
 
@@ -310,29 +313,34 @@ class TestBaseNotify(unittest.TestCase):
         os.unlink(self.logfile)
 
     def test_verbose_terminal_prints(self):
-        logger = RolloutLogger(webapp=False, verbose=True, logfile=self.logfile)
+        logger = RolloutLogger(webapp=False, verbose=True)
+        logger.logfile = self.logfile
         with patch("builtins.print") as mock_print:
             logger.notify("hello", "green")
             mock_print.assert_called_once()
 
     def test_non_verbose_terminal_does_not_print(self):
-        logger = RolloutLogger(webapp=False, verbose=False, logfile=self.logfile)
+        logger = RolloutLogger(webapp=False, verbose=False)
+        logger.logfile = self.logfile
         with patch("builtins.print") as mock_print:
             logger.notify("hello", "green")
             mock_print.assert_not_called()
 
     def test_verbose_webapp_enqueues(self):
-        logger = RolloutLogger(webapp=True, verbose=True, logfile=self.logfile)
+        logger = RolloutLogger(webapp=True, verbose=True)
+        logger.logfile = self.logfile
         logger.notify("hello", "green")
         self.assertFalse(logger._queue.empty())
 
     def test_non_verbose_webapp_does_not_enqueue(self):
-        logger = RolloutLogger(webapp=True, verbose=False, logfile=self.logfile)
+        logger = RolloutLogger(webapp=True, verbose=False)
+        logger.logfile = self.logfile
         logger.notify("hello", "green")
         self.assertTrue(logger._queue.empty())
 
     def test_always_logs_to_file(self):
-        logger = RolloutLogger(webapp=False, verbose=False, logfile=self.logfile)
+        logger = RolloutLogger(webapp=False, verbose=False)
+        logger.logfile = self.logfile
         logger.notify("logged")
         with open(self.logfile) as f:
             content = f.read()
@@ -359,15 +367,7 @@ class TestDeviceNetmikoConnector(unittest.TestCase):
         self.assertEqual(params["port"], 2222)
 
 
-# class TestDeviceFetchConfig(unittest.TestCase):
-#     TODO Step 2.6: rewrite when fetch_config receives injected RolloutLogger
-#
-#     def test_returns_config_string_on_success(self): ...
-#     def test_returns_none_for_unsupported_platform(self): ...
-#     def test_returns_none_on_connection_exception(self): ...
-
-# (old body removed — Step 2.6 will rewrite)
-class _TestDeviceFetchConfig_DISABLED(unittest.TestCase):
+class TestDeviceFetchConfig(unittest.TestCase):
 
     def setUp(self):
         self.logger = RolloutLogger(webapp=False, verbose=False)
@@ -402,7 +402,6 @@ class _TestDeviceFetchConfig_DISABLED(unittest.TestCase):
 
 # ---------------------------------------------------------------------------
 # core.py — prepare_devices
-# TODO Phase 3: rewrite for InputParser.prepare_devices API
 # ---------------------------------------------------------------------------
 
 class TestPrepareDevices(unittest.TestCase):
@@ -455,7 +454,6 @@ class TestPrepareDevices(unittest.TestCase):
 
 # ---------------------------------------------------------------------------
 # core.py — parse_files
-# TODO Phase 3: rewrite for InputParser.csv_to_inventory / parse_commands API
 # ---------------------------------------------------------------------------
 
 class TestParseFiles(unittest.TestCase):
@@ -534,26 +532,13 @@ class TestParseFiles(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# core.py — RolloutEngine
-# TODO Step 2.5: rewrite when RolloutEngine receives injected RolloutLogger
+# core.py — RolloutEngine._push_config
 # ---------------------------------------------------------------------------
 
-# class TestRolloutEngineNotify(unittest.TestCase):
-#     TODO Step 2.5: rewrite — notify() replaced by injected RolloutLogger
-#
-#     def setUp(self):
-#         while not LOG_QUEUE.empty():
-#             LOG_QUEUE.get_nowait()
-#
-#     def test_verbose_terminal_prints(self): ...
-#     def test_non_verbose_terminal_does_not_print(self): ...
-#     def test_verbose_webapp_enqueues(self): ...
-
-
-class _TestRolloutEnginePushConfig_DISABLED(unittest.TestCase):
+class TestRolloutEnginePushConfig(unittest.TestCase):
 
     @staticmethod
-    def _make_engine(devices=None, commands=None, cancel=None, **opt_kwargs):
+    def _make_engine(devices=None, commands=None, **opt_kwargs):
         return RolloutEngine(
             param=make_options(**opt_kwargs),
             devices=devices or [make_device()],
@@ -565,14 +550,15 @@ class _TestRolloutEnginePushConfig_DISABLED(unittest.TestCase):
         self.cancel = threading.Event()
 
     @patch("netmiko.ConnectHandler")
-    def test_successful_push_returns_none(self, mock_ch):
+    def test_successful_push_no_cancel_signal(self, mock_ch):
         mock_conn = MagicMock()
         mock_conn.send_config_set.return_value = "ok"
         mock_ch.return_value = mock_conn
 
         engine = self._make_engine()
-        result = engine._push_config(self.cancel, self.logger)
-        self.assertIsNone(result)
+        cancel_signal, push_results = engine._push_config(self.cancel, self.logger)
+        self.assertIsNone(cancel_signal)
+        self.assertTrue(push_results.get("192.168.1.1"))
         mock_conn.save_config.assert_called_once()
         mock_conn.disconnect.assert_called_once()
 
@@ -583,26 +569,27 @@ class _TestRolloutEnginePushConfig_DISABLED(unittest.TestCase):
         mock_ch.return_value = mock_conn
 
         engine = self._make_engine(commands=["bad command", "good command"])
-        result = engine._push_config(self.cancel, self.logger)
-        self.assertIsNone(result)
-        # Both _commands were attempted despite first error
+        cancel_signal, push_results = engine._push_config(self.cancel, self.logger)
+        self.assertIsNone(cancel_signal)
+        # Both commands were attempted despite first error
         self.assertEqual(mock_conn.send_config_set.call_count, 2)
 
     @patch("netmiko.ConnectHandler")
-    def test_auth_failure_skips_device(self, mock_ch):
+    def test_auth_failure_marks_device_failed(self, mock_ch):
         import netmiko as nm
         mock_ch.side_effect = nm.NetMikoAuthenticationException("auth failed")
         engine = self._make_engine()
-        result = engine._push_config(self.cancel, self.logger)
-        self.assertIsNone(result)
+        cancel_signal, push_results = engine._push_config(self.cancel, self.logger)
+        self.assertIsNone(cancel_signal)
+        self.assertFalse(push_results.get("192.168.1.1"))
 
     @patch("netmiko.ConnectHandler")
     def test_cancel_event_stops_rollout(self, mock_ch):
         cancel = threading.Event()
         cancel.set()
         engine = self._make_engine()
-        result = engine._push_config(cancel, self.logger)
-        self.assertEqual(result, "cancel_sent")
+        cancel_signal, push_results = engine._push_config(cancel, self.logger)
+        self.assertEqual(cancel_signal, "cancel_sent")
         mock_ch.assert_not_called()
 
     @patch("netmiko.ConnectHandler")
@@ -613,11 +600,16 @@ class _TestRolloutEnginePushConfig_DISABLED(unittest.TestCase):
 
         devices = [make_device(ip=f"10.0.0.{i}") for i in range(1, 4)]
         engine = self._make_engine(devices=devices)
-        engine._push_config(self.cancel, self.logger)
+        cancel_signal, push_results = engine._push_config(self.cancel, self.logger)
+        self.assertIsNone(cancel_signal)
         self.assertEqual(mock_ch.call_count, 3)
 
 
-class _TestRolloutEngineVerify_DISABLED(unittest.TestCase):
+# ---------------------------------------------------------------------------
+# core.py — RolloutEngine._verify
+# ---------------------------------------------------------------------------
+
+class TestRolloutEngineVerify(unittest.TestCase):
 
     @staticmethod
     def _make_engine(devices=None, commands=None):
@@ -629,7 +621,6 @@ class _TestRolloutEngineVerify_DISABLED(unittest.TestCase):
 
     def setUp(self):
         self.logger = RolloutLogger(webapp=False, verbose=False)
-        self.cancel = threading.Event()
 
     def test_command_found_in_config(self):
         device = make_device()
@@ -652,19 +643,12 @@ class _TestRolloutEngineVerify_DISABLED(unittest.TestCase):
             result = engine._verify(self.logger)
         self.assertEqual(result["192.168.1.1"], 0)
 
-    def test_fetch_config_returns_none_skips_device(self):
+    def test_fetch_config_returns_none_counts_zero(self):
         device = make_device()
         engine = self._make_engine(devices=[device])
         with patch.object(device, "fetch_config", return_value=None):
             result = engine._verify(self.logger)
         self.assertEqual(result.get("192.168.1.1", 0), 0)
-
-    def test_cancel_event_stops_verify(self):
-        cancel = threading.Event()
-        cancel.set()
-        engine = self._make_engine()
-        result = engine._verify(self.logger)
-        self.assertEqual(result, "cancel_sent")
 
     def test_partial_commands_matched(self):
         device = make_device()
@@ -676,30 +660,34 @@ class _TestRolloutEngineVerify_DISABLED(unittest.TestCase):
         self.assertEqual(result["192.168.1.1"], 1)
 
 
-class _TestRolloutEngineRun_DISABLED(unittest.TestCase):
+# ---------------------------------------------------------------------------
+# core.py — RolloutEngine.run
+# ---------------------------------------------------------------------------
+
+class TestRolloutEngineRun(unittest.TestCase):
 
     def setUp(self):
         self.logger = RolloutLogger(webapp=False, verbose=False)
         self.cancel = threading.Event()
 
-    def test_empty_devices_returns_1(self):
+    def test_empty_devices_returns_empty_list(self):
         engine = RolloutEngine(
             param=make_options(),
             devices=[],
             commands=["cmd"],
         )
-        self.assertEqual(engine.run(self.cancel, self.logger), 1)
+        self.assertEqual(engine.run(self.cancel, self.logger), [])
 
-    def test_empty_commands_returns_1(self):
+    def test_empty_commands_returns_empty_list(self):
         engine = RolloutEngine(
             param=make_options(),
             devices=[make_device()],
             commands=[],
         )
-        self.assertEqual(engine.run(self.cancel, self.logger), 1)
+        self.assertEqual(engine.run(self.cancel, self.logger), [])
 
     @patch("netmiko.ConnectHandler")
-    def test_successful_run_without_verify_returns_0(self, mock_ch):
+    def test_successful_run_without_verify(self, mock_ch):
         mock_conn = MagicMock()
         mock_conn.send_config_set.return_value = "ok"
         mock_ch.return_value = mock_conn
@@ -709,38 +697,35 @@ class _TestRolloutEngineRun_DISABLED(unittest.TestCase):
             devices=[make_device()],
             commands=["ip route 0.0.0.0 0.0.0.0 1.1.1.1"],
         )
-        self.assertEqual(engine.run(self.cancel, self.logger), 0)
+        result = engine.run(self.cancel, self.logger)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["status"], "success")
+        self.assertIsNone(result[0]["commands_verified"])
 
     @patch("netmiko.ConnectHandler")
-    def test_cancel_during_push_returns_1(self, mock_ch):
-        cancel = threading.Event()
+    def test_failed_push_marked_in_result(self, mock_ch):
+        mock_ch.side_effect = Exception("connection refused")
 
-        def fake_connect():
-            cancel.set()
-            raise Exception("cancelled")
-
-        mock_ch.side_effect = fake_connect
         engine = RolloutEngine(
-            param=make_options(),
+            param=make_options(verify=False),
             devices=[make_device()],
             commands=["cmd"],
         )
-        result = engine.run(cancel, self.logger)
-        # Either 0 (push finished before cancel seen) or 1 (cancel caught)
-        self.assertIn(result, [0, 1])
+        result = engine.run(self.cancel, self.logger)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["status"], "failed")
 
 
 # ---------------------------------------------------------------------------
 # Integration — full rollout + verification pipeline
-# TODO Phase 3: rewrite for inventory-based pipeline
 # ---------------------------------------------------------------------------
 
 class TestFullRolloutAndVerifyPipeline(unittest.TestCase):
     """
     End-to-end test of the full pipeline:
-      import_from_inventory -> RolloutEngine.run() with _verify=True
+      import_from_inventory -> RolloutEngine.run() with verify=True
     All network I/O is mocked: Netmiko SSH, NAPALM config fetch.
-    Device.from_inventory is mocked because it is currently stubbed (returns None).
+    Device.from_inventory is mocked because it requires a live DB session.
     """
 
     COMMAND = "ip route 0.0.0.0 0.0.0.0 10.0.0.254"
@@ -767,12 +752,10 @@ class TestFullRolloutAndVerifyPipeline(unittest.TestCase):
         device = self._make_device()
         mock_from_inv.return_value = device
 
-        # Mock netmiko push
         mock_conn = MagicMock()
         mock_conn.send_config_set.return_value = "ok"
         mock_netmiko_ch.return_value = mock_conn
 
-        # Mock napalm verify — config contains the command
         mock_driver = MagicMock()
         mock_node = MagicMock()
         mock_node.get_config.return_value = {"running": self.COMMAND}
@@ -790,7 +773,9 @@ class TestFullRolloutAndVerifyPipeline(unittest.TestCase):
         cancel = threading.Event()
         logger = RolloutLogger(webapp=False, verbose=False)
         result = engine.run(cancel, logger)
-        self.assertEqual(result, 0)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["status"], "success")
+        self.assertEqual(result[0]["commands_verified"], 1)
 
     @patch("netmiko.ConnectHandler")
     @patch("core.Device.from_inventory")
@@ -813,7 +798,9 @@ class TestFullRolloutAndVerifyPipeline(unittest.TestCase):
         cancel = threading.Event()
         logger = RolloutLogger(webapp=False, verbose=False)
         result = engine.run(cancel, logger)
-        self.assertEqual(result, 0)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["status"], "success")
+        self.assertIsNone(result[0]["commands_verified"])
 
     @patch("netmiko.ConnectHandler")
     @patch("napalm.get_network_driver")
@@ -826,7 +813,6 @@ class TestFullRolloutAndVerifyPipeline(unittest.TestCase):
         mock_conn.send_config_set.return_value = "ok"
         mock_netmiko_ch.return_value = mock_conn
 
-        # NAPALM returns config WITHOUT the command
         mock_driver = MagicMock()
         mock_node = MagicMock()
         mock_node.get_config.return_value = {"running": "no relevant config"}
@@ -843,9 +829,10 @@ class TestFullRolloutAndVerifyPipeline(unittest.TestCase):
         )
         cancel = threading.Event()
         logger = RolloutLogger(webapp=False, verbose=False)
-        # Pipeline completes (returns 0) even when verify finds mismatches
         result = engine.run(cancel, logger)
-        self.assertEqual(result, 0)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["status"], "failed")
+        self.assertEqual(result[0]["commands_verified"], 0)
 
     @patch("netmiko.ConnectHandler")
     @patch("core.Device.from_inventory")
@@ -871,8 +858,8 @@ class TestFullRolloutAndVerifyPipeline(unittest.TestCase):
         )
         logger = RolloutLogger(webapp=False, verbose=False)
         result = engine.run(cancel, logger)
-        # Cancel may be caught during push (returns 1) or push finishes first (returns 0)
-        self.assertIn(result, [0, 1])
+        self.assertIsInstance(result, list)
+        self.assertEqual(len(result), 1)
 
 
 # ---------------------------------------------------------------------------
@@ -890,8 +877,10 @@ def _server_reachable(url: str) -> bool:
     try:
         urllib.request.urlopen(url, timeout=2)
         return True
+    except urllib.error.HTTPError:
+        return True  # server responded with HTTP error — server is up
     except Exception:
-        return True  # any response (including 4xx) means server is up
+        return False  # connection refused, timeout, etc.
 
 
 @unittest.skipUnless(_server_reachable("http://localhost:8080/"), "webapp not running")

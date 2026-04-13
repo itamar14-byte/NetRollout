@@ -1,5 +1,5 @@
 # Development Workplan
-_Last updated: 2026-04-13 — Phase 3.6 concurrency complete, admin all-users toggle complete_
+_Last updated: 2026-04-13 — Phase 3.5 core unit tests complete (82 passing), webapp + CLI tests next_
 
 ---
 
@@ -291,14 +291,27 @@ Extend dashboard into a full analytics view. Data sourced entirely from `DeviceR
 - Commands pushed over time (simple bar or sparkline)
 - Most-used tokens, most-failed devices
 
-### 3.5 Test suite
-- **Approach**: spin up EVE-NG with real virtual devices (Cisco IOS, Juniper, etc.), push actual configurations end-to-end, observe failures and edge cases, then use findings to drive test cases
-- Re-enable `_DISABLED` test classes (already updated to new API)
-- New tests: `RolloutEngine` with variable substitution (token replacement, list index, out-of-bounds)
-- DB-integrated path: inventory → `import_from_inventory` → orchestrator → `DeviceResult` written
-- Route tests for inventory CRUD + security profile CRUD + bulk_assign (Flask test client)
-- Auth route tests: login, register, OTP flow
-- EVE-NG findings will also drive improvements to logs/results screens
+### 3.5 Test suite ✅ PARTIAL — core layer complete (2026-04-13)
+
+**Done:**
+- All disabled test classes re-enabled and adapted to current architecture
+- `TestLog` / `TestBaseNotify` fixed (`logfile=` param removed from constructor)
+- `TestDeviceFetchConfig` — `fetch_config(logger)` API
+- `TestRolloutEnginePushConfig` — `_push_config` returns `(cancel_signal, push_results)` tuple
+- `TestRolloutEngineVerify` — `_verify(logger)` only, cancel removed (uses ThreadPoolExecutor internally)
+- `TestRolloutEngineRun` — `run()` returns `list[DeviceResultDict]` not int
+- `TestFullRolloutAndVerifyPipeline` — full mock pipeline, all 4 scenarios
+- `_server_reachable` bug fixed — was returning True on ConnectionRefusedError
+- **82 passing, 1 skipped** (rate limit integration — requires live server)
+
+**Next session — webapp backend + CLI tests:**
+- Flask test client: auth routes (login, register, OTP flow), inventory CRUD, security profile CRUD, variable mapping CRUD, rollout submission, SSE stream, audit log
+- CLI unit tests: argument parsing, file input, headless rollout flow
+- Mocked DB (SQLite in-memory or mock session) for route tests
+
+**Deferred — EVE-NG live testing (between Phase 3 and Phase 4):**
+- Spin up EVE-NG on AWS EC2 (Nitro instance, ~$15-25 for a few days)
+- Cannot run EVE-NG locally — conflicts with Docker/VMware Workstation on same machine
 
 ### 3.6 Per-job device concurrency ✅ COMPLETE (2026-04-13)
 
