@@ -1,0 +1,321 @@
+{% extends "admin.html" %}
+{% block title %}Audit Logs — NetRollout{% endblock %}
+
+{% block admin_content %}
+<div class="nr-card">
+  <div class="nr-card-accent"></div>
+  <div class="nr-card-body">
+
+    <div class="d-flex align-items-center justify-content-between mb-3">
+      <div>
+        <span class="nr-badge">Admin</span>
+        <h4 class="mt-2 mb-0" style="color:#e0e0e0; font-family:'Inter',sans-serif;">Audit Logs</h4>
+      </div>
+      <span style="font-family:'JetBrains Mono',monospace; font-size:0.72rem; color:#555;">
+        {{ entries|length }} result{% if entries|length != 1 %}s{% endif %}{% if entries|length == 500 %} (capped){% endif %}
+      </span>
+    </div>
+
+    <!-- Filter bar -->
+    <form method="GET" action="{{ url_for('admin_audit') }}" class="d-flex flex-wrap gap-2 mb-4" id="filterForm">
+      <input type="text" name="actor" value="{{ filter_actor }}" placeholder="Actor username…"
+             class="form-control form-control-sm" style="max-width:180px;">
+
+      <select name="action" class="form-select form-select-sm" style="max-width:220px;">
+        <option value="">All actions</option>
+        {% for a in distinct_actions %}
+          <option value="{{ a }}" {% if filter_action == a %}selected{% endif %}>{{ a }}</option>
+        {% endfor %}
+      </select>
+
+      <select name="success" class="form-select form-select-sm" style="max-width:140px;">
+        <option value="" {% if filter_success == '' %}selected{% endif %}>All outcomes</option>
+        <option value="true" {% if filter_success == 'true' %}selected{% endif %}>Success</option>
+        <option value="false" {% if filter_success == 'false' %}selected{% endif %}>Failed</option>
+      </select>
+
+      <button type="submit" class="btn btn-primary btn-sm">Filter</button>
+      {% if filter_actor or filter_action or filter_success %}
+        <a href="{{ url_for('admin_audit') }}" class="btn btn-outline-secondary btn-sm">Clear</a>
+      {% endif %}
+    </form>
+
+    <!-- Table -->
+    <div style="overflow:auto; max-height:62vh; border:1px solid #1e1e1e; border-radius:6px;">
+      <table class="table table-sm mb-0" id="auditTable" style="border-collapse:separate; border-spacing:0;">
+        <thead style="position:sticky; top:0; z-index:10;">
+          <tr>
+            <th style="width:155px;">Timestamp</th>
+            <th style="width:120px;">Actor</th>
+            <th style="width:180px;">Action</th>
+            <th>Object</th>
+            <th style="width:80px;">Status</th>
+            <th style="width:110px;">IP</th>
+            <th style="width:32px;"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for e in entries %}
+          <tr class="audit-row" data-detail="{{ e.detail | tojson | e }}"
+              data-id="{{ e.id }}" data-ts="{{ e.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}">
+
+            <td style="font-family:'JetBrains Mono',monospace; font-size:0.75rem; color:#777; white-space:nowrap;">
+              {{ e.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}
+            </td>
+
+            <td style="font-family:'JetBrains Mono',monospace; font-size:0.78rem;">
+              {{ e.actor_username }}
+            </td>
+
+            <td>
+              {% set parts = e.action.split('.') %}
+              {% set ns = parts[0] %}
+              {% set verb = parts[1] if parts|length > 1 else '' %}
+              <span class="action-ns action-ns--{{ ns }}">{{ ns }}</span>
+              {% if verb %}
+                <span class="action-verb action-verb--{{ verb }}">{{ verb }}</span>
+              {% endif %}
+            </td>
+
+            <td style="font-size:0.82rem; color:#aaa;">
+              {% if e.object_type %}
+                <span style="color:#555; font-size:0.72rem; margin-right:4px;">{{ e.object_type }}</span>
+              {% endif %}
+              {% if e.object_label %}
+                <span style="color:#ccc;">{{ e.object_label }}</span>
+              {% endif %}
+              {% if not e.object_label and e.object_id %}
+                <span style="font-family:'JetBrains Mono',monospace; font-size:0.7rem; color:#555;">
+                  {{ e.object_id | string | truncate(12, True, '') }}
+                </span>
+              {% endif %}
+            </td>
+
+            <td>
+              {% if e.success %}
+                <span class="status-pill status-pill--ok">OK</span>
+              {% else %}
+                <span class="status-pill status-pill--fail">FAIL</span>
+              {% endif %}
+            </td>
+
+            <td style="font-family:'JetBrains Mono',monospace; font-size:0.72rem; color:#666;">
+              {{ e.ip_address or '—' }}
+            </td>
+
+            <td class="gear-cell">
+              <button class="gear-btn" onclick="openGear(event, this)" title="Actions">&#9881;</button>
+            </td>
+
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="7" class="text-center" style="color:#555; padding:2rem 0; font-size:0.85rem;">
+              No audit entries match the current filters.
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+  </div><!-- /nr-card-body -->
+</div><!-- /nr-card -->
+
+<!-- Floating gear popover -->
+<div id="gearPopover" style="display:none; position:fixed; z-index:9999;
+     background:#1a1a1a; border:1px solid #2a2a2a; border-radius:6px;
+     box-shadow:0 4px 20px rgba(0,0,0,0.5); min-width:140px; overflow:hidden;">
+  <button class="gear-menu-item" onclick="viewDetail()">
+    <i class="bi bi-file-text me-2"></i>View Detail
+  </button>
+  <button class="gear-menu-item" onclick="copyRow()">
+    <i class="bi bi-clipboard me-2"></i>Copy Row
+  </button>
+  <button class="gear-menu-item" onclick="filterByActor()">
+    <i class="bi bi-person me-2"></i>Filter by Actor
+  </button>
+</div>
+
+<!-- Detail modal -->
+<div class="modal fade" id="detailModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header" style="border-bottom:1px solid #222;">
+        <h6 class="modal-title" style="font-family:'JetBrains Mono',monospace; color:#00bcd4;" id="detailModalTitle">
+          Entry Detail
+        </h6>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <table class="table table-sm mb-3" style="font-size:0.82rem;">
+          <tbody id="detailMetaRows"></tbody>
+        </table>
+        <label class="nr-label mb-1">DETAIL (JSON)</label>
+        <pre id="detailJson" style="background:#111; border:1px solid #222; border-radius:6px;
+             padding:1rem; color:#a5d6a7; font-family:'JetBrains Mono',monospace;
+             font-size:0.78rem; white-space:pre-wrap; word-break:break-all; margin:0;
+             max-height:300px; overflow-y:auto;"></pre>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+  /* Sticky header */
+  #auditTable thead th {
+    background: #141414;
+    border-bottom: 1px solid #222;
+    box-shadow: 0 1px 0 #222;
+  }
+
+  /* Action namespace badges */
+  .action-ns {
+    display: inline-block;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.68rem;
+    font-weight: 600;
+    padding: 1px 6px;
+    border-radius: 3px;
+    margin-right: 3px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .action-ns--auth     { background: rgba(100,180,255,0.1); color:#64b4ff; border:1px solid rgba(100,180,255,0.2); }
+  .action-ns--rollout  { background: rgba(0,188,212,0.1);  color:#00bcd4; border:1px solid rgba(0,188,212,0.2); }
+  .action-ns--inventory{ background: rgba(160,160,160,0.08); color:#888; border:1px solid #2a2a2a; }
+  .action-ns--security_profile { background: rgba(255,224,130,0.1); color:#ffe082; border:1px solid rgba(255,224,130,0.2); }
+  .action-ns--mapping  { background: rgba(179,157,219,0.1); color:#b39ddb; border:1px solid rgba(179,157,219,0.2); }
+  .action-ns--user     { background: rgba(255,204,128,0.1); color:#ffcc80; border:1px solid rgba(255,204,128,0.2); }
+
+  .action-verb {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.74rem;
+    color: #777;
+  }
+  .action-verb--delete, .action-verb--cancel { color: #ef9a9a; }
+  .action-verb--create, .action-verb--start  { color: #a5d6a7; }
+  .action-verb--login, .action-verb--logout  { color: #90caf9; }
+  .action-verb--rollback                     { color: #ffe082; }
+
+  /* Status pills */
+  .status-pill {
+    display: inline-block;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.65rem;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: 3px;
+    letter-spacing: 1px;
+  }
+  .status-pill--ok   { background: rgba(165,214,167,0.12); color:#a5d6a7; border:1px solid rgba(165,214,167,0.2); }
+  .status-pill--fail { background: rgba(239,83,80,0.12);   color:#ef9a9a; border:1px solid rgba(239,83,80,0.2); }
+
+  /* Gear button */
+  .gear-cell { text-align:center; vertical-align:middle; padding:0 4px; }
+  .gear-btn {
+    background: none;
+    border: none;
+    color: transparent;
+    font-size: 0.9rem;
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 4px;
+    transition: color 0.15s, background 0.15s;
+    line-height: 1;
+  }
+  tr.audit-row:hover .gear-btn { color: #555; }
+  .gear-btn:hover { color: #00bcd4 !important; background: rgba(0,188,212,0.08); }
+
+  /* Gear popover items */
+  .gear-menu-item {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    background: none;
+    border: none;
+    color: #ccc;
+    font-family: 'Inter', sans-serif;
+    font-size: 0.82rem;
+    padding: 0.45rem 0.85rem;
+    cursor: pointer;
+    text-align: left;
+    transition: background 0.15s, color 0.15s;
+  }
+  .gear-menu-item:hover { background: rgba(0,188,212,0.08); color: #00bcd4; }
+
+  /* Row hover */
+  tr.audit-row:hover td { background: rgba(255,255,255,0.02); }
+</style>
+
+<script>
+  let _activeRow = null;
+  const popover = document.getElementById('gearPopover');
+
+  function openGear(event, btn) {
+    event.stopPropagation();
+    _activeRow = btn.closest('tr');
+    const rect = btn.getBoundingClientRect();
+    popover.style.display = 'block';
+    // Anchor to bottom-right of gear button; flip up if near bottom of viewport
+    let top = rect.bottom + 4;
+    if (top + 130 > window.innerHeight) top = rect.top - 134;
+    let left = rect.right - popover.offsetWidth;
+    if (left < 4) left = 4;
+    popover.style.top  = top  + 'px';
+    popover.style.left = left + 'px';
+  }
+
+  document.addEventListener('click', () => { popover.style.display = 'none'; });
+  popover.addEventListener('click', e => e.stopPropagation());
+
+  function viewDetail() {
+    popover.style.display = 'none';
+    if (!_activeRow) return;
+    const ts     = _activeRow.dataset.ts;
+    const rawDetail = _activeRow.dataset.detail;
+    let parsed = null;
+    try { parsed = JSON.parse(rawDetail); } catch(e) { parsed = rawDetail; }
+
+    document.getElementById('detailModalTitle').textContent = 'Entry — ' + ts;
+
+    // Build metadata rows from table cells
+    const cells = _activeRow.querySelectorAll('td');
+    const fields = ['Timestamp','Actor','Action','Object','Status','IP'];
+    let html = '';
+    for (let i = 0; i < fields.length; i++) {
+      html += `<tr>
+        <th style="width:110px;color:#555;font-weight:500;">${fields[i]}</th>
+        <td style="color:#ccc;">${cells[i].innerText.trim()}</td>
+      </tr>`;
+    }
+    document.getElementById('detailMetaRows').innerHTML = html;
+
+    const jsonEl = document.getElementById('detailJson');
+    if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
+      jsonEl.textContent = JSON.stringify(parsed, null, 2);
+      jsonEl.style.display = 'block';
+    } else {
+      jsonEl.style.display = 'none';
+    }
+
+    new bootstrap.Modal(document.getElementById('detailModal')).show();
+  }
+
+  function copyRow() {
+    popover.style.display = 'none';
+    if (!_activeRow) return;
+    const cells = _activeRow.querySelectorAll('td');
+    const parts = Array.from(cells).slice(0, 6).map(c => c.innerText.trim());
+    navigator.clipboard.writeText(parts.join('\t'));
+  }
+
+  function filterByActor() {
+    popover.style.display = 'none';
+    if (!_activeRow) return;
+    const actor = _activeRow.querySelectorAll('td')[1].innerText.trim();
+    document.querySelector('input[name="actor"]').value = actor;
+    document.getElementById('filterForm').submit();
+  }
+</script>
+{% endblock %}

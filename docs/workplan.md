@@ -1,5 +1,5 @@
 # Development Workplan
-_Last updated: 2026-04-13 — Phase 3.3 complete, UI polish session done_
+_Last updated: 2026-04-13 — Phase 3.4 audit trail complete, results page enhancements complete_
 
 ---
 
@@ -236,11 +236,14 @@ Constructor takes `Validator` + `RolloutLogger`. Methods: `csv_to_inventory`, `f
 **Pending / loose threads:**
 - Rollback jobs have no audit comment in `job_metadata`
 - pg_cron installation is manual (apt-get exec) — not baked into Docker image yet (Phase 4)
+- Old routes (`/start_rollout`, `/upload`, old `sse_stream`) retired and deleted this session
 
 ### 3.3 Results page ✅ COMPLETE (2026-04-13)
 - Job history grouped by `job_id`, sorted by `completed_at` desc
 - Filter bar: All / Success / Partial / Failed / Cancelled
-- Expandable rows: device sub-table (IP, platform logo, sent/verified, status pill) + command snippet panel (pre-substitution, from `job_metadata`)
+- Expandable rows: device sub-table (IP, platform logo, sent/verified, status pill)
+- Per-job action buttons: **See Commands** (modal with full pre-substitution command list), **Download Log** (only shown if log file exists)
+- **Diff feature**: Compare button enters selection mode, checkboxes on rows, second selection dims others; modal shows side-by-side LCS diff — red `−` removed, green `+` added, yellow `~` changed; header labels include job ID, timestamp, comment
 - Duration calculated from `started_at` / `completed_at`, comment shown as cyan italic tag
 - Empty state for users with no completed jobs
 
@@ -259,23 +262,34 @@ Constructor takes `Validator` + `RolloutLogger`. Methods: `csv_to_inventory`, `f
 - Dashboard system summary includes variable mapping count
 - Double flash fixed in `variable_mappings.html`
 
-### 3.4 Analytics & Audit logging
-Extend dashboard and results into a full analytics view, and replace the
-current ad-hoc logfile behavior with a structured activity logging system.
+### 3.4 Audit trail ✅ COMPLETE (2026-04-13)
 
-**Analytics:**
+**Audit log table:**
+- `AuditLog` ORM model: `id`, `timestamp` (indexed), `actor_id` (FK → users, ON DELETE SET NULL), `actor_username` (denormalized — survives user deletion), `action` (dot-namespaced e.g. `inventory.delete`), `object_type`, `object_id` (soft ref), `object_label` (denormalized), `success`, `ip_address`
+- `audit()` helper in `webapp.py` — opens own session, commits independently of calling route's transaction
+- 21 routes instrumented: auth (login with failure reasons, register, logout), user management (all single + bulk actions), inventory CRUD + import + bulk_assign, security profile CRUD, variable mapping CRUD + bulk_assign, rollout start/cancel/rollback
+- Login failures record reason: `invalid_credentials`, `account_disabled`, `pending_approval`
+- pg_cron `audit_log_retention` job: 90-day retention, daily at 3AM
+
+**Admin UI (`/admin/audit`):**
+- Filterable table: actor username (contains search), action (dropdown of distinct values), success/fail toggle
+- Sticky floating header (FortiGate-style, `position: sticky` within scroll container)
+- Per-row FortiGate gear (⚙): View Detail (modal with pretty-printed JSON + metadata), Copy Row (clipboard), Filter by Actor
+- 500-row cap per query
+
+**Log file infrastructure:**
+- `LOGS_DIR` defined in `logging_utils.py` as `src/../logs/` (project root)
+- `RolloutLogger.__init__` takes `job_id` + `timestamp`, constructs path `rollout_{timestamp}_{job_id}.log`, calls `os.makedirs(LOGS_DIR, exist_ok=True)` — all filesystem setup in one place
+- Naming: timestamp = submission time (matches `job_metadata.created_at`), job_id makes glob lookup deterministic from results page
+- `started_at` in results page gives actual execution time — intentional drift from filename timestamp shows queue wait time
+- `/results/download_log/<job_id>` — ownership-verified via `DeviceResult`, globs `rollout_*_{job_id}.log`, serves with `send_file`
+- Infrastructure is generic — any future activity can get a named logfile by instantiating `RolloutLogger` with an id + timestamp
+
+### 3.4b Analytics
+Extend dashboard into a full analytics view. Data sourced entirely from `DeviceResult` — no new tables needed.
 - Per-platform success rate breakdown
 - Commands pushed over time (simple bar or sparkline)
 - Most-used tokens, most-failed devices
-- Data sourced entirely from `DeviceResult` — no new tables needed
-
-**Activity logging:**
-- Replace `RolloutLogger`'s auto-generated `rollout_YYYYMMDD_HHMMSS._log`
-  filename with operation-prefixed names: `rollout_`, `import_`, etc.
-- All web operations that currently use temp logfiles (e.g. `import_csv`)
-  get a proper named logfile instead, cleaned up or archived as appropriate
-- Consider a `logs/` directory under the project root with per-operation files
-- Logfiles accessible from the results/audit page for download or inline view
 
 ### 3.5 Test suite
 - **Approach**: spin up EVE-NG with real virtual devices (Cisco IOS, Juniper, etc.), push actual configurations end-to-end, observe failures and edge cases, then use findings to drive test cases

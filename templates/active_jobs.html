@@ -1,0 +1,580 @@
+{% extends "operator_base.html" %}
+{% block title %}Active Jobs — NetRollout{% endblock %}
+{% block page_title %}Active Jobs{% endblock %}
+
+{% block extra_style %}
+
+/* ── New-job glow animation (one-shot) ── */
+@keyframes jobLand {
+    0%   { box-shadow: inset 0 0 0 1px rgba(0,188,212,0.0), background-color: transparent; }
+    15%  { box-shadow: inset 0 0 0 1px rgba(0,188,212,0.5); background-color: rgba(0,188,212,0.07); }
+    100% { box-shadow: inset 0 0 0 1px rgba(0,188,212,0.0); background-color: transparent; }
+}
+.job-new { animation: jobLand 2s ease forwards; }
+
+/* ── Pulse for active status dot ── */
+@keyframes pulse-green {
+    0%   { box-shadow: 0 0 0 0 rgba(76,175,80,0.7); }
+    70%  { box-shadow: 0 0 0 6px rgba(76,175,80,0); }
+    100% { box-shadow: 0 0 0 0 rgba(76,175,80,0); }
+}
+@keyframes pulse-cyan {
+    0%   { box-shadow: 0 0 0 0 rgba(0,188,212,0.6); }
+    70%  { box-shadow: 0 0 0 6px rgba(0,188,212,0); }
+    100% { box-shadow: 0 0 0 0 rgba(0,188,212,0); }
+}
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
+
+/* ── Status dot ── */
+.status-dot {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+.status-dot.active  { background:#4caf50; animation: pulse-green 1.6s ease-out infinite; }
+.status-dot.pending { background:#00bcd4; animation: pulse-cyan  1.8s ease-out infinite; }
+.status-dot.idle    { background:#2a2a2a; border:1px solid #333; }
+
+/* ── Status pill ── */
+.status-pill {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.6rem;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    padding: 0.15rem 0.5rem;
+    border-radius: 3px;
+}
+.status-pill.active  { background:rgba(76,175,80,0.1);  color:#a5d6a7; border:1px solid rgba(76,175,80,0.2); }
+.status-pill.pending { background:rgba(0,188,212,0.08); color:#00bcd4; border:1px solid rgba(0,188,212,0.2); }
+
+/* ── Term text ── */
+.term {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.78rem;
+    color: #555;
+}
+.term.bright { color: #e0e0e0; }
+.term.cyan   { color: #00bcd4; }
+.term.green  { color: #a5d6a7; }
+.term.muted  { color: #333; }
+
+/* ── Jobs table ── */
+.jobs-table { border-collapse: separate; border-spacing: 0; width: 100%; }
+.jobs-table thead th {
+    font-family: 'Inter', sans-serif;
+    font-size: 0.68rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: #444;
+    padding: 0.6rem 1rem;
+    border-bottom: 1px solid #1e1e1e;
+    background: #111;
+    white-space: nowrap;
+}
+.jobs-table tbody tr.job-row { transition: background 0.15s; }
+.jobs-table tbody tr.job-row:hover { background: rgba(255,255,255,0.015); }
+.jobs-table tbody td {
+    padding: 0.85rem 1rem;
+    border-bottom: 1px solid #161616;
+    vertical-align: middle;
+}
+.jobs-table tbody tr:last-child td { border-bottom: none; }
+
+/* ── Action buttons ── */
+.job-action-btn {
+    font-family: 'Inter', sans-serif;
+    font-size: 0.72rem;
+    padding: 0.25rem 0.65rem;
+    border-radius: 5px;
+    border: 1px solid #222;
+    background: transparent;
+    color: #555;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+}
+.job-action-btn:hover          { border-color:#444; color:#ccc; background:rgba(255,255,255,0.03); }
+.job-action-btn.btn-log        { }
+.job-action-btn.btn-log.active { border-color:rgba(0,188,212,0.35); color:#00bcd4; background:rgba(0,188,212,0.06); }
+.job-action-btn.btn-cancel     { }
+.job-action-btn.btn-cancel:hover { border-color:rgba(239,83,80,0.4); color:#ef9a9a; background:rgba(239,83,80,0.05); }
+.job-action-btn.btn-rollback   { }
+.job-action-btn.btn-rollback:hover { border-color:rgba(255,224,130,0.3); color:#ffe082; background:rgba(255,224,130,0.04); }
+
+/* ── Log panel (inline expand) ── */
+.log-panel {
+    display: none;
+    background: #0a0a0a;
+    border-top: 1px solid #1a1a1a;
+}
+.log-panel.open { display: table-row; }
+
+.log-panel-inner {
+    padding: 0;
+    background: #0a0a0a;
+}
+
+.log-terminal {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.76rem;
+    line-height: 1.65;
+    color: #444;
+    white-space: pre-wrap;
+    overflow-y: auto;
+    max-height: 260px;
+    padding: 0.85rem 1.25rem;
+}
+.log-terminal::-webkit-scrollbar { width: 4px; }
+.log-terminal::-webkit-scrollbar-thumb { background: #1e1e1e; border-radius: 2px; }
+
+.log-terminal-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.45rem 1rem;
+    background: #0d0d0d;
+    border-bottom: 1px solid #141414;
+}
+.log-terminal-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: #1e1e1e;
+}
+
+/* ── Stats bar ── */
+.stat-chip {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 0.75rem 1.5rem;
+    border-right: 1px solid #1e1e1e;
+}
+.stat-chip:last-child { border-right: none; }
+.stat-val {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: #e0e0e0;
+    line-height: 1;
+}
+.stat-label {
+    font-family: 'Inter', sans-serif;
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: #444;
+    margin-top: 0.3rem;
+}
+
+/* ── Empty state ── */
+.empty-wrap {
+    padding: 4rem 2rem;
+    text-align: center;
+}
+.empty-wrap i { font-size: 2.5rem; color: #1e1e1e; display: block; margin-bottom: 1rem; }
+.empty-wrap p { color: #333; font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; margin-bottom: 1.25rem; }
+
+/* ── Auto-refresh indicator ── */
+.refresh-indicator {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.65rem;
+    color: #2a2a2a;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+.refresh-dot {
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    background: #2a2a2a;
+}
+.refresh-dot.ticking { background: #00bcd4; animation: blink 1s step-end infinite; }
+
+{% endblock %}
+
+{% block operator_content %}
+
+{# ── Page header ── #}
+<div class="d-flex align-items-start justify-content-between mb-4">
+    <div>
+        <div class="nr-badge mb-1">ACTIVE JOBS</div>
+        <h4 style="font-weight:600; margin:0;">Running Rollouts</h4>
+    </div>
+    <div class="d-flex align-items-center gap-3">
+        <div class="refresh-indicator" id="refreshIndicator">
+            <span class="refresh-dot" id="refreshDot"></span>
+            <span id="refreshLabel">—</span>
+        </div>
+        <a href="{{ url_for('new_rollout') }}" class="btn btn-primary"
+           style="font-size:0.82rem; padding:0.45rem 1.2rem;">
+            <i class="bi bi-plus me-1"></i>New Rollout
+        </a>
+    </div>
+</div>
+
+{# ── Stats bar ── #}
+{% set active_count  = jobs | selectattr('status', 'equalto', 'active')  | list | length %}
+{% set pending_count = jobs | selectattr('status', 'equalto', 'pending') | list | length %}
+{% set total_devices = jobs | sum(attribute='device_count') if jobs else 0 %}
+
+<div class="nr-card mb-4">
+    <div class="nr-card-accent"></div>
+    <div class="d-flex" style="padding:0.25rem 0;">
+        <div class="stat-chip">
+            <div class="stat-val" style="{{ 'color:#a5d6a7;' if active_count > 0 else '' }}">
+                {{ active_count }}
+            </div>
+            <div class="stat-label">Running</div>
+        </div>
+        <div class="stat-chip">
+            <div class="stat-val" style="{{ 'color:#00bcd4;' if pending_count > 0 else '' }}">
+                {{ pending_count }}
+            </div>
+            <div class="stat-label">Queued</div>
+        </div>
+        <div class="stat-chip">
+            <div class="stat-val">{{ total_devices if total_devices != 0 else '—' }}</div>
+            <div class="stat-label">Devices in flight</div>
+        </div>
+        <div class="stat-chip" style="margin-left:auto; border-right:none; border-left:1px solid #1e1e1e;">
+            <div class="stat-val" style="font-size:0.95rem;" id="liveClock">—</div>
+            <div class="stat-label">Local time</div>
+        </div>
+    </div>
+</div>
+
+{# ── Jobs table ── #}
+<div class="nr-card">
+    <div class="nr-card-accent"></div>
+
+    {% if jobs %}
+    <div class="table-responsive" style="border-radius:0 0 12px 12px;">
+    <table class="jobs-table">
+        <thead>
+            <tr>
+                <th>Job ID</th>
+                <th>Status</th>
+                <th>Devices</th>
+                <th>Started</th>
+                <th>Elapsed</th>
+                <th style="text-align:right; padding-right:1.25rem;">Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for job in jobs %}
+
+        {# ── Job row ── #}
+        <tr class="job-row {{ 'job-new' if job.id == new_job_id else '' }}"
+            id="row-{{ job.id }}">
+
+            <td>
+                <span class="term cyan" style="font-size:0.7rem;"
+                      title="{{ job.id }}">
+                    {{ job.id[:8] }}…
+                </span>
+            </td>
+
+            <td>
+                <div class="d-flex align-items-center gap-2">
+                    <span class="status-dot {{ job.status }}"></span>
+                    <span class="status-pill {{ job.status }}">{{ job.status }}</span>
+                </div>
+            </td>
+
+            <td>
+                <span class="term bright">{{ job.device_count }}</span>
+            </td>
+
+            <td>
+                <span class="term">{{ job.started_at }}</span>
+            </td>
+
+            <td>
+                <span class="term cyan elapsed-timer"
+                      data-started="{{ job.started_at_iso if job.started_at_iso else '' }}">
+                    {{ '—' if not job.started_at_iso else '' }}
+                </span>
+            </td>
+
+            <td style="text-align:right;">
+                <div class="d-flex align-items-center justify-content-end gap-2">
+                    <button class="job-action-btn btn-log"
+                            data-job-id="{{ job.id }}"
+                            onclick="toggleLog(this)">
+                        <i class="bi bi-terminal me-1"></i>Log
+                    </button>
+                    <form method="POST" action="{{ url_for('cancel_rollout') }}"
+                          style="display:inline;"
+                          onsubmit="return confirm('Cancel this job? Devices mid-push may be left with partial config.');">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="job_id" value="{{ job.id }}">
+                        <button type="submit" class="job-action-btn btn-cancel">
+                            <i class="bi bi-stop-circle me-1"></i>Cancel
+                        </button>
+                    </form>
+                    <button class="job-action-btn btn-rollback"
+                            data-job-id="{{ job.id }}"
+                            onclick="openRollback('{{ job.id }}')">
+                        <i class="bi bi-arrow-counterclockwise me-1"></i>Rollback
+                    </button>
+                </div>
+            </td>
+        </tr>
+
+        {# ── Inline log panel ── #}
+        <tr class="log-panel" id="log-{{ job.id }}">
+            <td colspan="6" class="log-panel-inner" style="padding:0;">
+                <div class="log-terminal-header">
+                    <div class="log-terminal-dot"></div>
+                    <div class="log-terminal-dot"></div>
+                    <div class="log-terminal-dot"></div>
+                    <span class="term muted" style="font-size:0.6rem; letter-spacing:1.5px; margin-left:0.5rem;">
+                        JOB {{ job.id[:8] }} · LOG STREAM
+                    </span>
+                </div>
+                <div class="log-terminal" id="log-out-{{ job.id }}">
+                    <em style="color:#222;">Connecting…</em>
+                </div>
+            </td>
+        </tr>
+
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+
+    {% else %}
+    <div class="empty-wrap">
+        <i class="bi bi-broadcast"></i>
+        <p>No active rollouts — system is idle</p>
+        <a href="{{ url_for('new_rollout') }}" class="btn btn-outline-primary btn-sm"
+           style="font-size:0.8rem;">
+            <i class="bi bi-play me-1"></i>Start a Rollout
+        </a>
+    </div>
+    {% endif %}
+</div>
+
+{# ── Rollback modal ── #}
+<div class="modal fade" id="rollbackModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header border-0 pb-0">
+                <span class="nr-badge" style="color:#ffe082; border-color:rgba(255,224,130,0.25);">ROLLBACK</span>
+                <button type="button" class="btn-close btn-close-white"
+                        data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body pt-2">
+                <h6 style="color:#e0e0e0; font-weight:600; margin-bottom:0.4rem;">
+                    <i class="bi bi-arrow-counterclockwise me-2" style="color:#ffe082;"></i>
+                    Compensatory Commands
+                </h6>
+                <p style="font-size:0.8rem; color:#777; margin-bottom:0.85rem;">
+                    Provide the compensatory commands to push to successfully configured devices.
+                    <span style="color:#555;">Device attributes are resolved at rollback time — verify they still reflect the current network state.</span>
+                </p>
+                <div id="rollbackError"
+                     style="display:none; font-family:'Inter',sans-serif; font-size:0.78rem;
+                            color:#ef9a9a; background:rgba(239,83,80,0.06);
+                            border:1px solid rgba(239,83,80,0.2); border-radius:6px;
+                            padding:0.5rem 0.75rem; margin-bottom:0.75rem;">
+                </div>
+                <textarea id="rollbackCommands"
+                          class="form-control"
+                          rows="7"
+                          placeholder="no interface GigabitEthernet0/1&#10;no description uplink"
+                          style="font-family:'JetBrains Mono',monospace; font-size:0.78rem;
+                                 background:#111; border-color:#222; color:#ccc; resize:vertical;">
+                </textarea>
+                <div class="d-flex gap-3 mt-2">
+                    <label class="option-check" style="font-size:0.78rem; color:#555; display:flex; align-items:center; gap:0.4rem; cursor:pointer;">
+                        <input type="checkbox" id="rollbackVerify" style="accent-color:#00bcd4;">
+                        <i class="bi bi-patch-check" style="color:#00bcd4;"></i>
+                        Verify after push
+                        <span title="Verification is based on best-effort text matching. Vendors that restructure the config file (e.g. JSON-based platforms) may produce false negatives."
+                              style="font-family:'JetBrains Mono',monospace; font-size:0.65rem;
+                                     color:#444; border:1px solid #2a2a2a; border-radius:50%;
+                                     width:14px; height:14px; display:inline-flex;
+                                     align-items:center; justify-content:center;
+                                     cursor:help; flex-shrink:0;">?</span>
+                    </label>
+                    <label class="option-check" style="font-size:0.78rem; color:#555; display:flex; align-items:center; gap:0.4rem; cursor:pointer;">
+                        <input type="checkbox" id="rollbackVerbose" style="accent-color:#00bcd4;">
+                        <i class="bi bi-terminal" style="color:#555;"></i>
+                        Verbose
+                    </label>
+                </div>
+                <input type="hidden" id="rollbackJobId">
+            </div>
+            <div class="modal-footer border-0 pt-1">
+                <button class="btn btn-outline-secondary btn-sm"
+                        data-bs-dismiss="modal">Cancel</button>
+                <button class="btn btn-sm" id="rollbackSubmitBtn"
+                        style="background:rgba(255,224,130,0.1); border:1px solid rgba(255,224,130,0.3);
+                               color:#ffe082; font-size:0.8rem;"
+                        onclick="submitRollback()">
+                    <i class="bi bi-arrow-counterclockwise me-1"></i>Execute Rollback
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+(function () {
+
+    /* ── Live clock ── */
+    function updateClock() {
+        const now = new Date();
+        document.getElementById("liveClock").textContent =
+            now.toLocaleTimeString([], {hour:"2-digit", minute:"2-digit", second:"2-digit"});
+    }
+    updateClock();
+    setInterval(updateClock, 1000);
+
+    /* ── Elapsed timers ── */
+    function updateElapsed() {
+        document.querySelectorAll(".elapsed-timer").forEach(el => {
+            const iso = el.dataset.started;
+            if (!iso) return;
+            const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+            const h = String(Math.floor(diff / 3600)).padStart(2, "0");
+            const m = String(Math.floor((diff % 3600) / 60)).padStart(2, "0");
+            const s = String(diff % 60).padStart(2, "0");
+            el.textContent = `${h}:${m}:${s}`;
+        });
+    }
+    updateElapsed();
+    setInterval(updateElapsed, 1000);
+
+    /* ── Auto-refresh (page reloads every 15s while jobs are active) ── */
+    const hasJobs = {{ 'true' if jobs else 'false' }};
+    const dot     = document.getElementById("refreshDot");
+    const label   = document.getElementById("refreshLabel");
+
+    if (hasJobs) {
+        dot.classList.add("ticking");
+        let countdown = 15;
+        label.textContent = `refresh in ${countdown}s`;
+        const iv = setInterval(() => {
+            countdown--;
+            label.textContent = `refresh in ${countdown}s`;
+            if (countdown <= 0) {
+                clearInterval(iv);
+                /* Preserve new_job_id across auto-refresh only if not yet seen */
+                const url = new URL(window.location.href);
+                url.searchParams.delete("new"); // don't re-glow on auto-refresh
+                window.location.href = url.toString();
+            }
+        }, 1000);
+    } else {
+        label.textContent = "idle";
+    }
+
+    /* ── Log panel toggle ── */
+    const openStreams = {}; // job_id → EventSource
+
+    window.toggleLog = function(btn) {
+        const jobId  = btn.dataset.jobId;
+        const panel  = document.getElementById(`log-${jobId}`);
+        const logOut = document.getElementById(`log-out-${jobId}`);
+        const isOpen = panel.classList.contains("open");
+
+        if (isOpen) {
+            panel.classList.remove("open");
+            btn.classList.remove("active");
+            if (openStreams[jobId]) {
+                openStreams[jobId].close();
+                delete openStreams[jobId];
+            }
+            return;
+        }
+
+        panel.classList.add("open");
+        btn.classList.add("active");
+        logOut.innerHTML = "";
+
+        const es = new EventSource(`/rollout_stream/${jobId}`);
+        openStreams[jobId] = es;
+
+        es.onmessage = function(e) {
+            if (!e.data.trim()) return;
+            const line = document.createElement("div");
+            line.innerHTML = e.data;
+            logOut.appendChild(line);
+            logOut.scrollTop = logOut.scrollHeight;
+
+            if (e.data.includes("rollout complete") ||
+                e.data.includes("Canceled By User") ||
+                e.data.includes("Please see Execution logs")) {
+                es.close();
+                delete openStreams[jobId];
+            }
+        };
+
+        es.onerror = function() {
+            const line = document.createElement("div");
+            line.innerHTML = "<span style='color:#ef5350;'>⚠ Stream ended.</span>";
+            logOut.appendChild(line);
+            es.close();
+            delete openStreams[jobId];
+        };
+    };
+
+    /* ── Rollback modal ── */
+    let rollbackModal = null;
+
+    window.openRollback = function(jobId) {
+        document.getElementById("rollbackJobId").value = jobId;
+        document.getElementById("rollbackCommands").value = "";
+        document.getElementById("rollbackVerify").checked = false;
+        document.getElementById("rollbackVerbose").checked = false;
+        const err = document.getElementById("rollbackError");
+        err.style.display = "none";
+        err.textContent = "";
+        if (!rollbackModal) {
+            rollbackModal = new bootstrap.Modal(
+                document.getElementById("rollbackModal"));
+        }
+        rollbackModal.show();
+    };
+
+    window.submitRollback = function() {
+        const jobId    = document.getElementById("rollbackJobId").value;
+        const commands = document.getElementById("rollbackCommands").value.trim();
+        if (!commands) {
+            document.getElementById("rollbackCommands").focus();
+            return;
+        }
+        fetch(`/rollback/${jobId}`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "X-CSRFToken": "{{ csrf_token() }}"
+            },
+            body: JSON.stringify({
+                commands,
+                verify: document.getElementById("rollbackVerify").checked,
+                verbose: document.getElementById("rollbackVerbose").checked
+            })
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.status === "ok") {
+                rollbackModal.hide();
+                window.location.href = `/active_jobs?new=${data.job_id}`;
+            } else {
+                const err = document.getElementById("rollbackError");
+                err.textContent = data.message || "Rollback failed.";
+                err.style.display = "block";
+            }
+        });
+    };
+
+})();
+</script>
+
+{% endblock %}

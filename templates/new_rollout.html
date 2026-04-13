@@ -1,0 +1,909 @@
+{% extends "operator_base.html" %}
+{% block title %}New Rollout — NetRollout{% endblock %}
+{% block page_title %}New Rollout{% endblock %}
+
+{% block extra_style %}
+
+/* ── Device row ── */
+.device-row {
+    display: flex;
+    align-items: center;
+    gap: 0.9rem;
+    padding: 0.55rem 0.85rem;
+    border-bottom: 1px solid #181818;
+    cursor: pointer;
+    transition: background 0.12s;
+    user-select: none;
+}
+.device-row:last-child { border-bottom: none; }
+.device-row:hover { background: rgba(255,255,255,0.02); }
+.device-row.selected { background: rgba(0,188,212,0.04); }
+.device-row.disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+.device-row.disabled * { pointer-events: none; }
+
+.device-check, #selectAll {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 15px;
+    height: 15px;
+    flex-shrink: 0;
+    border: 1px solid #333;
+    border-radius: 3px;
+    background: #1a1a1a;
+    cursor: pointer;
+    position: relative;
+    transition: border-color 0.15s, background 0.15s;
+    vertical-align: middle;
+}
+.device-check:checked, #selectAll:checked {
+    background: #00bcd4;
+    border-color: #00bcd4;
+}
+.device-check:checked::after, #selectAll:checked::after {
+    content: '';
+    position: absolute;
+    left: 4px;
+    top: 1px;
+    width: 4px;
+    height: 8px;
+    border: 2px solid #000;
+    border-top: none;
+    border-left: none;
+    transform: rotate(45deg);
+}
+#selectAll:indeterminate {
+    background: rgba(0,188,212,0.15);
+    border-color: #00bcd4;
+}
+#selectAll:indeterminate::after {
+    content: '';
+    position: absolute;
+    left: 3px;
+    top: 6px;
+    width: 7px;
+    height: 2px;
+    background: #00bcd4;
+    transform: none;
+    border: none;
+}
+
+/* ── Toggle switch ── */
+.nr-toggle {
+    position: relative;
+    display: inline-block;
+    width: 34px;
+    height: 18px;
+    flex-shrink: 0;
+}
+.nr-toggle input { display: none; }
+.nr-toggle-slider {
+    position: absolute;
+    inset: 0;
+    background: #1e1e1e;
+    border: 1px solid #333;
+    border-radius: 18px;
+    cursor: pointer;
+    transition: background 0.2s, border-color 0.2s;
+}
+.nr-toggle-slider::before {
+    content: '';
+    position: absolute;
+    width: 12px;
+    height: 12px;
+    left: 2px;
+    top: 2px;
+    background: #444;
+    border-radius: 50%;
+    transition: transform 0.2s, background 0.2s;
+}
+.nr-toggle input:checked + .nr-toggle-slider {
+    background: rgba(0,188,212,0.15);
+    border-color: #00bcd4;
+}
+.nr-toggle input:checked + .nr-toggle-slider::before {
+    transform: translateX(16px);
+    background: #00bcd4;
+}
+
+.device-logo {
+    width: 22px;
+    height: 22px;
+    flex-shrink: 0;
+    object-fit: contain;
+    filter: brightness(0) invert(1);
+    opacity: 0.45;
+}
+.device-logo-fallback {
+    width: 22px;
+    height: 22px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.9rem;
+    color: #444;
+}
+
+.device-info { flex: 1; min-width: 0; }
+.device-label {
+    font-family: 'Inter', sans-serif;
+    font-size: 0.83rem;
+    font-weight: 500;
+    color: #ccc;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.device-ip {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    color: #555;
+}
+
+.platform-tag {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.62rem;
+    color: #666;
+    background: #161616;
+    border: 1px solid #222;
+    border-radius: 4px;
+    padding: 0.15rem 0.45rem;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.profile-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+.profile-dot.ok { background: #4caf50; }
+.profile-dot.missing { background: #ef5350; }
+
+/* ── No-profile tooltip ── */
+.device-row.disabled {
+    position: relative;
+}
+.device-row.disabled .no-profile-tip {
+    display: none;
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: #1a1a1a;
+    border: 1px solid #3a2020;
+    border-radius: 6px;
+    padding: 5px 10px;
+    font-family: 'Inter', sans-serif;
+    font-size: 0.72rem;
+    color: #ef5350;
+    white-space: nowrap;
+    pointer-events: none;
+    z-index: 10;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+}
+.device-row.disabled:hover .no-profile-tip { display: block; }
+
+/* ── No-profile footer warning ── */
+.no-profile-warning {
+    display: none;
+    font-size: 0.72rem;
+    color: #ef5350;
+    font-family: 'Inter', sans-serif;
+}
+.no-profile-warning a { color: #ef5350; text-decoration: underline; }
+.no-profile-warning.show { display: block; }
+
+/* ── Device list container ── */
+.device-list-wrap {
+    border: 1px solid #222;
+    border-radius: 10px;
+    overflow: hidden;
+    background: #141414;
+}
+
+.device-list-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.6rem 0.85rem;
+    border-bottom: 1px solid #1e1e1e;
+    background: #111;
+}
+.device-list-header input[type="checkbox"] {
+    accent-color: #00bcd4;
+    cursor: pointer;
+}
+.device-search {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: #aaa;
+    font-family: 'Inter', sans-serif;
+    font-size: 0.8rem;
+}
+.device-search::placeholder { color: #333; }
+
+.device-list-body {
+    max-height: 420px;
+    overflow-y: auto;
+}
+.device-list-body::-webkit-scrollbar { width: 4px; }
+.device-list-body::-webkit-scrollbar-track { background: transparent; }
+.device-list-body::-webkit-scrollbar-thumb { background: #222; border-radius: 2px; }
+
+.device-list-footer {
+    padding: 0.5rem 0.85rem;
+    border-top: 1px solid #1a1a1a;
+    background: #0f0f0f;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.68rem;
+    color: #444;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+.platform-summary { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+.platform-pill {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.6rem;
+    color: #00bcd4;
+    background: rgba(0,188,212,0.06);
+    border: 1px solid rgba(0,188,212,0.15);
+    border-radius: 3px;
+    padding: 0.1rem 0.4rem;
+}
+
+/* ── Empty state ── */
+.empty-state {
+    padding: 3rem 1rem;
+    text-align: center;
+    color: #333;
+    font-family: 'Inter', sans-serif;
+    font-size: 0.83rem;
+}
+.empty-state i { font-size: 2rem; margin-bottom: 0.75rem; display: block; color: #252525; }
+
+/* ── Multi-platform warning ── */
+.mp-warning {
+    display: none;
+    background: rgba(255,224,130,0.05);
+    border: 1px solid rgba(255,224,130,0.18);
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    margin-bottom: 1rem;
+    font-family: 'Inter', sans-serif;
+    font-size: 0.8rem;
+    color: #ffe082;
+    gap: 0.6rem;
+}
+.mp-warning.show { display: flex; align-items: flex-start; }
+.mp-warning i { font-size: 0.9rem; flex-shrink: 0; margin-top: 1px; }
+
+/* ── Command section ── */
+.cmd-section {
+    background: #141414;
+    border: 1px solid #222;
+    border-radius: 10px;
+    overflow: hidden;
+    margin-bottom: 1rem;
+}
+.cmd-section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.6rem 1rem;
+    border-bottom: 1px solid #1e1e1e;
+    background: #111;
+}
+.cmd-platform-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.68rem;
+    color: #00bcd4;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+}
+.cmd-toggle {
+    display: flex;
+    gap: 0.3rem;
+}
+.cmd-toggle-btn {
+    font-family: 'Inter', sans-serif;
+    font-size: 0.72rem;
+    padding: 0.22rem 0.6rem;
+    border-radius: 5px;
+    border: 1px solid #222;
+    background: transparent;
+    color: #555;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+.cmd-toggle-btn.active {
+    background: rgba(0,188,212,0.08);
+    border-color: rgba(0,188,212,0.25);
+    color: #00bcd4;
+}
+
+.cmd-textarea {
+    width: 100%;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: #ccc;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.78rem;
+    line-height: 1.6;
+    padding: 0.85rem 1rem;
+    resize: vertical;
+    min-height: 120px;
+}
+.cmd-textarea::placeholder { color: #2a2a2a; }
+
+.cmd-file-zone {
+    display: none;
+    padding: 1.25rem 1rem;
+    text-align: center;
+}
+.cmd-file-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-family: 'Inter', sans-serif;
+    font-size: 0.78rem;
+    color: #555;
+    border: 1px dashed #2a2a2a;
+    border-radius: 7px;
+    padding: 0.6rem 1.2rem;
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s;
+    width: 100%;
+    justify-content: center;
+}
+.cmd-file-label:hover { border-color: rgba(0,188,212,0.3); color: #00bcd4; }
+.cmd-filename {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    color: #4caf50;
+    margin-top: 0.4rem;
+}
+
+/* ── Options row ── */
+.options-row {
+    display: flex;
+    gap: 1.5rem;
+    padding: 0.75rem 0;
+}
+.option-check {
+    display: flex;
+    align-items: center;
+    flex-wrap: nowrap;
+    gap: 0.5rem;
+    cursor: pointer;
+    font-family: 'Inter', sans-serif;
+    font-size: 0.8rem;
+    color: #666;
+    transition: color 0.15s;
+}
+.option-check:hover { color: #aaa; }
+.option-check input { accent-color: #00bcd4; cursor: pointer; }
+.option-check .tooltip-q {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.65rem;
+    color: #444;
+    border: 1px solid #2a2a2a;
+    border-radius: 50%;
+    width: 14px;
+    height: 14px;
+    min-width: 14px;
+    min-height: 14px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: help;
+    flex-shrink: 0;
+    align-self: center;
+}
+
+/* ── Slide-in animation for new command blocks ── */
+@keyframes slideDown {
+    from { opacity: 0; transform: translateY(-8px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+.cmd-section { animation: slideDown 0.2s ease; }
+
+/* ── Section panel ── */
+.nr-panel {
+    background: #1a1a1a;
+    border: 1px solid #222;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 0 0 1px rgba(0,188,212,0.06), 0 16px 48px rgba(0,0,0,0.4);
+}
+.nr-panel-header {
+    padding: 1rem 1.25rem 0.75rem;
+    border-bottom: 1px solid #1e1e1e;
+}
+.nr-panel-body { padding: 1.25rem; }
+
+{% endblock %}
+
+{% block operator_content %}
+<form id="rolloutForm" method="POST" action="{{ url_for('new_start_rollout') }}"
+      enctype="multipart/form-data" novalidate>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    {# platform_commands is populated by JS for multi-platform mode #}
+    <input type="hidden" name="platform_commands" id="platformCommandsInput">
+
+    {# ── Page header ── #}
+    <div class="d-flex align-items-start justify-content-between mb-4">
+        <div>
+            <div class="nr-badge mb-1">CONFIGURE ROLLOUT</div>
+            <h4 style="font-weight:600; margin:0;">New Rollout</h4>
+        </div>
+        <button type="submit" id="submitBtn" class="btn btn-primary"
+                style="font-size:0.83rem; padding:0.5rem 1.4rem;" disabled>
+            <i class="bi bi-play-fill me-1"></i>Launch Rollout
+        </button>
+    </div>
+
+    <div class="row g-4">
+
+        {# ════════════════════════════════════
+           LEFT — Device selection
+        ════════════════════════════════════ #}
+        <div class="col-lg-7">
+            <div class="nr-panel">
+                <div class="nr-panel-header">
+                    <span class="nr-label">Select Devices</span>
+                </div>
+                <div class="nr-panel-body" style="padding:0;">
+
+                    {% if devices %}
+                    <div class="device-list-wrap" style="border:none; border-radius:0;">
+
+                        {# Header: select-all + search #}
+                        <div class="device-list-header">
+                            <input type="checkbox" id="selectAll" title="Select all">
+                            <i class="bi bi-search" style="color:#333; font-size:0.75rem;"></i>
+                            <input type="text" class="device-search"
+                                   id="deviceSearch" placeholder="Filter by label or IP…">
+                        </div>
+
+                        {# Device rows #}
+                        <div class="device-list-body" id="deviceList">
+                            {% for device in devices %}
+                            <label class="device-row {% if not device.security_profile %}disabled{% endif %}"
+                                   data-label="{{ (device.label or device.ip)|lower }}"
+                                   data-ip="{{ device.ip|lower }}"
+                                   title="{% if not device.security_profile %}No security profile assigned — go to Inventory to assign one{% endif %}">
+                                <input type="checkbox"
+                                       class="device-check device-cb"
+                                       name="device_ids"
+                                       value="{{ device.id }}"
+                                       data-platform="{{ device.device_type }}"
+                                       data-label="{{ device.label or device.ip }}"
+                                       {% if not device.security_profile %}disabled{% endif %}>
+
+                                {# Vendor logo #}
+                                {% if VENDOR_LOGOS.get(device.device_type) %}
+                                <img class="device-logo"
+                                     src="{{ VENDOR_LOGOS[device.device_type] }}/ffffff"
+                                     alt="{{ device.device_type }}"
+                                     onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+                                <span class="device-logo-fallback" style="display:none;">
+                                    <i class="bi bi-hdd-network"></i>
+                                </span>
+                                {% else %}
+                                <span class="device-logo-fallback">
+                                    <i class="bi bi-hdd-network"></i>
+                                </span>
+                                {% endif %}
+
+                                <div class="device-info">
+                                    <div class="device-label">{{ device.label or device.ip }}</div>
+                                    <div class="device-ip">{{ device.ip }}:{{ device.port }}</div>
+                                </div>
+
+                                <span class="platform-tag">{{ device.device_type }}</span>
+
+                                {# Security profile indicator #}
+                                <span class="profile-dot {{ 'ok' if device.security_profile else 'missing' }}"></span>
+
+                                {% if not device.security_profile %}
+                                <span class="no-profile-tip">No security profile — assign one in Inventory</span>
+                                {% endif %}
+                            </label>
+                            {% endfor %}
+                        </div>
+
+                        {# Footer: selection count + detected platforms #}
+                        <div class="device-list-footer" style="flex-direction:column; align-items:flex-start; gap:0.3rem;">
+                            <div style="display:flex; justify-content:space-between; width:100%;">
+                                <span id="selectionCount">0 selected</span>
+                                <div class="platform-summary" id="platformSummary"></div>
+                            </div>
+                            <div class="no-profile-warning" id="noProfileWarning">
+                                {% set missing = devices | selectattr('security_profile', 'none') | list | length %}
+                                {% if missing > 0 %}
+                                {{ missing }} device{{ 's' if missing != 1 }} unavailable —
+                                <a href="{{ url_for('inventory') }}">assign a security profile in Inventory</a>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+
+                    {% else %}
+                    <div class="empty-state">
+                        <i class="bi bi-hdd-network-fill"></i>
+                        No devices in inventory.<br>
+                        <a href="{{ url_for('inventory') }}"
+                           style="color:#00bcd4; font-size:0.78rem;">Add devices →</a>
+                    </div>
+                    {% endif %}
+
+                </div>{# /panel-body #}
+            </div>{# /nr-panel #}
+        </div>{# /col #}
+
+        {# ════════════════════════════════════
+           RIGHT — Commands + options
+        ════════════════════════════════════ #}
+        <div class="col-lg-5">
+
+            {# Multi-platform warning #}
+            <div class="mp-warning" id="mpWarning">
+                <i class="bi bi-exclamation-triangle-fill"></i>
+                <div>
+                    <strong style="display:block; margin-bottom:0.2rem;">Multiple platforms selected</strong>
+                    Each platform needs its own command set. Provide one below.
+                </div>
+            </div>
+
+            {# Command blocks — rebuilt by JS on selection change #}
+            <div id="commandBlocks"></div>
+
+            {# Rollout note #}
+            <div class="nr-panel mb-3">
+                <div class="nr-panel-body" style="padding:1rem 1.25rem;">
+                    <span class="nr-label d-block mb-2">Rollout Note <span style="color:#2a2a2a; font-size:0.65rem;">OPTIONAL</span></span>
+                    <input type="text" name="comment" maxlength="255"
+                           placeholder="e.g. VLAN 100 provisioning — ticket #4821"
+                           style="width:100%; background:#111; border:1px solid #222;
+                                  border-radius:6px; padding:0.5rem 0.75rem;
+                                  font-family:'Inter',sans-serif; font-size:0.8rem;
+                                  color:#ccc; outline:none; transition:border-color 0.15s;"
+                           onfocus="this.style.borderColor='rgba(0,188,212,0.35)'"
+                           onblur="this.style.borderColor='#222'">
+                </div>
+            </div>
+
+            {# Options #}
+            <div class="nr-panel">
+                <div class="nr-panel-body" style="padding:1rem 1.25rem;">
+                    <span class="nr-label d-block mb-2">Options</span>
+                    <div class="options-row">
+                        <label class="option-check">
+                            <span class="nr-toggle">
+                                <input type="checkbox" name="_verify" value="on">
+                                <span class="nr-toggle-slider"></span>
+                            </span>
+                            <i class="bi bi-patch-check" style="color:#00bcd4;"></i>
+                            Verify after push
+                            <span class="tooltip-q"
+                                  title="Verification is based on best-effort text matching. Vendors that restructure the config file (e.g. JSON-based platforms) may produce false negatives.">?</span>
+                        </label>
+                        <label class="option-check">
+                            <span class="nr-toggle">
+                                <input type="checkbox" name="_verbose" value="on">
+                                <span class="nr-toggle-slider"></span>
+                            </span>
+                            <i class="bi bi-terminal" style="color:#555;"></i>
+                            Verbose logging
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+        </div>{# /col #}
+    </div>{# /row #}
+</form>
+
+
+<script>
+(function () {
+    /* ── Vendor logo URLs (injected from Jinja) ── */
+    const VENDOR_LOGOS = {{ VENDOR_LOGOS | tojson }};
+
+    /* ── State ── */
+    let singleFileMode = {};      // platform → "paste"|"file"
+
+    /* ── Elements ── */
+    const form          = document.getElementById("rolloutForm");
+    const submitBtn     = document.getElementById("submitBtn");
+    const selectAll     = document.getElementById("selectAll");
+    const deviceSearch  = document.getElementById("deviceSearch");
+    const selCount      = document.getElementById("selectionCount");
+    const platformSumEl = document.getElementById("platformSummary");
+    const mpWarning     = document.getElementById("mpWarning");
+    const cmdBlocks     = document.getElementById("commandBlocks");
+    const pcInput       = document.getElementById("platformCommandsInput");
+    const noProfileWarn = document.getElementById("noProfileWarning");
+
+    /* ── Show no-profile warning if any disabled devices exist ── */
+    if (document.querySelector(".device-row.disabled")) {
+        noProfileWarn.classList.add("show");
+    }
+
+    /* ── Helpers ── */
+    function checkedBoxes() {
+        return [...document.querySelectorAll(".device-cb:checked")];
+    }
+
+    function getSelectedPlatforms() {
+        const map = {}; // platform → [label, ...]
+        checkedBoxes().forEach(cb => {
+            const p = cb.dataset.platform;
+            if (!map[p]) map[p] = [];
+            map[p].push(cb.dataset.label);
+        });
+        return map;
+    }
+
+    /* ── Build a single command block ── */
+    function buildCmdBlock(platform, isOnly) {
+        const mode = singleFileMode[platform] || "paste";
+        const blockId = "cb_" + platform.replace(/[^a-z0-9]/g, "_");
+        const taId    = "ta_" + platform.replace(/[^a-z0-9]/g, "_");
+        const fzId    = "fz_" + platform.replace(/[^a-z0-9]/g, "_");
+        const fnId    = "fn_" + platform.replace(/[^a-z0-9]/g, "_");
+        const fiId    = "fi_" + platform.replace(/[^a-z0-9]/g, "_");
+
+        const logoUrl = VENDOR_LOGOS[platform];
+        const logoHtml = logoUrl
+            ? `<img src="${logoUrl}/ffffff" alt="${platform}"
+                    style="width:16px;height:16px;object-fit:contain;
+                           filter:brightness(0) invert(1);opacity:0.5;
+                           margin-right:0.45rem;"
+                    onerror="this.style.display='none'">`
+            : `<i class="bi bi-hdd-network" style="font-size:0.85rem;color:#444;margin-right:0.45rem;"></i>`;
+
+        const wrap = document.createElement("div");
+        wrap.className = "cmd-section mb-3";
+        wrap.id = blockId;
+        wrap.innerHTML = `
+            <div class="cmd-section-header">
+                <span class="cmd-platform-label" style="display:flex;align-items:center;">
+                    ${logoHtml}${isOnly ? "Commands" : platform}
+                </span>
+                <div class="cmd-toggle">
+                    <button type="button" class="cmd-toggle-btn ${mode==="paste"?"active":""}"
+                            data-mode="paste" data-platform="${platform}">Paste</button>
+                    <button type="button" class="cmd-toggle-btn ${mode==="file"?"active":""}"
+                            data-mode="file" data-platform="${platform}">File</button>
+                </div>
+            </div>
+            <div style="${mode==="file"?"display:none;":""}">
+                <textarea class="cmd-textarea" id="${taId}"
+                          placeholder="interface GigabitEthernet0/1&#10;  description uplink&#10;  no shutdown"
+                          rows="7"></textarea>
+            </div>
+            <div class="cmd-file-zone" id="${fzId}" style="${mode==="file"?"display:block;":""}">
+                <label class="cmd-file-label" for="${fiId}">
+                    <i class="bi bi-file-earmark-text"></i>
+                    Choose .txt file
+                </label>
+                <input type="file" id="${fiId}" accept=".txt" style="display:none;">
+                <div class="cmd-filename" id="${fnId}" style="display:none;"></div>
+            </div>
+        `;
+
+        /* Toggle paste/file */
+        wrap.querySelectorAll(".cmd-toggle-btn").forEach(btn => {
+            btn.addEventListener("click", () => {
+                const m   = btn.dataset.mode;
+                const plt = btn.dataset.platform;
+                singleFileMode[plt] = m;
+                wrap.querySelectorAll(".cmd-toggle-btn").forEach(b =>
+                    b.classList.toggle("active", b.dataset.mode === m));
+                const ta = wrap.querySelector(`#${taId}`).parentElement;
+                const fz = wrap.querySelector(`#${fzId}`);
+                ta.style.display = m === "paste" ? "" : "none";
+                fz.style.display = m === "file"  ? "block" : "none";
+            });
+        });
+
+        /* File name display */
+        const fi = wrap.querySelector(`#${fiId}`);
+        const fn = wrap.querySelector(`#${fnId}`);
+        fi.addEventListener("change", () => {
+            if (fi.files[0]) {
+                fn.textContent = fi.files[0].name;
+                fn.style.display = "block";
+            }
+        });
+
+        return wrap;
+    }
+
+    /* ── Rebuild command blocks from current selection ── */
+    function rebuildCommandBlocks() {
+        const platforms = getSelectedPlatforms();
+        const keys = Object.keys(platforms);
+        const isMulti = keys.length > 1;
+
+        mpWarning.classList.toggle("show", isMulti);
+
+        /* Preserve existing text so toggling doesn't wipe typed commands */
+        const existing = {};
+        cmdBlocks.querySelectorAll(".cmd-section").forEach(el => {
+            const ta = el.querySelector(".cmd-textarea");
+            if (ta) existing[el.id] = ta.value;
+        });
+
+        cmdBlocks.innerHTML = "";
+
+        if (keys.length === 0) return;
+
+        keys.forEach(platform => {
+            const block  = buildCmdBlock(platform, keys.length === 1);
+            const blockId = "cb_" + platform.replace(/[^a-z0-9]/g, "_");
+            const taId    = "ta_" + platform.replace(/[^a-z0-9]/g, "_");
+            cmdBlocks.appendChild(block);
+            /* Restore preserved text */
+            if (existing[blockId]) {
+                block.querySelector(`#${taId}`).value = existing[blockId];
+            }
+        });
+    }
+
+    /* ── Update footer count + platform pills ── */
+    function updateFooter() {
+        const checked = checkedBoxes();
+        const count   = checked.length;
+        selCount.textContent = count === 0
+            ? "0 selected"
+            : `${count} device${count !== 1 ? "s" : ""} selected`;
+
+        const platforms = [...new Set(checked.map(cb => cb.dataset.platform))];
+        platformSumEl.innerHTML = platforms
+            .map(p => `<span class="platform-pill">${p}</span>`)
+            .join("");
+
+        submitBtn.disabled = count === 0;
+    }
+
+    /* ── Selection events ── */
+    document.querySelectorAll(".device-cb").forEach(cb => {
+        cb.addEventListener("change", () => {
+            const row = cb.closest(".device-row");
+            row.classList.toggle("selected", cb.checked);
+            updateFooter();
+            rebuildCommandBlocks();
+            syncSelectAll();
+        });
+    });
+
+    function syncSelectAll() {
+        const visible = [...document.querySelectorAll(".device-row")]
+            .filter(r => r.style.display !== "none" && !r.classList.contains("disabled"));
+        const checked = visible.filter(r => r.querySelector(".device-cb").checked);
+        selectAll.indeterminate = checked.length > 0 && checked.length < visible.length;
+        selectAll.checked = visible.length > 0 && checked.length === visible.length;
+    }
+
+    selectAll.addEventListener("change", () => {
+        const visible = [...document.querySelectorAll(".device-row")]
+            .filter(r => r.style.display !== "none" && !r.classList.contains("disabled"));
+        visible.forEach(row => {
+            const cb = row.querySelector(".device-cb");
+            cb.checked = selectAll.checked;
+            row.classList.toggle("selected", cb.checked);
+        });
+        updateFooter();
+        rebuildCommandBlocks();
+    });
+
+    /* ── Search ── */
+    deviceSearch.addEventListener("input", () => {
+        const q = deviceSearch.value.toLowerCase();
+        document.querySelectorAll(".device-row").forEach(row => {
+            const match = row.dataset.label.includes(q) || row.dataset.ip.includes(q);
+            row.style.display = match ? "" : "none";
+        });
+        syncSelectAll();
+    });
+
+    /* ── Form submit ── */
+    form.addEventListener("submit", e => {
+        e.preventDefault();
+        doSubmit();
+    });
+
+    function doSubmit() {
+        const platforms = getSelectedPlatforms();
+        const keys = Object.keys(platforms);
+        const isMulti = keys.length > 1;
+
+        if (isMulti) {
+            /* Multi-platform: collect per-platform commands into JSON */
+            const platformCommands = {};
+            let valid = true;
+
+            for (const platform of keys) {
+                const blockId = "cb_" + platform.replace(/[^a-z0-9]/g, "_");
+                const taId    = "ta_" + platform.replace(/[^a-z0-9]/g, "_");
+                const block   = document.getElementById(blockId);
+                const mode    = singleFileMode[platform] || "paste";
+
+                if (mode === "paste") {
+                    const text = block.querySelector(`#${taId}`)?.value?.trim();
+                    if (!text) {
+                        alert(`No commands provided for ${platform}.`);
+                        valid = false;
+                        break;
+                    }
+                    platformCommands[platform] = text;
+                } else {
+                    /* File mode for multi-platform: read synchronously isn't possible,
+                       so we fall back to paste validation */
+                    const fi = block.querySelector(`input[type="file"]`);
+                    if (!fi.files[0]) {
+                        alert(`No command file selected for ${platform}.`);
+                        valid = false;
+                        break;
+                    }
+                    /* Read file content via FileReader, then submit */
+                    const reader = new FileReader();
+                    reader.onload = ev => {
+                        platformCommands[platform] = ev.target.result.trim();
+                        if (Object.keys(platformCommands).length === keys.length) {
+                            pcInput.value = JSON.stringify(platformCommands);
+                            form.submit();
+                        }
+                    };
+                    reader.readAsText(fi.files[0]);
+                    return; /* async path — will call form.submit() from reader.onload */
+                }
+            }
+
+            if (!valid) return;
+            pcInput.value = JSON.stringify(platformCommands);
+        } else {
+            /* Single-platform: use native form fields (manual_commands / commands_file) */
+            pcInput.value = "";
+            const platform = keys[0];
+            const blockId  = "cb_" + platform.replace(/[^a-z0-9]/g, "_");
+            const taId     = "ta_" + platform.replace(/[^a-z0-9]/g, "_");
+            const block    = document.getElementById(blockId);
+            const mode     = singleFileMode[platform] || "paste";
+
+            if (mode === "paste") {
+                const text = block.querySelector(`#${taId}`)?.value?.trim();
+                if (!text) { alert("No commands provided."); return; }
+                /* Put text into a hidden textarea named manual_commands */
+                let mcField = form.querySelector("textarea[name='manual_commands']");
+                if (!mcField) {
+                    mcField = document.createElement("textarea");
+                    mcField.name = "manual_commands";
+                    mcField.style.display = "none";
+                    form.appendChild(mcField);
+                }
+                mcField.value = text;
+            } else {
+                /* File mode: wire the file input into a proper form field */
+                const fi = block.querySelector(`input[type="file"]`);
+                if (!fi.files[0]) { alert("No command file selected."); return; }
+                fi.name = "commands_file";
+            }
+        }
+
+        form.submit();
+    }
+})();
+</script>
+{% endblock %}
