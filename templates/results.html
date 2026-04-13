@@ -271,7 +271,7 @@
 <div class="job-row"
      data-status="{{ job.status }}"
      data-job-id="{{ job.job_id }}"
-     data-commands="{{ job.commands | tojson | e }}"
+     data-commands="{{ job.commands | tojson | forceescape }}"
      data-started-at="{{ job.started_at.isoformat() }}"
      data-comment="{{ job.comment | e if job.comment else '' }}"
      onclick="toggleJob(this)">
@@ -279,10 +279,21 @@
         <!-- Job ID + comment + optional owner -->
         <div>
             <input type="checkbox" class="diff-checkbox"
-                   onclick="event.stopPropagation(); handleDiffSelect(this)">
-            <span style="font-family:'JetBrains Mono',monospace; font-size:0.78rem; color:#777;">
+                   onclick="event.stopPropagation();"
+                   onchange="handleDiffSelect(this)">
+            <span style="font-family:'JetBrains Mono',monospace; font-size:0.78rem; color:#777;"
+                  title="{{ job.job_id }}">
                 {{ job.job_id[:8] }}…
-            </span>
+            </span><button type="button"
+                    onclick="event.stopPropagation(); copyJobId(this, '{{ job.job_id }}')"
+                    style="background:none; border:none; padding:0 0 0 4px; color:#444;
+                           cursor:pointer; font-size:0.72rem; vertical-align:middle;
+                           transition:color 0.15s;"
+                    title="Copy full job ID"
+                    onmouseenter="this.style.color='#00bcd4'"
+                    onmouseleave="this.style.color='#444'">
+                <i class="bi bi-copy"></i>
+            </button>
             {% if show_owner %}
             <span class="owner-badge ms-2">{{ job.owner }}</span>
             {% endif %}
@@ -327,7 +338,8 @@
         <div class="d-flex gap-2 mb-3">
             {% if job.commands %}
             <button class="job-action-btn"
-                    onclick="showCommands({{ job.commands | tojson }})">
+                    data-commands="{{ job.commands | tojson | forceescape }}"
+                    onclick="showCommands(JSON.parse(this.dataset.commands))">
                 <i class="bi bi-terminal"></i> See Commands
             </button>
             {% endif %}
@@ -488,8 +500,6 @@
 </div>
 {% endif %}
 
-{% endblock %}
-
 <!-- Diff modal -->
 <div class="modal fade" id="diffModal" tabindex="-1">
     <div class="modal-dialog modal-xl">
@@ -548,8 +558,23 @@
     </div>
 </div>
 
+{% endblock %}
+
 {% block extra_script %}
 <script>
+// ── Copy job ID ──────────────────────────────────────────────────────────────
+function copyJobId(btn, id) {
+    navigator.clipboard.writeText(id).then(() => {
+        const icon = btn.querySelector('i');
+        icon.className = 'bi bi-clipboard-check';
+        btn.style.color = '#a5d6a7';
+        setTimeout(() => {
+            icon.className = 'bi bi-clipboard';
+            btn.style.color = '#444';
+        }, 1500);
+    });
+}
+
 // ── Admin: all-users toggle ──────────────────────────────────────────────────
 function toggleAllUsers() {
     const flat  = document.getElementById('flat-view');
@@ -585,14 +610,18 @@ function toggleJob(row) {
 }
 
 function showCommands(commands) {
-    document.getElementById('commandsModalBody').textContent = commands.join('\n');
-    new bootstrap.Modal(document.getElementById('commandsModal')).show();
+    const body = document.getElementById('commandsModalBody');
+    body.textContent = Array.isArray(commands) && commands.length
+        ? commands.join('\n')
+        : '(no commands recorded)';
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('commandsModal')).show();
 }
 
 // ── Filter buttons (flat view) ───────────────────────────────────────────────
 document.querySelectorAll('.filter-btn').forEach(btn => {
     btn.addEventListener('click', function() {
-        document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+        if (!this.dataset.filter) return; // diff mode button — not a filter
+        document.querySelectorAll('.filter-btn[data-filter]').forEach(b => b.classList.remove('active'));
         this.classList.add('active');
         const filter = this.dataset.filter;
         document.querySelectorAll('#job-list .job-row').forEach(row => {
@@ -641,6 +670,7 @@ function handleDiffSelect(checkbox) {
 
     if (checkbox.checked) {
         if (selectedJobs.length >= 2) { checkbox.checked = false; return; }
+        if (selectedJobs.some(j => j.jobId === jobId)) { checkbox.checked = false; return; }
         selectedJobs.push({
             jobId,
             commands: JSON.parse(row.dataset.commands),
@@ -772,7 +802,10 @@ function runDiff() {
         tbody.appendChild(tr);
     });
 
-    new bootstrap.Modal(document.getElementById('diffModal')).show();
+    const diffModal = bootstrap.Modal.getOrCreateInstance(document.getElementById('diffModal'));
+    diffModal.show();
 }
+
+document.getElementById('diffModal').addEventListener('hidden.bs.modal', resetDiffSelection);
 </script>
 {% endblock %}

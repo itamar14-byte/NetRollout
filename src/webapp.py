@@ -997,6 +997,13 @@ def rollout_stream(job_id):
 		for msg in snapshot:
 			yield f"data: {msg}\n\n"
 
+		# Drain queue items already covered by the buffer snapshot
+		for _ in snapshot:
+			try:
+				job.get_log_queue()
+			except Empty:
+				break
+
 		while job.is_alive():
 			try:
 				msg = job.get_log_queue()
@@ -1246,7 +1253,7 @@ def security_delete(profile_id):
 @login_required
 def security_test(profile_id):
 	data = request.get_json()
-	if not data or not data.get_queue("device_id"):
+	if not data or not data.get("device_id"):
 		return {"status": "error", "message": "No device selected"}
 
 	try:

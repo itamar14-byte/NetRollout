@@ -157,6 +157,7 @@ class RolloutEngine:
             return device.ip, None
 
         logger.notify(f"connecting to {device.ip}:{device.port}", "yellow")
+        commands_sent = False
         try:
             # Initialise a netmiko connection object
             net_connect = netmiko.ConnectHandler(**(device.netmiko_connector()))
@@ -170,6 +171,7 @@ class RolloutEngine:
             # In case of syntax error or rejection, an error message is printed,
             # and we move to the next command
             for command in self._substitute_commands(device):
+                commands_sent = True
                 output = net_connect.send_config_set(
                     [command.strip()], exit_config_mode=False)
                 errors = ["Invalid", "unrecognized", "unknown"]
@@ -192,6 +194,14 @@ class RolloutEngine:
             return device.ip, False
         except netmiko.NetmikoTimeoutException:
             logger.notify(f"{device.ip} timed out", "red")
+            return device.ip, False
+        except netmiko.exceptions.ReadTimeout as e:
+            if commands_sent:
+                # Prompt changed mid-session (e.g. hostname rename) — config was applied
+                logger.notify(f"{device.ip}: prompt detection lost after config push"
+                              f" — treating as success", "yellow")
+                return device.ip, True
+            logger.notify(f"{device.ip} failed: {e}", "red")
             return device.ip, False
         except Exception as e:
             logger.notify(f"{device.ip} failed: {e}", "red")
@@ -303,14 +313,16 @@ class RolloutEngine:
 
                     logger.notify(
                         f"{node[0]} successfully configured with"
-                        f" {node[1]}/{len(self._commands)} _commands",
+                        f" {node[1]}/{len(self._commands)} commands",
                         important=True)
 
                 # Logs and prints (if _verbose), the rollout status per device and the summary
-                logger.notify(f"{failed} devices failed rollout", "red")
-                logger.notify(
-                    f"{partial} devices with problems in configuration",
-                    "yellow", important=True)
+                if failed > 0:
+                    logger.notify(f"{failed} devices failed rollout", "red")
+                if partial > 0:
+                    logger.notify(
+                        f"{partial} devices with problems in configuration",
+                        "yellow", important=True)
                 logger.notify(f"{successful} devices successfully configured",
                               "green", important=True)
 

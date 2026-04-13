@@ -547,20 +547,35 @@
     if (hasJobs) {
         dot.classList.add("ticking");
         let countdown = 15;
+        let refreshPaused = false;
         label.textContent = `refresh in ${countdown}s`;
         const iv = setInterval(() => {
+            if (refreshPaused) return;
             countdown--;
             label.textContent = `refresh in ${countdown}s`;
             if (countdown <= 0) {
                 clearInterval(iv);
-                /* Preserve new_job_id across auto-refresh only if not yet seen */
                 const url = new URL(window.location.href);
-                url.searchParams.delete("new"); // don't re-glow on auto-refresh
+                url.searchParams.delete("new");
                 window.location.href = url.toString();
             }
         }, 1000);
+
+        window._pauseRefresh = function() {
+            refreshPaused = true;
+            label.textContent = `refresh paused`;
+            dot.classList.remove("ticking");
+        };
+        window._resumeRefresh = function() {
+            if (Object.keys(openStreams).length > 0) return; // other panels still open
+            refreshPaused = false;
+            dot.classList.add("ticking");
+            label.textContent = `refresh in ${countdown}s`;
+        };
     } else {
         label.textContent = "idle";
+        window._pauseRefresh  = function() {};
+        window._resumeRefresh = function() {};
     }
 
     /* ── Log panel toggle ── */
@@ -579,15 +594,18 @@
                 openStreams[jobId].close();
                 delete openStreams[jobId];
             }
+            _resumeRefresh();
             return;
         }
 
         panel.classList.add("open");
         btn.classList.add("active");
         logOut.innerHTML = "";
+        _pauseRefresh();
 
         const es = new EventSource(`/rollout_stream/${jobId}`);
         openStreams[jobId] = es;
+        let streamClosedCleanly = false;
 
         es.onmessage = function(e) {
             if (!e.data.trim()) return;
@@ -599,17 +617,22 @@
             if (e.data.includes("rollout complete") ||
                 e.data.includes("Canceled By User") ||
                 e.data.includes("Please see Execution logs")) {
+                streamClosedCleanly = true;
                 es.close();
                 delete openStreams[jobId];
+                _resumeRefresh();
             }
         };
 
         es.onerror = function() {
-            const line = document.createElement("div");
-            line.innerHTML = "<span style='color:#ef5350;'>⚠ Stream ended.</span>";
-            logOut.appendChild(line);
             es.close();
             delete openStreams[jobId];
+            _resumeRefresh();
+            if (!streamClosedCleanly) {
+                const line = document.createElement("div");
+                line.innerHTML = "<span style='color:#ef5350;'>⚠ Stream ended.</span>";
+                logOut.appendChild(line);
+            }
         };
     };
 
