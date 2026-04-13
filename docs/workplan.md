@@ -1,5 +1,5 @@
 # Development Workplan
-_Last updated: 2026-04-13 — Phase 3.5 core unit tests complete (82 passing), webapp + CLI tests next_
+_Last updated: 2026-04-14 — first live EVE-NG rollout test complete, results page overhaul, edit-device test button_
 
 ---
 
@@ -174,6 +174,7 @@ Constructor takes `Validator` + `RolloutLogger`. Methods: `csv_to_inventory`, `f
 - Eager load of `profile.inventory` inside session before `expunge_all()` — prevents DetachedInstanceError
 - AGPL v3 license added to repo; footer license notice in `operator_base.html`
 - Inventory UI frontend: thin card grid, vendor badge (Simple Icons CDN via `VENDOR_LOGOS` Jinja2 global), FortiGate hover tooltip, NrSelect custom dropdown, edit modal with variable attributes expand section (hostname, loopback_ip, asn, mgmt_vrf, mgmt_interface, site, domain, timezone, vrfs)
+- TCP Test Connection button on both Add and Edit device modals — same three-state flow: grey Test → green Confirm (submit) / red Save Anyway (submit); status pill on left; resets on IP/port change and modal close
 - Security profiles drag-assign: split-view modal, draggable device cards, dashed drop zone, cardLand animation, AJAX to `/inventory/bulk_assign`
 - `Inventory.var_maps` JSON column, `Device.extra` dict field, `VariableMapping.index` nullable int
 - Inventory backend: `create`, `edit`, `delete`, `bulk_assign` all implemented and ownership-guarded
@@ -309,9 +310,10 @@ Extend dashboard into a full analytics view. Data sourced entirely from `DeviceR
 - CLI unit tests: argument parsing, file input, headless rollout flow
 - Mocked DB (SQLite in-memory or mock session) for route tests
 
-**Deferred — EVE-NG live testing (between Phase 3 and Phase 4):**
-- Spin up EVE-NG on AWS EC2 (Nitro instance, ~$15-25 for a few days)
-- Cannot run EVE-NG locally — conflicts with Docker/VMware Workstation on same machine
+**EVE-NG live testing (between Phase 3 and Phase 4):**
+- EVE-NG deployed on GCP with WireGuard VPN to dev machine (2026-04-13) — cannot run locally (conflicts with Docker/VMware Workstation virtualization)
+- First rollout test complete (2026-04-14): Cisco IOL IOS, hostname push + verify, ReadTimeout edge case hit and fixed
+- Next: multi-device test, FortiOS node, verify pass/partial/fail paths, rollback flow
 
 ### 3.6 Per-job device concurrency ✅ COMPLETE (2026-04-13)
 
