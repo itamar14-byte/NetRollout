@@ -234,6 +234,32 @@
     box-shadow: none !important;
 }
 
+/* ── Connection test status pill ── */
+.conn-status {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 0.3rem 0.7rem;
+    border-radius: 5px;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    max-width: 240px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.conn-status.conn-ok {
+    background: rgba(165,214,167,0.1);
+    border: 1px solid rgba(165,214,167,0.25);
+    color: #a5d6a7;
+}
+.conn-status.conn-fail {
+    background: rgba(239,83,80,0.1);
+    border: 1px solid rgba(239,83,80,0.25);
+    color: #ef9a9a;
+}
+
 {% endblock %}
 
 
@@ -466,11 +492,15 @@
                     </div>
 
                 </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-primary btn-sm">
-                        <i class="bi bi-plus-lg me-1"></i>Add Device
-                    </button>
+                <div class="modal-footer" style="justify-content:space-between; align-items:center; flex-wrap:nowrap;">
+                    <div id="addTestStatus" class="conn-status" style="display:none;"></div>
+                    <div class="d-flex gap-2">
+                        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                        <button type="button" id="addTestBtn" class="btn btn-secondary btn-sm"
+                                onclick="testAddConnection()">
+                            <i class="bi bi-plug me-1"></i>Test Connection
+                        </button>
+                    </div>
                 </div>
             </form>
         </div>
@@ -1001,6 +1031,87 @@ document.getElementById('addDeviceModal').querySelector('form')
             addPlatformSel.markError();
         }
     });
+
+// ════════════════════════════════════════
+//  Connection test — Add Device modal
+// ════════════════════════════════════════
+function resetAddTestBtn() {
+    const btn    = document.getElementById('addTestBtn');
+    const status = document.getElementById('addTestStatus');
+    btn.type      = 'button';
+    btn.className = 'btn btn-secondary btn-sm';
+    btn.innerHTML = '<i class="bi bi-plug me-1"></i>Test Connection';
+    btn.disabled  = false;
+    btn.onclick   = testAddConnection;
+    status.style.display = 'none';
+    status.className     = 'conn-status';
+    status.textContent   = '';
+}
+
+async function testAddConnection() {
+    const ipEl   = document.getElementById('addDevIp');
+    const portEl = document.getElementById('addDevPort');
+    const ip     = ipEl.value.trim();
+    const port   = portEl.value.trim();
+    const btn    = document.getElementById('addTestBtn');
+    const status = document.getElementById('addTestStatus');
+
+    // Client-side validation before sending
+    const ipRe = /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/;
+    if (!ipRe.test(ip)) {
+        ipEl.classList.add('is-invalid');
+        return;
+    }
+    const portNum = parseInt(port, 10);
+    if (!port || isNaN(portNum) || portNum < 1 || portNum > 65535) {
+        portEl.classList.add('is-invalid');
+        return;
+    }
+
+    // Testing state
+    btn.disabled  = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status"></span>Testing…';
+    status.style.display = 'none';
+
+    try {
+        const resp = await fetch('/inventory/test_connection', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN },
+            body:    JSON.stringify({ ip, port: portNum })
+        });
+        const data = await resp.json();
+
+        status.style.display = '';
+        if (data.status === 'success') {
+            status.className  = 'conn-status conn-ok';
+            status.innerHTML  = '<i class="bi bi-check-circle-fill"></i>' + data.message;
+            btn.type      = 'submit';
+            btn.className = 'btn btn-success btn-sm';
+            btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Confirm';
+            btn.disabled  = false;
+            btn.onclick   = null;
+        } else {
+            status.className  = 'conn-status conn-fail';
+            status.innerHTML  = '<i class="bi bi-x-circle-fill"></i>' + data.message;
+            btn.type      = 'submit';
+            btn.className = 'btn btn-danger btn-sm';
+            btn.innerHTML = '<i class="bi bi-exclamation-triangle me-1"></i>Save Anyway';
+            btn.disabled  = false;
+            btn.onclick   = null;
+        }
+    } catch (_) {
+        status.style.display = '';
+        status.className  = 'conn-status conn-fail';
+        status.innerHTML  = '<i class="bi bi-x-circle-fill"></i>Network error';
+        btn.disabled  = false;
+        btn.innerHTML = '<i class="bi bi-plug me-1"></i>Test Connection';
+        btn.onclick   = testAddConnection;
+    }
+}
+
+// Reset test state when IP or port changes after a test
+document.getElementById('addDevIp').addEventListener('input',   resetAddTestBtn);
+document.getElementById('addDevPort').addEventListener('input',  resetAddTestBtn);
 document.getElementById('editDeviceModal').querySelector('form')
     .addEventListener('submit', e => {
         if (!editPlatformSel.getValue()) {
@@ -1173,6 +1284,7 @@ document.getElementById('addDeviceModal').addEventListener('hidden.bs.modal', ()
     if (addPlatformSel) addPlatformSel.reset();
     form.querySelectorAll('.nr-submitted').forEach(el => el.classList.remove('nr-submitted'));
     form.querySelectorAll('.field-error').forEach(el => el.style.display = '');
+    resetAddTestBtn();
 });
 </script>
 {% endblock %}

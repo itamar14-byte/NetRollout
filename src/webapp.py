@@ -754,6 +754,26 @@ def inventory_create():
 	return redirect(url_for("inventory"))
 
 
+@app.route("/inventory/test_connection", methods=["POST"])
+@login_required
+def inventory_test_connection():
+	data = request.get_json()
+	if not data:
+		return {"status": "error", "message": "Invalid request"}
+
+	ip   = str(data.get("ip",   "")).strip()
+	port = str(data.get("port", "")).strip()
+
+	if not Validator.validate_ip(ip):
+		return {"status": "error", "message": "Invalid IP address"}
+	if not Validator.validate_port(port):
+		return {"status": "error", "message": "Port must be between 1 and 65535"}
+
+	if Validator.test_tcp_port(ip, int(port)):
+		return {"status": "success", "message": f"TCP port {port} reachable on {ip}"}
+	return {"status": "error", "message": f"TCP port {port} unreachable on {ip}"}
+
+
 @app.route("/inventory/<uuid:device_id>/edit", methods=["POST"])
 @login_required
 def inventory_edit(device_id):
