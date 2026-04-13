@@ -101,6 +101,7 @@ def audit(action, *, object_type=None, object_id=None, object_label=None,
 			object_label=object_label,
 			success=success,
 			ip_address=request.remote_addr,
+			detail=detail,
 		))
 
 

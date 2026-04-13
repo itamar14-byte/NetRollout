@@ -172,6 +172,24 @@
             flex-shrink: 0;
         }
 
+        /* Section label */
+        .sb-section {
+            font-family: 'Inter', sans-serif;
+            font-size: 0.58rem;
+            font-weight: 700;
+            letter-spacing: 1.8px;
+            text-transform: uppercase;
+            color: #2a2a2a;
+            padding: 0.55rem 0.65rem 0.2rem;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.15s ease;
+            white-space: nowrap;
+            overflow: hidden;
+            flex-shrink: 0;
+        }
+        #opSidebar.expanded .sb-section { opacity: 1; }
+
         /* Sidebar footer (version tag) */
         .sb-footer {
             padding: 0.75rem 0.6rem;
@@ -654,12 +672,26 @@
 
     <div class="sb-nav">
 
-        <a href="{{ url_for('dashboard') }}"
-           class="sb-link {% if active_section == 'dashboard' %}active{% endif %}"
-           title="Dashboard">
-            <i class="bi bi-speedometer2 sb-icon"></i>
-            <span class="sb-label">Dashboard</span>
+        {# ── Operation ── #}
+        <div class="sb-section">Operation</div>
+
+        <a href="{{ url_for('new_rollout') }}"
+           class="sb-link {% if active_section == 'rollout' %}active{% endif %}"
+           title="Launch Rollout">
+            <i class="bi bi-send sb-icon"></i>
+            <span class="sb-label">Launch Rollout</span>
         </a>
+
+        <a href="{{ url_for('active_jobs') }}"
+           class="sb-link {% if active_section == 'active_jobs' %}active{% endif %}"
+           title="Active Jobs">
+            <i class="bi bi-activity sb-icon"></i>
+            <span class="sb-label">Active Jobs</span>
+        </a>
+
+        {# ── Management ── #}
+        <hr class="sb-divider">
+        <div class="sb-section">Management</div>
 
         <a href="{{ url_for('inventory') }}"
            class="sb-link {% if active_section == 'inventory' %}active{% endif %}"
@@ -682,29 +714,25 @@
             <span class="sb-label">Variable Mappings</span>
         </a>
 
-        <a href="{{ url_for('new_rollout') }}"
-           class="sb-link {% if active_section == 'rollout' %}active{% endif %}"
-           title="Launch Rollout">
-            <i class="bi bi-send sb-icon"></i>
-            <span class="sb-label">Launch Rollout</span>
-        </a>
+        {# ── Observability ── #}
+        <hr class="sb-divider">
+        <div class="sb-section">Observability</div>
 
-        <a href="{{ url_for('active_jobs') }}"
-           class="sb-link {% if active_section == 'active_jobs' %}active{% endif %}"
-           title="Active Jobs">
-            <i class="bi bi-activity sb-icon"></i>
-            <span class="sb-label">Active Jobs</span>
+        <a href="{{ url_for('dashboard') }}"
+           class="sb-link {% if active_section == 'dashboard' %}active{% endif %}"
+           title="Dashboard">
+            <i class="bi bi-speedometer2 sb-icon"></i>
+            <span class="sb-label">Dashboard</span>
         </a>
 
         <a href="{{ url_for('results') }}"
            class="sb-link {% if active_section == 'results' %}active{% endif %}"
-           title="My Results">
+           title="Results">
             <i class="bi bi-clock-history sb-icon"></i>
-            <span class="sb-label">My Results</span>
+            <span class="sb-label">Results</span>
         </a>
 
         {% if current_user.role == "admin" %}
-        <hr class="sb-divider">
         <a href="{{ url_for('admin_panel') }}"
            class="sb-link {% if active_section == 'admin' %}active{% endif %}"
            title="Admin Panel">
