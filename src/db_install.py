@@ -4,7 +4,8 @@ from sqlalchemy.exc import SQLAlchemyError
 from db import Base, engine, get_session
 from werkzeug.security import generate_password_hash
 from tables import (User, Inventory, SecurityProfile, VariableMapping,
-                    RolloutSession, DeviceResult,var_mapping_to_devices,JobMetadata)
+                    RolloutSession, DeviceResult, var_mapping_to_devices,
+                    JobMetadata, AuditLog)
 
 try:
 	# NOTE: create_all only creates tables that don't exist — it never alters existing ones.
@@ -36,6 +37,19 @@ try:
 		        'device_result_retention',
 		        '0 3 * * *',
 		        $q$DELETE FROM device_results WHERE created_at < NOW() - INTERVAL '30 days'$q$
+		    );
+		"""))
+		conn.execute(text("""
+		    DO $$
+		    BEGIN
+		        PERFORM cron.unschedule('audit_log_retention');
+		    EXCEPTION WHEN OTHERS THEN NULL;
+		    END;
+		    $$;
+		    SELECT cron.schedule(
+		        'audit_log_retention',
+		        '0 3 * * *',
+		        $q$DELETE FROM audit_log WHERE timestamp < NOW() - INTERVAL '90 days'$q$
 		    );
 		"""))
 		conn.commit()

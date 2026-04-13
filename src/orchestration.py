@@ -18,7 +18,9 @@ class RolloutJob:
 		self.started_at: datetime.datetime | None = None
 		self.results: list[DeviceResultDict] = []
 		self._engine = engine
-		self._logger = RolloutLogger(options.webapp, options.verbose)
+		ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+		self._logger = RolloutLogger(options.webapp, options.verbose,
+		                             job_id=str(job_id), timestamp=ts)
 		self._cancel_flag = threading.Event()
 		self._thread = None
 

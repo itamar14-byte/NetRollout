@@ -2,7 +2,7 @@
 {% block title %}Admin Panel — NetRollout{% endblock %}
 
 {% block home_button %}
-<a href="{{ url_for('upload') }}" class="nr-back-btn">← Home</a>
+<a href="{{ url_for('dashboard') }}" class="nr-back-btn">← Home</a>
 {% endblock %}
 
 {% block content %}
@@ -37,11 +37,11 @@
       <span class="sidebar-label">User Management</span>
     </a>
 
-    <a href="#" class="sidebar-link disabled-link" title="Audit Logs">
+    <a href="{{ url_for('admin_audit') }}"
+       class="sidebar-link {% if active_section == 'audit' %}active{% endif %}"
+       title="Audit Logs">
       <span class="sidebar-icon">📋</span>
-      <span class="sidebar-label">Audit Logs
-        <span class="badge bg-secondary ms-1" style="font-size:0.55rem;">P2</span>
-      </span>
+      <span class="sidebar-label">Audit Logs</span>
     </a>
 
     <a href="#" class="sidebar-link disabled-link" title="Query">
