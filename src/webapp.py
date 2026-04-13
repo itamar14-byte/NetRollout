@@ -338,7 +338,7 @@ def cancel_rollout():
 	job = orchestrator.get(job_id)
 	if not job:
 		return {"status": "job_not_found"}
-	if job.user_id != current_user.id:
+	if job.user_id != current_user.id and current_user.role != "admin":
 		return {"status": "job_not_found_under_user"}
 	orchestrator.cancel(job_id)
 	audit("rollout.cancel", object_id=job_id)
@@ -926,15 +926,20 @@ def inventory_bulk_assign():
 @app.route("/active_jobs")
 @login_required
 def active_jobs():
+	is_admin = current_user.role == "admin"
 	with get_session() as db_session:
-		sessions = db_session.query(RolloutSession).filter_by(
-			user_id=current_user.id).all()
+		if is_admin:
+			sessions = db_session.query(RolloutSession).all()
+			usernames = {u.id: u.username for u in db_session.query(User).all()}
+		else:
+			sessions = db_session.query(RolloutSession).filter_by(
+				user_id=current_user.id).all()
+			usernames = {}
 		db_session.expunge_all()
 
-	jobs = []
-	for s in sessions:
+	def _build_job_dict(s):
 		job = orchestrator.get(s.id)
-		jobs.append({
+		return {
 			"id": str(s.id),
 			"status": s.status,
 			"created_at": s.created_at,
@@ -942,10 +947,19 @@ def active_jobs():
 			"started_at": job.started_at.strftime(
 				"%H:%M:%S") if job and job.started_at else "—",
 			"started_at_iso": job.started_at.isoformat() if job and job.started_at else "",
-		})
+			"owner": usernames.get(s.user_id, "unknown"),
+		}
+
+	if is_admin:
+		jobs       = [_build_job_dict(s) for s in sessions if s.user_id == current_user.id]
+		other_jobs = [_build_job_dict(s) for s in sessions if s.user_id != current_user.id]
+	else:
+		jobs       = [_build_job_dict(s) for s in sessions]
+		other_jobs = []
 
 	new_job_id = request.args.get("new", "")
-	return render_template("active_jobs.html", jobs=jobs,
+	return render_template("active_jobs.html", jobs=jobs, other_jobs=other_jobs,
+	                       is_admin=is_admin,
 	                       new_job_id=new_job_id, active_section="active_jobs")
 
 
@@ -953,7 +967,7 @@ def active_jobs():
 @login_required
 def rollout_stream(job_id):
 	job = orchestrator.get(job_id)
-	if not job or job.user_id != current_user.id:
+	if not job or (job.user_id != current_user.id and current_user.role != "admin"):
 		return Response(status=403)
 
 	def generate():
@@ -1030,57 +1044,86 @@ def rollback(job_id):
 @app.route("/results")
 @login_required
 def results():
+	is_admin = current_user.role == "admin"
 	with get_session() as db_session:
-		user = db_session.get(User, current_user.id)
-		raw_results = user.results
-		metadata_rows = user.job_metadata
+		if is_admin:
+			raw_results   = db_session.query(DeviceResult).all()
+			metadata_rows = db_session.query(JobMetadata).all()
+			usernames     = {u.id: u.username for u in db_session.query(User).all()}
+		else:
+			user          = db_session.get(User, current_user.id)
+			raw_results   = user.results
+			metadata_rows = user.job_metadata
+			usernames     = {}
 		db_session.expunge_all()
 
 	metadata_by_job = {m.job_id: m for m in metadata_rows}
 
-	sorted_results = sorted(raw_results, key=lambda x: x.job_id)
-	jobs = []
-	for job_id, rows in groupby(sorted_results, key=lambda x: x.job_id):
-		rows = list(rows)
-		meta = metadata_by_job.get(job_id)
-		log_matches = glob.glob(os.path.join(LOGS_DIR, f"rollout_*_{job_id}.log"))
-		jobs.append({
-			"job_id": str(job_id),
-			"has_log": bool(log_matches),
-			"started_at": min(r.started_at for r in rows),
-			"completed_at": max(r.completed_at for r in rows),
-			"device_count": len(rows),
-			"commands_sent": rows[0].commands_sent,
-			"status": job_status(rows),
-			"comment": meta.comment if meta else None,
-			"commands": meta.commands if meta else [],
-			"devices": [
-				{
-					"ip": r.device_ip,
-					"device_type": r.device_type,
-					"status": r.status,
-					"commands_sent": r.commands_sent,
-					"commands_verified": r.commands_verified,
-				}
-				for r in rows
-			]
-		})
+	def _build_jobs(result_rows, owner=None):
+		sorted_rows = sorted(result_rows, key=lambda x: x.job_id)
+		out = []
+		for job_id, rows in groupby(sorted_rows, key=lambda x: x.job_id):
+			rows = list(rows)
+			meta = metadata_by_job.get(job_id)
+			log_matches = glob.glob(os.path.join(LOGS_DIR, f"rollout_*_{job_id}.log"))
+			entry = {
+				"job_id": str(job_id),
+				"has_log": bool(log_matches),
+				"started_at": min(r.started_at for r in rows),
+				"completed_at": max(r.completed_at for r in rows),
+				"device_count": len(rows),
+				"commands_sent": rows[0].commands_sent,
+				"status": job_status(rows),
+				"comment": meta.comment if meta else None,
+				"commands": meta.commands if meta else [],
+				"devices": [
+					{
+						"ip": r.device_ip,
+						"device_type": r.device_type,
+						"status": r.status,
+						"commands_sent": r.commands_sent,
+						"commands_verified": r.commands_verified,
+					}
+					for r in rows
+				]
+			}
+			if owner is not None:
+				entry["owner"] = owner
+			out.append(entry)
+		out.sort(key=lambda x: x["completed_at"], reverse=True)
+		return out
 
-	jobs.sort(key=lambda x: x["completed_at"], reverse=True)
+	if is_admin:
+		my_raw    = [r for r in raw_results if r.user_id == current_user.id]
+		other_raw = [r for r in raw_results if r.user_id != current_user.id]
+		jobs       = _build_jobs(my_raw)
+		other_jobs = []
+		# group other_raw by user_id so each job gets its owner username
+		other_raw_sorted = sorted(other_raw, key=lambda x: x.user_id)
+		for user_id, user_rows in groupby(other_raw_sorted, key=lambda x: x.user_id):
+			owner = usernames.get(user_id, "unknown")
+			other_jobs.extend(_build_jobs(list(user_rows), owner=owner))
+		other_jobs.sort(key=lambda x: x["completed_at"], reverse=True)
+	else:
+		jobs       = _build_jobs(raw_results)
+		other_jobs = []
 
 	return render_template("results.html",
 	                       active_section="results",
-	                       jobs=jobs)
+	                       jobs=jobs,
+	                       other_jobs=other_jobs,
+	                       is_admin=is_admin)
 
 
 @app.route("/results/download_log/<uuid:job_id>")
 @login_required
 def download_log(job_id):
-	with get_session() as db_session:
-		owned = db_session.query(DeviceResult).filter_by(
-			job_id=job_id, user_id=current_user.id).first()
-	if not owned:
-		return Response("Not found", status=404)
+	if current_user.role != "admin":
+		with get_session() as db_session:
+			owned = db_session.query(DeviceResult).filter_by(
+				job_id=job_id, user_id=current_user.id).first()
+		if not owned:
+			return Response("Not found", status=404)
 	matches = glob.glob(os.path.join(LOGS_DIR, f"rollout_*_{job_id}.log"))
 	if not matches:
 		return Response("Log file not found", status=404)

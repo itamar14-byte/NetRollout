@@ -1,5 +1,5 @@
 # Development Workplan
-_Last updated: 2026-04-13 — Phase 3.4 audit trail complete, results page enhancements complete_
+_Last updated: 2026-04-13 — Phase 3.6 concurrency complete, admin all-users toggle complete_
 
 ---
 
@@ -300,30 +300,62 @@ Extend dashboard into a full analytics view. Data sourced entirely from `DeviceR
 - Auth route tests: login, register, OTP flow
 - EVE-NG findings will also drive improvements to logs/results screens
 
-### 3.6 Per-job device concurrency
-Refactor `RolloutEngine._push_config()` and `_verify()` to push to devices concurrently.
+### 3.6 Per-job device concurrency ✅ COMPLETE (2026-04-13)
 
-- `ThreadPoolExecutor` — each device SSH session in its own worker thread
-- `max_workers` configurable via `RolloutOptions` or env var
-- Results collected via futures (no shared dict, no race condition)
-- `cancel_event` already argument-passed — works correctly with thread pool
-- `RolloutLogger.notify()` already thread-safe via `queue.Queue`
+**Two-layer concurrency model:**
+- Layer 1 — job-level: `RolloutOrchestrator` runs up to `max_concurrent=4` jobs simultaneously, each in its own `threading.Thread`
+- Layer 2 — device-level: `RolloutEngine` uses `ThreadPoolExecutor(max_workers=10)` per job — up to 10 simultaneous SSH sessions per job, up to 40 total across 4 concurrent jobs
+
+**Engine changes (`core.py`):**
+- `max_workers: int = 10` added to `RolloutOptions`
+- `_push_device(device, cancel_event, logger) -> tuple[str, bool | None]` extracted from `_push_config` (all original comments and docstrings preserved)
+- `_verify_device(device, logger) -> tuple[str, int]` extracted from `_verify`
+- Both `_push_config` and `_verify` rewritten to use `ThreadPoolExecutor` + `as_completed`
+
+**Thread safety (`logging_utils.py`):**
+- `_buffer` made private; only accessible via `get_buffer_snapshot()` which acquires `_buffer_lock` and returns a copy — prevents `RuntimeError: list changed size during iteration` on SSE replay
+- `_buffer_lock: threading.Lock` — guards `_buffer.append()` in `notify()` and the copy in `get_buffer_snapshot()`
+- `_log_lock: threading.Lock` — serializes file writes in `_log()` across concurrent worker threads
+- `queue.Queue` is inherently thread-safe — no change needed
+- `orchestration.py`: `get_log_history()` updated to call `get_buffer_snapshot()` instead of accessing `_buffer` directly
+
+### 3.6b Admin all-users view ✅ COMPLETE (2026-04-13)
+
+**Active Jobs + Results pages — admin toggle:**
+- "All Users" button in page header (admin-only, hidden from operators)
+- Toggles between flat view (default, own jobs only) and split view (two collapsible sections: My Jobs / Other Users)
+- Each section has its own column headers and filter bar
+- Other Users section shows owner badge (username) on each job row
+- Both sections use the same expand/collapse, See Commands, Download Log, and Diff features
+
+**Admin power over all jobs:**
+- `cancel_rollout` — ownership check bypassed for admin
+- `rollout_stream` — SSE stream accessible by admin for any job
+- `download_log` — ownership check bypassed for admin
+
+**Backend:**
+- `active_jobs` route: if admin, queries all `RolloutSession` rows + username map; splits into `my_jobs` / `other_jobs`
+- `results` route: if admin, queries all `DeviceResult` + `JobMetadata`; groups other users' rows by `user_id` to attach owner username; passes `other_jobs` with `owner` field
+- Non-admin path unchanged — `other_jobs=[]`, `is_admin=False`
 
 ---
 
 ## Phase 4 — Packaging & Deployment
 
-### 4.0 Webapp modularisation — Flask Blueprints
+### 4.0 Webapp modularisation — Flask Blueprints + frontend asset splitting
 Split `webapp.py` into logical Blueprint modules once feature set is stable:
 - `auth.py` — login, register, OTP enroll/verify, logout
 - `inventory.py` — inventory CRUD, bulk assign, CSV import
 - `security.py` — security profile CRUD, test connection
 - `mappings.py` — variable mapping CRUD, bulk assign
 - `rollout.py` — new_rollout, new_start_rollout, active_jobs, rollout stream, cancel, rollback
-- `admin.py` — admin panel, user actions, bulk actions
+- `admin.py` — admin panel, user actions, bulk actions, audit
 - `webapp.py` — thin entry point: app factory, blueprint registration, Waitress serve
 
 Shared state (`orchestrator`, `csrf`, `login_mng`, `VENDOR_LOGOS`) lives in a `extensions.py` module imported by all blueprints. All `url_for` calls need blueprint prefix (e.g. `url_for('rollout.active_jobs')`).
+
+**Frontend asset splitting:**
+Extract per-page inline CSS and JS out of `{% block extra_style %}` / `{% block extra_script %}` into dedicated static files under `static/css/` and `static/js/`. Templates become thin layout files. Reduces the HTML ratio (currently ~75%) and makes JS/CSS independently cacheable and reviewable.
 
 
 

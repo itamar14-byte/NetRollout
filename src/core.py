@@ -1,5 +1,6 @@
 import os
 import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from typing import Optional, TypedDict
 
@@ -24,6 +25,7 @@ class RolloutOptions:
     verify: bool = False
     verbose: bool = False
     webapp: bool = False
+    max_workers: int = 10
 
 
 @dataclass(kw_only=True)
@@ -125,6 +127,7 @@ class RolloutEngine:
                  commands: list[str]) -> None:
         self.devices = devices
         self._verify_flag = param.verify
+        self._max_workers = param.max_workers
         self._commands = commands
 
     def _substitute_commands(self, device: Device) -> list[str]:
@@ -142,112 +145,130 @@ class RolloutEngine:
 
 
 
+    def _push_device(self, device: Device, cancel_event: threading.Event,
+                     logger: RolloutLogger) -> tuple[str, bool | None]:
+        """
+        Pushes configuration to a single device via Netmiko SSH.
+        Called concurrently by _push_config via ThreadPoolExecutor.
+        :return: (ip, True) on success, (ip, False) on failure,
+                 (ip, None) if cancelled before connecting
+        """
+        if cancel_event and cancel_event.is_set():
+            return device.ip, None
+
+        logger.notify(f"connecting to {device.ip}:{device.port}", "yellow")
+        try:
+            # Initialise a netmiko connection object
+            net_connect = netmiko.ConnectHandler(**(device.netmiko_connector()))
+            logger.notify(f"{device.ip} connected successfully", "green")
+            # Goes into privileged config mode, depending on the platform
+            net_connect.enable()
+            net_connect.config_mode()
+
+            # Runs all _commands in order,
+            # and checks that the command was accepted in the device
+            # In case of syntax error or rejection, an error message is printed,
+            # and we move to the next command
+            for command in self._substitute_commands(device):
+                output = net_connect.send_config_set(
+                    [command.strip()], exit_config_mode=False)
+                errors = ["Invalid", "unrecognized", "unknown"]
+                if any(err.lower() in output.lower() for err in errors):
+                    logger.notify(
+                        f"{command} failed on {device.ip}: {output}", "red")
+                    continue
+
+            # After _commands finish running,
+            # the configuration is saved and we gracefully close the SSH session
+            net_connect.exit_config_mode()
+            net_connect.save_config()
+            net_connect.disconnect()
+            return device.ip, True
+
+        # In case of exception or issue in connecting and executing the _commands,
+        # an error message will be printed, and we move to the next device
+        except netmiko.NetMikoAuthenticationException:
+            logger.notify(f"{device.ip} authentication failed", "red")
+            return device.ip, False
+        except netmiko.NetmikoTimeoutException:
+            logger.notify(f"{device.ip} timed out", "red")
+            return device.ip, False
+        except Exception as e:
+            logger.notify(f"{device.ip} failed: {e}", "red")
+            return device.ip, False
+
     def _push_config(self, cancel_event: threading.Event,
-                     logger: RolloutLogger) -> tuple[
-        str | None, dict[str, bool]]:
+                     logger: RolloutLogger) -> tuple[str | None, dict[str, bool]]:
         """
         The function will accept device and command data, as processed by parse_files and push the configuration,
-        using netmiko for SSH connections over the provided ip and port
-        :return: the function does not return anything, but executes the _commands
+        using netmiko for SSH connections over the provided ip and port.
+        Devices are pushed concurrently via ThreadPoolExecutor.
+        :return: (cancel_signal, push_results) where cancel_signal is "cancel_sent" or None
         """
         push_results = {}
-        # Goes over the dictionary list, each time focusing on a single device
-        for device in self.devices:
-            if cancel_event and cancel_event.is_set():
-                logger.notify("Rollout Canceled By User", color="red")
-                return "cancel_sent", push_results
-            else:
-                logger.notify(
-                    f"connecting to {device.ip}:{device.port}",
-                    "yellow")
-
-                # Tests tcp connectivity to the device on the requested port
-                try:
-                    # Initialise a netmiko connection object
-                    net_connect = (netmiko.ConnectHandler
-                                   (**(device.netmiko_connector())))
-                    logger.notify(
-                        f"{device.ip} connected successfully",
-                        "green")
-                    # Goes into privileged config mode, depending on the platform
-                    net_connect.enable()
-                    net_connect.config_mode()
-
-                    # Runs all _commands in order,
-                    # and checks that the command was accepted in the device
-                    # In case of syntax error or rejection, an error message is printed,
-                    # and we move to the next command
-                    for command in self._substitute_commands(device):
-                        output = net_connect.send_config_set(
-                            [command.strip()], exit_config_mode=False
-                        )
-                        errors = ["Invalid", "unrecognized", "unknown"]
-                        if any(err.lower() in output.lower() for err in errors):
-                            logger.notify(
-                                f"{command} failed on {device.ip}: {output}",
-                                "red")
-                            continue
-
-                    # After _commands finish running,
-                    # the configuration is saved and we gracefully close the SSH session
-                    net_connect.exit_config_mode()
-                    net_connect.save_config()
-                    net_connect.disconnect()
-                    push_results[device.ip] = True
-
-                # In case of exception or issue in connecting and executing the _commands,
-                # an error message will be printed, and we move to the next device
-                except netmiko.NetMikoAuthenticationException:
-                    logger.notify(f"{device.ip} authentication failed", "red")
-                    push_results[device.ip] = False
-                    continue
-                except netmiko.NetmikoTimeoutException:
-                    logger.notify(f"{device.ip} timed out", "red")
-                    push_results[device.ip] = False
-                    continue
-                except Exception as e:
-                    logger.notify(f"{device.ip} failed: {e}", "red")
-                    push_results[device.ip] = False
-                    continue
+        with ThreadPoolExecutor(max_workers=self._max_workers) as executor:
+            futures = {
+                executor.submit(self._push_device, device, cancel_event, logger): device
+                for device in self.devices
+            }
+            for future in as_completed(futures):
+                ip, result = future.result()
+                if result is None:
+                    logger.notify("Rollout Canceled By User", color="red")
+                    return "cancel_sent", push_results
+                push_results[ip] = result
         return None, push_results
 
 
 
-    def _verify(self,logger: RolloutLogger) -> dict[str, int]:
+    def _verify_device(self, device: Device,
+                       logger: RolloutLogger) -> tuple[str, int]:
+        """
+        Verifies a single device by fetching its running config and comparing
+        against the substituted commands. Called concurrently by _verify.
+        :return: (ip, successful_commands_count)
+        """
+        successful_commands = 0
+        # Loops through the devices and gets the running config, using fetch config function
+        config = device.fetch_config(logger)
+        # If there is a config file,
+        # we go through the command list
+        # and check it against the running config string
+        if config:
+            rejects = []
+            for command in self._substitute_commands(device):
+                command = command.strip()
+                # If a command has no match in the config, we print a notification. On a successful match,
+                # we increment the counter
+                if command.lower() not in config.lower():
+                    rejects.append(command)
+                    logger.notify(
+                        f"{command} not configured on {device.ip}", "red")
+                else:
+                    successful_commands += 1
+            # when a device has no rejects, such that all _commands match, we increment the counter, self.notify the user and
+            # move to the next device
+            if not rejects:
+                logger.notify(f"{device.ip} successfully configured", "green")
+        # Updates the result dictionary with the device ip and the number of successful _commands
+        return device.ip, successful_commands
+
+    def _verify(self, logger: RolloutLogger) -> dict[str, int]:
         """
         The function gets the list of devices and verifies which devices have been successfully configured
         by comparing the _commands to the config file from fetch_config()
-        :return: returns a counter of successful matches
+        Devices are verified concurrently via ThreadPoolExecutor.
+        :return: returns a dict of {ip: successful_commands_count}
         """
         result = {}
-        # Loops through the devices and gets the running config, using fetch config function
-        for device in self.devices:
-            successful_commands = 0
-            config = device.fetch_config(logger)
-            # If there is a config file,
-            # we go through the command list
-            # and check it against the running config string
-            if config:
-                rejects = []
-                for command in self._substitute_commands(device):
-                    command = command.strip()
-                    # If a command has no match in the config, we print a notification. On a successful match,
-                    # we increment the counter
-                    if command.lower() not in config.lower():
-                        rejects.append(command)
-                        logger.notify(
-                            f"{command} not configured on {device.ip}",
-                            "red")
-                    else:
-                        successful_commands += 1
-                # when a device has no rejects, such that all _commands match, we increment the counter, self.notify the user and
-                # move to the next device
-                if not rejects:
-                    logger.notify(
-                        f"{device.ip} successfully configured",
-                        "green")
-                # Updates the result dictionary with the device ip and the number of successful _commands
-                result.update({device.ip: successful_commands})
+        with ThreadPoolExecutor(max_workers=self._max_workers) as executor:
+            futures = {
+                executor.submit(self._verify_device, device, logger): device
+                for device in self.devices
+            }
+            for future in as_completed(futures):
+                ip, count = future.result()
+                result[ip] = count
         return result
 
     def run(self, cancel_flag: threading.Event, logger: RolloutLogger) -> list[DeviceResultDict]:

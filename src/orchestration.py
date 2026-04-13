@@ -47,7 +47,7 @@ class RolloutJob:
 		return self._logger.get_queue(1)
 
 	def get_log_history(self):
-		return self._logger.buffer
+		return self._logger.get_buffer_snapshot()
 
 	def get_device_count(self) -> int:
 		return len(self._engine.devices)

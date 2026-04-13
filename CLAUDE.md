@@ -56,17 +56,19 @@ All source code lives in `src/`. Scripts import each other directly (no package 
 - `DeviceResultDict` — TypedDict for `run()` return value
 
 **ORM models (`tables.py`):**
-- `User` — master table. Relationships: inventory, security_profiles, variable_mappings, sessions, results
+- `User` — master table. Relationships: inventory, security_profiles, variable_mappings, sessions, results, job_metadata
 - `Inventory` — device topology, FK to User + SecurityProfile (nullable). `var_maps` JSON column stores optional per-device substitution attributes (hostname, loopback_ip, asn, mgmt_vrf, mgmt_interface, site, domain, timezone, vrfs[])
 - `SecurityProfile` — label (nullable), username (plaintext), password_secret (Fernet-encrypted), enable_secret (Fernet-encrypted, nullable). FK to User
 - `VariableMapping` — free-text `$$TOKEN$$` → `property_name` + nullable `index` (int). `index=None` = string substitution; `index=N` = `device.extra[property_name][N]`. FK to User
 - `RolloutSession` — ephemeral active jobs ("RAM" table), FK to User. Deleted on completion
 - `DeviceResult` — permanent archive ("MEMORY" table), one row per device per job, FK to User
+- `JobMetadata` — pre-substitution commands (JSON) + optional comment, soft job_id ref, FK to User. 7-day pg_cron retention
+- `AuditLog` — append-only audit trail. `actor_id` (FK → users, ON DELETE SET NULL), `actor_username` (denormalized), `action` (dot-namespaced), `object_type`, `object_id` (soft ref), `object_label` (denormalized), `success`, `ip_address`. 90-day pg_cron retention
 
 **Service classes:**
 - `Validator(logger)` — instance methods: validate_device_data(), validate_file_extension(). Static: validate_ip(), validate_port(), validate_platform(), test_tcp_port()
 - `InputParser(validator, logger)` — csv_to_inventory(), form_to_inventory(), parse_commands(), _prepare_devices(). Static: import_from_inventory()
-- `RolloutLogger(webapp, verbose, logfile)` — log(), notify(), get()
+- `RolloutLogger(webapp, verbose, job_id, timestamp)` — constructs logfile path as `logs/rollout_{timestamp}_{job_id}.log`, calls `os.makedirs(LOGS_DIR)` in `__init__`. `LOGS_DIR = src/../logs/`. notify(), get_queue()
 
 **Job execution:**
 - `RolloutEngine(param, devices, commands)` — run(cancel_event, logger) → list[DeviceResultDict], _push_config(), _verify()
@@ -106,10 +108,18 @@ Always-dark enterprise aesthetic — permanently dark, no toggle. Key design ele
 ## Phase status
 - **Phase 1 — Auth pipeline ✅ COMPLETE (2026-04-06)**
 - **Frontend redesign ✅ COMPLETE (2026-04-07)**
-- **Architecture session ✅ COMPLETE (2026-04-07)** — see `docs/architecture.md`
-- **Phase 2 — Architecture refactor + DB integration (IN PROGRESS)** — all core refactoring + DB wiring done. Security Profiles UI complete. Inventory UI frontend complete. Remaining: inventory backend routes (create/edit/delete/bulk_assign)
-- **Phase 3 — Testing**
+- **Architecture session ✅ COMPLETE (2026-04-07)**
+- **Phase 2 — Architecture refactor + DB integration ✅ COMPLETE (2026-04-11)**
+- **Phase 3.1 — Variable mapping builder ✅ COMPLETE (2026-04-11)**
+- **Phase 3.1b — CSV import ✅ COMPLETE (2026-04-11)**
+- **Phase 3.2 — Rollout initiation from web UI ✅ COMPLETE (2026-04-12)**
+- **Phase 3.3 — Results page ✅ COMPLETE (2026-04-13)** — expandable job rows, See Commands modal, Download Log, side-by-side LCS diff
+- **Phase 3.4 — Audit trail ✅ COMPLETE (2026-04-13)** — AuditLog table, 21 instrumented routes, /admin/audit filterable UI, log file infrastructure
+- **Remaining Phase 3:** 3.4b Analytics, 3.5 Test suite, 3.6 Per-job device concurrency
 - **Phase 4 — Packaging**
+
+## Frontend asset structure (current — Phase 3)
+Per-page CSS and JS live inline in `{% block extra_style %}` and `{% block extra_script %}` blocks. This is intentional for Phase 3 — no build pipeline, one file per page. Phase 4 will extract these into `static/css/` and `static/js/` files.
 
 ## Working style
 - The developer writes the code; Claude reviews, advises, and discusses design

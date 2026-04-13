@@ -2,6 +2,7 @@ import datetime
 import html
 import os
 import queue
+import threading
 
 LOGS_DIR = os.path.join(os.path.dirname(__file__), "..", "logs")
 
@@ -29,7 +30,9 @@ class RolloutLogger:
     def __init__(self, webapp: bool, verbose: bool,
                  job_id: str = None, timestamp: str = None):
         self._queue = queue.Queue()
-        self.buffer = []
+        self._buffer = []
+        self._buffer_lock = threading.Lock()
+        self._log_lock = threading.Lock()
         self._webapp = webapp
         self._verbose = verbose
         if job_id and timestamp:
@@ -47,10 +50,11 @@ class RolloutLogger:
         :param message: message to write in the _log
         """
 
-        with open(self.logfile, "a") as file:
-            # Sets the current timestamp for the time of call and adds the stamped message to the _log file
-            timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            file.write(f"{timestamp}\t{message}\n")
+        with self._log_lock:
+            with open(self.logfile, "a") as file:
+                # Sets the current timestamp for the time of call and adds the stamped message to the _log file
+                timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                file.write(f"{timestamp}\t{message}\n")
 
     def _msg(self, message: str, color: str = "") -> str:
         """Adds ANSI escape sequences to terminal color for progress and error messages"""
@@ -78,13 +82,18 @@ class RolloutLogger:
             if important or self._verbose or color == "red":
                 content = self._msg(message, color)
                 self._queue.put(content)
-                self.buffer.append(content)
+                with self._buffer_lock:
+                    self._buffer.append(content)
             self._log(message)
             return None
         else:
             if important or self._verbose or color == "red":
                 print(self._msg(message, color))
             self._log(message)
+
+    def get_buffer_snapshot(self) -> list[str]:
+        with self._buffer_lock:
+            return list(self._buffer)
 
     def get_queue(self, timeout: int) -> str:
         return self._queue.get(timeout=timeout)

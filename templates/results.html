@@ -107,7 +107,7 @@
 }
 
 /* ── Filters ── */
-.filter-btn {
+.filter-btn, .filter-btn-split {
     background: transparent;
     border: 1px solid #333;
     color: #888;
@@ -117,7 +117,8 @@
     cursor: pointer;
     transition: all 0.15s;
 }
-.filter-btn:hover, .filter-btn.active {
+.filter-btn:hover, .filter-btn.active,
+.filter-btn-split:hover, .filter-btn-split.active {
     border-color: #00bcd4;
     color: #00bcd4;
     background: rgba(0,188,212,0.08);
@@ -207,47 +208,66 @@
 }
 .empty-state i { font-size: 2.5rem; margin-bottom: 16px; display: block; }
 
+/* ── Owner badge ── */
+.owner-badge {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.62rem;
+    color: #888;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid #2a2a2a;
+    border-radius: 3px;
+    padding: 1px 6px;
+    letter-spacing: 0.03em;
+    vertical-align: middle;
+}
+
+/* ── Section divider ── */
+.section-divider {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 0 0.5rem;
+    cursor: pointer;
+    user-select: none;
+    border-top: 1px solid #1e1e1e;
+    margin-top: 1rem;
+}
+.section-divider:first-child { border-top: none; margin-top: 0; }
+.section-divider-label {
+    font-family: 'Inter', sans-serif;
+    font-size: 0.68rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: #444;
+}
+.section-divider-chevron {
+    font-size: 0.75rem;
+    color: #333;
+    transition: transform 0.2s;
+}
+.section-divider.open .section-divider-chevron { transform: rotate(180deg); }
+
 {% endblock %}
 
 {% block operator_content %}
 <div class="d-flex align-items-center gap-3 mb-4">
     <div class="nr-badge">RESULTS</div>
     <h4 class="mb-0" style="font-weight:600;">Job History</h4>
-    <span style="color:#555; font-size:0.85rem;">{{ jobs|length }} job{{ 's' if jobs|length != 1 }}</span>
-</div>
-
-{% if jobs %}
-<!-- Filter bar -->
-<div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
-    <span style="color:#555; font-size:0.78rem; margin-right:4px;">Filter:</span>
-    <button class="filter-btn active" data-filter="all">All</button>
-    <button class="filter-btn" data-filter="success">Success</button>
-    <button class="filter-btn" data-filter="partial">Partial</button>
-    <button class="filter-btn" data-filter="failed">Failed</button>
-    <button class="filter-btn" data-filter="cancelled">Cancelled</button>
-    <div class="ms-auto d-flex gap-2 align-items-center">
-        <button id="diffModeBtn" class="filter-btn" onclick="toggleDiffMode()">
-            <i class="bi bi-file-diff me-1"></i>Compare
-        </button>
-        <button id="compareBtn" class="job-action-btn" style="display:none;" onclick="runDiff()">
-            <i class="bi bi-layout-split me-1"></i>Diff
+    <span style="color:#555; font-size:0.85rem;" id="jobCountLabel">{{ jobs|length }} job{{ 's' if jobs|length != 1 }}</span>
+    {% if is_admin %}
+    <div class="ms-auto">
+        <button id="allUsersToggle" class="job-action-btn" onclick="toggleAllUsers()"
+                style="border-color:#2a2a2a; color:#555;">
+            <i class="bi bi-people me-1"></i>All Users
         </button>
     </div>
+    {% endif %}
 </div>
 
-<!-- Column headers -->
-<div class="job-summary mb-1" style="padding: 4px 18px; cursor:default;">
-    <span class="col-header">Job / Note</span>
-    <span class="col-header">Started</span>
-    <span class="col-header">Duration</span>
-    <span class="col-header">Devices</span>
-    <span class="col-header">Commands</span>
-    <span class="col-header">Status</span>
-</div>
-
-<!-- Job rows -->
-<div id="job-list">
-{% for job in jobs %}
+{# ── Macro: renders job rows ── #}
+{% macro job_rows(job_list, show_owner=false) %}
+{% for job in job_list %}
 <div class="job-row"
      data-status="{{ job.status }}"
      data-job-id="{{ job.job_id }}"
@@ -256,13 +276,16 @@
      data-comment="{{ job.comment | e if job.comment else '' }}"
      onclick="toggleJob(this)">
     <div class="job-summary">
-        <!-- Job ID + comment -->
+        <!-- Job ID + comment + optional owner -->
         <div>
             <input type="checkbox" class="diff-checkbox"
                    onclick="event.stopPropagation(); handleDiffSelect(this)">
             <span style="font-family:'JetBrains Mono',monospace; font-size:0.78rem; color:#777;">
                 {{ job.job_id[:8] }}…
             </span>
+            {% if show_owner %}
+            <span class="owner-badge ms-2">{{ job.owner }}</span>
+            {% endif %}
             {% if job.comment %}
             <span class="comment-tag ms-2" title="{{ job.comment }}">{{ job.comment }}</span>
             {% endif %}
@@ -351,6 +374,42 @@
     </div>
 </div>
 {% endfor %}
+{% endmacro %}
+
+{# ── Flat view (default) ── #}
+<div id="flat-view">
+{% if jobs %}
+<!-- Filter bar -->
+<div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
+    <span style="color:#555; font-size:0.78rem; margin-right:4px;">Filter:</span>
+    <button class="filter-btn active" data-filter="all">All</button>
+    <button class="filter-btn" data-filter="success">Success</button>
+    <button class="filter-btn" data-filter="partial">Partial</button>
+    <button class="filter-btn" data-filter="failed">Failed</button>
+    <button class="filter-btn" data-filter="cancelled">Cancelled</button>
+    <div class="ms-auto d-flex gap-2 align-items-center">
+        <button id="diffModeBtn" class="filter-btn" onclick="toggleDiffMode()">
+            <i class="bi bi-file-diff me-1"></i>Compare
+        </button>
+        <button id="compareBtn" class="job-action-btn" style="display:none;" onclick="runDiff()">
+            <i class="bi bi-layout-split me-1"></i>Diff
+        </button>
+    </div>
+</div>
+
+<!-- Column headers -->
+<div class="job-summary mb-1" style="padding: 4px 18px; cursor:default;">
+    <span class="col-header">Job / Note</span>
+    <span class="col-header">Started</span>
+    <span class="col-header">Duration</span>
+    <span class="col-header">Devices</span>
+    <span class="col-header">Commands</span>
+    <span class="col-header">Status</span>
+</div>
+
+<!-- Job rows -->
+<div id="job-list">
+{{ job_rows(jobs) }}
 </div>
 
 {% else %}
@@ -360,6 +419,72 @@
         <div style="font-size:1rem; color:#666; margin-bottom:6px;">No completed jobs yet</div>
         <div style="font-size:0.82rem; color:#444;">Start a rollout to see results here.</div>
     </div>
+</div>
+{% endif %}
+</div>
+
+{# ── Split view (admin only) ── #}
+{% if is_admin %}
+<div id="split-view" style="display:none;">
+
+    {# Shared filter bar for split view #}
+    <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
+        <span style="color:#555; font-size:0.78rem; margin-right:4px;">Filter:</span>
+        <button class="filter-btn-split active" data-filter="all">All</button>
+        <button class="filter-btn-split" data-filter="success">Success</button>
+        <button class="filter-btn-split" data-filter="partial">Partial</button>
+        <button class="filter-btn-split" data-filter="failed">Failed</button>
+        <button class="filter-btn-split" data-filter="cancelled">Cancelled</button>
+    </div>
+
+    {# My Jobs section #}
+    <div class="section-divider open" onclick="toggleSection(this, 'my-jobs-body')">
+        <i class="bi bi-chevron-down section-divider-chevron"></i>
+        <span class="section-divider-label">My Jobs</span>
+        <span style="font-family:'JetBrains Mono',monospace; font-size:0.65rem; color:#333;">
+            {{ jobs|length }}
+        </span>
+    </div>
+    <div id="my-jobs-body">
+        {% if jobs %}
+        <div class="job-summary mb-1" style="padding: 4px 18px; cursor:default;">
+            <span class="col-header">Job / Note</span>
+            <span class="col-header">Started</span>
+            <span class="col-header">Duration</span>
+            <span class="col-header">Devices</span>
+            <span class="col-header">Commands</span>
+            <span class="col-header">Status</span>
+        </div>
+        <div id="my-job-list">{{ job_rows(jobs) }}</div>
+        {% else %}
+        <div style="text-align:center; padding:1.5rem; color:#444; font-size:0.8rem;">No jobs.</div>
+        {% endif %}
+    </div>
+
+    {# Other Users section #}
+    <div class="section-divider open" onclick="toggleSection(this, 'other-jobs-body')">
+        <i class="bi bi-chevron-down section-divider-chevron"></i>
+        <span class="section-divider-label">Other Users</span>
+        <span style="font-family:'JetBrains Mono',monospace; font-size:0.65rem; color:#333;">
+            {{ other_jobs|length }}
+        </span>
+    </div>
+    <div id="other-jobs-body">
+        {% if other_jobs %}
+        <div class="job-summary mb-1" style="padding: 4px 18px; cursor:default;">
+            <span class="col-header">Job / Owner / Note</span>
+            <span class="col-header">Started</span>
+            <span class="col-header">Duration</span>
+            <span class="col-header">Devices</span>
+            <span class="col-header">Commands</span>
+            <span class="col-header">Status</span>
+        </div>
+        <div id="other-job-list">{{ job_rows(other_jobs, show_owner=true) }}</div>
+        {% else %}
+        <div style="text-align:center; padding:1.5rem; color:#444; font-size:0.8rem;">No other users' jobs.</div>
+        {% endif %}
+    </div>
+
 </div>
 {% endif %}
 
@@ -425,6 +550,34 @@
 
 {% block extra_script %}
 <script>
+// ── Admin: all-users toggle ──────────────────────────────────────────────────
+function toggleAllUsers() {
+    const flat  = document.getElementById('flat-view');
+    const split = document.getElementById('split-view');
+    const btn   = document.getElementById('allUsersToggle');
+    const label = document.getElementById('jobCountLabel');
+    if (!split) return;
+    const on = split.style.display === 'none';
+    flat.style.display  = on ? 'none' : '';
+    split.style.display = on ? ''     : 'none';
+    btn.style.borderColor = on ? 'rgba(0,188,212,0.35)' : '';
+    btn.style.color       = on ? '#00bcd4'               : '';
+    btn.style.background  = on ? 'rgba(0,188,212,0.06)'  : '';
+    if (on) {
+        const total = document.querySelectorAll('#my-job-list .job-row, #other-job-list .job-row').length;
+        label.textContent = total + ' job' + (total !== 1 ? 's' : '') + ' (all users)';
+    } else {
+        const mine = document.querySelectorAll('#job-list .job-row').length;
+        label.textContent = mine + ' job' + (mine !== 1 ? 's' : '');
+    }
+}
+
+function toggleSection(header, bodyId) {
+    const body = document.getElementById(bodyId);
+    const open = header.classList.toggle('open');
+    body.style.display = open ? '' : 'none';
+}
+
 // ── Expand/collapse ──────────────────────────────────────────────────────────
 function toggleJob(row) {
     if (diffMode) return;
@@ -436,13 +589,25 @@ function showCommands(commands) {
     new bootstrap.Modal(document.getElementById('commandsModal')).show();
 }
 
-// ── Filter buttons ───────────────────────────────────────────────────────────
+// ── Filter buttons (flat view) ───────────────────────────────────────────────
 document.querySelectorAll('.filter-btn').forEach(btn => {
     btn.addEventListener('click', function() {
         document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
         this.classList.add('active');
         const filter = this.dataset.filter;
-        document.querySelectorAll('.job-row').forEach(row => {
+        document.querySelectorAll('#job-list .job-row').forEach(row => {
+            row.style.display = (filter === 'all' || row.dataset.status === filter) ? '' : 'none';
+        });
+    });
+});
+
+// ── Filter buttons (split view) ──────────────────────────────────────────────
+document.querySelectorAll('.filter-btn-split').forEach(btn => {
+    btn.addEventListener('click', function() {
+        document.querySelectorAll('.filter-btn-split').forEach(b => b.classList.remove('active'));
+        this.classList.add('active');
+        const filter = this.dataset.filter;
+        document.querySelectorAll('#my-job-list .job-row, #other-job-list .job-row').forEach(row => {
             row.style.display = (filter === 'all' || row.dataset.status === filter) ? '' : 'none';
         });
     });

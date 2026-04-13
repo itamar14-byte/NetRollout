@@ -177,6 +177,42 @@
 .empty-wrap i { font-size: 2.5rem; color: #1e1e1e; display: block; margin-bottom: 1rem; }
 .empty-wrap p { color: #333; font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; margin-bottom: 1.25rem; }
 
+/* ── Owner badge ── */
+.owner-badge {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.62rem;
+    color: #888;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid #2a2a2a;
+    border-radius: 3px;
+    padding: 1px 6px;
+    letter-spacing: 0.03em;
+}
+
+/* ── Section divider ── */
+.section-divider {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.5rem 0 0.75rem;
+    cursor: pointer;
+    user-select: none;
+}
+.section-divider-label {
+    font-family: 'Inter', sans-serif;
+    font-size: 0.68rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: #444;
+}
+.section-divider-chevron {
+    font-size: 0.75rem;
+    color: #333;
+    transition: transform 0.2s;
+}
+.section-divider.open .section-divider-chevron { transform: rotate(180deg); }
+
 /* ── Auto-refresh indicator ── */
 .refresh-indicator {
     font-family: 'JetBrains Mono', monospace;
@@ -208,6 +244,12 @@
             <span class="refresh-dot" id="refreshDot"></span>
             <span id="refreshLabel">—</span>
         </div>
+        {% if is_admin %}
+        <button id="allUsersToggle" class="job-action-btn" onclick="toggleAllUsers()"
+                style="border-color:#2a2a2a; color:#555;">
+            <i class="bi bi-people me-1"></i>All Users
+        </button>
+        {% endif %}
         <a href="{{ url_for('new_rollout') }}" class="btn btn-primary"
            style="font-size:0.82rem; padding:0.45rem 1.2rem;">
             <i class="bi bi-plus me-1"></i>New Rollout
@@ -246,116 +288,163 @@
     </div>
 </div>
 
+{# ── Macro: renders a jobs table ── #}
+{% macro jobs_table(job_list, show_owner=false) %}
+{% if job_list %}
+<div class="table-responsive" style="border-radius:0 0 12px 12px;">
+<table class="jobs-table">
+    <thead>
+        <tr>
+            <th>Job ID</th>
+            {% if show_owner %}<th>Owner</th>{% endif %}
+            <th>Status</th>
+            <th>Devices</th>
+            <th>Started</th>
+            <th>Elapsed</th>
+            <th style="text-align:right; padding-right:1.25rem;">Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+    {% for job in job_list %}
+
+    {# ── Job row ── #}
+    <tr class="job-row {{ 'job-new' if job.id == new_job_id else '' }}"
+        id="row-{{ job.id }}">
+
+        <td>
+            <span class="term cyan" style="font-size:0.7rem;"
+                  title="{{ job.id }}">
+                {{ job.id[:8] }}…
+            </span>
+        </td>
+
+        {% if show_owner %}
+        <td><span class="owner-badge">{{ job.owner }}</span></td>
+        {% endif %}
+
+        <td>
+            <div class="d-flex align-items-center gap-2">
+                <span class="status-dot {{ job.status }}"></span>
+                <span class="status-pill {{ job.status }}">{{ job.status }}</span>
+            </div>
+        </td>
+
+        <td>
+            <span class="term bright">{{ job.device_count }}</span>
+        </td>
+
+        <td>
+            <span class="term">{{ job.started_at }}</span>
+        </td>
+
+        <td>
+            <span class="term cyan elapsed-timer"
+                  data-started="{{ job.started_at_iso if job.started_at_iso else '' }}">
+                {{ '—' if not job.started_at_iso else '' }}
+            </span>
+        </td>
+
+        <td style="text-align:right;">
+            <div class="d-flex align-items-center justify-content-end gap-2">
+                <button class="job-action-btn btn-log"
+                        data-job-id="{{ job.id }}"
+                        onclick="toggleLog(this)">
+                    <i class="bi bi-terminal me-1"></i>Log
+                </button>
+                <form method="POST" action="{{ url_for('cancel_rollout') }}"
+                      style="display:inline;"
+                      onsubmit="return confirm('Cancel this job? Devices mid-push may be left with partial config.');">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="job_id" value="{{ job.id }}">
+                    <button type="submit" class="job-action-btn btn-cancel">
+                        <i class="bi bi-stop-circle me-1"></i>Cancel
+                    </button>
+                </form>
+                <button class="job-action-btn btn-rollback"
+                        data-job-id="{{ job.id }}"
+                        onclick="openRollback('{{ job.id }}')">
+                    <i class="bi bi-arrow-counterclockwise me-1"></i>Rollback
+                </button>
+            </div>
+        </td>
+    </tr>
+
+    {# ── Inline log panel ── #}
+    <tr class="log-panel" id="log-{{ job.id }}">
+        <td colspan="{{ 7 if show_owner else 6 }}" class="log-panel-inner" style="padding:0;">
+            <div class="log-terminal-header">
+                <div class="log-terminal-dot"></div>
+                <div class="log-terminal-dot"></div>
+                <div class="log-terminal-dot"></div>
+                <span class="term muted" style="font-size:0.6rem; letter-spacing:1.5px; margin-left:0.5rem;">
+                    JOB {{ job.id[:8] }} · LOG STREAM
+                </span>
+            </div>
+            <div class="log-terminal" id="log-out-{{ job.id }}">
+                <em style="color:#222;">Connecting…</em>
+            </div>
+        </td>
+    </tr>
+
+    {% endfor %}
+    </tbody>
+</table>
+</div>
+{% else %}
+<div class="empty-wrap">
+    <i class="bi bi-broadcast"></i>
+    <p>No active rollouts — system is idle</p>
+    {% if not show_owner %}
+    <a href="{{ url_for('new_rollout') }}" class="btn btn-outline-primary btn-sm"
+       style="font-size:0.8rem;">
+        <i class="bi bi-play me-1"></i>Start a Rollout
+    </a>
+    {% endif %}
+</div>
+{% endif %}
+{% endmacro %}
+
 {# ── Jobs table ── #}
 <div class="nr-card">
     <div class="nr-card-accent"></div>
 
-    {% if jobs %}
-    <div class="table-responsive" style="border-radius:0 0 12px 12px;">
-    <table class="jobs-table">
-        <thead>
-            <tr>
-                <th>Job ID</th>
-                <th>Status</th>
-                <th>Devices</th>
-                <th>Started</th>
-                <th>Elapsed</th>
-                <th style="text-align:right; padding-right:1.25rem;">Actions</th>
-            </tr>
-        </thead>
-        <tbody>
-        {% for job in jobs %}
-
-        {# ── Job row ── #}
-        <tr class="job-row {{ 'job-new' if job.id == new_job_id else '' }}"
-            id="row-{{ job.id }}">
-
-            <td>
-                <span class="term cyan" style="font-size:0.7rem;"
-                      title="{{ job.id }}">
-                    {{ job.id[:8] }}…
-                </span>
-            </td>
-
-            <td>
-                <div class="d-flex align-items-center gap-2">
-                    <span class="status-dot {{ job.status }}"></span>
-                    <span class="status-pill {{ job.status }}">{{ job.status }}</span>
-                </div>
-            </td>
-
-            <td>
-                <span class="term bright">{{ job.device_count }}</span>
-            </td>
-
-            <td>
-                <span class="term">{{ job.started_at }}</span>
-            </td>
-
-            <td>
-                <span class="term cyan elapsed-timer"
-                      data-started="{{ job.started_at_iso if job.started_at_iso else '' }}">
-                    {{ '—' if not job.started_at_iso else '' }}
-                </span>
-            </td>
-
-            <td style="text-align:right;">
-                <div class="d-flex align-items-center justify-content-end gap-2">
-                    <button class="job-action-btn btn-log"
-                            data-job-id="{{ job.id }}"
-                            onclick="toggleLog(this)">
-                        <i class="bi bi-terminal me-1"></i>Log
-                    </button>
-                    <form method="POST" action="{{ url_for('cancel_rollout') }}"
-                          style="display:inline;"
-                          onsubmit="return confirm('Cancel this job? Devices mid-push may be left with partial config.');">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                        <input type="hidden" name="job_id" value="{{ job.id }}">
-                        <button type="submit" class="job-action-btn btn-cancel">
-                            <i class="bi bi-stop-circle me-1"></i>Cancel
-                        </button>
-                    </form>
-                    <button class="job-action-btn btn-rollback"
-                            data-job-id="{{ job.id }}"
-                            onclick="openRollback('{{ job.id }}')">
-                        <i class="bi bi-arrow-counterclockwise me-1"></i>Rollback
-                    </button>
-                </div>
-            </td>
-        </tr>
-
-        {# ── Inline log panel ── #}
-        <tr class="log-panel" id="log-{{ job.id }}">
-            <td colspan="6" class="log-panel-inner" style="padding:0;">
-                <div class="log-terminal-header">
-                    <div class="log-terminal-dot"></div>
-                    <div class="log-terminal-dot"></div>
-                    <div class="log-terminal-dot"></div>
-                    <span class="term muted" style="font-size:0.6rem; letter-spacing:1.5px; margin-left:0.5rem;">
-                        JOB {{ job.id[:8] }} · LOG STREAM
-                    </span>
-                </div>
-                <div class="log-terminal" id="log-out-{{ job.id }}">
-                    <em style="color:#222;">Connecting…</em>
-                </div>
-            </td>
-        </tr>
-
-        {% endfor %}
-        </tbody>
-    </table>
+    {# Flat view (default, and non-admin always) #}
+    <div id="flat-view">
+        {{ jobs_table(jobs) }}
     </div>
 
-    {% else %}
-    <div class="empty-wrap">
-        <i class="bi bi-broadcast"></i>
-        <p>No active rollouts — system is idle</p>
-        <a href="{{ url_for('new_rollout') }}" class="btn btn-outline-primary btn-sm"
-           style="font-size:0.8rem;">
-            <i class="bi bi-play me-1"></i>Start a Rollout
-        </a>
+    {# Split view (admin only, shown when toggled) #}
+    {% if is_admin %}
+    <div id="split-view" style="display:none; padding: 0.75rem 1rem 0.5rem;">
+
+        {# My Jobs section #}
+        <div class="section-divider open" onclick="toggleSection(this, 'my-jobs-body')">
+            <i class="bi bi-chevron-down section-divider-chevron"></i>
+            <span class="section-divider-label">My Jobs</span>
+            <span style="font-family:'JetBrains Mono',monospace; font-size:0.65rem; color:#333;">
+                {{ jobs|length }}
+            </span>
+        </div>
+        <div id="my-jobs-body">
+            {{ jobs_table(jobs) }}
+        </div>
+
+        {# Other Users section #}
+        <div class="section-divider open" style="margin-top:1rem;"
+             onclick="toggleSection(this, 'other-jobs-body')">
+            <i class="bi bi-chevron-down section-divider-chevron"></i>
+            <span class="section-divider-label">Other Users</span>
+            <span style="font-family:'JetBrains Mono',monospace; font-size:0.65rem; color:#333;">
+                {{ other_jobs|length }}
+            </span>
+        </div>
+        <div id="other-jobs-body">
+            {{ jobs_table(other_jobs, show_owner=true) }}
+        </div>
+
     </div>
     {% endif %}
+
 </div>
 
 {# ── Rollback modal ── #}
@@ -522,6 +611,27 @@
             es.close();
             delete openStreams[jobId];
         };
+    };
+
+    /* ── Admin: all-users toggle ── */
+    window.toggleAllUsers = function() {
+        const flat  = document.getElementById("flat-view");
+        const split = document.getElementById("split-view");
+        const btn   = document.getElementById("allUsersToggle");
+        if (!split) return;
+        const on = split.style.display === "none";
+        flat.style.display  = on ? "none" : "";
+        split.style.display = on ? ""     : "none";
+        btn.style.borderColor = on ? "rgba(0,188,212,0.35)" : "";
+        btn.style.color       = on ? "#00bcd4"               : "";
+        btn.style.background  = on ? "rgba(0,188,212,0.06)"  : "";
+    };
+
+    /* ── Admin: collapsible sections ── */
+    window.toggleSection = function(header, bodyId) {
+        const body = document.getElementById(bodyId);
+        const open = header.classList.toggle("open");
+        body.style.display = open ? "" : "none";
     };
 
     /* ── Rollback modal ── */
