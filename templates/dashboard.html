@@ -312,23 +312,23 @@
                 <div style="font-size:0.88rem; font-weight:600; color:#e0e0e0; margin-bottom:1rem;">Summary</div>
 
                 <div class="sys-row">
-                    <span class="nr-label" style="margin-bottom:0;">Inventory</span>
+                    <a href="{{ url_for('inventory') }}" class="nr-label" style="margin-bottom:0; color:inherit; text-decoration:none;" >Inventory</a>
                     <span class="term bright">{{ inventory_count }} device{{ 's' if inventory_count != 1 }}</span>
                 </div>
                 <div class="sys-row">
-                    <span class="nr-label" style="margin-bottom:0;">Security Profiles</span>
+                    <a href="{{ url_for('security') }}" class="nr-label" style="margin-bottom:0; color:inherit; text-decoration:none;" >Security Profiles</a>
                     <span class="term bright">{{ profile_count }} profile{{ 's' if profile_count != 1 }}</span>
                 </div>
                 <div class="sys-row">
-                    <span class="nr-label" style="margin-bottom:0;">Variable Mappings</span>
+                    <a href="{{ url_for('mappings') }}" class="nr-label" style="margin-bottom:0; color:inherit; text-decoration:none;" >Variable Mappings</a>
                     <span class="term bright">{{ mapping_count }} mapping{{ 's' if mapping_count != 1 }}</span>
                 </div>
                 <div class="sys-row">
-                    <span class="nr-label" style="margin-bottom:0;">Total Rollouts</span>
+                    <a href="{{ url_for('results') }}" class="nr-label" style="margin-bottom:0; color:inherit; text-decoration:none;" >Total Rollouts</a>
                     <span class="term bright">{{ total_rollouts }}</span>
                 </div>
                 <div class="sys-row">
-                    <span class="nr-label" style="margin-bottom:0;">Last Status</span>
+                    <a href="{{ url_for('results') }}" class="nr-label" style="margin-bottom:0; color:inherit; text-decoration:none;" >Last Status</a>
                     {% if last_status %}
                     <span class="status-pill {{ last_status }}">{{ last_status }}</span>
                     {% else %}
