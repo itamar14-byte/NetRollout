@@ -86,7 +86,7 @@ def load_user(user_id):
 def audit(action, *, object_type=None, object_id=None, object_label=None,
           detail=None, success=True, username=None, actor_id=None):
 	"""Write one append-only audit row. Opens its own session so the write
-	commits independently of the calling route's transaction."""
+	commits independently of the calling route transaction."""
 	if username is None:
 		username = current_user.username if current_user.is_authenticated else "anonymous"
 	if actor_id is None:
@@ -381,7 +381,7 @@ def new_start_rollout():
 		flash("Invalid device selection.", "danger")
 		return redirect(url_for("new_rollout"))
 
-	# 3) Detect single vs multi-platform mode early.
+	# 3) Detect single vs. multi-platform mode early.
 	# The frontend sends a JSON field "platform_commands" when multiple platforms
 	# are selected, and omits it (or sends empty) for single-platform rollouts.
 	raw_platform_commands = request.form.get("platform_commands", "").strip()
@@ -389,7 +389,7 @@ def new_start_rollout():
 
 	# 4) Collect and validate commands based on mode.
 	if is_multi_platform:
-		# Multi-platform: parse the JSON map of platform → command text.
+		# Multi-platform: parse the JSON map of the platform → command text.
 		try:
 			platform_commands_map = json.loads(raw_platform_commands)
 		except json.JSONDecodeError:
@@ -718,14 +718,14 @@ def inventory():
 		user = db_session.get(User, current_user.id)
 		devices = user.inventory
 		profiles = user.security_profiles
-		mappings = user.variable_mappings
+		var_mappings = user.variable_mappings
 		_ = [d.security_profile for d in devices]
 		_ = [d.var_mappings for d in devices]
 		db_session.expunge_all()
 	return render_template("inventory.html",
 	                       devices=devices,
 	                       profiles=profiles,
-	                       mappings=mappings,
+	                       mappings=var_mappings,
 	                       active_section="inventory")
 
 
@@ -853,7 +853,8 @@ def inventory_import_csv():
 	log_path = tempfile.mktemp(suffix=".log")
 
 	try:
-		logger = RolloutLogger(webapp=True, verbose=False, logfile=log_path)
+		#TODO verify correctness
+		logger = RolloutLogger(webapp=True, verbose=False)
 		validator = Validator(logger)
 		parser = InputParser(validator, logger)
 
@@ -1060,7 +1061,7 @@ def results():
 
 	metadata_by_job = {m.job_id: m for m in metadata_rows}
 
-	def _build_jobs(result_rows, owner=None):
+	def _build_jobs(result_rows, job_owner=None):
 		sorted_rows = sorted(result_rows, key=lambda x: x.job_id)
 		out = []
 		for job_id, rows in groupby(sorted_rows, key=lambda x: x.job_id):
@@ -1088,8 +1089,8 @@ def results():
 					for r in rows
 				]
 			}
-			if owner is not None:
-				entry["owner"] = owner
+			if job_owner is not None:
+				entry["job_owner"] = job_owner
 			out.append(entry)
 		out.sort(key=lambda x: x["completed_at"], reverse=True)
 		return out
@@ -1099,11 +1100,11 @@ def results():
 		other_raw = [r for r in raw_results if r.user_id != current_user.id]
 		jobs       = _build_jobs(my_raw)
 		other_jobs = []
-		# group other_raw by user_id so each job gets its owner username
+		# group other_raw by user_id so each job gets its job_owner username
 		other_raw_sorted = sorted(other_raw, key=lambda x: x.user_id)
 		for user_id, user_rows in groupby(other_raw_sorted, key=lambda x: x.user_id):
 			owner = usernames.get(user_id, "unknown")
-			other_jobs.extend(_build_jobs(list(user_rows), owner=owner))
+			other_jobs.extend(_build_jobs(list(user_rows), job_owner=owner))
 		other_jobs.sort(key=lambda x: x["completed_at"], reverse=True)
 	else:
 		jobs       = _build_jobs(raw_results)
