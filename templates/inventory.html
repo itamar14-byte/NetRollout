@@ -498,6 +498,10 @@
                                 <div class="nr-select-search-wrap">
                                     <input type="text" class="nr-select-search" placeholder="Search profiles…">
                                 </div>
+                                <div class="nr-select-create-new"
+                                     onclick="event.stopPropagation(); openQuickCreateProfile('add')">
+                                    <i class="bi bi-plus-circle"></i>Create New Profile
+                                </div>
                                 <div class="nr-select-list">
                                     <div class="nr-select-option none-opt selected"
                                          data-value="" data-label="">
@@ -513,10 +517,6 @@
                                         <i class="bi bi-check2 opt-check"></i>
                                     </div>
                                     {% endfor %}
-                                </div>
-                                <div class="nr-select-create-new"
-                                     onclick="event.stopPropagation(); openQuickCreateProfile('add')">
-                                    <i class="bi bi-plus-circle"></i>Create New Profile
                                 </div>
                             </div>
                             <input type="hidden" name="sec_profile_id" value="">
@@ -625,6 +625,10 @@
                                 <div class="nr-select-search-wrap">
                                     <input type="text" class="nr-select-search" placeholder="Search profiles…">
                                 </div>
+                                <div class="nr-select-create-new"
+                                     onclick="event.stopPropagation(); openQuickCreateProfile('edit')">
+                                    <i class="bi bi-plus-circle"></i>Create New Profile
+                                </div>
                                 <div class="nr-select-list">
                                     <div class="nr-select-option none-opt"
                                          data-value="" data-label="">
@@ -640,10 +644,6 @@
                                         <i class="bi bi-check2 opt-check"></i>
                                     </div>
                                     {% endfor %}
-                                </div>
-                                <div class="nr-select-create-new"
-                                     onclick="event.stopPropagation(); openQuickCreateProfile('edit')">
-                                    <i class="bi bi-plus-circle"></i>Create New Profile
                                 </div>
                             </div>
                             <input type="hidden" name="sec_profile_id" value="">
@@ -1638,6 +1638,30 @@ async function submitQuickCreateMapping() {
     bootstrap.Modal.getOrCreateInstance(
         document.getElementById('quickCreateMappingModal')).hide();
 }
+
+// ════════════════════════════════════════
+//  Escape — close topmost open modal only
+// ════════════════════════════════════════
+// Bootstrap fires its own Escape handler on every visible modal simultaneously.
+// We disable keyboard on parent modals when a child opens, restore on child close.
+const _parentModals  = ['addDeviceModal', 'editDeviceModal'];
+const _childModals   = ['quickCreateProfileModal', 'quickCreateMappingModal'];
+
+_childModals.forEach(childId => {
+    const childEl = document.getElementById(childId);
+    childEl.addEventListener('show.bs.modal', () => {
+        _parentModals.forEach(pid => {
+            const inst = bootstrap.Modal.getInstance(document.getElementById(pid));
+            if (inst) inst._config.keyboard = false;
+        });
+    });
+    childEl.addEventListener('hidden.bs.modal', () => {
+        _parentModals.forEach(pid => {
+            const inst = bootstrap.Modal.getInstance(document.getElementById(pid));
+            if (inst) inst._config.keyboard = true;
+        });
+    });
+});
 
 //  Add modal — reset on close
 // ════════════════════════════════════════

@@ -3,7 +3,10 @@ import glob
 import json
 import os
 import secrets
+import sys
 import tempfile
+import threading
+import time
 import uuid
 from collections import Counter
 from io import BytesIO
@@ -95,7 +98,7 @@ def load_user(user_id):
 def audit(action, *, object_type=None, object_id=None, object_label=None,
           detail=None, success=True, username=None, actor_id=None):
 	"""Write one append-only audit row. Opens its own session so the write
-	commits independently of the calling route transaction."""
+	commits independently of the calling route transactido ion."""
 	if username is None:
 		username = current_user.username if current_user.is_authenticated else "anonymous"
 	if actor_id is None:
@@ -1577,6 +1580,29 @@ def mappings_bulk_assign():
 	audit("mapping.bulk_assign", object_type="VariableMapping",
 	      object_id=parsed_mapping_id, detail={"count": len(device_ids)})
 	return jsonify({"status": "success"})
+
+
+@app.route("/admin/active_job_count")
+@login_required
+def admin_active_job_count():
+	if current_user.role != "admin":
+		return jsonify({"status": "error"}), 403
+	with get_session() as db_session:
+		count = db_session.query(RolloutSession).count()
+	return jsonify({"count": count})
+
+
+@app.route("/admin/restart", methods=["POST"])
+@login_required
+def admin_restart():
+	if current_user.role != "admin":
+		return jsonify({"status": "error", "message": "Forbidden"}), 403
+	def _do_restart():
+		time.sleep(1.5)
+		os.execv(sys.executable, [sys.executable] + sys.argv)
+	threading.Thread(target=_do_restart, daemon=True).start()
+	audit("server.restart", object_type="Server", object_label="webapp")
+	return jsonify({"status": "ok"})
 
 
 if __name__ == "__main__":
