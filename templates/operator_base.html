@@ -951,9 +951,15 @@ document.addEventListener('DOMContentLoaded', () => {
 let _restartTimer = null;
 
 async function sbRestartClick() {
-    const resp  = await fetch('/admin/active_job_count');
-    const data  = await resp.json();
-    const count = data.count || 0;
+    let count = 0;
+    try {
+        const resp = await fetch('/admin/active_job_count');
+        const data = await resp.json();
+        count = data.count || 0;
+    } catch(e) {
+        console.error('Restart check failed:', e);
+        count = 0; // proceed anyway
+    }
 
     if (count === 0) {
         // No active jobs — restart immediately, no modal needed
@@ -1024,8 +1030,12 @@ function fireRestart() {
         headers: { 'X-CSRFToken': '{{ csrf_token() }}' }
     }).then(() => {
         const poll = setInterval(() => {
-            fetch('/').then(r => {
-                if (r.ok) { clearInterval(poll); window.location.href = '/'; }
+            // HEAD request so we don't create a session on the poll itself
+            fetch('/', {method: 'HEAD', cache: 'no-store'}).then(r => {
+                if (r.ok) {
+                    clearInterval(poll);
+                    window.location.replace('/');
+                }
             }).catch(() => {});
         }, 1000);
     });

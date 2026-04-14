@@ -4,10 +4,10 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="27240518-82b3-4a70-8f71-cc3b690d164c" name="Changes" comment="● fix + ux: logo polish, form modal safety, file input error, static backdrop&#10;&#10;  Logo:&#10;  - Fix login page hero layout — flex-direction:column so badge/logo/subtitle&#10;    stack vertically instead of inline&#10;  - Bump login logo height to 80px for proper hero presence&#10;  - Add centered logo to base.html topbar (account, OTP enroll/verify pages)&#10;  - Add logo to operator topbar left of page title with thin divider&#10;&#10;  Form modal safety:&#10;  - Add data-bs-backdrop=&quot;static&quot; to all form modals across inventory,&#10;    security, variable_mappings, active_jobs — click-outside no longer&#10;    dismisses; Escape still works (deliberate vs accidental)&#10;    Affected: add/edit device, import CSV, quick-create profile/mapping,&#10;    add/edit security profile, add/edit variable mapping, rollback modal&#10;&#10;  Validation fix:&#10;  - Exclude type=&quot;file&quot; inputs from :not(:placeholder-shown) CSS rule —&#10;    file inputs have no placeholder so the error showed on modal open&#10;    before the user did anything">
+    <list default="true" id="27240518-82b3-4a70-8f71-cc3b690d164c" name="Changes" comment="● feat: restart button, quick-create UX fixes, property definitions roadmap&#10;&#10;  Restart server button (admin only, sidebar footer):&#10;  - POST /admin/restart — os.execv restarts the process in-place&#10;  - GET /admin/active_job_count — lightweight active job check&#10;  - No active jobs: single click restarts immediately, no modal&#10;  - Active jobs: warning modal with exact job count, Confirm disabled&#10;    for 3-second forced countdown, click-outside dismisses&#10;  - Sidebar shows spinning icon + &quot;RESTARTING…&quot; while polling&#10;  - Browser polls GET / until server responds, then redirects to login&#10;&#10;  Quick-create UX fixes:&#10;  - &quot;Create New Profile&quot; moved to top of NrSelect panel (below search,&#10;    above options) in both Add and Edit device modals&#10;  - Escape closes one modal layer at a time — parent keyboard disabled&#10;    while child is open, restored on child close&#10;  - Restart modal: default backdrop (click-outside closes), all other&#10;    form modals retain static backdrop&#10;&#10;  Validation:&#10;  - Exclude type=&quot;file&quot; from :not(:placeholder-shown) CSS rule — file&#10;    input showed error on modal open before user interaction&#10;&#10;  Phase 3.7 planned — user-managed property definitions:&#10;  - PropertyDefinition table (name, label, icon, is_system, user_id)&#10;  - 9 system defaults seeded on install&#10;  - Inventory variable attributes rendered dynamically from definitions&#10;  - Inline &quot;Create New&quot; in property picker with icon selector&#10;    (FortiGate-style click-to-open BI icon grid with search)&#10;  - Variable mapping property dropdown also driven by definitions">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/workplan.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/workplan.md" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/webapp.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/webapp.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/templates/index.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/index.html" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/templates/inventory.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/inventory.html" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/templates/operator_base.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/operator_base.html" afterDir="false" />
     </list>
@@ -63,40 +63,40 @@
     <option name="sortByType" value="true" />
     <option name="sortKey" value="BY_TYPE" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "ASKED_MARK_IGNORED_FILES_AS_EXCLUDED": "true",
-    "ASKED_SHARE_PROJECT_CONFIGURATION_FILES": "true",
-    "Flask server.Network-bulk-configuration.executor": "Run",
-    "Python tests.Python tests in test.py.executor": "Run",
-    "Python tests.Python tests in test_rate_limit.py.executor": "Run",
-    "Python.Core.executor": "Run",
-    "Python.Helper.executor": "Run",
-    "Python.Network-bulk-configuration.executor": "Run",
-    "Python.WebApp.executor": "Run",
-    "Python.db.executor": "Run",
-    "Python.db_install.executor": "Run",
-    "Python.tables.executor": "Run",
-    "Python.webapp.executor": "Run",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "RunOnceActivity.git.unshallow": "true",
-    "git-widget-placeholder": "master",
-    "ignore.virus.scanning.warn.message": "true",
-    "last_opened_file_path": "C:/Users/itama/Documents/Coding/Network-bulk-configuration/templates",
-    "node.js.detected.package.eslint": "true",
-    "node.js.detected.package.tslint": "true",
-    "node.js.selected.package.eslint": "(autodetect)",
-    "node.js.selected.package.tslint": "(autodetect)",
-    "nodejs_package_manager_path": "npm",
-    "settings.editor.selected.configurable": "preferences.pluginManager",
-    "vue.rearranger.settings.migration": "true"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;ASKED_MARK_IGNORED_FILES_AS_EXCLUDED&quot;: &quot;true&quot;,
+    &quot;ASKED_SHARE_PROJECT_CONFIGURATION_FILES&quot;: &quot;true&quot;,
+    &quot;Flask server.Network-bulk-configuration.executor&quot;: &quot;Run&quot;,
+    &quot;Python tests.Python tests in test.py.executor&quot;: &quot;Run&quot;,
+    &quot;Python tests.Python tests in test_rate_limit.py.executor&quot;: &quot;Run&quot;,
+    &quot;Python.Core.executor&quot;: &quot;Run&quot;,
+    &quot;Python.Helper.executor&quot;: &quot;Run&quot;,
+    &quot;Python.Network-bulk-configuration.executor&quot;: &quot;Run&quot;,
+    &quot;Python.WebApp.executor&quot;: &quot;Run&quot;,
+    &quot;Python.db.executor&quot;: &quot;Run&quot;,
+    &quot;Python.db_install.executor&quot;: &quot;Run&quot;,
+    &quot;Python.tables.executor&quot;: &quot;Run&quot;,
+    &quot;Python.webapp.executor&quot;: &quot;Run&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;master&quot;,
+    &quot;ignore.virus.scanning.warn.message&quot;: &quot;true&quot;,
+    &quot;last_opened_file_path&quot;: &quot;C:/Users/itama/Documents/Coding/Network-bulk-configuration/templates&quot;,
+    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
+    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
+    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
+    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
+    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;preferences.pluginManager&quot;,
+    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
   },
-  "keyToStringList": {
-    "DatabaseDriversLRU": [
-      "postgresql"
+  &quot;keyToStringList&quot;: {
+    &quot;DatabaseDriversLRU&quot;: [
+      &quot;postgresql&quot;
     ]
   }
-}]]></component>
+}</component>
   <component name="RecentsManager">
     <key name="CopyFile.RECENT_KEYS">
       <recent name="C:\Users\itama\Documents\Coding\Network-bulk-configuration\templates" />
@@ -228,15 +228,11 @@
       <workItem from="1776007250658" duration="17284000" />
       <workItem from="1776041383717" duration="5539000" />
       <workItem from="1776086460402" duration="8546000" />
-      <workItem from="1776156086353" duration="6759000" />
-    </task>
-    <task id="LOCAL-00012" summary="improved verifiction pipeline">
-      <option name="closed" value="true" />
-      <created>1774320839154</created>
-      <option name="number" value="00012" />
-      <option name="presentableId" value="LOCAL-00012" />
-      <option name="project" value="LOCAL" />
-      <updated>1774320839154</updated>
+      <workItem from="1776156086353" duration="6810000" />
+      <workItem from="1776163407067" duration="301000" />
+      <workItem from="1776166436229" duration="437000" />
+      <workItem from="1776170242695" duration="2192000" />
+      <workItem from="1776172580271" duration="416000" />
     </task>
     <task id="LOCAL-00013" summary="improved verifiction pipeline">
       <option name="closed" value="true" />
@@ -622,7 +618,15 @@
       <option name="project" value="LOCAL" />
       <updated>1776161628369</updated>
     </task>
-    <option name="localTasksCounter" value="61" />
+    <task id="LOCAL-00061" summary="● feat: restart button, quick-create UX fixes, property definitions roadmap&#10;&#10;  Restart server button (admin only, sidebar footer):&#10;  - POST /admin/restart — os.execv restarts the process in-place&#10;  - GET /admin/active_job_count — lightweight active job check&#10;  - No active jobs: single click restarts immediately, no modal&#10;  - Active jobs: warning modal with exact job count, Confirm disabled&#10;    for 3-second forced countdown, click-outside dismisses&#10;  - Sidebar shows spinning icon + &quot;RESTARTING…&quot; while polling&#10;  - Browser polls GET / until server responds, then redirects to login&#10;&#10;  Quick-create UX fixes:&#10;  - &quot;Create New Profile&quot; moved to top of NrSelect panel (below search,&#10;    above options) in both Add and Edit device modals&#10;  - Escape closes one modal layer at a time — parent keyboard disabled&#10;    while child is open, restored on child close&#10;  - Restart modal: default backdrop (click-outside closes), all other&#10;    form modals retain static backdrop&#10;&#10;  Validation:&#10;  - Exclude type=&quot;file&quot; from :not(:placeholder-shown) CSS rule — file&#10;    input showed error on modal open before user interaction&#10;&#10;  Phase 3.7 planned — user-managed property definitions:&#10;  - PropertyDefinition table (name, label, icon, is_system, user_id)&#10;  - 9 system defaults seeded on install&#10;  - Inventory variable attributes rendered dynamically from definitions&#10;  - Inline &quot;Create New&quot; in property picker with icon selector&#10;    (FortiGate-style click-to-open BI icon grid with search)&#10;  - Variable mapping property dropdown also driven by definitions">
+      <option name="closed" value="true" />
+      <created>1776163184277</created>
+      <option name="number" value="00061" />
+      <option name="presentableId" value="LOCAL-00061" />
+      <option name="project" value="LOCAL" />
+      <updated>1776163184277</updated>
+    </task>
+    <option name="localTasksCounter" value="62" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -640,7 +644,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="● Auth pipeline: fix TOTP secret persistence, complete dark mode, polish OTP timer display" />
     <MESSAGE value="● Auth pipeline: admin panel with user management, approval flow, and collapsible sidebar" />
     <MESSAGE value="bug fixes" />
     <MESSAGE value="● Phase 1 complete: fix admin_user_action endpoint name, home button redirect for authenticated users, dark mode account page text" />
@@ -665,14 +668,15 @@
     <MESSAGE value=" Bug fixes from first EVE-NG live test:&#10;   - core: treat ReadTimeout as success when commands were already sent —&#10;     hostname rename changes the prompt mid-session, netmiko loses detection&#10;     after the config is applied, not before&#10;   Bug fixes from first EVE-NG live test:&#10;   - core: treat ReadTimeout as success when commands were already sent —&#10;     hostname rename changes the prompt mid-session, netmiko loses detection&#10;     after the config is applied, not before&#10;   - core: fix &quot;_commands&quot; literal typo in verify summary log output&#10;   - core: suppress red/yellow verify summary lines when count is 0&#10;   - webapp: fix data.get_queue() -&gt; data.get() typo in security_test route&#10;   - active_jobs: drain queue after buffer replay to prevent duplicate SSE&#10;     log lines; pause page auto-refresh while log panel is open&#10;&#10;   Results page — See Commands and diff selection were both silently broken:&#10;   - Fix | tojson | e -&gt; | tojson | forceescape on data-commands attributes;&#10;     tojson returns Markup so | e was a no-op, leaving raw quotes that&#10;     truncated the HTML attribute at the first JSON string delimiter&#10;   - Fix compare mode hiding all rows (diffModeBtn carried filter-btn class&#10;     but no data-filter — filter handler set filter=undefined, all rows hidden)&#10;   - Add job ID copy button (clipboard API, check icon flash on copy)&#10;&#10;   Inventory: add Test Connection three-state button to Edit Device modal,&#10;   mirroring the Add Device modal — grey Test -&gt; green Confirm / red Save Anyway" />
     <MESSAGE value="  Logo:&#10;  - Add NetRollout SVG wordmark to src/static/logo.svg (cropped viewBox,&#10;    cyan #00bcd4 fill, transparent background)&#10;  - Login page: large centered logo replacing text h1, badge above, no&#10;    redundant subtitle&#10;  - Operator sidebar: logo replaces NETROLLOUT text, same fade-in animation&#10;  - Admin sidebar: logo replaces ADMIN text span&#10;  - Operator topbar: small logo centered via absolute positioning&#10;  - base.html topbar: logo centered on all auth pages (account, OTP enroll,&#10;    OTP verify)&#10;&#10;  DB error handling:&#10;  - Add OperationalError global handler — page routes get db_error.html&#10;    (503), AJAX routes get JSON error&#10;  - db_error.html: styled 503 page showing DB host:port parsed from&#10;    DATABASE_URL, Retry link&#10;  - Extract _DB_HOST/_DB_PORT at startup from DATABASE_URL&#10;&#10;  Quick-create from device modals:&#10;  - POST /security/quick_create — AJAX endpoint, returns {id, label}&#10;  - POST /mappings/quick_create — AJAX endpoint, returns {id, token,&#10;    property_name, index}&#10;  - &quot;Create New Profile&quot; option at bottom of security profile NrSelect&#10;    in both Add and Edit device modals — opens inline modal, auto-selects&#10;    and injects into both dropdowns on success&#10;  - &quot;Create New Mapping&quot; button below mapping list in Edit device modal —&#10;    opens inline modal, auto-checks new mapping on success&#10;  - initNrSelect upgraded to live DOM queries + addOption() API to support&#10;    dynamically injected options" />
     <MESSAGE value="● fix + ux: logo polish, form modal safety, file input error, static backdrop&#10;&#10;  Logo:&#10;  - Fix login page hero layout — flex-direction:column so badge/logo/subtitle&#10;    stack vertically instead of inline&#10;  - Bump login logo height to 80px for proper hero presence&#10;  - Add centered logo to base.html topbar (account, OTP enroll/verify pages)&#10;  - Add logo to operator topbar left of page title with thin divider&#10;&#10;  Form modal safety:&#10;  - Add data-bs-backdrop=&quot;static&quot; to all form modals across inventory,&#10;    security, variable_mappings, active_jobs — click-outside no longer&#10;    dismisses; Escape still works (deliberate vs accidental)&#10;    Affected: add/edit device, import CSV, quick-create profile/mapping,&#10;    add/edit security profile, add/edit variable mapping, rollback modal&#10;&#10;  Validation fix:&#10;  - Exclude type=&quot;file&quot; inputs from :not(:placeholder-shown) CSS rule —&#10;    file inputs have no placeholder so the error showed on modal open&#10;    before the user did anything" />
-    <option name="LAST_COMMIT_MESSAGE" value="● fix + ux: logo polish, form modal safety, file input error, static backdrop&#10;&#10;  Logo:&#10;  - Fix login page hero layout — flex-direction:column so badge/logo/subtitle&#10;    stack vertically instead of inline&#10;  - Bump login logo height to 80px for proper hero presence&#10;  - Add centered logo to base.html topbar (account, OTP enroll/verify pages)&#10;  - Add logo to operator topbar left of page title with thin divider&#10;&#10;  Form modal safety:&#10;  - Add data-bs-backdrop=&quot;static&quot; to all form modals across inventory,&#10;    security, variable_mappings, active_jobs — click-outside no longer&#10;    dismisses; Escape still works (deliberate vs accidental)&#10;    Affected: add/edit device, import CSV, quick-create profile/mapping,&#10;    add/edit security profile, add/edit variable mapping, rollback modal&#10;&#10;  Validation fix:&#10;  - Exclude type=&quot;file&quot; inputs from :not(:placeholder-shown) CSS rule —&#10;    file inputs have no placeholder so the error showed on modal open&#10;    before the user did anything" />
+    <MESSAGE value="● feat: restart button, quick-create UX fixes, property definitions roadmap&#10;&#10;  Restart server button (admin only, sidebar footer):&#10;  - POST /admin/restart — os.execv restarts the process in-place&#10;  - GET /admin/active_job_count — lightweight active job check&#10;  - No active jobs: single click restarts immediately, no modal&#10;  - Active jobs: warning modal with exact job count, Confirm disabled&#10;    for 3-second forced countdown, click-outside dismisses&#10;  - Sidebar shows spinning icon + &quot;RESTARTING…&quot; while polling&#10;  - Browser polls GET / until server responds, then redirects to login&#10;&#10;  Quick-create UX fixes:&#10;  - &quot;Create New Profile&quot; moved to top of NrSelect panel (below search,&#10;    above options) in both Add and Edit device modals&#10;  - Escape closes one modal layer at a time — parent keyboard disabled&#10;    while child is open, restored on child close&#10;  - Restart modal: default backdrop (click-outside closes), all other&#10;    form modals retain static backdrop&#10;&#10;  Validation:&#10;  - Exclude type=&quot;file&quot; from :not(:placeholder-shown) CSS rule — file&#10;    input showed error on modal open before user interaction&#10;&#10;  Phase 3.7 planned — user-managed property definitions:&#10;  - PropertyDefinition table (name, label, icon, is_system, user_id)&#10;  - 9 system defaults seeded on install&#10;  - Inventory variable attributes rendered dynamically from definitions&#10;  - Inline &quot;Create New&quot; in property picker with icon selector&#10;    (FortiGate-style click-to-open BI icon grid with search)&#10;  - Variable mapping property dropdown also driven by definitions" />
+    <option name="LAST_COMMIT_MESSAGE" value="● feat: restart button, quick-create UX fixes, property definitions roadmap&#10;&#10;  Restart server button (admin only, sidebar footer):&#10;  - POST /admin/restart — os.execv restarts the process in-place&#10;  - GET /admin/active_job_count — lightweight active job check&#10;  - No active jobs: single click restarts immediately, no modal&#10;  - Active jobs: warning modal with exact job count, Confirm disabled&#10;    for 3-second forced countdown, click-outside dismisses&#10;  - Sidebar shows spinning icon + &quot;RESTARTING…&quot; while polling&#10;  - Browser polls GET / until server responds, then redirects to login&#10;&#10;  Quick-create UX fixes:&#10;  - &quot;Create New Profile&quot; moved to top of NrSelect panel (below search,&#10;    above options) in both Add and Edit device modals&#10;  - Escape closes one modal layer at a time — parent keyboard disabled&#10;    while child is open, restored on child close&#10;  - Restart modal: default backdrop (click-outside closes), all other&#10;    form modals retain static backdrop&#10;&#10;  Validation:&#10;  - Exclude type=&quot;file&quot; from :not(:placeholder-shown) CSS rule — file&#10;    input showed error on modal open before user interaction&#10;&#10;  Phase 3.7 planned — user-managed property definitions:&#10;  - PropertyDefinition table (name, label, icon, is_system, user_id)&#10;  - 9 system defaults seeded on install&#10;  - Inventory variable attributes rendered dynamically from definitions&#10;  - Inline &quot;Create New&quot; in property picker with icon selector&#10;    (FortiGate-style click-to-open BI icon grid with search)&#10;  - Variable mapping property dropdown also driven by definitions" />
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
     <SUITE FILE_PATH="coverage/core_py$WebApp.coverage" NAME="WebApp Coverage Results" MODIFIED="1756760459810" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/WebApp_py$WebApp.coverage" NAME="WebApp Coverage Results" MODIFIED="1756940263036" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/Network_bulk_configuration$.coverage" NAME=" Coverage Results" MODIFIED="1775830389406" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/tests" />
-    <SUITE FILE_PATH="coverage/Network_bulk_configuration$webapp.coverage" NAME="webapp Coverage Results" MODIFIED="1776162692673" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/src" />
-    <SUITE FILE_PATH="coverage/Network_bulk_configuration$Network_bulk_configuration.coverage" NAME="Network-bulk-configuration Coverage Results" MODIFIED="1776077669925" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/Network_bulk_configuration$webapp.coverage" NAME="webapp Coverage Results" MODIFIED="1776172606128" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/src" />
+    <SUITE FILE_PATH="coverage/Network_bulk_configuration$Network_bulk_configuration.coverage" NAME="Network-bulk-configuration Coverage Results" MODIFIED="1776171839319" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/core_py$Helper.coverage" NAME="Helper Coverage Results" MODIFIED="1756330739506" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/Network_bulk_configuration$db.coverage" NAME="db Coverage Results" MODIFIED="1774396400735" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/src" />
     <SUITE FILE_PATH="coverage/core_py$Core.coverage" NAME="Core Coverage Results" MODIFIED="1756330745282" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />

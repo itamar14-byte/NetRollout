@@ -17,12 +17,13 @@ from time import sleep
 import pyotp
 import qrcode
 from flask import (redirect, Response, request, render_template, url_for, \
-                   Flask, flash, session, jsonify, send_file)
+                   Flask, flash, session, jsonify, send_file, make_response)
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from flask_login import (LoginManager, login_required,
                          logout_user, current_user, login_user)
 from flask_wtf import CSRFProtect
+from flask_wtf.csrf import CSRFError
 from netmiko import ConnectHandler
 from netmiko.exceptions import NetmikoTimeoutException, \
 	NetmikoAuthenticationException
@@ -42,6 +43,7 @@ from tables import User, DeviceResult, SecurityProfile, Inventory, \
 from validation import Validator
 
 app = Flask(__name__, template_folder='../templates')
+# SECRET_KEY rotates every restart so all user sessions are invalidated.
 app.config["SECRET_KEY"] = secrets.token_urlsafe(32)
 
 # Extract DB host:port from DATABASE_URL for use in error pages
@@ -117,6 +119,13 @@ def audit(action, *, object_type=None, object_id=None, object_label=None,
 		))
 
 
+@app.errorhandler(CSRFError)
+def handle_csrf_error(e):
+	if request.is_json:
+		return jsonify({"status": "error", "message": "Session expired"}), 400
+	return redirect(url_for("home"))
+
+
 @app.errorhandler(OperationalError)
 def handle_db_unavailable(e):
 	if request.is_json or request.path.startswith('/rollout_stream'):
@@ -129,12 +138,25 @@ def handle_db_unavailable(e):
 
 @app.route("/")
 def home():
+
 	return render_template("index.html")
 
 
+@app.route("/login", methods=["GET"])
+def login_get():
+	return redirect(url_for("home"))
+
+
 @app.route("/login", methods=["POST"])
+@csrf.exempt
 @conn_limit.limit("10 per minute")
 def login():
+	# Origin check replaces CSRF for login — blocks cross-origin POSTs without
+	# depending on session state, so it survives server restarts
+	origin = request.headers.get("Origin") or request.headers.get("Referer", "")
+	expected = request.host_url.rstrip("/")
+	if origin and not origin.startswith(expected):
+		return redirect(url_for("home"))
 	username = request.form["username"]
 	password = request.form["password"]
 	with get_session() as db_session:
@@ -1597,11 +1619,13 @@ def admin_active_job_count():
 def admin_restart():
 	if current_user.role != "admin":
 		return jsonify({"status": "error", "message": "Forbidden"}), 403
+	audit("server.restart", object_type="Server", object_label="webapp")
 	def _do_restart():
 		time.sleep(1.5)
-		os.execv(sys.executable, [sys.executable] + sys.argv)
+		import subprocess
+		subprocess.Popen([sys.executable] + sys.argv)
+		os._exit(0)
 	threading.Thread(target=_do_restart, daemon=True).start()
-	audit("server.restart", object_type="Server", object_label="webapp")
 	return jsonify({"status": "ok"})
 
 
