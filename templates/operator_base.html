@@ -747,6 +747,16 @@
 
     <!-- Sidebar footer -->
     <div class="sb-footer">
+        {% if current_user.role == "admin" %}
+        <div id="sbRestartBtn" class="sb-link" title="Restart server"
+             style="cursor:pointer; gap:0.6rem; padding:0.35rem 0.5rem; color:#333; transition:color 0.15s;"
+             onmouseenter="this.style.color='#ef9a9a'"
+             onmouseleave="this.style.color='#333'"
+             onclick="sbRestartClick()">
+            <i class="bi bi-arrow-clockwise sb-icon" style="font-size:0.82rem;"></i>
+            <span class="sb-label" style="font-family:'JetBrains Mono',monospace; font-size:0.62rem; letter-spacing:1px;">RESTART</span>
+        </div>
+        {% endif %}
         <div class="sb-link sb-disabled" style="font-size:0.65rem; color:#2a2a2a; gap:0.6rem; padding: 0.3rem 0.5rem;">
             <i class="bi bi-circle-fill sb-icon" style="font-size:0.4rem; color:#1e3a3e;"></i>
             <span class="sb-label" style="font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:#2a2a2a; letter-spacing:1px;">v1.0</span>
@@ -806,6 +816,45 @@
             {% endif %}
         {% endwith %}
     </div>
+
+    <!-- Restart confirmation modal -->
+    {% if current_user.role == "admin" %}
+    <div class="modal fade" id="restartModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered" style="max-width:400px;">
+            <div class="modal-content">
+                <div class="modal-header" style="border-bottom:1px solid #222;">
+                    <div>
+                        <div class="nr-badge" style="margin-bottom:0.3rem; border-color:rgba(239,83,80,0.4); color:#ef9a9a;">WARNING</div>
+                        <h5 class="modal-title" style="color:#ef9a9a;">Restart Server</h5>
+                    </div>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p style="font-size:0.85rem; color:#aaa; margin-bottom:0.5rem;">
+                        The server will restart immediately.
+                    </p>
+                    <p style="font-size:0.85rem; color:#ef9a9a; margin:0;">
+                        <i class="bi bi-exclamation-triangle me-1"></i>
+                        <span id="restartJobWarning"></span>
+                    </p>
+                </div>
+                <div class="modal-footer" style="justify-content:space-between; align-items:center;">
+                    <span id="restartCountdown"
+                          style="font-family:'JetBrains Mono',monospace; font-size:0.78rem; color:#555;"></span>
+                    <div class="d-flex gap-2">
+                        <button type="button" class="btn btn-secondary btn-sm"
+                                data-bs-dismiss="modal">Cancel</button>
+                        <button type="button" id="restartConfirmBtn"
+                                class="btn btn-danger btn-sm" disabled
+                                onclick="doRestart()">
+                            Confirm Restart
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
 
     <!-- Content -->
     <div class="op-content">
@@ -897,6 +946,96 @@ document.addEventListener('DOMContentLoaded', () => {
 </script>
 
 {% block extra_script %}{% endblock %}
+
+<script>
+let _restartTimer = null;
+
+async function sbRestartClick() {
+    const resp  = await fetch('/admin/active_job_count');
+    const data  = await resp.json();
+    const count = data.count || 0;
+
+    if (count === 0) {
+        // No active jobs — restart immediately, no modal needed
+        fireRestart();
+        return;
+    }
+
+    // Active jobs — show warning modal with count
+    const confirmBtn = document.getElementById('restartConfirmBtn');
+    const countdown  = document.getElementById('restartCountdown');
+    const warning    = document.getElementById('restartJobWarning');
+    if (!confirmBtn) return;
+
+    warning.textContent = `${count} active rollout job${count !== 1 ? 's' : ''} will be terminated mid-execution. Devices may be left partially configured.`;
+
+    confirmBtn.disabled = true;
+    countdown.textContent = 'Available in 3…';
+    clearInterval(_restartTimer);
+
+    let secs = 3;
+    _restartTimer = setInterval(() => {
+        secs--;
+        if (secs > 0) {
+            countdown.textContent = `Available in ${secs}…`;
+        } else {
+            clearInterval(_restartTimer);
+            countdown.textContent = '';
+            confirmBtn.disabled = false;
+        }
+    }, 1000);
+
+    bootstrap.Modal.getOrCreateInstance(
+        document.getElementById('restartModal')).show();
+}
+
+// Reset timer if modal is dismissed without confirming
+document.addEventListener('DOMContentLoaded', () => {
+    const modal = document.getElementById('restartModal');
+    if (!modal) return;
+    modal.addEventListener('hidden.bs.modal', () => {
+        clearInterval(_restartTimer);
+        const confirmBtn = document.getElementById('restartConfirmBtn');
+        if (confirmBtn) confirmBtn.disabled = true;
+    });
+});
+
+function doRestart() {
+    const confirmBtn = document.getElementById('restartConfirmBtn');
+    if (confirmBtn) {
+        confirmBtn.disabled = true;
+        confirmBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Restarting…';
+    }
+    bootstrap.Modal.getOrCreateInstance(
+        document.getElementById('restartModal')).hide();
+    fireRestart();
+}
+
+function fireRestart() {
+    const sbBtn = document.getElementById('sbRestartBtn');
+    if (sbBtn) {
+        sbBtn.querySelector('i').className = 'bi bi-arrow-clockwise sb-icon spin';
+        sbBtn.querySelector('.sb-label').textContent = 'RESTARTING…';
+        sbBtn.style.color = '#ef9a9a';
+        sbBtn.onclick = null;
+    }
+    fetch('/admin/restart', {
+        method: 'POST',
+        headers: { 'X-CSRFToken': '{{ csrf_token() }}' }
+    }).then(() => {
+        const poll = setInterval(() => {
+            fetch('/').then(r => {
+                if (r.ok) { clearInterval(poll); window.location.href = '/'; }
+            }).catch(() => {});
+        }, 1000);
+    });
+}
+</script>
+
+<style>
+@keyframes spin { to { transform: rotate(360deg); } }
+.spin { display: inline-block; animation: spin 0.8s linear infinite; }
+</style>
 
 </body>
 </html>
