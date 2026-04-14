@@ -23,7 +23,7 @@ from flask_wtf import CSRFProtect
 from netmiko import ConnectHandler
 from netmiko.exceptions import NetmikoTimeoutException, \
 	NetmikoAuthenticationException
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from waitress import serve
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -40,6 +40,15 @@ from validation import Validator
 
 app = Flask(__name__, template_folder='../templates')
 app.config["SECRET_KEY"] = secrets.token_urlsafe(32)
+
+# Extract DB host:port from DATABASE_URL for use in error pages
+try:
+	from urllib.parse import urlparse as _urlparse
+	_db_url = _urlparse(os.getenv("DATABASE_URL", ""))
+	_DB_HOST = _db_url.hostname or "localhost"
+	_DB_PORT = _db_url.port or 5432
+except Exception:
+	_DB_HOST, _DB_PORT = "localhost", 5432
 
 # Vendor logo URLs from Simple Icons CDN — keyed by Netmiko device_type
 _CDN = "https://cdn.simpleicons.org"
@@ -103,6 +112,16 @@ def audit(action, *, object_type=None, object_id=None, object_label=None,
 			ip_address=request.remote_addr,
 			detail=detail,
 		))
+
+
+@app.errorhandler(OperationalError)
+def handle_db_unavailable(e):
+	if request.is_json or request.path.startswith('/rollout_stream'):
+		return jsonify({
+			"status": "error",
+			"message": f"Database unavailable — check {_DB_HOST}:{_DB_PORT}"
+		}), 503
+	return render_template("db_error.html", db_host=_DB_HOST, db_port=_DB_PORT), 503
 
 
 @app.route("/")
@@ -1199,6 +1218,32 @@ def security_create():
 	return redirect(url_for("security"))
 
 
+@app.route("/security/quick_create", methods=["POST"])
+@login_required
+def security_quick_create():
+	data = request.get_json()
+	if not data:
+		return jsonify({"status": "error", "message": "Invalid request"})
+	label         = str(data.get("label", "") or "").strip() or None
+	username      = str(data.get("username", "") or "").strip()
+	password      = str(data.get("password", "") or "")
+	enable_secret = str(data.get("enable_secret", "") or "").strip() or None
+	if not username or not password:
+		return jsonify({"status": "error", "message": "Username and password are required"})
+	profile = SecurityProfile(label=label, username=username,
+	                          password_secret=encryption.encrypt(password),
+	                          enable_secret=encryption.encrypt(enable_secret)
+	                          if enable_secret else None,
+	                          user_id=current_user.id)
+	with get_session() as db_session:
+		db_session.add(profile)
+		db_session.flush()
+		profile_id = str(profile.id)
+	audit("security_profile.create", object_type="SecurityProfile",
+	      object_label=label or username)
+	return jsonify({"status": "ok", "id": profile_id, "label": label or username})
+
+
 @app.route("/security/<uuid:profile_id>/edit", methods=["POST"])
 @login_required
 def security_edit(profile_id):
@@ -1356,6 +1401,44 @@ def mappings_create():
 		flash("A mapping with that token already exists.", "danger")
 
 	return redirect(url_for("mappings"))
+
+
+@app.route("/mappings/quick_create", methods=["POST"])
+@login_required
+def mappings_quick_create():
+	data = request.get_json()
+	if not data:
+		return jsonify({"status": "error", "message": "Invalid request"})
+	inner_token   = str(data.get("token_inner", "") or "").strip().upper()
+	property_name = str(data.get("property_name", "") or "").strip()
+	index_raw     = data.get("index")
+	index         = int(index_raw) if index_raw is not None else None
+
+	status, msg = Validator.validate_var_map_inner_token(inner_token)
+	if not status:
+		return jsonify({"status": "error", "message": msg})
+	status, msg = Validator.validate_var_map_property_name(property_name)
+	if not status:
+		return jsonify({"status": "error", "message": msg})
+	status, msg = Validator.validate_var_index(index, property_name)
+	if not status:
+		return jsonify({"status": "error", "message": msg})
+
+	token = f"$${inner_token}$$"
+	row = VariableMapping(token=token, index=index, property_name=property_name,
+	                      user_id=current_user.id)
+	try:
+		with get_session() as db_session:
+			db_session.add(row)
+			db_session.flush()
+			mapping_id = str(row.id)
+	except IntegrityError:
+		audit("mapping.create", success=False,
+		      detail={"reason": "duplicate_token", "token": token})
+		return jsonify({"status": "error", "message": f"Token {token} already exists"})
+	audit("mapping.create", object_type="VariableMapping", object_label=token)
+	return jsonify({"status": "ok", "id": mapping_id, "token": token,
+	                "property_name": property_name, "index": index})
 
 
 @app.route("/mappings/<uuid:mapping_id>/edit", methods=["POST"])

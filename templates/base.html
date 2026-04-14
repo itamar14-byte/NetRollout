@@ -475,6 +475,10 @@
             {% endblock %}
             {% endif %}
         </div>
+        <img src="{{ url_for('static', filename='logo.svg') }}"
+             alt="NetRollout"
+             style="height:18px; width:auto; opacity:0.85; position:absolute; left:50%; transform:translateX(-50%);">
+
 
         {% if current_user.is_authenticated %}
         <div class="dropdown">

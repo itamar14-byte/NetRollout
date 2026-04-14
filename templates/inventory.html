@@ -259,6 +259,34 @@
     border: 1px solid rgba(239,83,80,0.25);
     color: #ef9a9a;
 }
+.nr-select-create-new {
+    padding: 0.45rem 0.75rem;
+    border-top: 1px solid #1a1a1a;
+    font-size: 0.74rem;
+    color: #00bcd4;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    user-select: none;
+    transition: background 0.15s;
+}
+.nr-select-create-new:hover { background: rgba(0,188,212,0.06); }
+.mapping-create-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.4rem 0.75rem;
+    font-size: 0.74rem;
+    color: #00bcd4;
+    background: none;
+    border: none;
+    border-top: 1px solid #1a1a1a;
+    cursor: pointer;
+    width: 100%;
+    transition: background 0.15s;
+}
+.mapping-create-btn:hover { background: rgba(0,188,212,0.06); }
 
 {% endblock %}
 
@@ -486,6 +514,10 @@
                                     </div>
                                     {% endfor %}
                                 </div>
+                                <div class="nr-select-create-new"
+                                     onclick="event.stopPropagation(); openQuickCreateProfile('add')">
+                                    <i class="bi bi-plus-circle"></i>Create New Profile
+                                </div>
                             </div>
                             <input type="hidden" name="sec_profile_id" value="">
                         </div>
@@ -609,13 +641,16 @@
                                     </div>
                                     {% endfor %}
                                 </div>
+                                <div class="nr-select-create-new"
+                                     onclick="event.stopPropagation(); openQuickCreateProfile('edit')">
+                                    <i class="bi bi-plus-circle"></i>Create New Profile
+                                </div>
                             </div>
                             <input type="hidden" name="sec_profile_id" value="">
                         </div>
                     </div>
 
                     <!-- Variable Mappings multi-select -->
-                    {% if mappings %}
                     <div class="mb-3">
                         <label class="nr-label">VARIABLE MAPPINGS
                             <span style="color:#272727;">(optional)</span>
@@ -631,6 +666,7 @@
                             </div>
                             <div id="editMappingList"
                                  style="max-height:160px; overflow-y:auto; padding:0.3rem 0;">
+                                {% if mappings %}
                                 {% for m in mappings | sort(attribute='token') %}
                                 <label class="mapping-opt" data-token="{{ m.token }}">
                                     <input type="checkbox" name="mapping_ids"
@@ -648,10 +684,14 @@
                                     </span>
                                 </label>
                                 {% endfor %}
+                                {% endif %}
                             </div>
+                            <button type="button" class="mapping-create-btn"
+                                    onclick="openQuickCreateMapping()">
+                                <i class="bi bi-plus-circle"></i>Create New Mapping
+                            </button>
                         </div>
                     </div>
-                    {% endif %}
 
                     <!-- Variable attributes (expand) -->
                     <button type="button" class="expand-toggle" id="varAttrToggle">
@@ -848,6 +888,119 @@
     </div>
 </div>
 
+<!-- ══════════════════════════════════════
+     QUICK CREATE — SECURITY PROFILE
+══════════════════════════════════════ -->
+<div class="modal fade" id="quickCreateProfileModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered" style="max-width:420px;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div>
+                    <div class="nr-badge" style="margin-bottom:0.3rem;">QUICK CREATE</div>
+                    <h5 class="modal-title">New Security Profile</h5>
+                </div>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="nr-label">LABEL <span style="color:#444;">(optional)</span></label>
+                    <input type="text" class="form-control form-control-sm" id="qcpLabel"
+                           placeholder="e.g. Lab Routers" autocomplete="off">
+                </div>
+                <div class="mb-3">
+                    <label class="nr-label">USERNAME</label>
+                    <input type="text" class="form-control form-control-sm" id="qcpUsername"
+                           autocomplete="off">
+                </div>
+                <div class="mb-3">
+                    <label class="nr-label">PASSWORD</label>
+                    <input type="password" class="form-control form-control-sm" id="qcpPassword"
+                           autocomplete="new-password">
+                </div>
+                <div class="mb-1">
+                    <label class="nr-label">ENABLE SECRET <span style="color:#444;">(optional)</span></label>
+                    <input type="password" class="form-control form-control-sm" id="qcpSecret"
+                           autocomplete="new-password">
+                </div>
+            </div>
+            <div class="modal-footer" style="justify-content:space-between; align-items:center;">
+                <div id="qcpError" style="display:none; font-size:0.78rem; color:#ef5350;"></div>
+                <div class="d-flex gap-2 ms-auto">
+                    <button type="button" class="btn btn-secondary btn-sm"
+                            data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary btn-sm"
+                            onclick="submitQuickCreateProfile()">
+                        <i class="bi bi-plus me-1"></i>Create & Assign
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ══════════════════════════════════════
+     QUICK CREATE — VARIABLE MAPPING
+══════════════════════════════════════ -->
+<div class="modal fade" id="quickCreateMappingModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered" style="max-width:400px;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div>
+                    <div class="nr-badge" style="margin-bottom:0.3rem;">QUICK CREATE</div>
+                    <h5 class="modal-title">New Variable Mapping</h5>
+                </div>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="nr-label">TOKEN</label>
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text"
+                              style="background:#1a1a1a; border-color:#333; color:#555; font-family:'JetBrains Mono',monospace;">$$</span>
+                        <input type="text" class="form-control" id="qcmToken"
+                               placeholder="HOSTNAME" autocomplete="off"
+                               style="text-transform:uppercase;">
+                        <span class="input-group-text"
+                              style="background:#1a1a1a; border-color:#333; color:#555; font-family:'JetBrains Mono',monospace;">$$</span>
+                    </div>
+                    <div id="qcmTokenErr" class="field-error">Token is required.</div>
+                </div>
+                <div class="mb-3">
+                    <label class="nr-label">PROPERTY</label>
+                    <select class="form-select form-select-sm" id="qcmProperty"
+                            onchange="document.getElementById('qcmIndexRow').style.display = this.value === 'vrfs' ? '' : 'none'">
+                        <option value="hostname">hostname</option>
+                        <option value="loopback_ip">loopback_ip</option>
+                        <option value="asn">asn</option>
+                        <option value="mgmt_vrf">mgmt_vrf</option>
+                        <option value="mgmt_interface">mgmt_interface</option>
+                        <option value="site">site</option>
+                        <option value="domain">domain</option>
+                        <option value="timezone">timezone</option>
+                        <option value="vrfs">vrfs</option>
+                    </select>
+                </div>
+                <div class="mb-1" id="qcmIndexRow" style="display:none;">
+                    <label class="nr-label">INDEX</label>
+                    <input type="number" class="form-control form-control-sm" id="qcmIndex"
+                           min="0" placeholder="0">
+                </div>
+            </div>
+            <div class="modal-footer" style="justify-content:space-between; align-items:center;">
+                <div id="qcmError" style="display:none; font-size:0.78rem; color:#ef5350;"></div>
+                <div class="d-flex gap-2 ms-auto">
+                    <button type="button" class="btn btn-secondary btn-sm"
+                            data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary btn-sm"
+                            onclick="submitQuickCreateMapping()">
+                        <i class="bi bi-plus me-1"></i>Create & Assign
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 {% endblock %}
 
 
@@ -862,11 +1015,13 @@ function initNrSelect(containerId) {
     const container = document.getElementById(containerId);
     if (!container) return null;
 
-    const trigger   = container.querySelector('.nr-select-trigger');
-    const search    = container.querySelector('.nr-select-search');
-    const options   = container.querySelectorAll('.nr-select-option');
-    const hidden    = container.querySelector('input[type="hidden"]');
-    const display   = container.querySelector('.nr-select-display');
+    const trigger = container.querySelector('.nr-select-trigger');
+    const search  = container.querySelector('.nr-select-search');
+    const hidden  = container.querySelector('input[type="hidden"]');
+    const display = container.querySelector('.nr-select-display');
+    const list    = container.querySelector('.nr-select-list');
+
+    function liveOptions() { return container.querySelectorAll('.nr-select-option'); }
 
     function renderDisplay(label) {
         if (!label) {
@@ -883,13 +1038,13 @@ function initNrSelect(containerId) {
     function selectOption(value, label) {
         hidden.value = value;
         renderDisplay(label || '');
-        options.forEach(o => o.classList.toggle('selected', o.dataset.value === value));
+        liveOptions().forEach(o => o.classList.toggle('selected', o.dataset.value === value));
         close();
     }
 
     function filterOptions(q) {
         const lq = q.toLowerCase();
-        options.forEach(o => {
+        liveOptions().forEach(o => {
             const match = !q
                 || o.classList.contains('none-opt')
                 || (o.dataset.label || '').toLowerCase().includes(lq);
@@ -908,6 +1063,13 @@ function initNrSelect(containerId) {
         filterOptions('');
     }
 
+    function wireOption(opt) {
+        opt.addEventListener('click', e => {
+            e.stopPropagation();
+            selectOption(opt.dataset.value, opt.dataset.label);
+        });
+    }
+
     trigger.addEventListener('click', e => {
         e.stopPropagation();
         container.classList.contains('open') ? close() : open();
@@ -916,12 +1078,7 @@ function initNrSelect(containerId) {
     search.addEventListener('input', () => filterOptions(search.value));
     search.addEventListener('click', e => e.stopPropagation());
 
-    options.forEach(opt => {
-        opt.addEventListener('click', e => {
-            e.stopPropagation();
-            selectOption(opt.dataset.value, opt.dataset.label);
-        });
-    });
+    liveOptions().forEach(wireOption);
 
     document.addEventListener('click', close);
 
@@ -931,7 +1088,19 @@ function initNrSelect(containerId) {
     return {
         getValue: () => hidden.value,
         setValue(value, label) { selectOption(value || '', label || ''); },
-        reset()               { selectOption('', ''); }
+        reset()               { selectOption('', ''); },
+        addOption(value, label) {
+            const opt = document.createElement('div');
+            opt.className = 'nr-select-option';
+            opt.dataset.value = value;
+            opt.dataset.label = label;
+            opt.innerHTML =
+                '<i class="bi bi-shield-lock opt-shield"></i>' +
+                '<span class="opt-label">' + label.replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</span>' +
+                '<i class="bi bi-check2 opt-check"></i>';
+            list.appendChild(opt);
+            wireOption(opt);
+        }
     };
 }
 
@@ -1348,6 +1517,127 @@ document.getElementById('editDeviceModal').addEventListener('hidden.bs.modal', (
     form.querySelectorAll('.field-error').forEach(el => el.style.display = '');
     resetEditTestBtn();
 });
+
+// ════════════════════════════════════════
+//  Quick Create — Security Profile
+// ════════════════════════════════════════
+let _quickProfileTarget = 'add';
+
+function openQuickCreateProfile(target) {
+    _quickProfileTarget = target;
+    ['qcpLabel','qcpUsername','qcpPassword','qcpSecret'].forEach(id => {
+        document.getElementById(id).value = '';
+    });
+    const err = document.getElementById('qcpError');
+    err.style.display = 'none';
+    err.textContent = '';
+    bootstrap.Modal.getOrCreateInstance(
+        document.getElementById('quickCreateProfileModal')).show();
+}
+
+async function submitQuickCreateProfile() {
+    const label    = document.getElementById('qcpLabel').value.trim();
+    const username = document.getElementById('qcpUsername').value.trim();
+    const password = document.getElementById('qcpPassword').value;
+    const secret   = document.getElementById('qcpSecret').value.trim();
+    const errEl    = document.getElementById('qcpError');
+
+    if (!username || !password) {
+        errEl.textContent = 'Username and password are required.';
+        errEl.style.display = '';
+        return;
+    }
+
+    const resp = await fetch('/security/quick_create', {
+        method:  'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN},
+        body:    JSON.stringify({label, username, password, enable_secret: secret || null})
+    });
+    const data = await resp.json();
+
+    if (data.status !== 'ok') {
+        errEl.textContent = data.message || 'Failed to create profile.';
+        errEl.style.display = '';
+        return;
+    }
+
+    // Inject new option into both selects
+    [addSecSelect, editSecSelect].forEach(sel => { if (sel) sel.addOption(data.id, data.label); });
+    // Auto-select in the triggering modal
+    const target = _quickProfileTarget === 'add' ? addSecSelect : editSecSelect;
+    if (target) target.setValue(data.id, data.label);
+
+    bootstrap.Modal.getOrCreateInstance(
+        document.getElementById('quickCreateProfileModal')).hide();
+}
+
+// ════════════════════════════════════════
+//  Quick Create — Variable Mapping
+// ════════════════════════════════════════
+function openQuickCreateMapping() {
+    document.getElementById('qcmToken').value = '';
+    document.getElementById('qcmIndex').value = '';
+    document.getElementById('qcmProperty').value = 'hostname';
+    document.getElementById('qcmIndexRow').style.display = 'none';
+    const err = document.getElementById('qcmError');
+    err.style.display = 'none';
+    err.textContent = '';
+    bootstrap.Modal.getOrCreateInstance(
+        document.getElementById('quickCreateMappingModal')).show();
+}
+
+async function submitQuickCreateMapping() {
+    const token    = document.getElementById('qcmToken').value.trim().toUpperCase();
+    const property = document.getElementById('qcmProperty').value;
+    const indexVal = document.getElementById('qcmIndex').value.trim();
+    const errEl    = document.getElementById('qcmError');
+
+    if (!token) {
+        errEl.textContent = 'Token is required.';
+        errEl.style.display = '';
+        return;
+    }
+
+    const resp = await fetch('/mappings/quick_create', {
+        method:  'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN},
+        body:    JSON.stringify({
+            token_inner:   token,
+            property_name: property,
+            index:         indexVal !== '' ? parseInt(indexVal) : null
+        })
+    });
+    const data = await resp.json();
+
+    if (data.status !== 'ok') {
+        errEl.textContent = data.message || 'Failed to create mapping.';
+        errEl.style.display = '';
+        return;
+    }
+
+    // Inject new checkbox into the list, pre-checked
+    const list = document.getElementById('editMappingList');
+    if (list) {
+        const lbl = document.createElement('label');
+        lbl.className = 'mapping-opt';
+        lbl.dataset.token = data.token;
+        const indexSuffix = data.index !== null ? '[' + data.index + ']' : '';
+        lbl.innerHTML =
+            '<input type="checkbox" name="mapping_ids" value="' + data.id + '"' +
+            ' class="edit-mapping-cb" checked' +
+            ' style="appearance:none;-webkit-appearance:none;width:13px;height:13px;' +
+            'border:1px solid #333;border-radius:3px;background:#1a1a1a;' +
+            'flex-shrink:0;position:relative;cursor:pointer;margin:0;">' +
+            '<span style="font-family:\'JetBrains Mono\',monospace;font-size:0.72rem;color:#00bcd4;">' +
+            data.token + '</span>' +
+            '<span style="font-size:0.7rem;color:#555;margin-left:4px;">→ ' +
+            data.property_name + indexSuffix + '</span>';
+        list.appendChild(lbl);
+    }
+
+    bootstrap.Modal.getOrCreateInstance(
+        document.getElementById('quickCreateMappingModal')).hide();
+}
 
 //  Add modal — reset on close
 // ════════════════════════════════════════

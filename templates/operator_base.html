@@ -74,16 +74,16 @@
         #opSidebar.expanded .sb-header { justify-content: space-between; }
 
         .sb-brand {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 0.58rem;
-            font-weight: 700;
-            letter-spacing: 3px;
-            color: #00bcd4;
-            text-transform: uppercase;
-            white-space: nowrap;
             opacity: 0;
             transition: opacity 0.2s ease;
-            padding-left: 0.25rem;
+            padding-left: 0.4rem;
+            display: flex;
+            align-items: center;
+        }
+        .sb-brand img {
+            height: 22px;
+            width: auto;
+            display: block;
         }
 
         #opSidebar.expanded .sb-brand { opacity: 1; }
@@ -666,7 +666,9 @@
 <nav id="opSidebar">
 
     <div class="sb-header">
-        <span class="sb-brand">NETROLLOUT</span>
+        <span class="sb-brand">
+            <img src="{{ url_for('static', filename='logo.svg') }}" alt="NetRollout">
+        </span>
         <button class="sb-toggle" id="sbToggle" title="Toggle sidebar">&#9776;</button>
     </div>
 
@@ -760,8 +762,14 @@
 
     <!-- Topbar -->
     <div class="op-topbar">
-        <div class="op-topbar-title">
-            {% block page_title %}{% endblock %}
+        <div class="d-flex align-items-center gap-3">
+            <img src="{{ url_for('static', filename='logo.svg') }}"
+                 alt="NetRollout"
+                 style="height:16px; width:auto; opacity:0.85;">
+            <span style="width:1px; height:14px; background:#2a2a2a; flex-shrink:0;"></span>
+            <div class="op-topbar-title">
+                {% block page_title %}{% endblock %}
+            </div>
         </div>
         <div class="dropdown">
             <button class="btn nr-user-btn dropdown-toggle" type="button"

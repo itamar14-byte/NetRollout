@@ -4,15 +4,14 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="27240518-82b3-4a70-8f71-cc3b690d164c" name="Changes" comment="● &quot;Implement Phase 3.2: multi-platform rollout, active jobs screen, log&#10;  streaming, rollback, job metadata audit trail with pg_cron retention,&#10;  and results page&quot;">
+    <list default="true" id="27240518-82b3-4a70-8f71-cc3b690d164c" name="Changes" comment=" Bug fixes from first EVE-NG live test:&#10;   - core: treat ReadTimeout as success when commands were already sent —&#10;     hostname rename changes the prompt mid-session, netmiko loses detection&#10;     after the config is applied, not before&#10;   Bug fixes from first EVE-NG live test:&#10;   - core: treat ReadTimeout as success when commands were already sent —&#10;     hostname rename changes the prompt mid-session, netmiko loses detection&#10;     after the config is applied, not before&#10;   - core: fix &quot;_commands&quot; literal typo in verify summary log output&#10;   - core: suppress red/yellow verify summary lines when count is 0&#10;   - webapp: fix data.get_queue() -&gt; data.get() typo in security_test route&#10;   - active_jobs: drain queue after buffer replay to prevent duplicate SSE&#10;     log lines; pause page auto-refresh while log panel is open&#10;&#10;   Results page — See Commands and diff selection were both silently broken:&#10;   - Fix | tojson | e -&gt; | tojson | forceescape on data-commands attributes;&#10;     tojson returns Markup so | e was a no-op, leaving raw quotes that&#10;     truncated the HTML attribute at the first JSON string delimiter&#10;   - Fix compare mode hiding all rows (diffModeBtn carried filter-btn class&#10;     but no data-filter — filter handler set filter=undefined, all rows hidden)&#10;   - Add job ID copy button (clipboard API, check icon flash on copy)&#10;&#10;   Inventory: add Test Connection three-state button to Edit Device modal,&#10;   mirroring the Add Device modal — grey Test -&gt; green Confirm / red Save Anyway">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/webapp.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/webapp.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/templates/dashboard.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/dashboard.html" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/templates/admin.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/admin.html" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/templates/base.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/base.html" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/templates/index.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/index.html" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/templates/inventory.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/inventory.html" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/templates/operator_base.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/operator_base.html" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/templates/results.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/results.html" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/templates/security.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/security.html" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/templates/variable_mappings.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/variable_mappings.html" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -85,7 +84,7 @@
     "RunOnceActivity.git.unshallow": "true",
     "git-widget-placeholder": "master",
     "ignore.virus.scanning.warn.message": "true",
-    "last_opened_file_path": "C:/Users/itama/Documents/Coding/Network-bulk-configuration",
+    "last_opened_file_path": "C:/Users/itama/Documents/Coding/Network-bulk-configuration/templates",
     "node.js.detected.package.eslint": "true",
     "node.js.detected.package.tslint": "true",
     "node.js.selected.package.eslint": "(autodetect)",
@@ -101,13 +100,16 @@
   }
 }]]></component>
   <component name="RecentsManager">
+    <key name="CopyFile.RECENT_KEYS">
+      <recent name="C:\Users\itama\Documents\Coding\Network-bulk-configuration\templates" />
+    </key>
     <key name="MoveFile.RECENT_KEYS">
       <recent name="C:\Users\itama\Documents\Coding\Network-bulk-configuration\docs" />
       <recent name="C:\Users\itama\Documents\Coding\Network-bulk-configuration\tests" />
       <recent name="C:\Users\itama\Documents\Coding\Network-bulk-configuration\src" />
     </key>
   </component>
-  <component name="RunManager">
+  <component name="RunManager" selected="Python.webapp">
     <configuration name="Network-bulk-configuration" type="PythonConfigurationType" factoryName="Python">
       <module name="Network-bulk-configuration" />
       <option name="ENV_FILES" value="" />
@@ -226,78 +228,9 @@
       <workItem from="1775920924072" duration="10841000" />
       <workItem from="1775977507929" duration="351000" />
       <workItem from="1776007250658" duration="17284000" />
-    </task>
-    <task id="LOCAL-00001" summary="Bug Fixes and configuration of executble packing">
-      <option name="closed" value="true" />
-      <created>1756331763053</created>
-      <option name="number" value="00001" />
-      <option name="presentableId" value="LOCAL-00001" />
-      <option name="project" value="LOCAL" />
-      <updated>1756331763053</updated>
-    </task>
-    <task id="LOCAL-00002" summary="Bug fixes and GUI features">
-      <option name="closed" value="true" />
-      <created>1756704271984</created>
-      <option name="number" value="00002" />
-      <option name="presentableId" value="LOCAL-00002" />
-      <option name="project" value="LOCAL" />
-      <updated>1756704271984</updated>
-    </task>
-    <task id="LOCAL-00003" summary="Bug fixes and GUI features">
-      <option name="closed" value="true" />
-      <created>1756704468644</created>
-      <option name="number" value="00003" />
-      <option name="presentableId" value="LOCAL-00003" />
-      <option name="project" value="LOCAL" />
-      <updated>1756704468645</updated>
-    </task>
-    <task id="LOCAL-00004" summary="Bug Fixes and sever upgrade">
-      <option name="closed" value="true" />
-      <created>1756761971798</created>
-      <option name="number" value="00004" />
-      <option name="presentableId" value="LOCAL-00004" />
-      <option name="project" value="LOCAL" />
-      <updated>1756761971798</updated>
-    </task>
-    <task id="LOCAL-00005" summary="Broought up SSE integration and rollout page">
-      <option name="closed" value="true" />
-      <created>1756816501340</created>
-      <option name="number" value="00005" />
-      <option name="presentableId" value="LOCAL-00005" />
-      <option name="project" value="LOCAL" />
-      <updated>1756816501341</updated>
-    </task>
-    <task id="LOCAL-00006" summary="Brought up SSE integration and rollout page">
-      <option name="closed" value="true" />
-      <created>1756817639032</created>
-      <option name="number" value="00006" />
-      <option name="presentableId" value="LOCAL-00006" />
-      <option name="project" value="LOCAL" />
-      <updated>1756817639032</updated>
-    </task>
-    <task id="LOCAL-00007" summary="Did some refactoring, with seperation of backendlogic to Core and Webappand cli used as interfaces">
-      <option name="closed" value="true" />
-      <created>1774298986830</created>
-      <option name="number" value="00007" />
-      <option name="presentableId" value="LOCAL-00007" />
-      <option name="project" value="LOCAL" />
-      <updated>1774298986830</updated>
-    </task>
-    <task id="LOCAL-00008" summary="Merge remote-tracking branch 'origin/master'&#10;&#10;# Conflicts:&#10;#&#9;templates/upload.html">
-      <option name="closed" value="true" />
-      <created>1774299480220</created>
-      <option name="number" value="00008" />
-      <option name="presentableId" value="LOCAL-00008" />
-      <option name="project" value="LOCAL" />
-      <updated>1774299480220</updated>
-    </task>
-    <task id="LOCAL-00009" summary="Split Helper to Modules">
-      <option name="closed" value="true" />
-      <created>1774301811877</created>
-      <option name="number" value="00009" />
-      <option name="presentableId" value="LOCAL-00009" />
-      <option name="project" value="LOCAL" />
-      <updated>1774301811877</updated>
+      <workItem from="1776041383717" duration="5539000" />
+      <workItem from="1776086460402" duration="8546000" />
+      <workItem from="1776156086353" duration="4620000" />
     </task>
     <task id="LOCAL-00010" summary="Split Helper to Modules">
       <option name="closed" value="true" />
@@ -611,7 +544,87 @@
       <option name="project" value="LOCAL" />
       <updated>1776026050391</updated>
     </task>
-    <option name="localTasksCounter" value="49" />
+    <task id="LOCAL-00049" summary="  Phase 3.4 — audit trail, results enhancements, log file infrastructure&#10;&#10;  - Add AuditLog ORM model with 90-day pg_cron retention&#10;  - Instrument 21 routes with audit() writes (auth, user mgmt, inventory,&#10;    security profiles, variable mappings, rollout lifecycle)&#10;  - Add /admin/audit filterable log viewer with FortiGate-style gear per row&#10;  - Remove legacy upload/rollout routes and templates (pre-Phase 3.2)&#10;  - Fix admin panel back button pointing to old upload route&#10;  - Wire RolloutLogger to LOGS_DIR (src/../logs/) with job_id+timestamp naming&#10;  - Add Download Log and See Commands buttons to results page&#10;  - Add client-side LCS diff modal for comparing commands between two jobs">
+      <option name="closed" value="true" />
+      <created>1776074055784</created>
+      <option name="number" value="00049" />
+      <option name="presentableId" value="LOCAL-00049" />
+      <option name="project" value="LOCAL" />
+      <updated>1776074055784</updated>
+    </task>
+    <task id="LOCAL-00050" summary="  Phase 3.4 — audit trail, results enhancements, log file infrastructure&#10;&#10;  - Add AuditLog ORM model with 90-day pg_cron retention&#10;  - Instrument 21 routes with audit() writes (auth, user mgmt, inventory,&#10;    security profiles, variable mappings, rollout lifecycle)&#10;  - Add /admin/audit filterable log viewer with FortiGate-style gear per row&#10;  - Remove legacy upload/rollout routes and templates (pre-Phase 3.2)&#10;  - Fix admin panel back button pointing to old upload route&#10;  - Wire RolloutLogger to LOGS_DIR (src/../logs/) with job_id+timestamp naming&#10;  - Add Download Log and See Commands buttons to results page&#10;  - Add client-side LCS diff modal for comparing commands between two jobs">
+      <option name="closed" value="true" />
+      <created>1776074312576</created>
+      <option name="number" value="00050" />
+      <option name="presentableId" value="LOCAL-00050" />
+      <option name="project" value="LOCAL" />
+      <updated>1776074312576</updated>
+    </task>
+    <task id="LOCAL-00051" summary="   Device-level concurrency: ThreadPoolExecutor in _push_config and _verify,&#10;   _push_device/_verify_device extracted. RolloutLogger fully thread-safe:&#10;   _buffer private, _buffer_lock + _log_lock added, get_buffer_snapshot()&#10;   for race-free SSE replay.&#10;&#10;   Admin all-users toggle on active_jobs and results: split view with My Jobs&#10;   / Other Users collapsible sections, per-section headers and filters, owner&#10;   badge on other users' rows. Admin bypasses ownership checks on cancel,&#10;   stream, and log download.">
+      <option name="closed" value="true" />
+      <created>1776077557685</created>
+      <option name="number" value="00051" />
+      <option name="presentableId" value="LOCAL-00051" />
+      <option name="project" value="LOCAL" />
+      <updated>1776077557685</updated>
+    </task>
+    <task id="LOCAL-00052" summary="  Phase 3.6 — concurrency, admin all-users view, audit fix, UI polish&#10;&#10;  Two-layer concurrency: ThreadPoolExecutor in _push_config and _verify,&#10;  _push_device/_verify_device extracted. RolloutLogger thread-safe:&#10;  _buffer private, _buffer_lock + _log_lock, get_buffer_snapshot().&#10;&#10;  Admin all-users toggle on active_jobs and results: split view with&#10;  My Jobs / Other Users sections, per-section headers and filters,&#10;  owner badge. Admin bypasses ownership checks on cancel, stream,&#10;  log download.&#10;&#10;  AuditLog.detail JSONB column added (was accepted by audit() helper&#10;  but never stored or surfaced in the View Detail modal).&#10;&#10;  Dashboard buttons: Launch Rollout solid cyan fill, other actions&#10;  cyan outline. Sidebar reorganised into three labelled sections —&#10;  Operation, Management, Observability — with Admin Panel inside&#10;  Observability.">
+      <option name="closed" value="true" />
+      <created>1776078428670</created>
+      <option name="number" value="00052" />
+      <option name="presentableId" value="LOCAL-00052" />
+      <option name="project" value="LOCAL" />
+      <updated>1776078428672</updated>
+    </task>
+    <task id="LOCAL-00053" summary="  Phase 3.6 — concurrency, admin all-users view, audit fix, UI polish&#10;&#10;  Two-layer concurrency: ThreadPoolExecutor in _push_config and _verify,&#10;  _push_device/_verify_device extracted. RolloutLogger thread-safe:&#10;  _buffer private, _buffer_lock + _log_lock, get_buffer_snapshot().&#10;&#10;  Admin all-users toggle on active_jobs and results: split view with&#10;  My Jobs / Other Users sections, per-section headers and filters,&#10;  owner badge. Admin bypasses ownership checks on cancel, stream,&#10;  log download.&#10;&#10;  AuditLog.detail JSONB column added (was accepted by audit() helper&#10;  but never stored or surfaced in the View Detail modal).&#10;&#10;  Dashboard buttons: Launch Rollout solid cyan fill, other actions&#10;  cyan outline. Sidebar reorganised into three labelled sections —&#10;  Operation, Management, Observability — with Admin Panel inside&#10;  Observability.">
+      <option name="closed" value="true" />
+      <created>1776078747802</created>
+      <option name="number" value="00053" />
+      <option name="presentableId" value="LOCAL-00053" />
+      <option name="project" value="LOCAL" />
+      <updated>1776078747802</updated>
+    </task>
+    <task id="LOCAL-00054" summary="  Phase 3.6 — concurrency, admin all-users view, audit fix, UI polish&#10;&#10;  Two-layer concurrency: ThreadPoolExecutor in _push_config and _verify,&#10;  _push_device/_verify_device extracted. RolloutLogger thread-safe:&#10;  _buffer private, _buffer_lock + _log_lock, get_buffer_snapshot().&#10;&#10;  Admin all-users toggle on active_jobs and results: split view with&#10;  My Jobs / Other Users sections, per-section headers and filters,&#10;  owner badge. Admin bypasses ownership checks on cancel, stream,&#10;  log download.&#10;&#10;  AuditLog.detail JSONB column added (was accepted by audit() helper&#10;  but never stored or surfaced in the View Detail modal).&#10;&#10;  Dashboard buttons: Launch Rollout solid cyan fill, other actions&#10;  cyan outline. Sidebar reorganised into three labelled sections —&#10;  Operation, Management, Observability — with Admin Panel inside&#10;  Observability.">
+      <option name="closed" value="true" />
+      <created>1776079024363</created>
+      <option name="number" value="00054" />
+      <option name="presentableId" value="LOCAL-00054" />
+      <option name="project" value="LOCAL" />
+      <updated>1776079024363</updated>
+    </task>
+    <task id="LOCAL-00055" summary="&#10;  tests: enable and adapt full unit test suite to current architecture&#10;&#10;  Re-enable all _DISABLED test classes and adapt them to the Phase 2/3&#10;  architecture. Fix RolloutLogger constructor usage (logfile= param&#10;  removed), update _push_config assertions for (cancel_signal,&#10;  push_results) tuple return, update _verify for ThreadPoolExecutor-based&#10;  API (cancel removed), update run() assertions for list[DeviceResultDict]&#10;  return type. Fix _server_reachable bug (was returning True on&#10;  ConnectionRefusedError, skipping rate limit test incorrectly).&#10;&#10;  82 tests passing, 1 skipped (rate limit integration — requires live server).&#10;  webapp.py and cli.py intentionally uncovered — next session.">
+      <option name="closed" value="true" />
+      <created>1776101192241</created>
+      <option name="number" value="00055" />
+      <option name="presentableId" value="LOCAL-00055" />
+      <option name="project" value="LOCAL" />
+      <updated>1776101192242</updated>
+    </task>
+    <task id="LOCAL-00056" summary="   feat(inventory): TCP connection test on device creation&#10;&#10;   Add device modal now requires a connection test before saving. A 'Test&#10;   Connection' button (grey) fires POST /inventory/test_connection, which&#10;   runs Validator.test_tcp_port against the supplied IP and port. On&#10;   success the button turns green ('Confirm') and a status pill shows the&#10;   result; on failure it turns red ('Save Anyway') so the user can still&#10;   persist an unreachable device. Editing IP or port after a test resets&#10;   the button to prevent confirming a stale result.">
+      <option name="closed" value="true" />
+      <created>1776113746485</created>
+      <option name="number" value="00056" />
+      <option name="presentableId" value="LOCAL-00056" />
+      <option name="project" value="LOCAL" />
+      <updated>1776113746485</updated>
+    </task>
+    <task id="LOCAL-00057" summary="  fix + feat: first-rollout fixes, results page overhaul, edit-device test button&#10;&#10;  Bug fixes from first EVE-NG live test:&#10;  - core: treat ReadTimeout as success when commands were already sent —&#10;    hostname rename changes the prompt mid-session, netmiko loses detection&#10;    after the config is applied, not before&#10;  - core: fix &quot;_commands&quot; literal typo in verify summary log output&#10;  - core: suppress red/yellow verify summary lines when count is 0&#10;  - webapp: fix data.get_queue() → data.get() typo in security_test route&#10;  - active_jobs: drain queue after buffer replay to prevent duplicate SSE&#10;    log lines; pause page auto-refresh while log panel is open&#10;&#10;  Results page — See Commands and diff selection were both silently broken:&#10;  - Fix | tojson | e → | tojson | forceescape on data-commands attributes;&#10;    tojson returns Markup so | e was a no-op, leaving raw &quot; quotes that&#10;    truncated the HTML attribute at the first JSON string delimiter&#10;  - Fix compare mode hiding all rows (diffModeBtn carried filter-btn class&#10;    but no data-filter — filter handler set filter=undefined, all rows hidden)&#10;  - Add job ID copy button (clipboard API, check icon flash on copy)&#10;&#10;  Inventory: add Test Connection three-state button to Edit Device modal,&#10;  mirroring the Add Device modal — grey Test → green Confirm / red Save Anyway">
+      <option name="closed" value="true" />
+      <created>1776121002110</created>
+      <option name="number" value="00057" />
+      <option name="presentableId" value="LOCAL-00057" />
+      <option name="project" value="LOCAL" />
+      <updated>1776121002110</updated>
+    </task>
+    <task id="LOCAL-00058" summary=" Bug fixes from first EVE-NG live test:&#10;   - core: treat ReadTimeout as success when commands were already sent —&#10;     hostname rename changes the prompt mid-session, netmiko loses detection&#10;     after the config is applied, not before&#10;   Bug fixes from first EVE-NG live test:&#10;   - core: treat ReadTimeout as success when commands were already sent —&#10;     hostname rename changes the prompt mid-session, netmiko loses detection&#10;     after the config is applied, not before&#10;   - core: fix &quot;_commands&quot; literal typo in verify summary log output&#10;   - core: suppress red/yellow verify summary lines when count is 0&#10;   - webapp: fix data.get_queue() -&gt; data.get() typo in security_test route&#10;   - active_jobs: drain queue after buffer replay to prevent duplicate SSE&#10;     log lines; pause page auto-refresh while log panel is open&#10;&#10;   Results page — See Commands and diff selection were both silently broken:&#10;   - Fix | tojson | e -&gt; | tojson | forceescape on data-commands attributes;&#10;     tojson returns Markup so | e was a no-op, leaving raw quotes that&#10;     truncated the HTML attribute at the first JSON string delimiter&#10;   - Fix compare mode hiding all rows (diffModeBtn carried filter-btn class&#10;     but no data-filter — filter handler set filter=undefined, all rows hidden)&#10;   - Add job ID copy button (clipboard API, check icon flash on copy)&#10;&#10;   Inventory: add Test Connection three-state button to Edit Device modal,&#10;   mirroring the Add Device modal — grey Test -&gt; green Confirm / red Save Anyway">
+      <option name="closed" value="true" />
+      <created>1776121150527</created>
+      <option name="number" value="00058" />
+      <option name="presentableId" value="LOCAL-00058" />
+      <option name="project" value="LOCAL" />
+      <updated>1776121150527</updated>
+    </task>
+    <option name="localTasksCounter" value="59" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -629,13 +642,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="Bug fixes" />
-    <MESSAGE value="removedternary expression in cancel event initalization" />
-    <MESSAGE value="minor bug fixes" />
-    <MESSAGE value="insalled flask-login and setrouts foruser auth" />
-    <MESSAGE value="Added usr authenitcation to webapp" />
-    <MESSAGE value="updated documenation and addd user lgoin ad regitration" />
-    <MESSAGE value="● Auth routes: implement /login and /register with password hashing and integrity error handling" />
     <MESSAGE value="● Auth pipeline: add register/account templates, factory admin seeding, UUID primary key on User" />
     <MESSAGE value="● Auth pipeline: implement TOTP enrollment and verification with QR code and animated OTP input" />
     <MESSAGE value="● Auth pipeline: fix TOTP secret persistence, complete dark mode, polish OTP timer display" />
@@ -654,18 +660,25 @@
     <MESSAGE value="&#10;  Fix innerHTML XSS in rollout log output&#10;&#10;  html.escape() applied to user-controlled message content in&#10;  RolloutLogger._msg() before HTML color wrapping. Prevents device&#10;  hostnames or command output containing HTML from executing in the&#10;  browser. Bug report updated — one open item remaining (SSE completion&#10;  signal)." />
     <MESSAGE value="Implemented device-aware variable substitution and completed the new rollout execution pipeline.&#10;&#10;Core changes:&#10;&#10;Variable Mapping&#10;- Added runtime substitution support in RolloutEngine.&#10;- Device objects now carry:&#10;  - `extra` device attributes (from Inventory.var_maps)&#10;  - `var_map_subs` mapping tokens to attribute lookups.&#10;- Implemented `_substitute_commands()` to resolve tokens per device before execution.&#10;- Supports indexed attributes (e.g. VRF lists).&#10;- Substitution applied consistently during both push and verification phases.&#10;&#10;Device Construction&#10;- Extended `Device.from_inventory()` to translate ORM relationships into runtime structures.&#10;- Mappings from `VariableMapping` are converted into token → (property, index) dictionaries.&#10;&#10;Rollout Engine&#10;- Push stage now executes device-specific command lists.&#10;- Verification stage updated to evaluate substituted commands.&#10;- Removed unnecessary deepcopy usage for command lists.&#10;&#10;Rollout Web Backend&#10;- Implemented new `/new_rollout` and `/new_start_rollout` routes.&#10;- Allows selecting inventory devices and submitting commands via text input or file upload.&#10;- Builds runtime `Device` objects via InputParser.&#10;- Submits rollout jobs through the orchestrator.&#10;&#10;Architecture&#10;- Maintained clean boundary between ORM models and runtime execution layer.&#10;- Device substitution logic remains independent of database access.&#10;- Rollout jobs continue to be managed via the in-memory orchestrator registry.&#10;&#10;Documentation / Readability&#10;- Added structured comments explaining rollout route stages." />
     <MESSAGE value="● &quot;Implement Phase 3.2: multi-platform rollout, active jobs screen, log&#10;  streaming, rollback, job metadata audit trail with pg_cron retention,&#10;  and results page&quot;" />
-    <option name="LAST_COMMIT_MESSAGE" value="● &quot;Implement Phase 3.2: multi-platform rollout, active jobs screen, log&#10;  streaming, rollback, job metadata audit trail with pg_cron retention,&#10;  and results page&quot;" />
+    <MESSAGE value="  Phase 3.4 — audit trail, results enhancements, log file infrastructure&#10;&#10;  - Add AuditLog ORM model with 90-day pg_cron retention&#10;  - Instrument 21 routes with audit() writes (auth, user mgmt, inventory,&#10;    security profiles, variable mappings, rollout lifecycle)&#10;  - Add /admin/audit filterable log viewer with FortiGate-style gear per row&#10;  - Remove legacy upload/rollout routes and templates (pre-Phase 3.2)&#10;  - Fix admin panel back button pointing to old upload route&#10;  - Wire RolloutLogger to LOGS_DIR (src/../logs/) with job_id+timestamp naming&#10;  - Add Download Log and See Commands buttons to results page&#10;  - Add client-side LCS diff modal for comparing commands between two jobs" />
+    <MESSAGE value="   Device-level concurrency: ThreadPoolExecutor in _push_config and _verify,&#10;   _push_device/_verify_device extracted. RolloutLogger fully thread-safe:&#10;   _buffer private, _buffer_lock + _log_lock added, get_buffer_snapshot()&#10;   for race-free SSE replay.&#10;&#10;   Admin all-users toggle on active_jobs and results: split view with My Jobs&#10;   / Other Users collapsible sections, per-section headers and filters, owner&#10;   badge on other users' rows. Admin bypasses ownership checks on cancel,&#10;   stream, and log download." />
+    <MESSAGE value="  Phase 3.6 — concurrency, admin all-users view, audit fix, UI polish&#10;&#10;  Two-layer concurrency: ThreadPoolExecutor in _push_config and _verify,&#10;  _push_device/_verify_device extracted. RolloutLogger thread-safe:&#10;  _buffer private, _buffer_lock + _log_lock, get_buffer_snapshot().&#10;&#10;  Admin all-users toggle on active_jobs and results: split view with&#10;  My Jobs / Other Users sections, per-section headers and filters,&#10;  owner badge. Admin bypasses ownership checks on cancel, stream,&#10;  log download.&#10;&#10;  AuditLog.detail JSONB column added (was accepted by audit() helper&#10;  but never stored or surfaced in the View Detail modal).&#10;&#10;  Dashboard buttons: Launch Rollout solid cyan fill, other actions&#10;  cyan outline. Sidebar reorganised into three labelled sections —&#10;  Operation, Management, Observability — with Admin Panel inside&#10;  Observability." />
+    <MESSAGE value="&#10;  tests: enable and adapt full unit test suite to current architecture&#10;&#10;  Re-enable all _DISABLED test classes and adapt them to the Phase 2/3&#10;  architecture. Fix RolloutLogger constructor usage (logfile= param&#10;  removed), update _push_config assertions for (cancel_signal,&#10;  push_results) tuple return, update _verify for ThreadPoolExecutor-based&#10;  API (cancel removed), update run() assertions for list[DeviceResultDict]&#10;  return type. Fix _server_reachable bug (was returning True on&#10;  ConnectionRefusedError, skipping rate limit test incorrectly).&#10;&#10;  82 tests passing, 1 skipped (rate limit integration — requires live server).&#10;  webapp.py and cli.py intentionally uncovered — next session." />
+    <MESSAGE value="   feat(inventory): TCP connection test on device creation&#10;&#10;   Add device modal now requires a connection test before saving. A 'Test&#10;   Connection' button (grey) fires POST /inventory/test_connection, which&#10;   runs Validator.test_tcp_port against the supplied IP and port. On&#10;   success the button turns green ('Confirm') and a status pill shows the&#10;   result; on failure it turns red ('Save Anyway') so the user can still&#10;   persist an unreachable device. Editing IP or port after a test resets&#10;   the button to prevent confirming a stale result." />
+    <MESSAGE value="  fix + feat: first-rollout fixes, results page overhaul, edit-device test button&#10;&#10;  Bug fixes from first EVE-NG live test:&#10;  - core: treat ReadTimeout as success when commands were already sent —&#10;    hostname rename changes the prompt mid-session, netmiko loses detection&#10;    after the config is applied, not before&#10;  - core: fix &quot;_commands&quot; literal typo in verify summary log output&#10;  - core: suppress red/yellow verify summary lines when count is 0&#10;  - webapp: fix data.get_queue() → data.get() typo in security_test route&#10;  - active_jobs: drain queue after buffer replay to prevent duplicate SSE&#10;    log lines; pause page auto-refresh while log panel is open&#10;&#10;  Results page — See Commands and diff selection were both silently broken:&#10;  - Fix | tojson | e → | tojson | forceescape on data-commands attributes;&#10;    tojson returns Markup so | e was a no-op, leaving raw &quot; quotes that&#10;    truncated the HTML attribute at the first JSON string delimiter&#10;  - Fix compare mode hiding all rows (diffModeBtn carried filter-btn class&#10;    but no data-filter — filter handler set filter=undefined, all rows hidden)&#10;  - Add job ID copy button (clipboard API, check icon flash on copy)&#10;&#10;  Inventory: add Test Connection three-state button to Edit Device modal,&#10;  mirroring the Add Device modal — grey Test → green Confirm / red Save Anyway" />
+    <MESSAGE value=" Bug fixes from first EVE-NG live test:&#10;   - core: treat ReadTimeout as success when commands were already sent —&#10;     hostname rename changes the prompt mid-session, netmiko loses detection&#10;     after the config is applied, not before&#10;   Bug fixes from first EVE-NG live test:&#10;   - core: treat ReadTimeout as success when commands were already sent —&#10;     hostname rename changes the prompt mid-session, netmiko loses detection&#10;     after the config is applied, not before&#10;   - core: fix &quot;_commands&quot; literal typo in verify summary log output&#10;   - core: suppress red/yellow verify summary lines when count is 0&#10;   - webapp: fix data.get_queue() -&gt; data.get() typo in security_test route&#10;   - active_jobs: drain queue after buffer replay to prevent duplicate SSE&#10;     log lines; pause page auto-refresh while log panel is open&#10;&#10;   Results page — See Commands and diff selection were both silently broken:&#10;   - Fix | tojson | e -&gt; | tojson | forceescape on data-commands attributes;&#10;     tojson returns Markup so | e was a no-op, leaving raw quotes that&#10;     truncated the HTML attribute at the first JSON string delimiter&#10;   - Fix compare mode hiding all rows (diffModeBtn carried filter-btn class&#10;     but no data-filter — filter handler set filter=undefined, all rows hidden)&#10;   - Add job ID copy button (clipboard API, check icon flash on copy)&#10;&#10;   Inventory: add Test Connection three-state button to Edit Device modal,&#10;   mirroring the Add Device modal — grey Test -&gt; green Confirm / red Save Anyway" />
+    <option name="LAST_COMMIT_MESSAGE" value=" Bug fixes from first EVE-NG live test:&#10;   - core: treat ReadTimeout as success when commands were already sent —&#10;     hostname rename changes the prompt mid-session, netmiko loses detection&#10;     after the config is applied, not before&#10;   Bug fixes from first EVE-NG live test:&#10;   - core: treat ReadTimeout as success when commands were already sent —&#10;     hostname rename changes the prompt mid-session, netmiko loses detection&#10;     after the config is applied, not before&#10;   - core: fix &quot;_commands&quot; literal typo in verify summary log output&#10;   - core: suppress red/yellow verify summary lines when count is 0&#10;   - webapp: fix data.get_queue() -&gt; data.get() typo in security_test route&#10;   - active_jobs: drain queue after buffer replay to prevent duplicate SSE&#10;     log lines; pause page auto-refresh while log panel is open&#10;&#10;   Results page — See Commands and diff selection were both silently broken:&#10;   - Fix | tojson | e -&gt; | tojson | forceescape on data-commands attributes;&#10;     tojson returns Markup so | e was a no-op, leaving raw quotes that&#10;     truncated the HTML attribute at the first JSON string delimiter&#10;   - Fix compare mode hiding all rows (diffModeBtn carried filter-btn class&#10;     but no data-filter — filter handler set filter=undefined, all rows hidden)&#10;   - Add job ID copy button (clipboard API, check icon flash on copy)&#10;&#10;   Inventory: add Test Connection three-state button to Edit Device modal,&#10;   mirroring the Add Device modal — grey Test -&gt; green Confirm / red Save Anyway" />
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
     <SUITE FILE_PATH="coverage/core_py$WebApp.coverage" NAME="WebApp Coverage Results" MODIFIED="1756760459810" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/WebApp_py$WebApp.coverage" NAME="WebApp Coverage Results" MODIFIED="1756940263036" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/Network_bulk_configuration$.coverage" NAME=" Coverage Results" MODIFIED="1775830389406" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/tests" />
-    <SUITE FILE_PATH="coverage/Network_bulk_configuration$webapp.coverage" NAME="webapp Coverage Results" MODIFIED="1776028679717" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/src" />
-    <SUITE FILE_PATH="coverage/Network_bulk_configuration$Network_bulk_configuration.coverage" NAME="Network-bulk-configuration Coverage Results" MODIFIED="1775855749865" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/Network_bulk_configuration$webapp.coverage" NAME="webapp Coverage Results" MODIFIED="1776161029604" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/src" />
+    <SUITE FILE_PATH="coverage/Network_bulk_configuration$Network_bulk_configuration.coverage" NAME="Network-bulk-configuration Coverage Results" MODIFIED="1776077669925" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/core_py$Helper.coverage" NAME="Helper Coverage Results" MODIFIED="1756330739506" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/Network_bulk_configuration$db.coverage" NAME="db Coverage Results" MODIFIED="1774396400735" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/src" />
     <SUITE FILE_PATH="coverage/core_py$Core.coverage" NAME="Core Coverage Results" MODIFIED="1756330745282" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
-    <SUITE FILE_PATH="coverage/Network_bulk_configuration$db_install.coverage" NAME="db_install Coverage Results" MODIFIED="1776025149411" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/src" />
+    <SUITE FILE_PATH="coverage/Network_bulk_configuration$db_install.coverage" NAME="db_install Coverage Results" MODIFIED="1776071359385" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/src" />
     <SUITE FILE_PATH="coverage/Network_bulk_configuration$tables.coverage" NAME="tables Coverage Results" MODIFIED="1775824334820" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/src" />
   </component>
 </project>
