@@ -597,7 +597,7 @@
             display: none;
             font-family: 'Inter', sans-serif;
         }
-        input.form-control:invalid:not(:placeholder-shown) + .field-error,
+        input.form-control:not([type="file"]):invalid:not(:placeholder-shown) + .field-error,
         input.form-control.nr-submitted:invalid + .field-error,
         select.form-select.nr-touched:invalid + .field-error { display: block; }
         .pw-group:has(input.form-control:invalid:not(:placeholder-shown)) + .field-error,
