@@ -39,7 +39,7 @@ from input_parser import InputParser
 from logging_utils import RolloutLogger, LOGS_DIR
 from orchestration import RolloutOrchestrator
 from tables import User, DeviceResult, SecurityProfile, Inventory, \
-	VariableMapping, RolloutSession, AuditLog, JobMetadata
+	VariableMapping, RolloutSession, AuditLog, JobMetadata, PropertyDefinition
 from validation import Validator
 
 app = Flask(__name__, template_folder='../templates')
@@ -49,6 +49,7 @@ app.config["SECRET_KEY"] = secrets.token_urlsafe(32)
 # Extract DB host:port from DATABASE_URL for use in error pages
 try:
 	from urllib.parse import urlparse as _urlparse
+
 	_db_url = _urlparse(os.getenv("DATABASE_URL", ""))
 	_DB_HOST = _db_url.hostname or "localhost"
 	_DB_PORT = _db_url.port or 5432
@@ -72,6 +73,35 @@ VENDOR_LOGOS = {
 	'hp_comware': f'{_CDN}/hp',
 }
 app.jinja_env.globals['VENDOR_LOGOS'] = VENDOR_LOGOS
+
+SYSTEM_PROPERTIES = [
+	{"name": "hostname", "label": "Hostname", "icon": "bi-type-h1",
+	 "is_list": False},
+	{"name": "loopback_ip", "label": "Loopback IP", "icon": "bi-hdd-network",
+	 "is_list": False},
+	{"name": "asn", "label": "ASN", "icon": "bi-diagram-3", "is_list": False},
+	{"name": "mgmt_vrf", "label": "Management VRF", "icon": "bi-box",
+	 "is_list": False},
+	{"name": "mgmt_interface", "label": "Management Interface",
+	 "icon": "bi-ethernet", "is_list": False},
+	{"name": "site", "label": "Site", "icon": "bi-geo-alt", "is_list": False},
+	{"name": "domain", "label": "Domain", "icon": "bi-globe2",
+	 "is_list": False},
+	{"name": "timezone", "label": "Timezone", "icon": "bi-clock",
+	 "is_list": False},
+	{"name": "vrfs", "label": "VRFs", "icon": "bi-layers", "is_list": True},
+]
+
+
+def get_property_defs(user_id):
+	with get_session() as db_session:
+		user_props = db_session.query(PropertyDefinition).filter_by(
+			user_id=user_id).order_by(PropertyDefinition.name).all()
+		user_defs = [{"name": p.name, "label": p.label, "icon": p.icon,
+		              "is_list": p.is_list, "id": str(p.id)}
+		             for p in user_props]
+	return SYSTEM_PROPERTIES, user_defs
+
 
 orchestrator = RolloutOrchestrator()
 
@@ -133,12 +163,12 @@ def handle_db_unavailable(e):
 			"status": "error",
 			"message": f"Database unavailable — check {_DB_HOST}:{_DB_PORT}"
 		}), 503
-	return render_template("db_error.html", db_host=_DB_HOST, db_port=_DB_PORT), 503
+	return render_template("db_error.html", db_host=_DB_HOST,
+	                       db_port=_DB_PORT), 503
 
 
 @app.route("/")
 def home():
-
 	return render_template("index.html")
 
 
@@ -370,6 +400,7 @@ def account():
 	                       most_common_platform=most_common_platform,
 	                       total_commands=total_commands)
 
+
 @app.route("/cancel_rollout", methods=["POST"])
 @login_required
 def cancel_rollout():
@@ -549,7 +580,7 @@ def new_start_rollout():
 				job_id = first_job
 	else:
 		job_id = orchestrator.submit(devices, commands, options,
-		                             current_user.id,audit_comment)
+		                             current_user.id, audit_comment)
 
 	# 11) Notify the user and redirect to active jobs.
 	audit("rollout.start", object_id=job_id,
@@ -758,6 +789,7 @@ def dashboard():
 @app.route("/inventory")
 @login_required
 def inventory():
+	sys_props, user_props = get_property_defs(current_user.id)
 	with get_session() as db_session:
 		user = db_session.get(User, current_user.id)
 		devices = user.inventory
@@ -770,6 +802,8 @@ def inventory():
 	                       devices=devices,
 	                       profiles=profiles,
 	                       mappings=var_mappings,
+	                       sys_props=sys_props,
+	                       user_props=user_props,
 	                       active_section="inventory")
 
 
@@ -805,17 +839,20 @@ def inventory_test_connection():
 	if not data:
 		return {"status": "error", "message": "Invalid request"}
 
-	ip   = str(data.get("ip",   "")).strip()
+	ip = str(data.get("ip", "")).strip()
 	port = str(data.get("port", "")).strip()
 
 	if not Validator.validate_ip(ip):
 		return {"status": "error", "message": "Invalid IP address"}
 	if not Validator.validate_port(port):
-		return {"status": "error", "message": "Port must be between 1 and 65535"}
+		return {"status": "error",
+		        "message": "Port must be between 1 and 65535"}
 
 	if Validator.test_tcp_port(ip, int(port)):
-		return {"status": "success", "message": f"TCP port {port} reachable on {ip}"}
-	return {"status": "error", "message": f"TCP port {port} unreachable on {ip}"}
+		return {"status": "success",
+		        "message": f"TCP port {port} reachable on {ip}"}
+	return {"status": "error",
+	        "message": f"TCP port {port} unreachable on {ip}"}
 
 
 @app.route("/inventory/<uuid:device_id>/edit", methods=["POST"])
@@ -837,19 +874,20 @@ def inventory_edit(device_id):
 		device.sec_profile_id = uuid.UUID(
 			sec_profile_id) if sec_profile_id else None
 
-		var_map_keys = [
-			"hostname", "loopback_ip", "asn", "mgmt_vrf",
-			"mgmt_interface", "site", "domain", "timezone", "vrfs",
-		]
+		sys_props, user_props = get_property_defs(current_user.id)
+		all_props = {p["name"]: p for p in sys_props + user_props}
 		var_maps = {}
-		for key in var_map_keys:
-			val = request.form.get(f"attr_{key}", "").strip()
+		for key, val in request.form.items():
+			if not key.startswith("attr_"):
+				continue
+			prop_name = key[5:]
+			val = val.strip()
 			if not val:
 				continue
-			if key == "vrfs":
-				var_maps[key] = [v.strip() for v in val.split(",") if v.strip()]
+			if all_props.get(prop_name, {}).get("is_list"):
+				var_maps[prop_name] = [v.strip() for v in val.split(",") if v.strip()]
 			else:
-				var_maps[key] = val
+				var_maps[prop_name] = val
 		device.var_maps = var_maps or None
 
 		mapping_ids = request.form.getlist("mapping_ids")
@@ -917,7 +955,7 @@ def inventory_import_csv():
 	log_path = tempfile.mktemp(suffix=".log")
 
 	try:
-		#TODO verify correctness
+		# TODO verify correctness
 		logger = RolloutLogger(webapp=True, verbose=False)
 		validator = Validator(logger)
 		parser = InputParser(validator, logger)
@@ -985,7 +1023,8 @@ def inventory_bulk_assign():
 				device.sec_profile_id = parsed_profile_id
 
 	audit("inventory.bulk_assign", detail={
-		"count": len(device_ids), "profile_id": str(profile_id) if profile_id else None})
+		"count": len(device_ids),
+		"profile_id": str(profile_id) if profile_id else None})
 	return jsonify({"status": "success"})
 
 
@@ -1017,10 +1056,12 @@ def active_jobs():
 		}
 
 	if is_admin:
-		jobs       = [_build_job_dict(s) for s in sessions if s.user_id == current_user.id]
-		other_jobs = [_build_job_dict(s) for s in sessions if s.user_id != current_user.id]
+		jobs = [_build_job_dict(s) for s in sessions if
+		        s.user_id == current_user.id]
+		other_jobs = [_build_job_dict(s) for s in sessions if
+		              s.user_id != current_user.id]
 	else:
-		jobs       = [_build_job_dict(s) for s in sessions]
+		jobs = [_build_job_dict(s) for s in sessions]
 		other_jobs = []
 
 	new_job_id = request.args.get("new", "")
@@ -1033,7 +1074,8 @@ def active_jobs():
 @login_required
 def rollout_stream(job_id):
 	job = orchestrator.get(job_id)
-	if not job or (job.user_id != current_user.id and current_user.role != "admin"):
+	if not job or (
+			job.user_id != current_user.id and current_user.role != "admin"):
 		return Response(status=403)
 
 	def generate():
@@ -1076,7 +1118,7 @@ def rollout_stream(job_id):
 @app.route("/rollback/<uuid:job_id>", methods=["POST"])
 @login_required
 def rollback(job_id):
-	#Get successful devices
+	# Get successful devices
 	with get_session() as db_session:
 		result = db_session.query(DeviceResult).filter_by(
 			user_id=current_user.id,
@@ -1096,7 +1138,7 @@ def rollback(job_id):
 		_ = [row.var_mappings for row in rows]
 		db_session.expunge_all()
 
-	#Fetch compensatory commands
+	# Fetch compensatory commands
 	data = request.get_json(silent=True)
 	if not data or not data.get("commands", "").strip():
 		return jsonify(
@@ -1109,19 +1151,11 @@ def rollback(job_id):
 		verbose=bool(data.get("verbose", False)),
 		webapp=True
 	)
-	new_job_id = orchestrator.submit(devices, commands, options, current_user.id)
+	new_job_id = orchestrator.submit(devices, commands, options,
+	                                 current_user.id)
 	audit("rollout.rollback", object_id=job_id,
 	      detail={"new_job_id": str(new_job_id), "device_count": len(devices)})
 	return jsonify({"status": "ok", "job_id": str(new_job_id)})
-
-
-
-
-
-
-
-
-
 
 
 @app.route("/results")
@@ -1130,16 +1164,16 @@ def results():
 	is_admin = current_user.role == "admin"
 	with get_session() as db_session:
 		if is_admin:
-			raw_results   = db_session.query(DeviceResult).all()
+			raw_results = db_session.query(DeviceResult).all()
 			metadata_rows = db_session.query(JobMetadata).all()
-			usernames     = {u.id: u.username for u in db_session.query(User).all()}
-			inv_rows      = db_session.query(Inventory).all()
+			usernames = {u.id: u.username for u in db_session.query(User).all()}
+			inv_rows = db_session.query(Inventory).all()
 		else:
-			user          = db_session.get(User, current_user.id)
-			raw_results   = user.results
+			user = db_session.get(User, current_user.id)
+			raw_results = user.results
 			metadata_rows = user.job_metadata
-			usernames     = {}
-			inv_rows      = user.inventory
+			usernames = {}
+			inv_rows = user.inventory
 		ip_to_label = {row.ip: (row.label or row.ip) for row in inv_rows}
 		db_session.expunge_all()
 
@@ -1151,7 +1185,8 @@ def results():
 		for job_id, rows in groupby(sorted_rows, key=lambda x: x.job_id):
 			rows = list(rows)
 			meta = metadata_by_job.get(job_id)
-			log_matches = glob.glob(os.path.join(LOGS_DIR, f"rollout_*_{job_id}.log"))
+			log_matches = glob.glob(
+				os.path.join(LOGS_DIR, f"rollout_*_{job_id}.log"))
 			entry = {
 				"job_id": str(job_id),
 				"has_log": bool(log_matches),
@@ -1182,20 +1217,20 @@ def results():
 
 		return out
 
-
 	if is_admin:
-		my_raw    = [r for r in raw_results if r.user_id == current_user.id]
+		my_raw = [r for r in raw_results if r.user_id == current_user.id]
 		other_raw = [r for r in raw_results if r.user_id != current_user.id]
-		jobs       = _build_jobs(my_raw)
+		jobs = _build_jobs(my_raw)
 		other_jobs = []
 		# group other_raw by user_id so each job gets its job_owner username
 		other_raw_sorted = sorted(other_raw, key=lambda x: x.user_id)
-		for user_id, user_rows in groupby(other_raw_sorted, key=lambda x: x.user_id):
+		for user_id, user_rows in groupby(other_raw_sorted,
+		                                  key=lambda x: x.user_id):
 			owner = usernames.get(user_id, "unknown")
 			other_jobs.extend(_build_jobs(list(user_rows), job_owner=owner))
 		other_jobs.sort(key=lambda x: x["completed_at"], reverse=True)
 	else:
-		jobs       = _build_jobs(raw_results)
+		jobs = _build_jobs(raw_results)
 		other_jobs = []
 
 	return render_template("results.html",
@@ -1282,12 +1317,13 @@ def security_quick_create():
 	data = request.get_json()
 	if not data:
 		return jsonify({"status": "error", "message": "Invalid request"})
-	label         = str(data.get("label", "") or "").strip() or None
-	username      = str(data.get("username", "") or "").strip()
-	password      = str(data.get("password", "") or "")
+	label = str(data.get("label", "") or "").strip() or None
+	username = str(data.get("username", "") or "").strip()
+	password = str(data.get("password", "") or "")
 	enable_secret = str(data.get("enable_secret", "") or "").strip() or None
 	if not username or not password:
-		return jsonify({"status": "error", "message": "Username and password are required"})
+		return jsonify({"status": "error",
+		                "message": "Username and password are required"})
 	profile = SecurityProfile(label=label, username=username,
 	                          password_secret=encryption.encrypt(password),
 	                          enable_secret=encryption.encrypt(enable_secret)
@@ -1299,7 +1335,8 @@ def security_quick_create():
 		profile_id = str(profile.id)
 	audit("security_profile.create", object_type="SecurityProfile",
 	      object_label=label or username)
-	return jsonify({"status": "ok", "id": profile_id, "label": label or username})
+	return jsonify(
+		{"status": "ok", "id": profile_id, "label": label or username})
 
 
 @app.route("/security/<uuid:profile_id>/edit", methods=["POST"])
@@ -1410,8 +1447,10 @@ def mappings():
 		devices = user.inventory
 		db_session.expunge_all()
 
+	sys_props, user_props = get_property_defs(current_user.id)
 	return render_template("variable_mappings.html", mappings=var_binds,
-	                       devices=devices, active_section="mappings")
+	                       devices=devices, sys_props=sys_props,
+	                       user_props=user_props, active_section="mappings")
 
 
 @app.route("/mappings/create", methods=["POST"])
@@ -1467,10 +1506,10 @@ def mappings_quick_create():
 	data = request.get_json()
 	if not data:
 		return jsonify({"status": "error", "message": "Invalid request"})
-	inner_token   = str(data.get("token_inner", "") or "").strip().upper()
+	inner_token = str(data.get("token_inner", "") or "").strip().upper()
 	property_name = str(data.get("property_name", "") or "").strip()
-	index_raw     = data.get("index")
-	index         = int(index_raw) if index_raw is not None else None
+	index_raw = data.get("index")
+	index = int(index_raw) if index_raw is not None else None
 
 	status, msg = Validator.validate_var_map_inner_token(inner_token)
 	if not status:
@@ -1493,7 +1532,8 @@ def mappings_quick_create():
 	except IntegrityError:
 		audit("mapping.create", success=False,
 		      detail={"reason": "duplicate_token", "token": token})
-		return jsonify({"status": "error", "message": f"Token {token} already exists"})
+		return jsonify(
+			{"status": "error", "message": f"Token {token} already exists"})
 	audit("mapping.create", object_type="VariableMapping", object_label=token)
 	return jsonify({"status": "ok", "id": mapping_id, "token": token,
 	                "property_name": property_name, "index": index})
@@ -1637,6 +1677,90 @@ def mappings_bulk_assign():
 	return jsonify({"status": "success"})
 
 
+# ── Property Definitions ─────────────────────────────────────────────────────
+
+@app.route("/properties")
+@login_required
+def properties():
+	sys_props, user_props = get_property_defs(current_user.id)
+	return render_template("properties.html", sys_props=sys_props,
+	                       user_props=user_props, active_section="properties")
+
+
+@app.route("/properties/create", methods=["POST"])
+@login_required
+def properties_create():
+	data = request.get_json(silent=True) or {}
+	name  = data.get("name", "").strip().lower().replace(" ", "_")
+	label = data.get("label", "").strip()
+	icon  = data.get("icon", "bi-tag").strip() or "bi-tag"
+	is_list = bool(data.get("is_list", False))
+	if not name or not label:
+		return jsonify({"status": "error", "message": "Name and label are required."}), 400
+	with get_session() as db_session:
+		existing = db_session.query(PropertyDefinition).filter_by(
+			name=name, user_id=current_user.id).first()
+		if existing:
+			return jsonify({"status": "error", "message": "Property name already exists."}), 400
+		# Also block shadowing system property names
+		sys_names = {p["name"] for p in SYSTEM_PROPERTIES}
+		if name in sys_names:
+			return jsonify({"status": "error", "message": "Cannot shadow a system property."}), 400
+		prop = PropertyDefinition(name=name, label=label, icon=icon,
+		                          is_list=is_list, user_id=current_user.id)
+		db_session.add(prop)
+		db_session.flush()
+		prop_id = str(prop.id)
+	audit("property.create", object_type="PropertyDefinition",
+	      object_id=uuid.UUID(prop_id), object_label=name)
+	return jsonify({"status": "ok", "id": prop_id, "name": name,
+	                "label": label, "icon": icon, "is_list": is_list})
+
+
+@app.route("/properties/quick_create", methods=["POST"])
+@login_required
+def properties_quick_create():
+	return properties_create()
+
+
+@app.route("/properties/<uuid:prop_id>/edit", methods=["POST"])
+@login_required
+def properties_edit(prop_id):
+	data  = request.get_json(silent=True) or {}
+	label = data.get("label", "").strip()
+	icon  = data.get("icon", "bi-tag").strip() or "bi-tag"
+	is_list = bool(data.get("is_list", False))
+	if not label:
+		return jsonify({"status": "error", "message": "Label is required."}), 400
+	with get_session() as db_session:
+		prop = db_session.query(PropertyDefinition).filter_by(
+			id=prop_id, user_id=current_user.id).first()
+		if not prop:
+			return jsonify({"status": "error", "message": "Not found."}), 404
+		prop.label   = label
+		prop.icon    = icon
+		prop.is_list = is_list
+		prop_name    = prop.name
+	audit("property.edit", object_type="PropertyDefinition",
+	      object_id=prop_id, object_label=prop_name)
+	return jsonify({"status": "ok"})
+
+
+@app.route("/properties/<uuid:prop_id>/delete", methods=["POST"])
+@login_required
+def properties_delete(prop_id):
+	with get_session() as db_session:
+		prop = db_session.query(PropertyDefinition).filter_by(
+			id=prop_id, user_id=current_user.id).first()
+		if not prop:
+			return jsonify({"status": "error", "message": "Not found."}), 404
+		prop_name = prop.name
+		db_session.delete(prop)
+	audit("property.delete", object_type="PropertyDefinition",
+	      object_id=prop_id, object_label=prop_name)
+	return jsonify({"status": "ok"})
+
+
 @app.route("/admin/active_job_count")
 @login_required
 def admin_active_job_count():
@@ -1653,11 +1777,13 @@ def admin_restart():
 	if current_user.role != "admin":
 		return jsonify({"status": "error", "message": "Forbidden"}), 403
 	audit("server.restart", object_type="Server", object_label="webapp")
+
 	def _do_restart():
 		time.sleep(1.5)
 		import subprocess
 		subprocess.Popen([sys.executable] + sys.argv)
 		os._exit(0)
+
 	threading.Thread(target=_do_restart, daemon=True).start()
 	return jsonify({"status": "ok"})
 

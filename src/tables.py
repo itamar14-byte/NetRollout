@@ -46,6 +46,8 @@ class User(UserMixin, Base):
         back_populates="user", cascade="all, delete-orphan")
     job_metadata: Mapped[list["JobMetadata"]] = relationship(back_populates="user",
                                                              cascade="all, delete-orphan")
+    property_definitions: Mapped[list["PropertyDefinition"]] = relationship(
+        back_populates="user",cascade="all, delete-orphan")
 
 
 class SecurityProfile(Base):
@@ -171,3 +173,20 @@ class AuditLog(Base):
     ip_address: Mapped[str | None] = mapped_column(String(64), nullable=True)
     detail: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
+
+class PropertyDefinition(Base):
+    __tablename__ = 'property_definition'
+    __table_args__ = (UniqueConstraint('name', 'user_id'),)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True,
+                                          default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(64), nullable=False)
+    label: Mapped[str] = mapped_column(String(64), nullable=False)
+    icon: Mapped[str] = mapped_column(String(64), nullable=False)
+    is_list: Mapped[bool] = mapped_column(Boolean, nullable=False,
+                                          default=False)
+
+
+    user_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id"),
+                                               nullable=False)
+
+    user: Mapped["User"] = relationship(back_populates="property_definitions")
