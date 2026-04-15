@@ -1,0 +1,313 @@
+{% extends "operator_base.html" %}
+{% block title %}Properties — NetRollout{% endblock %}
+{% block page_title %}Property Definitions{% endblock %}
+
+{% block extra_style %}
+.prop-card {
+    background: #1a1a1a;
+    border: 1px solid #222;
+    border-radius: 10px;
+    padding: 1rem 1.25rem;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    transition: border-color 0.2s;
+}
+.prop-card:hover { border-color: #2a2a2a; }
+.prop-card.system { opacity: 0.7; }
+.prop-icon {
+    width: 36px; height: 36px; border-radius: 8px;
+    background: #111; border: 1px solid #222;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1rem; color: #555; flex-shrink: 0;
+}
+.prop-name {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.82rem; color: #ccc; font-weight: 600;
+}
+.prop-label { font-size: 0.72rem; color: #555; margin-top: 1px; }
+.prop-actions { margin-left: auto; display: flex; gap: 6px; }
+.section-divider {
+    display: flex; align-items: center; gap: 12px;
+    margin: 1.5rem 0 1rem;
+}
+.section-divider-line { flex: 1; height: 1px; background: #1e1e1e; }
+.section-divider-label {
+    font-size: 0.65rem; color: #444;
+    text-transform: uppercase; letter-spacing: 1.5px; white-space: nowrap;
+}
+{% endblock %}
+
+{% block operator_content %}
+<div class="d-flex align-items-center justify-content-between mb-4">
+    <div>
+        <p style="color:#555; font-size:0.82rem; margin:0;">
+            System properties ship with NetRollout and cannot be modified.
+            Add custom properties to extend per-device variable substitution.
+        </p>
+    </div>
+    <button class="btn btn-primary btn-sm ms-3"
+            onclick="openAddProp()">
+        <i class="bi bi-plus-lg me-1"></i>Add Property
+    </button>
+</div>
+
+{# ── System properties ── #}
+<div class="section-divider">
+    <span class="section-divider-label">System</span>
+    <div class="section-divider-line"></div>
+</div>
+<div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:10px;">
+    {% for p in sys_props %}
+    <div class="prop-card system">
+        <div class="prop-icon"><i class="bi {{ p.icon }}"></i></div>
+        <div>
+            <div class="prop-name">{{ p.name }}</div>
+            <div class="prop-label">{{ p.label }}{% if p.is_list %} &nbsp;<span class="nr-badge" style="font-size:0.6rem; padding:1px 5px;">list</span>{% endif %}</div>
+        </div>
+        <div class="prop-actions">
+            <span style="font-size:0.65rem; color:#2a2a2a; align-self:center;">system</span>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+{# ── Custom properties ── #}
+<div class="section-divider">
+    <span class="section-divider-label">Custom</span>
+    <div class="section-divider-line"></div>
+</div>
+
+{% if user_props %}
+<div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:10px;">
+    {% for p in user_props %}
+    <div class="prop-card" id="propCard-{{ p.id }}">
+        <div class="prop-icon" id="propIcon-{{ p.id }}"><i class="bi {{ p.icon }}"></i></div>
+        <div>
+            <div class="prop-name">{{ p.name }}</div>
+            <div class="prop-label">{{ p.label }}{% if p.is_list %} &nbsp;<span class="nr-badge" style="font-size:0.6rem; padding:1px 5px;">list</span>{% endif %}</div>
+        </div>
+        <div class="prop-actions">
+            <button class="btn btn-sm"
+                    style="background:none; border:1px solid #222; color:#555; padding:2px 8px; font-size:0.72rem;"
+                    onmouseenter="this.style.borderColor='#444';this.style.color='#aaa';"
+                    onmouseleave="this.style.borderColor='#222';this.style.color='#555';"
+                    onclick="openEditProp('{{ p.id }}', '{{ p.label }}', '{{ p.icon }}', {{ 'true' if p.is_list else 'false' }})">
+                <i class="bi bi-pencil"></i>
+            </button>
+            <button class="btn btn-sm"
+                    style="background:none; border:1px solid #222; color:#555; padding:2px 8px; font-size:0.72rem;"
+                    onmouseenter="this.style.borderColor='#ef5350';this.style.color='#ef5350';"
+                    onmouseleave="this.style.borderColor='#222';this.style.color='#555';"
+                    onclick="deleteProp('{{ p.id }}', '{{ p.name }}')">
+                <i class="bi bi-trash"></i>
+            </button>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div style="text-align:center; padding:2rem; color:#333; font-size:0.82rem;">
+    No custom properties yet. Add one above.
+</div>
+{% endif %}
+
+<!-- ══ ADD MODAL ══ -->
+<div class="modal fade" id="addPropModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
+    <div class="modal-dialog modal-dialog-centered" style="max-width:400px;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div>
+                    <div class="nr-badge" style="margin-bottom:0.3rem;">NEW PROPERTY</div>
+                    <h5 class="modal-title">Add Property</h5>
+                </div>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="nr-label">LABEL</label>
+                    <input type="text" class="form-control form-control-sm" id="addPropLabel"
+                           placeholder="e.g. BGP Peer IP" autocomplete="off"
+                           oninput="autoSlug('addPropLabel','addPropName')">
+                </div>
+                <div class="mb-3">
+                    <label class="nr-label">NAME <span style="color:#333; text-transform:none; letter-spacing:0;">(auto-generated · immutable after creation)</span></label>
+                    <input type="text" class="form-control form-control-sm" id="addPropName"
+                           placeholder="bgp_peer_ip" autocomplete="off">
+                    <div style="font-size:0.7rem; color:#3a3a3a; margin-top:3px;">Dict key used for $$TOKEN$$ substitution. Edit if the auto-generated value isn't right.</div>
+                </div>
+                <div class="mb-3">
+                    <label class="nr-label">ICON <span style="color:#333; text-transform:none; letter-spacing:0;">(Bootstrap Icons class)</span></label>
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text" style="background:#111; border-color:#2a2a2a;">
+                            <i id="addPropIconPreview" class="bi bi-tag" style="color:#555;"></i>
+                        </span>
+                        <input type="text" class="form-control form-control-sm" id="addPropIcon"
+                               value="bi-tag" placeholder="bi-tag" autocomplete="off"
+                               oninput="document.getElementById('addPropIconPreview').className='bi ' + this.value">
+                    </div>
+                    <a href="https://icons.getbootstrap.com" target="_blank" rel="noopener"
+                       style="font-size:0.7rem; color:#444; text-decoration:none;"
+                       onmouseenter="this.style.color='#00bcd4'"
+                       onmouseleave="this.style.color='#444'">
+                        Browse Bootstrap Icons ↗
+                    </a>
+                </div>
+                <div class="form-check">
+                    <input type="checkbox" class="form-check-input" id="addPropIsList">
+                    <label class="form-check-label" for="addPropIsList"
+                           style="font-size:0.8rem; color:#888;">List property (comma-separated values, supports index access)</label>
+                </div>
+                <div id="addPropError" style="display:none; font-size:0.78rem; color:#ef5350; margin-top:8px;"></div>
+            </div>
+            <div class="modal-footer d-flex justify-content-end gap-2">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary btn-sm" onclick="submitAddProp()">
+                    <i class="bi bi-plus me-1"></i>Add
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ══ EDIT MODAL ══ -->
+<div class="modal fade" id="editPropModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
+    <div class="modal-dialog modal-dialog-centered" style="max-width:400px;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Edit Property</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="editPropId">
+                <div class="mb-3">
+                    <label class="nr-label">LABEL</label>
+                    <input type="text" class="form-control form-control-sm" id="editPropLabel" autocomplete="off">
+                </div>
+                <div class="mb-3">
+                    <label class="nr-label">ICON</label>
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text" style="background:#111; border-color:#2a2a2a;">
+                            <i id="editPropIconPreview" class="bi bi-tag" style="color:#555;"></i>
+                        </span>
+                        <input type="text" class="form-control form-control-sm" id="editPropIcon"
+                               autocomplete="off"
+                               oninput="document.getElementById('editPropIconPreview').className='bi ' + this.value">
+                    </div>
+                    <a href="https://icons.getbootstrap.com" target="_blank" rel="noopener"
+                       style="font-size:0.7rem; color:#444; text-decoration:none;"
+                       onmouseenter="this.style.color='#00bcd4'"
+                       onmouseleave="this.style.color='#444'">
+                        Browse Bootstrap Icons ↗
+                    </a>
+                </div>
+                <div class="form-check">
+                    <input type="checkbox" class="form-check-input" id="editPropIsList">
+                    <label class="form-check-label" for="editPropIsList"
+                           style="font-size:0.8rem; color:#888;">List property</label>
+                </div>
+                <div id="editPropError" style="display:none; font-size:0.78rem; color:#ef5350; margin-top:8px;"></div>
+            </div>
+            <div class="modal-footer d-flex justify-content-end gap-2">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary btn-sm" onclick="submitEditProp()">Save</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_script %}
+<script>
+const CSRF_TOKEN = "{{ csrf_token() }}";
+
+initIconPicker('addPropIconPreview', 'addPropIcon');
+initIconPicker('editPropIconPreview', 'editPropIcon');
+
+function openAddProp() {
+    ['addPropName','addPropLabel'].forEach(id => document.getElementById(id).value = '');
+    document.getElementById('addPropIcon').value = 'bi-tag';
+    document.getElementById('addPropIconPreview').className = 'bi bi-tag';
+    document.getElementById('addPropIsList').checked = false;
+    document.getElementById('addPropError').style.display = 'none';
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('addPropModal')).show();
+}
+
+async function submitAddProp() {
+    const name    = document.getElementById('addPropName').value.trim();
+    const label   = document.getElementById('addPropLabel').value.trim();
+    const icon    = document.getElementById('addPropIcon').value.trim() || 'bi-tag';
+    const is_list = document.getElementById('addPropIsList').checked;
+    const errEl   = document.getElementById('addPropError');
+    errEl.style.display = 'none';
+
+    const resp = await fetch('/properties/create', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN},
+        body: JSON.stringify({name, label, icon, is_list})
+    });
+    const data = await resp.json();
+    if (data.status !== 'ok') {
+        errEl.textContent = data.message;
+        errEl.style.display = '';
+        return;
+    }
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('addPropModal')).hide();
+    location.reload();
+}
+
+function openEditProp(id, label, icon, is_list) {
+    document.getElementById('editPropId').value = id;
+    document.getElementById('editPropLabel').value = label;
+    document.getElementById('editPropIcon').value = icon;
+    document.getElementById('editPropIconPreview').className = 'bi ' + icon;
+    document.getElementById('editPropIsList').checked = is_list;
+    document.getElementById('editPropError').style.display = 'none';
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('editPropModal')).show();
+}
+
+async function submitEditProp() {
+    const id      = document.getElementById('editPropId').value;
+    const label   = document.getElementById('editPropLabel').value.trim();
+    const icon    = document.getElementById('editPropIcon').value.trim() || 'bi-tag';
+    const is_list = document.getElementById('editPropIsList').checked;
+    const errEl   = document.getElementById('editPropError');
+    errEl.style.display = 'none';
+
+    const resp = await fetch(`/properties/${id}/edit`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN},
+        body: JSON.stringify({label, icon, is_list})
+    });
+    const data = await resp.json();
+    if (data.status !== 'ok') {
+        errEl.textContent = data.message;
+        errEl.style.display = '';
+        return;
+    }
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('editPropModal')).hide();
+    location.reload();
+}
+
+async function deleteProp(id, name) {
+    if (!confirm(`Delete property "${name}"? This will not affect existing device data.`)) return;
+    const resp = await fetch(`/properties/${id}/delete`, {
+        method: 'POST',
+        headers: {'X-CSRFToken': CSRF_TOKEN}
+    });
+    const data = await resp.json();
+    if (data.status !== 'ok') { alert(data.message); return; }
+    document.getElementById('propCard-' + id)?.remove();
+}
+
+// Escape handling — same pattern as inventory
+document.addEventListener('keydown', function(e) {
+    if (e.key !== 'Escape') return;
+    ['addPropModal','editPropModal'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el.classList.contains('show'))
+            bootstrap.Modal.getOrCreateInstance(el).hide();
+    });
+});
+</script>
+{% endblock %}

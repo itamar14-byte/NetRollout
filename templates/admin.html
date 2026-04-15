@@ -31,21 +31,21 @@
     <a href="{{ url_for('admin_users') }}"
        class="sidebar-link {% if active_section == 'users' %}active{% endif %}"
        title="User Management">
-      <span class="sidebar-icon">👥</span>
+      <span class="sidebar-icon"><i class="bi bi-people-fill"></i></span>
       <span class="sidebar-label">User Management</span>
     </a>
 
     <a href="{{ url_for('admin_audit') }}"
        class="sidebar-link {% if active_section == 'audit' %}active{% endif %}"
        title="Audit Logs">
-      <span class="sidebar-icon">📋</span>
+      <span class="sidebar-icon"><i class="bi bi-shield-check"></i></span>
       <span class="sidebar-label">Audit Logs</span>
     </a>
 
     <a href="{{ url_for('admin_analytics') }}"
        class="sidebar-link {% if active_section == 'analytics' %}active{% endif %}"
        title="Analytics">
-      <span class="sidebar-icon">📊</span>
+      <span class="sidebar-icon"><i class="bi bi-bar-chart-line"></i></span>
       <span class="sidebar-label">Analytics</span>
     </a>
 

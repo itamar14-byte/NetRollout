@@ -4,14 +4,9 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="27240518-82b3-4a70-8f71-cc3b690d164c" name="Changes" comment="Add verify diff feature, results pagination, SSE sentinel, and UI polish&#10;&#10;  - fetched_config TEXT column on device_results; stored only on verify=True&#10;    with at least one command failure per device&#10;  - DeviceResultDict, _verify_device, _verify, run, _cleanup all updated to&#10;    thread fetched_config through the pipeline&#10;  - /results/config_diff/&lt;job_id&gt;/&lt;ip&gt; endpoint serves config on demand;&#10;    client-side cache avoids repeat fetches&#10;  - Results page: Verify Diff button with hybrid tab (≤5) / searchable&#10;    dropdown (&gt;5) modal; per-command found/not-found display with false-&#10;    negative disclaimer; device label lookup from Inventory&#10;  - Results page: client-side pagination (10/25/50/All), integrates with&#10;    status filter buttons&#10;  - SSE stream: drain queue after job completes, yield event: done sentinel;&#10;    frontend uses addEventListener instead of text matching&#10;  - Inventory: Escape key handling rewritten — document-level listener owns&#10;    all modal Escape, no Bootstrap keyboard conflicts&#10;  - new_rollout: custom tooltip replaces native title attribute on verify badge&#10;  - Sidebar section labels and footer font size and color legibility improved&#10;  - OTP verify: auto-focus first input on page load&#10;  - Bug report: all items now resolved">
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/db_install.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/db_install.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/tables.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/tables.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/webapp.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/webapp.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/templates/inventory.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/inventory.html" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/templates/operator_base.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/operator_base.html" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/templates/variable_mappings.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/variable_mappings.html" afterDir="false" />
+    <list default="true" id="27240518-82b3-4a70-8f71-cc3b690d164c" name="Changes" comment="Built Admin analytics and enriched dashboard frontend">
+      <change afterPath="$PROJECT_DIR$/templates/admin_analytics.html" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/templates/properties.html" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -237,23 +232,7 @@
       <workItem from="1776172580271" duration="701000" />
       <workItem from="1776186238643" duration="8953000" />
       <workItem from="1776214967374" duration="3012000" />
-      <workItem from="1776218863070" duration="1472000" />
-    </task>
-    <task id="LOCAL-00015" summary="Bug Fixes and method refactoring">
-      <option name="closed" value="true" />
-      <created>1774364334841</created>
-      <option name="number" value="00015" />
-      <option name="presentableId" value="LOCAL-00015" />
-      <option name="project" value="LOCAL" />
-      <updated>1774364334841</updated>
-    </task>
-    <task id="LOCAL-00016" summary="Bug Fixes and method refactoring">
-      <option name="closed" value="true" />
-      <created>1775396474421</created>
-      <option name="number" value="00016" />
-      <option name="presentableId" value="LOCAL-00016" />
-      <option name="project" value="LOCAL" />
-      <updated>1775396474421</updated>
+      <workItem from="1776218863070" duration="2567000" />
     </task>
     <task id="LOCAL-00017" summary="Addd DB support infrasturcture">
       <option name="closed" value="true" />
@@ -631,7 +610,23 @@
       <option name="project" value="LOCAL" />
       <updated>1776214996823</updated>
     </task>
-    <option name="localTasksCounter" value="64" />
+    <task id="LOCAL-00064" summary="   Add user-managed property definitions (Phase 3.7)&#10;&#10;   - PropertyDefinition ORM model (name, label, icon, is_list, user_id FK)&#10;     with UniqueConstraint on (name, user_id)&#10;   - SYSTEM_PROPERTIES constant (9 built-ins, read-only); get_property_defs()&#10;     returns (sys_props, user_props) tuple&#10;   - Full CRUD routes + quick_create endpoint; system property shadowing blocked;&#10;     audit logging on create/edit/delete&#10;   - properties.html: system/custom visual separation, edit/delete on custom only&#10;   - inventory.html: var attrs section dynamic grid loop replacing 9 hardcoded&#10;     fields; JS population loop; quick-create property inline modal&#10;   - variable_mappings.html: ATTR_DEFS set replaced with server-injected props;&#10;     LIST_PROPS replaces hardcoded vrfs check; quick-create property in pickers&#10;   - operator_base.html: shared initIconPicker (searchable icon grid, 150 icons)&#10;     and autoSlug helper; icon picker CSS; label-first UX with auto-generated name">
+      <option name="closed" value="true" />
+      <created>1776220389736</created>
+      <option name="number" value="00064" />
+      <option name="presentableId" value="LOCAL-00064" />
+      <option name="project" value="LOCAL" />
+      <updated>1776220389736</updated>
+    </task>
+    <task id="LOCAL-00065" summary="Built Admin analytics and enriched dashboard frontend">
+      <option name="closed" value="true" />
+      <created>1776221816377</created>
+      <option name="number" value="00065" />
+      <option name="presentableId" value="LOCAL-00065" />
+      <option name="project" value="LOCAL" />
+      <updated>1776221816377</updated>
+    </task>
+    <option name="localTasksCounter" value="66" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -649,8 +644,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="● Phase 1 complete: fix admin_user_action endpoint name, home button redirect for authenticated users, dark mode account page text" />
-    <MESSAGE value="    refactor: implement Phase 2 execution pipeline&#10;&#10;    - Add RolloutJob and RolloutOrchestrator (orchestration.py)&#10;    - Refactor RolloutEngine: cancel_event and logger injected at call time, methods privatized&#10;    - Refactor RolloutLogger: webapp/verbose baked in at construction&#10;    - Refactor Validator: logger injected, instance methods for error-surfacing validation&#10;    - Rename parser.py → input_parser.py, add logger to InputParser constructor&#10;    - Implement Device.from_inventory() with Fernet decryption from SecurityProfile&#10;    - Rewire webapp routes as thin orchestrator delegators, remove cancel_event global&#10;    - Fix and uncomment all disabled tests — 83/83 passing&#10;    - Update architecture.md to reflect deviations from original design" />
     <MESSAGE value="updated attrbiute specifications" />
     <MESSAGE value="  Phase 2 completion: DB integration, operator UI, admin bulk actions, CLI rewrite&#10;&#10;  - Orchestrator DB writes fully wired: RolloutSession on submit/dispatch,&#10;    DeviceResult rows + session cleanup on job completion&#10;  - DeviceResultDict TypedDict introduced in core.py for typed run() return&#10;  - tables.py: fixed all ForeignKeys (users.id), cascade delete-orphan on all&#10;    User relationships, commands_verified Mapped[int | None], security_profile&#10;    singular on Inventory, started_at added to DeviceResult&#10;  - Operator sidebar: Security Profiles zone (bi-shield-lock), Admin entry&#10;    (bi-gear), conditional render for admins only&#10;  - Admin user management rebuilt: multi-select toolbar, per-action rules engine,&#10;    contextual tooltips, bulk backend route, delete modal with count confirmation&#10;  - cli.py rewritten to use new architecture: InputParser.prepare_devices(),&#10;    RolloutLogger, RolloutEngine.run(cancel, logger)&#10;  - db_install.py: create_all limitation documented, Alembic migration noted&#10;    for Phase 4&#10;  - workplan, architecture, CLAUDE.md, memory updated to reflect current state" />
     <MESSAGE value="● Security hardening: CSRF protection, OTP encryption, rate limit test&#10;&#10;  - Flask-WTF CSRFProtect wired; csrf_token added to all POST forms&#10;    (login, register, otp_enroll, otp_verify, upload, cancel_rollout,&#10;    admin bulk action)&#10;  - otp_secret encrypted at enrollment via encryption.encrypt(),&#10;    decrypted before pyotp.TOTP() at verify — column widened to varchar(255)&#10;  - cancel_event, SECRET_KEY, DOM credentials, rate limiting bugs&#10;    marked fixed in bug_report.md&#10;  - RateLimitIntegrationTest added to test.py (skipped if server not running),&#10;    standalone test_rate_limit.py removed" />
@@ -674,7 +667,9 @@
     <MESSAGE value="● feat: restart button, quick-create UX fixes, property definitions roadmap&#10;&#10;  Restart server button (admin only, sidebar footer):&#10;  - POST /admin/restart — os.execv restarts the process in-place&#10;  - GET /admin/active_job_count — lightweight active job check&#10;  - No active jobs: single click restarts immediately, no modal&#10;  - Active jobs: warning modal with exact job count, Confirm disabled&#10;    for 3-second forced countdown, click-outside dismisses&#10;  - Sidebar shows spinning icon + &quot;RESTARTING…&quot; while polling&#10;  - Browser polls GET / until server responds, then redirects to login&#10;&#10;  Quick-create UX fixes:&#10;  - &quot;Create New Profile&quot; moved to top of NrSelect panel (below search,&#10;    above options) in both Add and Edit device modals&#10;  - Escape closes one modal layer at a time — parent keyboard disabled&#10;    while child is open, restored on child close&#10;  - Restart modal: default backdrop (click-outside closes), all other&#10;    form modals retain static backdrop&#10;&#10;  Validation:&#10;  - Exclude type=&quot;file&quot; from :not(:placeholder-shown) CSS rule — file&#10;    input showed error on modal open before user interaction&#10;&#10;  Phase 3.7 planned — user-managed property definitions:&#10;  - PropertyDefinition table (name, label, icon, is_system, user_id)&#10;  - 9 system defaults seeded on install&#10;  - Inventory variable attributes rendered dynamically from definitions&#10;  - Inline &quot;Create New&quot; in property picker with icon selector&#10;    (FortiGate-style click-to-open BI icon grid with search)&#10;  - Variable mapping property dropdown also driven by definitions" />
     <MESSAGE value="Implemented restart button and various bug fixes" />
     <MESSAGE value="Add verify diff feature, results pagination, SSE sentinel, and UI polish&#10;&#10;  - fetched_config TEXT column on device_results; stored only on verify=True&#10;    with at least one command failure per device&#10;  - DeviceResultDict, _verify_device, _verify, run, _cleanup all updated to&#10;    thread fetched_config through the pipeline&#10;  - /results/config_diff/&lt;job_id&gt;/&lt;ip&gt; endpoint serves config on demand;&#10;    client-side cache avoids repeat fetches&#10;  - Results page: Verify Diff button with hybrid tab (≤5) / searchable&#10;    dropdown (&gt;5) modal; per-command found/not-found display with false-&#10;    negative disclaimer; device label lookup from Inventory&#10;  - Results page: client-side pagination (10/25/50/All), integrates with&#10;    status filter buttons&#10;  - SSE stream: drain queue after job completes, yield event: done sentinel;&#10;    frontend uses addEventListener instead of text matching&#10;  - Inventory: Escape key handling rewritten — document-level listener owns&#10;    all modal Escape, no Bootstrap keyboard conflicts&#10;  - new_rollout: custom tooltip replaces native title attribute on verify badge&#10;  - Sidebar section labels and footer font size and color legibility improved&#10;  - OTP verify: auto-focus first input on page load&#10;  - Bug report: all items now resolved" />
-    <option name="LAST_COMMIT_MESSAGE" value="Add verify diff feature, results pagination, SSE sentinel, and UI polish&#10;&#10;  - fetched_config TEXT column on device_results; stored only on verify=True&#10;    with at least one command failure per device&#10;  - DeviceResultDict, _verify_device, _verify, run, _cleanup all updated to&#10;    thread fetched_config through the pipeline&#10;  - /results/config_diff/&lt;job_id&gt;/&lt;ip&gt; endpoint serves config on demand;&#10;    client-side cache avoids repeat fetches&#10;  - Results page: Verify Diff button with hybrid tab (≤5) / searchable&#10;    dropdown (&gt;5) modal; per-command found/not-found display with false-&#10;    negative disclaimer; device label lookup from Inventory&#10;  - Results page: client-side pagination (10/25/50/All), integrates with&#10;    status filter buttons&#10;  - SSE stream: drain queue after job completes, yield event: done sentinel;&#10;    frontend uses addEventListener instead of text matching&#10;  - Inventory: Escape key handling rewritten — document-level listener owns&#10;    all modal Escape, no Bootstrap keyboard conflicts&#10;  - new_rollout: custom tooltip replaces native title attribute on verify badge&#10;  - Sidebar section labels and footer font size and color legibility improved&#10;  - OTP verify: auto-focus first input on page load&#10;  - Bug report: all items now resolved" />
+    <MESSAGE value="   Add user-managed property definitions (Phase 3.7)&#10;&#10;   - PropertyDefinition ORM model (name, label, icon, is_list, user_id FK)&#10;     with UniqueConstraint on (name, user_id)&#10;   - SYSTEM_PROPERTIES constant (9 built-ins, read-only); get_property_defs()&#10;     returns (sys_props, user_props) tuple&#10;   - Full CRUD routes + quick_create endpoint; system property shadowing blocked;&#10;     audit logging on create/edit/delete&#10;   - properties.html: system/custom visual separation, edit/delete on custom only&#10;   - inventory.html: var attrs section dynamic grid loop replacing 9 hardcoded&#10;     fields; JS population loop; quick-create property inline modal&#10;   - variable_mappings.html: ATTR_DEFS set replaced with server-injected props;&#10;     LIST_PROPS replaces hardcoded vrfs check; quick-create property in pickers&#10;   - operator_base.html: shared initIconPicker (searchable icon grid, 150 icons)&#10;     and autoSlug helper; icon picker CSS; label-first UX with auto-generated name" />
+    <MESSAGE value="Built Admin analytics and enriched dashboard frontend" />
+    <option name="LAST_COMMIT_MESSAGE" value="Built Admin analytics and enriched dashboard frontend" />
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
     <SUITE FILE_PATH="coverage/core_py$WebApp.coverage" NAME="WebApp Coverage Results" MODIFIED="1756760459810" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />

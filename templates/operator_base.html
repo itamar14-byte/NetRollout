@@ -789,6 +789,13 @@
             <span class="sb-label">Results</span>
         </a>
 
+        <a href="{{ url_for('analytics') }}"
+           class="sb-link {% if active_section == 'analytics' %}active{% endif %}"
+           title="Analytics">
+            <i class="bi bi-bar-chart-line sb-icon"></i>
+            <span class="sb-label">Analytics</span>
+        </a>
+
         {% if current_user.role == "admin" %}
         <a href="{{ url_for('admin_panel') }}"
            class="sb-link {% if active_section == 'admin' %}active{% endif %}"

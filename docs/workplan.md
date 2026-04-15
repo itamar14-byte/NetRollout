@@ -286,11 +286,37 @@ Constructor takes `Validator` + `RolloutLogger`. Methods: `csv_to_inventory`, `f
 - `/results/download_log/<job_id>` — ownership-verified via `DeviceResult`, globs `rollout_*_{job_id}.log`, serves with `send_file`
 - Infrastructure is generic — any future activity can get a named logfile by instantiating `RolloutLogger` with an id + timestamp
 
-### 3.4b Analytics
-Extend dashboard into a full analytics view. Data sourced entirely from `DeviceResult` — no new tables needed.
-- Per-platform success rate breakdown
-- Commands pushed over time (simple bar or sparkline)
-- Most-used tokens, most-failed devices
+### 3.4b Analytics ✅ COMPLETE (2026-04-15)
+
+Two separate surfaces, different scopes. Data sourced entirely from `DeviceResult` and `AuditLog` — no new tables.
+
+**Operator dashboard KPI strip** (`dashboard.html` / `dashboard()` route):
+- 4 cards: Success Rate (color-coded green/yellow/red), Devices Reached, Commands Pushed, Top Failing Device (red accent, label+IP+count)
+- Always scoped to `current_user` for operators
+- Admin-only scope selector above the strip — `?user=<uuid>` loads KPI data for any operator while dashboard content (active job, recent jobs, system summary) stays as current user's own view
+
+**Operator analytics page** (`analytics.html` / `/analytics` + `/analytics/query`):
+- Badge: `ROLLOUT INTELLIGENCE` · icon: `bi-bar-chart-line-fill` · accent: cyan
+- 5-card CSS grid KPI strip: Success Rate, Devices Reached, Commands Pushed, Top Failing Device, Top Platforms (ranked top 3)
+- Admin-only scope selector in page header; operators see only their own data
+- Device Results query engine (`bi-database-check`, cyan): filters date/platform/outcome, AJAX → `/analytics/query`, dynamic table, CSV export
+- `/analytics/query` always scoped to `current_user.id` (operators) or `?user=` param (admin); audit log never exposed here
+- Analytics link added to operator sidebar under Observability section
+
+**Admin analytics page** (`admin_analytics.html` / `/admin/analytics` + `/admin/analytics/query`):
+- Extends `admin.html` properly (was duplicating sidebar inline — fixed)
+- 4 org-level KPI cards (always all-users, no scope selector): Active Users (X of Y registered), Org Success Rate, Total Jobs, Total Device Operations
+- Most Active Users table (top 10 by job count, 30d)
+- Most Failed Devices table (top 10 by failure count, 30d, best-effort label from Inventory)
+- Audit Investigation query engine (`bi-shield-lock-fill`, amber `#ffe082`): badge `AUDIT INVESTIGATION`, filters actor/date/action/success, AJAX → `/admin/analytics/query`, dynamic table, CSV export
+- `/admin/analytics/query` hits `AuditLog` only — device results query never exposed here
+- Wildcard abuse protection: `%` and `_` stripped from `ilike` inputs
+- Admin sidebar icons modernised: emojis → `bi-people-fill`, `bi-shield-check`, `bi-bar-chart-line`
+- Muted text corrected from near-invisible `#333` → `#555` throughout
+
+**Card identity split principle:** cards that answer org-level questions (active users, most active, most failed org-wide) live in admin only. Cards that answer user-level questions (success rate, devices reached, commands pushed, top failing, top platforms) live in operator surfaces — with admin scope selector available to admins on those surfaces.
+
+**Deferred to Grafana/Prometheus:** time-series charts, per-platform breakdown over time — better served as live dashboard panels with PostgreSQL datasource than hardcoded Chart.js.
 
 ### 3.5 Test suite ✅ PARTIAL — core layer complete (2026-04-13)
 

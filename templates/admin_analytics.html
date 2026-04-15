@@ -1,0 +1,352 @@
+{% extends "admin.html" %}
+{% block title %}Analytics — NetRollout Admin{% endblock %}
+
+{% block admin_content %}
+
+<!-- ── Page header ── -->
+<div class="d-flex align-items-center justify-content-between mb-4">
+  <div>
+    <div class="nr-badge mb-1">ADMIN · PLATFORM ANALYTICS</div>
+    <h4 style="color:#e0e0e0; margin:0; font-weight:600;">Organisation Overview</h4>
+    <div style="font-size:0.72rem; color:#555; margin-top:0.25rem; font-family:'JetBrains Mono',monospace;">
+      All users · 30-day window · live data
+    </div>
+  </div>
+</div>
+
+<!-- ── Org-level KPI cards ── -->
+<div class="row g-3 mb-4">
+
+  <!-- Active Users -->
+  <div class="col-6 col-xl-3">
+  <div class="nr-card" style="height:100%;">
+    <div class="nr-card-accent" style="background:linear-gradient(90deg,rgba(0,188,212,0.4),transparent);"></div>
+    <div class="nr-card-body" style="padding:1.25rem;">
+      <div class="nr-label mb-1">ACTIVE USERS <span style="color:#2a2a2a; text-transform:none; letter-spacing:0;">30d</span></div>
+      <div style="font-family:'JetBrains Mono',monospace; font-size:2rem; font-weight:700; color:#00bcd4; line-height:1;">
+        {{ org_kpi.active_users }}
+      </div>
+      <div style="font-size:0.72rem; color:#555; margin-top:0.4rem;">of {{ org_kpi.total_users }} registered</div>
+    </div>
+  </div>
+  </div>
+
+  <!-- Org Success Rate -->
+  <div class="col-6 col-xl-3">
+  <div class="nr-card" style="height:100%;">
+    <div class="nr-card-accent" style="background:linear-gradient(90deg,
+        {% if org_kpi.success_rate is none %}rgba(60,60,60,0.6)
+        {% elif org_kpi.success_rate >= 80 %}rgba(76,175,80,0.6)
+        {% elif org_kpi.success_rate >= 50 %}rgba(255,193,7,0.5)
+        {% else %}rgba(239,83,80,0.6){% endif %},transparent);"></div>
+    <div class="nr-card-body" style="padding:1.25rem;">
+      <div class="nr-label mb-1">ORG SUCCESS RATE <span style="color:#2a2a2a; text-transform:none; letter-spacing:0;">30d</span></div>
+      <div style="font-family:'JetBrains Mono',monospace; font-size:2rem; font-weight:700; line-height:1;
+          color:{% if org_kpi.success_rate is none %}#333
+                {% elif org_kpi.success_rate >= 80 %}#a5d6a7
+                {% elif org_kpi.success_rate >= 50 %}#ffe082
+                {% else %}#ef9a9a{% endif %};">
+        {% if org_kpi.success_rate is none %}—{% else %}{{ org_kpi.success_rate }}%{% endif %}
+      </div>
+      <div style="font-size:0.72rem; color:#555; margin-top:0.4rem;">across all operators</div>
+    </div>
+  </div>
+  </div>
+
+  <!-- Total Jobs -->
+  <div class="col-6 col-xl-3">
+  <div class="nr-card" style="height:100%;">
+    <div class="nr-card-accent"></div>
+    <div class="nr-card-body" style="padding:1.25rem;">
+      <div class="nr-label mb-1">TOTAL JOBS <span style="color:#2a2a2a; text-transform:none; letter-spacing:0;">30d</span></div>
+      <div style="font-family:'JetBrains Mono',monospace; font-size:2rem; font-weight:700; color:#e0e0e0; line-height:1;">
+        {{ org_kpi.total_jobs }}
+      </div>
+      <div style="font-size:0.72rem; color:#555; margin-top:0.4rem;">rollout jobs executed</div>
+    </div>
+  </div>
+  </div>
+
+  <!-- Total Device Ops -->
+  <div class="col-6 col-xl-3">
+  <div class="nr-card" style="height:100%;">
+    <div class="nr-card-accent"></div>
+    <div class="nr-card-body" style="padding:1.25rem;">
+      <div class="nr-label mb-1">DEVICE OPERATIONS <span style="color:#2a2a2a; text-transform:none; letter-spacing:0;">30d</span></div>
+      <div style="font-family:'JetBrains Mono',monospace; font-size:2rem; font-weight:700; color:#e0e0e0; line-height:1;">
+        {{ org_kpi.total_ops }}
+      </div>
+      <div style="font-size:0.72rem; color:#555; margin-top:0.4rem;">individual device pushes</div>
+    </div>
+  </div>
+  </div>
+
+</div>
+
+<!-- ── Tables row ── -->
+<div class="row g-3 mb-4">
+
+  <!-- Most Active Users -->
+  <div class="col-12 col-lg-6">
+  <div class="nr-card" style="height:100%;">
+    <div class="nr-card-accent"></div>
+    <div class="nr-card-body" style="padding:1.25rem;">
+      <div class="d-flex align-items-center gap-2 mb-3">
+        <i class="bi bi-people-fill" style="color:#00bcd4; font-size:0.9rem;"></i>
+        <div>
+          <div class="nr-badge" style="margin-bottom:0;">OPERATORS</div>
+        </div>
+      </div>
+      <div style="font-size:0.88rem; font-weight:600; color:#e0e0e0; margin-bottom:1rem;">Most Active (30d)</div>
+      {% if active_users %}
+      <table class="table align-middle mb-0" style="font-size:0.82rem;">
+        <thead><tr>
+          <th style="color:#555; font-size:0.65rem; letter-spacing:1px; font-weight:600; text-transform:uppercase; border-color:#1a1a1a;">User</th>
+          <th class="text-center" style="color:#555; font-size:0.65rem; letter-spacing:1px; font-weight:600; text-transform:uppercase; border-color:#1a1a1a;">Jobs</th>
+          <th class="text-center" style="color:#555; font-size:0.65rem; letter-spacing:1px; font-weight:600; text-transform:uppercase; border-color:#1a1a1a;">Devices</th>
+          <th style="color:#555; font-size:0.65rem; letter-spacing:1px; font-weight:600; text-transform:uppercase; border-color:#1a1a1a;">Last Job</th>
+        </tr></thead>
+        <tbody>
+        {% for u in active_users %}
+        <tr style="border-color:#1a1a1a;">
+          <td><span style="font-family:'JetBrains Mono',monospace; font-size:0.8rem; color:#ccc;">{{ u.username }}</span></td>
+          <td class="text-center"><span style="font-family:'JetBrains Mono',monospace; color:#e0e0e0;">{{ u.job_count }}</span></td>
+          <td class="text-center"><span style="font-family:'JetBrains Mono',monospace; color:#e0e0e0;">{{ u.devices_reached }}</span></td>
+          <td><span style="font-size:0.72rem; color:#555;">{{ u.last_job_at.strftime("%b %d, %H:%M") if u.last_job_at else '—' }}</span></td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div style="text-align:center; padding:2rem 0; color:#555; font-size:0.82rem;">No rollout activity in the last 30 days.</div>
+      {% endif %}
+    </div>
+  </div>
+  </div>
+
+  <!-- Most Failed Devices -->
+  <div class="col-12 col-lg-6">
+  <div class="nr-card" style="height:100%;">
+    <div class="nr-card-accent" style="background:linear-gradient(90deg,rgba(239,83,80,0.25),transparent);"></div>
+    <div class="nr-card-body" style="padding:1.25rem;">
+      <div class="d-flex align-items-center gap-2 mb-3">
+        <i class="bi bi-exclamation-triangle-fill" style="color:#ef9a9a; font-size:0.9rem;"></i>
+        <div>
+          <div class="nr-badge" style="margin-bottom:0; border-color:rgba(239,83,80,0.3); color:#ef9a9a;">RELIABILITY</div>
+        </div>
+      </div>
+      <div style="font-size:0.88rem; font-weight:600; color:#e0e0e0; margin-bottom:1rem;">Most Failed Devices (30d)</div>
+      {% if failed_devices %}
+      <table class="table align-middle mb-0" style="font-size:0.82rem;">
+        <thead><tr>
+          <th style="color:#555; font-size:0.65rem; letter-spacing:1px; font-weight:600; text-transform:uppercase; border-color:#1a1a1a;">Device</th>
+          <th style="color:#555; font-size:0.65rem; letter-spacing:1px; font-weight:600; text-transform:uppercase; border-color:#1a1a1a;">Platform</th>
+          <th class="text-center" style="color:#555; font-size:0.65rem; letter-spacing:1px; font-weight:600; text-transform:uppercase; border-color:#1a1a1a;">Failures</th>
+        </tr></thead>
+        <tbody>
+        {% for d in failed_devices %}
+        <tr style="border-color:#1a1a1a;">
+          <td>
+            <div style="font-family:'JetBrains Mono',monospace; font-size:0.78rem; color:#ef9a9a;">{{ d.label or d.ip }}</div>
+            <div style="font-size:0.68rem; color:#444;">{{ d.ip }}</div>
+          </td>
+          <td><span style="font-size:0.72rem; color:#555;">{{ d.device_type }}</span></td>
+          <td class="text-center"><span style="font-family:'JetBrains Mono',monospace; color:#ef9a9a; font-weight:700;">{{ d.fail_count }}</span></td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div style="text-align:center; padding:2rem 0; color:#555; font-size:0.82rem;">No failures recorded in the last 30 days.</div>
+      {% endif %}
+    </div>
+  </div>
+  </div>
+
+</div>
+
+<!-- ══════════════════════════════════════
+     AUDIT INVESTIGATION ENGINE
+══════════════════════════════════════ -->
+<div class="nr-card">
+  <div class="nr-card-accent" style="background:linear-gradient(90deg,rgba(255,224,130,0.15),transparent);"></div>
+  <div class="nr-card-body" style="padding:1.5rem;">
+
+    <!-- Header -->
+    <div class="d-flex align-items-center gap-3 mb-4">
+      <div style="width:40px; height:40px; border-radius:10px; background:rgba(255,224,130,0.08);
+                  border:1px solid rgba(255,224,130,0.15); display:flex; align-items:center;
+                  justify-content:center; flex-shrink:0;">
+        <i class="bi bi-shield-lock-fill" style="color:#ffe082; font-size:1.1rem;"></i>
+      </div>
+      <div>
+        <div class="nr-badge" style="border-color:rgba(255,224,130,0.25); color:#ffe082; margin-bottom:0.2rem;">AUDIT INVESTIGATION</div>
+        <div style="font-size:0.88rem; font-weight:600; color:#e0e0e0;">Audit Log Query</div>
+        <div style="font-size:0.7rem; color:#555; font-family:'JetBrains Mono',monospace; margin-top:0.1rem;">
+          90-day retention · append-only · admin access only
+        </div>
+      </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="row g-2 align-items-end">
+      <div class="col-12 col-md-2">
+        <label class="nr-label">ACTOR</label>
+        <select id="qfActor" class="form-select form-select-sm"
+                style="background:#111; border-color:#2a2a2a; color:#ccc; font-size:0.78rem;">
+          <option value="">All</option>
+          {% for u in active_users %}
+          <option value="{{ u.username }}">{{ u.username }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-6 col-md-2">
+        <label class="nr-label">DATE FROM</label>
+        <input type="date" id="qfDateFrom" class="form-control form-control-sm"
+               style="background:#111; border-color:#2a2a2a; color:#ccc; font-size:0.78rem;">
+      </div>
+      <div class="col-6 col-md-2">
+        <label class="nr-label">DATE TO</label>
+        <input type="date" id="qfDateTo" class="form-control form-control-sm"
+               style="background:#111; border-color:#2a2a2a; color:#ccc; font-size:0.78rem;">
+      </div>
+      <div class="col-6 col-md-2">
+        <label class="nr-label">ACTION</label>
+        <input type="text" id="qfAction" class="form-control form-control-sm"
+               placeholder="e.g. inventory.create"
+               style="background:#111; border-color:#2a2a2a; color:#ccc; font-size:0.78rem;">
+      </div>
+      <div class="col-6 col-md-2">
+        <label class="nr-label">RESULT</label>
+        <select id="qfSuccess" class="form-select form-select-sm"
+                style="background:#111; border-color:#2a2a2a; color:#ccc; font-size:0.78rem;">
+          <option value="">All</option>
+          <option value="true">Success</option>
+          <option value="false">Failed</option>
+        </select>
+      </div>
+      <div class="col-12 col-md-2 d-flex gap-2">
+        <button class="btn btn-sm flex-grow-1" onclick="runQuery()"
+                style="background:rgba(255,224,130,0.1); border:1px solid rgba(255,224,130,0.25);
+                       color:#ffe082; font-size:0.78rem; font-family:'JetBrains Mono',monospace;">
+          <i class="bi bi-play-fill me-1"></i>Run
+        </button>
+        <button class="btn btn-sm" onclick="exportCsv()"
+                style="background:none; border:1px solid #2a2a2a; color:#555; font-size:0.78rem;"
+                title="Export CSV"
+                onmouseenter="this.style.borderColor='#444';this.style.color='#aaa'"
+                onmouseleave="this.style.borderColor='#2a2a2a';this.style.color='#555'">
+          <i class="bi bi-download"></i>
+        </button>
+      </div>
+    </div>
+
+    <!-- Results -->
+    <div id="queryResultsWrap" style="margin-top:1.25rem; display:none;">
+      <div style="border-top:1px solid #1a1a1a; padding-top:1rem;">
+        <div class="d-flex align-items-center justify-content-between mb-2">
+          <span id="queryResultCount" style="font-size:0.72rem; color:#555; font-family:'JetBrains Mono',monospace;"></span>
+        </div>
+        <div class="table-responsive" style="max-height:340px; overflow-y:auto;">
+          <table class="table align-middle mb-0" style="font-size:0.78rem;" id="queryResultsTable">
+            <thead id="queryResultsHead" style="position:sticky; top:0; background:#1a1a1a; z-index:1;"></thead>
+            <tbody id="queryResultsBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div id="queryEmpty" style="display:none; text-align:center; padding:2rem 0; color:#555; font-size:0.82rem;">
+      No entries match the selected filters.
+    </div>
+    <div id="queryLoading" style="display:none; text-align:center; padding:2rem 0; color:#555; font-size:0.82rem;">
+      <i class="bi bi-arrow-repeat" style="animation:spin 1s linear infinite; display:inline-block; margin-right:6px;"></i>
+      Querying audit log…
+    </div>
+
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_script %}
+<script>
+const CSRF_TOKEN = "{{ csrf_token() }}";
+let lastResults = [];
+let lastColumns = [];
+
+async function runQuery() {
+    document.getElementById('queryLoading').style.display     = '';
+    document.getElementById('queryResultsWrap').style.display = 'none';
+    document.getElementById('queryEmpty').style.display       = 'none';
+
+    const params = {
+        actor:     document.getElementById('qfActor').value,
+        date_from: document.getElementById('qfDateFrom').value,
+        date_to:   document.getElementById('qfDateTo').value,
+        action:    document.getElementById('qfAction').value,
+        success:   document.getElementById('qfSuccess').value,
+    };
+
+    const resp = await fetch('/admin/analytics/query?' + new URLSearchParams(params));
+    const data = await resp.json();
+    document.getElementById('queryLoading').style.display = 'none';
+
+    if (!data.rows || data.rows.length === 0) {
+        document.getElementById('queryEmpty').style.display = '';
+        return;
+    }
+
+    lastResults = data.rows;
+    lastColumns = data.columns;
+
+    document.getElementById('queryResultsHead').innerHTML =
+        '<tr>' + data.columns.map(c =>
+            `<th style="color:#555; font-size:0.65rem; letter-spacing:1px; font-weight:600;
+                        text-transform:uppercase; border-color:#1a1a1a; white-space:nowrap;">${c}</th>`
+        ).join('') + '</tr>';
+
+    document.getElementById('queryResultsBody').innerHTML = data.rows.map(row =>
+        '<tr style="border-color:#1a1a1a;">' +
+        data.columns.map(c => {
+            const val = row[c];
+            let display = val === null || val === undefined
+                ? '<span style="color:#2a2a2a;">—</span>' : String(val);
+            if (typeof val === 'boolean' || val === 'true' || val === 'false') {
+                const ok = val === true || val === 'true';
+                display = ok
+                    ? '<span style="color:#a5d6a7; font-family:monospace;">✓ true</span>'
+                    : '<span style="color:#ef9a9a; font-family:monospace;">✗ false</span>';
+            }
+            return `<td style="font-size:0.75rem; color:#aaa; white-space:nowrap;">${display}</td>`;
+        }).join('') + '</tr>'
+    ).join('');
+
+    document.getElementById('queryResultCount').textContent =
+        `${data.rows.length} row${data.rows.length !== 1 ? 's' : ''}`;
+    document.getElementById('queryResultsWrap').style.display = '';
+}
+
+function exportCsv() {
+    if (!lastResults.length) return;
+    const header = lastColumns.join(',');
+    const rows   = lastResults.map(row =>
+        lastColumns.map(c => {
+            const v = row[c] ?? '';
+            return String(v).includes(',') ? `"${String(v).replace(/"/g,'""')}"` : String(v);
+        }).join(',')
+    );
+    const csv  = [header, ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `netrollout_audit_${Date.now()}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+}
+</script>
+<style>
+@keyframes spin { from { transform:rotate(0deg); } to { transform:rotate(360deg); } }
+</style>
+{% endblock %}

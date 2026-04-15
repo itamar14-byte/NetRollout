@@ -403,6 +403,32 @@
 <!-- ══════════════════════════════════════
      PERFORMANCE STRIP — 30-day KPIs
 ══════════════════════════════════════ -->
+
+{% if current_user.role == 'admin' %}
+<div class="d-flex align-items-center justify-content-between mt-4 mb-2">
+    <div class="d-flex align-items-center gap-2">
+        <i class="bi bi-bar-chart-line" style="color:#00bcd4; font-size:0.85rem;"></i>
+        <span style="font-size:0.72rem; color:#555; font-family:'JetBrains Mono',monospace; letter-spacing:0.5px;">
+            KPI SCOPE
+            {% if selected_user != 'me' %}
+            — <span style="color:#00bcd4;">
+                {{ selected_username }}
+              </span>
+            {% endif %}
+        </span>
+    </div>
+    <select onchange="applyKpiScope(this.value)"
+            style="background:#111; border:1px solid #2a2a2a; border-radius:6px;
+                   color:#ccc; font-size:0.75rem; padding:0.25rem 0.55rem;
+                   font-family:'JetBrains Mono',monospace; cursor:pointer; outline:none;">
+        <option value="me" {% if selected_user == 'me' %}selected{% endif %}>— my data —</option>
+        {% for u in users %}
+        <option value="{{ u.id }}" {% if selected_user == u.id|string %}selected{% endif %}>{{ u.username }}</option>
+        {% endfor %}
+    </select>
+</div>
+{% endif %}
+
 <div class="row g-3 mt-1">
 
     <!-- Success Rate -->
@@ -490,6 +516,13 @@
 
 {% block extra_script %}
 <script>
+    // ── Admin KPI scope ──
+    function applyKpiScope(val) {
+        const url = new URL(window.location.href);
+        url.searchParams.set('user', val);
+        window.location.href = url.toString();
+    }
+
     // ── Live clock ──
     function updateClock() {
         const now = new Date();

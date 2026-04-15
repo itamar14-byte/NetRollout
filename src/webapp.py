@@ -8,7 +8,8 @@ import tempfile
 import threading
 import time
 import uuid
-from collections import Counter
+from collections import Counter, defaultdict
+from datetime import datetime, timedelta
 from io import BytesIO
 from itertools import groupby
 from queue import Empty
@@ -27,6 +28,7 @@ from flask_wtf.csrf import CSRFError
 from netmiko import ConnectHandler
 from netmiko.exceptions import NetmikoTimeoutException, \
 	NetmikoAuthenticationException
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError, OperationalError
 from waitress import serve
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -724,6 +726,276 @@ def admin_audit():
 	                       active_section="audit")
 
 
+
+
+@app.route("/admin/analytics")
+@login_required
+def admin_analytics():
+	if current_user.role != "admin":
+		return redirect(url_for("dashboard"))
+
+	with get_session() as db_session:
+		cutoff = datetime.now() - timedelta(days=30)
+		results_30d = db_session.query(DeviceResult).filter(
+			DeviceResult.started_at >= cutoff
+		).all()
+
+		all_users = db_session.query(User).order_by(User.username).all()
+		total_users = len(all_users)
+		active_user_ids = {r.user_id for r in results_30d}
+		total_ops = len(results_30d)
+		total_jobs = len({r.job_id for r in results_30d})
+		success_count = sum(1 for r in results_30d if r.status == "success")
+
+		org_kpi = {
+			"active_users":  len(active_user_ids),
+			"total_users":   total_users,
+			"total_jobs":    total_jobs,
+			"total_ops":     total_ops,
+			"success_rate":  round(success_count / total_ops * 100) if total_ops else None,
+		}
+
+		user_stats = defaultdict(lambda: {"job_ids": set(), "devices": 0, "last_job_at": None})
+		for r in results_30d:
+			s = user_stats[r.user_id]
+			s["job_ids"].add(r.job_id)
+			s["devices"] += 1
+			if s["last_job_at"] is None or r.completed_at > s["last_job_at"]:
+				s["last_job_at"] = r.completed_at
+
+		username_map = {u.id: u.username for u in all_users}
+		active_users_rows = sorted(
+			[
+				{
+					"username":        username_map.get(uid, str(uid)),
+					"job_count":       len(s["job_ids"]),
+					"devices_reached": s["devices"],
+					"last_job_at":     s["last_job_at"],
+				}
+				for uid, s in user_stats.items()
+			],
+			key=lambda x: x["job_count"],
+			reverse=True,
+		)[:10]
+
+		fail_counts = defaultdict(lambda: {"device_type": "", "count": 0})
+		for r in results_30d:
+			if r.status == "failed":
+				fail_counts[r.device_ip]["device_type"] = r.device_type
+				fail_counts[r.device_ip]["count"] += 1
+
+		failed_ips = set(fail_counts.keys())
+		inv_rows = (
+			db_session.query(Inventory.ip, Inventory.label)
+			.filter(Inventory.ip.in_(failed_ips))
+			.all()
+			if failed_ips else []
+		)
+		label_map = {row.ip: row.label for row in inv_rows}
+
+		failed_devices_rows = sorted(
+			[
+				{
+					"ip":          ip,
+					"label":       label_map.get(ip),
+					"device_type": s["device_type"],
+					"fail_count":  s["count"],
+				}
+				for ip, s in fail_counts.items()
+			],
+			key=lambda x: x["fail_count"],
+			reverse=True,
+		)[:10]
+
+		db_session.expunge_all()
+
+	return render_template(
+		"admin_analytics.html",
+		org_kpi=org_kpi,
+		active_users=active_users_rows,
+		failed_devices=failed_devices_rows,
+		active_section="analytics",
+	)
+
+
+@app.route("/admin/analytics/query")
+@login_required
+def admin_analytics_query():
+	if current_user.role != "admin":
+		return jsonify({"error": "Forbidden"}), 403
+
+	date_from      = request.args.get("date_from", "").strip()
+	date_to        = request.args.get("date_to", "").strip()
+	actor_filter   = request.args.get("actor", "").strip()
+	action_filter  = request.args.get("action", "").strip()
+	success_filter = request.args.get("success", "").strip()
+
+	with get_session() as db_session:
+		q = db_session.query(AuditLog)
+		if actor_filter:
+			q = q.filter(AuditLog.actor_username == actor_filter)
+		if date_from:
+			try:
+				q = q.filter(AuditLog.timestamp >= datetime.strptime(date_from, "%Y-%m-%d"))
+			except ValueError:
+				pass
+		if date_to:
+			try:
+				q = q.filter(AuditLog.timestamp < datetime.strptime(date_to, "%Y-%m-%d") + timedelta(days=1))
+			except ValueError:
+				pass
+		if action_filter:
+			safe_action = action_filter.replace("%", "").replace("_", "")
+			q = q.filter(AuditLog.action.ilike("%" + safe_action + "%"))
+		if success_filter == "true":
+			q = q.filter(AuditLog.success == True)
+		elif success_filter == "false":
+			q = q.filter(AuditLog.success == False)
+
+		rows_raw = q.order_by(AuditLog.timestamp.desc()).limit(200).all()
+		columns = ["timestamp", "actor_username", "action", "object_type",
+		           "object_label", "success", "ip_address"]
+		rows = [
+			{
+				"timestamp":      row.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+				"actor_username": row.actor_username,
+				"action":         row.action,
+				"object_type":    row.object_type,
+				"object_label":   row.object_label,
+				"success":        row.success,
+				"ip_address":     row.ip_address,
+			}
+			for row in rows_raw
+		]
+
+	return jsonify({"columns": columns, "rows": rows})
+
+
+@app.route("/analytics")
+@login_required
+def analytics():
+	selected_user = "me"
+	scope_user_id = current_user.id
+
+	if current_user.role == "admin":
+		param = request.args.get("user", "me").strip()
+		if param != "me":
+			try:
+				scope_user_id = uuid.UUID(param)
+				selected_user = param
+			except ValueError:
+				pass
+
+	with get_session() as db_session:
+		cutoff = datetime.now() - timedelta(days=30)
+		results_30d = db_session.query(DeviceResult).filter(
+			DeviceResult.started_at >= cutoff,
+			DeviceResult.user_id == scope_user_id,
+		).all()
+
+		inv_label_map = {
+			row.ip: row.label
+			for row in db_session.query(Inventory.ip, Inventory.label)
+			                      .filter(Inventory.user_id == scope_user_id).all()
+		}
+		users = db_session.query(User).order_by(User.username).all() \
+			if current_user.role == "admin" else []
+		db_session.expunge_all()
+
+	total_ops     = len(results_30d)
+	jobs_30d      = len({r.job_id for r in results_30d})
+	success_count = sum(1 for r in results_30d if r.status == "success")
+
+	fail_counts_ip: dict[str, int] = defaultdict(int)
+	for r in results_30d:
+		if r.status == "failed":
+			fail_counts_ip[r.device_ip] += 1
+	top_failed = None
+	if fail_counts_ip:
+		top_ip = max(fail_counts_ip, key=lambda ip: fail_counts_ip[ip])
+		top_failed = {"ip": top_ip, "label": inv_label_map.get(top_ip),
+		              "fail_count": fail_counts_ip[top_ip]}
+
+	platform_counts = Counter(r.device_type for r in results_30d)
+	top_platforms   = platform_counts.most_common(3)  # [(name, count), ...]
+
+	kpi = {
+		"success_rate":    round(success_count / total_ops * 100) if total_ops else None,
+		"jobs_30d":        jobs_30d,
+		"devices_reached": total_ops,
+		"commands_pushed": sum(r.commands_sent for r in results_30d),
+		"top_failed":      top_failed,
+		"top_platforms":   top_platforms,
+	}
+
+	selected_username = next(
+		(u.username for u in users if str(u.id) == selected_user), selected_user
+	) if selected_user != "me" else "me"
+
+	return render_template("analytics.html",
+	                       kpi=kpi,
+	                       users=users,
+	                       selected_user=selected_user,
+	                       selected_username=selected_username,
+	                       active_section="analytics")
+
+
+@app.route("/analytics/query")
+@login_required
+def analytics_query():
+	scope_user_id = current_user.id
+	if current_user.role == "admin":
+		try:
+			scope_user_id = uuid.UUID(request.args.get("user", ""))
+		except ValueError:
+			pass
+
+	date_from       = request.args.get("date_from", "").strip()
+	date_to         = request.args.get("date_to", "").strip()
+	platform_filter = request.args.get("platform", "").strip()
+	outcome_filter  = request.args.get("outcome", "").strip()
+
+	with get_session() as db_session:
+		q = db_session.query(DeviceResult).filter(
+			DeviceResult.user_id == scope_user_id
+		)
+		if date_from:
+			try:
+				q = q.filter(DeviceResult.started_at >= datetime.strptime(date_from, "%Y-%m-%d"))
+			except ValueError:
+				pass
+		if date_to:
+			try:
+				q = q.filter(DeviceResult.started_at < datetime.strptime(date_to, "%Y-%m-%d") + timedelta(days=1))
+			except ValueError:
+				pass
+		if platform_filter:
+			q = q.filter(DeviceResult.device_type == platform_filter)
+		if outcome_filter == "true":
+			q = q.filter(DeviceResult.status == "success")
+		elif outcome_filter == "false":
+			q = q.filter(DeviceResult.status == "failed")
+
+		rows_raw = q.order_by(DeviceResult.started_at.desc()).limit(200).all()
+		columns = ["job_id", "device_ip", "device_type", "status",
+		           "commands_sent", "commands_verified", "started_at", "completed_at"]
+		rows = [
+			{
+				"job_id":            str(r.job_id),
+				"device_ip":         r.device_ip,
+				"device_type":       r.device_type,
+				"status":            r.status,
+				"commands_sent":     r.commands_sent,
+				"commands_verified": r.commands_verified,
+				"started_at":        r.started_at.strftime("%Y-%m-%d %H:%M:%S"),
+				"completed_at":      r.completed_at.strftime("%Y-%m-%d %H:%M:%S"),
+			}
+			for r in rows_raw
+		]
+
+	return jsonify({"columns": columns, "rows": rows})
+
+
 def job_status(rows: list[DeviceResult]) -> str:
 	statuses = {r.status for r in rows}
 	if "cancelled" in statuses:
@@ -738,42 +1010,101 @@ def job_status(rows: list[DeviceResult]) -> str:
 @app.route("/dashboard")
 @login_required
 def dashboard():
+	# ── Admin KPI scope ───────────────────────────────────────────────────────
+	selected_user = "me"
+	kpi_user_id   = current_user.id
+	if current_user.role == "admin":
+		param = request.args.get("user", "me").strip()
+		if param != "me":
+			try:
+				kpi_user_id   = uuid.UUID(param)
+				selected_user = param
+			except ValueError:
+				pass
+
 	with get_session() as db_session:
+		# Current user's dashboard content (always own data)
 		user = db_session.get(User, current_user.id)
 		inventory_count = len(user.inventory)
-		profile_count = len(user.security_profiles)
-		mapping_count = len(user.variable_mappings)
-		jobs_results = user.results  # DeviceResult rows
+		profile_count   = len(user.security_profiles)
+		mapping_count   = len(user.variable_mappings)
+		jobs_results    = user.results  # DeviceResult rows
+		inv_label_map   = {d.ip: d.label for d in user.inventory}
+
+		# KPI data — scoped to kpi_user_id (may differ from current user for admin)
+		cutoff = datetime.now() - timedelta(days=30)
+		if kpi_user_id == current_user.id:
+			kpi_results_30d = [r for r in jobs_results if r.started_at >= cutoff]
+			kpi_label_map   = inv_label_map
+		else:
+			kpi_results_30d = db_session.query(DeviceResult).filter(
+				DeviceResult.user_id == kpi_user_id,
+				DeviceResult.started_at >= cutoff,
+			).all()
+			kpi_label_map = {
+				row.ip: row.label
+				for row in db_session.query(Inventory.ip, Inventory.label)
+				                      .filter(Inventory.user_id == kpi_user_id).all()
+			}
+
+		users = db_session.query(User).order_by(User.username).all() \
+			if current_user.role == "admin" else []
 		db_session.expunge_all()
 
 	sorted_results = sorted(jobs_results, key=lambda x: x.job_id)
-	job_summaries = []
+	job_summaries  = []
 	for job_id, rows in groupby(sorted_results, key=lambda x: x.job_id):
 		rows = list(rows)
-		job_summaries.append({"job_id": job_id,
-		                      "completed_at": max(r.completed_at for r in
-		                                          rows),
-		                      "device_count": len(rows),
-		                      "commands_sent": rows[0].commands_sent,
-		                      "status": job_status(rows)})
+		job_summaries.append({
+			"job_id":       job_id,
+			"completed_at": max(r.completed_at for r in rows),
+			"device_count": len(rows),
+			"commands_sent": rows[0].commands_sent,
+			"status":       job_status(rows),
+		})
 
-	job_summaries.sort(key=lambda x: x['completed_at'], reverse=True)
-	recent_jobs = job_summaries[:5]
+	job_summaries.sort(key=lambda x: x["completed_at"], reverse=True)
+	recent_jobs    = job_summaries[:5]
 	total_rollouts = len(job_summaries)
-	last_status = job_summaries[0]['status'] if job_summaries else None
+	last_status    = job_summaries[0]["status"] if job_summaries else None
 
-	# get_queue an active job
-	job_id = session.get("job_id", None)
+	# ── 30-day KPI strip (scoped) ─────────────────────────────────────────────
+	total_ops     = len(kpi_results_30d)
+	jobs_30d      = len({r.job_id for r in kpi_results_30d})
+	success_count = sum(1 for r in kpi_results_30d if r.status == "success")
+	fail_counts: dict[str, int] = defaultdict(int)
+	for r in kpi_results_30d:
+		if r.status == "failed":
+			fail_counts[r.device_ip] += 1
+	top_failed = None
+	if fail_counts:
+		top_ip     = max(fail_counts, key=lambda ip: fail_counts[ip])
+		top_failed = {"ip": top_ip, "label": kpi_label_map.get(top_ip),
+		              "fail_count": fail_counts[top_ip]}
+	kpi = {
+		"success_rate":    round(success_count / total_ops * 100) if total_ops else None,
+		"jobs_30d":        jobs_30d,
+		"devices_reached": total_ops,
+		"commands_pushed": sum(r.commands_sent for r in kpi_results_30d),
+		"top_failed":      top_failed,
+	}
+
+	# ── Active job (always own) ───────────────────────────────────────────────
+	job_id     = session.get("job_id", None)
 	active_job = orchestrator.get(uuid.UUID(job_id)) if job_id else None
 
 	active_job_data = None
 	if active_job and active_job.is_alive():
 		active_job_data = {
-			"job_id": job_id,
-			"device_count": active_job.get_device_count(),
-			"started_at": active_job.started_at.strftime("%H:%M:%S"),
-			"started_at_iso": active_job.started_at.isoformat()
+			"job_id":         job_id,
+			"device_count":   active_job.get_device_count(),
+			"started_at":     active_job.started_at.strftime("%H:%M:%S"),
+			"started_at_iso": active_job.started_at.isoformat(),
 		}
+
+	selected_username = next(
+		(u.username for u in users if str(u.id) == selected_user), selected_user
+	) if selected_user != "me" else "me"
 
 	return render_template("dashboard.html",
 	                       active_section="dashboard",
@@ -783,7 +1114,11 @@ def dashboard():
 	                       profile_count=profile_count,
 	                       mapping_count=mapping_count,
 	                       total_rollouts=total_rollouts,
-	                       last_status=last_status)
+	                       last_status=last_status,
+	                       kpi=kpi,
+	                       users=users,
+	                       selected_user=selected_user,
+	                       selected_username=selected_username)
 
 
 @app.route("/inventory")
