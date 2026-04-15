@@ -335,7 +335,7 @@
     <!-- Expanded detail -->
     <div class="job-detail" onclick="event.stopPropagation()">
         <!-- Action buttons -->
-        <div class="d-flex gap-2 mb-3">
+        <div class="d-flex gap-2 mb-3 flex-wrap">
             {% if job.commands %}
             <button class="job-action-btn"
                     data-commands="{{ job.commands | tojson | forceescape }}"
@@ -348,6 +348,17 @@
                href="{{ url_for('download_log', job_id=job.job_id) }}">
                 <i class="bi bi-download"></i> Download Log
             </a>
+            {% endif %}
+            {% set diff_devices = job.devices | selectattr('has_config') | list %}
+            {% if diff_devices %}
+            {% set diff_device_data = [] %}
+            {% for d in diff_devices %}{% set _ = diff_device_data.append({'ip': d.ip, 'label': d.get('label', d.ip)}) %}{% endfor %}
+            <button class="job-action-btn"
+                    data-job-id="{{ job.job_id }}"
+                    data-devices="{{ diff_device_data | tojson | forceescape }}"
+                    onclick="showConfigDiff(this)">
+                <i class="bi bi-shield-exclamation"></i> Verify Diff
+            </button>
             {% endif %}
         </div>
 
@@ -422,6 +433,39 @@
 <!-- Job rows -->
 <div id="job-list">
 {{ job_rows(jobs) }}
+</div>
+
+<!-- Pagination bar -->
+<div id="paginationBar" class="d-flex align-items-center justify-content-between mt-3"
+     style="display:none !important;">
+    <div class="d-flex align-items-center gap-2">
+        <span style="color:#555; font-size:0.78rem;">Per page:</span>
+        <select id="perPageSelect"
+                style="background:#111; border:1px solid #222; border-radius:6px; color:#888;
+                       font-size:0.78rem; padding:3px 8px; cursor:pointer; outline:none;">
+            <option value="10">10</option>
+            <option value="25">25</option>
+            <option value="50">50</option>
+            <option value="0">All</option>
+        </select>
+    </div>
+    <div class="d-flex align-items-center gap-2">
+        <button id="pgPrev" onclick="changePage(-1)"
+                style="background:none; border:1px solid #222; border-radius:6px; color:#555;
+                       width:28px; height:28px; cursor:pointer; font-size:0.9rem; transition:color 0.15s, border-color 0.15s;"
+                onmouseenter="this.style.color='#aaa';this.style.borderColor='#444';"
+                onmouseleave="this.style.color='#555';this.style.borderColor='#222';">
+            <i class="bi bi-chevron-left"></i>
+        </button>
+        <span id="pgLabel" style="font-family:'JetBrains Mono',monospace; font-size:0.75rem; color:#555; min-width:80px; text-align:center;"></span>
+        <button id="pgNext" onclick="changePage(1)"
+                style="background:none; border:1px solid #222; border-radius:6px; color:#555;
+                       width:28px; height:28px; cursor:pointer; font-size:0.9rem; transition:color 0.15s, border-color 0.15s;"
+                onmouseenter="this.style.color='#aaa';this.style.borderColor='#444';"
+                onmouseleave="this.style.color='#555';this.style.borderColor='#222';">
+            <i class="bi bi-chevron-right"></i>
+        </button>
+    </div>
 </div>
 
 {% else %}
@@ -540,6 +584,39 @@
     </div>
 </div>
 
+<!-- Verify Diff modal -->
+<div class="modal fade" id="verifyDiffModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header" style="border-bottom:1px solid #222; padding-bottom:0;">
+                <div class="d-flex flex-column w-100 gap-0">
+                    <div class="d-flex align-items-center justify-content-between mb-2">
+                        <div class="nr-badge">VERIFICATION DIFF</div>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                    </div>
+                    <!-- Tab bar -->
+                    <div id="verifyDiffTabs" style="display:flex; gap:0; overflow-x:auto;"></div>
+                </div>
+            </div>
+            <div class="modal-body" style="padding:0;">
+                <!-- Disclaimer -->
+                <div style="background:rgba(255,193,7,0.06); border-bottom:1px solid rgba(255,193,7,0.15);
+                            padding:10px 18px; display:flex; align-items:flex-start; gap:10px;">
+                    <i class="bi bi-exclamation-triangle" style="color:#ffc107; font-size:0.9rem; margin-top:1px; flex-shrink:0;"></i>
+                    <span style="font-size:0.75rem; color:#888; line-height:1.5;">
+                        <strong style="color:#aaa;">Best-effort matching.</strong>
+                        A command is marked <span style="color:#ef9a9a;">not found</span> if its exact text does not appear in the running config.
+                        Devices that reformat or reorder config entries may produce false negatives.
+                        Variable-substituted commands are shown pre-substitution and may not match verbatim.
+                    </span>
+                </div>
+                <!-- Command list -->
+                <div id="verifyDiffList" style="padding:14px 18px; display:flex; flex-direction:column; gap:8px;"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Commands modal -->
 <div class="modal fade" id="commandsModal" tabindex="-1">
     <div class="modal-dialog modal-lg">
@@ -562,6 +639,148 @@
 
 {% block extra_script %}
 <script>
+// ── Fetched configs (verify diff data) — loaded on demand ────────────────────
+const FETCHED_CONFIGS = {}; // cache: "job_id:ip" → config text
+
+// ── Verify Diff ───────────────────────────────────────────────────────────────
+const VD_TAB_THRESHOLD = 5;
+let _verifyDiffJobId = null;
+let _verifyDiffCmds  = null;
+
+async function showConfigDiff(btn) {
+    _verifyDiffJobId   = btn.dataset.jobId;
+    _verifyDiffCmds    = [];
+    const devices      = JSON.parse(btn.dataset.devices);
+    const deviceIps    = devices.map(d => d.ip);
+    const deviceLabels = devices.map(d => d.label || d.ip);
+
+    const tabBar = document.getElementById('verifyDiffTabs');
+    tabBar.innerHTML = '';
+
+    if (deviceIps.length <= VD_TAB_THRESHOLD) {
+        // ── Tab mode ──
+        tabBar.style.cssText = 'display:flex; gap:0; overflow-x:auto;';
+        deviceIps.forEach((ip, i) => {
+            const label = deviceLabels[i] || ip;
+            const tab = document.createElement('button');
+            tab.textContent  = label;
+            tab.title        = ip;
+            tab.dataset.ip   = ip;
+            tab.style.cssText =
+                'background:none; border:none; border-bottom:2px solid transparent;' +
+                'padding:6px 14px; font-family:\'JetBrains Mono\',monospace; font-size:0.75rem;' +
+                'color:#555; cursor:pointer; white-space:nowrap; transition:color 0.15s, border-color 0.15s;';
+            tab.onmouseenter = () => { if (!tab.classList.contains('vd-active')) tab.style.color = '#aaa'; };
+            tab.onmouseleave = () => { if (!tab.classList.contains('vd-active')) tab.style.color = '#555'; };
+            tab.onclick = () => _renderVerifyDiff(ip, tab);
+            tabBar.appendChild(tab);
+        });
+        _renderVerifyDiff(deviceIps[0], tabBar.firstChild);
+    } else {
+        // ── Dropdown mode ──
+        tabBar.style.cssText = 'display:flex; flex-direction:column; gap:6px; padding:0 0 10px;';
+
+        const searchWrap = document.createElement('div');
+        searchWrap.style.cssText = 'position:relative; padding:0 2px;';
+        const searchInput = document.createElement('input');
+        searchInput.type        = 'text';
+        searchInput.placeholder = 'Search device…';
+        searchInput.style.cssText =
+            'width:100%; background:#111; border:1px solid #2a2a2a; border-radius:6px;' +
+            'color:#ccc; font-size:0.78rem; padding:5px 10px; outline:none;' +
+            'font-family:\'Inter\',sans-serif;';
+        searchWrap.appendChild(searchInput);
+        tabBar.appendChild(searchWrap);
+
+        const listEl = document.createElement('div');
+        listEl.style.cssText =
+            'max-height:140px; overflow-y:auto; display:flex; flex-direction:column; gap:2px; padding:0 2px;';
+
+        const buildList = (filter) => {
+            listEl.innerHTML = '';
+            deviceIps.forEach((ip, i) => {
+                const label = deviceLabels[i] || ip;
+                const text  = label + ' ' + ip;
+                if (filter && !text.toLowerCase().includes(filter.toLowerCase())) return;
+                const opt = document.createElement('button');
+                opt.style.cssText =
+                    'background:none; border:none; border-radius:4px; text-align:left;' +
+                    'padding:5px 8px; font-size:0.78rem; cursor:pointer; color:#888;' +
+                    'font-family:\'JetBrains Mono\',monospace; white-space:nowrap;' +
+                    'transition:background 0.1s, color 0.1s;';
+                opt.innerHTML =
+                    '<span style="color:#ccc;">' + label + '</span>' +
+                    (label !== ip ? ' <span style="color:#444; font-size:0.7rem;">(' + ip + ')</span>' : '');
+                opt.onmouseenter = () => { opt.style.background = '#1e1e1e'; opt.style.color = '#ccc'; };
+                opt.onmouseleave = () => { opt.style.background = 'none'; };
+                opt.onclick = () => {
+                    listEl.querySelectorAll('button').forEach(b => b.style.background = 'none');
+                    opt.style.background = 'rgba(0,188,212,0.08)';
+                    _renderVerifyDiff(ip, null);
+                };
+                listEl.appendChild(opt);
+            });
+        };
+
+        buildList('');
+        searchInput.addEventListener('input', () => buildList(searchInput.value));
+        tabBar.appendChild(listEl);
+        // Auto-select first
+        listEl.firstChild && listEl.firstChild.click();
+    }
+
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('verifyDiffModal')).show();
+}
+
+async function _renderVerifyDiff(deviceIp, activeTab) {
+    if (activeTab) {
+        document.querySelectorAll('#verifyDiffTabs button').forEach(t => {
+            t.classList.remove('vd-active');
+            t.style.color       = '#555';
+            t.style.borderColor = 'transparent';
+        });
+        activeTab.classList.add('vd-active');
+        activeTab.style.color       = '#00bcd4';
+        activeTab.style.borderColor = '#00bcd4';
+    }
+
+    const cacheKey = _verifyDiffJobId + ':' + deviceIp;
+    const list     = document.getElementById('verifyDiffList');
+
+    if (!FETCHED_CONFIGS[cacheKey]) {
+        list.innerHTML = '<div style="padding:1rem; color:#555; font-size:0.82rem;">Loading…</div>';
+        try {
+            const resp = await fetch(`/results/config_diff/${_verifyDiffJobId}/${deviceIp}`);
+            const data = await resp.json();
+            if (data.status === 'error') {
+                list.innerHTML = '<div style="padding:1rem; color:#ef5350; font-size:0.82rem;">' + data.message + '</div>';
+                return;
+            }
+            FETCHED_CONFIGS[cacheKey] = data.config || '';
+            if (data.commands && data.commands.length) _verifyDiffCmds = data.commands;
+        } catch (e) {
+            list.innerHTML = '<div style="padding:1rem; color:#ef5350; font-size:0.82rem;">Failed to load config.</div>';
+            return;
+        }
+    }
+
+    const config = FETCHED_CONFIGS[cacheKey];
+    list.innerHTML = '';
+    _verifyDiffCmds.forEach(cmd => {
+        const found = config.toLowerCase().includes(cmd.trim().toLowerCase());
+        const row   = document.createElement('div');
+        row.style.cssText = 'display:flex; align-items:center; gap:10px; padding:6px 10px; border-radius:6px; background:' +
+            (found ? 'rgba(76,175,80,0.06)' : 'rgba(239,83,80,0.06)');
+        row.innerHTML =
+            '<i class="bi ' + (found ? 'bi-check-circle' : 'bi-x-circle') + '" style="font-size:0.95rem; flex-shrink:0; color:' +
+            (found ? '#66bb6a' : '#ef5350') + ';"></i>' +
+            '<span style="font-family:\'JetBrains Mono\',monospace; font-size:0.78rem; color:' +
+            (found ? '#a5d6a7' : '#ef9a9a') + ';">' +
+            cmd.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span>';
+        list.appendChild(row);
+    });
+}
+
 // ── Copy job ID ──────────────────────────────────────────────────────────────
 function copyJobId(btn, id) {
     navigator.clipboard.writeText(id).then(() => {
@@ -618,17 +837,63 @@ function showCommands(commands) {
 }
 
 // ── Filter buttons (flat view) ───────────────────────────────────────────────
+// ── Pagination ───────────────────────────────────────────────────────────────
+let _pgCurrent = 1;
+let _pgFilter  = 'all';
+
+function _filteredRows() {
+    return [...document.querySelectorAll('#job-list .job-row')]
+        .filter(r => _pgFilter === 'all' || r.dataset.status === _pgFilter);
+}
+
+function applyPagination() {
+    const perPage  = parseInt(document.getElementById('perPageSelect').value);
+    const rows     = _filteredRows();
+    const total    = rows.length;
+    const pages    = perPage === 0 ? 1 : Math.max(1, Math.ceil(total / perPage));
+    _pgCurrent     = Math.min(_pgCurrent, pages);
+
+    const start = perPage === 0 ? 0          : (_pgCurrent - 1) * perPage;
+    const end   = perPage === 0 ? total       : start + perPage;
+
+    // Hide all, then show current page subset
+    document.querySelectorAll('#job-list .job-row').forEach(r => { r.style.display = 'none'; });
+    rows.forEach((r, i) => { r.style.display = (i >= start && i < end) ? '' : 'none'; });
+
+    // Update controls
+    const bar   = document.getElementById('paginationBar');
+    const label = document.getElementById('pgLabel');
+    bar.style.display   = total > 0 ? 'flex' : 'none';
+    label.textContent   = perPage === 0 ? `${total} total` : `${_pgCurrent} / ${pages}`;
+    document.getElementById('pgPrev').disabled = _pgCurrent <= 1;
+    document.getElementById('pgNext').disabled = _pgCurrent >= pages;
+    document.getElementById('pgPrev').style.opacity = _pgCurrent <= 1 ? '0.3' : '1';
+    document.getElementById('pgNext').style.opacity = _pgCurrent >= pages ? '0.3' : '1';
+}
+
+function changePage(dir) {
+    _pgCurrent += dir;
+    applyPagination();
+}
+
+document.getElementById('perPageSelect').addEventListener('change', () => {
+    _pgCurrent = 1;
+    applyPagination();
+});
+
+// ── Filter buttons (flat view) ────────────────────────────────────────────────
 document.querySelectorAll('.filter-btn').forEach(btn => {
     btn.addEventListener('click', function() {
-        if (!this.dataset.filter) return; // diff mode button — not a filter
+        if (!this.dataset.filter) return;
         document.querySelectorAll('.filter-btn[data-filter]').forEach(b => b.classList.remove('active'));
         this.classList.add('active');
-        const filter = this.dataset.filter;
-        document.querySelectorAll('#job-list .job-row').forEach(row => {
-            row.style.display = (filter === 'all' || row.dataset.status === filter) ? '' : 'none';
-        });
+        _pgFilter  = this.dataset.filter;
+        _pgCurrent = 1;
+        applyPagination();
     });
 });
+
+applyPagination();
 
 // ── Filter buttons (split view) ──────────────────────────────────────────────
 document.querySelectorAll('.filter-btn-split').forEach(btn => {

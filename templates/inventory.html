@@ -415,7 +415,7 @@
 <!-- ══════════════════════════════════════
      ADD DEVICE MODAL
 ══════════════════════════════════════ -->
-<div class="modal fade" id="addDeviceModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
+<div class="modal fade" id="addDeviceModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
     <div class="modal-dialog modal-dialog-centered" style="max-width:480px;">
         <div class="modal-content">
             <div class="modal-header">
@@ -543,7 +543,7 @@
 <!-- ══════════════════════════════════════
      EDIT DEVICE MODAL
 ══════════════════════════════════════ -->
-<div class="modal fade" id="editDeviceModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
+<div class="modal fade" id="editDeviceModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
     <div class="modal-dialog modal-dialog-centered" style="max-width:480px;">
         <div class="modal-content">
             <div class="modal-header">
@@ -891,7 +891,7 @@
 <!-- ══════════════════════════════════════
      QUICK CREATE — SECURITY PROFILE
 ══════════════════════════════════════ -->
-<div class="modal fade" id="quickCreateProfileModal" tabindex="-1" data-bs-backdrop="static">
+<div class="modal fade" id="quickCreateProfileModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
     <div class="modal-dialog modal-dialog-centered" style="max-width:420px;">
         <div class="modal-content">
             <div class="modal-header">
@@ -941,7 +941,7 @@
 <!-- ══════════════════════════════════════
      QUICK CREATE — VARIABLE MAPPING
 ══════════════════════════════════════ -->
-<div class="modal fade" id="quickCreateMappingModal" tabindex="-1" data-bs-backdrop="static">
+<div class="modal fade" id="quickCreateMappingModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="true">
     <div class="modal-dialog modal-dialog-centered" style="max-width:400px;">
         <div class="modal-content">
             <div class="modal-header">
@@ -1639,20 +1639,6 @@ async function submitQuickCreateMapping() {
         document.getElementById('quickCreateMappingModal')).hide();
 }
 
-// ════════════════════════════════════════
-//  Escape — close topmost open modal only (capture phase beats Bootstrap)
-// ════════════════════════════════════════
-document.addEventListener('keydown', e => {
-    if (e.key !== 'Escape') return;
-    const open = [...document.querySelectorAll('.modal.show')];
-    if (!open.length) return;
-    e.stopImmediatePropagation();
-    // Use inline z-index Bootstrap sets on stacked modals; fall back to DOM order
-    const zOf = el => parseInt(el.style.zIndex) || parseInt(getComputedStyle(el).zIndex) || 0;
-    const top = open.reduce((a, b) => zOf(a) >= zOf(b) ? a : b);
-    bootstrap.Modal.getOrCreateInstance(top).hide();
-}, true); // true = capture phase
-
 //  Add modal — reset on close
 // ════════════════════════════════════════
 document.getElementById('addDeviceModal').addEventListener('hidden.bs.modal', () => {
@@ -1664,6 +1650,30 @@ document.getElementById('addDeviceModal').addEventListener('hidden.bs.modal', ()
     form.querySelectorAll('.nr-submitted').forEach(el => el.classList.remove('nr-submitted'));
     form.querySelectorAll('.field-error').forEach(el => el.style.display = '');
     resetAddTestBtn();
+});
+
+//  Escape handling — close topmost modal tier, child before parent
+// ════════════════════════════════════════
+let _quickCreateActive = false;
+
+['quickCreateProfileModal', 'quickCreateMappingModal'].forEach(id => {
+    const el = document.getElementById(id);
+    el.addEventListener('show.bs.modal',   () => { _quickCreateActive = true;  });
+    el.addEventListener('hidden.bs.modal', () => { _quickCreateActive = false; });
+});
+
+// All modals have data-bs-keyboard="false" — Escape is handled here exclusively.
+// Document-level so focus location doesn't matter.
+document.addEventListener('keydown', function(e) {
+    if (e.key !== 'Escape') return;
+    const ids = _quickCreateActive
+        ? ['quickCreateProfileModal', 'quickCreateMappingModal']
+        : ['addDeviceModal', 'editDeviceModal'];
+    ids.forEach(id => {
+        const el = document.getElementById(id);
+        if (el.classList.contains('show'))
+            bootstrap.Modal.getOrCreateInstance(el).hide();
+    });
 });
 </script>
 {% endblock %}

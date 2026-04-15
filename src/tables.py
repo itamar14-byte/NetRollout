@@ -2,8 +2,8 @@ from db import Base
 
 from datetime import datetime
 
-from sqlalchemy import (DateTime, String, Boolean, Integer, Uuid, ForeignKey,
-                        JSON, Table, Column, UniqueConstraint)
+from sqlalchemy import (DateTime, String, Boolean, Integer, Uuid, Text,
+                        ForeignKey, JSON, Table, Column, UniqueConstraint)
 import uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from flask_login import UserMixin
@@ -129,6 +129,7 @@ class DeviceResult(Base):
     device_type: Mapped[str] = mapped_column(String(64), nullable=False)
     commands_sent: Mapped[int] = mapped_column(Integer, nullable=False)
     commands_verified: Mapped[int| None] = mapped_column(Integer, nullable=True)
+    fetched_config: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(64), nullable=False)
 
     user_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id"),

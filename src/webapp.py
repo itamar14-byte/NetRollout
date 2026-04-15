@@ -17,7 +17,7 @@ from time import sleep
 import pyotp
 import qrcode
 from flask import (redirect, Response, request, render_template, url_for, \
-                   Flask, flash, session, jsonify, send_file, make_response)
+                   Flask, flash, session, jsonify, send_file)
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from flask_login import (LoginManager, login_required,
@@ -1056,6 +1056,16 @@ def rollout_stream(job_id):
 				yield "data: \n\n"
 				sleep(0.5)
 
+		# Drain any messages queued in the final moments before is_alive() went False
+		while True:
+			try:
+				msg = job.get_log_queue()
+				yield f"data: {msg}\n\n"
+			except Empty:
+				break
+
+		yield "event: done\ndata: \n\n"
+
 	return Response(
 		generate(),
 		mimetype="text/event-stream",
@@ -1123,11 +1133,14 @@ def results():
 			raw_results   = db_session.query(DeviceResult).all()
 			metadata_rows = db_session.query(JobMetadata).all()
 			usernames     = {u.id: u.username for u in db_session.query(User).all()}
+			inv_rows      = db_session.query(Inventory).all()
 		else:
 			user          = db_session.get(User, current_user.id)
 			raw_results   = user.results
 			metadata_rows = user.job_metadata
 			usernames     = {}
+			inv_rows      = user.inventory
+		ip_to_label = {row.ip: (row.label or row.ip) for row in inv_rows}
 		db_session.expunge_all()
 
 	metadata_by_job = {m.job_id: m for m in metadata_rows}
@@ -1152,10 +1165,12 @@ def results():
 				"devices": [
 					{
 						"ip": r.device_ip,
+						"label": ip_to_label.get(r.device_ip, r.device_ip),
 						"device_type": r.device_type,
 						"status": r.status,
 						"commands_sent": r.commands_sent,
 						"commands_verified": r.commands_verified,
+						"fetched_config": r.fetched_config
 					}
 					for r in rows
 				]
@@ -1164,7 +1179,9 @@ def results():
 				entry["job_owner"] = job_owner
 			out.append(entry)
 		out.sort(key=lambda x: x["completed_at"], reverse=True)
+
 		return out
+
 
 	if is_admin:
 		my_raw    = [r for r in raw_results if r.user_id == current_user.id]
@@ -1186,6 +1203,22 @@ def results():
 	                       jobs=jobs,
 	                       other_jobs=other_jobs,
 	                       is_admin=is_admin)
+
+
+@app.route("/results/config_diff/<uuid:job_id>/<device_ip>")
+@login_required
+def config_diff(job_id, device_ip):
+	with get_session() as db_session:
+		row = db_session.query(DeviceResult).filter_by(
+			job_id=job_id, device_ip=device_ip).first()
+		if not row:
+			return jsonify({"status": "error", "message": "Not found"}), 404
+		if current_user.role != "admin" and row.user_id != current_user.id:
+			return jsonify({"status": "error", "message": "Forbidden"}), 403
+		config = row.fetched_config
+		meta = db_session.query(JobMetadata).filter_by(job_id=job_id).first()
+		commands = meta.commands if meta else []
+	return jsonify({"config": config, "commands": commands})
 
 
 @app.route("/results/download_log/<uuid:job_id>")
