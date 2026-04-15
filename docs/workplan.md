@@ -353,39 +353,17 @@ Extend dashboard into a full analytics view. Data sourced entirely from `DeviceR
 - `results` route: if admin, queries all `DeviceResult` + `JobMetadata`; groups other users' rows by `user_id` to attach owner username; passes `other_jobs` with `owner` field
 - Non-admin path unchanged — `other_jobs=[]`, `is_admin=False`
 
-### 3.7 User-managed property definitions
+### 3.7 User-managed property definitions ✅ COMPLETE (2026-04-15)
 
-Replace the hardcoded variable attribute fields (hostname, loopback_ip, asn, etc.) with a user-managed sub-inventory of property definitions. Users can extend the attribute system without touching code.
-
-**New DB table: `PropertyDefinition`**
-- `id` UUID PK
-- `name` — snake_case key (e.g. `loopback_ip`), unique per user, validated by existing `validate_var_map_property_name`
-- `label` — display name (e.g. "Loopback IP")
-- `icon` — Bootstrap Icons class (e.g. `bi-diagram-3`)
-- `is_system` — boolean, True for the 9 built-in defaults (non-deletable)
-- `user_id` FK → users
-
-**Seed data (system defaults, `is_system=True`):**
-hostname, loopback_ip, asn, mgmt_vrf, mgmt_interface, site, domain, timezone, vrfs — seeded on first use with sensible default icons
-
-**Webapp routes:**
-- `GET /properties` — list user's property definitions (system + custom)
-- `POST /properties/create` — create new property definition
-- `POST /properties/<id>/edit` — edit label or icon (name immutable after creation)
-- `POST /properties/<id>/delete` — delete custom properties only (system protected)
-
-**Inventory page changes:**
-- Variable attributes expand section renders dynamically from `PropertyDefinition` rows instead of hardcoded fields
-- "Create New" option in the property name picker (same inline modal pattern as quick-create profile/mapping) — opens a small form: name, label, icon picker
-- Icon picker: click the current icon → inline searchable Bootstrap Icons grid opens (same panel pattern as NrSelect) → click to select → panel closes, icon updates. ~2000 icons, keyword search.
-
-**Variable mapping builder changes:**
-- Property name dropdown pulls from user's `PropertyDefinition` list instead of hardcoded options
-- Same "Create New" inline option — creates a property definition and selects it
-
-**Backwards compatibility:**
-- Existing `var_maps` JSON keys still work — `PropertyDefinition` is display/UI metadata only, the underlying dict key is unchanged
-- Migration: `db_install.py` seeds the 9 system defaults on first run
+- `PropertyDefinition` table: `id`, `name` (snake_case, unique per user), `label`, `icon` (Bootstrap Icons class), `is_list`, `user_id` FK
+- System defaults (9 built-ins) hardcoded as `SYSTEM_PROPERTIES` constant — read-only, no DB seeding needed
+- `get_property_defs(user_id)` returns `(sys_props, user_props)` tuple
+- Routes: `GET /properties`, `POST /properties/create`, `POST /properties/quick_create`, `POST /properties/<id>/edit`, `POST /properties/<id>/delete` — all audited; shadowing system names blocked
+- `properties.html`: system/custom visual separation; edit/delete on custom only
+- `inventory.html`: var attrs section is a CSS grid loop over all props with system/custom separator; JS population uses global `PROP_DEFS`; quick-create property inline modal with icon picker
+- `variable_mappings.html`: `ATTR_DEFS` set replaced with server-injected `sys_props`/`user_props`; `LIST_PROPS` JS set replaces hardcoded `vrfs` checks; "New property…" option at bottom of both pickers
+- `operator_base.html`: shared `initIconPicker` (searchable 150-icon grid, click or type) + `autoSlug` (label → snake_case name auto-generation) — available site-wide
+- Label-first UX: user types label, name auto-generates; name field editable but secondary
 
 ---
 

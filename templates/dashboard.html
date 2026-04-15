@@ -400,6 +400,92 @@
     </div>
 </div>
 
+<!-- ══════════════════════════════════════
+     PERFORMANCE STRIP — 30-day KPIs
+══════════════════════════════════════ -->
+<div class="row g-3 mt-1">
+
+    <!-- Success Rate -->
+    <div class="col-6 col-md-3">
+    <div class="nr-card" style="height:100%;">
+        <div class="nr-card-accent" style="background:linear-gradient(90deg,
+            {% if kpi.success_rate is none %}rgba(60,60,60,0.6)
+            {% elif kpi.success_rate >= 80 %}rgba(76,175,80,0.6)
+            {% elif kpi.success_rate >= 50 %}rgba(255,193,7,0.5)
+            {% else %}rgba(239,83,80,0.6){% endif %},transparent);"></div>
+        <div class="nr-card-body" style="padding:1.1rem 1.25rem;">
+            <div class="nr-label" style="margin-bottom:0.4rem;">SUCCESS RATE <span style="color:#2a2a2a; text-transform:none; letter-spacing:0;">30d</span></div>
+            <div style="font-family:'JetBrains Mono',monospace; font-size:1.7rem; font-weight:700; line-height:1;
+                color:{% if kpi.success_rate is none %}#333
+                      {% elif kpi.success_rate >= 80 %}#a5d6a7
+                      {% elif kpi.success_rate >= 50 %}#ffe082
+                      {% else %}#ef9a9a{% endif %};">
+                {% if kpi.success_rate is none %}—{% else %}{{ kpi.success_rate }}%{% endif %}
+            </div>
+            <div style="font-size:0.7rem; color:#333; margin-top:0.3rem;">
+                {{ kpi.jobs_30d }} job{{ 's' if kpi.jobs_30d != 1 }} total
+            </div>
+        </div>
+    </div>
+    </div>
+
+    <!-- Devices Reached -->
+    <div class="col-6 col-md-3">
+    <div class="nr-card" style="height:100%;">
+        <div class="nr-card-accent"></div>
+        <div class="nr-card-body" style="padding:1.1rem 1.25rem;">
+            <div class="nr-label" style="margin-bottom:0.4rem;">DEVICES REACHED <span style="color:#2a2a2a; text-transform:none; letter-spacing:0;">30d</span></div>
+            <div style="font-family:'JetBrains Mono',monospace; font-size:1.7rem; font-weight:700; line-height:1; color:#e0e0e0;">
+                {{ kpi.devices_reached }}
+            </div>
+            <div style="font-size:0.7rem; color:#333; margin-top:0.3rem;">
+                across all rollouts
+            </div>
+        </div>
+    </div>
+    </div>
+
+    <!-- Commands Pushed -->
+    <div class="col-6 col-md-3">
+    <div class="nr-card" style="height:100%;">
+        <div class="nr-card-accent"></div>
+        <div class="nr-card-body" style="padding:1.1rem 1.25rem;">
+            <div class="nr-label" style="margin-bottom:0.4rem;">COMMANDS PUSHED <span style="color:#2a2a2a; text-transform:none; letter-spacing:0;">30d</span></div>
+            <div style="font-family:'JetBrains Mono',monospace; font-size:1.7rem; font-weight:700; line-height:1; color:#e0e0e0;">
+                {{ kpi.commands_pushed }}
+            </div>
+            <div style="font-size:0.7rem; color:#333; margin-top:0.3rem;">
+                total lines sent
+            </div>
+        </div>
+    </div>
+    </div>
+
+    <!-- Top Failing Device -->
+    <div class="col-6 col-md-3">
+    <div class="nr-card" style="height:100%;">
+        <div class="nr-card-accent" style="background:linear-gradient(90deg,rgba(239,83,80,0.25),transparent);"></div>
+        <div class="nr-card-body" style="padding:1.1rem 1.25rem;">
+            <div class="nr-label" style="margin-bottom:0.4rem;">MOST FAILURES <span style="color:#2a2a2a; text-transform:none; letter-spacing:0;">30d</span></div>
+            {% if kpi.top_failed %}
+            <div style="font-family:'JetBrains Mono',monospace; font-size:0.82rem; font-weight:700; color:#ef9a9a; line-height:1.3; word-break:break-all;">
+                {{ kpi.top_failed.label or kpi.top_failed.ip }}
+            </div>
+            <div style="font-size:0.7rem; color:#333; margin-top:0.3rem;">
+                {{ kpi.top_failed.fail_count }} failure{{ 's' if kpi.top_failed.fail_count != 1 }}
+                · <a href="{{ url_for('results') }}" style="color:#444; text-decoration:none;"
+                     onmouseenter="this.style.color='#00bcd4'" onmouseleave="this.style.color='#444'">see results</a>
+            </div>
+            {% else %}
+            <div style="font-family:'JetBrains Mono',monospace; font-size:1.7rem; font-weight:700; line-height:1; color:#2a2a2a;">—</div>
+            <div style="font-size:0.7rem; color:#2a2a2a; margin-top:0.3rem;">no failures</div>
+            {% endif %}
+        </div>
+    </div>
+    </div>
+
+</div>
+
 {% endblock %}
 
 {% block extra_script %}

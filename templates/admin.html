@@ -42,11 +42,11 @@
       <span class="sidebar-label">Audit Logs</span>
     </a>
 
-    <a href="#" class="sidebar-link disabled-link" title="Query">
-      <span class="sidebar-icon">🔍</span>
-      <span class="sidebar-label">Query
-        <span class="badge bg-secondary ms-1" style="font-size:0.55rem;">P2</span>
-      </span>
+    <a href="{{ url_for('admin_analytics') }}"
+       class="sidebar-link {% if active_section == 'analytics' %}active{% endif %}"
+       title="Analytics">
+      <span class="sidebar-icon">📊</span>
+      <span class="sidebar-label">Analytics</span>
     </a>
 
   </nav>
