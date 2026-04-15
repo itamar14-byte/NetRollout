@@ -655,6 +655,54 @@
         .nr-select-option.none-opt .opt-label { color: #383838; font-style: italic; }
         .opt-shield { font-size: 0.78rem; color: #00bcd4; flex-shrink: 0; }
 
+        /* ── Icon Picker ── */
+        .icon-picker-wrap { position: relative; }
+        .icon-picker-panel {
+            display: none;
+            position: absolute;
+            top: calc(100% + 4px);
+            left: 0;
+            z-index: 1100;
+            background: #111;
+            border: 1px solid #2a2a2a;
+            border-radius: 8px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+            width: 280px;
+            padding: 8px;
+        }
+        .icon-picker-panel.open { display: block; }
+        .icon-picker-search {
+            width: 100%;
+            background: #1a1a1a;
+            border: 1px solid #2a2a2a;
+            border-radius: 6px;
+            color: #ccc;
+            font-size: 0.78rem;
+            padding: 5px 8px;
+            margin-bottom: 8px;
+            outline: none;
+        }
+        .icon-picker-grid {
+            display: grid;
+            grid-template-columns: repeat(8, 1fr);
+            gap: 2px;
+            max-height: 180px;
+            overflow-y: auto;
+        }
+        .icon-picker-opt {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 30px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 1rem;
+            color: #555;
+            transition: background 0.1s, color 0.1s;
+        }
+        .icon-picker-opt:hover { background: #1e1e1e; color: #00bcd4; }
+        .icon-picker-opt.selected { background: rgba(0,188,212,0.12); color: #00bcd4; }
+
         {% block extra_style %}{% endblock %}
     </style>
 </head>
@@ -714,6 +762,13 @@
            title="Variable Mappings">
             <i class="bi bi-braces sb-icon"></i>
             <span class="sb-label">Variable Mappings</span>
+        </a>
+
+        <a href="{{ url_for('properties') }}"
+           class="sb-link {% if active_section == 'properties' %}active{% endif %}"
+           title="Property Definitions">
+            <i class="bi bi-sliders sb-icon"></i>
+            <span class="sb-label">Properties</span>
         </a>
 
         {# ── Observability ── #}
@@ -945,6 +1000,113 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 </script>
 
+<script>
+// ── Shared helpers ────────────────────────────────────────────────────────────
+function autoSlug(labelId, nameId) {
+    const nameEl = document.getElementById(nameId);
+    if (!nameEl) return;
+    const label = document.getElementById(labelId).value;
+    nameEl.value = label.toLowerCase().trim().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+}
+
+// ── Shared Icon Picker ────────────────────────────────────────────────────────
+const ICON_PICKER_ICONS = [
+    'bi-tag','bi-tags','bi-server','bi-hdd-network','bi-ethernet','bi-wifi',
+    'bi-router','bi-modem','bi-cpu','bi-gpu-card','bi-pc','bi-laptop',
+    'bi-cloud','bi-cloud-arrow-up','bi-cloud-arrow-down','bi-cloud-check',
+    'bi-database','bi-database-check','bi-database-fill','bi-sd-card',
+    'bi-hdd','bi-hdd-fill','bi-hdd-rack','bi-hdd-rack-fill',
+    'bi-diagram-3','bi-diagram-2','bi-share','bi-bezier2',
+    'bi-globe','bi-globe2','bi-globe-americas','bi-globe-central-south-asia',
+    'bi-geo-alt','bi-geo','bi-map','bi-pin-map','bi-signpost','bi-signpost-2',
+    'bi-building','bi-buildings','bi-house','bi-hospital',
+    'bi-layers','bi-layers-fill','bi-stack','bi-collection',
+    'bi-box','bi-box-fill','bi-box-seam','bi-boxes',
+    'bi-braces','bi-braces-asterisk','bi-code','bi-code-slash','bi-code-square',
+    'bi-terminal','bi-terminal-fill','bi-terminal-dash','bi-terminal-plus',
+    'bi-gear','bi-gear-fill','bi-gear-wide','bi-sliders','bi-sliders2',
+    'bi-wrench','bi-wrench-adjustable','bi-tools',
+    'bi-shield','bi-shield-fill','bi-shield-lock','bi-shield-check','bi-shield-shaded',
+    'bi-lock','bi-lock-fill','bi-unlock','bi-key','bi-key-fill',
+    'bi-person','bi-person-fill','bi-people','bi-people-fill',
+    'bi-clock','bi-clock-fill','bi-alarm','bi-calendar','bi-stopwatch',
+    'bi-activity','bi-bar-chart','bi-bar-chart-fill','bi-graph-up','bi-graph-down',
+    'bi-speedometer','bi-speedometer2','bi-reception-4','bi-signal',
+    'bi-type-h1','bi-type-h2','bi-hash','bi-123','bi-alphabet-uppercase',
+    'bi-asterisk','bi-at','bi-percent','bi-infinity',
+    'bi-arrow-left-right','bi-arrow-up-down','bi-arrows-angle-expand',
+    'bi-plug','bi-plug-fill','bi-power','bi-lightning','bi-lightning-fill',
+    'bi-broadcast','bi-broadcast-pin','bi-rss','bi-rss-fill',
+    'bi-link','bi-link-45deg','bi-paperclip','bi-send',
+    'bi-envelope','bi-envelope-fill','bi-bell','bi-bell-fill',
+    'bi-flag','bi-flag-fill','bi-star','bi-star-fill','bi-bookmark',
+    'bi-check-circle','bi-x-circle','bi-exclamation-triangle','bi-info-circle',
+    'bi-question-circle','bi-toggle-on','bi-toggle-off','bi-circle-fill',
+];
+
+function initIconPicker(previewId, inputId) {
+    const preview = document.getElementById(previewId);
+    const input   = document.getElementById(inputId);
+    if (!preview || !input) return;
+
+    const inputGroup = input.closest('.input-group') || input.parentElement;
+    inputGroup.style.position = 'relative';
+
+    const panel = document.createElement('div');
+    panel.className = 'icon-picker-panel';
+
+    const search = document.createElement('input');
+    search.type        = 'text';
+    search.className   = 'icon-picker-search';
+    search.placeholder = 'Search icons…';
+
+    const grid = document.createElement('div');
+    grid.className = 'icon-picker-grid';
+
+    function renderGrid(q) {
+        grid.innerHTML = '';
+        const filtered = q
+            ? ICON_PICKER_ICONS.filter(i => i.includes(q.toLowerCase()))
+            : ICON_PICKER_ICONS;
+        filtered.forEach(name => {
+            const opt = document.createElement('div');
+            opt.className = 'icon-picker-opt' + (input.value === name ? ' selected' : '');
+            opt.title = name;
+            opt.innerHTML = `<i class="bi ${name}"></i>`;
+            opt.onclick = () => {
+                input.value = name;
+                preview.className = 'bi ' + name;
+                grid.querySelectorAll('.icon-picker-opt').forEach(o => o.classList.remove('selected'));
+                opt.classList.add('selected');
+                panel.classList.remove('open');
+            };
+            grid.appendChild(opt);
+        });
+    }
+
+    search.oninput = () => renderGrid(search.value);
+    panel.appendChild(search);
+    panel.appendChild(grid);
+    inputGroup.appendChild(panel);
+
+    preview.parentElement.style.cursor = 'pointer';
+    preview.parentElement.onclick = (e) => {
+        e.stopPropagation();
+        const isOpen = panel.classList.contains('open');
+        document.querySelectorAll('.icon-picker-panel.open').forEach(p => p.classList.remove('open'));
+        if (!isOpen) {
+            renderGrid('');
+            search.value = '';
+            panel.classList.add('open');
+            setTimeout(() => search.focus(), 50);
+        }
+    };
+
+    input.oninput = () => { preview.className = 'bi ' + input.value; };
+    document.addEventListener('click', () => panel.classList.remove('open'));
+}
+</script>
+
 {% block extra_script %}{% endblock %}
 
 <script>
@@ -1042,6 +1204,7 @@ function fireRestart() {
 @keyframes spin { to { transform: rotate(360deg); } }
 .spin { display: inline-block; animation: spin 0.8s linear infinite; }
 </style>
+
 
 </body>
 </html>

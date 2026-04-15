@@ -5,7 +5,7 @@ from db import Base, engine, get_session
 from werkzeug.security import generate_password_hash
 from tables import (User, Inventory, SecurityProfile, VariableMapping,
                     RolloutSession, DeviceResult, var_mapping_to_devices,
-                    JobMetadata, AuditLog)
+                    JobMetadata, AuditLog, PropertyDefinition)
 
 def install():
 	try:
@@ -72,3 +72,5 @@ def install():
 		print("DB Initialized")
 	except SQLAlchemyError as e:
 		print(f"Initialization Error: {e}")
+if __name__ == "__main__":
+	install()

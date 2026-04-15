@@ -1,19 +1,9 @@
 {% extends "operator_base.html" %}
 {% block title %}Variable Mappings — NetRollout{% endblock %}
 {% block page_title %}Variable Mappings{% endblock %}
-{# ── Attribute definitions (accessible in both CSS and HTML blocks) ── #}
-{% set ATTR_DEFS = [
-    ("hostname",       "bi-type-h1"),
-    ("loopback_ip",    "bi-hdd-network"),
-    ("asn",            "bi-diagram-3"),
-    ("mgmt_vrf",       "bi-box"),
-    ("mgmt_interface", "bi-ethernet"),
-    ("site",           "bi-geo-alt"),
-    ("domain",         "bi-globe2"),
-    ("timezone",       "bi-clock"),
-    ("vrfs",           "bi-layers"),
-] %}
-{% set ATTR_ICON_MAP = dict(ATTR_DEFS) %}
+{# ── sys_props / user_props injected by the mappings() route ── #}
+{% set ATTR_ICON_MAP = {} %}
+{% for p in sys_props + user_props %}{% set _ = ATTR_ICON_MAP.update({p.name: p.icon}) %}{% endfor %}
 
 {% block extra_style %}
 
@@ -391,16 +381,42 @@
                                     <input type="text" class="nr-select-search" placeholder="Search attributes…">
                                 </div>
                                 <div class="nr-select-list">
-                                    {% for attr_name, attr_icon in ATTR_DEFS %}
+                                    {% for p in sys_props %}
                                     <div class="nr-select-option"
-                                         data-value="{{ attr_name }}"
-                                         data-icon="{{ attr_icon }}">
-                                        <i class="bi {{ attr_icon }}" style="color:#00bcd4; font-size:0.82rem; width:16px; text-align:center; flex-shrink:0;"></i>
-                                        <span class="opt-label">{{ attr_name }}</span>
-                                        {% if attr_name == 'vrfs' %}<span class="opt-sub">list</span>{% endif %}
+                                         data-value="{{ p.name }}"
+                                         data-icon="{{ p.icon }}"
+                                         data-is-list="{{ 'true' if p.is_list else 'false' }}">
+                                        <i class="bi {{ p.icon }}" style="color:#00bcd4; font-size:0.82rem; width:16px; text-align:center; flex-shrink:0;"></i>
+                                        <span class="opt-label">{{ p.name }}</span>
+                                        {% if p.is_list %}<span class="opt-sub">list</span>{% endif %}
                                         <i class="bi bi-check2 opt-check"></i>
                                     </div>
                                     {% endfor %}
+                                    {% if user_props %}
+                                    <div style="border-top:1px solid #1e1e1e; margin:4px 0; padding:4px 10px 2px; font-size:0.65rem; color:#444; letter-spacing:1px; text-transform:uppercase;">Custom</div>
+                                    {% for p in user_props %}
+                                    <div class="nr-select-option"
+                                         data-value="{{ p.name }}"
+                                         data-icon="{{ p.icon }}"
+                                         data-is-list="{{ 'true' if p.is_list else 'false' }}">
+                                        <i class="bi {{ p.icon }}" style="color:#00bcd4; font-size:0.82rem; width:16px; text-align:center; flex-shrink:0;"></i>
+                                        <span class="opt-label">{{ p.name }}</span>
+                                        {% if p.is_list %}<span class="opt-sub">list</span>{% endif %}
+                                        <i class="bi bi-check2 opt-check"></i>
+                                    </div>
+                                    {% endfor %}
+                                    {% endif %}
+                                    <div style="border-top:1px solid #1e1e1e; margin:4px 0;">
+                                        <button type="button" id="addNewPropBtn"
+                                                style="width:100%; background:none; border:none; text-align:left;
+                                                       padding:7px 10px; font-size:0.75rem; color:#444; cursor:pointer;
+                                                       transition:color 0.15s;"
+                                                onmouseenter="this.style.color='#00bcd4'"
+                                                onmouseleave="this.style.color='#444'"
+                                                onclick="openMappingQuickProp()">
+                                            <i class="bi bi-plus-circle me-1"></i>New property…
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                             <input type="hidden" id="addAttrHidden" name="property_name">
@@ -409,8 +425,8 @@
                     </div>
 
                     <div class="mb-1 index-field-wrap" id="addIndexWrap">
-                        <label class="nr-label" for="addIndex">VRF INDEX
-                            <span style="color:#2a2a2a; text-transform:none; letter-spacing:0;">(0-based position in vrfs list)</span>
+                        <label class="nr-label" for="addIndex">LIST INDEX
+                            <span style="color:#2a2a2a; text-transform:none; letter-spacing:0;">(0-based position in list)</span>
                         </label>
                         <input type="number" class="form-control" id="addIndex" name="index"
                                min="0" placeholder="0" style="width:100px;">
@@ -477,16 +493,42 @@
                                     <input type="text" class="nr-select-search" placeholder="Search attributes…">
                                 </div>
                                 <div class="nr-select-list">
-                                    {% for attr_name, attr_icon in ATTR_DEFS %}
+                                    {% for p in sys_props %}
                                     <div class="nr-select-option"
-                                         data-value="{{ attr_name }}"
-                                         data-icon="{{ attr_icon }}">
-                                        <i class="bi {{ attr_icon }}" style="color:#00bcd4; font-size:0.82rem; width:16px; text-align:center; flex-shrink:0;"></i>
-                                        <span class="opt-label">{{ attr_name }}</span>
-                                        {% if attr_name == 'vrfs' %}<span class="opt-sub">list</span>{% endif %}
+                                         data-value="{{ p.name }}"
+                                         data-icon="{{ p.icon }}"
+                                         data-is-list="{{ 'true' if p.is_list else 'false' }}">
+                                        <i class="bi {{ p.icon }}" style="color:#00bcd4; font-size:0.82rem; width:16px; text-align:center; flex-shrink:0;"></i>
+                                        <span class="opt-label">{{ p.name }}</span>
+                                        {% if p.is_list %}<span class="opt-sub">list</span>{% endif %}
                                         <i class="bi bi-check2 opt-check"></i>
                                     </div>
                                     {% endfor %}
+                                    {% if user_props %}
+                                    <div style="border-top:1px solid #1e1e1e; margin:4px 0; padding:4px 10px 2px; font-size:0.65rem; color:#444; letter-spacing:1px; text-transform:uppercase;">Custom</div>
+                                    {% for p in user_props %}
+                                    <div class="nr-select-option"
+                                         data-value="{{ p.name }}"
+                                         data-icon="{{ p.icon }}"
+                                         data-is-list="{{ 'true' if p.is_list else 'false' }}">
+                                        <i class="bi {{ p.icon }}" style="color:#00bcd4; font-size:0.82rem; width:16px; text-align:center; flex-shrink:0;"></i>
+                                        <span class="opt-label">{{ p.name }}</span>
+                                        {% if p.is_list %}<span class="opt-sub">list</span>{% endif %}
+                                        <i class="bi bi-check2 opt-check"></i>
+                                    </div>
+                                    {% endfor %}
+                                    {% endif %}
+                                    <div style="border-top:1px solid #1e1e1e; margin:4px 0;">
+                                        <button type="button"
+                                                style="width:100%; background:none; border:none; text-align:left;
+                                                       padding:7px 10px; font-size:0.75rem; color:#444; cursor:pointer;
+                                                       transition:color 0.15s;"
+                                                onmouseenter="this.style.color='#00bcd4'"
+                                                onmouseleave="this.style.color='#444'"
+                                                onclick="openMappingQuickProp()">
+                                            <i class="bi bi-plus-circle me-1"></i>New property…
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                             <input type="hidden" id="editAttrHidden" name="property_name">
@@ -495,8 +537,8 @@
                     </div>
 
                     <div class="mb-1 index-field-wrap" id="editIndexWrap">
-                        <label class="nr-label" for="editIndex">VRF INDEX
-                            <span style="color:#2a2a2a; text-transform:none; letter-spacing:0;">(0-based position in vrfs list)</span>
+                        <label class="nr-label" for="editIndex">LIST INDEX
+                            <span style="color:#2a2a2a; text-transform:none; letter-spacing:0;">(0-based position in list)</span>
                         </label>
                         <input type="number" class="form-control" id="editIndex" name="index"
                                min="0" placeholder="0" style="width:100px;">
@@ -600,6 +642,65 @@
     </div>
 </div>
 
+<!-- ══════════════════════════════════════
+     QUICK CREATE — PROPERTY
+══════════════════════════════════════ -->
+<div class="modal fade" id="mappingQuickPropModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="true">
+    <div class="modal-dialog modal-dialog-centered" style="max-width:360px;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div>
+                    <div class="nr-badge" style="margin-bottom:0.3rem;">QUICK CREATE</div>
+                    <h5 class="modal-title">New Property</h5>
+                </div>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="nr-label">LABEL</label>
+                    <input type="text" class="form-control form-control-sm" id="mqpLabel"
+                           placeholder="e.g. BGP Peer IP" autocomplete="off"
+                           oninput="autoSlug('mqpLabel','mqpName')">
+                </div>
+                <div class="mb-3">
+                    <label class="nr-label">NAME <span style="color:#333; text-transform:none; letter-spacing:0;">(auto-generated · immutable)</span></label>
+                    <input type="text" class="form-control form-control-sm" id="mqpName"
+                           placeholder="bgp_peer_ip" autocomplete="off">
+                    <div style="font-size:0.7rem; color:#3a3a3a; margin-top:3px;">Dict key for $$TOKEN$$ substitution. Edit if needed.</div>
+                </div>
+                <div class="mb-3">
+                    <label class="nr-label">ICON</label>
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text" style="background:#111; border-color:#2a2a2a;">
+                            <i id="mqpIconPreview" class="bi bi-tag" style="color:#555;"></i>
+                        </span>
+                        <input type="text" class="form-control form-control-sm" id="mqpIcon"
+                               value="bi-tag" autocomplete="off"
+                               oninput="document.getElementById('mqpIconPreview').className='bi ' + this.value">
+                    </div>
+                    <a href="https://icons.getbootstrap.com" target="_blank" rel="noopener"
+                       style="font-size:0.7rem; color:#444; text-decoration:none;"
+                       onmouseenter="this.style.color='#00bcd4'" onmouseleave="this.style.color='#444'">
+                        Browse Bootstrap Icons ↗
+                    </a>
+                </div>
+                <div class="form-check">
+                    <input type="checkbox" class="form-check-input" id="mqpIsList">
+                    <label class="form-check-label" for="mqpIsList"
+                           style="font-size:0.8rem; color:#888;">List property</label>
+                </div>
+                <div id="mqpError" style="display:none; font-size:0.78rem; color:#ef5350; margin-top:8px;"></div>
+            </div>
+            <div class="modal-footer d-flex justify-content-end gap-2">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary btn-sm" onclick="submitMappingQuickProp()">
+                    <i class="bi bi-plus me-1"></i>Create
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 {% endblock %}
 
 
@@ -614,7 +715,8 @@ const CSRF_TOKEN = "{{ csrf_token() }}";
 {% endfor %}
 const DEVICES_ALL  = {{ ns.all_devs | tojson }};
 const VENDOR_LOGOS = {{ VENDOR_LOGOS | tojson }};
-const ATTR_ICONS   = {{ dict(ATTR_DEFS) | tojson }};
+const ATTR_ICONS   = {{ ATTR_ICON_MAP | tojson }};
+const LIST_PROPS   = new Set({{ (sys_props + user_props) | selectattr('is_list') | map(attribute='name') | list | tojson }});
 
 // ── Active mapping context (set when devices modal opens) ──
 let activeMappingId    = null;
@@ -649,7 +751,7 @@ function initAttrSelect(containerId, hiddenId, indexWrapId) {
         if (!value) {
             display.innerHTML = '<span class="nr-select-placeholder">Select an attribute…</span>';
         } else {
-            const listTag = value === 'vrfs'
+            const listTag = LIST_PROPS.has(value)
                 ? '<span class="opt-sub" style="margin-left:0.3rem;">list</span>' : '';
             display.innerHTML =
                 `<i class="bi ${icon}" style="color:#00bcd4; font-size:0.85rem; flex-shrink:0;"></i>` +
@@ -661,7 +763,7 @@ function initAttrSelect(containerId, hiddenId, indexWrapId) {
         hidden.value = value;
         renderDisplay(value, icon);
         options.forEach(o => o.classList.toggle('selected', o.dataset.value === value));
-        if (indexWrap) indexWrap.classList.toggle('visible', value === 'vrfs');
+        if (indexWrap) indexWrap.classList.toggle('visible', LIST_PROPS.has(value));
         close();
     }
 
@@ -992,5 +1094,63 @@ document.getElementById('devicesModal').addEventListener('hidden.bs.modal', () =
     activeMappingIndex = null;
     assignedDeviceIds  = new Set();
 });
+
+// ── Quick Create Property ─────────────────────────────────────────────────────
+const CSRF_TOKEN_VM = "{{ csrf_token() }}";
+initIconPicker('mqpIconPreview', 'mqpIcon');
+
+function openMappingQuickProp() {
+    ['mqpName','mqpLabel'].forEach(id => document.getElementById(id).value = '');
+    document.getElementById('mqpIcon').value = 'bi-tag';
+    document.getElementById('mqpIconPreview').className = 'bi bi-tag';
+    document.getElementById('mqpIsList').checked = false;
+    document.getElementById('mqpError').style.display = 'none';
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('mappingQuickPropModal')).show();
+}
+
+async function submitMappingQuickProp() {
+    const name    = document.getElementById('mqpName').value.trim();
+    const label   = document.getElementById('mqpLabel').value.trim();
+    const icon    = document.getElementById('mqpIcon').value.trim() || 'bi-tag';
+    const is_list = document.getElementById('mqpIsList').checked;
+    const errEl   = document.getElementById('mqpError');
+    errEl.style.display = 'none';
+
+    const resp = await fetch('/properties/quick_create', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN_VM},
+        body: JSON.stringify({name, label, icon, is_list})
+    });
+    const data = await resp.json();
+    if (data.status !== 'ok') {
+        errEl.textContent = data.message;
+        errEl.style.display = '';
+        return;
+    }
+
+    // Inject new option into both pickers
+    const optHTML =
+        `<div class="nr-select-option" data-value="${name}" data-icon="${icon}" data-is-list="${is_list}">` +
+        `<i class="bi ${icon}" style="color:#00bcd4; font-size:0.82rem; width:16px; text-align:center; flex-shrink:0;"></i>` +
+        `<span class="opt-label">${name}</span>` +
+        (is_list ? `<span class="opt-sub">list</span>` : '') +
+        `<i class="bi bi-check2 opt-check"></i></div>`;
+
+    ['addAttrSelect', 'editAttrSelect'].forEach(id => {
+        const list = document.querySelector(`#${id} .nr-select-list`);
+        if (!list) return;
+        // Insert before the "New property…" footer div
+        const footer = list.querySelector('div[style*="border-top"]');
+        const tmp = document.createElement('div');
+        tmp.innerHTML = optHTML;
+        list.insertBefore(tmp.firstChild, footer);
+    });
+
+    // Update LIST_PROPS if needed
+    if (is_list) LIST_PROPS.add(name);
+    ATTR_ICONS[name] = icon;
+
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('mappingQuickPropModal')).hide();
+}
 </script>
 {% endblock %}
