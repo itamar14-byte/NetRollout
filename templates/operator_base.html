@@ -175,11 +175,11 @@
         /* Section label */
         .sb-section {
             font-family: 'Inter', sans-serif;
-            font-size: 0.58rem;
+            font-size: 0.65rem;
             font-weight: 700;
             letter-spacing: 1.8px;
             text-transform: uppercase;
-            color: #2a2a2a;
+            color: #444;
             padding: 0.55rem 0.65rem 0.2rem;
             opacity: 0;
             pointer-events: none;
@@ -283,8 +283,8 @@
             padding: 1rem 2rem;
             border-top: 1px solid #161616;
             font-family: 'JetBrains Mono', monospace;
-            font-size: 0.58rem;
-            color: #252525;
+            font-size: 0.65rem;
+            color: #3a3a3a;
             letter-spacing: 1.5px;
             flex-shrink: 0;
         }
@@ -754,7 +754,7 @@
              onmouseleave="this.style.color='#333'"
              onclick="sbRestartClick()">
             <i class="bi bi-arrow-clockwise sb-icon" style="font-size:0.82rem;"></i>
-            <span class="sb-label" style="font-family:'JetBrains Mono',monospace; font-size:0.62rem; letter-spacing:1px;">RESTART</span>
+            <span class="sb-label" style="font-family:'JetBrains Mono',monospace; font-size:0.72rem; letter-spacing:1px;">RESTART</span>
         </div>
         {% endif %}
         <div class="sb-link sb-disabled" style="font-size:0.65rem; color:#2a2a2a; gap:0.6rem; padding: 0.3rem 0.5rem;">
@@ -1030,12 +1030,8 @@ function fireRestart() {
         headers: { 'X-CSRFToken': '{{ csrf_token() }}' }
     }).then(() => {
         const poll = setInterval(() => {
-            // HEAD request so we don't create a session on the poll itself
-            fetch('/', {method: 'HEAD', cache: 'no-store'}).then(r => {
-                if (r.ok) {
-                    clearInterval(poll);
-                    window.location.replace('/');
-                }
+            fetch('/').then(r => {
+                if (r.ok) {clearInterval(poll); window.location.replace('/');}
             }).catch(() => {});
         }, 1000);
     });

@@ -108,6 +108,8 @@
   const submitBtn = document.getElementById("submitBtn");
   const otpBoxes = document.getElementById("otpBoxes");
 
+  boxes[0].focus();
+
   // --- OTP box navigation ---
   boxes.forEach((box, i) => {
     box.addEventListener("input", () => {

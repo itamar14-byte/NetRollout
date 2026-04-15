@@ -407,7 +407,28 @@
     cursor: help;
     flex-shrink: 0;
     align-self: center;
+    position: relative;
 }
+.option-check .tooltip-q .tip-text {
+    display: none;
+    position: absolute;
+    bottom: calc(100% + 7px);
+    left: 50%;
+    transform: translateX(-50%);
+    width: 260px;
+    background: #1a1a1a;
+    border: 1px solid #2a2a2a;
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-family: 'Inter', sans-serif;
+    font-size: 0.72rem;
+    color: #888;
+    white-space: normal;
+    pointer-events: none;
+    z-index: 100;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+}
+.option-check .tooltip-q:hover .tip-text { display: block; }
 
 /* ── Slide-in animation for new command blocks ── */
 @keyframes slideDown {
@@ -594,8 +615,9 @@
                             </span>
                             <i class="bi bi-patch-check" style="color:#00bcd4;"></i>
                             Verify after push
-                            <span class="tooltip-q"
-                                  title="Verification is based on best-effort text matching. Vendors that restructure the config file (e.g. JSON-based platforms) may produce false negatives.">?</span>
+                            <span class="tooltip-q">?
+                                <span class="tip-text">Verification is based on best-effort text matching. Vendors that restructure the config file (e.g. JSON-based platforms) may produce false negatives.</span>
+                            </span>
                         </label>
                         <label class="option-check">
                             <span class="nr-toggle">

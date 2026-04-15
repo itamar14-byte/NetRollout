@@ -13,11 +13,10 @@ argument at call time. SSE stream lifetime is tied to the job via `orchestrator.
 
 ---
 
-### 🔴 `webapp.py:206-221` — SSE stream never signals completion
-The `sse_stream()` generator loops forever, only breaking when `cancel_event` is set.
-On normal rollout completion the stream continues sending empty heartbeats indefinitely.
-The frontend must poll `/rollout_status` separately to detect completion rather than
-receiving a done sentinel from the stream itself.
+### ✅ `webapp.py:206-221` — SSE stream never signals completion
+Fixed. After `job.is_alive()` goes False, remaining queue messages are drained, then
+`event: done\ndata: \n\n` is yielded. Frontend listens via `es.addEventListener('done', ...)`
+and closes the EventSource cleanly. Removed fragile text-matching on log message content.
 
 ---
 

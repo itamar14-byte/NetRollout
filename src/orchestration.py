@@ -125,6 +125,7 @@ class RolloutOrchestrator:
 					                            commands_sent=result["commands_sent"],
 					                            commands_verified=result[
 						                            "commands_verified"],
+					                            fetched_config=result["fetched_config"],
 					                            status=result["status"]
 					                            ))
 				session_row = db_session.get(RolloutSession, job.job_id)

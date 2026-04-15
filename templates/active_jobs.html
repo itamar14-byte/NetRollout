@@ -613,16 +613,14 @@
             line.innerHTML = e.data;
             logOut.appendChild(line);
             logOut.scrollTop = logOut.scrollHeight;
-
-            if (e.data.includes("rollout complete") ||
-                e.data.includes("Canceled By User") ||
-                e.data.includes("Please see Execution logs")) {
-                streamClosedCleanly = true;
-                es.close();
-                delete openStreams[jobId];
-                _resumeRefresh();
-            }
         };
+
+        es.addEventListener('done', function() {
+            streamClosedCleanly = true;
+            es.close();
+            delete openStreams[jobId];
+            _resumeRefresh();
+        });
 
         es.onerror = function() {
             es.close();
