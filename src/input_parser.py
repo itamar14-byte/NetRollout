@@ -4,7 +4,7 @@ from json import loads
 
 from sqlalchemy.orm import Session
 
-from tables import Inventory
+from db.tables import Inventory
 from validation import Validator
 from core import Device
 from logging_utils import RolloutLogger

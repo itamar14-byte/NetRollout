@@ -4,10 +4,22 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="27240518-82b3-4a70-8f71-cc3b690d164c" name="Changes" comment="  feat: implement dual-surface analytics system (Phase 3.4b)&#10;&#10;  Operator dashboard: 4 KPI cards (success rate, devices reached,&#10;  commands pushed, top failing device) with admin-only scope selector.&#10;&#10;  New operator analytics page (/analytics): 5-card KPI grid adding top&#10;  platforms, Device Results query engine scoped to current user, CSV&#10;  export, admin scope selector. Branded as ROLLOUT INTELLIGENCE with&#10;  bi-database-check icon.&#10;&#10;  Admin analytics page: org-level only — 4 aggregate KPIs, most active&#10;  users table, most failed devices table. Audit Investigation query engine&#10;  (audit log only) with bi-shield-lock-fill icon and amber accent.&#10;  Branded as AUDIT INVESTIGATION. Extends admin.html properly instead of&#10;  duplicating sidebar inline.&#10;&#10;  Admin sidebar icons: emojis replaced with Bootstrap Icons throughout.&#10;  Wildcard abuse protection on ilike filter inputs.&#10;  Analytics nav link added to operator sidebar.">
+    <list default="true" id="27240518-82b3-4a70-8f71-cc3b690d164c" name="Changes" comment="  feat: implement dual-surface analytics system (Phase 3.4b)&#10;&#10;  Operator dashboard: 4 KPI cards (success rate, devices reached,&#10;  commands pushed, top failing device) with admin-only scope selector.&#10;&#10;  New operator analytics page (/analytics): 5-card KPI grid adding top&#10;  platforms, Device Results query engine scoped to current user, CSV&#10;  export, admin scope selector. Branded as ROLLOUT INTELLIGENCE with&#10;  bi-database-check icon.&#10;&#10;  Admin analytics page: org-level only — 4 aggregate KPIs, most active&#10;  users table, most failed devices table. Audit Investigation query engine&#10;  (audit log only) with bi-shield-lock-fill icon and amber accent.&#10;  Branded as AUDIT INVESTIGATION. Extends admin.html properly instead of&#10;  duplicating sidebar inline.&#10;&#10;  Admin sidebar icons: emojis replaced with Bootstrap Icons throughout.&#10;  Wildcard abuse protection on i like filter inputs.&#10;  Analytics nav link added to operator sidebar.">
+      <change afterPath="$PROJECT_DIR$/src/db/__init__.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/db/alembic.ini" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/db/alembic/README" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/db/alembic/env.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/db/alembic/script.py.mako" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/db/alembic/versions/e87bf2cef6ca_initial_db_setup.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/templates/base.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/base.html" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/templates/operator_base.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/operator_base.html" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/core.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/core.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/db.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/db/db.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/db_install.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/db/db_install.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/input_parser.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/input_parser.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/orchestration.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/orchestration.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/tables.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/db/tables.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/webapp.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/webapp.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/templates/admin_analytics.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/admin_analytics.html" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -100,6 +112,7 @@
       <recent name="C:\Users\itama\Documents\Coding\Network-bulk-configuration\templates" />
     </key>
     <key name="MoveFile.RECENT_KEYS">
+      <recent name="C:\Users\itama\Documents\Coding\Network-bulk-configuration\src\db" />
       <recent name="C:\Users\itama\Documents\Coding\Network-bulk-configuration\docs" />
       <recent name="C:\Users\itama\Documents\Coding\Network-bulk-configuration\tests" />
       <recent name="C:\Users\itama\Documents\Coding\Network-bulk-configuration\src" />
@@ -234,15 +247,8 @@
       <workItem from="1776186238643" duration="8953000" />
       <workItem from="1776214967374" duration="3012000" />
       <workItem from="1776218863070" duration="2567000" />
-      <workItem from="1776262304740" duration="658000" />
-    </task>
-    <task id="LOCAL-00018" summary="Bug fixes">
-      <option name="closed" value="true" />
-      <created>1775414384358</created>
-      <option name="number" value="00018" />
-      <option name="presentableId" value="LOCAL-00018" />
-      <option name="project" value="LOCAL" />
-      <updated>1775414384358</updated>
+      <workItem from="1776262304740" duration="674000" />
+      <workItem from="1776336336609" duration="3245000" />
     </task>
     <task id="LOCAL-00019" summary="removedternary expression in cancel event initalization">
       <option name="closed" value="true" />
@@ -628,7 +634,15 @@
       <option name="project" value="LOCAL" />
       <updated>1776262379048</updated>
     </task>
-    <option name="localTasksCounter" value="67" />
+    <task id="LOCAL-00067" summary="  feat: implement dual-surface analytics system (Phase 3.4b)&#10;&#10;  Operator dashboard: 4 KPI cards (success rate, devices reached,&#10;  commands pushed, top failing device) with admin-only scope selector.&#10;&#10;  New operator analytics page (/analytics): 5-card KPI grid adding top&#10;  platforms, Device Results query engine scoped to current user, CSV&#10;  export, admin scope selector. Branded as ROLLOUT INTELLIGENCE with&#10;  bi-database-check icon.&#10;&#10;  Admin analytics page: org-level only — 4 aggregate KPIs, most active&#10;  users table, most failed devices table. Audit Investigation query engine&#10;  (audit log only) with bi-shield-lock-fill icon and amber accent.&#10;  Branded as AUDIT INVESTIGATION. Extends admin.html properly instead of&#10;  duplicating sidebar inline.&#10;&#10;  Admin sidebar icons: emojis replaced with Bootstrap Icons throughout.&#10;  Wildcard abuse protection on i like filter inputs.&#10;  Analytics nav link added to operator sidebar.">
+      <option name="closed" value="true" />
+      <created>1776262975633</created>
+      <option name="number" value="00067" />
+      <option name="presentableId" value="LOCAL-00067" />
+      <option name="project" value="LOCAL" />
+      <updated>1776262975633</updated>
+    </task>
+    <option name="localTasksCounter" value="68" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -646,7 +660,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="  Phase 2 completion: DB integration, operator UI, admin bulk actions, CLI rewrite&#10;&#10;  - Orchestrator DB writes fully wired: RolloutSession on submit/dispatch,&#10;    DeviceResult rows + session cleanup on job completion&#10;  - DeviceResultDict TypedDict introduced in core.py for typed run() return&#10;  - tables.py: fixed all ForeignKeys (users.id), cascade delete-orphan on all&#10;    User relationships, commands_verified Mapped[int | None], security_profile&#10;    singular on Inventory, started_at added to DeviceResult&#10;  - Operator sidebar: Security Profiles zone (bi-shield-lock), Admin entry&#10;    (bi-gear), conditional render for admins only&#10;  - Admin user management rebuilt: multi-select toolbar, per-action rules engine,&#10;    contextual tooltips, bulk backend route, delete modal with count confirmation&#10;  - cli.py rewritten to use new architecture: InputParser.prepare_devices(),&#10;    RolloutLogger, RolloutEngine.run(cancel, logger)&#10;  - db_install.py: create_all limitation documented, Alembic migration noted&#10;    for Phase 4&#10;  - workplan, architecture, CLAUDE.md, memory updated to reflect current state" />
     <MESSAGE value="● Security hardening: CSRF protection, OTP encryption, rate limit test&#10;&#10;  - Flask-WTF CSRFProtect wired; csrf_token added to all POST forms&#10;    (login, register, otp_enroll, otp_verify, upload, cancel_rollout,&#10;    admin bulk action)&#10;  - otp_secret encrypted at enrollment via encryption.encrypt(),&#10;    decrypted before pyotp.TOTP() at verify — column widened to varchar(255)&#10;  - cancel_event, SECRET_KEY, DOM credentials, rate limiting bugs&#10;    marked fixed in bug_report.md&#10;  - RateLimitIntegrationTest added to test.py (skipped if server not running),&#10;    standalone test_rate_limit.py removed" />
     <MESSAGE value="● Implement Security Profiles UI — CRUD, encrypted credentials, connection test" />
     <MESSAGE value=" Complete Phase 2: inventory CRUD, security profiles UI, operator zone&#10;&#10;  Operator zone (operator_base.html, dashboard, account, security, inventory):&#10;  - Security profiles: full CRUD + test connection (Netmiko via Device class)&#10;  - Inventory: card grid with Simple Icons vendor badges, FortiGate hover&#10;    tooltip, NrSelect dropdown, variable attributes expand section (9 fields&#10;    incl. vrfs list), security profile drag-assign from split-view modal&#10;  - Inventory backend: create, edit, delete, bulk_assign — all ownership-guarded&#10;&#10;  Schema:&#10;  - Inventory.var_maps JSON column, Device.extra dict, VariableMapping.index&#10;    nullable int (positional vrfs substitution)&#10;&#10;  Form validation site-wide:&#10;  - novalidate + .field-error divs with contextual messages on all forms&#10;  - CSS :has() rule handles password inputs inside .pw-group wrappers&#10;  - Shake-on-submit JS + validation CSS added to base.html (covers login page)&#10;&#10;  Docs: workplan and architecture updated, Phase 2 marked complete" />
@@ -671,7 +684,8 @@
     <MESSAGE value="   Add user-managed property definitions (Phase 3.7)&#10;&#10;   - PropertyDefinition ORM model (name, label, icon, is_list, user_id FK)&#10;     with UniqueConstraint on (name, user_id)&#10;   - SYSTEM_PROPERTIES constant (9 built-ins, read-only); get_property_defs()&#10;     returns (sys_props, user_props) tuple&#10;   - Full CRUD routes + quick_create endpoint; system property shadowing blocked;&#10;     audit logging on create/edit/delete&#10;   - properties.html: system/custom visual separation, edit/delete on custom only&#10;   - inventory.html: var attrs section dynamic grid loop replacing 9 hardcoded&#10;     fields; JS population loop; quick-create property inline modal&#10;   - variable_mappings.html: ATTR_DEFS set replaced with server-injected props;&#10;     LIST_PROPS replaces hardcoded vrfs check; quick-create property in pickers&#10;   - operator_base.html: shared initIconPicker (searchable icon grid, 150 icons)&#10;     and autoSlug helper; icon picker CSS; label-first UX with auto-generated name" />
     <MESSAGE value="Built Admin analytics and enriched dashboard frontend" />
     <MESSAGE value="  feat: implement dual-surface analytics system (Phase 3.4b)&#10;&#10;  Operator dashboard: 4 KPI cards (success rate, devices reached,&#10;  commands pushed, top failing device) with admin-only scope selector.&#10;&#10;  New operator analytics page (/analytics): 5-card KPI grid adding top&#10;  platforms, Device Results query engine scoped to current user, CSV&#10;  export, admin scope selector. Branded as ROLLOUT INTELLIGENCE with&#10;  bi-database-check icon.&#10;&#10;  Admin analytics page: org-level only — 4 aggregate KPIs, most active&#10;  users table, most failed devices table. Audit Investigation query engine&#10;  (audit log only) with bi-shield-lock-fill icon and amber accent.&#10;  Branded as AUDIT INVESTIGATION. Extends admin.html properly instead of&#10;  duplicating sidebar inline.&#10;&#10;  Admin sidebar icons: emojis replaced with Bootstrap Icons throughout.&#10;  Wildcard abuse protection on ilike filter inputs.&#10;  Analytics nav link added to operator sidebar." />
-    <option name="LAST_COMMIT_MESSAGE" value="  feat: implement dual-surface analytics system (Phase 3.4b)&#10;&#10;  Operator dashboard: 4 KPI cards (success rate, devices reached,&#10;  commands pushed, top failing device) with admin-only scope selector.&#10;&#10;  New operator analytics page (/analytics): 5-card KPI grid adding top&#10;  platforms, Device Results query engine scoped to current user, CSV&#10;  export, admin scope selector. Branded as ROLLOUT INTELLIGENCE with&#10;  bi-database-check icon.&#10;&#10;  Admin analytics page: org-level only — 4 aggregate KPIs, most active&#10;  users table, most failed devices table. Audit Investigation query engine&#10;  (audit log only) with bi-shield-lock-fill icon and amber accent.&#10;  Branded as AUDIT INVESTIGATION. Extends admin.html properly instead of&#10;  duplicating sidebar inline.&#10;&#10;  Admin sidebar icons: emojis replaced with Bootstrap Icons throughout.&#10;  Wildcard abuse protection on ilike filter inputs.&#10;  Analytics nav link added to operator sidebar." />
+    <MESSAGE value="  feat: implement dual-surface analytics system (Phase 3.4b)&#10;&#10;  Operator dashboard: 4 KPI cards (success rate, devices reached,&#10;  commands pushed, top failing device) with admin-only scope selector.&#10;&#10;  New operator analytics page (/analytics): 5-card KPI grid adding top&#10;  platforms, Device Results query engine scoped to current user, CSV&#10;  export, admin scope selector. Branded as ROLLOUT INTELLIGENCE with&#10;  bi-database-check icon.&#10;&#10;  Admin analytics page: org-level only — 4 aggregate KPIs, most active&#10;  users table, most failed devices table. Audit Investigation query engine&#10;  (audit log only) with bi-shield-lock-fill icon and amber accent.&#10;  Branded as AUDIT INVESTIGATION. Extends admin.html properly instead of&#10;  duplicating sidebar inline.&#10;&#10;  Admin sidebar icons: emojis replaced with Bootstrap Icons throughout.&#10;  Wildcard abuse protection on i like filter inputs.&#10;  Analytics nav link added to operator sidebar." />
+    <option name="LAST_COMMIT_MESSAGE" value="  feat: implement dual-surface analytics system (Phase 3.4b)&#10;&#10;  Operator dashboard: 4 KPI cards (success rate, devices reached,&#10;  commands pushed, top failing device) with admin-only scope selector.&#10;&#10;  New operator analytics page (/analytics): 5-card KPI grid adding top&#10;  platforms, Device Results query engine scoped to current user, CSV&#10;  export, admin scope selector. Branded as ROLLOUT INTELLIGENCE with&#10;  bi-database-check icon.&#10;&#10;  Admin analytics page: org-level only — 4 aggregate KPIs, most active&#10;  users table, most failed devices table. Audit Investigation query engine&#10;  (audit log only) with bi-shield-lock-fill icon and amber accent.&#10;  Branded as AUDIT INVESTIGATION. Extends admin.html properly instead of&#10;  duplicating sidebar inline.&#10;&#10;  Admin sidebar icons: emojis replaced with Bootstrap Icons throughout.&#10;  Wildcard abuse protection on i like filter inputs.&#10;  Analytics nav link added to operator sidebar." />
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
     <SUITE FILE_PATH="coverage/core_py$WebApp.coverage" NAME="WebApp Coverage Results" MODIFIED="1756760459810" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />

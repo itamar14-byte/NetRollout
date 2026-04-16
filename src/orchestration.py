@@ -7,7 +7,7 @@ from typing import Callable
 from core import RolloutEngine, RolloutOptions, Device, DeviceResultDict
 from db import get_session
 from logging_utils import RolloutLogger
-from tables import RolloutSession, DeviceResult, JobMetadata
+from db.tables import RolloutSession, DeviceResult, JobMetadata
 
 
 class RolloutJob:

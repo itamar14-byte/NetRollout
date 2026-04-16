@@ -28,7 +28,6 @@ from flask_wtf.csrf import CSRFError
 from netmiko import ConnectHandler
 from netmiko.exceptions import NetmikoTimeoutException, \
 	NetmikoAuthenticationException
-from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError, OperationalError
 from waitress import serve
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -36,11 +35,11 @@ from werkzeug.security import generate_password_hash, check_password_hash
 import encryption
 import input_parser
 from core import RolloutOptions, Device
-from db import get_session
+from db.db import get_session
 from input_parser import InputParser
 from logging_utils import RolloutLogger, LOGS_DIR
 from orchestration import RolloutOrchestrator
-from tables import User, DeviceResult, SecurityProfile, Inventory, \
+from db.tables import User, DeviceResult, SecurityProfile, Inventory, \
 	VariableMapping, RolloutSession, AuditLog, JobMetadata, PropertyDefinition
 from validation import Validator
 
@@ -813,6 +812,7 @@ def admin_analytics():
 		"admin_analytics.html",
 		org_kpi=org_kpi,
 		active_users=active_users_rows,
+		all_users=[{"id": str(u.id), "username": u.username} for u in all_users],
 		failed_devices=failed_devices_rows,
 		active_section="analytics",
 	)
@@ -945,10 +945,12 @@ def analytics():
 def analytics_query():
 	scope_user_id = current_user.id
 	if current_user.role == "admin":
-		try:
-			scope_user_id = uuid.UUID(request.args.get("user", ""))
-		except ValueError:
-			pass
+		param = request.args.get("user", "me").strip()
+		if param != "me":
+			try:
+				scope_user_id = uuid.UUID(param)
+			except ValueError:
+				pass
 
 	date_from       = request.args.get("date_from", "").strip()
 	date_to         = request.args.get("date_to", "").strip()

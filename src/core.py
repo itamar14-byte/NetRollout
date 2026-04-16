@@ -9,7 +9,7 @@ import netmiko
 
 import encryption
 from logging_utils import RolloutLogger
-from tables import Inventory
+from db.tables import Inventory
 
 
 class DeviceResultDict(TypedDict):

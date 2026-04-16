@@ -8,3 +8,4 @@ __pycache__/
 docs/credentials
 *.env
 .env
+src/db/alembic/versions/__pycache__
