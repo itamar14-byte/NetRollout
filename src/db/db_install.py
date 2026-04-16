@@ -1,17 +1,16 @@
+import os
+
+from alembic.config import Config as AlembicConfig
+from alembic import command as alembic_command
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
-from db import Base, engine, get_session
+from db import engine, get_session
 from werkzeug.security import generate_password_hash
-from tables import (User, Inventory, SecurityProfile, VariableMapping,
-                    RolloutSession, DeviceResult, var_mapping_to_devices,
-                    JobMetadata, AuditLog, PropertyDefinition)
+from tables import User
 
 def install():
 	try:
-		# NOTE: create_all only creates tables that don't exist — it never alters existing ones.
-		# During development, drop changed tables manually before running this script.
-		# Phase 4: replace with Alembic migrations.
 		with engine.connect() as conn:
 			conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_cron;"))
 			conn.execute(text("""
@@ -55,8 +54,10 @@ def install():
 			"""))
 			conn.commit()
 
-		Base.metadata.create_all(bind=engine)
-
+		#Update DB Schema to last Alembic revision
+		alembic_cfg = AlembicConfig(os.path.join(os.path.dirname(__file__),
+		                                         'alembic.ini'))
+		alembic_command.upgrade(alembic_cfg, "head")
 
 		with get_session() as session:
 			if not session.query(User).filter_by(username="admin").first():

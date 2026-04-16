@@ -195,7 +195,7 @@
         <select id="qfActor" class="form-select form-select-sm"
                 style="background:#111; border-color:#2a2a2a; color:#ccc; font-size:0.78rem;">
           <option value="">All</option>
-          {% for u in active_users %}
+          {% for u in all_users %}
           <option value="{{ u.username }}">{{ u.username }}</option>
           {% endfor %}
         </select>
