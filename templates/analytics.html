@@ -1,0 +1,348 @@
+{% extends "operator_base.html" %}
+{% block title %}Analytics — NetRollout{% endblock %}
+{% block page_title %}Analytics{% endblock %}
+
+{% block extra_style %}
+@keyframes fade-in-up {
+    from { opacity:0; transform:translateY(10px); }
+    to   { opacity:1; transform:translateY(0); }
+}
+.kpi-animate { animation:fade-in-up 0.35s ease forwards; }
+.kpi-animate:nth-child(2) { animation-delay:0.06s; opacity:0; }
+.kpi-animate:nth-child(3) { animation-delay:0.12s; opacity:0; }
+.kpi-animate:nth-child(4) { animation-delay:0.18s; opacity:0; }
+.kpi-animate:nth-child(5) { animation-delay:0.24s; opacity:0; }
+
+/* 5-card KPI grid */
+.kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+/* Platform ranked list */
+.platform-row {
+    display:flex; align-items:center; justify-content:space-between;
+    padding:0.3rem 0;
+    border-bottom:1px solid #1a1a1a;
+    font-size:0.75rem;
+}
+.platform-row:last-child { border-bottom:none; }
+{% endblock %}
+
+{% block operator_content %}
+
+<!-- ── Page header ── -->
+<div class="d-flex align-items-start justify-content-between mb-4">
+  <div>
+    <div class="d-flex align-items-center gap-2 mb-1">
+      <i class="bi bi-bar-chart-line-fill" style="color:#00bcd4; font-size:1rem;"></i>
+      <span class="nr-badge" style="margin-bottom:0;">ROLLOUT INTELLIGENCE</span>
+    </div>
+    <h4 style="font-family:'Inter',sans-serif; font-weight:600; font-size:1.25rem;
+               color:#e0e0e0; margin:0 0 0.2rem;">Performance Analytics</h4>
+    <div style="font-family:'JetBrains Mono',monospace; font-size:0.7rem; color:#555;">
+      {% if current_user.role == 'admin' and selected_user != 'me' %}
+        Viewing: <span style="color:#00bcd4;">{{ selected_username }}</span>
+        &nbsp;·&nbsp;<a href="{{ url_for('analytics') }}" style="color:#444; text-decoration:none;"
+                         onmouseenter="this.style.color='#00bcd4'" onmouseleave="this.style.color='#444'">back to my data</a>
+      {% else %}
+        {{ current_user.username }} · 30-day window · live data
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Admin scope selector -->
+  {% if current_user.role == 'admin' %}
+  <div class="d-flex align-items-center gap-2" style="margin-top:0.25rem;">
+    <span class="nr-label" style="margin:0; white-space:nowrap; font-size:0.65rem;">VIEW AS</span>
+    <select onchange="applyScope(this.value)"
+            style="background:#111; border:1px solid #2a2a2a; border-radius:6px;
+                   color:#ccc; font-size:0.78rem; padding:0.3rem 0.6rem;
+                   font-family:'JetBrains Mono',monospace; cursor:pointer; outline:none;">
+      <option value="me" {% if selected_user == 'me' %}selected{% endif %}>— my data —</option>
+      {% for u in users %}
+      <option value="{{ u.id }}" {% if selected_user == u.id|string %}selected{% endif %}>{{ u.username }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  {% endif %}
+</div>
+
+<!-- ── 5-card KPI grid ── -->
+<div class="kpi-grid">
+
+  <!-- Success Rate -->
+  <div class="nr-card kpi-animate" style="height:100%;">
+    <div class="nr-card-accent" style="background:linear-gradient(90deg,
+        {% if kpi.success_rate is none %}rgba(60,60,60,0.6)
+        {% elif kpi.success_rate >= 80 %}rgba(76,175,80,0.6)
+        {% elif kpi.success_rate >= 50 %}rgba(255,193,7,0.5)
+        {% else %}rgba(239,83,80,0.6){% endif %},transparent);"></div>
+    <div class="nr-card-body" style="padding:1.1rem 1.25rem;">
+      <div class="nr-label" style="margin-bottom:0.4rem;">SUCCESS RATE <span style="color:#2a2a2a; text-transform:none; letter-spacing:0;">30d</span></div>
+      <div style="font-family:'JetBrains Mono',monospace; font-size:1.8rem; font-weight:700; line-height:1;
+          color:{% if kpi.success_rate is none %}#333
+                {% elif kpi.success_rate >= 80 %}#a5d6a7
+                {% elif kpi.success_rate >= 50 %}#ffe082
+                {% else %}#ef9a9a{% endif %};">
+        {% if kpi.success_rate is none %}—{% else %}{{ kpi.success_rate }}%{% endif %}
+      </div>
+      <div style="font-size:0.7rem; color:#555; margin-top:0.3rem;">
+        {{ kpi.jobs_30d }} job{{ 's' if kpi.jobs_30d != 1 }}
+      </div>
+    </div>
+  </div>
+
+  <!-- Devices Reached -->
+  <div class="nr-card kpi-animate" style="height:100%;">
+    <div class="nr-card-accent"></div>
+    <div class="nr-card-body" style="padding:1.1rem 1.25rem;">
+      <div class="nr-label" style="margin-bottom:0.4rem;">DEVICES REACHED <span style="color:#2a2a2a; text-transform:none; letter-spacing:0;">30d</span></div>
+      <div style="font-family:'JetBrains Mono',monospace; font-size:1.8rem; font-weight:700; line-height:1; color:#e0e0e0;">
+        {{ kpi.devices_reached }}
+      </div>
+      <div style="font-size:0.7rem; color:#555; margin-top:0.3rem;">device push operations</div>
+    </div>
+  </div>
+
+  <!-- Commands Pushed -->
+  <div class="nr-card kpi-animate" style="height:100%;">
+    <div class="nr-card-accent"></div>
+    <div class="nr-card-body" style="padding:1.1rem 1.25rem;">
+      <div class="nr-label" style="margin-bottom:0.4rem;">COMMANDS PUSHED <span style="color:#2a2a2a; text-transform:none; letter-spacing:0;">30d</span></div>
+      <div style="font-family:'JetBrains Mono',monospace; font-size:1.8rem; font-weight:700; line-height:1; color:#e0e0e0;">
+        {{ kpi.commands_pushed }}
+      </div>
+      <div style="font-size:0.7rem; color:#555; margin-top:0.3rem;">total lines sent</div>
+    </div>
+  </div>
+
+  <!-- Top Failing Device -->
+  <div class="nr-card kpi-animate" style="height:100%;">
+    <div class="nr-card-accent" style="background:linear-gradient(90deg,rgba(239,83,80,0.25),transparent);"></div>
+    <div class="nr-card-body" style="padding:1.1rem 1.25rem;">
+      <div class="nr-label" style="margin-bottom:0.4rem;">MOST FAILURES <span style="color:#2a2a2a; text-transform:none; letter-spacing:0;">30d</span></div>
+      {% if kpi.top_failed %}
+      <div style="font-family:'JetBrains Mono',monospace; font-size:0.85rem; font-weight:700;
+                  color:#ef9a9a; line-height:1.3; word-break:break-all;">
+        {{ kpi.top_failed.label or kpi.top_failed.ip }}
+      </div>
+      <div style="font-size:0.68rem; color:#555; margin-top:0.3rem;">
+        {{ kpi.top_failed.fail_count }} failure{{ 's' if kpi.top_failed.fail_count != 1 }}
+        {% if kpi.top_failed.label %}<br><span style="color:#444;">{{ kpi.top_failed.ip }}</span>{% endif %}
+      </div>
+      {% else %}
+      <div style="font-family:'JetBrains Mono',monospace; font-size:1.8rem; font-weight:700; line-height:1; color:#2a2a2a;">—</div>
+      <div style="font-size:0.7rem; color:#2a2a2a; margin-top:0.3rem;">no failures</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Top Platforms -->
+  <div class="nr-card kpi-animate" style="height:100%;">
+    <div class="nr-card-accent" style="background:linear-gradient(90deg,rgba(0,188,212,0.2),transparent);"></div>
+    <div class="nr-card-body" style="padding:1.1rem 1.25rem;">
+      <div class="nr-label" style="margin-bottom:0.6rem;">TOP PLATFORMS <span style="color:#2a2a2a; text-transform:none; letter-spacing:0;">30d</span></div>
+      {% if kpi.top_platforms %}
+        {% for platform, count in kpi.top_platforms %}
+        <div class="platform-row">
+          <span style="font-family:'JetBrains Mono',monospace; color:#aaa; font-size:0.72rem;
+                       white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100px;">
+            {{ platform }}
+          </span>
+          <span style="font-family:'JetBrains Mono',monospace; color:#00bcd4; font-weight:700; flex-shrink:0; margin-left:0.5rem;">
+            {{ count }}
+          </span>
+        </div>
+        {% endfor %}
+      {% else %}
+      <div style="font-family:'JetBrains Mono',monospace; font-size:1.8rem; font-weight:700; line-height:1; color:#2a2a2a;">—</div>
+      <div style="font-size:0.7rem; color:#2a2a2a; margin-top:0.3rem;">no data</div>
+      {% endif %}
+    </div>
+  </div>
+
+</div>
+
+<!-- ══════════════════════════════════════
+     DEVICE RESULTS QUERY ENGINE
+══════════════════════════════════════ -->
+<div class="nr-card">
+  <div class="nr-card-accent" style="background:linear-gradient(90deg,rgba(0,188,212,0.2),transparent);"></div>
+  <div class="nr-card-body" style="padding:1.5rem;">
+
+    <!-- Header -->
+    <div class="d-flex align-items-center gap-3 mb-4">
+      <div style="width:40px; height:40px; border-radius:10px; background:rgba(0,188,212,0.08);
+                  border:1px solid rgba(0,188,212,0.15); display:flex; align-items:center;
+                  justify-content:center; flex-shrink:0;">
+        <i class="bi bi-database-check" style="color:#00bcd4; font-size:1.1rem;"></i>
+      </div>
+      <div>
+        <div class="nr-badge" style="margin-bottom:0.2rem;">ROLLOUT RESULTS QUERY</div>
+        <div style="font-size:0.88rem; font-weight:600; color:#e0e0e0;">Device Results Explorer</div>
+        <div style="font-size:0.7rem; color:#555; font-family:'JetBrains Mono',monospace; margin-top:0.1rem;">
+          your rollout history · filter · export
+        </div>
+      </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="row g-2 align-items-end">
+      <div class="col-6 col-md-3">
+        <label class="nr-label">DATE FROM</label>
+        <input type="date" id="qfDateFrom" class="form-control form-control-sm"
+               style="background:#111; border-color:#2a2a2a; color:#ccc; font-size:0.78rem;">
+      </div>
+      <div class="col-6 col-md-3">
+        <label class="nr-label">DATE TO</label>
+        <input type="date" id="qfDateTo" class="form-control form-control-sm"
+               style="background:#111; border-color:#2a2a2a; color:#ccc; font-size:0.78rem;">
+      </div>
+      <div class="col-6 col-md-2">
+        <label class="nr-label">PLATFORM</label>
+        <select id="qfPlatform" class="form-select form-select-sm"
+                style="background:#111; border-color:#2a2a2a; color:#ccc; font-size:0.78rem;">
+          <option value="">All</option>
+          <option>cisco_ios</option><option>cisco_nxos</option><option>cisco_xe</option>
+          <option>cisco_xr</option><option>juniper_junos</option><option>arista_eos</option>
+          <option>fortinet</option><option>paloalto_panos</option><option>aruba_aoscx</option>
+          <option>checkpoint_gaia</option><option>hp_procurve</option><option>hp_comware</option>
+        </select>
+      </div>
+      <div class="col-6 col-md-2">
+        <label class="nr-label">OUTCOME</label>
+        <select id="qfOutcome" class="form-select form-select-sm"
+                style="background:#111; border-color:#2a2a2a; color:#ccc; font-size:0.78rem;">
+          <option value="">All</option>
+          <option value="true">Success</option>
+          <option value="false">Failed</option>
+        </select>
+      </div>
+      <div class="col-12 col-md-2 d-flex gap-2">
+        <button class="btn btn-primary btn-sm flex-grow-1" onclick="runQuery()" style="font-size:0.78rem;">
+          <i class="bi bi-play-fill me-1"></i>Run
+        </button>
+        <button class="btn btn-sm" onclick="exportCsv()"
+                style="background:none; border:1px solid #2a2a2a; color:#555; font-size:0.78rem;"
+                title="Export CSV"
+                onmouseenter="this.style.borderColor='#444';this.style.color='#aaa'"
+                onmouseleave="this.style.borderColor='#2a2a2a';this.style.color='#555'">
+          <i class="bi bi-download"></i>
+        </button>
+      </div>
+    </div>
+
+    <!-- Results -->
+    <div id="queryResultsWrap" style="margin-top:1.25rem; display:none;">
+      <div style="border-top:1px solid #1a1a1a; padding-top:1rem;">
+        <span id="queryResultCount" style="font-size:0.72rem; color:#555; font-family:'JetBrains Mono',monospace;"></span>
+        <div class="table-responsive mt-2" style="max-height:340px; overflow-y:auto;">
+          <table class="table align-middle mb-0" style="font-size:0.78rem;">
+            <thead id="queryResultsHead" style="position:sticky; top:0; background:#1a1a1a; z-index:1;"></thead>
+            <tbody id="queryResultsBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div id="queryEmpty" style="display:none; text-align:center; padding:2rem 0; color:#555; font-size:0.82rem;">
+      No results for the selected filters.
+    </div>
+    <div id="queryLoading" style="display:none; text-align:center; padding:2rem 0; color:#555; font-size:0.82rem;">
+      <i class="bi bi-arrow-repeat" style="animation:spin 1s linear infinite; display:inline-block; margin-right:6px;"></i>
+      Running query…
+    </div>
+
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_script %}
+<script>
+const SCOPE_USER = "{{ selected_user }}";
+let lastResults = [];
+let lastColumns = [];
+
+function applyScope(val) {
+    const url = new URL(window.location.href);
+    url.searchParams.set('user', val);
+    window.location.href = url.toString();
+}
+
+async function runQuery() {
+    document.getElementById('queryLoading').style.display     = '';
+    document.getElementById('queryResultsWrap').style.display = 'none';
+    document.getElementById('queryEmpty').style.display       = 'none';
+
+    const params = {
+        user:      SCOPE_USER,
+        date_from: document.getElementById('qfDateFrom').value,
+        date_to:   document.getElementById('qfDateTo').value,
+        platform:  document.getElementById('qfPlatform').value,
+        outcome:   document.getElementById('qfOutcome').value,
+    };
+
+    const resp = await fetch('/analytics/query?' + new URLSearchParams(params));
+    const data = await resp.json();
+    document.getElementById('queryLoading').style.display = 'none';
+
+    if (!data.rows || data.rows.length === 0) {
+        document.getElementById('queryEmpty').style.display = '';
+        return;
+    }
+
+    lastResults = data.rows;
+    lastColumns = data.columns;
+
+    document.getElementById('queryResultsHead').innerHTML =
+        '<tr>' + data.columns.map(c =>
+            `<th style="color:#555; font-size:0.65rem; letter-spacing:1px; font-weight:600;
+                        text-transform:uppercase; border-color:#1a1a1a; white-space:nowrap;">${c}</th>`
+        ).join('') + '</tr>';
+
+    document.getElementById('queryResultsBody').innerHTML = data.rows.map(row =>
+        '<tr style="border-color:#1a1a1a;">' +
+        data.columns.map(c => {
+            const val = row[c];
+            let display = val === null || val === undefined
+                ? '<span style="color:#2a2a2a;">—</span>' : String(val);
+            if (c === 'status') {
+                const colors = { success:'#a5d6a7', failed:'#ef9a9a', partial:'#ffe082', cancelled:'#666' };
+                display = `<span style="font-family:monospace; color:${colors[val]||'#aaa'};">${val}</span>`;
+            }
+            return `<td style="font-size:0.75rem; color:#aaa; white-space:nowrap;">${display}</td>`;
+        }).join('') + '</tr>'
+    ).join('');
+
+    document.getElementById('queryResultCount').textContent =
+        `${data.rows.length} row${data.rows.length !== 1 ? 's' : ''}`;
+    document.getElementById('queryResultsWrap').style.display = '';
+}
+
+function exportCsv() {
+    if (!lastResults.length) return;
+    const header = lastColumns.join(',');
+    const rows   = lastResults.map(row =>
+        lastColumns.map(c => {
+            const v = row[c] ?? '';
+            return String(v).includes(',') ? `"${String(v).replace(/"/g,'""')}"` : String(v);
+        }).join(',')
+    );
+    const csv  = [header, ...rows].join('\n');
+    const blob = new Blob([csv], { type:'text/csv' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `netrollout_results_${Date.now()}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+}
+</script>
+<style>
+@keyframes spin { from { transform:rotate(0deg); } to { transform:rotate(360deg); } }
+</style>
+{% endblock %}

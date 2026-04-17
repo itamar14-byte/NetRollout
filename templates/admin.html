@@ -49,6 +49,13 @@
       <span class="sidebar-label">Analytics</span>
     </a>
 
+    <a href="{{ url_for('admin_server') }}"
+       class="sidebar-link {% if active_section == 'server' %}active{% endif %}"
+       title="Server Management">
+      <span class="sidebar-icon"><i class="bi bi-server"></i></span>
+      <span class="sidebar-label">Server Management</span>
+    </a>
+
   </nav>
 
   <!-- Main content -->
