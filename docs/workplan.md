@@ -471,8 +471,8 @@ Replace client-side cookie sessions with Flask-Session backed by the DB or memor
 On server restart, all sessions are invalidated and users are kicked to login — FortiGate-style behavior.
 Drop-in swap, no session API changes needed.
 
-### 4.7 Alembic migrations
-Replace `db_install.py` `create_all` approach with Alembic for proper schema migrations. Required for production — `create_all` silently skips existing tables, so schema changes never apply to live DBs. `install.py` runs `alembic upgrade head` instead of calling `db_install.py` directly.
+### 4.7 Alembic migrations ✅ COMPLETE (2026-04-17)
+DB layer refactored into `src/db/` package. `create_all` replaced with Alembic. Initial migration generated and applied. `db_install.py` calls `alembic upgrade head` programmatically. Migration files ship in the Docker image — fresh installs and schema upgrades both handled via `alembic upgrade head`.
 
 ### 4.8 Documentation
 - `README.md` — project overview, quick start (install.py), CLI usage, CSV format reference, security posture section, update instructions

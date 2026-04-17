@@ -12,11 +12,13 @@ from collections import Counter, defaultdict
 from datetime import datetime, timedelta
 from io import BytesIO
 from itertools import groupby
+from pathlib import Path
 from queue import Empty
 from time import sleep
 
 import pyotp
 import qrcode
+from dotenv import load_dotenv, dotenv_values
 from flask import (redirect, Response, request, render_template, url_for, \
                    Flask, flash, session, jsonify, send_file)
 from flask_limiter import Limiter
@@ -28,34 +30,34 @@ from flask_wtf.csrf import CSRFError
 from netmiko import ConnectHandler
 from netmiko.exceptions import NetmikoTimeoutException, \
 	NetmikoAuthenticationException
+from sqlalchemy import text, create_engine
 from sqlalchemy.exc import IntegrityError, OperationalError
 from waitress import serve
 from werkzeug.security import generate_password_hash, check_password_hash
 
+# Must run before DB modules are imported — they build the engine at
+_CONFIG_ENV = Path(__file__).parent.parent / "config.env"
+load_dotenv(_CONFIG_ENV, override=True)
+from db.db import get_session, engine
+from db.tables import User, DeviceResult, SecurityProfile, Inventory, \
+	VariableMapping, RolloutSession, AuditLog, JobMetadata, PropertyDefinition
+from db.db_install import install
 import encryption
 import input_parser
 from core import RolloutOptions, Device
-from db.db import get_session
+
 from input_parser import InputParser
 from logging_utils import RolloutLogger, LOGS_DIR
 from orchestration import RolloutOrchestrator
-from db.tables import User, DeviceResult, SecurityProfile, Inventory, \
-	VariableMapping, RolloutSession, AuditLog, JobMetadata, PropertyDefinition
 from validation import Validator
 
 app = Flask(__name__, template_folder='../templates')
 # SECRET_KEY rotates every restart so all user sessions are invalidated.
 app.config["SECRET_KEY"] = secrets.token_urlsafe(32)
 
-# Extract DB host:port from DATABASE_URL for use in error pages
-try:
-	from urllib.parse import urlparse as _urlparse
-
-	_db_url = _urlparse(os.getenv("DATABASE_URL", ""))
-	_DB_HOST = _db_url.hostname or "localhost"
-	_DB_PORT = _db_url.port or 5432
-except Exception:
-	_DB_HOST, _DB_PORT = "localhost", 5432
+# Extract DB host:port from engine for use in error pages
+_DB_HOST = engine.url.host
+_DB_PORT = engine.url.port
 
 # Vendor logo URLs from Simple Icons CDN — keyed by Netmiko device_type
 _CDN = "https://cdn.simpleicons.org"
@@ -114,6 +116,10 @@ conn_limit = Limiter(get_remote_address, app=app, default_limits=[],
                      storage_uri="memory://")
 
 csrf = CSRFProtect(app)
+_FLAG = Path(__file__).parent.parent / "pending_db_init.flag"
+if _FLAG.exists():
+	install()
+	_FLAG.unlink()
 
 
 @login_mng.user_loader
@@ -690,6 +696,84 @@ def admin_bulk_action(action):
 	return redirect(url_for("admin_users"))
 
 
+@app.route("/admin/server")
+@login_required
+def admin_server():
+	if current_user.role != "admin":
+		return redirect(url_for("dashboard"))
+	try:
+		with engine.connect() as conn:
+			conn.execute(text("SELECT 1"))
+		db_connected = True
+	except OperationalError:
+		db_connected = False
+	db_mode = "external" if _CONFIG_ENV.exists() else "local"
+	current_config = dotenv_values(_CONFIG_ENV) if _CONFIG_ENV.exists() else {}
+	return render_template('server_management.html', active_section="server",
+	                       db_mode=db_mode, db_connected=db_connected,
+	                       current_config=current_config)
+
+
+@app.route("/admin/server/db/test", methods=["POST"])
+@login_required
+def admin_server_db_test():
+	if current_user.role != "admin":
+		return jsonify(success=False, error="Unauthorized"), 403
+	data = request.get_json()
+	host, port, name = (data.get("host", "").strip(),
+	                    data.get("port", "5432").strip(),
+	                    data.get("name", "").strip())
+	user, password, schema = (data.get("user", "").strip(),
+	                          data.get("password", "").strip(),
+	                          data.get("schema", "").strip())
+	if not all([host, port, name, user, password]):
+		return jsonify(success=False, error="All fields except schema are "
+		                                    "required")
+	if (host == engine.url.host and
+			str(port) == str(engine.url.port) and
+			name == engine.url.database):
+		return jsonify(success=False, error="Target database is the same as "
+		                                    "the current one")
+	url = f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{name}"
+	connect_args = {"options": f"-c search_path={schema}"} if schema else {}
+
+	try:
+		test_engine = create_engine(url, connect_args=connect_args)
+		with test_engine.connect() as conn:
+			conn.execute(text("SELECT 1"))
+		test_engine.dispose()
+		return jsonify(success=True)
+	except OperationalError as e:
+		return jsonify(success=False, error=str(e))
+
+
+@app.route("/admin/server/db/save", methods=["POST"])
+@login_required
+def admin_server_db_save():
+	if current_user.role != "admin":
+		return jsonify(success=False, error="Unauthorized"), 403
+	data = request.get_json()
+	host, port, name = (data.get("host", "").strip(),
+	                    data.get("port", "5432").strip(),
+	                    data.get("name", "").strip())
+	user, password, schema = (data.get("user", "").strip(),
+	                          data.get("password", "").strip(),
+	                          data.get("schema", "").strip())
+	if not all([host, port, name, user, password]):
+		return jsonify(success=False,
+		               error="All fields except schema are required")
+	if (host == engine.url.host and
+			str(port) == str(engine.url.port) and
+			name == engine.url.database):
+		return jsonify(success=False, error="Target database is the same as "
+		                                    "the current one")
+	lines = [f"DB_HOST={host}",f"DB_PORT={port}",f"DB_NAME={name}",
+	         f"DB_USER={user}",f"DB_PASSWORD={password}"]
+	if schema:
+		lines.append(f"DB_SCHEMA={schema}")
+	_CONFIG_ENV.write_text("\n".join(lines)+"\n")
+	_FLAG.write_text(".")
+	return jsonify(success=True)
 @app.route("/admin/audit")
 @login_required
 def admin_audit():
@@ -725,8 +809,6 @@ def admin_audit():
 	                       active_section="audit")
 
 
-
-
 @app.route("/admin/analytics")
 @login_required
 def admin_analytics():
@@ -747,14 +829,16 @@ def admin_analytics():
 		success_count = sum(1 for r in results_30d if r.status == "success")
 
 		org_kpi = {
-			"active_users":  len(active_user_ids),
-			"total_users":   total_users,
-			"total_jobs":    total_jobs,
-			"total_ops":     total_ops,
-			"success_rate":  round(success_count / total_ops * 100) if total_ops else None,
+			"active_users": len(active_user_ids),
+			"total_users": total_users,
+			"total_jobs": total_jobs,
+			"total_ops": total_ops,
+			"success_rate": round(
+				success_count / total_ops * 100) if total_ops else None,
 		}
 
-		user_stats = defaultdict(lambda: {"job_ids": set(), "devices": 0, "last_job_at": None})
+		user_stats = defaultdict(
+			lambda: {"job_ids": set(), "devices": 0, "last_job_at": None})
 		for r in results_30d:
 			s = user_stats[r.user_id]
 			s["job_ids"].add(r.job_id)
@@ -766,10 +850,10 @@ def admin_analytics():
 		active_users_rows = sorted(
 			[
 				{
-					"username":        username_map.get(uid, str(uid)),
-					"job_count":       len(s["job_ids"]),
+					"username": username_map.get(uid, str(uid)),
+					"job_count": len(s["job_ids"]),
 					"devices_reached": s["devices"],
-					"last_job_at":     s["last_job_at"],
+					"last_job_at": s["last_job_at"],
 				}
 				for uid, s in user_stats.items()
 			],
@@ -795,10 +879,10 @@ def admin_analytics():
 		failed_devices_rows = sorted(
 			[
 				{
-					"ip":          ip,
-					"label":       label_map.get(ip),
+					"ip": ip,
+					"label": label_map.get(ip),
 					"device_type": s["device_type"],
-					"fail_count":  s["count"],
+					"fail_count": s["count"],
 				}
 				for ip, s in fail_counts.items()
 			],
@@ -812,7 +896,8 @@ def admin_analytics():
 		"admin_analytics.html",
 		org_kpi=org_kpi,
 		active_users=active_users_rows,
-		all_users=[{"id": str(u.id), "username": u.username} for u in all_users],
+		all_users=[{"id": str(u.id), "username": u.username} for u in
+		           all_users],
 		failed_devices=failed_devices_rows,
 		active_section="analytics",
 	)
@@ -824,10 +909,10 @@ def admin_analytics_query():
 	if current_user.role != "admin":
 		return jsonify({"error": "Forbidden"}), 403
 
-	date_from      = request.args.get("date_from", "").strip()
-	date_to        = request.args.get("date_to", "").strip()
-	actor_filter   = request.args.get("actor", "").strip()
-	action_filter  = request.args.get("action", "").strip()
+	date_from = request.args.get("date_from", "").strip()
+	date_to = request.args.get("date_to", "").strip()
+	actor_filter = request.args.get("actor", "").strip()
+	action_filter = request.args.get("action", "").strip()
 	success_filter = request.args.get("success", "").strip()
 
 	with get_session() as db_session:
@@ -836,12 +921,15 @@ def admin_analytics_query():
 			q = q.filter(AuditLog.actor_username == actor_filter)
 		if date_from:
 			try:
-				q = q.filter(AuditLog.timestamp >= datetime.strptime(date_from, "%Y-%m-%d"))
+				q = q.filter(AuditLog.timestamp >= datetime.strptime(date_from,
+				                                                     "%Y-%m-%d"))
 			except ValueError:
 				pass
 		if date_to:
 			try:
-				q = q.filter(AuditLog.timestamp < datetime.strptime(date_to, "%Y-%m-%d") + timedelta(days=1))
+				q = q.filter(AuditLog.timestamp < datetime.strptime(date_to,
+				                                                    "%Y-%m-%d") + timedelta(
+					days=1))
 			except ValueError:
 				pass
 		if action_filter:
@@ -857,13 +945,13 @@ def admin_analytics_query():
 		           "object_label", "success", "ip_address"]
 		rows = [
 			{
-				"timestamp":      row.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+				"timestamp": row.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
 				"actor_username": row.actor_username,
-				"action":         row.action,
-				"object_type":    row.object_type,
-				"object_label":   row.object_label,
-				"success":        row.success,
-				"ip_address":     row.ip_address,
+				"action": row.action,
+				"object_type": row.object_type,
+				"object_label": row.object_label,
+				"success": row.success,
+				"ip_address": row.ip_address,
 			}
 			for row in rows_raw
 		]
@@ -896,14 +984,14 @@ def analytics():
 		inv_label_map = {
 			row.ip: row.label
 			for row in db_session.query(Inventory.ip, Inventory.label)
-			                      .filter(Inventory.user_id == scope_user_id).all()
+			.filter(Inventory.user_id == scope_user_id).all()
 		}
 		users = db_session.query(User).order_by(User.username).all() \
 			if current_user.role == "admin" else []
 		db_session.expunge_all()
 
-	total_ops     = len(results_30d)
-	jobs_30d      = len({r.job_id for r in results_30d})
+	total_ops = len(results_30d)
+	jobs_30d = len({r.job_id for r in results_30d})
 	success_count = sum(1 for r in results_30d if r.status == "success")
 
 	fail_counts_ip: dict[str, int] = defaultdict(int)
@@ -917,15 +1005,16 @@ def analytics():
 		              "fail_count": fail_counts_ip[top_ip]}
 
 	platform_counts = Counter(r.device_type for r in results_30d)
-	top_platforms   = platform_counts.most_common(3)  # [(name, count), ...]
+	top_platforms = platform_counts.most_common(3)  # [(name, count), ...]
 
 	kpi = {
-		"success_rate":    round(success_count / total_ops * 100) if total_ops else None,
-		"jobs_30d":        jobs_30d,
+		"success_rate": round(
+			success_count / total_ops * 100) if total_ops else None,
+		"jobs_30d": jobs_30d,
 		"devices_reached": total_ops,
 		"commands_pushed": sum(r.commands_sent for r in results_30d),
-		"top_failed":      top_failed,
-		"top_platforms":   top_platforms,
+		"top_failed": top_failed,
+		"top_platforms": top_platforms,
 	}
 
 	selected_username = next(
@@ -952,10 +1041,10 @@ def analytics_query():
 			except ValueError:
 				pass
 
-	date_from       = request.args.get("date_from", "").strip()
-	date_to         = request.args.get("date_to", "").strip()
+	date_from = request.args.get("date_from", "").strip()
+	date_to = request.args.get("date_to", "").strip()
 	platform_filter = request.args.get("platform", "").strip()
-	outcome_filter  = request.args.get("outcome", "").strip()
+	outcome_filter = request.args.get("outcome", "").strip()
 
 	with get_session() as db_session:
 		q = db_session.query(DeviceResult).filter(
@@ -963,12 +1052,17 @@ def analytics_query():
 		)
 		if date_from:
 			try:
-				q = q.filter(DeviceResult.started_at >= datetime.strptime(date_from, "%Y-%m-%d"))
+				q = q.filter(
+					DeviceResult.started_at >= datetime.strptime(date_from,
+					                                             "%Y-%m-%d"))
 			except ValueError:
 				pass
 		if date_to:
 			try:
-				q = q.filter(DeviceResult.started_at < datetime.strptime(date_to, "%Y-%m-%d") + timedelta(days=1))
+				q = q.filter(
+					DeviceResult.started_at < datetime.strptime(date_to,
+					                                            "%Y-%m-%d") + timedelta(
+						days=1))
 			except ValueError:
 				pass
 		if platform_filter:
@@ -980,17 +1074,18 @@ def analytics_query():
 
 		rows_raw = q.order_by(DeviceResult.started_at.desc()).limit(200).all()
 		columns = ["job_id", "device_ip", "device_type", "status",
-		           "commands_sent", "commands_verified", "started_at", "completed_at"]
+		           "commands_sent", "commands_verified", "started_at",
+		           "completed_at"]
 		rows = [
 			{
-				"job_id":            str(r.job_id),
-				"device_ip":         r.device_ip,
-				"device_type":       r.device_type,
-				"status":            r.status,
-				"commands_sent":     r.commands_sent,
+				"job_id": str(r.job_id),
+				"device_ip": r.device_ip,
+				"device_type": r.device_type,
+				"status": r.status,
+				"commands_sent": r.commands_sent,
 				"commands_verified": r.commands_verified,
-				"started_at":        r.started_at.strftime("%Y-%m-%d %H:%M:%S"),
-				"completed_at":      r.completed_at.strftime("%Y-%m-%d %H:%M:%S"),
+				"started_at": r.started_at.strftime("%Y-%m-%d %H:%M:%S"),
+				"completed_at": r.completed_at.strftime("%Y-%m-%d %H:%M:%S"),
 			}
 			for r in rows_raw
 		]
@@ -1014,12 +1109,12 @@ def job_status(rows: list[DeviceResult]) -> str:
 def dashboard():
 	# ── Admin KPI scope ───────────────────────────────────────────────────────
 	selected_user = "me"
-	kpi_user_id   = current_user.id
+	kpi_user_id = current_user.id
 	if current_user.role == "admin":
 		param = request.args.get("user", "me").strip()
 		if param != "me":
 			try:
-				kpi_user_id   = uuid.UUID(param)
+				kpi_user_id = uuid.UUID(param)
 				selected_user = param
 			except ValueError:
 				pass
@@ -1028,16 +1123,17 @@ def dashboard():
 		# Current user's dashboard content (always own data)
 		user = db_session.get(User, current_user.id)
 		inventory_count = len(user.inventory)
-		profile_count   = len(user.security_profiles)
-		mapping_count   = len(user.variable_mappings)
-		jobs_results    = user.results  # DeviceResult rows
-		inv_label_map   = {d.ip: d.label for d in user.inventory}
+		profile_count = len(user.security_profiles)
+		mapping_count = len(user.variable_mappings)
+		jobs_results = user.results  # DeviceResult rows
+		inv_label_map = {d.ip: d.label for d in user.inventory}
 
 		# KPI data — scoped to kpi_user_id (may differ from current user for admin)
 		cutoff = datetime.now() - timedelta(days=30)
 		if kpi_user_id == current_user.id:
-			kpi_results_30d = [r for r in jobs_results if r.started_at >= cutoff]
-			kpi_label_map   = inv_label_map
+			kpi_results_30d = [r for r in jobs_results if
+			                   r.started_at >= cutoff]
+			kpi_label_map = inv_label_map
 		else:
 			kpi_results_30d = db_session.query(DeviceResult).filter(
 				DeviceResult.user_id == kpi_user_id,
@@ -1046,7 +1142,7 @@ def dashboard():
 			kpi_label_map = {
 				row.ip: row.label
 				for row in db_session.query(Inventory.ip, Inventory.label)
-				                      .filter(Inventory.user_id == kpi_user_id).all()
+				.filter(Inventory.user_id == kpi_user_id).all()
 			}
 
 		users = db_session.query(User).order_by(User.username).all() \
@@ -1054,25 +1150,25 @@ def dashboard():
 		db_session.expunge_all()
 
 	sorted_results = sorted(jobs_results, key=lambda x: x.job_id)
-	job_summaries  = []
+	job_summaries = []
 	for job_id, rows in groupby(sorted_results, key=lambda x: x.job_id):
 		rows = list(rows)
 		job_summaries.append({
-			"job_id":       job_id,
+			"job_id": job_id,
 			"completed_at": max(r.completed_at for r in rows),
 			"device_count": len(rows),
 			"commands_sent": rows[0].commands_sent,
-			"status":       job_status(rows),
+			"status": job_status(rows),
 		})
 
 	job_summaries.sort(key=lambda x: x["completed_at"], reverse=True)
-	recent_jobs    = job_summaries[:5]
+	recent_jobs = job_summaries[:5]
 	total_rollouts = len(job_summaries)
-	last_status    = job_summaries[0]["status"] if job_summaries else None
+	last_status = job_summaries[0]["status"] if job_summaries else None
 
 	# ── 30-day KPI strip (scoped) ─────────────────────────────────────────────
-	total_ops     = len(kpi_results_30d)
-	jobs_30d      = len({r.job_id for r in kpi_results_30d})
+	total_ops = len(kpi_results_30d)
+	jobs_30d = len({r.job_id for r in kpi_results_30d})
 	success_count = sum(1 for r in kpi_results_30d if r.status == "success")
 	fail_counts: dict[str, int] = defaultdict(int)
 	for r in kpi_results_30d:
@@ -1080,27 +1176,28 @@ def dashboard():
 			fail_counts[r.device_ip] += 1
 	top_failed = None
 	if fail_counts:
-		top_ip     = max(fail_counts, key=lambda ip: fail_counts[ip])
+		top_ip = max(fail_counts, key=lambda ip: fail_counts[ip])
 		top_failed = {"ip": top_ip, "label": kpi_label_map.get(top_ip),
 		              "fail_count": fail_counts[top_ip]}
 	kpi = {
-		"success_rate":    round(success_count / total_ops * 100) if total_ops else None,
-		"jobs_30d":        jobs_30d,
+		"success_rate": round(
+			success_count / total_ops * 100) if total_ops else None,
+		"jobs_30d": jobs_30d,
 		"devices_reached": total_ops,
 		"commands_pushed": sum(r.commands_sent for r in kpi_results_30d),
-		"top_failed":      top_failed,
+		"top_failed": top_failed,
 	}
 
 	# ── Active job (always own) ───────────────────────────────────────────────
-	job_id     = session.get("job_id", None)
+	job_id = session.get("job_id", None)
 	active_job = orchestrator.get(uuid.UUID(job_id)) if job_id else None
 
 	active_job_data = None
 	if active_job and active_job.is_alive():
 		active_job_data = {
-			"job_id":         job_id,
-			"device_count":   active_job.get_device_count(),
-			"started_at":     active_job.started_at.strftime("%H:%M:%S"),
+			"job_id": job_id,
+			"device_count": active_job.get_device_count(),
+			"started_at": active_job.started_at.strftime("%H:%M:%S"),
 			"started_at_iso": active_job.started_at.isoformat(),
 		}
 
@@ -1222,7 +1319,8 @@ def inventory_edit(device_id):
 			if not val:
 				continue
 			if all_props.get(prop_name, {}).get("is_list"):
-				var_maps[prop_name] = [v.strip() for v in val.split(",") if v.strip()]
+				var_maps[prop_name] = [v.strip() for v in val.split(",") if
+				                       v.strip()]
 			else:
 				var_maps[prop_name] = val
 		device.var_maps = var_maps or None
@@ -2028,21 +2126,24 @@ def properties():
 @login_required
 def properties_create():
 	data = request.get_json(silent=True) or {}
-	name  = data.get("name", "").strip().lower().replace(" ", "_")
+	name = data.get("name", "").strip().lower().replace(" ", "_")
 	label = data.get("label", "").strip()
-	icon  = data.get("icon", "bi-tag").strip() or "bi-tag"
+	icon = data.get("icon", "bi-tag").strip() or "bi-tag"
 	is_list = bool(data.get("is_list", False))
 	if not name or not label:
-		return jsonify({"status": "error", "message": "Name and label are required."}), 400
+		return jsonify(
+			{"status": "error", "message": "Name and label are required."}), 400
 	with get_session() as db_session:
 		existing = db_session.query(PropertyDefinition).filter_by(
 			name=name, user_id=current_user.id).first()
 		if existing:
-			return jsonify({"status": "error", "message": "Property name already exists."}), 400
+			return jsonify({"status": "error",
+			                "message": "Property name already exists."}), 400
 		# Also block shadowing system property names
 		sys_names = {p["name"] for p in SYSTEM_PROPERTIES}
 		if name in sys_names:
-			return jsonify({"status": "error", "message": "Cannot shadow a system property."}), 400
+			return jsonify({"status": "error",
+			                "message": "Cannot shadow a system property."}), 400
 		prop = PropertyDefinition(name=name, label=label, icon=icon,
 		                          is_list=is_list, user_id=current_user.id)
 		db_session.add(prop)
@@ -2063,21 +2164,22 @@ def properties_quick_create():
 @app.route("/properties/<uuid:prop_id>/edit", methods=["POST"])
 @login_required
 def properties_edit(prop_id):
-	data  = request.get_json(silent=True) or {}
+	data = request.get_json(silent=True) or {}
 	label = data.get("label", "").strip()
-	icon  = data.get("icon", "bi-tag").strip() or "bi-tag"
+	icon = data.get("icon", "bi-tag").strip() or "bi-tag"
 	is_list = bool(data.get("is_list", False))
 	if not label:
-		return jsonify({"status": "error", "message": "Label is required."}), 400
+		return jsonify(
+			{"status": "error", "message": "Label is required."}), 400
 	with get_session() as db_session:
 		prop = db_session.query(PropertyDefinition).filter_by(
 			id=prop_id, user_id=current_user.id).first()
 		if not prop:
 			return jsonify({"status": "error", "message": "Not found."}), 404
-		prop.label   = label
-		prop.icon    = icon
+		prop.label = label
+		prop.icon = icon
 		prop.is_list = is_list
-		prop_name    = prop.name
+		prop_name = prop.name
 	audit("property.edit", object_type="PropertyDefinition",
 	      object_id=prop_id, object_label=prop_name)
 	return jsonify({"status": "ok"})
