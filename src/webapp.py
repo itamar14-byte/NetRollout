@@ -30,7 +30,7 @@ from flask_wtf.csrf import CSRFError
 from netmiko import ConnectHandler
 from netmiko.exceptions import NetmikoTimeoutException, \
 	NetmikoAuthenticationException
-from sqlalchemy import text, create_engine
+from sqlalchemy import text, create_engine, and_, or_
 from sqlalchemy.exc import IntegrityError, OperationalError
 from waitress import serve
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -94,6 +94,56 @@ SYSTEM_PROPERTIES = [
 	 "is_list": False},
 	{"name": "vrfs", "label": "VRFs", "icon": "bi-layers", "is_list": True},
 ]
+
+QUERY_DEVICE_RESULT_FIELDS = {
+	"started_at": (
+		DeviceResult.started_at,
+		{"equal", "less_or_equal", "greater_or_equal"}),
+	"device_type": (
+		DeviceResult.device_type, {"equal", "not_equal"}),
+	"status": (
+		DeviceResult.status, {"equal", "not_equal"}),
+	"commands_sent": (
+		DeviceResult.commands_sent,
+		{"equal", "not_equal", "greater_or_equal",
+		 "less_or_equal"}),
+	"device_ip": (
+		DeviceResult.device_ip, {"equal", "contains", "begins_with"}),
+}
+DEVICE_RESULT_COLUMNS = ["job_id", "device_ip", "device_type",
+                         "status",
+                         "commands_sent", "commands_verified",
+                         "started_at", "completed_at"]
+
+QUERY_AUDIT_LOG_FIELDS = {
+	"timestamp": (
+		AuditLog.timestamp, {"equal", "less_or_equal", "greater_or_equal"}),
+	"actor_username": (
+		AuditLog.actor_username,
+		{"equal", "not_equal", "contains", "begins_with"}),
+	"action": (
+		AuditLog.action, {"equal", "not_equal", "contains", "begins_with"}),
+	"object_type": (
+		AuditLog.object_type, {"equal", "not_equal"}),
+	"success": (
+		AuditLog.success, {"equal"}),
+	"ip_address": (
+		AuditLog.ip_address, {"equal", "contains", "begins_with"}),
+}
+
+AUDIT_LOG_COLUMNS = ["timestamp", "actor_username", "action",
+                     "object_type",
+                     "object_label", "success", "ip_address"]
+
+QUERY_OPS = {
+	"equal": lambda x, y: x == y,
+	"not_equal": lambda x, y: x != y,
+	"greater_or_equal": lambda x, y: x >= y,
+	"less_or_equal": lambda x, y: x <= y,
+	"contains": lambda x, y: x.ilike(f"%{y}%"),
+	"begins_with": lambda x, y: x.ilike(f"{y}%"),
+	"ends_with": lambda x, y: x.ilike(f"%{y}")
+}
 
 
 def get_property_defs(user_id):
@@ -767,13 +817,15 @@ def admin_server_db_save():
 			name == engine.url.database):
 		return jsonify(success=False, error="Target database is the same as "
 		                                    "the current one")
-	lines = [f"DB_HOST={host}",f"DB_PORT={port}",f"DB_NAME={name}",
-	         f"DB_USER={user}",f"DB_PASSWORD={password}"]
+	lines = [f"DB_HOST={host}", f"DB_PORT={port}", f"DB_NAME={name}",
+	         f"DB_USER={user}", f"DB_PASSWORD={password}"]
 	if schema:
 		lines.append(f"DB_SCHEMA={schema}")
-	_CONFIG_ENV.write_text("\n".join(lines)+"\n")
+	_CONFIG_ENV.write_text("\n".join(lines) + "\n")
 	_FLAG.write_text(".")
 	return jsonify(success=True)
+
+
 @app.route("/admin/audit")
 @login_required
 def admin_audit():
@@ -903,60 +955,33 @@ def admin_analytics():
 	)
 
 
-@app.route("/admin/analytics/query")
+@app.route("/admin/analytics/query", methods=["POST"])
 @login_required
 def admin_analytics_query():
 	if current_user.role != "admin":
 		return jsonify({"error": "Forbidden"}), 403
 
-	date_from = request.args.get("date_from", "").strip()
-	date_to = request.args.get("date_to", "").strip()
-	actor_filter = request.args.get("actor", "").strip()
-	action_filter = request.args.get("action", "").strip()
-	success_filter = request.args.get("success", "").strip()
+	data = request.get_json()
+	try:
+		rules = data.get("rules", [])
+		filters = compile_query_rules(rules, QUERY_AUDIT_LOG_FIELDS)
+	except (ValueError, KeyError) as e:
+		return jsonify({"error": str(e)}), 400
 
 	with get_session() as db_session:
-		q = db_session.query(AuditLog)
-		if actor_filter:
-			q = q.filter(AuditLog.actor_username == actor_filter)
-		if date_from:
-			try:
-				q = q.filter(AuditLog.timestamp >= datetime.strptime(date_from,
-				                                                     "%Y-%m-%d"))
-			except ValueError:
-				pass
-		if date_to:
-			try:
-				q = q.filter(AuditLog.timestamp < datetime.strptime(date_to,
-				                                                    "%Y-%m-%d") + timedelta(
-					days=1))
-			except ValueError:
-				pass
-		if action_filter:
-			safe_action = action_filter.replace("%", "").replace("_", "")
-			q = q.filter(AuditLog.action.ilike("%" + safe_action + "%"))
-		if success_filter == "true":
-			q = q.filter(AuditLog.success == True)
-		elif success_filter == "false":
-			q = q.filter(AuditLog.success == False)
+		query = db_session.query(AuditLog).filter(filters)
 
-		rows_raw = q.order_by(AuditLog.timestamp.desc()).limit(200).all()
-		columns = ["timestamp", "actor_username", "action", "object_type",
-		           "object_label", "success", "ip_address"]
-		rows = [
-			{
-				"timestamp": row.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
-				"actor_username": row.actor_username,
-				"action": row.action,
-				"object_type": row.object_type,
-				"object_label": row.object_label,
-				"success": row.success,
-				"ip_address": row.ip_address,
-			}
-			for row in rows_raw
-		]
-
-	return jsonify({"columns": columns, "rows": rows})
+		rows_raw = query.order_by(AuditLog.timestamp.desc()).limit(
+			200).all()
+		columns = AUDIT_LOG_COLUMNS
+		rows = [{col: getattr(r, col) for col in columns} for r in rows_raw]
+	parsed_rows = [{col: v.strftime("%Y-%m-%d %H:%M:%S") if isinstance(v,
+		                                                                   datetime)
+		else str(v) if isinstance(v, uuid.UUID)
+		else v
+		                for col, v in row.items()}
+		               for row in rows]
+	return jsonify({"columns": columns, "rows": parsed_rows})
 
 
 @app.route("/analytics")
@@ -1029,68 +1054,83 @@ def analytics():
 	                       active_section="analytics")
 
 
-@app.route("/analytics/query")
+def compile_query_rules(node, allowed_fields):
+	'''jQuery QueryBuilder produces a tree. Each node is either:
+	 - a GROUP: {"condition": "AND"/"OR", "rules": [...child
+	nodes...]}
+	 - a LEAF:  {"field": "status", "operator": "equal", "value":
+	"success"}'''
+
+	if "condition" in node:
+		# GROUP node — recurse into each child, then combine with
+		# AND / OR
+		combinator = and_ if node["condition"] == "AND" else or_
+		return combinator(*[compile_query_rules(r, allowed_fields) for r in
+		                    node["rules"]])
+	# LEAF node — a single filter condition
+	field_name = node["field"]
+	operator = node["operator"]
+	value = node["value"]
+
+	# Security(SQL injection hardening): reject fields/operators
+	# not in our allowlist
+	if field_name not in allowed_fields:
+		raise ValueError(f"Field not allowed: {field_name}")
+
+	column, allowed_ops = allowed_fields[field_name]
+	if operator not in allowed_ops:
+		raise ValueError(
+			f"Operator {operator} not allowed for field {field_name}")
+
+	# DateTime columns need a Python datetime object, not a raw string
+	if hasattr(column, "type") and column.type.__class__.__name__ == 'DateTime':
+		try:
+			value = datetime.strptime(value, "%Y-%m-%d")
+		except (ValueError,TypeError):
+			raise ValueError(f"Invalid date: {value}")
+
+	# Boolean columns: QueryBuilder sends string keys ("true"/"false")
+	if hasattr(column, "type") and column.type.__class__.__name__ == 'Boolean':
+		if isinstance(value, str):
+			value = value.lower() == "true"
+
+	# Dispatch to the right SQLAlchemy expression via the OPS table
+	return QUERY_OPS[operator](column, value)
+
+
+@app.route("/analytics/query", methods=["POST"])
 @login_required
 def analytics_query():
 	scope_user_id = current_user.id
+	data = request.get_json()
 	if current_user.role == "admin":
-		param = request.args.get("user", "me").strip()
+		param = data.get("user", "me").strip()
 		if param != "me":
 			try:
 				scope_user_id = uuid.UUID(param)
 			except ValueError:
 				pass
-
-	date_from = request.args.get("date_from", "").strip()
-	date_to = request.args.get("date_to", "").strip()
-	platform_filter = request.args.get("platform", "").strip()
-	outcome_filter = request.args.get("outcome", "").strip()
+	try:
+		rules = data.get("rules", [])
+		filters = compile_query_rules(rules, QUERY_DEVICE_RESULT_FIELDS)
+	except (ValueError, KeyError) as e:
+		return jsonify({"error": str(e)}), 400
 
 	with get_session() as db_session:
-		q = db_session.query(DeviceResult).filter(
-			DeviceResult.user_id == scope_user_id
-		)
-		if date_from:
-			try:
-				q = q.filter(
-					DeviceResult.started_at >= datetime.strptime(date_from,
-					                                             "%Y-%m-%d"))
-			except ValueError:
-				pass
-		if date_to:
-			try:
-				q = q.filter(
-					DeviceResult.started_at < datetime.strptime(date_to,
-					                                            "%Y-%m-%d") + timedelta(
-						days=1))
-			except ValueError:
-				pass
-		if platform_filter:
-			q = q.filter(DeviceResult.device_type == platform_filter)
-		if outcome_filter == "true":
-			q = q.filter(DeviceResult.status == "success")
-		elif outcome_filter == "false":
-			q = q.filter(DeviceResult.status == "failed")
+		query = db_session.query(DeviceResult).filter(
+			DeviceResult.user_id == scope_user_id).filter(filters)
 
-		rows_raw = q.order_by(DeviceResult.started_at.desc()).limit(200).all()
-		columns = ["job_id", "device_ip", "device_type", "status",
-		           "commands_sent", "commands_verified", "started_at",
-		           "completed_at"]
-		rows = [
-			{
-				"job_id": str(r.job_id),
-				"device_ip": r.device_ip,
-				"device_type": r.device_type,
-				"status": r.status,
-				"commands_sent": r.commands_sent,
-				"commands_verified": r.commands_verified,
-				"started_at": r.started_at.strftime("%Y-%m-%d %H:%M:%S"),
-				"completed_at": r.completed_at.strftime("%Y-%m-%d %H:%M:%S"),
-			}
-			for r in rows_raw
-		]
-
-	return jsonify({"columns": columns, "rows": rows})
+		rows_raw = query.order_by(DeviceResult.started_at.desc()).limit(
+			200).all()
+		columns = DEVICE_RESULT_COLUMNS
+		rows = [{col: getattr(r, col) for col in columns} for r in rows_raw]
+	parsed_rows = [{col: v.strftime("%Y-%m-%d %H:%M:%S") if isinstance(v,
+		                                                                   datetime)
+		else str(v) if isinstance(v, uuid.UUID)
+		else v
+		                for col, v in row.items()}
+		               for row in rows]
+	return jsonify({"columns": columns, "rows": parsed_rows})
 
 
 def job_status(rows: list[DeviceResult]) -> str:

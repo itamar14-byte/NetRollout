@@ -115,8 +115,9 @@ Always-dark enterprise aesthetic — permanently dark, no toggle. Key design ele
 - **Phase 3.2 — Rollout initiation from web UI ✅ COMPLETE (2026-04-12)**
 - **Phase 3.3 — Results page ✅ COMPLETE (2026-04-13)** — expandable job rows, See Commands modal, Download Log, side-by-side LCS diff
 - **Phase 3.4 — Audit trail ✅ COMPLETE (2026-04-13)** — AuditLog table, 21 instrumented routes, /admin/audit filterable UI, log file infrastructure
-- **Remaining Phase 3:** 3.4b Analytics, 3.5 Test suite, 3.6 Per-job device concurrency
-- **Phase 4 — Packaging**
+- **Phase 3.4b — Analytics + Query Builder ✅ COMPLETE (2026-04-17)** — KPI cards, jQuery QueryBuilder compound filters, `/analytics/query` + `/admin/analytics/query` POST routes, CSV export
+- **Remaining Phase 3:** 3.5 Test suite, 3.6 Per-job device concurrency
+- **Phase 4 — Packaging** (4.7 Alembic ✅, 4.8 Server Management ✅, 4.9 Grafana next)
 
 ## Frontend asset structure (current — Phase 3)
 Per-page CSS and JS live inline in `{% block extra_style %}` and `{% block extra_script %}` blocks. This is intentional for Phase 3 — no build pipeline, one file per page. Phase 4 will extract these into `static/css/` and `static/js/` files.

@@ -189,50 +189,22 @@
       </div>
     </div>
 
-    <!-- Filters -->
-    <div class="row g-2 align-items-end">
-      <div class="col-6 col-md-3">
-        <label class="nr-label">DATE FROM</label>
-        <input type="date" id="qfDateFrom" class="form-control form-control-sm"
-               style="background:#111; border-color:#2a2a2a; color:#ccc; font-size:0.78rem;">
-      </div>
-      <div class="col-6 col-md-3">
-        <label class="nr-label">DATE TO</label>
-        <input type="date" id="qfDateTo" class="form-control form-control-sm"
-               style="background:#111; border-color:#2a2a2a; color:#ccc; font-size:0.78rem;">
-      </div>
-      <div class="col-6 col-md-2">
-        <label class="nr-label">PLATFORM</label>
-        <select id="qfPlatform" class="form-select form-select-sm"
-                style="background:#111; border-color:#2a2a2a; color:#ccc; font-size:0.78rem;">
-          <option value="">All</option>
-          <option>cisco_ios</option><option>cisco_nxos</option><option>cisco_xe</option>
-          <option>cisco_xr</option><option>juniper_junos</option><option>arista_eos</option>
-          <option>fortinet</option><option>paloalto_panos</option><option>aruba_aoscx</option>
-          <option>checkpoint_gaia</option><option>hp_procurve</option><option>hp_comware</option>
-        </select>
-      </div>
-      <div class="col-6 col-md-2">
-        <label class="nr-label">OUTCOME</label>
-        <select id="qfOutcome" class="form-select form-select-sm"
-                style="background:#111; border-color:#2a2a2a; color:#ccc; font-size:0.78rem;">
-          <option value="">All</option>
-          <option value="true">Success</option>
-          <option value="false">Failed</option>
-        </select>
-      </div>
-      <div class="col-12 col-md-2 d-flex gap-2">
-        <button class="btn btn-primary btn-sm flex-grow-1" onclick="runQuery()" style="font-size:0.78rem;">
-          <i class="bi bi-play-fill me-1"></i>Run
-        </button>
-        <button class="btn btn-sm" onclick="exportCsv()"
-                style="background:none; border:1px solid #2a2a2a; color:#555; font-size:0.78rem;"
-                title="Export CSV"
-                onmouseenter="this.style.borderColor='#444';this.style.color='#aaa'"
-                onmouseleave="this.style.borderColor='#2a2a2a';this.style.color='#555'">
-          <i class="bi bi-download"></i>
-        </button>
-      </div>
+    <!-- Query Builder -->
+    <div id="queryBuilder" class="mb-3"></div>
+
+    <!-- Actions -->
+    <div class="d-flex gap-2 align-items-center flex-wrap">
+      <button class="btn btn-primary btn-sm" onclick="runQuery()"
+              style="font-family:'JetBrains Mono',monospace; font-size:0.76rem; letter-spacing:0.5px;">
+        <i class="bi bi-play-fill me-1"></i>Run Query
+      </button>
+      <button class="btn btn-sm" onclick="exportCsv()"
+              style="background:none; border:1px solid #2a2a2a; color:#555; font-size:0.78rem;"
+              title="Export CSV"
+              onmouseenter="this.style.borderColor='#444';this.style.color='#aaa'"
+              onmouseleave="this.style.borderColor='#2a2a2a';this.style.color='#555'">
+        <i class="bi bi-download"></i>
+      </button>
     </div>
 
     <!-- Results -->
@@ -262,87 +234,201 @@
 {% endblock %}
 
 {% block extra_script %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/jQuery-QueryBuilder@2.6.0/dist/css/query-builder.default.min.css">
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jQuery-QueryBuilder@2.6.0/dist/js/query-builder.standalone.min.js"></script>
+
+<style>
+@keyframes spin { from { transform:rotate(0deg); } to { transform:rotate(360deg); } }
+
+/* ── QueryBuilder dark theme ─────────────────────────────── */
+.query-builder { font-family: 'Inter', sans-serif; }
+.query-builder .rules-group-container {
+  background: #0d0d0d; border: 1px solid #1e1e1e;
+  border-radius: 8px; padding: 12px 14px; margin-bottom: 0;
+}
+.query-builder .rules-group-container .rules-group-container {
+  background: #111; border-color: #1a1a1a; margin-top: 8px;
+}
+.query-builder .rules-group-header {
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid #1a1a1a;
+}
+.query-builder .group-conditions { display: flex; gap: 3px; }
+.query-builder .group-conditions .btn {
+  background: #1a1a1a; border: 1px solid #2a2a2a; color: #555;
+  font-family: 'JetBrains Mono', monospace; font-size: 0.65rem;
+  letter-spacing: 1.5px; padding: 0.18rem 0.55rem; border-radius: 3px; cursor: pointer;
+}
+.query-builder .group-conditions .btn.active,
+.query-builder .group-conditions .btn:focus {
+  background: rgba(0,188,212,0.1); border-color: rgba(0,188,212,0.3); color: #00bcd4; outline: none;
+}
+.query-builder .group-actions { display: flex; gap: 4px; margin-left: auto; }
+.query-builder .group-actions .btn,
+.query-builder .rule-actions .btn {
+  font-size: 0.68rem; padding: 0.15rem 0.5rem; border-radius: 3px; cursor: pointer;
+}
+.query-builder .group-actions .btn-success {
+  background: rgba(0,188,212,0.07); border: 1px solid rgba(0,188,212,0.2); color: #00bcd4;
+}
+.query-builder .group-actions .btn-success:hover { background: rgba(0,188,212,0.14); }
+.query-builder .group-actions .btn-danger,
+.query-builder .rule-actions .btn-danger {
+  background: rgba(239,83,80,0.06); border: 1px solid rgba(239,83,80,0.18); color: #ef9a9a;
+}
+.query-builder .group-actions .btn-danger:hover,
+.query-builder .rule-actions .btn-danger:hover { background: rgba(239,83,80,0.12); }
+.query-builder .rule-container {
+  background: #141414; border: 1px solid #1e1e1e; border-radius: 5px;
+  padding: 7px 10px; margin-bottom: 5px;
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+}
+.query-builder .rule-container:hover { border-color: #252525; }
+.query-builder select,
+.query-builder input[type="text"],
+.query-builder input[type="number"],
+.query-builder input[type="date"] {
+  background: #111 !important; border: 1px solid #2a2a2a !important;
+  color: #ccc !important; border-radius: 4px !important;
+  font-size: 0.77rem !important; font-family: 'Inter', sans-serif !important;
+  padding: 0.22rem 0.45rem !important;
+}
+.query-builder select:focus, .query-builder input:focus {
+  outline: none !important; border-color: rgba(0,188,212,0.4) !important;
+  box-shadow: 0 0 0 2px rgba(0,188,212,0.07) !important;
+}
+.query-builder .has-error select,
+.query-builder .has-error input { border-color: rgba(239,83,80,0.5) !important; }
+.query-builder .error-container { color: #ef9a9a; font-size: 0.7rem; margin-top: 3px; }
+.query-builder .rule-actions { margin-left: auto; }
+</style>
+
 <script>
-const SCOPE_USER = "{{ selected_user }}";
+const SCOPE_USER   = "{{ selected_user }}";
+const CSRF_TOKEN   = "{{ csrf_token() }}";
 let lastResults = [];
 let lastColumns = [];
 
+const PLATFORMS = [
+  'cisco_ios','cisco_nxos','cisco_xe','cisco_xr',
+  'juniper_junos','arista_eos','fortinet','paloalto_panos',
+  'aruba_aoscx','checkpoint_gaia','hp_procurve','hp_comware'
+];
+
+$(function() {
+  $('#queryBuilder').queryBuilder({
+    allow_empty: true,
+    filters: [
+      {
+        id: 'started_at', label: 'Started At', type: 'date',
+        input: (rule, name) => `<input type="date" name="${name}" class="form-control form-control-sm">`,
+        valueGetter: rule => rule.$el.find('input[type=date]').val(),
+        valueSetter: (rule, val) => rule.$el.find('input[type=date]').val(val),
+        operators: ['equal','less_or_equal','greater_or_equal']
+      },
+      {
+        id: 'device_type', label: 'Platform', type: 'string',
+        input: 'select',
+        values: Object.fromEntries(PLATFORMS.map(p => [p, p])),
+        operators: ['equal','not_equal']
+      },
+      {
+        id: 'status', label: 'Status', type: 'string',
+        input: 'select',
+        values: { success:'Success', failed:'Failed', partial:'Partial', cancelled:'Cancelled' },
+        operators: ['equal','not_equal']
+      },
+      {
+        id: 'commands_sent', label: 'Commands Sent', type: 'integer',
+        operators: ['equal','not_equal','greater_or_equal','less_or_equal']
+      },
+      {
+        id: 'device_ip', label: 'Device IP', type: 'string',
+        operators: ['equal','contains','begins_with']
+      }
+    ],
+    operators: [
+      { type:'equal',            nb_inputs:1, multiple:false, apply_to:['string','number','datetime','boolean'] },
+      { type:'not_equal',        nb_inputs:1, multiple:false, apply_to:['string','number','datetime','boolean'] },
+      { type:'greater_or_equal', nb_inputs:1, multiple:false, apply_to:['number','datetime'] },
+      { type:'less_or_equal',    nb_inputs:1, multiple:false, apply_to:['number','datetime'] },
+      { type:'contains',         nb_inputs:1, multiple:false, apply_to:['string'] },
+      { type:'begins_with',      nb_inputs:1, multiple:false, apply_to:['string'] },
+    ]
+  });
+});
+
 function applyScope(val) {
-    const url = new URL(window.location.href);
-    url.searchParams.set('user', val);
-    window.location.href = url.toString();
+  const url = new URL(window.location.href);
+  url.searchParams.set('user', val);
+  window.location.href = url.toString();
 }
 
 async function runQuery() {
-    document.getElementById('queryLoading').style.display     = '';
-    document.getElementById('queryResultsWrap').style.display = 'none';
-    document.getElementById('queryEmpty').style.display       = 'none';
+  const rules = $('#queryBuilder').queryBuilder('getRules');
+  if (rules === false) return;
 
-    const params = {
-        user:      SCOPE_USER,
-        date_from: document.getElementById('qfDateFrom').value,
-        date_to:   document.getElementById('qfDateTo').value,
-        platform:  document.getElementById('qfPlatform').value,
-        outcome:   document.getElementById('qfOutcome').value,
-    };
+  document.getElementById('queryLoading').style.display     = '';
+  document.getElementById('queryResultsWrap').style.display = 'none';
+  document.getElementById('queryEmpty').style.display       = 'none';
 
-    const resp = await fetch('/analytics/query?' + new URLSearchParams(params));
-    const data = await resp.json();
-    document.getElementById('queryLoading').style.display = 'none';
+  const resp = await fetch('/analytics/query', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN },
+    body: JSON.stringify({ rules, user: SCOPE_USER })
+  });
+  const data = await resp.json();
+  document.getElementById('queryLoading').style.display = 'none';
 
-    if (!data.rows || data.rows.length === 0) {
-        document.getElementById('queryEmpty').style.display = '';
-        return;
-    }
+  if (!data.rows || data.rows.length === 0) {
+    document.getElementById('queryEmpty').style.display = '';
+    return;
+  }
 
-    lastResults = data.rows;
-    lastColumns = data.columns;
+  lastResults = data.rows;
+  lastColumns = data.columns;
 
-    document.getElementById('queryResultsHead').innerHTML =
-        '<tr>' + data.columns.map(c =>
-            `<th style="color:#555; font-size:0.65rem; letter-spacing:1px; font-weight:600;
-                        text-transform:uppercase; border-color:#1a1a1a; white-space:nowrap;">${c}</th>`
-        ).join('') + '</tr>';
+  document.getElementById('queryResultsHead').innerHTML =
+    '<tr>' + data.columns.map(c =>
+      `<th style="color:#555; font-size:0.65rem; letter-spacing:1px; font-weight:600;
+                  text-transform:uppercase; border-color:#1a1a1a; white-space:nowrap;">${c}</th>`
+    ).join('') + '</tr>';
 
-    document.getElementById('queryResultsBody').innerHTML = data.rows.map(row =>
-        '<tr style="border-color:#1a1a1a;">' +
-        data.columns.map(c => {
-            const val = row[c];
-            let display = val === null || val === undefined
-                ? '<span style="color:#2a2a2a;">—</span>' : String(val);
-            if (c === 'status') {
-                const colors = { success:'#a5d6a7', failed:'#ef9a9a', partial:'#ffe082', cancelled:'#666' };
-                display = `<span style="font-family:monospace; color:${colors[val]||'#aaa'};">${val}</span>`;
-            }
-            return `<td style="font-size:0.75rem; color:#aaa; white-space:nowrap;">${display}</td>`;
-        }).join('') + '</tr>'
-    ).join('');
+  document.getElementById('queryResultsBody').innerHTML = data.rows.map(row =>
+    '<tr style="border-color:#1a1a1a;">' +
+    data.columns.map(c => {
+      const val = row[c];
+      let display = val === null || val === undefined
+        ? '<span style="color:#2a2a2a;">—</span>' : String(val);
+      if (c === 'status') {
+        const colors = { success:'#a5d6a7', failed:'#ef9a9a', partial:'#ffe082', cancelled:'#666' };
+        display = `<span style="font-family:monospace; color:${colors[val]||'#aaa'};">${val}</span>`;
+      }
+      return `<td style="font-size:0.75rem; color:#aaa; white-space:nowrap;">${display}</td>`;
+    }).join('') + '</tr>'
+  ).join('');
 
-    document.getElementById('queryResultCount').textContent =
-        `${data.rows.length} row${data.rows.length !== 1 ? 's' : ''}`;
-    document.getElementById('queryResultsWrap').style.display = '';
+  document.getElementById('queryResultCount').textContent =
+    `${data.rows.length} row${data.rows.length !== 1 ? 's' : ''}`;
+  document.getElementById('queryResultsWrap').style.display = '';
 }
 
 function exportCsv() {
-    if (!lastResults.length) return;
-    const header = lastColumns.join(',');
-    const rows   = lastResults.map(row =>
-        lastColumns.map(c => {
-            const v = row[c] ?? '';
-            return String(v).includes(',') ? `"${String(v).replace(/"/g,'""')}"` : String(v);
-        }).join(',')
-    );
-    const csv  = [header, ...rows].join('\n');
-    const blob = new Blob([csv], { type:'text/csv' });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href     = url;
-    a.download = `netrollout_results_${Date.now()}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+  if (!lastResults.length) return;
+  const header = lastColumns.join(',');
+  const rows   = lastResults.map(row =>
+    lastColumns.map(c => {
+      const v = row[c] ?? '';
+      return String(v).includes(',') ? `"${String(v).replace(/"/g,'""')}"` : String(v);
+    }).join(',')
+  );
+  const csv  = [header, ...rows].join('\n');
+  const blob = new Blob([csv], { type:'text/csv' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url; a.download = `netrollout_results_${Date.now()}.csv`;
+  a.click(); URL.revokeObjectURL(url);
 }
 </script>
-<style>
-@keyframes spin { from { transform:rotate(0deg); } to { transform:rotate(360deg); } }
-</style>
 {% endblock %}

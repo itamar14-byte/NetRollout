@@ -1,5 +1,5 @@
 # Development Workplan
-_Last updated: 2026-04-14 — logo, DB error page, quick-create modals, static backdrops, Phase 3.7 planned_
+_Last updated: 2026-04-17 — Phase 3.4b Query Builder complete, Phase 4.9 Grafana next_
 
 ---
 
@@ -299,7 +299,8 @@ Two separate surfaces, different scopes. Data sourced entirely from `DeviceResul
 - Badge: `ROLLOUT INTELLIGENCE` · icon: `bi-bar-chart-line-fill` · accent: cyan
 - 5-card CSS grid KPI strip: Success Rate, Devices Reached, Commands Pushed, Top Failing Device, Top Platforms (ranked top 3)
 - Admin-only scope selector in page header; operators see only their own data
-- Device Results query engine (`bi-database-check`, cyan): filters date/platform/outcome, AJAX → `/analytics/query`, dynamic table, CSV export
+- Device Results query engine (`bi-database-check`, cyan): jQuery QueryBuilder compound filter (AND/OR, field/operator/value trees), AJAX POST `{rules}` → `/analytics/query`, dynamic table, CSV export
+- QueryBuilder fields: `started_at` (date), `device_type` (select), `status` (select), `commands_sent` (integer), `device_ip` (string)
 - `/analytics/query` always scoped to `current_user.id` (operators) or `?user=` param (admin); audit log never exposed here
 - Analytics link added to operator sidebar under Observability section
 
@@ -308,9 +309,9 @@ Two separate surfaces, different scopes. Data sourced entirely from `DeviceResul
 - 4 org-level KPI cards (always all-users, no scope selector): Active Users (X of Y registered), Org Success Rate, Total Jobs, Total Device Operations
 - Most Active Users table (top 10 by job count, 30d)
 - Most Failed Devices table (top 10 by failure count, 30d, best-effort label from Inventory)
-- Audit Investigation query engine (`bi-shield-lock-fill`, amber `#ffe082`): badge `AUDIT INVESTIGATION`, filters actor/date/action/success, AJAX → `/admin/analytics/query`, dynamic table, CSV export
+- Audit Investigation query engine (`bi-shield-lock-fill`, amber `#ffe082`): jQuery QueryBuilder compound filter, badge `AUDIT INVESTIGATION`, AJAX POST `{rules}` → `/admin/analytics/query`, dynamic table, CSV export
+- QueryBuilder fields: `timestamp` (date), `actor_username` (select from all users), `action` (string), `object_type` (select), `success` (boolean select), `ip_address` (string)
 - `/admin/analytics/query` hits `AuditLog` only — device results query never exposed here
-- Wildcard abuse protection: `%` and `_` stripped from `ilike` inputs
 - Admin sidebar icons modernised: emojis → `bi-people-fill`, `bi-shield-check`, `bi-bar-chart-line`
 - Muted text corrected from near-invisible `#333` → `#555` throughout
 
@@ -474,7 +475,17 @@ Drop-in swap, no session API changes needed.
 ### 4.7 Alembic migrations ✅ COMPLETE (2026-04-17)
 DB layer refactored into `src/db/` package. `create_all` replaced with Alembic. Initial migration generated and applied. `db_install.py` calls `alembic upgrade head` programmatically. Migration files ship in the Docker image — fresh installs and schema upgrades both handled via `alembic upgrade head`.
 
-### 4.8 Documentation
+### 4.8 Server Management ✅ COMPLETE (2026-04-17)
+External DB configuration UI in admin panel. `db.py` refactored: `construct_url()` builds URL from individual env vars (`DB_HOST/PORT/NAME/USER/PASSWORD/SCHEMA`), `build_engine()` prefers `DATABASE_URL` then falls back to individual vars, `search_path` injected via `connect_args` if `DB_SCHEMA` set. `db_install.py` imports fixed to fully-qualified `db.db`/`db.tables` paths. `webapp.py`: `load_dotenv(config.env)` runs before DB imports; `_DB_HOST/_DB_PORT` read from `engine.url`; `pending_db_init.flag` checked on startup → runs `install()` → deletes flag. Three new routes: `GET /admin/server`, `POST /admin/server/db/test` (live connection test, blocks same-DB target), `POST /admin/server/db/save` (writes `config.env` + flag). `POST /admin/server/restart` uses `os.execv` for hot process restart (picks up new config + code changes). `server_management.html`: DB config card (status strip, migration warning, test/save/restart flow) + locked LDAP stub.
+
+### 4.9 Grafana analytics (next)
+Grafana running locally via Docker. Steps:
+- Configure PostgreSQL datasource pointing at `rollout_db`
+- Build dashboards: job success rate over time, device failure heatmap, top platforms, audit activity
+- Optionally embed panels in `/analytics` and `/admin/analytics` via `<iframe>` (enable "Allow embedding" in Grafana settings)
+- Phase 4 packaging: export dashboards as JSON → convert to provisioning YAML files → ship in docker-compose as pre-configured Grafana service
+
+### 4.10 Documentation
 - `README.md` — project overview, quick start (install.py), CLI usage, CSV format reference, security posture section, update instructions
 - Inline docs review — docstrings consistent across all public APIs
 - Security posture section: data minimization rationale, encryption key management, Docker socket decision
