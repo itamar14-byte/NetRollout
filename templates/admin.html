@@ -1,152 +1,624 @@
-{% extends "base.html" %}
-{% block title %}Admin Panel — NetRollout{% endblock %}
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>{% block title %}Admin Panel — NetRollout{% endblock %}</title>
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='logo.svg') }}">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-select@1.14.0-beta3/dist/css/bootstrap-select.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
 
-{% block home_button %}
-<a href="{{ url_for('dashboard') }}" class="nr-back-btn">← Home</a>
-{% endblock %}
+    <style>
+        *, *::before, *::after { box-sizing: border-box; }
 
-{% block content %}
-<div class="d-flex text-start" style="min-height: 75vh; gap: 1rem;">
+        body {
+            margin: 0;
+            background-color: #121212;
+            color: #e0e0e0;
+            font-family: 'Inter', sans-serif;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
 
-  <!-- Sidebar -->
-  <nav id="adminSidebar" class="d-flex flex-column p-2 flex-shrink-0"
-       style="width: 52px; background: #111; border: 1px solid #1a1a1a; border-radius: 10px;
-              transition: width 0.25s ease; overflow: hidden;">
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            z-index: -1;
+            background-image:
+                radial-gradient(circle at 15% 15%, rgba(0,188,212,0.05) 0%, transparent 50%),
+                radial-gradient(circle at 85% 85%, rgba(0,188,212,0.03) 0%, transparent 50%),
+                linear-gradient(rgba(0,188,212,0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0,188,212,0.03) 1px, transparent 1px);
+            background-size: 100% 100%, 100% 100%, 40px 40px, 40px 40px;
+        }
 
-    <!-- Toggle button -->
-    <button id="sidebarToggle" onclick="toggleSidebar(); event.stopPropagation();"
-            style="background: none; border: none; color: #555; font-size: 1rem;
-                   cursor: pointer; padding: 0.4rem; margin-bottom: 0.5rem;
-                   align-self: flex-end; line-height: 1; transition: color 0.2s;">
-      &#9776;
-    </button>
+        /* ── Topbar ── */
+        .adm-topbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.75rem 2rem;
+            border-bottom: 1px solid #161616;
+            background: rgba(13,13,13,0.6);
+            backdrop-filter: blur(8px);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            flex-shrink: 0;
+        }
 
-    <!-- Brand -->
-    <div class="sidebar-brand mb-3">
-      <img src="{{ url_for('static', filename='logo.svg') }}"
-           alt="NetRollout" style="height:18px; width:auto; display:block;">
+        .adm-topbar-left {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .adm-topbar-title {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.7rem;
+            font-weight: 700;
+            letter-spacing: 2px;
+            color: #444;
+            text-transform: uppercase;
+        }
+
+        .adm-topbar-sep {
+            width: 1px;
+            height: 14px;
+            background: #2a2a2a;
+            flex-shrink: 0;
+        }
+
+        /* ── Home button ── */
+        .nr-back-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-family: 'Inter', sans-serif;
+            font-size: 0.78rem;
+            font-weight: 500;
+            color: #888 !important;
+            background: transparent !important;
+            border: 1px solid #242424 !important;
+            border-radius: 6px;
+            padding: 0.38rem 0.9rem;
+            text-decoration: none !important;
+            transition: border-color 0.2s, color 0.2s, background 0.2s;
+        }
+        .nr-back-btn:hover {
+            border-color: rgba(0,188,212,0.3) !important;
+            color: #00bcd4 !important;
+            background: rgba(0,188,212,0.04) !important;
+        }
+
+        /* ── User dropdown ── */
+        .nr-user-btn {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.72rem;
+            color: #666 !important;
+            background: #161616 !important;
+            border: 1px solid #242424 !important;
+            border-radius: 6px;
+            padding: 0.38rem 0.9rem;
+            transition: border-color 0.2s, color 0.2s;
+        }
+        .nr-user-btn:hover, .nr-user-btn.show {
+            border-color: rgba(0,188,212,0.3) !important;
+            color: #00bcd4 !important;
+            background: #161616 !important;
+            box-shadow: none !important;
+        }
+        .nr-user-btn::after { opacity: 0.5; }
+
+        .dropdown-menu {
+            background-color: #161616 !important;
+            border: 1px solid #1e1e1e !important;
+            border-radius: 8px !important;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.6) !important;
+            padding: 0.35rem !important;
+        }
+        .dropdown-item {
+            color: #888 !important;
+            border-radius: 5px;
+            font-family: 'Inter', sans-serif;
+            font-size: 0.82rem;
+            padding: 0.45rem 0.8rem;
+            transition: background 0.15s, color 0.15s;
+        }
+        .dropdown-item:hover { background-color: #1e1e1e !important; color: #e0e0e0 !important; }
+        .dropdown-divider { border-color: #222 !important; margin: 0.3rem 0; }
+
+        /* ── Body layout ── */
+        .adm-body {
+            display: flex;
+            flex: 1;
+            min-height: 0;
+        }
+
+        /* ── Admin sidebar ── */
+        #adminSidebar {
+            width: 52px;
+            background: #0d0d0d;
+            border-right: 1px solid #161616;
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+            transition: width 0.25s ease;
+            overflow: hidden;
+            position: sticky;
+            top: 53px;
+            height: calc(100vh - 53px);
+        }
+        #adminSidebar.expanded { width: 210px; }
+
+        .adm-sb-header {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            padding: 0.65rem 0.6rem 0.5rem;
+            border-bottom: 1px solid #161616;
+            flex-shrink: 0;
+        }
+        #adminSidebar.expanded .adm-sb-header { justify-content: space-between; }
+
+        .adm-sb-brand {
+            opacity: 0;
+            transition: opacity 0.2s ease;
+            padding-left: 0.3rem;
+        }
+        .adm-sb-brand img { height: 18px; width: auto; display: block; }
+        #adminSidebar.expanded .adm-sb-brand { opacity: 1; }
+
+        .adm-sb-toggle {
+            background: none;
+            border: none;
+            color: #444;
+            font-size: 1rem;
+            cursor: pointer;
+            padding: 0.3rem;
+            line-height: 1;
+            flex-shrink: 0;
+            transition: color 0.2s;
+            border-radius: 4px;
+        }
+        .adm-sb-toggle:hover { color: #00bcd4; background: rgba(0,188,212,0.06); }
+
+        .adm-sb-nav {
+            display: flex;
+            flex-direction: column;
+            padding: 0.75rem 0.5rem;
+            gap: 0.1rem;
+            flex: 1;
+        }
+
+        .adm-sb-section {
+            font-family: 'Inter', sans-serif;
+            font-size: 0.62rem;
+            font-weight: 700;
+            letter-spacing: 1.8px;
+            text-transform: uppercase;
+            color: #333;
+            padding: 0.5rem 0.6rem 0.2rem;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.15s ease;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+        #adminSidebar.expanded .adm-sb-section { opacity: 1; }
+
+        .adm-sb-link {
+            display: flex;
+            align-items: center;
+            gap: 0.8rem;
+            padding: 0.55rem 0.6rem;
+            border-radius: 7px;
+            color: #555;
+            text-decoration: none;
+            font-family: 'Inter', sans-serif;
+            font-size: 0.84rem;
+            font-weight: 500;
+            white-space: nowrap;
+            overflow: hidden;
+            transition: background 0.15s, color 0.15s, border-color 0.15s;
+            border-left: 2px solid transparent;
+        }
+        .adm-sb-link:hover {
+            background: rgba(0,188,212,0.06);
+            color: #ccc;
+            border-left-color: rgba(0,188,212,0.25);
+        }
+        .adm-sb-link.active {
+            background: rgba(0,188,212,0.09);
+            color: #00bcd4;
+            border-left-color: #00bcd4;
+            font-weight: 600;
+        }
+
+        .adm-sb-icon {
+            font-size: 1rem;
+            flex-shrink: 0;
+            width: 20px;
+            text-align: center;
+            line-height: 1;
+        }
+
+        .adm-sb-label {
+            opacity: 0;
+            transition: opacity 0.15s ease;
+            pointer-events: none;
+        }
+        #adminSidebar.expanded .adm-sb-label { opacity: 1; pointer-events: auto; }
+
+        /* Sidebar footer */
+        .adm-sb-footer {
+            padding: 0.75rem 0.6rem;
+            border-top: 1px solid #161616;
+            flex-shrink: 0;
+        }
+
+        /* ── Main content area ── */
+        .adm-main {
+            flex: 1;
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .adm-content {
+            flex: 1;
+            padding: 2rem;
+        }
+
+        /* ── Footer ── */
+        .nr-footer {
+            padding: 1rem 2rem;
+            border-top: 1px solid #161616;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.65rem;
+            color: #3a3a3a;
+            letter-spacing: 1.5px;
+            flex-shrink: 0;
+        }
+
+        /* ── Shared component styles ── */
+        h1, h2, h3, h4, h5 { color: #e0e0e0; font-family: 'Inter', sans-serif; }
+        p, .text-muted { color: #999 !important; }
+
+        .card { background-color: #1a1a1a !important; border: 1px solid #222 !important; border-radius: 12px !important; box-shadow: 0 0 0 1px rgba(0,188,212,0.06), 0 16px 48px rgba(0,0,0,0.4) !important; }
+        .card-body { background-color: #1a1a1a !important; color: #e0e0e0 !important; }
+        .card-title { color: #e0e0e0 !important; }
+
+        .nr-card { position: relative; background: #1a1a1a; border: 1px solid #222; border-radius: 12px; overflow: hidden; box-shadow: 0 0 0 1px rgba(0,188,212,0.1), 0 20px 60px rgba(0,0,0,0.5); transition: box-shadow 0.3s; }
+        .nr-card-accent { height: 3px; background: linear-gradient(90deg, #00bcd4, #00e5ff, transparent); }
+        .nr-card-body { padding: 2rem; }
+
+        .nr-badge { display: inline-block; font-family: 'JetBrains Mono', monospace; font-size: 0.6rem; font-weight: 700; letter-spacing: 3px; color: #00bcd4; border: 1px solid rgba(0,188,212,0.35); padding: 0.2rem 0.7rem; border-radius: 2px; margin-bottom: 0.6rem; }
+        .nr-label { display: block; font-family: 'Inter', sans-serif; font-size: 0.72rem; font-weight: 500; letter-spacing: 0.8px; color: #777 !important; text-transform: uppercase; margin-bottom: 0.4rem; }
+
+        .form-control, .form-select { background-color: #1e1e1e !important; color: #e0e0e0 !important; border: 1px solid #2a2a2a !important; border-radius: 6px !important; font-family: 'Inter', sans-serif; font-size: 0.88rem; transition: border-color 0.2s, box-shadow 0.2s; }
+        .form-control:focus, .form-select:focus { background-color: #222 !important; color: #e0e0e0 !important; border-color: #00bcd4 !important; box-shadow: 0 0 0 3px rgba(0,188,212,0.12) !important; }
+        .form-control::placeholder { color: #444 !important; }
+        .input-group-text { background-color: #1e1e1e !important; border: 1px solid #2a2a2a !important; color: #666 !important; }
+
+        .btn-primary { background: linear-gradient(135deg, #00bcd4, #00acc1) !important; border: none !important; color: #080808 !important; font-family: 'Inter', sans-serif; font-weight: 600; font-size: 0.88rem; border-radius: 6px; transition: all 0.2s; }
+        .btn-primary:hover { background: linear-gradient(135deg, #00e5ff, #00bcd4) !important; box-shadow: 0 4px 20px rgba(0,188,212,0.35) !important; transform: translateY(-1px); color: #080808 !important; }
+        .btn-primary:disabled { background: #1a3035 !important; color: #2e666e !important; box-shadow: none !important; transform: none !important; }
+        .btn-outline-primary { color: #00bcd4 !important; border-color: rgba(0,188,212,0.35) !important; background: transparent !important; }
+        .btn-outline-primary:hover { background: rgba(0,188,212,0.08) !important; color: #00e5ff !important; }
+        .btn-outline-secondary { color: #666 !important; border-color: #2a2a2a !important; background: transparent !important; }
+        .btn-outline-secondary:hover { background: #1e1e1e !important; color: #aaa !important; }
+        .btn-outline-danger { color: #ef5350 !important; border-color: rgba(239,83,80,0.3) !important; background: transparent !important; }
+        .btn-outline-danger:hover { background: rgba(239,83,80,0.08) !important; color: #ef9a9a !important; }
+        .btn-secondary { background-color: #1e1e1e !important; border-color: #2a2a2a !important; color: #888 !important; }
+        .btn-secondary:hover { background-color: #252525 !important; color: #ccc !important; }
+        .btn-danger { background: linear-gradient(135deg, #7f0000, #b71c1c) !important; border: none !important; color: #ffcdd2 !important; }
+        .btn-danger:hover { background: linear-gradient(135deg, #b71c1c, #c62828) !important; box-shadow: 0 4px 16px rgba(183,28,28,0.3) !important; }
+        .btn-success { background: linear-gradient(135deg, #1b5e20, #2e7d32) !important; border: none !important; color: #c8e6c9 !important; font-weight: 600; transition: all 0.2s; }
+        .btn-success:hover { background: linear-gradient(135deg, #2e7d32, #388e3c) !important; box-shadow: 0 4px 16px rgba(46,125,50,0.3) !important; transform: translateY(-1px); color: #e8f5e9 !important; }
+
+        .form-check-input { background-color: #1e1e1e !important; border-color: #2a2a2a !important; }
+        .form-check-input:checked { background-color: #00bcd4 !important; border-color: #00bcd4 !important; }
+        .form-check-label { color: #777 !important; font-size: 0.88rem; }
+
+        .table { color: #ccc !important; }
+        .table > :not(caption) > * > * { background-color: transparent !important; color: #ccc !important; }
+        .table-hover > tbody > tr:hover > * { background-color: rgba(0,188,212,0.03) !important; color: #e0e0e0 !important; }
+        .table thead th { border-bottom: 1px solid #222 !important; color: #555 !important; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.8px; font-weight: 600; padding-bottom: 0.75rem; }
+        .table td { border-color: #1a1a1a !important; }
+
+        .alert { border-radius: 8px !important; font-family: 'Inter', sans-serif; font-size: 0.86rem; border-width: 1px !important; }
+        .alert-info    { background-color: rgba(0,188,212,0.07)  !important; color: #80deea !important; border-color: rgba(0,188,212,0.15)  !important; }
+        .alert-danger  { background-color: rgba(239,83,80,0.07)  !important; color: #ef9a9a !important; border-color: rgba(239,83,80,0.15)  !important; }
+        .alert-success { background-color: rgba(76,175,80,0.07)  !important; color: #a5d6a7 !important; border-color: rgba(76,175,80,0.15)  !important; }
+        .alert-warning { background-color: rgba(255,193,7,0.07)  !important; color: #ffe082 !important; border-color: rgba(255,193,7,0.15)  !important; }
+        .btn-close { filter: invert(1) brightness(0.5); }
+
+        .modal-content { background-color: #1a1a1a !important; border: 1px solid #222 !important; color: #e0e0e0 !important; border-radius: 12px !important; }
+        .modal-header { border-color: #222 !important; padding: 1.25rem 1.5rem; }
+        .modal-footer { border-color: #222 !important; padding: 1rem 1.5rem; }
+        .modal-body { padding: 1.5rem; }
+        .modal-title { color: #e0e0e0 !important; font-family: 'Inter', sans-serif; font-weight: 600; font-size: 1rem; }
+
+        .badge.bg-secondary { background-color: #1e1e1e !important; color: #666 !important; border: 1px solid #2a2a2a; }
+        .badge.bg-danger  { background-color: rgba(183,28,28,0.2)  !important; color: #ef9a9a !important; }
+        .badge.bg-success { background-color: rgba(27,94,32,0.2)   !important; color: #a5d6a7 !important; }
+        .badge.bg-warning { background-color: rgba(245,127,23,0.2) !important; color: #ffe082 !important; }
+
+        .bootstrap-select .dropdown-toggle { background-color: #1e1e1e !important; color: #e0e0e0 !important; border: 1px solid #2a2a2a !important; border-radius: 6px !important; }
+        .bootstrap-select > .dropdown-menu { background-color: #1a1a1a !important; border: 1px solid #222 !important; border-radius: 8px !important; }
+        .bootstrap-select > .dropdown-menu .dropdown-item { color: #888 !important; font-size: 0.85rem; }
+        .bootstrap-select > .dropdown-menu .dropdown-item:hover { background-color: rgba(0,188,212,0.1) !important; color: #00bcd4 !important; }
+
+        hr { border-color: #1e1e1e !important; opacity: 1; }
+        ::-webkit-scrollbar { width: 5px; height: 5px; }
+        ::-webkit-scrollbar-track { background: #161616; }
+        ::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #3a3a3a; }
+
+        {% block extra_style %}{% endblock %}
+    </style>
+</head>
+<body>
+
+<!-- Topbar -->
+<div class="adm-topbar">
+    <div class="adm-topbar-left">
+        <a href="{{ url_for('dashboard') }}" class="nr-back-btn">← Home</a>
+        <div class="adm-topbar-sep"></div>
+        <span class="adm-topbar-title">Administration</span>
     </div>
-
-    <!-- Nav links -->
-    <a href="{{ url_for('admin_users') }}"
-       class="sidebar-link {% if active_section == 'users' %}active{% endif %}"
-       title="User Management">
-      <span class="sidebar-icon"><i class="bi bi-people-fill"></i></span>
-      <span class="sidebar-label">User Management</span>
-    </a>
-
-    <a href="{{ url_for('admin_audit') }}"
-       class="sidebar-link {% if active_section == 'audit' %}active{% endif %}"
-       title="Audit Logs">
-      <span class="sidebar-icon"><i class="bi bi-shield-check"></i></span>
-      <span class="sidebar-label">Audit Logs</span>
-    </a>
-
-    <a href="{{ url_for('admin_analytics') }}"
-       class="sidebar-link {% if active_section == 'analytics' %}active{% endif %}"
-       title="Analytics">
-      <span class="sidebar-icon"><i class="bi bi-bar-chart-line"></i></span>
-      <span class="sidebar-label">Analytics</span>
-    </a>
-
-    <a href="{{ url_for('admin_server') }}"
-       class="sidebar-link {% if active_section == 'server' %}active{% endif %}"
-       title="Server Management">
-      <span class="sidebar-icon"><i class="bi bi-server"></i></span>
-      <span class="sidebar-label">Server Management</span>
-    </a>
-
-  </nav>
-
-  <!-- Main content -->
-  <div class="flex-grow-1" style="min-width: 0;">
-
-    {% with messages = get_flashed_messages(with_categories=true) %}
-      {% if messages %}
-        {% for category, message in messages %}
-          <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
-            {{ message }}
-            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-          </div>
-        {% endfor %}
-      {% endif %}
-    {% endwith %}
-
-    {% block admin_content %}{% endblock %}
-
-  </div>
+    <div class="dropdown">
+        <button class="btn nr-user-btn dropdown-toggle" type="button"
+                data-bs-toggle="dropdown" aria-expanded="false">
+            {{ current_user.username }}
+        </button>
+        <ul class="dropdown-menu dropdown-menu-end">
+            <li><a class="dropdown-item" href="{{ url_for('account') }}">
+                <i class="bi bi-person me-2" style="color:#555;"></i>My Account
+            </a></li>
+            <li><hr class="dropdown-divider"></li>
+            <li><a class="dropdown-item" href="{{ url_for('logout') }}">
+                <i class="bi bi-box-arrow-right me-2" style="color:#555;"></i>Logout
+            </a></li>
+        </ul>
+    </div>
 </div>
 
-<style>
-  .sidebar-link {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    padding: 0.5rem 0.5rem;
-    margin-bottom: 0.15rem;
-    border-radius: 6px;
-    color: #888;
-    text-decoration: none;
-    font-family: 'Inter', sans-serif;
-    font-size: 0.83rem;
-    white-space: nowrap;
-    overflow: hidden;
-    transition: background 0.2s, color 0.2s;
-  }
-  .sidebar-link:hover:not(.disabled-link) {
-    background-color: rgba(0,188,212,0.06);
-    color: #00bcd4;
-  }
-  .sidebar-link.active {
-    background-color: rgba(0,188,212,0.08);
-    color: #00bcd4;
-    font-weight: 600;
-  }
-  .sidebar-link.disabled-link {
-    opacity: 0.3;
-    cursor: default;
-    pointer-events: none;
-  }
-  .sidebar-icon {
-    font-size: 0.95rem;
-    flex-shrink: 0;
-    width: 22px;
-    text-align: center;
-  }
-  .sidebar-label {
-    opacity: 0;
-    transition: opacity 0.2s ease;
-    pointer-events: none;
-  }
-  .sidebar-brand {
-    opacity: 0;
-    transition: opacity 0.2s ease;
-    padding-left: 0.5rem;
-  }
-  #sidebarToggle:hover { color: #00bcd4 !important; }
-  #adminSidebar.expanded { width: 195px !important; }
-  #adminSidebar.expanded .sidebar-label,
-  #adminSidebar.expanded .sidebar-brand { opacity: 1; pointer-events: auto; }
-</style>
+<!-- Body -->
+<div class="adm-body">
+
+    <!-- Sidebar -->
+    <nav id="adminSidebar">
+
+        <div class="adm-sb-header">
+            <span class="adm-sb-brand">
+                <img src="{{ url_for('static', filename='logo.svg') }}" alt="NetRollout">
+            </span>
+            <button class="adm-sb-toggle" id="admToggle" title="Toggle sidebar">&#9776;</button>
+        </div>
+
+        <div class="adm-sb-nav">
+
+            <div class="adm-sb-section">Access</div>
+
+            <a href="{{ url_for('admin_users') }}"
+               class="adm-sb-link {% if active_section == 'users' %}active{% endif %}"
+               title="User Management">
+                <i class="bi bi-people-fill adm-sb-icon"></i>
+                <span class="adm-sb-label">User Management</span>
+            </a>
+
+            <hr style="border-color:#181818; margin:0.4rem 0.5rem;">
+            <div class="adm-sb-section">Observability</div>
+
+            <a href="{{ url_for('admin_audit') }}"
+               class="adm-sb-link {% if active_section == 'audit' %}active{% endif %}"
+               title="Audit Logs">
+                <i class="bi bi-shield-check adm-sb-icon"></i>
+                <span class="adm-sb-label">Audit Logs</span>
+            </a>
+
+            <a href="{{ url_for('admin_analytics') }}"
+               class="adm-sb-link {% if active_section == 'analytics' %}active{% endif %}"
+               title="Analytics">
+                <i class="bi bi-bar-chart-line adm-sb-icon"></i>
+                <span class="adm-sb-label">Analytics</span>
+            </a>
+
+            <hr style="border-color:#181818; margin:0.4rem 0.5rem;">
+            <div class="adm-sb-section">System</div>
+
+            <a href="{{ url_for('admin_server') }}"
+               class="adm-sb-link {% if active_section == 'server' %}active{% endif %}"
+               title="Server Management">
+                <i class="bi bi-server adm-sb-icon"></i>
+                <span class="adm-sb-label">Server Management</span>
+            </a>
+
+        </div>
+
+        <div class="adm-sb-footer">
+            <div id="admRestartBtn" class="adm-sb-link" title="Restart server"
+                 style="cursor:pointer; color:#333; transition:color 0.15s;"
+                 onmouseenter="this.style.color='#ef9a9a'"
+                 onmouseleave="this.style.color='#333'"
+                 onclick="admRestartClick()">
+                <i class="bi bi-arrow-clockwise adm-sb-icon" style="font-size:0.82rem;"></i>
+                <span class="adm-sb-label" style="font-family:'JetBrains Mono',monospace; font-size:0.72rem; letter-spacing:1px;">RESTART</span>
+            </div>
+            <div class="adm-sb-link" style="opacity:0.25; pointer-events:none; gap:0.6rem; padding:0.3rem 0.5rem;">
+                <i class="bi bi-circle-fill adm-sb-icon" style="font-size:0.4rem; color:#1e3a3e;"></i>
+                <span class="adm-sb-label" style="font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:#2a2a2a; letter-spacing:1px;">v1.0</span>
+            </div>
+        </div>
+
+    </nav>
+
+    <!-- Main -->
+    <div class="adm-main">
+
+        <!-- Flash messages -->
+        <div class="px-4 pt-3">
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    {% for category, message in messages %}
+                        <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+                            {{ message }}
+                            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                        </div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+        </div>
+
+        <!-- Content -->
+        <div class="adm-content">
+            {% block admin_content %}{% endblock %}
+        </div>
+
+        <!-- Footer -->
+        <div class="nr-footer">
+            NETROLLOUT &nbsp;·&nbsp; ITAMAR WEINSTEIN &nbsp;·&nbsp; © 2025
+        </div>
+        <div class="nr-footer" style="padding-top:0;">
+            SOURCE AVAILABLE AT <a href="https://github.com/itamar14-byte/NetRollout" target="_blank"
+               style="color:#1e3a3e; text-decoration:none; letter-spacing:1px;">GITHUB REPO</a>
+            &nbsp;·&nbsp; LICENSED UNDER GNU AGPL V3
+        </div>
+
+    </div>
+</div>
+
+<!-- Restart modal -->
+<div class="modal fade" id="restartModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered" style="max-width:400px;">
+        <div class="modal-content">
+            <div class="modal-header" style="border-bottom:1px solid #222;">
+                <div>
+                    <div class="nr-badge" style="margin-bottom:0.3rem; border-color:rgba(239,83,80,0.4); color:#ef9a9a;">WARNING</div>
+                    <h5 class="modal-title" style="color:#ef9a9a;">Restart Server</h5>
+                </div>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p style="font-size:0.85rem; color:#aaa; margin-bottom:0.5rem;">The server will restart immediately.</p>
+                <p style="font-size:0.85rem; color:#ef9a9a; margin:0;">
+                    <i class="bi bi-exclamation-triangle me-1"></i>
+                    <span id="restartJobWarning"></span>
+                </p>
+            </div>
+            <div class="modal-footer" style="justify-content:space-between; align-items:center;">
+                <span id="restartCountdown" style="font-family:'JetBrains Mono',monospace; font-size:0.78rem; color:#555;"></span>
+                <div class="d-flex gap-2">
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" id="restartConfirmBtn" class="btn btn-danger btn-sm" disabled onclick="doRestart()">Confirm Restart</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap-select@1.14.0-beta3/dist/js/bootstrap-select.min.js"></script>
+
+{% block extra_script %}{% endblock %}
 
 <script>
-  const sidebar = document.getElementById("adminSidebar");
+    const admSidebar = document.getElementById("adminSidebar");
+    const admToggle  = document.getElementById("admToggle");
 
-  function toggleSidebar() {
-    sidebar.classList.toggle("expanded");
-    localStorage.setItem("adminSidebarExpanded", sidebar.classList.contains("expanded"));
-  }
+    function admExpand()   { admSidebar.classList.add("expanded"); localStorage.setItem("admSidebarExpanded","true"); }
+    function admCollapse() { admSidebar.classList.remove("expanded"); localStorage.setItem("admSidebarExpanded","false"); }
 
-  sidebar.addEventListener("click", function (e) {
-    if (!sidebar.classList.contains("expanded") && !e.target.closest("a")) {
-      toggleSidebar();
-    }
-  });
+    if (localStorage.getItem("admSidebarExpanded") === "true") admExpand();
 
-  document.addEventListener("click", function (e) {
-    if (sidebar.classList.contains("expanded") && !sidebar.contains(e.target)) {
-      toggleSidebar();
-    }
-  });
+    admToggle.addEventListener("click", function(e) {
+        e.stopPropagation();
+        admSidebar.classList.contains("expanded") ? admCollapse() : admExpand();
+    });
+
+    admSidebar.addEventListener("click", function(e) {
+        if (!admSidebar.classList.contains("expanded") && !e.target.closest("a")) admExpand();
+    });
+
+    document.addEventListener("click", function(e) {
+        if (admSidebar.classList.contains("expanded") && !admSidebar.contains(e.target)) admCollapse();
+    });
 </script>
-{% endblock %}
+
+<script>
+let _restartTimer = null;
+
+async function admRestartClick() {
+    let count = 0;
+    try {
+        const resp = await fetch('/admin/active_job_count');
+        const data = await resp.json();
+        count = data.count || 0;
+    } catch(e) { count = 0; }
+
+    if (count === 0) { fireRestart(); return; }
+
+    const confirmBtn = document.getElementById('restartConfirmBtn');
+    const countdown  = document.getElementById('restartCountdown');
+    document.getElementById('restartJobWarning').textContent =
+        `${count} active rollout job${count !== 1 ? 's' : ''} will be terminated mid-execution. Devices may be left partially configured.`;
+
+    confirmBtn.disabled = true;
+    countdown.textContent = 'Available in 3…';
+    clearInterval(_restartTimer);
+    let secs = 3;
+    _restartTimer = setInterval(() => {
+        secs--;
+        if (secs > 0) { countdown.textContent = `Available in ${secs}…`; }
+        else { clearInterval(_restartTimer); countdown.textContent = ''; confirmBtn.disabled = false; }
+    }, 1000);
+
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('restartModal')).show();
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    const modal = document.getElementById('restartModal');
+    if (!modal) return;
+    modal.addEventListener('hidden.bs.modal', () => {
+        clearInterval(_restartTimer);
+        document.getElementById('restartConfirmBtn').disabled = true;
+    });
+});
+
+function doRestart() {
+    const btn = document.getElementById('restartConfirmBtn');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Restarting…'; }
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('restartModal')).hide();
+    fireRestart();
+}
+
+function fireRestart() {
+    const sbBtn = document.getElementById('admRestartBtn');
+    if (sbBtn) {
+        sbBtn.querySelector('i').className = 'bi bi-arrow-clockwise adm-sb-icon spin';
+        sbBtn.querySelector('.adm-sb-label').textContent = 'RESTARTING…';
+        sbBtn.style.color = '#ef9a9a';
+        sbBtn.onclick = null;
+    }
+    fetch('/admin/restart', { method: 'POST', headers: { 'X-CSRFToken': '{{ csrf_token() }}' } })
+        .then(() => {
+            const poll = setInterval(() => {
+                fetch('/').then(r => { if (r.ok) { clearInterval(poll); window.location.replace('/'); } }).catch(() => {});
+            }, 1000);
+        });
+}
+</script>
+<style>
+@keyframes spin { to { transform: rotate(360deg); } }
+.spin { display: inline-block; animation: spin 0.8s linear infinite; }
+</style>
+
+</body>
+</html>

@@ -34,6 +34,7 @@ from sqlalchemy import text, create_engine, and_, or_
 from sqlalchemy.exc import IntegrityError, OperationalError
 from waitress import serve
 from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 # Must run before DB modules are imported — they build the engine at
 _CONFIG_ENV = Path(__file__).parent.parent / "config.env"
@@ -52,8 +53,13 @@ from orchestration import RolloutOrchestrator
 from validation import Validator
 
 app = Flask(__name__, template_folder='../templates')
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 # SECRET_KEY rotates every restart so all user sessions are invalidated.
 app.config["SECRET_KEY"] = secrets.token_urlsafe(32)
+
+app.config["SESSION_COOKIE_SECURE"] = True
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
 # Extract DB host:port from engine for use in error pages
 _DB_HOST = engine.url.host
@@ -239,11 +245,15 @@ def login_get():
 @conn_limit.limit("10 per minute")
 def login():
 	# Origin check replaces CSRF for login — blocks cross-origin POSTs without
-	# depending on session state, so it survives server restarts
+	# depending on session state, so it survives server restarts.
+	# Compare hostnames only: scheme/port vary under reverse proxy.
+	from urllib.parse import urlparse
 	origin = request.headers.get("Origin") or request.headers.get("Referer", "")
-	expected = request.host_url.rstrip("/")
-	if origin and not origin.startswith(expected):
-		return redirect(url_for("home"))
+	if origin:
+		origin_host = urlparse(origin).hostname or ""
+		server_host = request.host.split(":")[0]
+		if origin_host and origin_host != server_host:
+			return redirect(url_for("home"))
 	username = request.form["username"]
 	password = request.form["password"]
 	with get_session() as db_session:
