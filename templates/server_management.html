@@ -1,0 +1,273 @@
+{% extends "admin.html" %}
+{% block title %}Server Management — Admin Panel{% endblock %}
+
+{% block admin_content %}
+<div class="d-flex justify-content-between align-items-start mb-4">
+  <div>
+    <div class="nr-badge" style="margin-bottom:0.35rem;">SERVER MANAGEMENT</div>
+    <h4 class="mb-0" style="font-family:'Inter',sans-serif; font-weight:600; font-size:1.15rem; color:#e0e0e0;">
+      Infrastructure Configuration
+    </h4>
+  </div>
+</div>
+
+<!-- ── DATABASE CARD ─────────────────────────────────────────── -->
+<div class="nr-card mb-4">
+  <div class="nr-card-accent"></div>
+  <div class="nr-card-body">
+
+    <!-- Header row -->
+    <div class="d-flex align-items-center justify-content-between mb-3">
+      <div class="d-flex align-items-center gap-2">
+        <i class="bi bi-database" style="color:#00bcd4; font-size:1.1rem;"></i>
+        <span style="font-family:'Inter',sans-serif; font-weight:600; color:#e0e0e0; font-size:0.97rem;">
+          Database
+        </span>
+      </div>
+      <!-- Status badge -->
+      <div class="d-flex align-items-center gap-2">
+        {% if db_connected %}
+          <span class="conn-dot connected"></span>
+          <span class="status-label">Connected</span>
+        {% else %}
+          <span class="conn-dot disconnected"></span>
+          <span class="status-label" style="color:#ef5350;">Disconnected</span>
+        {% endif %}
+        <span class="mode-badge {% if db_mode == 'external' %}mode-external{% else %}mode-bundled{% endif %}">
+          {{ db_mode | upper }}
+        </span>
+      </div>
+    </div>
+
+    <!-- Migration warning -->
+    <div class="nr-warning mb-4">
+      <i class="bi bi-exclamation-triangle-fill me-2" style="color:#ffe082;"></i>
+      <span>
+        Saving will initialize a <strong>fresh schema</strong> on the target database.
+        Existing data will <strong>not</strong> be migrated automatically —
+        perform a manual backup and restore if needed.
+      </span>
+    </div>
+
+    <!-- Form -->
+    <div class="row g-3">
+      <div class="col-md-5">
+        <label class="nr-label">Host</label>
+        <input type="text" id="db_host" class="form-control"
+               placeholder="db.example.com"
+               value="{{ current_config.get('DB_HOST', '') }}">
+      </div>
+      <div class="col-md-2">
+        <label class="nr-label">Port</label>
+        <input type="number" id="db_port" class="form-control"
+               placeholder="5432"
+               value="{{ current_config.get('DB_PORT', '5432') }}">
+      </div>
+      <div class="col-md-5">
+        <label class="nr-label">Database Name</label>
+        <input type="text" id="db_name" class="form-control"
+               placeholder="rollout_db"
+               value="{{ current_config.get('DB_NAME', '') }}">
+      </div>
+      <div class="col-md-4">
+        <label class="nr-label">User</label>
+        <input type="text" id="db_user" class="form-control"
+               placeholder="dbadmin"
+               value="{{ current_config.get('DB_USER', '') }}">
+      </div>
+      <div class="col-md-4">
+        <label class="nr-label">Password</label>
+        <input type="password" id="db_password" class="form-control"
+               placeholder="••••••••"
+               value="{{ current_config.get('DB_PASSWORD', '') }}">
+      </div>
+      <div class="col-md-4">
+        <label class="nr-label">Schema <span style="color:#555;">(optional)</span></label>
+        <input type="text" id="db_schema" class="form-control"
+               placeholder="public"
+               value="{{ current_config.get('DB_SCHEMA', '') }}">
+      </div>
+    </div>
+
+    <!-- Test result -->
+    <div id="testResult" class="mt-3" style="display:none;"></div>
+
+    <!-- Actions -->
+    <div class="d-flex gap-2 mt-4 align-items-center">
+      <button class="btn btn-outline-primary btn-sm" id="btnTest" onclick="testConnection()">
+        <i class="bi bi-plug me-1"></i>Test Connection
+      </button>
+      <button class="btn btn-primary btn-sm" id="btnSave" onclick="saveConfig()" disabled>
+        <i class="bi bi-floppy me-1"></i>Save Configuration
+      </button>
+      <span id="saveSpinner" class="spinner-border spinner-border-sm text-info ms-1"
+            style="display:none;"></span>
+    </div>
+
+    <!-- Restart banner -->
+    <div id="restartBanner" class="nr-restart-banner mt-4" style="display:none;">
+      <i class="bi bi-arrow-clockwise me-2"></i>
+      Configuration saved. <strong>Restart the application</strong> to apply changes and initialize the new database.
+    </div>
+
+  </div>
+</div>
+
+<!-- ── LDAP CARD (coming soon) ───────────────────────────────── -->
+<div class="nr-card" style="opacity:0.45; pointer-events:none; user-select:none;">
+  <div class="nr-card-accent" style="background: linear-gradient(90deg, #555, #333, transparent);"></div>
+  <div class="nr-card-body">
+    <div class="d-flex align-items-center justify-content-between">
+      <div class="d-flex align-items-center gap-2">
+        <i class="bi bi-people" style="color:#888; font-size:1.1rem;"></i>
+        <span style="font-family:'Inter',sans-serif; font-weight:600; color:#888; font-size:0.97rem;">
+          LDAP / Active Directory
+        </span>
+      </div>
+      <span class="mode-badge" style="background:rgba(255,255,255,0.04); color:#555; border-color:#333;">
+        COMING SOON
+      </span>
+    </div>
+    <p style="font-size:0.82rem; color:#555; margin-top:0.75rem; margin-bottom:0;">
+      Authenticate users against your organization's directory service.
+    </p>
+  </div>
+</div>
+
+<style>
+  .conn-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+  }
+  .conn-dot.connected    { background: #a5d6a7; box-shadow: 0 0 6px #a5d6a7; }
+  .conn-dot.disconnected { background: #ef5350; box-shadow: 0 0 6px #ef5350; }
+
+  .status-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+    color: #a5d6a7;
+    letter-spacing: 0.05em;
+  }
+
+  .mode-badge {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.68rem;
+    letter-spacing: 0.1em;
+    padding: 0.2rem 0.55rem;
+    border-radius: 4px;
+    border: 1px solid;
+  }
+  .mode-bundled  { background: rgba(0,188,212,0.07); color: #00bcd4; border-color: rgba(0,188,212,0.25); }
+  .mode-external { background: rgba(165,214,167,0.08); color: #a5d6a7; border-color: rgba(165,214,167,0.3); }
+
+  .nr-warning {
+    background: rgba(255,224,130,0.06);
+    border: 1px solid rgba(255,224,130,0.2);
+    border-radius: 6px;
+    padding: 0.65rem 0.9rem;
+    font-size: 0.82rem;
+    color: #ccc;
+    line-height: 1.5;
+  }
+
+  .nr-restart-banner {
+    background: rgba(0,188,212,0.07);
+    border: 1px solid rgba(0,188,212,0.25);
+    border-radius: 6px;
+    padding: 0.7rem 1rem;
+    font-size: 0.85rem;
+    color: #b2ebf2;
+  }
+
+  #testResult .test-ok  { color: #a5d6a7; font-size: 0.83rem; }
+  #testResult .test-err { color: #ef9a9a; font-size: 0.83rem; word-break: break-word; }
+</style>
+
+<script>
+  let testPassed = false;
+
+  function getFormData() {
+    return {
+      host:     document.getElementById('db_host').value.trim(),
+      port:     document.getElementById('db_port').value.trim(),
+      name:     document.getElementById('db_name').value.trim(),
+      user:     document.getElementById('db_user').value.trim(),
+      password: document.getElementById('db_password').value.trim(),
+      schema:   document.getElementById('db_schema').value.trim(),
+    };
+  }
+
+  // Re-disable Save if user edits fields after a successful test
+  document.querySelectorAll('#db_host,#db_port,#db_name,#db_user,#db_password,#db_schema')
+    .forEach(el => el.addEventListener('input', () => {
+      testPassed = false;
+      document.getElementById('btnSave').disabled = true;
+      document.getElementById('testResult').style.display = 'none';
+    }));
+
+  function testConnection() {
+    const btn = document.getElementById('btnTest');
+    const res = document.getElementById('testResult');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Testing…';
+    res.style.display = 'none';
+
+    fetch('{{ url_for("admin_server_db_test") }}', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token() }}'},
+      body: JSON.stringify(getFormData())
+    })
+    .then(r => r.json())
+    .then(data => {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-plug me-1"></i>Test Connection';
+      res.style.display = 'block';
+      if (data.success) {
+        testPassed = true;
+        document.getElementById('btnSave').disabled = false;
+        res.innerHTML = '<span class="test-ok"><i class="bi bi-check-circle me-1"></i>Connection successful</span>';
+      } else {
+        testPassed = false;
+        res.innerHTML = `<span class="test-err"><i class="bi bi-x-circle me-1"></i>${data.error}</span>`;
+      }
+    })
+    .catch(() => {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-plug me-1"></i>Test Connection';
+      res.style.display = 'block';
+      res.innerHTML = '<span class="test-err"><i class="bi bi-x-circle me-1"></i>Request failed</span>';
+    });
+  }
+
+  function saveConfig() {
+    if (!testPassed) return;
+    const btn = document.getElementById('btnSave');
+    const spinner = document.getElementById('saveSpinner');
+    btn.disabled = true;
+    spinner.style.display = 'inline-block';
+
+    fetch('{{ url_for("admin_server_db_save") }}', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token() }}'},
+      body: JSON.stringify(getFormData())
+    })
+    .then(r => r.json())
+    .then(data => {
+      spinner.style.display = 'none';
+      if (data.success) {
+        document.getElementById('restartBanner').style.display = 'block';
+      } else {
+        btn.disabled = false;
+        document.getElementById('testResult').style.display = 'block';
+        document.getElementById('testResult').innerHTML =
+          `<span class="test-err"><i class="bi bi-x-circle me-1"></i>${data.error}</span>`;
+      }
+    })
+    .catch(() => {
+      spinner.style.display = 'none';
+      btn.disabled = false;
+    });
+  }
+</script>
+{% endblock %}

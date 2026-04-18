@@ -1,5 +1,5 @@
 # Development Workplan
-_Last updated: 2026-04-17 — Phase 3.4b Query Builder complete, Phase 4.9 Grafana next_
+_Last updated: 2026-04-18 — nginx integration complete, admin panel redesign complete, Phase 4.9 Grafana next_
 
 ---
 
@@ -477,6 +477,31 @@ DB layer refactored into `src/db/` package. `create_all` replaced with Alembic. 
 
 ### 4.8 Server Management ✅ COMPLETE (2026-04-17)
 External DB configuration UI in admin panel. `db.py` refactored: `construct_url()` builds URL from individual env vars (`DB_HOST/PORT/NAME/USER/PASSWORD/SCHEMA`), `build_engine()` prefers `DATABASE_URL` then falls back to individual vars, `search_path` injected via `connect_args` if `DB_SCHEMA` set. `db_install.py` imports fixed to fully-qualified `db.db`/`db.tables` paths. `webapp.py`: `load_dotenv(config.env)` runs before DB imports; `_DB_HOST/_DB_PORT` read from `engine.url`; `pending_db_init.flag` checked on startup → runs `install()` → deletes flag. Three new routes: `GET /admin/server`, `POST /admin/server/db/test` (live connection test, blocks same-DB target), `POST /admin/server/db/save` (writes `config.env` + flag). `POST /admin/server/restart` uses `os.execv` for hot process restart (picks up new config + code changes). `server_management.html`: DB config card (status strip, migration warning, test/save/restart flow) + locked LDAP stub.
+
+### 4.8b nginx integration ✅ COMPLETE (2026-04-18)
+nginx reverse proxy running in Docker, terminating TLS and forwarding to Waitress on port 8080.
+- Self-signed cert for local dev (`fullchain.pem` / `privkey.pem` mounted at `/etc/nginx/certs/`)
+- HTTP → HTTPS 301 redirect
+- `proxy_set_header Host/X-Real-IP/X-Forwarded-For/X-Forwarded-Proto`
+- `ProxyFix(x_for=1, x_proto=1, x_host=1)` in Flask — trusts exactly 1 proxy hop
+- `SESSION_COOKIE_SECURE=True`, `SESSION_COOKIE_HTTPONLY=True`, `SESSION_COOKIE_SAMESITE=Lax`
+- `ProxyFix(x_for=1, x_proto=1, x_host=1)` + secure cookie config added to `webapp.py`
+- Origin check on `@csrf.exempt` login route compares hostnames only via `urlparse` (scheme/port vary under proxy — full URL comparison was rejecting legitimate logins)
+- SSL hardening: `TLSv1.2 TLSv1.3` only, `HIGH:!aNULL:!MD5` ciphers
+- Security headers: `Strict-Transport-Security`, `X-Frame-Options SAMEORIGIN`, `X-Content-Type-Options nosniff`
+- `client_max_body_size 10M` for CSV uploads
+- `/rollout_stream` location block: `proxy_buffering off`, `proxy_cache off`, `proxy_http_version 1.1`, `Connection ''` — required for SSE log streaming
+- Config lives at `docs/nginx/nginx.conf`, bind-mounted to `/etc/nginx/nginx.conf` in container
+
+### 4.8c Admin panel redesign ✅ COMPLETE (2026-04-18)
+Admin panel is now a fully standalone page — own layout, own topbar, own sidebar, not embedded in operator chrome.
+- Standalone `admin.html` (does not extend `base.html` or `operator_base.html`)
+- Topbar: ← Home button back to dashboard + "ADMINISTRATION" monospace label + user dropdown
+- Left sidebar: collapsed icon-only (52px) ↔ expanded with labels (210px), localStorage state
+- Sidebar sections with labels: **Access** (User Management), **Observability** (Audit Logs, Analytics), **System** (Server Management)
+- Restart button in sidebar footer — same modal + countdown + active-job warning as operator sidebar
+- Matching footer style (JetBrains Mono, same copy as operator pages)
+- All admin sub-pages (`admin_users`, `admin_audit`, `admin_analytics`, `server_management`) extend `admin.html` unchanged
 
 ### 4.9 Grafana analytics (next)
 Grafana running locally via Docker. Steps:

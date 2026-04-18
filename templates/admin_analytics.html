@@ -236,38 +236,31 @@
 {% endblock %}
 
 {% block extra_script %}
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/jQuery-QueryBuilder@2.6.0/dist/css/query-builder.default.min.css">
-<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jQuery-QueryBuilder@2.6.0/dist/js/query-builder.standalone.min.js"></script>
 
 <style>
 @keyframes spin { from { transform:rotate(0deg); } to { transform:rotate(360deg); } }
 
-/* ── QueryBuilder dark theme (amber accent for audit surface) ─ */
+/* ── QueryBuilder — linear row layout (amber accent) ─────── */
 .query-builder { font-family: 'Inter', sans-serif; }
-.query-builder .rules-group-container {
-  background: #0d0d0d; border: 1px solid #1e1e1e;
-  border-radius: 8px; padding: 12px 14px; margin-bottom: 0;
+
+.query-builder .rules-group-container,
+.query-builder .rules-group-body,
+.query-builder .rules-list {
+  background: transparent; border: none;
+  border-radius: 0; padding: 0; margin: 0; box-shadow: none;
 }
-.query-builder .rules-group-container .rules-group-container {
-  background: #111; border-color: #1a1a1a; margin-top: 8px;
+.query-builder .rules-list > .rules-group-container {
+  border-left: 2px solid rgba(255,224,130,0.18);
+  padding-left: 16px; padding-top: 4px;
 }
 .query-builder .rules-group-header {
-  display: flex; align-items: center; gap: 8px;
-  margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid #1a1a1a;
+  display: flex; align-items: center; justify-content: flex-end; gap: 6px;
+  margin-bottom: 6px; padding-bottom: 0; border-bottom: none;
 }
-.query-builder .group-conditions { display: flex; gap: 3px; }
-.query-builder .group-conditions .btn {
-  background: #1a1a1a; border: 1px solid #2a2a2a; color: #555;
-  font-family: 'JetBrains Mono', monospace; font-size: 0.65rem;
-  letter-spacing: 1.5px; padding: 0.18rem 0.55rem; border-radius: 3px; cursor: pointer;
-}
-.query-builder .group-conditions .btn.active,
-.query-builder .group-conditions .btn:focus {
-  background: rgba(255,224,130,0.08); border-color: rgba(255,224,130,0.25);
-  color: #ffe082; outline: none;
-}
-.query-builder .group-actions { display: flex; gap: 4px; margin-left: auto; }
+.query-builder .group-conditions { display: none !important; }
+
+.query-builder .group-actions { display: flex; gap: 4px; }
 .query-builder .group-actions .btn,
 .query-builder .rule-actions .btn {
   font-size: 0.68rem; padding: 0.15rem 0.5rem; border-radius: 3px; cursor: pointer;
@@ -278,33 +271,72 @@
 .query-builder .group-actions .btn-success:hover { background: rgba(255,224,130,0.12); }
 .query-builder .group-actions .btn-danger,
 .query-builder .rule-actions .btn-danger {
-  background: rgba(239,83,80,0.06); border: 1px solid rgba(239,83,80,0.18); color: #ef9a9a;
+  background: transparent !important; border: 1px solid rgba(239,83,80,0.2) !important; color: #666 !important;
 }
 .query-builder .group-actions .btn-danger:hover,
-.query-builder .rule-actions .btn-danger:hover { background: rgba(239,83,80,0.12); }
-.query-builder .rule-container {
-  background: #141414; border: 1px solid #1e1e1e; border-radius: 5px;
-  padding: 7px 10px; margin-bottom: 5px;
-  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+.query-builder .rule-actions .btn-danger:hover {
+  background: rgba(239,83,80,0.08) !important; color: #ef9a9a !important;
+  border-color: rgba(239,83,80,0.35) !important;
 }
-.query-builder .rule-container:hover { border-color: #252525; }
-.query-builder select,
+
+.query-builder .rule-container {
+  background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 8px; padding: 8px 12px; margin-bottom: 0;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  transition: border-color 0.15s;
+}
+.query-builder .rule-container:hover { border-color: rgba(255,224,130,0.18); }
+.query-builder .rule-filter-container,
+.query-builder .rule-operator-container,
+.query-builder .rule-value-container { display: inline-flex; align-items: center; margin: 0; }
+.query-builder .rule-actions { margin-left: auto; display: flex; align-items: center; }
+.nr-field-icon { font-size: 0.82rem; opacity: 0.7; flex-shrink: 0; }
+
+.nr-qb-connector {
+  display: flex; align-items: center; justify-content: center; padding: 4px 0;
+}
+.nr-qb-pill {
+  font-family: 'JetBrains Mono', monospace; font-size: 0.62rem;
+  letter-spacing: 1.5px; text-transform: uppercase;
+  color: #ffe082; background: rgba(255,224,130,0.06);
+  border: 1px solid rgba(255,224,130,0.25); border-radius: 4px;
+  padding: 0.18rem 0.7rem; cursor: pointer; line-height: 1.7;
+  transition: background 0.15s, border-color 0.15s;
+}
+.nr-qb-pill:hover { background: rgba(255,224,130,0.12); border-color: rgba(255,224,130,0.45); }
+
+.query-builder select {
+  appearance: none !important; -webkit-appearance: none !important;
+  background-color: rgba(255,255,255,0.04) !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='5'%3E%3Cpath d='M0 0l5 5 5-5z' fill='%23555'/%3E%3C/svg%3E") !important;
+  background-repeat: no-repeat !important; background-position: right 8px center !important;
+  border: 1px solid rgba(255,255,255,0.08) !important;
+  color: #ccc !important; border-radius: 6px !important;
+  font-size: 0.78rem !important; font-family: 'Inter', sans-serif !important;
+  padding: 0.3rem 1.8rem 0.3rem 0.65rem !important;
+  cursor: pointer !important; transition: border-color 0.15s !important;
+}
+.query-builder select:focus {
+  outline: none !important; border-color: rgba(255,224,130,0.4) !important;
+  box-shadow: 0 0 0 2px rgba(255,224,130,0.06) !important;
+}
 .query-builder input[type="text"],
 .query-builder input[type="number"],
 .query-builder input[type="date"] {
-  background: #111 !important; border: 1px solid #2a2a2a !important;
-  color: #ccc !important; border-radius: 4px !important;
-  font-size: 0.77rem !important; font-family: 'Inter', sans-serif !important;
-  padding: 0.22rem 0.45rem !important;
+  background: rgba(255,255,255,0.04) !important;
+  border: 1px solid rgba(255,255,255,0.08) !important;
+  color: #ccc !important; border-radius: 6px !important;
+  font-size: 0.78rem !important; font-family: 'Inter', sans-serif !important;
+  padding: 0.3rem 0.65rem !important; transition: border-color 0.15s !important;
 }
-.query-builder select:focus, .query-builder input:focus {
-  outline: none !important; border-color: rgba(255,224,130,0.35) !important;
+.query-builder input:focus {
+  outline: none !important; border-color: rgba(255,224,130,0.4) !important;
   box-shadow: 0 0 0 2px rgba(255,224,130,0.06) !important;
 }
 .query-builder .has-error select,
 .query-builder .has-error input { border-color: rgba(239,83,80,0.5) !important; }
 .query-builder .error-container { color: #ef9a9a; font-size: 0.7rem; margin-top: 3px; }
-.query-builder .rule-actions { margin-left: auto; }
+
 </style>
 
 <script>
@@ -314,9 +346,30 @@ let lastColumns = [];
 
 const USERNAMES = [{% for u in all_users %}"{{ u.username }}"{% if not loop.last %},{% endif %}{% endfor %}];
 
+const FIELD_ICONS = {
+  timestamp:      'bi-clock',
+  actor_username: 'bi-person',
+  action:         'bi-activity',
+  object_type:    'bi-box',
+  success:        'bi-shield-check',
+  ip_address:     'bi-hdd-network'
+};
+
+function injectFieldIcon(rule) {
+  if (!rule || !rule.$el) return;
+  rule.$el.find('.nr-field-icon').remove();
+  const id = rule.filter ? rule.filter.id : null;
+  const icon = FIELD_ICONS[id] || 'bi-funnel';
+  const color = id ? '#ffe082' : '#444';
+  rule.$el.find('.rule-filter-container').before(
+    `<i class="bi ${icon} nr-field-icon" style="color:${color};"></i>`
+  );
+}
+
 $(function() {
   $('#queryBuilder').queryBuilder({
     allow_empty: true,
+    lang: { add_rule: '+ Rule', add_group: '+ Group', delete_rule: '×', delete_group: '×' },
     filters: [
       {
         id: 'timestamp', label: 'Timestamp', type: 'date',
@@ -327,9 +380,27 @@ $(function() {
       },
       {
         id: 'actor_username', label: 'Actor', type: 'string',
-        input: 'select',
-        values: Object.fromEntries(USERNAMES.map(u => [u, u])),
-        operators: ['equal','not_equal','contains','begins_with']
+        operators: ['equal','not_equal','contains','begins_with'],
+        input: function(rule, name) {
+          const opts = USERNAMES.map(u => `<option value="${u}">${u}</option>`).join('');
+          return `
+            <select class="actor-select" name="${name}" style="display:none;">
+              <option value="">— pick user —</option>${opts}
+            </select>
+            <input type="text" class="actor-text" name="${name}"
+                   placeholder="username substring…" style="display:none;">`;
+        },
+        valueGetter: function(rule) {
+          const op = rule.operator.type;
+          return (op === 'equal' || op === 'not_equal')
+            ? rule.$el.find('.actor-select').val()
+            : rule.$el.find('.actor-text').val();
+        },
+        valueSetter: function(rule, val) {
+          const op = rule.operator.type;
+          if (op === 'equal' || op === 'not_equal') rule.$el.find('.actor-select').val(val);
+          else rule.$el.find('.actor-text').val(val);
+        }
       },
       {
         id: 'action', label: 'Action', type: 'string',
@@ -357,14 +428,66 @@ $(function() {
       }
     ],
     operators: [
-      { type:'equal',            nb_inputs:1, multiple:false, apply_to:['string','number','datetime','boolean'] },
-      { type:'not_equal',        nb_inputs:1, multiple:false, apply_to:['string','number','datetime','boolean'] },
-      { type:'greater_or_equal', nb_inputs:1, multiple:false, apply_to:['number','datetime'] },
-      { type:'less_or_equal',    nb_inputs:1, multiple:false, apply_to:['number','datetime'] },
-      { type:'contains',         nb_inputs:1, multiple:false, apply_to:['string'] },
-      { type:'begins_with',      nb_inputs:1, multiple:false, apply_to:['string'] },
+      { type:'equal',            nb_inputs:1, multiple:false, apply_to:['string','number','datetime','boolean'], label:'=' },
+      { type:'not_equal',        nb_inputs:1, multiple:false, apply_to:['string','number','datetime','boolean'], label:'≠' },
+      { type:'greater_or_equal', nb_inputs:1, multiple:false, apply_to:['number','datetime'], label:'≥' },
+      { type:'less_or_equal',    nb_inputs:1, multiple:false, apply_to:['number','datetime'], label:'≤' },
+      { type:'contains',         nb_inputs:1, multiple:false, apply_to:['string'], label:'contains' },
+      { type:'begins_with',      nb_inputs:1, multiple:false, apply_to:['string'], label:'starts with' },
     ]
   });
+
+  $('#queryBuilder')
+    .on('afterAddRule.queryBuilder', (e, rule) => injectFieldIcon(rule))
+    .on('afterUpdateRuleFilter.queryBuilder', (e, rule) => injectFieldIcon(rule));
+
+  function syncActorInput(rule) {
+    if (rule.filter && rule.filter.id !== 'actor_username') return;
+    const op = rule.operator ? rule.operator.type : null;
+    const useSelect = (op === 'equal' || op === 'not_equal');
+    rule.$el.find('.actor-select').toggle(useSelect);
+    rule.$el.find('.actor-text').toggle(!useSelect);
+  }
+
+  let _qbRefreshTimer;
+  function scheduleRefresh() {
+    clearTimeout(_qbRefreshTimer);
+    _qbRefreshTimer = setTimeout(() => {
+      const $qb = $('#queryBuilder');
+      $qb.find('.nr-qb-connector').remove();
+      $qb.find('.rules-group-container').each(function() {
+        const $group = $(this);
+        const condition = $group.find('> .rules-group-header .group-conditions input:checked').val() || 'AND';
+        const $list = $group.find('.rules-list').first();
+        const $children = $list.children('.rule-container, .rules-group-container');
+        $children.each(function(i) {
+          if (i === $children.length - 1) return;
+          $(this).after(
+            `<div class="nr-qb-connector"><button class="nr-qb-pill" type="button">${condition}</button></div>`
+          );
+        });
+      });
+    }, 30);
+  }
+
+  $(document).on('click', '.nr-qb-pill', function() {
+    const $group = $(this).closest('.rules-group-container');
+    const $conditions = $group.find('> .rules-group-header .group-conditions');
+    const $checked = $conditions.find('input:checked');
+    const $other = $conditions.find('input:not(:checked)');
+    $checked.prop('checked', false);
+    $other.prop('checked', true).trigger('change');
+    scheduleRefresh();
+  });
+
+  $('#queryBuilder')
+    .on('afterAddRule.queryBuilder afterDeleteRule.queryBuilder ' +
+        'afterAddGroup.queryBuilder afterDeleteGroup.queryBuilder',
+        () => scheduleRefresh())
+    .on('afterAddRule.queryBuilder', (e, rule) => syncActorInput(rule))
+    .on('afterUpdateRuleOperator.queryBuilder', (e, rule) => syncActorInput(rule));
+
+  scheduleRefresh();
 });
 
 async function runQuery() {
@@ -435,4 +558,5 @@ function exportCsv() {
   a.click(); URL.revokeObjectURL(url);
 }
 </script>
+
 {% endblock %}
