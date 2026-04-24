@@ -1,0 +1,34 @@
+apiVersion: 1
+
+datasources:
+  - name: postgresql
+    type: grafana-postgresql-datasource
+    uid: cfjxoedixn7r4d
+    access: proxy
+    url: NetRollout-DB:5432
+    database: rollout_db
+    user: grafana_reader
+    secureJsonData:
+      password: "${GRAFANA_DB_PASSWORD}"
+    jsonData:
+      sslmode: disable
+      postgresVersion: 1700
+      timescaledb: false
+    editable: false
+
+  - name: prometheus
+    type: prometheus
+    uid: efjxnznhhslc0a
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    jsonData:
+      httpMethod: POST
+    editable: false
+
+  - name: loki
+    type: loki
+    uid: bfjxobrgrah34b
+    access: proxy
+    url: http://loki:3100
+    editable: false
