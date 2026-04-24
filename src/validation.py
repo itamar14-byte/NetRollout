@@ -11,7 +11,7 @@ class Validator:
     def __init__(self, logger: RolloutLogger):
         self.logger = logger
 
-    # Defines supported platforms for app
+    # Defines supported platforms for redis_session_app
     SUPPORTED_PLATFORMS = {
     "fortinet",
     "paloalto_panos",
@@ -86,7 +86,7 @@ class Validator:
 
     @staticmethod
     def validate_platform(platform: str) -> bool:
-        """checks that platform is supported by the app"""
+        """checks that platform is supported by the redis_session_app"""
         if platform not in Validator.SUPPORTED_PLATFORMS:
             return False
         return True

@@ -15,7 +15,8 @@ class InputParser:
 		self.validator = validator
 		self.logger = logger
 
-	def prepare_devices(self, raw_devices: list[dict[str, str]]) -> list[Device]:
+	def prepare_devices(self, raw_devices: list[dict[str, str]]) -> tuple[
+		list[Device],list[str]]:
 		"""Helper function for the file parser that processes the device dictionary
 		 :param raw_devices: preprocessed device list
 		 stating whether the user wishes to see progress messages on the console
@@ -24,6 +25,7 @@ class InputParser:
 		"""
 		# process all validated devices into a list of dictionaries
 		devices = []
+		errors = []
 		core_keys = {"ip", "device_type", "port", "label", "username",
 		             "password", "secret"}
 		for item in raw_devices:
@@ -47,23 +49,25 @@ class InputParser:
 						                        if vrf.strip()]
 
 					devices.append(Device(**core,extra=var_mappings))
-					self.logger.notify(
+					'''self.logger.notify(
 						f"Device {item['device_type']}: {item['ip']} successfully added",
-						"green")
+						"green")'''
 				else:
-					self.logger.notify(f"{item['ip']} is not reachable",
-					                   "red")
+					errors.append(f"{item['ip']} is not reachable")
+					'''self.logger.notify(f"{item['ip']} is not reachable",
+					                   "red")'''
 					continue
 			else:
 				continue
-		return devices
+		return devices, errors
 
 	@staticmethod
 	def import_from_inventory(raw_devices: list[Inventory]) -> list[Device]:
 		return [Device.from_inventory(row) for row in raw_devices]
 
 	def csv_to_inventory(self, device_path: str, user_id: uuid.UUID,
-	                     db_session: Session, label: str = None) -> list[Device]:
+	                     db_session: Session, label: str = None) -> tuple[
+		list[Device],list[str]]:
 		device_path = device_path.strip('"')
 		if self.validator.validate_file_extension(device_path, "csv"):
 			try:
@@ -83,39 +87,39 @@ class InputParser:
 						raise ValueError(
 							"Missing keys: {}".format(missing_keys))
 
-					devices = self.prepare_devices(list(reader))
+					devices, errors = self.prepare_devices(list(reader))
 					for device in devices:
 						row = Inventory(user_id=user_id, ip=device.ip,
 						                port=device.port,
 						                device_type=device.device_type,
 						                label=label if label else device.ip)
 						db_session.add(row)
-					return devices
+					return devices,errors
 
 			except FileNotFoundError:
 				self.logger.notify(f"file not found", "red")
-				return []
+				return [],[]
 			except PermissionError:
 				self.logger.notify(f"can't access file", "red")
-				return []
+				return [],[]
 			except Exception as e:
 				self.logger.notify(f"Parsing failed: {e}", "red")
-				return []
+				return [],[]
 
 		else:
-			return []
+			return [],[]
 
 	def form_to_inventory(self, devices_json: str, user_id: uuid.UUID,
 	                      db_session: Session) -> list[Device]:
 		raw_devices = loads(devices_json) if devices_json else []
-		devices = self.prepare_devices(raw_devices=raw_devices)
+		devices, _ = self.prepare_devices(raw_devices=raw_devices)
 		# logs summary of file processing workflow
-		self.logger.notify(f"Devices loaded: {devices}","green")
+		#self.logger.notify(f"Devices loaded: {devices}","green")
 
-		self.logger.notify(
+		'''self.logger.notify(
 			f"Devices file successfully processed\n"
 			f" {len(devices)} devices found",
-			"green")
+			"green")'''
 		for device in devices:
 			row = Inventory(user_id=user_id, ip=device.ip,
 			                port=device.port,

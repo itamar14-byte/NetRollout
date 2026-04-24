@@ -100,6 +100,8 @@ Always-dark enterprise aesthetic — permanently dark, no toggle. Key design ele
 - **`.container` must NOT have z-index** — breaks Bootstrap modal stacking
 - All Bootstrap components overridden in `base.html` to match dark theme
 - All operator pages extend `operator_base.html`. Topbar and footer are automatic.
+- **Admin pages extend `admin.html`** — standalone template (does not extend `base.html` or `operator_base.html`). Own topbar with ← Home button, own collapsible sidebar (Access / Observability / System sections), own footer, restart button. Sub-pages: `admin_users.html`, `admin_audit.html`, `admin_analytics.html`, `server_management.html`.
+- **nginx** sits in front of Waitress. Config at `docs/nginx/nginx.conf`, bind-mounted to `/etc/nginx/nginx.conf`. Flask uses `ProxyFix(x_for=1, x_proto=1, x_host=1)`. SSE endpoint `/rollout_stream` requires `proxy_buffering off` in nginx — already configured.
 - **Vendor logos**: `VENDOR_LOGOS` dict in `webapp.py` maps Netmiko device_type → Simple Icons CDN URL. Registered as Jinja2 global — available in all templates as `VENDOR_LOGOS`.
 - **NrSelect widget**: custom FortiGate-style dropdown in `inventory.html` — search box, scrollable list, shield icon, cyan checkmark. Init with `initNrSelect(containerId)`, returns `{getValue, setValue, reset}`.
 - **Inventory cards**: thin horizontal rectangles — vendor badge (CDN SVG + BI router fallback) + label + IP. Hover tooltip (FortiGate-style fixed panel). Click → edit modal.
@@ -117,7 +119,7 @@ Always-dark enterprise aesthetic — permanently dark, no toggle. Key design ele
 - **Phase 3.4 — Audit trail ✅ COMPLETE (2026-04-13)** — AuditLog table, 21 instrumented routes, /admin/audit filterable UI, log file infrastructure
 - **Phase 3.4b — Analytics + Query Builder ✅ COMPLETE (2026-04-17)** — KPI cards, jQuery QueryBuilder compound filters, `/analytics/query` + `/admin/analytics/query` POST routes, CSV export
 - **Remaining Phase 3:** 3.5 Test suite, 3.6 Per-job device concurrency
-- **Phase 4 — Packaging** (4.7 Alembic ✅, 4.8 Server Management ✅, 4.9 Grafana next)
+- **Phase 4 — Packaging** (4.7 Alembic ✅, 4.8 Server Management ✅, 4.8b nginx ✅, 4.8c Admin panel redesign ✅, 4.9 Grafana+Prometheus next)
 
 ## Frontend asset structure (current — Phase 3)
 Per-page CSS and JS live inline in `{% block extra_style %}` and `{% block extra_script %}` blocks. This is intentional for Phase 3 — no build pipeline, one file per page. Phase 4 will extract these into `static/css/` and `static/js/` files.

@@ -2,20 +2,27 @@
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <title>Database Unavailable — NetRollout</title>
+    <title>Service Unavailable — NetRollout</title>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@300;400;500&display=swap" rel="stylesheet">
     <style>
         body { margin:0; background:#121212; color:#e0e0e0; font-family:'Inter',sans-serif;
                display:flex; align-items:center; justify-content:center; min-height:100vh; }
-        .box { text-align:center; max-width:460px; padding:2rem; }
+        .box { text-align:center; max-width:480px; padding:2rem; }
         .badge { font-family:'JetBrains Mono',monospace; font-size:0.6rem; letter-spacing:2px;
                  color:#555; text-transform:uppercase; margin-bottom:1rem; }
-        h1 { font-size:1.1rem; color:#ef9a9a; margin:0 0 0.75rem; }
-        .addr { font-family:'JetBrains Mono',monospace; font-size:0.88rem;
-                color:#00bcd4; background:rgba(0,188,212,0.06);
-                border:1px solid rgba(0,188,212,0.15); border-radius:6px;
-                padding:0.4rem 0.9rem; display:inline-block; margin-bottom:1rem; }
-        p { font-size:0.82rem; color:#555; margin:0 0 1.5rem; line-height:1.6; }
+        h1 { font-size:1.1rem; color:#ef9a9a; margin:0 0 0.5rem; }
+        .subtitle { font-size:0.82rem; color:#555; margin:0 0 1.75rem; line-height:1.6; }
+        .services { display:flex; flex-direction:column; gap:0.75rem; margin-bottom:1.75rem; }
+        .service { display:flex; align-items:center; gap:0.85rem;
+                   background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.07);
+                   border-radius:8px; padding:0.65rem 1rem; text-align:left; }
+        .dot { width:9px; height:9px; border-radius:50%; flex-shrink:0; }
+        .dot.up   { background:#66bb6a; box-shadow:0 0 6px rgba(102,187,106,0.5); }
+        .dot.down { background:#ef5350; box-shadow:0 0 6px rgba(239,83,80,0.5); }
+        .svc-label { font-size:0.82rem; color:#aaa; flex:1; }
+        .svc-label strong { display:block; color:#e0e0e0; font-weight:500; font-size:0.85rem; margin-bottom:0.1rem; }
+        .addr { font-family:'JetBrains Mono',monospace; font-size:0.78rem;
+                color:#00bcd4; }
         a { font-family:'JetBrains Mono',monospace; font-size:0.78rem; color:#00bcd4;
             text-decoration:none; border:1px solid rgba(0,188,212,0.25); padding:0.4rem 1rem;
             border-radius:6px; transition:background 0.15s; }
@@ -25,10 +32,31 @@
 <body>
     <div class="box">
         <div class="badge">NetRollout</div>
-        <h1>Database Unavailable</h1>
-        <div class="addr">{{ db_host }}:{{ db_port }}</div>
-        <p>Could not reach the PostgreSQL database.<br>
-           Make sure the DB container is running and reachable<br>at the address above.</p>
+        <h1>A backend service is unavailable</h1>
+        <p class="subtitle">One or more required services could not be reached.<br>
+           Check that all servers are running.</p>
+        <div class="services">
+            <div class="service">
+                <div class="dot {{ 'up' if postgres else 'down' }}"></div>
+                <div class="svc-label">
+                    <strong>PostgreSQL</strong>
+                    <span class="addr">{{ db_host }}:{{ db_port }}</span>
+                </div>
+                <span style="font-size:0.75rem; color:{{ '#66bb6a' if postgres else '#ef5350' }}">
+                    {{ 'running' if postgres else 'unreachable' }}
+                </span>
+            </div>
+            <div class="service">
+                <div class="dot {{ 'up' if redis else 'down' }}"></div>
+                <div class="svc-label">
+                    <strong>Redis</strong>
+                    <span class="addr">{{ redis_host }}:{{ redis_port }}</span>
+                </div>
+                <span style="font-size:0.75rem; color:{{ '#66bb6a' if redis else '#ef5350' }}">
+                    {{ 'running' if redis else 'unreachable' }}
+                </span>
+            </div>
+        </div>
         <a href="/">Retry</a>
     </div>
 </body>

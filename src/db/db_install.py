@@ -5,7 +5,7 @@ from alembic import command as alembic_command
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
-from db.db import engine, get_session
+from db.postgres_db import engine, get_session
 from werkzeug.security import generate_password_hash
 from db.tables import User
 

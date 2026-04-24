@@ -1,5 +1,5 @@
 # NetRollout — Architecture Document
-_Written: 2026-04-07 — Updated: 2026-04-11 (Inventory UI + schema updates)_
+_Written: 2026-04-07 — Updated: 2026-04-23 (Inventory UI + schema updates, observability stack)_
 
 ---
 
@@ -469,7 +469,51 @@ _Note: original design had `RolloutJob(id, engine, logger)` and `start()` with n
 
 ---
 
-## 7. Key Design Decisions
+## 7. Observability Stack
+
+Three external services running on the `netrollout-obs` Docker network. All are sidecar services — the Flask app runs independently and is unaffected if they are down.
+
+### Datasources
+
+| Service | Address | Role |
+|---|---|---|
+| PostgreSQL | `NetRollout-DB:5432` | Historical business metrics — queried directly by Grafana via read-only `grafana_reader` user |
+| Prometheus | `http://prometheus:9090` | Live/ephemeral metrics — active job counts, Flask request rates and latencies |
+| Loki | `http://loki:3100` | Log stream — per-job log files shipped by Promtail, searchable by `job_id` label |
+
+### Prometheus metrics
+
+`prometheus_flask_exporter` auto-instruments all Flask routes. Initialized with `group_by='url_rule'` so metrics are broken down by endpoint (not raw URL). Exposes at `/metrics` behind nginx (HTTPS, `insecure_skip_verify: true` in `prometheus.yml`).
+
+Custom collector `RolloutSessionCollector` in `webapp.py` exposes two gauges by reading the orchestrator's in-memory `_jobs` dict via `job_counts()`:
+- `netrollout_active_jobs` — jobs currently executing
+- `netrollout_pending_jobs` — jobs waiting for a slot
+
+### Promtail / Loki
+
+Promtail container bind-mounts the `logs/` directory and watches `*.log`. Pipeline stages:
+1. Regex on filename → extracts `job_id` label from `rollout_{timestamp}_{job_id}.log`
+2. Regex on log line → extracts `log_time` from the log timestamp prefix
+3. Timestamp stage → overrides Loki ingestion time with the actual log line time
+
+`reject_old_samples: false` in loki-config.yml — required to ingest historical log files.
+
+### Grafana dashboards
+
+Four dashboards provisioned from `docs/grafana/dashbaord_config/`:
+
+| Dashboard | Datasources | Purpose |
+|---|---|---|
+| Operations Overview | Prometheus | Live job state, request rates, p99 latency, rollouts per day |
+| Job Analytics | PostgreSQL | Historical outcomes, platform breakdown, activity heatmap |
+| Job Detail | PostgreSQL + Loki | Drill-down by `$job_id` — device results, commands, log stream |
+| Audit & Security | PostgreSQL | Audit trail, failure rates, top actors, failed actions log |
+
+Provisioning files in `docs/grafana/provisioning/` — datasources and dashboard loader. Grafana configured with `allow_embedding = true` and anonymous Viewer access for iframe embedding in the webapp.
+
+---
+
+## 8. Key Design Decisions
 
 | Decision | Choice | Rationale |
 |---|---|---|
