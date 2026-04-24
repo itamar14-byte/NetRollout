@@ -9,7 +9,7 @@ from alembic import context
 #make /src importable
 sys.path.insert(0, os.path.dirname(os.path.dirname(
     os.path.dirname(__file__))))
-from db.db import Base
+from db.postgres_db import Base
 import db.tables
 
 

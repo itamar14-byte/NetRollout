@@ -40,8 +40,6 @@ class User(UserMixin, Base):
         back_populates="user", cascade="all, delete-orphan")
     variable_mappings: Mapped[list["VariableMapping"]] = relationship(
         back_populates="user", cascade="all, delete-orphan")
-    sessions: Mapped[list["RolloutSession"]] = relationship(
-        back_populates="user", cascade="all, delete-orphan")
     results: Mapped[list["DeviceResult"]] = relationship(
         back_populates="user", cascade="all, delete-orphan")
     job_metadata: Mapped[list["JobMetadata"]] = relationship(back_populates="user",
@@ -106,20 +104,6 @@ class VariableMapping(Base):
     devices: Mapped[list["Inventory"]] = relationship(
         secondary=var_mapping_to_devices, back_populates="var_mappings",
         cascade="all, delete")
-
-
-class RolloutSession(Base):
-    __tablename__ = 'rollout_sessions'
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    status: Mapped[str] = mapped_column(String(64), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now,
-                                                 nullable=False)
-
-    user_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id"),
-                                               nullable=False)
-
-    user: Mapped["User"] = relationship(back_populates="sessions")
-
 
 class DeviceResult(Base):
     __tablename__ = 'device_results'

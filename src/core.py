@@ -181,7 +181,7 @@ class RolloutEngine:
 					continue
 
 			# After _commands finish running,
-			# the configuration is saved and we gracefully close the SSH session
+			# the configuration is saved and we gracefully close the SSH redis_session
 			net_connect.exit_config_mode()
 			net_connect.save_config()
 			net_connect.disconnect()
@@ -197,7 +197,7 @@ class RolloutEngine:
 			return device.ip, False
 		except netmiko.exceptions.ReadTimeout as e:
 			if commands_sent:
-				# Prompt changed mid-session (e.g. hostname rename) — config was applied
+				# Prompt changed mid-redis_session (e.g. hostname rename) — config was applied
 				logger.notify(
 					f"{device.ip}: prompt detection lost after config push"
 					f" — treating as success", "yellow")
@@ -287,7 +287,7 @@ class RolloutEngine:
 	def run(self, cancel_flag: threading.Event, logger: RolloutLogger) -> list[
 		DeviceResultDict]:
 		logger.notify("Starting configuration rollout", important=True)
-		# Runs parse_files to get_queue data from the provided file paths
+		# Runs parse_files to subscribe data from the provided file paths
 		# If parsing was successful and the output of the function was not empty lists, we continue the process
 		if self.devices and self._commands:
 			# Runs the config push procedure

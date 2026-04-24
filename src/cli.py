@@ -62,9 +62,11 @@ def main():
 		logger.notify(f"Failed to read device file: {e}", "red")
 		sys.exit(1)
 
-	devices  = parser.prepare_devices(raw_devices)
-	commands = parser.parse_commands(commands_path)
+	devices, errors  = parser.prepare_devices(raw_devices)
+	for msg in errors:
+		logger.notify(msg, "red")
 
+	commands = parser.parse_commands(commands_path)
 	if not devices or not commands:
 		logger.notify("Aborting — no devices or commands to process.", "red")
 		sys.exit(1)

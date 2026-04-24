@@ -2,7 +2,6 @@ import base64
 import glob
 import json
 import os
-import secrets
 import sys
 import tempfile
 import threading
@@ -13,8 +12,7 @@ from datetime import datetime, timedelta
 from io import BytesIO
 from itertools import groupby
 from pathlib import Path
-from queue import Empty
-from time import sleep
+from typing import cast
 
 import pyotp
 import qrcode
@@ -25,23 +23,30 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from flask_login import (LoginManager, login_required,
                          logout_user, current_user, login_user)
+from flask_session import Session
+from flask_session.base import ServerSideSession
 from flask_wtf import CSRFProtect
 from flask_wtf.csrf import CSRFError
 from netmiko import ConnectHandler
 from netmiko.exceptions import NetmikoTimeoutException, \
 	NetmikoAuthenticationException
+from prometheus_client.core import GaugeMetricFamily, REGISTRY
+from prometheus_flask_exporter import PrometheusMetrics
 from sqlalchemy import text, create_engine, and_, or_
 from sqlalchemy.exc import IntegrityError, OperationalError
 from waitress import serve
-from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.middleware.proxy_fix import ProxyFix
+from werkzeug.security import generate_password_hash, check_password_hash
+
+from db.redis_db import redis_client
+from redis.exceptions import ConnectionError as RedisConnectionError
 
 # Must run before DB modules are imported — they build the engine at
 _CONFIG_ENV = Path(__file__).parent.parent / "config.env"
 load_dotenv(_CONFIG_ENV, override=True)
-from db.db import get_session, engine
+from db.postgres_db import get_session, engine
 from db.tables import User, DeviceResult, SecurityProfile, Inventory, \
-	VariableMapping, RolloutSession, AuditLog, JobMetadata, PropertyDefinition
+	VariableMapping, AuditLog, JobMetadata, PropertyDefinition
 from db.db_install import install
 import encryption
 import input_parser
@@ -53,17 +58,58 @@ from orchestration import RolloutOrchestrator
 from validation import Validator
 
 app = Flask(__name__, template_folder='../templates')
-app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
-# SECRET_KEY rotates every restart so all user sessions are invalidated.
-app.config["SECRET_KEY"] = secrets.token_urlsafe(32)
+
+app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev")
+
+app.config["SESSION_TYPE"] = "redis"
+app.config["SESSION_REDIS"] = redis_client
+app.config["SESSION_KEY_PREFIX"] = "redis_session:"
+app.config["SESSION_PERMANENT"] = False
 
 app.config["SESSION_COOKIE_SECURE"] = True
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
+from flask_session.redis import RedisSessionInterface
+
+class _SafeRedisSessionInterface(RedisSessionInterface):
+	def open_session(self, redis_session_app, redis_session_request):
+		try:
+			return super().open_session(redis_session_app, redis_session_request)
+		except RedisConnectionError:
+			return self.session_class()
+
+	def save_session(self, redis_session_app, redis_session, response):
+		try:
+			super().save_session(redis_session_app, redis_session, response)
+		except RedisConnectionError:
+			pass
+
+Session(app)
+app.session_interface = _SafeRedisSessionInterface(
+	app,
+	client=redis_client,
+	key_prefix="redis_session:",
+	permanent=False,
+)
+try:
+	for key in redis_client.scan_iter("redis_session:*"):
+		redis_client.delete(key)
+except RedisConnectionError:
+	pass
+
+def redis_sid():
+	return cast(ServerSideSession, session).sid
+
 # Extract DB host:port from engine for use in error pages
 _DB_HOST = engine.url.host
 _DB_PORT = engine.url.port
+_REDIS_HOST = redis_client.connection_pool.connection_kwargs.get("host",
+                                                   "localhost")
+_REDIS_PORT = redis_client.connection_pool.connection_kwargs.get("port", 6379)
+
+
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
 # Vendor logo URLs from Simple Icons CDN — keyed by Netmiko device_type
 _CDN = "https://cdn.simpleicons.org"
@@ -161,7 +207,6 @@ def get_property_defs(user_id):
 		             for p in user_props]
 	return SYSTEM_PROPERTIES, user_defs
 
-
 orchestrator = RolloutOrchestrator()
 
 login_mng = LoginManager()
@@ -176,6 +221,28 @@ _FLAG = Path(__file__).parent.parent / "pending_db_init.flag"
 if _FLAG.exists():
 	install()
 	_FLAG.unlink()
+
+metrics = PrometheusMetrics(app, group_by='url_rule')
+
+
+class RolloutSessionCollector:
+	def collect(self):
+		try:
+			active = int(redis_client.get("netrollout:active_count") or 0)
+			pending = int(redis_client.get("netrollout:pending_count") or 0)
+		except RedisConnectionError:
+			active, pending = 0, 0
+		m = GaugeMetricFamily('netrollout_active_jobs',
+		                      'Jobs currently executing')
+		m.add_metric([], active)
+		yield m
+		m = GaugeMetricFamily('netrollout_pending_jobs',
+		                      'Jobs waiting in queue')
+		m.add_metric([], pending)
+		yield m
+
+
+REGISTRY.register(RolloutSessionCollector())
 
 
 @login_mng.user_loader
@@ -192,8 +259,9 @@ def load_user(user_id):
 
 def audit(action, *, object_type=None, object_id=None, object_label=None,
           detail=None, success=True, username=None, actor_id=None):
-	"""Write one append-only audit row. Opens its own session so the write
-	commits independently of the calling route transactido ion."""
+	"""Write one append-only audit row.
+	Opens its own redis_session so the write
+	commits independently of the calling route transaction."""
 	if username is None:
 		username = current_user.username if current_user.is_authenticated else "anonymous"
 	if actor_id is None:
@@ -213,21 +281,39 @@ def audit(action, *, object_type=None, object_id=None, object_label=None,
 
 
 @app.errorhandler(CSRFError)
-def handle_csrf_error(e):
+def handle_csrf_error(_):
 	if request.is_json:
 		return jsonify({"status": "error", "message": "Session expired"}), 400
 	return redirect(url_for("home"))
 
 
 @app.errorhandler(OperationalError)
-def handle_db_unavailable(e):
+@app.errorhandler(RedisConnectionError)
+def handle_service_unavailable(_):
 	if request.is_json or request.path.startswith('/rollout_stream'):
 		return jsonify({
 			"status": "error",
-			"message": f"Database unavailable — check {_DB_HOST}:{_DB_PORT}"
+			"message": f"a backend service is unavailable",
 		}), 503
+
+	try:
+		with engine.connect() as conn:
+			conn.execute(text("SELECT 1"))
+		postgres_up = True
+	except OperationalError:
+		postgres_up = False
+
+	try:
+		redis_client.ping()
+		redis_up = True
+	except RedisConnectionError:
+		redis_up = False
+
 	return render_template("db_error.html", db_host=_DB_HOST,
-	                       db_port=_DB_PORT), 503
+	                       db_port=_DB_PORT, redis_host=_REDIS_HOST,
+	                       redis_port=_REDIS_PORT, postgres=postgres_up,
+	                       redis=redis_up), 503
+
 
 
 @app.route("/")
@@ -245,7 +331,7 @@ def login_get():
 @conn_limit.limit("10 per minute")
 def login():
 	# Origin check replaces CSRF for login — blocks cross-origin POSTs without
-	# depending on session state, so it survives server restarts.
+	# depending on redis_session state, so it survives server restarts.
 	# Compare hostnames only: scheme/port vary under reverse proxy.
 	from urllib.parse import urlparse
 	origin = request.headers.get("Origin") or request.headers.get("Referer", "")
@@ -266,6 +352,8 @@ def login():
 					if user.username == "admin":
 						db_session.expunge(user)
 						login_user(user)
+						redis_client.set(f"user_session:{user.id}",
+						                 redis_sid(), ex=86400)
 						audit("auth.login", success=True,
 						      username=user.username, actor_id=user.id)
 						return redirect(url_for("dashboard"))
@@ -388,6 +476,7 @@ def otp_enroll():
 			session.pop("pending_totp_secret")
 			session.pop("pre_auth_user_id")
 			login_user(user)
+			redis_client.set(f"user_session:{user.id}", redis_sid(), ex=86400)
 			return redirect(url_for("dashboard"))
 		flash("invalid code, please try again", "danger")
 		return redirect(url_for("otp_enroll"))
@@ -412,6 +501,7 @@ def otp_verify():
 		if pyotp.TOTP(encryption.decrypt(user.otp_secret)).verify(user_code,
 		                                                          valid_window=1):
 			login_user(user)
+			redis_client.set(f"user_session:{user.id}", redis_sid(), ex=86400)
 			session.pop("pre_auth_user_id")
 			return redirect(url_for("dashboard"))
 		flash("invalid code, please try again", "danger")
@@ -423,7 +513,9 @@ def otp_verify():
 @app.route("/logout")
 def logout():
 	audit("auth.logout")
+	redis_client.delete(f"user_session:{current_user.id}")
 	logout_user()
+	session.clear()
 	return redirect(url_for("home"))
 
 
@@ -478,7 +570,7 @@ def cancel_rollout():
 		job_id = uuid.UUID(raw)
 	except ValueError:
 		return {"status": "invalid_job_id"}
-	job = orchestrator.get(job_id)
+	job = orchestrator.get_job(job_id)
 	if not job:
 		return {"status": "job_not_found"}
 	if job.user_id != current_user.id and current_user.role != "admin":
@@ -676,8 +768,13 @@ def admin_users():
 	with get_session() as db_session:
 		users = db_session.query(User).order_by(User.created_at).all()
 		db_session.expunge_all()
+
+	session_user_ids = {
+		redis_key.decode().replace("user_session:", "")
+		for redis_key in redis_client.scan_iter("user_session:*")
+	}
 	return render_template("admin_users.html", users=users,
-	                       active_section="users")
+	                       active_section="users", session_user_ids=session_user_ids)
 
 
 @app.route("/admin/users/<uuid:user_id>/<action>", methods=["POST"])
@@ -711,6 +808,11 @@ def admin_user_action(user_id, action):
 			user.role = "user"
 		elif action == "delete":
 			db_session.delete(user)
+		elif action == "terminate_session":
+			sid = redis_client.get(f"user_session:{user_id}")
+			if sid:
+				redis_client.delete(f"redis_session:{sid.decode()}")
+				redis_client.delete(f"user_session:{user_id}")
 
 	audit(f"user.{action}", object_type="User",
 	      object_id=target_id, object_label=target_username)
@@ -751,6 +853,11 @@ def admin_bulk_action(action):
 				user.role = "user"
 			elif action == "delete":
 				db_session.delete(user)
+			elif action == "terminate_session":
+				sid = redis_client.get(f"user_session:{uid}")
+				if sid:
+					redis_client.delete(f"redis_session:{sid.decode()}")
+					redis_client.delete(f"user_session:{uid}")
 			affected += 1
 	audit(f"user.bulk_{action}", detail={"count": affected})
 	return redirect(url_for("admin_users"))
@@ -780,12 +887,12 @@ def admin_server_db_test():
 	if current_user.role != "admin":
 		return jsonify(success=False, error="Unauthorized"), 403
 	data = request.get_json()
-	host, port, name = (data.get("host", "").strip(),
-	                    data.get("port", "5432").strip(),
-	                    data.get("name", "").strip())
-	user, password, schema = (data.get("user", "").strip(),
-	                          data.get("password", "").strip(),
-	                          data.get("schema", "").strip())
+	host, port, name = (data.get_job("host", "").strip(),
+	                    data.get_job("port", "5432").strip(),
+	                    data.get_job("name", "").strip())
+	user, password, schema = (data.get_job("user", "").strip(),
+	                          data.get_job("password", "").strip(),
+	                          data.get_job("schema", "").strip())
 	if not all([host, port, name, user, password]):
 		return jsonify(success=False, error="All fields except schema are "
 		                                    "required")
@@ -813,12 +920,12 @@ def admin_server_db_save():
 	if current_user.role != "admin":
 		return jsonify(success=False, error="Unauthorized"), 403
 	data = request.get_json()
-	host, port, name = (data.get("host", "").strip(),
-	                    data.get("port", "5432").strip(),
-	                    data.get("name", "").strip())
-	user, password, schema = (data.get("user", "").strip(),
-	                          data.get("password", "").strip(),
-	                          data.get("schema", "").strip())
+	host, port, name = (data.get_job("host", "").strip(),
+	                    data.get_job("port", "5432").strip(),
+	                    data.get_job("name", "").strip())
+	user, password, schema = (data.get_job("user", "").strip(),
+	                          data.get_job("password", "").strip(),
+	                          data.get_job("schema", "").strip())
 	if not all([host, port, name, user, password]):
 		return jsonify(success=False,
 		               error="All fields except schema are required")
@@ -973,7 +1080,7 @@ def admin_analytics_query():
 
 	data = request.get_json()
 	try:
-		rules = data.get("rules", [])
+		rules = data.get_job("rules", [])
 		filters = compile_query_rules(rules, QUERY_AUDIT_LOG_FIELDS)
 	except (ValueError, KeyError) as e:
 		return jsonify({"error": str(e)}), 400
@@ -986,11 +1093,11 @@ def admin_analytics_query():
 		columns = AUDIT_LOG_COLUMNS
 		rows = [{col: getattr(r, col) for col in columns} for r in rows_raw]
 	parsed_rows = [{col: v.strftime("%Y-%m-%d %H:%M:%S") if isinstance(v,
-		                                                                   datetime)
-		else str(v) if isinstance(v, uuid.UUID)
-		else v
-		                for col, v in row.items()}
-		               for row in rows]
+	                                                                   datetime)
+	else str(v) if isinstance(v, uuid.UUID)
+	else v
+	                for col, v in row.items()}
+	               for row in rows]
 	return jsonify({"columns": columns, "rows": parsed_rows})
 
 
@@ -1065,11 +1172,12 @@ def analytics():
 
 
 def compile_query_rules(node, allowed_fields):
-	'''jQuery QueryBuilder produces a tree. Each node is either:
+	"""jQuery QueryBuilder produces a tree.
+	Each node is either:
 	 - a GROUP: {"condition": "AND"/"OR", "rules": [...child
 	nodes...]}
-	 - a LEAF:  {"field": "status", "operator": "equal", "value":
-	"success"}'''
+	 - a LEAF: {"field": "status", "operator": "equal", "value":
+	"success"}"""
 
 	if "condition" in node:
 		# GROUP node — recurse into each child, then combine with
@@ -1096,7 +1204,7 @@ def compile_query_rules(node, allowed_fields):
 	if hasattr(column, "type") and column.type.__class__.__name__ == 'DateTime':
 		try:
 			value = datetime.strptime(value, "%Y-%m-%d")
-		except (ValueError,TypeError):
+		except (ValueError, TypeError):
 			raise ValueError(f"Invalid date: {value}")
 
 	# Boolean columns: QueryBuilder sends string keys ("true"/"false")
@@ -1114,14 +1222,14 @@ def analytics_query():
 	scope_user_id = current_user.id
 	data = request.get_json()
 	if current_user.role == "admin":
-		param = data.get("user", "me").strip()
+		param = data.get_job("user", "me").strip()
 		if param != "me":
 			try:
 				scope_user_id = uuid.UUID(param)
 			except ValueError:
 				pass
 	try:
-		rules = data.get("rules", [])
+		rules = data.get_job("rules", [])
 		filters = compile_query_rules(rules, QUERY_DEVICE_RESULT_FIELDS)
 	except (ValueError, KeyError) as e:
 		return jsonify({"error": str(e)}), 400
@@ -1135,11 +1243,11 @@ def analytics_query():
 		columns = DEVICE_RESULT_COLUMNS
 		rows = [{col: getattr(r, col) for col in columns} for r in rows_raw]
 	parsed_rows = [{col: v.strftime("%Y-%m-%d %H:%M:%S") if isinstance(v,
-		                                                                   datetime)
-		else str(v) if isinstance(v, uuid.UUID)
-		else v
-		                for col, v in row.items()}
-		               for row in rows]
+	                                                                   datetime)
+	else str(v) if isinstance(v, uuid.UUID)
+	else v
+	                for col, v in row.items()}
+	               for row in rows]
 	return jsonify({"columns": columns, "rows": parsed_rows})
 
 
@@ -1240,7 +1348,7 @@ def dashboard():
 
 	# ── Active job (always own) ───────────────────────────────────────────────
 	job_id = session.get("job_id", None)
-	active_job = orchestrator.get(uuid.UUID(job_id)) if job_id else None
+	active_job = orchestrator.get_job(uuid.UUID(job_id)) if job_id else None
 
 	active_job_data = None
 	if active_job and active_job.is_alive():
@@ -1321,10 +1429,10 @@ def inventory_create():
 def inventory_test_connection():
 	data = request.get_json()
 	if not data:
-		return {"status": "error", "message": "Invalid request"}
+		return {"status": "error", "message": "Invalid redis_session_request"}
 
-	ip = str(data.get("ip", "")).strip()
-	port = str(data.get("port", "")).strip()
+	ip = str(data.get_job("ip", "")).strip()
+	port = str(data.get_job("port", "")).strip()
 
 	if not Validator.validate_ip(ip):
 		return {"status": "error", "message": "Invalid IP address"}
@@ -1361,18 +1469,18 @@ def inventory_edit(device_id):
 		sys_props, user_props = get_property_defs(current_user.id)
 		all_props = {p["name"]: p for p in sys_props + user_props}
 		var_maps = {}
-		for key, val in request.form.items():
-			if not key.startswith("attr_"):
+		for inv_key, inv_val in request.form.items():
+			if not inv_key.startswith("attr_"):
 				continue
-			prop_name = key[5:]
-			val = val.strip()
-			if not val:
+			prop_name = inv_key[5:]
+			inv_val = inv_val.strip()
+			if not inv_val:
 				continue
 			if all_props.get(prop_name, {}).get("is_list"):
-				var_maps[prop_name] = [v.strip() for v in val.split(",") if
+				var_maps[prop_name] = [v.strip() for v in inv_val.split(",") if
 				                       v.strip()]
 			else:
-				var_maps[prop_name] = val
+				var_maps[prop_name] = inv_val
 		device.var_maps = var_maps or None
 
 		mapping_ids = request.form.getlist("mapping_ids")
@@ -1420,8 +1528,8 @@ def inventory_import_csv():
 	which validates each row and TCP-checks each device before writing.
 	NOTE: TCP checks are sequential — large CSVs will block the web process.
 		  Phase 3.6 per-device concurrency will address this.
-	Error messages from the parser are captured by draining the logger queue
-	after the call and flashed to the user.
+	Per-device errors are returned as a list from csv_to_inventory
+	and flashed to the user.
 	"""
 	csv_file = request.files.get("csv_file")
 	if not csv_file or not csv_file.filename:
@@ -1435,28 +1543,15 @@ def inventory_import_csv():
 		tmp_path = tmp.name
 		csv_file.save(tmp_path)
 
-	# Temp logfile — RolloutLogger always writes to disk, we don't need it here.
-	# Phase 3 will add a proper activity logging workflow.
-	log_path = tempfile.mktemp(suffix=".log")
 
 	try:
-		# TODO verify correctness
 		logger = RolloutLogger(webapp=True, verbose=False)
 		validator = Validator(logger)
 		parser = InputParser(validator, logger)
 
 		with get_session() as db_session:
-			devices = parser.csv_to_inventory(
+			devices, errors = parser.csv_to_inventory(
 				tmp_path, current_user.id, db_session, label=label)
-
-		# Drain error messages queued by the parser (red-colored notify calls)
-		errors = []
-		while True:
-			try:
-
-				errors.append(logger.get_queue(0))
-			except Empty:
-				break
 
 		if errors:
 			for msg in errors:
@@ -1464,15 +1559,14 @@ def inventory_import_csv():
 		if devices:
 			audit("inventory.import_csv", detail={"count": len(devices)})
 			flash(
-				f"{len(devices)} device{'s' if len(devices) != 1 else ''} imported successfully.",
+				f"{len(devices)} device{'s' if len(devices) != 1 else ''}"
+				f" imported successfully.",
 				"success")
 		elif not errors:
 			flash("No valid devices found in CSV.", "warning")
 
 	finally:
 		os.unlink(tmp_path)
-		if os.path.exists(log_path):
-			os.unlink(log_path)
 
 	return redirect(url_for("inventory"))
 
@@ -1482,7 +1576,7 @@ def inventory_import_csv():
 def inventory_bulk_assign():
 	data = request.get_json(silent=True)
 	if not data:
-		return jsonify({"status": "error", "message": "Invalid request"}), 400
+		return jsonify({"status": "error", "message": "Invalid redis_session_request"}), 400
 
 	profile_id = data.get("profile_id")
 	device_ids = data.get("device_ids", [])
@@ -1519,34 +1613,40 @@ def active_jobs():
 	is_admin = current_user.role == "admin"
 	with get_session() as db_session:
 		if is_admin:
-			sessions = db_session.query(RolloutSession).all()
-			usernames = {u.id: u.username for u in db_session.query(User).all()}
+			job_ids = [k.decode().split(":")[1] for k in
+			           redis_client.scan_iter("job:*:meta")]
+			usernames = {str(u.id): u.username for u in
+			             db_session.query(User).all()}
 		else:
-			sessions = db_session.query(RolloutSession).filter_by(
-				user_id=current_user.id).all()
+			job_ids = [jid.decode() for jid in
+			           redis_client.smembers(f"user_jobs:{current_user.id}")]
 			usernames = {}
 		db_session.expunge_all()
 
-	def _build_job_dict(s):
-		job = orchestrator.get(s.id)
+	def _build_job_dict(job_id):
+		meta = {k.decode(): v.decode() for k, v in redis_client.hgetall(
+			f"job:{job_id}:meta").items()}
+		job = orchestrator.get_job(uuid.UUID(job_id))
+
 		return {
-			"id": str(s.id),
-			"status": s.status,
-			"created_at": s.created_at,
-			"device_count": job.get_device_count() if job else "—",
+			"id": job_id,
+			"status": meta.get("status", "unknown"),
+			"created_at":  meta.get("created_at", ""),
+			"device_count": job.get_device_count() if job else meta.get("device_count", "—"),
 			"started_at": job.started_at.strftime(
 				"%H:%M:%S") if job and job.started_at else "—",
 			"started_at_iso": job.started_at.isoformat() if job and job.started_at else "",
-			"owner": usernames.get(s.user_id, "unknown"),
+			"owner": usernames.get(meta.get("user_id", ""), "unknown")
 		}
 
 	if is_admin:
-		jobs = [_build_job_dict(s) for s in sessions if
-		        s.user_id == current_user.id]
-		other_jobs = [_build_job_dict(s) for s in sessions if
-		              s.user_id != current_user.id]
+		all_jobs = [_build_job_dict(jid) for jid in job_ids]
+		jobs = [j for j in all_jobs if j["owner"] == current_user.username]
+		other_jobs = [j for j in all_jobs if
+		              j["owner"] != current_user.username]
+
 	else:
-		jobs = [_build_job_dict(s) for s in sessions]
+		jobs = [_build_job_dict(jid) for jid in job_ids]
 		other_jobs = []
 
 	new_job_id = request.args.get("new", "")
@@ -1558,39 +1658,32 @@ def active_jobs():
 @app.route("/rollout_stream/<uuid:job_id>")
 @login_required
 def rollout_stream(job_id):
-	job = orchestrator.get(job_id)
+	job = orchestrator.get_job(job_id)
 	if not job or (
 			job.user_id != current_user.id and current_user.role != "admin"):
 		return Response(status=403)
 
 	def generate():
+		# Drain queue items already covered by the redis list
 		snapshot = job.get_log_history()
 		for msg in snapshot:
 			yield f"data: {msg}\n\n"
 
-		# Drain queue items already covered by the buffer snapshot
-		for _ in snapshot:
-			try:
-				job.get_log_queue()
-			except Empty:
-				break
-
-		while job.is_alive():
-			try:
-				msg = job.get_log_queue()
-				yield f"data: {msg}\n\n"
-			except Empty:
-				yield "data: \n\n"
-				sleep(0.5)
-
-		# Drain any messages queued in the final moments before is_alive() went False
-		while True:
-			try:
-				msg = job.get_log_queue()
-				yield f"data: {msg}\n\n"
-			except Empty:
-				break
-
+		ps = job.get_log_queue()
+		try:
+			while True:
+				msg = ps.get_message(timeout=0.5)
+				if msg and msg["type"] == "message":
+					data = msg["data"].decode()
+					if data == "__done__":
+						break
+					yield f"data: {data}\n\n"
+				elif not job.is_alive():
+					break
+				else:
+					yield f"data: \n\n"
+		finally:
+			ps.close()
 		yield "event: done\ndata: \n\n"
 
 	return Response(
@@ -1801,11 +1894,11 @@ def security_create():
 def security_quick_create():
 	data = request.get_json()
 	if not data:
-		return jsonify({"status": "error", "message": "Invalid request"})
-	label = str(data.get("label", "") or "").strip() or None
-	username = str(data.get("username", "") or "").strip()
-	password = str(data.get("password", "") or "")
-	enable_secret = str(data.get("enable_secret", "") or "").strip() or None
+		return jsonify({"status": "error", "message": "Invalid redis_session_request"})
+	label = str(data.get_job("label", "") or "").strip() or None
+	username = str(data.get_job("username", "") or "").strip()
+	password = str(data.get_job("password", "") or "")
+	enable_secret = str(data.get_job("enable_secret", "") or "").strip() or None
 	if not username or not password:
 		return jsonify({"status": "error",
 		                "message": "Username and password are required"})
@@ -1878,13 +1971,13 @@ def security_delete(profile_id):
 @login_required
 def security_test(profile_id):
 	data = request.get_json()
-	if not data or not data.get("device_id"):
+	if not data or not data.get_job("device_id"):
 		return {"status": "error", "message": "No device selected"}
 
 	try:
 		device_id = uuid.UUID(data["device_id"])
 	except ValueError:
-		return {"status": "error", "message": "Invalid request"}
+		return {"status": "error", "message": "Invalid redis_session_request"}
 
 	with get_session() as db_session:
 		profile = db_session.query(SecurityProfile).filter_by(
@@ -1990,10 +2083,10 @@ def mappings_create():
 def mappings_quick_create():
 	data = request.get_json()
 	if not data:
-		return jsonify({"status": "error", "message": "Invalid request"})
-	inner_token = str(data.get("token_inner", "") or "").strip().upper()
-	property_name = str(data.get("property_name", "") or "").strip()
-	index_raw = data.get("index")
+		return jsonify({"status": "error", "message": "Invalid redis_session_request"})
+	inner_token = str(data.get_job("token_inner", "") or "").strip().upper()
+	property_name = str(data.get_job("property_name", "") or "").strip()
+	index_raw = data.get_job("index")
 	index = int(index_raw) if index_raw is not None else None
 
 	status, msg = Validator.validate_var_map_inner_token(inner_token)
@@ -2109,7 +2202,7 @@ def mappings_bulk_assign():
 	# Parse JSON body — bail immediately if malformed or missing
 	data = request.get_json(silent=True)
 	if not data:
-		return jsonify({"status": "error", "message": "Invalid request"}), 400
+		return jsonify({"status": "error", "message": "Invalid redis_session_request"}), 400
 	mapping_id = data.get("mapping_id", None)
 	device_ids = data.get("device_ids", [])
 
@@ -2255,8 +2348,7 @@ def properties_delete(prop_id):
 def admin_active_job_count():
 	if current_user.role != "admin":
 		return jsonify({"status": "error"}), 403
-	with get_session() as db_session:
-		count = db_session.query(RolloutSession).count()
+	count = int(redis_client.get("netrollout:active_count") or 0)
 	return jsonify({"count": count})
 
 

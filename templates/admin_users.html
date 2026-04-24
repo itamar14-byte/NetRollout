@@ -54,6 +54,14 @@
 
     <div class="tb-divider"></div>
 
+    <span class="tip-wrap" id="wrapTerminateSession">
+      <button class="tb-btn terminate-tb" id="btnTerminateSession" disabled>
+        <i class="bi bi-box-arrow-right me-1"></i>Terminate Session
+      </button>
+    </span>
+
+    <div class="tb-divider"></div>
+
     <span class="tip-wrap" id="wrapDelete">
       <button class="tb-btn delete-tb" id="btnDelete" disabled>
         <i class="bi bi-trash3 me-1"></i>Delete
@@ -90,7 +98,7 @@
         {% set status = "pending" %}
       {% endif %}
       <tr data-status="{{ status }}"
-          data-user='{{ {"id": user.id|string, "username": user.username, "role": user.role, "approved": user.is_approved, "active": user.is_active, "is_self": (user.id == current_user.id), "is_factory": (user.username == "admin")}|tojson }}'>
+          data-user='{{ {"id": user.id|string, "username": user.username, "role": user.role, "approved": user.is_approved, "active": user.is_active, "is_self": (user.id == current_user.id), "is_factory": (user.username == "admin"), "has_session": (user.id|string in session_user_ids)}|tojson }}'>
 
         <td style="padding-right:0;">
           {% if user.username != "admin" %}
@@ -238,6 +246,8 @@
   .promote-tb:not(:disabled):hover  { background: rgba(220,53,69,0.22); }
   .demote-tb  { background: rgba(108,117,125,0.12); color: #aaa;  border: 1px solid rgba(108,117,125,0.2); }
   .demote-tb:not(:disabled):hover   { background: rgba(108,117,125,0.22); }
+  .terminate-tb { background: rgba(255,152,0,0.12); color: #ffcc80; border: 1px solid rgba(255,152,0,0.25); }
+  .terminate-tb:not(:disabled):hover { background: rgba(255,152,0,0.25); }
   .delete-tb  { background: rgba(183,28,28,0.12);  color: #ef9a9a; border: 1px solid rgba(183,28,28,0.2); }
   .delete-tb:not(:disabled):hover   { background: rgba(183,28,28,0.25); }
 
@@ -272,7 +282,7 @@
 
 <script>
   // ── Data ──
-  const ACTIONS = ["Approve","Enable","Disable","Promote","Demote","Delete"];
+  const ACTIONS = ["Approve","Enable","Disable","Promote","Demote","TerminateSession","Delete"];
 
   const rules = {
     Approve: sel => {
@@ -303,6 +313,12 @@
       if (sel.some(u => u.is_self)) return "Cannot demote your own account";
       const n = sel.filter(u => u.role !== "admin").length;
       return n ? `${n} user(s) are not admin` : null;
+    },
+    TerminateSession: sel => {
+      if (!sel.length) return "No users selected";
+      if (sel.some(u => u.is_factory)) return "Factory user redis_session cannot be terminated";
+      const noSession = sel.filter(u => !u.has_session).length;
+      return noSession ? `${noSession} user(s) have no active session` : null;
     },
     Delete: sel => {
       if (!sel.length) return "No users selected";
@@ -373,11 +389,11 @@
   });
 
   // ── Bulk action buttons (non-delete) ──
-  ["Approve","Enable","Disable","Promote","Demote"].forEach(name => {
+  ["Approve","Enable","Disable","Promote","Demote","TerminateSession"].forEach(name => {
     document.getElementById("btn" + name).addEventListener("click", () => {
       const sel = getSelected();
       document.getElementById("bulkIds").value = sel.map(u => u.id).join(",");
-      document.getElementById("bulkForm").action = `/admin/users/bulk/${name.toLowerCase()}`;
+      document.getElementById("bulkForm").action = `/admin/users/bulk/${name === "TerminateSession" ? "terminate_session" : name.toLowerCase()}`;
       document.getElementById("bulkForm").submit();
     });
   });

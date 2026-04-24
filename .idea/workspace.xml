@@ -4,8 +4,31 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="27240518-82b3-4a70-8f71-cc3b690d164c" name="Changes" comment="  feat: replace analytics filter dropdowns with jQuery QueryBuilder&#10;&#10;  Both analytics surfaces (operator + admin) now use jQuery QueryBuilder&#10;  2.6.0 for compound filter expressions — AND/OR groups, arbitrary&#10;  nesting,&#10;  field/operator/value triples. Backend compile_query_rules() walks the&#10;  rule tree recursively, dispatches to a SQLAlchemy expression via a&#10;  type-safe OPS table, and coerces DateTime and Boolean values before&#10;  binding. Field + operator allowlists prevent column enumeration and&#10;  injection. Added boolean coercion path (string &quot;true&quot;/&quot;false&quot; → Python&#10;  bool) to fix psycopg2 rejection on AuditLog.success comparisons.">
+    <list default="true" id="27240518-82b3-4a70-8f71-cc3b690d164c" name="Changes" comment="  Add Query Builder, nginx/HTTPS integration, and admin panel redesign&#10;&#10;  Query Builder (operator analytics + admin analytics):&#10;  - Compound filter expressions with AND/OR groups and nested&#10;  parentheses&#10;  - Custom CSS (no CDN), connector pills, field icons, operator labels&#10;  - Hybrid select/text input for actor_username in audit query&#10;  - Boolean/DateTime coercion in compile_query_rules before SQLAlchemy&#10;  binding&#10;  - extra_script block added to base.html after jQuery for correct load&#10;  order&#10;&#10;  nginx/HTTPS integration:&#10;  - ProxyFix(x_for=1, x_proto=1, x_host=1) + secure cookie config in&#10;  webapp.py&#10;  - Login origin check uses hostname-only comparison via urlparse&#10;  - nginx conf: TLSv1.2/1.3 only, security headers, client_max_body_size&#10;   10M&#10;  - /rollout_stream location block with proxy_buffering off for SSE&#10;  streaming&#10;  - Self-signed certs excluded via .gitignore&#10;&#10;  Admin panel redesign:&#10;  - Standalone page (no longer embedded in operator layout)&#10;  - Own topbar with Home button and ADMINISTRATION label&#10;  - Sidebar with Access / Observability / System section labels&#10;  - Restart button with active-job warning modal, matching footer">
+      <change afterPath="$PROJECT_DIR$/docs/grafana/dashbaord_config/audit&amp;security.json" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/grafana/dashbaord_config/job_analytics.json" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/grafana/dashbaord_config/job_details.json" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/grafana/dashbaord_config/operations_overview.json" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/db/redis_db.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/CLAUDE.md" beforeDir="false" afterPath="$PROJECT_DIR$/CLAUDE.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/architecture.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/architecture.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/workplan.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/workplan.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/cli.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/cli.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/core.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/core.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/db/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/db/__init__.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/db/alembic/env.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/db/alembic/env.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/db/db.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/db/postgres_db.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/db/db_install.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/db/db_install.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/db/tables.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/db/tables.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/input_parser.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/input_parser.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/logging_utils.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/logging_utils.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/orchestration.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/orchestration.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/validation.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/validation.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/webapp.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/webapp.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/templates/admin_users.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/admin_users.html" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/templates/db_error.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/db_error.html" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/test.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -76,25 +99,29 @@
     &quot;Python.webapp.executor&quot;: &quot;Run&quot;,
     &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
     &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;database.data.extractors.current.export.id&quot;: &quot;JSON-Groovy.json.groovy&quot;,
+    &quot;database.data.extractors.current.id&quot;: &quot;JSON-Groovy.json.groovy&quot;,
     &quot;git-widget-placeholder&quot;: &quot;master&quot;,
     &quot;ignore.virus.scanning.warn.message&quot;: &quot;true&quot;,
-    &quot;last_opened_file_path&quot;: &quot;C:/Users/itama/Documents/Coding/Network-bulk-configuration/templates&quot;,
+    &quot;last_opened_file_path&quot;: &quot;C:/Users/itama/Documents/Coding/Network-bulk-configuration/docs/grafana/dashbaord_config&quot;,
     &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
     &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
     &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
     &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
     &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
-    &quot;settings.editor.selected.configurable&quot;: &quot;preferences.pluginManager&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;swagger&quot;,
     &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
   },
   &quot;keyToStringList&quot;: {
     &quot;DatabaseDriversLRU&quot;: [
-      &quot;postgresql&quot;
+      &quot;postgresql&quot;,
+      &quot;redis&quot;
     ]
   }
 }</component>
   <component name="RecentsManager">
     <key name="CopyFile.RECENT_KEYS">
+      <recent name="C:\Users\itama\Documents\Coding\Network-bulk-configuration\docs\grafana\dashbaord_config" />
       <recent name="C:\Users\itama\Documents\Coding\Network-bulk-configuration\templates" />
     </key>
     <key name="MoveFile.RECENT_KEYS">
@@ -234,15 +261,14 @@
       <workItem from="1776214967374" duration="3012000" />
       <workItem from="1776218863070" duration="2567000" />
       <workItem from="1776262304740" duration="674000" />
-      <workItem from="1776336336609" duration="22209000" />
-    </task>
-    <task id="LOCAL-00022" summary="Added usr authenitcation to webapp">
-      <option name="closed" value="true" />
-      <created>1775427957700</created>
-      <option name="number" value="00022" />
-      <option name="presentableId" value="LOCAL-00022" />
-      <option name="project" value="LOCAL" />
-      <updated>1775427957700</updated>
+      <workItem from="1776336336609" duration="22288000" />
+      <workItem from="1776609338600" duration="1588000" />
+      <workItem from="1776789271387" duration="498000" />
+      <workItem from="1776894298614" duration="4706000" />
+      <workItem from="1776927949586" duration="21082000" />
+      <workItem from="1777017721968" duration="1404000" />
+      <workItem from="1777067223023" duration="53000" />
+      <workItem from="1777067339228" duration="3350000" />
     </task>
     <task id="LOCAL-00023" summary="Added usr authenitcation to webapp">
       <option name="closed" value="true" />
@@ -628,7 +654,15 @@
       <option name="project" value="LOCAL" />
       <updated>1776463457373</updated>
     </task>
-    <option name="localTasksCounter" value="71" />
+    <task id="LOCAL-00071" summary="  Add Query Builder, nginx/HTTPS integration, and admin panel redesign&#10;&#10;  Query Builder (operator analytics + admin analytics):&#10;  - Compound filter expressions with AND/OR groups and nested&#10;  parentheses&#10;  - Custom CSS (no CDN), connector pills, field icons, operator labels&#10;  - Hybrid select/text input for actor_username in audit query&#10;  - Boolean/DateTime coercion in compile_query_rules before SQLAlchemy&#10;  binding&#10;  - extra_script block added to base.html after jQuery for correct load&#10;  order&#10;&#10;  nginx/HTTPS integration:&#10;  - ProxyFix(x_for=1, x_proto=1, x_host=1) + secure cookie config in&#10;  webapp.py&#10;  - Login origin check uses hostname-only comparison via urlparse&#10;  - nginx conf: TLSv1.2/1.3 only, security headers, client_max_body_size&#10;   10M&#10;  - /rollout_stream location block with proxy_buffering off for SSE&#10;  streaming&#10;  - Self-signed certs excluded via .gitignore&#10;&#10;  Admin panel redesign:&#10;  - Standalone page (no longer embedded in operator layout)&#10;  - Own topbar with Home button and ADMINISTRATION label&#10;  - Sidebar with Access / Observability / System section labels&#10;  - Restart button with active-job warning modal, matching footer">
+      <option name="closed" value="true" />
+      <created>1776510162969</created>
+      <option name="number" value="00071" />
+      <option name="presentableId" value="LOCAL-00071" />
+      <option name="project" value="LOCAL" />
+      <updated>1776510162969</updated>
+    </task>
+    <option name="localTasksCounter" value="72" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -646,7 +680,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="&#10;  Complete Phase 2 + UI polish: inventory CRUD, form validation, NrSelect&#10;&#10;  Phase 2 backend:&#10;  - Inventory create/edit/delete/bulk_assign — all ownership-guarded&#10;  - edit rebuilds var_maps from attr_* fields; vrfs split to list&#10;  - bulk_assign accepts JSON {profile_id, device_ids}&#10;&#10;  Form validation (site-wide):&#10;  - novalidate + .field-error + shake on all forms (login, register,&#10;    inventory, security profiles)&#10;  - nr-submitted: empty required fields show error on submit attempt&#10;  - nr-touched: selects silent on load, only complain on submit&#10;  - Validation state cleared on modal close — no stale errors on reopen&#10;  - base.html gets same CSS/JS so login page is covered&#10;&#10;  NrSelect widget:&#10;  - CSS moved to operator_base.html (available site-wide)&#10;  - Platform selector in inventory add/edit modals replaced with NrSelect&#10;    showing vendor logos&#10;  - Test connection device dropdown replaced with NrSelect (logo + IP)&#10;&#10;  Bug fixes:&#10;  - Double flash on inventory page removed&#10;  - OTP box shake was silently broken (double get_flashed_messages drained&#10;    queue) — fixed with {% set flash_messages %}&#10;&#10;  Visual polish:&#10;  - Variable attributes expand toggle matches nr-label (color #777, weight 500)&#10;  - Tooltip row keys match nr-label" />
     <MESSAGE value="● Implement variable mappings: UI, backend, schema (3.1)&#10;&#10;  - variable_mappings.html: card grid, add/edit/delete modals, split-view&#10;    drag-assign with eligible pool filtered by truthy attribute value&#10;  - var_mapping_to_devices join table: many-to-many VariableMapping &lt;-&gt; Inventory&#10;  - UniqueConstraint(token, user_id) on VariableMapping, cascade delete on devices&#10;  - Validator: validate_var_map_inner_token, validate_var_map_property_name,&#10;    validate_var_index (static, return tuple[bool, str|None])&#10;  - Routes: GET /mappings, create, edit, delete, bulk_assign with ownership&#10;    and eligibility guards&#10;  - UUID converter on all ID routes app-wide, manual casts removed&#10;  - DB: index column on variable_mappings, unique constraint,&#10;    var_mapping_to_devices table, index dropped from rollout_sessions" />
     <MESSAGE value="  Add CSV import to inventory and variable mappings (3.1, 3.1b)&#10;&#10;  - variable_mappings.html: card grid, drag-assign split modal, NrSelect&#10;    attribute picker, resolved value shown in drag cards&#10;  - var_mapping_to_devices join table, UniqueConstraint(token, user_id),&#10;    cascade delete on VariableMapping.devices&#10;  - Validator: 3 static mapping validators returning (bool, str|None)&#10;  - Routes: /mappings GET/create/edit/delete/bulk_assign with ownership&#10;    and eligibility guards (truthy attribute value check)&#10;  - UUID converter on all ID routes app-wide, manual casts removed&#10;  - inventory/import_csv: multipart upload, temp file handling,&#10;    InputParser.csv_to_inventory, logger queue drain, both temp files&#10;    cleaned up in finally block&#10;  - Import CSV button + modal added to inventory page" />
     <MESSAGE value="&#10;  Fix innerHTML XSS in rollout log output&#10;&#10;  html.escape() applied to user-controlled message content in&#10;  RolloutLogger._msg() before HTML color wrapping. Prevents device&#10;  hostnames or command output containing HTML from executing in the&#10;  browser. Bug report updated — one open item remaining (SSE completion&#10;  signal)." />
@@ -671,14 +704,15 @@
     <MESSAGE value="● refactor: migrate DB layer to src/db/ package, replace create_all with&#10;   Alembic migrations" />
     <MESSAGE value="  Phase 4 — Server Management: external DB configuration UI&#10;&#10;  - db.py: construct_url() + build_engine() support individual env vars&#10;    (DB_HOST/PORT/NAME/USER/PASSWORD/SCHEMA) with DATABASE_URL fallback&#10;  - db_install.py: fixed imports to fully-qualified db.db / db.tables&#10;  paths&#10;  - webapp.py: load_dotenv before DB imports; engine.url for host/port;&#10;    pending_db_init.flag check on startup; 3 new admin routes + restart&#10;  route&#10;  - admin.html: Server Management sidebar entry&#10;  - server_management.html: DB config card (test/save/restart flow) +&#10;  LDAP stub" />
     <MESSAGE value="  feat: replace analytics filter dropdowns with jQuery QueryBuilder&#10;&#10;  Both analytics surfaces (operator + admin) now use jQuery QueryBuilder&#10;  2.6.0 for compound filter expressions — AND/OR groups, arbitrary&#10;  nesting,&#10;  field/operator/value triples. Backend compile_query_rules() walks the&#10;  rule tree recursively, dispatches to a SQLAlchemy expression via a&#10;  type-safe OPS table, and coerces DateTime and Boolean values before&#10;  binding. Field + operator allowlists prevent column enumeration and&#10;  injection. Added boolean coercion path (string &quot;true&quot;/&quot;false&quot; → Python&#10;  bool) to fix psycopg2 rejection on AuditLog.success comparisons." />
-    <option name="LAST_COMMIT_MESSAGE" value="  feat: replace analytics filter dropdowns with jQuery QueryBuilder&#10;&#10;  Both analytics surfaces (operator + admin) now use jQuery QueryBuilder&#10;  2.6.0 for compound filter expressions — AND/OR groups, arbitrary&#10;  nesting,&#10;  field/operator/value triples. Backend compile_query_rules() walks the&#10;  rule tree recursively, dispatches to a SQLAlchemy expression via a&#10;  type-safe OPS table, and coerces DateTime and Boolean values before&#10;  binding. Field + operator allowlists prevent column enumeration and&#10;  injection. Added boolean coercion path (string &quot;true&quot;/&quot;false&quot; → Python&#10;  bool) to fix psycopg2 rejection on AuditLog.success comparisons." />
+    <MESSAGE value="  Add Query Builder, nginx/HTTPS integration, and admin panel redesign&#10;&#10;  Query Builder (operator analytics + admin analytics):&#10;  - Compound filter expressions with AND/OR groups and nested&#10;  parentheses&#10;  - Custom CSS (no CDN), connector pills, field icons, operator labels&#10;  - Hybrid select/text input for actor_username in audit query&#10;  - Boolean/DateTime coercion in compile_query_rules before SQLAlchemy&#10;  binding&#10;  - extra_script block added to base.html after jQuery for correct load&#10;  order&#10;&#10;  nginx/HTTPS integration:&#10;  - ProxyFix(x_for=1, x_proto=1, x_host=1) + secure cookie config in&#10;  webapp.py&#10;  - Login origin check uses hostname-only comparison via urlparse&#10;  - nginx conf: TLSv1.2/1.3 only, security headers, client_max_body_size&#10;   10M&#10;  - /rollout_stream location block with proxy_buffering off for SSE&#10;  streaming&#10;  - Self-signed certs excluded via .gitignore&#10;&#10;  Admin panel redesign:&#10;  - Standalone page (no longer embedded in operator layout)&#10;  - Own topbar with Home button and ADMINISTRATION label&#10;  - Sidebar with Access / Observability / System section labels&#10;  - Restart button with active-job warning modal, matching footer" />
+    <option name="LAST_COMMIT_MESSAGE" value="  Add Query Builder, nginx/HTTPS integration, and admin panel redesign&#10;&#10;  Query Builder (operator analytics + admin analytics):&#10;  - Compound filter expressions with AND/OR groups and nested&#10;  parentheses&#10;  - Custom CSS (no CDN), connector pills, field icons, operator labels&#10;  - Hybrid select/text input for actor_username in audit query&#10;  - Boolean/DateTime coercion in compile_query_rules before SQLAlchemy&#10;  binding&#10;  - extra_script block added to base.html after jQuery for correct load&#10;  order&#10;&#10;  nginx/HTTPS integration:&#10;  - ProxyFix(x_for=1, x_proto=1, x_host=1) + secure cookie config in&#10;  webapp.py&#10;  - Login origin check uses hostname-only comparison via urlparse&#10;  - nginx conf: TLSv1.2/1.3 only, security headers, client_max_body_size&#10;   10M&#10;  - /rollout_stream location block with proxy_buffering off for SSE&#10;  streaming&#10;  - Self-signed certs excluded via .gitignore&#10;&#10;  Admin panel redesign:&#10;  - Standalone page (no longer embedded in operator layout)&#10;  - Own topbar with Home button and ADMINISTRATION label&#10;  - Sidebar with Access / Observability / System section labels&#10;  - Restart button with active-job warning modal, matching footer" />
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
     <SUITE FILE_PATH="coverage/core_py$WebApp.coverage" NAME="WebApp Coverage Results" MODIFIED="1756760459810" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/WebApp_py$WebApp.coverage" NAME="WebApp Coverage Results" MODIFIED="1756940263036" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/Network_bulk_configuration$.coverage" NAME=" Coverage Results" MODIFIED="1775830389406" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/tests" />
-    <SUITE FILE_PATH="coverage/Network_bulk_configuration$webapp.coverage" NAME="webapp Coverage Results" MODIFIED="1776507437557" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/src" />
-    <SUITE FILE_PATH="coverage/Network_bulk_configuration$Network_bulk_configuration.coverage" NAME="Network-bulk-configuration Coverage Results" MODIFIED="1776218090706" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/Network_bulk_configuration$webapp.coverage" NAME="webapp Coverage Results" MODIFIED="1777018658267" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/src" />
+    <SUITE FILE_PATH="coverage/Network_bulk_configuration$Network_bulk_configuration.coverage" NAME="Network-bulk-configuration Coverage Results" MODIFIED="1776954026466" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/core_py$Helper.coverage" NAME="Helper Coverage Results" MODIFIED="1756330739506" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/Network_bulk_configuration$db.coverage" NAME="db Coverage Results" MODIFIED="1774396400735" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/src" />
     <SUITE FILE_PATH="coverage/core_py$Core.coverage" NAME="Core Coverage Results" MODIFIED="1756330745282" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />

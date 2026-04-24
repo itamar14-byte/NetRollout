@@ -725,7 +725,7 @@ class TestFullRolloutAndVerifyPipeline(unittest.TestCase):
     End-to-end test of the full pipeline:
       import_from_inventory -> RolloutEngine.run() with verify=True
     All network I/O is mocked: Netmiko SSH, NAPALM config fetch.
-    Device.from_inventory is mocked because it requires a live DB session.
+    Device.from_inventory is mocked because it requires a live DB redis_session.
     """
 
     COMMAND = "ip route 0.0.0.0 0.0.0.0 10.0.0.254"

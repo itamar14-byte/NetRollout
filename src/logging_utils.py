@@ -1,8 +1,11 @@
 import datetime
 import html
 import os
-import queue
 import threading
+
+from redis.client import PubSub
+
+from db.redis_db import redis_client
 
 LOGS_DIR = os.path.join(os.path.dirname(__file__), "..", "logs")
 
@@ -29,19 +32,21 @@ ANSI_TO_HTML = {"RED": WEBAPP_RED, "GREEN": WEBAPP_GREEN, "YELLOW": WEBAPP_YELLO
 class RolloutLogger:
     def __init__(self, webapp: bool, verbose: bool,
                  job_id: str = None, timestamp: str = None):
-        self._queue = queue.Queue()
-        self._buffer = []
-        self._buffer_lock = threading.Lock()
         self._log_lock = threading.Lock()
         self._webapp = webapp
         self._verbose = verbose
+
         if job_id and timestamp:
             os.makedirs(LOGS_DIR, exist_ok=True)
             self.logfile = os.path.join(LOGS_DIR,
                                         f"rollout_{timestamp}_{job_id}.log")
+            self._channel_key = f"job:{job_id}:logs"
+            self._history_key = f"job:{job_id}:history"
+
         else:
             self.logfile = datetime.datetime.now().strftime(
                 "rollout_%Y%m%d_%H%M%S.log")
+            self._channel_key, self._history_key = None, None
 
     def _log(self, message: str) -> None:
         """
@@ -79,11 +84,10 @@ class RolloutLogger:
         	Additionally, error messages, or messages generated in _verbose mode are printed to console
         	"""
         if self._webapp:
-            if important or self._verbose or color == "red":
+            if (important or self._verbose or color == "red") and self._channel_key:
                 content = self._msg(message, color)
-                self._queue.put(content)
-                with self._buffer_lock:
-                    self._buffer.append(content)
+                redis_client.rpush(self._history_key, content)
+                redis_client.publish(self._channel_key, content)
             self._log(message)
             return None
         else:
@@ -91,10 +95,17 @@ class RolloutLogger:
                 print(self._msg(message, color))
             self._log(message)
 
-    def get_buffer_snapshot(self) -> list[str]:
-        with self._buffer_lock:
-            return list(self._buffer)
+    def get_history(self) -> list[str]:
+        return [m.decode() for m in redis_client.lrange(self._history_key, 0, -1)]
 
-    def get_queue(self, timeout: int) -> str:
-        return self._queue.get(timeout=timeout)
+    def subscribe(self) -> PubSub:
+        ps = redis_client.pubsub()
+        ps.subscribe(self._channel_key)
+        return ps
+
+    def redis_cleanup(self) -> None:
+        redis_client.publish(self._channel_key, "__done__")
+        redis_client.delete(self._history_key)
+        redis_client.delete(self._channel_key)
+
 

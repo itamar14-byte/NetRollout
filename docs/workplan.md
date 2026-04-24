@@ -1,5 +1,5 @@
 # Development Workplan
-_Last updated: 2026-04-18 — nginx integration complete, admin panel redesign complete, Phase 4.9 Grafana next_
+_Last updated: 2026-04-23 — Phase 4.9 Grafana complete; Redis session store + admin terminate session complete_
 
 ---
 
@@ -467,10 +467,33 @@ Tag v1.0 on GitHub, push `v1.0` and `latest` tags to Docker Hub.
 Build a standalone `.exe` using PyInstaller for the CLI tool.
 Bundles `cli.py` — no Python install required on client machines.
 
-### 4.6 Server-side sessions (Flask-Session)
-Replace client-side cookie sessions with Flask-Session backed by the DB or memory store.
-On server restart, all sessions are invalidated and users are kicked to login — FortiGate-style behavior.
-Drop-in swap, no session API changes needed.
+### 4.6 Server-side sessions (Flask-Session) ✅ COMPLETE (2026-04-23)
+Flask-Session backed by Redis (`SESSION_TYPE=redis`). On startup, all `session:*` keys flushed from Redis — FortiGate-style invalidation, no SECRET_KEY rotation needed. SECRET_KEY is now a fixed env var (`SECRET_KEY=dev` default), session lifecycle managed by Redis flush instead.
+
+### 4.6b Redis integration (v1.1)
+Redis as a fourth Docker service, enabling three features under one infrastructure dependency:
+
+**1. Job queue (distributed orchestration)**
+Replace the in-memory `RolloutOrchestrator` dict with a Redis-backed job queue. Workers pull jobs from the queue up to `max_concurrent` slots. Decouples job submission from execution and survives app restarts. Enables horizontal scaling to multiple worker nodes if needed.
+- As part of this: replace `RolloutSession` Postgres table with Redis counters (`netrollout:active_count`, `netrollout:pending_count`). `RolloutSessionCollector` in `webapp.py` reads these keys instead of calling `orchestrator.get_job_counts()`. Counters incremented/decremented at job state transitions in orchestrator.
+
+**2. Pub/sub log streaming ✅ COMPLETE (2026-04-24)**
+Replace the in-process `queue.Queue` + `_buffer` in `RolloutLogger` with a Redis pub/sub channel per job (`job:<job_id>:logs`). Workers publish log lines; SSE endpoint subscribes by job ID — no shared in-process state, no buffer locks. History replay handled via a parallel Redis list (`job:<job_id>:history`) — on SSE connect, `LRANGE` for history then subscribe for live tail.
+- `RolloutLogger` rewritten: keys only created when `job_id` + `timestamp` provided; `notify()` guards Redis writes with `if self._channel_key`; `get_history()` via `LRANGE`; `subscribe()` returns `PubSub`; `redis_cleanup()` publishes `__done__` sentinel then deletes both keys
+- `RolloutJob` adds `get_log_queue()`, `get_log_history()`, `log_cleanup()` — encapsulates logger access
+- SSE route replays history snapshot then tails live pub/sub channel; exits on `__done__` sentinel or dead thread
+- CSV import drain loop removed; `prepare_devices()` now returns `(list[Device], list[str])` — errors surfaced to caller directly
+
+**3. Session store + revocation ✅ COMPLETE (2026-04-23)**
+Flask-Session backed by Redis. Two keys per logged-in user:
+- `session:<sid>` — Flask-Session owns this, actual session data
+- `user_session:<user_id>` — our mapping, allows admin to locate and delete a user's session
+
+On login: `user_session:<user_id>` written with `session.sid`. On logout: `session.clear()` triggers Flask-Session to delete `session:<sid>`; we delete `user_session:<user_id>`. On terminate: we delete both manually (no Flask request context for target user). Admin "Terminate Session" button added to User Management toolbar.
+
+- `redis-py`, `Flask-Session==0.8.0` added as dependencies
+- `src/db/redis_db.py` — dedicated Redis module (`redis_client` singleton)
+- Redis added as a service in `docker-compose.yml`, reachable by Flask and workers on the Docker network
 
 ### 4.7 Alembic migrations ✅ COMPLETE (2026-04-17)
 DB layer refactored into `src/db/` package. `create_all` replaced with Alembic. Initial migration generated and applied. `db_install.py` calls `alembic upgrade head` programmatically. Migration files ship in the Docker image — fresh installs and schema upgrades both handled via `alembic upgrade head`.
@@ -503,12 +526,39 @@ Admin panel is now a fully standalone page — own layout, own topbar, own sideb
 - Matching footer style (JetBrains Mono, same copy as operator pages)
 - All admin sub-pages (`admin_users`, `admin_audit`, `admin_analytics`, `server_management`) extend `admin.html` unchanged
 
-### 4.9 Grafana analytics (next)
-Grafana running locally via Docker. Steps:
-- Configure PostgreSQL datasource pointing at `rollout_db`
-- Build dashboards: job success rate over time, device failure heatmap, top platforms, audit activity
-- Optionally embed panels in `/analytics` and `/admin/analytics` via `<iframe>` (enable "Allow embedding" in Grafana settings)
-- Phase 4 packaging: export dashboards as JSON → convert to provisioning YAML files → ship in docker-compose as pre-configured Grafana service
+### 4.9 Grafana analytics ✅ COMPLETE (2026-04-23)
+
+**3-datasource observability stack** running on `netrollout-obs` Docker network:
+- **PostgreSQL** (`NetRollout-DB:5432`, read-only `grafana_reader` user) — historical business metrics
+- **Prometheus** (`http://prometheus:9090`) — live/ephemeral job state and Flask request metrics
+- **Loki** (`http://loki:3100`) — log stream search per job_id
+
+**4 dashboards built and exported to `docs/grafana/dashbaord_config/`:**
+- `operations_overview.json` — Active Jobs, Pending Jobs, p99 latency, request rate by endpoint, rollouts per day, job status breakdown pie
+- `job_analytics.json` — Total Jobs, Success Rate, Avg Duration, Commands Sent vs Verified, Platform Success Rate bar gauge, Activity Heatmap (hour-of-day × day)
+- `job_detail.json` — drill-down by `$job_id` template variable: Job Status stat, Device Results table, Commands table, Loki log stream panel
+- `audit_security.json` — Total Events, Failed Actions, Unique Actors, Failure Rate stats, Audit Events Over Time, Failed Actions Over Time, Action Breakdown donut, Top Actors bar gauge, Failed Actions Log table
+
+**Provisioning files written (`docs/grafana/provisioning/`):**
+- `datasources/netrollout.yml` — all 3 datasources with fixed UIDs, grafana_reader credentials via `$GRAFANA_DB_PASSWORD` env var
+- `dashboards/netrollout.yml` — file provider pointing to `/var/lib/grafana/dashboards`, `allowUiUpdates: true`
+
+**Grafana config (set in container `grafana.ini`):**
+- `allow_embedding = true` — enables iframe embed in webapp
+- `[auth.anonymous] enabled = true, org_role = Viewer` — no-login access for embedded panels
+
+**Prometheus metrics:**
+- `prometheus_flask_exporter` with `group_by='url_rule'` — per-endpoint request metrics
+- Custom `RolloutSessionCollector` in `webapp.py` — exposes `netrollout_active_jobs` + `netrollout_pending_jobs` gauges
+
+**Loki + Promtail:**
+- Promtail watches `logs/*.log`, extracts `job_id` label from filename pattern `rollout_{ts}_{uuid}.log`
+- `reject_old_samples: false` in loki-config.yml — allows ingesting historical log files
+
+**Pending (packaging session):**
+- docker-compose volume mounts for `docs/grafana/provisioning/` and `docs/grafana/dashbaord_config/`
+- `GRAFANA_DB_PASSWORD` env var wired in docker-compose
+- Optional webapp iframe embed in `/admin/analytics`
 
 ### 4.10 Documentation
 - `README.md` — project overview, quick start (install.py), CLI usage, CSV format reference, security posture section, update instructions

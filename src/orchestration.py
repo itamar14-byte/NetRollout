@@ -4,10 +4,13 @@ import uuid
 from typing import Callable
 
 
+from redis.client import PubSub
+
 from core import RolloutEngine, RolloutOptions, Device, DeviceResultDict
 from db import get_session
 from logging_utils import RolloutLogger
-from db.tables import RolloutSession, DeviceResult, JobMetadata
+from db.redis_db import redis_client
+from db.tables import DeviceResult, JobMetadata
 
 
 class RolloutJob:
@@ -43,11 +46,14 @@ class RolloutJob:
 	def is_pending(self) -> bool:
 		return self._thread is None
 
-	def get_log_queue(self) -> str:
-		return self._logger.get_queue(1)
+	def get_log_queue(self) -> PubSub:
+		return self._logger.subscribe()
 
-	def get_log_history(self):
-		return self._logger.get_buffer_snapshot()
+	def get_log_history(self) -> list[str]:
+		return self._logger.get_history()
+
+	def log_cleanup(self) -> None:
+		return self._logger.redis_cleanup()
 
 	def get_device_count(self) -> int:
 		return len(self._engine.devices)
@@ -66,18 +72,23 @@ class RolloutOrchestrator:
 
 		with self._lock:
 			self._jobs[job.job_id] = job
+
+		redis_client.hset(f"job:{job.job_id}:meta", mapping={
+			"user_id": str(user_id),
+			"status": "pending",
+			"device_count": job.get_device_count(),
+			"created_at": datetime.datetime.now().isoformat(),
+		})
+		redis_client.sadd(f"user_jobs:{user_id}", str(job.job_id))
+		redis_client.incr("netrollout:pending_count")
+
 		with get_session() as db_session:
-			db_session.add(RolloutSession(id=job.job_id,
-			                              user_id=user_id,
-			                              status="pending"
-			                              ))
 			db_session.add(JobMetadata(job_id = job.job_id,
 			                           user_id = user_id,
 			                           commands=commands,
 			                           comment=comment))
 
 		self._dispatch()
-
 		return job.job_id
 
 	def cancel(self, job_id: uuid.UUID) -> None:
@@ -85,12 +96,10 @@ class RolloutOrchestrator:
 			job = self._jobs.get(job_id, None)
 		if job:
 			job.cancel()
-			with get_session() as db_session:
-				session_row = db_session.get(RolloutSession, job.job_id)
-				if session_row:
-					session_row.status = "cancelling"
+			redis_client.hset(f"job:{job.job_id}:meta", field="status",
+			                                               value="cancelling")
 
-	def get(self, job_id: uuid.UUID) -> RolloutJob | None:
+	def get_job(self, job_id: uuid.UUID) -> RolloutJob | None:
 		with self._lock:
 			job = self._jobs.get(job_id, None)
 		return job
@@ -105,10 +114,11 @@ class RolloutOrchestrator:
 				break
 			job.start(self._cleanup)
 			num_active += 1
-			with get_session() as db_session:
-				session_row = db_session.get(RolloutSession, job.job_id)
-				if session_row:
-					session_row.status = "active"
+			redis_client.hset(f"job:{job.job_id}:meta", "status", "active")
+			redis_client.hset(f"job:{job.job_id}:meta", "started_at",
+			                  datetime.datetime.now().isoformat())
+			redis_client.decr("netrollout:pending_count")
+			redis_client.incr("netrollout:active_count")
 
 	def _cleanup(self, job_id: uuid.UUID) -> None:
 		with self._lock:
@@ -128,8 +138,8 @@ class RolloutOrchestrator:
 					                            fetched_config=result["fetched_config"],
 					                            status=result["status"]
 					                            ))
-				session_row = db_session.get(RolloutSession, job.job_id)
-				if session_row:
-					db_session.delete(session_row)
-
+				redis_client.delete(f"job:{job.job_id}:meta")
+				redis_client.srem(f"user_jobs:{job.user_id}", str(job_id))
+				redis_client.decr("netrollout:active_count")
+			job.log_cleanup()
 		self._dispatch()
