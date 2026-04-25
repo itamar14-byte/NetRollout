@@ -31,21 +31,22 @@ ANSI_TO_HTML = {"RED": WEBAPP_RED, "GREEN": WEBAPP_GREEN, "YELLOW": WEBAPP_YELLO
 
 class RolloutLogger:
     def __init__(self, webapp: bool, verbose: bool,
-                 job_id: str = None, timestamp: str = None):
+                 prefix: str = "rollout", job_id: str = None):
         self._log_lock = threading.Lock()
         self._webapp = webapp
         self._verbose = verbose
 
-        if job_id and timestamp:
-            os.makedirs(LOGS_DIR, exist_ok=True)
+        ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        os.makedirs(LOGS_DIR, exist_ok=True)
+        if job_id:
             self.logfile = os.path.join(LOGS_DIR,
-                                        f"rollout_{timestamp}_{job_id}.log")
+                                        f"{prefix}_{ts}_{job_id}.log")
             self._channel_key = f"job:{job_id}:logs"
             self._history_key = f"job:{job_id}:history"
 
         else:
-            self.logfile = datetime.datetime.now().strftime(
-                "rollout_%Y%m%d_%H%M%S.log")
+            self.logfile = os.path.join(LOGS_DIR,
+                                        f"{prefix}_{ts}.log")
             self._channel_key, self._history_key = None, None
 
     def _log(self, message: str) -> None:

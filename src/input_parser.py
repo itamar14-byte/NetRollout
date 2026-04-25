@@ -49,13 +49,12 @@ class InputParser:
 						                        if vrf.strip()]
 
 					devices.append(Device(**core,extra=var_mappings))
-					'''self.logger.notify(
+					self.logger.notify(
 						f"Device {item['device_type']}: {item['ip']} successfully added",
-						"green")'''
+						"green")
 				else:
 					errors.append(f"{item['ip']} is not reachable")
-					'''self.logger.notify(f"{item['ip']} is not reachable",
-					                   "red")'''
+					self.logger.notify(f"{item['ip']} is not reachable", "red")
 					continue
 			else:
 				continue
@@ -88,6 +87,9 @@ class InputParser:
 							"Missing keys: {}".format(missing_keys))
 
 					devices, errors = self.prepare_devices(list(reader))
+					self.logger.notify(
+						f"CSV processed: {len(devices)} imported, {len(errors)} failed",
+						"green" if not errors else "yellow", important=True)
 					for device in devices:
 						row = Inventory(user_id=user_id, ip=device.ip,
 						                port=device.port,

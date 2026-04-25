@@ -3,14 +3,13 @@ import threading
 import uuid
 from typing import Callable
 
-
 from redis.client import PubSub
 
 from core import RolloutEngine, RolloutOptions, Device, DeviceResultDict
 from db import get_session
-from logging_utils import RolloutLogger
 from db.redis_db import redis_client
 from db.tables import DeviceResult, JobMetadata
+from logging_utils import RolloutLogger
 
 
 class RolloutJob:
@@ -21,9 +20,8 @@ class RolloutJob:
 		self.started_at: datetime.datetime | None = None
 		self.results: list[DeviceResultDict] = []
 		self._engine = engine
-		ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 		self._logger = RolloutLogger(options.webapp, options.verbose,
-		                             job_id=str(job_id), timestamp=ts)
+		                             job_id=str(job_id), prefix="rollout")
 		self._cancel_flag = threading.Event()
 		self._thread = None
 
@@ -43,9 +41,6 @@ class RolloutJob:
 	def is_alive(self) -> bool:
 		return self._thread is not None and self._thread.is_alive()
 
-	def is_pending(self) -> bool:
-		return self._thread is None
-
 	def get_log_queue(self) -> PubSub:
 		return self._logger.subscribe()
 
@@ -62,11 +57,14 @@ class RolloutJob:
 class RolloutOrchestrator:
 	def __init__(self, max_concurrent: int = 4) -> None:
 		self.max_concurrent = max_concurrent
+		self._slots = threading.Semaphore(max_concurrent)
 		self._jobs: dict[uuid.UUID, RolloutJob] = {}
 		self._lock = threading.Lock()
+		threading.Thread(target=self._dispatcher, daemon=True).start()
 
 	def submit(self, devices: list[Device], commands: list[str], params:
-	RolloutOptions, user_id: uuid.UUID, comment: str | None = None) -> uuid.UUID:
+	RolloutOptions, user_id: uuid.UUID,
+	           comment: str | None = None) -> uuid.UUID:
 		engine = RolloutEngine(params, devices, commands)
 		job = RolloutJob(uuid.uuid4(), user_id, engine, params)
 
@@ -83,12 +81,12 @@ class RolloutOrchestrator:
 		redis_client.incr("netrollout:pending_count")
 
 		with get_session() as db_session:
-			db_session.add(JobMetadata(job_id = job.job_id,
-			                           user_id = user_id,
+			db_session.add(JobMetadata(job_id=job.job_id,
+			                           user_id=user_id,
 			                           commands=commands,
 			                           comment=comment))
 
-		self._dispatch()
+		redis_client.rpush("netrollout:job_queue", str(job.job_id))
 		return job.job_id
 
 	def cancel(self, job_id: uuid.UUID) -> None:
@@ -97,23 +95,30 @@ class RolloutOrchestrator:
 		if job:
 			job.cancel()
 			redis_client.hset(f"job:{job.job_id}:meta", field="status",
-			                                               value="cancelling")
+			                  value="cancelling")
 
 	def get_job(self, job_id: uuid.UUID) -> RolloutJob | None:
 		with self._lock:
 			job = self._jobs.get(job_id, None)
 		return job
 
-	def _dispatch(self) -> None:
-		with self._lock:
-			num_active = sum(1 for job in self._jobs.values() if job.is_alive())
-			pending = [job for job in self._jobs.values() if
-			           job.is_pending()]
-		for job in pending:
-			if num_active >= self.max_concurrent:
-				break
+	def _dispatcher(self) -> None:
+		while True:
+			result = redis_client.blpop("netrollout:job_queue", timeout=0)
+			if result is None:
+				continue
+			_, job_id_bytes = result
+			job_id = uuid.UUID(job_id_bytes.decode())
+
+			self._slots.acquire()
+
+			with self._lock:
+				job = self._jobs.get(job_id)
+				if job is None:
+					self._slots.release()
+					continue
+
 			job.start(self._cleanup)
-			num_active += 1
 			redis_client.hset(f"job:{job.job_id}:meta", "status", "active")
 			redis_client.hset(f"job:{job.job_id}:meta", "started_at",
 			                  datetime.datetime.now().isoformat())
@@ -131,15 +136,18 @@ class RolloutOrchestrator:
 					                            started_at=job.started_at,
 					                            completed_at=datetime.datetime.now(),
 					                            device_ip=result["device_ip"],
-					                            device_type=result["device_type"],
-					                            commands_sent=result["commands_sent"],
+					                            device_type=result[
+						                            "device_type"],
+					                            commands_sent=result[
+						                            "commands_sent"],
 					                            commands_verified=result[
 						                            "commands_verified"],
-					                            fetched_config=result["fetched_config"],
+					                            fetched_config=result[
+						                            "fetched_config"],
 					                            status=result["status"]
 					                            ))
 				redis_client.delete(f"job:{job.job_id}:meta")
 				redis_client.srem(f"user_jobs:{job.user_id}", str(job_id))
 				redis_client.decr("netrollout:active_count")
 			job.log_cleanup()
-		self._dispatch()
+		self._slots.release()

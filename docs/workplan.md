@@ -1,5 +1,5 @@
 # Development Workplan
-_Last updated: 2026-04-23 — Phase 4.9 Grafana complete; Redis session store + admin terminate session complete_
+_Last updated: 2026-04-25 — 4.6b Redis integration complete; 3.4c activity logging complete_
 
 ---
 
@@ -319,6 +319,17 @@ Two separate surfaces, different scopes. Data sourced entirely from `DeviceResul
 
 **Deferred to Grafana/Prometheus:** time-series charts, per-platform breakdown over time — better served as live dashboard panels with PostgreSQL datasource than hardcoded Chart.js.
 
+### 3.4c Activity Logging ✅ COMPLETE (2026-04-25)
+Extended `RolloutLogger` to cover sequential administrative workflows with full log files.
+
+- `RolloutLogger` constructor refactored: `timestamp` removed (calculated internally), `prefix` parameter added (default `"rollout"`), `os.makedirs` hoisted above branch — all log files now land in `LOGS_DIR` including CLI runs
+- Three workflows instrumented:
+  - `csv_import` — per-device success/failure + summary with `important=True`; notifies already existed in `input_parser.py`, uncommented and wired to new logger instance
+  - `bulk_sec_assign` — start, per-device assigned/not-found, summary; failure paths covered
+  - `bulk_map_assign` — start, per-device assigned/ineligible/already-assigned/not-found, summary; most granular — logs reason for each skip
+- `RolloutJob` updated to pass `prefix="rollout"` explicitly
+- Security profile test connection excluded — atomic single-device action, AJAX response is sufficient
+
 ### 3.5 Test suite ✅ PARTIAL — core layer complete (2026-04-13)
 
 **Done:**
@@ -413,6 +424,26 @@ Extract per-page inline CSS and JS out of `{% block extra_style %}` / `{% block 
 
 
 
+### 4.0b BYO Infrastructure Support
+Allow users to connect their own enterprise instances of Redis, Postgres, and Grafana instead of the bundled Docker services.
+
+**Redis BYO:**
+- Server management UI card: host, port, database number, optional password
+- Note: database number must be unique (not used by other applications)
+- Test connection button before saving
+- `REDIS_URL` env var: `redis://[:password@]host:port/db` — `redis-py` parses automatically
+- Fallback to bundled Redis instance if not configured
+
+**Postgres BYO:**
+- Already implemented via server management UI + `DATABASE_URL` env var
+
+**Grafana BYO:**
+- Server management UI card: host, port, optional credentials
+- `GRAFANA_URL` env var
+- Fallback to bundled Grafana instance if not configured
+
+All three services follow the same pattern: env var with bundled fallback, config card in server management, test connection before save.
+
 ### 4.1 Docker image
 Build and publish image to Docker Hub as `itamar14/netrollout:latest` and `itamar14/netrollout:v1.0`.
 `docker-compose.yml` with three services:
@@ -470,12 +501,11 @@ Bundles `cli.py` — no Python install required on client machines.
 ### 4.6 Server-side sessions (Flask-Session) ✅ COMPLETE (2026-04-23)
 Flask-Session backed by Redis (`SESSION_TYPE=redis`). On startup, all `session:*` keys flushed from Redis — FortiGate-style invalidation, no SECRET_KEY rotation needed. SECRET_KEY is now a fixed env var (`SECRET_KEY=dev` default), session lifecycle managed by Redis flush instead.
 
-### 4.6b Redis integration (v1.1)
+### 4.6b Redis integration (v1.1) ✅ COMPLETE (2026-04-25)
 Redis as a fourth Docker service, enabling three features under one infrastructure dependency:
 
-**1. Job queue (distributed orchestration)**
-Replace the in-memory `RolloutOrchestrator` dict with a Redis-backed job queue. Workers pull jobs from the queue up to `max_concurrent` slots. Decouples job submission from execution and survives app restarts. Enables horizontal scaling to multiple worker nodes if needed.
-- As part of this: replace `RolloutSession` Postgres table with Redis counters (`netrollout:active_count`, `netrollout:pending_count`). `RolloutSessionCollector` in `webapp.py` reads these keys instead of calling `orchestrator.get_job_counts()`. Counters incremented/decremented at job state transitions in orchestrator.
+**1. Job queue (distributed orchestration) ✅ COMPLETE (2026-04-25)**
+`RolloutSession` Postgres table replaced entirely by Redis. `RolloutOrchestrator` now uses a persistent `_dispatcher` thread blocking on `BLPOP "netrollout:job_queue"`. `submit()` pushes job_id onto the queue via `RPUSH`; `_slots` semaphore (`threading.Semaphore(max_concurrent)`) enforces concurrency limit — acquired before dispatch, released in `_cleanup()`. Job state tracked via Redis hashes (`job:<id>:meta`), user→jobs index via Redis sets (`user_jobs:<user_id>`), live counts via Redis counters (`netrollout:active_count`, `netrollout:pending_count`). `RolloutSessionCollector` reads counters directly. `active_jobs` route and `admin_active_job_count` route both read from Redis. Alembic migration generated and applied to drop `rollout_sessions` table.
 
 **2. Pub/sub log streaming ✅ COMPLETE (2026-04-24)**
 Replace the in-process `queue.Queue` + `_buffer` in `RolloutLogger` with a Redis pub/sub channel per job (`job:<job_id>:logs`). Workers publish log lines; SSE endpoint subscribes by job ID — no shared in-process state, no buffer locks. History replay handled via a parallel Redis list (`job:<job_id>:history`) — on SSE connect, `LRANGE` for history then subscribe for live tail.
@@ -559,6 +589,78 @@ Admin panel is now a fully standalone page — own layout, own topbar, own sideb
 - docker-compose volume mounts for `docs/grafana/provisioning/` and `docs/grafana/dashbaord_config/`
 - `GRAFANA_DB_PASSWORD` env var wired in docker-compose
 - Optional webapp iframe embed in `/admin/analytics`
+
+### 4.9b LDAP Integration
+
+**Goal:** Allow admins to configure an org-level LDAP/LDAPS server and import users or groups. Imported remote users authenticate directly with their LDAP credentials — no local password needed.
+
+---
+
+**New DB table — `LDAPServer`:**
+- `id` (UUID PK), `name` (display name), `host`, `port` (int, default 389/636), `base_dn`, `cn_identifier` (e.g. `SAMAccountName`, `cn`, `uid`), `bind_type` (enum: `anonymous`, `simple`, `regular`), `bind_dn` (nullable), `bind_password` (Fernet-encrypted, nullable), `use_ssl` (bool)
+- Org-level — one row, shared across all users
+
+**New DB table — `LDAPGroup`:**
+- `id`, `ldap_server_id` FK, `group_dn` (full DN of the AD group), `label` (display name)
+- Group-level rules — any member of this AD group can authenticate, checked at login time
+- No per-user pre-import needed for group rules
+
+**`User` model changes:**
+- Add `auth_type` field: `"local"` (default) or `"ldap"`
+- Add `ldap_server_id` FK (nullable) — which server this user authenticates against
+- `password_hash` nullable — null for LDAP users
+- OTP skipped for LDAP users — LDAP server handles auth security
+
+---
+
+**Login flow changes:**
+1. User submits credentials
+2. Look up user by username — check `auth_type`
+3. If `"local"` — existing flow (hash check → OTP)
+4. If `"ldap"` — bind to LDAP server with user's credentials via `ldap3`; on success → `login_user()`, skip OTP
+5. If no matching `User` row — check `LDAPGroup` rules: attempt LDAP bind, then verify group membership; on success → auto-create `User` row with `auth_type="ldap"` and `login_user()`
+
+---
+
+**Server Management UI — LDAP card (currently locked stub):**
+- Fields: Name, Server IP/Name, Port (default 389), CN Identifier (default `SAMAccountName`), Distinguished Name (base DN), Bind Type toggle (Simple / Anonymous / Regular)
+- Conditional fields: bind DN + password shown only for Simple/Regular
+- LDAP/LDAPS toggle (Secure Connection) — switches default port 389↔636
+- **Test** button — verifies connection and bind
+- **Fetch DN** button — auto-populates base DN by querying the server
+- Save button — encrypts bind password, writes to DB
+
+**LDAP Explorer (modal launched from server management after server is saved):**
+- AJAX endpoint connects to LDAP using saved bind credentials, walks tree under `base_dn`
+- Returns browsable OU/group/user tree
+- Admin can:
+  - Select individual users → creates `User` rows with `auth_type="ldap"`
+  - Select groups → creates `LDAPGroup` rows (group-level rules, no per-user import)
+- Mix of individual users and group rules supported simultaneously
+
+---
+
+**User Management UI changes:**
+- Two sections under the existing user table: **Local Users** and **Remote Users (LDAP)**
+- Remote users show LDAP server name as a badge instead of role/OTP status
+- Group rules appear as a separate row type with member count indicator
+- Approve/enable/disable/promote actions apply to individual LDAP users; group rules have enable/disable only
+- Admin cannot set password for LDAP users
+
+**Live Sessions page (new admin panel tab):**
+- Reads all `user_session:*` keys from Redis
+- Resolves username + auth_type for each session
+- Two sections: **Local Sessions** and **Remote Sessions (LDAP)**
+- Shows: username, auth type badge, login time (if stored in session), IP address
+- **Kick** button per row — deletes `session:<sid>` + `user_session:<user_id>` from Redis (same logic as existing terminate session)
+- Replaces the per-user terminate button in user management (or keeps both)
+- New sidebar entry under **Access** section in admin panel
+
+---
+
+**Python dependency:** `ldap3` — pure Python, no C extensions, Docker-friendly
+
+**Alembic migration:** new `ldap_servers` and `ldap_groups` tables, `auth_type` + `ldap_server_id` columns on `users`
 
 ### 4.10 Documentation
 - `README.md` — project overview, quick start (install.py), CLI usage, CSV format reference, security posture section, update instructions

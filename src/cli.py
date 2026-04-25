@@ -45,7 +45,9 @@ def main():
 		verify = input("Verify rollout? (y/n): ").lower() == "y"
 
 	options = RolloutOptions(verify=verify, verbose=args.verbose, webapp=False)
-	logger  = RolloutLogger(webapp=False, verbose=args.verbose)
+	logger  = RolloutLogger(webapp=False, verbose=args.verbose,
+	                        prefix="cli_rollout")
+
 
 	validator = Validator(logger)
 	parser    = InputParser(validator, logger)

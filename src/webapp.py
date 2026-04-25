@@ -1545,7 +1545,9 @@ def inventory_import_csv():
 
 
 	try:
-		logger = RolloutLogger(webapp=True, verbose=False)
+		logger = RolloutLogger(webapp=False, verbose=False,
+		                       prefix="csv_import",
+		                       job_id=str(uuid.uuid4())[:8])
 		validator = Validator(logger)
 		parser = InputParser(validator, logger)
 
@@ -1574,33 +1576,52 @@ def inventory_import_csv():
 @app.route("/inventory/bulk_assign", methods=["POST"])
 @login_required
 def inventory_bulk_assign():
+
+	logger = RolloutLogger(webapp=False, verbose=False,
+	                       prefix="bulk_sec_assign",
+	                       job_id=str(uuid.uuid4())[:8])
 	data = request.get_json(silent=True)
 	if not data:
+		logger.notify("Bulk assign failed: invalid request", "red", important=True)
 		return jsonify({"status": "error", "message": "Invalid redis_session_request"}), 400
 
 	profile_id = data.get("profile_id")
 	device_ids = data.get("device_ids", [])
 
 	if not device_ids:
+		logger.notify("Bulk assign failed: no devices provided", "red", important=True)
 		return jsonify(
 			{"status": "error", "message": "No devices provided"}), 400
 
 	parsed_profile_id = uuid.UUID(profile_id) if profile_id else None
+	logger.notify(
+		f"Bulk security assign started: {len(device_ids)} devices → profile {profile_id or 'unassign'}",
+		important=True)
 
 	with get_session() as db_session:
 		if parsed_profile_id:
 			profile = db_session.query(SecurityProfile).filter_by(
 				id=parsed_profile_id, user_id=current_user.id).first()
 			if not profile:
+				logger.notify("Bulk assign failed: profile not found", "red", important=True)
 				return jsonify(
 					{"status": "error", "message": "Profile not found"}), 404
 
+		assigned, skipped = 0, 0
 		for device_id_str in device_ids:
 			device = db_session.query(Inventory).filter_by(
 				id=uuid.UUID(device_id_str), user_id=current_user.id).first()
 			if device:
 				device.sec_profile_id = parsed_profile_id
+				logger.notify(f"{device.label} ({device.ip}): assigned", "green")
+				assigned += 1
+			else:
+				logger.notify(f"Device {device_id_str}: not found", "red")
+				skipped += 1
 
+	logger.notify(
+		f"Bulk security assign complete: {assigned} assigned, {skipped} skipped",
+		"green" if not skipped else "yellow", important=True)
 	audit("inventory.bulk_assign", detail={
 		"count": len(device_ids),
 		"profile_id": str(profile_id) if profile_id else None})
@@ -2199,14 +2220,20 @@ def mappings_bulk_assign():
 	Invalid or ineligible device IDs are silently skipped.
 	The mapping ownership check is done once before the loop.
 	"""
+	logger = RolloutLogger(webapp=False, verbose=False,
+	                       prefix="bulk_var_assign",
+	                       job_id=str(uuid.uuid4())[:8])
+
 	# Parse JSON body — bail immediately if malformed or missing
 	data = request.get_json(silent=True)
 	if not data:
+		logger.notify("Bulk mapping assign failed: invalid request", "red", important=True)
 		return jsonify({"status": "error", "message": "Invalid redis_session_request"}), 400
 	mapping_id = data.get("mapping_id", None)
 	device_ids = data.get("device_ids", [])
 
 	if not device_ids:
+		logger.notify("Bulk mapping assign failed: no devices provided", "red", important=True)
 		return jsonify(
 			{"status": "error", "message": "No devices provided"}), 400
 
@@ -2214,6 +2241,7 @@ def mappings_bulk_assign():
 	try:
 		parsed_mapping_id = uuid.UUID(mapping_id)
 	except (ValueError, TypeError):
+		logger.notify("Bulk mapping assign failed: invalid mapping ID", "red", important=True)
 		return jsonify(
 			{"status": "error", "message": "Invalid mapping ID"}), 400
 
@@ -2222,13 +2250,19 @@ def mappings_bulk_assign():
 		mapping = db_session.query(VariableMapping).filter_by(
 			id=parsed_mapping_id, user_id=current_user.id).first()
 		if not mapping:
+			logger.notify("Bulk mapping assign failed: mapping not found", "red", important=True)
 			return jsonify(
 				{"status": "error", "message": "Mapping not found"}), 404
+
+		logger.notify(
+			f"Bulk mapping assign started: {len(device_ids)} devices → mapping {mapping.token}",
+			important=True)
 
 		# Snapshot already-assigned IDs before the loop to avoid re-querying
 		# the relationship on every iteration
 		assigned_ids = {d.id for d in mapping.devices}
 
+		assigned, skipped = 0, 0
 		for device_id_str in device_ids:
 			# Parse each device UUID — skip silently if malformed
 			try:
@@ -2236,20 +2270,32 @@ def mappings_bulk_assign():
 					id=uuid.UUID(device_id_str),
 					user_id=current_user.id).first()
 			except (ValueError, TypeError):
+				skipped += 1
 				continue
 			# Skip if device not found or not owned by current_user
 			if not device:
+				logger.notify(f"Device {device_id_str}: not found", "red")
+				skipped += 1
 				continue
 			# Eligibility check — device must have the mapped attribute set,
 			# and the value must be truthy (empty string/list would produce
 			# garbage substitution at rollout time)
 			if not (device.var_maps or {}).get(mapping.property_name):
+				logger.notify(f"{device.label} ({device.ip}): ineligible — missing attribute '{mapping.property_name}'", "yellow")
+				skipped += 1
 				continue
 			# Skip if already assigned to avoid duplicate join table rows
 			if device.id in assigned_ids:
+				logger.notify(f"{device.label} ({device.ip}): already assigned", "yellow")
+				skipped += 1
 				continue
 			mapping.devices.append(device)
+			logger.notify(f"{device.label} ({device.ip}): assigned", "green")
+			assigned += 1
 
+	logger.notify(
+		f"Bulk mapping assign complete: {assigned} assigned, {skipped} skipped",
+		"green" if not skipped else "yellow", important=True)
 	audit("mapping.bulk_assign", object_type="VariableMapping",
 	      object_id=parsed_mapping_id, detail={"count": len(device_ids)})
 	return jsonify({"status": "success"})
