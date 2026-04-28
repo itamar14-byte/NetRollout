@@ -7,10 +7,9 @@ from alembic import context
 
 
 #make /src importable
-sys.path.insert(0, os.path.dirname(os.path.dirname(
-    os.path.dirname(__file__))))
-from db.postgres_db import Base
-import db.tables
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+from postgres_db import Base
+import tables
 
 
 # this is the Alembic Config object, which provides

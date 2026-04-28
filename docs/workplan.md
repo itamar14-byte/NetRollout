@@ -1,5 +1,5 @@
 # Development Workplan
-_Last updated: 2026-04-25 — 4.6b Redis integration complete; 3.4c activity logging complete_
+_Last updated: 2026-04-28 — 4.9b LDAP integration complete; Live Sessions page complete_
 
 ---
 
@@ -590,7 +590,7 @@ Admin panel is now a fully standalone page — own layout, own topbar, own sideb
 - `GRAFANA_DB_PASSWORD` env var wired in docker-compose
 - Optional webapp iframe embed in `/admin/analytics`
 
-### 4.9b LDAP Integration
+### 4.9b LDAP Integration ✅ COMPLETE (2026-04-28)
 
 **Goal:** Allow admins to configure an org-level LDAP/LDAPS server and import users or groups. Imported remote users authenticate directly with their LDAP credentials — no local password needed.
 
@@ -658,9 +658,33 @@ Admin panel is now a fully standalone page — own layout, own topbar, own sideb
 
 ---
 
-**Python dependency:** `ldap3` — pure Python, no C extensions, Docker-friendly
+**Python dependency:** `ldap3~=2.9.1` — pure Python, no C extensions, Docker-friendly. Added to `requirements.txt`.
 
-**Alembic migration:** new `ldap_servers` and `ldap_groups` tables, `auth_type` + `ldap_server_id` columns on `users`
+**Alembic migrations:**
+- `a19370a56122_add_ldap` — `ldap_servers`, `ldap_groups` tables; `auth_type` + `ldap_server_id` on `users`; `password_hash` made nullable
+- `5c2b80c49fc9_nullable_user_email_fullname` — `email` + `full_name` nullable (LDAP users have no local registration)
+
+**`src/ldap_auth.py`** — new module: `make_server`, `service_bind`, `user_bind`, `test_connection`, `test_user`, `check_group_membership`, `fetch_user_details`, `fetch_base_dn`, `walk_tree`. All network calls wrapped in `(LDAPBindError, LDAPSocketOpenError)` try/except. Consistent `{"status": "ok/error", ...}` response shape throughout.
+
+**Login flow** — extended with two new branches:
+- Existing LDAP user: `user_bind` → check `is_approved`/`is_active` → `login_user()` or flash
+- Unknown user: `check_group_membership` against all active groups → auto-create `User(auth_type="ldap")` → `login_user()`
+
+**LDAP routes in `webapp.py`** (10 routes under `/admin/server/ldap/`): GET list, new, save, delete, test, test_user, fetch_dn, explore (walk_tree), import (users + groups), groups list, group toggle, group delete.
+
+**`templates/server_management.html`** — full LDAP card replacing locked stub: server list with inline expand/collapse edit panels, bind type selector (two styled option cards), LDAPS toggle (auto-flips 389↔636), Test/Test User/Fetch DN/Save/Delete per server. Explorer modal (modal-xl) with DOM-built tree browser, breadcrumb nav, selected panel, import with summary. All Explorer JS uses `createElement` + `addEventListener` + `data-dn` + `CSS.escape` — no inline onclick injection.
+
+**`templates/admin_users.html`** — LDAP badge on LDAP users; Group Rules section at bottom (AJAX-loaded, toggle/delete per rule).
+
+**`templates/live_sessions.html`** — new page under Access section: two cards (Local / Remote LDAP), session table with elapsed time (Jinja2 macro), kick/kick-all JS, updateCounts on kick.
+
+**`templates/admin.html`** — Live Sessions sidebar link added under Access section (`bi-activity` icon, `active_section="sessions"`).
+
+**Live Sessions routes:** `GET /admin/sessions` (scans `user_session:*` Redis keys, TTL→elapsed math, local/ldap split), `POST /admin/sessions/<uuid>/kick` (deletes `redis_session:<sid>` + `user_session:<uid>`, emits audit log).
+
+### 4.9c Codebase Cleanup (post-LDAP)
+- Standardize all `jsonify` response shapes — settle on `{"status": "ok"/"error", "message": "..."}` across all routes and update frontend JS consumers accordingly
+- Audit all `if not x` guards in routes — confirm each protects against null access, remove any that are just early termination with no real guard purpose
 
 ### 4.10 Documentation
 - `README.md` — project overview, quick start (install.py), CLI usage, CSV format reference, security posture section, update instructions

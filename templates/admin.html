@@ -413,6 +413,13 @@
                 <span class="adm-sb-label">User Management</span>
             </a>
 
+            <a href="{{ url_for('admin_sessions') }}"
+               class="adm-sb-link {% if active_section == 'sessions' %}active{% endif %}"
+               title="Live Sessions">
+                <i class="bi bi-activity adm-sb-icon"></i>
+                <span class="adm-sb-label">Live Sessions</span>
+            </a>
+
             <hr style="border-color:#181818; margin:0.4rem 0.5rem;">
             <div class="adm-sb-section">Observability</div>
 

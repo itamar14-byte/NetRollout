@@ -16,7 +16,6 @@
   <div class="nr-card-accent"></div>
   <div class="nr-card-body">
 
-    <!-- Header row -->
     <div class="d-flex align-items-center justify-content-between mb-3">
       <div class="d-flex align-items-center gap-2">
         <i class="bi bi-database" style="color:#00bcd4; font-size:1.1rem;"></i>
@@ -24,7 +23,6 @@
           Database
         </span>
       </div>
-      <!-- Status badge -->
       <div class="d-flex align-items-center gap-2">
         {% if db_connected %}
           <span class="conn-dot connected"></span>
@@ -39,7 +37,6 @@
       </div>
     </div>
 
-    <!-- Migration warning -->
     <div class="nr-warning mb-4">
       <i class="bi bi-exclamation-triangle-fill me-2" style="color:#ffe082;"></i>
       <span>
@@ -49,50 +46,41 @@
       </span>
     </div>
 
-    <!-- Form -->
     <div class="row g-3">
       <div class="col-md-5">
         <label class="nr-label">Host</label>
-        <input type="text" id="db_host" class="form-control"
-               placeholder="db.example.com"
+        <input type="text" id="db_host" class="form-control" placeholder="db.example.com"
                value="{{ current_config.get('DB_HOST', '') }}">
       </div>
       <div class="col-md-2">
         <label class="nr-label">Port</label>
-        <input type="number" id="db_port" class="form-control"
-               placeholder="5432"
+        <input type="number" id="db_port" class="form-control" placeholder="5432"
                value="{{ current_config.get('DB_PORT', '5432') }}">
       </div>
       <div class="col-md-5">
         <label class="nr-label">Database Name</label>
-        <input type="text" id="db_name" class="form-control"
-               placeholder="rollout_db"
+        <input type="text" id="db_name" class="form-control" placeholder="rollout_db"
                value="{{ current_config.get('DB_NAME', '') }}">
       </div>
       <div class="col-md-4">
         <label class="nr-label">User</label>
-        <input type="text" id="db_user" class="form-control"
-               placeholder="dbadmin"
+        <input type="text" id="db_user" class="form-control" placeholder="dbadmin"
                value="{{ current_config.get('DB_USER', '') }}">
       </div>
       <div class="col-md-4">
         <label class="nr-label">Password</label>
-        <input type="password" id="db_password" class="form-control"
-               placeholder="••••••••"
+        <input type="password" id="db_password" class="form-control" placeholder="••••••••"
                value="{{ current_config.get('DB_PASSWORD', '') }}">
       </div>
       <div class="col-md-4">
         <label class="nr-label">Schema <span style="color:#555;">(optional)</span></label>
-        <input type="text" id="db_schema" class="form-control"
-               placeholder="public"
+        <input type="text" id="db_schema" class="form-control" placeholder="public"
                value="{{ current_config.get('DB_SCHEMA', '') }}">
       </div>
     </div>
 
-    <!-- Test result -->
     <div id="testResult" class="mt-3" style="display:none;"></div>
 
-    <!-- Actions -->
     <div class="d-flex gap-2 mt-4 align-items-center">
       <button class="btn btn-outline-primary btn-sm" id="btnTest" onclick="testConnection()">
         <i class="bi bi-plug me-1"></i>Test Connection
@@ -100,11 +88,9 @@
       <button class="btn btn-primary btn-sm" id="btnSave" onclick="saveConfig()" disabled>
         <i class="bi bi-floppy me-1"></i>Save Configuration
       </button>
-      <span id="saveSpinner" class="spinner-border spinner-border-sm text-info ms-1"
-            style="display:none;"></span>
+      <span id="saveSpinner" class="spinner-border spinner-border-sm text-info ms-1" style="display:none;"></span>
     </div>
 
-    <!-- Restart banner -->
     <div id="restartBanner" class="nr-restart-banner mt-4" style="display:none;">
       <i class="bi bi-arrow-clockwise me-2"></i>
       Configuration saved. <strong>Restart the application</strong> to apply changes and initialize the new database.
@@ -113,78 +99,268 @@
   </div>
 </div>
 
-<!-- ── LDAP CARD (coming soon) ───────────────────────────────── -->
-<div class="nr-card" style="opacity:0.45; pointer-events:none; user-select:none;">
-  <div class="nr-card-accent" style="background: linear-gradient(90deg, #555, #333, transparent);"></div>
+<!-- ── LDAP CARD ──────────────────────────────────────────────── -->
+<div class="nr-card mb-4">
+  <div class="nr-card-accent"></div>
   <div class="nr-card-body">
-    <div class="d-flex align-items-center justify-content-between">
+
+    <div class="d-flex align-items-center justify-content-between mb-3">
       <div class="d-flex align-items-center gap-2">
-        <i class="bi bi-people" style="color:#888; font-size:1.1rem;"></i>
-        <span style="font-family:'Inter',sans-serif; font-weight:600; color:#888; font-size:0.97rem;">
+        <i class="bi bi-people" style="color:#00bcd4; font-size:1.1rem;"></i>
+        <span style="font-family:'Inter',sans-serif; font-weight:600; color:#e0e0e0; font-size:0.97rem;">
           LDAP / Active Directory
         </span>
       </div>
-      <span class="mode-badge" style="background:rgba(255,255,255,0.04); color:#555; border-color:#333;">
-        COMING SOON
-      </span>
+      <button class="btn btn-outline-primary btn-sm" onclick="toggleNewForm()">
+        <i class="bi bi-plus me-1"></i>Add Server
+      </button>
     </div>
-    <p style="font-size:0.82rem; color:#555; margin-top:0.75rem; margin-bottom:0;">
-      Authenticate users against your organization's directory service.
-    </p>
+
+    <!-- ── New server form ── -->
+    <div id="newServerPanel" style="display:none;" class="ldap-edit-panel mb-4">
+      <div class="ldap-panel-label mb-3">NEW SERVER</div>
+      <div class="row g-3">
+        <div class="col-md-4">
+          <label class="nr-label">Name</label>
+          <input id="n_name" class="form-control form-control-sm" placeholder="Corp AD">
+        </div>
+        <div class="col-md-4">
+          <label class="nr-label">Host</label>
+          <input id="n_host" class="form-control form-control-sm" placeholder="ldap.corp.com">
+        </div>
+        <div class="col-md-2">
+          <label class="nr-label">Port</label>
+          <input id="n_port" class="form-control form-control-sm" type="number" value="389">
+        </div>
+        <div class="col-md-2 d-flex align-items-end pb-1">
+          <div class="form-check form-switch mb-0">
+            <input class="form-check-input" type="checkbox" id="n_ssl" onchange="newLdapsToggle()">
+            <label class="form-check-label nr-label mb-0" for="n_ssl">LDAPS</label>
+          </div>
+        </div>
+        <div class="col-md-8">
+          <label class="nr-label">Base DN</label>
+          <input id="n_dn" class="form-control form-control-sm" placeholder="DC=corp,DC=com">
+        </div>
+        <div class="col-md-4">
+          <label class="nr-label">CN Identifier</label>
+          <input id="n_cn" class="form-control form-control-sm" placeholder="sAMAccountName" value="sAMAccountName">
+        </div>
+        <div class="col-12">
+          <label class="nr-label d-block mb-2">Bind Type</label>
+          <div class="d-flex gap-2">
+            <div class="ldap-bind-option selected" onclick="newBindType('simple')" id="n_opt_simple">
+              <div style="font-weight:600; font-size:0.84rem; color:#ccc;">Simple</div>
+              <div style="font-size:0.72rem; color:#555; margin-top:0.15rem;">No stored service credentials</div>
+            </div>
+            <div class="ldap-bind-option" onclick="newBindType('regular')" id="n_opt_regular">
+              <div style="font-weight:600; font-size:0.84rem; color:#ccc;">Regular</div>
+              <div style="font-size:0.72rem; color:#555; margin-top:0.15rem;">Service account — enables Explorer + group rules</div>
+            </div>
+          </div>
+        </div>
+        <div id="n_bind_fields" class="col-12" style="display:none;">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="nr-label">Bind DN</label>
+              <input id="n_bdn" class="form-control form-control-sm" placeholder="CN=svc-ldap,DC=corp,DC=com">
+            </div>
+            <div class="col-md-6">
+              <label class="nr-label">Bind Password</label>
+              <input id="n_bpw" class="form-control form-control-sm" type="password">
+            </div>
+          </div>
+        </div>
+        <div class="col-12 d-flex align-items-center gap-3">
+          <div class="form-check form-switch mb-0">
+            <input class="form-check-input" type="checkbox" id="n_active" checked>
+            <label class="form-check-label nr-label mb-0" for="n_active">Active</label>
+          </div>
+        </div>
+      </div>
+      <div id="n_result" style="display:none; margin-top:0.6rem;"></div>
+      <div class="d-flex gap-2 mt-4">
+        <button class="btn btn-secondary btn-sm" onclick="toggleNewForm()">Cancel</button>
+        <button class="btn btn-primary btn-sm" onclick="saveNewServer()">
+          <i class="bi bi-floppy me-1"></i>Save Server
+        </button>
+      </div>
+    </div>
+
+    <!-- ── Server list ── -->
+    <div id="ldapServerList">
+      <div class="ldap-loading">
+        <span class="spinner-border spinner-border-sm text-secondary me-2"></span>Loading…
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ── EXPLORER MODAL ─────────────────────────────────────────── -->
+<div class="modal fade" id="explorerModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <div class="nr-badge" style="margin-bottom:0.3rem;">LDAP EXPLORER</div>
+          <h5 class="modal-title" style="color:#e0e0e0;" id="explorerTitle">Directory Browser</h5>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body p-0" style="display:flex; min-height:460px; max-height:60vh;">
+        <!-- Tree panel -->
+        <div style="flex:1; display:flex; flex-direction:column; overflow:hidden; border-right:1px solid #1a1a1a;">
+          <div id="explorerBreadcrumb" class="exp-breadcrumb"></div>
+          <div id="explorerTree" style="flex:1; overflow-y:auto; padding:0.5rem 0;"></div>
+        </div>
+        <!-- Selected panel -->
+        <div style="width:240px; display:flex; flex-direction:column; padding:1.25rem;">
+          <div class="nr-label mb-2">
+            Selected <span id="expSelCount" style="color:#00bcd4; font-weight:700;">0</span>
+          </div>
+          <div id="expSelectedPanel" style="flex:1; overflow-y:auto; min-height:0;"></div>
+          <div id="expImportResult" style="display:none; margin-top:0.6rem; font-size:0.8rem;"></div>
+          <button class="btn btn-primary btn-sm mt-3" id="btnImport" onclick="importSelected()" disabled>
+            <i class="bi bi-download me-1"></i>Import Selected
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
 <style>
-  .conn-dot {
-    width: 8px; height: 8px;
-    border-radius: 50%;
-    display: inline-block;
-  }
-  .conn-dot.connected    { background: #a5d6a7; box-shadow: 0 0 6px #a5d6a7; }
-  .conn-dot.disconnected { background: #ef5350; box-shadow: 0 0 6px #ef5350; }
+  /* ── Shared status indicators ── */
+  .conn-dot { width:8px; height:8px; border-radius:50%; display:inline-block; flex-shrink:0; }
+  .conn-dot.connected    { background:#a5d6a7; box-shadow:0 0 6px #a5d6a7; }
+  .conn-dot.disconnected { background:#ef5350; box-shadow:0 0 6px #ef5350; }
 
   .status-label {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.75rem;
-    color: #a5d6a7;
-    letter-spacing: 0.05em;
+    font-family:'JetBrains Mono',monospace; font-size:0.75rem; color:#a5d6a7; letter-spacing:0.05em;
   }
-
   .mode-badge {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.68rem;
-    letter-spacing: 0.1em;
-    padding: 0.2rem 0.55rem;
-    border-radius: 4px;
-    border: 1px solid;
+    font-family:'JetBrains Mono',monospace; font-size:0.68rem; letter-spacing:0.1em;
+    padding:0.2rem 0.55rem; border-radius:4px; border:1px solid;
   }
-  .mode-bundled  { background: rgba(0,188,212,0.07); color: #00bcd4; border-color: rgba(0,188,212,0.25); }
-  .mode-external { background: rgba(165,214,167,0.08); color: #a5d6a7; border-color: rgba(165,214,167,0.3); }
+  .mode-bundled  { background:rgba(0,188,212,0.07); color:#00bcd4; border-color:rgba(0,188,212,0.25); }
+  .mode-external { background:rgba(165,214,167,0.08); color:#a5d6a7; border-color:rgba(165,214,167,0.3); }
 
   .nr-warning {
-    background: rgba(255,224,130,0.06);
-    border: 1px solid rgba(255,224,130,0.2);
-    border-radius: 6px;
-    padding: 0.65rem 0.9rem;
-    font-size: 0.82rem;
-    color: #ccc;
-    line-height: 1.5;
+    background:rgba(255,224,130,0.06); border:1px solid rgba(255,224,130,0.2); border-radius:6px;
+    padding:0.65rem 0.9rem; font-size:0.82rem; color:#ccc; line-height:1.5;
   }
-
   .nr-restart-banner {
-    background: rgba(0,188,212,0.07);
-    border: 1px solid rgba(0,188,212,0.25);
-    border-radius: 6px;
-    padding: 0.7rem 1rem;
-    font-size: 0.85rem;
-    color: #b2ebf2;
+    background:rgba(0,188,212,0.07); border:1px solid rgba(0,188,212,0.25); border-radius:6px;
+    padding:0.7rem 1rem; font-size:0.85rem; color:#b2ebf2;
+  }
+  #testResult .test-ok  { color:#a5d6a7; font-size:0.83rem; }
+  #testResult .test-err { color:#ef9a9a; font-size:0.83rem; word-break:break-word; }
+
+  /* ── LDAP server list ── */
+  .ldap-loading { text-align:center; color:#333; font-size:0.82rem; padding:1.5rem 0; }
+  .ldap-empty   { text-align:center; color:#333; font-size:0.82rem; padding:1.5rem 0;
+                  font-family:'JetBrains Mono',monospace; letter-spacing:0.5px; }
+
+  .ldap-server-row {
+    display:flex; align-items:center; gap:0.75rem;
+    padding:0.65rem 0.75rem; border-radius:7px; cursor:pointer;
+    border:1px solid transparent; transition:background 0.15s, border-color 0.15s;
+    user-select:none;
+  }
+  .ldap-server-row:hover { background:rgba(0,188,212,0.04); border-color:rgba(0,188,212,0.1); }
+  .ldap-server-row.expanded { background:rgba(0,188,212,0.05); border-color:rgba(0,188,212,0.15);
+                               border-bottom-left-radius:0; border-bottom-right-radius:0; }
+
+  .ldap-server-name {
+    font-family:'Inter',sans-serif; font-weight:600; font-size:0.88rem; color:#e0e0e0;
+  }
+  .ldap-server-host {
+    font-family:'JetBrains Mono',monospace; font-size:0.75rem; color:#444;
+  }
+  .ldap-bind-badge {
+    font-family:'JetBrains Mono',monospace; font-size:0.62rem; letter-spacing:0.1em;
+    padding:0.15rem 0.45rem; border-radius:3px;
+    background:rgba(0,188,212,0.07); color:#00bcd4; border:1px solid rgba(0,188,212,0.2);
+  }
+  .ldap-chevron { color:#333; transition:transform 0.2s ease; font-size:0.78rem; }
+
+  /* ── Edit panel ── */
+  .ldap-edit-panel {
+    background:rgba(0,0,0,0.15); border:1px solid #1e1e1e; border-radius:0 0 8px 8px;
+    padding:1.25rem 1rem 1rem; margin-bottom:0.5rem;
+  }
+  .ldap-panel-label {
+    font-family:'JetBrains Mono',monospace; font-size:0.6rem; font-weight:700;
+    letter-spacing:3px; color:#00bcd4; opacity:0.6;
   }
 
-  #testResult .test-ok  { color: #a5d6a7; font-size: 0.83rem; }
-  #testResult .test-err { color: #ef9a9a; font-size: 0.83rem; word-break: break-word; }
+  .ldap-bind-option {
+    flex:1; padding:0.65rem 0.85rem; border-radius:7px; cursor:pointer;
+    border:1px solid #222; background:#111; transition:border-color 0.15s, background 0.15s;
+  }
+  .ldap-bind-option:hover { border-color:#2a2a2a; background:#161616; }
+  .ldap-bind-option.selected {
+    border-color:rgba(0,188,212,0.4); background:rgba(0,188,212,0.06);
+  }
+  .ldap-bind-option.selected > div:first-child { color:#00bcd4 !important; }
+
+  .ldap-test-user-panel {
+    background:rgba(0,0,0,0.2); border:1px solid #1a1a1a; border-radius:6px; padding:0.9rem;
+  }
+
+  /* ── Test result shared ── */
+  .res-ok  { color:#a5d6a7; font-size:0.82rem; }
+  .res-err { color:#ef9a9a; font-size:0.82rem; word-break:break-word; }
+
+  /* ── Explorer ── */
+  .exp-breadcrumb {
+    display:flex; align-items:center; gap:0.3rem; flex-wrap:wrap;
+    padding:0.65rem 1rem; border-bottom:1px solid #1a1a1a;
+    font-family:'JetBrains Mono',monospace; font-size:0.72rem; color:#444;
+    flex-shrink:0;
+  }
+  .exp-crumb {
+    color:#555; cursor:pointer; transition:color 0.15s;
+  }
+  .exp-crumb:hover { color:#00bcd4; }
+  .exp-crumb.current { color:#888; cursor:default; }
+  .exp-crumb-sep { color:#2a2a2a; }
+
+  .exp-tree-item {
+    display:flex; align-items:center; gap:0.6rem;
+    padding:0.5rem 1rem; cursor:pointer; border-left:2px solid transparent;
+    transition:background 0.12s, border-color 0.12s;
+    font-size:0.85rem;
+  }
+  .exp-tree-item:hover { background:rgba(255,255,255,0.02); }
+  .exp-tree-item.ou { color:#888; }
+  .exp-tree-item.ou:hover { color:#aaa; background:rgba(0,188,212,0.03); }
+  .exp-tree-item.selectable { color:#ccc; }
+  .exp-tree-item.selectable:hover { background:rgba(0,188,212,0.04); border-left-color:rgba(0,188,212,0.2); }
+  .exp-tree-item.selected { background:rgba(0,188,212,0.08); border-left-color:#00bcd4; color:#e0e0e0; }
+  .exp-tree-item.loading { color:#333; font-size:0.8rem; justify-content:center; padding:1rem; }
+
+  .exp-item-icon { font-size:0.9rem; flex-shrink:0; width:16px; text-align:center; }
+  .exp-item-label { flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .exp-item-sub { font-family:'JetBrains Mono',monospace; font-size:0.68rem; color:#444; white-space:nowrap; }
+
+  .exp-sel-item {
+    display:flex; align-items:center; gap:0.5rem;
+    padding:0.35rem 0.5rem; border-radius:5px; margin-bottom:0.3rem;
+    background:#111; border:1px solid #1a1a1a; font-size:0.8rem;
+  }
+  .exp-sel-icon { font-size:0.78rem; color:#555; flex-shrink:0; }
+  .exp-sel-label { flex:1; color:#ccc; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .exp-sel-remove { color:#333; cursor:pointer; flex-shrink:0; transition:color 0.15s; font-size:0.75rem; }
+  .exp-sel-remove:hover { color:#ef5350; }
 </style>
 
 <script>
+  const CSRF = '{{ csrf_token() }}';
+  const LDAP_BASE = '/admin/server/ldap';
+
+  /* ── DB card (unchanged) ──────────────────────────────────── */
   let testPassed = false;
 
   function getFormData() {
@@ -198,7 +374,6 @@
     };
   }
 
-  // Re-disable Save if user edits fields after a successful test
   document.querySelectorAll('#db_host,#db_port,#db_name,#db_user,#db_password,#db_schema')
     .forEach(el => el.addEventListener('input', () => {
       testPassed = false;
@@ -215,7 +390,7 @@
 
     fetch('{{ url_for("admin_server_db_test") }}', {
       method: 'POST',
-      headers: {'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token() }}'},
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
       body: JSON.stringify(getFormData())
     })
     .then(r => r.json())
@@ -228,7 +403,6 @@
         document.getElementById('btnSave').disabled = false;
         res.innerHTML = '<span class="test-ok"><i class="bi bi-check-circle me-1"></i>Connection successful</span>';
       } else {
-        testPassed = false;
         res.innerHTML = `<span class="test-err"><i class="bi bi-x-circle me-1"></i>${data.error}</span>`;
       }
     })
@@ -249,7 +423,7 @@
 
     fetch('{{ url_for("admin_server_db_save") }}', {
       method: 'POST',
-      headers: {'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token() }}'},
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
       body: JSON.stringify(getFormData())
     })
     .then(r => r.json())
@@ -264,10 +438,631 @@
           `<span class="test-err"><i class="bi bi-x-circle me-1"></i>${data.error}</span>`;
       }
     })
-    .catch(() => {
-      spinner.style.display = 'none';
-      btn.disabled = false;
+    .catch(() => { spinner.style.display = 'none'; btn.disabled = false; });
+  }
+
+  /* ── LDAP server management ───────────────────────────────── */
+  let ldapServers = {};
+  let expandedId  = null;
+  let newBindSelected = 'simple';
+
+  window.addEventListener('DOMContentLoaded', loadServers);
+
+  function loadServers() {
+    fetch(LDAP_BASE)
+      .then(r => r.json())
+      .then(data => {
+        ldapServers = {};
+        data.forEach(s => { ldapServers[s.id] = s; });
+        renderList(data);
+      })
+      .catch(() => {
+        document.getElementById('ldapServerList').innerHTML =
+          '<div class="res-err" style="font-size:0.82rem; padding:0.5rem 0;">Failed to load servers</div>';
+      });
+  }
+
+  function renderList(data) {
+    const el = document.getElementById('ldapServerList');
+    if (!data.length) {
+      el.innerHTML = '<div class="ldap-empty">No LDAP servers configured</div>';
+      return;
+    }
+    el.innerHTML = data.map(serverRowHtml).join('');
+  }
+
+  function serverRowHtml(s) {
+    const dot = s.is_active
+      ? '<span class="conn-dot connected"></span>'
+      : '<span class="conn-dot disconnected"></span>';
+    return `
+      <div class="ldap-server-row" id="row-${s.id}" onclick="toggleExpand('${s.id}')">
+        ${dot}
+        <span class="ldap-server-name">${escHtml(s.name)}</span>
+        <span class="ldap-server-host">${escHtml(s.host)}:${s.port}</span>
+        <span class="ldap-bind-badge">${s.bind_type.toUpperCase()}</span>
+        <span style="flex:1;"></span>
+        <i class="bi bi-chevron-down ldap-chevron" id="chev-${s.id}"></i>
+      </div>
+      <div id="panel-${s.id}" style="display:none;"></div>
+    `;
+  }
+
+  function toggleExpand(id) {
+    if (expandedId === id) {
+      collapseServer(id);
+      expandedId = null;
+      return;
+    }
+    if (expandedId) collapseServer(expandedId);
+    expandServer(id);
+    expandedId = id;
+  }
+
+  function collapseServer(id) {
+    document.getElementById(`panel-${id}`).style.display = 'none';
+    document.getElementById(`row-${id}`).classList.remove('expanded');
+    document.getElementById(`chev-${id}`).style.transform = '';
+  }
+
+  function expandServer(id) {
+    const s = ldapServers[id];
+    const panel = document.getElementById(`panel-${id}`);
+    panel.innerHTML = editPanelHtml(s);
+    panel.style.display = 'block';
+    document.getElementById(`row-${id}`).classList.add('expanded');
+    document.getElementById(`chev-${id}`).style.transform = 'rotate(180deg)';
+  }
+
+  function editPanelHtml(s) {
+    const isReg = s.bind_type === 'regular';
+    const bfDisp = isReg ? 'block' : 'none';
+    const expDisabled = isReg ? '' : 'disabled title="Requires Regular bind type"';
+    return `
+      <div class="ldap-edit-panel">
+        <div class="row g-3">
+          <div class="col-md-4">
+            <label class="nr-label">Name</label>
+            <input id="e_${s.id}_name" class="form-control form-control-sm" value="${escHtml(s.name)}">
+          </div>
+          <div class="col-md-4">
+            <label class="nr-label">Host</label>
+            <input id="e_${s.id}_host" class="form-control form-control-sm" value="${escHtml(s.host)}">
+          </div>
+          <div class="col-md-2">
+            <label class="nr-label">Port</label>
+            <input id="e_${s.id}_port" class="form-control form-control-sm" type="number" value="${s.port}">
+          </div>
+          <div class="col-md-2 d-flex align-items-end pb-1">
+            <div class="form-check form-switch mb-0">
+              <input class="form-check-input" type="checkbox" id="e_${s.id}_ssl"
+                     ${s.use_ssl ? 'checked' : ''} onchange="ldapsToggle('${s.id}')">
+              <label class="form-check-label nr-label mb-0" for="e_${s.id}_ssl">LDAPS</label>
+            </div>
+          </div>
+          <div class="col-md-8">
+            <label class="nr-label">Base DN</label>
+            <div class="input-group input-group-sm">
+              <input id="e_${s.id}_dn" class="form-control" value="${escHtml(s.base_dn)}">
+              <button class="btn btn-outline-secondary" type="button" onclick="fetchDn('${s.id}')">
+                <span id="e_${s.id}_fetch_spin" style="display:none;"
+                      class="spinner-border spinner-border-sm"></span>
+                <i class="bi bi-search" id="e_${s.id}_fetch_ico"></i> Fetch
+              </button>
+            </div>
+          </div>
+          <div class="col-md-4">
+            <label class="nr-label">CN Identifier</label>
+            <input id="e_${s.id}_cn" class="form-control form-control-sm"
+                   value="${escHtml(s.cn_identifier)}" placeholder="sAMAccountName">
+          </div>
+          <div class="col-12">
+            <label class="nr-label d-block mb-2">Bind Type</label>
+            <div class="d-flex gap-2">
+              <div class="ldap-bind-option ${!isReg ? 'selected' : ''}"
+                   onclick="setBindType('${s.id}', 'simple')" id="e_${s.id}_opt_simple">
+                <div style="font-weight:600; font-size:0.84rem; color:#ccc;">Simple</div>
+                <div style="font-size:0.72rem; color:#555; margin-top:0.15rem;">No stored service credentials</div>
+              </div>
+              <div class="ldap-bind-option ${isReg ? 'selected' : ''}"
+                   onclick="setBindType('${s.id}', 'regular')" id="e_${s.id}_opt_regular">
+                <div style="font-weight:600; font-size:0.84rem; color:#ccc;">Regular</div>
+                <div style="font-size:0.72rem; color:#555; margin-top:0.15rem;">Service account — enables Explorer + group rules</div>
+              </div>
+            </div>
+          </div>
+          <div id="e_${s.id}_bind_fields" class="col-12" style="display:${bfDisp};">
+            <div class="row g-3">
+              <div class="col-md-6">
+                <label class="nr-label">Bind DN</label>
+                <input id="e_${s.id}_bdn" class="form-control form-control-sm"
+                       value="${escHtml(s.bind_dn || '')}" placeholder="CN=svc-ldap,DC=corp,DC=com">
+              </div>
+              <div class="col-md-6">
+                <label class="nr-label">
+                  Bind Password
+                  <span style="color:#3a3a3a; font-size:0.68rem; text-transform:none; letter-spacing:0;">
+                    — leave blank to keep current
+                  </span>
+                </label>
+                <input id="e_${s.id}_bpw" class="form-control form-control-sm"
+                       type="password" placeholder="••••••••">
+              </div>
+            </div>
+          </div>
+          <div class="col-12">
+            <div class="form-check form-switch mb-0">
+              <input class="form-check-input" type="checkbox" id="e_${s.id}_active"
+                     ${s.is_active ? 'checked' : ''}>
+              <label class="form-check-label nr-label mb-0" for="e_${s.id}_active">Active</label>
+            </div>
+          </div>
+        </div>
+
+        <div class="d-flex gap-2 mt-4 flex-wrap align-items-center">
+          <button class="btn btn-outline-primary btn-sm" onclick="testConn('${s.id}')">
+            <i class="bi bi-plug me-1"></i>Test
+          </button>
+          <button class="btn btn-outline-secondary btn-sm" onclick="toggleTestUser('${s.id}')">
+            <i class="bi bi-person-check me-1"></i>Test User
+          </button>
+          <button class="btn btn-sm" style="color:#80deea; border:1px solid rgba(0,188,212,0.25);
+                  background:rgba(0,188,212,0.05);" onclick="openExplorer('${s.id}')"
+                  id="e_${s.id}_exp_btn" ${expDisabled}>
+            <i class="bi bi-diagram-3 me-1"></i>Explorer
+          </button>
+          <span style="flex:1;"></span>
+          <button class="btn btn-outline-danger btn-sm" onclick="deleteServer('${s.id}')">
+            <i class="bi bi-trash3 me-1"></i>Delete
+          </button>
+          <button class="btn btn-primary btn-sm" onclick="saveServer('${s.id}')">
+            <i class="bi bi-floppy me-1"></i>Save
+          </button>
+        </div>
+
+        <div id="e_${s.id}_result" style="display:none; margin-top:0.6rem;"></div>
+
+        <div id="e_${s.id}_tu" class="ldap-test-user-panel mt-3" style="display:none;">
+          <div class="row g-2 align-items-end">
+            <div class="col-md-4">
+              <label class="nr-label">Username</label>
+              <input id="e_${s.id}_tuu" class="form-control form-control-sm">
+            </div>
+            <div class="col-md-4">
+              <label class="nr-label">Password</label>
+              <input id="e_${s.id}_tup" class="form-control form-control-sm" type="password">
+            </div>
+            <div class="col-md-4">
+              <button class="btn btn-outline-secondary btn-sm w-100"
+                      onclick="runTestUser('${s.id}')">Test</button>
+            </div>
+          </div>
+          <div id="e_${s.id}_tur" style="display:none; margin-top:0.5rem;"></div>
+        </div>
+      </div>
+    `;
+  }
+
+  /* ── Bind type + LDAPS helpers ── */
+  function setBindType(id, type) {
+    const isReg = type === 'regular';
+    document.getElementById(`e_${id}_opt_simple`).classList.toggle('selected', !isReg);
+    document.getElementById(`e_${id}_opt_regular`).classList.toggle('selected', isReg);
+    document.getElementById(`e_${id}_bind_fields`).style.display = isReg ? 'block' : 'none';
+    const expBtn = document.getElementById(`e_${id}_exp_btn`);
+    if (expBtn) expBtn.disabled = !isReg;
+  }
+
+  function ldapsToggle(id) {
+    const ssl = document.getElementById(`e_${id}_ssl`).checked;
+    const portEl = document.getElementById(`e_${id}_port`);
+    const cur = parseInt(portEl.value);
+    if (ssl && cur === 389) portEl.value = 636;
+    if (!ssl && cur === 636) portEl.value = 389;
+  }
+
+  function newBindType(type) {
+    newBindSelected = type;
+    document.getElementById('n_opt_simple').classList.toggle('selected', type === 'simple');
+    document.getElementById('n_opt_regular').classList.toggle('selected', type === 'regular');
+    document.getElementById('n_bind_fields').style.display = type === 'regular' ? 'block' : 'none';
+  }
+
+  function newLdapsToggle() {
+    const ssl = document.getElementById('n_ssl').checked;
+    const portEl = document.getElementById('n_port');
+    const cur = parseInt(portEl.value);
+    if (ssl && cur === 389) portEl.value = 636;
+    if (!ssl && cur === 636) portEl.value = 389;
+  }
+
+  /* ── New server form ── */
+  function toggleNewForm() {
+    const panel = document.getElementById('newServerPanel');
+    panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+  }
+
+  function saveNewServer() {
+    const body = new URLSearchParams({
+      label:       document.getElementById('n_name').value.trim(),
+      ip:          document.getElementById('n_host').value.trim(),
+      port:        document.getElementById('n_port').value.trim(),
+      base_dn:     document.getElementById('n_dn').value.trim(),
+      cn_identifier: document.getElementById('n_cn').value.trim(),
+      bind_type:   newBindSelected,
+      bind_dn:     document.getElementById('n_bdn').value.trim(),
+      bind_password: document.getElementById('n_bpw').value,
+      use_ssl:     document.getElementById('n_ssl').checked ? 'true' : 'false',
+      is_active:   document.getElementById('n_active').checked ? 'true' : 'false',
     });
+    const res = document.getElementById('n_result');
+    res.style.display = 'none';
+
+    fetch(`${LDAP_BASE}/new`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRFToken': CSRF },
+      body
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.status === 'ok') {
+        document.getElementById('newServerPanel').style.display = 'none';
+        loadServers();
+      } else {
+        res.style.display = 'block';
+        res.innerHTML = `<span class="res-err"><i class="bi bi-x-circle me-1"></i>${data.message}</span>`;
+      }
+    });
+  }
+
+  /* ── Save existing server ── */
+  function saveServer(id) {
+    const body = new URLSearchParams({
+      label:        document.getElementById(`e_${id}_name`).value.trim(),
+      ip:           document.getElementById(`e_${id}_host`).value.trim(),
+      port:         document.getElementById(`e_${id}_port`).value.trim(),
+      base_dn:      document.getElementById(`e_${id}_dn`).value.trim(),
+      cn_identifier:document.getElementById(`e_${id}_cn`).value.trim(),
+      bind_type:    document.getElementById(`e_${id}_opt_regular`).classList.contains('selected')
+                      ? 'regular' : 'simple',
+      bind_dn:      document.getElementById(`e_${id}_bdn`) ? document.getElementById(`e_${id}_bdn`).value.trim() : '',
+      bind_password:document.getElementById(`e_${id}_bpw`) ? document.getElementById(`e_${id}_bpw`).value : '',
+      use_ssl:      document.getElementById(`e_${id}_ssl`).checked ? 'true' : 'false',
+      is_active:    document.getElementById(`e_${id}_active`).checked ? 'true' : 'false',
+    });
+    const res = document.getElementById(`e_${id}_result`);
+    res.style.display = 'none';
+
+    fetch(`${LDAP_BASE}/${id}/save`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRFToken': CSRF },
+      body
+    })
+    .then(r => r.json())
+    .then(data => {
+      res.style.display = 'block';
+      if (data.status === 'ok') {
+        res.innerHTML = '<span class="res-ok"><i class="bi bi-check-circle me-1"></i>Saved</span>';
+        loadServers();
+      } else {
+        res.innerHTML = `<span class="res-err"><i class="bi bi-x-circle me-1"></i>${data.message}</span>`;
+      }
+    });
+  }
+
+  /* ── Delete server ── */
+  function deleteServer(id) {
+    const name = ldapServers[id]?.name || 'this server';
+    if (!confirm(`Delete "${name}"? This will remove all associated group rules and may affect LDAP users.`)) return;
+
+    fetch(`${LDAP_BASE}/${id}/delete`, {
+      method: 'POST',
+      headers: { 'X-CSRFToken': CSRF }
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.status === 'ok') {
+        delete ldapServers[id];
+        if (expandedId === id) expandedId = null;
+        loadServers();
+      } else {
+        const res = document.getElementById(`e_${id}_result`);
+        if (res) { res.style.display = 'block'; res.innerHTML = `<span class="res-err">${data.message}</span>`; }
+      }
+    });
+  }
+
+  /* ── Test connection ── */
+  function testConn(id) {
+    const res = document.getElementById(`e_${id}_result`);
+    res.style.display = 'block';
+    res.innerHTML = '<span class="spinner-border spinner-border-sm text-secondary me-1"></span><span style="color:#555; font-size:0.82rem;">Testing…</span>';
+
+    fetch(`${LDAP_BASE}/${id}/test`, {
+      method: 'POST',
+      headers: { 'X-CSRFToken': CSRF }
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.status === 'ok') {
+        res.innerHTML = `<span class="res-ok"><i class="bi bi-check-circle me-1"></i>${data.message}</span>`;
+      } else {
+        res.innerHTML = `<span class="res-err"><i class="bi bi-x-circle me-1"></i>${data.message}</span>`;
+      }
+    });
+  }
+
+  /* ── Test user ── */
+  function toggleTestUser(id) {
+    const panel = document.getElementById(`e_${id}_tu`);
+    panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+  }
+
+  function runTestUser(id) {
+    const user = document.getElementById(`e_${id}_tuu`).value.trim();
+    const pass = document.getElementById(`e_${id}_tup`).value;
+    const res  = document.getElementById(`e_${id}_tur`);
+    res.style.display = 'block';
+    res.innerHTML = '<span class="spinner-border spinner-border-sm text-secondary me-1"></span><span style="color:#555; font-size:0.8rem;">Testing…</span>';
+
+    const body = new URLSearchParams({ username: user, password: pass });
+    fetch(`${LDAP_BASE}/${id}/test_user`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRFToken': CSRF },
+      body
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.status === 'ok') {
+        res.innerHTML = `<span class="res-ok"><i class="bi bi-check-circle me-1"></i>${data.message}</span>`;
+      } else {
+        res.innerHTML = `<span class="res-err"><i class="bi bi-x-circle me-1"></i>${data.message}</span>`;
+      }
+    });
+  }
+
+  /* ── Fetch DN ── */
+  function fetchDn(id) {
+    const spin = document.getElementById(`e_${id}_fetch_spin`);
+    const ico  = document.getElementById(`e_${id}_fetch_ico`);
+    spin.style.display = 'inline-block';
+    ico.style.display  = 'none';
+
+    fetch(`${LDAP_BASE}/${id}/fetch_dn`, {
+      method: 'POST',
+      headers: { 'X-CSRFToken': CSRF }
+    })
+    .then(r => r.json())
+    .then(data => {
+      spin.style.display = 'none';
+      ico.style.display  = 'inline-block';
+      const res = document.getElementById(`e_${id}_result`);
+      res.style.display = 'block';
+      if (data.status === 'ok') {
+        document.getElementById(`e_${id}_dn`).value = data.base_dn;
+        res.innerHTML = `<span class="res-ok"><i class="bi bi-check-circle me-1"></i>Base DN populated</span>`;
+      } else {
+        res.innerHTML = `<span class="res-err"><i class="bi bi-x-circle me-1"></i>${data.message}</span>`;
+      }
+    });
+  }
+
+  /* ── Explorer ─────────────────────────────────────────────── */
+  let explorerServerId = null;
+  let explorerStack    = [];
+  let explorerSelected = {};
+
+  function openExplorer(id) {
+    explorerServerId = id;
+    explorerStack    = [{ dn: null, label: 'Root' }];
+    explorerSelected = {};
+    document.getElementById('explorerTitle').textContent = ldapServers[id]?.name || 'Directory Browser';
+    document.getElementById('expImportResult').style.display = 'none';
+    renderSelectedPanel();
+    loadExplorerLevel(null);
+    new bootstrap.Modal(document.getElementById('explorerModal')).show();
+  }
+
+  function loadExplorerLevel(dn) {
+    const tree = document.getElementById('explorerTree');
+    tree.innerHTML = '<div class="exp-tree-item loading"><span class="spinner-border spinner-border-sm text-secondary me-2"></span>Loading…</div>';
+    renderBreadcrumb();
+
+    const body = new URLSearchParams();
+    if (dn) body.append('dn', dn);
+
+    fetch(`${LDAP_BASE}/${explorerServerId}/explore`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRFToken': CSRF },
+      body
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.status === 'error') {
+        tree.innerHTML = `<div class="exp-tree-item" style="color:#ef9a9a; font-size:0.82rem; padding:1rem;">
+          <i class="bi bi-x-circle me-2"></i>${data.message}</div>`;
+        return;
+      }
+      renderTree(data.entries || []);
+    })
+    .catch(() => {
+      tree.innerHTML = '<div class="exp-tree-item" style="color:#ef9a9a; font-size:0.82rem; padding:1rem;">Request failed</div>';
+    });
+  }
+
+  function renderTree(entries) {
+    const tree = document.getElementById('explorerTree');
+    tree.innerHTML = '';
+
+    if (!entries.length) {
+      const empty = document.createElement('div');
+      empty.className = 'exp-tree-item';
+      empty.style.cssText = 'color:#333; font-size:0.82rem; justify-content:center;';
+      empty.textContent = 'Empty';
+      tree.appendChild(empty);
+      return;
+    }
+
+    const order = { ou: 0, group: 1, user: 2 };
+    entries.sort((a, b) => (order[a.type] ?? 3) - (order[b.type] ?? 3) || a.label.localeCompare(b.label));
+
+    entries.forEach(e => {
+      const el = document.createElement('div');
+
+      if (e.type === 'ou') {
+        el.className = 'exp-tree-item ou';
+        el.innerHTML = `
+          <i class="bi bi-folder exp-item-icon" style="color:#ffe082;"></i>
+          <span class="exp-item-label">${escHtml(e.label)}</span>
+          <i class="bi bi-chevron-right" style="color:#2a2a2a; font-size:0.72rem;"></i>`;
+        el.addEventListener('click', () => drillDown(e.dn, e.label));
+      } else {
+        const icon     = e.type === 'group' ? 'bi-people-fill' : 'bi-person-fill';
+        const color    = e.type === 'group' ? '#80deea' : '#a5d6a7';
+        const subLabel = e.type === 'user' ? escHtml(e.username || e.label) : escHtml(e.dn);
+        const isSel    = !!explorerSelected[e.dn];
+        el.className   = `exp-tree-item selectable${isSel ? ' selected' : ''}`;
+        el.dataset.dn  = e.dn;
+        el.innerHTML   = `
+          <i class="bi ${icon} exp-item-icon" style="color:${color};"></i>
+          <span class="exp-item-label">${escHtml(e.label)}</span>
+          <span class="exp-item-sub">${subLabel}</span>
+          ${isSel ? '<i class="bi bi-check-lg chk" style="color:#00bcd4; font-size:0.8rem;"></i>' : ''}`;
+        el.addEventListener('click', () => {
+          if (explorerSelected[e.dn]) {
+            delete explorerSelected[e.dn];
+          } else {
+            explorerSelected[e.dn] = e;
+          }
+          const nowSel = !!explorerSelected[e.dn];
+          el.classList.toggle('selected', nowSel);
+          const chk = el.querySelector('.chk');
+          if (chk) chk.remove();
+          if (nowSel) {
+            const check = document.createElement('i');
+            check.className = 'bi bi-check-lg chk';
+            check.style.cssText = 'color:#00bcd4; font-size:0.8rem;';
+            el.appendChild(check);
+          }
+          renderSelectedPanel();
+        });
+      }
+
+      tree.appendChild(el);
+    });
+  }
+
+  function drillDown(dn, label) {
+    explorerStack.push({ dn, label });
+    loadExplorerLevel(dn);
+  }
+
+  function navigateTo(index) {
+    explorerStack = explorerStack.slice(0, index + 1);
+    loadExplorerLevel(explorerStack[explorerStack.length - 1].dn);
+  }
+
+  function renderBreadcrumb() {
+    const el = document.getElementById('explorerBreadcrumb');
+    el.innerHTML = '';
+    explorerStack.forEach((crumb, i) => {
+      if (i > 0) {
+        const sep = document.createElement('span');
+        sep.className = 'exp-crumb-sep';
+        sep.textContent = '/';
+        el.appendChild(sep);
+      }
+      const span = document.createElement('span');
+      span.textContent = crumb.label;
+      if (i === explorerStack.length - 1) {
+        span.className = 'exp-crumb current';
+      } else {
+        span.className = 'exp-crumb';
+        span.addEventListener('click', () => navigateTo(i));
+      }
+      el.appendChild(span);
+    });
+  }
+
+  function renderSelectedPanel() {
+    const items = Object.values(explorerSelected);
+    const panel = document.getElementById('expSelectedPanel');
+    const count = document.getElementById('expSelCount');
+    const btn   = document.getElementById('btnImport');
+
+    count.textContent = items.length;
+    btn.disabled = !items.length;
+    panel.innerHTML = '';
+
+    if (!items.length) {
+      const empty = document.createElement('div');
+      empty.style.cssText = 'color:#2a2a2a; font-size:0.78rem; text-align:center; padding-top:1rem;';
+      empty.textContent = 'Nothing selected';
+      panel.appendChild(empty);
+      return;
+    }
+
+    items.forEach(e => {
+      const icon  = e.type === 'group' ? 'bi-people-fill' : 'bi-person-fill';
+      const color = e.type === 'group' ? '#80deea' : '#a5d6a7';
+      const el = document.createElement('div');
+      el.className = 'exp-sel-item';
+      el.innerHTML = `
+        <i class="bi ${icon} exp-sel-icon" style="color:${color};"></i>
+        <span class="exp-sel-label" title="${escHtml(e.dn)}">${escHtml(e.label)}</span>
+        <i class="bi bi-x exp-sel-remove"></i>`;
+      el.querySelector('.exp-sel-remove').addEventListener('click', () => {
+        delete explorerSelected[e.dn];
+        renderSelectedPanel();
+        const treeEl = document.querySelector(`[data-dn="${CSS.escape(e.dn)}"]`);
+        if (treeEl) {
+          treeEl.classList.remove('selected');
+          const chk = treeEl.querySelector('.chk');
+          if (chk) chk.remove();
+        }
+      });
+      panel.appendChild(el);
+    });
+  }
+
+  function importSelected() {
+    const items = Object.values(explorerSelected);
+    const btn = document.getElementById('btnImport');
+    const res = document.getElementById('expImportResult');
+    btn.disabled = true;
+    res.style.display = 'none';
+
+    fetch(`${LDAP_BASE}/${explorerServerId}/import`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
+      body: JSON.stringify(items)
+    })
+    .then(r => r.json())
+    .then(data => {
+      res.style.display = 'block';
+      if (data.status === 'ok') {
+        const parts = [];
+        if (data.users_created)  parts.push(`${data.users_created} user${data.users_created !== 1 ? 's' : ''}`);
+        if (data.groups_created) parts.push(`${data.groups_created} group rule${data.groups_created !== 1 ? 's' : ''}`);
+        if (data.skipped)        parts.push(`${data.skipped} skipped`);
+        res.innerHTML = `<span class="res-ok"><i class="bi bi-check-circle me-1"></i>Imported: ${parts.join(', ') || 'nothing new'}</span>`;
+        explorerSelected = {};
+        renderSelectedPanel();
+      } else {
+        res.innerHTML = `<span class="res-err"><i class="bi bi-x-circle me-1"></i>${data.message}</span>`;
+        btn.disabled = false;
+      }
+    });
+  }
+
+  /* ── Utility ── */
+  function escHtml(str) {
+    if (!str) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
   }
 </script>
 {% endblock %}
