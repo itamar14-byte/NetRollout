@@ -98,7 +98,7 @@
         {% set status = "pending" %}
       {% endif %}
       <tr data-status="{{ status }}"
-          data-user='{{ {"id": user.id|string, "username": user.username, "role": user.role, "approved": user.is_approved, "active": user.is_active, "is_self": (user.id == current_user.id), "is_factory": (user.username == "admin"), "has_session": (user.id|string in session_user_ids)}|tojson }}'>
+          data-user='{{ {"id": user.id|string, "username": user.username, "role": user.role, "approved": user.is_approved, "active": user.is_active, "is_self": (user.id == current_user.id), "is_factory": (user.username == "admin"), "has_session": (user.id|string in session_user_ids), "auth_type": user.auth_type}|tojson }}'>
 
         <td style="padding-right:0;">
           {% if user.username != "admin" %}
@@ -112,6 +112,8 @@
           {{ user.username }}
           {% if user.username == "admin" %}
             <span style="font-family:'Inter',sans-serif; font-size:0.62rem; color:#2a2a2a; font-weight:400; margin-left:0.35rem; letter-spacing:0.5px;">factory</span>
+          {% elif user.auth_type == "ldap" %}
+            <span style="font-family:'JetBrains Mono',monospace; font-size:0.6rem; font-weight:700; letter-spacing:1.5px; color:#80deea; background:rgba(0,188,212,0.08); border:1px solid rgba(0,188,212,0.2); border-radius:3px; padding:0.1rem 0.35rem; margin-left:0.4rem;">LDAP</span>
           {% endif %}
         </td>
         <td style="font-size:0.88rem;">{{ user.full_name }}</td>
@@ -463,5 +465,173 @@
 
   // ── Init ──
   updateToolbar();
+</script>
+
+<!-- ── GROUP RULES ──────────────────────────────────────────── -->
+<div class="mt-5">
+  <div class="d-flex align-items-center justify-content-between mb-3">
+    <div>
+      <div class="nr-badge" style="margin-bottom:0.3rem;">LDAP</div>
+      <h5 class="mb-0" style="font-family:'Inter',sans-serif; font-weight:600; font-size:1rem; color:#e0e0e0;">
+        Group Rules
+      </h5>
+    </div>
+    <span style="font-family:'JetBrains Mono',monospace; font-size:0.72rem; color:#333; letter-spacing:0.5px;">
+      Auto-enroll users matching LDAP group membership
+    </span>
+  </div>
+  <div id="groupRulesContainer">
+    <div style="color:#333; font-size:0.82rem; padding:0.5rem 0;">
+      <span class="spinner-border spinner-border-sm text-secondary me-2"></span>Loading…
+    </div>
+  </div>
+</div>
+
+<style>
+  .gr-table { width:100%; border-collapse:collapse; }
+  .gr-table th {
+    font-family:'Inter',sans-serif; font-size:0.68rem; font-weight:600;
+    text-transform:uppercase; letter-spacing:1px; color:#444;
+    padding:0.5rem 0.75rem; border-bottom:1px solid #1a1a1a; text-align:left;
+  }
+  .gr-table td {
+    padding:0.55rem 0.75rem; border-bottom:1px solid #141414;
+    font-size:0.84rem; color:#ccc; vertical-align:middle;
+  }
+  .gr-table tr:hover td { background:rgba(0,188,212,0.02); }
+  .gr-server-label {
+    font-family:'JetBrains Mono',monospace; font-size:0.7rem; letter-spacing:0.5px;
+    color:#555; padding:0.6rem 0.75rem 0.25rem;
+    text-transform:uppercase; border-bottom:1px solid #1a1a1a;
+  }
+  .gr-dn {
+    font-family:'JetBrains Mono',monospace; font-size:0.72rem; color:#444;
+    max-width:320px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  .gr-role-badge {
+    font-family:'JetBrains Mono',monospace; font-size:0.62rem; letter-spacing:0.1em;
+    padding:0.15rem 0.45rem; border-radius:3px;
+  }
+  .gr-role-admin { background:rgba(239,83,80,0.1); color:#ef9a9a; border:1px solid rgba(239,83,80,0.2); }
+  .gr-role-user  { background:rgba(100,100,100,0.1); color:#777; border:1px solid #222; }
+  .gr-toggle {
+    font-family:'JetBrains Mono',monospace; font-size:0.68rem; cursor:pointer;
+    padding:0.18rem 0.5rem; border-radius:3px; border:1px solid;
+    transition:background 0.15s, color 0.15s;
+  }
+  .gr-toggle.active { background:rgba(165,214,167,0.08); color:#a5d6a7; border-color:rgba(165,214,167,0.25); }
+  .gr-toggle.inactive { background:rgba(100,100,100,0.08); color:#444; border-color:#222; }
+  .gr-empty { color:#2a2a2a; font-size:0.82rem; font-family:'JetBrains Mono',monospace;
+              padding:1.25rem 0; text-align:center; letter-spacing:0.5px; }
+</style>
+
+<script>
+  const GR_CSRF = '{{ csrf_token() }}';
+
+  window.addEventListener('DOMContentLoaded', loadGroupRules);
+
+  function loadGroupRules() {
+    fetch('/admin/server/ldap')
+      .then(r => r.json())
+      .then(servers => {
+        if (!servers.length) {
+          document.getElementById('groupRulesContainer').innerHTML =
+            '<div class="gr-empty">No LDAP servers configured</div>';
+          return;
+        }
+        return Promise.all(
+          servers.map(s =>
+            fetch(`/admin/server/ldap/${s.id}/groups`)
+              .then(r => r.json())
+              .then(groups => ({ server: s, groups }))
+          )
+        ).then(results => renderGroupRules(results));
+      })
+      .catch(() => {
+        document.getElementById('groupRulesContainer').innerHTML =
+          '<div style="color:#ef9a9a; font-size:0.82rem;">Failed to load group rules</div>';
+      });
+  }
+
+  function renderGroupRules(results) {
+    const container = document.getElementById('groupRulesContainer');
+    const allGroups = results.flatMap(r => r.groups.map(g => ({ ...g, server: r.server })));
+
+    if (!allGroups.length) {
+      container.innerHTML = '<div class="gr-empty">No group rules configured — use the LDAP Explorer to add groups</div>';
+      return;
+    }
+
+    let html = '<table class="gr-table">';
+    html += '<thead><tr><th>Label</th><th>Group DN</th><th>Role</th><th>Server</th><th>Status</th><th></th></tr></thead><tbody>';
+
+    results.forEach(({ server, groups }) => {
+      if (!groups.length) return;
+      groups.forEach(g => {
+        const roleBadge = g.role === 'admin'
+          ? `<span class="gr-role-badge gr-role-admin">ADMIN</span>`
+          : `<span class="gr-role-badge gr-role-user">USER</span>`;
+        const toggleClass = g.is_active ? 'active' : 'inactive';
+        const toggleLabel = g.is_active ? 'ACTIVE' : 'INACTIVE';
+        html += `<tr id="gr-row-${g.id}">
+          <td style="font-weight:500; color:#e0e0e0;">${escGr(g.label)}</td>
+          <td><span class="gr-dn" title="${escGr(g.group_dn)}">${escGr(g.group_dn)}</span></td>
+          <td>${roleBadge}</td>
+          <td style="font-family:'JetBrains Mono',monospace; font-size:0.72rem; color:#555;">
+            ${escGr(server.name)}
+          </td>
+          <td>
+            <span class="gr-toggle ${toggleClass}" id="gr-toggle-${g.id}"
+                  onclick="toggleGroup('${server.id}', '${g.id}', this)">
+              ${toggleLabel}
+            </span>
+          </td>
+          <td>
+            <button class="btn btn-outline-danger btn-sm" style="font-size:0.72rem; padding:0.15rem 0.5rem;"
+                    onclick="deleteGroup('${server.id}', '${g.id}')">
+              <i class="bi bi-trash3"></i>
+            </button>
+          </td>
+        </tr>`;
+      });
+    });
+
+    html += '</tbody></table>';
+    container.innerHTML = html;
+  }
+
+  function toggleGroup(serverId, groupId, el) {
+    fetch(`/admin/server/ldap/${serverId}/groups/${groupId}/toggle`, {
+      method: 'POST',
+      headers: { 'X-CSRFToken': GR_CSRF }
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.status === 'ok') {
+        el.textContent = data.is_active ? 'ACTIVE' : 'INACTIVE';
+        el.className = `gr-toggle ${data.is_active ? 'active' : 'inactive'}`;
+      }
+    });
+  }
+
+  function deleteGroup(serverId, groupId) {
+    if (!confirm('Remove this group rule?')) return;
+    fetch(`/admin/server/ldap/${serverId}/groups/${groupId}/delete`, {
+      method: 'POST',
+      headers: { 'X-CSRFToken': GR_CSRF }
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.status === 'ok') {
+        const row = document.getElementById(`gr-row-${groupId}`);
+        if (row) row.remove();
+      }
+    });
+  }
+
+  function escGr(str) {
+    if (!str) return '';
+    return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
 </script>
 {% endblock %}
