@@ -416,7 +416,7 @@
             <a href="{{ url_for('admin_sessions') }}"
                class="adm-sb-link {% if active_section == 'sessions' %}active{% endif %}"
                title="Live Sessions">
-                <i class="bi bi-activity adm-sb-icon"></i>
+                <i class="bi bi-person-lines-fill adm-sb-icon"></i>
                 <span class="adm-sb-label">Live Sessions</span>
             </a>
 
@@ -457,6 +457,9 @@
                  onclick="admRestartClick()">
                 <i class="bi bi-arrow-clockwise adm-sb-icon" style="font-size:0.82rem;"></i>
                 <span class="adm-sb-label" style="font-family:'JetBrains Mono',monospace; font-size:0.72rem; letter-spacing:1px;">RESTART</span>
+                <span id="restartPendingDot" style="display:none; width:7px; height:7px; border-radius:50%;
+                      background:#ffb74d; box-shadow:0 0 6px #ffb74d; margin-left:auto; flex-shrink:0;
+                      animation:restartPulse 1.4s ease-in-out infinite;"></span>
             </div>
             <div class="adm-sb-link" style="opacity:0.25; pointer-events:none; gap:0.6rem; padding:0.3rem 0.5rem;">
                 <i class="bi bi-circle-fill adm-sb-icon" style="font-size:0.4rem; color:#1e3a3e;"></i>
@@ -625,7 +628,17 @@ function fireRestart() {
 <style>
 @keyframes spin { to { transform: rotate(360deg); } }
 .spin { display: inline-block; animation: spin 0.8s linear infinite; }
+@keyframes restartPulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 6px #ffb74d; }
+  50%       { opacity: 0.4; box-shadow: 0 0 2px #ffb74d; }
+}
 </style>
+<script>
+function markRestartPending() {
+  document.getElementById('restartPendingDot').style.display = 'inline-block';
+  document.getElementById('admRestartBtn').title = 'Restart required — config saved';
+}
+</script>
 
 </body>
 </html>

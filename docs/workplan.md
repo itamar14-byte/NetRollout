@@ -407,96 +407,109 @@ Extended `RolloutLogger` to cover sequential administrative workflows with full 
 
 ## Phase 4 — Packaging & Deployment
 
-### 4.0 Webapp modularisation — Flask Blueprints + frontend asset splitting
-Split `webapp.py` into logical Blueprint modules once feature set is stable:
+---
+## Remaining work — path to v1.0
+_Feature set is complete as of 2026-04-28. Remaining work is cleanup, packaging, and documentation._
+
+### Step 1 — 4.9c Codebase cleanup ← NEXT
+Do this before freezing into a Docker image. Code quality is easier to fix before packaging than after.
+
+**Response shape standardization:**
+- Unify all route responses to `{"status": "ok"/"error", "message": "..."}`. Currently the Postgres server management routes (`/admin/server/postgres/*`) return `{"success": True/False, "error": "..."}` — inconsistent with every other route. Update those routes and their frontend JS consumers.
+
+**DRY — LDAP route boilerplate:**
+- Every LDAP route opens a DB session, queries `LDAPServer` by id, and 404s if missing. Extract to a small helper so the pattern isn't repeated across 10 routes.
+
+**`webapp.py` size:**
+- At ~2850 lines it's readable but long. Blueprint split (step 2) is the real fix, but a quick pass to remove any dead code, leftover comments, or stale imports before the split reduces noise.
+
+---
+
+### Step 2 — 4.0 Flask Blueprints + frontend asset splitting
+Split `webapp.py` into logical Blueprint modules. Do after cleanup so the split starts from clean code.
+
+**Blueprint modules:**
 - `auth.py` — login, register, OTP enroll/verify, logout
 - `inventory.py` — inventory CRUD, bulk assign, CSV import
 - `security.py` — security profile CRUD, test connection
 - `mappings.py` — variable mapping CRUD, bulk assign
 - `rollout.py` — new_rollout, new_start_rollout, active_jobs, rollout stream, cancel, rollback
-- `admin.py` — admin panel, user actions, bulk actions, audit
+- `admin.py` — admin panel, user actions, bulk actions, audit, sessions, server management
 - `webapp.py` — thin entry point: app factory, blueprint registration, Waitress serve
+- `extensions.py` — shared singletons: `orchestrator`, `csrf`, `login_mng`, `redis_client`, `VENDOR_LOGOS`
 
-Shared state (`orchestrator`, `csrf`, `login_mng`, `VENDOR_LOGOS`) lives in a `extensions.py` module imported by all blueprints. All `url_for` calls need blueprint prefix (e.g. `url_for('rollout.active_jobs')`).
+All `url_for` calls need blueprint prefix (e.g. `url_for('rollout.active_jobs')`). This is the main mechanical cost of the split.
 
 **Frontend asset splitting:**
-Extract per-page inline CSS and JS out of `{% block extra_style %}` / `{% block extra_script %}` into dedicated static files under `static/css/` and `static/js/`. Templates become thin layout files. Reduces the HTML ratio (currently ~75%) and makes JS/CSS independently cacheable and reviewable.
+Extract per-page inline `<style>` and `<script>` blocks into `static/css/<page>.css` and `static/js/<page>.js`. Templates become thin layout files. Makes JS/CSS independently cacheable and reviewable. Do alongside or after Blueprints.
 
+---
 
+### Step 3 — 4.0b BYO Infrastructure ✅ PARTIAL (2026-04-28)
+Allow users to connect their own Postgres and Redis instead of the bundled Docker services.
 
-### 4.0b BYO Infrastructure Support
-Allow users to connect their own enterprise instances of Redis, Postgres, and Grafana instead of the bundled Docker services.
+**PostgreSQL BYO ✅ COMPLETE** — server management UI card, `POST /admin/server/postgres/test` + `/save`, writes individual `DB_*` vars to `config.env`, merge-safe (does not overwrite Redis config).
 
-**Redis BYO:**
-- Server management UI card: host, port, database number, optional password
-- Note: database number must be unique (not used by other applications)
-- Test connection button before saving
-- `REDIS_URL` env var: `redis://[:password@]host:port/db` — `redis-py` parses automatically
-- Fallback to bundled Redis instance if not configured
+**Redis BYO ✅ COMPLETE (2026-04-28)** — server management UI "Database Services" card with two large service selector buttons (Postgres / Redis). Redis form: host, port, db number, optional password. `POST /admin/server/redis/test` (ping) + `/save` (writes `REDIS_*` vars to `config.env`, merge-safe). `redis_db.py` reads individual vars as fallback when `REDIS_URL` not set. Warning: switching Redis drops all active sessions and orphans running jobs — documented in UI.
 
-**Postgres BYO:**
-- Already implemented via server management UI + `DATABASE_URL` env var
+**Grafana BYO — deferred post-v1.0.** Grafana is observability-only; users can point it at any datasource manually. Not blocking release.
 
-**Grafana BYO:**
-- Server management UI card: host, port, optional credentials
-- `GRAFANA_URL` env var
-- Fallback to bundled Grafana instance if not configured
+---
 
-All three services follow the same pattern: env var with bundled fallback, config card in server management, test connection before save.
+### Step 4 — 4.1 Docker image
+Build and publish to Docker Hub as `itamar14/netrollout:latest` and `itamar14/netrollout:v1.0`.
 
-### 4.1 Docker image
-Build and publish image to Docker Hub as `itamar14/netrollout:latest` and `itamar14/netrollout:v1.0`.
-`docker-compose.yml` with three services:
-- `app` — Waitress serving the Flask webapp, pulls from Docker Hub
+`docker-compose.yml` services:
+- `app` — Waitress + Flask, pulls from Docker Hub
 - `db` — PostgreSQL
-- `nginx` — reverse proxy, handles TLS termination
+- `redis` — Redis
+- `nginx` — reverse proxy, TLS termination
 
-### 4.2 Install script — `install.py`
-Single script, zero manual steps. User runs `python install.py` and gets a fully running stack.
-Interactively asks for config values, falls back to defaults:
-- `DATABASE_URL` — default: `postgresql+psycopg2://dbadmin:Pass123@localhost:5432/rollout_db`
-- `MAX_CONCURRENT_JOBS` — default: `4`
-- `NETROLLOUT_ENCRYPTION_KEY` — default: auto-generate, write to `~/.netrollout/encryption.key`
-- `SECRET_KEY` — default: auto-generate via `secrets.token_urlsafe(32)`
+Grafana/Prometheus/Loki remain on a separate `docker-compose.obs.yml` — optional observability stack, not bundled in the base image.
 
-Then automatically:
-1. Writes `.env` with resolved values
-2. Runs `docker compose pull` — pulls latest image from Docker Hub
-3. Runs `docker compose up -d` — starts app + db + nginx
-4. Initializes DB tables
-5. Seeds factory admin user (admin/admin)
-6. Prints `NetRollout is running at http://localhost:8080`
+**Pending Grafana wiring (carry over from 4.9):**
+- docker-compose volume mounts for `docs/grafana/provisioning/` and `docs/grafana/dashboard_config/`
+- `GRAFANA_DB_PASSWORD` env var in docker-compose
 
-Re-running the script later pulls the latest image and restarts — doubles as the update mechanism.
+---
 
-### 4.3 Update mechanism
-Three options (all documented in README, admin chooses based on comfort level):
+### Step 5 — 4.2 Install script — `install.py`
+Single script, zero manual steps. `python install.py` → fully running stack.
 
-**Option A — Re-run install script:**
-```
-python install.py
-```
-Pulls `:latest` from Docker Hub, restarts stack, re-applies config. Simplest, no extra tooling.
+Interactively asks (with defaults):
+- `SECRET_KEY` — auto-generate via `secrets.token_urlsafe(32)`
+- `NETROLLOUT_ENCRYPTION_KEY` — auto-generate, write to `~/.netrollout/encryption.key`
+- `MAX_CONCURRENT_JOBS` — default `4`
+- DB credentials — default bundled Postgres
 
-**Option B — In-container update script (`update.py`):**
-```
-docker exec netrollout-app python update.py
-```
-Hits Docker Hub API to compare current vs latest version, prompts user, pulls and restarts if confirmed.
-Keeps webapp unprivileged — no Docker socket exposure.
+Then:
+1. Writes `config.env`
+2. `docker compose pull`
+3. `docker compose up -d`
+4. `alembic upgrade head`
+5. Seeds factory admin (`admin`/`admin`)
+6. Prints `NetRollout is running at https://localhost`
 
-**Option C — In-app update button (Admin Panel):**
-Version check widget in admin panel hits Docker Hub API (`hub.docker.com/v2/repositories/itamar14/netrollout/tags/latest`).
-Displays current vs latest version. On user confirmation, triggers pull and restart.
-Most user-friendly but requires Docker socket mounted into container (`/var/run/docker.sock`) — root-equivalent host privilege. Must be documented clearly in security posture section.
-Decision deferred to Phase 4.
+Re-running pulls `:latest` and restarts — doubles as update mechanism.
 
-### 4.4 Release
-Tag v1.0 on GitHub, push `v1.0` and `latest` tags to Docker Hub.
+---
 
-### 4.5 Executable (CLI)
-Build a standalone `.exe` using PyInstaller for the CLI tool.
-Bundles `cli.py` — no Python install required on client machines.
+### Step 6 — 4.10 Documentation
+- `README.md` — project overview, quick start (`python install.py`), CLI usage, CSV format reference, security posture (data minimization, encryption key management), update instructions
+- Inline docstrings pass on public APIs in `ldap_auth.py`, `orchestration.py`, `core.py`
+
+---
+
+### Step 7 — 4.4 Release
+Tag v1.0 on GitHub, push `v1.0` and `latest` to Docker Hub.
+
+---
+
+### Post-v1.0 (deferred)
+- **4.3 Update mechanism** — in-app version check widget hitting Docker Hub API
+- **4.5 CLI `.exe`** — PyInstaller standalone for `cli.py`
+- **3.5 Test suite expansion** — webapp route tests, CLI tests (core layer already at 82/83 passing)
+- **4.0b Grafana BYO** — server management card for external Grafana instance
 
 ### 4.6 Server-side sessions (Flask-Session) ✅ COMPLETE (2026-04-23)
 Flask-Session backed by Redis (`SESSION_TYPE=redis`). On startup, all `session:*` keys flushed from Redis — FortiGate-style invalidation, no SECRET_KEY rotation needed. SECRET_KEY is now a fixed env var (`SECRET_KEY=dev` default), session lifecycle managed by Redis flush instead.
@@ -683,8 +696,7 @@ Admin panel is now a fully standalone page — own layout, own topbar, own sideb
 **Live Sessions routes:** `GET /admin/sessions` (scans `user_session:*` Redis keys, TTL→elapsed math, local/ldap split), `POST /admin/sessions/<uuid>/kick` (deletes `redis_session:<sid>` + `user_session:<uid>`, emits audit log).
 
 ### 4.9c Codebase Cleanup (post-LDAP)
-- Standardize all `jsonify` response shapes — settle on `{"status": "ok"/"error", "message": "..."}` across all routes and update frontend JS consumers accordingly
-- Audit all `if not x` guards in routes — confirm each protects against null access, remove any that are just early termination with no real guard purpose
+See "Step 1" in the Remaining Work section above — detailed there.
 
 ### 4.10 Documentation
 - `README.md` — project overview, quick start (install.py), CLI usage, CSV format reference, security posture section, update instructions

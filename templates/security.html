@@ -913,7 +913,7 @@ async function saveBulkAssign() {
         });
         const data = await resp.json();
 
-        if (data.status === 'success') {
+        if (data.status === 'ok') {
             bootstrap.Modal.getInstance(document.getElementById('devicesModal')).hide();
             location.reload();
         } else {
@@ -1071,7 +1071,7 @@ async function runTest() {
         });
         const data = await resp.json();
 
-        if (data.status === 'success') {
+        if (data.status === 'ok') {
             result.className = 'test-result success';
             result.innerHTML = '<i class="bi bi-check-circle me-2"></i>' + data.message;
         } else {

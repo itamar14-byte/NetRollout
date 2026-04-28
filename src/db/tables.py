@@ -6,7 +6,7 @@ from sqlalchemy import (DateTime, String, Boolean, Integer, Uuid, Text,
                         ForeignKey, JSON, Table, Column, UniqueConstraint)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from postgres_db import Base
+from .postgres_db import Base
 
 var_mapping_to_devices = Table("var_mapping_to_devices",
                                Base.metadata,
