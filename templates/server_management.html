@@ -11,89 +11,170 @@
   </div>
 </div>
 
-<!-- ── DATABASE CARD ─────────────────────────────────────────── -->
+<!-- ── DATABASE SERVICES CARD ──────────────────────────────── -->
 <div class="nr-card mb-4">
   <div class="nr-card-accent"></div>
   <div class="nr-card-body">
 
-    <div class="d-flex align-items-center justify-content-between mb-3">
-      <div class="d-flex align-items-center gap-2">
-        <i class="bi bi-database" style="color:#00bcd4; font-size:1.1rem;"></i>
-        <span style="font-family:'Inter',sans-serif; font-weight:600; color:#e0e0e0; font-size:0.97rem;">
-          Database
-        </span>
-      </div>
-      <div class="d-flex align-items-center gap-2">
-        {% if db_connected %}
-          <span class="conn-dot connected"></span>
-          <span class="status-label">Connected</span>
-        {% else %}
-          <span class="conn-dot disconnected"></span>
-          <span class="status-label" style="color:#ef5350;">Disconnected</span>
-        {% endif %}
-        <span class="mode-badge {% if db_mode == 'external' %}mode-external{% else %}mode-bundled{% endif %}">
-          {{ db_mode | upper }}
-        </span>
-      </div>
-    </div>
-
-    <div class="nr-warning mb-4">
-      <i class="bi bi-exclamation-triangle-fill me-2" style="color:#ffe082;"></i>
-      <span>
-        Saving will initialize a <strong>fresh schema</strong> on the target database.
-        Existing data will <strong>not</strong> be migrated automatically —
-        perform a manual backup and restore if needed.
+    <div class="d-flex align-items-center mb-4">
+      <i class="bi bi-hdd-stack" style="color:#00bcd4; font-size:1.1rem;"></i>
+      <span style="font-family:'Inter',sans-serif; font-weight:600; color:#e0e0e0; font-size:0.97rem; margin-left:0.5rem;">
+        Database Services
       </span>
     </div>
 
-    <div class="row g-3">
-      <div class="col-md-5">
-        <label class="nr-label">Host</label>
-        <input type="text" id="db_host" class="form-control" placeholder="db.example.com"
-               value="{{ current_config.get('DB_HOST', '') }}">
+    <!-- ── Service selector ── -->
+    <div class="d-flex gap-3 mb-4">
+
+      <!-- PostgreSQL button -->
+      <div class="db-service-btn" id="svc-postgres" onclick="selectService('postgres')">
+        <div class="d-flex align-items-center gap-3">
+          <img src="https://cdn.simpleicons.org/postgresql/336791" width="32" height="32"
+               onerror="this.style.display='none'">
+          <div>
+            <div class="db-svc-title">PostgreSQL</div>
+            <div class="db-svc-sub">Primary database</div>
+          </div>
+          <div style="flex:1;"></div>
+          <div class="d-flex align-items-center gap-2">
+            {% if db_connected %}
+              <span class="conn-dot connected"></span>
+              <span class="status-label">Connected</span>
+            {% else %}
+              <span class="conn-dot disconnected"></span>
+              <span class="status-label" style="color:#ef5350;">Disconnected</span>
+            {% endif %}
+            <span class="mode-badge {% if db_mode == 'external' %}mode-external{% else %}mode-bundled{% endif %}">
+              {{ db_mode | upper }}
+            </span>
+          </div>
+        </div>
       </div>
-      <div class="col-md-2">
-        <label class="nr-label">Port</label>
-        <input type="number" id="db_port" class="form-control" placeholder="5432"
-               value="{{ current_config.get('DB_PORT', '5432') }}">
+
+      <!-- Redis button -->
+      <div class="db-service-btn" id="svc-redis" onclick="selectService('redis')">
+        <div class="d-flex align-items-center gap-3">
+          <img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/redis/redis-original.svg" width="32" height="32"
+               onerror="this.style.display='none'">
+          <div>
+            <div class="db-svc-title">Redis</div>
+            <div class="db-svc-sub">Sessions &amp; job queue</div>
+          </div>
+          <div style="flex:1;"></div>
+          <div class="d-flex align-items-center gap-2">
+            {% if redis_connected %}
+              <span class="conn-dot connected"></span>
+              <span class="status-label">Connected</span>
+            {% else %}
+              <span class="conn-dot disconnected"></span>
+              <span class="status-label" style="color:#ef5350;">Disconnected</span>
+            {% endif %}
+            <span class="mode-badge {% if redis_mode == 'external' %}mode-external{% else %}mode-bundled{% endif %}">
+              {{ redis_mode | upper }}
+            </span>
+          </div>
+        </div>
       </div>
-      <div class="col-md-5">
-        <label class="nr-label">Database Name</label>
-        <input type="text" id="db_name" class="form-control" placeholder="rollout_db"
-               value="{{ current_config.get('DB_NAME', '') }}">
+
+    </div>
+
+    <!-- ── PostgreSQL form ── -->
+    <div id="form-postgres" style="display:none;">
+      <div class="nr-warning mb-4">
+        <i class="bi bi-exclamation-triangle-fill me-2" style="color:#ffe082;"></i>
+        Saving will initialize a <strong>fresh schema</strong> on the target database.
+        Existing data will <strong>not</strong> be migrated automatically —
+        perform a manual backup and restore if needed.
       </div>
-      <div class="col-md-4">
-        <label class="nr-label">User</label>
-        <input type="text" id="db_user" class="form-control" placeholder="dbadmin"
-               value="{{ current_config.get('DB_USER', '') }}">
+      <div class="row g-3">
+        <div class="col-md-5">
+          <label class="nr-label">Host</label>
+          <input type="text" id="db_host" class="form-control" placeholder="db.example.com"
+                 value="{{ db_host }}">
+        </div>
+        <div class="col-md-2">
+          <label class="nr-label">Port</label>
+          <input type="number" id="db_port" class="form-control" placeholder="5432"
+                 value="{{ db_port }}">
+        </div>
+        <div class="col-md-5">
+          <label class="nr-label">Database Name</label>
+          <input type="text" id="db_name" class="form-control" placeholder="rollout_db"
+                 value="{{ db_name }}">
+        </div>
+        <div class="col-md-4">
+          <label class="nr-label">User</label>
+          <input type="text" id="db_user" class="form-control" placeholder="dbadmin"
+                 value="{{ db_user }}">
+        </div>
+        <div class="col-md-4">
+          <label class="nr-label">Password</label>
+          <input type="password" id="db_password" class="form-control" placeholder="••••••••" autocomplete="new-password">
+        </div>
+        <div class="col-md-4">
+          <label class="nr-label">Schema <span style="color:#555;">(optional)</span></label>
+          <input type="text" id="db_schema" class="form-control" placeholder="public"
+                 value="{{ current_config.get('PG_SCHEMA', '') }}">
+        </div>
       </div>
-      <div class="col-md-4">
-        <label class="nr-label">Password</label>
-        <input type="password" id="db_password" class="form-control" placeholder="••••••••"
-               value="{{ current_config.get('DB_PASSWORD', '') }}">
+      <div id="pgTestResult" class="mt-3" style="display:none;"></div>
+      <div class="d-flex gap-2 mt-4 align-items-center">
+        <button class="btn btn-outline-primary btn-sm" id="pgBtnTest" onclick="testPostgres()">
+          <i class="bi bi-plug me-1"></i>Test Connection
+        </button>
+        <button class="btn btn-primary btn-sm" id="pgBtnSave" onclick="savePostgres()" disabled>
+          <i class="bi bi-floppy me-1"></i>Save Configuration
+        </button>
+        <span id="pgSaveSpinner" class="spinner-border spinner-border-sm text-info ms-1" style="display:none;"></span>
       </div>
-      <div class="col-md-4">
-        <label class="nr-label">Schema <span style="color:#555;">(optional)</span></label>
-        <input type="text" id="db_schema" class="form-control" placeholder="public"
-               value="{{ current_config.get('DB_SCHEMA', '') }}">
+      <div id="pgRestartBanner" class="nr-restart-banner mt-4" style="display:none;">
+        <i class="bi bi-arrow-clockwise me-2"></i>
+        Configuration saved. <strong>Restart the application</strong> to apply changes and initialize the new database.
       </div>
     </div>
 
-    <div id="testResult" class="mt-3" style="display:none;"></div>
-
-    <div class="d-flex gap-2 mt-4 align-items-center">
-      <button class="btn btn-outline-primary btn-sm" id="btnTest" onclick="testConnection()">
-        <i class="bi bi-plug me-1"></i>Test Connection
-      </button>
-      <button class="btn btn-primary btn-sm" id="btnSave" onclick="saveConfig()" disabled>
-        <i class="bi bi-floppy me-1"></i>Save Configuration
-      </button>
-      <span id="saveSpinner" class="spinner-border spinner-border-sm text-info ms-1" style="display:none;"></span>
-    </div>
-
-    <div id="restartBanner" class="nr-restart-banner mt-4" style="display:none;">
-      <i class="bi bi-arrow-clockwise me-2"></i>
-      Configuration saved. <strong>Restart the application</strong> to apply changes and initialize the new database.
+    <!-- ── Redis form ── -->
+    <div id="form-redis" style="display:none;">
+      <div class="nr-warning mb-4" style="border-color:rgba(255,100,80,0.25); background:rgba(255,100,80,0.05);">
+        <i class="bi bi-exclamation-triangle-fill me-2" style="color:#ff8a65;"></i>
+        Switching Redis will <strong>log out all active users</strong> and <strong>drop any running jobs</strong> —
+        all session and queue data lives in the current instance. Restart required after saving.
+      </div>
+      <div class="row g-3">
+        <div class="col-md-5">
+          <label class="nr-label">Host</label>
+          <input type="text" id="rd_host" class="form-control" placeholder="redis.example.com"
+                 value="{{ redis_host }}">
+        </div>
+        <div class="col-md-2">
+          <label class="nr-label">Port</label>
+          <input type="number" id="rd_port" class="form-control" placeholder="6379"
+                 value="{{ redis_port }}">
+        </div>
+        <div class="col-md-2">
+          <label class="nr-label">DB <span style="color:#555;">(0–15)</span></label>
+          <input type="number" id="rd_db" class="form-control" placeholder="0" min="0" max="15"
+                 value="{{ redis_db }}">
+        </div>
+        <div class="col-md-3">
+          <label class="nr-label">Password <span style="color:#555;">(optional)</span></label>
+          <input type="password" id="rd_password" class="form-control" placeholder="••••••••" autocomplete="new-password">
+        </div>
+      </div>
+      <div id="rdTestResult" class="mt-3" style="display:none;"></div>
+      <div class="d-flex gap-2 mt-4 align-items-center">
+        <button class="btn btn-outline-primary btn-sm" id="rdBtnTest" onclick="testRedis()">
+          <i class="bi bi-plug me-1"></i>Test Connection
+        </button>
+        <button class="btn btn-primary btn-sm" id="rdBtnSave" onclick="saveRedis()" disabled>
+          <i class="bi bi-floppy me-1"></i>Save Configuration
+        </button>
+        <span id="rdSaveSpinner" class="spinner-border spinner-border-sm text-info ms-1" style="display:none;"></span>
+      </div>
+      <div id="rdRestartBanner" class="nr-restart-banner mt-4" style="display:none;">
+        <i class="bi bi-arrow-clockwise me-2"></i>
+        Configuration saved. <strong>Restart the application</strong> to apply the new Redis connection.
+      </div>
     </div>
 
   </div>
@@ -254,8 +335,27 @@
     background:rgba(0,188,212,0.07); border:1px solid rgba(0,188,212,0.25); border-radius:6px;
     padding:0.7rem 1rem; font-size:0.85rem; color:#b2ebf2;
   }
-  #testResult .test-ok  { color:#a5d6a7; font-size:0.83rem; }
-  #testResult .test-err { color:#ef9a9a; font-size:0.83rem; word-break:break-word; }
+  /* ── Service selector buttons ── */
+  .db-service-btn {
+    flex:1; padding:1rem 1.25rem; border-radius:8px; cursor:pointer;
+    border:1px solid #1e1e1e; background:#0d0d0d;
+    transition:border-color 0.15s, background 0.15s;
+    user-select:none;
+  }
+  .db-service-btn:hover { border-color:#2a2a2a; background:#111; }
+  .db-service-btn.selected {
+    border-color:rgba(0,188,212,0.35); background:rgba(0,188,212,0.05);
+  }
+  .db-svc-title {
+    font-family:'Inter',sans-serif; font-weight:600; font-size:0.92rem; color:#e0e0e0;
+  }
+  .db-svc-sub {
+    font-family:'JetBrains Mono',monospace; font-size:0.68rem; color:#444;
+    margin-top:0.1rem; letter-spacing:0.3px;
+  }
+
+  .res-ok  { color:#a5d6a7; font-size:0.82rem; }
+  .res-err { color:#ef9a9a; font-size:0.82rem; word-break:break-word; }
 
   /* ── LDAP server list ── */
   .ldap-loading { text-align:center; color:#333; font-size:0.82rem; padding:1.5rem 0; }
@@ -360,82 +460,178 @@
   const CSRF = '{{ csrf_token() }}';
   const LDAP_BASE = '/admin/server/ldap';
 
-  /* ── DB card (unchanged) ──────────────────────────────────── */
-  let testPassed = false;
-
-  function getFormData() {
-    return {
-      host:     document.getElementById('db_host').value.trim(),
-      port:     document.getElementById('db_port').value.trim(),
-      name:     document.getElementById('db_name').value.trim(),
-      user:     document.getElementById('db_user').value.trim(),
-      password: document.getElementById('db_password').value.trim(),
-      schema:   document.getElementById('db_schema').value.trim(),
-    };
+  /* ── Service selector ─────────────────────────────────────── */
+  function selectService(svc) {
+    ['postgres', 'redis'].forEach(s => {
+      document.getElementById(`svc-${s}`).classList.toggle('selected', s === svc);
+      document.getElementById(`form-${s}`).style.display = s === svc ? 'block' : 'none';
+    });
   }
 
-  document.querySelectorAll('#db_host,#db_port,#db_name,#db_user,#db_password,#db_schema')
-    .forEach(el => el.addEventListener('input', () => {
-      testPassed = false;
-      document.getElementById('btnSave').disabled = true;
-      document.getElementById('testResult').style.display = 'none';
-    }));
+  /* ── PostgreSQL ───────────────────────────────────────────── */
+  let pgTestPassed = false;
 
-  function testConnection() {
-    const btn = document.getElementById('btnTest');
-    const res = document.getElementById('testResult');
+  document.addEventListener('DOMContentLoaded', () => {
+    ['db_host','db_port','db_name','db_user','db_password','db_schema'].forEach(id => {
+      document.getElementById(id)?.addEventListener('input', () => {
+        pgTestPassed = false;
+        document.getElementById('pgBtnSave').disabled = true;
+        document.getElementById('pgTestResult').style.display = 'none';
+      });
+    });
+    ['rd_host','rd_port','rd_db','rd_password'].forEach(id => {
+      document.getElementById(id)?.addEventListener('input', () => {
+        rdTestPassed = false;
+        document.getElementById('rdBtnSave').disabled = true;
+        document.getElementById('rdTestResult').style.display = 'none';
+      });
+    });
+  });
+
+  function testPostgres() {
+    const btn = document.getElementById('pgBtnTest');
+    const res = document.getElementById('pgTestResult');
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Testing…';
     res.style.display = 'none';
 
-    fetch('{{ url_for("admin_server_db_test") }}', {
+    fetch('{{ url_for("admin_server_postgres_test") }}', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
-      body: JSON.stringify(getFormData())
+      body: JSON.stringify({
+        host:     document.getElementById('db_host').value.trim(),
+        port:     document.getElementById('db_port').value.trim(),
+        name:     document.getElementById('db_name').value.trim(),
+        user:     document.getElementById('db_user').value.trim(),
+        password: document.getElementById('db_password').value.trim(),
+        schema:   document.getElementById('db_schema').value.trim(),
+      })
     })
     .then(r => r.json())
     .then(data => {
       btn.disabled = false;
       btn.innerHTML = '<i class="bi bi-plug me-1"></i>Test Connection';
       res.style.display = 'block';
-      if (data.success) {
-        testPassed = true;
-        document.getElementById('btnSave').disabled = false;
-        res.innerHTML = '<span class="test-ok"><i class="bi bi-check-circle me-1"></i>Connection successful</span>';
+      if (data.status === 'ok') {
+        pgTestPassed = true;
+        document.getElementById('pgBtnSave').disabled = false;
+        res.innerHTML = '<span class="res-ok"><i class="bi bi-check-circle me-1"></i>Connection successful</span>';
       } else {
-        res.innerHTML = `<span class="test-err"><i class="bi bi-x-circle me-1"></i>${data.error}</span>`;
+        res.innerHTML = `<span class="res-err"><i class="bi bi-x-circle me-1"></i>${data.message}</span>`;
       }
     })
     .catch(() => {
       btn.disabled = false;
       btn.innerHTML = '<i class="bi bi-plug me-1"></i>Test Connection';
       res.style.display = 'block';
-      res.innerHTML = '<span class="test-err"><i class="bi bi-x-circle me-1"></i>Request failed</span>';
+      res.innerHTML = '<span class="res-err"><i class="bi bi-x-circle me-1"></i>Request failed</span>';
     });
   }
 
-  function saveConfig() {
-    if (!testPassed) return;
-    const btn = document.getElementById('btnSave');
-    const spinner = document.getElementById('saveSpinner');
+  function savePostgres() {
+    if (!pgTestPassed) return;
+    const btn = document.getElementById('pgBtnSave');
+    const spinner = document.getElementById('pgSaveSpinner');
     btn.disabled = true;
     spinner.style.display = 'inline-block';
 
-    fetch('{{ url_for("admin_server_db_save") }}', {
+    fetch('{{ url_for("admin_server_postgres_save") }}', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
-      body: JSON.stringify(getFormData())
+      body: JSON.stringify({
+        host:     document.getElementById('db_host').value.trim(),
+        port:     document.getElementById('db_port').value.trim(),
+        name:     document.getElementById('db_name').value.trim(),
+        user:     document.getElementById('db_user').value.trim(),
+        password: document.getElementById('db_password').value.trim(),
+        schema:   document.getElementById('db_schema').value.trim(),
+      })
     })
     .then(r => r.json())
     .then(data => {
       spinner.style.display = 'none';
-      if (data.success) {
-        document.getElementById('restartBanner').style.display = 'block';
+      if (data.status === 'ok') {
+        document.getElementById('pgRestartBanner').style.display = 'block';
+        markRestartPending();
       } else {
         btn.disabled = false;
-        document.getElementById('testResult').style.display = 'block';
-        document.getElementById('testResult').innerHTML =
-          `<span class="test-err"><i class="bi bi-x-circle me-1"></i>${data.error}</span>`;
+        document.getElementById('pgTestResult').style.display = 'block';
+        document.getElementById('pgTestResult').innerHTML =
+          `<span class="res-err"><i class="bi bi-x-circle me-1"></i>${data.message}</span>`;
+      }
+    })
+    .catch(() => { spinner.style.display = 'none'; btn.disabled = false; });
+  }
+
+  /* ── Redis ────────────────────────────────────────────────── */
+  let rdTestPassed = false;
+
+  function testRedis() {
+    const btn = document.getElementById('rdBtnTest');
+    const res = document.getElementById('rdTestResult');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Testing…';
+    res.style.display = 'none';
+
+    fetch('{{ url_for("admin_server_redis_test") }}', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
+      body: JSON.stringify({
+        host:     document.getElementById('rd_host').value.trim(),
+        port:     document.getElementById('rd_port').value.trim(),
+        db:       document.getElementById('rd_db').value.trim(),
+        password: document.getElementById('rd_password').value.trim(),
+      })
+    })
+    .then(r => r.json())
+    .then(data => {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-plug me-1"></i>Test Connection';
+      res.style.display = 'block';
+      if (data.status === 'ok') {
+        rdTestPassed = true;
+        document.getElementById('rdBtnSave').disabled = false;
+        res.innerHTML = '<span class="res-ok"><i class="bi bi-check-circle me-1"></i>Connection successful</span>';
+      } else {
+        res.innerHTML = `<span class="res-err"><i class="bi bi-x-circle me-1"></i>${data.message}</span>`;
+      }
+    })
+    .catch(() => {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-plug me-1"></i>Test Connection';
+      res.style.display = 'block';
+      res.innerHTML = '<span class="res-err"><i class="bi bi-x-circle me-1"></i>Request failed</span>';
+    });
+  }
+
+  function saveRedis() {
+    if (!rdTestPassed) return;
+    const btn = document.getElementById('rdBtnSave');
+    const spinner = document.getElementById('rdSaveSpinner');
+    btn.disabled = true;
+    spinner.style.display = 'inline-block';
+
+    fetch('{{ url_for("admin_server_redis_save") }}', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
+      body: JSON.stringify({
+        host:     document.getElementById('rd_host').value.trim(),
+        port:     document.getElementById('rd_port').value.trim(),
+        db:       document.getElementById('rd_db').value.trim(),
+        password: document.getElementById('rd_password').value.trim(),
+      })
+    })
+    .then(r => r.json())
+    .then(data => {
+      spinner.style.display = 'none';
+      if (data.status === 'ok') {
+        document.getElementById('rdRestartBanner').style.display = 'block';
+        markRestartPending();
+      } else {
+        btn.disabled = false;
+        document.getElementById('rdTestResult').style.display = 'block';
+        document.getElementById('rdTestResult').innerHTML =
+          `<span class="res-err"><i class="bi bi-x-circle me-1"></i>${data.message}</span>`;
       }
     })
     .catch(() => { spinner.style.display = 'none'; btn.disabled = false; });

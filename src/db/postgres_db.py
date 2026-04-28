@@ -6,16 +6,16 @@ from sqlalchemy import create_engine
 
 
 def construct_url():
-	host = os.getenv("DB_HOST","localhost")
-	port = os.getenv("DB_PORT","5432")
-	name = os.getenv("DB_NAME","rollout_db")
-	user = os.getenv("DB_USER","dbadmin")
-	password = os.getenv("DB_PASSWORD","Pass123")
+	host     = os.getenv("PG_HOST",     "localhost")
+	port     = os.getenv("PG_PORT",     "5432")
+	name     = os.getenv("PG_NAME",     "rollout_db")
+	user     = os.getenv("PG_USER",     "dbadmin")
+	password = os.getenv("PG_PASSWORD", "Pass123")
 	return f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{name}"
 
 def build_engine():
-	url = os.getenv("DATABASE_URL") or construct_url()
-	schema = os.getenv("DB_SCHEMA")
+	url    = os.getenv("DATABASE_URL") or construct_url()
+	schema = os.getenv("PG_SCHEMA")
 	connect_args = {"options": f"-c search_path={schema}"} if schema else {}
 	return create_engine(url, connect_args=connect_args)
 

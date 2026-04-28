@@ -40,11 +40,10 @@ from waitress import serve
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import generate_password_hash, check_password_hash
 
-from db.redis_db import redis_client
-
-# Must run before DB modules are imported — they build the engine at
 _CONFIG_ENV = Path(__file__).parent.parent / "config.env"
 load_dotenv(_CONFIG_ENV, override=True)
+
+from db.redis_db import redis_client
 from db.postgres_db import get_session, engine
 from db.tables import User, DeviceResult, SecurityProfile, Inventory, \
     VariableMapping, AuditLog, JobMetadata, PropertyDefinition, LDAPServer, \
@@ -110,12 +109,16 @@ def redis_sid():
     return cast(ServerSideSession, session).sid
 
 
-# Extract DB host:port from engine for use in error pages
+# Extract live connection values for use in templates and error pages
 _DB_HOST = engine.url.host
 _DB_PORT = engine.url.port
+_DB_NAME = engine.url.database
+_DB_USER = engine.url.username
 _REDIS_HOST = redis_client.connection_pool.connection_kwargs.get("host",
                                                                  "localhost")
 _REDIS_PORT = redis_client.connection_pool.connection_kwargs.get("port", 6379)
+_REDIS_DB   = redis_client.connection_pool.connection_kwargs.get("db", 0)
+_REDIS_PASSWORD = redis_client.connection_pool.connection_kwargs.get("password", "")
 
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
@@ -994,33 +997,44 @@ def admin_server():
         db_connected = True
     except OperationalError:
         db_connected = False
-    db_mode = "external" if _CONFIG_ENV.exists() else "local"
+    try:
+        redis_client.ping()
+        redis_connected = True
+    except RedisConnectionError:
+        redis_connected = False
     current_config = dotenv_values(_CONFIG_ENV) if _CONFIG_ENV.exists() else {}
+    db_mode    = "external" if current_config.get("POSTGRES_EXTERNAL") == "true" else "bundled"
+    redis_mode = "external" if current_config.get("REDIS_EXTERNAL")   == "true" else "bundled"
     return render_template('server_management.html', active_section="server",
                            db_mode=db_mode, db_connected=db_connected,
-                           current_config=current_config)
+                           db_host=_DB_HOST, db_port=_DB_PORT,
+                           db_name=_DB_NAME, db_user=_DB_USER,
+                           redis_mode=redis_mode, redis_connected=redis_connected,
+                           current_config=current_config,
+                           redis_host=_REDIS_HOST, redis_port=_REDIS_PORT,
+                           redis_db=_REDIS_DB)
 
 
-@app.route("/admin/server/db/test", methods=["POST"])
+@app.route("/admin/server/postgres/test", methods=["POST"])
 @login_required
-def admin_server_db_test():
+def admin_server_postgres_test():
     if current_user.role != "admin":
-        return jsonify(success=False, error="Unauthorized"), 403
+        return jsonify({"status": "error", "message": "Unauthorized"}), 403
     data = request.get_json()
-    host, port, name = (data.get_job("host", "").strip(),
-                        data.get_job("port", "5432").strip(),
-                        data.get_job("name", "").strip())
-    user, password, schema = (data.get_job("user", "").strip(),
-                              data.get_job("password", "").strip(),
-                              data.get_job("schema", "").strip())
+    host, port, name = (data.get("host", "").strip(),
+                        data.get("port", "5432").strip(),
+                        data.get("name", "").strip())
+    user, password, schema = (data.get("user", "").strip(),
+                              data.get("password", "").strip(),
+                              data.get("schema", "").strip())
     if not all([host, port, name, user, password]):
-        return jsonify(success=False, error="All fields except schema are "
-                                            "required")
+        return jsonify({"status": "error",
+                        "message": "All fields except schema are required"})
     if (host == engine.url.host and
             str(port) == str(engine.url.port) and
             name == engine.url.database):
-        return jsonify(success=False, error="Target database is the same as "
-                                            "the current one")
+        return jsonify({"status": "error",
+                        "message": "Target is the same as the current database"})
     url = f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{name}"
     connect_args = {"options": f"-c search_path={schema}"} if schema else {}
 
@@ -1029,38 +1043,95 @@ def admin_server_db_test():
         with test_engine.connect() as conn:
             conn.execute(text("SELECT 1"))
         test_engine.dispose()
-        return jsonify(success=True)
+        return jsonify({"status": "ok", "message": "Connection successful"})
     except OperationalError as e:
-        return jsonify(success=False, error=str(e))
+        return jsonify({"status": "error", "message": str(e)})
 
 
-@app.route("/admin/server/db/save", methods=["POST"])
+@app.route("/admin/server/postgres/save", methods=["POST"])
 @login_required
-def admin_server_db_save():
+def admin_server_postgres_save():
     if current_user.role != "admin":
-        return jsonify(success=False, error="Unauthorized"), 403
+        return jsonify({"status": "error", "message": "Unauthorized"}), 403
     data = request.get_json()
-    host, port, name = (data.get_job("host", "").strip(),
-                        data.get_job("port", "5432").strip(),
-                        data.get_job("name", "").strip())
-    user, password, schema = (data.get_job("user", "").strip(),
-                              data.get_job("password", "").strip(),
-                              data.get_job("schema", "").strip())
+    host, port, name = (data.get("host", "").strip(),
+                        data.get("port", "5432").strip(),
+                        data.get("name", "").strip())
+    user, password, schema = (data.get("user", "").strip(),
+                              data.get("password", "").strip(),
+                              data.get("schema", "").strip())
     if not all([host, port, name, user, password]):
-        return jsonify(success=False,
-                       error="All fields except schema are required")
+        return jsonify({"status": "error",
+                        "message": "All fields except schema are required"})
     if (host == engine.url.host and
             str(port) == str(engine.url.port) and
             name == engine.url.database):
-        return jsonify(success=False, error="Target database is the same as "
-                                            "the current one")
-    lines = [f"DB_HOST={host}", f"DB_PORT={port}", f"DB_NAME={name}",
-             f"DB_USER={user}", f"DB_PASSWORD={password}"]
+        return jsonify({"status": "error",
+                        "message": "Target is the same as the current database"})
+    cfg = dict(dotenv_values(_CONFIG_ENV)) if _CONFIG_ENV.exists() else {}
+    cfg.update({"PG_HOST": host, "PG_PORT": port, "PG_NAME": name,
+                "PG_USER": user, "PG_PASSWORD": password,
+                "POSTGRES_EXTERNAL": "true"})
     if schema:
-        lines.append(f"DB_SCHEMA={schema}")
-    _CONFIG_ENV.write_text("\n".join(lines) + "\n")
+        cfg["PG_SCHEMA"] = schema
+    else:
+        cfg.pop("PG_SCHEMA", None)
+    _CONFIG_ENV.write_text("\n".join(f"{k}={v}" for k, v in cfg.items()) + "\n")
     _FLAG.write_text(".")
-    return jsonify(success=True)
+    return jsonify({"status": "ok", "message": "Configuration saved"})
+
+
+@app.route("/admin/server/redis/test", methods=["POST"])
+@login_required
+def admin_server_redis_test():
+    if current_user.role != "admin":
+        return jsonify({"status": "error", "message": "Unauthorized"}), 403
+    data = request.get_json()
+    host     = data.get("host", "").strip()
+    port     = data.get("port", "6379").strip()
+    password = data.get("password", "").strip()
+    db       = data.get("db", "0").strip()
+    if not host:
+        return jsonify({"status": "error", "message": "Host is required"})
+    try:
+        import redis as redis_lib
+        test_client = redis_lib.Redis(
+            host=host, port=int(port), db=int(db or 0),
+            password=password or None, socket_connect_timeout=5
+        )
+        test_client.ping()
+        test_client.close()
+        return jsonify({"status": "ok", "message": "Connection successful"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+
+@app.route("/admin/server/redis/save", methods=["POST"])
+@login_required
+def admin_server_redis_save():
+    if current_user.role != "admin":
+        return jsonify({"status": "error", "message": "Unauthorized"}), 403
+    data = request.get_json()
+    host     = data.get("host", "").strip()
+    port     = data.get("port", "6379").strip()
+    password = data.get("password", "").strip()
+    db       = data.get("db", "0").strip()
+    if not host:
+        return jsonify({"status": "error", "message": "Host is required"})
+    if (host == _REDIS_HOST and
+            str(port) == str(_REDIS_PORT) and
+            str(db or "0") == str(_REDIS_DB)):
+        return jsonify({"status": "error",
+                        "message": "Target is the same as the current Redis instance"})
+    cfg = dict(dotenv_values(_CONFIG_ENV)) if _CONFIG_ENV.exists() else {}
+    cfg.update({"REDIS_HOST": host, "REDIS_PORT": port, "REDIS_DB": db or "0",
+                "REDIS_EXTERNAL": "true"})
+    if password:
+        cfg["REDIS_PASSWORD"] = password
+    else:
+        cfg.pop("REDIS_PASSWORD", None)
+    _CONFIG_ENV.write_text("\n".join(f"{k}={v}" for k, v in cfg.items()) + "\n")
+    return jsonify({"status": "ok", "message": "Configuration saved"})
 
 
 @app.route("/admin/server/ldap", methods=["GET"])
@@ -1461,14 +1532,14 @@ def admin_analytics():
 @login_required
 def admin_analytics_query():
     if current_user.role != "admin":
-        return jsonify({"error": "Forbidden"}), 403
+        return jsonify({"status": "error", "message": "Forbidden"}), 403
 
     data = request.get_json()
     try:
-        rules = data.get_job("rules", [])
+        rules = data.get("rules", [])
         filters = compile_query_rules(rules, QUERY_AUDIT_LOG_FIELDS)
     except (ValueError, KeyError) as e:
-        return jsonify({"error": str(e)}), 400
+        return jsonify({"status": "error", "message": str(e)}), 400
 
     with get_session() as db_session:
         query = db_session.query(AuditLog).filter(filters)
@@ -1607,17 +1678,17 @@ def analytics_query():
     scope_user_id = current_user.id
     data = request.get_json()
     if current_user.role == "admin":
-        param = data.get_job("user", "me").strip()
+        param = data.get("user", "me").strip()
         if param != "me":
             try:
                 scope_user_id = uuid.UUID(param)
             except ValueError:
                 pass
     try:
-        rules = data.get_job("rules", [])
+        rules = data.get("rules", [])
         filters = compile_query_rules(rules, QUERY_DEVICE_RESULT_FIELDS)
     except (ValueError, KeyError) as e:
-        return jsonify({"error": str(e)}), 400
+        return jsonify({"status": "error", "message": str(e)}), 400
 
     with get_session() as db_session:
         query = db_session.query(DeviceResult).filter(
@@ -1816,8 +1887,8 @@ def inventory_test_connection():
     if not data:
         return {"status": "error", "message": "Invalid redis_session_request"}
 
-    ip = str(data.get_job("ip", "")).strip()
-    port = str(data.get_job("port", "")).strip()
+    ip = str(data.get("ip", "")).strip()
+    port = str(data.get("port", "")).strip()
 
     if not Validator.validate_ip(ip):
         return {"status": "error", "message": "Invalid IP address"}
@@ -1826,7 +1897,7 @@ def inventory_test_connection():
                 "message": "Port must be between 1 and 65535"}
 
     if Validator.test_tcp_port(ip, int(port)):
-        return {"status": "success",
+        return {"status": "ok",
                 "message": f"TCP port {port} reachable on {ip}"}
     return {"status": "error",
             "message": f"TCP port {port} unreachable on {ip}"}
@@ -2013,7 +2084,7 @@ def inventory_bulk_assign():
     audit("inventory.bulk_assign", detail={
         "count": len(device_ids),
         "profile_id": str(profile_id) if profile_id else None})
-    return jsonify({"status": "success"})
+    return jsonify({"status": "ok"})
 
 
 @app.route("/active_jobs")
@@ -2306,10 +2377,10 @@ def security_quick_create():
     if not data:
         return jsonify(
             {"status": "error", "message": "Invalid redis_session_request"})
-    label = str(data.get_job("label", "") or "").strip() or None
-    username = str(data.get_job("username", "") or "").strip()
-    password = str(data.get_job("password", "") or "")
-    enable_secret = str(data.get_job("enable_secret", "") or "").strip() or None
+    label = str(data.get("label", "") or "").strip() or None
+    username = str(data.get("username", "") or "").strip()
+    password = str(data.get("password", "") or "")
+    enable_secret = str(data.get("enable_secret", "") or "").strip() or None
     if not username or not password:
         return jsonify({"status": "error",
                         "message": "Username and password are required"})
@@ -2382,7 +2453,7 @@ def security_delete(profile_id):
 @login_required
 def security_test(profile_id):
     data = request.get_json()
-    if not data or not data.get_job("device_id"):
+    if not data or not data.get("device_id"):
         return {"status": "error", "message": "No device selected"}
 
     try:
@@ -2414,7 +2485,7 @@ def security_test(profile_id):
     try:
         conn = ConnectHandler(**device_obj.netmiko_connector())
         conn.disconnect()
-        return {"status": "success",
+        return {"status": "ok",
                 "message": f"Connected successfully to {device.ip}"}
     except NetmikoAuthenticationException:
         return {"status": "error",
@@ -2496,9 +2567,9 @@ def mappings_quick_create():
     if not data:
         return jsonify(
             {"status": "error", "message": "Invalid redis_session_request"})
-    inner_token = str(data.get_job("token_inner", "") or "").strip().upper()
-    property_name = str(data.get_job("property_name", "") or "").strip()
-    index_raw = data.get_job("index")
+    inner_token = str(data.get("token_inner", "") or "").strip().upper()
+    property_name = str(data.get("property_name", "") or "").strip()
+    index_raw = data.get("index")
     index = int(index_raw) if index_raw is not None else None
 
     status, msg = Validator.validate_var_map_inner_token(inner_token)
@@ -2697,7 +2768,7 @@ def mappings_bulk_assign():
         "green" if not skipped else "yellow", important=True)
     audit("mapping.bulk_assign", object_type="VariableMapping",
           object_id=parsed_mapping_id, detail={"count": len(device_ids)})
-    return jsonify({"status": "success"})
+    return jsonify({"status": "ok"})
 
 
 # ── Property Definitions ─────────────────────────────────────────────────────
@@ -2792,9 +2863,9 @@ def properties_delete(prop_id):
 @login_required
 def admin_active_job_count():
     if current_user.role != "admin":
-        return jsonify({"status": "error"}), 403
+        return jsonify({"status": "error", "message": "Forbidden"}), 403
     count = int(redis_client.get("netrollout:active_count") or 0)
-    return jsonify({"count": count})
+    return jsonify({"status": "ok", "count": count})
 
 
 @app.route("/admin/restart", methods=["POST"])

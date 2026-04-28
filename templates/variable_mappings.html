@@ -1023,7 +1023,7 @@ async function saveBulkAssign() {
             body:    JSON.stringify({ mapping_id: activeMappingId, device_ids: pendingAssignments })
         });
         const data = await resp.json();
-        if (data.status === 'success') {
+        if (data.status === 'ok') {
             bootstrap.Modal.getInstance(document.getElementById('devicesModal')).hide();
             location.reload();
         } else {
