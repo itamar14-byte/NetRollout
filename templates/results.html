@@ -483,7 +483,7 @@
 {% if is_admin %}
 <div id="split-view" style="display:none;">
 
-    {# Shared filter bar for split view #}
+    {# Shared data_filter bar for split view #}
     <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
         <span style="color:#555; font-size:0.78rem; margin-right:4px;">Filter:</span>
         <button class="filter-btn-split active" data-filter="all">All</button>
@@ -882,10 +882,10 @@ document.getElementById('perPageSelect').addEventListener('change', () => {
 });
 
 // ── Filter buttons (flat view) ────────────────────────────────────────────────
-document.querySelectorAll('.filter-btn').forEach(btn => {
+document.querySelectorAll('.data_filter-btn').forEach(btn => {
     btn.addEventListener('click', function() {
         if (!this.dataset.filter) return;
-        document.querySelectorAll('.filter-btn[data-filter]').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.data_filter-btn[data-data_filter]').forEach(b => b.classList.remove('active'));
         this.classList.add('active');
         _pgFilter  = this.dataset.filter;
         _pgCurrent = 1;
@@ -896,9 +896,9 @@ document.querySelectorAll('.filter-btn').forEach(btn => {
 applyPagination();
 
 // ── Filter buttons (split view) ──────────────────────────────────────────────
-document.querySelectorAll('.filter-btn-split').forEach(btn => {
+document.querySelectorAll('.data_filter-btn-split').forEach(btn => {
     btn.addEventListener('click', function() {
-        document.querySelectorAll('.filter-btn-split').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.data_filter-btn-split').forEach(b => b.classList.remove('active'));
         this.classList.add('active');
         const filter = this.dataset.filter;
         document.querySelectorAll('#my-job-list .job-row, #other-job-list .job-row').forEach(row => {

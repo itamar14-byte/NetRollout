@@ -361,7 +361,7 @@ function injectFieldIcon(rule) {
   const id = rule.filter ? rule.filter.id : null;
   const icon = FIELD_ICONS[id] || 'bi-funnel';
   const color = id ? '#ffe082' : '#444';
-  rule.$el.find('.rule-filter-container').before(
+  rule.$el.find('.rule-data_filter-container').before(
     `<i class="bi ${icon} nr-field-icon" style="color:${color};"></i>`
   );
 }

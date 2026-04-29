@@ -140,7 +140,7 @@ class DeviceResult(Base):
 	user_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id"),
 	                                           nullable=False)
 
-	user: Mapped["User"] = relationship(back_populates="results")
+	user: Mapped["User"] = relationship(back_populates="results_30d")
 
 
 class JobMetadata(Base):
