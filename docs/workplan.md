@@ -414,14 +414,83 @@ _Feature set is complete as of 2026-04-28. Remaining work is cleanup, packaging,
 ### Step 1 — 4.9c Codebase cleanup ← NEXT
 Do this before freezing into a Docker image. Code quality is easier to fix before packaging than after.
 
-**Response shape standardization:**
-- Unify all route responses to `{"status": "ok"/"error", "message": "..."}`. Currently the Postgres server management routes (`/admin/server/postgres/*`) return `{"success": True/False, "error": "..."}` — inconsistent with every other route. Update those routes and their frontend JS consumers.
+**Response shape standardization ✅ COMPLETE (2026-04-28)**
+- All routes unified to `{"status": "ok"/"error", "message": "..."}`. All frontend consumers updated.
 
-**DRY — LDAP route boilerplate:**
-- Every LDAP route opens a DB session, queries `LDAPServer` by id, and 404s if missing. Extract to a small helper so the pattern isn't repeated across 10 routes.
+**Route abstraction — decorators + DB helpers + operation factories:**
+The core insight: nearly every route in `webapp.py` is one of 5 archetypes — **list**, **create**, **edit**, **delete**, **action**. Each archetype has the same skeleton. The fix is a 3-layer mini-framework that absorbs all cross-cutting concerns so routes become pure declarative wiring.
 
-**`webapp.py` size:**
-- At ~2850 lines it's readable but long. Blueprint split (step 2) is the real fix, but a quick pass to remove any dead code, leftover comments, or stale imports before the split reduces noise.
+*Layer 1 — Decorators (cross-cutting concerns):*
+- `@require_admin` — role check, returns 403 automatically
+- `@with_json(*required_fields)` — extracts + validates JSON body, injects as `data=` kwarg
+- `@with_form(*required_fields)` — same for form-encoded routes
+
+*Layer 2 — DB dispatcher:*
+- `act_on_db_object(model, id, callback, user_id=None)` — owns the session lifecycle, does the ownership-guarded lookup, returns 404 if missing, calls `callback(obj, db_session)` if found. Replaces the open-session / query / 404-check / expunge pattern repeated across ~30 routes.
+- `ok(message=None, **extra)` → `jsonify({"status": "ok", "message": ..., **extra})`
+- `err(message, code=200)` → `jsonify({"status": "error", "message": ...}, code)`
+
+*Layer 3 — Operation factories (build callbacks for `act_on_db_object`):*
+- `delete_op(audit_action, guard=None)` — returns a callback that checks the optional guard (e.g. "has assigned devices"), calls `db.delete(obj)`, calls `audit()`, returns `ok()`. Guard is a callable `(obj) -> err(...)` or `None`.
+- `edit_op(fields, audit_action)` — returns a callback that applies field updates from a dict, audits, returns `ok()`.
+- Custom lambda or named function for "action" routes (test, assign, rollback) where the logic is genuinely unique.
+
+*The full call chain:*
+```
+route
+  → act_on_db_object(Model, id, callback, user_id)
+      → finds object, checks ownership, 404 if missing
+      → calls callback(obj, db_session)
+          ← callback built by delete_op() / edit_op() / or custom lambda
+              → does the work, audits, returns ok() / err()
+```
+
+*Result:* a CRUD route collapses to a declaration — which model, which operation, which audit action:
+```python
+@app.route("/security/<uuid:profile_id>/delete", methods=["POST"])
+@login_required
+def security_delete(profile_id):
+    return act_on_db_object(
+        SecurityProfile, profile_id,
+        delete_op("security_profile.delete",
+                  guard=lambda p: err(f"Cannot delete — {len(p.inventory)} device(s) assigned", 400)
+                                  if p.inventory else None),
+        user_id=current_user.id
+    )
+```
+Routes with real business logic (rollback, bulk assign, test connection) get a custom callback. Everything else is configuration of a pattern.
+
+**Audit complete (2026-04-28):** full read of all 2885 lines done. 22 concrete problems catalogued across 7 categories. The three highest-leverage moves: `@require_admin` + `@with_json` (kills 40+ boilerplate blocks), `act_on_db_object` + operation factories (kills ~20 ownership-lookup patterns), `ok()`/`err()` (enforces response shape everywhere).
+
+**Full audit table (2026-04-29):**
+
+| # | Problem | Impact | Fix | Status |
+|---|---------|--------|-----|--------|
+| 1 | Admin guard inline in 30+ routes | High | `@require_admin` decorator | ✅ implemented |
+| 2 | JSON validation repeated ~15× | High | `@with_json(*fields)` decorator | ✅ implemented |
+| 3 | Form extraction duplicated in create/edit pairs | Medium | `@with_form(*fields)` or shared helper | ✅ implemented |
+| 4 | Ownership-guarded lookup copy-pasted ~12× | High | `act_on_db_object()` | ✅ implemented |
+| 5 | Mapping validator cascade duplicated 100% | Medium | `_validate_mapping_fields()` helper | ✅ complete (2026-04-29) |
+| 6 | LDAP server lookup repeated in 7+ routes | High | `act_on_db_object()` | ✅ implemented |
+| 7 | `security_create` / `security_quick_create` ~70% dupe | Medium | `_build_security_profile()` helper | ⬜ pending |
+| 8 | KPI calculation duplicated in dashboard + analytics | Low | KPI helper function | ⬜ pending |
+| 9 | Redis session write in 3 auth routes | Low | `_record_session()` helper | ⬜ pending |
+| 10 | `properties_quick_create` is a pass-through stub | Low | merge URLs onto `properties_create` | ✅ complete (2026-04-29) |
+| 11 | Login route has 5 levels of nesting | Medium | decompose to named functions | ⬜ pending |
+| 12 | `rollback` does DB query before validating JSON body | Low | reorder guard before query | ✅ complete (2026-04-29) |
+| 13 | `download_log` bespoke ownership check | Low | `_user_owns_job()` helper | ⬜ pending |
+| 14 | `security_test` returns raw dicts | Medium | `ok()`/`err()` on all returns | ✅ complete (2026-04-29) |
+| 15 | `security_test` error paths return 200 OK | Medium | correct HTTP codes (401/404/503/504) | ✅ complete (2026-04-29) |
+| 16 | `"Invalid redis_session_request"` in unrelated routes | Low | replace with `"Invalid request"` | ✅ complete (2026-04-29) |
+| 17 | `cancel_rollout` returns raw dicts | Medium | `ok()`/`err()` + HTTP codes | ✅ complete (2026-04-29) |
+| 18 | LDAP group routes use 2-space indentation | Low | reformat to 4-space | ✅ already correct |
+| 19 | `import subprocess` inside function body | Low | move to top-level imports | ✅ complete (2026-04-29) |
+| 20 | `import redis` inside function body | Low | move to top-level imports | ✅ complete (2026-04-29) |
+| 21 | ~80 routes in one 2885-line file | High | Blueprint split (Step 2) | ⬜ Step 2 |
+| 22 | No centralized response envelope | Medium | `ok()` / `err()` helpers | ✅ implemented |
+
+**Dead code sweep:**
+- Remove stale imports, leftover comments, and any dead routes before the Blueprint split.
 
 ---
 

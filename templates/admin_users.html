@@ -142,7 +142,7 @@
   </table>
 </div>
 
-<!-- Status filter buttons -->
+<!-- Status data_filter buttons -->
 <div class="d-flex gap-2 mt-3 align-items-center">
   <span style="font-family:'Inter',sans-serif; font-size:0.68rem; color:#444; letter-spacing:1px; text-transform:uppercase; font-weight:600;">Filter</span>
   <button class="filter-btn active-filter" data-filter="all">All</button>
@@ -432,11 +432,11 @@
     updateToolbar();
   });
 
-  // ── Status filter ──
-  document.querySelectorAll(".filter-btn").forEach(btn => {
+  // ── Status data_filter ──
+  document.querySelectorAll(".data_filter-btn").forEach(btn => {
     btn.addEventListener("click", function() {
-      document.querySelectorAll(".filter-btn").forEach(b => b.classList.remove("active-filter"));
-      this.classList.add("active-filter");
+      document.querySelectorAll(".data_filter-btn").forEach(b => b.classList.remove("active-data_filter"));
+      this.classList.add("active-data_filter");
       const filter = this.dataset.filter;
       document.querySelectorAll("#userTable tbody tr").forEach(row => {
         row.style.display = (filter === "all" || row.dataset.status === filter) ? "" : "none";
