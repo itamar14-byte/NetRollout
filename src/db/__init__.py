@@ -1,5 +1,5 @@
-from .postgres_db import Base, engine, get_session
-from .redis_db import redis_client
+from .postgres_db import PostgresConnection
+from .redis_db import RedisConnection
 from .tables import (User,Inventory,SecurityProfile,VariableMapping,
                      DeviceResult,JobMetadata,AuditLog,
                      PropertyDefinition,var_mapping_to_devices, LDAPServer,LDAPGroup)

@@ -30,7 +30,7 @@
   <div class="login-card-accent"></div>
   <div class="login-card-body">
     <h5 class="login-card-title">Sign In</h5>
-    <form method="POST" action="{{ url_for('login') }}" novalidate>
+    <form method="POST" action="{{ url_for('auth.login') }}" novalidate>
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <div class="mb-3 text-start">
         <label for="username" class="login-label">Username</label>
@@ -54,7 +54,7 @@
 </div>
 
 <p class="login-register-text mb-5">
-  Don't have an account? <a href="{{ url_for('register') }}" class="login-link">Request access</a>
+  Don't have an account? <a href="{{ url_for('auth.register_form') }}" class="login-link">Request access</a>
 </p>
 
 <!-- Feature pills -->

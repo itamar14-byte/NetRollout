@@ -495,7 +495,7 @@
     btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Testing…';
     res.style.display = 'none';
 
-    fetch('{{ url_for("admin_server_postgres_test") }}', {
+    fetch('{{ url_for("admin.admin_server_postgres_test") }}', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
       body: JSON.stringify({
@@ -535,7 +535,7 @@
     btn.disabled = true;
     spinner.style.display = 'inline-block';
 
-    fetch('{{ url_for("admin_server_postgres_save") }}', {
+    fetch('{{ url_for("admin.admin_server_postgres_save") }}', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
       body: JSON.stringify({
@@ -573,7 +573,7 @@
     btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Testing…';
     res.style.display = 'none';
 
-    fetch('{{ url_for("admin_server_redis_test") }}', {
+    fetch('{{ url_for("admin.admin_server_redis_test") }}', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
       body: JSON.stringify({
@@ -611,7 +611,7 @@
     btn.disabled = true;
     spinner.style.display = 'inline-block';
 
-    fetch('{{ url_for("admin_server_redis_save") }}', {
+    fetch('{{ url_for("admin.admin_server_redis_save") }}', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
       body: JSON.stringify({

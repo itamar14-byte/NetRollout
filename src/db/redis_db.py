@@ -1,15 +1,65 @@
 import os
+from dataclasses import dataclass
+
 import redis
 
-def _build_url() -> str:
-    if os.environ.get("REDIS_URL"):
-        return os.environ["REDIS_URL"]
-    host     = os.environ.get("REDIS_HOST", "localhost")
-    port     = os.environ.get("REDIS_PORT", "6379")
-    db       = os.environ.get("REDIS_DB", "0")
-    password = os.environ.get("REDIS_PASSWORD", "")
-    if password:
-        return f"redis://:{password}@{host}:{port}/{db}"
-    return f"redis://{host}:{port}/{db}"
+@dataclass(frozen=True)
+class RedisConfig:
+    host: str = "localhost"
+    port: str = "6379"
+    db: str = "0"
+    password: str | None = None
+    url: str | None = None
 
-redis_client = redis.from_url(_build_url())
+    @classmethod
+    def unload_env(cls):
+        return cls(
+            os.getenv("REDIS_HOST", "localhost"),
+            os.getenv("REDIS_PORT", "6379"),
+            os.getenv("REDIS_DB", "0"),
+            os.getenv("REDIS_PASSWORD", ""),
+            os.getenv("REDIS_URL")
+        )
+
+    def get_url(self):
+        if self.url:
+            return self.url
+        if self.password:
+            return f"redis://:{self.password}@{self.host}:{self.port}/{self.db}"
+        return f"redis://{self.host}:{self.port}/{self.db}"
+
+
+    
+class RedisConnection:
+    def __init__(self, config: RedisConfig | None = None):
+        self.config = config or RedisConfig.unload_env()
+        self.client = self._build_client(self.config)
+        
+    @staticmethod
+    def _build_client(config: RedisConfig) -> redis.Redis:
+        return redis.from_url(config.get_url())
+
+    def test_connection(self):
+        self.client.ping()
+        return True
+
+    
+    def reload_db(self, config: RedisConfig | None = None):
+        new_config = config or RedisConfig.unload_env()
+        new_client = self._build_client(new_config)
+
+        # validate connection before swapping
+        try:
+            new_client.ping()
+        except redis.exceptions.ConnectionError:
+            raise RuntimeError("New server unavailable")
+
+        old_client = self.client
+        self.config = new_config
+        self.client = new_client
+
+        old_client.close()
+
+    def disconnect(self):
+        self.client.close()
+

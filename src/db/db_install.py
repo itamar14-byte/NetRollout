@@ -1,65 +1,68 @@
 import os
+from typing import TYPE_CHECKING
 
-from alembic.config import Config as AlembicConfig
 from alembic import command as alembic_command
+from alembic.config import Config as AlembicConfig
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
-from db.postgres_db import engine, get_session
+if TYPE_CHECKING:
+	from src.db.postgres_db import PostgresConnection
 from werkzeug.security import generate_password_hash
-from db.tables import User
+from src.db.tables import User
 
-def install():
+
+def install(postgres: "PostgresConnection"):
 	try:
-		with engine.connect() as conn:
+		with postgres.engine.connect() as conn:
 			conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_cron;"))
 			conn.execute(text("""
-			    DO $$
-			    BEGIN
-			        PERFORM cron.unschedule('job_metadata_retention');
-			    EXCEPTION WHEN OTHERS THEN NULL;
-			    END;
-			    $$;
-			    SELECT cron.schedule(
-			        'job_metadata_retention',
-			        '0 3 * * *',
-			        $q$DELETE FROM job_metadata WHERE created_at < NOW() - INTERVAL '7 days'$q$
-			    );
-			"""))
+                DO $$
+                BEGIN
+                    PERFORM cron.unschedule('job_metadata_retention');
+                EXCEPTION WHEN OTHERS THEN NULL;
+                END;
+                $$;
+                SELECT cron.schedule(
+                    'job_metadata_retention',
+                    '0 3 * * *',
+                    $q$DELETE FROM job_metadata WHERE created_at < NOW() - INTERVAL '7 days'$q$
+                );
+            """))
 			conn.execute(text("""
-			    DO $$
-			    BEGIN
-			        PERFORM cron.unschedule('device_result_retention');
-			    EXCEPTION WHEN OTHERS THEN NULL;
-			    END;
-			    $$;
-			    SELECT cron.schedule(
-			        'device_result_retention',
-			        '0 3 * * *',
-			        $q$DELETE FROM device_results WHERE created_at < NOW() - INTERVAL '30 days'$q$
-			    );
-			"""))
+                DO $$
+                BEGIN
+                    PERFORM cron.unschedule('device_result_retention');
+                EXCEPTION WHEN OTHERS THEN NULL;
+                END;
+                $$;
+                SELECT cron.schedule(
+                    'device_result_retention',
+                    '0 3 * * *',
+                    $q$DELETE FROM device_results WHERE created_at < NOW() - INTERVAL '30 days'$q$
+                );
+            """))
 			conn.execute(text("""
-			    DO $$
-			    BEGIN
-			        PERFORM cron.unschedule('audit_log_retention');
-			    EXCEPTION WHEN OTHERS THEN NULL;
-			    END;
-			    $$;
-			    SELECT cron.schedule(
-			        'audit_log_retention',
-			        '0 3 * * *',
-			        $q$DELETE FROM audit_log WHERE timestamp < NOW() - INTERVAL '90 days'$q$
-			    );
-			"""))
+                DO $$
+                BEGIN
+                    PERFORM cron.unschedule('audit_log_retention');
+                EXCEPTION WHEN OTHERS THEN NULL;
+                END;
+                $$;
+                SELECT cron.schedule(
+                    'audit_log_retention',
+                    '0 3 * * *',
+                    $q$DELETE FROM audit_log WHERE timestamp < NOW() - INTERVAL '90 days'$q$
+                );
+            """))
 			conn.commit()
 
-		#Update DB Schema to last Alembic revision
+		# Update DB Schema to last Alembic revision
 		alembic_cfg = AlembicConfig(os.path.join(os.path.dirname(__file__),
 		                                         'alembic.ini'))
 		alembic_command.upgrade(alembic_cfg, "head")
 
-		with get_session() as session:
+		with postgres.get_session() as session:
 			if not session.query(User).filter_by(username="admin").first():
 				user = User(username="admin",
 				            password_hash=generate_password_hash("admin"),
@@ -73,5 +76,3 @@ def install():
 		print("DB Initialized")
 	except SQLAlchemyError as e:
 		print(f"Initialization Error: {e}")
-if __name__ == "__main__":
-	install()

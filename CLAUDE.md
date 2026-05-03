@@ -39,7 +39,7 @@ python -m pytest tests/
 
 ### Install dependencies
 ```bash
-pip install -r requirements.txt
+pip install_flag -r requirements.txt
 ```
 
 ## Architecture

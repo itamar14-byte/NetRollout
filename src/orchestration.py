@@ -6,10 +6,9 @@ from typing import Callable
 from redis.client import PubSub
 
 from core import RolloutEngine, RolloutOptions, Device, DeviceResultDict
-from db import get_session
-from db.redis_db import redis_client
 from db.tables import DeviceResult, JobMetadata
 from logging_utils import RolloutLogger
+from src.db.backend import BackendServices
 
 
 class RolloutJob:
@@ -55,8 +54,10 @@ class RolloutJob:
 
 
 class RolloutOrchestrator:
-	def __init__(self, max_concurrent: int = 4) -> None:
+	def __init__(self, backend_obj: BackendServices, max_concurrent: int = 4)\
+			->	None:
 		self.max_concurrent = max_concurrent
+		self._backend = backend_obj
 		self._slots = threading.Semaphore(max_concurrent)
 		self._jobs: dict[uuid.UUID, RolloutJob] = {}
 		self._lock = threading.Lock()
@@ -71,22 +72,22 @@ class RolloutOrchestrator:
 		with self._lock:
 			self._jobs[job.job_id] = job
 
-		redis_client.hset(f"job:{job.job_id}:meta", mapping={
+		self._backend.redis.client.hset(f"job:{job.job_id}:meta", mapping={
 			"user_id": str(user_id),
 			"status": "pending",
 			"device_count": job.get_device_count(),
 			"created_at": datetime.datetime.now().isoformat(),
 		})
-		redis_client.sadd(f"user_jobs:{user_id}", str(job.job_id))
-		redis_client.incr("netrollout:pending_count")
+		self._backend.redis.client.sadd(f"user_jobs:{user_id}", str(job.job_id))
+		self._backend.redis.client.incr("netrollout:pending_count")
 
-		with get_session() as db_session:
+		with self._backend.postgres.get_session() as db_session:
 			db_session.add(JobMetadata(job_id=job.job_id,
 			                           user_id=user_id,
 			                           commands=commands,
 			                           comment=comment))
 
-		redis_client.rpush("netrollout:job_queue", str(job.job_id))
+		self._backend.redis.client.rpush("netrollout:job_queue", str(job.job_id))
 		return job.job_id
 
 	def cancel(self, job_id: uuid.UUID) -> None:
@@ -94,7 +95,7 @@ class RolloutOrchestrator:
 			job = self._jobs.get(job_id, None)
 		if job:
 			job.cancel()
-			redis_client.hset(f"job:{job.job_id}:meta", field="status",
+			self._backend.redis.client.hset(f"job:{job.job_id}:meta", field="status",
 			                  value="cancelling")
 
 	def get_job(self, job_id: uuid.UUID) -> RolloutJob | None:
@@ -104,7 +105,7 @@ class RolloutOrchestrator:
 
 	def _dispatcher(self) -> None:
 		while True:
-			result = redis_client.blpop("netrollout:job_queue", timeout=0)
+			result = self._backend.redis.client.blpop("netrollout:job_queue", timeout=0)
 			if result is None:
 				continue
 			_, job_id_bytes = result
@@ -119,17 +120,17 @@ class RolloutOrchestrator:
 					continue
 
 			job.start(self._cleanup)
-			redis_client.hset(f"job:{job.job_id}:meta", "status", "active")
-			redis_client.hset(f"job:{job.job_id}:meta", "started_at",
+			self._backend.redis.client.hset(f"job:{job.job_id}:meta", "status", "active")
+			self._backend.redis.client.hset(f"job:{job.job_id}:meta", "started_at",
 			                  datetime.datetime.now().isoformat())
-			redis_client.decr("netrollout:pending_count")
-			redis_client.incr("netrollout:active_count")
+			self._backend.redis.client.decr("netrollout:pending_count")
+			self._backend.redis.client.incr("netrollout:active_count")
 
 	def _cleanup(self, job_id: uuid.UUID) -> None:
 		with self._lock:
 			job = self._jobs.pop(job_id, None)
 		if job:
-			with get_session() as db_session:
+			with self._backend.postgres.get_session() as db_session:
 				for result in job.results:
 					db_session.add(DeviceResult(user_id=job.user_id,
 					                            job_id=job.job_id,
@@ -146,8 +147,8 @@ class RolloutOrchestrator:
 						                            "fetched_config"],
 					                            status=result["status"]
 					                            ))
-				redis_client.delete(f"job:{job.job_id}:meta")
-				redis_client.srem(f"user_jobs:{job.user_id}", str(job_id))
-				redis_client.decr("netrollout:active_count")
+				self._backend.redis.client.delete(f"job:{job.job_id}:meta")
+				self._backend.redis.client.srem(f"user_jobs:{job.user_id}", str(job_id))
+				self._backend.redis.client.decr("netrollout:active_count")
 			job.log_cleanup()
 		self._slots.release()

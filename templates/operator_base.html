@@ -726,14 +726,14 @@
         {# ── Operation ── #}
         <div class="sb-section">Operation</div>
 
-        <a href="{{ url_for('new_rollout') }}"
+        <a href="{{ url_for('rollout.new_rollout') }}"
            class="sb-link {% if active_section == 'rollout' %}active{% endif %}"
            title="Launch Rollout">
             <i class="bi bi-send sb-icon"></i>
             <span class="sb-label">Launch Rollout</span>
         </a>
 
-        <a href="{{ url_for('active_jobs') }}"
+        <a href="{{ url_for('rollout.active_jobs') }}"
            class="sb-link {% if active_section == 'active_jobs' %}active{% endif %}"
            title="Active Jobs">
             <i class="bi bi-activity sb-icon"></i>
@@ -744,28 +744,28 @@
         <hr class="sb-divider">
         <div class="sb-section">Management</div>
 
-        <a href="{{ url_for('inventory') }}"
+        <a href="{{ url_for('inventory.inventory') }}"
            class="sb-link {% if active_section == 'inventory' %}active{% endif %}"
            title="Inventory">
             <i class="bi bi-server sb-icon"></i>
             <span class="sb-label">Inventory</span>
         </a>
 
-        <a href="{{ url_for('security') }}"
+        <a href="{{ url_for('security.security') }}"
            class="sb-link {% if active_section == 'security' %}active{% endif %}"
            title="Security Profiles">
             <i class="bi bi-shield-lock sb-icon"></i>
             <span class="sb-label">Security Profiles</span>
         </a>
 
-        <a href="{{ url_for('mappings') }}"
+        <a href="{{ url_for('mappings.mappings') }}"
            class="sb-link {% if active_section == 'mappings' %}active{% endif %}"
            title="Variable Mappings">
             <i class="bi bi-braces sb-icon"></i>
             <span class="sb-label">Variable Mappings</span>
         </a>
 
-        <a href="{{ url_for('properties') }}"
+        <a href="{{ url_for('properties.properties') }}"
            class="sb-link {% if active_section == 'properties' %}active{% endif %}"
            title="Property Definitions">
             <i class="bi bi-sliders sb-icon"></i>
@@ -776,21 +776,21 @@
         <hr class="sb-divider">
         <div class="sb-section">Observability</div>
 
-        <a href="{{ url_for('dashboard') }}"
+        <a href="{{ url_for('rollout.dashboard') }}"
            class="sb-link {% if active_section == 'dashboard' %}active{% endif %}"
            title="Dashboard">
             <i class="bi bi-speedometer2 sb-icon"></i>
             <span class="sb-label">Dashboard</span>
         </a>
 
-        <a href="{{ url_for('results_30d') }}"
+        <a href="{{ url_for('rollout.results') }}"
            class="sb-link {% if active_section == 'results_30d' %}active{% endif %}"
            title="Results">
             <i class="bi bi-clock-history sb-icon"></i>
             <span class="sb-label">Results</span>
         </a>
 
-        <a href="{{ url_for('analytics') }}"
+        <a href="{{ url_for('analytics.analytics') }}"
            class="sb-link {% if active_section == 'analytics' %}active{% endif %}"
            title="Analytics">
             <i class="bi bi-bar-chart-line sb-icon"></i>
@@ -798,7 +798,7 @@
         </a>
 
         {% if current_user.role == "admin" %}
-        <a href="{{ url_for('admin_panel') }}"
+        <a href="{{ url_for('admin.admin_panel') }}"
            class="sb-link {% if active_section == 'admin' %}active{% endif %}"
            title="Admin Panel">
             <i class="bi bi-gear sb-icon"></i>
@@ -850,16 +850,16 @@
                 {{ current_user.username }}
             </button>
             <ul class="dropdown-menu dropdown-menu-end">
-                <li><a class="dropdown-item" href="{{ url_for('account') }}">
+                <li><a class="dropdown-item" href="{{ url_for('auth.account') }}">
                     <i class="bi bi-person me-2" style="color:#555;"></i>My Account
                 </a></li>
                 {% if current_user.role == "admin" %}
-                <li><a class="dropdown-item" href="{{ url_for('admin_panel') }}">
+                <li><a class="dropdown-item" href="{{ url_for('admin.admin_panel') }}">
                     <i class="bi bi-gear me-2" style="color:#555;"></i>Admin Panel
                 </a></li>
                 {% endif %}
                 <li><hr class="dropdown-divider"></li>
-                <li><a class="dropdown-item" href="{{ url_for('logout') }}">
+                <li><a class="dropdown-item" href="{{ url_for('auth.logout') }}">
                     <i class="bi bi-box-arrow-right me-2" style="color:#555;"></i>Logout
                 </a></li>
             </ul>
