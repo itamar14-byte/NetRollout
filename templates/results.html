@@ -345,7 +345,7 @@
             {% endif %}
             {% if job.has_log %}
             <a class="job-action-btn"
-               href="{{ url_for('download_log', job_id=job.job_id) }}">
+               href="{{ url_for('rollout.download_log', job_id=job.job_id) }}">
                 <i class="bi bi-download"></i> Download Log
             </a>
             {% endif %}

@@ -4,9 +4,11 @@ from datetime import datetime
 from flask_login import UserMixin
 from sqlalchemy import (DateTime, String, Boolean, Integer, Uuid, Text,
                         ForeignKey, JSON, Table, Column, UniqueConstraint)
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship, DeclarativeBase
 
-from .postgres_db import Base
+
+class Base(DeclarativeBase):
+	pass
 
 var_mapping_to_devices = Table("var_mapping_to_devices",
                                Base.metadata,

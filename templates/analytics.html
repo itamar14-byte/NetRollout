@@ -45,7 +45,7 @@
     <div style="font-family:'JetBrains Mono',monospace; font-size:0.7rem; color:#555;">
       {% if current_user.role == 'admin' and selected_user != 'me' %}
         Viewing: <span style="color:#00bcd4;">{{ selected_username }}</span>
-        &nbsp;·&nbsp;<a href="{{ url_for('analytics') }}" style="color:#444; text-decoration:none;"
+        &nbsp;·&nbsp;<a href="{{ url_for('analytics.analytics') }}" style="color:#444; text-decoration:none;"
                          onmouseenter="this.style.color='#00bcd4'" onmouseleave="this.style.color='#444'">back to my data</a>
       {% else %}
         {{ current_user.username }} · 30-day window · live data

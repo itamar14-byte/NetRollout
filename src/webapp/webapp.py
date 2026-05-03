@@ -29,7 +29,7 @@ from flask_login import (LoginManager, login_required,
 from flask_session import Session
 from flask_session.base import ServerSideSession
 from flask_wtf import CSRFProtect
-from flask_wtf.csrf import CSRFError
+import flask_wtf.csrf as csrf_err
 from netmiko import ConnectHandler
 from netmiko.exceptions import NetmikoTimeoutException, \
 	NetmikoAuthenticationException
@@ -42,26 +42,31 @@ from waitress import serve
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import generate_password_hash, check_password_hash
 
+'''moved to src.webapp.setup'''
 _CONFIG_ENV = Path(__file__).parent.parent / "config.env"
 load_dotenv(_CONFIG_ENV, override=True)
 
-from db.redis_db import redis_client
-from db.postgres_db import get_session, engine
-from db.tables import User, DeviceResult, SecurityProfile, Inventory, \
+from src.db.redis_db import redis_client
+from src.db.postgres_db import get_session, engine
+from src.db.tables import User, DeviceResult, SecurityProfile, Inventory, \
 	VariableMapping, AuditLog, JobMetadata, PropertyDefinition, LDAPServer, \
 	LDAPGroup
-from db.db_install import install
-from ldap_auth import user_bind, check_group_membership, fetch_user_details, \
-	test_connection, test_user, fetch_base_dn, walk_tree
-import encryption
-import input_parser
-from core import RolloutOptions, Device
+from src.db.db_install import install
+from src.ldap_auth import (user_bind, check_group_membership,
+                          fetch_user_details, \
+	test_connection, test_user, fetch_base_dn, walk_tree)
 
-from input_parser import InputParser
-from logging_utils import RolloutLogger, LOGS_DIR
-from orchestration import RolloutOrchestrator
-from validation import Validator
+from src.core import RolloutOptions, Device
+from src.input_parser import InputParser
+from src.logging_utils import RolloutLogger, LOGS_DIR
+from src.orchestration import RolloutOrchestrator
+from src.validation import Validator
+from src.encryption import encrypt,decrypt
 
+
+
+
+'''moved to src.webapp.setup'''
 app = Flask(__name__, template_folder='../templates')
 
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev")
@@ -79,6 +84,7 @@ from flask_session.redis import RedisSessionInterface
 import redis as redis_lib
 
 
+'''moved to src.webapp.setup'''
 class _SafeRedisSessionInterface(RedisSessionInterface):
 	def open_session(self, redis_session_app, redis_session_request):
 		try:
@@ -94,6 +100,7 @@ class _SafeRedisSessionInterface(RedisSessionInterface):
 			pass
 
 
+'''moved to src.webapp.setup'''
 Session(app)
 app.session_interface = _SafeRedisSessionInterface(
 	app,
@@ -108,11 +115,13 @@ except RedisConnectionError:
 	pass
 
 
+'''moved to src.webapp.setup'''
 def redis_sid():
 	return cast(ServerSideSession, session).sid
 
 
 # Extract live connection values for use in templates and error pages
+'''moved to src.webapp.setup'''
 _DB_HOST = engine.url.host
 _DB_PORT = engine.url.port
 _DB_NAME = engine.url.database
@@ -124,9 +133,11 @@ _REDIS_DB = redis_client.connection_pool.connection_kwargs.get("db", 0)
 _REDIS_PASSWORD = redis_client.connection_pool.connection_kwargs.get("password",
                                                                      "")
 
+'''moved to src.webapp.setup'''
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
 # Vendor logo URLs from Simple Icons CDN — keyed by Netmiko device_type
+'''moved to src.webapp.setup'''
 _CDN = "https://cdn.simpleicons.org"
 VENDOR_LOGOS = {
 	'cisco_ios': f'{_CDN}/cisco',
@@ -142,8 +153,10 @@ VENDOR_LOGOS = {
 	'hp_procurve': f'{_CDN}/hp',
 	'hp_comware': f'{_CDN}/hp',
 }
+'''moved to src.webapp.setup'''
 app.jinja_env.globals['VENDOR_LOGOS'] = VENDOR_LOGOS
 
+'''moved to src.webapp.utils'''
 SYSTEM_PROPERTIES = [
 	{"name": "hostname", "label": "Hostname", "icon": "bi-type-h1",
 	 "is_list": False},
@@ -162,6 +175,8 @@ SYSTEM_PROPERTIES = [
 	{"name": "vrfs", "label": "VRFs", "icon": "bi-layers", "is_list": True},
 ]
 
+
+'''moved to src.webapp.utils'''
 QUERY_DEVICE_RESULT_FIELDS = {
 	"started_at": (
 		DeviceResult.started_at,
@@ -177,11 +192,14 @@ QUERY_DEVICE_RESULT_FIELDS = {
 	"device_ip": (
 		DeviceResult.device_ip, {"equal", "contains", "begins_with"}),
 }
+
+'''moved to src.webapp.utils'''
 DEVICE_RESULT_COLUMNS = ["job_id", "device_ip", "device_type",
                          "status",
                          "commands_sent", "commands_verified",
                          "started_at", "completed_at"]
 
+'''moved to src.webapp.utils'''
 QUERY_AUDIT_LOG_FIELDS = {
 	"timestamp": (
 		AuditLog.timestamp, {"equal", "less_or_equal", "greater_or_equal"}),
@@ -198,10 +216,12 @@ QUERY_AUDIT_LOG_FIELDS = {
 		AuditLog.ip_address, {"equal", "contains", "begins_with"}),
 }
 
+'''moved to src.webapp.utils'''
 AUDIT_LOG_COLUMNS = ["timestamp", "actor_username", "action",
                      "object_type",
                      "object_label", "success", "ip_address"]
 
+'''moved to src.webapp.utils'''
 QUERY_OPS = {
 	"equal": lambda x, y: x == y,
 	"not_equal": lambda x, y: x != y,
@@ -211,7 +231,7 @@ QUERY_OPS = {
 	"begins_with": lambda x, y: x.ilike(f"{y}%"),
 	"ends_with": lambda x, y: x.ilike(f"%{y}")
 }
-
+'''moved to src.webapp.utils'''
 _LOGIN_FAIL_MESSAGES = {
 	"invalid_credentials": "Invalid credentials",
 	"account_disabled": "User disabled, please check with administrator",
@@ -219,7 +239,7 @@ _LOGIN_FAIL_MESSAGES = {
 	"ldap_bind_failed": "Invalid credentials",
 }
 
-
+'''moved to src.webapp.utils'''
 def get_property_defs(user_id):
 	with get_session() as db_session:
 		user_props = db_session.query(PropertyDefinition).filter_by(
@@ -230,44 +250,66 @@ def get_property_defs(user_id):
 	return SYSTEM_PROPERTIES, user_defs
 
 
+'''moved to src.webapp.setup'''
 orchestrator = RolloutOrchestrator()
 
+'''moved to src.webapp.setup'''
 login_mng = LoginManager()
 login_mng.init_app(app)
 login_mng.login_view = "home"
 
+'''moved to src.webapp.setup'''
 conn_limit = Limiter(get_remote_address, app=app, default_limits=[],
                      storage_uri="memory://")
 
+'''moved to src.webapp.setup'''
 csrf = CSRFProtect(app)
 _FLAG = Path(__file__).parent.parent / "pending_db_init.flag"
 if _FLAG.exists():
 	install()
 	_FLAG.unlink()
 
+'''moved to src.webapp.setup'''
 metrics = PrometheusMetrics(app, group_by='url_rule')
 
 
+'''moved to src.webapp.setup'''
 class RolloutSessionCollector:
+	def __init__(self):
+		self.redis = redis_client
+		self.metrics = [GaugeMetricFamily('netrollout_active_jobs',
+		                      'Jobs currently executing') ,
+		                GaugeMetricFamily('netrollout_pending_jobs',
+		                      'Jobs waiting in queue')]
+
+
+
 	def collect(self):
 		try:
-			active = int(redis_client.get("netrollout:active_count") or 0)
-			pending = int(redis_client.get("netrollout:pending_count") or 0)
+			active = int(self.redis.get("netrollout:active_count") or 0)
+			pending = int(
+				self.redis.get("netrollout:pending_count") or 0)
 		except RedisConnectionError:
 			active, pending = 0, 0
-		m = GaugeMetricFamily('netrollout_active_jobs',
-		                      'Jobs currently executing')
-		m.add_metric([], active)
-		yield m
-		m = GaugeMetricFamily('netrollout_pending_jobs',
-		                      'Jobs waiting in queue')
-		m.add_metric([], pending)
-		yield m
 
+		active_metric = GaugeMetricFamily(
+			"netrollout_active_jobs",
+			"Jobs currently executing"
+		)
+		active_metric.add_metric([], active)
+		yield active_metric
+
+		pending_metric = GaugeMetricFamily(
+			"netrollout_pending_jobs",
+			"Jobs waiting in queue"
+		)
+		pending_metric.add_metric([], pending)
+		yield pending_metric
 
 REGISTRY.register(RolloutSessionCollector())
 
 
+'''moved to src.webapp.setup'''
 @login_mng.user_loader
 def load_user(user_id):
 	with get_session() as db_session:
@@ -280,6 +322,7 @@ def load_user(user_id):
 		return user
 
 
+'''moved to src.webapp.utils'''
 def audit(action, *, object_type=None, object_id=None, object_label=None,
           detail=None, success=True, username=None, actor_id=None):
 	"""Write one append-only audit row.
@@ -303,52 +346,8 @@ def audit(action, *, object_type=None, object_id=None, object_label=None,
 		))
 
 
-# Decorators
-def require_admin(f):
-	@functools.wraps(f)
-	def decorated(*args, **kwargs):
-		if current_user.role != "admin":
-			return jsonify({"status": "error", "message": "Forbidden"}), 403
-		return f(*args, **kwargs)
-
-	return decorated
-
-
-def with_json(*required_fields):
-	def decorator(f):
-		@functools.wraps(f)
-		def decorated(*args, **kwargs):
-			data = request.get_json(silent=True)
-			if not data:
-				return jsonify(
-					{"status": "error", "message": "Invalid request"}), 400
-			for field in required_fields:
-				if field not in data or data[field] in (None, ""):
-					return jsonify({"status": "error",
-					                "message": f"Missing field: {field}"}), 400
-			return f(*args, data=data, **kwargs)
-
-		return decorated
-
-	return decorator
-
-
-def with_form(*required_fields):
-	def decorator(f):
-		@functools.wraps(f)
-		def decorated(*args, **kwargs):
-			for field in required_fields:
-				if not request.form.get(field, "").strip():
-					return jsonify({"status": "error",
-					                "message": f"Missing field: {field}"}), 400
-			return f(*args, data=request.form, **kwargs)
-
-		return decorated
-
-	return decorator
-
-
 # Jsonify helpers
+'''moved to src.webapp.utils'''
 def ok(message=None, **extra):
 	body = {"status": "ok"}
 	if message is not None:
@@ -357,13 +356,69 @@ def ok(message=None, **extra):
 	return jsonify(body)
 
 
+'''moved to src.webapp.utils'''
 def err(message, code=400):
 	return jsonify({"status": "error", "message": message}), code
 
 
+# Decorators
+'''moved to src.webapp.utils'''
+def require_admin(f):
+	@functools.wraps(f)
+	def decorated(*args, **kwargs):
+		if current_user.role != "admin":
+			if (request.is_json or request.headers.get("X-Requested-With")
+					== "XMLHttpRequest"):
+				return err("Forbidden", 403)
+			return redirect(request.referrer or url_for("dashboard"))
+		return f(*args, **kwargs)
+
+	return decorated
+
+'''moved to src.webapp.utils'''
+def with_json(*required_fields, on_invalid=None):
+	def decorator(f):
+		@functools.wraps(f)
+		def decorated(*args, **kwargs):
+			data = request.get_json(silent=True)
+			if not data:
+				if on_invalid:
+					on_invalid()
+				return err("Invalid request")
+			for field in required_fields:
+				if field not in data or not str(data[field] or "").strip():
+					return err(f"Missing field: {field}")
+			return f(*args, data=data, **kwargs)
+
+		return decorated
+
+	return decorator
+
+'''moved to src.webapp.utils'''
+def with_form(*required_fields):
+	def decorator(f):
+		@functools.wraps(f)
+		def decorated(*args, **kwargs):
+			if request.method not in ("GET", "HEAD", "OPTIONS"):
+				for field in required_fields:
+					if not request.form.get(field, "").strip():
+						if (request.is_json or request.headers.get(
+								"X-Requested-With") == "XMLHttpRequest"):
+							return err(f"Missing field: {field}")
+						flash(f"{field.replace('_', ' ').title()} is required.",
+						      "danger")
+						return redirect(request.referrer or url_for("home"))
+			return f(*args, data=request.form, **kwargs)
+
+		return decorated
+
+	return decorator
+
+
 # Generic programming for db routes
+'''moved to src.webapp.utils'''
 def act_on_db_obj(model, obj_id, func, user_id=None, many=False,
-                  **extra_filters):
+                  on_missing=None, **extra_filters):
 	with (get_session() as db_session):
 		filters = {"id": obj_id} if obj_id is not None else {}
 		if user_id is not None:
@@ -375,18 +430,19 @@ def act_on_db_obj(model, obj_id, func, user_id=None, many=False,
 		else:
 			obj = obj.first()
 			if not obj:
-				return err("Not found", 404)
+				return on_missing() if on_missing else err("Not found", 404)
 			return func(obj, db_session)
 
 
 # CRUD factories
+'''moved to src.webapp.utils'''
 def get_label(obj):
 	return (getattr(obj, 'label', None) or
 	        getattr(obj, 'name', None) or
 	        getattr(obj, 'token', None) or
 	        str(obj.id))
 
-
+'''moved to src.webapp.utils'''
 def create_op(model_class, fields, audit_action, db_session, label_func=None):
 	obj = model_class(**fields)
 	db_session.add(obj)
@@ -396,8 +452,9 @@ def create_op(model_class, fields, audit_action, db_session, label_func=None):
 	      object_label=label)
 	return ok(id=str(obj.id))
 
-
-def update_op(fields, audit_action, label_func=None, skip_none=False):
+'''moved to src.webapp.utils'''
+def update_op(fields, audit_action, label_func=None, skip_none=False,
+              on_success=None):
 	def func(obj, _):
 		for k, v in fields.items():
 			if skip_none and v is None:
@@ -406,12 +463,12 @@ def update_op(fields, audit_action, label_func=None, skip_none=False):
 		label = label_func(obj) if label_func else get_label(obj)
 		audit(audit_action, object_type=type(obj).__name__, object_id=obj.id,
 		      object_label=label)
-		return ok()
+		return on_success(label) if on_success else ok()
 
 	return func
 
-
-def delete_op(audit_action, data_filter=None, label_func=None):
+'''moved to src.webapp.utils'''
+def delete_op(audit_action, data_filter=None, label_func=None, on_success=None):
 	def func(obj, db_session):
 		if data_filter:
 			res = data_filter(obj)
@@ -421,12 +478,18 @@ def delete_op(audit_action, data_filter=None, label_func=None):
 		db_session.delete(obj)
 		audit(audit_action, object_type=type(obj).__name__, object_id=obj.id,
 		      object_label=label)
-		return ok()
+		return on_success(label) if on_success else ok()
 
 	return func
 
 
 # Route helpers
+'''moved to src.webapp.utils'''
+def flash_redirect(msg, endpoint, category="success"):
+	flash(msg, category)
+	return redirect(url_for(endpoint))
+
+'''moved to src.webapp.utils'''
 def validate_mapping_fields(index, property_name, inner_token):
 	status, msg = Validator.validate_var_map_inner_token(inner_token)
 	if not status:
@@ -443,13 +506,13 @@ def validate_mapping_fields(index, property_name, inner_token):
 		flash(msg, "danger")
 		return redirect(url_for("mappings"))
 
-
+'''moved to src.webapp.utils'''
 def build_security_profile(label, username, password, enable_secret, user_id):
 	profile = SecurityProfile(
 		label=label,
 		username=username,
-		password_secret=encryption.encrypt(password),
-		enable_secret=encryption.encrypt(
+		password_secret=encrypt(password),
+		enable_secret=encrypt(
 			enable_secret) if enable_secret else None,
 		user_id=user_id
 	)
@@ -462,6 +525,7 @@ def build_security_profile(label, username, password, enable_secret, user_id):
 	return profile_id
 
 
+'''moved to src.webapp.utils'''
 def build_kpi(results_30d, label_map):
 	total_ops = len(results_30d)
 	jobs_30d = len({r.job_id for r in results_30d})
@@ -486,17 +550,17 @@ def build_kpi(results_30d, label_map):
 		"top_failed": top_failed
 	}
 
-
+'''moved to src.webapp.utils'''
 def user_owns_job(job_id, user_id):
 	with get_session() as db_session:
 		return bool(db_session.query(DeviceResult).filter_by(
 			job_id=job_id, user_id=user_id).first())
 
-
+'''moved to src.webapp.utils'''
 def record_redis_session(user_id):
 	redis_client.set(f"user_session:{user_id}", redis_sid(), ex=86400)
 
-
+'''moved to src.webapp.utils'''
 def login_fail(username, reason, actor_id=None):
 	# Single exit point for all failed auth paths — flashes the user-facing
 	# message, writes a failed audit event with the machine reason, then clears
@@ -507,7 +571,7 @@ def login_fail(username, reason, actor_id=None):
 	session.pop("pre_auth_user_id", None)
 	return redirect(url_for("home"))
 
-
+'''moved to src.webapp.utils'''
 def complete_login(user, db_session, **audit_detail):
 	# Expunge before login_user so Flask-Login doesn't hold a live ORM object
 	# across requests.
@@ -521,6 +585,7 @@ def complete_login(user, db_session, **audit_detail):
 	return redirect(url_for("dashboard"))
 
 
+'''moved to src.webapp.utils'''
 def start_otp_flow(user):
 	# Partial-auth checkpoint: store the user id, so otp_verify can finish the
 	# login after the second factor is confirmed.
@@ -535,10 +600,10 @@ def start_otp_flow(user):
 	return redirect(url_for("otp_enroll"))
 
 
-@app.errorhandler(CSRFError)
+@app.errorhandler(csrf_err.CSRFError)
 def handle_csrf_error(_):
 	if request.is_json:
-		return jsonify({"status": "error", "message": "Session expired"}), 400
+		return err("Session expired")
 	return redirect(url_for("home"))
 
 
@@ -546,10 +611,7 @@ def handle_csrf_error(_):
 @app.errorhandler(RedisConnectionError)
 def handle_service_unavailable(_):
 	if request.is_json or request.path.startswith('/rollout_stream'):
-		return jsonify({
-			"status": "error",
-			"message": f"a backend service is unavailable",
-		}), 503
+		return err("a backend service is unavailable", 503)
 
 	try:
 		with engine.connect() as conn:
@@ -658,7 +720,8 @@ def login_ldap_group(username, password, db_session):
 @app.route("/login", methods=["POST"])
 @csrf.exempt
 @conn_limit.limit("10 per minute")
-def login():
+@with_form("username", "password")
+def login(data):
 	# Origin check replaces CSRF for login — blocks cross-origin POSTs without
 	# depending on redis_session state, so it survives server restarts.
 	# Compare hostnames only: scheme/port vary under reverse proxy.
@@ -668,8 +731,8 @@ def login():
 		server_host = request.host.split(":")[0]
 		if origin_host and origin_host != server_host:
 			return redirect(url_for("home"))
-	username = request.form["username"]
-	password = request.form["password"]
+	username = data["username"]
+	password = data["password"]
 	with get_session() as db_session:
 		user = db_session.query(User).filter_by(username=username).first()
 		if user and user.auth_type == "local":
@@ -686,12 +749,13 @@ def register_form():
 
 
 @app.route("/register", methods=["POST"])
-def register():
-	username = request.form["username"]
-	pass_hash = generate_password_hash(request.form["password"])
-	email = request.form["email"]
-	full_name = request.form["full_name"]
-	position = request.form.get("position", None)
+@with_form("username", "password", "email", "full_name")
+def register(data):
+	username = data["username"]
+	pass_hash = generate_password_hash(data["password"])
+	email = data["email"]
+	full_name = data["full_name"]
+	position = data.get("position", None)
 
 	new_user = User(username=username,
 	                password_hash=pass_hash,
@@ -718,7 +782,8 @@ def register():
 
 
 @app.route("/otp_enroll", methods=["GET", "POST"])
-def otp_enroll():
+@with_form("code")
+def otp_enroll(data):
 	if request.method == "GET":
 		user_id = session.get("pre_auth_user_id", None)
 		if not user_id:
@@ -749,7 +814,7 @@ def otp_enroll():
 		if not user_id:
 			return redirect(url_for("home"))
 		otp_secret = session.get("pending_totp_secret", None)
-		user_code = request.form["code"]
+		user_code = data["code"]
 		if pyotp.TOTP(otp_secret).verify(user_code, valid_window=1):
 			with get_session() as db_session:
 				try:
@@ -759,7 +824,7 @@ def otp_enroll():
 					return redirect(url_for("home"))
 				if not user_id:
 					return redirect(url_for("home"))
-				user.otp_secret = encryption.encrypt(otp_secret)
+				user.otp_secret = encrypt(otp_secret)
 				db_session.flush()
 				db_session.expunge(user)
 			session.pop("pending_totp_secret")
@@ -772,12 +837,13 @@ def otp_enroll():
 
 
 @app.route("/otp_verify", methods=["GET", "POST"])
-def otp_verify():
+@with_form("code")
+def otp_verify(data):
 	if request.method == "POST":
 		user_id = session.get("pre_auth_user_id", None)
 		if not user_id:
 			return redirect(url_for("home"))
-		user_code = request.form["code"]
+		user_code = data["code"]
 		with get_session() as db_session:
 			try:
 				user = db_session.query(User).filter_by(
@@ -789,7 +855,7 @@ def otp_verify():
 			db_session.expunge(user)
 		if not user.otp_secret:
 			return redirect(url_for("otp_enroll"))
-		if pyotp.TOTP(encryption.decrypt(user.otp_secret)).verify(user_code,
+		if pyotp.TOTP(decrypt(user.otp_secret)).verify(user_code,
 		                                                          valid_window=1):
 			login_user(user)
 			record_redis_session(user.id)
@@ -853,10 +919,9 @@ def account():
 
 @app.route("/cancel_rollout", methods=["POST"])
 @login_required
-def cancel_rollout():
-	raw = request.form.get("job_id", "").strip()
-	if not raw:
-		return err("no active rollout", 400)
+@with_form("job_id")
+def cancel_rollout(data):
+	raw = data.get("job_id", "").strip()
 	try:
 		job_id = uuid.UUID(raw)
 	except ValueError:
@@ -1046,17 +1111,15 @@ def new_start_rollout():
 
 @app.route("/admin")
 @login_required
+@require_admin
 def admin_panel():
-	if current_user.role != "admin":
-		return redirect(url_for("dashboard"))
 	return redirect(url_for("admin_users"))
 
 
 @app.route("/admin/users")
 @login_required
+@require_admin
 def admin_users():
-	if current_user.role != "admin":
-		return redirect(url_for("dashboard"))
 	with get_session() as db_session:
 		users = db_session.query(User).order_by(User.created_at).all()
 		db_session.expunge_all()
@@ -1072,9 +1135,8 @@ def admin_users():
 
 @app.route("/admin/users/<uuid:user_id>/<action>", methods=["POST"])
 @login_required
+@require_admin
 def admin_user_action(user_id, action):
-	if current_user.role != "admin":
-		return redirect(url_for("dashboard"))
 	if action in ("disable", "delete") and user_id == current_user.id:
 		flash("You cannot perform this action on your own account.", "danger")
 		return redirect(url_for("admin_users"))
@@ -1114,9 +1176,8 @@ def admin_user_action(user_id, action):
 
 @app.route("/admin/users/bulk/<action>", methods=["POST"])
 @login_required
+@require_admin
 def admin_bulk_action(action):
-	if current_user.role != "admin":
-		return redirect(url_for("dashboard"))
 	raw = request.form.get("user_ids", "")
 	try:
 		user_ids = [uuid.UUID(uid.strip()) for uid in raw.split(",") if
@@ -1158,10 +1219,8 @@ def admin_bulk_action(action):
 
 @app.route("/admin/sessions")
 @login_required
+@require_admin
 def admin_sessions():
-	if current_user.role != "admin":
-		return redirect(url_for("dashboard"))
-
 	sessions = []
 	keys = list(redis_client.scan_iter("user_session:*"))
 	if keys:
@@ -1196,24 +1255,22 @@ def admin_sessions():
 
 @app.route("/admin/sessions/<uuid:user_id>/kick", methods=["POST"])
 @login_required
+@require_admin
 def admin_sessions_kick(user_id):
-	if current_user.role != "admin":
-		return jsonify({"status": "error", "message": "Forbidden"}), 403
 	sid = redis_client.get(f"user_session:{user_id}")
 	if not sid:
-		return jsonify({"status": "error", "message": "Session not found"}), 404
+		return err("Session not found", 404)
 	redis_client.delete(f"redis_session:{sid.decode()}")
 	redis_client.delete(f"user_session:{user_id}")
 	audit("admin.session_kick", object_type="User", object_id=user_id,
 	      success=True)
-	return jsonify({"status": "ok"})
+	return ok()
 
 
 @app.route("/admin/server")
 @login_required
+@require_admin
 def admin_server():
-	if current_user.role != "admin":
-		return redirect(url_for("dashboard"))
 	try:
 		with engine.connect() as conn:
 			conn.execute(text("SELECT 1"))
@@ -1243,10 +1300,9 @@ def admin_server():
 
 @app.route("/admin/server/postgres/test", methods=["POST"])
 @login_required
-def admin_server_postgres_test():
-	if current_user.role != "admin":
-		return jsonify({"status": "error", "message": "Unauthorized"}), 403
-	data = request.get_json()
+@require_admin
+@with_json()
+def admin_server_postgres_test(data):
 	host, port, name = (data.get("host", "").strip(),
 	                    data.get("port", "5432").strip(),
 	                    data.get("name", "").strip())
@@ -1254,13 +1310,11 @@ def admin_server_postgres_test():
 	                          data.get("password", "").strip(),
 	                          data.get("schema", "").strip())
 	if not all([host, port, name, user, password]):
-		return jsonify({"status": "error",
-		                "message": "All fields except schema are required"})
+		return err("All fields except schema are required")
 	if (host == engine.url.host and
 			str(port) == str(engine.url.port) and
 			name == engine.url.database):
-		return jsonify({"status": "error",
-		                "message": "Target is the same as the current database"})
+		return err("Target is the same as the current database")
 	url = f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{name}"
 	connect_args = {"options": f"-c search_path={schema}"} if schema else {}
 
@@ -1269,17 +1323,16 @@ def admin_server_postgres_test():
 		with test_engine.connect() as conn:
 			conn.execute(text("SELECT 1"))
 		test_engine.dispose()
-		return jsonify({"status": "ok", "message": "Connection successful"})
+		return ok("Connection successful")
 	except OperationalError as e:
-		return jsonify({"status": "error", "message": str(e)})
+		return err(str(e))
 
 
 @app.route("/admin/server/postgres/save", methods=["POST"])
 @login_required
-def admin_server_postgres_save():
-	if current_user.role != "admin":
-		return jsonify({"status": "error", "message": "Unauthorized"}), 403
-	data = request.get_json()
+@require_admin
+@with_json()
+def admin_server_postgres_save(data):
 	host, port, name = (data.get("host", "").strip(),
 	                    data.get("port", "5432").strip(),
 	                    data.get("name", "").strip())
@@ -1287,13 +1340,11 @@ def admin_server_postgres_save():
 	                          data.get("password", "").strip(),
 	                          data.get("schema", "").strip())
 	if not all([host, port, name, user, password]):
-		return jsonify({"status": "error",
-		                "message": "All fields except schema are required"})
+		return err("All fields except schema are required")
 	if (host == engine.url.host and
 			str(port) == str(engine.url.port) and
 			name == engine.url.database):
-		return jsonify({"status": "error",
-		                "message": "Target is the same as the current database"})
+		return err("Target is the same as the current database")
 	cfg = dict(dotenv_values(_CONFIG_ENV)) if _CONFIG_ENV.exists() else {}
 	cfg.update({"PG_HOST": host, "PG_PORT": port, "PG_NAME": name,
 	            "PG_USER": user, "PG_PASSWORD": password,
@@ -1304,21 +1355,18 @@ def admin_server_postgres_save():
 		cfg.pop("PG_SCHEMA", None)
 	_CONFIG_ENV.write_text("\n".join(f"{k}={v}" for k, v in cfg.items()) + "\n")
 	_FLAG.write_text(".")
-	return jsonify({"status": "ok", "message": "Configuration saved"})
+	return ok("Configuration saved")
 
 
 @app.route("/admin/server/redis/test", methods=["POST"])
 @login_required
-def admin_server_redis_test():
-	if current_user.role != "admin":
-		return jsonify({"status": "error", "message": "Unauthorized"}), 403
-	data = request.get_json()
+@require_admin
+@with_json("host")
+def admin_server_redis_test(data):
 	host = data.get("host", "").strip()
 	port = data.get("port", "6379").strip()
 	password = data.get("password", "").strip()
 	db = data.get("db", "0").strip()
-	if not host:
-		return jsonify({"status": "error", "message": "Host is required"})
 	try:
 		test_client = redis_lib.Redis(
 			host=host, port=int(port), db=int(db or 0),
@@ -1326,28 +1374,24 @@ def admin_server_redis_test():
 		)
 		test_client.ping()
 		test_client.close()
-		return jsonify({"status": "ok", "message": "Connection successful"})
+		return ok("Connection successful")
 	except Exception as e:
-		return jsonify({"status": "error", "message": str(e)})
+		return err(str(e))
 
 
 @app.route("/admin/server/redis/save", methods=["POST"])
 @login_required
-def admin_server_redis_save():
-	if current_user.role != "admin":
-		return jsonify({"status": "error", "message": "Unauthorized"}), 403
-	data = request.get_json()
+@require_admin
+@with_json("host")
+def admin_server_redis_save(data):
 	host = data.get("host", "").strip()
 	port = data.get("port", "6379").strip()
 	password = data.get("password", "").strip()
 	db = data.get("db", "0").strip()
-	if not host:
-		return jsonify({"status": "error", "message": "Host is required"})
 	if (host == _REDIS_HOST and
 			str(port) == str(_REDIS_PORT) and
 			str(db or "0") == str(_REDIS_DB)):
-		return jsonify({"status": "error",
-		                "message": "Target is the same as the current Redis instance"})
+		return err("Target is the same as the current Redis instance")
 	cfg = dict(dotenv_values(_CONFIG_ENV)) if _CONFIG_ENV.exists() else {}
 	cfg.update({"REDIS_HOST": host, "REDIS_PORT": port, "REDIS_DB": db or "0",
 	            "REDIS_EXTERNAL": "true"})
@@ -1356,14 +1400,13 @@ def admin_server_redis_save():
 	else:
 		cfg.pop("REDIS_PASSWORD", None)
 	_CONFIG_ENV.write_text("\n".join(f"{k}={v}" for k, v in cfg.items()) + "\n")
-	return jsonify({"status": "ok", "message": "Configuration saved"})
+	return ok("Configuration saved")
 
 
 @app.route("/admin/server/ldap", methods=["GET"])
 @login_required
+@require_admin
 def admin_server_ldap_get():
-	if current_user.role != "admin":
-		return jsonify({"status": "error", "message": "Forbidden"}), 403
 	with get_session() as db_session:
 		servers = db_session.query(LDAPServer).all()
 		result = []
@@ -1379,9 +1422,8 @@ def admin_server_ldap_get():
 
 @app.route("/admin/server/ldap/new", methods=["POST"])
 @login_required
+@require_admin
 def admin_server_ldap_new():
-	if current_user.role != "admin":
-		return jsonify({"status": "error", "message": "Forbidden"}), 403
 	label = request.form.get("label", "").strip()
 	ip = request.form.get("ip", "").strip()
 	port = request.form.get("port", "389").strip()
@@ -1404,21 +1446,20 @@ def admin_server_ldap_new():
 			bind_dn=bind_dn,
 			use_ssl=use_ssl.lower() == "true",
 			is_active=is_active.lower() == "true",
-			bind_password=encryption.encrypt(bind_password)
+			bind_password=encrypt(bind_password)
 			if bind_password else None)
 
 		db_session.add(row)
 
 		audit("admin.ldap_server_save", object_type="LDAPServer",
 		      object_label=label, success=True)
-	return jsonify({"status": "ok"})
+	return ok()
 
 
 @app.route("/admin/server/ldap/<uuid:server_id>/save", methods=["POST"])
 @login_required
+@require_admin
 def admin_server_ldap_save(server_id):
-	if current_user.role != "admin":
-		return jsonify({"status": "error", "message": "Forbidden"}), 403
 	label = request.form.get("label", "").strip()
 	ip = request.form.get("ip", "").strip()
 	port = request.form.get("port", "389").strip()
@@ -1433,8 +1474,7 @@ def admin_server_ldap_save(server_id):
 	with get_session() as db_session:
 		srv = db_session.query(LDAPServer).filter_by(id=server_id).first()
 		if not srv:
-			return jsonify({"status": "error", "message": "Server not "
-			                                              "found"}), 404
+			return err("Server not found", 404)
 		srv.name = label if label else srv.name
 		srv.host = ip if ip else srv.host
 		srv.port = int(port)
@@ -1444,92 +1484,79 @@ def admin_server_ldap_save(server_id):
 		srv.bind_dn = bind_dn if bind_dn else srv.bind_dn
 		srv.use_ssl = use_ssl.lower() == "true"
 		srv.is_active = is_active.lower() == "true"
-		srv.bind_password = encryption.encrypt(bind_password) if \
+		srv.bind_password = encrypt(bind_password) if \
 			bind_password else srv.bind_password
 		audit("admin.ldap_server_save", object_type="LDAPServer",
 		      object_label=srv.name, success=True)
-	return jsonify({"status": "ok"})
+	return ok()
 
 
 @app.route("/admin/server/ldap/<uuid:server_id>/delete", methods=["POST"])
 @login_required
+@require_admin
 def admin_server_ldap_delete(server_id):
-	if current_user.role != "admin":
-		return jsonify({"status": "error", "message": "Forbidden"}), 403
 	with get_session() as db_session:
 		srv = db_session.query(LDAPServer).filter_by(id=server_id).first()
 		if not srv:
-			return jsonify({"status": "error", "message": "Server not "
-			                                              "found"}), 404
+			return err("Server not found", 404)
 		db_session.delete(srv)
 		audit("admin.ldap_server_delete", object_type="LDAPServer",
 		      object_label=srv.name, success=True)
-	return jsonify({"status": "ok"})
+	return ok()
 
 
 @app.route("/admin/server/ldap/<uuid:server_id>/test", methods=["POST"])
 @login_required
+@require_admin
 def admin_server_ldap_test(server_id):
-	if current_user.role != "admin":
-		return jsonify({"status": "error", "message": "Forbidden"}), 403
 	with get_session() as db_session:
 		srv = db_session.query(LDAPServer).filter_by(id=server_id).first()
 		if not srv:
-			return jsonify({"status": "error", "message": "Server not "
-			                                              "found"}), 404
+			return err("Server not found", 404)
 		return jsonify(test_connection(srv))
 
 
 @app.route("/admin/server/ldap/<uuid:server_id>/test_user", methods=["POST"])
 @login_required
-def admin_server_ldap_test_user(server_id):
-	if current_user.role != "admin":
-		return jsonify({"status": "error", "message": "Forbidden"}), 403
-	username = request.form.get("username", "").strip()
-	password = request.form.get("password", "").strip()
-	if not username or not password:
-		return jsonify({"status": "error", "message": "missing credentials"})
+@require_admin
+@with_form("username", "password")
+def admin_server_ldap_test_user(server_id, data):
+	username = data.get("username", "").strip()
+	password = data.get("password", "").strip()
 	with get_session() as db_session:
 		srv = db_session.query(LDAPServer).filter_by(id=server_id).first()
 		if not srv:
-			return jsonify({"status": "error", "message": "Server not "
-			                                              "found"}), 404
+			return err("Server not found", 404)
 		return jsonify(test_user(srv, username, password))
 
 
 @app.route("/admin/server/ldap/<uuid:server_id>/fetch_dn", methods=["POST"])
 @login_required
+@require_admin
 def admin_server_ldap_fetch_dn(server_id):
-	if current_user.role != "admin":
-		return jsonify({"status": "error", "message": "Forbidden"}), 403
-
 	with get_session() as db_session:
 		srv = db_session.query(LDAPServer).filter_by(id=server_id).first()
 		if not srv:
-			return jsonify({"status": "error", "message": "Server not "
-			                                              "found"}), 404
+			return err("Server not found", 404)
 		return jsonify(fetch_base_dn(srv))
 
 
 @app.route("/admin/server/ldap/<uuid:server_id>/explore", methods=["POST"])
 @login_required
+@require_admin
 def admin_server_ldap_explore(server_id):
-	if current_user.role != "admin":
-		return jsonify({"status": "error", "message": "Forbidden"}), 403
 	dn = request.form.get("dn", "").strip() or None
 	with get_session() as db_session:
 		srv = db_session.query(LDAPServer).filter_by(id=server_id).first()
 		if not srv:
-			return jsonify({"status": "error", "message": "Server not "
-			                                              "found"}), 404
+			return err("Server not found", 404)
 		return jsonify(walk_tree(srv, dn))
 
 
 @app.route("/admin/server/ldap/<uuid:server_id>/import", methods=["POST"])
 @login_required
+@require_admin
 def admin_server_ldap_import(server_id):
-	if current_user.role != "admin":
-		return jsonify({"status": "error", "message": "Forbidden"}), 403
 	items = request.json or []
 	users_created = 0
 	groups_created = 0
@@ -1538,8 +1565,7 @@ def admin_server_ldap_import(server_id):
 	with get_session() as db_session:
 		srv = db_session.query(LDAPServer).filter_by(id=server_id).first()
 		if not srv:
-			return jsonify(
-				{"status": "error", "message": "Server not found"}), 404
+			return err("Server not found", 404)
 
 		for item in items:
 			if item["type"] == "user":
@@ -1575,15 +1601,14 @@ def admin_server_ldap_import(server_id):
 		      detail={"users": users_created, "groups": groups_created,
 		              "skipped": skipped})
 
-	return jsonify({"status": "ok", "users_created": users_created,
-	                "groups_created": groups_created, "skipped": skipped})
+	return ok(users_created=users_created, groups_created=groups_created,
+	          skipped=skipped)
 
 
 @app.route("/admin/server/ldap/<uuid:server_id>/groups", methods=["GET"])
 @login_required
+@require_admin
 def admin_server_ldap_groups(server_id):
-	if current_user.role != "admin":
-		return jsonify({"status": "error", "message": "Forbidden"}), 403
 	with get_session() as db_session:
 		groups = db_session.query(LDAPGroup).filter_by(
 			ldap_server_id=server_id).all()
@@ -1595,47 +1620,41 @@ def admin_server_ldap_groups(server_id):
 @app.route("/admin/server/ldap/<uuid:server_id>/groups/<uuid:group_id>/toggle",
            methods=["POST"])
 @login_required
+@require_admin
 def admin_server_ldap_group_toggle(server_id, group_id):
-	if current_user.role != "admin":
-		return jsonify({"status": "error", "message": "Forbidden"}), 403
 	with get_session() as db_session:
 		g = db_session.query(LDAPGroup).filter_by(
 			id=group_id, ldap_server_id=server_id).first()
 		if not g:
-			return jsonify(
-				{"status": "error", "message": "Group not found"}), 404
+			return err("Group not found", 404)
 		new_state = not g.is_active
 		g.is_active = new_state
 		audit("admin.ldap_group_toggle", object_type="LDAPGroup",
 		      object_label=g.label, success=True,
 		      detail={"is_active": g.is_active})
-	return jsonify({"status": "ok", "is_active": new_state})
+	return ok(is_active=new_state)
 
 
 @app.route("/admin/server/ldap/<uuid:server_id>/groups/<uuid:group_id>/delete",
            methods=["POST"])
 @login_required
+@require_admin
 def admin_server_ldap_group_delete(server_id, group_id):
-	if current_user.role != "admin":
-		return jsonify({"status": "error", "message": "Forbidden"}), 403
 	with get_session() as db_session:
 		g = db_session.query(LDAPGroup).filter_by(
 			id=group_id, ldap_server_id=server_id).first()
 		if not g:
-			return jsonify(
-				{"status": "error", "message": "Group not found"}), 404
+			return err("Group not found", 404)
 		db_session.delete(g)
 		audit("admin.ldap_group_delete", object_type="LDAPGroup",
 		      object_label=g.label, success=True)
-	return jsonify({"status": "ok"})
+	return ok()
 
 
 @app.route("/admin/audit")
 @login_required
+@require_admin
 def admin_audit():
-	if current_user.role != "admin":
-		return redirect(url_for("dashboard"))
-
 	filter_actor = request.args.get("actor", "").strip()
 	filter_action = request.args.get("action", "").strip()
 	filter_success = request.args.get("success", "")
@@ -1667,10 +1686,8 @@ def admin_audit():
 
 @app.route("/admin/analytics")
 @login_required
+@require_admin
 def admin_analytics():
-	if current_user.role != "admin":
-		return redirect(url_for("dashboard"))
-
 	with get_session() as db_session:
 		cutoff = datetime.now() - timedelta(days=30)
 		results_30d = db_session.query(DeviceResult).filter(
@@ -1761,16 +1778,14 @@ def admin_analytics():
 
 @app.route("/admin/analytics/query", methods=["POST"])
 @login_required
-def admin_analytics_query():
-	if current_user.role != "admin":
-		return jsonify({"status": "error", "message": "Forbidden"}), 403
-
-	data = request.get_json()
+@require_admin
+@with_json()
+def admin_analytics_query(data):
 	try:
 		rules = data.get("rules", [])
 		filters = compile_query_rules(rules, QUERY_AUDIT_LOG_FIELDS)
 	except (ValueError, KeyError) as e:
-		return jsonify({"status": "error", "message": str(e)}), 400
+		return err(str(e))
 
 	with get_session() as db_session:
 		query = db_session.query(AuditLog).filter(filters)
@@ -1835,6 +1850,7 @@ def analytics():
 	                       active_section="analytics")
 
 
+'''moved to src.webapp.utils'''
 def compile_query_rules(node, allowed_fields):
 	"""jQuery QueryBuilder produces a tree.
 	Each node is either:
@@ -1882,9 +1898,9 @@ def compile_query_rules(node, allowed_fields):
 
 @app.route("/analytics/query", methods=["POST"])
 @login_required
-def analytics_query():
+@with_json()
+def analytics_query(data):
 	scope_user_id = current_user.id
-	data = request.get_json()
 	if current_user.role == "admin":
 		param = data.get("user", "me").strip()
 		if param != "me":
@@ -1896,7 +1912,7 @@ def analytics_query():
 		rules = data.get("rules", [])
 		filters = compile_query_rules(rules, QUERY_DEVICE_RESULT_FIELDS)
 	except (ValueError, KeyError) as e:
-		return jsonify({"status": "error", "message": str(e)}), 400
+		return err(str(e))
 
 	with get_session() as db_session:
 		query = db_session.query(DeviceResult).filter(
@@ -1915,6 +1931,7 @@ def analytics_query():
 	return jsonify({"columns": columns, "rows": parsed_rows})
 
 
+'''moved to src.webapp.utils'''
 def job_status(rows: list[DeviceResult]) -> str:
 	statuses = {r.status for r in rows}
 	if "cancelled" in statuses:
@@ -2046,12 +2063,13 @@ def inventory():
 
 @app.route("/inventory/create", methods=["POST"])
 @login_required
-def inventory_create():
-	label = request.form.get("label", "").strip()
-	ip = request.form.get("ip", "").strip()
-	port = request.form.get("port", "22").strip()
-	device_type = request.form.get("device_type", "").strip()
-	sec_profile_id = request.form.get("sec_profile_id", "").strip()
+@with_form("ip", "device_type")
+def inventory_create(data):
+	label = data.get("label", "").strip()
+	ip = data.get("ip", "").strip()
+	port = data.get("port", "22").strip()
+	device_type = data.get("device_type", "").strip()
+	sec_profile_id = data.get("sec_profile_id", "").strip()
 
 	with get_session() as db_session:
 		row = Inventory(
@@ -2071,46 +2089,31 @@ def inventory_create():
 
 @app.route("/inventory/test_connection", methods=["POST"])
 @login_required
-def inventory_test_connection():
-	data = request.get_json()
-	if not data:
-		return {"status": "error", "message": "Invalid request"}
-
+@with_json()
+def inventory_test_connection(data):
 	ip = str(data.get("ip", "")).strip()
 	port = str(data.get("port", "")).strip()
 
 	if not Validator.validate_ip(ip):
-		return {"status": "error", "message": "Invalid IP address"}
+		return err("Invalid IP address")
 	if not Validator.validate_port(port):
-		return {"status": "error",
-		        "message": "Port must be between 1 and 65535"}
+		return err("Port must be between 1 and 65535")
 
 	if Validator.test_tcp_port(ip, int(port)):
-		return {"status": "ok",
-		        "message": f"TCP port {port} reachable on {ip}"}
-	return {"status": "error",
-	        "message": f"TCP port {port} unreachable on {ip}"}
+		return ok(f"TCP port {port} reachable on {ip}")
+	return err(f"TCP port {port} unreachable on {ip}")
 
 
 @app.route("/inventory/<uuid:device_id>/edit", methods=["POST"])
 @login_required
 def inventory_edit(device_id):
-	with get_session() as db_session:
-		device = db_session.query(Inventory).filter_by(
-			id=device_id, user_id=current_user.id).first()
-		if not device:
-			flash("Device not found.", "danger")
-			return redirect(url_for("inventory"))
-
+	def _edit(device, db_session):
 		device.label = request.form.get("label", "").strip()
 		device.ip = request.form.get("ip", "").strip()
 		device.port = int(request.form.get("port", 22))
 		device.device_type = request.form.get("device_type", "").strip()
-
 		sec_profile_id = request.form.get("sec_profile_id", "").strip()
-		device.sec_profile_id = uuid.UUID(
-			sec_profile_id) if sec_profile_id else None
-
+		device.sec_profile_id = uuid.UUID(sec_profile_id) if sec_profile_id else None
 		sys_props, user_props = get_property_defs(current_user.id)
 		all_props = {p["name"]: p for p in sys_props + user_props}
 		var_maps = {}
@@ -2122,12 +2125,10 @@ def inventory_edit(device_id):
 			if not inv_val:
 				continue
 			if all_props.get(prop_name, {}).get("is_list"):
-				var_maps[prop_name] = [v.strip() for v in inv_val.split(",") if
-				                       v.strip()]
+				var_maps[prop_name] = [v.strip() for v in inv_val.split(",") if v.strip()]
 			else:
 				var_maps[prop_name] = inv_val
 		device.var_maps = var_maps or None
-
 		mapping_ids = request.form.getlist("mapping_ids")
 		if mapping_ids:
 			selected = db_session.query(VariableMapping).filter(
@@ -2137,31 +2138,26 @@ def inventory_edit(device_id):
 			device.var_mappings = selected
 		else:
 			device.var_mappings = []
+		audit("inventory.edit", object_type="Inventory",
+		      object_id=device_id, object_label=device.label)
+		return flash_redirect(f"{device.label} updated.", "inventory")
 
-		label = device.label
-
-	audit("inventory.edit", object_type="Inventory",
-	      object_id=device_id, object_label=label)
-	flash(f"{label} updated.", "success")
-	return redirect(url_for("inventory"))
+	return act_on_db_obj(Inventory, device_id, _edit, user_id=current_user.id,
+	                     on_missing=lambda: flash_redirect(
+	                         "Device not found.", "inventory", "danger"))
 
 
 @app.route("/inventory/<uuid:device_id>/delete", methods=["POST"])
 @login_required
 def inventory_delete(device_id):
-	with get_session() as db_session:
-		device = db_session.query(Inventory).filter_by(
-			id=device_id, user_id=current_user.id).first()
-		if not device:
-			flash("Device not found.", "danger")
-			return redirect(url_for("inventory"))
-		label = device.label
-		db_session.delete(device)
-
-	audit("inventory.delete", object_type="Inventory",
-	      object_id=device_id, object_label=label)
-	flash(f"{label} removed from inventory.", "success")
-	return redirect(url_for("inventory"))
+	return act_on_db_obj(
+		Inventory, device_id,
+		delete_op("inventory.delete",
+		          on_success=lambda label: flash_redirect(
+		              f"{label} removed from inventory.", "inventory")),
+		user_id=current_user.id,
+		on_missing=lambda: flash_redirect("Device not found.", "inventory", "danger")
+	)
 
 
 @app.route("/inventory/import_csv", methods=["POST"])
@@ -2227,8 +2223,7 @@ def inventory_bulk_assign():
 	if not data:
 		logger.notify("Bulk assign failed: invalid request", "red",
 		              important=True)
-		return jsonify({"status": "error",
-		                "message": "Invalid request"}), 400
+		return err("Invalid request")
 
 	profile_id = data.get("profile_id")
 	device_ids = data.get("device_ids", [])
@@ -2236,8 +2231,7 @@ def inventory_bulk_assign():
 	if not device_ids:
 		logger.notify("Bulk assign failed: no devices provided", "red",
 		              important=True)
-		return jsonify(
-			{"status": "error", "message": "No devices provided"}), 400
+		return err("No devices provided")
 
 	parsed_profile_id = uuid.UUID(profile_id) if profile_id else None
 	logger.notify(
@@ -2251,8 +2245,7 @@ def inventory_bulk_assign():
 			if not profile:
 				logger.notify("Bulk assign failed: profile not found", "red",
 				              important=True)
-				return jsonify(
-					{"status": "error", "message": "Profile not found"}), 404
+				return err("Profile not found", 404)
 
 		assigned, skipped = 0, 0
 		for device_id_str in device_ids:
@@ -2273,7 +2266,7 @@ def inventory_bulk_assign():
 	audit("inventory.bulk_assign", detail={
 		"count": len(device_ids),
 		"profile_id": str(profile_id) if profile_id else None})
-	return jsonify({"status": "ok"})
+	return ok()
 
 
 @app.route("/active_jobs")
@@ -2365,12 +2358,9 @@ def rollout_stream(job_id):
 
 @app.route("/rollback/<uuid:job_id>", methods=["POST"])
 @login_required
-def rollback(job_id):
+@with_json("commands")
+def rollback(job_id, data):
 	# Fetch compensatory commands
-	data = request.get_json(silent=True)
-	if not data or not data.get("commands", "").strip():
-		return jsonify(
-			{"status": "error", "message": "No commands provided"}), 400
 
 	# Get successful devices
 	with get_session() as db_session:
@@ -2384,16 +2374,14 @@ def rollback(job_id):
 			Inventory.user_id == current_user.id,
 			Inventory.ip.in_(successful_ips)).all()
 		if not rows:
-			return jsonify({"status": "error",
-			                "message": "No successfully configured"
-			                           " devices found for this job."}), 400
+			return err("No successfully configured devices found for this job.")
 
 		_ = [row.security_profile for row in rows]
 		_ = [row.var_mappings for row in rows]
 		db_session.expunge_all()
 
 	commands = [l.strip() for l in data["commands"].splitlines() if l.strip()]
-	devices = input_parser.InputParser.import_from_inventory(rows)
+	devices = InputParser.import_from_inventory(rows)
 	options = RolloutOptions(
 		verify=bool(data.get("verify", False)),
 		verbose=bool(data.get("verbose", False)),
@@ -2403,7 +2391,7 @@ def rollback(job_id):
 	                                 current_user.id)
 	audit("rollout.rollback", object_id=job_id,
 	      detail={"new_job_id": str(new_job_id), "device_count": len(devices)})
-	return jsonify({"status": "ok", "job_id": str(new_job_id)})
+	return ok(job_id=str(new_job_id))
 
 
 @app.route("/results")
@@ -2495,9 +2483,9 @@ def config_diff(job_id, device_ip):
 		row = db_session.query(DeviceResult).filter_by(
 			job_id=job_id, device_ip=device_ip).first()
 		if not row:
-			return jsonify({"status": "error", "message": "Not found"}), 404
+			return err("Not found", 404)
 		if current_user.role != "admin" and row.user_id != current_user.id:
-			return jsonify({"status": "error", "message": "Forbidden"}), 403
+			return err("Forbidden", 403)
 		config = row.fetched_config
 		meta = db_session.query(JobMetadata).filter_by(job_id=job_id).first()
 		commands = meta.commands if meta else []
@@ -2536,14 +2524,12 @@ def security():
 
 @app.route("/security/create", methods=["POST"])
 @login_required
-def security_create():
-	label = request.form.get("label", "").strip() or None
-	username = request.form.get("username", "").strip()
-	password = request.form.get("password", "").strip()
-	enable_secret = request.form.get("enable_secret", "").strip() or None
-	if not username or not password:
-		flash("Username and password are required.", "danger")
-		return redirect(url_for("security"))
+@with_form("username", "password")
+def security_create(data):
+	label = data.get("label", "").strip() or None
+	username = data.get("username", "").strip()
+	password = data.get("password", "").strip()
+	enable_secret = data.get("enable_secret", "").strip() or None
 
 	build_security_profile(label, username, password, enable_secret,
 	                       current_user.id)
@@ -2553,10 +2539,8 @@ def security_create():
 
 @app.route("/security/quick_create", methods=["POST"])
 @login_required
-def security_quick_create():
-	data = request.get_json()
-	if not data:
-		return err("Invalid request")
+@with_json()
+def security_quick_create(data):
 	label = str(data.get("label", "") or "").strip() or None
 	username = str(data.get("username", "") or "").strip()
 	password = str(data.get("password", "") or "")
@@ -2572,58 +2556,53 @@ def security_quick_create():
 @app.route("/security/<uuid:profile_id>/edit", methods=["POST"])
 @login_required
 def security_edit(profile_id):
-	with get_session() as db_session:
-		profile = db_session.query(SecurityProfile).filter_by(
-			id=profile_id, user_id=current_user.id).first()
-		if not profile:
-			return redirect(url_for("security"))
-
+	def _edit(profile, _):
 		profile.label = request.form.get("label", "").strip() or None
 		profile.username = request.form["username"]
-
 		new_password = request.form.get("password", "").strip()
 		if new_password:
-			profile.password_secret = encryption.encrypt(new_password)
-
+			profile.password_secret = encrypt(new_password)
 		new_secret = request.form.get("enable_secret", "").strip()
 		if new_secret:
-			profile.enable_secret = encryption.encrypt(new_secret)
+			profile.enable_secret = encrypt(new_secret)
 		elif request.form.get("clear_enable_secret"):
 			profile.enable_secret = None
+		audit("security_profile.edit", object_type="SecurityProfile",
+		      object_id=profile_id)
+		return flash_redirect("Security profile updated.", "security")
 
-	audit("security_profile.edit", object_type="SecurityProfile",
-	      object_id=profile_id)
-	flash("Security profile updated.", "success")
-	return redirect(url_for("security"))
+	return act_on_db_obj(SecurityProfile, profile_id, _edit,
+	                     user_id=current_user.id,
+	                     on_missing=lambda: redirect(url_for("security")))
 
 
 @app.route("/security/<uuid:profile_id>/delete", methods=["POST"])
 @login_required
 def security_delete(profile_id):
-	with get_session() as db_session:
-		profile = db_session.query(SecurityProfile).filter_by(
-			id=profile_id, user_id=current_user.id).first()
-		if not profile:
-			return redirect(url_for("security"))
+	def _guard(p):
+		if p.inventory:
+			return flash_redirect(
+				f"Cannot delete '{p.label or p.username}' — "
+				f"{len(p.inventory)} device(s) assigned. "
+				f"Delete or reassign them first.",
+				"security", "danger")
 
-		if profile.inventory:
-			flash(f"Cannot delete '{profile.label or profile.username}' — "
-			      f"{len(profile.inventory)} device(s) assigned. "
-			      f"Delete or reassign them first.", "danger")
-			return redirect(url_for("security"))
-		label_or_user = profile.label or profile.username
-		db_session.delete(profile)
-		flash("Profile deleted.", "success")
-	audit("security_profile.delete", object_type="SecurityProfile",
-	      object_id=profile_id, object_label=label_or_user)
-	return redirect(url_for("security"))
+	return act_on_db_obj(
+		SecurityProfile, profile_id,
+		delete_op("security_profile.delete",
+		          data_filter=_guard,
+		          label_func=lambda p: p.label or p.username,
+		          on_success=lambda _: flash_redirect("Profile deleted.", "security")),
+		user_id=current_user.id,
+		on_missing=lambda: redirect(url_for("security"))
+	)
 
 
 @app.route("/security/<uuid:profile_id>/test", methods=["POST"])
 @login_required
-def security_test(profile_id):
-	data = request.get_json()
-	if not data or not data.get("device_id"):
+@with_json()
+def security_test(profile_id, data):
+	if not data.get("device_id"):
 		return err("No device selected", 404)
 
 	try:
@@ -2648,8 +2627,8 @@ def security_test(profile_id):
 	                    device_type=device.device_type,
 	                    label=device.label,
 	                    username=profile.username,
-	                    password=encryption.decrypt(profile.password_secret),
-	                    secret=encryption.decrypt(profile.enable_secret)
+	                    password=decrypt(profile.password_secret),
+	                    secret=decrypt(profile.enable_secret)
 	                    if profile.enable_secret else ""
 	                    )
 	try:
@@ -2682,11 +2661,12 @@ def mappings():
 
 @app.route("/mappings/create", methods=["POST"])
 @login_required
-def mappings_create():
-	label = request.form.get("label", "").strip() or None
-	inner_token = request.form["token_inner"].strip().upper()
-	property_name = request.form["property_name"]
-	index = int(request.form.get("index", "").strip()) if request.form.get(
+@with_form("token_inner", "property_name")
+def mappings_create(data):
+	label = data.get("label", "").strip() or None
+	inner_token = data["token_inner"].strip().upper()
+	property_name = data["property_name"]
+	index = int(data.get("index", "").strip()) if data.get(
 		"index", "").strip() else None
 
 	if invalid := validate_mapping_fields(index, property_name, inner_token):
@@ -2717,11 +2697,8 @@ def mappings_create():
 
 @app.route("/mappings/quick_create", methods=["POST"])
 @login_required
-def mappings_quick_create():
-	data = request.get_json()
-	if not data:
-		return jsonify(
-			{"status": "error", "message": "Invalid request"})
+@with_json()
+def mappings_quick_create(data):
 	inner_token = str(data.get("token_inner", "") or "").strip().upper()
 	property_name = str(data.get("property_name", "") or "").strip()
 	index_raw = data.get("index")
@@ -2729,13 +2706,13 @@ def mappings_quick_create():
 
 	status, msg = Validator.validate_var_map_inner_token(inner_token)
 	if not status:
-		return jsonify({"status": "error", "message": msg})
+		return err(msg)
 	status, msg = Validator.validate_var_map_property_name(property_name)
 	if not status:
-		return jsonify({"status": "error", "message": msg})
+		return err(msg)
 	status, msg = Validator.validate_var_index(index, property_name)
 	if not status:
-		return jsonify({"status": "error", "message": msg})
+		return err(msg)
 
 	token = f"$${inner_token}$$"
 	row = VariableMapping(token=token, index=index, property_name=property_name,
@@ -2748,20 +2725,20 @@ def mappings_quick_create():
 	except IntegrityError:
 		audit("mapping.create", success=False,
 		      detail={"reason": "duplicate_token", "token": token})
-		return jsonify(
-			{"status": "error", "message": f"Token {token} already exists"})
+		return err(f"Token {token} already exists")
 	audit("mapping.create", object_type="VariableMapping", object_label=token)
-	return jsonify({"status": "ok", "id": mapping_id, "token": token,
-	                "property_name": property_name, "index": index})
+	return ok(id=mapping_id, token=token, property_name=property_name,
+	          index=index)
 
 
 @app.route("/mappings/<uuid:mapping_id>/edit", methods=["POST"])
 @login_required
-def mappings_edit(mapping_id):
-	label = request.form.get("label", "").strip() or None
-	inner_token = request.form["token_inner"].strip().upper()
-	property_name = request.form["property_name"]
-	index = int(request.form.get("index", "").strip()) if request.form.get(
+@with_form("token_inner", "property_name")
+def mappings_edit(mapping_id, data):
+	label = data.get("label", "").strip() or None
+	inner_token = data["token_inner"].strip().upper()
+	property_name = data["property_name"]
+	index = int(data.get("index", "").strip()) if data.get(
 		"index", "").strip() else None
 
 	if invalid := validate_mapping_fields(index, property_name, inner_token):
@@ -2798,18 +2775,14 @@ def mappings_edit(mapping_id):
 @app.route("/mappings/<uuid:mapping_id>/delete", methods=["POST"])
 @login_required
 def mappings_delete(mapping_id):
-	with get_session() as db_session:
-		mapping = db_session.query(VariableMapping).filter_by(
-			id=mapping_id, user_id=current_user.id).first()
-		if not mapping:
-			return redirect(url_for("mappings"))
-
-		token_label = mapping.token
-		db_session.delete(mapping)
-		flash("Mapping deleted.", "success")
-	audit("mapping.delete", object_type="VariableMapping",
-	      object_id=mapping_id, object_label=token_label)
-	return redirect(url_for("mappings"))
+	return act_on_db_obj(
+		VariableMapping, mapping_id,
+		delete_op("mapping.delete",
+		          label_func=lambda m: m.token,
+		          on_success=lambda _: flash_redirect("Mapping deleted.", "mappings")),
+		user_id=current_user.id,
+		on_missing=lambda: redirect(url_for("mappings"))
+	)
 
 
 @app.route("/mappings/bulk_assign", methods=["POST"])
@@ -2836,16 +2809,14 @@ def mappings_bulk_assign():
 	if not data:
 		logger.notify("Bulk mapping assign failed: invalid request", "red",
 		              important=True)
-		return jsonify({"status": "error",
-		                "message": "Invalid request"}), 400
+		return err("Invalid request")
 	mapping_id = data.get("mapping_id", None)
 	device_ids = data.get("device_ids", [])
 
 	if not device_ids:
 		logger.notify("Bulk mapping assign failed: no devices provided", "red",
 		              important=True)
-		return jsonify(
-			{"status": "error", "message": "No devices provided"}), 400
+		return err("No devices provided")
 
 	# mapping_id comes from JSON, not a URL parameter — manual UUID cast needed
 	try:
@@ -2853,8 +2824,7 @@ def mappings_bulk_assign():
 	except (ValueError, TypeError):
 		logger.notify("Bulk mapping assign failed: invalid mapping ID", "red",
 		              important=True)
-		return jsonify(
-			{"status": "error", "message": "Invalid mapping ID"}), 400
+		return err("Invalid mapping ID")
 
 	with get_session() as db_session:
 		# Ownership check on mapping — done once before the loop
@@ -2863,8 +2833,7 @@ def mappings_bulk_assign():
 		if not mapping:
 			logger.notify("Bulk mapping assign failed: mapping not found",
 			              "red", important=True)
-			return jsonify(
-				{"status": "error", "message": "Mapping not found"}), 404
+			return err("Mapping not found", 404)
 
 		logger.notify(
 			f"Bulk mapping assign started: {len(device_ids)} devices → mapping {mapping.token}",
@@ -2913,7 +2882,7 @@ def mappings_bulk_assign():
 		"green" if not skipped else "yellow", important=True)
 	audit("mapping.bulk_assign", object_type="VariableMapping",
 	      object_id=parsed_mapping_id, detail={"count": len(device_ids)})
-	return jsonify({"status": "ok"})
+	return ok()
 
 
 # ── Property Definitions ─────────────────────────────────────────────────────
@@ -2936,19 +2905,16 @@ def properties_create():
 	icon = data.get("icon", "bi-tag").strip() or "bi-tag"
 	is_list = bool(data.get("is_list", False))
 	if not name or not label:
-		return jsonify(
-			{"status": "error", "message": "Name and label are required."}), 400
+		return err("Name and label are required.")
 	with get_session() as db_session:
 		existing = db_session.query(PropertyDefinition).filter_by(
 			name=name, user_id=current_user.id).first()
 		if existing:
-			return jsonify({"status": "error",
-			                "message": "Property name already exists."}), 400
+			return err("Property name already exists.")
 		# Also block shadowing system property names
 		sys_names = {p["name"] for p in SYSTEM_PROPERTIES}
 		if name in sys_names:
-			return jsonify({"status": "error",
-			                "message": "Cannot shadow a system property."}), 400
+			return err("Cannot shadow a system property.")
 		prop = PropertyDefinition(name=name, label=label, icon=icon,
 		                          is_list=is_list, user_id=current_user.id)
 		db_session.add(prop)
@@ -2956,8 +2922,7 @@ def properties_create():
 		prop_id = str(prop.id)
 	audit("property.create", object_type="PropertyDefinition",
 	      object_id=uuid.UUID(prop_id), object_label=name)
-	return jsonify({"status": "ok", "id": prop_id, "name": name,
-	                "label": label, "icon": icon, "is_list": is_list})
+	return ok(id=prop_id, name=name, label=label, icon=icon, is_list=is_list)
 
 
 @app.route("/properties/<uuid:prop_id>/edit", methods=["POST"])
@@ -2968,51 +2933,37 @@ def properties_edit(prop_id):
 	icon = data.get("icon", "bi-tag").strip() or "bi-tag"
 	is_list = bool(data.get("is_list", False))
 	if not label:
-		return jsonify(
-			{"status": "error", "message": "Label is required."}), 400
-	with get_session() as db_session:
-		prop = db_session.query(PropertyDefinition).filter_by(
-			id=prop_id, user_id=current_user.id).first()
-		if not prop:
-			return jsonify({"status": "error", "message": "Not found."}), 404
-		prop.label = label
-		prop.icon = icon
-		prop.is_list = is_list
-		prop_name = prop.name
-	audit("property.edit", object_type="PropertyDefinition",
-	      object_id=prop_id, object_label=prop_name)
-	return jsonify({"status": "ok"})
+		return err("Label is required.")
+	return act_on_db_obj(
+		PropertyDefinition, prop_id,
+		update_op({"label": label, "icon": icon, "is_list": is_list},
+		          "property.edit", label_func=lambda p: p.name),
+		user_id=current_user.id
+	)
 
 
 @app.route("/properties/<uuid:prop_id>/delete", methods=["POST"])
 @login_required
 def properties_delete(prop_id):
-	with get_session() as db_session:
-		prop = db_session.query(PropertyDefinition).filter_by(
-			id=prop_id, user_id=current_user.id).first()
-		if not prop:
-			return jsonify({"status": "error", "message": "Not found."}), 404
-		prop_name = prop.name
-		db_session.delete(prop)
-	audit("property.delete", object_type="PropertyDefinition",
-	      object_id=prop_id, object_label=prop_name)
-	return jsonify({"status": "ok"})
+	return act_on_db_obj(
+		PropertyDefinition, prop_id,
+		delete_op("property.delete", label_func=lambda p: p.name),
+		user_id=current_user.id
+	)
 
 
 @app.route("/admin/active_job_count")
 @login_required
+@require_admin
 def admin_active_job_count():
-	if current_user.role != "admin":
-		return jsonify({"status": "error", "message": "Forbidden"}), 403
 	count = int(redis_client.get("netrollout:active_count") or 0)
-	return jsonify({"status": "ok", "count": count})
+	return ok(count=count)
 
 
 @app.route("/admin/restart", methods=["POST"])
 @login_required
+@require_admin
 def admin_restart():
-	if current_user.role != "admin":
-		return jsonify({"status": "error", "message": "Forbidden"}), 403
 	audit("server.restart", object_type="Server", object_label="webapp")
 
 	def _do_restart():
@@ -3021,7 +2972,7 @@ def admin_restart():
 		os._exit(0)
 
 	threading.Thread(target=_do_restart, daemon=True).start()
-	return jsonify({"status": "ok"})
+	return ok()
 
 
 if __name__ == "__main__":

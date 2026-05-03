@@ -454,7 +454,7 @@
 {% endblock %}
 
 {% block operator_content %}
-<form id="rolloutForm" method="POST" action="{{ url_for('new_start_rollout') }}"
+<form id="rolloutForm" method="POST" action="{{ url_for('rollout.new_start_rollout') }}"
       enctype="multipart/form-data" novalidate>
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     {# platform_commands is populated by JS for multi-platform mode #}
@@ -552,7 +552,7 @@
                                 {% set missing = devices | selectattr('security_profile', 'none') | list | length %}
                                 {% if missing > 0 %}
                                 {{ missing }} device{{ 's' if missing != 1 }} unavailable —
-                                <a href="{{ url_for('inventory') }}">assign a security profile in Inventory</a>
+                                <a href="{{ url_for('inventory.inventory') }}">assign a security profile in Inventory</a>
                                 {% endif %}
                             </div>
                         </div>
@@ -562,7 +562,7 @@
                     <div class="empty-state">
                         <i class="bi bi-hdd-network-fill"></i>
                         No devices in inventory.<br>
-                        <a href="{{ url_for('inventory') }}"
+                        <a href="{{ url_for('inventory.inventory') }}"
                            style="color:#00bcd4; font-size:0.78rem;">Add devices →</a>
                     </div>
                     {% endif %}

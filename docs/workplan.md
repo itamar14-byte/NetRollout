@@ -472,13 +472,13 @@ Routes with real business logic (rollback, bulk assign, test connection) get a c
 | 4 | Ownership-guarded lookup copy-pasted ~12× | High | `act_on_db_object()` | ✅ implemented |
 | 5 | Mapping validator cascade duplicated 100% | Medium | `_validate_mapping_fields()` helper | ✅ complete (2026-04-29) |
 | 6 | LDAP server lookup repeated in 7+ routes | High | `act_on_db_object()` | ✅ implemented |
-| 7 | `security_create` / `security_quick_create` ~70% dupe | Medium | `_build_security_profile()` helper | ⬜ pending |
-| 8 | KPI calculation duplicated in dashboard + analytics | Low | KPI helper function | ⬜ pending |
-| 9 | Redis session write in 3 auth routes | Low | `_record_session()` helper | ⬜ pending |
+| 7 | `security_create` / `security_quick_create` ~70% dupe | Medium | `_build_security_profile()` helper | ✅ complete (2026-04-29) |
+| 8 | KPI calculation duplicated in dashboard + analytics | Low | KPI helper function | ✅ complete (2026-04-29) |
+| 9 | Redis session write in 3 auth routes | Low | `_record_session()` helper | ✅ complete (2026-04-29) |
 | 10 | `properties_quick_create` is a pass-through stub | Low | merge URLs onto `properties_create` | ✅ complete (2026-04-29) |
-| 11 | Login route has 5 levels of nesting | Medium | decompose to named functions | ⬜ pending |
+| 11 | Login route has 5 levels of nesting | Medium | decompose to named functions | ✅ complete (2026-04-29) |
 | 12 | `rollback` does DB query before validating JSON body | Low | reorder guard before query | ✅ complete (2026-04-29) |
-| 13 | `download_log` bespoke ownership check | Low | `_user_owns_job()` helper | ⬜ pending |
+| 13 | `download_log` bespoke ownership check | Low | `_user_owns_job()` helper | ✅ complete (2026-04-29) |
 | 14 | `security_test` returns raw dicts | Medium | `ok()`/`err()` on all returns | ✅ complete (2026-04-29) |
 | 15 | `security_test` error paths return 200 OK | Medium | correct HTTP codes (401/404/503/504) | ✅ complete (2026-04-29) |
 | 16 | `"Invalid redis_session_request"` in unrelated routes | Low | replace with `"Invalid request"` | ✅ complete (2026-04-29) |
@@ -579,6 +579,62 @@ Tag v1.0 on GitHub, push `v1.0` and `latest` to Docker Hub.
 - **4.5 CLI `.exe`** — PyInstaller standalone for `cli.py`
 - **3.5 Test suite expansion** — webapp route tests, CLI tests (core layer already at 82/83 passing)
 - **4.0b Grafana BYO** — server management card for external Grafana instance
+
+---
+
+### Phase 5 — Core layer refactor (post-v1.0)
+
+Critics are right that `Device` and `InputParser` mix concerns. Goal: each class has one reason to change.
+
+**Class splits:**
+- `Device` → `DeviceConfig` (pure value object, no I/O) + `DeviceConnector` (owns Netmiko/NAPALM operations)
+- `InputParser` → `CSVParser` + `FormParser` (each returns plain data) + `DeviceFactory` (constructs `DeviceConfig` from parsed data)
+
+**OOP patterns with genuine use cases:**
+
+*Polymorphism via ABC:*
+- `BaseConnector(ABC)` — declares `push_config()` and `verify()` as `@abstractmethod`
+- `NetmikoConnector(BaseConnector)` — Netmiko implementation
+- `NAPALMConnector(BaseConnector)` — NAPALM implementation
+- `RolloutEngine` receives a `BaseConnector` — swappable backend without touching engine logic
+- Python duck typing means polymorphism works without ABC, but ABC makes the contract explicit and raises `TypeError` at instantiation if a subclass is incomplete
+
+*Factory:*
+- `ConnectorFactory.build(device_config)` — picks `NetmikoConnector` vs `NAPALMConnector` based on `device_type`, replacing current if/else in the engine
+
+*Template Method:*
+- `RolloutEngine` defines a fixed execution skeleton (`push → optionally verify → record result`)
+- Steps are overridable if a future engine variant needs different behaviour
+
+**Approach:** write tests for the current behaviour first, then refactor. The public interface of `RolloutEngine.run()` should not change — internals only.
+
+---
+
+### Phase 5b — Deep Diff (post-v1.0)
+
+Upgrade the verify flow from best-effort substring matching to a true before/after config diff.
+
+**Problem with current shallow verify:**
+- Fetches running config once after push, does substring match per command
+- False negatives possible — a command may appear in the config from a previous job or different context and still register as verified
+- Moves verify from "actual proof of change" to "best-effort signal"
+
+**Deep Diff feature:**
+- New `RolloutOptions` flag: `deep_diff` (only valid when `verify=True`)
+- `_verify_device()`: fetch config before push, push, fetch config after — diff the two
+- `DeviceResult` schema: replace `fetched_config` (Text) with `config_before` + `config_after` (both Text, nullable) — Alembic migration required
+- Pass/fail still derivable: commands that appear in the diff came from this push, no ambiguity about context
+- Frontend diff view unchanged — feed `config_before` vs `config_after` instead of commands vs config
+
+**Shallow verify (current, unchanged):**
+- Fetch post-push config only, substring match per command
+- Fast, one NAPALM connection per device
+- Still shows commands-vs-result view for quick signal
+
+**UI:**
+- Rollout form: **Deep Diff** checkbox alongside Verify + Verbose — grayed out unless Verify is checked (JS dependency)
+- Tooltip: *"Fetches running config before and after push. Eliminates false negatives but doubles verification time."*
+- Results diff view: if `config_before` + `config_after` present → full LCS colored diff; if only shallow verify → commands vs config view
 
 ### 4.6 Server-side sessions (Flask-Session) ✅ COMPLETE (2026-04-23)
 Flask-Session backed by Redis (`SESSION_TYPE=redis`). On startup, all `session:*` keys flushed from Redis — FortiGate-style invalidation, no SECRET_KEY rotation needed. SECRET_KEY is now a fixed env var (`SECRET_KEY=dev` default), session lifecycle managed by Redis flush instead.
