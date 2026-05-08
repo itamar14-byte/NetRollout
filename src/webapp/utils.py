@@ -123,7 +123,7 @@ def with_json(*required_fields, on_invalid=None):
 			if not data:
 				if on_invalid:
 					on_invalid()
-				return err("Invalid request")
+				return err("Invalid ldap_request")
 			for field in required_fields:
 				if field not in data or not str(data[field] or "").strip():
 					return err(f"Missing field: {field}")
@@ -158,24 +158,6 @@ def with_form(*required_fields):
 def flash_redirect(msg, endpoint, category="success"):
 	flash(msg, category)
 	return redirect(url_for(endpoint))
-
-
-def validate_mapping_fields(index, property_name, inner_token):
-	status, msg = Validator.validate_var_map_inner_token(inner_token)
-	if not status:
-		flash(msg, "danger")
-		return redirect(url_for("mappings.mappings"))
-
-	status, msg = Validator.validate_var_map_property_name(property_name)
-	if not status:
-		flash(msg, "danger")
-		return redirect(url_for("mappings.mappings"))
-
-	status, msg = Validator.validate_var_index(index, property_name)
-	if not status:
-		flash(msg, "danger")
-		return redirect(url_for("mappings.mappings"))
-
 
 #######################Query helpers###############################
 def compile_query_rules(node, allowed_fields):
@@ -246,17 +228,6 @@ def build_kpi(results_30d, label_map):
 		"commands_pushed": sum(r.commands_sent for r in results_30d),
 		"top_failed": top_failed
 	}
-
-
-def job_status(rows: list[DeviceResult]) -> str:
-	statuses = {r.status for r in rows}
-	if "cancelled" in statuses:
-		return "cancelled"
-	if all(r.status == "failed" for r in rows):
-		return "failed"
-	if any(r.status in ("failed", "partial") for r in rows):
-		return "partial"
-	return "success"
 
 ##################Backend facing helpers#######################################
 class WebServices:
@@ -373,11 +344,6 @@ class WebServices:
 		self.audit("security_profile.create", object_type="SecurityProfile",
 		           object_label=label or username)
 		return profile_id
-
-	def user_owns_job(self, job_id, user_id):
-		with self.backend.postgres.get_session() as db_session:
-			return bool(db_session.query(DeviceResult).filter_by(
-				job_id=job_id, user_id=user_id).first())
 
 	#######################Auth helpers###############################
 

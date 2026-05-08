@@ -471,7 +471,7 @@
         <div>
             {% if request.path != '/' %}
             {% block home_button %}
-            <a href="{{ url_for('rollout.dashboard') if current_user.is_authenticated else url_for('auth.home') }}"
+            <a href="{{ url_for('jobs.dashboard') if current_user.is_authenticated else url_for('auth.home') }}"
                class="nr-back-btn">← Home</a>
             {% endblock %}
             {% endif %}
@@ -492,7 +492,7 @@
                     <i class="bi bi-person me-2" style="color:#555;"></i>My Account
                 </a></li>
                 {% if current_user.role == "admin" %}
-                <li><a class="dropdown-item" href="{{ url_for('admin.admin_panel') }}">
+                <li><a class="dropdown-item" href="{{ url_for('admin_users.admin_panel') }}">
                     <i class="bi bi-shield me-2" style="color:#555;"></i>Admin Panel
                 </a></li>
                 {% endif %}

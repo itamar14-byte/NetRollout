@@ -1,7 +1,5 @@
 # python utilities
 import os
-from pathlib import Path
-from dotenv import load_dotenv
 
 # services
 # flask
@@ -15,15 +13,10 @@ from redis.exceptions import ConnectionError as RedisConnectionError
 # sqlalchemy
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-
-_CONFIG_ENV = Path(__file__).parent.parent / "config.env"
-load_dotenv(_CONFIG_ENV, override=True)
 # local modules
 from src.webapp.extensions import register_extensions, register_handlers, \
 	register_auth
 from src.webapp.utils import WebServices
-from src.db.postgres_db import PostgresConnection
-from src.db.redis_db import RedisConnection
 from src.db.backend import BackendServices
 from src.orchestration import RolloutOrchestrator
 
@@ -124,10 +117,8 @@ def clear_sessions(redis_conn):
 
 ###########App initialization#########################################
 def launch_app():
-	postgres = PostgresConnection()
-	redis = RedisConnection()
-	backend = BackendServices(pg=postgres, redis=redis)
 
+	backend = BackendServices()
 	orchestrator = RolloutOrchestrator(backend,
 	                                   int(os.getenv("ORCHESTRATOR_WORKERS",
 	                                                 "4")))
@@ -139,20 +130,20 @@ def launch_app():
 	app.web = web_services
 
 
-	configure_app(app, redis)
+	configure_app(app, app.backend.redis)
 	register_extensions(app)
 	register_auth(app)
-	register_metrics(redis)
+	register_metrics(app.backend.redis)
 
 	register_handlers(app, backend)
 
 	app.session_interface = _SafeRedisSessionInterface(
 		app,
-		client=redis.client,
+		client=app.backend.redis.client,
 		key_prefix="redis_session:",
 		permanent=False,
 	)
-	clear_sessions(redis)
+	clear_sessions(app.backend.redis)
 
 	return app
 

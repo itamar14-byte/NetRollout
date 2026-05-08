@@ -368,7 +368,7 @@
 <!-- Topbar -->
 <div class="adm-topbar">
     <div class="adm-topbar-left">
-        <a href="{{ url_for('rollout.dashboard') }}" class="nr-back-btn">← Home</a>
+        <a href="{{ url_for('jobs.dashboard') }}" class="nr-back-btn">← Home</a>
         <div class="adm-topbar-sep"></div>
         <span class="adm-topbar-title">Administration</span>
     </div>
@@ -406,14 +406,14 @@
 
             <div class="adm-sb-section">Access</div>
 
-            <a href="{{ url_for('admin.admin_users') }}"
+            <a href="{{ url_for('admin_users.admin_users') }}"
                class="adm-sb-link {% if active_section == 'users' %}active{% endif %}"
                title="User Management">
                 <i class="bi bi-people-fill adm-sb-icon"></i>
                 <span class="adm-sb-label">User Management</span>
             </a>
 
-            <a href="{{ url_for('admin.admin_sessions') }}"
+            <a href="{{ url_for('admin_users.admin_sessions') }}"
                class="adm-sb-link {% if active_section == 'sessions' %}active{% endif %}"
                title="Live Sessions">
                 <i class="bi bi-person-lines-fill adm-sb-icon"></i>
@@ -423,14 +423,14 @@
             <hr style="border-color:#181818; margin:0.4rem 0.5rem;">
             <div class="adm-sb-section">Observability</div>
 
-            <a href="{{ url_for('admin.admin_audit') }}"
+            <a href="{{ url_for('admin_observability.admin_audit') }}"
                class="adm-sb-link {% if active_section == 'audit' %}active{% endif %}"
                title="Audit Logs">
                 <i class="bi bi-shield-check adm-sb-icon"></i>
                 <span class="adm-sb-label">Audit Logs</span>
             </a>
 
-            <a href="{{ url_for('admin.admin_analytics') }}"
+            <a href="{{ url_for('admin_observability.admin_analytics') }}"
                class="adm-sb-link {% if active_section == 'analytics' %}active{% endif %}"
                title="Analytics">
                 <i class="bi bi-bar-chart-line adm-sb-icon"></i>
@@ -440,7 +440,7 @@
             <hr style="border-color:#181818; margin:0.4rem 0.5rem;">
             <div class="adm-sb-section">System</div>
 
-            <a href="{{ url_for('admin.admin_server') }}"
+            <a href="{{ url_for('admin_servers.admin_server') }}"
                class="adm-sb-link {% if active_section == 'server' %}active{% endif %}"
                title="Server Management">
                 <i class="bi bi-server adm-sb-icon"></i>
@@ -617,7 +617,7 @@ function fireRestart() {
         sbBtn.style.color = '#ef9a9a';
         sbBtn.onclick = null;
     }
-    fetch('/admin/restart', { method: 'POST', headers: { 'X-CSRFToken': '{{ csrf_token() }}' } })
+    fetch('/admin/server/restart', { method: 'POST', headers: { 'X-CSRFToken': '{{ csrf_token() }}' } })
         .then(() => {
             const poll = setInterval(() => {
                 fetch('/').then(r => { if (r.ok) { clearInterval(poll); window.location.replace('/'); } }).catch(() => {});

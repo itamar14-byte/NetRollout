@@ -17,7 +17,7 @@
     </div>
 
     <!-- Filter bar -->
-    <form method="GET" action="{{ url_for('admin.admin_audit') }}" class="d-flex flex-wrap gap-2 mb-4" id="filterForm">
+    <form method="GET" action="{{ url_for('admin_observability.admin_audit') }}" class="d-flex flex-wrap gap-2 mb-4" id="filterForm">
       <input type="text" name="actor" value="{{ filter_actor }}" placeholder="Actor username…"
              class="form-control form-control-sm" style="max-width:180px;">
 
@@ -36,7 +36,7 @@
 
       <button type="submit" class="btn btn-primary btn-sm">Filter</button>
       {% if filter_actor or filter_action or filter_success %}
-        <a href="{{ url_for('admin.admin_audit') }}" class="btn btn-outline-secondary btn-sm">Clear</a>
+        <a href="{{ url_for('admin_observability.admin_audit') }}" class="btn btn-outline-secondary btn-sm">Clear</a>
       {% endif %}
     </form>
 
