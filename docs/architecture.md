@@ -1,27 +1,29 @@
 # NetRollout — Architecture Document
-_Written: 2026-04-07 — Updated: 2026-04-23 (Inventory UI + schema updates, observability stack)_
+_Written: 2026-04-07 — Updated: 2026-05-04 (DB layer, LDAP, blueprints, observability)_
 
 ---
 
 ## 1. Overview
 
-NetRollout is structured around five layers:
+NetRollout is structured around six layers:
 
 1. **Data classes** — pure runtime objects, no DB coupling
 2. **ORM models** — DB schema, all anchored to `User` as the master table
 3. **Service classes** — business logic, validation, parsing, logging
 4. **Job execution classes** — orchestration, pipeline, concurrency
-5. **Webapp layer** — Flask routes, thin delegation to orchestrator
+5. **DB layer** — connection management, session lifecycle, hot-reload
+6. **Webapp layer** — Flask app factory, extensions, blueprints, shared helpers
 
-The central design principle is that `User` is the master table. All persistent entities — devices, credentials, variable mappings, active jobs, and result history — are owned by a user via foreign key relationships.
+The central design principle is that `User` is the master table. All persistent entities — devices, credentials, variable mappings, and result history — are owned by a user via foreign key relationships.
 
-At runtime, `RolloutOrchestrator` is the concurrency manager — it owns the active jobs dict, coordinates multithreading, and keeps the DB and in-memory state in sync. `RolloutJob` is the lifecycle owner for a single job — it owns the thread, cancel event, logger, and engine. All execution context flows as arguments at call time — no hanging state on `RolloutEngine`.
+At runtime, `RolloutOrchestrator` is the concurrency manager. It owns the active jobs dict, coordinates multithreading, and keeps DB and in-memory state in sync. `RolloutJob` is the lifecycle owner for a single job — it owns the thread, cancel event, logger, and engine. All execution context flows as arguments at call time — no hanging state on `RolloutEngine`.
 
-**Configuration** (`db_install.py` install script asks for these at setup, falls back to documented defaults if skipped):
+**Configuration** (set via `config.env`, loaded at startup):
 - `NETROLLOUT_ENCRYPTION_KEY` — Fernet key for credential encryption. Default: auto-generated, written to `~/.netrollout/encryption.key`
 - `MAX_CONCURRENT_JOBS` — orchestrator thread concurrency limit. Default: `4`
-- `DATABASE_URL` — PostgreSQL connection string. Default: `postgresql+psycopg2://dbadmin:Pass123@localhost:5432/rollout_db`
-- `SECRET_KEY` — Flask session key. Default: auto-generated via `secrets.token_urlsafe(32)`
+- `DATABASE_URL` — PostgreSQL connection string
+- `REDIS_URL` — Redis connection string
+- `SECRET_KEY` — Flask session key
 
 ---
 
@@ -34,7 +36,6 @@ Data classes are pure Python objects with no SQLAlchemy coupling. They exist at 
 ### `RolloutOptions`
 Configuration flags for a rollout run. Pure data, no behavior.
 
-**Attributes:**
 | Name | Type | Description |
 |---|---|---|
 | `verify` | `bool` | Run post-push verification via NAPALM |
@@ -46,7 +47,6 @@ Configuration flags for a rollout run. Pure data, no behavior.
 ### `Device`
 Represents a single network device at runtime. Constructed from an `Inventory` row via `from_inventory()`.
 
-**Public attributes:**
 | Name | Type | Description |
 |---|---|---|
 | `ip` | `str` | Device IPv4 address |
@@ -56,60 +56,47 @@ Represents a single network device at runtime. Constructed from an `Inventory` r
 | `secret` | `str` | Enable secret (decrypted at construction) |
 | `port` | `int` | SSH port |
 | `label` | `str` | Friendly name from inventory |
-| `extra` | `dict` | Optional per-device attributes for `$$TOKEN$$` substitution. Populated from `Inventory.var_maps`. Defaults to `{}` if not set. |
+| `extra` | `dict` | Per-device attributes for `$$TOKEN$$` substitution, from `Inventory.var_maps` |
 
 **Public methods:**
 | Method | Signature | Description |
 |---|---|---|
-| `from_inventory` | `cls(row: Inventory) -> Device` | Factory. Constructs Device from Inventory row, decrypting credentials from the assigned SecurityProfile |
-| `fetch_config` | `(logger: RolloutLogger) -> str \| None` | Opens NAPALM connection, returns running config string. Used by `RolloutEngine._verify()` |
-
-**Public methods (kept public):**
-| Method | Signature | Description |
-|---|---|---|
-| `netmiko_connector` | `() -> dict` | Builds Netmiko `ConnectHandler` params dict. Called by `RolloutEngine._push_config()`. Kept public — private would be bad practice when called from a different class |
+| `from_inventory` | `cls(row: Inventory) -> Device` | Factory. Decrypts credentials from assigned SecurityProfile |
+| `netmiko_connector` | `() -> dict` | Builds Netmiko `ConnectHandler` params dict |
+| `fetch_config` | `(logger: RolloutLogger) -> str \| None` | Opens NAPALM connection, returns running config |
 
 ---
 
 ## 3. ORM Models
 
-All ORM models live in `src/tables.py`. All use UUID primary keys. `User` is the master table — every other table has a foreign key back to it.
+All ORM models live in `src/db/tables.py`. All use UUID primary keys. `User` is the master table.
 
 ---
 
 ### `User`
-Master table. Anchor of the entire data model. Owns all persistent entities.
 
-**Attributes:**
 | Name | Type | Description |
 |---|---|---|
-| `id` | `UUID` | Primary key, non-sequential |
+| `id` | `UUID` | Primary key |
 | `username` | `str(64)` | Unique, indexed |
-| `password_hash` | `str(255)` | pbkdf2:sha256 hash |
-| `email` | `str(120)` | Unique |
-| `full_name` | `str(120)` | |
+| `password_hash` | `str(255)` | Nullable — null for LDAP users |
+| `email` | `str(120)` | Unique, nullable |
+| `full_name` | `str(120)` | Nullable |
 | `role` | `str(40)` | `"user"` or `"admin"` |
 | `position` | `str(64)` | Nullable |
-| `is_active` | `bool` | False by default |
-| `is_approved` | `bool` | False by default |
-| `otp_secret` | `str(32)` | Nullable — null means unenrolled |
+| `is_active` | `bool` | Default False |
+| `is_approved` | `bool` | Default False |
+| `otp_secret` | `str` | Fernet-encrypted. Null = unenrolled (LDAP users skip OTP) |
+| `auth_type` | `str` | `"local"` or `"ldap"` |
+| `ldap_server_id` | `UUID` | FK → `LDAPServer`, nullable |
 | `created_at` | `DateTime` | Set at creation |
 
-**Relationships:**
-| Name | Target | Description |
-|---|---|---|
-| `inventory` | `[Inventory]` | User's saved devices |
-| `security_profiles` | `[SecurityProfile]` | User's credential profiles |
-| `variable_mappings` | `[VariableMapping]` | User's `$$VAR$$` token definitions |
-| `sessions` | `[RolloutSession]` | Active/pending rollout jobs |
-| `results` | `[DeviceResult]` | Completed rollout archive |
+**Relationships:** `inventory`, `security_profiles`, `variable_mappings`, `results`, `ldap_server`
 
 ---
 
 ### `Inventory`
-Per-user device store. Stores device topology only — no credentials. Credentials are assigned via `SecurityProfile`.
 
-**Attributes:**
 | Name | Type | Description |
 |---|---|---|
 | `id` | `UUID` | Primary key |
@@ -119,412 +106,324 @@ Per-user device store. Stores device topology only — no credentials. Credentia
 | `device_type` | `str` | Netmiko platform string |
 | `port` | `int` | SSH port |
 | `label` | `str` | Friendly name, nullable |
-| `var_maps` | `JSON` | Nullable. Per-device optional attributes dict. v1.0 keys: `hostname`, `loopback_ip`, `asn`, `mgmt_vrf`, `mgmt_interface`, `site`, `domain`, `timezone` (strings), `vrfs` (list of strings — positional substitution via `VariableMapping.index`). |
-
-**Relationships:**
-| Name | Target | Description |
-|---|---|---|
-| `security_profile` | `SecurityProfile` | Assigned credential profile |
+| `var_maps` | `JSON` | Per-device substitution attributes. Keys: `hostname`, `loopback_ip`, `asn`, `mgmt_vrf`, `mgmt_interface`, `site`, `domain`, `timezone` (strings), `vrfs` (list) |
 
 ---
 
 ### `SecurityProfile`
-Per-user encrypted credential store. One profile can be assigned to many inventory devices.
 
-**Attributes:**
 | Name | Type | Description |
 |---|---|---|
 | `id` | `UUID` | Primary key |
 | `user_id` | `UUID` | FK → `User` |
-| `label` | `str(64)` | Friendly name, nullable — falls back to username in UI |
-| `username` | `str(64)` | Plaintext — not a secret |
-| `password_secret` | `str(255)` | Fernet-encrypted password |
-| `enable_secret` | `str(255)` | Fernet-encrypted enable secret, nullable |
+| `label` | `str(64)` | Nullable |
+| `username` | `str(64)` | Plaintext |
+| `password_secret` | `str(255)` | Fernet-encrypted |
+| `enable_secret` | `str(255)` | Fernet-encrypted, nullable |
 
-**Encryption:** Fernet (AES-128-CBC) applied to `password_secret` and `enable_secret` only. `username` is stored plaintext. Key loaded from `NETROLLOUT_ENCRYPTION_KEY` environment variable. If absent, a key is generated at startup and written to `~/.netrollout/encryption.key`. The user is responsible for securing this file.
-
-**Delete safety:** deletion is blocked at the route level if any `Inventory` rows reference this profile (`profile.inventory` non-empty). User must reassign or delete those devices first.
+Deletion blocked at route level if any `Inventory` rows reference this profile.
 
 ---
 
 ### `VariableMapping`
-Per-user store of `$$TOKEN$$` → Device property name mappings. Used by the variable substitution system (Phase 3).
 
-**Attributes:**
 | Name | Type | Description |
 |---|---|---|
 | `id` | `UUID` | Primary key |
 | `user_id` | `UUID` | FK → `User` |
-| `token` | `str` | Free-text token string, e.g. `$$HOSTNAME$$`. Name is user's choice — no system meaning |
-| `property_name` | `str` | Key in `device.extra` (or core Device field name) |
-| `index` | `int \| None` | Nullable. `None` = simple string substitution. `N` = positional element of a list attribute (`device.extra[property_name][N]`). Validator checks `len >= index + 1` at rollout time. |
+| `token` | `str` | Free-text token, e.g. `$$HOSTNAME$$` |
+| `property_name` | `str` | Key in `device.extra` |
+| `index` | `int \| None` | Null = string substitution; N = `device.extra[property_name][N]` |
 
 ---
 
-### `RolloutSession`
-The "RAM" table. Tracks active and pending rollout jobs. The webapp job manager treats this as its work docket. Rows are deleted on job completion or cancellation.
+### `PropertyDefinition`
+User-managed device attribute definitions. Extend the set of keys available in `var_maps`.
 
-**Attributes:**
 | Name | Type | Description |
 |---|---|---|
-| `id` | `UUID` | Primary key — maps to `RolloutJob.id` in memory |
+| `id` | `UUID` | Primary key |
 | `user_id` | `UUID` | FK → `User` |
-| `status` | `str` | `pending` / `active` / `cancelling` |
-| `created_at` | `DateTime` | |
+| `name` | `str` | Internal key name |
+| `label` | `str` | Display label |
+| `icon` | `str` | Bootstrap Icons class |
+| `is_list` | `bool` | Whether the value is a list (enables index-based substitution) |
 
 ---
 
 ### `DeviceResult`
-The "MEMORY" table. Long-term archive of completed rollout outcomes, one row per device per job. No FK to `RolloutSession` — the session row is deleted by the time results are written. `job_id` is a soft reference for grouping.
+Permanent archive. One row per device per job. `job_id` is a soft reference — no FK to any session table.
 
-**Attributes:**
 | Name | Type | Description |
 |---|---|---|
 | `id` | `UUID` | Primary key |
 | `user_id` | `UUID` | FK → `User` |
-| `job_id` | `UUID` | Soft reference to the originating session |
-| `started_at` | `DateTime` | When the job started |
-| `completed_at` | `DateTime` | When the job finished |
+| `job_id` | `UUID` | Soft ref for grouping results by job |
+| `started_at` | `DateTime` | |
+| `completed_at` | `DateTime` | |
 | `device_ip` | `str` | |
 | `device_type` | `str` | |
 | `commands_sent` | `int` | |
-| `commands_verified` | `int \| None` | Null if verify was not run |
+| `commands_verified` | `int \| None` | Null if verify not run |
 | `status` | `str` | `success` / `partial` / `failed` / `cancelled` |
+| `fetched_config` | `TEXT` | Nullable — post-push running config snapshot if verify was run |
+
+---
+
+### `JobMetadata`
+Stores pre-substitution commands and optional comment per job. Soft `job_id` ref. 7-day pg_cron retention.
+
+| Name | Type | Description |
+|---|---|---|
+| `id` | `UUID` | Primary key |
+| `user_id` | `UUID` | FK → `User` |
+| `job_id` | `UUID` | Soft ref |
+| `commands` | `JSON` | Raw command list before variable substitution |
+| `comment` | `str` | Optional user comment |
+| `created_at` | `DateTime` | |
+
+---
+
+### `AuditLog`
+Append-only audit trail. 90-day pg_cron retention.
+
+| Name | Type | Description |
+|---|---|---|
+| `id` | `UUID` | Primary key |
+| `actor_id` | `UUID` | FK → `User`, ON DELETE SET NULL — denormalized below so logs survive user deletion |
+| `actor_username` | `str` | Denormalized username |
+| `action` | `str` | Dot-namespaced action string, e.g. `auth.login`, `inventory.create` |
+| `object_type` | `str` | Nullable — ORM class name of the affected object |
+| `object_id` | `UUID` | Soft ref to affected object |
+| `object_label` | `str` | Denormalized label — survives object deletion |
+| `success` | `bool` | |
+| `ip_address` | `str` | `request.remote_addr` |
+| `detail` | `JSON` | Nullable — machine-readable reason dict |
+| `timestamp` | `DateTime` | |
+
+---
+
+### `LDAPServer`
+Org-level LDAP/LDAPS server configuration.
+
+| Name | Type | Description |
+|---|---|---|
+| `id` | `UUID` | Primary key |
+| `host` | `str` | LDAP server hostname/IP |
+| `port` | `int` | Default 389 (LDAP) / 636 (LDAPS) |
+| `use_ssl` | `bool` | LDAPS |
+| `bind_dn` | `str` | Service account DN |
+| `bind_password` | `str` | Fernet-encrypted |
+| `base_dn` | `str` | Search base DN |
+| `is_active` | `bool` | |
+
+**Relationships:** `groups` → `[LDAPGroup]`, `users` → `[User]`
+
+---
+
+### `LDAPGroup`
+Group-level rule: members of this group are auto-provisioned as local users on first login.
+
+| Name | Type | Description |
+|---|---|---|
+| `id` | `UUID` | Primary key |
+| `ldap_server_id` | `UUID` | FK → `LDAPServer` |
+| `group_dn` | `str` | LDAP group DN to match against |
+| `role` | `str` | Role to assign to auto-created users (`"user"` or `"admin"`) |
+| `is_active` | `bool` | |
+
+> **Note:** `RolloutSession` table was **dropped** in Phase 4.6b. Redis is now the sole source of truth for ephemeral job state (active counts, job queue via BLPOP/RPUSH, log pub/sub).
 
 ---
 
 ## 4. Service Classes
 
----
-
 ### `Validator`
-Wraps all input validation logic. Takes a `RolloutLogger` instance — methods that produce user-facing error messages are instance methods; pure computation methods remain static.
-
-**Constructor:**
-```
-Validator(logger: RolloutLogger)
-```
-
-**Instance methods:**
-| Method | Signature | Description |
-|---|---|---|
-| `validate_device_data` | `(device: dict) -> bool` | Runs ip + port + platform checks, logs failures |
-| `validate_file_extension` | `(path: str, ext: str) -> bool` | File exists and has correct extension, logs failures |
-
-**Static methods:**
-| Method | Signature | Description |
-|---|---|---|
-| `validate_ip` | `(ip: str) -> bool` | Valid IPv4 address |
-| `validate_port` | `(port: str) -> bool` | Integer in 1–65535 range |
-| `validate_platform` | `(platform: str) -> bool` | In supported platforms set |
-| `test_tcp_port` | `(ip: str, port: int) -> bool` | TCP reachability probe, 3 attempts |
-
-_Note: original design had all methods static. Logger injection required promoting two methods to instance methods._
-
----
+Wraps all input validation. Logger-injected for user-facing errors; pure computation methods are static.
 
 ### `InputParser`
-Inventory is the single source of truth for rollout. CSV upload and web form are import mechanisms that populate the `Inventory` table — rollout always runs from inventory. Injected with a `Validator` and `RolloutLogger` instance.
-
-**Constructor:**
-```
-InputParser(validator: Validator, logger: RolloutLogger)
-```
-
-**Public methods:**
-| Method | Signature | Description |
-|---|---|---|
-| `csv_to_inventory` | `(device_path: str, user_id: UUID, db_session: Session) -> list[Device]` | Validates CSV rows, writes to `Inventory` table |
-| `form_to_inventory` | `(devices_json: str, user_id: UUID, db_session: Session) -> list[Device]` | Validates web form/JSON devices, writes to `Inventory` table |
-| `import_from_inventory` | `(inventory: list[Inventory]) -> list[Device]` | Static. Single rollout path. Constructs Device objects from user's saved inventory rows via `Device.from_inventory()` |
-| `parse_commands` | `(commands_path: str) -> list[str]` | Reads command file, returns list of strings |
-
-**Private methods:**
-| Method | Signature | Description |
-|---|---|---|
-| `_prepare_devices` | `(raw_devices: list[dict]) -> list[Device]` | Validates and constructs Device objects. Shared by import methods |
-
-_Note: original design had `import_from_csv`, `import_from_form`, `from_inventory` as names, and no logger in constructor. Names updated to better reflect intent. Logger added for import-path notifications._
-
----
+Inventory is the single source of truth for rollout. CSV upload and web form populate `Inventory` — rollout always runs from inventory.
 
 ### `RolloutLogger`
-Owns all logging I/O for a single rollout job. One instance per `RolloutJob`. Replaces `logging_utils.py` module-level globals.
-
-**Constructor:**
-```
-RolloutLogger(webapp: bool, verbose: bool, logfile: str = None)
-```
-
-**Attributes:**
-| Name | Type | Description |
-|---|---|---|
-| `queue` | `Queue` | SSE message queue, consumed by `sse_stream` |
-| `logfile` | `str` | Timestamped log file path |
-| `webapp` | `bool` | Enqueue messages for SSE instead of printing |
-| `verbose` | `bool` | Surface non-error messages |
-
-**Public methods:**
-| Method | Signature | Description |
-|---|---|---|
-| `log` | `(string: str) -> None` | Writes timestamped message to log file |
-| `notify` | `(string: str, color: str) -> None` | Routes message to queue (webapp) or console (CLI). Red always surfaces; others only if verbose |
-| `get` | `() -> str` | Blocking get from queue, consumed by `sse_stream` |
-
-_Note: original design had `RolloutLogger(logfile: str)` only. `webapp` and `verbose` moved here from `RolloutOptions` — logger owns output routing, engine only needs `verify` flag._
+Owns all logging I/O for a single rollout job. One instance per `RolloutJob`. Writes timestamped log file; routes SSE messages to Redis pub/sub channel.
 
 ---
 
 ## 5. Job Execution Classes
 
----
-
 ### `RolloutOrchestrator`
-Concurrency manager and single source of truth for active jobs. Singleton instantiated at app startup. Owns the in-memory jobs dict and keeps it in sync with `RolloutSession` in the DB. The webapp delegates all job lifecycle operations to it — routes are thin.
+Concurrency manager. Singleton instantiated at app startup. Owns the in-memory `_jobs` dict. Reads/writes job state counters in Redis.
 
-**Constructor:**
-```
-RolloutOrchestrator(max_concurrent: int = MAX_CONCURRENT_JOBS)
-```
-
-**Attributes:**
-| Name | Type | Description |
-|---|---|---|
-| `_jobs` | `dict[UUID, RolloutJob]` | Private. In-memory registry of all active and pending jobs |
-| `max_concurrent` | `int` | Maximum simultaneously executing jobs |
-| `_lock` | `Lock` | Protects `_jobs` from concurrent access |
-
-**Public methods:**
-| Method | Signature | Description |
-|---|---|---|
-| `submit` | `(devices, commands, params: RolloutOptions, user_id: UUID) -> UUID` | Builds engine + job internally, adds to `_jobs`, writes `RolloutSession(status="pending")`, calls `_dispatch()`, returns `job_id` |
-| `cancel` | `(job_id: UUID) -> None` | Looks up job, calls `job.cancel()`, sets `RolloutSession.status = "cancelling"` |
-| `get` | `(job_id: UUID) -> RolloutJob \| None` | Returns job from dict — used by SSE stream and status endpoint |
-
-**Private methods:**
-| Method | Signature | Description |
-|---|---|---|
-| `_dispatch` | `() -> None` | Snapshots state under lock, then starts pending jobs outside lock up to `max_concurrent`. Updates `RolloutSession.status = "active"`. Calls `job.start(self._cleanup)` |
-| `_cleanup` | `(job_id: UUID) -> None` | Called on job completion via callback. Removes from `_jobs`, writes `DeviceResult` rows, deletes `RolloutSession`, calls `_dispatch()` |
-
-_Note: original design had `submit(job: RolloutJob)`. Revised: orchestrator builds engine + job internally from raw inputs. `jobs` dict made private (`_jobs`)._
+**Constructor:** `RolloutOrchestrator(backend: BackendServices, max_concurrent: int)`
 
 **Dispatch loop:**
 ```
 submit(job)
-  → write RolloutSession(status="pending")
+  → RPUSH job to Redis queue
+  → write active/pending counts to Redis
   → _dispatch()
        → active_count < max_concurrent?
-            yes → job.start(), RolloutSession(status="active")
+            yes → job.start(), increment active counter
             no  → job waits in dict
 
 job completes
   → _cleanup(job_id)
-       → delete RolloutSession
-       → write DeviceResult rows
+       → write DeviceResult rows to Postgres
+       → decrement active counter in Redis
        → _dispatch()   # slot freed, start next pending job
 ```
 
----
-
 ### `RolloutEngine`
-Owns the network pipeline — push and verify. Pure pipeline object. Receives execution context as arguments at call time, not at construction.
+Pure pipeline object. Receives execution context as arguments — no hanging state.
 
-**Constructor:**
-```
-RolloutEngine(param: RolloutOptions, devices: list[Device], commands: list[str])
-```
-
-**Attributes:**
-| Name | Type | Description |
-|---|---|---|
-| `_verify_flag` | `bool` | Extracted from `param.verify`. Only flag engine needs — `webapp`/`verbose` live in logger |
-| `devices` | `list[Device]` | Devices to configure |
-| `commands` | `list[str]` | Commands to push |
-
-**Public methods:**
-| Method | Signature | Description |
-|---|---|---|
-| `run` | `(cancel_event: Event, logger: RolloutLogger) -> list[DeviceResultDict]` | Entry point. Calls `_push_config`, optionally `_verify`. Returns structured per-device results |
-
-**Private methods:**
-| Method | Signature | Description |
-|---|---|---|
-| `_push_config` | `(cancel_event: Event, logger: RolloutLogger) -> tuple[str \| None, dict[str, bool]]` | Iterates devices, opens Netmiko, sends commands. Returns cancel signal + per-device success map |
-| `_verify` | `(logger: RolloutLogger) -> dict[str, int]` | Iterates devices, calls `device.fetch_config(logger)`, compares to commands. Runs to completion — not cancellable |
-
----
+**Constructor:** `RolloutEngine(param: RolloutOptions, devices: list[Device], commands: list[str])`
 
 ### `RolloutJob`
-Lifecycle owner for a single rollout execution. Owns the thread, cancel flag, engine, and logger. Created by `RolloutOrchestrator.submit()` and stored in the active jobs registry.
-
-**Constructor:**
-```
-RolloutJob(job_id: UUID, user_id: UUID, engine: RolloutEngine, options: RolloutOptions)
-```
-Constructs its own `RolloutLogger` from `options.webapp` and `options.verbose` internally.
-
-**Attributes:**
-| Name | Type | Description |
-|---|---|---|
-| `job_id` | `UUID` | Maps to `RolloutSession.id` in DB |
-| `user_id` | `UUID` | FK owner — used by `_cleanup` to write `DeviceResult` rows |
-| `started_at` | `datetime \| None` | Set in `start()`, always populated before `_cleanup` runs |
-| `results` | `list[DeviceResultDict]` | Populated by `engine.run()`, consumed by `_cleanup` |
-| `_thread` | `Thread` | Private. Background execution thread |
-| `_cancel_flag` | `Event` | Private. Cancellation signal — owned here, passed to engine at call time |
-| `_engine` | `RolloutEngine` | Private. The pipeline |
-| `_logger` | `RolloutLogger` | Private. Constructed internally from options |
-
-**Public methods:**
-| Method | Signature | Description |
-|---|---|---|
-| `start` | `(on_complete: Callable[[UUID], None]) -> None` | Creates thread via closure, starts it. Thread calls `engine.run(cancel_flag, logger)` then fires `on_complete(self.id)` |
-| `cancel` | `() -> None` | Sets `cancel_flag`. Engine polls this during iteration |
-| `is_alive` | `() -> bool` | Returns whether thread is running |
-| `is_pending` | `() -> bool` | Returns whether thread has not started yet |
-
-_Note: original design had `RolloutJob(id, engine, logger)` and `start()` with no args. Revised: job takes `options` and constructs logger internally. `start()` takes `on_complete` callback to notify orchestrator on completion — avoids circular import. `_thread` privatized._
+Lifecycle owner. Owns thread, cancel flag, engine, logger. Created by `RolloutOrchestrator.submit()`.
 
 ---
 
-## 6. Relationship Map
+## 6. DB Layer
 
+### `PostgresConfig` / `RedisConfig`
+Frozen dataclasses. Load from env vars via `unload_env()`. `get_url()` returns the connection string. Immutable — a new config object is created for each hot-reload.
+
+### `PostgresConnection`
+Wraps a SQLAlchemy engine. `get_session()` is a context manager — commits on clean exit, rolls back on exception. `pool_pre_ping=True` — stale connections are tested before use. `reload_db(config)` atomically swaps the engine; raises `RuntimeError` if the new server is unreachable.
+
+### `RedisConnection`
+Wraps a `redis.Redis` client. Same `reload_db(config)` pattern as Postgres.
+
+### `BackendServices`
+Composition root for all infrastructure. Constructed once in `launch_app()`, attached to `app.backend`.
+
+```python
+BackendServices(pg: PostgresConnection, redis: RedisConnection)
+# app.backend.postgres  →  PostgresConnection
+# app.backend.redis     →  RedisConnection
 ```
-                        ┌─────────────────────────────────┐
-                        │              User                │
-                        │  id, username, role, otp_secret  │
-                        └──────────────┬──────────────────┘
-                                       │ owns (FK)
-          ┌──────────────┬─────────────┼──────────────┬──────────────┐
-          ▼              ▼             ▼              ▼              ▼
-    ┌──────────┐  ┌─────────────┐  ┌────────┐  ┌──────────┐  ┌──────────────┐
-    │Inventory │  │SecurityProf.│  │Variable│  │Rollout   │  │DeviceResult  │
-    │          │  │             │  │Mapping │  │Session   │  │(archive)     │
-    │ip        │  │label        │  │        │  │          │  │              │
-    │device_typ│  │username     │  │token   │  │status    │  │job_id (soft) │
-    │port      │  │password(enc)│  │prop_   │  │created_at│  │device_ip     │
-    │label     │  │secret (enc) │  │name    │  │          │  │status        │
-    │profile_id│  └─────────────┘  └────────┘  └──────────┘  │cmds_sent    │
-    └────┬─────┘        ▲                                      │cmds_verified│
-         │              │ assigns                              └──────────────┘
-         └──────────────┘
 
+`health()` returns `{"postgres": bool, "redis": bool}` — each service checked independently, exceptions caught separately so one failure doesn't mask the other.
 
-                    RUNTIME (not persisted)
-                    ───────────────────────
+`reload_postgres(config)` / `reload_redis(config)` — hot-reload without restart. Called from the Server Management UI.
 
-    ┌─────────────────────────────────────────────────────┐
-    │                    RolloutJob                        │
-    │  id, thread, cancel_event                           │
-    │                                                     │
-    │   ┌───────────────┐      ┌─────────────────────┐   │
-    │   │ RolloutLogger │      │    RolloutEngine     │   │
-    │   │               │      │                     │   │
-    │   │ queue         │      │ param               │   │
-    │   │ logfile       │      │ devices             │   │
-    │   │               │      │ commands            │   │
-    │   │ log()         │      │                     │   │
-    │   │ notify()      │      │ run(cancel, logger) │   │
-    │   │ get()         │      │ _push_config()      │   │
-    │   └───────────────┘      │ _verify()           │   │
-    │          ▲               └──────────┬──────────┘   │
-    │          │ injected at call time    │ uses          │
-    │          └──────────────────────────┘              │
-    └─────────────────────────────────────────────────────┘
-              │                        │
-              ▼                        ▼
-       sse_stream()              Device objects
-       consumes queue            (built from Inventory
-                                  via from_inventory())
+---
 
+## 7. Webapp Layer
 
-    RolloutOrchestrator (singleton, app startup):
-    ┌──────────────────────────────────────────┐
-    │  jobs: { job_id: RolloutJob }            │
-    │  max_concurrent: int                     │
-    │                                          │
-    │  submit() ──► write RolloutSession (DB)  │
-    │               _dispatch()                │
-    │                                          │
-    │  _dispatch() ─► job.start() if slot free │
-    │                 update RolloutSession     │
-    │                                          │
-    │  _cleanup() ─► delete RolloutSession     │
-    │                write DeviceResult rows   │
-    │                _dispatch() (next job)    │
-    └──────────────────────────────────────────┘
+### `setup.py` — App factory
+`launch_app()` is the pure composition root. Creates backend, orchestrator, web services, Flask app object. Registers extensions and handlers. Does **not** register blueprints — that responsibility lives in `__init__.py`.
 
-    webapp.py routes (thin):
-    POST /start_rollout  →  orchestrator.submit(job)
-    POST /cancel_rollout →  orchestrator.cancel(job_id)
-    GET  /rollout_stream →  orchestrator.get(job_id).logger.get()
-    GET  /rollout_status →  orchestrator.get(job_id)
+```python
+app.backend   →  BackendServices
+app.web       →  WebServices
+app.orchestrator  →  RolloutOrchestrator
+```
 
+`_SafeRedisSessionInterface` — subclass of `RedisSessionInterface` that catches `RedisConnectionError` on open/save, returning an empty session rather than crashing. Registered **after** `configure_app()` (which calls `Session(app)` internally) so it isn't overwritten.
 
-    InputParser ──uses──► Validator
-    InputParser ──produces──► (list[Device], list[str])
-                               └──► RolloutEngine constructor
+### `extensions.py` — Module-level Flask extensions
+Extensions are created at module level (not inside functions) so they can be imported by blueprints at definition time without an app context.
+
+```python
+login_mng = LoginManager()         # login_view = "auth.home"
+conn_limit = Limiter(...)          # rate limiting
+csrf = CSRFProtect()
+```
+
+`register_extensions(app)` — calls `init_app()` on each, initializes `PrometheusMetrics`.
+`register_auth(app)` — registers `@login_mng.user_loader`.
+`register_handlers(app, backend)` — CSRF error handler, service-unavailable handler, hot-reload env capture.
+
+### `utils.py` — Shared helpers
+
+**`WebServices(backend)`** — attached to `app.web`. Contains helpers used by 2+ blueprints:
+- `audit(action, ...)` — writes one `AuditLog` row in its own session
+- `act_on_db_obj(model, obj_id, func, ...)` — generic DB dispatcher
+- `create_op`, `update_op`, `delete_op` — CRUD operation factories
+- `build_kpi(results_30d, label_map)` — KPI dict for analytics
+- `job_status(rows)` — aggregate job status from device results
+- `compile_query_rules(node, allowed_fields)` — jQuery QueryBuilder → SQLAlchemy expression
+- `get_property_defs(user_id)` — system + user property definitions
+- `build_security_profile(...)`, `user_owns_job(...)`
+
+**Standalone functions:** `ok()`, `err()`, `require_admin`, `with_json`, `with_form`, `flash_redirect`, `validate_mapping_fields`
+
+**Constants:** `SYSTEM_PROPERTIES`, `QUERY_DEVICE_RESULT_FIELDS`, `QUERY_AUDIT_LOG_FIELDS`, `QUERY_OPS`, `DEVICE_RESULT_COLUMNS`, `AUDIT_LOG_COLUMNS`
+
+### `webapp/__init__.py` — Entry point
+`create_app()` calls `launch_app()` then registers all blueprints. Serve call wired to container entrypoint.
+
+### `blueprints/`
+Each blueprint owns its routes and route-specific helpers. Shared helpers stay in `WebServices`. Blueprints access `app.web` and `app.backend` via `current_app` inside routes — never at module level.
+
+| Blueprint | Status | Routes |
+|---|---|---|
+| `auth.py` | ✅ Complete | `/`, `/login`, `/register`, `/otp_enroll`, `/otp_verify`, `/logout`, `/account` |
+| `rollout.py` | stub | `/dashboard`, `/start_rollout`, `/cancel_rollout`, `/rollout_stream`, `/rollout_status`, `/results`, `/active_jobs` |
+| `inventory.py` | stub | `/inventory/*` |
+| `security.py` | stub | `/security_profiles/*` |
+| `mappings.py` | stub | `/mappings/*` |
+| `properties.py` | stub | `/properties/*` |
+| `analytics.py` | stub | `/analytics/*` |
+| `admin.py` | stub | `/admin/*` |
+
+**Auth flow:**
+```
+POST /login
+  local user  →  check_password_hash → approval/active gates → start_otp_flow()
+  ldap user   →  user_bind() → approval/active gates → complete_login()
+  unknown     →  login_ldap_group() → check_group_membership() → auto-provision → complete_login()
+
+start_otp_flow()
+  → session["pre_auth_user_id"] = user.id
+  → otp_secret present? → /otp_verify
+  → no secret?          → /otp_enroll (first-time setup)
+
+complete_login()
+  → db_session.expunge(user) → login_user(user) → record_redis_session() → redirect dashboard
 ```
 
 ---
 
-## 7. Observability Stack
+## 8. Observability Stack
 
-Three external services running on the `netrollout-obs` Docker network. All are sidecar services — the Flask app runs independently and is unaffected if they are down.
-
-### Datasources
+Three sidecar services on the `netrollout-obs` Docker network. Flask app runs independently — unaffected if they are down.
 
 | Service | Address | Role |
 |---|---|---|
-| PostgreSQL | `NetRollout-DB:5432` | Historical business metrics — queried directly by Grafana via read-only `grafana_reader` user |
-| Prometheus | `http://prometheus:9090` | Live/ephemeral metrics — active job counts, Flask request rates and latencies |
+| PostgreSQL | `NetRollout-DB:5432` | Historical business metrics — direct Grafana datasource via `grafana_reader` read-only user |
+| Prometheus | `http://prometheus:9090` | Live metrics — active job counts, Flask request rates and latencies |
 | Loki | `http://loki:3100` | Log stream — per-job log files shipped by Promtail, searchable by `job_id` label |
 
-### Prometheus metrics
+**Custom Prometheus collector** (`RolloutSessionCollector`) reads `netrollout:active_count` and `netrollout:pending_count` from Redis (set by `RolloutOrchestrator`). Exposes `netrollout_active_jobs` and `netrollout_pending_jobs` gauges.
 
-`prometheus_flask_exporter` auto-instruments all Flask routes. Initialized with `group_by='url_rule'` so metrics are broken down by endpoint (not raw URL). Exposes at `/metrics` behind nginx (HTTPS, `insecure_skip_verify: true` in `prometheus.yml`).
-
-Custom collector `RolloutSessionCollector` in `webapp.py` exposes two gauges by reading the orchestrator's in-memory `_jobs` dict via `job_counts()`:
-- `netrollout_active_jobs` — jobs currently executing
-- `netrollout_pending_jobs` — jobs waiting for a slot
-
-### Promtail / Loki
-
-Promtail container bind-mounts the `logs/` directory and watches `*.log`. Pipeline stages:
-1. Regex on filename → extracts `job_id` label from `rollout_{timestamp}_{job_id}.log`
-2. Regex on log line → extracts `log_time` from the log timestamp prefix
-3. Timestamp stage → overrides Loki ingestion time with the actual log line time
-
-`reject_old_samples: false` in loki-config.yml — required to ingest historical log files.
-
-### Grafana dashboards
-
-Four dashboards provisioned from `docs/grafana/dashbaord_config/`:
+**Four Grafana dashboards** provisioned from `docs/grafana/dashboard_config/`:
 
 | Dashboard | Datasources | Purpose |
 |---|---|---|
-| Operations Overview | Prometheus | Live job state, request rates, p99 latency, rollouts per day |
-| Job Analytics | PostgreSQL | Historical outcomes, platform breakdown, activity heatmap |
-| Job Detail | PostgreSQL + Loki | Drill-down by `$job_id` — device results, commands, log stream |
-| Audit & Security | PostgreSQL | Audit trail, failure rates, top actors, failed actions log |
-
-Provisioning files in `docs/grafana/provisioning/` — datasources and dashboard loader. Grafana configured with `allow_embedding = true` and anonymous Viewer access for iframe embedding in the webapp.
+| Operations Overview | Prometheus | Live job state, request rates, p99 latency |
+| Job Analytics | PostgreSQL | Historical outcomes, platform breakdown, heatmap |
+| Job Detail | PostgreSQL + Loki | Drill-down by `$job_id` — device results, log stream |
+| Audit & Security | PostgreSQL | Audit trail, failure rates, top actors |
 
 ---
 
-## 8. Key Design Decisions
+## 9. Key Design Decisions
 
 | Decision | Choice | Rationale |
 |---|---|---|
 | `cancel_event` ownership | `RolloutJob` | Lifecycle concern, not logging or pipeline |
 | Execution context passing | Arguments at call time | No hanging state on `RolloutEngine` |
-| Credential storage | `SecurityProfile` table, encrypted | Separates topology from credentials, one profile → many devices |
-| Encryption key source | Env var → fallback to `~/.netrollout/encryption.key` | User owns their security posture |
+| Credential storage | `SecurityProfile` table, Fernet-encrypted | Topology separated from credentials; one profile → many devices |
 | `Device` construction | `from_inventory()` factory | Single boundary where decryption happens |
-| Results schema | One row per device per job | Enables per-device analytics and audit via SQL aggregation |
-| `RolloutOrchestrator` | Singleton at app startup | Single owner of concurrency logic — webapp routes delegate to it |
-| `RolloutOrchestrator._dispatch()` | Called on submit and cleanup | Fills available slots automatically, no polling needed |
-| `RolloutSession` lifetime | Deleted on completion | Keeps the "RAM" table small; archive lives in `DeviceResult` |
-| Config/env vars | Asked at install time via `db_install.py`, defaults provided | User controls their own environment; no hardcoded secrets in code |
-| `Validator` design | Logger-injected instance class | `validate_device_data` and `validate_file_extension` need logger to surface errors; pure computation methods stay static |
+| Results schema | One row per device per job | Enables per-device analytics via SQL aggregation |
+| `RolloutOrchestrator` | Singleton at app startup | Single owner of concurrency — routes delegate to it |
+| Ephemeral job state | Redis only (`RolloutSession` table dropped) | Redis is faster and naturally ephemeral; Postgres unnecessary for RAM data |
+| Flask extensions | Module-level with `init_app()` | Must be importable by blueprints at definition time, before app context exists |
+| `app.web` / `app.backend` | Set on app object in `launch_app()` | Available via `current_app` in any request context; avoids circular imports |
+| Blueprint `url_for` | Always prefixed (`"auth.home"`, `"rollout.dashboard"`) | Blueprint namespace prevents endpoint name collisions |
+| `_SafeRedisSessionInterface` | Registered after `Session(app)` | `Session(app)` overwrites `session_interface`; must follow it |
+| LDAP auto-provisioning | Group-rule matched → create local User on first login | Zero-touch onboarding; role assigned from group mapping |
+| `AuditLog.actor_username` | Denormalized | Audit records survive user deletion; no orphaned FK |
+| `reload_db()` | Raises `RuntimeError` if new server unreachable | Silent failure would leave app pointing at a broken connection |

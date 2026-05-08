@@ -1,17 +1,23 @@
+# python utilities
 import base64
 import uuid
 from collections import Counter
 from io import BytesIO
 from urllib.parse import urlparse
-
 import pyotp
 import qrcode
+
+#sevices
+#flask
 from flask import Blueprint, session, redirect, url_for, flash, current_app, \
 	render_template, request
 from flask_login import login_user, current_user, login_required, logout_user
+#sqlalchemy
 from sqlalchemy.exc import IntegrityError
+#werkzug
 from werkzeug.security import check_password_hash, generate_password_hash
 
+#local modules
 from src.db.tables import LDAPServer, LDAPGroup, User
 from src.encryption import decrypt, encrypt
 from src.ldap_auth import check_group_membership, fetch_user_details, user_bind
@@ -46,13 +52,13 @@ def complete_login(user, db_session, **audit_detail):
 	# Expunge before login_user so Flask-Login doesn't hold a live ORM object
 	# across requests.
 	# Redis session is registered immediately so the token is
-	# valid on the very next request.
+	# valid on the very next ldap_request.
 	db_session.expunge(user)
 	login_user(user)
 	record_redis_session(user.id)
 	current_app.web.audit("auth.login", success=True, username=user.username,
 	           actor_id=user.id, detail=audit_detail or None)
-	return redirect(url_for("rollout.dashboard"))
+	return redirect(url_for("jobs.dashboard"))
 
 
 def start_otp_flow(user):
@@ -276,7 +282,7 @@ def otp_enroll(data):
 			session.pop("pre_auth_user_id")
 			login_user(user)
 			record_redis_session(user.id)
-			return redirect(url_for("rollout.dashboard"))
+			return redirect(url_for("jobs.dashboard"))
 		flash("invalid code, please try again", "danger")
 		return redirect(url_for("auth.otp_enroll"))
 
@@ -305,7 +311,7 @@ def otp_verify(data):
 			login_user(user)
 			record_redis_session(user.id)
 			session.pop("pre_auth_user_id")
-			return redirect(url_for("rollout.dashboard"))
+			return redirect(url_for("jobs.dashboard"))
 		flash("invalid code, please try again", "danger")
 		return redirect(url_for("auth.otp_verify"))
 	elif request.method == "GET":

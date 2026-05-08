@@ -4,48 +4,33 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="27240518-82b3-4a70-8f71-cc3b690d164c" name="Changes" comment="  - Apply 22-item audit quick fixes: HTTP status codes corrected (400/422/500/503),&#10;    raw dict returns standardised to jsonify, dead else-after-return removed,&#10;    duplicate imports dropped, redundant db.delete() removed&#10;  - Extract route helpers: validate_mapping_fields, build_security_profile,&#10;    build_kpi, user_owns_job, record_redis_session&#10;  - Decompose login route into _login_fail / _complete_login / _start_otp_flow /&#10;    _login_local / _login_ldap_existing / _login_ldap_group with decision-junction&#10;    comments on each branch&#10;  - Fix kpi_label_map bug: dashboard was passing inv_label_map (own inventory) to&#10;    build_kpi instead of the scoped kpi_label_map when admin views another user">
-      <change afterPath="$PROJECT_DIR$/src/db/backend.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/webapp/__init__.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/webapp/blueprints/__init__.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/webapp/blueprints/admin.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/webapp/blueprints/analytics.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/webapp/blueprints/auth.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/webapp/blueprints/inventory.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/webapp/blueprints/mappings.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/webapp/blueprints/properties.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/webapp/blueprints/rollout.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/webapp/blueprints/security.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/webapp/extensions.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/webapp/setup.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/webapp/utils.py" afterDir="false" />
+    <list default="true" id="27240518-82b3-4a70-8f71-cc3b690d164c" name="Changes" comment=" Refactor webapp into Flask blueprint architecture (Phase 4.9c)&#10;&#10;  Split monolithic webapp.py into setup.py (app factory), extensions.py&#10;  (module-level Flask extensions), utils.py (WebServices + shared helpers),&#10;  and an auth blueprint. Entry point moved to webapp/__init__.py with&#10;  create_app() factory. Fixed DB layer: OperationalError imports, reload_db&#10;  error raising, pool_pre_ping. Updated all url_for() calls across templates&#10;  to blueprint-prefixed endpoints.">
+      <change afterPath="$PROJECT_DIR$/src/webapp/blueprints/admin_observability.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/webapp/blueprints/admin_servers.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/webapp/blueprints/jobs.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/misc.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/CLAUDE.md" beforeDir="false" afterPath="$PROJECT_DIR$/CLAUDE.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/workplan.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/workplan.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/db/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/db/__init__.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/db/db_install.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/db/db_install.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/architecture.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/architecture.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/db/backend.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/db/backend.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/db/postgres_db.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/db/postgres_db.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/db/redis_db.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/db/redis_db.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/db/tables.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/db/tables.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/orchestration.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/orchestration.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/webapp.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/webapp/webapp.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/templates/active_jobs.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/active_jobs.html" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/webapp/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/webapp/__init__.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/webapp/blueprints/admin.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/webapp/blueprints/admin_users.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/webapp/blueprints/analytics.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/webapp/blueprints/analytics.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/webapp/blueprints/auth.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/webapp/blueprints/auth.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/webapp/blueprints/inventory.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/webapp/blueprints/inventory.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/webapp/blueprints/mappings.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/webapp/blueprints/mappings.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/webapp/blueprints/properties.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/webapp/blueprints/properties.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/webapp/blueprints/rollout.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/webapp/blueprints/rollout.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/webapp/blueprints/security.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/webapp/blueprints/security.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/webapp/setup.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/webapp/setup.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/webapp/utils.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/webapp/utils.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/webapp/webapp.py" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/templates/admin.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/admin.html" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/templates/admin_audit.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/admin_audit.html" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/templates/analytics.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/analytics.html" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/templates/base.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/base.html" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/templates/dashboard.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/dashboard.html" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/templates/index.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/index.html" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/templates/inventory.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/inventory.html" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/templates/new_rollout.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/new_rollout.html" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/templates/operator_base.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/operator_base.html" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/templates/otp_enroll.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/otp_enroll.html" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/templates/otp_verify.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/otp_verify.html" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/templates/register.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/register.html" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/templates/results.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/results.html" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/templates/security.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/security.html" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/templates/server_management.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/server_management.html" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/templates/variable_mappings.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/variable_mappings.html" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -128,7 +113,7 @@
     &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
     &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
     &quot;run.code.analysis.last.selected.profile&quot;: &quot;pProject Default&quot;,
-    &quot;settings.editor.selected.configurable&quot;: &quot;swagger&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable&quot;,
     &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
   },
   &quot;keyToStringList&quot;: {
@@ -298,15 +283,13 @@
       <workItem from="1777749541352" duration="7474000" />
       <workItem from="1777793864441" duration="13106000" />
       <workItem from="1777831825485" duration="337000" />
-      <workItem from="1777836838687" duration="6051000" />
-    </task>
-    <task id="LOCAL-00029" summary="● Auth pipeline: implement TOTP enrollment and verification with QR code and animated OTP input">
-      <option name="closed" value="true" />
-      <created>1775476468285</created>
-      <option name="number" value="00029" />
-      <option name="presentableId" value="LOCAL-00029" />
-      <option name="project" value="LOCAL" />
-      <updated>1775476468285</updated>
+      <workItem from="1777836838687" duration="6844000" />
+      <workItem from="1777910148870" duration="44000" />
+      <workItem from="1778080832845" duration="6511000" />
+      <workItem from="1778136818798" duration="5661000" />
+      <workItem from="1778176236821" duration="8530000" />
+      <workItem from="1778252140690" duration="10793000" />
+      <workItem from="1778272905972" duration="1125000" />
     </task>
     <task id="LOCAL-00030" summary="● Auth pipeline: implement TOTP enrollment and verification with QR code and animated OTP input">
       <option name="closed" value="true" />
@@ -692,7 +675,15 @@
       <option name="project" value="LOCAL" />
       <updated>1777474207846</updated>
     </task>
-    <option name="localTasksCounter" value="78" />
+    <task id="LOCAL-00078" summary=" Refactor webapp into Flask blueprint architecture (Phase 4.9c)&#10;&#10;  Split monolithic webapp.py into setup.py (app factory), extensions.py&#10;  (module-level Flask extensions), utils.py (WebServices + shared helpers),&#10;  and an auth blueprint. Entry point moved to webapp/__init__.py with&#10;  create_app() factory. Fixed DB layer: OperationalError imports, reload_db&#10;  error raising, pool_pre_ping. Updated all url_for() calls across templates&#10;  to blueprint-prefixed endpoints.">
+      <option name="closed" value="true" />
+      <created>1777849583457</created>
+      <option name="number" value="00078" />
+      <option name="presentableId" value="LOCAL-00078" />
+      <option name="project" value="LOCAL" />
+      <updated>1777849583457</updated>
+    </task>
+    <option name="localTasksCounter" value="79" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -710,7 +701,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="  Phase 3.4 — audit trail, results enhancements, log file infrastructure&#10;&#10;  - Add AuditLog ORM model with 90-day pg_cron retention&#10;  - Instrument 21 routes with audit() writes (auth, user mgmt, inventory,&#10;    security profiles, variable mappings, rollout lifecycle)&#10;  - Add /admin/audit filterable log viewer with FortiGate-style gear per row&#10;  - Remove legacy upload/rollout routes and templates (pre-Phase 3.2)&#10;  - Fix admin panel back button pointing to old upload route&#10;  - Wire RolloutLogger to LOGS_DIR (src/../logs/) with job_id+timestamp naming&#10;  - Add Download Log and See Commands buttons to results page&#10;  - Add client-side LCS diff modal for comparing commands between two jobs" />
     <MESSAGE value="   Device-level concurrency: ThreadPoolExecutor in _push_config and _verify,&#10;   _push_device/_verify_device extracted. RolloutLogger fully thread-safe:&#10;   _buffer private, _buffer_lock + _log_lock added, get_buffer_snapshot()&#10;   for race-free SSE replay.&#10;&#10;   Admin all-users toggle on active_jobs and results: split view with My Jobs&#10;   / Other Users collapsible sections, per-section headers and filters, owner&#10;   badge on other users' rows. Admin bypasses ownership checks on cancel,&#10;   stream, and log download." />
     <MESSAGE value="  Phase 3.6 — concurrency, admin all-users view, audit fix, UI polish&#10;&#10;  Two-layer concurrency: ThreadPoolExecutor in _push_config and _verify,&#10;  _push_device/_verify_device extracted. RolloutLogger thread-safe:&#10;  _buffer private, _buffer_lock + _log_lock, get_buffer_snapshot().&#10;&#10;  Admin all-users toggle on active_jobs and results: split view with&#10;  My Jobs / Other Users sections, per-section headers and filters,&#10;  owner badge. Admin bypasses ownership checks on cancel, stream,&#10;  log download.&#10;&#10;  AuditLog.detail JSONB column added (was accepted by audit() helper&#10;  but never stored or surfaced in the View Detail modal).&#10;&#10;  Dashboard buttons: Launch Rollout solid cyan fill, other actions&#10;  cyan outline. Sidebar reorganised into three labelled sections —&#10;  Operation, Management, Observability — with Admin Panel inside&#10;  Observability." />
     <MESSAGE value="&#10;  tests: enable and adapt full unit test suite to current architecture&#10;&#10;  Re-enable all _DISABLED test classes and adapt them to the Phase 2/3&#10;  architecture. Fix RolloutLogger constructor usage (logfile= param&#10;  removed), update _push_config assertions for (cancel_signal,&#10;  push_results) tuple return, update _verify for ThreadPoolExecutor-based&#10;  API (cancel removed), update run() assertions for list[DeviceResultDict]&#10;  return type. Fix _server_reachable bug (was returning True on&#10;  ConnectionRefusedError, skipping rate limit test incorrectly).&#10;&#10;  82 tests passing, 1 skipped (rate limit integration — requires live server).&#10;  webapp.py and cli.py intentionally uncovered — next session." />
@@ -735,7 +725,8 @@
     <MESSAGE value="  feat: add LDAP/AD authentication and Live Sessions admin page (4.9b)&#10;&#10;  - ldap_auth.py: new module — service_bind, user_bind, test_connection,&#10;    test_user, check_group_membership, fetch_user_details, fetch_base_dn,&#10;    walk_tree; all network calls guarded with LDAPBindError/LDAPSocketOpenError&#10;  - Login flow: LDAP branch for existing users (bind → is_approved/is_active),&#10;    auto-create branch for group-rule matches, full flash+audit on all paths&#10;  - 10 LDAP admin routes: server CRUD, test, test_user, fetch_dn, explore,&#10;    import (users + groups), group list/toggle/delete&#10;  - Alembic migrations: ldap_servers + ldap_groups tables, auth_type +&#10;    ldap_server_id on users, password_hash + email + full_name nullable&#10;  - server_management.html: full LDAP card — inline edit panels, bind type&#10;    selector, LDAPS toggle, Explorer modal with DOM-built tree browser and import&#10;  - admin_users.html: LDAP badges on remote users, Group Rules section&#10;  - live_sessions.html: new page — local/LDAP split, kick/kick-all, elapsed macro&#10;  - admin.html: Live Sessions sidebar link under Access section" />
     <MESSAGE value="  - Rename DB_* env vars to PG_* for clarity; DATABASE_URL still works as override&#10;  - Add POSTGRES_EXTERNAL / REDIS_EXTERNAL flags to config.env to drive bundled/external badges&#10;  - Fix import order so load_dotenv runs before redis_db and postgres_db are imported&#10;  - Pre-fill server management forms from live connection values (engine.url, redis pool)&#10;  - Add Redis same-server guard matching existing Postgres guard&#10;  - Fix Redis logo (Simple Icons R → Devicons cube)&#10;  - Fix Live Sessions sidebar icon (was duplicate of Active Jobs)&#10;  - Add pulsing amber dot on restart button after config save&#10;  - Keep password fields empty on load (autocomplete=new-password)" />
     <MESSAGE value="  - Apply 22-item audit quick fixes: HTTP status codes corrected (400/422/500/503),&#10;    raw dict returns standardised to jsonify, dead else-after-return removed,&#10;    duplicate imports dropped, redundant db.delete() removed&#10;  - Extract route helpers: validate_mapping_fields, build_security_profile,&#10;    build_kpi, user_owns_job, record_redis_session&#10;  - Decompose login route into _login_fail / _complete_login / _start_otp_flow /&#10;    _login_local / _login_ldap_existing / _login_ldap_group with decision-junction&#10;    comments on each branch&#10;  - Fix kpi_label_map bug: dashboard was passing inv_label_map (own inventory) to&#10;    build_kpi instead of the scoped kpi_label_map when admin views another user" />
-    <option name="LAST_COMMIT_MESSAGE" value="  - Apply 22-item audit quick fixes: HTTP status codes corrected (400/422/500/503),&#10;    raw dict returns standardised to jsonify, dead else-after-return removed,&#10;    duplicate imports dropped, redundant db.delete() removed&#10;  - Extract route helpers: validate_mapping_fields, build_security_profile,&#10;    build_kpi, user_owns_job, record_redis_session&#10;  - Decompose login route into _login_fail / _complete_login / _start_otp_flow /&#10;    _login_local / _login_ldap_existing / _login_ldap_group with decision-junction&#10;    comments on each branch&#10;  - Fix kpi_label_map bug: dashboard was passing inv_label_map (own inventory) to&#10;    build_kpi instead of the scoped kpi_label_map when admin views another user" />
+    <MESSAGE value=" Refactor webapp into Flask blueprint architecture (Phase 4.9c)&#10;&#10;  Split monolithic webapp.py into setup.py (app factory), extensions.py&#10;  (module-level Flask extensions), utils.py (WebServices + shared helpers),&#10;  and an auth blueprint. Entry point moved to webapp/__init__.py with&#10;  create_app() factory. Fixed DB layer: OperationalError imports, reload_db&#10;  error raising, pool_pre_ping. Updated all url_for() calls across templates&#10;  to blueprint-prefixed endpoints." />
+    <option name="LAST_COMMIT_MESSAGE" value=" Refactor webapp into Flask blueprint architecture (Phase 4.9c)&#10;&#10;  Split monolithic webapp.py into setup.py (app factory), extensions.py&#10;  (module-level Flask extensions), utils.py (WebServices + shared helpers),&#10;  and an auth blueprint. Entry point moved to webapp/__init__.py with&#10;  create_app() factory. Fixed DB layer: OperationalError imports, reload_db&#10;  error raising, pool_pre_ping. Updated all url_for() calls across templates&#10;  to blueprint-prefixed endpoints." />
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
     <SUITE FILE_PATH="coverage/core_py$WebApp.coverage" NAME="WebApp Coverage Results" MODIFIED="1756760459810" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
