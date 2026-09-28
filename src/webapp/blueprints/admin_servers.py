@@ -7,8 +7,7 @@ import time
 
 # services
 # flask
-from flask import Blueprint, render_template, request, current_app, jsonify, \
-	Response
+from flask import Blueprint, render_template, request, current_app, jsonify
 from flask_login import login_required
 from redis.exceptions import ConnectionError as RedisConnectionError
 # redis
@@ -119,7 +118,9 @@ def admin_server():
 @with_json()
 def admin_server_postgres_test(data):
 	server_input = unload_postgres_data(data)
-	if isinstance(server_input, Response):
+	# err() returns a (response, status) tuple, not a Response — the
+	# success value is a dict, so anything else is an error to return
+	if not isinstance(server_input, dict):
 		return server_input
 
 	url = (f"postgresql+psycopg2://{server_input["user"]}:"
@@ -144,7 +145,9 @@ def admin_server_postgres_test(data):
 @with_json()
 def admin_server_postgres_save(data):
 	server_input = unload_postgres_data(data)
-	if isinstance(server_input, Response):
+	# err() returns a (response, status) tuple, not a Response — the
+	# success value is a dict, so anything else is an error to return
+	if not isinstance(server_input, dict):
 		return server_input
 
 	new_config = PostgresConfig(

@@ -138,11 +138,6 @@ def test_postgres_test_endpoint_reports_unreachable_server(admin, client_for):
 	assert dead.json["status"] == "error"
 
 
-@pytest.mark.xfail(strict=True, raises=TypeError, reason=(
-	"BUG: unload_postgres_data returns err() — a (response, status) tuple — "
-	"but postgres/test and postgres/save check isinstance(.., Response), "
-	"then index the tuple -> 500 on missing fields and on the "
-	"'same as current database' guard"))
 def test_postgres_test_endpoint_validates_fields(admin, client_for):
 	missing = client_for(admin).post("/admin/server/postgres/test",
 	                                 json={"host": "x"})
