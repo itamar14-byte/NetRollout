@@ -68,7 +68,8 @@ class SecurityProfile(Base):
 	__tablename__ = 'security_profiles'
 	id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True,
 	                                      default=uuid.uuid4)
-	label: Mapped[str] = mapped_column(String(64), nullable=False)
+	# Optional: the UI falls back to the username when no label is given
+	label: Mapped[str | None] = mapped_column(String(64), nullable=True)
 	username: Mapped[str] = mapped_column(String(64), nullable=False)
 	password_secret: Mapped[str] = mapped_column(String(255), nullable=False)
 	enable_secret: Mapped[str] = mapped_column(String(255), nullable=True)
