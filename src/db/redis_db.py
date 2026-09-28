@@ -2,6 +2,12 @@ import os
 from dataclasses import dataclass
 
 import redis
+from redis.backoff import NoBackoff
+from redis.retry import Retry
+
+# Client timeouts (seconds): fail fast when Redis is unreachable
+CONNECT_TIMEOUT = 3
+SOCKET_TIMEOUT = 15  # > orchestration._BLPOP_TIMEOUT (enforced by a test)
 
 # "Redis is unavailable": a refusing host raises ConnectionError, an
 # unreachable one raises TimeoutError — which is NOT a ConnectionError
@@ -60,7 +66,14 @@ class RedisConnection:
         
     @staticmethod
     def _build_client(config: RedisConfig) -> redis.Redis:
-        return redis.from_url(config.get_url())
+        # Without explicit timeouts an unreachable (silent) host costs the OS
+        # connect timeout on every attempt, times redis-py's default retries
+        # — ~20s per request. SOCKET_TIMEOUT must stay above the
+        # dispatcher's BLPOP wait, which blocks by design.
+        return redis.from_url(config.get_url(),
+                              socket_connect_timeout=CONNECT_TIMEOUT,
+                              socket_timeout=SOCKET_TIMEOUT,
+                              retry=Retry(NoBackoff(), 1))
 
     def test_connection(self):
         self.client.ping()
