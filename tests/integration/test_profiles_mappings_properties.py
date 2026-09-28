@@ -42,14 +42,27 @@ def test_quick_create_returns_id(client_for, make_user):
 	assert missing.status_code == 422
 
 
-@pytest.mark.xfail(strict=True, raises=Exception, reason=(
-	"BUG: SecurityProfile.label is NOT NULL (model + migration) but the UI "
-	"marks it optional and create/quick_create/edit store None when blank "
-	"-> IntegrityError 500. architecture.md documents it as nullable"))
-def test_profile_without_label_can_be_created(client_for, make_user):
-	resp = client_for(make_user()).post("/security/quick_create", json={
+def test_profile_without_label_can_be_created(client_for, make_user,
+                                              session_scope):
+	user = make_user()
+	client = client_for(user)
+	resp = client.post("/security/quick_create", json={
 		"username": "u", "password": "p"})
-	assert resp.json["status"] == "ok"
+	assert resp.json["status"] == "ok" and resp.json["label"] == "u"
+	client.post("/security/create", data={"username": "v", "password": "p"})
+	labels = sorted((p.label, p.username) for p in profiles_of(session_scope, user))
+	assert labels == [(None, "u"), (None, "v")]
+	# the list page falls back to the username
+	html = client.get("/security").get_data(as_text=True)
+	assert "profile-title\">u<" in html.replace(" ", "")
+
+
+def test_clearing_a_label_on_edit(client_for, make_user, make_profile, db_get):
+	user = make_user()
+	pid = make_profile(user, label="core")
+	client_for(user).post(f"/security/{pid}/edit",
+	                      data={"label": "", "username": "netops"})
+	assert db_get(SecurityProfile, pid).label is None
 
 
 def test_edit_keeps_password_when_left_blank(client_for, make_user,
