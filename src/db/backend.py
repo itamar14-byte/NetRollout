@@ -1,7 +1,8 @@
 from pathlib import Path
 
 from dotenv import dotenv_values, load_dotenv
-from redis.exceptions import ConnectionError as RedisConnectionError
+from redis.exceptions import ConnectionError as RedisConnectionError, \
+	TimeoutError as RedisTimeoutError
 from sqlalchemy.exc import OperationalError
 
 from src.db.db_install import install
@@ -29,7 +30,7 @@ class BackendServices:
 
 		try:
 			redis_up = self.redis.test_connection()
-		except RedisConnectionError:
+		except (RedisConnectionError, RedisTimeoutError):
 			redis_up = False
 		return {
 			"POSTGRES": postgres_up,
