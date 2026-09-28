@@ -494,6 +494,53 @@ Routes with real business logic (rollback, bulk assign, test connection) get a c
 
 ---
 
+### Step 1b — Pre-4.1 cleanup (2026-09, branch `pre-4.1-cleanup`)
+Blocking and should-fix items found in a full codebase review after the Blueprint split. Work lands on `pre-4.1-cleanup`; `master` is fast-forwarded when done.
+
+**Done:**
+- Untracked `.idea/` and `__pycache__/`; `logs/` ignored
+- Global devices (admin-published inventory shared with all users), incl. mapping delete-cascade fix and profile-ownership check
+- Orchestrator slot leak on engine crash; UTF-8 log files
+- Error handlers finished (`db_error.html`, encryption key, CSRF redirect)
+- `require_admin` redirect target
+- Redis resilience: dispatcher retries with backoff; app starts and serves with Redis unreachable (`REDIS_UNAVAILABLE`)
+- Retention cron fixed and policy revised (below)
+
+**Remaining (in order):**
+- Encryption key: bad key crashes at import time; `load_devices` doesn't catch `InvalidEncryptionKeyError`
+- Test suite green (`src.*` imports so mocks hit, API drift, discoverable filename)
+- Cancel race: devices finishing after cancel recorded as `cancelled` (rollback skips them)
+- LDAP: unescaped username in DN/filter; server outage → 500 at login
+- Blank CSV fields crash `prepare_devices`
+- `"Invalid ldap_request"` user-facing message
+- `/inventory/<id>/mappings` has no eligibility check (bulk assign does)
+- Global devices browser click-through
+- EVE-NG round: multi-device, FortiOS, verify pass/partial/fail, rollback
+
+**Retention policy (decided 2026-09-29, supersedes the 7-day `job_metadata` rule):**
+
+| Data | Retention | Mechanism |
+|---|---|---|
+| Job record — `job_metadata` + `device_results` rows | 30 days | Expire together: metadata is deleted only once its results are gone |
+| Config snapshot — `device_results.fetched_config` | 7 days | Column cleared, row kept (status/analytics unaffected) |
+| `audit_log` | 90 days | Unchanged |
+
+Constants live in `src/db/db_install.py` (`JOB_RETENTION_DAYS`, `CONFIG_SNAPSHOT_RETENTION_DAYS`, `AUDIT_RETENTION_DAYS`); `install()` re-schedules all pg_cron jobs at every startup. Results page shows "Verify Diff expired" once a job's snapshots are cleared.
+
+**Deferred past 4.1:**
+- Remaining rename artifacts (`redis_session_app`, `ldap_request`, … in names/comments)
+- nginx SSE `location /rollout_stream` → `/rollout/stream` (streaming works via `X-Accel-Buffering: no`)
+- Restyle `key_error.html` to the dark Bootstrap theme
+- Refresh `CLAUDE.md` (run commands, test command, `RolloutSession` references)
+- Frontend asset splitting (Step 2)
+- Dead-code sweep
+- Log file retention: `logs/` is never pruned — app-side cleanup at startup (Loki keeps its own copy)
+- Retention periods as Server Management settings instead of constants (post-v1.0)
+
+**Noted for 4.2 (`install.py`):** force or generate the factory `admin` password instead of shipping `admin`/`admin`; factory-account documentation at release.
+
+---
+
 ### Step 2 — 4.0 Flask Blueprints + frontend asset splitting
 Split `webapp.py` into logical Blueprint modules. Do after cleanup so the split starts from clean code.
 

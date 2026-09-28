@@ -11,50 +11,57 @@ if TYPE_CHECKING:
 from werkzeug.security import generate_password_hash
 from src.db.tables import User
 
+# ── Retention policy ─────────────────────────────────────────────────────────
+# A job's commands (job_metadata) and its per-device results (device_results)
+# are one logical record and expire together. The heavy per-device running
+# config snapshot (device_results.fetched_config) is cleared much earlier —
+# it only matters while investigating a failed verify.
+JOB_RETENTION_DAYS = 30
+CONFIG_SNAPSHOT_RETENTION_DAYS = 7
+AUDIT_RETENTION_DAYS = 90
+
+_RETENTION_JOBS = {
+	"device_result_retention":
+		f"DELETE FROM device_results "
+		f"WHERE completed_at < NOW() - INTERVAL '{JOB_RETENTION_DAYS} days'",
+	# created_at is submission time, results age from completion — only
+	# delete metadata once the job's results are gone, so both expire together
+	"job_metadata_retention":
+		f"DELETE FROM job_metadata m "
+		f"WHERE m.created_at < NOW() - INTERVAL '{JOB_RETENTION_DAYS} days' "
+		f"AND NOT EXISTS (SELECT 1 FROM device_results r "
+		f"WHERE r.job_id = m.job_id)",
+	# clear the payload, keep the row (status/analytics survive)
+	"device_result_config_retention":
+		f"UPDATE device_results SET fetched_config = NULL "
+		f"WHERE fetched_config IS NOT NULL AND completed_at < NOW() - "
+		f"INTERVAL '{CONFIG_SNAPSHOT_RETENTION_DAYS} days'",
+	"audit_log_retention":
+		f"DELETE FROM audit_log "
+		f"WHERE timestamp < NOW() - INTERVAL '{AUDIT_RETENTION_DAYS} days'",
+}
+
+
+def _schedule_retention(conn, name: str, statement: str):
+	# Idempotent: unschedule-then-schedule, so every startup applies the
+	# current policy to existing installs
+	conn.execute(text(f"""
+        DO $$
+        BEGIN
+            PERFORM cron.unschedule('{name}');
+        EXCEPTION WHEN OTHERS THEN NULL;
+        END;
+        $$;
+        SELECT cron.schedule('{name}', '0 3 * * *', $q${statement}$q$);
+    """))
+
 
 def install(postgres: "PostgresConnection"):
 	try:
 		with postgres.engine.connect() as conn:
 			conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_cron;"))
-			conn.execute(text("""
-                DO $$
-                BEGIN
-                    PERFORM cron.unschedule('job_metadata_retention');
-                EXCEPTION WHEN OTHERS THEN NULL;
-                END;
-                $$;
-                SELECT cron.schedule(
-                    'job_metadata_retention',
-                    '0 3 * * *',
-                    $q$DELETE FROM job_metadata WHERE created_at < NOW() - INTERVAL '7 days'$q$
-                );
-            """))
-			conn.execute(text("""
-                DO $$
-                BEGIN
-                    PERFORM cron.unschedule('device_result_retention');
-                EXCEPTION WHEN OTHERS THEN NULL;
-                END;
-                $$;
-                SELECT cron.schedule(
-                    'device_result_retention',
-                    '0 3 * * *',
-                    $q$DELETE FROM device_results WHERE completed_at < NOW() - INTERVAL '30 days'$q$
-                );
-            """))
-			conn.execute(text("""
-                DO $$
-                BEGIN
-                    PERFORM cron.unschedule('audit_log_retention');
-                EXCEPTION WHEN OTHERS THEN NULL;
-                END;
-                $$;
-                SELECT cron.schedule(
-                    'audit_log_retention',
-                    '0 3 * * *',
-                    $q$DELETE FROM audit_log WHERE timestamp < NOW() - INTERVAL '90 days'$q$
-                );
-            """))
+			for name, statement in _RETENTION_JOBS.items():
+				_schedule_retention(conn, name, statement)
 			conn.commit()
 
 		# Update DB Schema to last Alembic revision

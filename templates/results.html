@@ -105,6 +105,14 @@
     color: #00bcd4;
     background: rgba(0,188,212,0.06);
 }
+.job-action-btn.is-expired,
+.job-action-btn.is-expired:hover {
+    border-style: dashed;
+    border-color: #2a2a2a;
+    color: #444;
+    background: transparent;
+    cursor: default;
+}
 
 /* ── Filters ── */
 .filter-btn, .filter-btn-split {
@@ -359,6 +367,12 @@
                     onclick="showConfigDiff(this)">
                 <i class="bi bi-shield-exclamation"></i> Verify Diff
             </button>
+            {% elif job.devices | selectattr('config_expired') | list %}
+            {# Config snapshots are cleared by pg_cron after CONFIG_SNAPSHOT_RETENTION_DAYS #}
+            <span class="job-action-btn is-expired"
+                  title="Config snapshots are kept {{ config_retention_days }} days — this job's have expired">
+                <i class="bi bi-clock-history"></i> Verify Diff expired
+            </span>
             {% endif %}
         </div>
 
@@ -766,6 +780,11 @@ async function _renderVerifyDiff(deviceIp, activeTab) {
 
     const config = FETCHED_CONFIGS[cacheKey];
     list.innerHTML = '';
+    if (!_verifyDiffCmds.length) {
+        list.innerHTML = '<div style="padding:1rem; color:#555; font-size:0.82rem;">' +
+            'Commands for this job are no longer available.</div>';
+        return;
+    }
     _verifyDiffCmds.forEach(cmd => {
         const found = config.toLowerCase().includes(cmd.trim().toLowerCase());
         const row   = document.createElement('div');
