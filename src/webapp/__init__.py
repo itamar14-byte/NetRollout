@@ -1,6 +1,3 @@
-import os
-from waitress import serve
-
 from src.webapp.setup import launch_app
 from src.webapp.blueprints.auth import bp as auth_bp
 from src.webapp.blueprints.rollout import bp as rollout_bp
@@ -30,8 +27,3 @@ def create_app():
 
 	net_rollout.register_blueprint(jobs_bp)
 	return net_rollout
-
-
-if __name__ == "__main__":
-	app = create_app()
-	serve(app, host="0.0.0.0", port=int(os.getenv("PORT", "8080")))

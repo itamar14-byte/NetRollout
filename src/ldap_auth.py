@@ -1,8 +1,8 @@
 from ldap3 import Server, Connection, ALL, SIMPLE, SUBTREE, LEVEL
 from ldap3.core.exceptions import LDAPSocketOpenError, LDAPBindError
 
-from db.tables import LDAPServer, LDAPGroup
-from encryption import decrypt
+from src.db.tables import LDAPServer, LDAPGroup
+from src.encryption import decrypt
 
 
 def user_dn(server: LDAPServer, username: str) -> str:

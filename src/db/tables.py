@@ -90,6 +90,9 @@ class Inventory(Base):
 	label: Mapped[str] = mapped_column(String(64), nullable=False)
 	var_maps: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
+	is_global: Mapped[bool] = mapped_column(Boolean, default=False,
+	                                        nullable=False)
+
 	user_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id"),
 	                                           nullable=False)
 	sec_profile_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey(
@@ -142,7 +145,7 @@ class DeviceResult(Base):
 	user_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id"),
 	                                           nullable=False)
 
-	user: Mapped["User"] = relationship(back_populates="results_30d")
+	user: Mapped["User"] = relationship(back_populates="results")
 
 
 class JobMetadata(Base):

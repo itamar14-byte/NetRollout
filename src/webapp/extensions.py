@@ -68,10 +68,8 @@ def register_handlers(app, backend: BackendServices):
 
 		res = backend.health()
 
-		return render_template("db_error.html",
-		                       db_host=_DB_HOST,
-		                       db_port=_DB_PORT,
-		                       redis_host=_REDIS_HOST,
-		                       redis_port=_REDIS_PORT,
-		                       postgres=res["postgres"],
-		                       redis=res["redis"]), 503
+	def handle_invalid_encryption_key(_):
+		"""Catches corrupted master keys gracefully without crashing Waitress."""
+		if request.is_json:
+			return err("Encryption key invalid", 500)
+		return render_template("key_error.html", error_message=str(e)), 500

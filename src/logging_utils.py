@@ -3,9 +3,8 @@ import html
 import os
 import threading
 
+import redis
 from redis.client import PubSub
-
-from db.redis_db import redis_client
 
 LOGS_DIR = os.path.join(os.path.dirname(__file__), "..", "logs")
 
@@ -31,10 +30,12 @@ ANSI_TO_HTML = {"RED": WEBAPP_RED, "GREEN": WEBAPP_GREEN, "YELLOW": WEBAPP_YELLO
 
 class RolloutLogger:
     def __init__(self, webapp: bool, verbose: bool,
-                 prefix: str = "rollout", job_id: str = None):
+                 prefix: str = "rollout", job_id: str = None,
+                 redis_client: redis.Redis | None = None):
         self._log_lock = threading.Lock()
         self._webapp = webapp
         self._verbose = verbose
+        self._redis = redis_client
 
         ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         os.makedirs(LOGS_DIR, exist_ok=True)
@@ -87,8 +88,8 @@ class RolloutLogger:
         if self._webapp:
             if (important or self._verbose or color == "red") and self._channel_key:
                 content = self._msg(message, color)
-                redis_client.rpush(self._history_key, content)
-                redis_client.publish(self._channel_key, content)
+                self._redis.rpush(self._history_key, content)
+                self._redis.publish(self._channel_key, content)
             self._log(message)
             return None
         else:
@@ -97,16 +98,16 @@ class RolloutLogger:
             self._log(message)
 
     def get_history(self) -> list[str]:
-        return [m.decode() for m in redis_client.lrange(self._history_key, 0, -1)]
+        return [m.decode() for m in self._redis.lrange(self._history_key, 0, -1)]
 
     def subscribe(self) -> PubSub:
-        ps = redis_client.pubsub()
+        ps = self._redis.pubsub()
         ps.subscribe(self._channel_key)
         return ps
 
     def redis_cleanup(self) -> None:
-        redis_client.publish(self._channel_key, "__done__")
-        redis_client.delete(self._history_key)
-        redis_client.delete(self._channel_key)
+        self._redis.publish(self._channel_key, "__done__")
+        self._redis.delete(self._history_key)
+        self._redis.delete(self._channel_key)
 
 

@@ -11,11 +11,31 @@ from flask_login import current_user, login_required
 # local modules
 from src.db.tables import DeviceResult, Inventory, User
 from src.webapp.utils import (err, with_json, build_kpi,
-                              compile_query_rules, QUERY_DEVICE_RESULT_FIELDS,
-                              DEVICE_RESULT_COLUMNS)
+                              compile_query_rules)
 
 bp = Blueprint('analytics', __name__, url_prefix='/analytics')
 
+##############################Constants#######################################
+
+QUERY_DEVICE_RESULT_FIELDS = {
+	"started_at": (
+		DeviceResult.started_at,
+		{"equal", "less_or_equal", "greater_or_equal"}),
+	"device_type": (
+		DeviceResult.device_type, {"equal", "not_equal"}),
+	"status": (
+		DeviceResult.status, {"equal", "not_equal"}),
+	"commands_sent": (
+		DeviceResult.commands_sent,
+		{"equal", "not_equal", "greater_or_equal",
+		 "less_or_equal"}),
+	"device_ip": (
+		DeviceResult.device_ip, {"equal", "contains", "begins_with"}),
+}
+DEVICE_RESULT_COLUMNS = ["job_id", "device_ip", "device_type",
+                         "status",
+                         "commands_sent", "commands_verified",
+                         "started_at", "completed_at"]
 
 ##############################Routes#######################################
 @bp.route("")
@@ -82,7 +102,6 @@ def analytics_query(data):
 		filters = compile_query_rules(rules, QUERY_DEVICE_RESULT_FIELDS)
 	except (ValueError, KeyError) as e:
 		return err(str(e))
-	# TODO make sure audit,get session, redis.client are all replaced correctly and that get_session is callable
 	with current_app.backend.postgres.get_session() as db_session:
 		query = db_session.query(DeviceResult).filter(
 			DeviceResult.user_id == scope_user_id).filter(filters)

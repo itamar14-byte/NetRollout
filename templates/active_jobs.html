@@ -603,7 +603,7 @@
         logOut.innerHTML = "";
         _pauseRefresh();
 
-        const es = new EventSource(`/rollout_stream/${jobId}`);
+        const es = new EventSource(`/rollout/stream/${jobId}`);
         openStreams[jobId] = es;
         let streamClosedCleanly = false;
 
@@ -680,7 +680,7 @@
             document.getElementById("rollbackCommands").focus();
             return;
         }
-        fetch(`/rollback/${jobId}`, {
+        fetch(`/rollout/rollback/${jobId}`, {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",

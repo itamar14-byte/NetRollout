@@ -7,9 +7,9 @@ from typing import Optional, TypedDict
 import napalm
 import netmiko
 
-import encryption
-from logging_utils import RolloutLogger
-from db.tables import Inventory
+from src import encryption
+from src.logging_utils import RolloutLogger
+from src.db.tables import Inventory
 
 
 class DeviceResultDict(TypedDict):

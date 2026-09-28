@@ -12,8 +12,8 @@ from src.db.redis_db import RedisConnection, RedisConfig
 class BackendServices:
 	def __init__(self):
 		#initilaize db reference files
-		self._CONFIG_ENV = Path(__file__).parent.parent / "config.env"
-		self._FLAG = Path(__file__).parent.parent / "pending_db_init.flag"
+		self._CONFIG_ENV = Path(__file__).parent.parent.parent / "config.env"
+		self._FLAG = Path(__file__).parent.parent.parent / "pending_db_init.flag"
 		#read config
 		load_dotenv(self._CONFIG_ENV, override=True)
 		#initialize db instances
@@ -32,8 +32,8 @@ class BackendServices:
 		except RedisConnectionError:
 			redis_up = False
 		return {
-			"postgres": postgres_up,
-			"redis": redis_up
+			"POSTGRES": postgres_up,
+			"REDIS": redis_up
 		}
 
 	def _write_config(self, updates: dict, pop_keys: list | None = None):
@@ -54,7 +54,6 @@ class BackendServices:
 				"localhost", "127.0.0.1") else "external",
 		}
 
-	# TODO catch reload errors upstream in replacement route
 	def reload_postgres(self, config: PostgresConfig):
 		self.postgres.reload_db(config)
 		updates, pop_keys = config.to_env_dict()

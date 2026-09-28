@@ -733,7 +733,7 @@
             <span class="sb-label">Launch Rollout</span>
         </a>
 
-        <a href="{{ url_for('rollout.active_jobs') }}"
+        <a href="{{ url_for('jobs.active_jobs') }}"
            class="sb-link {% if active_section == 'active_jobs' %}active{% endif %}"
            title="Active Jobs">
             <i class="bi bi-activity sb-icon"></i>
@@ -783,7 +783,7 @@
             <span class="sb-label">Dashboard</span>
         </a>
 
-        <a href="{{ url_for('rollout.results') }}"
+        <a href="{{ url_for('jobs.results') }}"
            class="sb-link {% if active_section == 'results_30d' %}active{% endif %}"
            title="Results">
             <i class="bi bi-clock-history sb-icon"></i>

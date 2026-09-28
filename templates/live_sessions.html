@@ -1,0 +1,241 @@
+{% extends "admin.html" %}
+{% block title %}Live Sessions — Admin Panel{% endblock %}
+
+{% macro elapsed(secs) %}{% if secs < 60 %}just now{% elif secs < 3600 %}{{ secs // 60 }}m ago{% elif secs < 86400 %}{{ secs // 3600 }}h {{ (secs % 3600) // 60 }}m ago{% else %}24h+ ago{% endif %}{% endmacro %}
+
+{% block admin_content %}
+<div class="d-flex justify-content-between align-items-start mb-4">
+  <div>
+    <div class="nr-badge" style="margin-bottom:0.35rem;">ACCESS</div>
+    <h4 class="mb-0" style="font-family:'Inter',sans-serif; font-weight:600; font-size:1.15rem; color:#e0e0e0;">
+      Live Sessions
+    </h4>
+  </div>
+  <div class="d-flex align-items-center gap-2">
+    <span style="font-family:'JetBrains Mono',monospace; font-size:0.72rem; color:#2a2a2a; letter-spacing:0.5px;">
+      {{ (local_sessions | length) + (ldap_sessions | length) }} active
+    </span>
+    <a href="{{ url_for('admin_users.admin_sessions') }}" class="btn btn-outline-secondary btn-sm">
+      <i class="bi bi-arrow-clockwise me-1"></i>Refresh
+    </a>
+  </div>
+</div>
+
+{% set all_empty = not local_sessions and not ldap_sessions %}
+
+{% if all_empty %}
+<div class="nr-card">
+  <div class="nr-card-accent"></div>
+  <div class="nr-card-body" style="text-align:center; padding:3rem 2rem;">
+    <i class="bi bi-people" style="font-size:2rem; color:#1e1e1e; display:block; margin-bottom:0.75rem;"></i>
+    <div style="font-family:'JetBrains Mono',monospace; font-size:0.78rem; color:#2a2a2a; letter-spacing:1px;">
+      NO ACTIVE SESSIONS
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<!-- ── LOCAL SESSIONS ─────────────────────────────────────────── -->
+{% if local_sessions %}
+<div class="nr-card mb-4">
+  <div class="nr-card-accent"></div>
+  <div class="nr-card-body">
+
+    <div class="d-flex align-items-center justify-content-between mb-3">
+      <div class="d-flex align-items-center gap-2">
+        <i class="bi bi-person-lock" style="color:#00bcd4; font-size:1rem;"></i>
+        <span style="font-family:'Inter',sans-serif; font-weight:600; color:#e0e0e0; font-size:0.95rem;">
+          Local Sessions
+        </span>
+        <span class="session-count">{{ local_sessions | length }}</span>
+      </div>
+      <button class="btn btn-outline-danger btn-sm" onclick="kickAll('local')">
+        <i class="bi bi-box-arrow-right me-1"></i>Kick All
+      </button>
+    </div>
+
+    <table class="session-table">
+      <thead>
+        <tr>
+          <th>Username</th>
+          <th>Role</th>
+          <th>Auth</th>
+          <th>Logged In</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in local_sessions %}
+        <tr id="row-{{ s.user_id }}">
+          <td style="font-family:'JetBrains Mono',monospace; font-weight:600; color:#e0e0e0; font-size:0.84rem;">
+            {{ s.username }}
+          </td>
+          <td>
+            {% if s.role == "admin" %}
+              <span class="badge bg-danger" style="font-size:0.68rem;">Admin</span>
+            {% else %}
+              <span class="badge bg-secondary" style="font-size:0.68rem;">User</span>
+            {% endif %}
+          </td>
+          <td>
+            <span class="auth-badge local">LOCAL</span>
+          </td>
+          <td style="font-family:'JetBrains Mono',monospace; font-size:0.75rem; color:#555;">
+            {{ elapsed(s.elapsed_secs) }}
+          </td>
+          <td style="text-align:right;">
+            <button class="btn btn-outline-danger btn-sm kick-btn"
+                    style="font-size:0.72rem; padding:0.18rem 0.6rem;"
+                    onclick="kick('{{ s.user_id }}')">
+              <i class="bi bi-box-arrow-right me-1"></i>Kick
+            </button>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+  </div>
+</div>
+{% endif %}
+
+<!-- ── LDAP SESSIONS ──────────────────────────────────────────── -->
+{% if ldap_sessions %}
+<div class="nr-card mb-4">
+  <div class="nr-card-accent" style="background: linear-gradient(90deg, #80deea, #00bcd4, transparent);"></div>
+  <div class="nr-card-body">
+
+    <div class="d-flex align-items-center justify-content-between mb-3">
+      <div class="d-flex align-items-center gap-2">
+        <i class="bi bi-people" style="color:#80deea; font-size:1rem;"></i>
+        <span style="font-family:'Inter',sans-serif; font-weight:600; color:#e0e0e0; font-size:0.95rem;">
+          Remote Sessions
+        </span>
+        <span class="session-count" style="border-color:rgba(128,222,234,0.25); color:#80deea; background:rgba(128,222,234,0.07);">
+          {{ ldap_sessions | length }}
+        </span>
+        <span style="font-family:'JetBrains Mono',monospace; font-size:0.62rem; font-weight:700;
+                     letter-spacing:1.5px; color:#80deea; opacity:0.6;">LDAP</span>
+      </div>
+      <button class="btn btn-outline-danger btn-sm" onclick="kickAll('ldap')">
+        <i class="bi bi-box-arrow-right me-1"></i>Kick All
+      </button>
+    </div>
+
+    <table class="session-table">
+      <thead>
+        <tr>
+          <th>Username</th>
+          <th>Role</th>
+          <th>Auth</th>
+          <th>Logged In</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in ldap_sessions %}
+        <tr id="row-{{ s.user_id }}">
+          <td style="font-family:'JetBrains Mono',monospace; font-weight:600; color:#e0e0e0; font-size:0.84rem;">
+            {{ s.username }}
+          </td>
+          <td>
+            {% if s.role == "admin" %}
+              <span class="badge bg-danger" style="font-size:0.68rem;">Admin</span>
+            {% else %}
+              <span class="badge bg-secondary" style="font-size:0.68rem;">User</span>
+            {% endif %}
+          </td>
+          <td>
+            <span class="auth-badge ldap">LDAP</span>
+          </td>
+          <td style="font-family:'JetBrains Mono',monospace; font-size:0.75rem; color:#555;">
+            {{ elapsed(s.elapsed_secs) }}
+          </td>
+          <td style="text-align:right;">
+            <button class="btn btn-outline-danger btn-sm kick-btn"
+                    style="font-size:0.72rem; padding:0.18rem 0.6rem;"
+                    onclick="kick('{{ s.user_id }}')">
+              <i class="bi bi-box-arrow-right me-1"></i>Kick
+            </button>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+  </div>
+</div>
+{% endif %}
+
+<style>
+  .session-count {
+    font-family:'JetBrains Mono',monospace; font-size:0.68rem; font-weight:700;
+    padding:0.15rem 0.5rem; border-radius:10px;
+    background:rgba(0,188,212,0.07); color:#00bcd4; border:1px solid rgba(0,188,212,0.2);
+  }
+
+  .session-table { width:100%; border-collapse:collapse; }
+  .session-table th {
+    font-family:'Inter',sans-serif; font-size:0.68rem; font-weight:600;
+    text-transform:uppercase; letter-spacing:1px; color:#444;
+    padding:0.5rem 0.75rem; border-bottom:1px solid #1a1a1a; text-align:left;
+  }
+  .session-table td {
+    padding:0.6rem 0.75rem; border-bottom:1px solid #141414; vertical-align:middle;
+  }
+  .session-table tr:last-child td { border-bottom:none; }
+  .session-table tr:hover td { background:rgba(0,188,212,0.02); }
+  .session-table tr.kicking td { opacity:0.4; pointer-events:none; transition:opacity 0.3s; }
+  .session-table tr.kicked { display:none; }
+
+  .auth-badge {
+    font-family:'JetBrains Mono',monospace; font-size:0.6rem; font-weight:700;
+    letter-spacing:1.5px; padding:0.15rem 0.45rem; border-radius:3px; border:1px solid;
+  }
+  .auth-badge.local { background:rgba(100,100,100,0.08); color:#555; border-color:#222; }
+  .auth-badge.ldap  { background:rgba(128,222,234,0.08); color:#80deea; border-color:rgba(128,222,234,0.2); }
+</style>
+
+<script>
+  const SESS_CSRF = '{{ csrf_token() }}';
+
+  function kick(userId) {
+    const row = document.getElementById(`row-${userId}`);
+    row.classList.add('kicking');
+
+    fetch(`/admin/sessions/${userId}/kick`, {
+      method: 'POST',
+      headers: { 'X-CSRFToken': SESS_CSRF }
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.status === 'ok') {
+        row.classList.remove('kicking');
+        row.classList.add('kicked');
+        updateCounts();
+      } else {
+        row.classList.remove('kicking');
+      }
+    })
+    .catch(() => row.classList.remove('kicking'));
+  }
+
+  function kickAll(section) {
+    const btn = event.target.closest('button');
+    const table = btn.closest('.nr-card-body').querySelector('.session-table tbody');
+    table.querySelectorAll('tr:not(.kicked)').forEach(row => {
+      const userId = row.id.replace('row-', '');
+      kick(userId);
+    });
+  }
+
+  function updateCounts() {
+    document.querySelectorAll('.session-count').forEach(el => {
+      const table = el.closest('.nr-card-body').querySelector('.session-table tbody');
+      if (!table) return;
+      const visible = table.querySelectorAll('tr:not(.kicked)').length;
+      el.textContent = visible;
+    });
+  }
+</script>
+{% endblock %}

@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-slate-950 text-slate-100">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>[NetRollout] Cryptographic Configuration Error</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body class="flex min-h-full flex-col justify-center px-6 py-12 lg:px-8 font-sans selection:bg-rose-500/30 selection:text-rose-200">
+
+    <div class="sm:mx-auto sm:w-full sm:max-w-2xl bg-slate-900 border border-slate-800 rounded-xl shadow-2xl p-8 md:p-10 transition-all duration-200 hover:border-slate-700/80">
+
+        <div class="flex items-center space-x-4 border-b border-slate-800 pb-6 mb-6">
+            <div class="p-3 bg-rose-500/10 border border-rose-500/20 text-rose-400 rounded-lg">
+                <i data-lucide="shield-alert" class="w-8 h-8"></i>
+            </div>
+            <div>
+                <span class="text-xs font-mono tracking-widest uppercase text-rose-400 font-semibold bg-rose-500/5 border border-rose-500/10 px-2 py-0.5 rounded">
+                    Status 500 · Crypto Failure
+                </span>
+                <h1 class="text-2xl font-bold tracking-tight text-slate-100 mt-1">
+                    System Encryption Key Error
+                </h1>
+            </div>
+        </div>
+
+        <div class="space-y-4">
+            <p class="text-sm text-slate-400 leading-relaxed">
+                The application subsystem encountered a critical error processing the master encryption key. To protect secure network credentials from structural corruption, automated rollout tasks have been safely halted.
+            </p>
+
+            <div class="bg-slate-950 border border-slate-800 rounded-lg p-5 font-mono text-xs md:text-sm text-rose-300 leading-relaxed shadow-inner overflow-x-auto whitespace-pre-wrap select-text">
+                <div class="flex items-start space-x-2">
+                    <span class="text-rose-500 font-bold select-none">&gt;</span>
+                    <span class="flex-1">{{ error_message }}</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="mt-8 pt-6 border-t border-slate-800/60 space-y-3">
+            <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center space-x-2">
+                <i data-lucide="terminal" class="w-4 h-4"></i>
+                <span>Deployment Diagnostic Steps</span>
+            </h3>
+
+            <ul class="text-xs text-slate-400 space-y-2.5 font-mono bg-slate-950/40 p-4 rounded-lg border border-slate-800/40">
+                <li class="flex items-start space-x-2">
+                    <span class="text-emerald-500 font-bold">1.</span>
+                    <span>Check your target environment context: Run <code class="text-slate-200 bg-slate-800 px-1 py-0.5 rounded">echo $NETROLLOUT_ENCRYPTION_KEY</code> on your deployment host or background worker nodes.</span>
+                </li>
+                <li class="flex items-start space-x-2">
+                    <span class="text-emerald-500 font-bold">2.</span>
+                    <span>Verify persistent key files: Ensure <code class="text-slate-200 bg-slate-800 px-1 py-0.5 rounded">~/.netrollout/encryption.key</code> hasn't been appended with extra whitespace, raw strings, or broken text streams.</span>
+                </li>
+                <li class="flex items-start space-x-2">
+                    <span class="text-emerald-500 font-bold">3.</span>
+                    <span>Generate a valid standard string: If you need to seed a fresh layout manually, execute <code class="text-slate-200 bg-slate-800 px-1 py-0.5 rounded">python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"</code>.</span>
+                </li>
+            </ul>
+        </div>
+
+        <div class="mt-8 pt-4 border-t border-slate-800 flex flex-col sm:flex-row sm:items-center sm:justify-between text-xs text-slate-500 space-y-2 sm:space-y-0">
+            <div class="flex items-center space-x-2">
+                <span class="inline-block w-2 h-2 rounded-full bg-rose-500 animate-pulse"></span>
+                <span>Waitress Server Instance: Online</span>
+            </div>
+            <div class="flex items-center space-x-1 font-mono">
+                <i data-lucide="layers" class="w-3.5 h-3.5 text-slate-600"></i>
+                <span>Redis Queue Isolation Active</span>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        lucide.createIcons();
+    </script>
+</body>
+</html>

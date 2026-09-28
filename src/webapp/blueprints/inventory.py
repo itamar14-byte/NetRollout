@@ -18,7 +18,6 @@ from src.webapp.utils import ok, err, with_form, with_json, flash_redirect
 
 bp = Blueprint('inventory', __name__, url_prefix='/inventory')
 
-#TODO  add uuid safety and raise on type error
 ##############################Routes#######################################
 @bp.route("")
 @login_required
@@ -50,6 +49,10 @@ def inventory_create(data):
 	port = data.get("port", "22").strip()
 	device_type = data.get("device_type", "").strip()
 	sec_profile_id = data.get("sec_profile_id", "").strip()
+	try:
+		parsed_sec_id = uuid.UUID(sec_profile_id) if sec_profile_id else None
+	except ValueError:
+		return err("Invalid security profile ID", 422)
 
 	with current_app.backend.postgres.get_session() as db_session:
 		row = Inventory(
@@ -58,7 +61,7 @@ def inventory_create(data):
 			ip=ip,
 			port=int(port),
 			device_type=device_type,
-			sec_profile_id=uuid.UUID(sec_profile_id) if sec_profile_id else None
+			sec_profile_id=parsed_sec_id
 		)
 		db_session.add(row)
 
@@ -94,8 +97,10 @@ def inventory_edit(device_id):
 		device.port = int(request.form.get("port", 22))
 		device.device_type = request.form.get("device_type", "").strip()
 		sec_profile_id = request.form.get("sec_profile_id", "").strip()
-		device.sec_profile_id = uuid.UUID(
-			sec_profile_id) if sec_profile_id else None
+		try:
+			device.sec_profile_id = uuid.UUID(sec_profile_id) if sec_profile_id else None
+		except ValueError:
+			return err("Invalid security profile ID", 422)
 		sys_props, user_props = current_app.web.get_property_defs(
 			current_user.id)
 		all_props = {p["name"]: p for p in sys_props + user_props}
@@ -115,8 +120,12 @@ def inventory_edit(device_id):
 		device.var_maps = var_maps or None
 		mapping_ids = request.form.getlist("mapping_ids")
 		if mapping_ids:
+			try:
+				parsed_mapping_ids = [uuid.UUID(mid) for mid in mapping_ids]
+			except ValueError:
+				return err("Invalid mapping ID", 422)
 			selected = db_session.query(VariableMapping).filter(
-				VariableMapping.id.in_([uuid.UUID(mid) for mid in mapping_ids]),
+				VariableMapping.id.in_(parsed_mapping_ids),
 				VariableMapping.user_id == current_user.id
 			).all()
 			device.var_mappings = selected
@@ -224,7 +233,10 @@ def inventory_bulk_assign():
 		              important=True)
 		return err("No devices provided")
 
-	parsed_profile_id = uuid.UUID(profile_id) if profile_id else None
+	try:
+		parsed_profile_id = uuid.UUID(profile_id) if profile_id else None
+	except ValueError:
+		return err("Invalid profile ID", 422)
 	logger.notify(
 		f"Bulk security assign started: {len(device_ids)} devices → profile {profile_id or 'unassign'}",
 		important=True)
@@ -240,8 +252,13 @@ def inventory_bulk_assign():
 
 		assigned, skipped = 0, 0
 		for device_id_str in device_ids:
+			try:
+				parsed_device_id = uuid.UUID(device_id_str)
+			except (ValueError, TypeError):
+				skipped += 1
+				continue
 			device = db_session.query(Inventory).filter_by(
-				id=uuid.UUID(device_id_str), user_id=current_user.id).first()
+				id=parsed_device_id, user_id=current_user.id).first()
 			if device:
 				device.sec_profile_id = parsed_profile_id
 				logger.notify(f"{device.label} ({device.ip}): assigned",
