@@ -616,6 +616,37 @@ class TestRolloutEnginePushConfig(unittest.TestCase):
         self.assertEqual(cancel_signal, "cancel_sent")
         mock_ch.assert_not_called()
 
+    def test_devices_finishing_after_cancel_are_still_recorded(self):
+        """A cancel stops devices that haven't connected yet; devices already
+        mid-push finish (config applied) and must be recorded as pushed —
+        not 'cancelled' — or rollback would skip them."""
+        import time
+        cancel = threading.Event()
+        b_connected = threading.Event()
+
+        def connect(**params):
+            conn = MagicMock()
+            conn.send_config_set.return_value = "ok"
+            if params["ip"] == "10.0.0.1":        # A: cancel arrives mid-push
+                # only after B is past its cancel check (deterministic order)
+                b_connected.wait(timeout=5)
+                cancel.set()
+                time.sleep(0.5)                   # finishes after C returns
+            elif params["ip"] == "10.0.0.2":      # B: connected pre-cancel
+                b_connected.set()
+                time.sleep(0.1)                   # C starts once B frees a worker
+            return conn
+
+        devices = [make_device(ip=f"10.0.0.{i}") for i in (1, 2, 3)]
+        engine = RolloutEngine(param=make_options(max_workers=2),
+                               devices=devices, commands=["hostname x"])
+        with patch("netmiko.ConnectHandler", side_effect=connect):
+            cancel_signal, push_results = engine._push_config(cancel,
+                                                              self.logger)
+        self.assertEqual(cancel_signal, "cancel_sent")
+        # C (10.0.0.3) started after the cancel: never connected
+        self.assertEqual(push_results, {"10.0.0.1": True, "10.0.0.2": True})
+
     @patch("netmiko.ConnectHandler")
     def test_multiple_devices_all_attempted(self, mock_ch):
         mock_conn = MagicMock()
