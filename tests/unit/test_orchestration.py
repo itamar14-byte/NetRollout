@@ -186,6 +186,22 @@ def test_cancel_marks_job_cancelling(make_orchestrator):
 	assert fake.hashes[f"job:{job.job_id}:meta"]["status"] == "cancelling"
 
 
+def test_results_are_persisted_with_port(make_orchestrator):
+	fake = FakeRedis()
+	orch = make_orchestrator(fake)
+	options = RolloutOptions(verify=False, verbose=False, webapp=False)
+	result = {"device_ip": "10.9.9.9", "device_port": 2002,
+	          "device_type": "cisco_ios", "commands_sent": 1,
+	          "commands_verified": None, "fetched_config": None,
+	          "status": "success"}
+	with patch.object(RolloutEngine, "run", return_value=[result]):
+		orch.submit([], ["cmd"], options, uuid.uuid4())
+		assert wait_for(lambda: not orch._jobs)
+	rows = [o for o in orch._backend.postgres.added
+	        if type(o).__name__ == "DeviceResult"]
+	assert [(r.device_ip, r.device_port) for r in rows] == [("10.9.9.9", 2002)]
+
+
 def test_submit_records_job_metadata(make_orchestrator):
 	fake = FakeRedis()
 	orch = make_orchestrator(fake)

@@ -185,6 +185,7 @@ class RolloutOrchestrator:
 					                            started_at=job.started_at,
 					                            completed_at=datetime.datetime.now(),
 					                            device_ip=result["device_ip"],
+					                            device_port=result["device_port"],
 					                            device_type=result[
 						                            "device_type"],
 					                            commands_sent=result[

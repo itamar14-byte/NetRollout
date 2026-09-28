@@ -14,6 +14,7 @@ from src.db.tables import Inventory
 
 class DeviceResultDict(TypedDict):
 	device_ip: str
+	device_port: int
 	device_type: str
 	commands_sent: int
 	commands_verified: int | None
@@ -41,6 +42,12 @@ class Device:
 	var_map_subs: dict[str, tuple[str | list[str], str | None]] = field(
 		default_factory=dict)
 	extra: dict = field(default_factory=dict)
+
+	@property
+	def endpoint(self) -> str:
+		"""ip:port — what identifies a reachable target (the IP alone doesn't:
+		NAT / port forwarding put several devices behind one address)."""
+		return f"{self.ip}:{self.port}"
 
 	def netmiko_connector(self) -> dict[str, str]:
 		params = {
@@ -222,25 +229,29 @@ class RolloutEngine:
 		either state). Every result is collected — returning at the first
 		cancelled device used to drop the results of devices still in flight,
 		recording them as cancelled although their config was applied.
-		:return: (cancel_signal, push_results) where cancel_signal is "cancel_sent" or None;
-		 devices that never connected are absent from push_results
+		:return: (cancel_signal, push_results) where cancel_signal is "cancel_sent" or None
+		 and push_results maps each device's index in self.devices to its
+		 result; devices that never connected are absent
 		"""
+		# Keyed by position, not IP: several devices can share an IP (NAT /
+		# port forwarding, overlapping address space) and must not overwrite
+		# each other's result
 		push_results = {}
 		cancelled = False
 		with ThreadPoolExecutor(max_workers=self._max_workers) as executor:
 			futures = {
 				executor.submit(self._push_device, device, cancel_event,
-				                logger): device
-				for device in self.devices
+				                logger): idx
+				for idx, device in enumerate(self.devices)
 			}
 			for future in as_completed(futures):
-				ip, result = future.result()
+				_, result = future.result()
 				if result is None:
 					if not cancelled:
 						logger.notify("Rollout Canceled By User", color="red")
 					cancelled = True
 					continue
-				push_results[ip] = result
+				push_results[futures[future]] = result
 		return ("cancel_sent" if cancelled else None), push_results
 
 	def _verify_device(self, device: Device,
@@ -283,17 +294,17 @@ class RolloutEngine:
 		The function gets the list of devices and verifies which devices have been successfully configured
 		by comparing the _commands to the config file from fetch_config()
 		Devices are verified concurrently via ThreadPoolExecutor.
-		:return: {ip: (fetched_config, successful_commands_count)}
+		:return: {device index: (fetched_config, successful_commands_count)}
 		"""
 		result = {}
 		with ThreadPoolExecutor(max_workers=self._max_workers) as executor:
 			futures = {
-				executor.submit(self._verify_device, device, logger): device
-				for device in self.devices
+				executor.submit(self._verify_device, device, logger): idx
+				for idx, device in enumerate(self.devices)
 			}
 			for future in as_completed(futures):
-				ip, count, config = future.result()
-				result[ip] = (config, count)
+				_, count, config = future.result()
+				result[futures[future]] = (config, count)
 		return result
 
 	def run(self, cancel_flag: threading.Event, logger: RolloutLogger) -> list[
@@ -319,9 +330,8 @@ class RolloutEngine:
 				# Number of successful _commands in each device and status of
 				# devices,
 				# based on comparing the value to the list of _commands
-				for node in verify_results.items():
-					ip_addr = node[0]
-					count = node[1][1]
+				for idx, (_, count) in verify_results.items():
+					ip_addr = self.devices[idx].endpoint
 
 					if count == 0:
 						failed += 1
@@ -354,14 +364,14 @@ class RolloutEngine:
 				important=True)
 
 			results = []
-			for device in self.devices:
-				if device.ip not in push_results:
+			for idx, device in enumerate(self.devices):
+				if idx not in push_results:
 					status, commands_sent, commands_verified = "cancelled", 0, None
-				elif not push_results[device.ip]:
+				elif not push_results[idx]:
 					status, commands_sent, commands_verified = "failed", 0, None
 				else:
 					commands_sent = len(self._commands)
-					verified_entry = verify_results.get(device.ip,None)
+					verified_entry = verify_results.get(idx, None)
 					verified_count = verified_entry[1] if (verified_entry is
 					                                       not None) else None
 
@@ -374,9 +384,10 @@ class RolloutEngine:
 					else:
 						status, commands_verified = "failed", 0
 
-				fetched_config = verify_results[device.ip][0] if\
-					device.ip in verify_results else None
+				fetched_config = verify_results[idx][0] if \
+					idx in verify_results else None
 				results.append(DeviceResultDict(device_ip=device.ip,
+				                                device_port=int(device.port),
 				                                device_type=device.device_type,
 				                                commands_sent=commands_sent,
 				                                commands_verified=commands_verified,

@@ -41,6 +41,16 @@ def visible_label_map(db_session, user_id):
 	return {r.ip: r.label for r in rows}
 
 
+def visible_endpoint_labels(db_session, user_id):
+	# (ip, port) -> label for per-device display: the IP alone is ambiguous
+	# when several devices share it (NAT / port forwarding). Own rows win.
+	rows = db_session.query(Inventory.ip, Inventory.port, Inventory.label,
+	                        Inventory.user_id)\
+		.filter(visible_devices_clause(user_id)).all()
+	rows.sort(key=lambda r: r.user_id == user_id)
+	return {(r.ip, r.port): r.label for r in rows}
+
+
 def user_owns_job(job_id, user_id):
 	with current_app.backend.postgres.get_session() as db_session:
 		return bool(db_session.query(DeviceResult).filter_by(
@@ -122,7 +132,7 @@ def config_expired(row: DeviceResult) -> bool:
 	return verify_mismatch and row.fetched_config is None and too_old
 
 
-def build_jobs(result_rows, metadata_by_job, ip_to_label, job_owner=None):
+def build_jobs(result_rows, metadata_by_job, endpoint_labels, job_owner=None):
 	sorted_rows = sorted(result_rows, key=lambda x: x.job_id)
 	out = []
 	for job_id, rows in groupby(sorted_rows, key=lambda x: x.job_id):
@@ -143,7 +153,13 @@ def build_jobs(result_rows, metadata_by_job, ip_to_label, job_owner=None):
 			"devices": [
 				{
 					"ip": r.device_ip,
-					"label": ip_to_label.get(r.device_ip, r.device_ip),
+					"port": r.device_port,
+					"label": endpoint_labels.get(
+						(r.device_ip, r.device_port),
+						# unlabelled: show the port unless it's plain SSH, so
+						# devices sharing an IP stay distinguishable
+						r.device_ip if r.device_port == 22
+						else f"{r.device_ip}:{r.device_port}"),
 					"device_type": r.device_type,
 					"status": r.status,
 					"commands_sent": r.commands_sent,
@@ -285,14 +301,15 @@ def results():
 			raw_results = db_session.query(DeviceResult).all()
 			metadata_rows = db_session.query(JobMetadata).all()
 			usernames = {u.id: u.username for u in db_session.query(User).all()}
-			ip_to_label = {row.ip: (row.label or row.ip) for row in
-			               db_session.query(Inventory).all()}
+			endpoint_labels = {(row.ip, row.port): (row.label or row.ip)
+			                   for row in db_session.query(Inventory).all()}
 		else:
 			user = db_session.get(User, current_user.id)
 			raw_results = user.results
 			metadata_rows = user.job_metadata
 			usernames = {}
-			ip_to_label = visible_label_map(db_session, current_user.id)
+			endpoint_labels = visible_endpoint_labels(db_session,
+			                                          current_user.id)
 		db_session.expunge_all()
 
 	metadata_by_job = {m.job_id: m for m in metadata_rows}
@@ -300,7 +317,7 @@ def results():
 	if is_admin:
 		my_raw = [r for r in raw_results if r.user_id == current_user.id]
 		other_raw = [r for r in raw_results if r.user_id != current_user.id]
-		jobs = build_jobs(my_raw, metadata_by_job, ip_to_label)
+		jobs = build_jobs(my_raw, metadata_by_job, endpoint_labels)
 		jobs.sort(key=lambda x: x["completed_at"], reverse=True)
 		other_jobs = []
 		# group other_raw by user_id so each job gets its job_owner username
@@ -309,11 +326,11 @@ def results():
 		                                  key=lambda x: x.user_id):
 			owner = usernames.get(user_id, "unknown")
 			other_jobs.extend(
-				build_jobs(list(user_rows), metadata_by_job, ip_to_label,
+				build_jobs(list(user_rows), metadata_by_job, endpoint_labels,
 				            job_owner=owner))
 		other_jobs.sort(key=lambda x: x["completed_at"], reverse=True)
 	else:
-		jobs = build_jobs(raw_results, metadata_by_job, ip_to_label)
+		jobs = build_jobs(raw_results, metadata_by_job, endpoint_labels)
 		jobs.sort(key=lambda x: x["completed_at"], reverse=True)
 		other_jobs = []
 
@@ -328,9 +345,13 @@ def results():
 @bp.route("/results/config_diff/<uuid:job_id>/<device_ip>")
 @login_required
 def config_diff(job_id, device_ip):
+	# ?port= disambiguates devices sharing an IP within one job
+	filters = {"job_id": job_id, "device_ip": device_ip}
+	port = request.args.get("port", type=int)
+	if port is not None:
+		filters["device_port"] = port
 	with current_app.backend.postgres.get_session() as db_session:
-		row = db_session.query(DeviceResult).filter_by(
-			job_id=job_id, device_ip=device_ip).first()
+		row = db_session.query(DeviceResult).filter_by(**filters).first()
 		if not row:
 			return err("Not found", 404)
 		if current_user.role != "admin" and row.user_id != current_user.id:

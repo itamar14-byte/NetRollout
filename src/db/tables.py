@@ -141,6 +141,10 @@ class DeviceResult(Base):
 	started_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 	completed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 	device_ip: Mapped[str] = mapped_column(String(64), nullable=False)
+	# ip:port identifies the target — several devices can share an IP
+	# (NAT / port forwarding). Rows from before this column default to SSH.
+	device_port: Mapped[int] = mapped_column(Integer, nullable=False,
+	                                         server_default="22")
 	device_type: Mapped[str] = mapped_column(String(64), nullable=False)
 	commands_sent: Mapped[int] = mapped_column(Integer, nullable=False)
 	commands_verified: Mapped[int | None] = mapped_column(Integer,
