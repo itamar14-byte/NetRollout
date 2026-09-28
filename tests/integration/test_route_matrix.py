@@ -80,9 +80,6 @@ def test_public_pages_render(client_for):
 		assert client.get(path).status_code == 200, path
 
 
-@pytest.mark.xfail(strict=True, reason=(
-	"BUG: /logout has no @login_required and reads current_user.id — an "
-	"anonymous request (stale tab) raises AttributeError -> 500"))
 def test_logout_when_not_logged_in_redirects_home(client_for):
 	resp = client_for().get("/logout")
 	assert resp.status_code == 302 and resp.headers["Location"] == "/"

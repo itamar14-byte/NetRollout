@@ -137,10 +137,6 @@ def test_registration_creates_pending_user_and_ignores_role(client_for,
 		assert u.password_hash != "Str0ng-pass"
 
 
-@pytest.mark.xfail(strict=True, raises=Exception, reason=(
-	"BUG: register() catches IntegrityError inside `with get_session()`; the "
-	"session is left failed and get_session's commit raises "
-	"PendingRollbackError -> 500 instead of 'already exists'"))
 def test_duplicate_registration_rejected(client_for, make_user):
 	user = make_user()
 	resp = client_for().post("/register", data={
@@ -184,10 +180,6 @@ def test_ldap_bind_failure_is_rejected(client_for, make_user, ldap_server,
 	assert resp.headers["Location"] == "/"
 
 
-@pytest.mark.xfail(strict=True, raises=Exception, reason=(
-	"BUG: login_ldap_group only flushes the new User, then audit() writes "
-	"in its own session with actor_id -> uncommitted user: FK violation, "
-	"so every first login of an LDAP group member is a 500"))
 def test_ldap_group_member_is_auto_provisioned(client_for, ldap_server,
                                                session_scope):
 	with session_scope() as s:
