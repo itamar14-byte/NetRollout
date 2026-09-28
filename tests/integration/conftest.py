@@ -98,6 +98,8 @@ def pytest_collection_modifyitems(config, items):
 			item.add_marker(pytest.mark.skip(reason=PG_DOWN))
 		elif item.get_closest_marker("redis") and REDIS_DOWN:
 			item.add_marker(pytest.mark.skip(reason=REDIS_DOWN))
+		elif item.get_closest_marker("ldap") and LDAP_DOWN:
+			item.add_marker(pytest.mark.skip(reason=LDAP_DOWN))
 
 
 # ── Services ─────────────────────────────────────────────────────────────────
@@ -358,3 +360,186 @@ def db_get(app):
 			return obj
 
 	return _get
+
+
+# ── Ephemeral OpenLDAP directory (tests only — never part of the deployment) ─
+#
+# Started from the locally present `alpine` image with Alpine's OpenLDAP
+# packages, seeded with an AD-shaped tree (users nested in OUs, a DN with a
+# comma, a service account, a group), and force-removed at session end.
+# Leftovers from a crashed run are removed at start (found by label).
+
+LDAP_IMAGE = os.environ.get("TEST_LDAP_IMAGE", "alpine:latest")
+LDAP_LABEL = "netrollout.test=ldap"
+LDAP_BASE = "dc=corp,dc=test"
+LDAP_ADMIN_DN, LDAP_ADMIN_PW = f"cn=admin,{LDAP_BASE}", "adminpw"
+LDAP_SERVICE_DN, LDAP_SERVICE_PW = f"cn=svc,ou=Service,{LDAP_BASE}", "svc-pass"
+LDAP_GROUP_DN = f"cn=netops,ou=Groups,{LDAP_BASE}"
+LDAP_USERS = {  # uid -> (dn, password)
+	"jdoe": (f"cn=John Doe,ou=Network,ou=Users,{LDAP_BASE}", "jdoe-pass"),
+	"bsmith": (f"cn=Smith\, Bob,ou=Users,{LDAP_BASE}", "bob-pass"),
+	"alice": (f"cn=Alice Brown,ou=Users,{LDAP_BASE}", "alice-pass"),
+}
+
+_SLAPD_CONF = f"""include /etc/openldap/schema/core.schema
+include /etc/openldap/schema/cosine.schema
+include /etc/openldap/schema/inetorgperson.schema
+pidfile /tmp/slapd.pid
+modulepath /usr/lib/openldap
+moduleload back_mdb.so
+database mdb
+maxsize 10485760
+suffix "{LDAP_BASE}"
+rootdn "{LDAP_ADMIN_DN}"
+rootpw {LDAP_ADMIN_PW}
+directory /tmp/ldapdata
+access to attrs=userPassword by self write by anonymous auth by * none
+access to * by users read by * none
+"""
+
+_SEED_LDIF = f"""dn: {LDAP_BASE}
+objectClass: dcObject
+objectClass: organization
+dc: corp
+o: Corp
+
+dn: ou=Users,{LDAP_BASE}
+objectClass: organizationalUnit
+ou: Users
+
+dn: ou=Network,ou=Users,{LDAP_BASE}
+objectClass: organizationalUnit
+ou: Network
+
+dn: ou=Service,{LDAP_BASE}
+objectClass: organizationalUnit
+ou: Service
+
+dn: ou=Groups,{LDAP_BASE}
+objectClass: organizationalUnit
+ou: Groups
+
+dn: {LDAP_USERS["jdoe"][0]}
+objectClass: inetOrgPerson
+cn: John Doe
+sn: Doe
+uid: jdoe
+mail: jdoe@corp.test
+displayName: John Doe
+userPassword: {LDAP_USERS["jdoe"][1]}
+
+dn: {LDAP_USERS["bsmith"][0]}
+objectClass: inetOrgPerson
+cn: Smith, Bob
+sn: Smith
+uid: bsmith
+userPassword: {LDAP_USERS["bsmith"][1]}
+
+dn: {LDAP_USERS["alice"][0]}
+objectClass: inetOrgPerson
+cn: Alice Brown
+sn: Brown
+uid: alice
+userPassword: {LDAP_USERS["alice"][1]}
+
+dn: cn=Dup One,ou=Users,{LDAP_BASE}
+objectClass: inetOrgPerson
+cn: Dup One
+sn: One
+uid: dup
+userPassword: dup-pass
+
+dn: cn=Dup Two,ou=Network,ou=Users,{LDAP_BASE}
+objectClass: inetOrgPerson
+cn: Dup Two
+sn: Two
+uid: dup
+userPassword: dup-pass
+
+dn: {LDAP_SERVICE_DN}
+objectClass: inetOrgPerson
+cn: svc
+sn: svc
+userPassword: {LDAP_SERVICE_PW}
+
+dn: {LDAP_GROUP_DN}
+objectClass: groupOfNames
+cn: netops
+member: {LDAP_USERS["jdoe"][0]}
+member: {LDAP_USERS["bsmith"][0]}
+"""
+
+
+def _docker(*args, **kw):
+	return subprocess.run(["docker", *args], capture_output=True, text=True,
+	                      timeout=kw.pop("timeout", 60), **kw)
+
+
+def _probe_ldap() -> str | None:
+	try:
+		if _docker("info", "--format", "{{.ServerVersion}}",
+		           timeout=10).returncode != 0:
+			return "Docker daemon unavailable (needed for the test directory)"
+		if _docker("image", "inspect", LDAP_IMAGE, timeout=10).returncode != 0:
+			return f"Docker image {LDAP_IMAGE} not present locally"
+		return None
+	except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+		return f"Docker unavailable: {type(e).__name__}"
+
+
+LDAP_DOWN = _probe_ldap()
+
+
+def _remove_leftover_ldap_containers():
+	ids = _docker("ps", "-aq", "--filter", f"label={LDAP_LABEL}").stdout.split()
+	if ids:
+		_docker("rm", "-f", *ids)
+
+
+@pytest.fixture(scope="session")
+def ldap_directory():
+	"""Ephemeral OpenLDAP server; yields its host port. Removed afterwards."""
+	if LDAP_DOWN:
+		pytest.skip(LDAP_DOWN)
+	import time
+	_remove_leftover_ldap_containers()
+	run = _docker(
+		"run", "-d", "--rm", "--label", LDAP_LABEL, "-p", "127.0.0.1::389",
+		"-e", f"SLAPD_CONF={_SLAPD_CONF}", LDAP_IMAGE, "sh", "-c",
+		"apk add --no-cache -q openldap openldap-back-mdb openldap-clients "
+		">/dev/null && mkdir -p /tmp/ldapdata && "
+		"printf '%s' \"$SLAPD_CONF\" > /tmp/slapd.conf && "
+		"exec slapd -f /tmp/slapd.conf -h ldap:/// -d 0", timeout=60)
+	if run.returncode != 0:
+		pytest.skip(f"test directory failed to start: {run.stderr.strip()[:200]}")
+	container = run.stdout.strip()
+	try:
+		whoami = ("exec", container, "ldapwhoami", "-x", "-H", "ldap://127.0.0.1",
+		          "-D", LDAP_ADMIN_DN, "-w", LDAP_ADMIN_PW)
+		deadline = time.time() + 120  # includes the apk install
+		while _docker(*whoami, timeout=10).returncode != 0:
+			if time.time() > deadline or not _docker(
+					"ps", "-q", "--filter", f"id={container}").stdout.strip():
+				logs = _docker("logs", container).stderr[-300:]
+				pytest.skip(f"test directory never became ready: {logs}")
+			time.sleep(1)
+		seeded = _docker("exec", "-i", container, "ldapadd", "-x", "-H",
+		                 "ldap://127.0.0.1", "-D", LDAP_ADMIN_DN, "-w",
+		                 LDAP_ADMIN_PW, input=_SEED_LDIF)
+		assert seeded.returncode == 0, f"seeding failed: {seeded.stderr}"
+		port = int(_docker("port", container, "389/tcp").stdout.strip()
+		           .rsplit(":", 1)[1])
+		yield port
+	finally:
+		_docker("rm", "-f", container)
+
+
+@pytest.fixture
+def ldap_server_config(ldap_directory):
+	"""An LDAPServer-shaped object for the test directory (search-then-bind
+	via the service account). Needs encryption initialised."""
+	from src.encryption import encrypt
+	return SimpleNamespace(
+		host="127.0.0.1", port=ldap_directory, use_ssl=False,
+		base_dn=LDAP_BASE, cn_identifier="uid", bind_type="regular",
+		bind_dn=LDAP_SERVICE_DN, bind_password=encrypt(LDAP_SERVICE_PW))

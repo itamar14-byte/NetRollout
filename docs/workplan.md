@@ -510,10 +510,10 @@ Blocking and should-fix items found in a full codebase review after the Blueprin
 - 8 bugs found by the test suite, fixed: rollout cancel 500 (`hset(field=)`), Active Jobs 500 after restart, LDAP group auto-provision FK violation, duplicate registration 500, profile label NOT NULL (now nullable, migration `713db4dd6251`), Server Management postgres test/save 500, anonymous `/logout` 500, Redis client timeouts (~20s -> ~6s when unreachable)
 - Cancel race: devices finishing after a cancel were recorded as `cancelled` (rollback skipped them)
 - Rollout targets identified by `ip:port`, not IP: engine results keyed per device, `device_results.device_port` (migration `c2f578d78dc4`), Results labels / Verify Diff / rollback match on ip:port; the same ip:port selected twice in one rollout is refused (same IP on different ports is allowed — NAT / port forwarding)
+- LDAP hardened: search-then-bind via the service account (users nested in OUs — required for Active Directory; constructed DN only as a fallback), usernames escaped in DNs and filters, empty passwords never sent, directory outages reported as 'LDAP authentication service unavailable' (not 500), connect/receive timeouts, connections closed; tested against an ephemeral OpenLDAP container started and removed by the test suite (not part of the deployment)
 
 **Remaining (in order):**
 
-- LDAP: unescaped username in DN/filter; server outage → 500 at login
 - Blank CSV fields crash `prepare_devices`
 - `"Invalid ldap_request"` user-facing message
 - `/inventory/<id>/mappings` has no eligibility check (bulk assign does)
