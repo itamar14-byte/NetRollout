@@ -175,11 +175,6 @@ def test_engine_crash_releases_slot_and_next_job_runs(make_orchestrator):
 	assert orch._slots._value == 1
 
 
-@pytest.mark.xfail(strict=True, raises=TypeError, reason=(
-	"BUG: RolloutOrchestrator.cancel calls hset(..., field=, value=) — "
-	"redis-py's hset has no `field` parameter, so every cancel raises "
-	"TypeError (the engine's cancel flag is already set; status is never "
-	"written and /rollout/cancel returns 500)"))
 def test_cancel_marks_job_cancelling(make_orchestrator):
 	fake = FakeRedis()
 	orch = make_orchestrator(fake)
