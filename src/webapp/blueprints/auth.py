@@ -20,7 +20,8 @@ from werkzeug.security import check_password_hash, generate_password_hash
 #local modules
 from src.db.tables import LDAPServer, LDAPGroup, User
 from src.encryption import decrypt, encrypt
-from src.ldap_auth import check_group_membership, fetch_user_details, user_bind
+from src.ldap_auth import (check_group_membership, fetch_user_details,
+                           user_bind, LdapUnavailable)
 from src.webapp.extensions import csrf, conn_limit
 from src.webapp.utils import with_form
 
@@ -32,6 +33,7 @@ _LOGIN_FAIL_MESSAGES = {
 	"account_disabled": "User disabled, please check with administrator",
 	"pending_approval": "User still pending admin approval",
 	"ldap_bind_failed": "Invalid credentials",
+	"ldap_unavailable": "LDAP authentication service unavailable",
 }
 
 
@@ -108,7 +110,11 @@ def login_ldap_existing(user, password, db_session):
 		return redirect(url_for("auth.home"))
 	# Checks credentials are correct — bind attempt against the LDAP server
 	# with the supplied password.
-	if not user_bind(ldap_server, user.username, password):
+	try:
+		bound = user_bind(ldap_server, user.username, password)
+	except LdapUnavailable:
+		return login_fail(user.username, "ldap_unavailable", user.id)
+	if not bound:
 		return login_fail(user.username, "ldap_bind_failed", user.id)
 	# Checks user was activated — the same approval/active gate as the local
 	# path.
@@ -131,8 +137,11 @@ def login_ldap_group(username, password, db_session):
 		if groups:
 			# check_group_membership performs the bind and returns (group_dn, role)
 			# if the user is a member of any mapped group, None otherwise.
-			match = check_group_membership(ldap_server, username, password,
-			                               groups)
+			try:
+				match = check_group_membership(ldap_server, username,
+				                               password, groups)
+			except LdapUnavailable:
+				return login_fail(username, "ldap_unavailable")
 			if match:
 				group_dn, role = match
 				# Fetch display attributes from LDAP directory; tolerate failure.
