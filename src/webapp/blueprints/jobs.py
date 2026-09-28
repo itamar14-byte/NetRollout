@@ -12,6 +12,7 @@ from flask import (Blueprint, render_template, current_app, request, send_file,
 from flask_login import current_user, login_required
 
 # local modules
+from src.db.db_install import CONFIG_SNAPSHOT_RETENTION_DAYS
 from src.db.tables import DeviceResult, JobMetadata, User, Inventory
 from src.logging_utils import LOGS_DIR
 from src.webapp.utils import ok, err, build_kpi, visible_devices_clause
@@ -111,6 +112,16 @@ def get_active_job(user_id):
 	)
 
 
+def config_expired(row: DeviceResult) -> bool:
+	# A snapshot is stored only when verify found a mismatch; past the
+	# snapshot retention window, such rows have had it cleared by pg_cron
+	verify_mismatch = (row.commands_verified is not None
+	                   and row.commands_verified < row.commands_sent)
+	too_old = row.completed_at < datetime.now() - timedelta(
+		days=CONFIG_SNAPSHOT_RETENTION_DAYS)
+	return verify_mismatch and row.fetched_config is None and too_old
+
+
 def build_jobs(result_rows, metadata_by_job, ip_to_label, job_owner=None):
 	sorted_rows = sorted(result_rows, key=lambda x: x.job_id)
 	out = []
@@ -137,7 +148,10 @@ def build_jobs(result_rows, metadata_by_job, ip_to_label, job_owner=None):
 					"status": r.status,
 					"commands_sent": r.commands_sent,
 					"commands_verified": r.commands_verified,
-					"fetched_config": r.fetched_config
+					# flags only — the config itself is fetched on demand by
+					# config_diff, never shipped with the page
+					"has_config": r.fetched_config is not None,
+					"config_expired": config_expired(r)
 				}
 				for r in rows
 			]
@@ -302,7 +316,8 @@ def results():
 	                       active_section="results_30d",
 	                       jobs=jobs,
 	                       other_jobs=other_jobs,
-	                       is_admin=is_admin)
+	                       is_admin=is_admin,
+	                       config_retention_days=CONFIG_SNAPSHOT_RETENTION_DAYS)
 
 
 @bp.route("/results/config_diff/<uuid:job_id>/<device_ip>")
@@ -316,6 +331,9 @@ def config_diff(job_id, device_ip):
 		if current_user.role != "admin" and row.user_id != current_user.id:
 			return err("Forbidden", 403)
 		config = row.fetched_config
+		if config is None:
+			return err(f"Config snapshot no longer available — snapshots are "
+			           f"kept {CONFIG_SNAPSHOT_RETENTION_DAYS} days", 410)
 		meta = db_session.query(JobMetadata).filter_by(job_id=job_id).first()
 		commands = meta.commands if meta else []
 	return ok(config=config, commands=commands)
