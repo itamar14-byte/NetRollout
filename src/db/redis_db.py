@@ -3,6 +3,12 @@ from dataclasses import dataclass
 
 import redis
 
+# "Redis is unavailable": a refusing host raises ConnectionError, an
+# unreachable one raises TimeoutError — which is NOT a ConnectionError
+# subclass. Catch both wherever Redis being down should be survivable.
+REDIS_UNAVAILABLE = (redis.exceptions.ConnectionError,
+                     redis.exceptions.TimeoutError)
+
 @dataclass(frozen=True)
 class RedisConfig:
     host: str = "localhost"
