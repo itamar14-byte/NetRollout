@@ -8,8 +8,6 @@ from flask_session import Session
 from flask_session.redis import RedisSessionInterface
 # prometheus
 from prometheus_client.core import REGISTRY, GaugeMetricFamily
-# redis
-from redis.exceptions import ConnectionError as RedisConnectionError
 # sqlalchemy
 from werkzeug.middleware.proxy_fix import ProxyFix
 
@@ -18,6 +16,7 @@ from src.webapp.extensions import register_extensions, register_handlers, \
 	register_auth
 from src.webapp.utils import WebServices
 from src.db.backend import BackendServices
+from src.db.redis_db import REDIS_UNAVAILABLE
 from src.orchestration import RolloutOrchestrator
 
 ########Constants###################################################
@@ -46,13 +45,13 @@ class _SafeRedisSessionInterface(RedisSessionInterface):
 		try:
 			return super().open_session(redis_session_app,
 			                            redis_session_request)
-		except RedisConnectionError:
+		except REDIS_UNAVAILABLE:
 			return self.session_class()
 
 	def save_session(self, redis_session_app, redis_session, response):
 		try:
 			super().save_session(redis_session_app, redis_session, response)
-		except RedisConnectionError:
+		except REDIS_UNAVAILABLE:
 			pass
 
 
@@ -85,7 +84,7 @@ class RolloutSessionCollector:
 			active = int(self.redis.client.get("netrollout:active_count") or 0)
 			pending = int(
 				self.redis.client.get("netrollout:pending_count") or 0)
-		except RedisConnectionError:
+		except REDIS_UNAVAILABLE:
 			active, pending = 0, 0
 
 		active_metric = GaugeMetricFamily(
@@ -111,7 +110,7 @@ def clear_sessions(redis_conn):
 	try:
 		for redis_key in redis_conn.client.scan_iter("redis_session:*"):
 			redis_conn.client.delete(redis_key)
-	except RedisConnectionError:
+	except REDIS_UNAVAILABLE:
 		pass
 
 

@@ -1,5 +1,6 @@
 import datetime
 import threading
+import time
 import uuid
 from typing import Callable
 
@@ -9,6 +10,13 @@ from src.core import RolloutEngine, RolloutOptions, Device, DeviceResultDict
 from src.db.tables import DeviceResult, JobMetadata
 from src.logging_utils import RolloutLogger
 from src.db.backend import BackendServices
+from src.db.redis_db import REDIS_UNAVAILABLE
+
+# Dispatcher retry backoff while Redis is down (seconds)
+_BACKOFF_START, _BACKOFF_MAX = 1, 30
+# Finite BLPOP timeout so the loop re-reads backend.redis.client
+# regularly and picks up a hot-swapped connection
+_BLPOP_TIMEOUT = 5
 
 
 class RolloutJob:
@@ -113,12 +121,30 @@ class RolloutOrchestrator:
 		return job
 
 	def _dispatcher(self) -> None:
+		# Must never die: if this thread exits, no job ever starts again
+		# until the process restarts. Redis outages are waited out with
+		# backoff instead.
+		backoff = _BACKOFF_START
 		while True:
-			result = self._backend.redis.client.blpop("netrollout:job_queue", timeout=0)
+			try:
+				result = self._backend.redis.client.blpop(
+					"netrollout:job_queue", timeout=_BLPOP_TIMEOUT)
+			except REDIS_UNAVAILABLE as e:
+				print(f"[NetRollout] dispatcher: Redis unavailable ({e}); "
+				      f"retrying in {backoff}s", flush=True)
+				time.sleep(backoff)
+				backoff = min(backoff * 2, _BACKOFF_MAX)
+				continue
+			backoff = _BACKOFF_START
 			if result is None:
 				continue
 			_, job_id_bytes = result
-			job_id = uuid.UUID(job_id_bytes.decode())
+			try:
+				job_id = uuid.UUID(job_id_bytes.decode())
+			except ValueError:
+				print(f"[NetRollout] dispatcher: skipping malformed queue "
+				      f"entry {job_id_bytes!r}", flush=True)
+				continue
 
 			self._slots.acquire()
 
@@ -129,11 +155,18 @@ class RolloutOrchestrator:
 					continue
 
 			job.start(self._cleanup)
-			self._backend.redis.client.hset(f"job:{job.job_id}:meta", "status", "active")
-			self._backend.redis.client.hset(f"job:{job.job_id}:meta", "started_at",
-			                  datetime.datetime.now().isoformat())
-			self._backend.redis.client.decr("netrollout:pending_count")
-			self._backend.redis.client.incr("netrollout:active_count")
+			# The job is already running; a Redis failure here only leaves
+			# status/counters stale, so it must not take the loop down.
+			try:
+				client = self._backend.redis.client
+				client.hset(f"job:{job.job_id}:meta", "status", "active")
+				client.hset(f"job:{job.job_id}:meta", "started_at",
+				            datetime.datetime.now().isoformat())
+				client.decr("netrollout:pending_count")
+				client.incr("netrollout:active_count")
+			except REDIS_UNAVAILABLE as e:
+				print(f"[NetRollout] dispatcher: job {job.job_id} started but "
+				      f"status update failed ({e})", flush=True)
 
 	def _cleanup(self, job_id: uuid.UUID) -> None:
 		try:
