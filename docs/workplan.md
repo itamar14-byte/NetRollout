@@ -508,10 +508,11 @@ Blocking and should-fix items found in a full codebase review after the Blueprin
 - Encryption key fail-fast: no import-time key load; refuses to start on malformed, missing-with-data, or mismatched key
 - Test suite: `pytest` from repo root; unit (hermetic) + integration (real PG/Redis, skipped when unhealthy); 258 passed
 - 8 bugs found by the test suite, fixed: rollout cancel 500 (`hset(field=)`), Active Jobs 500 after restart, LDAP group auto-provision FK violation, duplicate registration 500, profile label NOT NULL (now nullable, migration `713db4dd6251`), Server Management postgres test/save 500, anonymous `/logout` 500, Redis client timeouts (~20s -> ~6s when unreachable)
+- Cancel race: devices finishing after a cancel were recorded as `cancelled` (rollback skipped them)
+- Rollout targets identified by `ip:port`, not IP: engine results keyed per device, `device_results.device_port` (migration `c2f578d78dc4`), Results labels / Verify Diff / rollback match on ip:port; the same ip:port selected twice in one rollout is refused (same IP on different ports is allowed — NAT / port forwarding)
 
 **Remaining (in order):**
 
-- Cancel race: devices finishing after cancel recorded as `cancelled` (rollback skips them)
 - LDAP: unescaped username in DN/filter; server outage → 500 at login
 - Blank CSV fields crash `prepare_devices`
 - `"Invalid ldap_request"` user-facing message
@@ -536,6 +537,7 @@ Constants live in `src/db/db_install.py` (`JOB_RETENTION_DAYS`, `CONFIG_SNAPSHOT
 - Refresh `CLAUDE.md` (run commands, test command, `RolloutSession` references)
 - Frontend asset splitting (Step 2)
 - Dead-code sweep
+- Inventory: warn (don't block) when a device's ip:port matches a global device — overlapping IPs are legitimate (VRFs, NAT, port-forwarded labs)
 - Log file retention: `logs/` is never pruned — app-side cleanup at startup (Loki keeps its own copy)
 - Retention periods as Server Management settings instead of constants (post-v1.0)
 

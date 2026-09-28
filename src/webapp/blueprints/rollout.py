@@ -104,6 +104,16 @@ def load_devices(selected_ids: list) -> list | Response:
 		return redirect(url_for("rollout.new_rollout"))
 
 
+def duplicate_targets(devices) -> dict[str, list[str]]:
+	# Same ip:port selected twice = the same box twice (e.g. an own entry and
+	# a global entry for one router): the config would be pushed twice.
+	# Same IP on different ports is fine — distinct targets behind NAT.
+	by_endpoint = {}
+	for d in devices:
+		by_endpoint.setdefault(d.endpoint, []).append(d.label or d.ip)
+	return {ep: labels for ep, labels in by_endpoint.items() if len(labels) > 1}
+
+
 def submit_jobs(devices, commands, platform_commands_map, is_multi_platform,
                 options, audit_comment) -> uuid.UUID | Response:
 	# 10) Submit jobs to the orchestrator.
@@ -191,6 +201,13 @@ def new_start_rollout():
 	if isinstance(devices, Response):
 		return devices
 
+	if duplicates := duplicate_targets(devices):
+		flash("The same target was selected more than once — select only one "
+		      "of: " + "; ".join(f"{' / '.join(labels)} ({ep})"
+		                         for ep, labels in duplicates.items()),
+		      "danger")
+		return redirect(url_for("rollout.new_rollout"))
+
 	options = RolloutOptions(
 		verify=bool(request.form.get("_verify", "")),
 		verbose=bool(request.form.get("_verbose", "")),
@@ -260,19 +277,23 @@ def rollback(job_id, data):
 			user_id=current_user.id,
 			job_id=job_id,
 			status="success").all()
-		successful_ips = {r.device_ip for r in result}
+		successful = {(r.device_ip, r.device_port) for r in result}
 
 		candidates = db_session.query(Inventory).filter(
 			visible_devices_clause(current_user.id),
-			Inventory.ip.in_(successful_ips)).all()
-		# Results only record IPs, so a user's own device and a global device
-		# may share one — keep a single row per IP, preferring the user's own,
-		# so the device isn't pushed twice.
-		by_ip = {}
+			Inventory.ip.in_({ip for ip, _ in successful})).all()
+		# Match on ip:port (the target), not IP alone — devices behind one
+		# NAT address differ by port. A user's own entry and a global entry
+		# can still describe the same target: keep one per ip:port,
+		# preferring the user's own, so the box isn't pushed twice.
+		by_target = {}
 		for row in candidates:
-			if row.ip not in by_ip or row.user_id == current_user.id:
-				by_ip[row.ip] = row
-		rows = list(by_ip.values())
+			target = (row.ip, row.port)
+			if target not in successful:
+				continue
+			if target not in by_target or row.user_id == current_user.id:
+				by_target[target] = row
+		rows = list(by_target.values())
 		if not rows:
 			return err("No successfully configured devices found for this job.")
 

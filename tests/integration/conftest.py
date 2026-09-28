@@ -302,9 +302,9 @@ def make_device(app):
 	from src.db.tables import Inventory
 
 	def _make(owner, ip="10.0.0.1", label=None, profile_id=None,
-	          is_global=False, var_maps=None, device_type="cisco_ios"):
+	          is_global=False, var_maps=None, device_type="cisco_ios", port=22):
 		with app.backend.postgres.get_session() as s:
-			d = Inventory(ip=ip, label=label or f"dev-{ip}", port=22,
+			d = Inventory(ip=ip, label=label or f"dev-{ip}", port=port,
 			              device_type=device_type, user_id=owner.id,
 			              sec_profile_id=profile_id, is_global=is_global,
 			              var_maps=var_maps)

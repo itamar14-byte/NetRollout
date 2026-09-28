@@ -28,11 +28,11 @@ def operator(make_user, make_profile, make_device):
 
 
 def add_result(session_scope, user, job_id, ip="10.0.0.1", status="success",
-               verified=None, config=None, age_days=0, commands=None):
+               verified=None, config=None, age_days=0, commands=None, port=22):
 	when = dt.datetime.now() - dt.timedelta(days=age_days)
 	with session_scope() as s:
 		s.add(DeviceResult(user_id=user.id, job_id=job_id, started_at=when,
-		                   completed_at=when, device_ip=ip,
+		                   completed_at=when, device_ip=ip, device_port=port,
 		                   device_type="cisco_ios", commands_sent=2,
 		                   commands_verified=verified, fetched_config=config,
 		                   status=status))
@@ -78,6 +78,40 @@ def test_invalid_rollouts_are_refused(operator, client_for, captured_submits,
 	                                      data=form_fn(operator))
 	assert resp.headers["Location"] == "/rollout/new"
 	assert captured_submits == []
+
+
+def test_same_target_selected_twice_is_refused(operator, client_for,
+                                               make_user, make_profile,
+                                               make_device, captured_submits):
+	# the operator's own entry and a global entry for the same box
+	admin = make_user(role="admin")
+	shared = make_device(admin, ip="10.0.0.1", label="CORE-GLOBAL",
+	                     is_global=True, profile_id=make_profile(admin))
+	client = client_for(operator.user)
+	resp = client.post("/rollout/start", data={
+		"device_ids": [str(operator.ios), str(shared)],
+		"manual_commands": "hostname x"})
+	assert resp.headers["Location"] == "/rollout/new"
+	assert captured_submits == []
+	with client.session_transaction() as s:
+		(category, message), = s["_flashes"]
+	assert "10.0.0.1:22" in message and "CORE-GLOBAL" in message
+
+
+def test_same_ip_on_different_ports_is_allowed(operator, client_for,
+                                               make_profile, make_device,
+                                               captured_submits):
+	# port-forwarded lab nodes: same host IP, different SSH ports
+	prof = make_profile(operator.user, label="lab")
+	node_a = make_device(operator.user, ip="10.9.9.9", port=2001,
+	                     label="node-a", profile_id=prof)
+	node_b = make_device(operator.user, ip="10.9.9.9", port=2002,
+	                     label="node-b", profile_id=prof)
+	client_for(operator.user).post("/rollout/start", data={
+		"device_ids": [str(node_a), str(node_b)], "manual_commands": "x"})
+	(call,) = captured_submits
+	assert sorted(d.endpoint for d in call.devices) == \
+	       ["10.9.9.9:2001", "10.9.9.9:2002"]
 
 
 def test_cannot_roll_out_to_another_users_device(operator, client_for,
@@ -166,7 +200,44 @@ def test_rollback_targets_successful_devices_once_per_ip(
 	assert [d.label for d in call.devices] == ["dev-10.0.0.1"]  # own, once
 
 
+def test_rollback_matches_on_ip_and_port(operator, client_for, session_scope,
+                                         make_profile, make_device,
+                                         captured_submits):
+	prof = make_profile(operator.user, label="lab")
+	make_device(operator.user, ip="10.9.9.9", port=2001, label="node-a",
+	            profile_id=prof)
+	make_device(operator.user, ip="10.9.9.9", port=2002, label="node-b",
+	            profile_id=prof)
+	job = uuid.uuid4()
+	add_result(session_scope, operator.user, job, ip="10.9.9.9", port=2001)
+	add_result(session_scope, operator.user, job, ip="10.9.9.9", port=2002,
+	           status="failed")
+	client_for(operator.user).post(f"/rollout/rollback/{job}",
+	                               json={"commands": "no hostname"})
+	(call,) = captured_submits
+	assert [d.label for d in call.devices] == ["node-a"]  # not the failed one
+
+
 # ── Results / Verify Diff / logs ─────────────────────────────────────────────
+
+def test_results_distinguish_devices_sharing_an_ip(operator, client_for,
+                                                   session_scope, make_profile,
+                                                   make_device):
+	prof = make_profile(operator.user, label="lab")
+	make_device(operator.user, ip="10.9.9.9", port=2001, label="node-a",
+	            profile_id=prof)
+	job = uuid.uuid4()
+	add_result(session_scope, operator.user, job, ip="10.9.9.9", port=2001,
+	           status="partial", verified=1, config="cfg-a", commands=["a", "b"])
+	add_result(session_scope, operator.user, job, ip="10.9.9.9", port=2002,
+	           status="partial", verified=1, config="cfg-b", commands=["a", "b"])
+	client = client_for(operator.user)
+	html = client.get("/results").get_data(as_text=True)
+	assert "node-a" in html            # labelled via its own ip:port
+	assert "10.9.9.9:2002" in html     # unlabelled: falls back to ip:port
+	a = client.get(f"/results/config_diff/{job}/10.9.9.9?port=2001")
+	b = client.get(f"/results/config_diff/{job}/10.9.9.9?port=2002")
+	assert (a.json["config"], b.json["config"]) == ("cfg-a", "cfg-b")
 
 def test_results_show_verify_diff_and_expired_states(operator, client_for,
                                                      session_scope):

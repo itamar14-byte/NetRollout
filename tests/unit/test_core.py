@@ -582,7 +582,7 @@ class TestRolloutEnginePushConfig(unittest.TestCase):
         engine = self._make_engine()
         cancel_signal, push_results = engine._push_config(self.cancel, self.logger)
         self.assertIsNone(cancel_signal)
-        self.assertTrue(push_results.get("192.168.1.1"))
+        self.assertTrue(push_results.get(0))
         mock_conn.save_config.assert_called_once()
         mock_conn.disconnect.assert_called_once()
 
@@ -605,7 +605,7 @@ class TestRolloutEnginePushConfig(unittest.TestCase):
         engine = self._make_engine()
         cancel_signal, push_results = engine._push_config(self.cancel, self.logger)
         self.assertIsNone(cancel_signal)
-        self.assertFalse(push_results.get("192.168.1.1"))
+        self.assertFalse(push_results.get(0))
 
     @patch("netmiko.ConnectHandler")
     def test_cancel_event_stops_rollout(self, mock_ch):
@@ -645,7 +645,7 @@ class TestRolloutEnginePushConfig(unittest.TestCase):
                                                               self.logger)
         self.assertEqual(cancel_signal, "cancel_sent")
         # C (10.0.0.3) started after the cancel: never connected
-        self.assertEqual(push_results, {"10.0.0.1": True, "10.0.0.2": True})
+        self.assertEqual(push_results, {0: True, 1: True})  # by device index
 
     @patch("netmiko.ConnectHandler")
     def test_multiple_devices_all_attempted(self, mock_ch):
@@ -687,7 +687,7 @@ class TestRolloutEngineVerify(unittest.TestCase):
                           return_value="ip route 0.0.0.0 0.0.0.0 1.1.1.1"):
             result = engine._verify(self.logger)
         # fully verified -> no config snapshot kept (nothing to diff)
-        self.assertEqual(result["192.168.1.1"], (None, 1))
+        self.assertEqual(result[0], (None, 1))
 
     def test_command_not_in_config(self):
         device = make_device()
@@ -697,14 +697,14 @@ class TestRolloutEngineVerify(unittest.TestCase):
         )
         with patch.object(device, "fetch_config", return_value="no relevant config"):
             result = engine._verify(self.logger)
-        self.assertEqual(result["192.168.1.1"][1], 0)
+        self.assertEqual(result[0][1], 0)
 
     def test_fetch_config_returns_none_counts_zero(self):
         device = make_device()
         engine = self._make_engine(devices=[device])
         with patch.object(device, "fetch_config", return_value=None):
             result = engine._verify(self.logger)
-        self.assertEqual(result["192.168.1.1"], (None, 0))
+        self.assertEqual(result[0], (None, 0))
 
     def test_partial_commands_matched(self):
         device = make_device()
@@ -714,7 +714,7 @@ class TestRolloutEngineVerify(unittest.TestCase):
         with patch.object(device, "fetch_config", return_value=config):
             result = engine._verify(self.logger)
         # mismatch -> config snapshot kept for Verify Diff
-        self.assertEqual(result["192.168.1.1"], (config, 1))
+        self.assertEqual(result[0], (config, 1))
 
 
 # ---------------------------------------------------------------------------
@@ -758,6 +758,24 @@ class TestRolloutEngineRun(unittest.TestCase):
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0]["status"], "success")
         self.assertIsNone(result[0]["commands_verified"])
+
+    def test_same_ip_different_ports_get_separate_results(self):
+        # e.g. lab nodes port-forwarded behind one host IP
+        def connect(**params):
+            if params["port"] == 2002:
+                raise Exception("connection refused")
+            conn = MagicMock()
+            conn.send_config_set.return_value = "ok"
+            return conn
+
+        devices = [make_device(ip="10.9.9.9", port=2001, label="node-1"),
+                   make_device(ip="10.9.9.9", port=2002, label="node-2")]
+        engine = RolloutEngine(param=make_options(verify=False),
+                               devices=devices, commands=["hostname x"])
+        with patch("netmiko.ConnectHandler", side_effect=connect):
+            result = engine.run(self.cancel, self.logger)
+        by_port = {r["device_port"]: r["status"] for r in result}
+        self.assertEqual(by_port, {2001: "success", 2002: "failed"})
 
     @patch("netmiko.ConnectHandler")
     def test_failed_push_marked_in_result(self, mock_ch):

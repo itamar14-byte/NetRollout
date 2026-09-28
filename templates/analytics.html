@@ -356,7 +356,8 @@ const FIELD_ICONS = {
   device_type:   'bi-cpu',
   status:        'bi-check-circle',
   commands_sent: 'bi-terminal',
-  device_ip:     'bi-hdd-network'
+  device_ip:     'bi-hdd-network',
+  device_port:   'bi-plug'
 };
 
 function injectFieldIcon(rule) {
@@ -408,6 +409,10 @@ $(function() {
       {
         id: 'device_ip', label: 'Device IP', type: 'string',
         operators: ['equal','contains','begins_with']
+      },
+      {
+        id: 'device_port', label: 'Device Port', type: 'integer',
+        operators: ['equal','not_equal']
       }
     ],
     operators: [

@@ -29,10 +29,12 @@ QUERY_DEVICE_RESULT_FIELDS = {
 		DeviceResult.commands_sent,
 		{"equal", "not_equal", "greater_or_equal",
 		 "less_or_equal"}),
+	"device_port": (
+		DeviceResult.device_port, {"equal", "not_equal"}),
 	"device_ip": (
 		DeviceResult.device_ip, {"equal", "contains", "begins_with"}),
 }
-DEVICE_RESULT_COLUMNS = ["job_id", "device_ip", "device_type",
+DEVICE_RESULT_COLUMNS = ["job_id", "device_ip", "device_port", "device_type",
                          "status",
                          "commands_sent", "commands_verified",
                          "started_at", "completed_at"]
