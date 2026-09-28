@@ -217,9 +217,16 @@ class RolloutEngine:
 		The function will accept device and command data, as processed by parse_files and push the configuration,
 		using netmiko for SSH connections over the provided ip and port.
 		Devices are pushed concurrently via ThreadPoolExecutor.
-		:return: (cancel_signal, push_results) where cancel_signal is "cancel_sent" or None
+		A cancel stops devices that haven't connected yet; devices already
+		mid-push finish their commands (a half-applied config is worse than
+		either state). Every result is collected — returning at the first
+		cancelled device used to drop the results of devices still in flight,
+		recording them as cancelled although their config was applied.
+		:return: (cancel_signal, push_results) where cancel_signal is "cancel_sent" or None;
+		 devices that never connected are absent from push_results
 		"""
 		push_results = {}
+		cancelled = False
 		with ThreadPoolExecutor(max_workers=self._max_workers) as executor:
 			futures = {
 				executor.submit(self._push_device, device, cancel_event,
@@ -229,10 +236,12 @@ class RolloutEngine:
 			for future in as_completed(futures):
 				ip, result = future.result()
 				if result is None:
-					logger.notify("Rollout Canceled By User", color="red")
-					return "cancel_sent", push_results
+					if not cancelled:
+						logger.notify("Rollout Canceled By User", color="red")
+					cancelled = True
+					continue
 				push_results[ip] = result
-		return None, push_results
+		return ("cancel_sent" if cancelled else None), push_results
 
 	def _verify_device(self, device: Device,
 	                   logger: RolloutLogger) -> tuple[str, int, str | None]:
