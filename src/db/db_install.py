@@ -39,7 +39,7 @@ def install(postgres: "PostgresConnection"):
                 SELECT cron.schedule(
                     'device_result_retention',
                     '0 3 * * *',
-                    $q$DELETE FROM device_results WHERE created_at < NOW() - INTERVAL '30 days'$q$
+                    $q$DELETE FROM device_results WHERE completed_at < NOW() - INTERVAL '30 days'$q$
                 );
             """))
 			conn.execute(text("""
