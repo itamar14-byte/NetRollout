@@ -94,7 +94,6 @@ def admin_server():
 	except RedisConnectionError:
 		redis_connected = False
 	#TODO check DB optional flags
-	# TODO enforce case convention for DB config
 	connection_modes = current_app.backend.connection_modes()
 	return render_template('server_management.html',
 	                       active_section="server",
@@ -443,7 +442,6 @@ def admin_server_ldap_group_delete(server_id, group_id):
 		                      object_label=g.label, success=True)
 	return ok()
 
-#TODO check url prefix corrnss across blueprints
 @bp.route("/restart", methods=["POST"])
 @login_required
 @require_admin

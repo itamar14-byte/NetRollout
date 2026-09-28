@@ -123,7 +123,8 @@ def launch_app():
 	                                   int(os.getenv("ORCHESTRATOR_WORKERS",
 	                                                 "4")))
 	web_services = WebServices(backend)
-	app = Flask(__name__, template_folder='../templates')
+	app = Flask(__name__, template_folder='../../templates',
+	            static_folder='../static')
 
 	app.backend = backend
 	app.orchestrator = orchestrator

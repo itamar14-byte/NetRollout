@@ -16,7 +16,7 @@ from src.core import RolloutOptions
 from src.input_parser import InputParser
 from src.webapp.utils import ok, err, with_form, with_json
 
-bp = Blueprint('rollout', __name__)
+bp = Blueprint('rollout', __name__, url_prefix='/rollout')
 
 
 ##############################Route Helpers################################
@@ -26,7 +26,7 @@ def parse_commands() -> tuple | Response:
 	# are selected, and omits it (or sends empty) for single-platform rollouts.
 	raw_platform_commands = request.form.get("platform_commands", "").strip()
 	if raw_platform_commands:
-		# Multi-platform: parse the JSON map of platform → command text.
+		# Multi-platform: parse the JSON map of the platform → command text.
 		try:
 			platform_commands_map = json.loads(raw_platform_commands)
 		except json.JSONDecodeError:
@@ -132,7 +132,7 @@ def submit_jobs(devices, commands, platform_commands_map, is_multi_platform,
 
 
 ##############################Routes#######################################
-@bp.route("/cancel_rollout", methods=["POST"])
+@bp.route("/cancel", methods=["POST"])
 @login_required
 @with_form("job_id")
 def cancel_rollout(data):
@@ -151,7 +151,7 @@ def cancel_rollout(data):
 	return ok("canceled")
 
 
-@bp.route("/new_rollout")
+@bp.route("/new")
 @login_required
 def new_rollout():
 	with current_app.backend.postgres.get_session() as db_session:
@@ -166,7 +166,7 @@ def new_rollout():
 	                       active_section="rollout"
 	                       )
 
-@bp.route("/new_start_rollout", methods=["POST"])
+@bp.route("/start", methods=["POST"])
 @login_required
 def new_start_rollout():
 	raw_device_ids = request.form.getlist("device_ids")
@@ -209,7 +209,7 @@ def new_start_rollout():
 	return redirect(url_for("jobs.active_jobs", new=str(job_id)))
 
 
-@bp.route("/rollout_stream/<uuid:job_id>")
+@bp.route("/stream/<uuid:job_id>")
 @login_required
 def rollout_stream(job_id):
 	job = current_app.orchestrator.get_job(job_id)

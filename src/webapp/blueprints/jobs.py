@@ -14,7 +14,7 @@ from flask_login import current_user, login_required
 # local modules
 from src.db.tables import DeviceResult, JobMetadata, User, Inventory
 from src.logging_utils import LOGS_DIR
-from src.webapp.utils import ok, err
+from src.webapp.utils import ok, err, build_kpi
 
 bp = Blueprint('jobs', __name__)
 
@@ -184,8 +184,7 @@ def dashboard():
 	last_status = job_summaries[0]["status"] if job_summaries else None
 
 	# ── 30-day KPI strip (scoped) ─────────────────────────────────────────────
-	kpi = current_app.web.build_kpi(data["kpi_results_30d"],
-	                                data["kpi_label_map"])
+	kpi = build_kpi(data["kpi_results_30d"], data["kpi_label_map"])
 
 	# ── Active job (always own) ───────────────────────────────────────────────
 	active_job = get_active_job(current_user.id)

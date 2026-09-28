@@ -4,7 +4,7 @@ import socket
 import time
 import re
 
-from logging_utils import RolloutLogger
+from src.logging_utils import RolloutLogger
 
 
 class Validator:

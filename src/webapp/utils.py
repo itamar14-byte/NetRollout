@@ -36,45 +36,6 @@ SYSTEM_PROPERTIES = [
 	{"name": "vrfs", "label": "VRFs", "icon": "bi-layers", "is_list": True},
 ]
 
-QUERY_DEVICE_RESULT_FIELDS = {
-	"started_at": (
-		DeviceResult.started_at,
-		{"equal", "less_or_equal", "greater_or_equal"}),
-	"device_type": (
-		DeviceResult.device_type, {"equal", "not_equal"}),
-	"status": (
-		DeviceResult.status, {"equal", "not_equal"}),
-	"commands_sent": (
-		DeviceResult.commands_sent,
-		{"equal", "not_equal", "greater_or_equal",
-		 "less_or_equal"}),
-	"device_ip": (
-		DeviceResult.device_ip, {"equal", "contains", "begins_with"}),
-}
-DEVICE_RESULT_COLUMNS = ["job_id", "device_ip", "device_type",
-                         "status",
-                         "commands_sent", "commands_verified",
-                         "started_at", "completed_at"]
-
-QUERY_AUDIT_LOG_FIELDS = {
-	"timestamp": (
-		AuditLog.timestamp, {"equal", "less_or_equal", "greater_or_equal"}),
-	"actor_username": (
-		AuditLog.actor_username,
-		{"equal", "not_equal", "contains", "begins_with"}),
-	"action": (
-		AuditLog.action, {"equal", "not_equal", "contains", "begins_with"}),
-	"object_type": (
-		AuditLog.object_type, {"equal", "not_equal"}),
-	"success": (
-		AuditLog.success, {"equal"}),
-	"ip_address": (
-		AuditLog.ip_address, {"equal", "contains", "begins_with"}),
-}
-
-AUDIT_LOG_COLUMNS = ["timestamp", "actor_username", "action",
-                     "object_type",
-                     "object_label", "success", "ip_address"]
 
 QUERY_OPS = {
 	"equal": lambda x, y: x == y,
@@ -346,8 +307,6 @@ class WebServices:
 		return profile_id
 
 	#######################Auth helpers###############################
-
-
 	def get_property_defs(self, user_id):
 		with self.backend.postgres.get_session() as db_session:
 			user_props = db_session.query(PropertyDefinition).filter_by(

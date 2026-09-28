@@ -5,22 +5,24 @@ from typing import Callable
 
 from redis.client import PubSub
 
-from core import RolloutEngine, RolloutOptions, Device, DeviceResultDict
-from db.tables import DeviceResult, JobMetadata
-from logging_utils import RolloutLogger
+from src.core import RolloutEngine, RolloutOptions, Device, DeviceResultDict
+from src.db.tables import DeviceResult, JobMetadata
+from src.logging_utils import RolloutLogger
 from src.db.backend import BackendServices
 
 
 class RolloutJob:
 	def __init__(self, job_id: uuid.UUID, user_id: uuid.UUID,
-	             engine: RolloutEngine, options: RolloutOptions) -> None:
+	             engine: RolloutEngine, options: RolloutOptions,
+	             redis_client=None) -> None:
 		self.job_id = job_id
 		self.user_id = user_id
 		self.started_at: datetime.datetime | None = None
 		self.results: list[DeviceResultDict] = []
 		self._engine = engine
 		self._logger = RolloutLogger(options.webapp, options.verbose,
-		                             job_id=str(job_id), prefix="rollout")
+		                             job_id=str(job_id), prefix="rollout",
+		                             redis_client=redis_client)
 		self._cancel_flag = threading.Event()
 		self._thread = None
 
@@ -67,7 +69,8 @@ class RolloutOrchestrator:
 	RolloutOptions, user_id: uuid.UUID,
 	           comment: str | None = None) -> uuid.UUID:
 		engine = RolloutEngine(params, devices, commands)
-		job = RolloutJob(uuid.uuid4(), user_id, engine, params)
+		job = RolloutJob(uuid.uuid4(), user_id, engine, params,
+		                 redis_client=self._backend.redis.client)
 
 		with self._lock:
 			self._jobs[job.job_id] = job

@@ -6,10 +6,9 @@ from sqlalchemy import engine_from_config, pool
 from alembic import context
 
 
-#make /src importable
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from postgres_db import Base
-import tables
+#make project root importable
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))
+from src.db.tables import Base
 
 
 # this is the Alembic Config object, which provides

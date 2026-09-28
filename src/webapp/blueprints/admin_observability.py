@@ -11,13 +11,32 @@ from flask_login import login_required
 # local modules
 from src.db.tables import AuditLog, DeviceResult, User, Inventory
 from src.webapp.utils import (ok, err, require_admin, with_json,
-                              compile_query_rules, QUERY_AUDIT_LOG_FIELDS,
-                              AUDIT_LOG_COLUMNS)
+                              compile_query_rules)
 
 bp = Blueprint('admin_observability', __name__, url_prefix='/admin')
 
 
-##############################Route Helpers#####################################
+##############################Constants#####################################
+QUERY_AUDIT_LOG_FIELDS = {
+	"timestamp": (
+		AuditLog.timestamp, {"equal", "less_or_equal", "greater_or_equal"}),
+	"actor_username": (
+		AuditLog.actor_username,
+		{"equal", "not_equal", "contains", "begins_with"}),
+	"action": (
+		AuditLog.action, {"equal", "not_equal", "contains", "begins_with"}),
+	"object_type": (
+		AuditLog.object_type, {"equal", "not_equal"}),
+	"success": (
+		AuditLog.success, {"equal"}),
+	"ip_address": (
+		AuditLog.ip_address, {"equal", "contains", "begins_with"}),
+}
+
+AUDIT_LOG_COLUMNS = ["timestamp", "actor_username", "action",
+                     "object_type",
+                     "object_label", "success", "ip_address"]
+
 ##############################Routes###########################################
 @bp.route("/audit")
 @login_required
