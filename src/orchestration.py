@@ -112,8 +112,8 @@ class RolloutOrchestrator:
 			job = self._jobs.get(job_id, None)
 		if job:
 			job.cancel()
-			self._backend.redis.client.hset(f"job:{job.job_id}:meta", field="status",
-			                  value="cancelling")
+			self._backend.redis.client.hset(f"job:{job.job_id}:meta", "status",
+			                                "cancelling")
 
 	def get_job(self, job_id: uuid.UUID) -> RolloutJob | None:
 		with self._lock:

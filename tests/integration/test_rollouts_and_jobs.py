@@ -112,10 +112,6 @@ class FakeRunningJob:
 		                       else None, close=lambda: None)
 
 
-@pytest.mark.xfail(strict=True, raises=TypeError, reason=(
-	"BUG: RolloutOrchestrator.cancel -> hset(field=...) TypeError; the job's "
-	"cancel flag is set but /rollout/cancel returns 500 and status is never "
-	"'cancelling' (see tests/unit/test_orchestration.py)"))
 def test_owner_cancels_running_job(app, operator, client_for, monkeypatch):
 	job = FakeRunningJob(operator.user.id)
 	monkeypatch.setitem(app.orchestrator._jobs, job.job_id, job)
@@ -235,11 +231,6 @@ def test_active_jobs_lists_running_job(app, operator, client_for, monkeypatch):
 	assert resp.status_code == 200 and str(job.job_id) in resp.get_data(as_text=True)
 
 
-@pytest.mark.xfail(strict=True, raises=TypeError, reason=(
-	"BUG: after a restart/crash, job:<id>:meta survives in Redis (no TTL) but "
-	"the orchestrator no longer holds the job; build_job_dict then returns "
-	"device_count as a str from Redis and active_jobs.html:263 sums it with "
-	"ints -> 500 on Active Jobs until the keys are removed"))
 def test_active_jobs_survives_orphaned_job_meta(app, operator, client_for):
 	_register_job_meta(app, operator.user, uuid.uuid4())  # not in memory
 	assert client_for(operator.user).get("/active_jobs").status_code == 200
