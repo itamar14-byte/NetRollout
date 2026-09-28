@@ -1,0 +1,360 @@
+"""Integration layer: real PostgreSQL + Redis, entry gated on service health.
+
+Health: PostgreSQL and Redis are probed once at collection. Tests marked
+`postgres` / `redis` (every test in this directory is, via `pytestmark`)
+are skipped with the probe's reason when their service is down — `-ra`
+lists them. Unit tests are unaffected.
+
+Isolation (nothing here touches the developer's live data):
+- PostgreSQL: a dedicated `rollout_test` database, dropped/created fresh per
+  session, migrated to head via Alembic in a subprocess, truncated per test
+- Redis: pinned to db 15 (hard assert), flushed per test
+- Encryption: a throwaway key via env var; KEY_FILE already points at a
+  temp dir (tests/conftest.py)
+- Rollouts: orchestrator.submit is replaced for every test, so no test can
+  reach netmiko; `captured_submits` records what would have run
+- The app is created once per session: the Prometheus collector registers
+  in a process-global registry, so a second create_app() would fail
+
+Configure with env vars: TEST_PG_ADMIN_URL (a DB the test user can connect
+to for CREATE/DROP DATABASE), TEST_PG_DBNAME, TEST_REDIS_URL.
+"""
+import dataclasses
+import os
+import re
+import subprocess
+import sys
+import uuid
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+import redis as redis_lib
+from dotenv import dotenv_values
+from sqlalchemy import create_engine, text
+from werkzeug.security import generate_password_hash
+
+ROOT = Path(__file__).resolve().parents[2]
+REDIS_TEST_DB = 15
+PG_ADMIN_URL = os.environ.get(
+	"TEST_PG_ADMIN_URL",
+	"postgresql+psycopg2://dbadmin:Pass123@localhost:5432/postgres")
+TEST_DB = os.environ.get("TEST_PG_DBNAME", "rollout_test")
+TEST_DB_URL = PG_ADMIN_URL.rsplit("/", 1)[0] + "/" + TEST_DB
+TEST_PASSWORD = "Test-pass-1"
+
+
+def _redis_url() -> str:
+	url = os.environ.get("TEST_REDIS_URL")
+	if not url:
+		# Same server the app uses (credentials from config.env), never its db
+		env = {k: v for k, v in dotenv_values(ROOT / "config.env").items()
+		       if k.startswith("REDIS_")}
+		url = env.get("REDIS_URL")
+		if not url:
+			password = env.get("REDIS_PASSWORD")
+			auth = f":{password}@" if password else ""
+			url = (f"redis://{auth}{env.get('REDIS_HOST', 'localhost')}:"
+			       f"{env.get('REDIS_PORT', '6379')}/0")
+	return re.sub(r"/\d+$", "", url) + f"/{REDIS_TEST_DB}"
+
+
+REDIS_URL = _redis_url()
+
+
+# ── Health probes (once, at collection) ──────────────────────────────────────
+
+def _probe_postgres() -> str | None:
+	try:
+		engine = create_engine(PG_ADMIN_URL, connect_args={"connect_timeout": 3})
+		with engine.connect() as conn:
+			conn.execute(text("SELECT 1"))
+		engine.dispose()
+		return None
+	except Exception as e:
+		host = PG_ADMIN_URL.split("@")[-1]
+		return f"PostgreSQL unreachable at {host}: {type(e).__name__}"
+
+
+def _probe_redis() -> str | None:
+	try:
+		client = redis_lib.from_url(REDIS_URL, socket_connect_timeout=2,
+		                            socket_timeout=2)
+		client.ping()
+		client.close()
+		return None
+	except Exception as e:
+		host = REDIS_URL.split("@")[-1]
+		return f"Redis unreachable at {host}: {type(e).__name__}"
+
+
+PG_DOWN = _probe_postgres()
+REDIS_DOWN = _probe_redis()
+
+
+def pytest_collection_modifyitems(config, items):
+	for item in items:
+		if item.get_closest_marker("postgres") and PG_DOWN:
+			item.add_marker(pytest.mark.skip(reason=PG_DOWN))
+		elif item.get_closest_marker("redis") and REDIS_DOWN:
+			item.add_marker(pytest.mark.skip(reason=REDIS_DOWN))
+
+
+# ── Services ─────────────────────────────────────────────────────────────────
+
+@pytest.fixture(scope="session")
+def test_db_url():
+	if PG_DOWN:
+		pytest.skip(PG_DOWN)
+	admin = create_engine(PG_ADMIN_URL, isolation_level="AUTOCOMMIT")
+	with admin.connect() as conn:
+		# WITH (FORCE): a crashed previous run may have left connections open
+		conn.execute(text(f'DROP DATABASE IF EXISTS "{TEST_DB}" WITH (FORCE)'))
+		conn.execute(text(f'CREATE DATABASE "{TEST_DB}"'))
+	# Alembic in a subprocess: in-process it would set DATABASE_URL and call
+	# logging.fileConfig, disabling loggers for the rest of the session
+	result = subprocess.run(
+		[sys.executable, "-m", "alembic", "upgrade", "head"],
+		cwd=ROOT / "src" / "db", capture_output=True, text=True,
+		env=dict(os.environ, DATABASE_URL=TEST_DB_URL))
+	assert result.returncode == 0, f"alembic upgrade failed:\n{result.stderr}"
+	yield TEST_DB_URL
+	with admin.connect() as conn:
+		conn.execute(text(f'DROP DATABASE IF EXISTS "{TEST_DB}" WITH (FORCE)'))
+	admin.dispose()
+
+
+@pytest.fixture(scope="session")
+def redis_url():
+	if REDIS_DOWN:
+		pytest.skip(REDIS_DOWN)
+	client = redis_lib.from_url(REDIS_URL)
+	assert client.connection_pool.connection_kwargs["db"] == REDIS_TEST_DB
+	client.flushdb()
+	yield REDIS_URL
+	client.flushdb()
+	client.close()
+
+
+# Routes that raise genuine backend failures, for the error-handler tests
+DEAD_PG_URL = "postgresql+psycopg2://nobody:nothing@127.0.0.1:5999/none"
+UNROUTABLE_REDIS_HOST = "10.255.255.1"
+
+
+def _register_failure_routes(app):
+	from src.db.postgres_db import PostgresConnection, PostgresConfig
+	from src.encryption import decrypt
+
+	def pg_down():
+		PostgresConnection(PostgresConfig(url=DEAD_PG_URL)).test_connection()
+
+	def redis_timeout():
+		# retries off: redis-py retries timeouts with backoff by default,
+		# which turns one 1s timeout into ~20s
+		from redis.backoff import NoBackoff
+		from redis.retry import Retry
+		redis_lib.Redis(host=UNROUTABLE_REDIS_HOST, socket_connect_timeout=1,
+		                socket_timeout=1, retry=Retry(NoBackoff(), 0)).ping()
+
+	def bad_key():
+		decrypt("gAAAAA-not-a-real-token")
+
+	for name, fn in (("pg_down", pg_down), ("redis_timeout", redis_timeout),
+	                 ("bad_key", bad_key)):
+		app.add_url_rule(f"/_test/{name}", f"_test_{name}", fn)
+		app.add_url_rule(f"/rollout/stream/_test/{name}", f"_test_sse_{name}", fn)
+
+
+@pytest.fixture(scope="session")
+def app(test_db_url, redis_url, tmp_path_factory):
+	from cryptography.fernet import Fernet
+
+	import src.encryption as enc
+	import src.logging_utils as logging_utils
+	from src.db import backend as backend_mod
+	from src.db.postgres_db import PostgresConnection, PostgresConfig
+	from src.db.redis_db import RedisConnection, RedisConfig
+
+	os.environ[enc.ENV_VAR] = Fernet.generate_key().decode()
+	scratch = tmp_path_factory.mktemp("backend")
+
+	def _test_backend_init(self):
+		self._CONFIG_ENV = scratch / "config.env"   # never the real one
+		self._FLAG = scratch / "pending_db_init.flag"
+		self.postgres = PostgresConnection(PostgresConfig(url=test_db_url))
+		self.redis = RedisConnection(RedisConfig(url=redis_url))
+
+	original_init = backend_mod.BackendServices.__init__
+	backend_mod.BackendServices.__init__ = _test_backend_init
+	try:
+		from src.webapp import create_app
+		flask_app = create_app()
+	finally:
+		backend_mod.BackendServices.__init__ = original_init
+
+	assert flask_app.backend.redis.client.connection_pool \
+		       .connection_kwargs["db"] == REDIS_TEST_DB
+	flask_app.config.update(TESTING=True, WTF_CSRF_ENABLED=False)
+	# jobs.py copied LOGS_DIR by name at import — keep it on the test dir
+	import src.webapp.blueprints.jobs as jobs_bp
+	jobs_bp.LOGS_DIR = logging_utils.LOGS_DIR
+	_register_failure_routes(flask_app)
+	yield flask_app
+	flask_app.backend.postgres.engine.dispose()
+
+
+# ── Per-test state ───────────────────────────────────────────────────────────
+
+@pytest.fixture(autouse=True)
+def _clean_state(request):
+	if "app" not in request.fixturenames:
+		yield
+		return
+	app = request.getfixturevalue("app")
+	from src.db.tables import Base
+	from src.webapp.extensions import conn_limit
+	tables = ", ".join(f'"{t.name}"' for t in Base.metadata.sorted_tables)
+	with app.backend.postgres.engine.begin() as conn:
+		# a leaked session holding locks fails this test instead of hanging
+		conn.execute(text("SET LOCAL lock_timeout = '5s'"))
+		conn.execute(text(f"TRUNCATE {tables} CASCADE"))
+	app.backend.redis.client.flushdb()
+	conn_limit.reset()
+	saved_config = dict(app.config)
+	yield
+	app.config.clear()
+	app.config.update(saved_config)
+
+
+@pytest.fixture(autouse=True)
+def _no_real_rollouts(request, monkeypatch):
+	# Route tests must never reach netmiko through the real orchestrator
+	if "app" not in request.fixturenames:
+		return
+	app = request.getfixturevalue("app")
+
+	def _refuse(*_, **__):
+		raise AssertionError("real orchestrator.submit reached — use the "
+		                     "captured_submits fixture")
+
+	monkeypatch.setattr(app.orchestrator, "submit", _refuse)
+
+
+@pytest.fixture
+def captured_submits(app, monkeypatch):
+	calls = []
+
+	def _capture(devices, commands, params, user_id, comment=None):
+		job_id = uuid.uuid4()
+		calls.append(SimpleNamespace(devices=devices, commands=commands,
+		                             params=params, user_id=user_id,
+		                             comment=comment, job_id=job_id))
+		return job_id
+
+	monkeypatch.setattr(app.orchestrator, "submit", _capture)
+	return calls
+
+
+# ── Factories ────────────────────────────────────────────────────────────────
+
+@pytest.fixture
+def session_scope(app):
+	return app.backend.postgres.get_session
+
+
+@pytest.fixture
+def make_user(app):
+	from src.db.tables import User
+
+	def _make(username=None, role="user", approved=True, active=True, **kw):
+		username = username or f"u_{uuid.uuid4().hex[:8]}"
+		with app.backend.postgres.get_session() as s:
+			user = User(username=username, role=role, is_approved=approved,
+			            is_active=active,
+			            password_hash=generate_password_hash(TEST_PASSWORD),
+			            email=f"{username}@test.local", full_name=username, **kw)
+			s.add(user)
+			s.flush()
+			return SimpleNamespace(id=user.id, username=username, role=role)
+
+	return _make
+
+
+@pytest.fixture
+def make_profile(app):
+	from src.db.tables import SecurityProfile
+	from src.encryption import encrypt
+
+	def _make(owner, label="prof", username="netops", password="pw"):
+		with app.backend.postgres.get_session() as s:
+			p = SecurityProfile(label=label, username=username,
+			                    password_secret=encrypt(password),
+			                    user_id=owner.id)
+			s.add(p)
+			s.flush()
+			return p.id
+
+	return _make
+
+
+@pytest.fixture
+def make_device(app):
+	from src.db.tables import Inventory
+
+	def _make(owner, ip="10.0.0.1", label=None, profile_id=None,
+	          is_global=False, var_maps=None, device_type="cisco_ios"):
+		with app.backend.postgres.get_session() as s:
+			d = Inventory(ip=ip, label=label or f"dev-{ip}", port=22,
+			              device_type=device_type, user_id=owner.id,
+			              sec_profile_id=profile_id, is_global=is_global,
+			              var_maps=var_maps)
+			s.add(d)
+			s.flush()
+			return d.id
+
+	return _make
+
+
+@pytest.fixture
+def make_mapping(app):
+	from src.db.tables import VariableMapping, Inventory
+
+	def _make(owner, token="HOST", prop="hostname", index=None, devices=()):
+		with app.backend.postgres.get_session() as s:
+			m = VariableMapping(token=f"$${token}$$", property_name=prop,
+			                    index=index, user_id=owner.id)
+			m.devices = [s.get(Inventory, d) for d in devices]
+			s.add(m)
+			s.flush()
+			return m.id
+
+	return _make
+
+
+@pytest.fixture
+def client_for(app):
+	def _client(user=None, xhr=False):
+		client = app.test_client()
+		client.environ_base["wsgi.url_scheme"] = "https"  # secure cookie
+		if xhr:
+			client.environ_base["HTTP_X_REQUESTED_WITH"] = "XMLHttpRequest"
+		if user is not None:
+			with client.session_transaction() as sess:
+				sess["_user_id"] = str(user.id)
+				sess["_fresh"] = True
+		return client
+
+	return _client
+
+
+@pytest.fixture
+def db_get(app):
+	"""Read a row back as a detached snapshot: db_get(Model, id)."""
+	def _get(model, obj_id):
+		with app.backend.postgres.get_session() as s:
+			obj = s.get(model, obj_id)
+			if obj is not None:
+				s.expunge(obj)
+			return obj
+
+	return _get

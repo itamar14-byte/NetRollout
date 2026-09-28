@@ -506,10 +506,19 @@ Blocking and should-fix items found in a full codebase review after the Blueprin
 - Redis resilience: dispatcher retries with backoff; app starts and serves with Redis unreachable (`REDIS_UNAVAILABLE`)
 - Retention cron fixed and policy revised (below)
 - Encryption key fail-fast: no import-time key load; refuses to start on malformed, missing-with-data, or mismatched key
+- Test suite: `pytest` from repo root; unit (hermetic) + integration (real PG/Redis, skipped when unhealthy); 246 passed. Found the 8 bugs below — each is a strict `xfail` naming its cause
 
 **Remaining (in order):**
 
-- Test suite green (`src.*` imports so mocks hit, API drift, discoverable filename)
+- **Bugs found by the test suite** (strict xfails — remove the marker when fixed):
+  - `RolloutOrchestrator.cancel` passes `hset(field=...)` → TypeError: every cancel returns 500 (flag is set, status never 'cancelling')
+  - Active Jobs 500 after restart: orphaned `job:<id>:meta` returns `device_count` as str, summed in `active_jobs.html:263`
+  - LDAP group auto-provisioning: audit written before the new user is committed → FK violation, first login always 500
+  - Duplicate registration → `PendingRollbackError` 500 instead of 'already exists'
+  - `SecurityProfile.label` NOT NULL but optional in UI → create/edit without label 500
+  - `/admin/server/postgres/test|save`: `err()` tuple checked with `isinstance(Response)` → 500 on missing fields / same-DB guard
+  - `/logout` without `@login_required` → 500 for anonymous requests
+  - Redis client has no socket timeouts: an unreachable Redis host can hang requests ~20s (redis-py retries + OS connect timeout)
 - Cancel race: devices finishing after cancel recorded as `cancelled` (rollback skips them)
 - LDAP: unescaped username in DN/filter; server outage → 500 at login
 - Blank CSV fields crash `prepare_devices`

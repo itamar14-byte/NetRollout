@@ -1,0 +1,264 @@
+"""Rollout routes (captured, never executed), cancel, SSE stream, rollback,
+results / Verify Diff / log download, dashboards, operator analytics."""
+import datetime as dt
+import os
+import threading
+import uuid
+from types import SimpleNamespace
+
+import pytest
+
+import src.logging_utils as logging_utils
+from src.db.db_install import CONFIG_SNAPSHOT_RETENTION_DAYS
+from src.db.tables import DeviceResult, JobMetadata
+
+pytestmark = [pytest.mark.postgres, pytest.mark.redis]
+
+
+@pytest.fixture
+def operator(make_user, make_profile, make_device):
+	user = make_user()
+	prof = make_profile(user)
+	ios = make_device(user, ip="10.0.0.1", profile_id=prof,
+	                  var_maps={"hostname": "r1"})
+	eos = make_device(user, ip="10.0.0.2", profile_id=prof,
+	                  device_type="arista_eos")
+	bare = make_device(user, ip="10.0.0.3")  # no security profile
+	return SimpleNamespace(user=user, ios=ios, eos=eos, bare=bare)
+
+
+def add_result(session_scope, user, job_id, ip="10.0.0.1", status="success",
+               verified=None, config=None, age_days=0, commands=None):
+	when = dt.datetime.now() - dt.timedelta(days=age_days)
+	with session_scope() as s:
+		s.add(DeviceResult(user_id=user.id, job_id=job_id, started_at=when,
+		                   completed_at=when, device_ip=ip,
+		                   device_type="cisco_ios", commands_sent=2,
+		                   commands_verified=verified, fetched_config=config,
+		                   status=status))
+		if commands is not None:
+			s.add(JobMetadata(job_id=job_id, user_id=user.id, commands=commands))
+
+
+# ── Starting rollouts ────────────────────────────────────────────────────────
+
+def test_single_platform_rollout_is_submitted(operator, client_for,
+                                              captured_submits):
+	resp = client_for(operator.user).post("/rollout/start", data={
+		"device_ids": [str(operator.ios)], "manual_commands": "hostname $$H$$\n\n",
+		"_verify": "on", "comment": "chg-1"})
+	assert resp.status_code == 302 and "/active_jobs?new=" in resp.headers["Location"]
+	(call,) = captured_submits
+	assert call.commands == ["hostname $$H$$"]
+	assert call.params.verify is True and call.comment == "chg-1"
+	assert [d.ip for d in call.devices] == ["10.0.0.1"]
+
+
+def test_multi_platform_rollout_submits_one_job_per_platform(
+		operator, client_for, captured_submits):
+	import json
+	client_for(operator.user).post("/rollout/start", data={
+		"device_ids": [str(operator.ios), str(operator.eos)],
+		"platform_commands": json.dumps({"cisco_ios": "hostname a",
+		                                 "arista_eos": "hostname b"})})
+	by_platform = {c.devices[0].device_type: c.commands for c in captured_submits}
+	assert by_platform == {"cisco_ios": ["hostname a"],
+	                       "arista_eos": ["hostname b"]}
+
+
+@pytest.mark.parametrize("form_fn", [
+	lambda o: {"manual_commands": "x"},                                # no devices
+	lambda o: {"device_ids": [str(o.ios)]},                            # no commands
+	lambda o: {"device_ids": [str(o.bare)], "manual_commands": "x"},   # no profile
+	lambda o: {"device_ids": ["not-a-uuid"], "manual_commands": "x"},
+])
+def test_invalid_rollouts_are_refused(operator, client_for, captured_submits,
+                                      form_fn):
+	resp = client_for(operator.user).post("/rollout/start",
+	                                      data=form_fn(operator))
+	assert resp.headers["Location"] == "/rollout/new"
+	assert captured_submits == []
+
+
+def test_cannot_roll_out_to_another_users_device(operator, client_for,
+                                                 make_user, captured_submits):
+	resp = client_for(make_user()).post("/rollout/start", data={
+		"device_ids": [str(operator.ios)], "manual_commands": "x"})
+	assert resp.headers["Location"] == "/rollout/new"
+	assert captured_submits == []
+
+
+# ── Cancel, stream, rollback ─────────────────────────────────────────────────
+
+class FakeRunningJob:
+	def __init__(self, user_id, messages=()):
+		self.job_id = uuid.uuid4()
+		self.user_id = user_id
+		self.cancelled = threading.Event()
+		self._messages = list(messages)
+
+	def cancel(self):
+		self.cancelled.set()
+
+	def is_alive(self):
+		return True
+
+	def get_log_history(self):
+		return ["history-line"]
+
+	def get_log_queue(self):
+		msgs = [{"type": "message", "data": m.encode()} for m in self._messages]
+		return SimpleNamespace(get_message=lambda timeout: msgs.pop(0) if msgs
+		                       else None, close=lambda: None)
+
+
+@pytest.mark.xfail(strict=True, raises=TypeError, reason=(
+	"BUG: RolloutOrchestrator.cancel -> hset(field=...) TypeError; the job's "
+	"cancel flag is set but /rollout/cancel returns 500 and status is never "
+	"'cancelling' (see tests/unit/test_orchestration.py)"))
+def test_owner_cancels_running_job(app, operator, client_for, monkeypatch):
+	job = FakeRunningJob(operator.user.id)
+	monkeypatch.setitem(app.orchestrator._jobs, job.job_id, job)
+	resp = client_for(operator.user).post("/rollout/cancel",
+	                                      data={"job_id": str(job.job_id)})
+	assert resp.json["status"] == "ok" and job.cancelled.is_set()
+	status = app.backend.redis.client.hget(f"job:{job.job_id}:meta", "status")
+	assert status == b"cancelling"
+
+
+def test_other_user_cannot_cancel(app, operator, client_for, make_user,
+                                  monkeypatch):
+	job = FakeRunningJob(operator.user.id)
+	monkeypatch.setitem(app.orchestrator._jobs, job.job_id, job)
+	resp = client_for(make_user()).post("/rollout/cancel",
+	                                    data={"job_id": str(job.job_id)})
+	assert resp.status_code == 403 and not job.cancelled.is_set()
+
+
+def test_stream_replays_history_then_tails_live(app, operator, client_for,
+                                                monkeypatch):
+	job = FakeRunningJob(operator.user.id, messages=["live-line", "__done__"])
+	monkeypatch.setitem(app.orchestrator._jobs, job.job_id, job)
+	body = client_for(operator.user).get(
+		f"/rollout/stream/{job.job_id}").get_data(as_text=True)
+	assert body.index("data: history-line") < body.index("data: live-line")
+	assert body.rstrip().endswith("event: done\ndata:")
+
+
+def test_stream_of_another_users_job_forbidden(app, operator, client_for,
+                                               make_user, monkeypatch):
+	job = FakeRunningJob(operator.user.id)
+	monkeypatch.setitem(app.orchestrator._jobs, job.job_id, job)
+	resp = client_for(make_user()).get(f"/rollout/stream/{job.job_id}")
+	assert resp.status_code == 403
+
+
+def test_rollback_targets_successful_devices_once_per_ip(
+		operator, client_for, session_scope, make_user, make_profile,
+		make_device, captured_submits):
+	# a global device sharing an IP with the operator's own device
+	admin = make_user(role="admin")
+	make_device(admin, ip="10.0.0.1", label="GLOBAL-SAME-IP", is_global=True,
+	            profile_id=make_profile(admin))
+	job = uuid.uuid4()
+	add_result(session_scope, operator.user, job, ip="10.0.0.1")
+	add_result(session_scope, operator.user, job, ip="10.0.0.2", status="failed")
+	resp = client_for(operator.user).post(f"/rollout/rollback/{job}",
+	                                      json={"commands": "no hostname"})
+	assert resp.json["status"] == "ok"
+	(call,) = captured_submits
+	assert [d.label for d in call.devices] == ["dev-10.0.0.1"]  # own, once
+
+
+# ── Results / Verify Diff / logs ─────────────────────────────────────────────
+
+def test_results_show_verify_diff_and_expired_states(operator, client_for,
+                                                     session_scope):
+	live, stale = uuid.uuid4(), uuid.uuid4()
+	add_result(session_scope, operator.user, live, status="partial", verified=1,
+	           config="cfg-live", commands=["a", "b"])
+	add_result(session_scope, operator.user, stale, status="partial",
+	           verified=1, age_days=CONFIG_SNAPSHOT_RETENTION_DAYS + 2,
+	           commands=["a", "b"])
+	html = client_for(operator.user).get("/results").get_data(as_text=True)
+	assert f'data-job-id="{live}"' in html
+	assert html.count("Verify Diff expired") == 1
+	assert "cfg-live" not in html  # config no longer shipped with the page
+
+
+def test_config_diff_endpoint(operator, client_for, session_scope, make_user):
+	job, cleared = uuid.uuid4(), uuid.uuid4()
+	add_result(session_scope, operator.user, job, status="partial", verified=1,
+	           config="running-cfg", commands=["a", "b"])
+	add_result(session_scope, operator.user, cleared, status="partial",
+	           verified=1, commands=["a", "b"])
+	client = client_for(operator.user)
+	ok = client.get(f"/results/config_diff/{job}/10.0.0.1")
+	assert ok.json["config"] == "running-cfg" and ok.json["commands"] == ["a", "b"]
+	assert client.get(f"/results/config_diff/{cleared}/10.0.0.1").status_code == 410
+	other = client_for(make_user()).get(f"/results/config_diff/{job}/10.0.0.1")
+	assert other.status_code == 403
+
+
+def test_log_download_is_owner_only(operator, client_for, session_scope,
+                                    make_user):
+	job = uuid.uuid4()
+	add_result(session_scope, operator.user, job)
+	path = os.path.join(logging_utils.LOGS_DIR, f"rollout_20260101_000000_{job}.log")
+	with open(path, "w", encoding="utf-8") as f:
+		f.write("log body")
+	resp = client_for(operator.user).get(f"/results/download_log/{job}")
+	assert resp.status_code == 200 and resp.data == b"log body"
+	assert client_for(make_user()).get(
+		f"/results/download_log/{job}").status_code == 404
+
+
+def _register_job_meta(app, user, job_id):
+	client = app.backend.redis.client
+	client.hset(f"job:{job_id}:meta", mapping={
+		"user_id": str(user.id), "status": "active", "device_count": 1,
+		"created_at": dt.datetime.now().isoformat()})
+	client.sadd(f"user_jobs:{user.id}", str(job_id))
+
+
+def test_dashboard_renders(operator, client_for):
+	assert client_for(operator.user).get("/dashboard").status_code == 200
+
+
+def test_active_jobs_lists_running_job(app, operator, client_for, monkeypatch):
+	job = FakeRunningJob(operator.user.id)
+	job.started_at = dt.datetime.now()
+	job.get_device_count = lambda: 2
+	monkeypatch.setitem(app.orchestrator._jobs, job.job_id, job)
+	_register_job_meta(app, operator.user, job.job_id)
+	resp = client_for(operator.user).get("/active_jobs")
+	assert resp.status_code == 200 and str(job.job_id) in resp.get_data(as_text=True)
+
+
+@pytest.mark.xfail(strict=True, raises=TypeError, reason=(
+	"BUG: after a restart/crash, job:<id>:meta survives in Redis (no TTL) but "
+	"the orchestrator no longer holds the job; build_job_dict then returns "
+	"device_count as a str from Redis and active_jobs.html:263 sums it with "
+	"ints -> 500 on Active Jobs until the keys are removed"))
+def test_active_jobs_survives_orphaned_job_meta(app, operator, client_for):
+	_register_job_meta(app, operator.user, uuid.uuid4())  # not in memory
+	assert client_for(operator.user).get("/active_jobs").status_code == 200
+
+
+# ── Operator analytics ───────────────────────────────────────────────────────
+
+def test_analytics_query_is_scoped_and_allowlisted(operator, client_for,
+                                                   session_scope, make_user):
+	other = make_user()
+	add_result(session_scope, operator.user, uuid.uuid4(), status="failed")
+	add_result(session_scope, other, uuid.uuid4(), status="failed")
+	rule = {"condition": "AND", "rules": [
+		{"field": "status", "operator": "equal", "value": "failed"}]}
+	client = client_for(operator.user)
+	resp = client.post("/analytics/query", json={
+		"rules": rule, "user": str(other.id)})  # non-admin can't re-scope
+	assert len(resp.json["rows"]) == 1
+	bad = client.post("/analytics/query", json={"rules": {
+		"field": "fetched_config", "operator": "contains", "value": "x"}})
+	assert bad.status_code == 400
+	assert client.get("/analytics").status_code == 200
