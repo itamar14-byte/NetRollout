@@ -42,7 +42,9 @@ class FakeRedis:
 	def rpush(self, key, value):
 		self._queues[key].put(value.encode() if isinstance(value, str) else value)
 
-	def hset(self, name, key=None, value=None, mapping=None, **_):
+	# Same signature as redis-py's hset — a permissive **kwargs here once hid
+	# a real bug (orchestrator passing a nonexistent `field=` argument)
+	def hset(self, name, key=None, value=None, mapping=None, items=None):
 		if self.fail_writes:
 			raise redis.exceptions.TimeoutError("simulated timeout")
 		self.hashes[name].update(mapping or {key: value})
@@ -171,6 +173,22 @@ def test_engine_crash_releases_slot_and_next_job_runs(make_orchestrator):
 		assert wait_for(lambda: not orch._jobs), \
 			"crashed job never cleaned up — slot leaked"
 	assert orch._slots._value == 1
+
+
+@pytest.mark.xfail(strict=True, raises=TypeError, reason=(
+	"BUG: RolloutOrchestrator.cancel calls hset(..., field=, value=) — "
+	"redis-py's hset has no `field` parameter, so every cancel raises "
+	"TypeError (the engine's cancel flag is already set; status is never "
+	"written and /rollout/cancel returns 500)"))
+def test_cancel_marks_job_cancelling(make_orchestrator):
+	fake = FakeRedis()
+	orch = make_orchestrator(fake)
+	job = FakeJob()
+	job.cancel = lambda: None
+	with orch._lock:
+		orch._jobs[job.job_id] = job
+	orch.cancel(job.job_id)
+	assert fake.hashes[f"job:{job.job_id}:meta"]["status"] == "cancelling"
 
 
 def test_submit_records_job_metadata(make_orchestrator):
