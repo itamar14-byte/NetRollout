@@ -30,8 +30,14 @@ class RolloutJob:
 		self.started_at = datetime.datetime.now()
 
 		def _engine_run():
-			self.results = self._engine.run(self._cancel_flag, self._logger)
-			on_complete(self.job_id)
+			# on_complete must always fire — it releases the orchestrator slot.
+			# An escaped exception here would leak the slot permanently.
+			try:
+				self.results = self._engine.run(self._cancel_flag, self._logger)
+			except Exception as e:
+				self._logger.notify(f"Rollout aborted: {e}", "red")
+			finally:
+				on_complete(self.job_id)
 
 		self._thread = threading.Thread(target=_engine_run, daemon=True)
 		self._thread.start()
@@ -130,6 +136,12 @@ class RolloutOrchestrator:
 			self._backend.redis.client.incr("netrollout:active_count")
 
 	def _cleanup(self, job_id: uuid.UUID) -> None:
+		try:
+			self._finalize(job_id)
+		finally:
+			self._slots.release()
+
+	def _finalize(self, job_id: uuid.UUID) -> None:
 		with self._lock:
 			job = self._jobs.pop(job_id, None)
 		if job:
@@ -154,4 +166,3 @@ class RolloutOrchestrator:
 				self._backend.redis.client.srem(f"user_jobs:{job.user_id}", str(job_id))
 				self._backend.redis.client.decr("netrollout:active_count")
 			job.log_cleanup()
-		self._slots.release()

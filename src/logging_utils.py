@@ -58,7 +58,7 @@ class RolloutLogger:
         """
 
         with self._log_lock:
-            with open(self.logfile, "a") as file:
+            with open(self.logfile, "a", encoding="utf-8") as file:
                 # Sets the current timestamp for the time of call and adds the stamped message to the _log file
                 timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 file.write(f"{timestamp}\t{message}\n")
