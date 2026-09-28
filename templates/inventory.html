@@ -92,6 +92,50 @@
 .inv-card:hover .card-delete-btn { opacity: 1; }
 .card-delete-btn:hover { color: #ef5350 !important; }
 
+/* ── Global devices ── */
+.inv-card.is-global { border-left: 2px solid rgba(0,188,212,0.45); }
+
+.global-toggle-row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin-top: 1rem;
+    padding: 0.6rem 0.75rem;
+    background: #141414;
+    border: 1px solid #1e1e1e;
+    border-radius: 8px;
+    font-size: 0.8rem;
+    color: #bbb;
+    cursor: pointer;
+}
+.global-toggle-row i { color: #00bcd4; }
+.global-toggle-hint { font-size: 0.7rem; color: #555; margin-left: auto; }
+.global-profile-error {
+    display: none;
+    font-size: 0.72rem;
+    color: #ef5350;
+    margin-top: 0.35rem;
+}
+
+/* Read-only mode for global devices opened by non-admins:
+   only the mapping multi-select stays interactive */
+.readonly-banner {
+    display: none;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+    padding: 0.55rem 0.75rem;
+    background: rgba(0,188,212,0.06);
+    border: 1px solid rgba(0,188,212,0.2);
+    border-radius: 8px;
+    font-size: 0.76rem;
+    color: #9fd9e0;
+}
+#editDeviceModal.is-readonly .readonly-banner { display: flex; }
+#editDeviceModal.is-readonly .nr-select { pointer-events: none; opacity: 0.55; }
+#editDeviceModal.is-readonly .edit-only { display: none !important; }
+#editDeviceModal:not(.is-readonly) .readonly-only { display: none !important; }
+
 /* ── Hover tooltip ── */
 .inv-tooltip {
     position: fixed;
@@ -295,6 +339,74 @@
 
 {# VENDOR_LOGOS is a Jinja2 global registered in webapp.py #}
 
+{% set devices = global_devices + my_devices %}
+
+{#- One inventory card. Global devices are editable only by admins; for
+    everyone else the card opens a read-only modal where they can bind
+    their own mappings. Mapping chips show only the viewer's own mappings,
+    and the security profile id is exposed to editors only — viewers see
+    the label, never an id they could attach to a device of their own. -#}
+{% macro device_card(device) %}
+    {% set editable = device.user_id == current_user.id or (device.is_global and is_admin) %}
+    {% set logo_url = VENDOR_LOGOS.get(device.device_type, '') %}
+    {% set prof_label = (device.security_profile.label or device.security_profile.username) if device.security_profile else '' %}
+    {% set assigned_mappings = device.var_mappings | selectattr('user_id', 'equalto', current_user.id) | sort(attribute='token') %}
+    {% set ns = namespace(am_list=[]) %}
+    {% for m in assigned_mappings %}
+        {% set prop = m.property_name ~ ("[" ~ m.index ~ "]" if m.index is not none else "") %}
+        {% set ns.am_list = ns.am_list + [{"token": m.token, "property": prop, "id": m.id|string}] %}
+    {% endfor %}
+    <div class="col-sm-6 col-xl-4">
+        <div class="inv-card{% if device.is_global %} is-global{% endif %}"
+             data-device='{{ {
+                 "id":                    device.id|string,
+                 "label":                 device.label,
+                 "ip":                    device.ip,
+                 "device_type":           device.device_type,
+                 "port":                  device.port,
+                 "sec_profile_id":        device.sec_profile_id|string if (device.sec_profile_id and editable) else "",
+                 "sec_profile_label":     prof_label,
+                 "var_maps":              device.var_maps or {},
+                 "assigned_mapping_ids":  ns.am_list | map(attribute='id') | list,
+                 "assigned_mappings":     ns.am_list,
+                 "is_global":             device.is_global,
+                 "editable":              editable
+             }|tojson }}'>
+
+            <!-- Vendor badge -->
+            <div class="vendor-badge">
+                {% if logo_url %}
+                <img src="{{ logo_url }}"
+                     alt="{{ device.device_type }}"
+                     class="vendor-img"
+                     onerror="this.style.display='none';this.nextElementSibling.style.display='block';">
+                {% endif %}
+                <i class="bi bi-router" style="{{ 'display:none;' if logo_url else '' }} font-size:0.95rem; color:#2a2a2a;"></i>
+            </div>
+
+            <!-- Label -->
+            <span class="inv-card-label">{{ device.label }}</span>
+
+            {% if device.is_global %}
+            <span class="nr-global-badge" title="Global device — shared by an administrator">
+                <i class="bi bi-globe2"></i>GLOBAL
+            </span>
+            {% endif %}
+
+            <!-- IP (secondary, hidden on hover by CSS transition if needed) -->
+            <span class="inv-card-ip">{{ device.ip }}</span>
+
+            {% if editable %}
+            <!-- Delete icon — hover-reveal, stops card click propagation -->
+            <button class="card-delete-btn" title="Remove device">
+                <i class="bi bi-trash3"></i>
+            </button>
+            {% endif %}
+
+        </div>
+    </div>
+{% endmacro %}
+
 <!-- Header -->
 <div class="d-flex justify-content-between align-items-start mb-4">
     <div>
@@ -328,58 +440,23 @@
 
 {% else %}
 
-<!-- Device card grid -->
+<!-- Device card grid — split into sections only when both are non-empty -->
+{% set split = global_devices and my_devices %}
+{% for group_name, group_icon, group in [('Global Devices', 'bi-globe2', global_devices), ('My Devices', 'bi-hdd-stack', my_devices)] %}
+{% if group %}
+{% if split %}
+<div class="nr-section-head{% if not loop.first %} mt-4{% endif %}">
+    <i class="bi {{ group_icon }}"></i>{{ group_name }}
+    <span class="nr-section-count">{{ group | length }}</span>
+</div>
+{% endif %}
 <div class="row g-2">
-    {% for device in devices %}
-    {% set logo_url = VENDOR_LOGOS.get(device.device_type, '') %}
-    {% set prof_label = (device.security_profile.label or device.security_profile.username) if device.security_profile else '' %}
-    {% set assigned_mappings = device.var_mappings | sort(attribute='token') %}
-    {% set ns = namespace(am_list=[]) %}
-    {% for m in assigned_mappings %}
-        {% set prop = m.property_name ~ ("[" ~ m.index ~ "]" if m.index is not none else "") %}
-        {% set ns.am_list = ns.am_list + [{"token": m.token, "property": prop, "id": m.id|string}] %}
-    {% endfor %}
-    <div class="col-sm-6 col-xl-4">
-        <div class="inv-card"
-             data-device='{{ {
-                 "id":                    device.id|string,
-                 "label":                 device.label,
-                 "ip":                    device.ip,
-                 "device_type":           device.device_type,
-                 "port":                  device.port,
-                 "sec_profile_id":        device.sec_profile_id|string if device.sec_profile_id else "",
-                 "sec_profile_label":     prof_label,
-                 "var_maps":              device.var_maps or {},
-                 "assigned_mapping_ids":  ns.am_list | map(attribute='id') | list,
-                 "assigned_mappings":     ns.am_list
-             }|tojson }}'>
-
-            <!-- Vendor badge -->
-            <div class="vendor-badge">
-                {% if logo_url %}
-                <img src="{{ logo_url }}"
-                     alt="{{ device.device_type }}"
-                     class="vendor-img"
-                     onerror="this.style.display='none';this.nextElementSibling.style.display='block';">
-                {% endif %}
-                <i class="bi bi-router" style="{{ 'display:none;' if logo_url else '' }} font-size:0.95rem; color:#2a2a2a;"></i>
-            </div>
-
-            <!-- Label -->
-            <span class="inv-card-label">{{ device.label }}</span>
-
-            <!-- IP (secondary, hidden on hover by CSS transition if needed) -->
-            <span class="inv-card-ip">{{ device.ip }}</span>
-
-            <!-- Delete icon — hover-reveal, stops card click propagation -->
-            <button class="card-delete-btn" title="Remove device">
-                <i class="bi bi-trash3"></i>
-            </button>
-
-        </div>
-    </div>
+    {% for device in group %}
+    {{ device_card(device) }}
     {% endfor %}
 </div>
+{% endif %}
+{% endfor %}
 
 {% endif %}
 
@@ -521,7 +598,22 @@
                             </div>
                             <input type="hidden" name="sec_profile_id" value="">
                         </div>
+                        <div class="global-profile-error" id="addGlobalProfileError">
+                            A global device needs a security profile — users can't assign their own.
+                        </div>
                     </div>
+
+                    {% if is_admin %}
+                    <label class="global-toggle-row">
+                        <span class="nr-toggle">
+                            <input type="checkbox" name="is_global" id="addIsGlobal">
+                            <span class="nr-toggle-slider"></span>
+                        </span>
+                        <i class="bi bi-globe2"></i>
+                        Global device
+                        <span class="global-toggle-hint">visible to all users</span>
+                    </label>
+                    {% endif %}
 
                 </div>
                 <div class="modal-footer" style="justify-content:space-between; align-items:center; flex-wrap:nowrap;">
@@ -556,6 +648,11 @@
             <form method="POST" id="editDevForm" action="" novalidate>
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div class="modal-body">
+
+                    <div class="readonly-banner">
+                        <i class="bi bi-globe2"></i>
+                        <span>Global device, managed by an administrator. You can bind your own variable mappings.</span>
+                    </div>
 
                     <div class="mb-3">
                         <label class="nr-label" for="editDevLabel">LABEL</label>
@@ -648,7 +745,22 @@
                             </div>
                             <input type="hidden" name="sec_profile_id" value="">
                         </div>
+                        <div class="global-profile-error" id="editGlobalProfileError">
+                            A global device needs a security profile — users can't assign their own.
+                        </div>
                     </div>
+
+                    {% if is_admin %}
+                    <label class="global-toggle-row edit-only" style="margin-bottom:1rem;">
+                        <span class="nr-toggle">
+                            <input type="checkbox" name="is_global" id="editIsGlobal">
+                            <span class="nr-toggle-slider"></span>
+                        </span>
+                        <i class="bi bi-globe2"></i>
+                        Global device
+                        <span class="global-toggle-hint">visible to all users</span>
+                    </label>
+                    {% endif %}
 
                     <!-- Variable Mappings multi-select -->
                     <div class="mb-3">
@@ -736,7 +848,7 @@
                         </div>
                         {% endif %}
 
-                        <div style="margin-top:10px;">
+                        <div style="margin-top:10px;" class="edit-only">
                             <button type="button"
                                     style="background:none; border:1px dashed #2a2a2a; border-radius:6px;
                                            color:#444; font-size:0.72rem; padding:4px 10px; cursor:pointer;
@@ -755,9 +867,12 @@
                     <div class="d-flex gap-2">
                         <button type="button" class="btn btn-secondary btn-sm"
                                 data-bs-dismiss="modal">Cancel</button>
-                        <button type="button" id="editTestBtn" class="btn btn-secondary btn-sm"
+                        <button type="button" id="editTestBtn" class="btn btn-secondary btn-sm edit-only"
                                 onclick="testEditConnection()">
                             <i class="bi bi-plug me-1"></i>Test Connection
+                        </button>
+                        <button type="submit" class="btn btn-primary btn-sm readonly-only">
+                            <i class="bi bi-check-lg me-1"></i>Save Mappings
                         </button>
                     </div>
                 </div>
@@ -1407,6 +1522,28 @@ document.getElementById('editDeviceModal').querySelector('form')
         }
     });
 
+// ════════════════════════════════════════
+//  Global toggle — a global device must carry a security profile,
+//  since users can't assign their own to it (enforced server-side too)
+// ════════════════════════════════════════
+function guardGlobalProfile(modalId, toggleId, selectId, errorId) {
+    const form   = document.getElementById(modalId).querySelector('form');
+    const toggle = document.getElementById(toggleId);
+    const error  = document.getElementById(errorId);
+    if (!toggle) return;  // toggle is rendered for admins only
+    toggle.addEventListener('change', () => { error.style.display = 'none'; });
+    form.addEventListener('submit', e => {
+        if (document.getElementById(modalId).classList.contains('is-readonly')) return;
+        const profile = document.querySelector('#' + selectId + ' input[name="sec_profile_id"]').value;
+        if (toggle.checked && !profile) {
+            e.preventDefault();
+            error.style.display = 'block';
+        }
+    });
+}
+guardGlobalProfile('addDeviceModal',  'addIsGlobal',  'addSecSelect',  'addGlobalProfileError');
+guardGlobalProfile('editDeviceModal', 'editIsGlobal', 'editSecSelect', 'editGlobalProfileError');
+
 
 // ════════════════════════════════════════
 //  Tooltip
@@ -1489,7 +1626,19 @@ function openEdit(device) {
     document.getElementById('editDevIp').value          = device.ip;
     document.getElementById('editDevPort').value        = device.port;
     if (editPlatformSel) editPlatformSel.setValue(device.device_type);
-    document.getElementById('editDevForm').action       = '/inventory/' + device.id + '/edit';
+
+    // Global devices the viewer can't edit open read-only: every field is
+    // disabled except the mapping multi-select, which posts to /mappings.
+    const readonly = !device.editable;
+    const modalEl  = document.getElementById('editDeviceModal');
+    modalEl.classList.toggle('is-readonly', readonly);
+    modalEl.querySelectorAll('#editDevLabel, #editDevIp, #editDevPort, [id^="attr_"]')
+        .forEach(el => { el.disabled = readonly; });
+    document.getElementById('editDevForm').action =
+        '/inventory/' + device.id + (readonly ? '/mappings' : '/edit');
+    const editIsGlobal = document.getElementById('editIsGlobal');
+    if (editIsGlobal) editIsGlobal.checked = !!device.is_global;
+    document.getElementById('editGlobalProfileError').style.display = 'none';
 
     // Reset expand section
     document.getElementById('varAttrToggle').classList.remove('open');
@@ -1555,6 +1704,7 @@ document.getElementById('editDeviceModal').addEventListener('hidden.bs.modal', (
     const form = document.getElementById('editDeviceModal').querySelector('form');
     form.querySelectorAll('.nr-submitted').forEach(el => el.classList.remove('nr-submitted'));
     form.querySelectorAll('.field-error').forEach(el => el.style.display = '');
+    document.getElementById('editGlobalProfileError').style.display = 'none';
     resetEditTestBtn();
 });
 
@@ -1689,6 +1839,7 @@ document.getElementById('addDeviceModal').addEventListener('hidden.bs.modal', ()
     if (addPlatformSel) addPlatformSel.reset();
     form.querySelectorAll('.nr-submitted').forEach(el => el.classList.remove('nr-submitted'));
     form.querySelectorAll('.field-error').forEach(el => el.style.display = '');
+    document.getElementById('addGlobalProfileError').style.display = 'none';
     resetAddTestBtn();
 });
 

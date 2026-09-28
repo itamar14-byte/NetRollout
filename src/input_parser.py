@@ -61,8 +61,9 @@ class InputParser:
 		return devices, errors
 
 	@staticmethod
-	def import_from_inventory(raw_devices: list[Inventory]) -> list[Device]:
-		return [Device.from_inventory(row) for row in raw_devices]
+	def import_from_inventory(raw_devices: list[Inventory],
+	                          user_id: uuid.UUID) -> list[Device]:
+		return [Device.from_inventory(row, user_id) for row in raw_devices]
 
 	def csv_to_inventory(self, device_path: str, user_id: uuid.UUID,
 	                     db_session: Session, label: str = None) -> tuple[

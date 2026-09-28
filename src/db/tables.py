@@ -3,7 +3,8 @@ from datetime import datetime
 
 from flask_login import UserMixin
 from sqlalchemy import (DateTime, String, Boolean, Integer, Uuid, Text,
-                        ForeignKey, JSON, Table, Column, UniqueConstraint)
+                        ForeignKey, JSON, Table, Column, UniqueConstraint,
+                        false)
 from sqlalchemy.orm import Mapped, mapped_column, relationship, DeclarativeBase
 
 
@@ -90,7 +91,10 @@ class Inventory(Base):
 	label: Mapped[str] = mapped_column(String(64), nullable=False)
 	var_maps: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
+	# Global devices are visible to (and rollout-able by) all users;
+	# only admins may edit or delete them
 	is_global: Mapped[bool] = mapped_column(Boolean, default=False,
+	                                        server_default=false(),
 	                                        nullable=False)
 
 	user_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id"),
@@ -122,9 +126,10 @@ class VariableMapping(Base):
 	                                           nullable=False)
 
 	user: Mapped["User"] = relationship(back_populates="variable_mappings")
+	# No delete cascade: on a secondary relationship it deletes the Inventory
+	# rows themselves. Join-table rows are removed automatically.
 	devices: Mapped[list["Inventory"]] = relationship(
-		secondary=var_mapping_to_devices, back_populates="var_mappings",
-		cascade="all, delete")
+		secondary=var_mapping_to_devices, back_populates="var_mappings")
 
 
 class DeviceResult(Base):

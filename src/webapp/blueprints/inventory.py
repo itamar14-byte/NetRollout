@@ -14,9 +14,46 @@ from src.db.tables import VariableMapping, Inventory, SecurityProfile, User
 from src.input_parser import InputParser
 from src.logging_utils import RolloutLogger
 from src.validation import Validator
-from src.webapp.utils import ok, err, with_form, with_json, flash_redirect
+from src.webapp.utils import (ok, err, with_form, with_json, flash_redirect,
+                              query_visible_devices, partition_devices,
+                              can_edit_device)
 
 bp = Blueprint('inventory', __name__, url_prefix='/inventory')
+
+
+##############################Route Helpers################################
+def parse_mapping_ids(raw_ids: list[str]) -> list[uuid.UUID]:
+	"""Raises ValueError on a malformed id."""
+	return [uuid.UUID(mid) for mid in raw_ids]
+
+
+def set_user_mappings(device, user_id, mapping_ids, db_session):
+	# The mapping<->device join table is shared across users, so only the
+	# given user's bindings are replaced — other users' bindings on a global
+	# device are preserved.
+	selected = db_session.query(VariableMapping).filter(
+		VariableMapping.id.in_(mapping_ids),
+		VariableMapping.user_id == user_id
+	).all() if mapping_ids else []
+	device.var_mappings = [m for m in device.var_mappings
+	                       if m.user_id != user_id] + selected
+
+
+def profile_allowed(profile_id, db_session, current_profile_id=None):
+	# A device may only carry a profile the current user owns — otherwise a
+	# user could attach another user's (e.g. an admin's global) credentials
+	# to a device they control. Keeping the device's existing profile
+	# unchanged is always allowed (an admin saving another admin's global
+	# device).
+	if profile_id is None or profile_id == current_profile_id:
+		return True
+	return db_session.query(SecurityProfile).filter_by(
+		id=profile_id, user_id=current_user.id).first() is not None
+
+
+def device_not_found():
+	return flash_redirect("Device not found.", "inventory.inventory", "danger")
+
 
 ##############################Routes#######################################
 @bp.route("")
@@ -24,15 +61,16 @@ bp = Blueprint('inventory', __name__, url_prefix='/inventory')
 def inventory():
 	sys_props, user_props = current_app.web.get_property_defs(current_user.id)
 	with current_app.backend.postgres.get_session() as db_session:
+		devices = query_visible_devices(db_session, current_user.id)
 		user = db_session.get(User, current_user.id)
-		devices = user.inventory
 		profiles = user.security_profiles
 		var_mappings = user.variable_mappings
-		_ = [d.security_profile for d in devices]
-		_ = [d.var_mappings for d in devices]
 		db_session.expunge_all()
+	global_devices, my_devices = partition_devices(devices)
 	return render_template("inventory.html",
-	                       devices=devices,
+	                       global_devices=global_devices,
+	                       my_devices=my_devices,
+	                       is_admin=current_user.role == "admin",
 	                       profiles=profiles,
 	                       mappings=var_mappings,
 	                       sys_props=sys_props,
@@ -53,20 +91,31 @@ def inventory_create(data):
 		parsed_sec_id = uuid.UUID(sec_profile_id) if sec_profile_id else None
 	except ValueError:
 		return err("Invalid security profile ID", 422)
+	# Only admins may publish a device globally; the field is ignored otherwise
+	is_global = current_user.role == "admin" and data.get("is_global") == "on"
+	if is_global and not parsed_sec_id:
+		return flash_redirect("A global device needs a security profile — "
+		                      "users can't assign their own to it.",
+		                      "inventory.inventory", "danger")
 
 	with current_app.backend.postgres.get_session() as db_session:
+		if not profile_allowed(parsed_sec_id, db_session):
+			return flash_redirect("Security profile not found.",
+			                      "inventory.inventory", "danger")
 		row = Inventory(
 			user_id=current_user.id,
 			label=label,
 			ip=ip,
 			port=int(port),
 			device_type=device_type,
-			sec_profile_id=parsed_sec_id
+			sec_profile_id=parsed_sec_id,
+			is_global=is_global
 		)
 		db_session.add(row)
 
 	current_app.web.audit("inventory.create", object_type="Inventory",
-	                      object_label=label)
+	                      object_label=label,
+	                      detail={"is_global": is_global})
 	flash(f"{label} added to inventory.", "success")
 	return redirect(url_for("inventory.inventory"))
 
@@ -92,15 +141,33 @@ def inventory_test_connection(data):
 @login_required
 def inventory_edit(device_id):
 	def _edit(device, db_session):
+		# Validate everything before mutating — get_session commits on a
+		# normal return, so an early error must not leave a half-applied edit.
+		sec_profile_id = request.form.get("sec_profile_id", "").strip()
+		try:
+			parsed_sec_id = uuid.UUID(sec_profile_id) if sec_profile_id else None
+			mapping_ids = parse_mapping_ids(request.form.getlist("mapping_ids"))
+		except ValueError:
+			return err("Invalid security profile or mapping ID", 422)
+		if not profile_allowed(parsed_sec_id, db_session,
+		                       device.sec_profile_id):
+			return flash_redirect("Security profile not found.",
+			                      "inventory.inventory", "danger")
+		was_global = device.is_global
+		# Only admins may change global status; the field is ignored otherwise
+		is_global = (request.form.get("is_global") == "on"
+		             if current_user.role == "admin" else was_global)
+		if is_global and not parsed_sec_id:
+			return flash_redirect("A global device needs a security profile — "
+			                      "users can't assign their own to it.",
+			                      "inventory.inventory", "danger")
+
 		device.label = request.form.get("label", "").strip()
 		device.ip = request.form.get("ip", "").strip()
 		device.port = int(request.form.get("port", 22))
 		device.device_type = request.form.get("device_type", "").strip()
-		sec_profile_id = request.form.get("sec_profile_id", "").strip()
-		try:
-			device.sec_profile_id = uuid.UUID(sec_profile_id) if sec_profile_id else None
-		except ValueError:
-			return err("Invalid security profile ID", 422)
+		device.sec_profile_id = parsed_sec_id
+		device.is_global = is_global
 		sys_props, user_props = current_app.web.get_property_defs(
 			current_user.id)
 		all_props = {p["name"]: p for p in sys_props + user_props}
@@ -118,29 +185,51 @@ def inventory_edit(device_id):
 			else:
 				var_maps[prop_name] = inv_val
 		device.var_maps = var_maps or None
-		mapping_ids = request.form.getlist("mapping_ids")
-		if mapping_ids:
-			try:
-				parsed_mapping_ids = [uuid.UUID(mid) for mid in mapping_ids]
-			except ValueError:
-				return err("Invalid mapping ID", 422)
-			selected = db_session.query(VariableMapping).filter(
-				VariableMapping.id.in_(parsed_mapping_ids),
-				VariableMapping.user_id == current_user.id
-			).all()
-			device.var_mappings = selected
-		else:
-			device.var_mappings = []
+		set_user_mappings(device, current_user.id, mapping_ids, db_session)
+		if was_global and not is_global:
+			# Other users can no longer see this device — drop their bindings
+			# rather than leave invisible orphans in the join table.
+			device.var_mappings = [m for m in device.var_mappings
+			                       if m.user_id == device.user_id]
 		current_app.web.audit("inventory.edit", object_type="Inventory",
-		                      object_id=device_id, object_label=device.label)
+		                      object_id=device_id, object_label=device.label,
+		                      detail={"is_global": is_global})
+		if is_global != was_global:
+			current_app.web.audit(
+				"inventory.globalize" if is_global else "inventory.localize",
+				object_type="Inventory", object_id=device_id,
+				object_label=device.label)
 		return flash_redirect(f"{device.label} updated.", "inventory.inventory")
 
-	return current_app.web.act_on_db_obj(Inventory, device_id, _edit,
-	                                     user_id=current_user.id,
-	                                     on_missing=lambda: flash_redirect(
-		                                     "Device not found.",
-		                                     "inventory.inventory",
-		                                     "danger"))
+	return current_app.web.act_on_db_obj(
+		Inventory, device_id, _edit,
+		can_access=lambda d: can_edit_device(d, current_user),
+		on_missing=device_not_found)
+
+
+@bp.route("/<uuid:device_id>/mappings", methods=["POST"])
+@login_required
+def inventory_mappings(device_id):
+	# Lets a user bind/unbind their own mappings on any visible device —
+	# the only way to do so on a global device they can't edit.
+	try:
+		mapping_ids = parse_mapping_ids(request.form.getlist("mapping_ids"))
+	except ValueError:
+		return flash_redirect("Invalid mapping ID.", "inventory.inventory",
+		                      "danger")
+
+	def _set_mappings(device, db_session):
+		set_user_mappings(device, current_user.id, mapping_ids, db_session)
+		current_app.web.audit("inventory.mappings", object_type="Inventory",
+		                      object_id=device_id, object_label=device.label,
+		                      detail={"mapping_count": len(mapping_ids)})
+		return flash_redirect(f"Mappings updated for {device.label}.",
+		                      "inventory.inventory")
+
+	return current_app.web.act_on_db_obj(
+		Inventory, device_id, _set_mappings,
+		can_access=lambda d: d.user_id == current_user.id or d.is_global,
+		on_missing=device_not_found)
 
 
 @bp.route("/<uuid:device_id>/delete", methods=["POST"])
@@ -152,10 +241,8 @@ def inventory_delete(device_id):
 		                          on_success=lambda label: flash_redirect(
 			                          f"{label} removed from inventory.",
 			                          "inventory.inventory")),
-		user_id=current_user.id,
-		on_missing=lambda: flash_redirect("Device not found.",
-		                                  "inventory.inventory",
-		                                  "danger")
+		can_access=lambda d: can_edit_device(d, current_user),
+		on_missing=device_not_found
 	)
 
 
