@@ -147,9 +147,12 @@ def login_ldap_group(username, password, db_session):
 				            password_hash=None, email=email,
 				            full_name=full_name)
 				db_session.add(user)
-				# flush to get user.id before the session commits so complete_login
-				# can expunge the object.
-				db_session.flush()
+				# Commit (not just flush) before complete_login: its audit row is
+				# written in a separate session with actor_id -> this user, which
+				# must already be visible there or the FK insert fails. Refresh
+				# reloads the attributes the commit expired, so expunge works.
+				db_session.commit()
+				db_session.refresh(user)
 				return complete_login(user, db_session,
 				                      auth_type="ldap", auto_created=True,
 				                      group_dn=group_dn)
@@ -225,6 +228,9 @@ def register(data):
 			      "approval.", "success")
 			return redirect(url_for("auth.home"))
 		except IntegrityError:
+			# The failed flush leaves the session unusable; roll back so
+			# get_session's commit on exit succeeds
+			db_session.rollback()
 			current_app.web.audit("auth.register", success=False,
 			                   username=username,
 			      detail={"reason": "duplicate_username_or_email"})
@@ -320,8 +326,11 @@ def otp_verify(data):
 
 @bp.route("/logout")
 def logout():
-	current_app.web.audit("auth.logout")
-	current_app.backend.redis.client.delete(f"user_session:{current_user.id}")
+	# Anonymous requests (stale tab, double click) just land on the login page
+	if current_user.is_authenticated:
+		current_app.web.audit("auth.logout")
+		current_app.backend.redis.client.delete(
+			f"user_session:{current_user.id}")
 	logout_user()
 	session.clear()
 	return redirect(url_for("auth.home"))
