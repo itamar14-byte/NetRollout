@@ -14,7 +14,7 @@ from flask_login import current_user, login_required
 # local modules
 from src.db.tables import DeviceResult, JobMetadata, User, Inventory
 from src.logging_utils import LOGS_DIR
-from src.webapp.utils import ok, err, build_kpi
+from src.webapp.utils import ok, err, build_kpi, visible_devices_clause
 
 bp = Blueprint('jobs', __name__)
 
@@ -31,6 +31,15 @@ def job_status(rows: list[DeviceResult]) -> str:
 	return "success"
 
 
+def visible_label_map(db_session, user_id):
+	# ip -> label over the user's own and global devices. Own rows are applied
+	# last so they win when a local device shares an IP with a global one.
+	rows = db_session.query(Inventory.ip, Inventory.label, Inventory.user_id)\
+		.filter(visible_devices_clause(user_id)).all()
+	rows.sort(key=lambda r: r.user_id == user_id)
+	return {r.ip: r.label for r in rows}
+
+
 def user_owns_job(job_id, user_id):
 	with current_app.backend.postgres.get_session() as db_session:
 		return bool(db_session.query(DeviceResult).filter_by(
@@ -45,7 +54,7 @@ def load_dashboard_data(user_id, kpi_user_id, is_admin):
 		profile_count = len(user.security_profiles)
 		mapping_count = len(user.variable_mappings)
 		jobs_results = user.results
-		inv_label_map = {d.ip: d.label for d in user.inventory}
+		inv_label_map = visible_label_map(db_session, user_id)
 
 		# KPI data — scoped to kpi_user_id (may differ from current user for admin)
 		cutoff = datetime.now() - timedelta(days=30)
@@ -58,11 +67,7 @@ def load_dashboard_data(user_id, kpi_user_id, is_admin):
 				DeviceResult.user_id == kpi_user_id,
 				DeviceResult.started_at >= cutoff,
 			).all()
-			kpi_label_map = {
-				row.ip: row.label
-				for row in db_session.query(Inventory.ip, Inventory.label)
-				.filter(Inventory.user_id == kpi_user_id).all()
-			}
+			kpi_label_map = visible_label_map(db_session, kpi_user_id)
 
 		users = db_session.query(User).order_by(User.username).all() \
 			if is_admin else []
@@ -261,14 +266,14 @@ def results():
 			raw_results = db_session.query(DeviceResult).all()
 			metadata_rows = db_session.query(JobMetadata).all()
 			usernames = {u.id: u.username for u in db_session.query(User).all()}
-			inv_rows = db_session.query(Inventory).all()
+			ip_to_label = {row.ip: (row.label or row.ip) for row in
+			               db_session.query(Inventory).all()}
 		else:
 			user = db_session.get(User, current_user.id)
 			raw_results = user.results
 			metadata_rows = user.job_metadata
 			usernames = {}
-			inv_rows = user.inventory
-		ip_to_label = {row.ip: (row.label or row.ip) for row in inv_rows}
+			ip_to_label = visible_label_map(db_session, current_user.id)
 		db_session.expunge_all()
 
 	metadata_by_job = {m.job_id: m for m in metadata_rows}

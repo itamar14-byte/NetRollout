@@ -763,7 +763,7 @@ class TestFullRolloutAndVerifyPipeline(unittest.TestCase):
         mock_napalm_driver.return_value = mock_driver
 
         inventory_rows = [self._make_inventory_row()]
-        devices = InputParser.import_from_inventory(inventory_rows)
+        devices = InputParser.import_from_inventory(inventory_rows, None)
 
         engine = RolloutEngine(
             param=make_options(verify=True),
@@ -788,7 +788,7 @@ class TestFullRolloutAndVerifyPipeline(unittest.TestCase):
         mock_netmiko_ch.return_value = mock_conn
 
         inventory_rows = [self._make_inventory_row()]
-        devices = InputParser.import_from_inventory(inventory_rows)
+        devices = InputParser.import_from_inventory(inventory_rows, None)
 
         engine = RolloutEngine(
             param=make_options(verify=False),
@@ -820,7 +820,7 @@ class TestFullRolloutAndVerifyPipeline(unittest.TestCase):
         mock_napalm_driver.return_value = mock_driver
 
         inventory_rows = [self._make_inventory_row()]
-        devices = InputParser.import_from_inventory(inventory_rows)
+        devices = InputParser.import_from_inventory(inventory_rows, None)
 
         engine = RolloutEngine(
             param=make_options(verify=True),
@@ -849,7 +849,7 @@ class TestFullRolloutAndVerifyPipeline(unittest.TestCase):
         mock_netmiko_ch.side_effect = fake_connect
 
         inventory_rows = [self._make_inventory_row()]
-        devices = InputParser.import_from_inventory(inventory_rows)
+        devices = InputParser.import_from_inventory(inventory_rows, None)
 
         engine = RolloutEngine(
             param=make_options(verify=False),

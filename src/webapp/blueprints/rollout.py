@@ -11,10 +11,12 @@ from flask_login import current_user, login_required
 
 
 # local modules
-from src.db.tables import DeviceResult, User, Inventory
+from src.db.tables import DeviceResult, Inventory
 from src.core import RolloutOptions
 from src.input_parser import InputParser
-from src.webapp.utils import ok, err, with_form, with_json
+from src.webapp.utils import (ok, err, with_form, with_json,
+                              visible_devices_clause, query_visible_devices,
+                              partition_devices)
 
 bp = Blueprint('rollout', __name__, url_prefix='/rollout')
 
@@ -63,11 +65,12 @@ def parse_commands() -> tuple | Response:
 
 
 def load_devices(selected_ids: list) -> list | Response:
-	# 6) Load the selected inventory rows belonging to the current user.
+	# 6) Load the selected inventory rows visible to the current user
+	# (their own plus global devices).
 	with current_app.backend.postgres.get_session() as db_session:
 		selected_rows = (
 			db_session.query(Inventory)
-			.filter(Inventory.user_id == current_user.id,
+			.filter(visible_devices_clause(current_user.id),
 			        Inventory.id.in_(selected_ids))
 			.all()
 		)
@@ -95,7 +98,7 @@ def load_devices(selected_ids: list) -> list | Response:
 
 	# 9) Convert ORM inventory rows into runtime Device objects.
 	try:
-		return InputParser.import_from_inventory(selected_rows)
+		return InputParser.import_from_inventory(selected_rows, current_user.id)
 	except ValueError as e:
 		flash(str(e), "danger")
 		return redirect(url_for("rollout.new_rollout"))
@@ -155,14 +158,13 @@ def cancel_rollout(data):
 @login_required
 def new_rollout():
 	with current_app.backend.postgres.get_session() as db_session:
-		user = db_session.get(User, current_user.id)
-		devices = user.inventory
-		_ = [d.security_profile for d in devices]
-		_ = [d.var_mappings for d in devices]
+		devices = query_visible_devices(db_session, current_user.id)
 		db_session.expunge_all()
+	global_devices, my_devices = partition_devices(devices)
 
 	return render_template("new_rollout.html",
-	                       devices=devices,
+	                       global_devices=global_devices,
+	                       my_devices=my_devices,
 	                       active_section="rollout"
 	                       )
 
@@ -260,9 +262,17 @@ def rollback(job_id, data):
 			status="success").all()
 		successful_ips = {r.device_ip for r in result}
 
-		rows = db_session.query(Inventory).filter(
-			Inventory.user_id == current_user.id,
+		candidates = db_session.query(Inventory).filter(
+			visible_devices_clause(current_user.id),
 			Inventory.ip.in_(successful_ips)).all()
+		# Results only record IPs, so a user's own device and a global device
+		# may share one — keep a single row per IP, preferring the user's own,
+		# so the device isn't pushed twice.
+		by_ip = {}
+		for row in candidates:
+			if row.ip not in by_ip or row.user_id == current_user.id:
+				by_ip[row.ip] = row
+		rows = list(by_ip.values())
 		if not rows:
 			return err("No successfully configured devices found for this job.")
 
@@ -271,7 +281,7 @@ def rollback(job_id, data):
 		db_session.expunge_all()
 
 	commands = [l.strip() for l in data["commands"].splitlines() if l.strip()]
-	devices = InputParser.import_from_inventory(rows)
+	devices = InputParser.import_from_inventory(rows, current_user.id)
 	options = RolloutOptions(
 		verify=bool(data.get("verify", False)),
 		verbose=bool(data.get("verbose", False)),

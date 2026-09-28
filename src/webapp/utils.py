@@ -13,7 +13,7 @@ from sqlalchemy import and_, or_
 # local modules
 from src.db.backend import BackendServices
 from src.db.tables import (DeviceResult, AuditLog, SecurityProfile,
-                           PropertyDefinition)
+                           PropertyDefinition, Inventory)
 from src.encryption import encrypt
 from src.validation import Validator
 
@@ -120,6 +120,37 @@ def flash_redirect(msg, endpoint, category="success"):
 	flash(msg, category)
 	return redirect(url_for(endpoint))
 
+#######################Device visibility###############################
+def visible_devices_clause(user_id):
+	"""Devices a user may see and roll out to: their own plus all global ones."""
+	return or_(Inventory.user_id == user_id, Inventory.is_global.is_(True))
+
+
+def query_visible_devices(db_session, user_id):
+	"""Visible devices with the relationships templates and rollout need,
+	preloaded so rows survive expunge."""
+	devices = (db_session.query(Inventory)
+	           .filter(visible_devices_clause(user_id))
+	           .order_by(Inventory.label)
+	           .all())
+	_ = [d.security_profile for d in devices]
+	_ = [d.var_mappings for d in devices]
+	return devices
+
+
+def can_edit_device(device, user):
+	"""Owners edit their own devices; any admin may edit a global device."""
+	return device.user_id == user.id or (
+			device.is_global and user.role == "admin")
+
+
+def partition_devices(devices):
+	"""Split visible devices into (global_devices, my_devices)."""
+	global_devices = [d for d in devices if d.is_global]
+	my_devices = [d for d in devices if not d.is_global]
+	return global_devices, my_devices
+
+
 #######################Query helpers###############################
 def compile_query_rules(node, allowed_fields):
 	"""jQuery QueryBuilder produces a tree.
@@ -221,7 +252,10 @@ class WebServices:
 
 	#######################DB functional abstractions###############################
 	def act_on_db_obj(self, model, obj_id, func, user_id=None, many=False,
-	                  on_missing=None, **extra_filters):
+	                  on_missing=None, can_access=None, **extra_filters):
+		# can_access: optional predicate for access rules filter_by can't
+		# express (e.g. owner OR admin-on-global). A denied object gets the
+		# same response as a missing one, so its existence isn't leaked.
 		with self.backend.postgres.get_session() as db_session:
 			filters = {"id": obj_id} if obj_id is not None else {}
 			if user_id is not None:
@@ -232,7 +266,7 @@ class WebServices:
 				return func(obj.all(), db_session)
 			else:
 				obj = obj.first()
-				if not obj:
+				if not obj or (can_access and not can_access(obj)):
 					return on_missing() if on_missing else err("Not found", 404)
 				return func(obj, db_session)
 

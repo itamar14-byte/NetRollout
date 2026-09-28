@@ -14,7 +14,9 @@ from werkzeug import Response
 from src.db.tables import VariableMapping, Inventory, User
 from src.logging_utils import RolloutLogger
 from src.validation import Validator
-from src.webapp.utils import ok, err, with_form, with_json, flash_redirect
+from src.webapp.utils import (ok, err, with_form, with_json, flash_redirect,
+                              visible_devices_clause, query_visible_devices,
+                              partition_devices)
 
 bp = Blueprint('mappings', __name__, url_prefix='/mappings')
 
@@ -61,12 +63,14 @@ def mappings():
 		user = db_session.get(User, current_user.id)
 		var_binds = user.variable_mappings
 		_ = [m.devices for m in var_binds]
-		devices = user.inventory
+		devices = query_visible_devices(db_session, current_user.id)
 		db_session.expunge_all()
+	global_devices, my_devices = partition_devices(devices)
 
 	sys_props, user_props = current_app.web.get_property_defs(current_user.id)
 	return render_template("variable_mappings.html", mappings=var_binds,
-	                       devices=devices, sys_props=sys_props,
+	                       global_devices=global_devices,
+	                       my_devices=my_devices, sys_props=sys_props,
 	                       user_props=user_props, active_section="mappings")
 
 
@@ -200,7 +204,7 @@ def mappings_bulk_assign():
 	Accepts a JSON body with mapping_id and
 	device_ids.
 	For each device, three checks are enforced before appending:
-	  1. Ownership — the device must belong to current_user
+	  1. Visibility — the device must belong to current_user or be global
 	  2. Eligibility — device.var_maps must contain mapping.property_name
 	  3. Duplicate — the device must not already be assigned to this mapping
 	Invalid or ineligible device IDs are silently skipped.
@@ -253,9 +257,9 @@ def mappings_bulk_assign():
 		for device_id_str in device_ids:
 			# Parse each device UUID — skip silently if malformed
 			try:
-				device = db_session.query(Inventory).filter_by(
-					id=uuid.UUID(device_id_str),
-					user_id=current_user.id).first()
+				device = db_session.query(Inventory).filter(
+					Inventory.id == uuid.UUID(device_id_str),
+					visible_devices_clause(current_user.id)).first()
 			except (ValueError, TypeError):
 				skipped += 1
 				continue

@@ -106,9 +106,11 @@ class Device:
 			return None
 
 	@classmethod
-	def from_inventory(cls, row: Inventory) -> "Device":
+	def from_inventory(cls, row: Inventory, user_id) -> "Device":
 		profile = row.security_profile
-		mappings = row.var_mappings
+		# The join table is shared across users (global devices), so only the
+		# rolling-out user's own mappings are applied
+		mappings = [m for m in row.var_mappings if m.user_id == user_id]
 		if not profile:
 			raise ValueError(f"no security profiles assigned to {row.ip}")
 

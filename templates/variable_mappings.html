@@ -271,7 +271,7 @@
     {# Build assigned device list with var_maps for JS #}
     {% set ns = namespace(devs=[]) %}
     {% for d in mapping.devices %}
-        {% set ns.devs = ns.devs + [{"id": d.id|string, "label": d.label, "ip": d.ip, "device_type": d.device_type, "var_maps": d.var_maps or {}}] %}
+        {% set ns.devs = ns.devs + [{"id": d.id|string, "label": d.label, "ip": d.ip, "device_type": d.device_type, "var_maps": d.var_maps or {}, "is_global": d.is_global}] %}
     {% endfor %}
 
     <div class="col-md-6 col-xl-4">
@@ -710,10 +710,17 @@ const CSRF_TOKEN = "{{ csrf_token() }}";
 
 // ── Static data ──
 {% set ns = namespace(all_devs=[]) %}
-{% for d in devices %}
-    {% set ns.all_devs = ns.all_devs + [{"id": d.id|string, "label": d.label, "ip": d.ip, "device_type": d.device_type, "var_maps": d.var_maps or {}}] %}
+{% for d in global_devices + my_devices %}
+    {% set ns.all_devs = ns.all_devs + [{"id": d.id|string, "label": d.label, "ip": d.ip, "device_type": d.device_type, "var_maps": d.var_maps or {}, "is_global": d.is_global}] %}
 {% endfor %}
 const DEVICES_ALL  = {{ ns.all_devs | tojson }};
+
+// Labels can come from another user's (admin's) global device — always escape
+function esc(s) {
+    return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;')
+        .replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+const GLOBAL_BADGE = '<span class="nr-global-badge" title="Global device — shared by an administrator"><i class="bi bi-globe2"></i>GLOBAL</span>';
 const VENDOR_LOGOS = {{ VENDOR_LOGOS | tojson }};
 const ATTR_ICONS   = {{ ATTR_ICON_MAP | tojson }};
 const LIST_PROPS   = new Set({{ (sys_props + user_props) | selectattr('is_list') | map(attribute='name') | list | tojson }});
@@ -896,9 +903,10 @@ function renderAssignedList(devices) {
     }
     list.innerHTML = devices.map(d => `
         <div class="device-row">
-            <span class="device-ip">${d.ip}</span>
-            <span style="color:#888; font-size:0.82rem; flex:1;">${d.label}</span>
-            <span class="device-val">${getDeviceVal(d)}</span>
+            <span class="device-ip">${esc(d.ip)}</span>
+            <span style="color:#888; font-size:0.82rem; flex:1;">${esc(d.label)}</span>
+            ${d.is_global ? GLOBAL_BADGE : ''}
+            <span class="device-val">${esc(getDeviceVal(d))}</span>
         </div>`).join('');
 }
 
@@ -927,7 +935,7 @@ function renderAvailableList() {
         return;
     }
 
-    list.innerHTML = pool.map(d => {
+    const renderCard = d => {
         const logoUrl = VENDOR_LOGOS[d.device_type] || '';
         const val     = getDeviceVal(d);
         const logoHtml = logoUrl
@@ -938,10 +946,25 @@ function renderAvailableList() {
         return `
         <div class="drag-card" draggable="true" data-device-id="${d.id}">
             <div class="drag-vendor-badge">${logoHtml}</div>
-            <span class="drag-card-label">${d.label}</span>
-            <span class="drag-card-val">${val}</span>
+            <span class="drag-card-label">${esc(d.label)}</span>
+            ${d.is_global ? GLOBAL_BADGE : ''}
+            <span class="drag-card-val">${esc(val)}</span>
         </div>`;
-    }).join('');
+    };
+
+    // Split into Global / My Devices only when both groups are non-empty
+    const globals = pool.filter(d => d.is_global);
+    const mine    = pool.filter(d => !d.is_global);
+    const head = (icon, name, n) =>
+        `<div class="nr-section-head"><i class="bi ${icon}"></i>${name}<span class="nr-section-count">${n}</span></div>`;
+    if (globals.length && mine.length) {
+        list.innerHTML =
+            head('bi-globe2', 'Global Devices', globals.length) + globals.map(renderCard).join('') +
+            '<div style="height:0.6rem;"></div>' +
+            head('bi-hdd-stack', 'My Devices', mine.length) + mine.map(renderCard).join('');
+    } else {
+        list.innerHTML = pool.map(renderCard).join('');
+    }
 
     list.querySelectorAll('.drag-card').forEach(card => {
         card.addEventListener('dragstart', onDragStart);
@@ -985,9 +1008,9 @@ dropZone.addEventListener('drop', e => {
 
     if (!pendingAssignments.includes(deviceId)) pendingAssignments.push(deviceId);
 
-    // Remove from available list
-    const dragCard = document.querySelector(`[data-device-id="${deviceId}"]`);
-    if (dragCard) dragCard.remove();
+    // Re-render the available list (drops the card, and any section
+    // header left empty by it)
+    renderAvailableList();
 
     // Add to assigned list with animation
     const assignedList = document.getElementById('assignedList');
@@ -998,9 +1021,10 @@ dropZone.addEventListener('drop', e => {
     const row = document.createElement('div');
     row.className = 'device-row card-landing';
     row.innerHTML = `
-        <span class="device-ip">${device.ip}</span>
-        <span style="color:#888; font-size:0.82rem; flex:1;">${device.label}</span>
-        <span class="device-val">${val}</span>`;
+        <span class="device-ip">${esc(device.ip)}</span>
+        <span style="color:#888; font-size:0.82rem; flex:1;">${esc(device.label)}</span>
+        ${device.is_global ? GLOBAL_BADGE : ''}
+        <span class="device-val">${esc(val)}</span>`;
     assignedList.appendChild(row);
     setTimeout(() => row.classList.remove('card-landing'), 250);
 });
