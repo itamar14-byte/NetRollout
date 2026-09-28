@@ -70,7 +70,7 @@ def require_admin(f):
 			if (request.is_json or request.headers.get("X-Requested-With")
 					== "XMLHttpRequest"):
 				return err("Forbidden", 403)
-			return redirect(request.referrer or url_for("rollout.dashboard"))
+			return redirect(request.referrer or url_for("jobs.dashboard"))
 		return f(*args, **kwargs)
 
 	return decorated
