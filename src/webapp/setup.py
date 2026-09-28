@@ -9,6 +9,7 @@ from flask_session.redis import RedisSessionInterface
 # prometheus
 from prometheus_client.core import REGISTRY, GaugeMetricFamily
 # sqlalchemy
+from sqlalchemy.exc import OperationalError
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 # local modules
@@ -17,6 +18,7 @@ from src.webapp.extensions import register_extensions, register_handlers, \
 from src.webapp.utils import WebServices
 from src.db.backend import BackendServices
 from src.db.redis_db import REDIS_UNAVAILABLE
+from src.encryption import init_encryption
 from src.orchestration import RolloutOrchestrator
 
 ########Constants###################################################
@@ -106,6 +108,17 @@ def register_metrics(redis_conn):
 	REGISTRY.register(RolloutSessionCollector(redis_conn))
 
 
+def init_app_encryption(backend: BackendServices):
+	# Fail fast: raises EncryptionStartupError if the key is malformed,
+	# missing while encrypted data exists, or doesn't match stored data
+	try:
+		sample = backend.encrypted_sample()
+		db_checked = True
+	except OperationalError:
+		sample, db_checked = None, False
+	init_encryption(sample, db_checked=db_checked)
+
+
 def clear_sessions(redis_conn):
 	try:
 		for redis_key in redis_conn.client.scan_iter("redis_session:*"):
@@ -118,6 +131,7 @@ def clear_sessions(redis_conn):
 def launch_app():
 
 	backend = BackendServices()
+	init_app_encryption(backend)
 	orchestrator = RolloutOrchestrator(backend,
 	                                   int(os.getenv("ORCHESTRATOR_WORKERS",
 	                                                 "4")))

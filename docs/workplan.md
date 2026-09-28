@@ -505,9 +505,10 @@ Blocking and should-fix items found in a full codebase review after the Blueprin
 - `require_admin` redirect target
 - Redis resilience: dispatcher retries with backoff; app starts and serves with Redis unreachable (`REDIS_UNAVAILABLE`)
 - Retention cron fixed and policy revised (below)
+- Encryption key fail-fast: no import-time key load; refuses to start on malformed, missing-with-data, or mismatched key
 
 **Remaining (in order):**
-- Encryption key: bad key crashes at import time; `load_devices` doesn't catch `InvalidEncryptionKeyError`
+
 - Test suite green (`src.*` imports so mocks hit, API drift, discoverable filename)
 - Cancel race: devices finishing after cancel recorded as `cancelled` (rollback skips them)
 - LDAP: unescaped username in DN/filter; server outage → 500 at login
@@ -586,6 +587,8 @@ Grafana/Prometheus/Loki remain on a separate `docker-compose.obs.yml` — option
 **Pending Grafana wiring (carry over from 4.9):**
 - docker-compose volume mounts for `docs/grafana/provisioning/` and `docs/grafana/dashboard_config/`
 - `GRAFANA_DB_PASSWORD` env var in docker-compose
+
+**Encryption key must survive container recreation:** the `app` service must set `NETROLLOUT_ENCRYPTION_KEY` or mount a volume at `~/.netrollout/`. Otherwise a re-pulled container has no key; since 2026-09 the app then refuses to start (fail-fast) rather than silently generating a new key that orphans every stored credential. `install.py` (4.2) should generate the key once and write it to `config.env`.
 
 ---
 

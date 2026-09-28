@@ -6,6 +6,15 @@ from sqlalchemy.exc import OperationalError
 from src.db.db_install import install
 from src.db.postgres_db import PostgresConnection, PostgresConfig
 from src.db.redis_db import RedisConnection, RedisConfig, REDIS_UNAVAILABLE
+from src.db.tables import SecurityProfile, LDAPServer, User
+
+# Every column holding Fernet ciphertext
+_ENCRYPTED_COLUMNS = (SecurityProfile.password_secret,
+                      SecurityProfile.enable_secret,
+                      LDAPServer.bind_password,
+                      User.otp_secret)
+# All Fernet tokens start with this (version byte 0x80, base64-encoded)
+_FERNET_PREFIX = "gAAAAA"
 
 
 class BackendServices:
@@ -34,6 +43,19 @@ class BackendServices:
 			"POSTGRES": postgres_up,
 			"REDIS": redis_up
 		}
+
+	def encrypted_sample(self) -> str | None:
+		"""One stored Fernet token from any encrypted column, or None if the
+		DB holds no encrypted data. Only Fernet-shaped values are considered,
+		so a legacy plaintext value can't fail the startup key check.
+		:raises OperationalError: Postgres unreachable"""
+		with self.postgres.get_session() as db_session:
+			for column in _ENCRYPTED_COLUMNS:
+				value = db_session.query(column).filter(
+					column.like(f"{_FERNET_PREFIX}%")).limit(1).scalar()
+				if value:
+					return value
+		return None
 
 	def _write_config(self, updates: dict, pop_keys: list | None = None):
 		cfg = dict(dotenv_values(self._CONFIG_ENV)) if \
