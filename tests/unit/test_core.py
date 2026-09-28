@@ -1,17 +1,16 @@
 import os
-import sys
 import tempfile
 import threading
 import unittest
 from unittest.mock import MagicMock, patch
 
-# Add src to path so imports resolve without src. prefix (avoids dual module instances)
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
-
-from validation import Validator
-from logging_utils import RolloutLogger
-from core import Device, RolloutOptions, RolloutEngine
-from input_parser import InputParser
+# Import through the src package only — the app itself imports src.*, and a
+# bare `import core` would load a second copy of every module (patches and
+# isinstance checks would then silently target the wrong one).
+from src.validation import Validator
+from src.logging_utils import RolloutLogger
+from src.core import Device, RolloutOptions, RolloutEngine
+from src.input_parser import InputParser
 
 
 # ---------------------------------------------------------------------------
@@ -192,27 +191,27 @@ class TestValidateFileExtension(unittest.TestCase):
 
 class TestTcpPort(unittest.TestCase):
 
-    @patch("validation.socket.socket")
+    @patch("src.validation.socket.socket")
     def test_reachable_on_first_attempt(self, mock_socket_cls):
         mock_sock = MagicMock()
         mock_socket_cls.return_value.__enter__.return_value = mock_sock
         mock_sock.connect.return_value = None
         self.assertTrue(Validator.test_tcp_port("10.0.0.1", 22))
 
-    @patch("validation.socket.socket")
+    @patch("src.validation.socket.socket")
     def test_unreachable_after_all_retries(self, mock_socket_cls):
         mock_sock = MagicMock()
         mock_socket_cls.return_value.__enter__.return_value = mock_sock
         mock_sock.connect.side_effect = OSError("refused")
-        with patch("validation.time.sleep"):
+        with patch("src.validation.time.sleep"):
             self.assertFalse(Validator.test_tcp_port("10.0.0.1", 22))
 
-    @patch("validation.socket.socket")
+    @patch("src.validation.socket.socket")
     def test_succeeds_on_second_attempt(self, mock_socket_cls):
         mock_sock = MagicMock()
         mock_socket_cls.return_value.__enter__.return_value = mock_sock
         mock_sock.connect.side_effect = [OSError("refused"), None]
-        with patch("validation.time.sleep"):
+        with patch("src.validation.time.sleep"):
             self.assertTrue(Validator.test_tcp_port("10.0.0.1", 22))
 
 
@@ -326,17 +325,40 @@ class TestBaseNotify(unittest.TestCase):
             logger.notify("hello", "green")
             mock_print.assert_not_called()
 
-    def test_verbose_webapp_enqueues(self):
-        logger = RolloutLogger(webapp=True, verbose=True)
+    def _webapp_logger(self, verbose):
+        # Webapp mode streams to Redis (history list + pub/sub channel)
+        redis_client = MagicMock()
+        logger = RolloutLogger(webapp=True, verbose=verbose, job_id="job-1",
+                               redis_client=redis_client)
         logger.logfile = self.logfile
-        logger.notify("hello", "green")
-        self.assertFalse(logger._queue.empty())
+        return logger, redis_client
 
-    def test_non_verbose_webapp_does_not_enqueue(self):
-        logger = RolloutLogger(webapp=True, verbose=False)
-        logger.logfile = self.logfile
+    def test_verbose_webapp_publishes(self):
+        logger, redis_client = self._webapp_logger(verbose=True)
         logger.notify("hello", "green")
-        self.assertTrue(logger._queue.empty())
+        redis_client.publish.assert_called_once()
+        redis_client.rpush.assert_called_once()
+        self.assertEqual(redis_client.publish.call_args[0][0], "job:job-1:logs")
+
+    def test_non_verbose_webapp_does_not_publish(self):
+        logger, redis_client = self._webapp_logger(verbose=False)
+        logger.notify("hello", "green")
+        redis_client.publish.assert_not_called()
+        redis_client.rpush.assert_not_called()
+
+    def test_non_verbose_webapp_publishes_errors_and_important(self):
+        logger, redis_client = self._webapp_logger(verbose=False)
+        logger.notify("boom", "red")
+        logger.notify("milestone", important=True)
+        self.assertEqual(redis_client.publish.call_count, 2)
+
+    def test_webapp_without_job_id_never_touches_redis(self):
+        redis_client = MagicMock()
+        logger = RolloutLogger(webapp=True, verbose=True,
+                               redis_client=redis_client)
+        logger.logfile = self.logfile
+        logger.notify("hello", important=True)
+        redis_client.publish.assert_not_called()
 
     def test_always_logs_to_file(self):
         logger = RolloutLogger(webapp=False, verbose=False)
@@ -424,31 +446,33 @@ class TestPrepareDevices(unittest.TestCase):
         base.update(overrides)
         return base
 
-    @patch("validation.Validator.test_tcp_port", return_value=True)
+    @patch("src.validation.Validator.test_tcp_port", return_value=True)
     def test_valid_device_is_added(self, _):
-        devices = self.parser.prepare_devices([self._raw()])
+        devices, errors = self.parser.prepare_devices([self._raw()])
         self.assertEqual(len(devices), 1)
+        self.assertEqual(errors, [])
         self.assertIsInstance(devices[0], Device)
 
-    @patch("validation.Validator.test_tcp_port", return_value=False)
+    @patch("src.validation.Validator.test_tcp_port", return_value=False)
     def test_unreachable_device_excluded(self, _):
-        devices = self.parser.prepare_devices([self._raw()])
+        devices, errors = self.parser.prepare_devices([self._raw()])
         self.assertEqual(len(devices), 0)
+        self.assertEqual(errors, ["10.0.0.1 is not reachable"])
 
-    @patch("validation.Validator.test_tcp_port", return_value=True)
+    @patch("src.validation.Validator.test_tcp_port", return_value=True)
     def test_invalid_ip_excluded(self, _):
-        devices = self.parser.prepare_devices([self._raw(ip="bad")])
+        devices, _ = self.parser.prepare_devices([self._raw(ip="bad")])
         self.assertEqual(len(devices), 0)
 
-    @patch("validation.Validator.test_tcp_port", return_value=True)
+    @patch("src.validation.Validator.test_tcp_port", return_value=True)
     def test_device_type_lowercased(self, _):
-        devices = self.parser.prepare_devices([self._raw(device_type="CISCO_IOS")])
+        devices, _ = self.parser.prepare_devices([self._raw(device_type="CISCO_IOS")])
         self.assertEqual(devices[0].device_type, "cisco_ios")
 
-    @patch("validation.Validator.test_tcp_port", return_value=True)
+    @patch("src.validation.Validator.test_tcp_port", return_value=True)
     def test_multiple_devices(self, _):
         raw = [self._raw(ip=f"10.0.0.{i}") for i in range(1, 4)]
-        devices = self.parser.prepare_devices(raw)
+        devices, _ = self.parser.prepare_devices(raw)
         self.assertEqual(len(devices), 3)
 
 
@@ -480,7 +504,7 @@ class TestParseFiles(unittest.TestCase):
         with open(path, "w") as f:
             f.write("\n".join(commands))
 
-    @patch("validation.Validator.test_tcp_port", return_value=True)
+    @patch("src.validation.Validator.test_tcp_port", return_value=True)
     def test_csv_to_inventory_returns_devices(self, _):
         with tempfile.TemporaryDirectory() as tmpdir:
             csv_path = os.path.join(tmpdir, "devices.csv")
@@ -488,19 +512,19 @@ class TestParseFiles(unittest.TestCase):
                 {"ip": "10.0.0.1", "username": "admin", "password": "pass",
                  "device_type": "cisco_ios", "secret": "s", "port": "22"}
             ])
-            devices = self.parser.csv_to_inventory(csv_path, self.user_id, self.db_session)
+            devices, _ = self.parser.csv_to_inventory(csv_path, self.user_id, self.db_session)
         self.assertEqual(len(devices), 1)
         self.assertIsInstance(devices[0], Device)
 
     def test_csv_to_inventory_nonexistent_file_returns_empty(self):
-        devices = self.parser.csv_to_inventory("/no/such/file.csv", self.user_id, self.db_session)
+        devices, _ = self.parser.csv_to_inventory("/no/such/file.csv", self.user_id, self.db_session)
         self.assertEqual(devices, [])
 
     def test_csv_to_inventory_wrong_extension_returns_empty(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             bad_path = os.path.join(tmpdir, "devices.txt")
             open(bad_path, "w").close()
-            devices = self.parser.csv_to_inventory(bad_path, self.user_id, self.db_session)
+            devices, _ = self.parser.csv_to_inventory(bad_path, self.user_id, self.db_session)
         self.assertEqual(devices, [])
 
     def test_csv_to_inventory_missing_columns_returns_empty(self):
@@ -508,7 +532,7 @@ class TestParseFiles(unittest.TestCase):
             csv_path = os.path.join(tmpdir, "devices.csv")
             with open(csv_path, "w") as f:
                 f.write("ip,username\n10.0.0.1,admin\n")
-            devices = self.parser.csv_to_inventory(csv_path, self.user_id, self.db_session)
+            devices, _ = self.parser.csv_to_inventory(csv_path, self.user_id, self.db_session)
         self.assertEqual(devices, [])
 
     def test_parse_commands_returns_list(self):
@@ -631,7 +655,8 @@ class TestRolloutEngineVerify(unittest.TestCase):
         with patch.object(device, "fetch_config",
                           return_value="ip route 0.0.0.0 0.0.0.0 1.1.1.1"):
             result = engine._verify(self.logger)
-        self.assertEqual(result["192.168.1.1"], 1)
+        # fully verified -> no config snapshot kept (nothing to diff)
+        self.assertEqual(result["192.168.1.1"], (None, 1))
 
     def test_command_not_in_config(self):
         device = make_device()
@@ -641,14 +666,14 @@ class TestRolloutEngineVerify(unittest.TestCase):
         )
         with patch.object(device, "fetch_config", return_value="no relevant config"):
             result = engine._verify(self.logger)
-        self.assertEqual(result["192.168.1.1"], 0)
+        self.assertEqual(result["192.168.1.1"][1], 0)
 
     def test_fetch_config_returns_none_counts_zero(self):
         device = make_device()
         engine = self._make_engine(devices=[device])
         with patch.object(device, "fetch_config", return_value=None):
             result = engine._verify(self.logger)
-        self.assertEqual(result.get("192.168.1.1", 0), 0)
+        self.assertEqual(result["192.168.1.1"], (None, 0))
 
     def test_partial_commands_matched(self):
         device = make_device()
@@ -657,7 +682,8 @@ class TestRolloutEngineVerify(unittest.TestCase):
         engine = self._make_engine(devices=[device], commands=commands)
         with patch.object(device, "fetch_config", return_value=config):
             result = engine._verify(self.logger)
-        self.assertEqual(result["192.168.1.1"], 1)
+        # mismatch -> config snapshot kept for Verify Diff
+        self.assertEqual(result["192.168.1.1"], (config, 1))
 
 
 # ---------------------------------------------------------------------------
@@ -747,7 +773,7 @@ class TestFullRolloutAndVerifyPipeline(unittest.TestCase):
 
     @patch("netmiko.ConnectHandler")
     @patch("napalm.get_network_driver")
-    @patch("core.Device.from_inventory")
+    @patch("src.core.Device.from_inventory")
     def test_full_pipeline_all_commands_verified(self, mock_from_inv, mock_napalm_driver, mock_netmiko_ch):
         device = self._make_device()
         mock_from_inv.return_value = device
@@ -778,7 +804,7 @@ class TestFullRolloutAndVerifyPipeline(unittest.TestCase):
         self.assertEqual(result[0]["commands_verified"], 1)
 
     @patch("netmiko.ConnectHandler")
-    @patch("core.Device.from_inventory")
+    @patch("src.core.Device.from_inventory")
     def test_full_pipeline_push_only_no_verify(self, mock_from_inv, mock_netmiko_ch):
         device = self._make_device()
         mock_from_inv.return_value = device
@@ -804,7 +830,7 @@ class TestFullRolloutAndVerifyPipeline(unittest.TestCase):
 
     @patch("netmiko.ConnectHandler")
     @patch("napalm.get_network_driver")
-    @patch("core.Device.from_inventory")
+    @patch("src.core.Device.from_inventory")
     def test_full_pipeline_verify_fails_command_not_in_config(self, mock_from_inv, mock_napalm_driver, mock_netmiko_ch):
         device = self._make_device()
         mock_from_inv.return_value = device
@@ -835,7 +861,7 @@ class TestFullRolloutAndVerifyPipeline(unittest.TestCase):
         self.assertEqual(result[0]["commands_verified"], 0)
 
     @patch("netmiko.ConnectHandler")
-    @patch("core.Device.from_inventory")
+    @patch("src.core.Device.from_inventory")
     def test_full_pipeline_cancel_mid_rollout(self, mock_from_inv, mock_netmiko_ch):
         device = self._make_device()
         mock_from_inv.return_value = device
@@ -862,46 +888,6 @@ class TestFullRolloutAndVerifyPipeline(unittest.TestCase):
         self.assertEqual(len(result), 1)
 
 
-# ---------------------------------------------------------------------------
-# Integration: rate limiting (requires live webapp on localhost:8080)
-# Run manually: python tests/test.py RateLimitIntegrationTest
-# Skipped automatically if the server is not reachable.
-# ---------------------------------------------------------------------------
-
-import urllib.request
-import urllib.error
-import urllib.parse
-
-
-def _server_reachable(url: str) -> bool:
-    try:
-        urllib.request.urlopen(url, timeout=2)
-        return True
-    except urllib.error.HTTPError:
-        return True  # server responded with HTTP error — server is up
-    except Exception:
-        return False  # connection refused, timeout, etc.
-
-
-@unittest.skipUnless(_server_reachable("http://localhost:8080/"), "webapp not running")
-class RateLimitIntegrationTest(unittest.TestCase):
-    """Sends 15 POST requests to /login and expects a 429 after the 10th."""
-
-    URL = "http://localhost:8080/login"
-
-    def test_login_rate_limit_triggers(self):
-        import requests
-        hit_429 = False
-        for i in range(1, 16):
-            r = requests.post(self.URL, data={"username": "test", "password": "test"},
-                              allow_redirects=False)
-            if r.status_code == 429:
-                hit_429 = True
-                self.assertLessEqual(i, 11,
-                    f"Expected 429 by request 11, got it at request {i}")
-                break
-        self.assertTrue(hit_429, "Rate limiter never triggered after 15 requests")
-
-
-if __name__ == "__main__":
-    unittest.main()
+# The live-server rate-limit test that used to live here is replaced by a
+# test-client version in tests/integration (it wrote failed logins into the
+# live audit log and could lock localhost out of login for a minute).

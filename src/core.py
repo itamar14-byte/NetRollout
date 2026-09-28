@@ -239,7 +239,8 @@ class RolloutEngine:
 		"""
 		Verifies a single device by fetching its running config and comparing
 		against the substituted commands. Called concurrently by _verify.
-		:return: (ip, successful_commands_count)
+		:return: (ip, successful_commands_count, fetched_config) — the config
+		 is kept only when some commands didn't verify (for Verify Diff)
 		"""
 		successful_commands = 0
 		# Loops through the devices and gets the running config, using fetch config function
@@ -273,7 +274,7 @@ class RolloutEngine:
 		The function gets the list of devices and verifies which devices have been successfully configured
 		by comparing the _commands to the config file from fetch_config()
 		Devices are verified concurrently via ThreadPoolExecutor.
-		:return: returns a dict of {ip: successful_commands_count}
+		:return: {ip: (fetched_config, successful_commands_count)}
 		"""
 		result = {}
 		with ThreadPoolExecutor(max_workers=self._max_workers) as executor:
