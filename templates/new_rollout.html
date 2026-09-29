@@ -406,6 +406,9 @@
     overflow: hidden;
     box-shadow: 0 0 0 1px rgba(0,188,212,0.06), 0 16px 48px rgba(0,0,0,0.4);
 }
+/* Panels whose content is padded away from the rounded corners can let
+   popovers (the Verify "?" tooltip) escape instead of clipping them */
+.nr-panel.nr-panel--open { overflow: visible; }
 .nr-panel-header {
     padding: 1rem 1.25rem 0.75rem;
     border-bottom: 1px solid #1e1e1e;
@@ -416,7 +419,7 @@
 
 {% block operator_content %}
 {% macro device_row(device) %}
-                            <label class="device-row {% if not device.security_profile %}disabled{% endif %}"
+                            <label class="device-row disabled"
                                    data-device-id="{{ device.id }}"
                                    data-no-profile="{{ '0' if device.security_profile else '1' }}"
                                    data-label="{{ (device.label or device.ip)|lower }}"
@@ -428,7 +431,7 @@
                                        value="{{ device.id }}"
                                        data-platform="{{ device.device_type }}"
                                        data-label="{{ device.label or device.ip }}"
-                                       {% if not device.security_profile %}disabled{% endif %}>
+                                       disabled>
 
                                 {# Vendor logo #}
                                 {% if VENDOR_LOGOS.get(device.device_type) %}
@@ -462,6 +465,8 @@
 
                                 {% if not device.security_profile %}
                                 <span class="no-profile-tip">No security profile — assign one in Inventory</span>
+                                {% else %}
+                                <span class="no-profile-tip reach-tip">Checking reachability…</span>
                                 {% endif %}
                             </label>
 {% endmacro %}
@@ -582,7 +587,7 @@
             {# Rollout note #}
             <div class="nr-panel mb-3">
                 <div class="nr-panel-body" style="padding:1rem 1.25rem;">
-                    <span class="nr-label d-block mb-2">Rollout Note <span style="color:var(--nr-text-muted); font-size: 0.75rem;">OPTIONAL</span></span>
+                    <span class="nr-label d-block mb-2">Rollout Note <span style="color:var(--nr-text-muted);">(optional)</span></span>
                     <input type="text" name="comment" maxlength="255"
                            placeholder="e.g. VLAN 100 provisioning — ticket #4821"
                            style="width:100%; background:#111; border:1px solid #222;
@@ -595,7 +600,7 @@
             </div>
 
             {# Options #}
-            <div class="nr-panel">
+            <div class="nr-panel nr-panel--open">
                 <div class="nr-panel-body" style="padding:1rem 1.25rem;">
                     <span class="nr-label d-block mb-2">Options</span>
                     <div class="options-row">
@@ -929,42 +934,59 @@
     const recheckBtn  = document.getElementById("reachRecheck");
     const unreachWarn = document.getElementById("unreachWarning");
 
+    // Only devices confirmed reachable are selectable: rows start disabled
+    // ("checking") and are enabled one by one as their status arrives.
+    function setRowTip(row, text) {
+        const tip = row.querySelector(".reach-tip");
+        if (tip) tip.textContent = text;
+    }
+
     async function refreshReachability(refresh = false) {
         const rows = [...document.querySelectorAll(".device-row[data-device-id]")];
-        rows.forEach(r => nrReachChecking(r.querySelector(".reach")));
+        rows.forEach(row => {
+            nrReachChecking(row.querySelector(".reach"));
+            if (row.dataset.noProfile === "1") return;
+            const cb = row.querySelector(".device-cb");
+            row.dataset.wasChecked = cb.checked ? "1" : "";  // restore if still up
+            cb.checked = false;
+            cb.disabled = true;
+            row.classList.remove("selected");
+            row.classList.add("disabled");
+            setRowTip(row, "Checking reachability…");
+        });
+        updateFooter(); rebuildCommandBlocks(); syncSelectAll();
         recheckBtn.disabled = true;
+
         const statuses = await nrCheckReachability(
             rows.map(r => r.dataset.deviceId), refresh);
-        let down = 0;
+        let down = 0, unknown = 0;
         rows.forEach(row => {
             const status = statuses[row.dataset.deviceId];
             const state  = nrSetReach(row.querySelector(".reach"), status);
-            const cb     = row.querySelector(".device-cb");
-            row.querySelector(".unreach-tip")?.remove();
             if (row.dataset.noProfile === "1") return;   // stays disabled
-            if (state === "down") {
-                down++;
-                cb.checked = false;
-                cb.disabled = true;
-                row.classList.remove("selected");
-                row.classList.add("disabled");
-                const tip = document.createElement("span");
-                tip.className = "no-profile-tip unreach-tip";
-                tip.textContent = "Not reachable from NetRollout · checked " +
-                    nrAgo(status.checked_at);
-                row.appendChild(tip);
-            } else {
-                // up, or unknown (check failed): selectable — the server
-                // still checks at submit
+            const cb = row.querySelector(".device-cb");
+            if (state === "up") {
                 cb.disabled = false;
+                cb.checked = row.dataset.wasChecked === "1";
+                row.classList.toggle("selected", cb.checked);
                 row.classList.remove("disabled");
+            } else if (state === "down") {
+                down++;
+                setRowTip(row, "Not reachable from NetRollout · checked " +
+                               nrAgo(status.checked_at));
+            } else {
+                unknown++;
+                setRowTip(row, "Couldn't check reachability — try Recheck");
             }
         });
-        unreachWarn.textContent = down
-            ? down + " device" + (down !== 1 ? "s" : "") +
-              " not reachable from NetRollout — can't be selected. Recheck once back online."
+        const parts = [];
+        if (down)    parts.push(down + " device" + (down !== 1 ? "s" : "") +
+                                " not reachable from NetRollout");
+        if (unknown) parts.push(unknown + " couldn't be checked");
+        unreachWarn.textContent = parts.length
+            ? parts.join(", ") + " — they can't be selected. Recheck once back online."
             : "";
-        unreachWarn.classList.toggle("show", down > 0);
+        unreachWarn.classList.toggle("show", parts.length > 0);
         recheckBtn.disabled = false;
         updateFooter();
         rebuildCommandBlocks();
