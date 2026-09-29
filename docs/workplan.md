@@ -525,6 +525,7 @@ Blocking and should-fix items found in a full codebase review after the Blueprin
 - Assign board — one shared two-column board (`nrAssignBoard`) for the Security Profiles and Variable Mappings device modals: drag or click/Enter both ways, staged Save `(+N / −M)`, pending-change card edges with a key. Mappings unassign via `remove_ids` (only that mapping's bindings); unassigning a profile warns that the device is blocked in New Rollout; global devices keep their profile (enforced server-side too)
 - Console output UTF-8 and never fatal (`utf8_console()` at the webapp and CLI entry points): a `→` in a log line used to fail requests on a non-UTF-8 stdout
 - Global devices browser click-through (admin + normal user) — done by the developer
+- CSV import — one format for the CLI and the web app: attribute columns (system or custom property, by name or label) saved as variable attributes; credential columns become security profiles (checkbox, default on): exact username/password/secret match reuses the user's profile, otherwise a new profile with a unique label (`admin · CSV import 29 Sep`), a warning when it shares a username with another profile, audited as `security_profile.create` (source csv_import); unknown columns reported; no TCP check on web import (the CLI keeps it)
 - CLI unit tests (`tests/unit/test_cli.py`); the three CLI bugs they found are fixed (see 3.5)
 - Rollout summary counts real outcomes ("1 success, 1 failed (of 2 devices)"; it used to call every attempted device configured). CLI exit code reflects the outcome: 0 all succeeded, 1 mixed, 2 nothing applied, 130 Ctrl+C
 
@@ -551,7 +552,6 @@ Constants live in `src/db/db_install.py` (`JOB_RETENTION_DAYS`, `CONFIG_SNAPSHOT
 - Dead-code sweep
 - Inventory: warn (don't block) when a device's ip:port matches a global device — overlapping IPs are legitimate (VRFs, NAT, port-forwarded labs)
 - Active Directory: test against a real AD (Samba AD DC container, ephemeral like the OpenLDAP one) — `sAMAccountName` logins, UPN binds, and nested-group membership (today only direct members of a mapped group match)
-- CSV import: extra attribute columns (hostname, vrfs, custom properties) are parsed but not saved to the device's variable attributes
 - Log file retention: `logs/` is never pruned — app-side cleanup at startup (Loki keeps its own copy)
 - Retention periods as Server Management settings instead of constants (post-v1.0)
 
