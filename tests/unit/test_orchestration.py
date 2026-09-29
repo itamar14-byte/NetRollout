@@ -25,22 +25,31 @@ QUEUE = "netrollout:job_queue"
 
 class FakeRedis:
 	def __init__(self, blpop_failures=0):
-		self._queues = defaultdict(queue.Queue)
+		# Queues are created under a lock: a defaultdict's lazy creation isn't
+		# atomic, so the dispatcher thread and the test could each create
+		# their own Queue for the same key — the dispatcher then waits on an
+		# orphan until its BLPOP timeout (a flaky test, not an app bug)
+		self._queues = {}
+		self._queues_lock = threading.Lock()
 		self.blpop_failures = blpop_failures
 		self.fail_writes = False
 		self.hashes = defaultdict(dict)
+
+	def _queue(self, key) -> queue.Queue:
+		with self._queues_lock:
+			return self._queues.setdefault(key, queue.Queue())
 
 	def blpop(self, key, timeout=0):
 		if self.blpop_failures > 0:
 			self.blpop_failures -= 1
 			raise redis.exceptions.ConnectionError("simulated drop")
 		try:
-			return key.encode(), self._queues[key].get(timeout=timeout or None)
+			return key.encode(), self._queue(key).get(timeout=timeout or None)
 		except queue.Empty:
 			return None
 
 	def rpush(self, key, value):
-		self._queues[key].put(value.encode() if isinstance(value, str) else value)
+		self._queue(key).put(value.encode() if isinstance(value, str) else value)
 
 	# Same signature as redis-py's hset — a permissive **kwargs here once hid
 	# a real bug (orchestrator passing a nonexistent `field=` argument)
