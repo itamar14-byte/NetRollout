@@ -15,6 +15,7 @@ from src.db.backend import BackendServices
 from src.db.tables import (DeviceResult, AuditLog, SecurityProfile,
                            PropertyDefinition, Inventory)
 from src.encryption import encrypt
+from src.reachability import ReachabilityChecker
 from src.validation import Validator
 
 ##########################Constants#######################################
@@ -225,6 +226,8 @@ def build_kpi(results_30d, label_map):
 class WebServices:
 	def __init__(self, backend: BackendServices):
 		self.backend = backend
+		# resolved per use: the Redis connection can be hot-swapped
+		self.reachability = ReachabilityChecker(lambda: backend.redis.client)
 
 	##########################Audit############################################
 	def audit(self, action, *, object_type=None, object_id=None,

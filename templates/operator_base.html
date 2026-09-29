@@ -800,6 +800,26 @@
         .icon-picker-opt.selected { background: rgba(0,188,212,0.12); color: #00bcd4; }
 
         {% block extra_style %}{% endblock %}
+
+        /* ── Reachability indicator (shared) ──────────────────────────────
+           State is carried by shape AND colour (and an aria-label), never
+           colour alone: spinner = checking, filled dot = reachable,
+           crossed circle = unreachable, question = unknown */
+        .reach { display: inline-flex; align-items: center; flex-shrink: 0;
+                 font-size: 0.75rem; line-height: 1; }
+        .reach--checking { color: var(--nr-text-faint); }
+        .reach--checking i { animation: spin 1s linear infinite; }
+        .reach--up      { color: #66bb6a; }
+        .reach--down    { color: #ef5350; }
+        .reach--unknown { color: var(--nr-text-faint); }
+        .reach-recheck {
+            background: none; border: 1px solid #2a2a2a; border-radius: 5px;
+            color: var(--nr-text-muted); font-size: 0.75rem; padding: 2px 8px;
+            display: inline-flex; align-items: center; gap: 0.3rem; cursor: pointer;
+            transition: color 0.15s, border-color 0.15s;
+        }
+        .reach-recheck:hover { color: var(--nr-accent); border-color: rgba(0,188,212,0.4); }
+        .reach-recheck:disabled { opacity: 0.6; cursor: default; }
     </style>
 </head>
 <body>
@@ -1207,6 +1227,56 @@ function initIconPicker(previewId, inputId) {
 
     input.oninput = () => { preview.className = 'bi ' + input.value; };
     document.addEventListener('click', () => panel.classList.remove('open'));
+}
+</script>
+
+<script>
+// ── Reachability (shared by New Rollout and Inventory) ─────────────────────
+// Probed from the NetRollout server (ip:port), cached ~60s server-side;
+// refresh=true re-probes.
+const NR_CSRF = "{{ csrf_token() }}";
+
+async function nrCheckReachability(deviceIds, refresh = false) {
+    if (!deviceIds.length) return {};
+    try {
+        const resp = await fetch('/inventory/reachability', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'X-CSRFToken': NR_CSRF},
+            body: JSON.stringify({device_ids: deviceIds, refresh})
+        });
+        const data = await resp.json();
+        return data.status === 'ok' ? data.statuses : {};
+    } catch (_) {
+        return {};
+    }
+}
+
+function nrAgo(iso) {
+    const secs = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 1000));
+    if (secs < 60) return secs + 's ago';
+    return Math.round(secs / 60) + 'm ago';
+}
+
+// Render one indicator element: state 'checking' | 'up' | 'down' | 'unknown'
+function nrSetReach(el, status) {
+    const state = !status ? 'unknown' : (status.reachable ? 'up' : 'down');
+    const icon  = {up: 'bi-circle-fill', down: 'bi-x-circle-fill',
+                   unknown: 'bi-question-circle'}[state];
+    const label = {up: 'Reachable', down: 'Not reachable',
+                   unknown: 'Reachability unknown'}[state];
+    const when  = status ? ' · checked ' + nrAgo(status.checked_at) : '';
+    el.className = 'reach reach--' + state;
+    el.innerHTML = '<i class="bi ' + icon + '"></i>';
+    el.setAttribute('aria-label', label);
+    el.title = label + ' from NetRollout' + when;
+    return state;
+}
+
+function nrReachChecking(el) {
+    el.className = 'reach reach--checking';
+    el.innerHTML = '<i class="bi bi-arrow-repeat"></i>';
+    el.setAttribute('aria-label', 'Checking reachability');
+    el.title = 'Checking reachability…';
 }
 </script>
 

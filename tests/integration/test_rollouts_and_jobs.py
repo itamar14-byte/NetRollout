@@ -324,3 +324,49 @@ def test_analytics_query_is_scoped_and_allowlisted(operator, client_for,
 		"field": "fetched_config", "operator": "contains", "value": "x"}})
 	assert bad.status_code == 400
 	assert client.get("/analytics").status_code == 200
+
+
+# ── Reachability blocks rollouts ─────────────────────────────────────────────
+
+def test_rollout_to_unreachable_device_is_blocked(operator, client_for,
+                                                  captured_submits,
+                                                  unreachable_targets):
+	unreachable_targets.add(("10.0.0.1", 22))
+	client = client_for(operator.user)
+	resp = client.post("/rollout/start", data={
+		"device_ids": [str(operator.ios)], "manual_commands": "hostname x"})
+	assert resp.headers["Location"] == "/rollout/new"
+	assert captured_submits == []
+	with client.session_transaction() as s:
+		(_, message), = s["_flashes"]
+	assert "rollout blocked" in message and "10.0.0.1:22" in message
+
+
+def test_device_back_online_is_not_blocked_by_stale_cache(
+		operator, client_for, captured_submits, unreachable_targets):
+	client = client_for(operator.user)
+	unreachable_targets.add(("10.0.0.1", 22))
+	client.post("/inventory/reachability", json={"device_ids": [str(operator.ios)]})
+	unreachable_targets.clear()  # it came back; the cache still says down
+	client.post("/rollout/start", data={
+		"device_ids": [str(operator.ios)], "manual_commands": "hostname x"})
+	assert len(captured_submits) == 1  # failures are re-probed at submit
+
+
+def test_rollback_to_unreachable_device_is_blocked(operator, client_for,
+                                                   session_scope,
+                                                   captured_submits,
+                                                   unreachable_targets):
+	job = uuid.uuid4()
+	add_result(session_scope, operator.user, job, ip="10.0.0.1")
+	unreachable_targets.add(("10.0.0.1", 22))
+	resp = client_for(operator.user).post(f"/rollout/rollback/{job}",
+	                                      json={"commands": "no hostname"})
+	assert resp.status_code == 409 and "rollout blocked" in resp.json["message"]
+	assert captured_submits == []
+
+
+def test_new_rollout_page_has_reachability_ui(operator, client_for):
+	html = client_for(operator.user).get("/rollout/new").get_data(as_text=True)
+	assert 'id="reachRecheck"' in html and 'id="unreachWarning"' in html
+	assert f'data-device-id="{operator.ios}"' in html

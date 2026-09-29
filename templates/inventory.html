@@ -395,6 +395,10 @@
             </span>
             {% endif %}
 
+            <!-- Reachability from NetRollout — filled in after load -->
+            <span class="reach reach--checking" data-reach-for="{{ device.id }}"
+                  aria-label="Checking reachability" title="Checking reachability…"><i class="bi bi-arrow-repeat"></i></span>
+
             <!-- IP (secondary, hidden on hover by CSS transition if needed) -->
             <span class="inv-card-ip">{{ device.ip }}</span>
 
@@ -419,6 +423,10 @@
         </p>
     </div>
     <div class="d-flex gap-2" style="margin-top:0.2rem;">
+        <button type="button" class="reach-recheck" id="reachRecheck"
+                title="Re-probe every device now" style="align-self:center;">
+            <i class="bi bi-arrow-repeat"></i>Recheck
+        </button>
         <button class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#importCsvModal">
             <i class="bi bi-filetype-csv me-1"></i>Import CSV
         </button>
@@ -480,6 +488,10 @@
     <div class="tt-row">
         <span class="tt-key">PROFILE</span>
         <span class="tt-val" id="ttProfile">—</span>
+    </div>
+    <div class="tt-row">
+        <span class="tt-key">STATUS</span>
+        <span class="tt-val" id="ttReach">Checking…</span>
     </div>
     <div id="ttMappingsRow" style="display:none; margin-top:0.5rem; border-top:1px solid #141414; padding-top:0.45rem;">
         <div style="font-family:'Inter',sans-serif; font-size: 0.6875rem; font-weight:500;
@@ -1558,6 +1570,12 @@ function showTooltip(card, device) {
     document.getElementById('ttType').textContent    = device.device_type;
     document.getElementById('ttPort').textContent    = device.port;
     document.getElementById('ttProfile').textContent = device.sec_profile_label || '—';
+    const reach = REACH[device.id];
+    document.getElementById('ttReach').textContent = reach === undefined
+        ? 'Checking…'
+        : (reach ? (reach.reachable ? 'Reachable' : 'Not reachable') +
+                   ' · checked ' + nrAgo(reach.checked_at)
+                 : 'Unknown');
 
     const assignedMappings = device.assigned_mappings || [];
     const mappingsRow = document.getElementById('ttMappingsRow');
@@ -1592,6 +1610,29 @@ function hideTooltip() {
     clearTimeout(ttTimer);
     tooltip.classList.remove('visible');
 }
+
+
+// ════════════════════════════════════════
+//  Reachability (from NetRollout, ip:port) — lazy, after first paint
+// ════════════════════════════════════════
+const REACH = {};  // device id -> status | null (unknown)
+
+async function refreshReachability(refresh = false) {
+    const els = [...document.querySelectorAll('[data-reach-for]')];
+    const btn = document.getElementById('reachRecheck');
+    if (!els.length) { btn.style.display = 'none'; return; }
+    els.forEach(nrReachChecking);
+    btn.disabled = true;
+    const statuses = await nrCheckReachability(els.map(e => e.dataset.reachFor), refresh);
+    els.forEach(el => {
+        REACH[el.dataset.reachFor] = statuses[el.dataset.reachFor] || null;
+        nrSetReach(el, statuses[el.dataset.reachFor]);
+    });
+    btn.disabled = false;
+}
+document.getElementById('reachRecheck').addEventListener('click',
+    () => refreshReachability(true));
+refreshReachability();
 
 
 // ════════════════════════════════════════
