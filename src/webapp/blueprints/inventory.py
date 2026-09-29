@@ -17,7 +17,7 @@ from src.logging_utils import RolloutLogger
 from src.validation import Validator
 from src.webapp.utils import (ok, err, with_form, with_json, flash_redirect,
                               query_visible_devices, partition_devices,
-                              can_edit_device)
+                              can_edit_device, visible_devices_clause)
 
 bp = Blueprint('inventory', __name__, url_prefix='/inventory')
 
@@ -147,6 +147,32 @@ def inventory_test_connection(data):
 	if Validator.test_tcp_port(ip, int(port)):
 		return ok(f"TCP port {port} reachable on {ip}")
 	return err(f"TCP port {port} unreachable on {ip}")
+
+
+MAX_REACHABILITY_BATCH = 500
+
+
+@bp.route("/reachability", methods=["POST"])
+@login_required
+@with_json()
+def inventory_reachability(data):
+	"""Reachability of visible devices from this server (cached briefly;
+	refresh=true re-probes). {"statuses": {device_id: {reachable,
+	checked_at}}}"""
+	raw_ids = data.get("device_ids") or []
+	if not isinstance(raw_ids, list) or len(raw_ids) > MAX_REACHABILITY_BATCH:
+		return err("Invalid request", 422)
+	try:
+		ids = [uuid.UUID(str(i)) for i in raw_ids]
+	except ValueError:
+		return err("Invalid device ID", 422)
+	with current_app.backend.postgres.get_session() as db_session:
+		rows = db_session.query(Inventory.id, Inventory.ip, Inventory.port) \
+			.filter(Inventory.id.in_(ids),
+			        visible_devices_clause(current_user.id)).all()
+	results = current_app.web.reachability.check(
+		[(r.ip, r.port) for r in rows], refresh=bool(data.get("refresh")))
+	return ok(statuses={str(r.id): results[(r.ip, int(r.port))] for r in rows})
 
 
 @bp.route("/<uuid:device_id>/edit", methods=["POST"])

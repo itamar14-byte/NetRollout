@@ -114,6 +114,21 @@ def duplicate_targets(devices) -> dict[str, list[str]]:
 	return {ep: labels for ep, labels in by_endpoint.items() if len(labels) > 1}
 
 
+def unreachable_devices(devices) -> list:
+	# Cached "reachable" results are trusted; cached failures are re-probed,
+	# so a device that just came back isn't blocked by a stale result
+	results = current_app.web.reachability.check(
+		[(d.ip, d.port) for d in devices], recheck_unreachable=True)
+	return [d for d in devices
+	        if not results[(d.ip, int(d.port))]["reachable"]]
+
+
+def unreachable_message(devices) -> str:
+	names = ", ".join(f"{d.label or d.ip} ({d.endpoint})" for d in devices)
+	return (f"Not reachable from NetRollout — rollout blocked: {names}. "
+	        f"Recheck once they're back online.")
+
+
 def submit_jobs(devices, commands, platform_commands_map, is_multi_platform,
                 options, audit_comment) -> uuid.UUID | Response:
 	# 10) Submit jobs to the orchestrator.
@@ -206,6 +221,10 @@ def new_start_rollout():
 		      "of: " + "; ".join(f"{' / '.join(labels)} ({ep})"
 		                         for ep, labels in duplicates.items()),
 		      "danger")
+		return redirect(url_for("rollout.new_rollout"))
+
+	if unreachable := unreachable_devices(devices):
+		flash(unreachable_message(unreachable), "danger")
 		return redirect(url_for("rollout.new_rollout"))
 
 	options = RolloutOptions(
@@ -303,6 +322,8 @@ def rollback(job_id, data):
 
 	commands = [l.strip() for l in data["commands"].splitlines() if l.strip()]
 	devices = InputParser.import_from_inventory(rows, current_user.id)
+	if unreachable := unreachable_devices(devices):
+		return err(unreachable_message(unreachable), 409)
 	options = RolloutOptions(
 		verify=bool(data.get("verify", False)),
 		verbose=bool(data.get("verbose", False)),

@@ -19,7 +19,7 @@
 .device-row:hover { background: rgba(255,255,255,0.02); }
 .device-row.selected { background: rgba(0,188,212,0.04); }
 .device-row.disabled {
-    opacity: 0.35;
+    opacity: 0.55;  /* inactive, but you can still read which device it is */
     cursor: not-allowed;
 }
 .device-row.disabled * { pointer-events: none; }
@@ -117,14 +117,7 @@
     flex-shrink: 0;
 }
 
-.profile-dot {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    flex-shrink: 0;
-}
-.profile-dot.ok { background: #4caf50; }
-.profile-dot.missing { background: #ef5350; }
+/* reachability indicator styles are shared (operator_base) */
 
 /* ── No-profile tooltip ── */
 .device-row.disabled {
@@ -168,6 +161,7 @@
     background: #141414;
 }
 
+#reachRecheck { margin-left: auto; }
 .device-list-header {
     display: flex;
     align-items: center;
@@ -423,6 +417,8 @@
 {% block operator_content %}
 {% macro device_row(device) %}
                             <label class="device-row {% if not device.security_profile %}disabled{% endif %}"
+                                   data-device-id="{{ device.id }}"
+                                   data-no-profile="{{ '0' if device.security_profile else '1' }}"
                                    data-label="{{ (device.label or device.ip)|lower }}"
                                    data-ip="{{ device.ip|lower }}"
                                    title="{% if not device.security_profile %}No security profile assigned — go to Inventory to assign one{% endif %}">
@@ -460,8 +456,9 @@
 
                                 <span class="platform-tag">{{ device.device_type }}</span>
 
-                                {# Security profile indicator #}
-                                <span class="profile-dot {{ 'ok' if device.security_profile else 'missing' }}"></span>
+                                {# Reachability from NetRollout — filled in by the page script #}
+                                <span class="reach reach--checking" aria-label="Checking reachability"
+                                      title="Checking reachability…"><i class="bi bi-arrow-repeat"></i></span>
 
                                 {% if not device.security_profile %}
                                 <span class="no-profile-tip">No security profile — assign one in Inventory</span>
@@ -509,6 +506,10 @@
                             <i class="bi bi-search" style="color:var(--nr-text-faint); font-size:0.75rem;"></i>
                             <input type="text" class="device-search"
                                    id="deviceSearch" placeholder="Filter by label or IP…">
+                            <button type="button" class="reach-recheck" id="reachRecheck"
+                                    title="Re-probe every device now">
+                                <i class="bi bi-arrow-repeat"></i>Recheck
+                            </button>
                         </div>
 
                         {# Device rows #}
@@ -537,6 +538,7 @@
                                 <span id="selectionCount">0 selected</span>
                                 <div class="platform-summary" id="platformSummary"></div>
                             </div>
+                            <div class="no-profile-warning" id="unreachWarning"></div>
                             <div class="no-profile-warning" id="noProfileWarning">
                                 {% set missing = devices | selectattr('security_profile', 'none') | list | length %}
                                 {% if missing > 0 %}
@@ -646,7 +648,7 @@
     const noProfileWarn = document.getElementById("noProfileWarning");
 
     /* ── Show no-profile warning if any disabled devices exist ── */
-    if (document.querySelector(".device-row.disabled")) {
+    if (document.querySelector('.device-row[data-no-profile="1"]')) {
         noProfileWarn.classList.add("show");
     }
 
@@ -921,6 +923,56 @@
 
         form.submit();
     }
+
+    /* ── Reachability: unreachable devices can't be selected (blocked on the
+       server too, which re-probes at submit) ── */
+    const recheckBtn  = document.getElementById("reachRecheck");
+    const unreachWarn = document.getElementById("unreachWarning");
+
+    async function refreshReachability(refresh = false) {
+        const rows = [...document.querySelectorAll(".device-row[data-device-id]")];
+        rows.forEach(r => nrReachChecking(r.querySelector(".reach")));
+        recheckBtn.disabled = true;
+        const statuses = await nrCheckReachability(
+            rows.map(r => r.dataset.deviceId), refresh);
+        let down = 0;
+        rows.forEach(row => {
+            const status = statuses[row.dataset.deviceId];
+            const state  = nrSetReach(row.querySelector(".reach"), status);
+            const cb     = row.querySelector(".device-cb");
+            row.querySelector(".unreach-tip")?.remove();
+            if (row.dataset.noProfile === "1") return;   // stays disabled
+            if (state === "down") {
+                down++;
+                cb.checked = false;
+                cb.disabled = true;
+                row.classList.remove("selected");
+                row.classList.add("disabled");
+                const tip = document.createElement("span");
+                tip.className = "no-profile-tip unreach-tip";
+                tip.textContent = "Not reachable from NetRollout · checked " +
+                    nrAgo(status.checked_at);
+                row.appendChild(tip);
+            } else {
+                // up, or unknown (check failed): selectable — the server
+                // still checks at submit
+                cb.disabled = false;
+                row.classList.remove("disabled");
+            }
+        });
+        unreachWarn.textContent = down
+            ? down + " device" + (down !== 1 ? "s" : "") +
+              " not reachable from NetRollout — can't be selected. Recheck once back online."
+            : "";
+        unreachWarn.classList.toggle("show", down > 0);
+        recheckBtn.disabled = false;
+        updateFooter();
+        rebuildCommandBlocks();
+        syncSelectAll();
+    }
+
+    recheckBtn.addEventListener("click", () => refreshReachability(true));
+    refreshReachability();
 })();
 </script>
 {% endblock %}

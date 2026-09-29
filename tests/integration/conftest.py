@@ -242,6 +242,18 @@ def _no_real_rollouts(request, monkeypatch):
 	monkeypatch.setattr(app.orchestrator, "submit", _refuse)
 
 
+@pytest.fixture(autouse=True)
+def unreachable_targets(request, monkeypatch):
+	"""Reachability probes never touch the network: every device is
+	reachable unless a test adds its (ip, port) to this set."""
+	down = set()
+	if "app" in request.fixturenames:
+		app = request.getfixturevalue("app")
+		monkeypatch.setattr(app.web.reachability, "_probe",
+		                    lambda ip, port: (ip, int(port)) not in down)
+	return down
+
+
 @pytest.fixture
 def captured_submits(app, monkeypatch):
 	calls = []

@@ -273,3 +273,30 @@ def test_global_devices_offered_in_rollout_and_mappings(world, client_for):
 	assert "Global Devices" in rollout and str(world.core) in rollout
 	mappings = b.get("/mappings").get_data(as_text=True)
 	assert '"is_global": true' in mappings
+
+
+# ── Reachability ─────────────────────────────────────────────────────────────
+
+def test_reachability_endpoint_reports_visible_devices_only(
+		client_for, make_user, make_device, unreachable_targets):
+	user, other = make_user(), make_user()
+	up = make_device(user, ip="10.8.0.1")
+	down = make_device(user, ip="10.8.0.2")
+	foreign = make_device(other, ip="10.8.0.3")
+	unreachable_targets.add(("10.8.0.2", 22))
+	resp = client_for(user).post("/inventory/reachability", json={
+		"device_ids": [str(up), str(down), str(foreign)]})
+	statuses = resp.json["statuses"]
+	assert set(statuses) == {str(up), str(down)}  # other user's device omitted
+	assert statuses[str(up)]["reachable"] is True
+	assert statuses[str(down)]["reachable"] is False
+	assert client_for(user).post("/inventory/reachability", json={
+		"device_ids": ["nope"]}).status_code == 422
+
+
+def test_inventory_cards_have_reachability_indicator(client_for, make_user,
+                                                     make_device):
+	user = make_user()
+	dev = make_device(user)
+	html = client_for(user).get("/inventory").get_data(as_text=True)
+	assert f'data-reach-for="{dev}"' in html and 'id="reachRecheck"' in html
