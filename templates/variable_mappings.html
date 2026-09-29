@@ -134,102 +134,6 @@
 .index-field-wrap { display: none; }
 .index-field-wrap.visible { display: block; }
 
-/* Devices list in modal */
-.device-row {
-    display: flex; align-items: center; gap: 0.75rem;
-    padding: 0.55rem 0;
-    border-bottom: 1px solid #1a1a1a;
-    font-size: 0.83rem;
-}
-.device-row:last-child { border-bottom: none; }
-.device-ip {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.8rem; color: #00bcd4;
-    flex-shrink: 0; min-width: 130px;
-}
-.device-val {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.72rem; color: #388e9e;
-    flex-shrink: 0; max-width: 140px;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-
-/* ── Split assign view ── */
-.modal-dialog-devices { transition: max-width 0.32s cubic-bezier(0.4,0,0.2,1); }
-.devices-panels { display: flex; min-height: 160px; }
-.devices-panel {
-    flex: 1; padding: 1rem 1.25rem;
-    display: flex; flex-direction: column;
-    min-width: 0; overflow: hidden;
-}
-.devices-panel.right-panel {
-    flex: 1; border-left: 1px solid #1a1a1a;
-    max-width: 0; padding: 0; opacity: 0;
-    transform: translateX(18px);
-    transition: max-width 0.32s ease, padding 0.32s ease,
-                opacity 0.22s 0.18s ease, transform 0.22s 0.18s ease;
-    pointer-events: none; overflow: hidden;
-}
-.split-mode .devices-panel.right-panel {
-    max-width: 50%; padding: 1rem 1.25rem;
-    opacity: 1; transform: translateX(0);
-    pointer-events: all;
-}
-.panel-header {
-    font-family: 'Inter', sans-serif; font-size: 0.6875rem; color: var(--nr-text-muted);
-    letter-spacing: 0.1em; text-transform: uppercase;
-    margin-bottom: 0.65rem; padding-bottom: 0.45rem;
-    border-bottom: 1px solid #191919; flex-shrink: 0;
-}
-.panel-scroll { overflow-y: auto; flex: 1; max-height: 240px; }
-.panel-scroll::-webkit-scrollbar { width: 3px; }
-.panel-scroll::-webkit-scrollbar-thumb { background: #1e1e1e; border-radius: 2px; }
-
-.drop-zone {
-    border: 2px dashed #1a3a3e; border-radius: 8px;
-    padding: 1rem; text-align: center;
-    color: var(--nr-accent-soft); font-size: 0.78rem; font-family: 'Inter', sans-serif;
-    margin-top: 0.7rem;
-    transition: border-color 0.15s, background 0.15s, color 0.15s;
-    display: none; flex-shrink: 0; cursor: default;
-}
-.drop-zone i { display: block; font-size: 1.2rem; margin-bottom: 0.35rem; }
-.split-mode .drop-zone { display: block; }
-.drop-zone.drag-over { border-color: #00bcd4; background: rgba(0,188,212,0.05); color: #00bcd4; }
-
-/* Drag cards */
-.drag-card {
-    background: #141414; border: 1px solid #1e1e1e; border-radius: 7px;
-    padding: 0.45rem 0.65rem;
-    display: flex; align-items: center; gap: 0.55rem;
-    cursor: grab;
-    transition: border-color 0.18s, box-shadow 0.18s, opacity 0.18s;
-    user-select: none; margin-bottom: 0.3rem;
-}
-.drag-card:hover { border-color: rgba(0,188,212,0.2); box-shadow: 0 2px 10px rgba(0,0,0,0.3); }
-.drag-card.is-dragging { opacity: 0.3; cursor: grabbing; }
-.drag-card-label {
-    font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; color: #ccc;
-    flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.drag-card-val {
-    font-family: 'JetBrains Mono', monospace; font-size: 0.6875rem; color: #00bcd4;
-    flex-shrink: 0; max-width: 130px;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.drag-vendor-badge {
-    width: 24px; height: 24px; min-width: 24px;
-    border-radius: 5px; background: #111; border: 1px solid #1e1e1e;
-    display: flex; align-items: center; justify-content: center;
-    overflow: hidden; flex-shrink: 0;
-}
-.drag-vendor-img { width: 15px; height: 15px; object-fit: contain; }
-
-@keyframes cardLand {
-    from { opacity: 0; transform: translateY(-5px); }
-    to   { opacity: 1; transform: translateY(0); }
-}
-.card-landing { animation: cardLand 0.2s ease; }
 
 {% endblock %}
 
@@ -597,45 +501,37 @@
      DEVICE ASSIGNMENTS MODAL
 ══════════════════════════════════════ -->
 <div class="modal fade" id="devicesModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered modal-dialog-devices" style="max-width:460px;">
+    <div class="modal-dialog modal-dialog-centered" style="max-width:780px;">
         <div class="modal-content">
             <div class="modal-header">
                 <div style="flex:1;">
                     <div class="nr-badge" style="margin-bottom:0.3rem;">DEVICE ASSIGNMENTS</div>
                     <h5 class="modal-title" id="devicesModalTitle">Assignments</h5>
                 </div>
-                <button type="button" class="nr-assign-btn me-3" id="splitToggleBtn"
-                        onclick="activateSplit()">
-                    <i class="bi bi-plus-lg"></i>Assign devices
-                </button>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
-            <div class="modal-body" style="padding:0; min-height:120px;">
-                <div class="devices-panels" id="devicesPanels">
-
-                    <!-- Left: assigned devices + drop zone -->
-                    <div class="devices-panel">
-                        <div class="panel-header" id="assignedPanelHeader">ASSIGNED</div>
-                        <div class="panel-scroll" id="assignedList"></div>
-                        <div class="drop-zone" id="dropZone">
-                            <i class="bi bi-arrow-down-circle"></i>
-                            Drag here to assign
-                        </div>
+            <div class="modal-body" style="padding:0;">
+                <div class="nr-board" id="assignBoard">
+                    <div class="nr-board-col" data-col="in">
+                        <div class="nr-board-head"><span>Assigned</span><span class="nr-board-count"></span></div>
+                        <div class="nr-board-list"></div>
                     </div>
-
-                    <!-- Right: eligible devices (hidden until split activated) -->
-                    <div class="devices-panel right-panel">
-                        <div class="panel-header" id="availablePanelHeader">ELIGIBLE</div>
-                        <div class="panel-scroll" id="availableList"></div>
+                    <div class="nr-board-col" data-col="out">
+                        <div class="nr-board-head"><span>Eligible</span><span class="nr-board-count"></span></div>
+                        <div class="nr-board-list"></div>
                     </div>
-
+                </div>
+                <div class="nr-board-alert nr-board-alert--error" id="devicesError" style="display:none;"></div>
+                <div class="nr-board-hint">
+                    <i class="bi bi-arrow-left-right"></i>
+                    Drag devices between the columns, or click one to move it. Nothing changes until you save.
                 </div>
             </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
-                <button type="button" class="btn btn-primary btn-sm" id="saveSplitBtn"
-                        onclick="saveBulkAssign()" style="display:none;">
-                    <i class="bi bi-check-lg me-1"></i>Save Assignments
+            <div class="modal-footer" style="justify-content:space-between;">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary btn-sm" id="saveAssignBtn"
+                        onclick="saveAssignments()" disabled>
+                    <i class="bi bi-check-lg me-1"></i>Save
                 </button>
             </div>
         </div>
@@ -714,13 +610,6 @@ const CSRF_TOKEN = "{{ csrf_token() }}";
     {% set ns.all_devs = ns.all_devs + [{"id": d.id|string, "label": d.label, "ip": d.ip, "device_type": d.device_type, "var_maps": d.var_maps or {}, "is_global": d.is_global}] %}
 {% endfor %}
 const DEVICES_ALL  = {{ ns.all_devs | tojson }};
-
-// Labels can come from another user's (admin's) global device — always escape
-function esc(s) {
-    return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;')
-        .replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-}
-const GLOBAL_BADGE = '<span class="nr-global-badge" title="Global device — shared by an administrator"><i class="bi bi-globe2"></i>GLOBAL</span>';
 const VENDOR_LOGOS = {{ VENDOR_LOGOS | tojson }};
 const ATTR_ICONS   = {{ ATTR_ICON_MAP | tojson }};
 const LIST_PROPS   = new Set({{ (sys_props + user_props) | selectattr('is_list') | map(attribute='name') | list | tojson }});
@@ -729,8 +618,7 @@ const LIST_PROPS   = new Set({{ (sys_props + user_props) | selectattr('is_list')
 let activeMappingId    = null;
 let activeMappingProp  = null;
 let activeMappingIndex = null;
-let assignedDeviceIds  = new Set();
-let pendingAssignments = [];
+let mapBoard           = null;
 
 // ── Wire up card buttons ──
 document.querySelectorAll('.mapping-card').forEach(card => {
@@ -851,31 +739,34 @@ function openDevices(mapping, assignedDevices) {
     activeMappingId    = mapping.id;
     activeMappingProp  = mapping.property_name;
     activeMappingIndex = mapping.index;
-    assignedDeviceIds  = new Set(assignedDevices.map(d => d.id));
-    pendingAssignments = [];
 
     document.getElementById('devicesModalTitle').textContent =
         mapping.token + ' — Assignments';
+    document.getElementById('devicesError').style.display = 'none';
 
-    // Count eligible devices (have attribute set + not already assigned)
-    const eligibleCount = DEVICES_ALL.filter(d =>
-        isResolvable(d) && !assignedDeviceIds.has(d.id)).length;
-    document.getElementById('availablePanelHeader').textContent =
-        'ELIGIBLE (' + eligibleCount + ')';
-
-    renderAssignedList(assignedDevices);
-
-    // Reset split state
-    const dialog = document.querySelector('#devicesModal .modal-dialog');
-    dialog.classList.remove('split-mode');
-    dialog.style.maxWidth = '460px';
-    document.getElementById('saveSplitBtn').style.display = 'none';
-    document.getElementById('splitToggleBtn').style.display = '';
-    document.getElementById('availableList').innerHTML = '';
+    // A bound device can be missing from DEVICES_ALL (no longer visible to
+    // this user); keep it on the board so it can still be unassigned
+    const known    = new Set(DEVICES_ALL.map(d => d.id));
+    const assigned = new Set(assignedDevices.map(d => d.id));
+    mapBoard = nrAssignBoard(document.getElementById('assignBoard'), {
+        devices:  DEVICES_ALL.concat(assignedDevices.filter(d => !known.has(d.id))),
+        assigned: [...assigned],
+        pool:     DEVICES_ALL.filter(d => isResolvable(d) && !assigned.has(d.id)).map(d => d.id),
+        logos:    VENDOR_LOGOS,
+        meta:     d => getDeviceVal(d),
+        warn:     d => isResolvable(d) ? null
+                     : 'No value for ' + activeWhere() + ': this device is skipped at rollout',
+        emptyIn:  'Nothing assigned yet. Drag devices here, or click them.',
+        emptyOut: emptyPoolText,
+        onChange: b => nrBoardSaveLabel(document.getElementById('saveAssignBtn'), b),
+    });
 
     new bootstrap.Modal(document.getElementById('devicesModal')).show();
-    // Nothing assigned yet: open straight into the drag view
-    if (!assignedDevices.length) activateSplit();
+}
+
+function activeWhere() {
+    return activeMappingIndex === null || activeMappingIndex === undefined
+        ? activeMappingProp : activeMappingProp + '[' + activeMappingIndex + ']';
 }
 
 // Can the active mapping resolve on this device? Mirrors the server rule
@@ -888,18 +779,13 @@ function isResolvable(device) {
     return Array.isArray(val) && activeMappingIndex >= 0 && activeMappingIndex < val.length;
 }
 
-// Why the drag panel is empty — tells the user what to do instead of
-// showing a blank panel
-function emptyPoolMessage() {
-    const where = activeMappingIndex === null || activeMappingIndex === undefined
-        ? activeMappingProp : activeMappingProp + '[' + activeMappingIndex + ']';
-    const withValue = DEVICES_ALL.filter(isResolvable);
-    const text = withValue.length
-        ? 'All devices with a value for ' + where + ' are already assigned.'
-        : 'No devices have a value for ' + where + '. Set it in Inventory: ' +
+// Why the Eligible column is empty — tells the user what to do instead of
+// showing a blank column
+function emptyPoolText() {
+    return DEVICES_ALL.some(isResolvable)
+        ? 'All devices with a value for ' + activeWhere() + ' are assigned.'
+        : 'No devices have a value for ' + activeWhere() + '. Set it in Inventory: ' +
           'open a device, then Variable Attributes.';
-    return '<p style="font-size:0.82rem; color:var(--nr-text-muted); margin:0; ' +
-           'padding:0.5rem 0;">' + esc(text) + '</p>';
 }
 
 // Get the resolved attribute value string for a device given the active mapping context
@@ -919,165 +805,31 @@ function getDeviceVal(device) {
     return String(val);
 }
 
-function renderAssignedList(devices) {
-    const list = document.getElementById('assignedList');
-    if (!devices.length) {
-        list.innerHTML = '<p style="font-size:0.82rem; color:var(--nr-text-muted); font-style:italic; margin:0; padding:0.5rem 0;">No devices assigned yet. Drag devices from the right to assign them.</p>';
-        return;
-    }
-    list.innerHTML = devices.map(d => `
-        <div class="device-row">
-            <span class="device-ip">${esc(d.ip)}</span>
-            <span style="color:#888; font-size:0.82rem; flex:1;">${esc(d.label)}</span>
-            ${d.is_global ? GLOBAL_BADGE : ''}
-            <span class="device-val">${esc(getDeviceVal(d))}</span>
-        </div>`).join('');
-}
-
-// ── Split assign view ──
-function activateSplit() {
-    const dialog = document.querySelector('#devicesModal .modal-dialog');
-    dialog.classList.add('split-mode');
-    dialog.style.maxWidth = '780px';
-    document.getElementById('saveSplitBtn').style.display = '';
-    document.getElementById('splitToggleBtn').style.display = 'none';
-    renderAvailableList();
-}
-
-function renderAvailableList() {
-    const pendingSet = new Set(pendingAssignments);
-    const pool = DEVICES_ALL.filter(d =>
-        isResolvable(d) && !assignedDeviceIds.has(d.id) && !pendingSet.has(d.id));
-
-    const list = document.getElementById('availableList');
-    if (!pool.length) {
-        list.innerHTML = emptyPoolMessage();
-        return;
-    }
-
-    const renderCard = d => {
-        const logoUrl = VENDOR_LOGOS[d.device_type] || '';
-        const val     = getDeviceVal(d);
-        const logoHtml = logoUrl
-            ? `<img alt="" src="${logoUrl}" class="drag-vendor-img"
-                    onerror="this.style.display='none';this.nextElementSibling.style.display='block';">
-               <i class="bi bi-router" style="display:none; font-size: 0.75rem; color:var(--nr-text-faint);"></i>`
-            : `<i class="bi bi-router" style="font-size: 0.75rem; color:var(--nr-text-faint);"></i>`;
-        return `
-        <div class="drag-card" draggable="true" data-device-id="${d.id}">
-            <div class="drag-vendor-badge">${logoHtml}</div>
-            <span class="drag-card-label">${esc(d.label)}</span>
-            ${d.is_global ? GLOBAL_BADGE : ''}
-            <span class="drag-card-val">${esc(val)}</span>
-        </div>`;
-    };
-
-    // Split into Global / My Devices only when both groups are non-empty
-    const globals = pool.filter(d => d.is_global);
-    const mine    = pool.filter(d => !d.is_global);
-    const head = (icon, name, n) =>
-        `<div class="nr-section-head"><i class="bi ${icon}"></i>${name}<span class="nr-section-count">${n}</span></div>`;
-    if (globals.length && mine.length) {
-        list.innerHTML =
-            head('bi-globe2', 'Global Devices', globals.length) + globals.map(renderCard).join('') +
-            '<div style="height:0.6rem;"></div>' +
-            head('bi-hdd-stack', 'My Devices', mine.length) + mine.map(renderCard).join('');
-    } else {
-        list.innerHTML = pool.map(renderCard).join('');
-    }
-
-    list.querySelectorAll('.drag-card').forEach(card => {
-        card.addEventListener('dragstart', onDragStart);
-        card.addEventListener('dragend',   onDragEnd);
-    });
-}
-
-
-// ══════════════════════════════════════
-//  DRAG AND DROP
-// ══════════════════════════════════════
-let draggingId = null;
-
-function onDragStart(e) {
-    draggingId = this.dataset.deviceId;
-    this.classList.add('is-dragging');
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', draggingId);
-}
-function onDragEnd() {
-    this.classList.remove('is-dragging');
-    draggingId = null;
-}
-
-const dropZone = document.getElementById('dropZone');
-
-dropZone.addEventListener('dragover', e => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    dropZone.classList.add('drag-over');
-});
-dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
-
-dropZone.addEventListener('drop', e => {
-    e.preventDefault();
-    dropZone.classList.remove('drag-over');
-
-    const deviceId = e.dataTransfer.getData('text/plain');
-    const device   = DEVICES_ALL.find(d => d.id === deviceId);
-    if (!device) return;
-
-    if (!pendingAssignments.includes(deviceId)) pendingAssignments.push(deviceId);
-
-    // Re-render the available list (drops the card, and any section
-    // header left empty by it)
-    renderAvailableList();
-
-    // Add to assigned list with animation
-    const assignedList = document.getElementById('assignedList');
-    const emptyMsg = assignedList.querySelector('p');
-    if (emptyMsg) emptyMsg.remove();
-
-    const val = getDeviceVal(device);
-    const row = document.createElement('div');
-    row.className = 'device-row card-landing';
-    row.innerHTML = `
-        <span class="device-ip">${esc(device.ip)}</span>
-        <span style="color:#888; font-size:0.82rem; flex:1;">${esc(device.label)}</span>
-        ${device.is_global ? GLOBAL_BADGE : ''}
-        <span class="device-val">${esc(val)}</span>`;
-    assignedList.appendChild(row);
-    setTimeout(() => row.classList.remove('card-landing'), 250);
-});
-
-
-// ══════════════════════════════════════
-//  SAVE BULK ASSIGNMENT
-// ══════════════════════════════════════
-async function saveBulkAssign() {
-    if (!pendingAssignments.length) return;
-
-    const btn = document.getElementById('saveSplitBtn');
-    btn.disabled = true;
+// One call: device_ids are assigned, remove_ids unassigned
+async function saveAssignments() {
+    const btn    = document.getElementById('saveAssignBtn');
+    const errBox = document.getElementById('devicesError');
+    btn.disabled  = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status"></span>Saving…';
+    errBox.style.display = 'none';
 
+    let message = 'Network error. Try again.';
     try {
         const resp = await fetch('/mappings/bulk_assign', {
             method:  'POST',
             headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN },
-            body:    JSON.stringify({ mapping_id: activeMappingId, device_ids: pendingAssignments })
+            body:    JSON.stringify({ mapping_id: activeMappingId,
+                                      device_ids: mapBoard.added(),
+                                      remove_ids: mapBoard.removed() })
         });
         const data = await resp.json();
-        if (data.status === 'ok') {
-            bootstrap.Modal.getInstance(document.getElementById('devicesModal')).hide();
-            location.reload();
-        } else {
-            btn.disabled = false;
-            btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Save Assignments';
-        }
-    } catch {
-        btn.disabled = false;
-        btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Save Assignments';
-    }
+        if (data.status === 'ok') { location.reload(); return; }
+        message = data.message || 'Saving failed.';
+    } catch { /* keep the network message */ }
+    errBox.innerHTML = '<i class="bi bi-x-circle-fill"></i><span></span>';
+    errBox.querySelector('span').textContent = message;
+    errBox.style.display = '';
+    nrBoardSaveLabel(btn, mapBoard);
 }
 
 
@@ -1124,20 +876,6 @@ document.querySelectorAll('form[novalidate]').forEach(form => {
     });
 });
 
-// ── Reset split on devices modal close ──
-document.getElementById('devicesModal').addEventListener('hidden.bs.modal', () => {
-    const dialog = document.querySelector('#devicesModal .modal-dialog');
-    dialog.classList.remove('split-mode');
-    dialog.style.maxWidth = '460px';
-    document.getElementById('saveSplitBtn').style.display = 'none';
-    document.getElementById('splitToggleBtn').style.display = '';
-    document.getElementById('availableList').innerHTML = '';
-    pendingAssignments = [];
-    activeMappingId    = null;
-    activeMappingProp  = null;
-    activeMappingIndex = null;
-    assignedDeviceIds  = new Set();
-});
 
 // ── Quick Create Property ─────────────────────────────────────────────────────
 const CSRF_TOKEN_VM = "{{ csrf_token() }}";

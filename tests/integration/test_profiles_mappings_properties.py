@@ -243,3 +243,40 @@ def test_mappings_on_user_defined_properties(client_for, make_user,
 	                                           "device_ids": [str(dev)]})
 	with session_scope() as s:
 		assert [d.id for d in s.get(VariableMapping, rack.id).devices] == [dev]
+
+
+def test_bulk_assign_removes_only_own_bindings(client_for, make_user,
+                                               make_device, make_mapping,
+                                               session_scope, db_get):
+	from src.db.tables import Inventory
+	admin, a, b = make_user(role="admin"), make_user(), make_user()
+	core = make_device(admin, is_global=True, var_maps={"hostname": "core"})
+	mine = make_device(a, ip="10.0.0.2", var_maps={"hostname": "r2"})
+	map_a = make_mapping(a, devices=(core, mine))
+	map_b = make_mapping(b, devices=(core,))
+	client = client_for(a)
+	# remove-only save (no device_ids) is accepted
+	resp = client.post("/mappings/bulk_assign", json={
+		"mapping_id": str(map_a), "remove_ids": [str(core), "not-a-uuid"]})
+	assert resp.json["status"] == "ok"
+	with session_scope() as s:
+		assert [d.id for d in s.get(VariableMapping, map_a).devices] == [mine]
+		# B's binding on the same global device is untouched
+		assert [d.id for d in s.get(VariableMapping, map_b).devices] == [core]
+	# unassigning never deletes the device itself
+	assert db_get(Inventory, core) is not None
+	# add and remove in one call
+	client.post("/mappings/bulk_assign", json={
+		"mapping_id": str(map_a), "device_ids": [str(core)],
+		"remove_ids": [str(mine)]})
+	with session_scope() as s:
+		assert [d.id for d in s.get(VariableMapping, map_a).devices] == [core]
+	assert db_get(Inventory, mine) is not None
+	# B can't unbind A's mapping
+	client_for(b).post("/mappings/bulk_assign", json={
+		"mapping_id": str(map_a), "remove_ids": [str(core)]})
+	with session_scope() as s:
+		assert [d.id for d in s.get(VariableMapping, map_a).devices] == [core]
+	# both lists empty is still rejected
+	assert client.post("/mappings/bulk_assign", json={
+		"mapping_id": str(map_a)}).json["status"] == "error"

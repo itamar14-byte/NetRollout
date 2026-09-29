@@ -105,7 +105,7 @@ Always-dark enterprise aesthetic — permanently dark, no toggle. Key design ele
 - **Vendor logos**: `VENDOR_LOGOS` dict in `webapp.py` maps Netmiko device_type → Simple Icons CDN URL. Registered as Jinja2 global — available in all templates as `VENDOR_LOGOS`.
 - **NrSelect widget**: custom FortiGate-style dropdown in `inventory.html` — search box, scrollable list, shield icon, cyan checkmark. Init with `initNrSelect(containerId)`, returns `{getValue, setValue, reset}`.
 - **Inventory cards**: thin horizontal rectangles — vendor badge (CDN SVG + BI router fallback) + label + IP. Hover tooltip (FortiGate-style fixed panel). Click → edit modal.
-- **Security profiles drag-assign**: devices modal has "+" button that widens modal to split view. Right panel: draggable unassigned device cards. Left panel: assigned list + dashed drop zone. Drop triggers `cardLand` animation. Save via AJAX to `/inventory/bulk_assign`.
+- **Assign board** (Security Profiles + Variable Mappings devices modals): shared `nrAssignBoard()` in `operator_base.html` <head>. Two columns, Assigned | Available/Eligible; drag either way or click/Enter a card to move it. Moves are staged; Save shows `(+N / −M)`. Security saves via `/inventory/bulk_assign` (`profile_id: null` unassigns) and warns when devices lose their profile; mappings save via `/mappings/bulk_assign` with `device_ids` + `remove_ids`.
 
 ## Phase status
 - **Phase 1 — Auth pipeline ✅ COMPLETE (2026-04-06)**

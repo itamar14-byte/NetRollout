@@ -181,10 +181,17 @@ def world(make_user, make_profile, make_device, make_mapping):
 		core=core, b_local=b_local, map_b=map_b, map_c=map_c))
 
 
+def rendered(client, path):
+	"""Page markup without <script> blocks: shared JS (e.g. the assign
+	board) contains section-header strings of its own."""
+	html = client.get(path).get_data(as_text=True)
+	return re.sub(r"<script\b.*?</script>", "", html, flags=re.S)
+
+
 def test_inventory_splits_sections_only_when_both_exist(world, client_for):
-	html_b = client_for(world.b).get("/inventory").get_data(as_text=True)
+	html_b = rendered(client_for(world.b), "/inventory")
 	assert "Global Devices" in html_b and "My Devices" in html_b
-	html_c = client_for(world.c).get("/inventory").get_data(as_text=True)
+	html_c = rendered(client_for(world.c), "/inventory")
 	assert "CORE-X" in html_c and 'class="nr-section-head' not in html_c
 
 

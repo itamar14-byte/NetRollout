@@ -152,141 +152,6 @@
     display: block;
 }
 
-/* Devices list in modal */
-.device-row {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    padding: 0.55rem 0;
-    border-bottom: 1px solid #1a1a1a;
-    font-size: 0.83rem;
-}
-.device-row:last-child { border-bottom: none; }
-.device-ip {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.8rem;
-    color: #00bcd4;
-    flex-shrink: 0;
-    min-width: 130px;
-}
-
-/* ── Split assign view ── */
-.modal-dialog-devices { transition: max-width 0.32s cubic-bezier(0.4,0,0.2,1); }
-.devices-panels { display: flex; min-height: 160px; }
-.devices-panel {
-    flex: 1;
-    padding: 1rem 1.25rem;
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-    overflow: hidden;
-}
-.devices-panel.right-panel {
-    flex: 1;
-    border-left: 1px solid #1a1a1a;
-    max-width: 0;
-    padding: 0;
-    opacity: 0;
-    transform: translateX(18px);
-    transition: max-width 0.32s ease, padding 0.32s ease,
-                opacity 0.22s 0.18s ease, transform 0.22s 0.18s ease;
-    pointer-events: none;
-    overflow: hidden;
-}
-.split-mode .devices-panel.right-panel {
-    max-width: 50%;
-    padding: 1rem 1.25rem;
-    opacity: 1;
-    transform: translateX(0);
-    pointer-events: all;
-}
-.panel-header {
-    font-family: 'Inter', sans-serif;
-    font-size: 0.6875rem;
-    color: var(--nr-text-muted);
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    margin-bottom: 0.65rem;
-    padding-bottom: 0.45rem;
-    border-bottom: 1px solid #191919;
-    flex-shrink: 0;
-}
-.panel-scroll { overflow-y: auto; flex: 1; max-height: 240px; }
-.panel-scroll::-webkit-scrollbar { width: 3px; }
-.panel-scroll::-webkit-scrollbar-thumb { background: #1e1e1e; border-radius: 2px; }
-
-/* Drop zone */
-.drop-zone {
-    border: 2px dashed #1a3a3e;
-    border-radius: 8px;
-    padding: 1rem;
-    text-align: center;
-    color: var(--nr-accent-soft);
-    font-size: 0.78rem;
-    font-family: 'Inter', sans-serif;
-    margin-top: 0.7rem;
-    transition: border-color 0.15s, background 0.15s, color 0.15s;
-    display: none;
-    flex-shrink: 0;
-    cursor: default;
-}
-.drop-zone i { display: block; font-size: 1.2rem; margin-bottom: 0.35rem; }
-.split-mode .drop-zone { display: block; }
-.drop-zone.drag-over {
-    border-color: #00bcd4;
-    background: rgba(0,188,212,0.05);
-    color: #00bcd4;
-}
-
-/* Draggable cards */
-.drag-card {
-    background: #141414;
-    border: 1px solid #1e1e1e;
-    border-radius: 7px;
-    padding: 0.45rem 0.65rem;
-    display: flex;
-    align-items: center;
-    gap: 0.55rem;
-    cursor: grab;
-    transition: border-color 0.18s, box-shadow 0.18s, opacity 0.18s;
-    user-select: none;
-    margin-bottom: 0.3rem;
-}
-.drag-card:hover {
-    border-color: rgba(0,188,212,0.2);
-    box-shadow: 0 2px 10px rgba(0,0,0,0.3);
-}
-.drag-card.is-dragging { opacity: 0.3; cursor: grabbing; }
-.drag-card-label {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.78rem;
-    color: #ccc;
-    flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-.drag-card-ip {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.6875rem;
-    color: var(--nr-text-muted);
-    flex-shrink: 0;
-}
-.drag-vendor-badge {
-    width: 24px; height: 24px; min-width: 24px;
-    border-radius: 5px;
-    background: #111;
-    border: 1px solid #1e1e1e;
-    display: flex; align-items: center; justify-content: center;
-    overflow: hidden; flex-shrink: 0;
-}
-.drag-vendor-img { width: 15px; height: 15px; object-fit: contain; }
-
-@keyframes cardLand {
-    from { opacity: 0; transform: translateY(-5px); }
-    to   { opacity: 1; transform: translateY(0); }
-}
-.card-landing { animation: cardLand 0.2s ease; }
 
 {% endblock %}
 
@@ -575,53 +440,45 @@
      ATTACHED DEVICES MODAL
 ══════════════════════════════════════ -->
 <div class="modal fade" id="devicesModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered modal-dialog-devices" style="max-width:460px;">
+    <div class="modal-dialog modal-dialog-centered" style="max-width:780px;">
         <div class="modal-content">
             <div class="modal-header">
                 <div style="flex:1;">
                     <div class="nr-badge" style="margin-bottom:0.3rem;">ATTACHED DEVICES</div>
                     <h5 class="modal-title" id="devicesModalTitle">Devices</h5>
                 </div>
-                <button type="button" class="nr-assign-btn me-3" id="splitToggleBtn"
-                        onclick="activateSplit()">
-                    <i class="bi bi-plus-lg"></i>Assign devices
-                </button>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
-            <div class="modal-body" style="padding:0; min-height:120px;">
-                <div class="devices-panels" id="devicesPanels">
-
-                    <!-- Left: assigned devices + drop zone -->
-                    <div class="devices-panel">
-                        <div class="panel-header" id="assignedPanelHeader">ASSIGNED</div>
-                        <div class="panel-scroll" id="assignedList"></div>
-                        <div class="drop-zone" id="dropZone">
-                            <i class="bi bi-arrow-down-circle"></i>
-                            Drag here to assign
-                        </div>
+            <div class="modal-body" style="padding:0;">
+                <div class="nr-board" id="assignBoard">
+                    <div class="nr-board-col" data-col="in">
+                        <div class="nr-board-head"><span>Assigned</span><span class="nr-board-count"></span></div>
+                        <div class="nr-board-list"></div>
                     </div>
-
-                    <!-- Right: available devices (hidden until split activated) -->
-                    <div class="devices-panel right-panel">
-                        <div class="panel-header">AVAILABLE</div>
-                        <div class="panel-scroll" id="availableList"></div>
+                    <div class="nr-board-col" data-col="out">
+                        <div class="nr-board-head"><span>Available</span><span class="nr-board-count"></span></div>
+                        <div class="nr-board-list"></div>
                     </div>
-
+                </div>
+                <div class="nr-board-alert nr-board-alert--warn" id="unassignWarn" style="display:none;">
+                    <i class="bi bi-exclamation-triangle-fill"></i><span></span>
+                </div>
+                <div class="nr-board-alert nr-board-alert--error" id="devicesError" style="display:none;"></div>
+                <div class="nr-board-hint">
+                    <i class="bi bi-arrow-left-right"></i>
+                    Drag devices between the columns, or click one to move it. Nothing changes until you save.
                 </div>
             </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary btn-sm"
-                        data-bs-dismiss="modal">Close</button>
-                <button type="button" class="btn btn-primary btn-sm"
-                        id="saveSplitBtn" onclick="saveBulkAssign()"
-                        style="display:none;">
-                    <i class="bi bi-check-lg me-1"></i>Save Assignments
+            <div class="modal-footer" style="justify-content:space-between;">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary btn-sm" id="saveAssignBtn"
+                        onclick="saveAssignments()" disabled>
+                    <i class="bi bi-check-lg me-1"></i>Save
                 </button>
             </div>
         </div>
     </div>
 </div>
-
 
 <!-- ══════════════════════════════════════
      TEST CONNECTION MODAL
@@ -708,9 +565,13 @@ let activeProfileId = null;
 // All inventory devices — used for the split assign view
 {% set ns = namespace(all_devs=[]) %}
 {% for d in devices %}
-{% set ns.all_devs = ns.all_devs + [{"id": d.id|string, "label": d.label, "ip": d.ip, "device_type": d.device_type, "sec_profile_id": d.sec_profile_id|string if d.sec_profile_id else ""}] %}
+{% set ns.all_devs = ns.all_devs + [{"id": d.id|string, "label": d.label, "ip": d.ip, "device_type": d.device_type, "is_global": d.is_global, "sec_profile_id": d.sec_profile_id|string if d.sec_profile_id else ""}] %}
 {% endfor %}
 const DEVICES_ALL = {{ ns.all_devs | tojson }};
+// Profile id → display name, to show which profile a device would move from
+{% set pns = namespace(labels={}) %}
+{% for p in profiles %}{% set _ = pns.labels.update({p.id|string: p.label or p.username}) %}{% endfor %}
+const PROFILE_LABELS = {{ pns.labels | tojson }};
 const VENDOR_LOGOS = {{ VENDOR_LOGOS | tojson }};
 
 // ── Show/hide password toggle ──
@@ -729,7 +590,7 @@ document.querySelectorAll('.profile-card').forEach(card => {
 
     card.querySelector('.edit-btn').addEventListener('click', () => openEdit(profile));
     card.querySelector('.delete-btn').addEventListener('click', () => openDelete(profile));
-    card.querySelector('.devices-btn').addEventListener('click', () => openDevices(profile, devices));
+    card.querySelector('.devices-btn').addEventListener('click', () => openDevices(profile));
     card.querySelector('.test-btn').addEventListener('click', () => openTest(profile));
 });
 
@@ -763,170 +624,82 @@ function openDelete(profile) {
     new bootstrap.Modal(document.getElementById('deleteModal')).show();
 }
 
-// ── Devices modal ──
+// ── Devices modal: assign board ──
 let activeDevicesProfileId = null;
-let pendingAssignments = [];
+let secBoard  = null;
+let partSaved = false;  // a save half-applied: reload on close to show the truth
 
-function openDevices(profile, assignedDevices) {
+function openDevices(profile) {
     activeDevicesProfileId = profile.id;
-    pendingAssignments = [];
-
+    partSaved = false;
     document.getElementById('devicesModalTitle').textContent =
         (profile.label || profile.username) + ' — Attached Devices';
-    document.getElementById('assignedPanelHeader').textContent = 'ASSIGNED';
+    document.getElementById('devicesError').style.display = 'none';
 
-    renderAssignedList(assignedDevices);
-
-    // Reset split state
-    const dialog = document.querySelector('#devicesModal .modal-dialog');
-    dialog.classList.remove('split-mode');
-    dialog.style.maxWidth = '460px';
-    document.getElementById('saveSplitBtn').style.display = 'none';
-    document.getElementById('splitToggleBtn').style.display = '';
-    document.getElementById('availableList').innerHTML = '';
+    const mine = d => d.sec_profile_id === profile.id;
+    secBoard = nrAssignBoard(document.getElementById('assignBoard'), {
+        devices:  DEVICES_ALL,
+        assigned: DEVICES_ALL.filter(mine).map(d => d.id),
+        pool:     DEVICES_ALL.filter(d => !mine(d)).map(d => d.id),
+        logos:    VENDOR_LOGOS,
+        // Where the device's credentials come from today
+        meta:     d => mine(d) ? '' : (PROFILE_LABELS[d.sec_profile_id] || 'no profile'),
+        emptyIn:  'Nothing assigned yet. Drag devices here, or click them.',
+        emptyOut: () => 'No other devices in your inventory.',
+        onChange: b => {
+            nrBoardSaveLabel(document.getElementById('saveAssignBtn'), b);
+            const n = b.removed().length;
+            const warn = document.getElementById('unassignWarn');
+            warn.style.display = n ? '' : 'none';
+            warn.querySelector('span').textContent = n === 1
+                ? '1 device will be left without a security profile. New Rollout blocks it until it gets one.'
+                : n + ' devices will be left without a security profile. New Rollout blocks them until they get one.';
+        },
+    });
 
     new bootstrap.Modal(document.getElementById('devicesModal')).show();
-    // Nothing assigned yet: open straight into the drag view
-    if (!assignedDevices.length) activateSplit();
 }
 
-function renderAssignedList(devices) {
-    const list = document.getElementById('assignedList');
-    if (!devices.length) {
-        list.innerHTML = '<p style="font-size:0.82rem; color:var(--nr-text-muted); font-style:italic; margin:0; padding:0.5rem 0;">No devices assigned yet. Drag devices from the right to assign them.</p>';
-    } else {
-        list.innerHTML = devices.map(d => `
-            <div class="device-row">
-                <span class="device-ip">${d.ip}</span>
-                <span style="color:#888; font-size:0.82rem; flex:1;">${d.label}</span>
-                <span style="font-family:'JetBrains Mono',monospace; font-size:0.7rem; color:var(--nr-text-muted);">${d.device_type}</span>
-            </div>`).join('');
-    }
-}
+// Added devices move to this profile; removed ones are left with none.
+// Two calls — both are idempotent, so retrying after a partial save is safe.
+async function saveAssignments() {
+    const btn    = document.getElementById('saveAssignBtn');
+    const errBox = document.getElementById('devicesError');
+    const calls  = [];
+    if (secBoard.added().length)
+        calls.push({ profile_id: activeDevicesProfileId, device_ids: secBoard.added() });
+    if (secBoard.removed().length)
+        calls.push({ profile_id: null, device_ids: secBoard.removed() });
 
-// ── Split assign view ──
-function activateSplit() {
-    const dialog = document.querySelector('#devicesModal .modal-dialog');
-    dialog.classList.add('split-mode');
-    dialog.style.maxWidth = '780px';
-    document.getElementById('saveSplitBtn').style.display = '';
-    document.getElementById('splitToggleBtn').style.display = 'none';
-
-    // Devices not assigned to this profile
-    const available = DEVICES_ALL.filter(d => d.sec_profile_id !== activeDevicesProfileId);
-    const list = document.getElementById('availableList');
-
-    if (!available.length) {
-        list.innerHTML = '<p style="font-size:0.82rem; color:var(--nr-text-muted); font-style:italic; margin:0; padding:0.5rem 0;">All devices already assigned to this profile.</p>';
-        return;
-    }
-
-    list.innerHTML = available.map(d => {
-        const logoUrl = VENDOR_LOGOS[d.device_type] || '';
-        return `
-        <div class="drag-card" draggable="true" data-device-id="${d.id}">
-            <div class="drag-vendor-badge">
-                ${logoUrl
-                    ? `<img alt="" src="${logoUrl}" class="drag-vendor-img"
-                           onerror="this.style.display='none';this.nextElementSibling.style.display='block';">
-                       <i class="bi bi-router" style="display:none; font-size: 0.75rem; color:var(--nr-text-faint);"></i>`
-                    : `<i class="bi bi-router" style="font-size: 0.75rem; color:var(--nr-text-faint);"></i>`
-                }
-            </div>
-            <span class="drag-card-label">${d.label}</span>
-            <span class="drag-card-ip">${d.ip}</span>
-        </div>`;
-    }).join('');
-
-    list.querySelectorAll('.drag-card').forEach(card => {
-        card.addEventListener('dragstart', onDragStart);
-        card.addEventListener('dragend',   onDragEnd);
-    });
-}
-
-// ── Drag and drop ──
-let draggingId = null;
-
-function onDragStart(e) {
-    draggingId = this.dataset.deviceId;
-    this.classList.add('is-dragging');
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', draggingId);
-}
-
-function onDragEnd() {
-    this.classList.remove('is-dragging');
-    draggingId = null;
-}
-
-const dropZone = document.getElementById('dropZone');
-
-dropZone.addEventListener('dragover', e => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    dropZone.classList.add('drag-over');
-});
-
-dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
-
-dropZone.addEventListener('drop', e => {
-    e.preventDefault();
-    dropZone.classList.remove('drag-over');
-
-    const deviceId = e.dataTransfer.getData('text/plain');
-    const device   = DEVICES_ALL.find(d => d.id === deviceId);
-    if (!device) return;
-
-    // Track assignment
-    if (!pendingAssignments.includes(deviceId)) pendingAssignments.push(deviceId);
-
-    // Remove from available
-    const dragCard = document.querySelector(`[data-device-id="${deviceId}"]`);
-    if (dragCard) dragCard.remove();
-
-    // Add to assigned with animation
-    const assignedList = document.getElementById('assignedList');
-    const emptyMsg = assignedList.querySelector('p');
-    if (emptyMsg) emptyMsg.remove();
-
-    const row = document.createElement('div');
-    row.className = 'device-row card-landing';
-    row.innerHTML = `
-        <span class="device-ip">${device.ip}</span>
-        <span style="color:#888; font-size:0.82rem; flex:1;">${device.label}</span>
-        <span style="font-family:'JetBrains Mono',monospace; font-size:0.7rem; color:var(--nr-text-muted);">${device.device_type}</span>`;
-    assignedList.appendChild(row);
-    setTimeout(() => row.classList.remove('card-landing'), 250);
-});
-
-// ── Save bulk assignment ──
-async function saveBulkAssign() {
-    if (!pendingAssignments.length) return;
-
-    const btn = document.getElementById('saveSplitBtn');
-    btn.disabled = true;
+    btn.disabled  = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status"></span>Saving…';
+    errBox.style.display = 'none';
 
+    let message = 'Network error. Try again.';
     try {
-        const resp = await fetch('/inventory/bulk_assign', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN },
-            body: JSON.stringify({ profile_id: activeDevicesProfileId, device_ids: pendingAssignments })
-        });
-        const data = await resp.json();
-
-        if (data.status === 'ok') {
-            bootstrap.Modal.getInstance(document.getElementById('devicesModal')).hide();
-            location.reload();
-        } else {
-            btn.disabled = false;
-            btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Save Assignments';
+        for (const body of calls) {
+            const resp = await fetch('/inventory/bulk_assign', {
+                method:  'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN },
+                body:    JSON.stringify(body)
+            });
+            const data = await resp.json();
+            if (data.status !== 'ok') { message = data.message || 'Saving failed.'; throw 0; }
+            partSaved = true;
         }
-    } catch {
-        btn.disabled = false;
-        btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Save Assignments';
-    }
+        location.reload();
+        return;
+    } catch { /* message set above */ }
+    if (partSaved) message += ' Some changes were saved; saving again is safe.';
+    errBox.innerHTML = '<i class="bi bi-x-circle-fill"></i><span></span>';
+    errBox.querySelector('span').textContent = message;
+    errBox.style.display = '';
+    nrBoardSaveLabel(btn, secBoard);
 }
+
+document.getElementById('devicesModal').addEventListener('hidden.bs.modal', () => {
+    if (partSaved) location.reload();
+});
 
 // ── Clear validation state on modal close ──
 ['addModal', 'editModal'].forEach(id => {
@@ -936,18 +709,6 @@ async function saveBulkAssign() {
         form.querySelectorAll('.nr-submitted').forEach(el => el.classList.remove('nr-submitted'));
         form.querySelectorAll('.field-error').forEach(el => el.style.display = '');
     });
-});
-
-// ── Reset split on modal close ──
-document.getElementById('devicesModal').addEventListener('hidden.bs.modal', () => {
-    const dialog = document.querySelector('#devicesModal .modal-dialog');
-    dialog.classList.remove('split-mode');
-    dialog.style.maxWidth = '460px';
-    document.getElementById('saveSplitBtn').style.display = 'none';
-    document.getElementById('splitToggleBtn').style.display = '';
-    document.getElementById('availableList').innerHTML = '';
-    pendingAssignments = [];
-    activeDevicesProfileId = null;
 });
 
 // ── Test device NrSelect ──
