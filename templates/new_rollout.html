@@ -119,11 +119,27 @@
 
 /* reachability indicator styles are shared (operator_base) */
 
+/* ── Same ip:port ticked twice: the same box would be pushed twice ── */
+.device-row.dup-conflict { box-shadow: inset 2px 0 0 #ef5350; }
+.dup-note {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.6875rem;
+    color: #ef9a9a;
+    background: rgba(239,83,80,0.08);
+    border: 1px solid rgba(239,83,80,0.3);
+    border-radius: 4px;
+    padding: 0.05rem 0.4rem;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
 /* ── No-profile tooltip ── */
 .device-row.disabled {
     position: relative;
 }
-.device-row.disabled .no-profile-tip {
+/* hidden on every row (enabled rows keep a stale reach-tip), shown on
+   hover only while the row is disabled */
+.device-row .no-profile-tip {
     display: none;
     position: absolute;
     right: 12px;
@@ -424,6 +440,7 @@
                                    data-no-profile="{{ '0' if device.security_profile else '1' }}"
                                    data-label="{{ (device.label or device.ip)|lower }}"
                                    data-ip="{{ device.ip|lower }}"
+                                   data-endpoint="{{ device.ip }}:{{ device.port }}"
                                    title="{% if not device.security_profile %}No security profile assigned — go to Inventory to assign one{% endif %}">
                                 <input type="checkbox"
                                        class="device-check device-cb"
@@ -456,6 +473,9 @@
                                 {% if device.is_global %}
                                 <span class="nr-global-badge" title="Global device — shared by an administrator"><i class="bi bi-globe2"></i>GLOBAL</span>
                                 {% endif %}
+
+                                {# Filled in when another ticked row has the same ip:port #}
+                                <span class="dup-note" hidden></span>
 
                                 <span class="platform-tag">{{ device.device_type }}</span>
 
@@ -544,6 +564,7 @@
                                 <div class="platform-summary" id="platformSummary"></div>
                             </div>
                             <div class="no-profile-warning" id="unreachWarning"></div>
+                            <div class="no-profile-warning" id="dupWarning" role="status"></div>
                             <div class="no-profile-warning" id="noProfileWarning">
                                 {% set missing = devices | selectattr('security_profile', 'none') | list | length %}
                                 {% if missing > 0 %}
@@ -792,7 +813,44 @@
             .map(p => `<span class="platform-pill">${p}</span>`)
             .join("");
 
-        submitBtn.disabled = count === 0;
+        const duplicates = markDuplicateTargets(checked);
+        submitBtn.disabled = count === 0 || duplicates > 0;
+    }
+
+    /* ── Same ip:port ticked twice = the same box twice (e.g. your own entry
+       and a global one): flag both rows and hold Start until one is
+       unticked. The server refuses it too. Returns the number of clashes. ── */
+    const dupWarn = document.getElementById("dupWarning");
+    function markDuplicateTargets(checked) {
+        const byEndpoint = {};
+        checked.forEach(cb => {
+            const row = cb.closest(".device-row");
+            (byEndpoint[row.dataset.endpoint] ||= []).push(row);
+        });
+        document.querySelectorAll(".device-row").forEach(row => {
+            row.classList.remove("dup-conflict");
+            const note = row.querySelector(".dup-note");
+            if (note) note.hidden = true;
+        });
+        const clashes = Object.entries(byEndpoint).filter(([, rows]) => rows.length > 1);
+        clashes.forEach(([, rows]) => rows.forEach(row => {
+            const others = rows.filter(r => r !== row)
+                .map(r => r.querySelector(".device-label").textContent.trim());
+            const note = row.querySelector(".dup-note");
+            note.textContent = "same target";   // the footer names them
+            note.title = "Same ip:port as " + others.join(", ") +
+                         " — untick one";
+            note.hidden = false;
+            row.classList.add("dup-conflict");
+        }));
+        dupWarn.textContent = clashes.length
+            ? "The same target is selected more than once — untick one of: " +
+              clashes.map(([ep, rows]) => rows.map(r =>
+                  r.querySelector(".device-label").textContent.trim()).join(" / ") +
+                  " (" + ep + ")").join("; ")
+            : "";
+        dupWarn.classList.toggle("show", clashes.length > 0);
+        return clashes.length;
     }
 
     /* ── Selection events ── */
