@@ -27,17 +27,6 @@ class Validator:
     "hp_comware",
     }
 
-    VALID_PROPERTIES = {
-        "hostname",
-        "loopback_ip",
-        "asn",
-        "mgmt_vrf",
-        "mgmt_interface",
-        "site",
-        "domain",
-        "timezone",
-        "vrfs"
-    }
 
     TCP_TIMEOUT = 5
     TCP_RETRIES = 3
@@ -168,21 +157,28 @@ class Validator:
         return False, "Token cannot be empty"
 
     @staticmethod
-    def validate_var_map_property_name(property_name: str) ->\
+    def validate_var_map_property_name(property_name: str,
+                                       allowed: set[str]) -> \
             tuple[bool, str | None]:
-        if property_name.strip().lower() not in Validator.VALID_PROPERTIES:
+        """:param allowed: the user's property names — system defaults plus
+         their own definitions (webapp: get_property_defs)"""
+        if property_name.strip().lower() not in allowed:
             return False, f"Property name {property_name} is not valid"
         return True, None
 
     @staticmethod
-    def validate_var_index(index: int | None, property_name: str) ->\
+    def validate_var_index(index: int | None, property_name: str,
+                           list_properties: set[str]) -> \
             tuple[bool, str | None]:
-        if property_name != "vrfs" and index is not None:
-            return False, f"Property {property_name} can not be indexed"
-        elif property_name == "vrfs" and index is not None and index < 0:
-            return False, "Index cannot be negative"
-        else:
+        """Only list properties (system `vrfs`, or user-defined lists) can be
+        indexed."""
+        if index is None:
             return True, None
+        if property_name not in list_properties:
+            return False, f"Property {property_name} can not be indexed"
+        if index < 0:
+            return False, "Index cannot be negative"
+        return True, None
 
 
 

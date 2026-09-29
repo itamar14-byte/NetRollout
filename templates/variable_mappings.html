@@ -858,10 +858,8 @@ function openDevices(mapping, assignedDevices) {
         mapping.token + ' — Assignments';
 
     // Count eligible devices (have attribute set + not already assigned)
-    const eligibleCount = DEVICES_ALL.filter(d => {
-        const vm = d.var_maps || {};
-        return !!vm[activeMappingProp] && !assignedDeviceIds.has(d.id);
-    }).length;
+    const eligibleCount = DEVICES_ALL.filter(d =>
+        isResolvable(d) && !assignedDeviceIds.has(d.id)).length;
     document.getElementById('availablePanelHeader').textContent =
         'ELIGIBLE (' + eligibleCount + ')';
 
@@ -876,6 +874,30 @@ function openDevices(mapping, assignedDevices) {
     document.getElementById('availableList').innerHTML = '';
 
     new bootstrap.Modal(document.getElementById('devicesModal')).show();
+}
+
+// Can the active mapping resolve on this device? Mirrors the server rule
+// (core.mapping_resolvable): value set and non-empty; for indexed mappings
+// the list is long enough. Anything else the server would refuse to bind.
+function isResolvable(device) {
+    const val = (device.var_maps || {})[activeMappingProp];
+    if (!val || (Array.isArray(val) && !val.length)) return false;
+    if (activeMappingIndex === null || activeMappingIndex === undefined) return true;
+    return Array.isArray(val) && activeMappingIndex >= 0 && activeMappingIndex < val.length;
+}
+
+// Why the drag panel is empty — tells the user what to do instead of
+// showing a blank panel
+function emptyPoolMessage() {
+    const where = activeMappingIndex === null || activeMappingIndex === undefined
+        ? activeMappingProp : activeMappingProp + '[' + activeMappingIndex + ']';
+    const withValue = DEVICES_ALL.filter(isResolvable);
+    const text = withValue.length
+        ? 'All devices with a value for ' + where + ' are already assigned.'
+        : 'No devices have a value for ' + where + '. Set it in Inventory: ' +
+          'open a device, then Variable Attributes.';
+    return '<p style="font-size:0.82rem; color:var(--nr-text-muted); margin:0; ' +
+           'padding:0.5rem 0;">' + esc(text) + '</p>';
 }
 
 // Get the resolved attribute value string for a device given the active mapping context
@@ -922,16 +944,12 @@ function activateSplit() {
 
 function renderAvailableList() {
     const pendingSet = new Set(pendingAssignments);
-    const pool = DEVICES_ALL.filter(d => {
-        const vm = d.var_maps || {};
-        return !!vm[activeMappingProp]
-            && !assignedDeviceIds.has(d.id)
-            && !pendingSet.has(d.id);
-    });
+    const pool = DEVICES_ALL.filter(d =>
+        isResolvable(d) && !assignedDeviceIds.has(d.id) && !pendingSet.has(d.id));
 
     const list = document.getElementById('availableList');
     if (!pool.length) {
-        list.innerHTML = '<p style="font-size:0.82rem; color:var(--nr-text-muted); font-style:italic; margin:0; padding:0.5rem 0;">No eligible devices available.</p>';
+        list.innerHTML = emptyPoolMessage();
         return;
     }
 
