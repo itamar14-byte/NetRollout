@@ -859,6 +859,9 @@
         }
         .nr-board-card:hover { border-color: rgba(0,188,212,0.25); box-shadow: 0 2px 10px rgba(0,0,0,0.3); }
         .nr-board-card.is-dragging { opacity: 0.3; cursor: grabbing; }
+        .nr-board-card.is-locked { cursor: not-allowed; }
+        .nr-board-card.is-locked:hover { border-color: #1e1e1e; box-shadow: none; }
+        .nr-board-lock { color: var(--nr-text-muted); font-size: 0.75rem; flex-shrink: 0; }
         .nr-board-card.is-added   { border-left-color: var(--nr-accent); }
         .nr-board-card.is-removed { border-left-color: #ef5350; }
         .nr-board-card.is-landing { animation: nrCardLand 0.2s ease; }
@@ -965,7 +968,8 @@ function nrReachChecking(el) {
 // added()/removed() on save. Drag a card across, or click / Enter to move it.
 // opts: devices [{id,label,ip,device_type,is_global}], assigned [ids],
 //       pool [ids], logos {device_type: url}, meta(d) -> text,
-//       warn(d, isAssigned) -> text|null, emptyIn, emptyOut() -> text,
+//       warn(d, isAssigned) -> text|null, locked(d, isAssigned) -> reason|null
+//       (a locked card can't move), emptyIn, emptyOut() -> text,
 //       onChange(board)
 function nrAssignBoard(root, opts) {
     const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;')
@@ -986,11 +990,14 @@ function nrAssignBoard(root, opts) {
             : '<i class="bi bi-router"></i>';
         const meta  = opts.meta ? opts.meta(d) : '';
         const warn  = opts.warn ? opts.warn(d, isIn) : null;
+        const lock  = lockReason(d, isIn);
         const verb  = isIn ? 'Unassign' : 'Assign';
         return `
-        <div class="nr-board-card${state}${d.id === landed ? ' is-landing' : ''}" draggable="true"
-             tabindex="0" role="button" data-id="${esc(d.id)}"
-             aria-label="${verb} ${esc(d.label)} (${esc(d.ip)})" title="${verb}: drag or click">
+        <div class="nr-board-card${state}${lock ? ' is-locked' : ''}${d.id === landed ? ' is-landing' : ''}"
+             draggable="${lock ? 'false' : 'true'}" tabindex="0" role="button" data-id="${esc(d.id)}"
+             ${lock ? 'aria-disabled="true"' : ''}
+             aria-label="${lock ? esc(d.label) + ': ' + esc(lock) : verb + ' ' + esc(d.label) + ' (' + esc(d.ip) + ')'}"
+             title="${lock ? esc(lock) : verb + ': drag or click'}">
             <div class="nr-board-vendor">${icon}</div>
             <div class="nr-board-name">
                 <span class="nr-board-label">${esc(d.label)}</span>
@@ -999,9 +1006,12 @@ function nrAssignBoard(root, opts) {
             ${d.is_global ? '<span class="nr-global-badge" title="Global device — shared by an administrator"><i class="bi bi-globe2"></i>GLOBAL</span>' : ''}
             ${warn ? `<i class="bi bi-exclamation-triangle-fill nr-board-warn" title="${esc(warn)}"></i>` : ''}
             ${meta ? `<span class="nr-board-meta" title="${esc(meta)}">${esc(meta)}</span>` : ''}
-            <i class="bi ${isIn ? 'bi-arrow-right' : 'bi-arrow-left'} nr-board-move"></i>
+            ${lock ? '<i class="bi bi-lock-fill nr-board-lock"></i>'
+                   : `<i class="bi ${isIn ? 'bi-arrow-right' : 'bi-arrow-left'} nr-board-move"></i>`}
         </div>`;
     }
+
+    const lockReason = (d, isIn) => opts.locked ? opts.locked(d, isIn) : null;
 
     function renderCol(key) {
         const col  = root.querySelector(`[data-col="${key}"]`);
@@ -1037,6 +1047,7 @@ function nrAssignBoard(root, opts) {
         isAssigned: id => current.has(id),
         move(id, toIn, focus = false) {
             if (!byId.has(id) || current.has(id) === toIn) return;
+            if (lockReason(byId.get(id), current.has(id))) return;
             toIn ? current.add(id) : current.delete(id);
             landed = id;
             render();

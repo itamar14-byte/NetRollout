@@ -162,6 +162,19 @@ def test_bulk_profile_assign_only_own_profile_and_devices(
 	assert db_get(Inventory, dev).sec_profile_id == mine
 
 
+def test_bulk_unassign_keeps_global_devices_profile(
+		client_for, make_user, make_profile, make_device, db_get):
+	# same rule as create/edit: a global device must keep a profile
+	admin = make_user(role="admin")
+	prof = make_profile(admin)
+	glob = make_device(admin, ip="10.0.0.1", profile_id=prof, is_global=True)
+	local = make_device(admin, ip="10.0.0.2", profile_id=prof)
+	client_for(admin).post("/inventory/bulk_assign", json={
+		"profile_id": None, "device_ids": [str(glob), str(local)]})
+	assert db_get(Inventory, glob).sec_profile_id == prof
+	assert db_get(Inventory, local).sec_profile_id is None
+
+
 # ── Global devices ───────────────────────────────────────────────────────────
 
 @pytest.fixture

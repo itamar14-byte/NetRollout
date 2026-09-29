@@ -644,6 +644,10 @@ function openDevices(profile) {
         logos:    VENDOR_LOGOS,
         // Where the device's credentials come from today
         meta:     d => mine(d) ? '' : (PROFILE_LABELS[d.sec_profile_id] || 'no profile'),
+        // Server rule too: a global device must keep a profile (move it to
+        // another profile from that profile's board instead)
+        locked:   (d, isIn) => d.is_global && isIn && mine(d)
+            ? 'Global devices must keep a profile. Assign it to another profile instead.' : null,
         emptyIn:  'Nothing assigned yet. Drag devices here, or click them.',
         emptyOut: () => 'No other devices in your inventory.',
         onChange: b => {
