@@ -5,7 +5,7 @@ from csv import DictReader
 
 from src.core import RolloutOptions, RolloutEngine
 from src.input_parser import InputParser
-from src.logging_utils import RolloutLogger
+from src.logging_utils import RolloutLogger, utf8_console
 from src.validation import Validator
 
 
@@ -89,4 +89,5 @@ def main():
 
 
 if __name__ == "__main__":
+	utf8_console()
 	main()
