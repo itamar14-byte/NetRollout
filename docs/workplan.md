@@ -516,6 +516,9 @@ Blocking and should-fix items found in a full codebase review after the Blueprin
 - User-facing "Invalid ldap_request" messages -> "Invalid request"
 - Migrations run on the app's own connection (not only `DATABASE_URL`): correct DB after a Server Management switch, honours `PG_SCHEMA`, works with `PG_*`-only config (Docker). pg_cron is optional — its absence no longer blocks the schema. The alembic CLI resolves `DATABASE_URL`, else `PG_*`
 - Admin restart relaunches the original command (`sys.orig_argv`): under `python -m src.webapp` it re-ran `__main__.py` as a script, which can't import `src`, so the app never came back
+- Accessibility pass: readability tokens (`--nr-text*`, all tiers >= AA on every surface), 420 sub-AA text colors remapped, 12px text floor, visible keyboard focus, alt/aria labels, always-visible delete buttons
+- Device reachability: live `ip:port` status (cached 60s) on New Rollout rows and Inventory cards; unreachable devices blocked for rollout and rollback
+- Mappings on user-defined properties (validator used a hard-coded list of built-ins); drag panel uses the server's eligibility rule and explains an empty state
 
 **Remaining (in order):**
 
