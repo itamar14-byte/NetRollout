@@ -6,6 +6,7 @@ from waitress import serve
 from src.encryption import EncryptionStartupError
 from src.logging_utils import start_log_pruning, utf8_console
 from src.webapp import create_app
+from src.webapp.startup import start_announcer
 
 utf8_console()
 
@@ -18,5 +19,9 @@ except EncryptionStartupError as e:
 	sys.exit(1)
 
 start_log_pruning()
-print("app available on 127.0.0.1:8080 or localhost:8080")
-serve(app, host="0.0.0.0", port=int(os.getenv("PORT", "8080")))
+# Internal app port: set at install; nginx forwards to it
+port = int(os.getenv("PORT", "8080"))
+# Once Waitress answers: check the reverse proxy and print the address people
+# should use (and open it in the browser on a normal desktop launch)
+start_announcer(app.config["INSTANCE_TOKEN"], port)
+serve(app, host="0.0.0.0", port=port)

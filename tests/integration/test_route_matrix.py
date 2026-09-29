@@ -17,6 +17,7 @@ PUBLIC_ENDPOINTS = {
 	"static", "auth.home", "auth.login_get", "auth.login", "auth.register_form",
 	"auth.register", "auth.otp_enroll", "auth.otp_verify", "auth.logout",
 	"prometheus_metrics",
+	"system.instance",   # startup proxy check: a random per-run token only
 }
 SKIP_PREFIXES = ("/_test/", "/rollout/stream/_test/", "/static/")
 
