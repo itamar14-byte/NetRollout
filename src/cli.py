@@ -80,7 +80,10 @@ def main():
 	# On Ctrl+C from the user, the cancel event is set and the system exits
 	try:
 		engine.run(cancel, logger)
-		input("Press Enter to exit...")
+		try:
+			input("Press Enter to exit...")
+		except EOFError:
+			pass  # no terminal (cron, CI, piped stdin): nothing to wait for
 		sys.exit(0)
 	except KeyboardInterrupt:
 		cancel.set()
