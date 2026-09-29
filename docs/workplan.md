@@ -531,6 +531,7 @@ Blocking and should-fix items found in a full codebase review after the Blueprin
 - `key_error.html` rebuilt: standalone in the app's style, no external scripts (was Tailwind CDN + unpkg), no fake status footer. Admins get concrete steps (which env var / file this server reads, restore the original key, restart; if lost: re-enter profile / LDAP passwords, clear 2FA via SQL) and a warning not to generate a new key; others are told to contact an admin. The steps are also written to the server log, since a failure at 2FA sign-in can lock admins out
 - Dead-code sweep and rename artifacts: find-and-replace leftovers fixed (incl. the Users page's "Factory user redis_session" text; the `redis_session:` Redis key prefix kept on purpose), unused `form_to_inventory` / `create_op` / imports removed, pyflakes clean, a latent `\,` escape in the test conftest fixed; `.coverage` untracked, stale `docs/TODO` and `docs/bug_report.md` removed
 - Admin → Users → **Reset 2FA** (toolbar action, confirmation modal): clears the selected local users' 2FA secret so they re-enroll at next sign-in; enabled only when every selected user has 2FA (LDAP users and the factory admin don't use it); bulk audit entries now list the affected usernames. The encryption key error page points to it instead of SQL
+- Same ip:port warning (never blocks): on device create, on edit when the endpoint changes, and on CSV import (also duplicates within the file), against devices the user can see — own and global; other users' private devices are never considered
 - CLI unit tests (`tests/unit/test_cli.py`); the three CLI bugs they found are fixed (see 3.5)
 - Rollout summary counts real outcomes ("1 success, 1 failed (of 2 devices)"; it used to call every attempted device configured). CLI exit code reflects the outcome: 0 all succeeded, 1 mixed, 2 nothing applied, 130 Ctrl+C
 
@@ -551,7 +552,6 @@ Constants live in `src/db/db_install.py` (`JOB_RETENTION_DAYS`, `CONFIG_SNAPSHOT
 **Deferred past 4.1:**
 - nginx SSE `location /rollout_stream` → `/rollout/stream` (streaming works via `X-Accel-Buffering: no`)
 - Frontend asset splitting (Step 2)
-- Inventory: warn (don't block) when a device's ip:port matches a global device — overlapping IPs are legitimate (VRFs, NAT, port-forwarded labs)
 - Active Directory: test against a real AD (Samba AD DC container, ephemeral like the OpenLDAP one) — `sAMAccountName` logins, UPN binds, and nested-group membership (today only direct members of a mapped group match)
 - Retention periods as Server Management settings instead of constants (post-v1.0)
 

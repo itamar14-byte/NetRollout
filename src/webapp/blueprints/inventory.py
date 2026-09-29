@@ -17,7 +17,8 @@ from src.logging_utils import RolloutLogger
 from src.validation import Validator
 from src.webapp.utils import (ok, err, with_form, with_json, flash_redirect,
                               query_visible_devices, partition_devices,
-                              can_edit_device, visible_devices_clause)
+                              can_edit_device, visible_devices_clause,
+                              same_endpoint_devices, same_endpoint_warning)
 
 bp = Blueprint('inventory', __name__, url_prefix='/inventory')
 
@@ -114,6 +115,9 @@ def inventory_create(data):
 		if not profile_allowed(parsed_sec_id, db_session):
 			return flash_redirect("Security profile not found.",
 			                      "inventory.inventory", "danger")
+		duplicate = same_endpoint_warning(
+			same_endpoint_devices(db_session, current_user.id, ip, port),
+			ip, port)
 		row = Inventory(
 			user_id=current_user.id,
 			label=label,
@@ -129,6 +133,8 @@ def inventory_create(data):
 	                      object_label=label,
 	                      detail={"is_global": is_global})
 	flash(f"{label} added to inventory.", "success")
+	if duplicate:
+		flash(duplicate, "warning")
 	return redirect(url_for("inventory.inventory"))
 
 
@@ -200,9 +206,16 @@ def inventory_edit(device_id):
 			                      "users can't assign their own to it.",
 			                      "inventory.inventory", "danger")
 
+		old_endpoint = (device.ip, device.port)
 		device.label = request.form.get("label", "").strip()
 		device.ip = request.form.get("ip", "").strip()
 		device.port = int(request.form.get("port", 22))
+		# Warn only when the endpoint changed — not on every save
+		duplicate = None
+		if (device.ip, device.port) != old_endpoint:
+			duplicate = same_endpoint_warning(same_endpoint_devices(
+				db_session, current_user.id, device.ip, device.port,
+				exclude_id=device.id), device.ip, device.port)
 		device.device_type = request.form.get("device_type", "").strip()
 		device.sec_profile_id = parsed_sec_id
 		device.is_global = is_global
@@ -238,7 +251,10 @@ def inventory_edit(device_id):
 				"inventory.globalize" if is_global else "inventory.localize",
 				object_type="Inventory", object_id=device_id,
 				object_label=device.label)
-		return flash_redirect(f"{device.label} updated.", "inventory.inventory")
+		flash(f"{device.label} updated.", "success")
+		if duplicate:
+			flash(duplicate, "warning")
+		return redirect(url_for("inventory.inventory"))
 
 	return current_app.web.act_on_db_obj(
 		Inventory, device_id, _edit,
@@ -319,12 +335,32 @@ def inventory_import_csv():
 		parser = InputParser(validator, logger)
 
 		with current_app.backend.postgres.get_session() as db_session:
+			# endpoints already in use, read before the import adds rows
+			in_use = {(d.ip, d.port) for d in db_session.query(
+				Inventory.ip, Inventory.port).filter(
+				visible_devices_clause(current_user.id))}
 			report = parser.csv_to_inventory(
 				tmp_path, current_user.id, db_session, label=label,
 				properties=sys_props + user_props,
 				create_profiles=create_profiles)
 
 		devices = report.devices
+		# same ip:port as an existing visible device, or twice in the file:
+		# allowed (NAT, VRFs, labs), but say so
+		seen, shared = set(), []
+		for d in devices:
+			endpoint = (d.ip, d.port)
+			if endpoint in in_use or endpoint in seen:
+				shared.append(f"{d.ip}:{d.port}")
+			seen.add(endpoint)
+		if shared:
+			unique = list(dict.fromkeys(shared))
+			report.notices.append(("warning",
+				f"{len(shared)} imported device{'s' if len(shared) != 1 else ''} "
+				f"share an ip:port with another device: "
+				f"{', '.join(unique[:5])}{', …' if len(unique) > 5 else ''}. "
+				f"That's fine for NAT, VRFs or port-forwarded labs, but they "
+				f"can't be in the same rollout."))
 		for msg in report.errors:
 			flash(msg, "danger")
 		# same audit action as a manually created profile, marked by source
