@@ -291,12 +291,11 @@ def inventory_delete(device_id):
 def inventory_import_csv():
 	"""
 	Bulk-imports devices from an uploaded CSV file into the user's inventory.
-	Saves the upload to a temp file, delegates to InputParser.csv_to_inventory,
-	which validates each row and TCP-checks each device before writing.
-	NOTE: TCP checks are sequential — large CSVs will block the web process.
-		  Phase 3.6 per-device concurrency will address this.
-	Per-device errors are returned as a list from csv_to_inventory
-	and flashed to the user.
+	Saves the upload to a temp file and delegates to
+	InputParser.csv_to_inventory: attribute columns become variable
+	attributes, credential columns become security profiles (when the
+	checkbox is on), other columns are reported. No reachability check —
+	Inventory shows it live. Row errors and notices are flashed.
 	"""
 	csv_file = request.files.get("csv_file")
 	if not csv_file or not csv_file.filename:
@@ -304,6 +303,8 @@ def inventory_import_csv():
 		return redirect(url_for("inventory.inventory"))
 
 	label = request.form.get("label", "").strip() or None
+	create_profiles = request.form.get("create_profiles") == "on"
+	sys_props, user_props = current_app.web.get_property_defs(current_user.id)
 
 	# Save upload to a temp file — csv_to_inventory takes a path, not a file object
 	with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as tmp:
@@ -318,21 +319,33 @@ def inventory_import_csv():
 		parser = InputParser(validator, logger)
 
 		with current_app.backend.postgres.get_session() as db_session:
-			devices, errors = parser.csv_to_inventory(
-				tmp_path, current_user.id, db_session, label=label)
+			report = parser.csv_to_inventory(
+				tmp_path, current_user.id, db_session, label=label,
+				properties=sys_props + user_props,
+				create_profiles=create_profiles)
 
-		if errors:
-			for msg in errors:
-				flash(msg, "danger")
+		devices = report.devices
+		for msg in report.errors:
+			flash(msg, "danger")
+		# same audit action as a manually created profile, marked by source
+		for profile_id, profile_label in report.created_profiles:
+			current_app.web.audit("security_profile.create",
+			                      object_type="SecurityProfile",
+			                      object_id=profile_id,
+			                      object_label=profile_label,
+			                      detail={"source": "csv_import"})
 		if devices:
-			current_app.web.audit("inventory.import_csv",
-			                      detail={"count": len(devices)})
+			current_app.web.audit("inventory.import_csv", detail={
+				"count": len(devices),
+				"profiles_created": len(report.created_profiles)})
 			flash(
 				f"{len(devices)} device{'s' if len(devices) != 1 else ''}"
 				f" imported successfully.",
 				"success")
-		elif not errors:
+		elif not report.errors:
 			flash("No valid devices found in CSV.", "warning")
+		for category, msg in report.notices:
+			flash(msg, category)
 
 	finally:
 		os.unlink(tmp_path)

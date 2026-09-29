@@ -6,7 +6,8 @@ from unittest.mock import patch
 
 import pytest
 
-from src.db.tables import AuditLog, Inventory
+from src.db.tables import AuditLog, Inventory, SecurityProfile
+from src.encryption import decrypt
 
 pytestmark = [pytest.mark.postgres, pytest.mark.redis]
 
@@ -116,6 +117,154 @@ def test_csv_import_tolerates_blanks_and_needs_no_credentials(
 	# row label used; blank label falls back to the IP
 	assert rows == [("10.3.3.1", "10.3.3.1"), ("10.3.3.3", "edge-3")]
 	assert any("Row 2" in m for m in flashes(client))
+
+
+# ── CSV import: one format for the CLI and the web app ──────────────────────
+
+def import_csv(client, csv, create_profiles=True, label=None):
+	data = {"csv_file": (io.BytesIO(csv.encode()), "devices.csv")}
+	if create_profiles:
+		data["create_profiles"] = "on"
+	if label:
+		data["label"] = label
+	return client.post("/inventory/import_csv", data=data,
+	                   content_type="multipart/form-data")
+
+
+def devices_of(session_scope, user):
+	with session_scope() as s:
+		rows = {d.label: d for d in s.query(Inventory).filter_by(user_id=user.id)}
+		s.expunge_all()
+		return rows
+
+
+def profiles_of(session_scope, user):
+	with session_scope() as s:
+		rows = {p.id: p for p in
+		        s.query(SecurityProfile).filter_by(user_id=user.id)}
+		s.expunge_all()
+		return rows
+
+
+def test_csv_import_saves_attribute_columns(client_for, make_user,
+                                            session_scope):
+	user = make_user()
+	client = client_for(user)
+	client.post("/properties/create", json={"name": "rack", "label": "Rack"})
+	client.post("/properties/create", json={"name": "uplinks",
+	                                        "label": "Uplinks", "is_list": True})
+	# headers by name, by label ("Loopback IP"), any case; one unknown column
+	csv = ("ip,device_type,port,label,hostname,Loopback IP,vrfs,RACK,Uplinks,rack_no\n"
+	       "10.4.4.1,cisco_ios,22,r1,r1.lab,1.1.1.1,\"red, blue\",R12,\"Gi0/1,Gi0/2\",7\n"
+	       "10.4.4.2,cisco_ios,22,r2,,,,,,\n")
+	import_csv(client, csv)
+	devs = devices_of(session_scope, user)
+	assert devs["r1"].var_maps == {
+		"hostname": "r1.lab", "loopback_ip": "1.1.1.1", "vrfs": ["red", "blue"],
+		"rack": "R12", "uplinks": ["Gi0/1", "Gi0/2"]}
+	assert devs["r2"].var_maps is None  # empty cells are skipped
+	msgs = flashes(client)
+	assert any(m.startswith("Ignored columns: rack_no") for m in msgs)
+
+
+def test_csv_import_turns_credentials_into_profiles(client_for, make_user,
+                                                    make_profile, session_scope):
+	user = make_user()
+	core = make_profile(user, label="core-ro", username="ro", password="ropw")
+	csv = ("ip,device_type,port,label,username,password,secret\n"
+	       "10.5.5.1,cisco_ios,22,a,ro,ropw,\n"        # exact match → reused
+	       "10.5.5.2,cisco_ios,22,b,admin,admin,en\n"  # new profile …
+	       "10.5.5.3,cisco_ios,22,c,admin,admin,en\n"  # … shared by this row
+	       "10.5.5.4,cisco_ios,22,d,,,\n")             # no credentials
+	client = client_for(user)
+	import_csv(client, csv)
+	devs = devices_of(session_scope, user)
+	profiles = profiles_of(session_scope, user)
+	assert devs["a"].sec_profile_id == core
+	assert devs["b"].sec_profile_id == devs["c"].sec_profile_id != core
+	assert devs["d"].sec_profile_id is None
+	new = profiles[devs["b"].sec_profile_id]
+	assert new.label.startswith("admin · CSV import ")
+	assert (new.username, decrypt(new.password_secret),
+	        decrypt(new.enable_secret)) == ("admin", "admin", "en")
+	assert len(profiles) == 2
+	# the existing profile is untouched
+	assert decrypt(profiles[core].password_secret) == "ropw"
+	msgs = flashes(client)
+	assert f"2 devices assigned to new profile '{new.label}'" in msgs
+	assert "1 device assigned to existing profile 'core-ro'" in msgs
+	# audited like a manually created profile
+	with session_scope() as s:
+		audit = s.query(AuditLog).filter_by(action="security_profile.create",
+		                                    object_id=new.id).one()
+		assert audit.detail == {"source": "csv_import"}
+		assert audit.object_label == new.label
+
+
+def test_csv_import_warns_on_same_username_other_password(
+		client_for, make_user, make_profile, session_scope):
+	user = make_user()
+	core = make_profile(user, label="core", username="admin", password="admin")
+	csv = ("ip,device_type,port,label,username,password\n"
+	       "10.6.6.1,cisco_ios,22,a,admin,admin\n"     # reuses core
+	       "10.6.6.2,cisco_ios,22,b,admin,admin1\n")   # typo → new + warning
+	client = client_for(user)
+	import_csv(client, csv)
+	devs = devices_of(session_scope, user)
+	profiles = profiles_of(session_scope, user)
+	assert devs["a"].sec_profile_id == core
+	new = profiles[devs["b"].sec_profile_id]
+	assert decrypt(profiles[core].password_secret) == "admin"  # never changed
+	assert any(m.startswith(f"Created profile '{new.label}' — your profile "
+	                        f"'core' also uses username admin, with a "
+	                        f"different password.") for m in flashes(client))
+	# a second import the same day gets a distinct label
+	import_csv(client, "ip,device_type,port,label,username,password\n"
+	                   "10.6.6.3,cisco_ios,22,c,admin,admin2\n")
+	third = profiles_of(session_scope, user)[
+		devices_of(session_scope, user)["c"].sec_profile_id]
+	assert third.label == new.label + " (2)"
+
+
+def test_csv_import_without_profile_creation(client_for, make_user,
+                                             session_scope):
+	user = make_user()
+	client = client_for(user)
+	import_csv(client, "ip,device_type,port,label,username,password\n"
+	                   "10.7.7.1,cisco_ios,22,a,admin,admin\n",
+	           create_profiles=False)
+	assert devices_of(session_scope, user)["a"].sec_profile_id is None
+	assert profiles_of(session_scope, user) == {}
+	assert any("Credential columns were not imported" in m
+	           for m in flashes(client))
+
+
+def test_csv_import_partial_credentials_get_no_profile(client_for, make_user,
+                                                       session_scope):
+	user = make_user()
+	client = client_for(user)
+	import_csv(client, "ip,device_type,port,label,username,password\n"
+	                   "10.8.8.1,cisco_ios,22,a,admin,\n")
+	assert devices_of(session_scope, user)["a"].sec_profile_id is None
+	assert profiles_of(session_scope, user) == {}
+	assert "1 device imported without a profile (username and password are " 	       "both needed): a" in flashes(client)
+
+
+def test_csv_import_does_not_check_reachability(client_for, make_user,
+                                                session_scope):
+	user = make_user()
+	with patch("src.validation.Validator.test_tcp_port",
+	           return_value=False) as probe:
+		import_csv(client_for(user), "ip,device_type,port,label\n"
+		                             "10.9.9.1,cisco_ios,22,offline\n")
+	assert "offline" in devices_of(session_scope, user)
+	probe.assert_not_called()
+
+
+def test_csv_import_missing_required_columns(client_for, make_user):
+	client = client_for(make_user())
+	import_csv(client, "ip,device_type\n10.1.1.1,cisco_ios\n")
+	assert "Missing required columns: port" in flashes(client)
 
 
 def test_json_routes_report_invalid_request_plainly(client_for, make_user):

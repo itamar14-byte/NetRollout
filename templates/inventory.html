@@ -962,13 +962,20 @@
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div class="modal-body">
 
-                    <p style="font-size:0.82rem; color:var(--nr-text-muted); margin-bottom:1.2rem;">
-                        CSV must include columns:
-                        <span style="font-family:'JetBrains Mono',monospace; color:#388e9e;">ip, device_type, port</span>.
+                    <p style="font-size:0.82rem; color:var(--nr-text-muted); margin-bottom:0.6rem;">
+                        Required columns:
+                        <span style="font-family:'JetBrains Mono',monospace; color:var(--nr-accent-soft);">ip, device_type, port</span>.
                         Optional:
-                        <span style="font-family:'JetBrains Mono',monospace; color:var(--nr-text-muted);">username, password, secret, label</span>
-                        and any variable attribute columns.
-                        Each device will be TCP-checked before import.
+                        <span style="font-family:'JetBrains Mono',monospace; color:var(--nr-text-secondary);">label</span>,
+                        credentials
+                        <span style="font-family:'JetBrains Mono',monospace; color:var(--nr-text-secondary);">username, password, secret</span>,
+                        and attribute columns named after a property
+                        (<span style="font-family:'JetBrains Mono',monospace; color:var(--nr-text-secondary);">hostname</span>,
+                        <span style="font-family:'JetBrains Mono',monospace; color:var(--nr-text-secondary);">vrfs</span>, your own).
+                    </p>
+                    <p style="font-size:0.78rem; color:var(--nr-text-muted); margin-bottom:1.2rem;">
+                        The same CSV works with the CLI. Other columns are listed after import.
+                        Reachability isn't checked here; Inventory shows it once the devices are in.
                     </p>
 
                     <div class="mb-3">
@@ -984,6 +991,19 @@
                         </label>
                         <input type="text" class="form-control" id="csvLabel" name="label"
                                placeholder="e.g. Branch Routers">
+                    </div>
+
+                    <label class="global-toggle-row" style="margin-top:1rem; margin-bottom:0.2rem;">
+                        <span class="nr-toggle">
+                            <input type="checkbox" name="create_profiles" id="csvCreateProfiles" checked>
+                            <span class="nr-toggle-slider"></span>
+                        </span>
+                        <i class="bi bi-shield-lock"></i>
+                        Create security profiles from credential columns
+                    </label>
+                    <div style="font-size:0.75rem; color:var(--nr-text-muted); padding-left:2.6rem;">
+                        Rows with the same credentials share a profile; an existing profile with
+                        exactly the same credentials is reused. Existing profiles are never changed.
                     </div>
 
                 </div>
