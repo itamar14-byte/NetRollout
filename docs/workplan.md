@@ -1,5 +1,5 @@
 # Development Workplan
-_Last updated: 2026-04-28 — 4.9b LDAP integration complete; Live Sessions page complete_
+_Last updated: 2026-09-29 — pre-4.1 cleanup done except the EVE-NG round; see the status table under "Remaining work"_
 
 ---
 
@@ -193,10 +193,10 @@ Constructor takes `Validator` + `RolloutLogger`. Methods: `csv_to_inventory`, `f
 
 ---
 
-## Phase 3 — Functionality, Logic & Testing
+## Phase 3 — Functionality, Logic & Testing ✅ COMPLETE
 
 ### 3.1 Variable mapping builder ✅ COMPLETE (2026-04-11)
-- `variable_mappings.html` — card grid, add/edit/delete modals, split-view drag-assign
+- `variable_mappings.html` — card grid, add/edit/delete modals, drag-assign (since 2026-09: the shared two-column assign board)
 - `$$`...`$$` token input group, NrSelect attribute picker, index field for vrfs only
 - Drag cards show resolved attribute value per device
 - `var_mapping_to_devices` join table, many-to-many relationships, cascade delete
@@ -330,23 +330,16 @@ Extended `RolloutLogger` to cover sequential administrative workflows with full 
 - `RolloutJob` updated to pass `prefix="rollout"` explicitly
 - Security profile test connection excluded — atomic single-device action, AJAX response is sufficient
 
-### 3.5 Test suite ✅ PARTIAL — core layer complete (2026-04-13)
+### 3.5 Test suite ✅ COMPLETE (2026-09-29)
+`pytest` from the repo root. Last full run: **346 passed, 1 skipped, 3 xfailed (2026-09-29)**.
+- `tests/unit/` — hermetic: engine, device, parser, validator, orchestration, reachability, encryption, LDAP auth logic, web helpers, Redis client, logging, and the CLI (`test_cli.py`: arguments, prompts, file input, error exits, Ctrl+C; engine and TCP probe mocked)
+- `tests/integration/` — real Postgres (`rollout_test`) and Redis (db 15), skipped with a reason when a service is unhealthy: auth, admin, inventory, profiles/mappings/properties, rollouts and jobs, error handling, DB layer, a route matrix, and LDAP against an ephemeral OpenLDAP container the suite starts and removes. The pg_cron test is opt-in (`TEST_PG_CRON_URL`)
+- Known bugs are recorded as strict xfails: once fixed they fail as "unexpectedly passed", so the marker gets removed with the fix
 
-**Done:**
-- All disabled test classes re-enabled and adapted to current architecture
-- `TestLog` / `TestBaseNotify` fixed (`logfile=` param removed from constructor)
-- `TestDeviceFetchConfig` — `fetch_config(logger)` API
-- `TestRolloutEnginePushConfig` — `_push_config` returns `(cancel_signal, push_results)` tuple
-- `TestRolloutEngineVerify` — `_verify(logger)` only, cancel removed (uses ThreadPoolExecutor internally)
-- `TestRolloutEngineRun` — `run()` returns `list[DeviceResultDict]` not int
-- `TestFullRolloutAndVerifyPipeline` — full mock pipeline, all 4 scenarios
-- `_server_reachable` bug fixed — was returning True on ConnectionRefusedError
-- **82 passing, 1 skipped** (rate limit integration — requires live server)
-
-**Next session — webapp backend + CLI tests:**
-- Flask test client: auth routes (login, register, OTP flow), inventory CRUD, security profile CRUD, variable mapping CRUD, rollout submission, SSE stream, audit log
-- CLI unit tests: argument parsing, file input, headless rollout flow
-- Mocked DB (SQLite in-memory or mock session) for route tests
+**Open xfails — CLI, decision pending (fix or defer):**
+- Blank lines in the commands file are pushed as commands (the web path drops them)
+- The commands file isn't opened as `utf-8-sig` (the devices CSV is), so a BOM sticks to the first command
+- The final "Press Enter to exit..." raises `EOFError` when stdin isn't a terminal (cron, CI, pipes)
 
 **EVE-NG live testing (between Phase 3 and Phase 4):**
 - EVE-NG deployed on GCP with WireGuard VPN to dev machine (2026-04-13) — cannot run locally (conflicts with Docker/VMware Workstation virtualization)
@@ -411,7 +404,20 @@ Extended `RolloutLogger` to cover sequential administrative workflows with full 
 ## Remaining work — path to v1.0
 _Feature set is complete as of 2026-04-28. Remaining work is cleanup, packaging, and documentation._
 
-### Step 1 — 4.9c Codebase cleanup ← NEXT
+**Status (2026-09-29):**
+
+| Step | Scope | Status |
+|---|---|---|
+| 1 — 4.9c | Codebase cleanup (route abstraction, audit table) | ✅ Done |
+| 1b | Pre-4.1 cleanup (branch `pre-4.1-cleanup`) | ✅ Done, except: global-devices click-through, EVE-NG round, CLI xfail decision |
+| 2 — 4.0 | Blueprint split | ✅ Done — frontend asset splitting deferred |
+| 3 — 4.0b | BYO Postgres / Redis | ✅ Done — Grafana BYO post-v1.0 |
+| 4 — 4.1 | Docker image | ⬜ Next |
+| 5 — 4.2 | `install.py` | ⬜ |
+| 6 — 4.10 | Documentation | ⬜ |
+| 7 — 4.4 | Release | ⬜ |
+
+### Step 1 — 4.9c Codebase cleanup ✅ COMPLETE
 Do this before freezing into a Docker image. Code quality is easier to fix before packaging than after.
 
 **Response shape standardization ✅ COMPLETE (2026-04-28)**
@@ -486,15 +492,14 @@ Routes with real business logic (rollback, bulk assign, test connection) get a c
 | 18 | LDAP group routes use 2-space indentation | Low | reformat to 4-space | ✅ already correct |
 | 19 | `import subprocess` inside function body | Low | move to top-level imports | ✅ complete (2026-04-29) |
 | 20 | `import redis` inside function body | Low | move to top-level imports | ✅ complete (2026-04-29) |
-| 21 | ~80 routes in one 2885-line file | High | Blueprint split (Step 2) | ⬜ Step 2 |
+| 21 | ~80 routes in one 2885-line file | High | Blueprint split (Step 2) | ✅ Step 2 |
 | 22 | No centralized response envelope | Medium | `ok()` / `err()` helpers | ✅ implemented |
 
-**Dead code sweep:**
-- Remove stale imports, leftover comments, and any dead routes before the Blueprint split.
+**Dead code sweep:** moved to the deferred list (Step 1b).
 
 ---
 
-### Step 1b — Pre-4.1 cleanup (2026-09, branch `pre-4.1-cleanup`)
+### Step 1b — Pre-4.1 cleanup (2026-09, branch `pre-4.1-cleanup`) ✅ except the items under Remaining
 Blocking and should-fix items found in a full codebase review after the Blueprint split. Work lands on `pre-4.1-cleanup`; `master` is fast-forwarded when done.
 
 **Done:**
@@ -506,7 +511,7 @@ Blocking and should-fix items found in a full codebase review after the Blueprin
 - Redis resilience: dispatcher retries with backoff; app starts and serves with Redis unreachable (`REDIS_UNAVAILABLE`)
 - Retention cron fixed and policy revised (below)
 - Encryption key fail-fast: no import-time key load; refuses to start on malformed, missing-with-data, or mismatched key
-- Test suite: `pytest` from repo root; unit (hermetic) + integration (real PG/Redis, skipped when unhealthy); 258 passed
+- Test suite: `pytest` from repo root; unit (hermetic) + integration (real PG/Redis, skipped when unhealthy) — current scope and count in 3.5
 - 8 bugs found by the test suite, fixed: rollout cancel 500 (`hset(field=)`), Active Jobs 500 after restart, LDAP group auto-provision FK violation, duplicate registration 500, profile label NOT NULL (now nullable, migration `713db4dd6251`), Server Management postgres test/save 500, anonymous `/logout` 500, Redis client timeouts (~20s -> ~6s when unreachable)
 - Cancel race: devices finishing after a cancel were recorded as `cancelled` (rollback skipped them)
 - Rollout targets identified by `ip:port`, not IP: engine results keyed per device, `device_results.device_port` (migration `c2f578d78dc4`), Results labels / Verify Diff / rollback match on ip:port; the same ip:port selected twice in one rollout is refused (same IP on different ports is allowed — NAT / port forwarding)
@@ -519,11 +524,15 @@ Blocking and should-fix items found in a full codebase review after the Blueprin
 - Accessibility pass: readability tokens (`--nr-text*`, all tiers >= AA on every surface), 420 sub-AA text colors remapped, 12px text floor, visible keyboard focus, alt/aria labels, always-visible delete buttons
 - Device reachability: live `ip:port` status (cached 60s) on New Rollout rows and Inventory cards; unreachable devices blocked for rollout and rollback
 - Mappings on user-defined properties (validator used a hard-coded list of built-ins); drag panel uses the server's eligibility rule and explains an empty state
+- Edit device: direct Save; Test Connection only reports status (Add still tests first)
+- Assign board — one shared two-column board (`nrAssignBoard`) for the Security Profiles and Variable Mappings device modals: drag or click/Enter both ways, staged Save `(+N / −M)`, pending-change card edges with a key. Mappings unassign via `remove_ids` (only that mapping's bindings); unassigning a profile warns that the device is blocked in New Rollout; global devices keep their profile (enforced server-side too)
+- Console output UTF-8 and never fatal (`utf8_console()` at the webapp and CLI entry points): a `→` in a log line used to fail requests on a non-UTF-8 stdout
+- CLI unit tests (`tests/unit/test_cli.py`); three known CLI bugs recorded as strict xfails (see 3.5)
 
 **Remaining (in order):**
 
-- Global devices browser click-through
-- EVE-NG round: multi-device, FortiOS, verify pass/partial/fail, rollback
+- EVE-NG round: multi-device, FortiOS, verify pass/partial/fail, rollback — fold in the global-devices click-through (admin + a normal user)
+- CLI: fix or defer the three xfailed bugs (3.5)
 
 **Retention policy (decided 2026-09-29, supersedes the 7-day `job_metadata` rule):**
 
@@ -552,27 +561,31 @@ Constants live in `src/db/db_install.py` (`JOB_RETENTION_DAYS`, `CONFIG_SNAPSHOT
 
 ---
 
-### Step 2 — 4.0 Flask Blueprints + frontend asset splitting
-Split `webapp.py` into logical Blueprint modules. Do after cleanup so the split starts from clean code.
+### Step 2 — 4.0 Flask Blueprints ✅ COMPLETE · frontend asset splitting deferred
+`webapp.py` is now the `src/webapp/` package, run with `python -m src.webapp`.
 
-**Blueprint modules:**
-- `auth.py` — login, register, OTP enroll/verify, logout
-- `inventory.py` — inventory CRUD, bulk assign, CSV import
-- `security.py` — security profile CRUD, test connection
-- `mappings.py` — variable mapping CRUD, bulk assign
-- `rollout.py` — new_rollout, new_start_rollout, active_jobs, rollout stream, cancel, rollback
-- `admin.py` — admin panel, user actions, bulk actions, audit, sessions, server management
-- `webapp.py` — thin entry point: app factory, blueprint registration, Waitress serve
-- `extensions.py` — shared singletons: `orchestrator`, `csrf`, `login_mng`, `redis_client`, `VENDOR_LOGOS`
+**Package:**
+- `__init__.py` — `create_app()` factory, blueprint registration
+- `__main__.py` — entry point (Waitress)
+- `extensions.py` — shared singletons and error handlers; `setup.py` — app configuration; `utils.py` — `ok()`/`err()`, decorators, `act_on_db_obj`, access helpers
 
-All `url_for` calls need blueprint prefix (e.g. `url_for('rollout.active_jobs')`). This is the main mechanical cost of the split.
+**Blueprints (`src/webapp/blueprints/`):**
+- `auth.py` — login, register, OTP enroll/verify, logout, account
+- `inventory.py` — `/inventory`: CRUD, test connection, reachability, per-user mappings, CSV import, bulk profile assign
+- `security.py` — `/security`: profile CRUD, connection test
+- `mappings.py` — `/mappings`: mapping CRUD, bulk assign/unassign
+- `properties.py` — `/properties`: user-defined property CRUD
+- `rollout.py` — `/rollout`: new, start, stream, cancel, rollback
+- `jobs.py` — dashboard, active jobs, results, config diff, log download
+- `analytics.py` — `/analytics/query`
+- `admin_users.py`, `admin_observability.py`, `admin_servers.py` — `/admin`: users and sessions; audit and analytics; server management (Postgres, Redis, LDAP)
 
-**Frontend asset splitting:**
+**Frontend asset splitting (deferred past 4.1):**
 Extract per-page inline `<style>` and `<script>` blocks into `static/css/<page>.css` and `static/js/<page>.js`. Templates become thin layout files. Makes JS/CSS independently cacheable and reviewable. Do alongside or after Blueprints.
 
 ---
 
-### Step 3 — 4.0b BYO Infrastructure ✅ PARTIAL (2026-04-28)
+### Step 3 — 4.0b BYO Infrastructure ✅ COMPLETE for v1.0 (2026-04-28)
 Allow users to connect their own Postgres and Redis instead of the bundled Docker services.
 
 **PostgreSQL BYO ✅ COMPLETE** — server management UI card, `POST /admin/server/postgres/test` + `/save`, writes individual `DB_*` vars to `config.env`, merge-safe (does not overwrite Redis config).
@@ -637,7 +650,6 @@ Tag v1.0 on GitHub, push `v1.0` and `latest` to Docker Hub.
 ### Post-v1.0 (deferred)
 - **4.3 Update mechanism** — in-app version check widget hitting Docker Hub API
 - **4.5 CLI `.exe`** — PyInstaller standalone for `cli.py`
-- **3.5 Test suite expansion** — webapp route tests, CLI tests (core layer already at 82/83 passing)
 - **4.0b Grafana BYO** — server management card for external Grafana instance
 
 ---
