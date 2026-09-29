@@ -57,17 +57,15 @@ def _schedule_retention(conn, name: str, statement: str):
 
 
 def install(postgres: "PostgresConnection"):
+	# 1. Schema (essential). Migrations run on the app's own connection, so
+	#    they hit the exact database/credentials/schema the app uses — also
+	#    after a Server Management switch, and without DATABASE_URL.
 	try:
-		with postgres.engine.connect() as conn:
-			conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_cron;"))
-			for name, statement in _RETENTION_JOBS.items():
-				_schedule_retention(conn, name, statement)
-			conn.commit()
-
-		# Update DB Schema to last Alembic revision
 		alembic_cfg = AlembicConfig(os.path.join(os.path.dirname(__file__),
 		                                         'alembic.ini'))
-		alembic_command.upgrade(alembic_cfg, "head")
+		with postgres.engine.begin() as conn:
+			alembic_cfg.attributes["connection"] = conn
+			alembic_command.upgrade(alembic_cfg, "head")
 
 		with postgres.get_session() as session:
 			if not session.query(User).filter_by(username="admin").first():
@@ -80,6 +78,20 @@ def install(postgres: "PostgresConnection"):
 				            is_approved=True)
 				session.add(user)
 				session.flush()
-		print("DB Initialized")
 	except SQLAlchemyError as e:
 		print(f"Initialization Error: {e}")
+		return
+
+	# 2. Retention jobs (optional). pg_cron exists only where it's installed
+	#    and configured (cron.database_name) — e.g. not on many external /
+	#    managed Postgres servers. Its absence must never block the schema.
+	try:
+		with postgres.engine.connect() as conn:
+			conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_cron;"))
+			for name, statement in _RETENTION_JOBS.items():
+				_schedule_retention(conn, name, statement)
+			conn.commit()
+	except SQLAlchemyError as e:
+		print(f"[NetRollout] Retention jobs not scheduled — pg_cron "
+		      f"unavailable in this database: {str(e).splitlines()[0]}")
+	print("DB Initialized")
