@@ -146,16 +146,23 @@ class InputParser:
 		commands_path = commands_path.strip('"')
 		if self.validator.validate_file_extension(commands_path,"txt"):
 			try:
-				with open(commands_path, "r") as file:
-					commands = file.readlines()
-					# logs summary of file processing workflow
-					self.logger.notify(
-						f"Devices file successfully processed\n"
-						f"{len(commands)} commands will be executed",
-						"green")
+				# Same rules as the web path: UTF-8 (utf-8-sig drops a BOM
+				# that would otherwise stick to the first command), lines
+				# stripped, blank lines dropped
+				with open(commands_path, "r", encoding="utf-8-sig") as file:
+					commands = [line for raw in file if (line := raw.strip())]
+				# logs summary of file processing workflow
+				self.logger.notify(
+					f"Commands file successfully processed\n"
+					f"{len(commands)} commands will be executed",
+					"green")
 				return commands
 				# if an exception is thrown in parsing or validation fails, an error message is printed,
-				# and the function returns a tuple of empty lists
+				# and the function returns an empty list
+
+			except UnicodeDecodeError:
+				self.logger.notify("commands file must be UTF-8 text", "red")
+				return []
 
 			except FileNotFoundError:
 				self.logger.notify(f"file not found", "red")

@@ -186,39 +186,43 @@ def test_ctrl_c_sets_cancel_and_exits_cleanly(files, run_cli):
 	assert "Press Enter to exit..." not in prompts
 
 
-# ── Known bugs (strict xfail: flip to passing when fixed) ────────────────────
+# ── Commands file: same rules as the web path ───────────────────────────────
 
-@pytest.mark.xfail(strict=True, reason="CLI pushes blank lines as commands; "
-                                       "the web path drops them")
 def test_blank_command_lines_are_ignored(files, run_cli):
 	devices, commands = files(commands="hostname r1\n\n   \nntp server 1.1.1.1\n")
 	_, engine, _ = run_cli(["-d", devices, "-c", commands])
-	assert [c.strip() for c in engine_args(engine)["commands"]] == \
-	       ["hostname r1", "ntp server 1.1.1.1"]
+	assert engine_args(engine)["commands"] == ["hostname r1",
+	                                           "ntp server 1.1.1.1"]
 
 
-@pytest.mark.xfail(strict=True, reason="commands file isn't opened as "
-                                       "utf-8-sig (the devices CSV is), so a "
-                                       "BOM sticks to the first command")
 def test_utf8_bom_commands_file(files, run_cli):
+	# Notepad's "UTF-8 with BOM" used to glue U+FEFF to the first command
 	devices, commands = files(
 		commands_bytes="hostname r1\nntp server 1.1.1.1\n".encode("utf-8-sig"))
 	_, engine, _ = run_cli(["-d", devices, "-c", commands])
-	assert engine_args(engine)["commands"][0].strip() == "hostname r1"
+	assert engine_args(engine)["commands"][0] == "hostname r1"
 
 
-@pytest.mark.xfail(strict=True, raises=EOFError,
-                   reason="the final 'Press Enter' prompt raises EOFError "
-                          "when stdin isn't a terminal (cron, CI, pipes)")
-def test_non_interactive_run_exits_cleanly(files, run_cli, monkeypatch):
+def test_non_utf8_commands_file_exits_1(files, run_cli):
+	devices, commands = files(commands_bytes="description café\n".encode("cp1252"))
+	code, engine, _ = run_cli(["-d", devices, "-c", commands])
+	assert code == 1 and not engine.called
+
+
+# ── Non-interactive use ──────────────────────────────────────────────────────
+
+def test_non_interactive_run_exits_cleanly(files, monkeypatch):
+	# the final "Press Enter" prompt used to raise EOFError without a tty
 	devices, commands = files()
 	monkeypatch.setattr(sys, "argv", ["cli.py", "-d", devices, "-c", commands])
 
 	def no_stdin(prompt=""):
 		raise EOFError
 	monkeypatch.setattr("builtins.input", no_stdin)
-	with patch.object(cli, "RolloutEngine", MagicMock()), \
+	engine = MagicMock()
+	with patch.object(cli, "RolloutEngine", engine), \
 			patch("src.validation.Validator.test_tcp_port", return_value=True):
 		with pytest.raises(SystemExit) as exc:
 			cli.main()
 	assert exc.value.code == 0
+	engine.return_value.run.assert_called_once()
