@@ -19,7 +19,6 @@ Isolation (nothing here touches the developer's live data):
 Configure with env vars: TEST_PG_ADMIN_URL (a DB the test user can connect
 to for CREATE/DROP DATABASE), TEST_PG_DBNAME, TEST_REDIS_URL.
 """
-import dataclasses
 import os
 import re
 import subprocess
@@ -389,7 +388,7 @@ LDAP_SERVICE_DN, LDAP_SERVICE_PW = f"cn=svc,ou=Service,{LDAP_BASE}", "svc-pass"
 LDAP_GROUP_DN = f"cn=netops,ou=Groups,{LDAP_BASE}"
 LDAP_USERS = {  # uid -> (dn, password)
 	"jdoe": (f"cn=John Doe,ou=Network,ou=Users,{LDAP_BASE}", "jdoe-pass"),
-	"bsmith": (f"cn=Smith\, Bob,ou=Users,{LDAP_BASE}", "bob-pass"),
+	"bsmith": (rf"cn=Smith\, Bob,ou=Users,{LDAP_BASE}", "bob-pass"),
 	"alice": (f"cn=Alice Brown,ou=Users,{LDAP_BASE}", "alice-pass"),
 }
 

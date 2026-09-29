@@ -5,18 +5,17 @@ from datetime import datetime
 
 # services
 #flask
-from flask import jsonify, request, redirect, url_for, flash, session
-from flask_login import current_user, login_user
+from flask import jsonify, request, redirect, url_for, flash
+from flask_login import current_user
 #sqlalchemy
 from sqlalchemy import and_, or_
 
 # local modules
 from src.db.backend import BackendServices
-from src.db.tables import (DeviceResult, AuditLog, SecurityProfile,
-                           PropertyDefinition, Inventory)
+from src.db.tables import (AuditLog, SecurityProfile, PropertyDefinition,
+                           Inventory)
 from src.encryption import encrypt
 from src.reachability import ReachabilityChecker
-from src.validation import Validator
 
 ##########################Constants#######################################
 SYSTEM_PROPERTIES = [
@@ -234,7 +233,7 @@ class WebServices:
 	          object_label=None,
 	          detail=None, success=True, username=None, actor_id=None):
 		"""Write one append-only audit row.
-		Opens its own redis_session so the write
+		Opens its own DB session so the write
 		commits independently of the calling route transaction."""
 		if username is None:
 			username = current_user.username if current_user.is_authenticated else "anonymous"
@@ -280,18 +279,6 @@ class WebServices:
 		        getattr(obj, 'name', None) or
 		        getattr(obj, 'token', None) or
 		        str(obj.id))
-
-	def create_op(self, model_class, fields, audit_action, db_session,
-	              label_func=None):
-		obj = model_class(**fields)
-		db_session.add(obj)
-		db_session.flush()
-
-		label = label_func(obj) if label_func else self.get_label(obj)
-		self.audit(audit_action, object_type=type(obj).__name__,
-		           object_id=obj.id,
-		           object_label=label)
-		return ok(id=str(obj.id))
 
 	def update_op(self, fields, audit_action, label_func=None, skip_none=False,
 	              on_success=None):

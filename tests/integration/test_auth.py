@@ -1,6 +1,5 @@
 """Authentication flows: local login + OTP, registration, gates, LDAP
 (server mocked), rate limiting, logout/account."""
-import uuid
 from unittest.mock import patch
 
 import pyotp

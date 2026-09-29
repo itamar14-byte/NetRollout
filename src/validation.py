@@ -11,7 +11,7 @@ class Validator:
     def __init__(self, logger: RolloutLogger):
         self.logger = logger
 
-    # Defines supported platforms for redis_session_app
+    # Netmiko device types NetRollout supports
     SUPPORTED_PLATFORMS = {
     "fortinet",
     "paloalto_panos",
@@ -75,7 +75,7 @@ class Validator:
 
     @staticmethod
     def validate_platform(platform: str) -> bool:
-        """checks that platform is supported by the redis_session_app"""
+        """checks that platform is supported by NetRollout"""
         if platform not in Validator.SUPPORTED_PLATFORMS:
             return False
         return True

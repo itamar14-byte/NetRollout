@@ -4,7 +4,6 @@ import uuid
 from collections import Counter
 from csv import DictReader
 from dataclasses import dataclass, field
-from json import loads
 
 from sqlalchemy.orm import Session
 
@@ -165,28 +164,6 @@ class InputParser:
 			"green" if not report.errors else "yellow", important=True)
 		return report
 
-	def form_to_inventory(self, devices_json: str, user_id: uuid.UUID,
-	                      db_session: Session) -> list[Device]:
-		raw_devices = loads(devices_json) if devices_json else []
-		devices, _ = self.prepare_devices(raw_devices=raw_devices,
-		                                   require_credentials=False)
-		# logs summary of file processing workflow
-		#self.logger.notify(f"Devices loaded: {devices}","green")
-
-		'''self.logger.notify(
-			f"Devices file successfully processed\n"
-			f" {len(devices)} devices found",
-			"green")'''
-		for device in devices:
-			row = Inventory(user_id=user_id, ip=device.ip,
-			                port=device.port,
-			                device_type=device.device_type,
-			                label=device.label if device.label else device.ip)
-			db_session.add(row)
-		# return the processed data
-		return devices
-
-
 	def parse_commands(self, commands_path: str) -> list[str]:
 		commands_path = commands_path.strip('"')
 		if self.validator.validate_file_extension(commands_path,"txt"):
@@ -210,11 +187,11 @@ class InputParser:
 				return []
 
 			except FileNotFoundError:
-				self.logger.notify(f"file not found", "red")
+				self.logger.notify("file not found", "red")
 				return []
 
 			except PermissionError:
-				self.logger.notify(f"can't access file", "red")
+				self.logger.notify("can't access file", "red")
 				return []
 
 			except Exception as e:

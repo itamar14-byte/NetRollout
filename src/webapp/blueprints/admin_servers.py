@@ -58,17 +58,17 @@ def relaunch_command() -> list[str]:
 	return [sys.executable, *sys.orig_argv[1:]]
 
 
-def unload_ldap_data(ldap_request):
-	label = ldap_request.form.get("label", "").strip()
-	ip = ldap_request.form.get("ip", "").strip()
-	port = ldap_request.form.get("port", "389").strip()
-	base_dn = ldap_request.form.get("base_dn", "").strip()
-	cn_identifier = ldap_request.form.get("cn_identifier", "").strip()
-	bind_type = ldap_request.form.get("bind_type", "").strip()
-	bind_dn = ldap_request.form.get("bind_dn", "").strip()
-	use_ssl = ldap_request.form.get("use_ssl", "").strip()
-	is_active = ldap_request.form.get("is_active", "").strip()
-	bind_password = ldap_request.form.get("bind_password", "").strip()
+def unload_ldap_data(req):
+	label = req.form.get("label", "").strip()
+	ip = req.form.get("ip", "").strip()
+	port = req.form.get("port", "389").strip()
+	base_dn = req.form.get("base_dn", "").strip()
+	cn_identifier = req.form.get("cn_identifier", "").strip()
+	bind_type = req.form.get("bind_type", "").strip()
+	bind_dn = req.form.get("bind_dn", "").strip()
+	use_ssl = req.form.get("use_ssl", "").strip()
+	is_active = req.form.get("is_active", "").strip()
+	bind_password = req.form.get("bind_password", "").strip()
 
 	return {"label": label,
 	        "ip": ip,

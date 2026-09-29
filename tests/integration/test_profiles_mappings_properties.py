@@ -173,7 +173,6 @@ def test_quick_create_and_edit(client_for, make_user, db_get):
 
 def test_bulk_assign_checks_eligibility(client_for, make_user, make_device,
                                         make_mapping, session_scope):
-	from src.db.tables import Inventory
 	user = make_user()
 	ok = make_device(user, ip="10.0.0.1", var_maps={"hostname": "r1"})
 	missing = make_device(user, ip="10.0.0.2", var_maps={})
