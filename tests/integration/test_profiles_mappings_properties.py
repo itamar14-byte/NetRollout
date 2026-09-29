@@ -214,3 +214,32 @@ def test_pages_render(client_for, make_user):
 	client = client_for(make_user())
 	for path in ("/security", "/mappings", "/properties"):
 		assert client.get(path).status_code == 200, path
+
+
+def test_mappings_on_user_defined_properties(client_for, make_user,
+                                             make_device, session_scope):
+	# custom properties used to be rejected: the validator only knew the
+	# nine built-in names
+	user = make_user()
+	client = client_for(user)
+	client.post("/properties/create", json={"name": "rack", "label": "Rack"})
+	client.post("/properties/create", json={"name": "uplinks",
+	                                        "label": "Uplinks", "is_list": True})
+	client.post("/mappings/create", data={"token_inner": "RACK",
+	                                      "property_name": "rack"})
+	resp = client.post("/mappings/quick_create", json={
+		"token_inner": "UP1", "property_name": "uplinks", "index": 1})
+	assert resp.json["status"] == "ok"
+	bad = client.post("/mappings/quick_create", json={
+		"token_inner": "RACK0", "property_name": "rack", "index": 0})
+	assert bad.json["status"] == "error"  # rack isn't a list
+	tokens = {m.token for m in mappings_of(session_scope, user)}
+	assert tokens == {"$$RACK$$", "$$UP1$$"}
+	# and they bind through drag-assign like built-ins
+	dev = make_device(user, var_maps={"rack": "R12"})
+	rack = next(m for m in mappings_of(session_scope, user)
+	            if m.token == "$$RACK$$")
+	client.post("/mappings/bulk_assign", json={"mapping_id": str(rack.id),
+	                                           "device_ids": [str(dev)]})
+	with session_scope() as s:
+		assert [d.id for d in s.get(VariableMapping, rack.id).devices] == [dev]

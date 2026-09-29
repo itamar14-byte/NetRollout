@@ -23,6 +23,15 @@ bp = Blueprint('mappings', __name__, url_prefix='/mappings')
 
 
 #######################Route helpers###########################################
+def property_rules() -> tuple[set[str], set[str]]:
+	# (allowed names, list names) from the same definitions the pages show:
+	# system defaults + the user's own properties
+	sys_props, user_props = current_app.web.get_property_defs(current_user.id)
+	props = sys_props + user_props
+	return ({p["name"] for p in props},
+	        {p["name"] for p in props if p["is_list"]})
+
+
 def validate_mapping_fields(index: int, property_name: str, inner_token: str) \
 		-> Response | None:
 	status, msg = Validator.validate_var_map_inner_token(inner_token)
@@ -30,12 +39,14 @@ def validate_mapping_fields(index: int, property_name: str, inner_token: str) \
 		flash(msg, "danger")
 		return redirect(url_for("mappings.mappings"))
 
-	status, msg = Validator.validate_var_map_property_name(property_name)
+	allowed, list_props = property_rules()
+	status, msg = Validator.validate_var_map_property_name(property_name,
+	                                                       allowed)
 	if not status:
 		flash(msg, "danger")
 		return redirect(url_for("mappings.mappings"))
 
-	status, msg = Validator.validate_var_index(index, property_name)
+	status, msg = Validator.validate_var_index(index, property_name, list_props)
 	if not status:
 		flash(msg, "danger")
 		return redirect(url_for("mappings.mappings"))
@@ -119,10 +130,12 @@ def mappings_quick_create(data):
 	status, msg = Validator.validate_var_map_inner_token(inner_token)
 	if not status:
 		return err(msg)
-	status, msg = Validator.validate_var_map_property_name(property_name)
+	allowed, list_props = property_rules()
+	status, msg = Validator.validate_var_map_property_name(property_name,
+	                                                       allowed)
 	if not status:
 		return err(msg)
-	status, msg = Validator.validate_var_index(index, property_name)
+	status, msg = Validator.validate_var_index(index, property_name, list_props)
 	if not status:
 		return err(msg)
 

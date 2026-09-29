@@ -194,11 +194,19 @@ def test_mapping_token_validation(token, ok):
 	assert Validator.validate_var_map_inner_token(token)[0] is ok
 
 
-def test_mapping_index_only_for_vrfs():
-	assert Validator.validate_var_index(1, "vrfs") == (True, None)
-	assert Validator.validate_var_index(None, "hostname") == (True, None)
-	assert Validator.validate_var_index(0, "hostname")[0] is False
-	assert Validator.validate_var_index(-1, "vrfs")[0] is False
+def test_mapping_index_only_for_list_properties():
+	lists = {"vrfs", "uplinks"}  # system list + a user-defined list
+	assert Validator.validate_var_index(1, "vrfs", lists) == (True, None)
+	assert Validator.validate_var_index(0, "uplinks", lists) == (True, None)
+	assert Validator.validate_var_index(None, "hostname", lists) == (True, None)
+	assert Validator.validate_var_index(0, "hostname", lists)[0] is False
+	assert Validator.validate_var_index(-1, "vrfs", lists)[0] is False
+
+
+def test_property_name_checked_against_the_users_definitions():
+	allowed = {"hostname", "rack"}  # includes a user-defined property
+	assert Validator.validate_var_map_property_name("rack", allowed)[0] is True
+	assert Validator.validate_var_map_property_name("nope", allowed)[0] is False
 
 
 # ── Admin restart relaunch ───────────────────────────────────────────────────
