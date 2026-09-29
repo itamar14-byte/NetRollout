@@ -64,6 +64,97 @@ def test_is_global_migration_backfills_and_round_trips(test_db_url):
 		admin.dispose()
 
 
+@pytest.fixture
+def scratch_db(test_db_url):
+	"""A throwaway database (no pg_cron, no DATABASE_URL pointing at it)."""
+	from sqlalchemy.engine import make_url
+	name = f"rollout_inst_{uuid.uuid4().hex[:6]}"
+	base = make_url(test_db_url)
+	admin = create_engine(base.set(database="postgres"),
+	                      isolation_level="AUTOCOMMIT")
+	with admin.connect() as c:
+		c.execute(text(f'CREATE DATABASE "{name}"'))
+	yield base.set(database=name)
+	with admin.connect() as c:
+		c.execute(text(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)'))
+	admin.dispose()
+
+
+def _pg_config(url, schema=None):
+	from src.db.postgres_db import PostgresConfig
+	return PostgresConfig(host=url.host, port=str(url.port),
+	                      database=url.database, user=url.username,
+	                      password=url.password, schema=schema)
+
+
+def _head_revision():
+	from alembic.config import Config
+	from alembic.script import ScriptDirectory
+	return ScriptDirectory.from_config(
+		Config(str(ROOT / "src" / "db" / "alembic.ini"))).get_current_head()
+
+
+def test_install_migrates_the_connected_db_not_database_url(
+		scratch_db, monkeypatch, capsys):
+	from src.db.db_install import install
+	from src.db.postgres_db import PostgresConnection
+	monkeypatch.delenv("DATABASE_URL", raising=False)  # used to be required
+	conn = PostgresConnection(_pg_config(scratch_db))
+	try:
+		install(conn)
+		with conn.engine.connect() as c:
+			assert c.execute(text("select version_num from alembic_version")) \
+				       .scalar() == _head_revision()
+			assert c.execute(text("select count(*) from users where "
+			                      "username='admin'")).scalar() == 1
+	finally:
+		conn.disconnect()
+	# no pg_cron here: warned about, and it didn't block the schema
+	assert "Retention jobs not scheduled" in capsys.readouterr().out
+
+
+def test_install_honours_pg_schema(scratch_db):
+	from src.db.db_install import install
+	from src.db.postgres_db import PostgresConnection
+	admin = create_engine(scratch_db)
+	with admin.begin() as c:
+		c.execute(text("CREATE SCHEMA nr"))
+	admin.dispose()
+	conn = PostgresConnection(_pg_config(scratch_db, schema="nr"))
+	try:
+		install(conn)
+		with conn.engine.connect() as c:
+			tables = {r[0] for r in c.execute(text(
+				"select table_name from information_schema.tables "
+				"where table_schema = 'nr'"))}
+			public = c.execute(text(
+				"select count(*) from information_schema.tables "
+				"where table_schema = 'public'")).scalar()
+	finally:
+		conn.disconnect()
+	assert {"users", "inventory", "alembic_version"} <= tables
+	assert public == 0  # nothing leaked into public
+
+
+def test_cli_migrates_from_pg_vars_without_database_url(scratch_db):
+	# Every PG_* var is set explicitly: config.env is loaded without override,
+	# so anything left unset would be filled from the developer's live config
+	env = {k: v for k, v in os.environ.items()
+	       if k != "DATABASE_URL" and not k.startswith("PG_")}
+	env.update(PG_HOST=scratch_db.host, PG_PORT=str(scratch_db.port),
+	           PG_NAME=scratch_db.database, PG_USER=scratch_db.username,
+	           PG_PASSWORD=scratch_db.password)
+	result = subprocess.run([sys.executable, "-m", "alembic", "upgrade", "head"],
+	                        cwd=ROOT / "src" / "db", capture_output=True,
+	                        text=True, env=env)
+	assert result.returncode == 0, result.stderr
+	engine = create_engine(scratch_db)
+	with engine.connect() as c:
+		assert c.execute(text("select version_num from alembic_version")) \
+			       .scalar() == _head_revision()
+	engine.dispose()
+
+
 # ── Retention SQL (the statements pg_cron runs) ──────────────────────────────
 
 @pytest.fixture
