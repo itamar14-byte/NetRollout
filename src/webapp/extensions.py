@@ -89,9 +89,8 @@ def register_handlers(app, backend: BackendServices):
 		      f"or {KEY_FILE} from the previous host or a backup), then "
 		      f"restart.\n"
 		      f"  If it's lost: re-enter security profile passwords and the "
-		      f"LDAP bind password; clear a user's 2FA with\n"
-		      f"    UPDATE users SET otp_secret = NULL WHERE username = "
-		      f"'<user>';\n"
+		      f"LDAP bind password; for 2FA, Admin -> Users -> Reset 2FA (the "
+		      f"factory admin account signs in without 2FA).\n"
 		      f"  Don't generate a new key.", file=sys.stderr, flush=True)
 		if request.is_json:
 			return err("Encryption key invalid", 500)

@@ -60,6 +60,12 @@
       </button>
     </span>
 
+    <span class="tip-wrap" id="wrapReset2FA">
+      <button class="tb-btn reset2fa-tb" id="btnReset2FA" disabled>
+        <i class="bi bi-shield-slash me-1"></i>Reset 2FA
+      </button>
+    </span>
+
     <div class="tb-divider"></div>
 
     <span class="tip-wrap" id="wrapDelete">
@@ -98,7 +104,7 @@
         {% set status = "pending" %}
       {% endif %}
       <tr data-status="{{ status }}"
-          data-user='{{ {"id": user.id|string, "username": user.username, "role": user.role, "approved": user.is_approved, "active": user.is_active, "is_self": (user.id == current_user.id), "is_factory": (user.username == "admin"), "has_session": (user.id|string in session_user_ids), "auth_type": user.auth_type}|tojson }}'>
+          data-user='{{ {"id": user.id|string, "username": user.username, "role": user.role, "approved": user.is_approved, "active": user.is_active, "is_self": (user.id == current_user.id), "is_factory": (user.username == "admin"), "has_session": (user.id|string in session_user_ids), "auth_type": user.auth_type, "has_2fa": user.otp_secret is not none}|tojson }}'>
 
         <td style="padding-right:0;">
           {% if user.username != "admin" %}
@@ -156,6 +162,42 @@
   <input type="hidden" id="bulkIds" name="user_ids">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 </form>
+
+<!-- Reset 2FA confirmation modal -->
+<div class="modal fade" id="reset2faModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered" style="max-width:430px;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <div class="nr-badge" style="margin-bottom:0.3rem;">TWO-FACTOR</div>
+          <h5 class="modal-title">Reset 2FA</h5>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size:0.88rem; color:var(--nr-text-secondary); margin-bottom:0.6rem;">
+          Reset two-factor sign-in for
+          <span id="r2faCount" style="font-family:'JetBrains Mono',monospace; color:var(--nr-accent); font-weight:700;"></span> user(s):
+        </p>
+        <p id="r2faNames" style="font-family:'JetBrains Mono',monospace; font-size:0.78rem; color:var(--nr-text-muted); margin-bottom:1rem; word-break:break-all;"></p>
+        <p style="font-size:0.82rem; color:var(--nr-text-muted); margin-bottom:0.5rem;">
+          Their current authenticator stops working. At their next sign-in they set up a new one
+          with a QR code.
+        </p>
+        <p style="font-size:0.82rem; color:#ffcc80; margin-bottom:0;">
+          <i class="bi bi-exclamation-triangle me-1"></i>Until then, their password alone gets them
+          to the setup step. Only reset when you've confirmed the request is genuine.
+        </p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary btn-sm" id="r2faConfirmBtn">
+          <i class="bi bi-shield-slash me-1"></i>Reset 2FA
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
 
 <!-- Delete confirmation modal -->
 <div class="modal fade" id="deleteModal" tabindex="-1" aria-hidden="true">
@@ -250,6 +292,8 @@
   .demote-tb:not(:disabled):hover   { background: rgba(108,117,125,0.22); }
   .terminate-tb { background: rgba(255,152,0,0.12); color: #ffcc80; border: 1px solid rgba(255,152,0,0.25); }
   .terminate-tb:not(:disabled):hover { background: rgba(255,152,0,0.25); }
+  .reset2fa-tb { background: rgba(0,188,212,0.1); color: #80deea; border: 1px solid rgba(0,188,212,0.25); }
+  .reset2fa-tb:not(:disabled):hover { background: rgba(0,188,212,0.2); }
   .delete-tb  { background: rgba(183,28,28,0.12);  color: #ef9a9a; border: 1px solid rgba(183,28,28,0.2); }
   .delete-tb:not(:disabled):hover   { background: rgba(183,28,28,0.25); }
 
@@ -284,7 +328,7 @@
 
 <script>
   // ── Data ──
-  const ACTIONS = ["Approve","Enable","Disable","Promote","Demote","TerminateSession","Delete"];
+  const ACTIONS = ["Approve","Enable","Disable","Promote","Demote","TerminateSession","Reset2FA","Delete"];
 
   const rules = {
     Approve: sel => {
@@ -321,6 +365,12 @@
       if (sel.some(u => u.is_factory)) return "The factory user's session cannot be terminated";
       const noSession = sel.filter(u => !u.has_session).length;
       return noSession ? `${noSession} user(s) have no active session` : null;
+    },
+    // Only local users enroll 2FA — LDAP users and the factory admin don't use it
+    Reset2FA: sel => {
+      if (!sel.length) return "No users selected";
+      const none = sel.filter(u => !u.has_2fa).length;
+      return none ? `${none} user(s) have no 2FA set up` : null;
     },
     Delete: sel => {
       if (!sel.length) return "No users selected";
@@ -398,6 +448,21 @@
       document.getElementById("bulkForm").action = `/admin/users/bulk/${name === "TerminateSession" ? "terminate_session" : name.toLowerCase()}`;
       document.getElementById("bulkForm").submit();
     });
+  });
+
+  // ── Reset 2FA flow (confirmed: it lowers protection until re-enrollment) ──
+  document.getElementById("btnReset2FA").addEventListener("click", () => {
+    const sel = getSelected();
+    document.getElementById("r2faCount").textContent = sel.length;
+    document.getElementById("r2faNames").textContent = sel.map(u => u.username).join(", ");
+    new bootstrap.Modal(document.getElementById("reset2faModal")).show();
+  });
+
+  document.getElementById("r2faConfirmBtn").addEventListener("click", () => {
+    const sel = getSelected();
+    document.getElementById("bulkIds").value = sel.map(u => u.id).join(",");
+    document.getElementById("bulkForm").action = "/admin/users/bulk/reset_2fa";
+    document.getElementById("bulkForm").submit();
   });
 
   // ── Delete flow ──
