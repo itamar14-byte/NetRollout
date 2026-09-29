@@ -545,7 +545,6 @@ Constants live in `src/db/db_install.py` (`JOB_RETENTION_DAYS`, `CONFIG_SNAPSHOT
 - Inventory: warn (don't block) when a device's ip:port matches a global device — overlapping IPs are legitimate (VRFs, NAT, port-forwarded labs)
 - Active Directory: test against a real AD (Samba AD DC container, ephemeral like the OpenLDAP one) — `sAMAccountName` logins, UPN binds, and nested-group membership (today only direct members of a mapped group match)
 - CSV import: extra attribute columns (hostname, vrfs, custom properties) are parsed but not saved to the device's variable attributes
-- `RolloutLogger.notify` `print`s non-cp1252 characters (`→`); when stdout isn't UTF-8 (redirected output or a Windows service; not an interactive console or Docker) the request fails with `UnicodeEncodeError`, e.g. both bulk_assign routes. Fix: `sys.stdout.reconfigure(encoding="utf-8", errors="replace")` at startup, or `PYTHONIOENCODING=utf-8`
 - Log file retention: `logs/` is never pruned — app-side cleanup at startup (Loki keeps its own copy)
 - Retention periods as Server Management settings instead of constants (post-v1.0)
 

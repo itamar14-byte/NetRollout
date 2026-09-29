@@ -1,12 +1,23 @@
 import datetime
 import html
 import os
+import sys
 import threading
 
 import redis
 from redis.client import PubSub
 
 LOGS_DIR = os.path.join(os.path.dirname(__file__), "..", "logs")
+
+
+def utf8_console() -> None:
+    """Make console output UTF-8 and never fatal. Messages contain
+    characters like '→' and '—'; on a non-UTF-8 stdout (redirected output,
+    a Windows service: cp1252) print() raised UnicodeEncodeError and failed
+    the whole request. Called once by each entry point."""
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
 
 
 RED = "\033[91m"

@@ -4,7 +4,10 @@ import sys
 from waitress import serve
 
 from src.encryption import EncryptionStartupError
+from src.logging_utils import utf8_console
 from src.webapp import create_app
+
+utf8_console()
 
 try:
 	app = create_app()
