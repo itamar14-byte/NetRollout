@@ -553,7 +553,12 @@ Constants live in `src/db/db_install.py` (`JOB_RETENTION_DAYS`, `CONFIG_SNAPSHOT
 - nginx SSE `location /rollout_stream` → `/rollout/stream` (streaming works via `X-Accel-Buffering: no`)
 - Frontend asset splitting (Step 2)
 - Active Directory: test against a real AD (Samba AD DC container, ephemeral like the OpenLDAP one) — `sAMAccountName` logins, UPN binds, and nested-group membership (today only direct members of a mapped group match)
-- Retention periods as Server Management settings instead of constants (post-v1.0)
+- System settings page, starting with retention periods (post-v1.0) — design agreed 2026-09-29:
+  - **Storage:** key–value table `system_settings(key text PK, value jsonb, updated_at, updated_by)` — a row exists only for a value an admin changed. Bootstrap settings (DB/Redis connection, `SECRET_KEY`, encryption key) stay in `config.env`/env: they're needed before the DB is reachable.
+  - **Code registry is the schema:** per key — type, default, allowed range, description, UI card. Defaults live in code, not the DB, so a changed default in a new release reaches every install that never touched it. Adding a setting = one registry entry (no migration, no template work).
+  - **Reads:** DB row if present, else the registry default. **Writes:** one admin route, validated against the registry, audited as `settings.update` (old → new). **Reset to default** deletes the row.
+  - **Retention (first card):** job record (30d), config snapshots (7d), audit log (90d), log files (60d). pg_cron jobs read the value at run time — `make_interval(days => COALESCE((SELECT (value)::int FROM system_settings WHERE key = '…'), <default>))` — so changes apply at the next run without a restart; `prune_logs()` reads it each daily run. Rules on save: log retention ≥ job retention (Download Log needs the file while the job exists — today's unit test becomes this validation) and per-setting minimums (e.g. ≥ 1 day).
+  - **UI:** admin panel → System → **System Settings** (next to Server Management), generated from the registry; every admin sees the same global values, each marked default or changed, with reset. Later candidates: session timeout, `ORCHESTRATOR_WORKERS`, reachability cache TTL.
 
 **Noted for 4.2 (`install.py`):** force or generate the factory `admin` password instead of shipping `admin`/`admin`; factory-account documentation at release.
 
