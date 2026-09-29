@@ -525,6 +525,7 @@
                 <div class="nr-board-hint">
                     <i class="bi bi-arrow-left-right"></i>
                     Drag devices between the columns, or click one to move it. Nothing changes until you save.
+                    <span class="nr-board-legend" id="boardLegend" aria-live="polite"></span>
                 </div>
             </div>
             <div class="modal-footer" style="justify-content:space-between;">
@@ -753,6 +754,7 @@ function openDevices(mapping, assignedDevices) {
         assigned: [...assigned],
         pool:     DEVICES_ALL.filter(d => isResolvable(d) && !assigned.has(d.id)).map(d => d.id),
         logos:    VENDOR_LOGOS,
+        legend:   document.getElementById('boardLegend'),
         meta:     d => getDeviceVal(d),
         warn:     d => isResolvable(d) ? null
                      : 'No value for ' + activeWhere() + ': this device is skipped at rollout',
