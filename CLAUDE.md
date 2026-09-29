@@ -118,8 +118,8 @@ Always-dark enterprise aesthetic — permanently dark, no toggle. Key design ele
 - **Phase 3.3 — Results page ✅ COMPLETE (2026-04-13)** — expandable job rows, See Commands modal, Download Log, side-by-side LCS diff
 - **Phase 3.4 — Audit trail ✅ COMPLETE (2026-04-13)** — AuditLog table, 21 instrumented routes, /admin/audit filterable UI, log file infrastructure
 - **Phase 3.4b — Analytics + Query Builder ✅ COMPLETE (2026-04-17)** — KPI cards, jQuery QueryBuilder compound filters, `/analytics/query` + `/admin/analytics/query` POST routes, CSV export
-- **Remaining Phase 3:** 3.5 Test suite, 3.6 Per-job device concurrency
-- **Phase 4 — Packaging** (4.7 Alembic ✅, 4.8 Server Management ✅, 4.8b nginx ✅, 4.8c Admin panel redesign ✅, 4.9 Grafana+Prometheus next)
+- **Phase 3.5 — Test suite ✅ (2026-09-29)**, **3.6 — Per-job device concurrency ✅**
+- **Phase 4 — Packaging:** 4.6/4.6b sessions + Redis ✅, 4.7 Alembic ✅, 4.8 Server Management ✅, 4.8b nginx ✅, 4.8c Admin panel ✅, 4.9 Grafana ✅, 4.9b LDAP ✅, 4.9c cleanup ✅, 4.0 Blueprints ✅, pre-4.1 cleanup ✅ (branch `pre-4.1-cleanup`). **Next:** EVE-NG round, then 4.1 Docker. Current status table: `docs/workplan.md` → "Remaining work"
 
 ## Frontend asset structure (current — Phase 3)
 Per-page CSS and JS live inline in `{% block extra_style %}` and `{% block extra_script %}` blocks. This is intentional for Phase 3 — no build pipeline, one file per page. Phase 4 will extract these into `static/css/` and `static/js/` files.
