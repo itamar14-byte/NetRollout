@@ -406,7 +406,7 @@ _Feature set is complete as of 2026-04-28. Remaining work is cleanup, packaging,
 | Step | Scope | Status |
 |---|---|---|
 | 1 — 4.9c | Codebase cleanup (route abstraction, audit table) | ✅ Done |
-| 1b | Pre-4.1 cleanup (branch `pre-4.1-cleanup`) | ✅ Done, except the EVE-NG round (incl. global-devices click-through) |
+| 1b | Pre-4.1 cleanup (branch `pre-4.1-cleanup`) | ✅ Done — EVE-NG round postponed (not blocking) |
 | 2 — 4.0 | Blueprint split | ✅ Done — frontend asset splitting deferred |
 | 3 — 4.0b | BYO Postgres / Redis | ✅ Done — Grafana BYO post-v1.0 |
 | 4 — 4.1 | Docker image | ⬜ Next |
@@ -524,12 +524,13 @@ Blocking and should-fix items found in a full codebase review after the Blueprin
 - Edit device: direct Save; Test Connection only reports status (Add still tests first)
 - Assign board — one shared two-column board (`nrAssignBoard`) for the Security Profiles and Variable Mappings device modals: drag or click/Enter both ways, staged Save `(+N / −M)`, pending-change card edges with a key. Mappings unassign via `remove_ids` (only that mapping's bindings); unassigning a profile warns that the device is blocked in New Rollout; global devices keep their profile (enforced server-side too)
 - Console output UTF-8 and never fatal (`utf8_console()` at the webapp and CLI entry points): a `→` in a log line used to fail requests on a non-UTF-8 stdout
+- Global devices browser click-through (admin + normal user) — done by the developer
 - CLI unit tests (`tests/unit/test_cli.py`); the three CLI bugs they found are fixed (see 3.5)
 - Rollout summary counts real outcomes ("1 success, 1 failed (of 2 devices)"; it used to call every attempted device configured). CLI exit code reflects the outcome: 0 all succeeded, 1 mixed, 2 nothing applied, 130 Ctrl+C
 
 **Remaining (in order):**
 
-- EVE-NG round: multi-device, FortiOS, verify pass/partial/fail, rollback — fold in the global-devices click-through (admin + a normal user)
+- EVE-NG round: multi-device, FortiOS, verify pass/partial/fail, rollback — postponed by the developer (2026-09-29)
 
 **Retention policy (decided 2026-09-29, supersedes the 7-day `job_metadata` rule):**
 
