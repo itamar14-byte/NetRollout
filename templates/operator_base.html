@@ -820,6 +820,15 @@
         }
         .reach-recheck:hover { color: var(--nr-accent); border-color: rgba(0,188,212,0.4); }
         .reach-recheck:disabled { opacity: 0.6; cursor: default; }
+        /* Opens the drag-assign split view in device-assignment modals */
+        .nr-assign-btn {
+            background: rgba(0,188,212,0.06); border: 1px solid rgba(0,188,212,0.45);
+            border-radius: 6px; color: var(--nr-accent); font-size: 0.8rem;
+            font-weight: 500; padding: 0.3rem 0.75rem; white-space: nowrap;
+            display: inline-flex; align-items: center; gap: 0.35rem; cursor: pointer;
+            transition: background 0.15s, border-color 0.15s;
+        }
+        .nr-assign-btn:hover { background: rgba(0,188,212,0.14); border-color: var(--nr-accent); }
     </style>
 <script>
 // ── Reachability (shared by New Rollout and Inventory) ─────────────────────

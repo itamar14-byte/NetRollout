@@ -582,9 +582,9 @@
                     <div class="nr-badge" style="margin-bottom:0.3rem;">ATTACHED DEVICES</div>
                     <h5 class="modal-title" id="devicesModalTitle">Devices</h5>
                 </div>
-                <button type="button" class="btn-icon edit me-2" id="splitToggleBtn"
-                        title="Assign devices" onclick="activateSplit()">
-                    <i class="bi bi-plus-lg"></i>
+                <button type="button" class="nr-assign-btn me-3" id="splitToggleBtn"
+                        onclick="activateSplit()">
+                    <i class="bi bi-plus-lg"></i>Assign devices
                 </button>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
@@ -786,12 +786,14 @@ function openDevices(profile, assignedDevices) {
     document.getElementById('availableList').innerHTML = '';
 
     new bootstrap.Modal(document.getElementById('devicesModal')).show();
+    // Nothing assigned yet: open straight into the drag view
+    if (!assignedDevices.length) activateSplit();
 }
 
 function renderAssignedList(devices) {
     const list = document.getElementById('assignedList');
     if (!devices.length) {
-        list.innerHTML = '<p style="font-size:0.82rem; color:var(--nr-text-muted); font-style:italic; margin:0; padding:0.5rem 0;">No devices assigned.</p>';
+        list.innerHTML = '<p style="font-size:0.82rem; color:var(--nr-text-muted); font-style:italic; margin:0; padding:0.5rem 0;">No devices assigned yet. Drag devices from the right to assign them.</p>';
     } else {
         list.innerHTML = devices.map(d => `
             <div class="device-row">
