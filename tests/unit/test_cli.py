@@ -32,8 +32,10 @@ def files(tmp_path):
 def run_cli(monkeypatch):
 	"""Run cli.main() with argv and scripted input() answers. Returns
 	(exit_code, engine_ctor, prompts) — engine_ctor is the mocked
-	RolloutEngine class (None calls when no rollout started)."""
-	def _run(argv, answers=(), reachable=True, engine_run=None):
+	RolloutEngine class (None calls when no rollout started). The engine
+	reports every device as `statuses` (default: all success)."""
+	def _run(argv, answers=(), reachable=True, engine_run=None,
+	         statuses=("success",)):
 		monkeypatch.setattr(sys, "argv", ["cli.py", *argv])
 		prompts, queue = [], list(answers)
 
@@ -42,6 +44,7 @@ def run_cli(monkeypatch):
 			return queue.pop(0) if queue else ""
 		monkeypatch.setattr("builtins.input", fake_input)
 		engine_ctor = MagicMock(name="RolloutEngine")
+		engine_ctor.return_value.run.return_value = results(*statuses)
 		if engine_run is not None:
 			engine_ctor.return_value.run.side_effect = engine_run
 		with patch.object(cli, "RolloutEngine", engine_ctor), \
@@ -55,6 +58,11 @@ def run_cli(monkeypatch):
 
 def engine_args(engine_ctor):
 	return engine_ctor.call_args.kwargs
+
+
+def results(*statuses):
+	"""Minimal engine results: only `status` matters to the CLI."""
+	return [{"status": s} for s in statuses]
 
 
 # ── Arguments ────────────────────────────────────────────────────────────────
@@ -170,9 +178,27 @@ def test_empty_commands_file_exits_1(files, run_cli):
 	assert code == 1 and not engine.called
 
 
+# ── Exit code reflects the outcome ───────────────────────────────────────────
+
+@pytest.mark.parametrize("statuses,expected", [
+	(("success", "success"), 0),
+	(("success", "failed"), 1),
+	(("success", "cancelled"), 1),
+	(("partial", "failed"), 1),    # partial = some commands applied
+	(("failed", "failed"), 2),
+	(("failed", "cancelled"), 2),
+	((), 2),
+])
+def test_exit_code_reflects_device_outcomes(files, run_cli, statuses,
+                                            expected):
+	devices, commands = files()
+	code, _, _ = run_cli(["-d", devices, "-c", commands], statuses=statuses)
+	assert code == expected
+
+
 # ── Ctrl+C ───────────────────────────────────────────────────────────────────
 
-def test_ctrl_c_sets_cancel_and_exits_cleanly(files, run_cli):
+def test_ctrl_c_sets_cancel_and_exits_130(files, run_cli):
 	devices, commands = files()
 	seen = {}
 
@@ -181,7 +207,7 @@ def test_ctrl_c_sets_cancel_and_exits_cleanly(files, run_cli):
 		raise KeyboardInterrupt
 	code, _, prompts = run_cli(["-d", devices, "-c", commands],
 	                           engine_run=interrupted)
-	assert code == 0
+	assert code == 130  # shell convention for Ctrl+C
 	assert seen["cancel"].is_set()
 	assert "Press Enter to exit..." not in prompts
 
@@ -220,6 +246,7 @@ def test_non_interactive_run_exits_cleanly(files, monkeypatch):
 		raise EOFError
 	monkeypatch.setattr("builtins.input", no_stdin)
 	engine = MagicMock()
+	engine.return_value.run.return_value = results("success")
 	with patch.object(cli, "RolloutEngine", engine), \
 			patch("src.validation.Validator.test_tcp_port", return_value=True):
 		with pytest.raises(SystemExit) as exc:

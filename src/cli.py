@@ -79,16 +79,26 @@ def main():
 	# Runs the main function that executes the tool.
 	# On Ctrl+C from the user, the cancel event is set and the system exits
 	try:
-		engine.run(cancel, logger)
+		results = engine.run(cancel, logger)
 		try:
 			input("Press Enter to exit...")
 		except EOFError:
 			pass  # no terminal (cron, CI, piped stdin): nothing to wait for
-		sys.exit(0)
+		sys.exit(exit_code(results))
 	except KeyboardInterrupt:
 		cancel.set()
 		logger.notify("Interrupted by user. Exiting.", "red")
-		sys.exit(0)
+		sys.exit(130)  # shell convention for Ctrl+C (128 + SIGINT)
+
+
+def exit_code(results) -> int:
+	"""0 = every device succeeded; 1 = mixed (some devices partial, failed
+	or cancelled); 2 = nothing applied anywhere (every device failed or
+	was cancelled) — so scripts and CI can tell."""
+	statuses = [r["status"] for r in results]
+	if statuses and all(s == "success" for s in statuses):
+		return 0
+	return 1 if any(s in ("success", "partial") for s in statuses) else 2
 
 
 if __name__ == "__main__":
