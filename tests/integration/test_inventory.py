@@ -267,6 +267,78 @@ def test_csv_import_missing_required_columns(client_for, make_user):
 	assert "Missing required columns: port" in flashes(client)
 
 
+# ── Same ip:port as another device: warn, never block ───────────────────────
+
+def dup_warnings(client):
+	return [m for m in flashes(client) if "is already used by" in m
+	        or "share an ip:port" in m]
+
+
+def test_create_warns_on_same_endpoint_as_own_device(client_for, make_user,
+                                                     make_device,
+                                                     session_scope):
+	user = make_user()
+	make_device(user, ip="10.1.1.1", label="core-a")
+	client = client_for(user)
+	client.post("/inventory/create", data=FORM)          # 10.1.1.1:22
+	assert device_by_label(session_scope, "edge-1")     # saved anyway
+	(msg,) = dup_warnings(client)
+	assert msg.startswith("10.1.1.1:22 is already used by core-a.")
+	# another port on the same IP (port forwarding) is a different endpoint
+	other = client_for(user)
+	other.post("/inventory/create", data={**FORM, "label": "edge-2",
+	                                      "port": "2222"})
+	assert dup_warnings(other) == []
+
+
+def test_create_warns_on_global_device_but_never_on_private_ones(
+		client_for, make_user, make_device):
+	admin, user, stranger = (make_user(role="admin"), make_user(),
+	                         make_user())
+	make_device(admin, ip="10.1.1.1", label="core-g", is_global=True)
+	make_device(stranger, ip="10.9.9.9", label="theirs")   # invisible to user
+	client = client_for(user)
+	client.post("/inventory/create", data=FORM)
+	assert dup_warnings(client) == [
+		"10.1.1.1:22 is already used by core-g (global). That's fine for NAT, "
+		"VRFs or port-forwarded labs, but they can't be in the same rollout."]
+	private = client_for(user)
+	private.post("/inventory/create", data={**FORM, "label": "x",
+	                                        "ip": "10.9.9.9"})
+	assert dup_warnings(private) == []   # other users' devices never leak
+
+
+def test_edit_warns_only_when_the_endpoint_changes(client_for, make_user,
+                                                   make_device):
+	user = make_user()
+	make_device(user, ip="10.1.1.1", label="core-a")
+	dev = make_device(user, ip="10.2.2.2", label="edge")
+	changed = client_for(user)
+	changed.post(f"/inventory/{dev}/edit", data={**FORM, "label": "edge",
+	                                             "ip": "10.1.1.1"})
+	assert len(dup_warnings(changed)) == 1
+	unchanged = client_for(user)     # saving again, endpoint unchanged
+	unchanged.post(f"/inventory/{dev}/edit", data={**FORM, "label": "edge2",
+	                                               "ip": "10.1.1.1"})
+	assert dup_warnings(unchanged) == []
+
+
+def test_csv_import_warns_on_shared_endpoints(client_for, make_user,
+                                              make_device, session_scope):
+	user = make_user()
+	make_device(user, ip="10.1.1.1", label="core-a")
+	client = client_for(user)
+	import_csv(client, "ip,device_type,port,label\n"
+	                   "10.1.1.1,cisco_ios,22,dup-existing\n"
+	                   "10.3.3.3,cisco_ios,22,twin-1\n"
+	                   "10.3.3.3,cisco_ios,22,twin-2\n"
+	                   "10.4.4.4,cisco_ios,22,alone\n")
+	assert len(devices_of(session_scope, user)) == 5     # all imported
+	(msg,) = dup_warnings(client)
+	assert msg.startswith("2 imported devices share an ip:port with another "
+	                      "device: 10.1.1.1:22, 10.3.3.3:22.")
+
+
 def test_json_routes_report_invalid_request_plainly(client_for, make_user):
 	resp = client_for(make_user()).post("/inventory/bulk_assign", data="x",
 	                                    content_type="application/json")

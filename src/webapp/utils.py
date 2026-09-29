@@ -144,6 +144,30 @@ def can_edit_device(device, user):
 			device.is_global and user.role == "admin")
 
 
+def same_endpoint_devices(db_session, user_id, ip, port, exclude_id=None):
+	"""Visible devices (own + global) already using this ip:port. Overlap is
+	legitimate (NAT, VRFs, port-forwarded labs), so callers warn, never
+	block; other users' private devices are never considered."""
+	query = db_session.query(Inventory).filter(
+		visible_devices_clause(user_id),
+		Inventory.ip == ip, Inventory.port == int(port))
+	if exclude_id is not None:
+		query = query.filter(Inventory.id != exclude_id)
+	return query.order_by(Inventory.label).all()
+
+
+def same_endpoint_warning(devices, ip, port) -> str | None:
+	"""One warning naming the devices that share ip:port. Build it while the
+	DB session is open (it reads labels); flash it after the success message."""
+	if not devices:
+		return None
+	names = ", ".join(f"{d.label} (global)" if d.is_global else d.label
+	                  for d in devices[:5]) + (", …" if len(devices) > 5 else "")
+	return (f"{ip}:{port} is already used by {names}. That's fine for NAT, "
+	        f"VRFs or port-forwarded labs, but they can't be in the same "
+	        f"rollout.")
+
+
 def partition_devices(devices):
 	"""Split visible devices into (global_devices, my_devices)."""
 	global_devices = [d for d in devices if d.is_global]
