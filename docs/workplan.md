@@ -174,7 +174,7 @@ Constructor takes `Validator` + `RolloutLogger`. Methods: `csv_to_inventory`, `f
 - Eager load of `profile.inventory` inside session before `expunge_all()` — prevents DetachedInstanceError
 - AGPL v3 license added to repo; footer license notice in `operator_base.html`
 - Inventory UI frontend: thin card grid, vendor badge (Simple Icons CDN via `VENDOR_LOGOS` Jinja2 global), FortiGate hover tooltip, NrSelect custom dropdown, edit modal with variable attributes expand section (hostname, loopback_ip, asn, mgmt_vrf, mgmt_interface, site, domain, timezone, vrfs)
-- TCP Test Connection button on both Add and Edit device modals — same three-state flow: grey Test → green Confirm (submit) / red Save Anyway (submit); status pill on left; resets on IP/port change and modal close
+- TCP Test Connection button on both Add and Edit device modals. Add: grey Test → green Confirm (submit) / red Save Anyway (submit). Edit: a direct Save button, and Test only reports status. Status pill on the left; resets on IP/port change and modal close
 - Security profiles drag-assign: split-view modal, draggable device cards, dashed drop zone, cardLand animation, AJAX to `/inventory/bulk_assign`
 - `Inventory.var_maps` JSON column, `Device.extra` dict field, `VariableMapping.index` nullable int
 - Inventory backend: `create`, `edit`, `delete`, `bulk_assign` all implemented and ownership-guarded

@@ -885,6 +885,9 @@
                                 onclick="testEditConnection()">
                             <i class="bi bi-plug me-1"></i>Test Connection
                         </button>
+                        <button type="submit" id="editSaveBtn" class="btn btn-primary btn-sm edit-only">
+                            <i class="bi bi-check-lg me-1"></i>Save
+                        </button>
                         <button type="submit" class="btn btn-primary btn-sm readonly-only">
                             <i class="bi bi-check-lg me-1"></i>Save Mappings
                         </button>
@@ -1459,14 +1462,13 @@ async function testAddConnection() {
 document.getElementById('addDevIp').addEventListener('input',   resetAddTestBtn);
 document.getElementById('addDevPort').addEventListener('input',  resetAddTestBtn);
 
+// Editing an existing device: Save is always available, the test is advisory
+// and only reports status (unlike Add, where the test gates the submit).
 function resetEditTestBtn() {
     const btn    = document.getElementById('editTestBtn');
     const status = document.getElementById('editTestStatus');
-    btn.type      = 'button';
-    btn.className = 'btn btn-secondary btn-sm';
     btn.innerHTML = '<i class="bi bi-plug me-1"></i>Test Connection';
     btn.disabled  = false;
-    btn.onclick   = testEditConnection;
     status.style.display = 'none';
     status.className     = 'conn-status';
     status.textContent   = '';
@@ -1498,32 +1500,17 @@ async function testEditConnection() {
             body:    JSON.stringify({ ip, port: portNum })
         });
         const data = await resp.json();
+        const ok = data.status === 'ok';
         status.style.display = '';
-        if (data.status === 'ok') {
-            status.className  = 'conn-status conn-ok';
-            status.innerHTML  = '<i class="bi bi-check-circle-fill"></i>' + data.message;
-            btn.type      = 'submit';
-            btn.className = 'btn btn-success btn-sm';
-            btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Confirm';
-            btn.disabled  = false;
-            btn.onclick   = null;
-        } else {
-            status.className  = 'conn-status conn-fail';
-            status.innerHTML  = '<i class="bi bi-x-circle-fill"></i>' + data.message;
-            btn.type      = 'submit';
-            btn.className = 'btn btn-danger btn-sm';
-            btn.innerHTML = '<i class="bi bi-exclamation-triangle me-1"></i>Save Anyway';
-            btn.disabled  = false;
-            btn.onclick   = null;
-        }
+        status.className  = 'conn-status ' + (ok ? 'conn-ok' : 'conn-fail');
+        status.innerHTML  = '<i class="bi bi-' + (ok ? 'check' : 'x') + '-circle-fill"></i>' + data.message;
     } catch (_) {
         status.style.display = '';
         status.className  = 'conn-status conn-fail';
         status.innerHTML  = '<i class="bi bi-x-circle-fill"></i>Network error';
-        btn.disabled  = false;
-        btn.innerHTML = '<i class="bi bi-plug me-1"></i>Test Connection';
-        btn.onclick   = testEditConnection;
     }
+    btn.disabled  = false;
+    btn.innerHTML = '<i class="bi bi-plug me-1"></i>Test Connection';
 }
 
 document.getElementById('editDevIp').addEventListener('input',  resetEditTestBtn);
