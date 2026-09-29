@@ -896,10 +896,23 @@
         .nr-board-card:hover .nr-board-move,
         .nr-board-card:focus-visible .nr-board-move { opacity: 1; color: var(--nr-accent); }
         .nr-board-hint {
-            display: flex; align-items: center; gap: 0.4rem;
+            display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;
             padding: 0.6rem 1.25rem; border-top: 1px solid #1a1a1a;
             font-size: 0.78rem; color: var(--nr-text-muted);
         }
+        /* Pending-change key for the card edges (bars, like the edges —
+           not dots, so it doesn't read as reachability) */
+        .nr-board-legend {
+            margin-left: auto; display: inline-flex; gap: 0.8rem;
+            font-size: 0.72rem; color: var(--nr-text-muted); white-space: nowrap;
+        }
+        .nr-board-legend:empty { display: none; }
+        .nr-board-swatch {
+            display: inline-block; width: 3px; height: 0.8rem; border-radius: 1px;
+            margin-right: 0.35rem; vertical-align: -2px;
+        }
+        .nr-board-swatch--added   { background: var(--nr-accent); }
+        .nr-board-swatch--removed { background: #ef5350; }
         .nr-board-alert {
             margin: 0 1.25rem 0.9rem; padding: 0.55rem 0.75rem; border-radius: 6px;
             font-size: 0.8rem; display: flex; gap: 0.5rem; align-items: flex-start;
@@ -970,6 +983,7 @@ function nrReachChecking(el) {
 //       pool [ids], logos {device_type: url}, meta(d) -> text,
 //       warn(d, isAssigned) -> text|null, locked(d, isAssigned) -> reason|null
 //       (a locked card can't move), emptyIn, emptyOut() -> text,
+//       legend (element: key for the card edges, filled while changes are staged),
 //       onChange(board)
 function nrAssignBoard(root, opts) {
     const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;')
@@ -1037,6 +1051,13 @@ function nrAssignBoard(root, opts) {
     function render() {
         renderCol('in');
         renderCol('out');
+        if (opts.legend) {
+            const key = (kind, text) =>
+                `<span><span class="nr-board-swatch nr-board-swatch--${kind}"></span>${text}</span>`;
+            opts.legend.innerHTML =
+                (board.added().length   ? key('added', 'to assign')     : '') +
+                (board.removed().length ? key('removed', 'to unassign') : '');
+        }
         landed = null;
         if (opts.onChange) opts.onChange(board);
     }
