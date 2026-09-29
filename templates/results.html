@@ -52,7 +52,7 @@
 /* ── Device sub-table ── */
 .device-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
 .device-table th {
-    color: #777;
+    color: var(--nr-text-muted);
     font-weight: 500;
     font-size: 0.7rem;
     text-transform: uppercase;
@@ -88,7 +88,7 @@
 .job-action-btn {
     background: transparent;
     border: 1px solid #2a2a2a;
-    color: #777;
+    color: var(--nr-text-muted);
     border-radius: 5px;
     padding: 4px 10px;
     font-size: 0.75rem;
@@ -109,7 +109,7 @@
 .job-action-btn.is-expired:hover {
     border-style: dashed;
     border-color: #2a2a2a;
-    color: #444;
+    color: var(--nr-text-muted);
     background: transparent;
     cursor: default;
 }
@@ -134,7 +134,7 @@
 
 /* ── Column headers ── */
 .col-header {
-    color: #555;
+    color: var(--nr-text-muted);
     font-size: 0.7rem;
     font-weight: 500;
     text-transform: uppercase;
@@ -143,7 +143,7 @@
 
 /* ── Expand chevron ── */
 .chevron {
-    color: #555;
+    color: var(--nr-text-muted);
     font-size: 0.85rem;
     transition: transform 0.2s;
 }
@@ -192,7 +192,7 @@
 .diff-num {
     width: 32px;
     text-align: right;
-    color: #444;
+    color: var(--nr-text-muted);
     user-select: none;
     border-right: 1px solid #222;
     padding-right: 6px !important;
@@ -212,14 +212,14 @@
 .empty-state {
     text-align: center;
     padding: 60px 20px;
-    color: #555;
+    color: var(--nr-text-muted);
 }
 .empty-state i { font-size: 2.5rem; margin-bottom: 16px; display: block; }
 
 /* ── Owner badge ── */
 .owner-badge {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 0.62rem;
+    font-size: 0.6875rem;
     color: #888;
     background: rgba(255,255,255,0.04);
     border: 1px solid #2a2a2a;
@@ -243,15 +243,15 @@
 .section-divider:first-child { border-top: none; margin-top: 0; }
 .section-divider-label {
     font-family: 'Inter', sans-serif;
-    font-size: 0.68rem;
+    font-size: 0.6875rem;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 1.5px;
-    color: #444;
+    color: var(--nr-text-muted);
 }
 .section-divider-chevron {
     font-size: 0.75rem;
-    color: #333;
+    color: var(--nr-text-muted);
     transition: transform 0.2s;
 }
 .section-divider.open .section-divider-chevron { transform: rotate(180deg); }
@@ -262,11 +262,11 @@
 <div class="d-flex align-items-center gap-3 mb-4">
     <div class="nr-badge">RESULTS</div>
     <h4 class="mb-0" style="font-weight:600;">Job History</h4>
-    <span style="color:#555; font-size:0.85rem;" id="jobCountLabel">{{ jobs|length }} job{{ 's' if jobs|length != 1 }}</span>
+    <span style="color:var(--nr-text-muted); font-size:0.85rem;" id="jobCountLabel">{{ jobs|length }} job{{ 's' if jobs|length != 1 }}</span>
     {% if is_admin %}
     <div class="ms-auto">
         <button id="allUsersToggle" class="job-action-btn" onclick="toggleAllUsers()"
-                style="border-color:#2a2a2a; color:#555;">
+                style="border-color:#2a2a2a; color:var(--nr-text-muted);">
             <i class="bi bi-people me-1"></i>All Users
         </button>
     </div>
@@ -289,17 +289,17 @@
             <input type="checkbox" class="diff-checkbox"
                    onclick="event.stopPropagation();"
                    onchange="handleDiffSelect(this)">
-            <span style="font-family:'JetBrains Mono',monospace; font-size:0.78rem; color:#777;"
+            <span style="font-family:'JetBrains Mono',monospace; font-size:0.78rem; color:var(--nr-text-muted);"
                   title="{{ job.job_id }}">
                 {{ job.job_id[:8] }}…
             </span><button type="button"
                     onclick="event.stopPropagation(); copyJobId(this, '{{ job.job_id }}')"
-                    style="background:none; border:none; padding:0 0 0 4px; color:#444;
-                           cursor:pointer; font-size:0.72rem; vertical-align:middle;
+                    style="background:none; border:none; padding:0 0 0 4px; color:var(--nr-text-muted);
+                           cursor:pointer; font-size: 0.75rem; vertical-align:middle;
                            transition:color 0.15s;"
                     title="Copy full job ID"
                     onmouseenter="this.style.color='#00bcd4'"
-                    onmouseleave="this.style.color='#444'">
+                    onmouseleave="this.style.color='var(--nr-text-muted)'">
                 <i class="bi bi-copy"></i>
             </button>
             {% if show_owner %}
@@ -313,7 +313,7 @@
         <!-- Started at -->
         <span style="font-size:0.82rem; color:#aaa;">
             {{ job.started_at.strftime('%Y-%m-%d') }}<br>
-            <span style="color:#555; font-size:0.75rem;">{{ job.started_at.strftime('%H:%M:%S') }}</span>
+            <span style="color:var(--nr-text-muted); font-size:0.75rem;">{{ job.started_at.strftime('%H:%M:%S') }}</span>
         </span>
 
         <!-- Duration -->
@@ -377,7 +377,7 @@
         </div>
 
         <!-- Device table -->
-        <div style="color:#555; font-size:0.72rem; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:8px;">Devices</div>
+        <div style="color:var(--nr-text-muted); font-size:0.72rem; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:8px;">Devices</div>
         <table class="device-table">
             <thead>
                 <tr>
@@ -391,17 +391,17 @@
             <tbody>
                 {% for d in job.devices %}
                 <tr>
-                    <td style="font-family:'JetBrains Mono',monospace; font-size:0.8rem;">{{ d.ip }}{% if d.port != 22 %}<span style="color:#555;">:{{ d.port }}</span>{% endif %}</td>
+                    <td style="font-family:'JetBrains Mono',monospace; font-size:0.8rem;">{{ d.ip }}{% if d.port != 22 %}<span style="color:var(--nr-text-muted);">:{{ d.port }}</span>{% endif %}</td>
                     <td>
                         {% if VENDOR_LOGOS.get(d.device_type) %}
-                        <img src="{{ VENDOR_LOGOS[d.device_type] }}" width="14" height="14"
+                        <img alt="" src="{{ VENDOR_LOGOS[d.device_type] }}" width="14" height="14"
                              style="filter:brightness(0) invert(0.7); margin-right:5px; vertical-align:middle;">
                         {% endif %}
                         <span style="font-size:0.78rem; color:#888;">{{ d.device_type }}</span>
                     </td>
                     <td style="font-family:'JetBrains Mono',monospace;">{{ d.commands_sent }}</td>
                     <td style="font-family:'JetBrains Mono',monospace;">
-                        {% if d.commands_verified is not none %}{{ d.commands_verified }}{% else %}<span style="color:#444;">—</span>{% endif %}
+                        {% if d.commands_verified is not none %}{{ d.commands_verified }}{% else %}<span style="color:var(--nr-text-muted);">—</span>{% endif %}
                     </td>
                     <td><span class="status-pill pill-{{ d.status }}">{{ d.status }}</span></td>
                 </tr>
@@ -418,7 +418,7 @@
 {% if jobs %}
 <!-- Filter bar -->
 <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
-    <span style="color:#555; font-size:0.78rem; margin-right:4px;">Filter:</span>
+    <span style="color:var(--nr-text-muted); font-size:0.78rem; margin-right:4px;">Filter:</span>
     <button class="filter-btn active" data-filter="all">All</button>
     <button class="filter-btn" data-filter="success">Success</button>
     <button class="filter-btn" data-filter="partial">Partial</button>
@@ -453,7 +453,7 @@
 <div id="paginationBar" class="d-flex align-items-center justify-content-between mt-3"
      style="display:none !important;">
     <div class="d-flex align-items-center gap-2">
-        <span style="color:#555; font-size:0.78rem;">Per page:</span>
+        <span style="color:var(--nr-text-muted); font-size:0.78rem;">Per page:</span>
         <select id="perPageSelect"
                 style="background:#111; border:1px solid #222; border-radius:6px; color:#888;
                        font-size:0.78rem; padding:3px 8px; cursor:pointer; outline:none;">
@@ -464,19 +464,19 @@
         </select>
     </div>
     <div class="d-flex align-items-center gap-2">
-        <button id="pgPrev" onclick="changePage(-1)"
-                style="background:none; border:1px solid #222; border-radius:6px; color:#555;
+        <button id="pgPrev" aria-label="Previous page" title="Previous page" onclick="changePage(-1)"
+                style="background:none; border:1px solid #222; border-radius:6px; color:var(--nr-text-muted);
                        width:28px; height:28px; cursor:pointer; font-size:0.9rem; transition:color 0.15s, border-color 0.15s;"
                 onmouseenter="this.style.color='#aaa';this.style.borderColor='#444';"
-                onmouseleave="this.style.color='#555';this.style.borderColor='#222';">
+                onmouseleave="this.style.color='var(--nr-text-muted)';this.style.borderColor='#222';">
             <i class="bi bi-chevron-left"></i>
         </button>
-        <span id="pgLabel" style="font-family:'JetBrains Mono',monospace; font-size:0.75rem; color:#555; min-width:80px; text-align:center;"></span>
-        <button id="pgNext" onclick="changePage(1)"
-                style="background:none; border:1px solid #222; border-radius:6px; color:#555;
+        <span id="pgLabel" style="font-family:'JetBrains Mono',monospace; font-size:0.75rem; color:var(--nr-text-muted); min-width:80px; text-align:center;"></span>
+        <button id="pgNext" aria-label="Next page" title="Next page" onclick="changePage(1)"
+                style="background:none; border:1px solid #222; border-radius:6px; color:var(--nr-text-muted);
                        width:28px; height:28px; cursor:pointer; font-size:0.9rem; transition:color 0.15s, border-color 0.15s;"
                 onmouseenter="this.style.color='#aaa';this.style.borderColor='#444';"
-                onmouseleave="this.style.color='#555';this.style.borderColor='#222';">
+                onmouseleave="this.style.color='var(--nr-text-muted)';this.style.borderColor='#222';">
             <i class="bi bi-chevron-right"></i>
         </button>
     </div>
@@ -486,8 +486,8 @@
 <div class="nr-card">
     <div class="nr-card-body empty-state">
         <i class="bi bi-inbox"></i>
-        <div style="font-size:1rem; color:#666; margin-bottom:6px;">No completed jobs yet</div>
-        <div style="font-size:0.82rem; color:#444;">Start a rollout to see results here.</div>
+        <div style="font-size:1rem; color:var(--nr-text-muted); margin-bottom:6px;">No completed jobs yet</div>
+        <div style="font-size:0.82rem; color:var(--nr-text-muted);">Start a rollout to see results here.</div>
     </div>
 </div>
 {% endif %}
@@ -499,7 +499,7 @@
 
     {# Shared data_filter bar for split view #}
     <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
-        <span style="color:#555; font-size:0.78rem; margin-right:4px;">Filter:</span>
+        <span style="color:var(--nr-text-muted); font-size:0.78rem; margin-right:4px;">Filter:</span>
         <button class="filter-btn-split active" data-filter="all">All</button>
         <button class="filter-btn-split" data-filter="success">Success</button>
         <button class="filter-btn-split" data-filter="partial">Partial</button>
@@ -511,7 +511,7 @@
     <div class="section-divider open" onclick="toggleSection(this, 'my-jobs-body')">
         <i class="bi bi-chevron-down section-divider-chevron"></i>
         <span class="section-divider-label">My Jobs</span>
-        <span style="font-family:'JetBrains Mono',monospace; font-size:0.65rem; color:#333;">
+        <span style="font-family:'JetBrains Mono',monospace; font-size: 0.6875rem; color:var(--nr-text-muted);">
             {{ jobs|length }}
         </span>
     </div>
@@ -527,7 +527,7 @@
         </div>
         <div id="my-job-list">{{ job_rows(jobs) }}</div>
         {% else %}
-        <div style="text-align:center; padding:1.5rem; color:#444; font-size:0.8rem;">No jobs.</div>
+        <div style="text-align:center; padding:1.5rem; color:var(--nr-text-muted); font-size:0.8rem;">No jobs.</div>
         {% endif %}
     </div>
 
@@ -535,7 +535,7 @@
     <div class="section-divider open" onclick="toggleSection(this, 'other-jobs-body')">
         <i class="bi bi-chevron-down section-divider-chevron"></i>
         <span class="section-divider-label">Other Users</span>
-        <span style="font-family:'JetBrains Mono',monospace; font-size:0.65rem; color:#333;">
+        <span style="font-family:'JetBrains Mono',monospace; font-size: 0.6875rem; color:var(--nr-text-muted);">
             {{ other_jobs|length }}
         </span>
     </div>
@@ -551,7 +551,7 @@
         </div>
         <div id="other-job-list">{{ job_rows(other_jobs, show_owner=true) }}</div>
         {% else %}
-        <div style="text-align:center; padding:1.5rem; color:#444; font-size:0.8rem;">No other users' jobs.</div>
+        <div style="text-align:center; padding:1.5rem; color:var(--nr-text-muted); font-size:0.8rem;">No other users' jobs.</div>
         {% endif %}
     </div>
 
@@ -565,12 +565,12 @@
             <div class="modal-header" style="border-bottom:1px solid #222;">
                 <div class="d-flex gap-4 align-items-center flex-grow-1">
                     <div>
-                        <div style="font-size:0.65rem; color:#555; text-transform:uppercase; letter-spacing:1px;">Older</div>
+                        <div style="font-size: 0.6875rem; color:var(--nr-text-muted); text-transform:uppercase; letter-spacing:1px;">Older</div>
                         <span id="diffLeftLabel" style="font-family:'JetBrains Mono',monospace; font-size:0.78rem; color:#ef9a9a;"></span>
                     </div>
-                    <div style="color:#333;">→</div>
+                    <div style="color:var(--nr-text-muted);">→</div>
                     <div>
-                        <div style="font-size:0.65rem; color:#555; text-transform:uppercase; letter-spacing:1px;">Newer</div>
+                        <div style="font-size: 0.6875rem; color:var(--nr-text-muted); text-transform:uppercase; letter-spacing:1px;">Newer</div>
                         <span id="diffRightLabel" style="font-family:'JetBrains Mono',monospace; font-size:0.78rem; color:#a5d6a7;"></span>
                     </div>
                 </div>
@@ -581,16 +581,16 @@
                 <table class="diff-table" style="border-bottom:1px solid #1e1e1e;">
                     <tr style="background:#111;">
                         <td class="diff-num"></td>
-                        <td class="diff-cell" style="color:#555; font-size:0.65rem; text-transform:uppercase; letter-spacing:1px; padding:6px 8px;">Left</td>
+                        <td class="diff-cell" style="color:var(--nr-text-muted); font-size: 0.6875rem; text-transform:uppercase; letter-spacing:1px; padding:6px 8px;">Left</td>
                         <td class="diff-sep"></td>
                         <td class="diff-num"></td>
-                        <td class="diff-cell" style="color:#555; font-size:0.65rem; text-transform:uppercase; letter-spacing:1px; padding:6px 8px;">Right</td>
+                        <td class="diff-cell" style="color:var(--nr-text-muted); font-size: 0.6875rem; text-transform:uppercase; letter-spacing:1px; padding:6px 8px;">Right</td>
                     </tr>
                 </table>
                 <table class="diff-table">
                     <tbody id="diffTbody"></tbody>
                 </table>
-                <div id="diffEmpty" style="display:none; text-align:center; padding:2rem; color:#555; font-size:0.85rem;">
+                <div id="diffEmpty" style="display:none; text-align:center; padding:2rem; color:var(--nr-text-muted); font-size:0.85rem;">
                     Commands are identical.
                 </div>
             </div>
@@ -638,7 +638,7 @@
             <div class="modal-header" style="border-bottom:1px solid #222;">
                 <h6 class="modal-title"
                     style="font-family:'JetBrains Mono',monospace; color:#00bcd4;">
-                    Commands <span style="color:#555; font-weight:400; font-size:0.8rem;">(pre-substitution)</span>
+                    Commands <span style="color:var(--nr-text-muted); font-weight:400; font-size:0.8rem;">(pre-substitution)</span>
                 </h6>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
@@ -683,9 +683,9 @@ async function showConfigDiff(btn) {
             tab.style.cssText =
                 'background:none; border:none; border-bottom:2px solid transparent;' +
                 'padding:6px 14px; font-family:\'JetBrains Mono\',monospace; font-size:0.75rem;' +
-                'color:#555; cursor:pointer; white-space:nowrap; transition:color 0.15s, border-color 0.15s;';
+                'color:var(--nr-text-muted); cursor:pointer; white-space:nowrap; transition:color 0.15s, border-color 0.15s;';
             tab.onmouseenter = () => { if (!tab.classList.contains('vd-active')) tab.style.color = '#aaa'; };
-            tab.onmouseleave = () => { if (!tab.classList.contains('vd-active')) tab.style.color = '#555'; };
+            tab.onmouseleave = () => { if (!tab.classList.contains('vd-active')) tab.style.color = 'var(--nr-text-muted)'; };
             tab.onclick = () => _renderVerifyDiff(devices[i], tab);
             tabBar.appendChild(tab);
         });
@@ -724,7 +724,7 @@ async function showConfigDiff(btn) {
                     'transition:background 0.1s, color 0.1s;';
                 opt.innerHTML =
                     '<span style="color:#ccc;">' + label + '</span>' +
-                    (label !== ip ? ' <span style="color:#444; font-size:0.7rem;">(' + ip + ')</span>' : '');
+                    (label !== ip ? ' <span style="color:var(--nr-text-muted); font-size: 0.75rem;">(' + ip + ')</span>' : '');
                 opt.onmouseenter = () => { opt.style.background = '#1e1e1e'; opt.style.color = '#ccc'; };
                 opt.onmouseleave = () => { opt.style.background = 'none'; };
                 opt.onclick = () => {
@@ -751,7 +751,7 @@ async function _renderVerifyDiff(device, activeTab) {
     if (activeTab) {
         document.querySelectorAll('#verifyDiffTabs button').forEach(t => {
             t.classList.remove('vd-active');
-            t.style.color       = '#555';
+            t.style.color       = 'var(--nr-text-muted)';
             t.style.borderColor = 'transparent';
         });
         activeTab.classList.add('vd-active');
@@ -763,7 +763,7 @@ async function _renderVerifyDiff(device, activeTab) {
     const list     = document.getElementById('verifyDiffList');
 
     if (!FETCHED_CONFIGS[cacheKey]) {
-        list.innerHTML = '<div style="padding:1rem; color:#555; font-size:0.82rem;">Loading…</div>';
+        list.innerHTML = '<div style="padding:1rem; color:var(--nr-text-muted); font-size:0.82rem;">Loading…</div>';
         try {
             const resp = await fetch(`/results/config_diff/${_verifyDiffJobId}/${device.ip}?port=${device.port}`);
             const data = await resp.json();
@@ -782,7 +782,7 @@ async function _renderVerifyDiff(device, activeTab) {
     const config = FETCHED_CONFIGS[cacheKey];
     list.innerHTML = '';
     if (!_verifyDiffCmds.length) {
-        list.innerHTML = '<div style="padding:1rem; color:#555; font-size:0.82rem;">' +
+        list.innerHTML = '<div style="padding:1rem; color:var(--nr-text-muted); font-size:0.82rem;">' +
             'Commands for this job are no longer available.</div>';
         return;
     }
@@ -809,7 +809,7 @@ function copyJobId(btn, id) {
         btn.style.color = '#a5d6a7';
         setTimeout(() => {
             icon.className = 'bi bi-clipboard';
-            btn.style.color = '#444';
+            btn.style.color = 'var(--nr-text-muted)';
         }, 1500);
     });
 }

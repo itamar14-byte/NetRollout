@@ -21,7 +21,7 @@
   <h2 style="font-family:'JetBrains Mono',monospace; font-size:1.9rem; font-weight:700; color:#e0e0e0; letter-spacing:-0.5px; margin-bottom:0.4rem;">
     Join NetRollout
   </h2>
-  <p style="font-size:0.85rem; color:#555; font-weight:300;">
+  <p style="font-size:0.85rem; color:var(--nr-text-muted); font-weight:300;">
     Your account will be reviewed by an administrator before activation.
   </p>
 </div>
@@ -57,7 +57,7 @@
       <div class="mb-3 text-start">
         <label for="position" class="nr-label">
           Position
-          <span style="color:#444; font-size:0.65rem; letter-spacing:0; text-transform:none; font-weight:400;">— optional</span>
+          <span style="color:var(--nr-text-muted); font-size: 0.75rem; letter-spacing:0; text-transform:none; font-weight:400;">— optional</span>
         </label>
         <input type="text" class="form-control" id="position" name="position"
                placeholder="e.g. Network Engineer, CTO">
@@ -93,7 +93,7 @@
   </div>
 </div>
 
-<p style="font-size:0.82rem; color:#444; margin-bottom:2rem;">
+<p style="font-size:0.82rem; color:var(--nr-text-muted); margin-bottom:2rem;">
   Already have an account?
   <a href="{{ url_for('auth.home') }}" style="color:#00bcd4; text-decoration:none; font-weight:500;">Sign in</a>
 </p>

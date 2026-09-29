@@ -5,13 +5,28 @@
     <title>Service Unavailable — NetRollout</title>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@300;400;500&display=swap" rel="stylesheet">
     <style>
+        /* ── Readability tokens ──────────────────────────────────────────
+           Every text tier passes WCAG AA (4.5:1) on all app surfaces
+           (#121212 page .. #2a2a2a raised). Use these instead of raw greys. */
+        :root {
+            --nr-text:           #e6e6e6;  /* primary */
+            --nr-text-secondary: #bdbdbd;  /* labels, secondary values */
+            --nr-text-muted:     #949494;  /* captions, metadata, hints */
+            --nr-text-faint:     #7a7a7a;  /* decorative icons only (>=3:1), never text */
+            --nr-accent:         #00bcd4;
+            --nr-accent-soft:    #4fa3ad;  /* teal-tinted secondary text, footer links */
+        }
+        /* Keyboard focus is always visible (mouse clicks don't show it) */
+        :focus-visible { outline: 2px solid var(--nr-accent) !important; outline-offset: 2px; }
+        ::placeholder { color: var(--nr-text-muted) !important; opacity: 1; }
+
         body { margin:0; background:#121212; color:#e0e0e0; font-family:'Inter',sans-serif;
                display:flex; align-items:center; justify-content:center; min-height:100vh; }
         .box { text-align:center; max-width:480px; padding:2rem; }
-        .badge { font-family:'JetBrains Mono',monospace; font-size:0.6rem; letter-spacing:2px;
-                 color:#555; text-transform:uppercase; margin-bottom:1rem; }
+        .badge { font-family:'JetBrains Mono',monospace; font-size: 0.6875rem; letter-spacing:2px;
+                 color:var(--nr-text-muted); text-transform:uppercase; margin-bottom:1rem; }
         h1 { font-size:1.1rem; color:#ef9a9a; margin:0 0 0.5rem; }
-        .subtitle { font-size:0.82rem; color:#555; margin:0 0 1.75rem; line-height:1.6; }
+        .subtitle { font-size:0.82rem; color:var(--nr-text-muted); margin:0 0 1.75rem; line-height:1.6; }
         .services { display:flex; flex-direction:column; gap:0.75rem; margin-bottom:1.75rem; }
         .service { display:flex; align-items:center; gap:0.85rem;
                    background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.07);

@@ -45,8 +45,8 @@
 
 .profile-subtitle {
     font-family: 'Inter', sans-serif;
-    font-size: 0.72rem;
-    color: #3a3a3a;
+    font-size: 0.75rem;
+    color: var(--nr-text-muted);
 }
 
 .profile-field {
@@ -56,13 +56,13 @@
 .password-dots {
     font-family: 'JetBrains Mono', monospace;
     font-size: 0.72rem;
-    color: #3a3a3a;
+    color: var(--nr-text-muted);
     letter-spacing: 3px;
 }
 
 .secret-none {
     font-size: 0.75rem;
-    color: #2a2a2a;
+    color: var(--nr-text-muted);
     font-style: italic;
 }
 
@@ -70,7 +70,7 @@
 .card-action-link {
     font-family: 'Inter', sans-serif;
     font-size: 0.75rem;
-    color: #444;
+    color: var(--nr-text-muted);
     text-decoration: none;
     display: inline-flex;
     align-items: center;
@@ -98,9 +98,9 @@
     border: 1px solid transparent;
     background: transparent;
 }
-.btn-icon.edit   { color: #555; border-color: #1e1e1e; }
+.btn-icon.edit   { color: var(--nr-text-faint); border-color: #1e1e1e; }
 .btn-icon.edit:hover { color: #00bcd4; background: rgba(0,188,212,0.08); border-color: rgba(0,188,212,0.2); }
-.btn-icon.delete { color: #555; border-color: #1e1e1e; }
+.btn-icon.delete { color: var(--nr-text-faint); border-color: #1e1e1e; }
 .btn-icon.delete:hover { color: #ef5350; background: rgba(239,83,80,0.08); border-color: rgba(239,83,80,0.2); }
 
 /* Password input group */
@@ -112,7 +112,7 @@
     transform: translateY(-50%);
     background: none;
     border: none;
-    color: #444;
+    color: var(--nr-text-muted);
     cursor: pointer;
     padding: 0;
     font-size: 0.85rem;
@@ -125,10 +125,10 @@
 .empty-state {
     text-align: center;
     padding: 4rem 2rem;
-    color: #333;
+    color: var(--nr-text-muted);
 }
 .empty-state i { font-size: 3rem; margin-bottom: 1rem; display: block; color: #222; }
-.empty-state p { font-size: 0.88rem; color: #3a3a3a; margin-bottom: 1.5rem; }
+.empty-state p { font-size: 0.88rem; color: var(--nr-text-muted); margin-bottom: 1.5rem; }
 
 /* Test result area */
 .test-result {
@@ -202,8 +202,8 @@
 }
 .panel-header {
     font-family: 'Inter', sans-serif;
-    font-size: 0.68rem;
-    color: #333;
+    font-size: 0.6875rem;
+    color: var(--nr-text-muted);
     letter-spacing: 0.1em;
     text-transform: uppercase;
     margin-bottom: 0.65rem;
@@ -221,7 +221,7 @@
     border-radius: 8px;
     padding: 1rem;
     text-align: center;
-    color: #1e4a50;
+    color: var(--nr-accent-soft);
     font-size: 0.78rem;
     font-family: 'Inter', sans-serif;
     margin-top: 0.7rem;
@@ -268,8 +268,8 @@
 }
 .drag-card-ip {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 0.68rem;
-    color: #2a2a2a;
+    font-size: 0.6875rem;
+    color: var(--nr-text-muted);
     flex-shrink: 0;
 }
 .drag-vendor-badge {
@@ -297,7 +297,7 @@
     <div>
         <div class="nr-badge">SECURITY PROFILES</div>
         <h4 class="mb-0" style="font-weight:600; font-size:1.15rem;">Credential Profiles</h4>
-        <p class="mt-1 mb-0" style="font-size:0.82rem; color:#444;">
+        <p class="mt-1 mb-0" style="font-size:0.82rem; color:var(--nr-text-muted);">
             {{ profiles|length }} profile{{ "s" if profiles|length != 1 else "" }} configured
         </p>
     </div>
@@ -417,7 +417,7 @@
                 <div class="modal-body">
 
                     <div class="mb-3">
-                        <label class="nr-label" for="addLabel">LABEL <span style="color:#2a2a2a;">(optional)</span></label>
+                        <label class="nr-label" for="addLabel">LABEL <span style="color:var(--nr-text-muted);">(optional)</span></label>
                         <input type="text" class="form-control" id="addLabel" name="label"
                                placeholder="e.g. Core Switches, Edge Firewalls">
                     </div>
@@ -441,7 +441,7 @@
                     </div>
 
                     <div class="mb-1">
-                        <label class="nr-label" for="addEnableSecret">ENABLE SECRET <span style="color:#2a2a2a;">(optional)</span></label>
+                        <label class="nr-label" for="addEnableSecret">ENABLE SECRET <span style="color:var(--nr-text-muted);">(optional)</span></label>
                         <div class="pw-group">
                             <input type="password" class="form-control" id="addEnableSecret" name="enable_secret"
                                    placeholder="Leave blank if not required" autocomplete="new-password"
@@ -481,7 +481,7 @@
                 <div class="modal-body">
 
                     <div class="mb-3">
-                        <label class="nr-label" for="editLabel">LABEL <span style="color:#2a2a2a;">(optional)</span></label>
+                        <label class="nr-label" for="editLabel">LABEL <span style="color:var(--nr-text-muted);">(optional)</span></label>
                         <input type="text" class="form-control" id="editLabel" name="label"
                                placeholder="e.g. Core Switches, Edge Firewalls">
                     </div>
@@ -516,7 +516,7 @@
                     <div id="clearEnableWrap" class="mb-1" style="display:none;">
                         <div class="form-check" style="margin-top:0.5rem;">
                             <input class="form-check-input" type="checkbox" id="clearEnable" name="clear_enable_secret" value="1">
-                            <label class="form-check-label" for="clearEnable" style="font-size:0.8rem; color:#555;">
+                            <label class="form-check-label" for="clearEnable" style="font-size:0.8rem; color:var(--nr-text-muted);">
                                 Clear enable secret
                             </label>
                         </div>
@@ -553,7 +553,7 @@
                     Delete credential profile
                     <span id="deleteProfileName" style="font-family:'JetBrains Mono',monospace; color:#ef9a9a; font-weight:700;"></span>?
                 </p>
-                <p style="font-size:0.82rem; color:#555; margin-bottom:0;">
+                <p style="font-size:0.82rem; color:var(--nr-text-muted); margin-bottom:0;">
                     This cannot be undone. Devices assigned to this profile will need to be reassigned before deletion is allowed.
                 </p>
             </div>
@@ -637,7 +637,7 @@
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
-                <p style="font-size:0.82rem; color:#555; margin-bottom:1.2rem;">
+                <p style="font-size:0.82rem; color:var(--nr-text-muted); margin-bottom:1.2rem;">
                     Select a device from your inventory to test this credential profile against.
                     A full Netmiko connection will be attempted.
                 </p>
@@ -662,7 +662,7 @@
                                  data-label="{{ d.label }}"
                                  data-ip="{{ d.ip }}"
                                  data-type="{{ d.device_type }}">
-                                <img src="{{ VENDOR_LOGOS.get(d.device_type, '') }}"
+                                <img alt="" src="{{ VENDOR_LOGOS.get(d.device_type, '') }}"
                                      width="16" height="16"
                                      style="border-radius:3px; flex-shrink:0; opacity:0.85;"
                                      onerror="this.style.display='none'">
@@ -676,7 +676,7 @@
                     <input type="hidden" id="testDeviceHidden" value="">
                 </div>
                 {% else %}
-                <div style="font-size:0.82rem; color:#3a3a3a; font-style:italic; padding:0.5rem 0;">
+                <div style="font-size:0.82rem; color:var(--nr-text-muted); font-style:italic; padding:0.5rem 0;">
                     No devices in inventory. Add devices first.
                 </div>
                 {% endif %}
@@ -791,13 +791,13 @@ function openDevices(profile, assignedDevices) {
 function renderAssignedList(devices) {
     const list = document.getElementById('assignedList');
     if (!devices.length) {
-        list.innerHTML = '<p style="font-size:0.82rem; color:#2e2e2e; font-style:italic; margin:0; padding:0.5rem 0;">No devices assigned.</p>';
+        list.innerHTML = '<p style="font-size:0.82rem; color:var(--nr-text-muted); font-style:italic; margin:0; padding:0.5rem 0;">No devices assigned.</p>';
     } else {
         list.innerHTML = devices.map(d => `
             <div class="device-row">
                 <span class="device-ip">${d.ip}</span>
                 <span style="color:#888; font-size:0.82rem; flex:1;">${d.label}</span>
-                <span style="font-family:'JetBrains Mono',monospace; font-size:0.7rem; color:#444;">${d.device_type}</span>
+                <span style="font-family:'JetBrains Mono',monospace; font-size:0.7rem; color:var(--nr-text-muted);">${d.device_type}</span>
             </div>`).join('');
     }
 }
@@ -815,7 +815,7 @@ function activateSplit() {
     const list = document.getElementById('availableList');
 
     if (!available.length) {
-        list.innerHTML = '<p style="font-size:0.82rem; color:#2e2e2e; font-style:italic; margin:0; padding:0.5rem 0;">All devices already assigned to this profile.</p>';
+        list.innerHTML = '<p style="font-size:0.82rem; color:var(--nr-text-muted); font-style:italic; margin:0; padding:0.5rem 0;">All devices already assigned to this profile.</p>';
         return;
     }
 
@@ -825,10 +825,10 @@ function activateSplit() {
         <div class="drag-card" draggable="true" data-device-id="${d.id}">
             <div class="drag-vendor-badge">
                 ${logoUrl
-                    ? `<img src="${logoUrl}" class="drag-vendor-img"
+                    ? `<img alt="" src="${logoUrl}" class="drag-vendor-img"
                            onerror="this.style.display='none';this.nextElementSibling.style.display='block';">
-                       <i class="bi bi-router" style="display:none; font-size:0.7rem; color:#2a2a2a;"></i>`
-                    : `<i class="bi bi-router" style="font-size:0.7rem; color:#2a2a2a;"></i>`
+                       <i class="bi bi-router" style="display:none; font-size: 0.75rem; color:var(--nr-text-faint);"></i>`
+                    : `<i class="bi bi-router" style="font-size: 0.75rem; color:var(--nr-text-faint);"></i>`
                 }
             </div>
             <span class="drag-card-label">${d.label}</span>
@@ -892,7 +892,7 @@ dropZone.addEventListener('drop', e => {
     row.innerHTML = `
         <span class="device-ip">${device.ip}</span>
         <span style="color:#888; font-size:0.82rem; flex:1;">${device.label}</span>
-        <span style="font-family:'JetBrains Mono',monospace; font-size:0.7rem; color:#444;">${device.device_type}</span>`;
+        <span style="font-family:'JetBrains Mono',monospace; font-size:0.7rem; color:var(--nr-text-muted);">${device.device_type}</span>`;
     assignedList.appendChild(row);
     setTimeout(() => row.classList.remove('card-landing'), 250);
 });
@@ -967,10 +967,10 @@ function initTestDevSelect() {
         } else {
             const logoUrl = VENDOR_LOGOS[deviceType] || '';
             const logoHtml = logoUrl
-                ? `<img src="${logoUrl}" width="16" height="16"
+                ? `<img alt="" src="${logoUrl}" width="16" height="16"
                         style="border-radius:3px;opacity:0.85;flex-shrink:0;"
                         onerror="this.style.display='none'">`
-                : '<i class="bi bi-router" style="font-size:0.85rem;color:#555;flex-shrink:0;"></i>';
+                : '<i class="bi bi-router" style="font-size:0.85rem;color:var(--nr-text-faint);flex-shrink:0;"></i>';
             display.innerHTML =
                 logoHtml +
                 `<span class="nr-select-display-label">${label.replace(/</g,'&lt;')}</span>` +

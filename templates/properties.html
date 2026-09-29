@@ -19,13 +19,13 @@
     width: 36px; height: 36px; border-radius: 8px;
     background: #111; border: 1px solid #222;
     display: flex; align-items: center; justify-content: center;
-    font-size: 1rem; color: #555; flex-shrink: 0;
+    font-size: 1rem; color: var(--nr-text-faint); flex-shrink: 0;
 }
 .prop-name {
     font-family: 'JetBrains Mono', monospace;
     font-size: 0.82rem; color: #ccc; font-weight: 600;
 }
-.prop-label { font-size: 0.72rem; color: #555; margin-top: 1px; }
+.prop-label { font-size: 0.75rem; color: var(--nr-text-muted); margin-top: 1px; }
 .prop-actions { margin-left: auto; display: flex; gap: 6px; }
 .section-divider {
     display: flex; align-items: center; gap: 12px;
@@ -33,7 +33,7 @@
 }
 .section-divider-line { flex: 1; height: 1px; background: #1e1e1e; }
 .section-divider-label {
-    font-size: 0.65rem; color: #444;
+    font-size: 0.6875rem; color: var(--nr-text-muted);
     text-transform: uppercase; letter-spacing: 1.5px; white-space: nowrap;
 }
 {% endblock %}
@@ -41,7 +41,7 @@
 {% block operator_content %}
 <div class="d-flex align-items-center justify-content-between mb-4">
     <div>
-        <p style="color:#555; font-size:0.82rem; margin:0;">
+        <p style="color:var(--nr-text-muted); font-size:0.82rem; margin:0;">
             System properties ship with NetRollout and cannot be modified.
             Add custom properties to extend per-device variable substitution.
         </p>
@@ -63,10 +63,10 @@
         <div class="prop-icon"><i class="bi {{ p.icon }}"></i></div>
         <div>
             <div class="prop-name">{{ p.name }}</div>
-            <div class="prop-label">{{ p.label }}{% if p.is_list %} &nbsp;<span class="nr-badge" style="font-size:0.6rem; padding:1px 5px;">list</span>{% endif %}</div>
+            <div class="prop-label">{{ p.label }}{% if p.is_list %} &nbsp;<span class="nr-badge" style="font-size: 0.75rem; padding:1px 5px;">list</span>{% endif %}</div>
         </div>
         <div class="prop-actions">
-            <span style="font-size:0.65rem; color:#2a2a2a; align-self:center;">system</span>
+            <span style="font-size: 0.75rem; color:var(--nr-text-muted); align-self:center;">system</span>
         </div>
     </div>
     {% endfor %}
@@ -85,20 +85,20 @@
         <div class="prop-icon" id="propIcon-{{ p.id }}"><i class="bi {{ p.icon }}"></i></div>
         <div>
             <div class="prop-name">{{ p.name }}</div>
-            <div class="prop-label">{{ p.label }}{% if p.is_list %} &nbsp;<span class="nr-badge" style="font-size:0.6rem; padding:1px 5px;">list</span>{% endif %}</div>
+            <div class="prop-label">{{ p.label }}{% if p.is_list %} &nbsp;<span class="nr-badge" style="font-size: 0.75rem; padding:1px 5px;">list</span>{% endif %}</div>
         </div>
         <div class="prop-actions">
-            <button class="btn btn-sm"
-                    style="background:none; border:1px solid #222; color:#555; padding:2px 8px; font-size:0.72rem;"
+            <button aria-label="Edit property" title="Edit property" class="btn btn-sm"
+                    style="background:none; border:1px solid #222; color:var(--nr-text-muted); padding:2px 8px; font-size: 0.75rem;"
                     onmouseenter="this.style.borderColor='#444';this.style.color='#aaa';"
-                    onmouseleave="this.style.borderColor='#222';this.style.color='#555';"
+                    onmouseleave="this.style.borderColor='#222';this.style.color='var(--nr-text-muted)';"
                     onclick="openEditProp('{{ p.id }}', '{{ p.label }}', '{{ p.icon }}', {{ 'true' if p.is_list else 'false' }})">
                 <i class="bi bi-pencil"></i>
             </button>
-            <button class="btn btn-sm"
-                    style="background:none; border:1px solid #222; color:#555; padding:2px 8px; font-size:0.72rem;"
+            <button aria-label="Delete property" title="Delete property" class="btn btn-sm"
+                    style="background:none; border:1px solid #222; color:var(--nr-text-muted); padding:2px 8px; font-size: 0.75rem;"
                     onmouseenter="this.style.borderColor='#ef5350';this.style.color='#ef5350';"
-                    onmouseleave="this.style.borderColor='#222';this.style.color='#555';"
+                    onmouseleave="this.style.borderColor='#222';this.style.color='var(--nr-text-muted)';"
                     onclick="deleteProp('{{ p.id }}', '{{ p.name }}')">
                 <i class="bi bi-trash"></i>
             </button>
@@ -107,7 +107,7 @@
     {% endfor %}
 </div>
 {% else %}
-<div style="text-align:center; padding:2rem; color:#333; font-size:0.82rem;">
+<div style="text-align:center; padding:2rem; color:var(--nr-text-muted); font-size:0.82rem;">
     No custom properties yet. Add one above.
 </div>
 {% endif %}
@@ -131,25 +131,25 @@
                            oninput="autoSlug('addPropLabel','addPropName')">
                 </div>
                 <div class="mb-3">
-                    <label class="nr-label">NAME <span style="color:#333; text-transform:none; letter-spacing:0;">(auto-generated · immutable after creation)</span></label>
+                    <label class="nr-label">NAME <span style="color:var(--nr-text-muted); text-transform:none; letter-spacing:0;">(auto-generated · immutable after creation)</span></label>
                     <input type="text" class="form-control form-control-sm" id="addPropName"
                            placeholder="bgp_peer_ip" autocomplete="off">
-                    <div style="font-size:0.7rem; color:#3a3a3a; margin-top:3px;">Dict key used for $$TOKEN$$ substitution. Edit if the auto-generated value isn't right.</div>
+                    <div style="font-size: 0.75rem; color:var(--nr-text-muted); margin-top:3px;">Dict key used for $$TOKEN$$ substitution. Edit if the auto-generated value isn't right.</div>
                 </div>
                 <div class="mb-3">
-                    <label class="nr-label">ICON <span style="color:#333; text-transform:none; letter-spacing:0;">(Bootstrap Icons class)</span></label>
+                    <label class="nr-label">ICON <span style="color:var(--nr-text-muted); text-transform:none; letter-spacing:0;">(Bootstrap Icons class)</span></label>
                     <div class="input-group input-group-sm">
                         <span class="input-group-text" style="background:#111; border-color:#2a2a2a;">
-                            <i id="addPropIconPreview" class="bi bi-tag" style="color:#555;"></i>
+                            <i id="addPropIconPreview" class="bi bi-tag" style="color:var(--nr-text-faint);"></i>
                         </span>
                         <input type="text" class="form-control form-control-sm" id="addPropIcon"
                                value="bi-tag" placeholder="bi-tag" autocomplete="off"
                                oninput="document.getElementById('addPropIconPreview').className='bi ' + this.value">
                     </div>
                     <a href="https://icons.getbootstrap.com" target="_blank" rel="noopener"
-                       style="font-size:0.7rem; color:#444; text-decoration:none;"
+                       style="font-size: 0.75rem; color:var(--nr-text-muted); text-decoration:none;"
                        onmouseenter="this.style.color='#00bcd4'"
-                       onmouseleave="this.style.color='#444'">
+                       onmouseleave="this.style.color='var(--nr-text-muted)'">
                         Browse Bootstrap Icons ↗
                     </a>
                 </div>
@@ -188,16 +188,16 @@
                     <label class="nr-label">ICON</label>
                     <div class="input-group input-group-sm">
                         <span class="input-group-text" style="background:#111; border-color:#2a2a2a;">
-                            <i id="editPropIconPreview" class="bi bi-tag" style="color:#555;"></i>
+                            <i id="editPropIconPreview" class="bi bi-tag" style="color:var(--nr-text-faint);"></i>
                         </span>
                         <input type="text" class="form-control form-control-sm" id="editPropIcon"
                                autocomplete="off"
                                oninput="document.getElementById('editPropIconPreview').className='bi ' + this.value">
                     </div>
                     <a href="https://icons.getbootstrap.com" target="_blank" rel="noopener"
-                       style="font-size:0.7rem; color:#444; text-decoration:none;"
+                       style="font-size: 0.75rem; color:var(--nr-text-muted); text-decoration:none;"
                        onmouseenter="this.style.color='#00bcd4'"
-                       onmouseleave="this.style.color='#444'">
+                       onmouseleave="this.style.color='var(--nr-text-muted)'">
                         Browse Bootstrap Icons ↗
                     </a>
                 </div>

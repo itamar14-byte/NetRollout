@@ -29,7 +29,7 @@
       <!-- PostgreSQL button -->
       <div class="db-service-btn" id="svc-postgres" onclick="selectService('postgres')">
         <div class="d-flex align-items-center gap-3">
-          <img src="https://cdn.simpleicons.org/postgresql/336791" width="32" height="32"
+          <img alt="" src="https://cdn.simpleicons.org/postgresql/336791" width="32" height="32"
                onerror="this.style.display='none'">
           <div>
             <div class="db-svc-title">PostgreSQL</div>
@@ -54,7 +54,7 @@
       <!-- Redis button -->
       <div class="db-service-btn" id="svc-redis" onclick="selectService('redis')">
         <div class="d-flex align-items-center gap-3">
-          <img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/redis/redis-original.svg" width="32" height="32"
+          <img alt="" src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/redis/redis-original.svg" width="32" height="32"
                onerror="this.style.display='none'">
           <div>
             <div class="db-svc-title">Redis</div>
@@ -112,7 +112,7 @@
           <input type="password" id="db_password" class="form-control" placeholder="••••••••" autocomplete="new-password">
         </div>
         <div class="col-md-4">
-          <label class="nr-label">Schema <span style="color:#555;">(optional)</span></label>
+          <label class="nr-label">Schema <span style="color:var(--nr-text-muted);">(optional)</span></label>
           <input type="text" id="db_schema" class="form-control" placeholder="public"
                  value="{{ postgres_schema or '' }}">
         </div>
@@ -152,12 +152,12 @@
                  value="{{ redis_port }}">
         </div>
         <div class="col-md-2">
-          <label class="nr-label">DB <span style="color:#555;">(0–15)</span></label>
+          <label class="nr-label">DB <span style="color:var(--nr-text-muted);">(0–15)</span></label>
           <input type="number" id="rd_db" class="form-control" placeholder="0" min="0" max="15"
                  value="{{ redis_db }}">
         </div>
         <div class="col-md-3">
-          <label class="nr-label">Password <span style="color:#555;">(optional)</span></label>
+          <label class="nr-label">Password <span style="color:var(--nr-text-muted);">(optional)</span></label>
           <input type="password" id="rd_password" class="form-control" placeholder="••••••••" autocomplete="new-password">
         </div>
       </div>
@@ -232,11 +232,11 @@
           <div class="d-flex gap-2">
             <div class="ldap-bind-option selected" onclick="newBindType('simple')" id="n_opt_simple">
               <div style="font-weight:600; font-size:0.84rem; color:#ccc;">Simple</div>
-              <div style="font-size:0.72rem; color:#555; margin-top:0.15rem;">No stored service credentials</div>
+              <div style="font-size: 0.75rem; color:var(--nr-text-muted); margin-top:0.15rem;">No stored service credentials</div>
             </div>
             <div class="ldap-bind-option" onclick="newBindType('regular')" id="n_opt_regular">
               <div style="font-weight:600; font-size:0.84rem; color:#ccc;">Regular</div>
-              <div style="font-size:0.72rem; color:#555; margin-top:0.15rem;">Service account — enables Explorer + group rules</div>
+              <div style="font-size: 0.75rem; color:var(--nr-text-muted); margin-top:0.15rem;">Service account — enables Explorer + group rules</div>
             </div>
           </div>
         </div>
@@ -321,7 +321,7 @@
     font-family:'JetBrains Mono',monospace; font-size:0.75rem; color:#a5d6a7; letter-spacing:0.05em;
   }
   .mode-badge {
-    font-family:'JetBrains Mono',monospace; font-size:0.68rem; letter-spacing:0.1em;
+    font-family:'JetBrains Mono',monospace; font-size: 0.6875rem; letter-spacing:0.1em;
     padding:0.2rem 0.55rem; border-radius:4px; border:1px solid;
   }
   .mode-bundled  { background:rgba(0,188,212,0.07); color:#00bcd4; border-color:rgba(0,188,212,0.25); }
@@ -350,7 +350,7 @@
     font-family:'Inter',sans-serif; font-weight:600; font-size:0.92rem; color:#e0e0e0;
   }
   .db-svc-sub {
-    font-family:'JetBrains Mono',monospace; font-size:0.68rem; color:#444;
+    font-family:'JetBrains Mono',monospace; font-size: 0.6875rem; color:var(--nr-text-muted);
     margin-top:0.1rem; letter-spacing:0.3px;
   }
 
@@ -358,8 +358,8 @@
   .res-err { color:#ef9a9a; font-size:0.82rem; word-break:break-word; }
 
   /* ── LDAP server list ── */
-  .ldap-loading { text-align:center; color:#333; font-size:0.82rem; padding:1.5rem 0; }
-  .ldap-empty   { text-align:center; color:#333; font-size:0.82rem; padding:1.5rem 0;
+  .ldap-loading { text-align:center; color:var(--nr-text-muted); font-size:0.82rem; padding:1.5rem 0; }
+  .ldap-empty   { text-align:center; color:var(--nr-text-muted); font-size:0.82rem; padding:1.5rem 0;
                   font-family:'JetBrains Mono',monospace; letter-spacing:0.5px; }
 
   .ldap-server-row {
@@ -376,14 +376,14 @@
     font-family:'Inter',sans-serif; font-weight:600; font-size:0.88rem; color:#e0e0e0;
   }
   .ldap-server-host {
-    font-family:'JetBrains Mono',monospace; font-size:0.75rem; color:#444;
+    font-family:'JetBrains Mono',monospace; font-size:0.75rem; color:var(--nr-text-muted);
   }
   .ldap-bind-badge {
-    font-family:'JetBrains Mono',monospace; font-size:0.62rem; letter-spacing:0.1em;
+    font-family:'JetBrains Mono',monospace; font-size: 0.6875rem; letter-spacing:0.1em;
     padding:0.15rem 0.45rem; border-radius:3px;
     background:rgba(0,188,212,0.07); color:#00bcd4; border:1px solid rgba(0,188,212,0.2);
   }
-  .ldap-chevron { color:#333; transition:transform 0.2s ease; font-size:0.78rem; }
+  .ldap-chevron { color:var(--nr-text-muted); transition:transform 0.2s ease; font-size:0.78rem; }
 
   /* ── Edit panel ── */
   .ldap-edit-panel {
@@ -391,7 +391,7 @@
     padding:1.25rem 1rem 1rem; margin-bottom:0.5rem;
   }
   .ldap-panel-label {
-    font-family:'JetBrains Mono',monospace; font-size:0.6rem; font-weight:700;
+    font-family:'JetBrains Mono',monospace; font-size: 0.6875rem; font-weight:700;
     letter-spacing:3px; color:#00bcd4; opacity:0.6;
   }
 
@@ -417,15 +417,15 @@
   .exp-breadcrumb {
     display:flex; align-items:center; gap:0.3rem; flex-wrap:wrap;
     padding:0.65rem 1rem; border-bottom:1px solid #1a1a1a;
-    font-family:'JetBrains Mono',monospace; font-size:0.72rem; color:#444;
+    font-family:'JetBrains Mono',monospace; font-size:0.72rem; color:var(--nr-text-muted);
     flex-shrink:0;
   }
   .exp-crumb {
-    color:#555; cursor:pointer; transition:color 0.15s;
+    color:var(--nr-text-muted); cursor:pointer; transition:color 0.15s;
   }
   .exp-crumb:hover { color:#00bcd4; }
   .exp-crumb.current { color:#888; cursor:default; }
-  .exp-crumb-sep { color:#2a2a2a; }
+  .exp-crumb-sep { color:var(--nr-text-muted); }
 
   .exp-tree-item {
     display:flex; align-items:center; gap:0.6rem;
@@ -439,20 +439,20 @@
   .exp-tree-item.selectable { color:#ccc; }
   .exp-tree-item.selectable:hover { background:rgba(0,188,212,0.04); border-left-color:rgba(0,188,212,0.2); }
   .exp-tree-item.selected { background:rgba(0,188,212,0.08); border-left-color:#00bcd4; color:#e0e0e0; }
-  .exp-tree-item.loading { color:#333; font-size:0.8rem; justify-content:center; padding:1rem; }
+  .exp-tree-item.loading { color:var(--nr-text-muted); font-size:0.8rem; justify-content:center; padding:1rem; }
 
   .exp-item-icon { font-size:0.9rem; flex-shrink:0; width:16px; text-align:center; }
   .exp-item-label { flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .exp-item-sub { font-family:'JetBrains Mono',monospace; font-size:0.68rem; color:#444; white-space:nowrap; }
+  .exp-item-sub { font-family:'JetBrains Mono',monospace; font-size: 0.6875rem; color:var(--nr-text-muted); white-space:nowrap; }
 
   .exp-sel-item {
     display:flex; align-items:center; gap:0.5rem;
     padding:0.35rem 0.5rem; border-radius:5px; margin-bottom:0.3rem;
     background:#111; border:1px solid #1a1a1a; font-size:0.8rem;
   }
-  .exp-sel-icon { font-size:0.78rem; color:#555; flex-shrink:0; }
+  .exp-sel-icon { font-size:0.78rem; color:var(--nr-text-faint); flex-shrink:0; }
   .exp-sel-label { flex:1; color:#ccc; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .exp-sel-remove { color:#333; cursor:pointer; flex-shrink:0; transition:color 0.15s; font-size:0.75rem; }
+  .exp-sel-remove { color:var(--nr-text-muted); cursor:pointer; flex-shrink:0; transition:color 0.15s; font-size:0.75rem; }
   .exp-sel-remove:hover { color:#ef5350; }
 </style>
 
@@ -758,12 +758,12 @@
               <div class="ldap-bind-option ${!isReg ? 'selected' : ''}"
                    onclick="setBindType('${s.id}', 'simple')" id="e_${s.id}_opt_simple">
                 <div style="font-weight:600; font-size:0.84rem; color:#ccc;">Simple</div>
-                <div style="font-size:0.72rem; color:#555; margin-top:0.15rem;">No stored service credentials</div>
+                <div style="font-size: 0.75rem; color:var(--nr-text-muted); margin-top:0.15rem;">No stored service credentials</div>
               </div>
               <div class="ldap-bind-option ${isReg ? 'selected' : ''}"
                    onclick="setBindType('${s.id}', 'regular')" id="e_${s.id}_opt_regular">
                 <div style="font-weight:600; font-size:0.84rem; color:#ccc;">Regular</div>
-                <div style="font-size:0.72rem; color:#555; margin-top:0.15rem;">Service account — enables Explorer + group rules</div>
+                <div style="font-size: 0.75rem; color:var(--nr-text-muted); margin-top:0.15rem;">Service account — enables Explorer + group rules</div>
               </div>
             </div>
           </div>
@@ -777,7 +777,7 @@
               <div class="col-md-6">
                 <label class="nr-label">
                   Bind Password
-                  <span style="color:#3a3a3a; font-size:0.68rem; text-transform:none; letter-spacing:0;">
+                  <span style="color:var(--nr-text-muted); font-size: 0.75rem; text-transform:none; letter-spacing:0;">
                     — leave blank to keep current
                   </span>
                 </label>
@@ -972,7 +972,7 @@
   function testConn(id) {
     const res = document.getElementById(`e_${id}_result`);
     res.style.display = 'block';
-    res.innerHTML = '<span class="spinner-border spinner-border-sm text-secondary me-1"></span><span style="color:#555; font-size:0.82rem;">Testing…</span>';
+    res.innerHTML = '<span class="spinner-border spinner-border-sm text-secondary me-1"></span><span style="color:var(--nr-text-muted); font-size:0.82rem;">Testing…</span>';
 
     fetch(`${LDAP_BASE}/${id}/test`, {
       method: 'POST',
@@ -999,7 +999,7 @@
     const pass = document.getElementById(`e_${id}_tup`).value;
     const res  = document.getElementById(`e_${id}_tur`);
     res.style.display = 'block';
-    res.innerHTML = '<span class="spinner-border spinner-border-sm text-secondary me-1"></span><span style="color:#555; font-size:0.8rem;">Testing…</span>';
+    res.innerHTML = '<span class="spinner-border spinner-border-sm text-secondary me-1"></span><span style="color:var(--nr-text-muted); font-size:0.8rem;">Testing…</span>';
 
     const body = new URLSearchParams({ username: user, password: pass });
     fetch(`${LDAP_BASE}/${id}/test_user`, {
@@ -1093,7 +1093,7 @@
     if (!entries.length) {
       const empty = document.createElement('div');
       empty.className = 'exp-tree-item';
-      empty.style.cssText = 'color:#333; font-size:0.82rem; justify-content:center;';
+      empty.style.cssText = 'color:var(--nr-text-muted); font-size:0.82rem; justify-content:center;';
       empty.textContent = 'Empty';
       tree.appendChild(empty);
       return;
@@ -1110,7 +1110,7 @@
         el.innerHTML = `
           <i class="bi bi-folder exp-item-icon" style="color:#ffe082;"></i>
           <span class="exp-item-label">${escHtml(e.label)}</span>
-          <i class="bi bi-chevron-right" style="color:#2a2a2a; font-size:0.72rem;"></i>`;
+          <i class="bi bi-chevron-right" style="color:var(--nr-text-faint); font-size: 0.75rem;"></i>`;
         el.addEventListener('click', () => drillDown(e.dn, e.label));
       } else {
         const icon     = e.type === 'group' ? 'bi-people-fill' : 'bi-person-fill';
@@ -1192,7 +1192,7 @@
 
     if (!items.length) {
       const empty = document.createElement('div');
-      empty.style.cssText = 'color:#2a2a2a; font-size:0.78rem; text-align:center; padding-top:1rem;';
+      empty.style.cssText = 'color:var(--nr-text-muted); font-size:0.78rem; text-align:center; padding-top:1rem;';
       empty.textContent = 'Nothing selected';
       panel.appendChild(empty);
       return;

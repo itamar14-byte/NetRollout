@@ -10,6 +10,21 @@
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
 
     <style>
+        /* ── Readability tokens ──────────────────────────────────────────
+           Every text tier passes WCAG AA (4.5:1) on all app surfaces
+           (#121212 page .. #2a2a2a raised). Use these instead of raw greys. */
+        :root {
+            --nr-text:           #e6e6e6;  /* primary */
+            --nr-text-secondary: #bdbdbd;  /* labels, secondary values */
+            --nr-text-muted:     #949494;  /* captions, metadata, hints */
+            --nr-text-faint:     #7a7a7a;  /* decorative icons only (>=3:1), never text */
+            --nr-accent:         #00bcd4;
+            --nr-accent-soft:    #4fa3ad;  /* teal-tinted secondary text, footer links */
+        }
+        /* Keyboard focus is always visible (mouse clicks don't show it) */
+        :focus-visible { outline: 2px solid var(--nr-accent) !important; outline-offset: 2px; }
+        ::placeholder { color: var(--nr-text-muted) !important; opacity: 1; }
+
         /* ── Base ── */
         body {
             background-color: #121212;
@@ -83,7 +98,7 @@
         .nr-user-btn {
             font-family: 'JetBrains Mono', monospace;
             font-size: 0.72rem;
-            color: #666 !important;
+            color: var(--nr-text-muted) !important;
             background: #161616 !important;
             border: 1px solid #242424 !important;
             border-radius: 6px;
@@ -157,7 +172,7 @@
         .nr-badge {
             display: inline-block;
             font-family: 'JetBrains Mono', monospace;
-            font-size: 0.6rem;
+            font-size: 0.6875rem;
             font-weight: 700;
             letter-spacing: 3px;
             color: #00bcd4;
@@ -174,7 +189,7 @@
             font-size: 0.72rem;
             font-weight: 500;
             letter-spacing: 0.8px;
-            color: #777 !important;
+            color: var(--nr-text-muted) !important;
             text-transform: uppercase;
             margin-bottom: 0.4rem;
         }
@@ -195,8 +210,8 @@
             border-color: #00bcd4 !important;
             box-shadow: 0 0 0 3px rgba(0,188,212,0.12) !important;
         }
-        .form-control::placeholder { color: #444 !important; }
-        .form-control:disabled { background-color: #161616 !important; color: #555 !important; }
+        .form-control::placeholder { color: var(--nr-text-muted) !important; }
+        .form-control:disabled { background-color: #161616 !important; color: var(--nr-text-muted) !important; }
         .form-control.is-invalid { border-color: rgba(239,83,80,0.6) !important; }
         .invalid-feedback { color: #ef9a9a !important; font-size: 0.78rem; }
 
@@ -204,13 +219,13 @@
         .input-group-text {
             background-color: #1e1e1e !important;
             border: 1px solid #2a2a2a !important;
-            color: #666 !important;
+            color: var(--nr-text-muted) !important;
         }
         .input-group .btn-outline-secondary {
             background: #1e1e1e !important;
             border: 1px solid #2a2a2a !important;
             border-left: none !important;
-            color: #666 !important;
+            color: var(--nr-text-muted) !important;
         }
         .input-group .btn-outline-secondary:hover {
             background: #252525 !important;
@@ -244,7 +259,7 @@
         .btn-primary:active { transform: none !important; }
 
         .btn-outline-secondary {
-            color: #666 !important;
+            color: var(--nr-text-muted) !important;
             border-color: #2a2a2a !important;
             background: transparent !important;
         }
@@ -320,7 +335,7 @@
             background-color: #00bcd4 !important;
             border-color: #00bcd4 !important;
         }
-        .form-check-label { color: #777 !important; font-size: 0.88rem; }
+        .form-check-label { color: var(--nr-text-muted) !important; font-size: 0.88rem; }
 
         /* ── Accordion ── */
         .accordion-item {
@@ -349,7 +364,7 @@
         .table-hover > tbody > tr:hover > * { background-color: rgba(0,188,212,0.03) !important; color: #e0e0e0 !important; }
         .table thead th {
             border-bottom: 1px solid #222 !important;
-            color: #555 !important;
+            color: var(--nr-text-muted) !important;
             font-size: 0.7rem;
             text-transform: uppercase;
             letter-spacing: 0.8px;
@@ -388,7 +403,7 @@
         hr { border-color: #1e1e1e !important; opacity: 1; }
 
         /* ── Badges (Bootstrap) ── */
-        .badge.bg-secondary { background-color: #1e1e1e !important; color: #666 !important; border: 1px solid #2a2a2a; }
+        .badge.bg-secondary { background-color: #1e1e1e !important; color: var(--nr-text-muted) !important; border: 1px solid #2a2a2a; }
         .badge.bg-danger    { background-color: rgba(183,28,28,0.2)  !important; color: #ef9a9a !important; }
         .badge.bg-success   { background-color: rgba(27,94,32,0.2)   !important; color: #a5d6a7 !important; }
         .badge.bg-warning   { background-color: rgba(245,127,23,0.2) !important; color: #ffe082 !important; }
@@ -435,8 +450,8 @@
             padding: 1.25rem 0 0.5rem;
             border-top: 1px solid #181818;
             font-family: 'JetBrains Mono', monospace;
-            font-size: 0.62rem;
-            color: #2e2e2e;
+            font-size: 0.6875rem;
+            color: var(--nr-text-muted);
             letter-spacing: 1.5px;
         }
         /* ── Form validation ── */
@@ -452,7 +467,7 @@
             box-shadow: none !important;
         }
         .field-error {
-            font-size: 0.73rem;
+            font-size: 0.75rem;
             color: #ef5350;
             margin-top: 0.28rem;
             display: none;
@@ -489,16 +504,16 @@
             </button>
             <ul class="dropdown-menu dropdown-menu-end">
                 <li><a class="dropdown-item" href="{{ url_for('auth.account') }}">
-                    <i class="bi bi-person me-2" style="color:#555;"></i>My Account
+                    <i class="bi bi-person me-2" style="color:var(--nr-text-faint);"></i>My Account
                 </a></li>
                 {% if current_user.role == "admin" %}
                 <li><a class="dropdown-item" href="{{ url_for('admin_users.admin_panel') }}">
-                    <i class="bi bi-shield me-2" style="color:#555;"></i>Admin Panel
+                    <i class="bi bi-shield me-2" style="color:var(--nr-text-faint);"></i>Admin Panel
                 </a></li>
                 {% endif %}
                 <li><hr class="dropdown-divider"></li>
                 <li><a class="dropdown-item" href="{{ url_for('auth.logout') }}">
-                    <i class="bi bi-box-arrow-right me-2" style="color:#555;"></i>Logout
+                    <i class="bi bi-box-arrow-right me-2" style="color:var(--nr-text-faint);"></i>Logout
                 </a></li>
             </ul>
         </div>

@@ -9,11 +9,11 @@
   <h2 style="font-family:'JetBrains Mono',monospace; font-size:1.9rem; font-weight:700; color:#e0e0e0; letter-spacing:-0.5px; margin-bottom:0.3rem;">
     {{ user.username }}
   </h2>
-  <p style="font-size:0.83rem; color:#444; margin:0;">
+  <p style="font-size:0.83rem; color:var(--nr-text-muted); margin:0;">
     {% if user.role == "admin" %}
-      <span class="badge bg-danger" style="font-size:0.68rem; vertical-align:middle; margin-right:0.4rem;">Admin</span>
+      <span class="badge bg-danger" style="font-size: 0.75rem; vertical-align:middle; margin-right:0.4rem;">Admin</span>
     {% else %}
-      <span class="badge bg-secondary" style="font-size:0.68rem; vertical-align:middle; margin-right:0.4rem;">User</span>
+      <span class="badge bg-secondary" style="font-size: 0.75rem; vertical-align:middle; margin-right:0.4rem;">User</span>
     {% endif %}
     Member since {{ user.created_at.strftime("%B %Y") }}
   </p>
@@ -120,7 +120,7 @@
               {{ success_rate }}%
             </span>
           {% else %}
-            <span style="font-family:'JetBrains Mono',monospace; font-size:0.85rem; color:#333;">—</span>
+            <span style="font-family:'JetBrains Mono',monospace; font-size:0.85rem; color:var(--nr-text-muted);">—</span>
           {% endif %}
         </div>
 
@@ -134,7 +134,7 @@
               {{ most_common_platform }}
             </span>
           {% else %}
-            <span style="font-family:'JetBrains Mono',monospace; font-size:0.85rem; color:#333;">—</span>
+            <span style="font-family:'JetBrains Mono',monospace; font-size:0.85rem; color:var(--nr-text-muted);">—</span>
           {% endif %}
         </div>
 

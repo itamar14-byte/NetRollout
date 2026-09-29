@@ -79,7 +79,7 @@
 .term {
     font-family: 'JetBrains Mono', monospace;
     font-size: 0.78rem;
-    color: #555;
+    color: var(--nr-text-muted);
 }
 .term.bright { color: #e0e0e0; }
 .term.cyan   { color: #00bcd4; }
@@ -99,7 +99,7 @@
 /* ── Status badge pills ── */
 .status-pill {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 0.62rem;
+    font-size: 0.6875rem;
     font-weight: 700;
     letter-spacing: 1.5px;
     text-transform: uppercase;
@@ -109,7 +109,7 @@
 .status-pill.success  { background: rgba(76,175,80,0.12);  color: #a5d6a7; border: 1px solid rgba(76,175,80,0.2); }
 .status-pill.partial  { background: rgba(255,193,7,0.1);   color: #ffe082; border: 1px solid rgba(255,193,7,0.2); }
 .status-pill.failed   { background: rgba(239,83,80,0.1);   color: #ef9a9a; border: 1px solid rgba(239,83,80,0.2); }
-.status-pill.cancelled{ background: rgba(100,100,100,0.1); color: #666;    border: 1px solid rgba(100,100,100,0.2); }
+.status-pill.cancelled{ background: rgba(100,100,100,0.1); color: var(--nr-text-muted);    border: 1px solid rgba(100,100,100,0.2); }
 
 /* ── System summary panel ── */
 .sys-row {
@@ -128,13 +128,13 @@
 <!-- ── Welcome header ── -->
 <div class="mb-4 dash-animate" style="animation-delay:0s; opacity:0;">
     <div class="d-flex align-items-center gap-2 mb-1">
-        <span class="status-dot cyan"></span>
+        <span class="status-dot cyan" aria-hidden="true"></span>
         <span class="nr-badge" style="margin-bottom:0;">SYSTEM OVERVIEW</span>
     </div>
     <h3 style="font-family:'Inter',sans-serif; font-weight:600; font-size:1.4rem; color:#e0e0e0; margin-bottom:0.2rem;">
         Welcome back, <span style="color:#00bcd4;">{{ current_user.username }}</span>
     </h3>
-    <div class="term" style="font-size:0.72rem;">
+    <div class="term" style="font-size: 0.75rem;">
         NetRollout &nbsp;·&nbsp;
         <span id="dashClock"></span>
         <span class="blink">_</span>
@@ -156,7 +156,7 @@
             <div class="nr-card-body" style="padding:1.5rem;">
                 <div class="d-flex align-items-center justify-content-between mb-3">
                     <div class="d-flex align-items-center gap-2">
-                        <span class="status-dot active"></span>
+                        <span class="status-dot active" aria-hidden="true"></span>
                         <span class="nr-badge" style="margin-bottom:0; border-color:rgba(76,175,80,0.35); color:#a5d6a7;">ACTIVE ROLLOUT</span>
                     </div>
                     <form method="POST" action="{{ url_for('rollout.cancel_rollout') }}">
@@ -171,7 +171,7 @@
                 <div class="row g-3">
                     <div class="col-6 col-md-3">
                         <div class="nr-label">Job ID</div>
-                        <div class="term bright" style="font-size:0.72rem;">{{ active_job.id | string | truncate(8, True, '') }}…</div>
+                        <div class="term bright" style="font-size: 0.75rem;">{{ active_job.id | string | truncate(8, True, '') }}…</div>
                     </div>
                     <div class="col-6 col-md-3">
                         <div class="nr-label">Devices</div>
@@ -203,15 +203,15 @@
             <div class="nr-card-accent" style="background:linear-gradient(90deg,#1e1e1e,#222,transparent);"></div>
             <div class="nr-card-body" style="padding:1.5rem;">
                 <div class="d-flex align-items-center gap-2 mb-3">
-                    <span class="status-dot idle"></span>
-                    <span class="nr-badge" style="margin-bottom:0; border-color:#222; color:#444;">NO ACTIVE ROLLOUT</span>
+                    <span class="status-dot idle" aria-hidden="true"></span>
+                    <span class="nr-badge" style="margin-bottom:0; border-color:#222; color:var(--nr-text-muted);">NO ACTIVE ROLLOUT</span>
                 </div>
                 <div class="d-flex align-items-center justify-content-between">
                     <div>
-                        <div style="color:#333; font-size:0.85rem; font-family:'JetBrains Mono',monospace;">
-                            System idle &nbsp;<span class="blink" style="color:#2a2a2a;">_</span>
+                        <div style="color:var(--nr-text-muted); font-size:0.85rem; font-family:'JetBrains Mono',monospace;">
+                            System idle &nbsp;<span class="blink" style="color:var(--nr-text-muted);">_</span>
                         </div>
-                        <div style="color:#2a2a2a; font-size:0.72rem; margin-top:0.2rem; font-family:'JetBrains Mono',monospace;">
+                        <div style="color:var(--nr-text-muted); font-size:0.72rem; margin-top:0.2rem; font-family:'JetBrains Mono',monospace;">
                             Ready to deploy
                         </div>
                     </div>
@@ -258,7 +258,7 @@
                     {% for job in recent_jobs %}
                     <tr>
                         <td>
-                            <span class="term cyan" style="font-size:0.72rem;"
+                            <span class="term cyan" style="font-size: 0.75rem;"
                                   title="{{ job.job_id }}">
                                 {{ job.job_id | string | truncate(8, True, '') }}…
                             </span>
@@ -286,7 +286,7 @@
                 <div style="text-align:center; padding:2.5rem 0;">
                     <i class="bi bi-clock-history" style="font-size:1.8rem; color:#222; display:block; margin-bottom:0.6rem;"></i>
                     <div class="term" style="font-size:0.8rem;">No rollout history yet</div>
-                    <div style="font-size:0.72rem; color:#2a2a2a; margin-top:0.2rem;">
+                    <div style="font-size: 0.75rem; color:var(--nr-text-muted); margin-top:0.2rem;">
                         Run your first rollout to see results here
                     </div>
                 </div>
@@ -355,14 +355,14 @@
                 <div class="sys-row">
                     <span class="nr-label" style="margin-bottom:0;">Role</span>
                     {% if current_user.role == "admin" %}
-                    <span class="badge bg-danger" style="font-size:0.65rem;">Admin</span>
+                    <span class="badge bg-danger" style="font-size: 0.75rem;">Admin</span>
                     {% else %}
-                    <span class="badge bg-secondary" style="font-size:0.65rem;">User</span>
+                    <span class="badge bg-secondary" style="font-size: 0.75rem;">User</span>
                     {% endif %}
                 </div>
                 <div class="sys-row">
                     <span class="nr-label" style="margin-bottom:0;">Member Since</span>
-                    <span class="term" style="font-size:0.72rem;">{{ current_user.created_at.strftime("%b %d, %Y") }}</span>
+                    <span class="term" style="font-size: 0.75rem;">{{ current_user.created_at.strftime("%b %d, %Y") }}</span>
                 </div>
                 <div class="sys-row" style="border-bottom:none; flex-direction:column; align-items:flex-start; gap:0.3rem;">
                     <span class="nr-label" style="margin-bottom:0;">Tenure</span>
@@ -408,7 +408,7 @@
 <div class="d-flex align-items-center justify-content-between mt-4 mb-2">
     <div class="d-flex align-items-center gap-2">
         <i class="bi bi-bar-chart-line" style="color:#00bcd4; font-size:0.85rem;"></i>
-        <span style="font-size:0.72rem; color:#555; font-family:'JetBrains Mono',monospace; letter-spacing:0.5px;">
+        <span style="font-size:0.72rem; color:var(--nr-text-muted); font-family:'JetBrains Mono',monospace; letter-spacing:0.5px;">
             KPI SCOPE
             {% if selected_user != 'me' %}
             — <span style="color:#00bcd4;">
@@ -440,7 +440,7 @@
             {% elif kpi.success_rate >= 50 %}rgba(255,193,7,0.5)
             {% else %}rgba(239,83,80,0.6){% endif %},transparent);"></div>
         <div class="nr-card-body" style="padding:1.1rem 1.25rem;">
-            <div class="nr-label" style="margin-bottom:0.4rem;">SUCCESS RATE <span style="color:#2a2a2a; text-transform:none; letter-spacing:0;">30d</span></div>
+            <div class="nr-label" style="margin-bottom:0.4rem;">SUCCESS RATE <span style="color:var(--nr-text-muted); text-transform:none; letter-spacing:0;">30d</span></div>
             <div style="font-family:'JetBrains Mono',monospace; font-size:1.7rem; font-weight:700; line-height:1;
                 color:{% if kpi.success_rate is none %}#333
                       {% elif kpi.success_rate >= 80 %}#a5d6a7
@@ -448,7 +448,7 @@
                       {% else %}#ef9a9a{% endif %};">
                 {% if kpi.success_rate is none %}—{% else %}{{ kpi.success_rate }}%{% endif %}
             </div>
-            <div style="font-size:0.7rem; color:#333; margin-top:0.3rem;">
+            <div style="font-size: 0.75rem; color:var(--nr-text-muted); margin-top:0.3rem;">
                 {{ kpi.jobs_30d }} job{{ 's' if kpi.jobs_30d != 1 }} total
             </div>
         </div>
@@ -460,11 +460,11 @@
     <div class="nr-card" style="height:100%;">
         <div class="nr-card-accent"></div>
         <div class="nr-card-body" style="padding:1.1rem 1.25rem;">
-            <div class="nr-label" style="margin-bottom:0.4rem;">DEVICES REACHED <span style="color:#2a2a2a; text-transform:none; letter-spacing:0;">30d</span></div>
+            <div class="nr-label" style="margin-bottom:0.4rem;">DEVICES REACHED <span style="color:var(--nr-text-muted); text-transform:none; letter-spacing:0;">30d</span></div>
             <div style="font-family:'JetBrains Mono',monospace; font-size:1.7rem; font-weight:700; line-height:1; color:#e0e0e0;">
                 {{ kpi.devices_reached }}
             </div>
-            <div style="font-size:0.7rem; color:#333; margin-top:0.3rem;">
+            <div style="font-size: 0.75rem; color:var(--nr-text-muted); margin-top:0.3rem;">
                 across all rollouts
             </div>
         </div>
@@ -476,11 +476,11 @@
     <div class="nr-card" style="height:100%;">
         <div class="nr-card-accent"></div>
         <div class="nr-card-body" style="padding:1.1rem 1.25rem;">
-            <div class="nr-label" style="margin-bottom:0.4rem;">COMMANDS PUSHED <span style="color:#2a2a2a; text-transform:none; letter-spacing:0;">30d</span></div>
+            <div class="nr-label" style="margin-bottom:0.4rem;">COMMANDS PUSHED <span style="color:var(--nr-text-muted); text-transform:none; letter-spacing:0;">30d</span></div>
             <div style="font-family:'JetBrains Mono',monospace; font-size:1.7rem; font-weight:700; line-height:1; color:#e0e0e0;">
                 {{ kpi.commands_pushed }}
             </div>
-            <div style="font-size:0.7rem; color:#333; margin-top:0.3rem;">
+            <div style="font-size: 0.75rem; color:var(--nr-text-muted); margin-top:0.3rem;">
                 total lines sent
             </div>
         </div>
@@ -492,19 +492,19 @@
     <div class="nr-card" style="height:100%;">
         <div class="nr-card-accent" style="background:linear-gradient(90deg,rgba(239,83,80,0.25),transparent);"></div>
         <div class="nr-card-body" style="padding:1.1rem 1.25rem;">
-            <div class="nr-label" style="margin-bottom:0.4rem;">MOST FAILURES <span style="color:#2a2a2a; text-transform:none; letter-spacing:0;">30d</span></div>
+            <div class="nr-label" style="margin-bottom:0.4rem;">MOST FAILURES <span style="color:var(--nr-text-muted); text-transform:none; letter-spacing:0;">30d</span></div>
             {% if kpi.top_failed %}
             <div style="font-family:'JetBrains Mono',monospace; font-size:0.82rem; font-weight:700; color:#ef9a9a; line-height:1.3; word-break:break-all;">
                 {{ kpi.top_failed.label or kpi.top_failed.ip }}
             </div>
-            <div style="font-size:0.7rem; color:#333; margin-top:0.3rem;">
+            <div style="font-size: 0.75rem; color:var(--nr-text-muted); margin-top:0.3rem;">
                 {{ kpi.top_failed.fail_count }} failure{{ 's' if kpi.top_failed.fail_count != 1 }}
-                · <a href="{{ url_for('jobs.results') }}" style="color:#444; text-decoration:none;"
-                     onmouseenter="this.style.color='#00bcd4'" onmouseleave="this.style.color='#444'">see results</a>
+                · <a href="{{ url_for('jobs.results') }}" style="color:var(--nr-text-muted); text-decoration:none;"
+                     onmouseenter="this.style.color='#00bcd4'" onmouseleave="this.style.color='var(--nr-text-muted)'">see results</a>
             </div>
             {% else %}
-            <div style="font-family:'JetBrains Mono',monospace; font-size:1.7rem; font-weight:700; line-height:1; color:#2a2a2a;">—</div>
-            <div style="font-size:0.7rem; color:#2a2a2a; margin-top:0.3rem;">no failures</div>
+            <div style="font-family:'JetBrains Mono',monospace; font-size:1.7rem; font-weight:700; line-height:1; color:var(--nr-text-muted);">—</div>
+            <div style="font-size: 0.75rem; color:var(--nr-text-muted); margin-top:0.3rem;">no failures</div>
             {% endif %}
         </div>
     </div>
