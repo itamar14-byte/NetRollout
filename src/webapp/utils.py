@@ -84,7 +84,7 @@ def with_json(*required_fields, on_invalid=None):
 			if not data:
 				if on_invalid:
 					on_invalid()
-				return err("Invalid ldap_request")
+				return err("Invalid request")
 			for field in required_fields:
 				if field not in data or not str(data[field] or "").strip():
 					return err(f"Missing field: {field}")

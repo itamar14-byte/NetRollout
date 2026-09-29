@@ -15,49 +15,56 @@ class InputParser:
 		self.validator = validator
 		self.logger = logger
 
-	def prepare_devices(self, raw_devices: list[dict[str, str]]) -> tuple[
-		list[Device],list[str]]:
-		"""Helper function for the file parser that processes the device dictionary
-		 :param raw_devices: preprocessed device list
-		 stating whether the user wishes to see progress messages on the console
-		 :return: a list of dictionaries with fields and values for the devices.
-		 In case of failure, an empty list
+	CREDENTIAL_KEYS = ("username", "password", "secret")
+	CORE_KEYS = {"ip", "device_type", "port", "label", *CREDENTIAL_KEYS}
+
+	def prepare_devices(self, raw_devices: list[dict[str, str]],
+	                    require_credentials: bool = True) -> tuple[
+		list[Device], list[str]]:
+		"""Validate raw rows (CSV / form) into Devices.
+		Each row is handled independently — a bad row is reported in `errors`
+		and never aborts the rest. Blank cells are treated as empty values
+		(e.g. a blank enable `secret`), not as missing columns.
+		:param require_credentials: the CLI pushes with the row's credentials,
+		 so they're required there; inventory import doesn't store
+		 credentials (they live in security profiles), so it passes False
+		:return: (devices, errors)
 		"""
-		# process all validated devices into a list of dictionaries
-		devices = []
-		errors = []
-		core_keys = {"ip", "device_type", "port", "label", "username",
-		             "password", "secret"}
-		for item in raw_devices:
-			item["device_type"] = item["device_type"].lower()
-			if item["ip"] and self.validator.validate_device_data(item,
-			                                                      ):
-				if self.validator.test_tcp_port(item["ip"], int(item["port"])):
-					item.setdefault("label", item["ip"])
-					core, var_mappings = {}, {}
-					for k,v in item.items():
-						if not v:
-							continue
-						elif k in core_keys:
-							core[k] = v
-						else:
-							var_mappings[k] = v
-
-					if "vrfs" in var_mappings:
-						var_mappings["vrfs"] = [vrf.strip() for vrf in
-						                        var_mappings["vrfs"].split(",")
-						                        if vrf.strip()]
-
-					devices.append(Device(**core,extra=var_mappings))
-					self.logger.notify(
-						f"Device {item['device_type']}: {item['ip']} successfully added",
-						"green")
-				else:
-					errors.append(f"{item['ip']} is not reachable")
-					self.logger.notify(f"{item['ip']} is not reachable", "red")
-					continue
-			else:
+		devices, errors = [], []
+		for row_no, raw in enumerate(raw_devices, start=1):
+			# DictReader yields None for missing trailing cells (and a None key
+			# for surplus ones); normalise to stripped strings
+			item = {k.strip(): (v or "").strip() for k, v in raw.items() if k}
+			item["device_type"] = item.get("device_type", "").lower()
+			ip, port = item.get("ip", ""), item.get("port", "")
+			if not ip or not port:
+				errors.append(f"Row {row_no}: ip and port are required")
 				continue
+			if not self.validator.validate_device_data(item):
+				errors.append(f"Row {row_no} ({ip}): invalid ip, port or "
+				              f"device type")
+				continue
+			if require_credentials and not (item.get("username") and
+			                                item.get("password")):
+				errors.append(f"Row {row_no} ({ip}): username and password "
+				              f"are required")
+				continue
+			if not self.validator.test_tcp_port(ip, int(port)):
+				errors.append(f"{ip} is not reachable")
+				self.logger.notify(f"{ip} is not reachable", "red")
+				continue
+
+			core = {k: item.get(k, "") for k in self.CORE_KEYS}
+			core["label"] = core["label"] or ip
+			core["port"] = int(port)
+			extra = {k: v for k, v in item.items()
+			         if k not in self.CORE_KEYS and v}
+			if "vrfs" in extra:
+				extra["vrfs"] = [vrf.strip() for vrf in extra["vrfs"].split(",")
+				                 if vrf.strip()]
+			devices.append(Device(**core, extra=extra))
+			self.logger.notify(
+				f"Device {item['device_type']}: {ip} successfully added", "green")
 		return devices, errors
 
 	@staticmethod
@@ -87,7 +94,8 @@ class InputParser:
 						raise ValueError(
 							"Missing keys: {}".format(missing_keys))
 
-					devices, errors = self.prepare_devices(list(reader))
+					devices, errors = self.prepare_devices(
+						list(reader), require_credentials=False)
 					self.logger.notify(
 						f"CSV processed: {len(devices)} imported, {len(errors)} failed",
 						"green" if not errors else "yellow", important=True)
@@ -95,7 +103,7 @@ class InputParser:
 						row = Inventory(user_id=user_id, ip=device.ip,
 						                port=device.port,
 						                device_type=device.device_type,
-						                label=label if label else device.ip)
+						                label=label or device.label)  # form > row > IP
 						db_session.add(row)
 					return devices,errors
 
@@ -115,7 +123,8 @@ class InputParser:
 	def form_to_inventory(self, devices_json: str, user_id: uuid.UUID,
 	                      db_session: Session) -> list[Device]:
 		raw_devices = loads(devices_json) if devices_json else []
-		devices, _ = self.prepare_devices(raw_devices=raw_devices)
+		devices, _ = self.prepare_devices(raw_devices=raw_devices,
+		                                   require_credentials=False)
 		# logs summary of file processing workflow
 		#self.logger.notify(f"Devices loaded: {devices}","green")
 

@@ -470,6 +470,41 @@ class TestPrepareDevices(unittest.TestCase):
         self.assertEqual(devices[0].device_type, "cisco_ios")
 
     @patch("src.validation.Validator.test_tcp_port", return_value=True)
+    def test_blank_cells_are_empty_values_not_missing_columns(self, _):
+        devices, errors = self.parser.prepare_devices(
+            [self._raw(secret="", label="")])
+        self.assertEqual(errors, [])
+        self.assertEqual((devices[0].secret, devices[0].label), ("", "10.0.0.1"))
+
+    @patch("src.validation.Validator.test_tcp_port", return_value=True)
+    def test_short_rows_from_csv_reader_are_tolerated(self, _):
+        # DictReader gives None for missing trailing cells
+        row = self._raw()
+        row["secret"] = None
+        devices, errors = self.parser.prepare_devices([row])
+        self.assertEqual((len(devices), errors), (1, []))
+
+    @patch("src.validation.Validator.test_tcp_port", return_value=True)
+    def test_bad_row_is_reported_and_does_not_abort_the_rest(self, _):
+        rows = [self._raw(ip="10.0.0.1"), self._raw(ip="bad"),
+                self._raw(ip="", port=""), self._raw(ip="10.0.0.4")]
+        devices, errors = self.parser.prepare_devices(rows)
+        self.assertEqual([d.ip for d in devices], ["10.0.0.1", "10.0.0.4"])
+        self.assertEqual(len(errors), 2)
+        self.assertIn("Row 2", errors[0])
+        self.assertIn("Row 3", errors[1])
+
+    @patch("src.validation.Validator.test_tcp_port", return_value=True)
+    def test_credentials_required_only_when_asked(self, _):
+        row = {"ip": "10.0.0.1", "device_type": "cisco_ios", "port": "22"}
+        devices, errors = self.parser.prepare_devices([dict(row)])
+        self.assertEqual(devices, [])
+        self.assertIn("username and password", errors[0])
+        devices, errors = self.parser.prepare_devices(
+            [dict(row)], require_credentials=False)
+        self.assertEqual((len(devices), errors), (1, []))
+
+    @patch("src.validation.Validator.test_tcp_port", return_value=True)
     def test_multiple_devices(self, _):
         raw = [self._raw(ip=f"10.0.0.{i}") for i in range(1, 4)]
         devices, _ = self.parser.prepare_devices(raw)

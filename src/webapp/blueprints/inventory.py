@@ -10,6 +10,7 @@ from flask import Blueprint, render_template, request, current_app, redirect, \
 from flask_login import current_user, login_required
 
 # local modules
+from src.core import mapping_resolvable
 from src.db.tables import VariableMapping, Inventory, SecurityProfile, User
 from src.input_parser import InputParser
 from src.logging_utils import RolloutLogger
@@ -27,16 +28,27 @@ def parse_mapping_ids(raw_ids: list[str]) -> list[uuid.UUID]:
 	return [uuid.UUID(mid) for mid in raw_ids]
 
 
-def set_user_mappings(device, user_id, mapping_ids, db_session):
+def set_user_mappings(device, user_id, mapping_ids, db_session) -> list[str]:
 	# The mapping<->device join table is shared across users, so only the
 	# given user's bindings are replaced — other users' bindings on a global
-	# device are preserved.
+	# device are preserved. Mappings the device can't resolve (attribute
+	# missing, list index out of range) aren't bound; their tokens are
+	# returned so the caller can tell the user.
 	selected = db_session.query(VariableMapping).filter(
 		VariableMapping.id.in_(mapping_ids),
 		VariableMapping.user_id == user_id
 	).all() if mapping_ids else []
+	eligible = [m for m in selected if mapping_resolvable(
+		device.var_maps, m.property_name, m.index)]
 	device.var_mappings = [m for m in device.var_mappings
-	                       if m.user_id != user_id] + selected
+	                       if m.user_id != user_id] + eligible
+	return sorted(m.token for m in selected if m not in eligible)
+
+
+def flash_skipped_mappings(skipped: list[str]):
+	if skipped:
+		flash(f"Not bound — the device has no value for their attribute: "
+		      f"{', '.join(skipped)}", "warning")
 
 
 def profile_allowed(profile_id, db_session, current_profile_id=None):
@@ -185,7 +197,8 @@ def inventory_edit(device_id):
 			else:
 				var_maps[prop_name] = inv_val
 		device.var_maps = var_maps or None
-		set_user_mappings(device, current_user.id, mapping_ids, db_session)
+		flash_skipped_mappings(
+			set_user_mappings(device, current_user.id, mapping_ids, db_session))
 		if was_global and not is_global:
 			# Other users can no longer see this device — drop their bindings
 			# rather than leave invisible orphans in the join table.
@@ -219,7 +232,8 @@ def inventory_mappings(device_id):
 		                      "danger")
 
 	def _set_mappings(device, db_session):
-		set_user_mappings(device, current_user.id, mapping_ids, db_session)
+		flash_skipped_mappings(
+			set_user_mappings(device, current_user.id, mapping_ids, db_session))
 		current_app.web.audit("inventory.mappings", object_type="Inventory",
 		                      object_id=device_id, object_label=device.label,
 		                      detail={"mapping_count": len(mapping_ids)})
@@ -308,9 +322,9 @@ def inventory_bulk_assign():
 	                       job_id=str(uuid.uuid4())[:8])
 	data = request.get_json(silent=True)
 	if not data:
-		logger.notify("Bulk assign failed: invalid ldap_request", "red",
+		logger.notify("Bulk assign failed: invalid request", "red",
 		              important=True)
-		return err("Invalid ldap_request")
+		return err("Invalid request")
 
 	profile_id = data.get("profile_id")
 	device_ids = data.get("device_ids", [])

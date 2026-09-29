@@ -11,6 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from werkzeug import Response
 
 # local modules
+from src.core import mapping_resolvable
 from src.db.tables import VariableMapping, Inventory, User
 from src.logging_utils import RolloutLogger
 from src.validation import Validator
@@ -217,9 +218,9 @@ def mappings_bulk_assign():
 	# Parse JSON body — bail immediately if malformed or missing
 	data = request.get_json(silent=True)
 	if not data:
-		logger.notify("Bulk mapping assign failed: invalid ldap_request", "red",
+		logger.notify("Bulk mapping assign failed: invalid request", "red",
 		              important=True)
-		return err("Invalid ldap_request")
+		return err("Invalid request")
 	mapping_id = data.get("mapping_id", None)
 	device_ids = data.get("device_ids", [])
 
@@ -271,7 +272,8 @@ def mappings_bulk_assign():
 			# Eligibility check — device must have the mapped attribute set,
 			# and the value must be truthy (empty string/list would produce
 			# garbage substitution at rollout time)
-			if not (device.var_maps or {}).get(mapping.property_name):
+			if not mapping_resolvable(device.var_maps, mapping.property_name,
+			                          mapping.index):
 				logger.notify(
 					f"{device.label} ({device.ip}): ineligible — missing attribute '{mapping.property_name}'",
 					"yellow")
