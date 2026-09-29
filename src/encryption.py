@@ -26,6 +26,14 @@ class EncryptionStartupError(Exception):
 	pass
 
 
+def key_source() -> str:
+	"""Where this process reads its key from (for the admin fix-it page).
+	Same precedence as _read_key: the env var wins over the file."""
+	if os.environ.get(ENV_VAR):
+		return f"the {ENV_VAR} environment variable"
+	return f"the key file {KEY_FILE}"
+
+
 def _read_key() -> bytes | None:
 	# env var takes precedence over the key file; None when neither exists
 	env_key = os.environ.get(ENV_VAR)

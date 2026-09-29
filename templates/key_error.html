@@ -1,80 +1,140 @@
-<!DOCTYPE html>
-<html lang="en" class="h-full bg-slate-950 text-slate-100">
+<!doctype html>
+<html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>[NetRollout] Cryptographic Configuration Error</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/lucide@latest"></script>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Encryption Key Error — NetRollout</title>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <style>
+        /* Standalone on purpose: shown when stored secrets can't be read, so it
+           depends on nothing but fonts. Tokens match operator_base.html. */
+        :root {
+            --nr-text:           #e6e6e6;
+            --nr-text-secondary: #bdbdbd;
+            --nr-text-muted:     #949494;
+            --nr-accent:         #00bcd4;
+            --nr-accent-soft:    #4fa3ad;
+            --nr-danger:         #ef9a9a;
+            --nr-warn:           #ffcc80;
+        }
+        :focus-visible { outline: 2px solid var(--nr-accent) !important; outline-offset: 2px; }
+
+        body { margin: 0; background: #121212; color: var(--nr-text); font-family: 'Inter', sans-serif;
+               display: flex; align-items: center; justify-content: center; min-height: 100vh;
+               padding: 2rem 1rem; box-sizing: border-box; }
+        .box { max-width: 620px; width: 100%; background: #181818; border: 1px solid #262626;
+               border-radius: 10px; padding: 1.75rem 1.75rem 1.5rem; }
+        .badge { display: inline-block; font-family: 'JetBrains Mono', monospace; font-size: 0.6875rem;
+                 letter-spacing: 2px; text-transform: uppercase; color: var(--nr-danger);
+                 border: 1px solid rgba(239,83,80,0.3); background: rgba(239,83,80,0.06);
+                 padding: 0.2rem 0.55rem; border-radius: 4px; margin-bottom: 0.9rem; }
+        h1 { font-size: 1.2rem; font-weight: 600; margin: 0 0 0.5rem; color: var(--nr-text); }
+        .lead { font-size: 0.88rem; color: var(--nr-text-secondary); line-height: 1.6; margin: 0 0 1.25rem; }
+        h2 { font-family: 'JetBrains Mono', monospace; font-size: 0.72rem; font-weight: 700;
+             letter-spacing: 0.1em; text-transform: uppercase; color: var(--nr-text-muted);
+             margin: 1.4rem 0 0.6rem; }
+        ol, ul { margin: 0; padding-left: 1.25rem; }
+        li { font-size: 0.85rem; color: var(--nr-text-secondary); line-height: 1.6; margin-bottom: 0.55rem; }
+        li strong { color: var(--nr-text); font-weight: 600; }
+        code { font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; color: var(--nr-accent);
+               background: #121212; border: 1px solid #262626; border-radius: 4px; padding: 0.05rem 0.35rem;
+               word-break: break-all; }
+        pre { font-family: 'JetBrains Mono', monospace; font-size: 0.76rem; color: var(--nr-text-secondary);
+              background: #121212; border: 1px solid #262626; border-radius: 6px; padding: 0.7rem 0.85rem;
+              margin: 0.4rem 0 0; white-space: pre-wrap; word-break: break-all; }
+        .source { font-size: 0.85rem; color: var(--nr-text-secondary); background: rgba(0,188,212,0.05);
+                  border: 1px solid rgba(0,188,212,0.2); border-radius: 6px; padding: 0.6rem 0.85rem;
+                  margin: 0 0 1rem; }
+        .warn { font-size: 0.84rem; color: var(--nr-warn); background: rgba(255,183,77,0.07);
+                border: 1px solid rgba(255,183,77,0.3); border-radius: 6px; padding: 0.6rem 0.85rem;
+                margin: 1.2rem 0 0; line-height: 1.55; }
+        details { margin-top: 1.2rem; }
+        summary { cursor: pointer; font-family: 'JetBrains Mono', monospace; font-size: 0.75rem;
+                  color: var(--nr-text-muted); }
+        .actions { display: flex; gap: 0.6rem; margin-top: 1.5rem; }
+        .actions a { font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; color: var(--nr-accent);
+                     text-decoration: none; border: 1px solid rgba(0,188,212,0.3); padding: 0.4rem 1rem;
+                     border-radius: 6px; transition: background 0.15s; }
+        .actions a:hover { background: rgba(0,188,212,0.07); }
+    </style>
 </head>
-<body class="flex min-h-full flex-col justify-center px-6 py-12 lg:px-8 font-sans selection:bg-rose-500/30 selection:text-rose-200">
+<body>
+<main class="box">
+    <div class="badge">Encryption key</div>
+    <h1>Stored credentials can't be decrypted</h1>
 
-    <div class="sm:mx-auto sm:w-full sm:max-w-2xl bg-slate-900 border border-slate-800 rounded-xl shadow-2xl p-8 md:p-10 transition-all duration-200 hover:border-slate-700/80">
+    {% set what = {
+        "profile": "a security profile's password",
+        "2fa": "a two-factor sign-in secret",
+        "ldap": "the LDAP bind password",
+    }.get(area, "some stored credentials") %}
 
-        <div class="flex items-center space-x-4 border-b border-slate-800 pb-6 mb-6">
-            <div class="p-3 bg-rose-500/10 border border-rose-500/20 text-rose-400 rounded-lg">
-                <i data-lucide="shield-alert" class="w-8 h-8"></i>
-            </div>
-            <div>
-                <span class="text-xs font-mono tracking-widest uppercase text-rose-400 font-semibold bg-rose-500/5 border border-rose-500/10 px-2 py-0.5 rounded">
-                    Status 500 · Crypto Failure
-                </span>
-                <h1 class="text-2xl font-bold tracking-tight text-slate-100 mt-1">
-                    System Encryption Key Error
-                </h1>
-            </div>
-        </div>
+    {% if is_admin %}
+    <p class="lead">
+        The encryption key this server uses doesn't match the key that encrypted
+        {{ what }}. This usually means the database came from another install, or the
+        key was replaced. Nothing was changed.
+    </p>
 
-        <div class="space-y-4">
-            <p class="text-sm text-slate-400 leading-relaxed">
-                The application subsystem encountered a critical error processing the master encryption key. To protect secure network credentials from structural corruption, automated rollout tasks have been safely halted.
-            </p>
+    <div class="source">This server reads its key from <strong>{{ key_source }}</strong>.</div>
 
-            <div class="bg-slate-950 border border-slate-800 rounded-lg p-5 font-mono text-xs md:text-sm text-rose-300 leading-relaxed shadow-inner overflow-x-auto whitespace-pre-wrap select-text">
-                <div class="flex items-start space-x-2">
-                    <span class="text-rose-500 font-bold select-none">&gt;</span>
-                    <span class="flex-1">{{ error_message }}</span>
-                </div>
-            </div>
-        </div>
+    <h2>Fix it: restore the original key</h2>
+    <ol>
+        <li><strong>Find the key that was in use when this data was saved:</strong> the
+            <code>{{ env_var }}</code> value in your previous deployment config
+            (<code>config.env</code>, docker-compose file or service definition), or the
+            <code>encryption.key</code> file from the previous host's
+            <code>~/.netrollout/</code> folder or a backup.</li>
+        <li><strong>Put it where this server reads its key:</strong> set
+            <code>{{ env_var }}=&lt;original key&gt;</code> (the variable takes precedence),
+            or replace the contents of <code>{{ key_file }}</code>.</li>
+        <li><strong>Restart NetRollout:</strong> the Restart button in the admin panel, or
+            restart the process / container. Startup checks the key against the stored data
+            and refuses to start, with the reason in the server log, if it's still wrong.</li>
+    </ol>
 
-        <div class="mt-8 pt-6 border-t border-slate-800/60 space-y-3">
-            <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center space-x-2">
-                <i data-lucide="terminal" class="w-4 h-4"></i>
-                <span>Deployment Diagnostic Steps</span>
-            </h3>
+    <h2>If the original key is lost</h2>
+    <p class="lead" style="margin-bottom:0.6rem;">Those secrets can't be recovered. Replace them:</p>
+    <ul>
+        <li><strong>Security profiles:</strong> Security Profiles → edit each profile → type the
+            password (and enable secret) again → Save.</li>
+        <li><strong>LDAP:</strong> Admin → Server Management → LDAP → enter the bind password again → Save.</li>
+        <li><strong>Two-factor sign-in:</strong> clear the affected users' 2FA so they enroll again
+            at their next sign-in. Run in the NetRollout database:
+            <pre>UPDATE users SET otp_secret = NULL WHERE username = '&lt;user&gt;';</pre></li>
+    </ul>
 
-            <ul class="text-xs text-slate-400 space-y-2.5 font-mono bg-slate-950/40 p-4 rounded-lg border border-slate-800/40">
-                <li class="flex items-start space-x-2">
-                    <span class="text-emerald-500 font-bold">1.</span>
-                    <span>Check your target environment context: Run <code class="text-slate-200 bg-slate-800 px-1 py-0.5 rounded">echo $NETROLLOUT_ENCRYPTION_KEY</code> on your deployment host or background worker nodes.</span>
-                </li>
-                <li class="flex items-start space-x-2">
-                    <span class="text-emerald-500 font-bold">2.</span>
-                    <span>Verify persistent key files: Ensure <code class="text-slate-200 bg-slate-800 px-1 py-0.5 rounded">~/.netrollout/encryption.key</code> hasn't been appended with extra whitespace, raw strings, or broken text streams.</span>
-                </li>
-                <li class="flex items-start space-x-2">
-                    <span class="text-emerald-500 font-bold">3.</span>
-                    <span>Generate a valid standard string: If you need to seed a fresh layout manually, execute <code class="text-slate-200 bg-slate-800 px-1 py-0.5 rounded">python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"</code>.</span>
-                </li>
-            </ul>
-        </div>
-
-        <div class="mt-8 pt-4 border-t border-slate-800 flex flex-col sm:flex-row sm:items-center sm:justify-between text-xs text-slate-500 space-y-2 sm:space-y-0">
-            <div class="flex items-center space-x-2">
-                <span class="inline-block w-2 h-2 rounded-full bg-rose-500 animate-pulse"></span>
-                <span>Waitress Server Instance: Online</span>
-            </div>
-            <div class="flex items-center space-x-1 font-mono">
-                <i data-lucide="layers" class="w-3.5 h-3.5 text-slate-600"></i>
-                <span>Redis Queue Isolation Active</span>
-            </div>
-        </div>
-
+    <div class="warn">
+        <strong>Don't generate a new key.</strong> A new key can't read the existing data, and
+        anything saved afterwards would be encrypted with yet another key.
     </div>
 
-    <script>
-        lucide.createIcons();
-    </script>
+    <details>
+        <summary>Technical details</summary>
+        <pre>{{ error_message }}
+Request: {{ path }}</pre>
+    </details>
+
+    {% else %}
+    <p class="lead">
+        NetRollout can't read {{ what }} with its current encryption key, so this action
+        couldn't finish. Nothing was changed, and nothing you did caused this.
+    </p>
+    <ol>
+        <li><strong>Ask your NetRollout administrator</strong> to restore the server's encryption key.
+            They'll see the steps when they open this page, and the server log has them too.</li>
+        {% if area == "2fa" %}
+        <li><strong>Administrators:</strong> this happened at two-factor sign-in, so you may not be able
+            to sign in either. The fix is in the server log (<code>docker logs</code> or the
+            console NetRollout runs in).</li>
+        {% endif %}
+    </ol>
+    {% endif %}
+
+    <div class="actions">
+        <a href="{{ retry }}">Retry</a>
+        <a href="/">Home</a>
+    </div>
+</main>
 </body>
 </html>

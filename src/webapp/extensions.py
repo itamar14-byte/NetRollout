@@ -1,10 +1,11 @@
+import sys
 import uuid
 
 import flask_wtf.csrf as csrf_err
 from flask import request, redirect, url_for, render_template
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
-from flask_login import LoginManager
+from flask_login import LoginManager, current_user
 from flask_wtf import CSRFProtect
 from prometheus_flask_exporter import PrometheusMetrics
 from redis.exceptions import ConnectionError as RedisConnectionError, \
@@ -13,7 +14,8 @@ from sqlalchemy.exc import OperationalError
 
 from src.db.backend import BackendServices
 from src.db.tables import User
-from src.encryption import InvalidEncryptionKeyError
+from src.encryption import ENV_VAR, KEY_FILE, InvalidEncryptionKeyError, \
+	key_source
 from src.webapp.utils import err
 
 login_mng = LoginManager()
@@ -77,7 +79,40 @@ def register_handlers(app, backend: BackendServices):
 	@app.errorhandler(InvalidEncryptionKeyError)
 	def handle_invalid_encryption_key(e):
 		"""Stored credentials can't be decrypted with the configured key —
-		fail the request cleanly instead of a bare 500."""
+		fail the request cleanly instead of a bare 500. Admins get the fix;
+		everyone else is told to contact one. The server log always gets it
+		too: a failure at 2FA sign-in means no admin can see the page."""
+		area = _decrypt_area(request.endpoint, request.blueprint)
+		print(f"[NetRollout] Decryption failed ({area}) at {request.path}: the "
+		      f"key from {key_source()} doesn't match the stored data.\n"
+		      f"  Fix: restore the key this data was saved with ({ENV_VAR}, "
+		      f"or {KEY_FILE} from the previous host or a backup), then "
+		      f"restart.\n"
+		      f"  If it's lost: re-enter security profile passwords and the "
+		      f"LDAP bind password; clear a user's 2FA with\n"
+		      f"    UPDATE users SET otp_secret = NULL WHERE username = "
+		      f"'<user>';\n"
+		      f"  Don't generate a new key.", file=sys.stderr, flush=True)
 		if request.is_json:
 			return err("Encryption key invalid", 500)
-		return render_template("key_error.html", error_message=str(e)), 500
+		is_admin = (current_user.is_authenticated
+		            and current_user.role == "admin")
+		# a POST can't be retried by a link: go back to where it came from
+		retry = request.path if request.method == "GET" \
+			else (request.referrer or "/")
+		return render_template("key_error.html", is_admin=is_admin, area=area,
+		                       key_source=key_source(), env_var=ENV_VAR,
+		                       key_file=str(KEY_FILE), path=request.path,
+		                       retry=retry, error_message=str(e)), 500
+
+
+def _decrypt_area(endpoint: str | None, blueprint: str | None) -> str:
+	"""Which stored secret a failed decrypt most likely belongs to, from where
+	it happened — so the page can say what to re-enter."""
+	if endpoint == "auth.otp_verify":
+		return "2fa"
+	if blueprint in ("auth", "admin_servers"):
+		return "ldap"   # LDAP sign-in / server management bind password
+	if blueprint in ("security", "rollout", "inventory"):
+		return "profile"
+	return "credentials"
