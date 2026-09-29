@@ -331,7 +331,7 @@ Extended `RolloutLogger` to cover sequential administrative workflows with full 
 - Security profile test connection excluded — atomic single-device action, AJAX response is sufficient
 
 ### 3.5 Test suite ✅ COMPLETE (2026-09-29)
-`pytest` from the repo root. Last full run: **350 passed, 1 skipped (2026-09-29)**.
+`pytest` from the repo root. Last full run: **358 passed, 1 skipped (2026-09-29)**.
 - `tests/unit/` — hermetic: engine, device, parser, validator, orchestration, reachability, encryption, LDAP auth logic, web helpers, Redis client, logging, and the CLI (`test_cli.py`: arguments, prompts, file input, error exits, Ctrl+C; engine and TCP probe mocked)
 - `tests/integration/` — real Postgres (`rollout_test`) and Redis (db 15), skipped with a reason when a service is unhealthy: auth, admin, inventory, profiles/mappings/properties, rollouts and jobs, error handling, DB layer, a route matrix, and LDAP against an ephemeral OpenLDAP container the suite starts and removes. The pg_cron test is opt-in (`TEST_PG_CRON_URL`)
 - Known bugs are recorded as strict xfails: once fixed they fail as "unexpectedly passed", so the marker gets removed with the fix
@@ -525,6 +525,7 @@ Blocking and should-fix items found in a full codebase review after the Blueprin
 - Assign board — one shared two-column board (`nrAssignBoard`) for the Security Profiles and Variable Mappings device modals: drag or click/Enter both ways, staged Save `(+N / −M)`, pending-change card edges with a key. Mappings unassign via `remove_ids` (only that mapping's bindings); unassigning a profile warns that the device is blocked in New Rollout; global devices keep their profile (enforced server-side too)
 - Console output UTF-8 and never fatal (`utf8_console()` at the webapp and CLI entry points): a `→` in a log line used to fail requests on a non-UTF-8 stdout
 - CLI unit tests (`tests/unit/test_cli.py`); the three CLI bugs they found are fixed (see 3.5)
+- Rollout summary counts real outcomes ("1 success, 1 failed (of 2 devices)"; it used to call every attempted device configured). CLI exit code reflects the outcome: 0 all succeeded, 1 mixed, 2 nothing applied, 130 Ctrl+C
 
 **Remaining (in order):**
 
@@ -633,7 +634,7 @@ Re-running pulls `:latest` and restarts — doubles as update mechanism.
 ---
 
 ### Step 6 — 4.10 Documentation
-- `README.md` — project overview, quick start (`python install.py`), CLI usage, CSV format reference, security posture (data minimization, encryption key management), update instructions
+- `README.md` — project overview, quick start (`python install.py`), CLI usage (incl. exit codes 0/1/2/130), CSV format reference, security posture (data minimization, encryption key management), update instructions
 - Inline docstrings pass on public APIs in `ldap_auth.py`, `orchestration.py`, `core.py`
 
 ---

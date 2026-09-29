@@ -825,6 +825,30 @@ class TestRolloutEngineRun(unittest.TestCase):
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0]["status"], "failed")
 
+    def test_summary_counts_real_outcomes(self):
+        # it used to say "2 devices configured" whatever happened
+        def connect(**params):
+            if params["port"] == 2002:
+                raise Exception("connection refused")
+            conn = MagicMock()
+            conn.send_config_set.return_value = "ok"
+            return conn
+
+        devices = [make_device(ip="10.9.9.9", port=2001),
+                   make_device(ip="10.9.9.9", port=2002)]
+        engine = RolloutEngine(param=make_options(verify=False),
+                               devices=devices, commands=["hostname x"])
+        with patch("netmiko.ConnectHandler", side_effect=connect), \
+                patch.object(self.logger, "notify") as notify:
+            engine.run(self.cancel, self.logger)
+        summary = [c for c in notify.call_args_list
+                   if "rollout complete" in c.args[0]]
+        self.assertEqual(len(summary), 1)
+        self.assertEqual(summary[0].args[0],
+                         "Configuration rollout complete: 1 success, "
+                         "1 failed (of 2 devices)")
+        self.assertEqual(summary[0].args[1], "yellow")
+
 
 # ---------------------------------------------------------------------------
 # Integration — full rollout + verification pipeline

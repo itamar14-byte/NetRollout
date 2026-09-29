@@ -1,5 +1,6 @@
 import os
 import threading
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from typing import Optional, TypedDict
@@ -346,6 +347,24 @@ class RolloutEngine:
 				result[futures[future]] = (config, count)
 		return result
 
+	@staticmethod
+	def _log_summary(results: list[DeviceResultDict],
+	                 logger: RolloutLogger) -> None:
+		"""Final line, counted from the per-device statuses (it used to
+		report every attempted device as configured)."""
+		counts = Counter(r["status"] for r in results)
+		parts = [f"{counts[s]} {s}" for s in
+		         ("success", "partial", "failed", "cancelled") if counts[s]]
+		ok = counts["success"]
+		color = ("green" if ok == len(results)
+		         else "red" if ok == 0 and not counts["partial"] else "yellow")
+		logger.notify(f"Configuration rollout complete: "
+		              f"{', '.join(parts)} (of {len(results)} devices)",
+		              color, important=True)
+		logger.notify(
+			f"Please see Execution logs in {os.path.abspath(logger.logfile)}",
+			important=True)
+
 	def run(self, cancel_flag: threading.Event, logger: RolloutLogger) -> list[
 		DeviceResultDict]:
 		logger.notify("Starting configuration rollout", important=True)
@@ -380,9 +399,8 @@ class RolloutEngine:
 						successful += 1
 
 					logger.notify(
-						f"{ip_addr} successfully configured with"
-						f" {count}/{len(self._commands)} commands",
-						important=True)
+						f"{ip_addr}: {count}/{len(self._commands)} commands "
+						f"verified", important=True)
 
 				# Logs and prints (if _verbose), the rollout status per device and the summary
 				if failed > 0:
@@ -393,14 +411,6 @@ class RolloutEngine:
 						"yellow", important=True)
 				logger.notify(f"{successful} devices successfully configured",
 				              "green", important=True)
-
-			logger.notify(
-				f"Configuration rollout complete. "
-				f"{len(self.devices)} devices configured",
-				"green", important=True)
-			logger.notify(
-				f"Please see Execution logs in {os.path.abspath(logger.logfile)}",
-				important=True)
 
 			results = []
 			for idx, device in enumerate(self.devices):
@@ -432,6 +442,8 @@ class RolloutEngine:
 				                                commands_verified=commands_verified,
                                                 fetched_config=fetched_config,
 				                                status=status))
+
+			self._log_summary(results, logger)
 			return results
 
 		else:
