@@ -50,6 +50,14 @@ def unload_postgres_data(data):
 	        }
 
 
+def relaunch_command() -> list[str]:
+	# Under `python -m src.webapp`, sys.argv[0] is the __main__.py file path —
+	# relaunching that runs it as a script, where `src` isn't importable and
+	# the restarted app never comes back. orig_argv keeps the original
+	# invocation, `-m src.webapp` included.
+	return [sys.executable, *sys.orig_argv[1:]]
+
+
 def unload_ldap_data(ldap_request):
 	label = ldap_request.form.get("label", "").strip()
 	ip = ldap_request.form.get("ip", "").strip()
@@ -454,7 +462,7 @@ def admin_restart():
 
 	def _do_restart():
 		time.sleep(1.5)
-		subprocess.Popen([sys.executable] + sys.argv)
+		subprocess.Popen(relaunch_command())
 		os._exit(0)
 
 	threading.Thread(target=_do_restart, daemon=True).start()

@@ -514,6 +514,8 @@ Blocking and should-fix items found in a full codebase review after the Blueprin
 - CSV import: each row validated independently (a bad row is reported, never aborts the import), blank cells accepted (e.g. empty enable secret), credential columns optional for inventory import, row `label` honoured (form label > row label > IP)
 - Mapping eligibility: a mapping is bound only if the device can resolve it (attribute set; index in range) — shared `mapping_resolvable` rule for the device modal and drag-assign; the engine skips a device whose mappings can't resolve (no SSH, clear reason) instead of aborting the job
 - User-facing "Invalid ldap_request" messages -> "Invalid request"
+- Migrations run on the app's own connection (not only `DATABASE_URL`): correct DB after a Server Management switch, honours `PG_SCHEMA`, works with `PG_*`-only config (Docker). pg_cron is optional — its absence no longer blocks the schema. The alembic CLI resolves `DATABASE_URL`, else `PG_*`
+- Admin restart relaunches the original command (`sys.orig_argv`): under `python -m src.webapp` it re-ran `__main__.py` as a script, which can't import `src`, so the app never came back
 
 **Remaining (in order):**
 

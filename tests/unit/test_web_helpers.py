@@ -199,3 +199,20 @@ def test_mapping_index_only_for_vrfs():
 	assert Validator.validate_var_index(None, "hostname") == (True, None)
 	assert Validator.validate_var_index(0, "hostname")[0] is False
 	assert Validator.validate_var_index(-1, "vrfs")[0] is False
+
+
+# ── Admin restart relaunch ───────────────────────────────────────────────────
+
+@pytest.mark.parametrize("orig_argv,expected_tail", [
+	(["python", "-m", "src.webapp"], ["-m", "src.webapp"]),   # module mode
+	(["python", "run.py", "--x"], ["run.py", "--x"]),          # script mode
+])
+def test_restart_relaunches_the_original_invocation(monkeypatch, orig_argv,
+                                                    expected_tail):
+	import sys
+	from src.webapp.blueprints.admin_servers import relaunch_command
+	# under -m, sys.argv[0] is the __main__.py path — relaunching that ran it
+	# as a script, where `src` isn't importable
+	monkeypatch.setattr(sys, "argv", [r"C:\repo\src\webapp\__main__.py"])
+	monkeypatch.setattr(sys, "orig_argv", orig_argv)
+	assert relaunch_command() == [sys.executable, *expected_tail]
