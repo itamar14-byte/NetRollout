@@ -72,6 +72,45 @@ def test_missing_enable_secret_becomes_empty_string():
 	assert Device.from_inventory(row, USER_A).secret == ""
 
 
+@pytest.mark.parametrize("var_maps,prop,index,expected", [
+	({"hostname": "r1"}, "hostname", None, True),
+	({"hostname": ""}, "hostname", None, False),          # set but empty
+	({}, "hostname", None, False),                        # missing
+	(None, "hostname", None, False),
+	({"vrfs": ["a", "b"]}, "vrfs", 1, True),
+	({"vrfs": ["a", "b"]}, "vrfs", 2, False),             # index out of range
+	({"vrfs": ["a"]}, "vrfs", -1, False),
+	({"hostname": "r1"}, "hostname", 0, False),           # indexing a string
+])
+def test_mapping_resolvable(var_maps, prop, index, expected):
+	from src.core import mapping_resolvable
+	assert mapping_resolvable(var_maps, prop, index) is expected
+
+
+def test_unresolvable_device_fails_alone_without_ssh(monkeypatch):
+	"""e.g. an admin removed an attribute from a global device after users
+	bound mappings to it: that device fails with a reason, is never
+	connected to, and the rest of the job proceeds (push + verify)."""
+	import threading
+	from unittest.mock import MagicMock, patch
+	from src.logging_utils import RolloutLogger
+	ok_row = global_row(ip="10.0.0.1", var_mappings=[
+		mapping("$$HOST$$", "hostname", USER_A)])
+	broken_row = global_row(ip="10.0.0.2", var_maps={}, var_mappings=[
+		mapping("$$HOST$$", "hostname", USER_A)])
+	devices = [Device.from_inventory(r, USER_A) for r in (ok_row, broken_row)]
+	engine = RolloutEngine(RolloutOptions(verify=True), devices,
+	                       ["hostname $$HOST$$"])
+	conn = MagicMock()
+	conn.send_config_set.return_value = "ok"
+	with patch("netmiko.ConnectHandler", return_value=conn) as connect, \
+			patch.object(Device, "fetch_config", return_value="hostname core-x"):
+		results = engine.run(threading.Event(), RolloutLogger(False, False))
+	assert [c.kwargs["ip"] for c in connect.call_args_list] == ["10.0.0.1"]
+	assert {r["device_ip"]: r["status"] for r in results} == \
+	       {"10.0.0.1": "success", "10.0.0.2": "failed"}
+
+
 def test_no_security_profile_raises():
 	with pytest.raises(ValueError, match="no security profiles"):
 		Device.from_inventory(global_row(security_profile=None), USER_A)

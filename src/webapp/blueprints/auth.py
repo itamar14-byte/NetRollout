@@ -54,7 +54,7 @@ def complete_login(user, db_session, **audit_detail):
 	# Expunge before login_user so Flask-Login doesn't hold a live ORM object
 	# across requests.
 	# Redis session is registered immediately so the token is
-	# valid on the very next ldap_request.
+	# valid on the very next request.
 	db_session.expunge(user)
 	login_user(user)
 	record_redis_session(user.id)

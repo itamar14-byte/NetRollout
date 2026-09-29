@@ -12,6 +12,25 @@ from src.logging_utils import RolloutLogger
 from src.db.tables import Inventory
 
 
+class SubstitutionError(ValueError):
+	"""A $$TOKEN$$ can't be resolved on a device."""
+	pass
+
+
+def mapping_resolvable(var_maps: dict | None, property_name: str,
+                       index: int | None) -> bool:
+	"""Whether a mapping can substitute on a device: the attribute is set and
+	non-empty, and for indexed mappings (e.g. vrfs[2]) the list is long
+	enough. Shared by the binding routes and the engine, so they can't
+	disagree."""
+	value = (var_maps or {}).get(property_name)
+	if not value:
+		return False
+	if index is None:
+		return True
+	return isinstance(value, list) and 0 <= index < len(value)
+
+
 class DeviceResultDict(TypedDict):
 	device_ip: str
 	device_port: int
@@ -142,9 +161,16 @@ class RolloutEngine:
 		self._commands = commands
 
 	def _substitute_commands(self, device: Device) -> list[str]:
+		""":raises SubstitutionError: a mapped attribute is missing on the
+		 device (e.g. removed from a global device after users bound it)"""
 		device_mappings = device.var_map_subs
 		commands_copy = self._commands.copy()
 		for token, (property_name, index) in device_mappings.items():
+			if not mapping_resolvable(device.extra, property_name, index):
+				where = property_name if index is None else \
+					f"{property_name}[{index}]"
+				raise SubstitutionError(
+					f"{token}: device has no value for '{where}'")
 			property_value = device.extra[property_name]
 			if index is not None:
 				property_value = property_value[index]
@@ -165,6 +191,14 @@ class RolloutEngine:
 		if cancel_event and cancel_event.is_set():
 			return device.ip, None
 
+		# Resolve $$TOKEN$$s before opening SSH: a device whose mappings can't
+		# resolve fails on its own with a clear reason, and is never touched
+		try:
+			commands = self._substitute_commands(device)
+		except SubstitutionError as e:
+			logger.notify(f"{device.endpoint} skipped — {e}", "red")
+			return device.ip, False
+
 		logger.notify(f"connecting to {device.ip}:{device.port}", "yellow")
 		commands_sent = False
 		try:
@@ -179,7 +213,7 @@ class RolloutEngine:
 			# and checks that the command was accepted in the device
 			# In case of syntax error or rejection, an error message is printed,
 			# and we move to the next command
-			for command in self._substitute_commands(device):
+			for command in commands:
 				commands_sent = True
 				output = net_connect.send_config_set(
 					[command.strip()], exit_config_mode=False)
@@ -263,6 +297,11 @@ class RolloutEngine:
 		 is kept only when some commands didn't verify (for Verify Diff)
 		"""
 		successful_commands = 0
+		try:
+			expected = self._substitute_commands(device)
+		except SubstitutionError:
+			# already reported (and the device failed) during the push
+			return device.ip, 0, None
 		# Loops through the devices and gets the running config, using fetch config function
 		config = device.fetch_config(logger)
 		# If there is a config file,
@@ -270,7 +309,7 @@ class RolloutEngine:
 		# and check it against the running config string
 		if config:
 			rejects = []
-			for command in self._substitute_commands(device):
+			for command in expected:
 				command = command.strip()
 				# If a command has no match in the config, we print a notification. On a successful match,
 				# we increment the counter

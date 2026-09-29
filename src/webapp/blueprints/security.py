@@ -128,7 +128,7 @@ def security_test(profile_id, data):
 	try:
 		device_id = uuid.UUID(data["device_id"])
 	except ValueError:
-		return err("Invalid ldap_request", 422)
+		return err("Invalid device ID", 422)
 
 	with current_app.backend.postgres.get_session() as db_session:
 		profile = db_session.query(SecurityProfile).filter_by(

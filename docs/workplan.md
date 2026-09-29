@@ -511,12 +511,12 @@ Blocking and should-fix items found in a full codebase review after the Blueprin
 - Cancel race: devices finishing after a cancel were recorded as `cancelled` (rollback skipped them)
 - Rollout targets identified by `ip:port`, not IP: engine results keyed per device, `device_results.device_port` (migration `c2f578d78dc4`), Results labels / Verify Diff / rollback match on ip:port; the same ip:port selected twice in one rollout is refused (same IP on different ports is allowed — NAT / port forwarding)
 - LDAP hardened: search-then-bind via the service account (users nested in OUs — required for Active Directory; constructed DN only as a fallback), usernames escaped in DNs and filters, empty passwords never sent, directory outages reported as 'LDAP authentication service unavailable' (not 500), connect/receive timeouts, connections closed; tested against an ephemeral OpenLDAP container started and removed by the test suite (not part of the deployment)
+- CSV import: each row validated independently (a bad row is reported, never aborts the import), blank cells accepted (e.g. empty enable secret), credential columns optional for inventory import, row `label` honoured (form label > row label > IP)
+- Mapping eligibility: a mapping is bound only if the device can resolve it (attribute set; index in range) — shared `mapping_resolvable` rule for the device modal and drag-assign; the engine skips a device whose mappings can't resolve (no SSH, clear reason) instead of aborting the job
+- User-facing "Invalid ldap_request" messages -> "Invalid request"
 
 **Remaining (in order):**
 
-- Blank CSV fields crash `prepare_devices`
-- `"Invalid ldap_request"` user-facing message
-- `/inventory/<id>/mappings` has no eligibility check (bulk assign does)
 - Global devices browser click-through
 - EVE-NG round: multi-device, FortiOS, verify pass/partial/fail, rollback
 
@@ -538,6 +538,8 @@ Constants live in `src/db/db_install.py` (`JOB_RETENTION_DAYS`, `CONFIG_SNAPSHOT
 - Frontend asset splitting (Step 2)
 - Dead-code sweep
 - Inventory: warn (don't block) when a device's ip:port matches a global device — overlapping IPs are legitimate (VRFs, NAT, port-forwarded labs)
+- Active Directory: test against a real AD (Samba AD DC container, ephemeral like the OpenLDAP one) — `sAMAccountName` logins, UPN binds, and nested-group membership (today only direct members of a mapped group match)
+- CSV import: extra attribute columns (hostname, vrfs, custom properties) are parsed but not saved to the device's variable attributes
 - Log file retention: `logs/` is never pruned — app-side cleanup at startup (Loki keeps its own copy)
 - Retention periods as Server Management settings instead of constants (post-v1.0)
 

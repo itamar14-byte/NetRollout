@@ -96,6 +96,57 @@ def test_csv_import(client_for, make_user, session_scope):
 	assert ips == ["10.2.2.1"]
 
 
+def test_csv_import_tolerates_blanks_and_needs_no_credentials(
+		client_for, make_user, session_scope):
+	# credentials aren't stored in inventory, so the columns are optional;
+	# a blank label falls back to the IP; a bad row doesn't sink the rest
+	user = make_user()
+	csv = ("ip,device_type,port,label\n"
+	       "10.3.3.1,cisco_ios,22,\n"
+	       "10.3.3.2,not_a_platform,22,x\n"
+	       "10.3.3.3,arista_eos,22,edge-3\n")
+	client = client_for(user)
+	with patch("src.validation.Validator.test_tcp_port", return_value=True):
+		client.post("/inventory/import_csv", data={
+			"csv_file": (io.BytesIO(csv.encode()), "devices.csv")},
+			content_type="multipart/form-data")
+	with session_scope() as s:
+		rows = sorted((d.ip, d.label) for d in
+		              s.query(Inventory).filter_by(user_id=user.id))
+	# row label used; blank label falls back to the IP
+	assert rows == [("10.3.3.1", "10.3.3.1"), ("10.3.3.3", "edge-3")]
+	assert any("Row 2" in m for m in flashes(client))
+
+
+def test_json_routes_report_invalid_request_plainly(client_for, make_user):
+	resp = client_for(make_user()).post("/inventory/bulk_assign", data="x",
+	                                    content_type="application/json")
+	assert resp.json["message"] == "Invalid request"
+
+
+def test_unresolvable_mappings_are_not_bound(client_for, make_user,
+                                             make_device, make_mapping,
+                                             session_scope):
+	user = make_user()
+	dev = make_device(user, var_maps={"vrfs": ["red"]})
+	host = make_mapping(user, token="HOST", prop="hostname")   # attr missing
+	vrf2 = make_mapping(user, token="VRF2", prop="vrfs", index=2)  # out of range
+	vrf0 = make_mapping(user, token="VRF0", prop="vrfs", index=0)  # fine
+	client = client_for(user)
+	client.post(f"/inventory/{dev}/mappings", data={
+		"mapping_ids": [str(host), str(vrf2), str(vrf0)]})
+	with session_scope() as s:
+		bound = {m.token for m in s.get(Inventory, dev).var_mappings}
+	assert bound == {"$$VRF0$$"}
+	assert any("$$HOST$$" in m and "$$VRF2$$" in m for m in flashes(client))
+	# drag-assign applies the same rule
+	client.post("/mappings/bulk_assign", json={
+		"mapping_id": str(vrf2), "device_ids": [str(dev)]})
+	with session_scope() as s:
+		bound = {m.token for m in s.get(Inventory, dev).var_mappings}
+	assert "$$VRF2$$" not in bound
+
+
 def test_bulk_profile_assign_only_own_profile_and_devices(
 		client_for, make_user, make_profile, make_device, db_get):
 	user, other = make_user(), make_user()
