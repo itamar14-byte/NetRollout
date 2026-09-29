@@ -3,11 +3,57 @@ import html
 import os
 import sys
 import threading
+import time
 
 import redis
 from redis.client import PubSub
 
 LOGS_DIR = os.path.join(os.path.dirname(__file__), "..", "logs")
+
+# Log files are kept longer than job records (db_install.JOB_RETENTION_DAYS,
+# which bounds Download Log on Results): the logs folder is browsed directly
+# for older troubleshooting. Must stay >= the job retention.
+LOG_RETENTION_DAYS = 60
+LOG_PRUNE_INTERVAL_HOURS = 24
+
+
+def prune_logs(retention_days: int = LOG_RETENTION_DAYS,
+               logs_dir: str = LOGS_DIR) -> int:
+    """Delete *.log files (web app and CLI alike) not modified for
+    `retention_days`. Uses the last-modified time, so a running job's file —
+    still being appended to — is never removed. Files that can't be removed
+    (locked, permissions) are skipped. :return: number of files removed"""
+    cutoff = time.time() - retention_days * 86400
+    removed = 0
+    try:
+        entries = os.scandir(logs_dir)
+    except FileNotFoundError:
+        return 0
+    with entries:
+        for entry in entries:
+            if not (entry.name.endswith(".log") and entry.is_file()):
+                continue
+            try:
+                if entry.stat().st_mtime < cutoff:
+                    os.remove(entry.path)
+                    removed += 1
+            except OSError:
+                continue
+    return removed
+
+
+def start_log_pruning() -> None:
+    """Prune now, then every LOG_PRUNE_INTERVAL_HOURS from a daemon thread —
+    a server that never restarts still cleans up. Called by the web app's
+    entry point."""
+    def loop():
+        while True:
+            removed = prune_logs()
+            if removed:
+                print(f"[NetRollout] Removed {removed} log file(s) older than "
+                      f"{LOG_RETENTION_DAYS} days", flush=True)
+            time.sleep(LOG_PRUNE_INTERVAL_HOURS * 3600)
+    threading.Thread(target=loop, name="log-pruner", daemon=True).start()
 
 
 def utf8_console() -> None:

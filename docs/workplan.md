@@ -526,6 +526,7 @@ Blocking and should-fix items found in a full codebase review after the Blueprin
 - Console output UTF-8 and never fatal (`utf8_console()` at the webapp and CLI entry points): a `→` in a log line used to fail requests on a non-UTF-8 stdout
 - Global devices browser click-through (admin + normal user) — done by the developer
 - CSV import — one format for the CLI and the web app: attribute columns (system or custom property, by name or label) saved as variable attributes; credential columns become security profiles (checkbox, default on): exact username/password/secret match reuses the user's profile, otherwise a new profile with a unique label (`admin · CSV import 29 Sep`), a warning when it shares a username with another profile, audited as `security_profile.create` (source csv_import); unknown columns reported; no TCP check on web import (the CLI keeps it)
+- Log file retention: `*.log` files in `logs/` (web app and CLI) not modified for 60 days (`LOG_RETENTION_DAYS`, kept >= the 30-day job retention so Download Log never loses its file) are pruned at web-app startup, then daily, and on each CLI run; mtime-based, so a running job's file is never removed. Loki keeps its own copy
 - CLI unit tests (`tests/unit/test_cli.py`); the three CLI bugs they found are fixed (see 3.5)
 - Rollout summary counts real outcomes ("1 success, 1 failed (of 2 devices)"; it used to call every attempted device configured). CLI exit code reflects the outcome: 0 all succeeded, 1 mixed, 2 nothing applied, 130 Ctrl+C
 
@@ -552,7 +553,6 @@ Constants live in `src/db/db_install.py` (`JOB_RETENTION_DAYS`, `CONFIG_SNAPSHOT
 - Dead-code sweep
 - Inventory: warn (don't block) when a device's ip:port matches a global device — overlapping IPs are legitimate (VRFs, NAT, port-forwarded labs)
 - Active Directory: test against a real AD (Samba AD DC container, ephemeral like the OpenLDAP one) — `sAMAccountName` logins, UPN binds, and nested-group membership (today only direct members of a mapped group match)
-- Log file retention: `logs/` is never pruned — app-side cleanup at startup (Loki keeps its own copy)
 - Retention periods as Server Management settings instead of constants (post-v1.0)
 
 **Noted for 4.2 (`install.py`):** force or generate the factory `admin` password instead of shipping `admin`/`admin`; factory-account documentation at release.
@@ -608,6 +608,8 @@ Grafana/Prometheus/Loki remain on a separate `docker-compose.obs.yml` — option
 **Pending Grafana wiring (carry over from 4.9):**
 - docker-compose volume mounts for `docs/grafana/provisioning/` and `docs/grafana/dashboard_config/`
 - `GRAFANA_DB_PASSWORD` env var in docker-compose
+
+**Logs must be a bind mount:** mount the app's `logs/` to a host folder (e.g. `./logs:/app/logs`) — browsable like today (60-day retention), survives updates (a recreated container loses anything not mounted), and promtail reads the same folder.
 
 **Encryption key must survive container recreation:** the `app` service must set `NETROLLOUT_ENCRYPTION_KEY` or mount a volume at `~/.netrollout/`. Otherwise a re-pulled container has no key; since 2026-09 the app then refuses to start (fail-fast) rather than silently generating a new key that orphans every stored credential. `install.py` (4.2) should generate the key once and write it to `config.env`.
 
