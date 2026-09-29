@@ -386,9 +386,16 @@ def inventory_bulk_assign():
 				continue
 			device = db_session.query(Inventory).filter_by(
 				id=parsed_device_id, user_id=current_user.id).first()
-			if device:
+			if device and device.is_global and not parsed_profile_id:
+				# same rule as create/edit: a global device must keep a
+				# profile — other users can't give it one
+				logger.notify(f"{device.label} ({device.ip}): global device "
+				              f"must keep a profile", "yellow")
+				skipped += 1
+			elif device:
 				device.sec_profile_id = parsed_profile_id
-				logger.notify(f"{device.label} ({device.ip}): assigned",
+				logger.notify(f"{device.label} ({device.ip}): "
+				              f"{'assigned' if parsed_profile_id else 'unassigned'}",
 				              "green")
 				assigned += 1
 			else:
