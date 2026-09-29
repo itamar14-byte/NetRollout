@@ -273,7 +273,7 @@ def rollout_stream(job_id):
 				elif not job.is_alive():
 					break
 				else:
-					yield f"data: \n\n"
+					yield "data: \n\n"
 		finally:
 			ps.close()
 		yield "event: done\ndata: \n\n"

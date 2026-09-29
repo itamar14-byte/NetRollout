@@ -225,7 +225,7 @@ class RolloutEngine:
 					continue
 
 			# After _commands finish running,
-			# the configuration is saved and we gracefully close the SSH redis_session
+			# the configuration is saved and we gracefully close the SSH session
 			net_connect.exit_config_mode()
 			net_connect.save_config()
 			net_connect.disconnect()
@@ -241,7 +241,7 @@ class RolloutEngine:
 			return device.ip, False
 		except netmiko.exceptions.ReadTimeout as e:
 			if commands_sent:
-				# Prompt changed mid-redis_session (e.g. hostname rename) — config was applied
+				# Prompt changed mid-session (e.g. hostname rename) — config was applied
 				logger.notify(
 					f"{device.ip}: prompt detection lost after config push"
 					f" — treating as success", "yellow")
@@ -447,5 +447,5 @@ class RolloutEngine:
 			return results
 
 		else:
-			logger.notify(f"Device input invalid", "red")
+			logger.notify("Device input invalid", "red")
 			return []

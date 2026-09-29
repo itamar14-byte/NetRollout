@@ -318,7 +318,7 @@
     },
     TerminateSession: sel => {
       if (!sel.length) return "No users selected";
-      if (sel.some(u => u.is_factory)) return "Factory user redis_session cannot be terminated";
+      if (sel.some(u => u.is_factory)) return "The factory user's session cannot be terminated";
       const noSession = sel.filter(u => !u.has_session).length;
       return noSession ? `${noSession} user(s) have no active session` : null;
     },

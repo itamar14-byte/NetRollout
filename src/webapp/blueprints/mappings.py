@@ -8,7 +8,6 @@ from flask import Blueprint, render_template, request, current_app, redirect, \
 from flask_login import current_user, login_required
 # sqlalchemy
 from sqlalchemy.exc import IntegrityError
-from werkzeug import Response
 
 # local modules
 from src.core import mapping_resolvable

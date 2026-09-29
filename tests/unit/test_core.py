@@ -276,7 +276,6 @@ class TestLog(unittest.TestCase):
         with tempfile.NamedTemporaryFile(mode="r", suffix=".log", delete=False) as f:
             path = f.name
         try:
-            import re
             logger = RolloutLogger(webapp=False, verbose=False)
             logger.logfile = path
             logger._log("timestamped")

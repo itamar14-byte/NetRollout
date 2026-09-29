@@ -43,16 +43,15 @@ VENDOR_LOGOS = {
 ########Class definitions###################################################
 
 class _SafeRedisSessionInterface(RedisSessionInterface):
-	def open_session(self, redis_session_app, redis_session_request):
+	def open_session(self, app, request):
 		try:
-			return super().open_session(redis_session_app,
-			                            redis_session_request)
+			return super().open_session(app, request)
 		except REDIS_UNAVAILABLE:
 			return self.session_class()
 
-	def save_session(self, redis_session_app, redis_session, response):
+	def save_session(self, app, session, response):
 		try:
-			super().save_session(redis_session_app, redis_session, response)
+			super().save_session(app, session, response)
 		except REDIS_UNAVAILABLE:
 			pass
 

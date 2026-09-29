@@ -232,7 +232,7 @@ Constructor takes `Validator` + `RolloutLogger`. Methods: `csv_to_inventory`, `f
 - `JobMetadata` table: soft `job_id` ref, JSON `commands` (pre-substitution), nullable `comment`, `user_id` FK — written in same DB session as `RolloutSession` on submit
 - pg_cron installed on PostgreSQL 17-bookworm container; `cron.database_name = 'rollout_db'` set via `ALTER SYSTEM`
 - Two cron jobs: `job_metadata_retention` (7 days) + `device_result_retention` (30 days), idempotent via DO block unschedule-then-schedule pattern
-- Old routes (`/start_rollout`, `/upload`, old `sse_stream`) retained but superseded — retirement deferred to Phase 4
+- Old routes (`/start_rollout`, `/upload`, old `sse_stream`) retired in the Blueprint split
 
 **Pending / loose threads:**
 - Rollback jobs have no audit comment in `job_metadata`
@@ -529,6 +529,7 @@ Blocking and should-fix items found in a full codebase review after the Blueprin
 - Log file retention: `*.log` files in `logs/` (web app and CLI) not modified for 60 days (`LOG_RETENTION_DAYS`, kept >= the 30-day job retention so Download Log never loses its file) are pruned at web-app startup, then daily, and on each CLI run; mtime-based, so a running job's file is never removed. Loki keeps its own copy
 - `CLAUDE.md` refreshed from the code: commands (run from repo root, no DB-init step), configuration, module map, tables, retention, SSE, shared CSV format; per-feature backend exception recorded under Working style
 - `key_error.html` rebuilt: standalone in the app's style, no external scripts (was Tailwind CDN + unpkg), no fake status footer. Admins get concrete steps (which env var / file this server reads, restore the original key, restart; if lost: re-enter profile / LDAP passwords, clear 2FA via SQL) and a warning not to generate a new key; others are told to contact an admin. The steps are also written to the server log, since a failure at 2FA sign-in can lock admins out
+- Dead-code sweep and rename artifacts: find-and-replace leftovers fixed (incl. the Users page's "Factory user redis_session" text; the `redis_session:` Redis key prefix kept on purpose), unused `form_to_inventory` / `create_op` / imports removed, pyflakes clean, a latent `\,` escape in the test conftest fixed; `.coverage` untracked, stale `docs/TODO` and `docs/bug_report.md` removed
 - CLI unit tests (`tests/unit/test_cli.py`); the three CLI bugs they found are fixed (see 3.5)
 - Rollout summary counts real outcomes ("1 success, 1 failed (of 2 devices)"; it used to call every attempted device configured). CLI exit code reflects the outcome: 0 all succeeded, 1 mixed, 2 nothing applied, 130 Ctrl+C
 
@@ -547,12 +548,11 @@ Blocking and should-fix items found in a full codebase review after the Blueprin
 Constants live in `src/db/db_install.py` (`JOB_RETENTION_DAYS`, `CONFIG_SNAPSHOT_RETENTION_DAYS`, `AUDIT_RETENTION_DAYS`); `install()` re-schedules all pg_cron jobs at every startup. Results page shows "Verify Diff expired" once a job's snapshots are cleared.
 
 **Deferred past 4.1:**
-- Remaining rename artifacts (`redis_session_app`, `ldap_request`, … in names/comments)
 - nginx SSE `location /rollout_stream` → `/rollout/stream` (streaming works via `X-Accel-Buffering: no`)
 - Frontend asset splitting (Step 2)
-- Dead-code sweep
 - Inventory: warn (don't block) when a device's ip:port matches a global device — overlapping IPs are legitimate (VRFs, NAT, port-forwarded labs)
 - Active Directory: test against a real AD (Samba AD DC container, ephemeral like the OpenLDAP one) — `sAMAccountName` logins, UPN binds, and nested-group membership (today only direct members of a mapped group match)
+- Admin: reset a user's 2FA from the Users page (today: `UPDATE users SET otp_secret = NULL …` — lost phone, or the lost-key case on the encryption key error page)
 - Retention periods as Server Management settings instead of constants (post-v1.0)
 
 **Noted for 4.2 (`install.py`):** force or generate the factory `admin` password instead of shipping `admin`/`admin`; factory-account documentation at release.
