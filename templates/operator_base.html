@@ -820,15 +820,93 @@
         }
         .reach-recheck:hover { color: var(--nr-accent); border-color: rgba(0,188,212,0.4); }
         .reach-recheck:disabled { opacity: 0.6; cursor: default; }
-        /* Opens the drag-assign split view in device-assignment modals */
-        .nr-assign-btn {
-            background: rgba(0,188,212,0.06); border: 1px solid rgba(0,188,212,0.45);
-            border-radius: 6px; color: var(--nr-accent); font-size: 0.8rem;
-            font-weight: 500; padding: 0.3rem 0.75rem; white-space: nowrap;
-            display: inline-flex; align-items: center; gap: 0.35rem; cursor: pointer;
-            transition: background 0.15s, border-color 0.15s;
+        /* ── Assign board (shared): Assigned | Available columns in the
+              device-assignment modals. See nrAssignBoard(). ── */
+        .nr-board { display: grid; grid-template-columns: 1fr 1fr; }
+        .nr-board-col {
+            padding: 1rem 1.25rem; min-width: 0;
+            display: flex; flex-direction: column;
+            transition: background 0.15s, box-shadow 0.15s;
         }
-        .nr-assign-btn:hover { background: rgba(0,188,212,0.14); border-color: var(--nr-accent); }
+        .nr-board-col + .nr-board-col { border-left: 1px solid #1a1a1a; }
+        .nr-board-col.drag-over {
+            background: rgba(0,188,212,0.04);
+            box-shadow: inset 0 0 0 1px rgba(0,188,212,0.35);
+        }
+        .nr-board-head {
+            display: flex; align-items: center; justify-content: space-between;
+            font-size: 0.6875rem; color: var(--nr-text-muted);
+            letter-spacing: 0.1em; text-transform: uppercase;
+            margin-bottom: 0.65rem; padding-bottom: 0.45rem;
+            border-bottom: 1px solid #191919;
+        }
+        .nr-board-count { font-family: 'JetBrains Mono', monospace; color: var(--nr-text-secondary); }
+        .nr-board-delta { font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; }
+        .nr-board-list { overflow-y: auto; min-height: 150px; max-height: 320px; flex: 1; }
+        .nr-board-list::-webkit-scrollbar { width: 3px; }
+        .nr-board-list::-webkit-scrollbar-thumb { background: #1e1e1e; border-radius: 2px; }
+        .nr-board-empty {
+            font-size: 0.8rem; color: var(--nr-text-muted); font-style: italic;
+            margin: 0; padding: 0.5rem 0;
+        }
+        .nr-board-card {
+            background: #141414; border: 1px solid #1e1e1e;
+            border-left: 2px solid #1e1e1e; border-radius: 7px;
+            padding: 0.45rem 0.6rem; margin-bottom: 0.3rem;
+            display: flex; align-items: center; gap: 0.55rem;
+            cursor: grab; user-select: none;
+            transition: border-color 0.18s, box-shadow 0.18s, opacity 0.18s;
+        }
+        .nr-board-card:hover { border-color: rgba(0,188,212,0.25); box-shadow: 0 2px 10px rgba(0,0,0,0.3); }
+        .nr-board-card.is-dragging { opacity: 0.3; cursor: grabbing; }
+        .nr-board-card.is-added   { border-left-color: var(--nr-accent); }
+        .nr-board-card.is-removed { border-left-color: #ef5350; }
+        .nr-board-card.is-landing { animation: nrCardLand 0.2s ease; }
+        @keyframes nrCardLand {
+            from { opacity: 0; transform: translateY(-5px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+        .nr-board-vendor {
+            width: 24px; height: 24px; min-width: 24px; border-radius: 5px;
+            background: #111; border: 1px solid #1e1e1e;
+            display: flex; align-items: center; justify-content: center; overflow: hidden;
+        }
+        .nr-board-vendor img { width: 15px; height: 15px; object-fit: contain; }
+        .nr-board-vendor i { font-size: 0.75rem; color: var(--nr-text-faint); }
+        .nr-board-name { flex: 1; min-width: 0; line-height: 1.25; }
+        .nr-board-label, .nr-board-ip {
+            display: block; font-family: 'JetBrains Mono', monospace;
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+        .nr-board-label { font-size: 0.78rem; color: var(--nr-text); }
+        .nr-board-ip    { font-size: 0.6875rem; color: var(--nr-text-muted); }
+        .nr-board-meta {
+            font-family: 'JetBrains Mono', monospace; font-size: 0.6875rem;
+            color: var(--nr-accent-soft); flex-shrink: 0; max-width: 120px;
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+        .nr-board-warn { color: #ffb74d; font-size: 0.8rem; flex-shrink: 0; }
+        .nr-board-move {
+            color: var(--nr-text-faint); font-size: 0.8rem; flex-shrink: 0;
+            opacity: 0; transition: opacity 0.15s, color 0.15s;
+        }
+        .nr-board-card:hover .nr-board-move,
+        .nr-board-card:focus-visible .nr-board-move { opacity: 1; color: var(--nr-accent); }
+        .nr-board-hint {
+            display: flex; align-items: center; gap: 0.4rem;
+            padding: 0.6rem 1.25rem; border-top: 1px solid #1a1a1a;
+            font-size: 0.78rem; color: var(--nr-text-muted);
+        }
+        .nr-board-alert {
+            margin: 0 1.25rem 0.9rem; padding: 0.55rem 0.75rem; border-radius: 6px;
+            font-size: 0.8rem; display: flex; gap: 0.5rem; align-items: flex-start;
+        }
+        .nr-board-alert--warn  { background: rgba(255,183,77,0.07); border: 1px solid rgba(255,183,77,0.3); color: #ffcc80; }
+        .nr-board-alert--error { background: rgba(239,83,80,0.07); border: 1px solid rgba(239,83,80,0.3); color: #ef9a9a; }
+        @media (max-width: 640px) {
+            .nr-board { grid-template-columns: 1fr; }
+            .nr-board-col + .nr-board-col { border-left: none; border-top: 1px solid #1a1a1a; }
+        }
     </style>
 <script>
 // ── Reachability (shared by New Rollout and Inventory) ─────────────────────
@@ -879,6 +957,139 @@ function nrReachChecking(el) {
     el.innerHTML = '<i class="bi bi-arrow-repeat"></i>';
     el.setAttribute('aria-label', 'Checking reachability');
     el.title = 'Checking reachability…';
+}
+
+// ── Assign board ──
+// Two columns inside a device-assignment modal: data-col="in" (assigned) and
+// data-col="out" (available). Moves are staged locally; the caller reads
+// added()/removed() on save. Drag a card across, or click / Enter to move it.
+// opts: devices [{id,label,ip,device_type,is_global}], assigned [ids],
+//       pool [ids], logos {device_type: url}, meta(d) -> text,
+//       warn(d, isAssigned) -> text|null, emptyIn, emptyOut() -> text,
+//       onChange(board)
+function nrAssignBoard(root, opts) {
+    const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;')
+        .replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+    const byId    = new Map(opts.devices.map(d => [d.id, d]));
+    const initial = new Set(opts.assigned.filter(id => byId.has(id)));
+    const current = new Set(initial);
+    const order   = [...initial, ...opts.pool.filter(id => byId.has(id) && !initial.has(id))];
+    let landed = null;
+
+    function card(d) {
+        const isIn  = current.has(d.id);
+        const state = isIn && !initial.has(d.id) ? ' is-added'
+                    : !isIn && initial.has(d.id) ? ' is-removed' : '';
+        const logo  = (opts.logos || {})[d.device_type];
+        const icon  = logo
+            ? `<img alt="" src="${esc(logo)}" onerror="this.replaceWith(Object.assign(document.createElement('i'),{className:'bi bi-router'}))">`
+            : '<i class="bi bi-router"></i>';
+        const meta  = opts.meta ? opts.meta(d) : '';
+        const warn  = opts.warn ? opts.warn(d, isIn) : null;
+        const verb  = isIn ? 'Unassign' : 'Assign';
+        return `
+        <div class="nr-board-card${state}${d.id === landed ? ' is-landing' : ''}" draggable="true"
+             tabindex="0" role="button" data-id="${esc(d.id)}"
+             aria-label="${verb} ${esc(d.label)} (${esc(d.ip)})" title="${verb}: drag or click">
+            <div class="nr-board-vendor">${icon}</div>
+            <div class="nr-board-name">
+                <span class="nr-board-label">${esc(d.label)}</span>
+                <span class="nr-board-ip">${esc(d.ip)}</span>
+            </div>
+            ${d.is_global ? '<span class="nr-global-badge" title="Global device — shared by an administrator"><i class="bi bi-globe2"></i>GLOBAL</span>' : ''}
+            ${warn ? `<i class="bi bi-exclamation-triangle-fill nr-board-warn" title="${esc(warn)}"></i>` : ''}
+            ${meta ? `<span class="nr-board-meta" title="${esc(meta)}">${esc(meta)}</span>` : ''}
+            <i class="bi ${isIn ? 'bi-arrow-right' : 'bi-arrow-left'} nr-board-move"></i>
+        </div>`;
+    }
+
+    function renderCol(key) {
+        const col  = root.querySelector(`[data-col="${key}"]`);
+        const list = col.querySelector('.nr-board-list');
+        const devs = order.filter(id => (key === 'in') === current.has(id)).map(id => byId.get(id));
+        col.querySelector('.nr-board-count').textContent = devs.length;
+        if (!devs.length) {
+            const text = key === 'in' ? opts.emptyIn : opts.emptyOut();
+            list.innerHTML = `<p class="nr-board-empty">${esc(text)}</p>`;
+            return;
+        }
+        // Split into Global / My Devices only when both groups are non-empty
+        const globals = devs.filter(d => d.is_global), mine = devs.filter(d => !d.is_global);
+        const head = (icon, name, n) =>
+            `<div class="nr-section-head"><i class="bi ${icon}"></i>${name}<span class="nr-section-count">${n}</span></div>`;
+        list.innerHTML = globals.length && mine.length
+            ? head('bi-globe2', 'Global Devices', globals.length) + globals.map(card).join('') +
+              '<div style="height:0.6rem;"></div>' +
+              head('bi-hdd-stack', 'My Devices', mine.length) + mine.map(card).join('')
+            : devs.map(card).join('');
+    }
+
+    function render() {
+        renderCol('in');
+        renderCol('out');
+        landed = null;
+        if (opts.onChange) opts.onChange(board);
+    }
+
+    const board = {
+        added:   () => order.filter(id => current.has(id) && !initial.has(id)),
+        removed: () => order.filter(id => !current.has(id) && initial.has(id)),
+        isAssigned: id => current.has(id),
+        move(id, toIn, focus = false) {
+            if (!byId.has(id) || current.has(id) === toIn) return;
+            toIn ? current.add(id) : current.delete(id);
+            landed = id;
+            render();
+            if (focus) root.querySelector(`.nr-board-card[data-id="${CSS.escape(id)}"]`)?.focus();
+        },
+    };
+
+    // Listeners are attached once per root and delegate to the live board
+    root._nrBoard = board;
+    if (!root._nrBoardWired) {
+        root._nrBoardWired = true;
+        const cardOf = e => e.target.closest('.nr-board-card');
+        const toggle = c => root._nrBoard.move(c.dataset.id, !root._nrBoard.isAssigned(c.dataset.id), true);
+        root.addEventListener('click', e => { const c = cardOf(e); if (c) toggle(c); });
+        root.addEventListener('keydown', e => {
+            const c = cardOf(e);
+            if (c && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); toggle(c); }
+        });
+        root.addEventListener('dragstart', e => {
+            const c = cardOf(e);
+            if (!c) return;
+            c.classList.add('is-dragging');
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', c.dataset.id);
+        });
+        root.addEventListener('dragend', e => cardOf(e)?.classList.remove('is-dragging'));
+        root.querySelectorAll('[data-col]').forEach(col => {
+            col.addEventListener('dragover', e => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+                col.classList.add('drag-over');
+            });
+            col.addEventListener('dragleave', e => {
+                if (!col.contains(e.relatedTarget)) col.classList.remove('drag-over');
+            });
+            col.addEventListener('drop', e => {
+                e.preventDefault();
+                col.classList.remove('drag-over');
+                root._nrBoard.move(e.dataTransfer.getData('text/plain'), col.dataset.col === 'in');
+            });
+        });
+    }
+    render();
+    return board;
+}
+
+// "Save (+2 / −1)", or a disabled plain "Save" when nothing changed
+function nrBoardSaveLabel(btn, board) {
+    const a = board.added().length, r = board.removed().length;
+    const parts = [a ? '+' + a : '', r ? '−' + r : ''].filter(Boolean);
+    btn.disabled  = !parts.length;
+    btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Save' +
+        (parts.length ? ' <span class="nr-board-delta">(' + parts.join(' / ') + ')</span>' : '');
 }
 </script>
 </head>

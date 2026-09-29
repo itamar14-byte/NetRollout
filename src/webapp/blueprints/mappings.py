@@ -215,9 +215,12 @@ def mappings_bulk_assign():
 	"""
 	Assigns a list of inventory devices to a variable mapping via the
 	many-to-many join table.
-	Accepts a JSON body with mapping_id and
-	device_ids.
-	For each device, three checks are enforced before appending:
+	Accepts a JSON body with mapping_id, device_ids (to assign) and
+	remove_ids (to unassign) — at least one list must be non-empty.
+	Removal only drops this mapping's join rows: the mapping is the user's
+	own, so other users' bindings on the same (global) device are untouched,
+	and no visibility or eligibility check applies.
+	For each device to assign, three checks are enforced before appending:
 	  1. Visibility — the device must belong to current_user or be global
 	  2. Eligibility — device.var_maps must contain mapping.property_name
 	  3. Duplicate — the device must not already be assigned to this mapping
@@ -236,8 +239,9 @@ def mappings_bulk_assign():
 		return err("Invalid request")
 	mapping_id = data.get("mapping_id", None)
 	device_ids = data.get("device_ids", [])
+	remove_ids = data.get("remove_ids", [])
 
-	if not device_ids:
+	if not device_ids and not remove_ids:
 		logger.notify("Bulk mapping assign failed: no devices provided", "red",
 		              important=True)
 		return err("No devices provided")
@@ -266,6 +270,18 @@ def mappings_bulk_assign():
 		# Snapshot already-assigned IDs before the loop to avoid re-querying
 		# the relationship on every iteration
 		assigned_ids = {d.id for d in mapping.devices}
+
+		removed = 0
+		remove_set = set()
+		for device_id_str in remove_ids:
+			try:
+				remove_set.add(uuid.UUID(device_id_str))
+			except (ValueError, TypeError):
+				continue
+		for device in [d for d in mapping.devices if d.id in remove_set]:
+			mapping.devices.remove(device)
+			logger.notify(f"{device.label} ({device.ip}): unassigned", "green")
+			removed += 1
 
 		assigned, skipped = 0, 0
 		for device_id_str in device_ids:
@@ -303,9 +319,11 @@ def mappings_bulk_assign():
 			assigned += 1
 
 	logger.notify(
-		f"Bulk mapping assign complete: {assigned} assigned, {skipped} skipped",
+		f"Bulk mapping assign complete: {assigned} assigned, {removed} "
+		f"unassigned, {skipped} skipped",
 		"green" if not skipped else "yellow", important=True)
 	current_app.web.audit("mapping.bulk_assign", object_type="VariableMapping",
 	                      object_id=parsed_mapping_id,
-	                      detail={"count": len(device_ids)})
+	                      detail={"count": len(device_ids),
+	                              "removed": removed})
 	return ok()
