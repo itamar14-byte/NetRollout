@@ -528,6 +528,7 @@ Blocking and should-fix items found in a full codebase review after the Blueprin
 - CSV import — one format for the CLI and the web app: attribute columns (system or custom property, by name or label) saved as variable attributes; credential columns become security profiles (checkbox, default on): exact username/password/secret match reuses the user's profile, otherwise a new profile with a unique label (`admin · CSV import 29 Sep`), a warning when it shares a username with another profile, audited as `security_profile.create` (source csv_import); unknown columns reported; no TCP check on web import (the CLI keeps it)
 - Log file retention: `*.log` files in `logs/` (web app and CLI) not modified for 60 days (`LOG_RETENTION_DAYS`, kept >= the 30-day job retention so Download Log never loses its file) are pruned at web-app startup, then daily, and on each CLI run; mtime-based, so a running job's file is never removed. Loki keeps its own copy
 - `CLAUDE.md` refreshed from the code: commands (run from repo root, no DB-init step), configuration, module map, tables, retention, SSE, shared CSV format; per-feature backend exception recorded under Working style
+- `key_error.html` rebuilt: standalone in the app's style, no external scripts (was Tailwind CDN + unpkg), no fake status footer. Admins get concrete steps (which env var / file this server reads, restore the original key, restart; if lost: re-enter profile / LDAP passwords, clear 2FA via SQL) and a warning not to generate a new key; others are told to contact an admin. The steps are also written to the server log, since a failure at 2FA sign-in can lock admins out
 - CLI unit tests (`tests/unit/test_cli.py`); the three CLI bugs they found are fixed (see 3.5)
 - Rollout summary counts real outcomes ("1 success, 1 failed (of 2 devices)"; it used to call every attempted device configured). CLI exit code reflects the outcome: 0 all succeeded, 1 mixed, 2 nothing applied, 130 Ctrl+C
 
@@ -548,7 +549,6 @@ Constants live in `src/db/db_install.py` (`JOB_RETENTION_DAYS`, `CONFIG_SNAPSHOT
 **Deferred past 4.1:**
 - Remaining rename artifacts (`redis_session_app`, `ldap_request`, … in names/comments)
 - nginx SSE `location /rollout_stream` → `/rollout/stream` (streaming works via `X-Accel-Buffering: no`)
-- Restyle `key_error.html` to the dark Bootstrap theme
 - Frontend asset splitting (Step 2)
 - Dead-code sweep
 - Inventory: warn (don't block) when a device's ip:port matches a global device — overlapping IPs are legitimate (VRFs, NAT, port-forwarded labs)

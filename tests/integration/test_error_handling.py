@@ -29,13 +29,60 @@ def test_backend_outage_json_and_sse_get_json_503(client_for, trigger):
 	assert sse.status_code == 503 and sse.is_json
 
 
-def test_bad_encryption_key_renders_key_error(client_for):
-	c = client_for()
-	page = c.get("/_test/bad_key")
+def test_bad_encryption_key_admin_gets_the_fix(client_for, make_user):
+	page = client_for(make_user(role="admin")).get("/_test/bad_key")
 	assert page.status_code == 500
-	assert "Decryption failed" in page.get_data(as_text=True)
-	api = c.get("/_test/bad_key", headers=JSON, data="{}")
+	body = page.get_data(as_text=True)
+	assert "restore the original key" in body
+	assert "This server reads its key from" in body
+	assert "NETROLLOUT_ENCRYPTION_KEY" in body
+	assert "Don't generate a new key" in body
+	assert "Decryption failed" in body            # raw error, admins only
+	assert "<script" not in body                  # renders with no scripts
+
+
+@pytest.mark.parametrize("role", [None, "user"])
+def test_bad_encryption_key_others_are_told_to_ask_an_admin(client_for,
+                                                            make_user, role):
+	client = client_for(make_user(role=role) if role else None)
+	body = client.get("/_test/bad_key").get_data(as_text=True)
+	assert "Ask your NetRollout administrator" in body
+	for internal in ("Decryption failed", "encryption.key",
+	                 "This server reads its key from", "UPDATE users"):
+		assert internal not in body
+
+
+def test_bad_encryption_key_json_stays_json(client_for):
+	api = client_for().get("/_test/bad_key", headers=JSON, data="{}")
 	assert api.status_code == 500 and "Encryption key" in api.json["message"]
+
+
+def test_bad_encryption_key_at_2fa_points_admins_to_the_log(
+		app, client_for, monkeypatch, capsys):
+	from src.encryption import decrypt
+
+	def otp_verify():
+		decrypt("gAAAAA-not-a-real-token")
+	monkeypatch.setitem(app.view_functions, "auth.otp_verify", otp_verify)
+	body = client_for().get("/otp_verify").get_data(as_text=True)
+	assert "two-factor sign-in secret" in body
+	assert "The fix is in the server log" in body
+	log = capsys.readouterr().err
+	assert "Decryption failed (2fa)" in log and "otp_secret = NULL" in log
+
+
+def test_bad_encryption_key_after_post_retries_via_referrer(
+		app, client_for, make_user, monkeypatch):
+	from src.encryption import decrypt
+
+	def start():
+		decrypt("gAAAAA-not-a-real-token")
+	monkeypatch.setitem(app.view_functions, "rollout.new_start_rollout", start)
+	body = client_for(make_user(role="admin")).post(
+		"/rollout/start", headers={"Referer": "http://localhost/rollout/new"}
+	).get_data(as_text=True)
+	assert "a security profile&#39;s password" in body  # escaped {{ what }}
+	assert 'href="http://localhost/rollout/new">Retry' in body
 
 
 def test_csrf_failure_redirects_home_or_returns_json(app, client_for,
