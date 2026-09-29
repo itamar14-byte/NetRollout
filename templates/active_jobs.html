@@ -39,7 +39,7 @@
 /* ── Status pill ── */
 .status-pill {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 0.6rem;
+    font-size: 0.6875rem;
     font-weight: 700;
     letter-spacing: 1.5px;
     text-transform: uppercase;
@@ -53,22 +53,22 @@
 .term {
     font-family: 'JetBrains Mono', monospace;
     font-size: 0.78rem;
-    color: #555;
+    color: var(--nr-text-muted);
 }
 .term.bright { color: #e0e0e0; }
 .term.cyan   { color: #00bcd4; }
 .term.green  { color: #a5d6a7; }
-.term.muted  { color: #333; }
+.term.muted  { color: var(--nr-text-muted); }
 
 /* ── Jobs table ── */
 .jobs-table { border-collapse: separate; border-spacing: 0; width: 100%; }
 .jobs-table thead th {
     font-family: 'Inter', sans-serif;
-    font-size: 0.68rem;
+    font-size: 0.6875rem;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 1px;
-    color: #444;
+    color: var(--nr-text-muted);
     padding: 0.6rem 1rem;
     border-bottom: 1px solid #1e1e1e;
     background: #111;
@@ -86,12 +86,12 @@
 /* ── Action buttons ── */
 .job-action-btn {
     font-family: 'Inter', sans-serif;
-    font-size: 0.72rem;
+    font-size: 0.75rem;
     padding: 0.25rem 0.65rem;
     border-radius: 5px;
     border: 1px solid #222;
     background: transparent;
-    color: #555;
+    color: var(--nr-text-muted);
     cursor: pointer;
     transition: all 0.15s;
     white-space: nowrap;
@@ -121,7 +121,7 @@
     font-family: 'JetBrains Mono', monospace;
     font-size: 0.76rem;
     line-height: 1.65;
-    color: #444;
+    color: var(--nr-text-muted);
     white-space: pre-wrap;
     overflow-y: auto;
     max-height: 260px;
@@ -162,10 +162,10 @@
 }
 .stat-label {
     font-family: 'Inter', sans-serif;
-    font-size: 0.65rem;
+    font-size: 0.6875rem;
     text-transform: uppercase;
     letter-spacing: 1px;
-    color: #444;
+    color: var(--nr-text-muted);
     margin-top: 0.3rem;
 }
 
@@ -175,12 +175,12 @@
     text-align: center;
 }
 .empty-wrap i { font-size: 2.5rem; color: #1e1e1e; display: block; margin-bottom: 1rem; }
-.empty-wrap p { color: #333; font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; margin-bottom: 1.25rem; }
+.empty-wrap p { color: var(--nr-text-muted); font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; margin-bottom: 1.25rem; }
 
 /* ── Owner badge ── */
 .owner-badge {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 0.62rem;
+    font-size: 0.6875rem;
     color: #888;
     background: rgba(255,255,255,0.04);
     border: 1px solid #2a2a2a;
@@ -200,15 +200,15 @@
 }
 .section-divider-label {
     font-family: 'Inter', sans-serif;
-    font-size: 0.68rem;
+    font-size: 0.6875rem;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 1.5px;
-    color: #444;
+    color: var(--nr-text-muted);
 }
 .section-divider-chevron {
     font-size: 0.75rem;
-    color: #333;
+    color: var(--nr-text-muted);
     transition: transform 0.2s;
 }
 .section-divider.open .section-divider-chevron { transform: rotate(180deg); }
@@ -216,8 +216,8 @@
 /* ── Auto-refresh indicator ── */
 .refresh-indicator {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 0.65rem;
-    color: #2a2a2a;
+    font-size: 0.6875rem;
+    color: var(--nr-text-muted);
     display: flex;
     align-items: center;
     gap: 0.4rem;
@@ -246,7 +246,7 @@
         </div>
         {% if is_admin %}
         <button id="allUsersToggle" class="job-action-btn" onclick="toggleAllUsers()"
-                style="border-color:#2a2a2a; color:#555;">
+                style="border-color:#2a2a2a; color:var(--nr-text-muted);">
             <i class="bi bi-people me-1"></i>All Users
         </button>
         {% endif %}
@@ -312,7 +312,7 @@
         id="row-{{ job.id }}">
 
         <td>
-            <span class="term cyan" style="font-size:0.7rem;"
+            <span class="term cyan" style="font-size: 0.75rem;"
                   title="{{ job.id }}">
                 {{ job.id[:8] }}…
             </span>
@@ -324,7 +324,7 @@
 
         <td>
             <div class="d-flex align-items-center gap-2">
-                <span class="status-dot {{ job.status }}"></span>
+                <span class="status-dot {{ job.status }}" aria-hidden="true"></span>
                 <span class="status-pill {{ job.status }}">{{ job.status }}</span>
             </div>
         </td>
@@ -376,12 +376,12 @@
                 <div class="log-terminal-dot"></div>
                 <div class="log-terminal-dot"></div>
                 <div class="log-terminal-dot"></div>
-                <span class="term muted" style="font-size:0.6rem; letter-spacing:1.5px; margin-left:0.5rem;">
+                <span class="term muted" style="font-size: 0.75rem; letter-spacing:1.5px; margin-left:0.5rem;">
                     JOB {{ job.id[:8] }} · LOG STREAM
                 </span>
             </div>
             <div class="log-terminal" id="log-out-{{ job.id }}">
-                <em style="color:#222;">Connecting…</em>
+                <em style="color:var(--nr-text-muted);">Connecting…</em>
             </div>
         </td>
     </tr>
@@ -421,7 +421,7 @@
         <div class="section-divider open" onclick="toggleSection(this, 'my-jobs-body')">
             <i class="bi bi-chevron-down section-divider-chevron"></i>
             <span class="section-divider-label">My Jobs</span>
-            <span style="font-family:'JetBrains Mono',monospace; font-size:0.65rem; color:#333;">
+            <span style="font-family:'JetBrains Mono',monospace; font-size: 0.6875rem; color:var(--nr-text-muted);">
                 {{ jobs|length }}
             </span>
         </div>
@@ -434,7 +434,7 @@
              onclick="toggleSection(this, 'other-jobs-body')">
             <i class="bi bi-chevron-down section-divider-chevron"></i>
             <span class="section-divider-label">Other Users</span>
-            <span style="font-family:'JetBrains Mono',monospace; font-size:0.65rem; color:#333;">
+            <span style="font-family:'JetBrains Mono',monospace; font-size: 0.6875rem; color:var(--nr-text-muted);">
                 {{ other_jobs|length }}
             </span>
         </div>
@@ -461,9 +461,9 @@
                     <i class="bi bi-arrow-counterclockwise me-2" style="color:#ffe082;"></i>
                     Compensatory Commands
                 </h6>
-                <p style="font-size:0.8rem; color:#777; margin-bottom:0.85rem;">
+                <p style="font-size:0.8rem; color:var(--nr-text-muted); margin-bottom:0.85rem;">
                     Provide the compensatory commands to push to successfully configured devices.
-                    <span style="color:#555;">Device attributes are resolved at rollback time — verify they still reflect the current network state.</span>
+                    <span style="color:var(--nr-text-muted);">Device attributes are resolved at rollback time — verify they still reflect the current network state.</span>
                 </p>
                 <div id="rollbackError"
                      style="display:none; font-family:'Inter',sans-serif; font-size:0.78rem;
@@ -479,20 +479,20 @@
                                  background:#111; border-color:#222; color:#ccc; resize:vertical;">
                 </textarea>
                 <div class="d-flex gap-3 mt-2">
-                    <label class="option-check" style="font-size:0.78rem; color:#555; display:flex; align-items:center; gap:0.4rem; cursor:pointer;">
+                    <label class="option-check" style="font-size:0.78rem; color:var(--nr-text-muted); display:flex; align-items:center; gap:0.4rem; cursor:pointer;">
                         <input type="checkbox" id="rollbackVerify" style="accent-color:#00bcd4;">
                         <i class="bi bi-patch-check" style="color:#00bcd4;"></i>
                         Verify after push
                         <span title="Verification is based on best-effort text matching. Vendors that restructure the config file (e.g. JSON-based platforms) may produce false negatives."
-                              style="font-family:'JetBrains Mono',monospace; font-size:0.65rem;
-                                     color:#444; border:1px solid #2a2a2a; border-radius:50%;
+                              style="font-family:'JetBrains Mono',monospace; font-size: 0.6875rem;
+                                     color:var(--nr-text-muted); border:1px solid #2a2a2a; border-radius:50%;
                                      width:14px; height:14px; display:inline-flex;
                                      align-items:center; justify-content:center;
                                      cursor:help; flex-shrink:0;">?</span>
                     </label>
-                    <label class="option-check" style="font-size:0.78rem; color:#555; display:flex; align-items:center; gap:0.4rem; cursor:pointer;">
+                    <label class="option-check" style="font-size:0.78rem; color:var(--nr-text-muted); display:flex; align-items:center; gap:0.4rem; cursor:pointer;">
                         <input type="checkbox" id="rollbackVerbose" style="accent-color:#00bcd4;">
-                        <i class="bi bi-terminal" style="color:#555;"></i>
+                        <i class="bi bi-terminal" style="color:var(--nr-text-faint);"></i>
                         Verbose
                     </label>
                 </div>

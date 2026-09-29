@@ -11,7 +11,7 @@
         <span class="nr-badge">Admin</span>
         <h4 class="mt-2 mb-0" style="color:#e0e0e0; font-family:'Inter',sans-serif;">Audit Logs</h4>
       </div>
-      <span style="font-family:'JetBrains Mono',monospace; font-size:0.72rem; color:#555;">
+      <span style="font-family:'JetBrains Mono',monospace; font-size:0.72rem; color:var(--nr-text-muted);">
         {{ entries|length }} result{% if entries|length != 1 %}s{% endif %}{% if entries|length == 500 %} (capped){% endif %}
       </span>
     </div>
@@ -59,7 +59,7 @@
           <tr class="audit-row" data-detail="{{ e.detail | tojson | e }}"
               data-id="{{ e.id }}" data-ts="{{ e.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}">
 
-            <td style="font-family:'JetBrains Mono',monospace; font-size:0.75rem; color:#777; white-space:nowrap;">
+            <td style="font-family:'JetBrains Mono',monospace; font-size:0.75rem; color:var(--nr-text-muted); white-space:nowrap;">
               {{ e.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}
             </td>
 
@@ -79,13 +79,13 @@
 
             <td style="font-size:0.82rem; color:#aaa;">
               {% if e.object_type %}
-                <span style="color:#555; font-size:0.72rem; margin-right:4px;">{{ e.object_type }}</span>
+                <span style="color:var(--nr-text-muted); font-size: 0.75rem; margin-right:4px;">{{ e.object_type }}</span>
               {% endif %}
               {% if e.object_label %}
                 <span style="color:#ccc;">{{ e.object_label }}</span>
               {% endif %}
               {% if not e.object_label and e.object_id %}
-                <span style="font-family:'JetBrains Mono',monospace; font-size:0.7rem; color:#555;">
+                <span style="font-family:'JetBrains Mono',monospace; font-size:0.7rem; color:var(--nr-text-muted);">
                   {{ e.object_id | string | truncate(12, True, '') }}
                 </span>
               {% endif %}
@@ -99,7 +99,7 @@
               {% endif %}
             </td>
 
-            <td style="font-family:'JetBrains Mono',monospace; font-size:0.72rem; color:#666;">
+            <td style="font-family:'JetBrains Mono',monospace; font-size:0.72rem; color:var(--nr-text-muted);">
               {{ e.ip_address or '—' }}
             </td>
 
@@ -110,7 +110,7 @@
           </tr>
           {% else %}
           <tr>
-            <td colspan="7" class="text-center" style="color:#555; padding:2rem 0; font-size:0.85rem;">
+            <td colspan="7" class="text-center" style="color:var(--nr-text-muted); padding:2rem 0; font-size:0.85rem;">
               No audit entries match the current filters.
             </td>
           </tr>
@@ -173,7 +173,7 @@
   .action-ns {
     display: inline-block;
     font-family: 'JetBrains Mono', monospace;
-    font-size: 0.68rem;
+    font-size: 0.6875rem;
     font-weight: 600;
     padding: 1px 6px;
     border-radius: 3px;
@@ -191,7 +191,7 @@
   .action-verb {
     font-family: 'JetBrains Mono', monospace;
     font-size: 0.74rem;
-    color: #777;
+    color: var(--nr-text-muted);
   }
   .action-verb--delete, .action-verb--cancel { color: #ef9a9a; }
   .action-verb--create, .action-verb--start  { color: #a5d6a7; }
@@ -202,7 +202,7 @@
   .status-pill {
     display: inline-block;
     font-family: 'JetBrains Mono', monospace;
-    font-size: 0.65rem;
+    font-size: 0.6875rem;
     font-weight: 700;
     padding: 2px 7px;
     border-radius: 3px;
@@ -224,7 +224,7 @@
     transition: color 0.15s, background 0.15s;
     line-height: 1;
   }
-  tr.audit-row:hover .gear-btn { color: #555; }
+  tr.audit-row:hover .gear-btn { color: var(--nr-text-muted); }
   .gear-btn:hover { color: #00bcd4 !important; background: rgba(0,188,212,0.08); }
 
   /* Gear popover items */
@@ -285,7 +285,7 @@
     let html = '';
     for (let i = 0; i < fields.length; i++) {
       html += `<tr>
-        <th style="width:110px;color:#555;font-weight:500;">${fields[i]}</th>
+        <th style="width:110px;color:var(--nr-text-muted);font-weight:500;">${fields[i]}</th>
         <td style="color:#ccc;">${cells[i].innerText.trim()}</td>
       </tr>`;
     }

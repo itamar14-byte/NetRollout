@@ -86,7 +86,7 @@
     align-items: center;
     justify-content: center;
     font-size: 0.9rem;
-    color: #444;
+    color: var(--nr-text-muted);
 }
 
 .device-info { flex: 1; min-width: 0; }
@@ -102,13 +102,13 @@
 .device-ip {
     font-family: 'JetBrains Mono', monospace;
     font-size: 0.7rem;
-    color: #555;
+    color: var(--nr-text-muted);
 }
 
 .platform-tag {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 0.62rem;
-    color: #666;
+    font-size: 0.6875rem;
+    color: var(--nr-text-muted);
     background: #161616;
     border: 1px solid #222;
     border-radius: 4px;
@@ -141,7 +141,7 @@
     border-radius: 6px;
     padding: 5px 10px;
     font-family: 'Inter', sans-serif;
-    font-size: 0.72rem;
+    font-size: 0.75rem;
     color: #ef5350;
     white-space: nowrap;
     pointer-events: none;
@@ -153,7 +153,7 @@
 /* ── No-profile footer warning ── */
 .no-profile-warning {
     display: none;
-    font-size: 0.72rem;
+    font-size: 0.75rem;
     color: #ef5350;
     font-family: 'Inter', sans-serif;
 }
@@ -189,7 +189,7 @@
     font-family: 'Inter', sans-serif;
     font-size: 0.8rem;
 }
-.device-search::placeholder { color: #333; }
+.device-search::placeholder { color: var(--nr-text-muted); }
 
 .device-group-head {
     margin: 0;
@@ -209,8 +209,8 @@
     border-top: 1px solid #1a1a1a;
     background: #0f0f0f;
     font-family: 'JetBrains Mono', monospace;
-    font-size: 0.68rem;
-    color: #444;
+    font-size: 0.6875rem;
+    color: var(--nr-text-muted);
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -218,7 +218,7 @@
 .platform-summary { display: flex; gap: 0.4rem; flex-wrap: wrap; }
 .platform-pill {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 0.6rem;
+    font-size: 0.6875rem;
     color: #00bcd4;
     background: rgba(0,188,212,0.06);
     border: 1px solid rgba(0,188,212,0.15);
@@ -230,7 +230,7 @@
 .empty-state {
     padding: 3rem 1rem;
     text-align: center;
-    color: #333;
+    color: var(--nr-text-muted);
     font-family: 'Inter', sans-serif;
     font-size: 0.83rem;
 }
@@ -270,7 +270,7 @@
 }
 .cmd-platform-label {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 0.68rem;
+    font-size: 0.6875rem;
     color: #00bcd4;
     letter-spacing: 1.5px;
     text-transform: uppercase;
@@ -281,12 +281,12 @@
 }
 .cmd-toggle-btn {
     font-family: 'Inter', sans-serif;
-    font-size: 0.72rem;
+    font-size: 0.75rem;
     padding: 0.22rem 0.6rem;
     border-radius: 5px;
     border: 1px solid #222;
     background: transparent;
-    color: #555;
+    color: var(--nr-text-muted);
     cursor: pointer;
     transition: all 0.15s;
 }
@@ -309,7 +309,7 @@
     resize: vertical;
     min-height: 120px;
 }
-.cmd-textarea::placeholder { color: #2a2a2a; }
+.cmd-textarea::placeholder { color: var(--nr-text-muted); }
 
 .cmd-file-zone {
     display: none;
@@ -322,7 +322,7 @@
     gap: 0.5rem;
     font-family: 'Inter', sans-serif;
     font-size: 0.78rem;
-    color: #555;
+    color: var(--nr-text-muted);
     border: 1px dashed #2a2a2a;
     border-radius: 7px;
     padding: 0.6rem 1.2rem;
@@ -353,15 +353,15 @@
     cursor: pointer;
     font-family: 'Inter', sans-serif;
     font-size: 0.8rem;
-    color: #666;
+    color: var(--nr-text-muted);
     transition: color 0.15s;
 }
 .option-check:hover { color: #aaa; }
 .option-check input { accent-color: #00bcd4; cursor: pointer; }
 .option-check .tooltip-q {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 0.65rem;
-    color: #444;
+    font-size: 0.6875rem;
+    color: var(--nr-text-muted);
     border: 1px solid #2a2a2a;
     border-radius: 50%;
     width: 14px;
@@ -388,7 +388,7 @@
     border-radius: 6px;
     padding: 6px 10px;
     font-family: 'Inter', sans-serif;
-    font-size: 0.72rem;
+    font-size: 0.75rem;
     color: #888;
     white-space: normal;
     pointer-events: none;
@@ -506,7 +506,7 @@
                         {# Header: select-all + search #}
                         <div class="device-list-header">
                             <input type="checkbox" id="selectAll" title="Select all">
-                            <i class="bi bi-search" style="color:#333; font-size:0.75rem;"></i>
+                            <i class="bi bi-search" style="color:var(--nr-text-faint); font-size:0.75rem;"></i>
                             <input type="text" class="device-search"
                                    id="deviceSearch" placeholder="Filter by label or IP…">
                         </div>
@@ -580,7 +580,7 @@
             {# Rollout note #}
             <div class="nr-panel mb-3">
                 <div class="nr-panel-body" style="padding:1rem 1.25rem;">
-                    <span class="nr-label d-block mb-2">Rollout Note <span style="color:#2a2a2a; font-size:0.65rem;">OPTIONAL</span></span>
+                    <span class="nr-label d-block mb-2">Rollout Note <span style="color:var(--nr-text-muted); font-size: 0.75rem;">OPTIONAL</span></span>
                     <input type="text" name="comment" maxlength="255"
                            placeholder="e.g. VLAN 100 provisioning — ticket #4821"
                            style="width:100%; background:#111; border:1px solid #222;
@@ -613,7 +613,7 @@
                                 <input type="checkbox" name="_verbose" value="on">
                                 <span class="nr-toggle-slider"></span>
                             </span>
-                            <i class="bi bi-terminal" style="color:#555;"></i>
+                            <i class="bi bi-terminal" style="color:var(--nr-text-faint);"></i>
                             Verbose logging
                         </label>
                     </div>
@@ -681,7 +681,7 @@
                            filter:brightness(0) invert(1);opacity:0.5;
                            margin-right:0.45rem;"
                     onerror="this.style.display='none'">`
-            : `<i class="bi bi-hdd-network" style="font-size:0.85rem;color:#444;margin-right:0.45rem;"></i>`;
+            : `<i class="bi bi-hdd-network" style="font-size:0.85rem;color:var(--nr-text-faint);margin-right:0.45rem;"></i>`;
 
         const wrap = document.createElement("div");
         wrap.className = "cmd-section mb-3";

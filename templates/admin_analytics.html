@@ -8,7 +8,7 @@
   <div>
     <div class="nr-badge mb-1">ADMIN · PLATFORM ANALYTICS</div>
     <h4 style="color:#e0e0e0; margin:0; font-weight:600;">Organisation Overview</h4>
-    <div style="font-size:0.72rem; color:#555; margin-top:0.25rem; font-family:'JetBrains Mono',monospace;">
+    <div style="font-size:0.72rem; color:var(--nr-text-muted); margin-top:0.25rem; font-family:'JetBrains Mono',monospace;">
       All users · 30-day window · live data
     </div>
   </div>
@@ -22,11 +22,11 @@
   <div class="nr-card" style="height:100%;">
     <div class="nr-card-accent" style="background:linear-gradient(90deg,rgba(0,188,212,0.4),transparent);"></div>
     <div class="nr-card-body" style="padding:1.25rem;">
-      <div class="nr-label mb-1">ACTIVE USERS <span style="color:#2a2a2a; text-transform:none; letter-spacing:0;">30d</span></div>
+      <div class="nr-label mb-1">ACTIVE USERS <span style="color:var(--nr-text-muted); text-transform:none; letter-spacing:0;">30d</span></div>
       <div style="font-family:'JetBrains Mono',monospace; font-size:2rem; font-weight:700; color:#00bcd4; line-height:1;">
         {{ org_kpi.active_users }}
       </div>
-      <div style="font-size:0.72rem; color:#555; margin-top:0.4rem;">of {{ org_kpi.total_users }} registered</div>
+      <div style="font-size: 0.75rem; color:var(--nr-text-muted); margin-top:0.4rem;">of {{ org_kpi.total_users }} registered</div>
     </div>
   </div>
   </div>
@@ -40,7 +40,7 @@
         {% elif org_kpi.success_rate >= 50 %}rgba(255,193,7,0.5)
         {% else %}rgba(239,83,80,0.6){% endif %},transparent);"></div>
     <div class="nr-card-body" style="padding:1.25rem;">
-      <div class="nr-label mb-1">ORG SUCCESS RATE <span style="color:#2a2a2a; text-transform:none; letter-spacing:0;">30d</span></div>
+      <div class="nr-label mb-1">ORG SUCCESS RATE <span style="color:var(--nr-text-muted); text-transform:none; letter-spacing:0;">30d</span></div>
       <div style="font-family:'JetBrains Mono',monospace; font-size:2rem; font-weight:700; line-height:1;
           color:{% if org_kpi.success_rate is none %}#333
                 {% elif org_kpi.success_rate >= 80 %}#a5d6a7
@@ -48,7 +48,7 @@
                 {% else %}#ef9a9a{% endif %};">
         {% if org_kpi.success_rate is none %}—{% else %}{{ org_kpi.success_rate }}%{% endif %}
       </div>
-      <div style="font-size:0.72rem; color:#555; margin-top:0.4rem;">across all operators</div>
+      <div style="font-size: 0.75rem; color:var(--nr-text-muted); margin-top:0.4rem;">across all operators</div>
     </div>
   </div>
   </div>
@@ -58,11 +58,11 @@
   <div class="nr-card" style="height:100%;">
     <div class="nr-card-accent"></div>
     <div class="nr-card-body" style="padding:1.25rem;">
-      <div class="nr-label mb-1">TOTAL JOBS <span style="color:#2a2a2a; text-transform:none; letter-spacing:0;">30d</span></div>
+      <div class="nr-label mb-1">TOTAL JOBS <span style="color:var(--nr-text-muted); text-transform:none; letter-spacing:0;">30d</span></div>
       <div style="font-family:'JetBrains Mono',monospace; font-size:2rem; font-weight:700; color:#e0e0e0; line-height:1;">
         {{ org_kpi.total_jobs }}
       </div>
-      <div style="font-size:0.72rem; color:#555; margin-top:0.4rem;">rollout jobs executed</div>
+      <div style="font-size: 0.75rem; color:var(--nr-text-muted); margin-top:0.4rem;">rollout jobs executed</div>
     </div>
   </div>
   </div>
@@ -72,11 +72,11 @@
   <div class="nr-card" style="height:100%;">
     <div class="nr-card-accent"></div>
     <div class="nr-card-body" style="padding:1.25rem;">
-      <div class="nr-label mb-1">DEVICE OPERATIONS <span style="color:#2a2a2a; text-transform:none; letter-spacing:0;">30d</span></div>
+      <div class="nr-label mb-1">DEVICE OPERATIONS <span style="color:var(--nr-text-muted); text-transform:none; letter-spacing:0;">30d</span></div>
       <div style="font-family:'JetBrains Mono',monospace; font-size:2rem; font-weight:700; color:#e0e0e0; line-height:1;">
         {{ org_kpi.total_ops }}
       </div>
-      <div style="font-size:0.72rem; color:#555; margin-top:0.4rem;">individual device pushes</div>
+      <div style="font-size: 0.75rem; color:var(--nr-text-muted); margin-top:0.4rem;">individual device pushes</div>
     </div>
   </div>
   </div>
@@ -101,10 +101,10 @@
       {% if active_users %}
       <table class="table align-middle mb-0" style="font-size:0.82rem;">
         <thead><tr>
-          <th style="color:#555; font-size:0.65rem; letter-spacing:1px; font-weight:600; text-transform:uppercase; border-color:#1a1a1a;">User</th>
-          <th class="text-center" style="color:#555; font-size:0.65rem; letter-spacing:1px; font-weight:600; text-transform:uppercase; border-color:#1a1a1a;">Jobs</th>
-          <th class="text-center" style="color:#555; font-size:0.65rem; letter-spacing:1px; font-weight:600; text-transform:uppercase; border-color:#1a1a1a;">Devices</th>
-          <th style="color:#555; font-size:0.65rem; letter-spacing:1px; font-weight:600; text-transform:uppercase; border-color:#1a1a1a;">Last Job</th>
+          <th style="color:var(--nr-text-muted); font-size: 0.6875rem; letter-spacing:1px; font-weight:600; text-transform:uppercase; border-color:#1a1a1a;">User</th>
+          <th class="text-center" style="color:var(--nr-text-muted); font-size: 0.6875rem; letter-spacing:1px; font-weight:600; text-transform:uppercase; border-color:#1a1a1a;">Jobs</th>
+          <th class="text-center" style="color:var(--nr-text-muted); font-size: 0.6875rem; letter-spacing:1px; font-weight:600; text-transform:uppercase; border-color:#1a1a1a;">Devices</th>
+          <th style="color:var(--nr-text-muted); font-size: 0.6875rem; letter-spacing:1px; font-weight:600; text-transform:uppercase; border-color:#1a1a1a;">Last Job</th>
         </tr></thead>
         <tbody>
         {% for u in active_users %}
@@ -112,13 +112,13 @@
           <td><span style="font-family:'JetBrains Mono',monospace; font-size:0.8rem; color:#ccc;">{{ u.username }}</span></td>
           <td class="text-center"><span style="font-family:'JetBrains Mono',monospace; color:#e0e0e0;">{{ u.job_count }}</span></td>
           <td class="text-center"><span style="font-family:'JetBrains Mono',monospace; color:#e0e0e0;">{{ u.devices_reached }}</span></td>
-          <td><span style="font-size:0.72rem; color:#555;">{{ u.last_job_at.strftime("%b %d, %H:%M") if u.last_job_at else '—' }}</span></td>
+          <td><span style="font-size: 0.75rem; color:var(--nr-text-muted);">{{ u.last_job_at.strftime("%b %d, %H:%M") if u.last_job_at else '—' }}</span></td>
         </tr>
         {% endfor %}
         </tbody>
       </table>
       {% else %}
-      <div style="text-align:center; padding:2rem 0; color:#555; font-size:0.82rem;">No rollout activity in the last 30 days.</div>
+      <div style="text-align:center; padding:2rem 0; color:var(--nr-text-muted); font-size:0.82rem;">No rollout activity in the last 30 days.</div>
       {% endif %}
     </div>
   </div>
@@ -139,25 +139,25 @@
       {% if failed_devices %}
       <table class="table align-middle mb-0" style="font-size:0.82rem;">
         <thead><tr>
-          <th style="color:#555; font-size:0.65rem; letter-spacing:1px; font-weight:600; text-transform:uppercase; border-color:#1a1a1a;">Device</th>
-          <th style="color:#555; font-size:0.65rem; letter-spacing:1px; font-weight:600; text-transform:uppercase; border-color:#1a1a1a;">Platform</th>
-          <th class="text-center" style="color:#555; font-size:0.65rem; letter-spacing:1px; font-weight:600; text-transform:uppercase; border-color:#1a1a1a;">Failures</th>
+          <th style="color:var(--nr-text-muted); font-size: 0.6875rem; letter-spacing:1px; font-weight:600; text-transform:uppercase; border-color:#1a1a1a;">Device</th>
+          <th style="color:var(--nr-text-muted); font-size: 0.6875rem; letter-spacing:1px; font-weight:600; text-transform:uppercase; border-color:#1a1a1a;">Platform</th>
+          <th class="text-center" style="color:var(--nr-text-muted); font-size: 0.6875rem; letter-spacing:1px; font-weight:600; text-transform:uppercase; border-color:#1a1a1a;">Failures</th>
         </tr></thead>
         <tbody>
         {% for d in failed_devices %}
         <tr style="border-color:#1a1a1a;">
           <td>
             <div style="font-family:'JetBrains Mono',monospace; font-size:0.78rem; color:#ef9a9a;">{{ d.label or d.ip }}</div>
-            <div style="font-size:0.68rem; color:#444;">{{ d.ip }}</div>
+            <div style="font-size: 0.75rem; color:var(--nr-text-muted);">{{ d.ip }}</div>
           </td>
-          <td><span style="font-size:0.72rem; color:#555;">{{ d.device_type }}</span></td>
+          <td><span style="font-size: 0.75rem; color:var(--nr-text-muted);">{{ d.device_type }}</span></td>
           <td class="text-center"><span style="font-family:'JetBrains Mono',monospace; color:#ef9a9a; font-weight:700;">{{ d.fail_count }}</span></td>
         </tr>
         {% endfor %}
         </tbody>
       </table>
       {% else %}
-      <div style="text-align:center; padding:2rem 0; color:#555; font-size:0.82rem;">No failures recorded in the last 30 days.</div>
+      <div style="text-align:center; padding:2rem 0; color:var(--nr-text-muted); font-size:0.82rem;">No failures recorded in the last 30 days.</div>
       {% endif %}
     </div>
   </div>
@@ -182,7 +182,7 @@
       <div>
         <div class="nr-badge" style="border-color:rgba(255,224,130,0.25); color:#ffe082; margin-bottom:0.2rem;">AUDIT INVESTIGATION</div>
         <div style="font-size:0.88rem; font-weight:600; color:#e0e0e0;">Audit Log Query</div>
-        <div style="font-size:0.7rem; color:#555; font-family:'JetBrains Mono',monospace; margin-top:0.1rem;">
+        <div style="font-size:0.7rem; color:var(--nr-text-muted); font-family:'JetBrains Mono',monospace; margin-top:0.1rem;">
           90-day retention · append-only · admin access only
         </div>
       </div>
@@ -199,10 +199,10 @@
         <i class="bi bi-play-fill me-1"></i>Run Query
       </button>
       <button class="btn btn-sm" onclick="exportCsv()"
-              style="background:none; border:1px solid #2a2a2a; color:#555; font-size:0.78rem;"
+              style="background:none; border:1px solid #2a2a2a; color:var(--nr-text-muted); font-size:0.78rem;"
               title="Export CSV"
               onmouseenter="this.style.borderColor='#444';this.style.color='#aaa'"
-              onmouseleave="this.style.borderColor='#2a2a2a';this.style.color='#555'">
+              onmouseleave="this.style.borderColor='#2a2a2a';this.style.color='var(--nr-text-muted)'">
         <i class="bi bi-download"></i>
       </button>
     </div>
@@ -211,7 +211,7 @@
     <div id="queryResultsWrap" style="margin-top:1.25rem; display:none;">
       <div style="border-top:1px solid #1a1a1a; padding-top:1rem;">
         <div class="d-flex align-items-center justify-content-between mb-2">
-          <span id="queryResultCount" style="font-size:0.72rem; color:#555; font-family:'JetBrains Mono',monospace;"></span>
+          <span id="queryResultCount" style="font-size:0.72rem; color:var(--nr-text-muted); font-family:'JetBrains Mono',monospace;"></span>
         </div>
         <div class="table-responsive" style="max-height:340px; overflow-y:auto;">
           <table class="table align-middle mb-0" style="font-size:0.78rem;" id="queryResultsTable">
@@ -222,10 +222,10 @@
       </div>
     </div>
 
-    <div id="queryEmpty" style="display:none; text-align:center; padding:2rem 0; color:#555; font-size:0.82rem;">
+    <div id="queryEmpty" style="display:none; text-align:center; padding:2rem 0; color:var(--nr-text-muted); font-size:0.82rem;">
       No entries match the selected filters.
     </div>
-    <div id="queryLoading" style="display:none; text-align:center; padding:2rem 0; color:#555; font-size:0.82rem;">
+    <div id="queryLoading" style="display:none; text-align:center; padding:2rem 0; color:var(--nr-text-muted); font-size:0.82rem;">
       <i class="bi bi-arrow-repeat" style="animation:spin 1s linear infinite; display:inline-block; margin-right:6px;"></i>
       Querying audit log…
     </div>
@@ -263,7 +263,7 @@
 .query-builder .group-actions { display: flex; gap: 4px; }
 .query-builder .group-actions .btn,
 .query-builder .rule-actions .btn {
-  font-size: 0.68rem; padding: 0.15rem 0.5rem; border-radius: 3px; cursor: pointer;
+  font-size: 0.75rem; padding: 0.15rem 0.5rem; border-radius: 3px; cursor: pointer;
 }
 .query-builder .group-actions .btn-success {
   background: rgba(255,224,130,0.06); border: 1px solid rgba(255,224,130,0.2); color: #ffe082;
@@ -271,7 +271,7 @@
 .query-builder .group-actions .btn-success:hover { background: rgba(255,224,130,0.12); }
 .query-builder .group-actions .btn-danger,
 .query-builder .rule-actions .btn-danger {
-  background: transparent !important; border: 1px solid rgba(239,83,80,0.2) !important; color: #666 !important;
+  background: transparent !important; border: 1px solid rgba(239,83,80,0.2) !important; color: var(--nr-text-muted) !important;
 }
 .query-builder .group-actions .btn-danger:hover,
 .query-builder .rule-actions .btn-danger:hover {
@@ -296,7 +296,7 @@
   display: flex; align-items: center; justify-content: center; padding: 4px 0;
 }
 .nr-qb-pill {
-  font-family: 'JetBrains Mono', monospace; font-size: 0.62rem;
+  font-family: 'JetBrains Mono', monospace; font-size: 0.6875rem;
   letter-spacing: 1.5px; text-transform: uppercase;
   color: #ffe082; background: rgba(255,224,130,0.06);
   border: 1px solid rgba(255,224,130,0.25); border-radius: 4px;
@@ -335,7 +335,7 @@
 }
 .query-builder .has-error select,
 .query-builder .has-error input { border-color: rgba(239,83,80,0.5) !important; }
-.query-builder .error-container { color: #ef9a9a; font-size: 0.7rem; margin-top: 3px; }
+.query-builder .error-container { color: #ef9a9a; font-size: 0.75rem; margin-top: 3px; }
 
 </style>
 
@@ -516,7 +516,7 @@ async function runQuery() {
 
   document.getElementById('queryResultsHead').innerHTML =
     '<tr>' + data.columns.map(c =>
-      `<th style="color:#555; font-size:0.65rem; letter-spacing:1px; font-weight:600;
+      `<th style="color:var(--nr-text-muted); font-size: 0.6875rem; letter-spacing:1px; font-weight:600;
                   text-transform:uppercase; border-color:#1a1a1a; white-space:nowrap;">${c}</th>`
     ).join('') + '</tr>';
 
@@ -525,7 +525,7 @@ async function runQuery() {
     data.columns.map(c => {
       const val = row[c];
       let display = val === null || val === undefined
-        ? '<span style="color:#2a2a2a;">—</span>' : String(val);
+        ? '<span style="color:var(--nr-text-muted);">—</span>' : String(val);
       if (c === 'success') {
         const ok = val === true || val === 'true';
         display = ok

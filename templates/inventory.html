@@ -72,16 +72,17 @@
 .inv-card-ip {
     font-family: 'JetBrains Mono', monospace;
     font-size: 0.71rem;
-    color: #2e2e2e;
+    color: var(--nr-text-muted);
     flex-shrink: 0;
 }
+/* Always visible (quiet) — hover-only controls are undiscoverable, and
+   unreachable on touch screens and by keyboard */
 .card-delete-btn {
-    opacity: 0;
-    transition: opacity 0.15s, color 0.15s;
+    transition: color 0.15s;
     background: none;
     border: none;
     padding: 0 0.1rem;
-    color: #2e2e2e;
+    color: var(--nr-text-faint);
     font-size: 0.78rem;
     cursor: pointer;
     flex-shrink: 0;
@@ -89,8 +90,9 @@
     display: flex;
     align-items: center;
 }
-.inv-card:hover .card-delete-btn { opacity: 1; }
-.card-delete-btn:hover { color: #ef5350 !important; }
+.inv-card:hover .card-delete-btn { color: var(--nr-text-muted); }
+.card-delete-btn:hover,
+.card-delete-btn:focus-visible { color: #ef5350 !important; }
 
 /* ── Global devices ── */
 .inv-card.is-global { border-left: 2px solid rgba(0,188,212,0.45); }
@@ -109,10 +111,10 @@
     cursor: pointer;
 }
 .global-toggle-row i { color: #00bcd4; }
-.global-toggle-hint { font-size: 0.7rem; color: #555; margin-left: auto; }
+.global-toggle-hint { font-size: 0.75rem; color: var(--nr-text-muted); margin-left: auto; }
 .global-profile-error {
     display: none;
-    font-size: 0.72rem;
+    font-size: 0.75rem;
     color: #ef5350;
     margin-top: 0.35rem;
 }
@@ -166,9 +168,9 @@
 .tt-row:not(:last-child) { border-bottom: 1px solid #141414; }
 .tt-key {
     font-family: 'Inter', sans-serif;
-    font-size: 0.67rem;
+    font-size: 0.6875rem;
     font-weight: 500;
-    color: #777;
+    color: var(--nr-text-muted);
     letter-spacing: 0.8px;
     text-transform: uppercase;
     flex-shrink: 0;
@@ -196,14 +198,14 @@
 }
 .mapping-chip-token {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 0.68rem;
+    font-size: 0.6875rem;
     color: #00bcd4;
     white-space: nowrap;
 }
 .mapping-chip-prop {
     font-family: 'Inter', sans-serif;
-    font-size: 0.63rem;
-    color: #555;
+    font-size: 0.6875rem;
+    color: var(--nr-text-muted);
     white-space: nowrap;
 }
 
@@ -242,7 +244,7 @@
     width: 100%;
     padding: 0.6rem 0 0;
     margin-top: 0.9rem;
-    color: #777;
+    color: var(--nr-text-muted);
     font-family: 'Inter', sans-serif;
     font-size: 0.72rem;
     font-weight: 500;
@@ -253,13 +255,13 @@
     text-align: left;
 }
 .expand-toggle:hover { color: #aaa; }
-.expand-arrow { transition: transform 0.2s; font-size: 0.68rem; }
+.expand-arrow { transition: transform 0.2s; font-size: 0.75rem; }
 .expand-toggle.open .expand-arrow { transform: rotate(180deg); }
 .expand-body { display: none; padding-top: 0.75rem; }
 .expand-body.open { display: block; }
 .expand-hint {
     font-size: 0.75rem;
-    color: #2a2a2a;
+    color: var(--nr-text-muted);
     margin-bottom: 0.9rem;
     line-height: 1.5;
 }
@@ -270,7 +272,7 @@
     padding: 4rem 2rem;
 }
 .empty-state i { font-size: 3rem; margin-bottom: 1rem; display: block; color: #1e1e1e; }
-.empty-state p { font-size: 0.88rem; color: #333; margin-bottom: 1.5rem; }
+.empty-state p { font-size: 0.88rem; color: var(--nr-text-muted); margin-bottom: 1.5rem; }
 
 /* Platform select error state */
 .nr-select.nr-platform-error .nr-select-trigger {
@@ -306,7 +308,7 @@
 .nr-select-create-new {
     padding: 0.45rem 0.75rem;
     border-top: 1px solid #1a1a1a;
-    font-size: 0.74rem;
+    font-size: 0.75rem;
     color: #00bcd4;
     cursor: pointer;
     display: flex;
@@ -321,7 +323,7 @@
     align-items: center;
     gap: 0.4rem;
     padding: 0.4rem 0.75rem;
-    font-size: 0.74rem;
+    font-size: 0.75rem;
     color: #00bcd4;
     background: none;
     border: none;
@@ -381,7 +383,7 @@
                      class="vendor-img"
                      onerror="this.style.display='none';this.nextElementSibling.style.display='block';">
                 {% endif %}
-                <i class="bi bi-router" style="{{ 'display:none;' if logo_url else '' }} font-size:0.95rem; color:#2a2a2a;"></i>
+                <i class="bi bi-router" style="{{ 'display:none;' if logo_url else '' }} font-size:0.95rem; color:var(--nr-text-faint);"></i>
             </div>
 
             <!-- Label -->
@@ -412,7 +414,7 @@
     <div>
         <div class="nr-badge">INVENTORY</div>
         <h4 class="mb-0" style="font-weight:600; font-size:1.15rem;">Device Inventory</h4>
-        <p class="mt-1 mb-0" style="font-size:0.82rem; color:#444;">
+        <p class="mt-1 mb-0" style="font-size:0.82rem; color:var(--nr-text-muted);">
             {{ devices|length }} device{{ "s" if devices|length != 1 else "" }} configured
         </p>
     </div>
@@ -480,8 +482,8 @@
         <span class="tt-val" id="ttProfile">—</span>
     </div>
     <div id="ttMappingsRow" style="display:none; margin-top:0.5rem; border-top:1px solid #141414; padding-top:0.45rem;">
-        <div style="font-family:'Inter',sans-serif; font-size:0.67rem; font-weight:500;
-                    color:#777; letter-spacing:0.8px; text-transform:uppercase; margin-bottom:0.35rem;">
+        <div style="font-family:'Inter',sans-serif; font-size: 0.6875rem; font-weight:500;
+                    color:var(--nr-text-muted); letter-spacing:0.8px; text-transform:uppercase; margin-bottom:0.35rem;">
             Mappings
         </div>
         <div id="ttMappings" style="display:flex; flex-wrap:wrap; gap:0.4rem;"></div>
@@ -546,7 +548,7 @@
                                 <div class="nr-select-list">
                                     {% for val, lbl in platforms %}
                                     <div class="nr-select-option" data-value="{{ val }}" data-label="{{ lbl }}">
-                                        <img src="{{ VENDOR_LOGOS.get(val, '') }}" width="16" height="16"
+                                        <img alt="" src="{{ VENDOR_LOGOS.get(val, '') }}" width="16" height="16"
                                              style="border-radius:3px;opacity:0.85;flex-shrink:0;"
                                              onerror="this.style.display='none'">
                                         <span class="opt-label">{{ lbl }}</span>
@@ -562,7 +564,7 @@
 
                     <div class="mb-1">
                         <label class="nr-label">SECURITY PROFILE
-                            <span style="color:#272727;">(optional)</span>
+                            <span style="color:var(--nr-text-muted);">(optional)</span>
                         </label>
                         <div class="nr-select" id="addSecSelect">
                             <div class="nr-select-trigger">
@@ -693,7 +695,7 @@
                                 <div class="nr-select-list">
                                     {% for val, lbl in platforms %}
                                     <div class="nr-select-option" data-value="{{ val }}" data-label="{{ lbl }}">
-                                        <img src="{{ VENDOR_LOGOS.get(val, '') }}" width="16" height="16"
+                                        <img alt="" src="{{ VENDOR_LOGOS.get(val, '') }}" width="16" height="16"
                                              style="border-radius:3px;opacity:0.85;flex-shrink:0;"
                                              onerror="this.style.display='none'">
                                         <span class="opt-label">{{ lbl }}</span>
@@ -709,7 +711,7 @@
 
                     <div class="mb-1">
                         <label class="nr-label">SECURITY PROFILE
-                            <span style="color:#272727;">(optional)</span>
+                            <span style="color:var(--nr-text-muted);">(optional)</span>
                         </label>
                         <div class="nr-select" id="editSecSelect">
                             <div class="nr-select-trigger">
@@ -765,7 +767,7 @@
                     <!-- Variable Mappings multi-select -->
                     <div class="mb-3">
                         <label class="nr-label">VARIABLE MAPPINGS
-                            <span style="color:#272727;">(optional)</span>
+                            <span style="color:var(--nr-text-muted);">(optional)</span>
                         </label>
                         <div id="editMappingSelect"
                              style="background:#111; border:1px solid #222; border-radius:8px; overflow:hidden;">
@@ -791,7 +793,7 @@
                                                   cursor:pointer; margin:0;">
                                     <span style="font-family:'JetBrains Mono',monospace;
                                                  font-size:0.72rem; color:#00bcd4;">{{ m.token }}</span>
-                                    <span style="font-size:0.7rem; color:#555; margin-left:4px;">
+                                    <span style="font-size: 0.75rem; color:var(--nr-text-muted); margin-left:4px;">
                                         → {{ m.property_name }}{% if m.index is not none %}[{{ m.index }}]{% endif %}
                                     </span>
                                 </label>
@@ -819,8 +821,8 @@
                             {% for p in sys_props %}
                             <div {% if p.is_list %}style="grid-column:1/-1"{% endif %}>
                                 <label class="nr-label" for="attr_{{ p.name }}">
-                                    <i class="bi {{ p.icon }}" style="margin-right:4px; color:#555;"></i>{{ p.label | upper }}
-                                    {% if p.is_list %}<span style="color:#272727; text-transform:none; letter-spacing:0;">(comma-separated)</span>{% endif %}
+                                    <i class="bi {{ p.icon }}" style="margin-right:4px; color:var(--nr-text-faint);"></i>{{ p.label | upper }}
+                                    {% if p.is_list %}<span style="color:var(--nr-text-muted); text-transform:none; letter-spacing:0;">(comma-separated)</span>{% endif %}
                                 </label>
                                 <input type="text" class="form-control form-control-sm"
                                        id="attr_{{ p.name }}" name="attr_{{ p.name }}"
@@ -831,14 +833,14 @@
 
                         {% if user_props %}
                         <div style="border-top:1px solid #1e1e1e; margin:10px 0 8px; display:flex; align-items:center; gap:8px;">
-                            <span style="font-size:0.65rem; color:#444; letter-spacing:1px; text-transform:uppercase; white-space:nowrap;">Custom</span>
+                            <span style="font-size: 0.6875rem; color:var(--nr-text-muted); letter-spacing:1px; text-transform:uppercase; white-space:nowrap;">Custom</span>
                         </div>
                         <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px 12px;">
                             {% for p in user_props %}
                             <div {% if p.is_list %}style="grid-column:1/-1"{% endif %}>
                                 <label class="nr-label" for="attr_{{ p.name }}">
-                                    <i class="bi {{ p.icon }}" style="margin-right:4px; color:#555;"></i>{{ p.label | upper }}
-                                    {% if p.is_list %}<span style="color:#272727; text-transform:none; letter-spacing:0;">(comma-separated)</span>{% endif %}
+                                    <i class="bi {{ p.icon }}" style="margin-right:4px; color:var(--nr-text-faint);"></i>{{ p.label | upper }}
+                                    {% if p.is_list %}<span style="color:var(--nr-text-muted); text-transform:none; letter-spacing:0;">(comma-separated)</span>{% endif %}
                                 </label>
                                 <input type="text" class="form-control form-control-sm"
                                        id="attr_{{ p.name }}" name="attr_{{ p.name }}"
@@ -851,10 +853,10 @@
                         <div style="margin-top:10px;" class="edit-only">
                             <button type="button"
                                     style="background:none; border:1px dashed #2a2a2a; border-radius:6px;
-                                           color:#444; font-size:0.72rem; padding:4px 10px; cursor:pointer;
+                                           color:var(--nr-text-muted); font-size: 0.75rem; padding:4px 10px; cursor:pointer;
                                            transition:color 0.15s, border-color 0.15s;"
                                     onmouseenter="this.style.color='#00bcd4';this.style.borderColor='#00bcd4';"
-                                    onmouseleave="this.style.color='#444';this.style.borderColor='#2a2a2a';"
+                                    onmouseleave="this.style.color='var(--nr-text-muted)';this.style.borderColor='#2a2a2a';"
                                     onclick="openQuickCreateProperty()">
                                 <i class="bi bi-plus me-1"></i>New Property
                             </button>
@@ -906,7 +908,7 @@
                     </span>
                     from inventory?
                 </p>
-                <p style="font-size:0.82rem; color:#444; margin-bottom:0;">
+                <p style="font-size:0.82rem; color:var(--nr-text-muted); margin-bottom:0;">
                     This cannot be undone.
                 </p>
             </div>
@@ -943,11 +945,11 @@
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div class="modal-body">
 
-                    <p style="font-size:0.82rem; color:#555; margin-bottom:1.2rem;">
+                    <p style="font-size:0.82rem; color:var(--nr-text-muted); margin-bottom:1.2rem;">
                         CSV must include columns:
                         <span style="font-family:'JetBrains Mono',monospace; color:#388e9e;">ip, device_type, port</span>.
                         Optional:
-                        <span style="font-family:'JetBrains Mono',monospace; color:#555;">username, password, secret, label</span>
+                        <span style="font-family:'JetBrains Mono',monospace; color:var(--nr-text-muted);">username, password, secret, label</span>
                         and any variable attribute columns.
                         Each device will be TCP-checked before import.
                     </p>
@@ -961,7 +963,7 @@
 
                     <div class="mb-1">
                         <label class="nr-label" for="csvLabel">LABEL
-                            <span style="color:#2a2a2a;">(optional — applied to all imported devices)</span>
+                            <span style="color:var(--nr-text-muted);">(optional — applied to all imported devices)</span>
                         </label>
                         <input type="text" class="form-control" id="csvLabel" name="label"
                                placeholder="e.g. Branch Routers">
@@ -994,7 +996,7 @@
             </div>
             <div class="modal-body">
                 <div class="mb-3">
-                    <label class="nr-label">LABEL <span style="color:#444;">(optional)</span></label>
+                    <label class="nr-label">LABEL <span style="color:var(--nr-text-muted);">(optional)</span></label>
                     <input type="text" class="form-control form-control-sm" id="qcpLabel"
                            placeholder="e.g. Lab Routers" autocomplete="off">
                 </div>
@@ -1009,7 +1011,7 @@
                            autocomplete="new-password">
                 </div>
                 <div class="mb-1">
-                    <label class="nr-label">ENABLE SECRET <span style="color:#444;">(optional)</span></label>
+                    <label class="nr-label">ENABLE SECRET <span style="color:var(--nr-text-muted);">(optional)</span></label>
                     <input type="password" class="form-control form-control-sm" id="qcpSecret"
                            autocomplete="new-password">
                 </div>
@@ -1047,12 +1049,12 @@
                     <label class="nr-label">TOKEN</label>
                     <div class="input-group input-group-sm">
                         <span class="input-group-text"
-                              style="background:#1a1a1a; border-color:#333; color:#555; font-family:'JetBrains Mono',monospace;">$$</span>
+                              style="background:#1a1a1a; border-color:#333; color:var(--nr-text-muted); font-family:'JetBrains Mono',monospace;">$$</span>
                         <input type="text" class="form-control" id="qcmToken"
                                placeholder="HOSTNAME" autocomplete="off"
                                style="text-transform:uppercase;">
                         <span class="input-group-text"
-                              style="background:#1a1a1a; border-color:#333; color:#555; font-family:'JetBrains Mono',monospace;">$$</span>
+                              style="background:#1a1a1a; border-color:#333; color:var(--nr-text-muted); font-family:'JetBrains Mono',monospace;">$$</span>
                     </div>
                     <div id="qcmTokenErr" class="field-error">Token is required.</div>
                 </div>
@@ -1114,25 +1116,25 @@
                            oninput="autoSlug('qcPropLabel','qcPropName')">
                 </div>
                 <div class="mb-3">
-                    <label class="nr-label">NAME <span style="color:#333; text-transform:none; letter-spacing:0;">(auto-generated · immutable)</span></label>
+                    <label class="nr-label">NAME <span style="color:var(--nr-text-muted); text-transform:none; letter-spacing:0;">(auto-generated · immutable)</span></label>
                     <input type="text" class="form-control form-control-sm" id="qcPropName"
                            placeholder="bgp_peer_ip" autocomplete="off">
-                    <div style="font-size:0.7rem; color:#3a3a3a; margin-top:3px;">Dict key for $$TOKEN$$ substitution. Edit if needed.</div>
+                    <div style="font-size: 0.75rem; color:var(--nr-text-muted); margin-top:3px;">Dict key for $$TOKEN$$ substitution. Edit if needed.</div>
                 </div>
                 <div class="mb-3">
-                    <label class="nr-label">ICON <span style="color:#333; text-transform:none; letter-spacing:0;">(Bootstrap Icons class)</span></label>
+                    <label class="nr-label">ICON <span style="color:var(--nr-text-muted); text-transform:none; letter-spacing:0;">(Bootstrap Icons class)</span></label>
                     <div class="input-group input-group-sm">
                         <span class="input-group-text" style="background:#111; border-color:#2a2a2a;">
-                            <i id="qcPropIconPreview" class="bi bi-tag" style="color:#555;"></i>
+                            <i id="qcPropIconPreview" class="bi bi-tag" style="color:var(--nr-text-faint);"></i>
                         </span>
                         <input type="text" class="form-control form-control-sm" id="qcPropIcon"
                                value="bi-tag" autocomplete="off"
                                oninput="document.getElementById('qcPropIconPreview').className='bi ' + this.value">
                     </div>
                     <a href="https://icons.getbootstrap.com" target="_blank" rel="noopener"
-                       style="font-size:0.7rem; color:#444; text-decoration:none;"
+                       style="font-size: 0.75rem; color:var(--nr-text-muted); text-decoration:none;"
                        onmouseenter="this.style.color='#00bcd4'"
-                       onmouseleave="this.style.color='#444'">
+                       onmouseleave="this.style.color='var(--nr-text-muted)'">
                         Browse Bootstrap Icons ↗
                     </a>
                 </div>
@@ -1292,7 +1294,7 @@ function initPlatformSelect(containerId, hiddenId, errorId) {
         } else {
             const logoUrl = (typeof VENDOR_LOGOS !== 'undefined') ? (VENDOR_LOGOS[value] || '') : '';
             const logoHtml = logoUrl
-                ? `<img src="${logoUrl}" width="16" height="16"
+                ? `<img alt="" src="${logoUrl}" width="16" height="16"
                         style="border-radius:3px;opacity:0.85;flex-shrink:0;"
                         onerror="this.style.display='none'">`
                 : '';
@@ -1820,7 +1822,7 @@ async function submitQuickCreateMapping() {
             'flex-shrink:0;position:relative;cursor:pointer;margin:0;">' +
             '<span style="font-family:\'JetBrains Mono\',monospace;font-size:0.72rem;color:#00bcd4;">' +
             data.token + '</span>' +
-            '<span style="font-size:0.7rem;color:#555;margin-left:4px;">→ ' +
+            '<span style="font-size: 0.75rem;color:var(--nr-text-muted);margin-left:4px;">→ ' +
             data.property_name + indexSuffix + '</span>';
         list.appendChild(lbl);
     }
@@ -1911,7 +1913,7 @@ async function submitQuickCreateProperty() {
         const body = document.getElementById('varAttrBody');
         const sep = document.createElement('div');
         sep.style.cssText = 'border-top:1px solid #1e1e1e; margin:10px 0 8px; display:flex; align-items:center; gap:8px;';
-        sep.innerHTML = '<span style="font-size:0.65rem; color:#444; letter-spacing:1px; text-transform:uppercase; white-space:nowrap;">Custom</span>';
+        sep.innerHTML = '<span style="font-size: 0.6875rem; color:var(--nr-text-muted); letter-spacing:1px; text-transform:uppercase; white-space:nowrap;">Custom</span>';
         grid = document.createElement('div');
         grid.id = 'customPropGrid';
         grid.style.cssText = 'display:grid; grid-template-columns:1fr 1fr; gap:8px 12px;';
@@ -1928,8 +1930,8 @@ async function submitQuickCreateProperty() {
     if (is_list) div.style.gridColumn = '1/-1';
     div.innerHTML =
         `<label class="nr-label">` +
-        `<i class="bi ${icon}" style="margin-right:4px; color:#555;"></i>${label.toUpperCase()}` +
-        (is_list ? ' <span style="color:#272727; text-transform:none; letter-spacing:0;">(comma-separated)</span>' : '') +
+        `<i class="bi ${icon}" style="margin-right:4px; color:var(--nr-text-faint);"></i>${label.toUpperCase()}` +
+        (is_list ? ' <span style="color:var(--nr-text-muted); text-transform:none; letter-spacing:0;">(comma-separated)</span>' : '') +
         `</label>` +
         `<input type="text" class="form-control form-control-sm" id="attr_${name}" name="attr_${name}" autocomplete="off">`;
     grid.appendChild(div);
