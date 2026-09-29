@@ -66,9 +66,9 @@ def test_bad_encryption_key_at_2fa_points_admins_to_the_log(
 	monkeypatch.setitem(app.view_functions, "auth.otp_verify", otp_verify)
 	body = client_for().get("/otp_verify").get_data(as_text=True)
 	assert "two-factor sign-in secret" in body
-	assert "The fix is in the server log" in body
+	assert "Sign in with the" in body and "doesn't use 2FA" in body
 	log = capsys.readouterr().err
-	assert "Decryption failed (2fa)" in log and "otp_secret = NULL" in log
+	assert "Decryption failed (2fa)" in log and "Reset 2FA" in log
 
 
 def test_bad_encryption_key_after_post_retries_via_referrer(

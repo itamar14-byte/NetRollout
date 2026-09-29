@@ -31,6 +31,11 @@ def user_action_factory(user, action, db_session):
 		user.role = "user"
 	elif action == "delete":
 		db_session.delete(user)
+	elif action == "reset_2fa":
+		# They enroll a new authenticator at their next sign-in (start_otp_flow
+		# sends users without a secret to enrollment). Local users only —
+		# LDAP users and the factory admin don't use 2FA.
+		user.otp_secret = None
 	elif action == "terminate_session":
 		sid = current_app.backend.redis.client.get(f"user_session:{user.id}")
 		if sid:
@@ -96,7 +101,7 @@ def admin_bulk_action(action):
 		            uid.strip()]
 	except ValueError:
 		return redirect(url_for("admin_users.admin_users"))
-	affected = 0
+	affected = []
 	with current_app.backend.postgres.get_session() as db_session:
 		for uid in user_ids:
 			user = db_session.get(User, uid)
@@ -104,9 +109,10 @@ def admin_bulk_action(action):
 				continue
 			if action in ("disable", "delete") and uid == current_user.id:
 				continue
+			affected.append(user.username)
 			user_action_factory(user, action, db_session)
-			affected += 1
-	current_app.web.audit(f"user.bulk_{action}", detail={"count": affected})
+	current_app.web.audit(f"user.bulk_{action}",
+	                      detail={"count": len(affected), "users": affected})
 	return redirect(url_for("admin_users.admin_users"))
 
 

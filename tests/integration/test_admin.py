@@ -79,6 +79,39 @@ def test_bulk_action(admin, client_for, make_user, session_scope):
 	assert get_user(session_scope, admin.id).is_active  # self skipped
 
 
+def test_bulk_reset_2fa(admin, app, client_for, make_user, session_scope):
+	from src.encryption import encrypt
+	from tests.integration.conftest import TEST_PASSWORD
+	a, b = make_user(), make_user()
+	with session_scope() as s:
+		for uid in (a.id, b.id):
+			s.get(User, uid).otp_secret = encrypt("JBSWY3DPEHPK3PXP")
+	# the Users page offers the action and knows who has 2FA
+	page = client_for(admin).get("/admin/users").get_data(as_text=True)
+	assert 'id="btnReset2FA"' in page and '"has_2fa": true' in page
+	client_for(admin).post("/admin/users/bulk/reset_2fa",
+	                       data={"user_ids": f"{a.id},{b.id}"})
+	assert get_user(session_scope, a.id).otp_secret is None
+	assert get_user(session_scope, b.id).otp_secret is None
+	with session_scope() as s:
+		entry = s.query(AuditLog).filter_by(action="user.bulk_reset_2fa").one()
+		assert sorted(entry.detail["users"]) == sorted([a.username, b.username])
+	# next sign-in goes to enrollment, not verification
+	resp = app.test_client().post("/login", data={"username": a.username,
+	                                              "password": TEST_PASSWORD})
+	assert resp.headers["Location"] == "/otp_enroll"
+
+
+def test_reset_2fa_is_admin_only(client_for, make_user, session_scope):
+	from src.encryption import encrypt
+	victim = make_user()
+	with session_scope() as s:
+		s.get(User, victim.id).otp_secret = encrypt("JBSWY3DPEHPK3PXP")
+	client_for(make_user()).post("/admin/users/bulk/reset_2fa",
+	                             data={"user_ids": str(victim.id)})
+	assert get_user(session_scope, victim.id).otp_secret is not None
+
+
 def test_live_sessions_list_and_kick(app, admin, client_for, make_user):
 	target = make_user()
 	redis = app.backend.redis.client

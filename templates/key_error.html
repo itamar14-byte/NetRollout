@@ -99,9 +99,8 @@
         <li><strong>Security profiles:</strong> Security Profiles → edit each profile → type the
             password (and enable secret) again → Save.</li>
         <li><strong>LDAP:</strong> Admin → Server Management → LDAP → enter the bind password again → Save.</li>
-        <li><strong>Two-factor sign-in:</strong> clear the affected users' 2FA so they enroll again
-            at their next sign-in. Run in the NetRollout database:
-            <pre>UPDATE users SET otp_secret = NULL WHERE username = '&lt;user&gt;';</pre></li>
+        <li><strong>Two-factor sign-in:</strong> Admin → Users → select the affected users →
+            <strong>Reset 2FA</strong>. They set up a new authenticator at their next sign-in.</li>
     </ul>
 
     <div class="warn">
@@ -124,9 +123,9 @@ Request: {{ path }}</pre>
         <li><strong>Ask your NetRollout administrator</strong> to restore the server's encryption key.
             They'll see the steps when they open this page, and the server log has them too.</li>
         {% if area == "2fa" %}
-        <li><strong>Administrators:</strong> this happened at two-factor sign-in, so you may not be able
-            to sign in either. The fix is in the server log (<code>docker logs</code> or the
-            console NetRollout runs in).</li>
+        <li><strong>Administrators:</strong> this happened at two-factor sign-in. Sign in with the
+            factory <code>admin</code> account (it doesn't use 2FA) to see the fix, or read it in the
+            server log (<code>docker logs</code> or the console NetRollout runs in).</li>
         {% endif %}
     </ol>
     {% endif %}
