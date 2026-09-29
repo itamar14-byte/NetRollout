@@ -13,6 +13,7 @@ from sqlalchemy.exc import OperationalError
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 # local modules
+from src.webapp.startup import new_instance_token
 from src.webapp.extensions import register_extensions, register_handlers, \
 	register_auth
 from src.webapp.utils import WebServices
@@ -138,6 +139,8 @@ def launch_app():
 	app = Flask(__name__, template_folder='../../templates',
 	            static_folder='../static')
 
+	# per-run identity for the startup reverse-proxy check (startup.py)
+	app.config["INSTANCE_TOKEN"] = new_instance_token()
 	app.backend = backend
 	app.orchestrator = orchestrator
 	app.web = web_services
