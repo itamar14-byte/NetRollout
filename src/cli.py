@@ -5,7 +5,7 @@ from csv import DictReader
 
 from src.core import RolloutOptions, RolloutEngine
 from src.input_parser import InputParser
-from src.logging_utils import RolloutLogger, utf8_console
+from src.logging_utils import RolloutLogger, prune_logs, utf8_console
 from src.validation import Validator
 
 
@@ -103,4 +103,5 @@ def exit_code(results) -> int:
 
 if __name__ == "__main__":
 	utf8_console()
+	prune_logs()  # CLI-only installs clean up too
 	main()

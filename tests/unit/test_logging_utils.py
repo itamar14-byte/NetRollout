@@ -1,9 +1,12 @@
 import io
+import os
 import sys
+import time
 
 import pytest
 
-from src.logging_utils import RolloutLogger, utf8_console
+from src.logging_utils import (LOG_RETENTION_DAYS, RolloutLogger,
+                               prune_logs, utf8_console)
 
 
 def cp1252_stream():
@@ -30,3 +33,55 @@ def test_utf8_console_makes_notify_safe(monkeypatch):
 	out.flush(), err.flush()
 	assert "→".encode() in out.buffer.getvalue()
 	assert "—".encode() in err.buffer.getvalue()
+
+
+# ── Log retention ────────────────────────────────────────────────────────────
+
+DAY = 86400
+
+
+def log_file(folder, name, age_days, content="x"):
+	path = folder / name
+	path.write_text(content)
+	stamp = time.time() - age_days * DAY
+	os.utime(path, (stamp, stamp))
+	return path
+
+
+def test_prune_removes_only_old_log_files(tmp_path):
+	old_web = log_file(tmp_path, "rollout_20260101_000000_ab12.log", 61)
+	old_cli = log_file(tmp_path, "cli_rollout_20260101_000000.log", 61)
+	old_other = log_file(tmp_path, "notes.txt", 61)        # not a .log
+	fresh = log_file(tmp_path, "bulk_var_assign_20260928_000000_cd34.log", 1)
+	# named long ago but still being written (a running job): mtime decides
+	running = log_file(tmp_path, "rollout_20250101_000000_ef56.log", 0)
+	(tmp_path / "archive.log").mkdir()                     # a directory
+	assert prune_logs(60, str(tmp_path)) == 2
+	assert not old_web.exists() and not old_cli.exists()
+	assert old_other.exists() and fresh.exists() and running.exists()
+	assert (tmp_path / "archive.log").is_dir()
+
+
+def test_prune_skips_files_it_cannot_remove(tmp_path, monkeypatch):
+	locked = log_file(tmp_path, "rollout_a.log", 90)
+	other = log_file(tmp_path, "rollout_b.log", 90)
+	real_remove = os.remove
+
+	def remove(path):
+		if path.endswith("rollout_a.log"):
+			raise PermissionError("in use")
+		real_remove(path)
+	monkeypatch.setattr(os, "remove", remove)
+	assert prune_logs(60, str(tmp_path)) == 1
+	assert locked.exists() and not other.exists()
+
+
+def test_prune_missing_folder_is_a_no_op(tmp_path):
+	assert prune_logs(60, str(tmp_path / "nope")) == 0
+
+
+def test_log_retention_covers_job_retention():
+	# Download Log on Results works while the job record exists; the file
+	# must not expire before its job does
+	from src.db.db_install import JOB_RETENTION_DAYS
+	assert LOG_RETENTION_DAYS >= JOB_RETENTION_DAYS

@@ -4,7 +4,7 @@ import sys
 from waitress import serve
 
 from src.encryption import EncryptionStartupError
-from src.logging_utils import utf8_console
+from src.logging_utils import start_log_pruning, utf8_console
 from src.webapp import create_app
 
 utf8_console()
@@ -17,5 +17,6 @@ except EncryptionStartupError as e:
 	      f"  {e}\n", file=sys.stderr, flush=True)
 	sys.exit(1)
 
+start_log_pruning()
 print("app available on 127.0.0.1:8080 or localhost:8080")
 serve(app, host="0.0.0.0", port=int(os.getenv("PORT", "8080")))
