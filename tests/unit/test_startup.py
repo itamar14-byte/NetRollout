@@ -183,7 +183,7 @@ OK, FAIL = Probe(True, ""), Probe(False, "HTTP 404 — something else")
 
 def test_message_when_verified():
 	msg, target = announcement(8080, "https://nr.corp", "System Settings", OK, OK)
-	assert msg.startswith("NetRollout is available at https://nr.corp")
+	assert msg.startswith("Available at https://nr.corp")
 	assert target == "https://nr.corp"
 	# nginx on another machine: the public step alone proves it
 	msg, target = announcement(8080, "https://nr.corp", "System Settings",
@@ -245,5 +245,6 @@ def test_announcer_prints_the_verified_url(capsys, monkeypatch):
 	finally:
 		stop()
 	out = capsys.readouterr().out
-	assert f"NetRollout is available at http://127.0.0.1:{port}" in out
+	# one line per message: no blank lines around it, name not repeated
+	assert out.splitlines()[0] == f"[NetRollout] Available at http://127.0.0.1:{port}"
 	assert opened == [f"http://127.0.0.1:{port}"]
