@@ -1,0 +1,108 @@
+{# Admin Restart (sidebar button + #restartModal), shared by admin.html and
+   operator_base.html. Include inside {% with %} setting:
+     restart_btn   id of the sidebar button
+     restart_icon  class of its icon (keeps the sidebar's sizing)
+     restart_label selector of its label element
+   With rollouts running or queued the modal asks: "when_finished" (drain —
+   the page reloads and the banner takes over) or "now" (cancels them). #}
+<script>
+let _restartTimer = null;
+
+async function nrRestartClick() {
+    let counts = {count: 0, running: 0, queued: 0};
+    try {
+        counts = await (await fetch('/admin/active_job_count')).json();
+    } catch (e) { /* unknown: the server answers 409 if rollouts run */ }
+    if (!counts.count) { nrFireRestart(); return; }
+    nrShowRestartChoice(counts);
+}
+
+function nrShowRestartChoice(counts) {
+    const plural = (n, word) => `${n} ${word}${n !== 1 ? 's' : ''}`;
+    const parts = [];
+    if (counts.running) parts.push(`${plural(counts.running, 'rollout')} running`);
+    if (counts.queued) parts.push(`${plural(counts.queued, 'rollout')} queued`);
+    document.getElementById('restartJobWarning').textContent = parts.join(', ') + '.';
+
+    // "Now" cancels work: enabled after a short pause
+    const nowBtn = document.getElementById('restartConfirmBtn');
+    const countdown = document.getElementById('restartCountdown');
+    nowBtn.disabled = true;
+    let secs = 3;
+    countdown.textContent = `"Restart now" in ${secs}…`;
+    clearInterval(_restartTimer);
+    _restartTimer = setInterval(() => {
+        secs--;
+        if (secs > 0) { countdown.textContent = `"Restart now" in ${secs}…`; }
+        else { clearInterval(_restartTimer); countdown.textContent = ''; nowBtn.disabled = false; }
+    }, 1000);
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('restartModal')).show();
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    const modal = document.getElementById('restartModal');
+    if (!modal) return;
+    modal.addEventListener('hidden.bs.modal', () => {
+        clearInterval(_restartTimer);
+        const nowBtn = document.getElementById('restartConfirmBtn');
+        if (nowBtn) nowBtn.disabled = true;
+    });
+});
+
+function doRestart(mode) {
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('restartModal')).hide();
+    nrFireRestart(mode);
+}
+
+async function nrInstanceToken() {
+    try {
+        const r = await fetch('/_netrollout/instance', {cache: 'no-store'});
+        return r.ok ? (await r.json()).instance : null;
+    } catch (e) { return null; }
+}
+
+function nrSetRestartButton(restarting) {
+    const btn = document.getElementById('{{ restart_btn }}');
+    if (!btn) return;
+    btn.querySelector('i').className = restarting
+        ? 'bi bi-arrow-clockwise {{ restart_icon }} spin'
+        : 'bi bi-arrow-clockwise {{ restart_icon }}';
+    btn.querySelector('{{ restart_label }}').textContent = restarting ? 'RESTARTING…' : 'RESTART';
+    btn.style.color = restarting ? '#ef9a9a' : '';
+    btn.onclick = restarting ? null : nrRestartClick;
+}
+
+async function nrFireRestart(mode) {
+    nrSetRestartButton(true);
+    const before = await nrInstanceToken();
+    let resp, data = {};
+    try {
+        resp = await fetch('/admin/server/restart', {
+            method: 'POST',
+            headers: {'X-CSRFToken': '{{ csrf_token() }}', 'Content-Type': 'application/json'},
+            body: JSON.stringify(mode ? {mode} : {}),
+        });
+        data = await resp.json();
+    } catch (e) { resp = null; }
+    if (resp && resp.status === 409 && data.running !== undefined) {
+        // Rollouts started since the check: ask
+        nrSetRestartButton(false);
+        nrShowRestartChoice({count: data.running + data.queued, ...data});
+        return;
+    }
+    if (resp && !resp.ok) {
+        nrSetRestartButton(false);
+        alert(data.message || `Restart failed (${resp.status})`);
+        return;
+    }
+    if (mode === 'when_finished' && (data.running || 0) > 0) {
+        window.location.reload();   // the drain banner reloads once it's back
+        return;
+    }
+    // Back when a different instance answers
+    const poll = setInterval(async () => {
+        const now = await nrInstanceToken();
+        if (now && now !== before) { clearInterval(poll); window.location.replace('/'); }
+    }, 1000);
+}
+</script>

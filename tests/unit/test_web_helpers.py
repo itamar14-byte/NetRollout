@@ -229,7 +229,7 @@ def test_property_name_checked_against_the_users_definitions():
 def test_restart_relaunches_the_original_invocation(monkeypatch, orig_argv,
                                                     expected_tail):
 	import sys
-	from src.webapp.blueprints.admin_servers import relaunch_command
+	from src.webapp.lifecycle import relaunch_command
 	# under -m, sys.argv[0] is the __main__.py path — relaunching that ran it
 	# as a script, where `src` isn't importable
 	monkeypatch.setattr(sys, "argv", [r"C:\repo\src\webapp\__main__.py"])
