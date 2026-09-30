@@ -1,5 +1,5 @@
 # NetRollout — Architecture Document
-_Written: 2026-04-07 — Updated: 2026-09-30 (checked against the code: System Settings, Redis orchestration, blueprints, startup check)_
+_Written: 2026-04-07 — Updated: 2026-10-01 (Phase 4 stage 3: container runtime, drain, health)_
 
 Deployment and packaging (Docker images, compose, installer, platform profiles) are planned in `docs/plans/phase-4.md`. Where that plan will change something described here, the section says so.
 
@@ -34,16 +34,19 @@ The **CLI** (`src/cli.py`) uses the same `RolloutEngine` directly, from a device
 |---|---|
 | `DATABASE_URL` or `PG_HOST` / `PG_PORT` / `PG_NAME` / `PG_USER` / `PG_PASSWORD` / `PG_SCHEMA` | Postgres. The URL form takes precedence |
 | `REDIS_URL` or `REDIS_HOST` / `REDIS_PORT` / `REDIS_DB` / `REDIS_PASSWORD` | Redis. The URL form takes precedence |
-| `SECRET_KEY` | Flask session key (default `dev`; Phase 4 makes it mandatory in a container) |
+| `SECRET_KEY` | Flask session key. Required in a container (startup refuses without it); in development a missing key becomes a random per-run key with a warning |
 | `PORT` | Internal app port Waitress listens on (default 8080). nginx forwards to it |
 | `NETROLLOUT_ENCRYPTION_KEY` | Fernet key; else `~/.netrollout/encryption.key` (see below) |
 | `ORCHESTRATOR_WORKERS`, `NETROLLOUT_PUBLIC_HOSTNAME`, `NETROLLOUT_HTTPS_PORT` | **Install-time seeds only** for the matching System Settings (§6). They are read when the setting's row doesn't exist yet and ignored after that |
 | `NETROLLOUT_OPEN_BROWSER` | `0` disables opening the browser on a desktop launch |
+| `NETROLLOUT_DEPLOYMENT` | `docker` (set by the image) turns on container behaviour (`src/deployment.py`): secrets required, Restart via the restart policy, no startup proxy probe |
+| `NETROLLOUT_DRAIN_SECONDS` | How long a stop / Restart waits for running rollouts before cancelling them (default 600; compose's `stop_grace_period` must be longer) |
+| `NETROLLOUT_HOME` | Base folder for `logs/`, `config/`, `certs/` (`src/paths.py`; the image uses `/data`) |
 
 **Encryption key.** Fernet protects security-profile passwords and enable secrets, LDAP bind passwords and OTP secrets.
-- **When no key exists:** one is generated only on a fresh install, meaning the DB is reachable and holds no encrypted data.
+- **When no key exists:** one is generated only on a fresh install, meaning the DB is reachable and holds no encrypted data — and never in a container, where the key must come from `NETROLLOUT_ENCRYPTION_KEY` (a file inside the container would vanish with it at the next update).
 - **Startup check:** the key is test-decrypted against one stored value.
-- **When the app refuses to start** (`EncryptionStartupError`, a readable message and no traceback):
+- **When the app refuses to start** (`EncryptionStartupError`, a `StartupError`: a readable message and no traceback):
   - the key is malformed;
   - the key is missing while encrypted data exists;
   - the key doesn't match the stored data;
@@ -352,14 +355,18 @@ _dispatcher thread (permanent, started in __init__)
   loop: BLPOP netrollout:job_queue (5 s timeout — picks up a hot-swapped Redis client;
         Redis down → exponential backoff 1–30 s, the loop never dies)
     → acquire a semaphore slot (max_concurrent)
-    → job.start(_cleanup);  meta status=active, started_at;  pending−1, active+1
+    → claim the job under the lock (started_at) unless draining, then job.start(_cleanup)
+      outside the lock;  meta status=active, started_at;  pending−1, active+1
 
 job thread finishes → _cleanup(job_id)
   → _finalize: DeviceResult rows to Postgres; DEL meta, SREM user_jobs, active−1; log keys cleaned
   → release the slot (always, in finally)
 ```
 
-`cancel(job_id)` sets the job's cancel flag and meta `status=cancelling`. The Active Jobs page and the admin views read job state from the Redis `job:*:meta` hashes. The Prometheus collector reads `netrollout:active_count` and `netrollout:pending_count`.
+`cancel(job_id)` sets the job's cancel flag and meta `status=cancelling`.
+
+**Drain** (`drain(deadline)`, run by `lifecycle.Shutdown` on SIGTERM or the admin Restart): `submit()` raises `Draining` from then on (the routes show `DRAINING_MESSAGE`); queued jobs are recorded as cancelled, device by device, with the reason in their log (a job's definition lives only in this process, so it could never run after the restart); running jobs may finish for `deadline` seconds, then are cancelled and given up to 60 s to record. `counts()` returns running/queued from memory (the health endpoint, the Restart choice). A crash or `SIGKILL` still loses queued jobs silently.
+ The Active Jobs page and the admin views read job state from the Redis `job:*:meta` hashes. The Prometheus collector reads `netrollout:active_count` and `netrollout:pending_count`.
 
 ---
 
@@ -449,13 +456,14 @@ Admin-editable runtime settings. The `system_settings` table is the **only runti
 ## 7. Webapp Layer (`src/webapp/`)
 
 ### `__main__.py` — entry point (`python -m src.webapp`)
-1. **App:** `create_app()`. An `EncryptionStartupError` exits with a readable message.
-2. **Background:** starts the daily log pruning.
-3. **Announcer:** starts the startup announcer.
-4. **Serve:** Waitress `serve()` on `0.0.0.0:$PORT` (default 8080).
+1. **App:** `create_app()`. A `StartupError` (missing secret in a container, encryption key problem) exits with a readable message.
+2. **SIGTERM:** `app.shutdown.begin(drain_seconds(), restart=False)` — drain, then exit (`docker stop`, `netrollout stop` / `update`).
+3. **Background:** starts the daily log pruning.
+4. **Announcer:** in development, the startup announcer below; in a container, one line with the expected URL (`container_announcement`) — the host-side check is the installer and `netrollout status` calling `/_netrollout/health`.
+5. **Serve:** Waitress `serve()` on `0.0.0.0:$PORT` (default 8080).
 
-### `startup.py` — reverse-proxy check
-Each run creates a random instance token, served at `/_netrollout/instance`. Once Waitress answers, a background check runs in two steps:
+### `startup.py` — reverse-proxy check (development)
+In a container nothing is probed: its console isn't watched and the published port isn't reliably reachable from inside, so a probe would report working setups as broken (the System Settings *Test* button says so too). Each run creates a random instance token, served at `/_netrollout/instance`. Once Waitress answers, a background check runs in two steps:
 1. **Locally:** it connects to the local nginx, presenting the public hostname (SNI/Host).
 2. **Publicly:** it tries the public URL.
 
@@ -463,7 +471,7 @@ The public URL comes from the *Hostname* / *HTTPS port* settings, or is auto-det
 
 ### `setup.py` — app factory
 `launch_app()` is the composition root.
-1. **Backend and encryption:** builds `BackendServices`, then runs the encryption key check.
+1. **Backend and encryption:** resolves `SECRET_KEY` first (fail fast), builds `BackendServices`, then runs the encryption key check.
 2. **Settings:** reads the restart-only settings; these become `SETTINGS_STARTED_WITH`.
 3. **Services:** creates the orchestrator and `WebServices`, then the Flask app (`template_folder='../../templates'`, `static_folder='../static'`).
 4. **Configuration:** sets the instance token, the config, extensions and handlers, and the Prometheus collector.
@@ -475,11 +483,13 @@ Blueprints are registered in `__init__.py` (`create_app()`), not here.
 app.backend       →  BackendServices
 app.web           →  WebServices
 app.orchestrator  →  RolloutOrchestrator
+app.shutdown      →  lifecycle.Shutdown (drain, then exit; relaunch in dev)
 ```
 
 - **Sessions:** server-side in Redis via Flask-Session, prefix `redis_session:`, not permanent. The cookie is `Secure`, `HttpOnly`, `SameSite=Lax`.
-- **`_SafeRedisSessionInterface`:** catches `REDIS_UNAVAILABLE` on open and save and returns an empty session instead of crashing. It is registered **after** `configure_app()` (which calls `Session(app)`) so it isn't overwritten.
+- **`_SafeRedisSessionInterface`:** catches `REDIS_UNAVAILABLE` on open and save and returns an empty session instead of crashing. Its `client` is looked up per request from `backend.redis`, so a Server Management Redis switch keeps sign-ins working. It is registered **after** `configure_app()` (which calls `Session(app)`) so it isn't overwritten.
 - **Proxy headers:** `ProxyFix(x_for=1, x_proto=1, x_host=1)` sits behind nginx.
+- **Drain banner:** a context processor gives every template `server_draining`; `_drain_banner.html` (in both base templates) says new rollouts are paused and reloads the page when a new instance answers. The Restart modal and script are shared includes too (`_restart_modal.html`, `_restart_script.html`).
 - **Vendor logos:** `VENDOR_LOGOS` (device_type → Simple Icons CDN URL) is a Jinja global.
 
 ### `extensions.py` — module-level Flask extensions
@@ -530,12 +540,12 @@ Each blueprint owns its routes and route-specific helpers. Blueprints reach `app
 | `properties` | `/properties` | list, `/create` + `/quick_create`, `/<id>/edit`, `/<id>/delete` |
 | `analytics` | `/analytics` | KPI page, `/query` (POST, own results) |
 | `admin_users` | `/admin` | admin home, `/users`, `/users/<id>/<action>` (approve, enable, disable, promote, demote, delete, reset_2fa, terminate_session), `/users/bulk/<action>`, `/sessions`, `/sessions/<id>/kick` |
-| `admin_servers` | `/admin/server` | Server Management page; `/postgres/{test,save}`, `/redis/{test,save}`; 12 LDAP routes (`/ldap`, new, save, delete, test, test_user, fetch_dn, explore, import, groups list/toggle/delete); `/restart` |
+| `admin_servers` | `/admin/server` | Server Management page; `/postgres/{test,save}`, `/redis/{test,save}`; 12 LDAP routes (`/ldap`, new, save, delete, test, test_user, fetch_dn, explore, import, groups list/toggle/delete); `/restart` (with rollouts running or queued: 409 unless `mode` is `when_finished` (drain) or `now` (cancel)) |
 | `admin_observability` | `/admin` | `/audit`, `/analytics`, `/analytics/query`, `/active_job_count` |
 | `admin_settings` | `/admin/settings` | page, save (POST), `/<key>/reset`, `/test` (public URL check) |
-| `system` | — | `/_netrollout/instance` (public; no session written) |
+| `system` | — | `/_netrollout/instance` (public; no session written), `/_netrollout/health` (public; Postgres/Redis up, rollout counts, draining, version; 200 or 503) |
 
-Plus `/metrics` (Prometheus; blocked at nginx in Phase 4).
+Plus `/metrics` (Prometheus; `404` at nginx, scraped from the app directly).
 
 **Auth flow:**
 ```
