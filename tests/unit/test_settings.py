@@ -1,14 +1,16 @@
-"""System settings registry (src/db/settings.py): definitions, parsing and
-rules — no database here (the store is tested in integration)."""
+"""System settings registry (src/db/settings.py): definitions, parsing,
+coercion of stored values, seed values and the declarative rules — no
+database here (the store and seeding are tested in integration)."""
 import pytest
 
-from src.db.settings import RULES, SETTINGS, Setting, sql_value
+from src.db.settings import (RULES, SETTINGS, Rule, Setting, rules_for_client,
+                             sql_value)
 
 
 def test_defaults_satisfy_every_rule_and_range():
 	defaults = {k: s.default for k, s in SETTINGS.items()}
-	for keys, check, message in RULES:
-		assert check(defaults), message
+	for rule in RULES:
+		assert rule.holds(defaults), rule.message
 	for s in SETTINGS.values():
 		if s.kind is int and s.default is not None:
 			assert s.parse(s.default) == s.default, s.key
@@ -49,19 +51,47 @@ def test_audit_log_has_a_higher_floor():
 		SETTINGS["audit_retention_days"].parse(6)
 
 
-def test_rules():
+@pytest.mark.parametrize("stored,value,problem", [
+	(45, 45, False),
+	(3, 7, True),          # below a (tightened) minimum → nearest valid
+	(99999, 3650, True),   # above the maximum
+	("garbage", 90, True), # unreadable → default
+	(None, 90, True),
+])
+def test_coerce_never_raises(stored, value, problem):
+	got, why = SETTINGS["audit_retention_days"].coerce(stored)
+	assert got == value and bool(why) is problem
+
+
+def test_seed_value_prefers_a_valid_install_value(monkeypatch):
+	s = Setting("w", "W", "help", "Rollouts", 4, minimum=1, maximum=32,
+	            env="NR_TEST_W")
+	monkeypatch.delenv("NR_TEST_W", raising=False)
+	assert s.seed_value() == 4
+	monkeypatch.setenv("NR_TEST_W", "8")
+	assert s.seed_value() == 8
+	monkeypatch.setenv("NR_TEST_W", "99")      # out of range: default
+	assert s.seed_value() == 4
+
+
+def test_rules_are_declarative_and_shared_with_the_page():
 	values = {k: s.default for k, s in SETTINGS.items()}
-	(_, log_rule, _), (_, snap_rule, _) = RULES
-	assert not log_rule({**values, "log_retention_days": 10,
-	                     "job_retention_days": 30})
-	assert not snap_rule({**values, "config_snapshot_retention_days": 40,
-	                      "job_retention_days": 30})
+	log_rule, snap_rule = RULES
+	assert not log_rule.holds({**values, "log_retention_days": 10,
+	                           "job_retention_days": 30})
+	assert not snap_rule.holds({**values, "config_snapshot_retention_days": 40,
+	                            "job_retention_days": 30})
+	# the browser gets exactly these, as data
+	assert rules_for_client() == [
+		{"left": r.left, "op": r.op, "right": r.right, "message": r.message}
+		for r in RULES]
+	assert Rule("a", ">=", "b", "m").holds({"a": 2, "b": 2})
 
 
-def test_sql_value_falls_back_to_the_default():
+def test_sql_value_reads_the_row():
 	sql = sql_value("job_retention_days")
 	assert "WHERE key = 'job_retention_days'" in sql
-	assert sql.endswith(", 30)")
+	assert sql.endswith(", 30)")          # safety net only
 	with pytest.raises(AssertionError):   # not read by SQL
 		sql_value("log_retention_days")
 

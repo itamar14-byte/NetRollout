@@ -1,29 +1,64 @@
-"""System settings store against real Postgres: precedence, validation,
-all-or-nothing saves, reset."""
+"""System settings against real Postgres: seeding, reading the table,
+all-or-nothing saves with the rules, reset."""
 import pytest
 
-from src.db.settings import SETTINGS, Setting, SettingsError
+from src.db.settings import SETTINGS, Setting, SettingsError, seed_settings
 from src.db.tables import SystemSetting
 
 pytestmark = [pytest.mark.postgres, pytest.mark.redis]
 
 
 @pytest.fixture
-def store(app):
+def store(app, session_scope):
+	# what install() does at every startup
+	with session_scope() as s:
+		seed_settings(s)
 	return app.backend.settings
 
 
 def rows(session_scope):
 	with session_scope() as s:
-		return {r.key: r.value for r in s.query(SystemSetting)}
+		return {r.key: (r.value, r.updated_by) for r in s.query(SystemSetting)}
 
 
-def test_untouched_install_uses_defaults_and_stores_nothing(store, session_scope):
+def test_seeding_fills_every_setting_once(app, session_scope):
+	with session_scope() as s:
+		assert seed_settings(s) == []
+	seeded = rows(session_scope)
+	assert set(seeded) == set(SETTINGS)
+	assert {k: v for k, (v, _) in seeded.items()} == {
+		k: s.default for k, s in SETTINGS.items()}
+	# an existing row is never overwritten by a later startup
+	app.backend.settings.update({"job_retention_days": 45}, None)
+	with session_scope() as s:
+		seed_settings(s)
+	assert rows(session_scope)["job_retention_days"][0] == 45
+
+
+def test_seeding_takes_the_install_value(monkeypatch, session_scope, app):
+	monkeypatch.setitem(SETTINGS, "test_workers", Setting(
+		"test_workers", "Workers", "help", "Rollouts", 4, minimum=1,
+		maximum=32, env="NR_TEST_WORKERS"))
+	monkeypatch.setenv("NR_TEST_WORKERS", "8")
+	with session_scope() as s:
+		seed_settings(s)
+	store = app.backend.settings
+	assert store.get("test_workers") == 8
+	shown = {d["key"]: d for d in store.list_for_display()}["test_workers"]
+	assert shown["changed"] and shown["from_install"]
+	# after install the env is never consulted again
+	monkeypatch.setenv("NR_TEST_WORKERS", "16")
+	assert store.get("test_workers") == 8
+
+
+def test_reading_is_the_table(store, session_scope):
 	assert store.get("job_retention_days") == 30
-	assert store.values()["log_retention_days"] == SETTINGS["log_retention_days"].default
-	assert rows(session_scope) == {}
+	with session_scope() as s:
+		s.get(SystemSetting, "job_retention_days").value = 44
+	assert store.get("job_retention_days") == 44
 	shown = {d["key"]: d for d in store.list_for_display()}
-	assert shown["job_retention_days"]["source"] == "default"
+	assert shown["job_retention_days"]["changed"]
+	assert not shown["audit_retention_days"]["changed"]
 	assert list(shown) == list(SETTINGS)          # registry order
 
 
@@ -35,70 +70,58 @@ def test_update_saves_only_changes_and_reports_them(store, make_user,
 	                       admin.id)
 	assert [(c.key, c.old, c.new) for c in changes] == [
 		("job_retention_days", 30, 45)]
-	assert rows(session_scope) == {"job_retention_days": 45}
-	assert store.get("job_retention_days") == 45
-	shown = {d["key"]: d for d in store.list_for_display()}
-	assert shown["job_retention_days"]["source"] == "admin"
-	with session_scope() as s:
-		assert s.get(SystemSetting, "job_retention_days").updated_by == admin.id
-	# changing it again updates the same row
-	store.update({"job_retention_days": 50}, admin.id)
-	assert rows(session_scope) == {"job_retention_days": 50}
+	assert rows(session_scope)["job_retention_days"] == (45, admin.id)
+	assert rows(session_scope)["audit_retention_days"] == (90, None)
+	shown = {d["key"]: d for d in store.list_for_display()}["job_retention_days"]
+	assert shown["changed"] and not shown["from_install"]
 
 
 def test_invalid_values_save_nothing(store, session_scope):
+	before = rows(session_scope)
 	with pytest.raises(SettingsError) as e:
 		store.update({"job_retention_days": 45, "audit_retention_days": 3,
 		              "no_such_setting": 1}, None)
 	assert set(e.value.errors) == {"audit_retention_days", "no_such_setting"}
 	assert "Audit log must be at least 7" in e.value.errors["audit_retention_days"]
-	assert rows(session_scope) == {}              # all-or-nothing
+	assert rows(session_scope) == before          # all-or-nothing
 
 
-def test_cross_setting_rules_check_the_combined_result(store, session_scope):
-	# log retention (60) may not drop below job retention
-	with pytest.raises(SettingsError) as e:
+def test_rules_check_the_combined_result(store, session_scope):
+	before = rows(session_scope)
+	with pytest.raises(SettingsError) as e:        # log (60) < job (90)
 		store.update({"job_retention_days": 90}, None)
 	assert "at least as long as job records" in e.value.errors[None]
-	assert rows(session_scope) == {}
-	# raising both together is fine
+	assert rows(session_scope) == before
 	store.update({"job_retention_days": 90, "log_retention_days": 120}, None)
 	with pytest.raises(SettingsError, match="longer than their job record"):
 		store.update({"config_snapshot_retention_days": 100}, None)
 
 
-def test_reset_deletes_the_row_unless_that_breaks_a_rule(store, session_scope):
-	store.update({"job_retention_days": 90, "log_retention_days": 120}, None)
-	# resetting log retention would bring it to 60 < 90
+def test_reset_writes_the_default_unless_that_breaks_a_rule(store, make_user,
+                                                           session_scope):
+	admin = make_user(role="admin")
+	store.update({"job_retention_days": 90, "log_retention_days": 120}, admin.id)
 	with pytest.raises(SettingsError, match="at least as long"):
-		store.reset("log_retention_days")
-	change = store.reset("job_retention_days")
+		store.reset("log_retention_days", admin.id)   # 60 < 90
+	change = store.reset("job_retention_days", admin.id)
 	assert (change.old, change.new) == (90, 30)
-	assert rows(session_scope) == {"log_retention_days": 120}
-	assert store.reset("job_retention_days") is None     # already default
+	assert rows(session_scope)["job_retention_days"] == (30, admin.id)
+	assert store.reset("job_retention_days", admin.id) is None  # already default
 
 
-def test_install_value_between_admin_and_default(store, monkeypatch,
-                                                 session_scope):
-	# a setting with an install-time env var (B2 adds real ones)
-	monkeypatch.setitem(SETTINGS, "test_workers", Setting(
-		"test_workers", "Workers", "help", "Rollouts", 4, minimum=1,
-		maximum=32, env="NR_TEST_WORKERS"))
-	assert store.get("test_workers") == 4
-	monkeypatch.setenv("NR_TEST_WORKERS", "8")
-	assert store.get("test_workers") == 8
-	shown = {d["key"]: d for d in store.list_for_display()}["test_workers"]
-	assert (shown["source"], shown["install_value"]) == ("install", 8)
-	store.update({"test_workers": 12}, None)
-	assert store.get("test_workers") == 12         # admin beats install value
-	store.reset("test_workers")
-	assert store.get("test_workers") == 8          # back to the install value
-	monkeypatch.setenv("NR_TEST_WORKERS", "999")   # out of range: ignored
-	assert store.get("test_workers") == 4
-
-
-def test_out_of_range_row_falls_back(store, session_scope):
+def test_out_of_range_row_is_used_as_nearest_valid_and_reported(store,
+                                                                session_scope):
 	# e.g. a row written before a range was tightened
 	with session_scope() as s:
-		s.add(SystemSetting(key="audit_retention_days", value=1))
-	assert store.get("audit_retention_days") == 90
+		s.get(SystemSetting, "audit_retention_days").value = 1
+	assert store.get("audit_retention_days") == 7
+	with session_scope() as s:
+		problems = seed_settings(s)
+	assert problems == ["setting audit_retention_days: stored 1 must be at "
+	                    "least 7 — using 7"]
+
+
+def test_missing_row_falls_back_to_the_default(app, session_scope):
+	# only if seeding failed — reading a setting never crashes
+	assert rows(session_scope) == {}
+	assert app.backend.settings.get("job_retention_days") == 30

@@ -1,22 +1,26 @@
-"""System settings: the registry of what settings exist, and the store.
+"""System settings: the registry (what settings exist and their rules) and
+the store (reading and changing them).
 
-The registry (SETTINGS, RULES) is code: each setting's type, default, range,
-page text and when a change applies. The database (system_settings) holds
-only values an admin changed — no row means "not changed". So a default
-changed in a new release reaches every install that never touched it, and
-"reset to default" is deleting the row.
+The database table is the only runtime source: every setting has a row.
+Rows are seeded at every startup (seed_settings, from install()): a missing
+setting gets its install-time value (env, if the setting has one) or its
+default; existing rows are never touched. So a fresh install is fully
+populated, an upgrade gains only new settings, and an install keeps its
+values across upgrades until an admin changes them.
 
-Effective value: admin's change (DB) > install-time value (env, if the
-setting has one) > code default.
-
-Settings read by SQL (the pg_cron retention jobs run inside Postgres) can't
-see the app's environment, so they never have an install-time env var —
-enforced below.
+The registry here defines each setting — type, range, page text, when a
+change applies, its seed value — and the cross-setting rules. The rules are
+declarative (left >= / <= right) so the System Settings page can enforce
+exactly the same checks in the browser (rules_for_client) that update()
+enforces on the server.
 """
+import operator
 import os
 import uuid
 from dataclasses import dataclass
 from typing import Callable
+
+from sqlalchemy.orm import Session
 
 from src.db.tables import SystemSetting
 from src.logging_utils import LOG_RETENTION_DAYS
@@ -33,7 +37,7 @@ class Setting:
 	minimum: int | None = None
 	maximum: int | None = None
 	applies: str = "immediately"
-	env: str | None = None      # install-time value (install.py / compose)
+	env: str | None = None      # install-time value: seeds a new row only
 	sql: bool = False           # also read inside Postgres (pg_cron)
 	editable: bool = True
 
@@ -52,8 +56,35 @@ class Setting:
 			if self.maximum is not None and value > self.maximum:
 				raise ValueError(f"must be at most {self.maximum}")
 			return value
-		value = "" if raw is None else str(raw).strip()
-		return value
+		return "" if raw is None else str(raw).strip()
+
+	def coerce(self, stored) -> tuple[object, str | None]:
+		"""A stored value made usable: (value, problem). Out of range → the
+		nearest valid value (e.g. a range tightened in a release); unreadable
+		→ the default. Never raises — reading a setting must not crash."""
+		try:
+			return self.parse(stored), None
+		except ValueError as e:
+			if self.kind is int:
+				try:
+					n = int(str(stored).strip())
+					lo = self.minimum if self.minimum is not None else n
+					hi = self.maximum if self.maximum is not None else n
+					return min(max(n, lo), hi), f"{stored!r} {e}"
+				except (TypeError, ValueError):
+					pass
+			return self.default, f"{stored!r} {e}"
+
+	def seed_value(self):
+		"""Value for a new row: the install-time env value if valid, else the
+		default."""
+		raw = os.environ.get(self.env) if self.env else None
+		if raw not in (None, ""):
+			try:
+				return self.parse(raw)
+			except ValueError:
+				pass
+		return self.default
 
 
 SETTINGS: dict[str, Setting] = {s.key: s for s in [
@@ -78,29 +109,66 @@ SETTINGS: dict[str, Setting] = {s.key: s for s in [
 	        applies="next daily log clean-up"),
 ]}
 
-# Rules that involve more than one setting: (keys, check(values), message)
-RULES: list[tuple[tuple[str, ...], Callable[[dict], bool], str]] = [
-	(("log_retention_days", "job_retention_days"),
-	 lambda v: v["log_retention_days"] >= v["job_retention_days"],
-	 "Log files must be kept at least as long as job records — Download "
-	 "Log needs the file while the job exists."),
-	(("config_snapshot_retention_days", "job_retention_days"),
-	 lambda v: v["config_snapshot_retention_days"] <= v["job_retention_days"],
-	 "Config snapshots can't be kept longer than their job record."),
+
+@dataclass(frozen=True)
+class Rule:
+	"""Declarative cross-setting rule: SETTINGS[left] <op> SETTINGS[right]."""
+	left: str
+	op: str       # ">=" or "<="
+	right: str
+	message: str
+
+	def holds(self, values: dict) -> bool:
+		return _OPS[self.op](values[self.left], values[self.right])
+
+
+_OPS = {">=": operator.ge, "<=": operator.le}
+
+RULES: list[Rule] = [
+	Rule("log_retention_days", ">=", "job_retention_days",
+	     "Log files must be kept at least as long as job records — Download "
+	     "Log needs the file while the job exists."),
+	Rule("config_snapshot_retention_days", "<=", "job_retention_days",
+	     "Config snapshots can't be kept longer than their job record."),
 ]
 
 for _s in SETTINGS.values():
 	assert not (_s.sql and _s.env), (
 		f"{_s.key}: read by SQL, so it can't have an install-time env var")
+for _r in RULES:
+	assert _r.op in _OPS and _r.left in SETTINGS and _r.right in SETTINGS
+
+
+def rules_for_client() -> list[dict]:
+	"""The rules as data, for the page's browser-side checks."""
+	return [{"left": r.left, "op": r.op, "right": r.right,
+	         "message": r.message} for r in RULES]
 
 
 def sql_value(key: str) -> str:
-	"""SQL expression for an int setting's current value, for statements that
-	run inside Postgres: the admin's value, else the code default."""
+	"""SQL expression for an int setting, for statements that run inside
+	Postgres. The row always exists after seeding; the COALESCE is only a
+	safety net if seeding failed."""
 	s = SETTINGS[key]
 	assert s.sql and s.kind is int
 	return (f"COALESCE((SELECT (value #>> '{{}}')::int FROM system_settings "
 	        f"WHERE key = '{key}'), {int(s.default)})")
+
+
+def seed_settings(db_session: Session) -> list[str]:
+	"""Insert every missing setting (install value or default); never touch
+	existing rows. Returns problems found in existing rows, for the log."""
+	existing = {r.key: r.value for r in db_session.query(SystemSetting)}
+	for key, s in SETTINGS.items():
+		if key not in existing:
+			db_session.add(SystemSetting(key=key, value=s.seed_value()))
+	problems = []
+	for key, stored in existing.items():
+		if key in SETTINGS:
+			value, problem = SETTINGS[key].coerce(stored)
+			if problem:
+				problems.append(f"setting {key}: stored {problem} — using {value!r}")
+	return problems
 
 
 class SettingsError(ValueError):
@@ -119,57 +187,49 @@ class Change:
 
 
 class SettingsStore:
-	"""Read and change settings. `postgres` returns the live connection —
-	looked up per call, so a Server Management database switch is followed."""
+	"""Read and change settings — always the table. `postgres` returns the
+	live connection, looked up per call, so a Server Management database
+	switch is followed."""
 
 	def __init__(self, postgres: Callable):
 		self._postgres = postgres
 
 	# ── reading ──
-	def _rows(self) -> dict[str, object]:
+	def _rows(self) -> dict[str, SystemSetting]:
 		with self._postgres().get_session() as db_session:
-			return {r.key: r.value for r in db_session.query(SystemSetting)}
+			rows = {r.key: r for r in db_session.query(SystemSetting)}
+			db_session.expunge_all()
+			return rows
 
 	@staticmethod
-	def _env_value(s: Setting):
-		raw = os.environ.get(s.env) if s.env else None
-		if raw in (None, ""):
-			return None
-		try:
-			return s.parse(raw)
-		except ValueError:
-			return None   # a bad install value falls back to the default
-
-	def _resolve(self, s: Setting, rows: dict) -> tuple[object, str]:
-		if s.key in rows:
-			try:
-				return s.parse(rows[s.key]), "admin"
-			except ValueError:
-				pass   # out of range after a registry change: ignore the row
-		env_value = self._env_value(s)
-		if env_value is not None:
-			return env_value, "install"
-		return s.default, "default"
+	def _value(s: Setting, rows: dict) -> object:
+		row = rows.get(s.key)
+		# a missing row only happens if seeding failed: use the default
+		return s.coerce(row.value)[0] if row is not None else s.default
 
 	def get(self, key: str):
-		s = SETTINGS[key]
-		return self._resolve(s, self._rows())[0]
+		return self._value(SETTINGS[key], self._rows())
 
 	def values(self) -> dict[str, object]:
 		rows = self._rows()
-		return {k: self._resolve(s, rows)[0] for k, s in SETTINGS.items()}
+		return {k: self._value(s, rows) for k, s in SETTINGS.items()}
 
 	def list_for_display(self) -> list[dict]:
-		"""Every setting with its effective value and where it came from, in
-		registry order (the page groups by card)."""
+		"""Every setting in registry order, with what the page shows: value,
+		default, whether it differs from the default and whether that came
+		from the install (seeded from env, never changed by an admin)."""
 		rows = self._rows()
 		out = []
 		for s in SETTINGS.values():
-			value, source = self._resolve(s, rows)
+			row = rows.get(s.key)
+			value = self._value(s, rows)
+			changed = value != s.default
 			out.append({
 				"key": s.key, "label": s.label, "help": s.help, "card": s.card,
-				"value": value, "source": source, "default": s.default,
-				"install_value": self._env_value(s), "env": s.env,
+				"value": value, "default": s.default, "changed": changed,
+				"from_install": changed and row is not None
+				                and row.updated_by is None,
+				"updated_at": row.updated_at if row is not None else None,
 				"minimum": s.minimum, "maximum": s.maximum,
 				"applies": s.applies, "editable": s.editable,
 				"kind": s.kind.__name__,
@@ -177,6 +237,21 @@ class SettingsStore:
 		return out
 
 	# ── changing ──
+	def _check_rules(self, merged: dict, touched: set[str]) -> dict:
+		return {None: r.message for r in RULES
+		        if (r.left in touched or r.right in touched)
+		        and not r.holds(merged)}
+
+	def _write(self, values: dict[str, object], user_id) -> None:
+		with self._postgres().get_session() as db_session:
+			for key, value in values.items():
+				row = db_session.get(SystemSetting, key)
+				if row is None:
+					db_session.add(SystemSetting(key=key, value=value,
+					                             updated_by=user_id))
+				else:
+					row.value, row.updated_by = value, user_id
+
 	def update(self, raw: dict[str, object], user_id: uuid.UUID | None) -> list[Change]:
 		"""Validate and save several settings at once; returns what changed.
 		All-or-nothing: raises SettingsError without saving on any problem."""
@@ -193,41 +268,24 @@ class SettingsStore:
 		if errors:
 			raise SettingsError(errors)
 		current = self.values()
-		merged = {**current, **parsed}
-		for keys, check, message in RULES:
-			if any(k in parsed for k in keys) and not check(merged):
-				errors[None] = message
+		errors = self._check_rules({**current, **parsed}, set(parsed))
 		if errors:
 			raise SettingsError(errors)
 		changes = [Change(k, current[k], v) for k, v in parsed.items()
 		           if v != current[k]]
 		if changes:
-			with self._postgres().get_session() as db_session:
-				for c in changes:
-					row = db_session.get(SystemSetting, c.key)
-					if row is None:
-						db_session.add(SystemSetting(key=c.key, value=c.new,
-						                             updated_by=user_id))
-					else:
-						row.value, row.updated_by = c.new, user_id
+			self._write({c.key: c.new for c in changes}, user_id)
 		return changes
 
-	def reset(self, key: str) -> Change | None:
-		"""Back to the install value / default: delete the admin's row.
+	def reset(self, key: str, user_id: uuid.UUID | None) -> Change | None:
+		"""Back to the default (written into the row, like any change).
 		Refused (SettingsError) if the result would break a rule."""
 		s = SETTINGS[key]
-		rows = self._rows()
-		if key not in rows:
+		current = self.values()
+		if current[key] == s.default:
 			return None
-		current = {k: self._resolve(x, rows)[0] for k, x in SETTINGS.items()}
-		without = {k: v for k, v in rows.items() if k != key}
-		after = self._resolve(s, without)[0]
-		merged = {**current, key: after}
-		for keys, check, message in RULES:
-			if key in keys and not check(merged):
-				raise SettingsError({None: message})
-		with self._postgres().get_session() as db_session:
-			row = db_session.get(SystemSetting, key)
-			if row is not None:
-				db_session.delete(row)
-		return Change(key, current[key], after)
+		errors = self._check_rules({**current, key: s.default}, {key})
+		if errors:
+			raise SettingsError(errors)
+		self._write({key: s.default}, user_id)
+		return Change(key, current[key], s.default)
