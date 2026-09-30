@@ -27,7 +27,7 @@ def test_models_match_migrated_schema(test_db_url):
 	assert result.returncode == 0, result.stdout + result.stderr
 
 
-def test_is_global_migration_backfills_and_round_trips(test_db_url):
+def test_baseline_round_trips_and_sets_server_defaults(test_db_url):
 	# Own throwaway DB: downgrade must not disturb the shared test DB
 	name = f"rollout_mig_{uuid.uuid4().hex[:6]}"
 	admin_url = test_db_url.rsplit("/", 1)[0] + "/postgres"
@@ -36,12 +36,16 @@ def test_is_global_migration_backfills_and_round_trips(test_db_url):
 	alembic = lambda *args: subprocess.run(
 		[sys.executable, "-m", "alembic", *args], cwd=ROOT / "src" / "db",
 		capture_output=True, text=True, env=dict(os.environ, DATABASE_URL=url))
+	app_tables = text("select count(*) from pg_tables where schemaname = "
+	                  "'public' and tablename <> 'alembic_version'")
 	with admin.connect() as c:
 		c.execute(text(f'CREATE DATABASE "{name}"'))
 	engine = create_engine(url)
 	try:
-		assert alembic("upgrade", "5c2b80c49fc9").returncode == 0
-		with engine.begin() as c:  # a device that predates is_global
+		assert alembic("upgrade", "head").returncode == 0
+		# Rows written without the columns (raw SQL, old clients) get the
+		# server defaults the development history had
+		with engine.begin() as c:
 			c.execute(text(
 				"insert into users (id, username, role, is_active, is_approved,"
 				" created_at, auth_type) values (:u,'seed','user',true,true,"
@@ -50,12 +54,24 @@ def test_is_global_migration_backfills_and_round_trips(test_db_url):
 				"insert into inventory (id, ip, device_type, port, label, "
 				"user_id) select :d, '10.0.0.1', 'cisco_ios', 22, 'old', id "
 				"from users"), {"d": uuid.uuid4()})
-		assert alembic("upgrade", "head").returncode == 0
+			c.execute(text(
+				"insert into device_results (id, job_id, started_at, "
+				"completed_at, device_ip, device_type, commands_sent, status, "
+				"user_id) select :r, :j, now(), now(), '10.0.0.1', "
+				"'cisco_ios', 1, 'success', id from users"),
+				{"r": uuid.uuid4(), "j": uuid.uuid4()})
 		with engine.connect() as c:
 			assert c.execute(text("select is_global from inventory")).scalar() \
 			       is False
-		assert alembic("downgrade", "-1").returncode == 0
+			assert c.execute(text("select device_port from device_results")) \
+			       .scalar() == 22
+		# The baseline's downgrade empties the database; upgrading rebuilds it
+		assert alembic("downgrade", "base").returncode == 0
+		with engine.connect() as c:
+			assert c.execute(app_tables).scalar() == 0
 		assert alembic("upgrade", "head").returncode == 0
+		with engine.connect() as c:
+			assert c.execute(app_tables).scalar() > 0
 	finally:
 		engine.dispose()
 		with admin.connect() as c:
