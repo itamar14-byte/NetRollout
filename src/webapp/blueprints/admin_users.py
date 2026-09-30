@@ -6,9 +6,11 @@ import uuid
 from flask import (Blueprint, render_template, request, current_app, redirect,
                    url_for, flash)
 from flask_login import current_user, login_required
+from werkzeug.security import generate_password_hash
 
 # local modules
 from src.db.tables import User
+from src.passwords import temporary_password
 from src.webapp.utils import ok, err, require_admin
 
 bp = Blueprint('admin_users', __name__, url_prefix='/admin')
@@ -37,11 +39,16 @@ def user_action_factory(user, action, db_session):
 		# LDAP users and the factory admin don't use 2FA.
 		user.otp_secret = None
 	elif action == "terminate_session":
-		sid = current_app.backend.redis.client.get(f"user_session:{user.id}")
-		if sid:
-			current_app.backend.redis.client.delete(
-				f"redis_session:{sid.decode()}")
-			current_app.backend.redis.client.delete(f"user_session:{user.id}")
+		end_session(user.id)
+
+
+def end_session(user_id):
+	# Signs the user out everywhere: the next request finds no session
+	client = current_app.backend.redis.client
+	sid = client.get(f"user_session:{user_id}")
+	if sid:
+		client.delete(f"redis_session:{sid.decode()}")
+		client.delete(f"user_session:{user_id}")
 
 
 ##############################Routes#######################################
@@ -89,6 +96,35 @@ def admin_user_action(user_id, action):
 	current_app.web.audit(f"user.{action}", object_type="User",
 	                      object_id=target_id, object_label=target_username)
 	return redirect(url_for("admin_users.admin_users"))
+
+
+@bp.route("/users/<uuid:user_id>/reset_password", methods=["POST"])
+@login_required
+@require_admin
+def admin_reset_password(user_id):
+	"""A temporary password for another local user, returned once for the
+	admin to hand over; the user must choose their own at the next sign-in
+	(must_change_password) and their current sessions end now. Not for LDAP
+	users (the directory owns it), the admin's own account (use Change
+	password) or the factory admin."""
+	if user_id == current_user.id:
+		return err("Use Change password for your own account", 400)
+	with current_app.backend.postgres.get_session() as db_session:
+		user = db_session.get(User, user_id)
+		if not user:
+			return err("User not found", 404)
+		if user.username == "admin":
+			return err("The factory admin's password can't be reset", 400)
+		if user.auth_type != "local":
+			return err("LDAP passwords are managed in the directory", 400)
+		temporary = temporary_password(user.username)
+		user.password_hash = generate_password_hash(temporary)
+		user.must_change_password = True
+		username = user.username
+	end_session(user_id)
+	current_app.web.audit("user.reset_password", object_type="User",
+	                      object_id=user_id, object_label=username)
+	return ok(username=username, temporary_password=temporary)
 
 
 @bp.route("/users/bulk/<action>", methods=["POST"])

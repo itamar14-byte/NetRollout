@@ -81,7 +81,8 @@ def install(postgres: "PostgresConnection"):
 				            full_name="Net Rollout",
 				            role="admin",
 				            is_active=True,
-				            is_approved=True)
+				            is_approved=True,
+				            must_change_password=True)
 				session.add(user)
 				session.flush()
 
