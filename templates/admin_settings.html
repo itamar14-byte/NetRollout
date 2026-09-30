@@ -331,6 +331,12 @@
     const {resp, data} = await post('/admin/settings/test', {hostname, port});
     testBtn.disabled = false;
     if (!resp.ok) { out.innerHTML = `<span class="fail">✗ ${esc(data.message || 'check failed')}</span>`; return; }
+    if (data.container) {
+      out.innerHTML = (data.url ? `${esc(data.url)}<br>` : '') +
+        '<span style="color:var(--nr-text-muted)">In Docker the address is checked from the host — ' +
+        'run <code>netrollout status</code> on the server.</span>';
+      return;
+    }
     if (!data.url) { out.innerHTML = '<span class="fail">✗ No hostname set and none found in the nginx config.</span>'; return; }
     const line = (name, r) => r.ok
       ? `<span class="ok">✓ ${name}: forwards to this NetRollout</span>`

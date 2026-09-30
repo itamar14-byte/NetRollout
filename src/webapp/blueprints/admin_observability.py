@@ -194,6 +194,6 @@ def admin_analytics_query(data):
 @login_required
 @require_admin
 def admin_active_job_count():
-	count = int(
-		current_app.backend.redis.client.get("netrollout:active_count") or 0)
-	return ok(count=count)
+	# From the orchestrator's memory: exact, and works while Redis is down
+	counts = current_app.orchestrator.counts()
+	return ok(count=counts["running"] + counts["queued"], **counts)

@@ -1,5 +1,6 @@
 # python utilities
 import os
+import secrets
 
 # services
 # flask
@@ -19,8 +20,10 @@ from src.webapp.extensions import register_extensions, register_handlers, \
 from src.webapp.utils import WebServices
 from src.db.backend import BackendServices
 from src.db.redis_db import REDIS_UNAVAILABLE
-from src.encryption import init_encryption
+from src.deployment import StartupError, in_container
+from src.encryption import init_encryption, require_key_in_container
 from src.orchestration import RolloutOrchestrator
+from src.webapp.lifecycle import Shutdown
 
 ########Constants###################################################
 
@@ -44,6 +47,20 @@ VENDOR_LOGOS = {
 ########Class definitions###################################################
 
 class _SafeRedisSessionInterface(RedisSessionInterface):
+	def __init__(self, app, backend: BackendServices, **kwargs):
+		self._backend = backend
+		super().__init__(app, client=backend.redis.client, **kwargs)
+
+	# The live client, looked up per request: a Server Management Redis switch
+	# closes the old one, and holding it logged everyone out until a restart
+	@property
+	def client(self):
+		return self._backend.redis.client
+
+	@client.setter
+	def client(self, _value):
+		pass   # set by the parent's __init__; the backend's is always used
+
 	def open_session(self, app, request):
 		try:
 			return super().open_session(app, request)
@@ -57,8 +74,26 @@ class _SafeRedisSessionInterface(RedisSessionInterface):
 			pass
 
 
-def configure_app(app, redis):
-	app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev")
+def resolve_secret_key(env=None) -> str:
+	"""SECRET_KEY signs the session cookies: a known value would let anyone
+	forge a sign-in, so there is no built-in default.
+	:raises StartupError: missing in a container (the installer generates it)"""
+	key = (env if env is not None else os.environ).get("SECRET_KEY", "").strip()
+	if key:
+		return key
+	if in_container():
+		raise StartupError(
+			"SECRET_KEY is not set. In Docker it comes from the installation's "
+			".env (the installer generates it). Restore it in .env and start "
+			"again.")
+	# Development: sessions are cleared at every start anyway (clear_sessions)
+	print("[NetRollout] SECRET_KEY is not set — using a random key for this "
+	      "run (development only).", flush=True)
+	return secrets.token_hex(32)
+
+
+def configure_app(app, redis, secret_key: str):
+	app.config["SECRET_KEY"] = secret_key
 
 	app.config["SESSION_TYPE"] = "redis"
 	app.config["SESSION_REDIS"] = redis.client
@@ -108,6 +143,17 @@ def register_metrics(redis_conn):
 	REGISTRY.register(RolloutSessionCollector(redis_conn))
 
 
+def register_server_state(app):
+	# Every page shows the stop / restart banner while the server drains
+	@app.context_processor
+	def server_state():
+		if not app.orchestrator.draining:
+			return {"server_draining": False}
+		return {"server_draining": True,
+		        "server_restarting": app.shutdown.restarting,
+		        "server_running_rollouts": app.orchestrator.counts()["running"]}
+
+
 def init_app_encryption(backend: BackendServices):
 	# Fail fast: raises EncryptionStartupError if the key is malformed,
 	# missing while encrypted data exists, or doesn't match stored data
@@ -129,7 +175,9 @@ def clear_sessions(redis_conn):
 
 ###########App initialization#########################################
 def launch_app():
-
+	# Before touching any service: a missing secret must stop the start
+	secret_key = resolve_secret_key()
+	require_key_in_container()
 	backend = BackendServices()
 	init_app_encryption(backend)
 	# restart-only settings: what this process runs with (System Settings
@@ -146,19 +194,21 @@ def launch_app():
 	app.config["SETTINGS_STARTED_WITH"] = started_with
 	app.backend = backend
 	app.orchestrator = orchestrator
+	app.shutdown = Shutdown(orchestrator)
 	app.web = web_services
 
 
-	configure_app(app, app.backend.redis)
+	configure_app(app, app.backend.redis, secret_key)
 	register_extensions(app)
 	register_auth(app)
 	register_metrics(app.backend.redis)
+	register_server_state(app)
 
 	register_handlers(app, backend)
 
 	app.session_interface = _SafeRedisSessionInterface(
 		app,
-		client=app.backend.redis.client,
+		app.backend,
 		key_prefix="redis_session:",
 		permanent=False,
 	)

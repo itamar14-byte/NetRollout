@@ -152,11 +152,15 @@ def test_audit_query_is_allowlisted(admin, client_for, session_scope):
 	assert bad.status_code == 400
 
 
-def test_admin_analytics_page_and_job_count(app, admin, client_for):
+def test_admin_analytics_page_and_job_count(app, admin, client_for,
+                                            monkeypatch):
 	c = client_for(admin)
 	assert c.get("/admin/analytics").status_code == 200
-	app.backend.redis.client.set("netrollout:active_count", 3)
-	assert c.get("/admin/active_job_count").json["count"] == 3
+	# The orchestrator's own count (running + queued), not a Redis counter
+	monkeypatch.setattr(app.orchestrator, "counts",
+	                    lambda: {"running": 2, "queued": 1})
+	body = c.get("/admin/active_job_count").json
+	assert (body["count"], body["running"], body["queued"]) == (3, 2, 1)
 
 
 # ── Server management ────────────────────────────────────────────────────────

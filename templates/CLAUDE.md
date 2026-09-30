@@ -19,5 +19,7 @@ Always-dark enterprise aesthetic — permanently dark, no toggle. Key design ele
 - **Inventory cards**: thin horizontal rectangles — vendor badge (CDN SVG + BI router fallback) + label + IP. Hover tooltip (FortiGate-style fixed panel). Click → edit modal.
 - **Assign board** (Security Profiles + Variable Mappings devices modals): shared `nrAssignBoard()` in `operator_base.html` <head>. Two columns, Assigned | Available/Eligible; drag either way or click/Enter a card to move it. Moves are staged; Save shows `(+N / −M)`. Security saves via `/inventory/bulk_assign` (`profile_id: null` unassigns) and warns when devices lose their profile; mappings save via `/mappings/bulk_assign` with `device_ids` + `remove_ids`.
 
+- **Shared includes** (both `admin.html` and `operator_base.html`): `_drain_banner.html` (shown while the server drains for a stop/restart; reloads when a new instance answers), `_restart_modal.html` + `_restart_script.html` (the admin Restart: "when finished" / "now"; include the script inside `{% with restart_btn, restart_icon, restart_label %}` naming the sidebar button). Change them once, not per template.
+
 ## Frontend asset structure
 Per-page CSS and JS live inline in `{% block extra_style %}` and `{% block extra_script %}` blocks — no build pipeline, one file per page. Shared widgets (reachability helpers, the assign board) live in `operator_base.html` `<head>` so page scripts can call them. Extracting to `static/css/` and `static/js/` is deferred post-v1.0.

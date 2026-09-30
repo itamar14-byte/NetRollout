@@ -1,10 +1,3 @@
-# python utilities
-import os
-import subprocess
-import sys
-import threading
-import time
-
 # services
 # flask
 from flask import Blueprint, render_template, request, current_app, jsonify
@@ -22,7 +15,7 @@ from src.db.redis_db import RedisConfig
 from src.db.tables import LDAPServer, LDAPGroup, User
 from src.encryption import encrypt
 from src.ldap_auth import test_user, test_connection, fetch_base_dn, walk_tree
-from src.webapp.startup import RELAUNCH_ENV
+from src.deployment import drain_seconds
 from src.webapp.utils import ok, err, require_admin, with_json, with_form
 
 bp = Blueprint('admin_servers', __name__, url_prefix='/admin/server')
@@ -49,14 +42,6 @@ def unload_postgres_data(data):
 	        "password": password,
 	        "schema": schema
 	        }
-
-
-def relaunch_command() -> list[str]:
-	# Under `python -m src.webapp`, sys.argv[0] is the __main__.py file path —
-	# relaunching that runs it as a script, where `src` isn't importable and
-	# the restarted app never comes back. orig_argv keeps the original
-	# invocation, `-m src.webapp` included.
-	return [sys.executable, *sys.orig_argv[1:]]
 
 
 def unload_ldap_data(req):
@@ -458,16 +443,21 @@ def admin_server_ldap_group_delete(server_id, group_id):
 @login_required
 @require_admin
 def admin_restart():
-	#TODO fix exit
-	current_app.web.audit("server.restart", object_type="Server", object_label="webapp")
-
-	def _do_restart():
-		time.sleep(1.5)
-		# marker: the relaunched app doesn't open another browser tab
-		subprocess.Popen(relaunch_command(),
-		                 env={**os.environ, RELAUNCH_ENV: "1"})
-		os._exit(0)
-
-	threading.Thread(target=_do_restart, daemon=True).start()
-	return ok()
-#TODO remove restart button when packaging docker
+	"""Restart NetRollout. With rollouts running or queued the caller must
+	choose (409 otherwise): "when_finished" drains — new rollouts paused,
+	running ones finish (up to the drain deadline) — "now" cancels them.
+	Queued rollouts are recorded as cancelled either way."""
+	mode = (request.get_json(silent=True) or {}).get("mode")
+	if mode not in (None, "when_finished", "now"):
+		return err("mode must be when_finished or now", 422)
+	counts = current_app.orchestrator.counts()
+	if (counts["running"] or counts["queued"]) and mode is None:
+		return err("Rollouts are running — restart when they finish, or now "
+		           "(cancels them)?", 409, **counts)
+	deadline = 0 if mode == "now" else drain_seconds()
+	if not current_app.shutdown.begin(deadline, restart=True):
+		return err("A restart is already in progress", 409)
+	current_app.web.audit("server.restart", object_type="Server",
+	                      object_label="webapp",
+	                      detail={"mode": mode or "idle", **counts})
+	return ok(**counts)

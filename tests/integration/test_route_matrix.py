@@ -18,6 +18,7 @@ PUBLIC_ENDPOINTS = {
 	"auth.register", "auth.otp_enroll", "auth.otp_verify", "auth.logout",
 	"prometheus_metrics",
 	"system.instance",   # startup proxy check: a random per-run token only
+	"system.health",     # Docker / installer / status: up-down, counts, version
 }
 SKIP_PREFIXES = ("/_test/", "/rollout/stream/_test/", "/static/")
 

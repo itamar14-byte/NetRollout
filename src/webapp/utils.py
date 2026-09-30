@@ -58,8 +58,8 @@ def ok(message=None, **extra):
 	return jsonify(body)
 
 
-def err(message, code=400):
-	return jsonify({"status": "error", "message": message}), code
+def err(message, code=400, **extra):
+	return jsonify({"status": "error", "message": message, **extra}), code
 
 
 ##########################Decorators###########################################

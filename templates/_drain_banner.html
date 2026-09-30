@@ -1,0 +1,30 @@
+{# Shown on every page while the server drains for a stop or restart
+   (context: server_draining, server_restarting, server_running_rollouts).
+   Reloads the page once a new instance answers. #}
+{% if server_draining %}
+<div class="alert alert-warning d-flex align-items-start gap-2 mb-2" role="status" id="drainBanner">
+    <i class="bi bi-hourglass-split mt-1"></i>
+    <div>
+        <strong>NetRollout is {{ 'restarting' if server_restarting else 'stopping' }}.</strong>
+        New rollouts are paused{% if server_running_rollouts %} — waiting for
+        {{ server_running_rollouts }} running rollout{{ 's' if server_running_rollouts != 1 }}
+        to finish{% endif %}.
+        {% if server_restarting %}This page reloads when it's back.{% endif %}
+    </div>
+</div>
+<script>
+(() => {
+    let first = null;
+    const check = () => fetch('/_netrollout/instance', {cache: 'no-store'})
+        .then(r => r.ok ? r.json() : null)
+        .then(d => {
+            if (!d) return;
+            if (first === null) first = d.instance;
+            else if (d.instance !== first) window.location.reload();
+        })
+        .catch(() => {});   // down between the two instances — keep polling
+    check();
+    setInterval(check, 3000);
+})();
+</script>
+{% endif %}
