@@ -44,12 +44,11 @@ class PostgresConfig:
 			"PG_NAME": self.database,
 			"PG_USER": self.user,
 			"PG_PASSWORD": self.password,
+			# Blank, not absent: runtime.env is loaded over the container
+			# environment, and an inherited DATABASE_URL would win over PG_*
+			"DATABASE_URL": "",
 		}
 		pop_keys = []
-		if self.host in ("localhost", "127.0.0.1"):
-			pop_keys.append("POSTGRES_EXTERNAL")
-		else:
-			updates["POSTGRES_EXTERNAL"] = "true"
 		if self.schema:
 			updates["PG_SCHEMA"] = self.schema
 		else:

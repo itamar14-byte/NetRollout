@@ -12,8 +12,8 @@ from flask import (Blueprint, render_template, current_app, request, send_file,
 from flask_login import current_user, login_required
 
 # local modules
+from src import paths
 from src.db.tables import DeviceResult, JobMetadata, User, Inventory
-from src.logging_utils import LOGS_DIR
 from src.webapp.utils import ok, err, build_kpi, visible_devices_clause
 
 bp = Blueprint('jobs', __name__)
@@ -139,7 +139,7 @@ def build_jobs(result_rows, metadata_by_job, endpoint_labels, snapshot_days,
 		rows = list(rows)
 		meta = metadata_by_job.get(job_id)
 		log_matches = glob.glob(
-			os.path.join(LOGS_DIR, f"rollout_*_{job_id}.log"))
+			os.path.join(paths.logs_dir(), f"rollout_*_{job_id}.log"))
 		entry = {
 			"job_id": str(job_id),
 			"has_log": bool(log_matches),
@@ -378,7 +378,7 @@ def download_log(job_id):
 		owned = user_owns_job(job_id, current_user.id)
 		if not owned:
 			return Response("Not found", status=404)
-	matches = glob.glob(os.path.join(LOGS_DIR, f"rollout_*_{job_id}.log"))
+	matches = glob.glob(os.path.join(paths.logs_dir(), f"rollout_*_{job_id}.log"))
 	if not matches:
 		return Response("Log file not found", status=404)
 	return send_file(matches[0], as_attachment=True,

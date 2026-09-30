@@ -46,8 +46,10 @@ TEST_PASSWORD = "Test-pass-1"
 def _redis_url() -> str:
 	url = os.environ.get("TEST_REDIS_URL")
 	if not url:
-		# Same server the app uses (credentials from config.env), never its db
-		env = {k: v for k, v in dotenv_values(ROOT / "config.env").items()
+		# Same server the app uses (credentials from the developer's
+		# config/runtime.env), never its db
+		env = {k: v for k, v in dotenv_values(
+			ROOT / "config" / "runtime.env").items()
 		       if k.startswith("REDIS_")}
 		url = env.get("REDIS_URL")
 		if not url:
@@ -171,7 +173,6 @@ def app(test_db_url, redis_url, tmp_path_factory):
 	from cryptography.fernet import Fernet
 
 	import src.encryption as enc
-	import src.logging_utils as logging_utils
 	from src.db import backend as backend_mod
 	from src.db.postgres_db import PostgresConnection, PostgresConfig
 	from src.db.redis_db import RedisConnection, RedisConfig
@@ -180,8 +181,7 @@ def app(test_db_url, redis_url, tmp_path_factory):
 	scratch = tmp_path_factory.mktemp("backend")
 
 	def _test_backend_init(self):
-		self._CONFIG_ENV = scratch / "config.env"   # never the real one
-		self._FLAG = scratch / "pending_db_init.flag"
+		self._CONFIG_ENV = scratch / "runtime.env"   # never the real one
 		self.postgres = PostgresConnection(PostgresConfig(url=test_db_url))
 		self.redis = RedisConnection(RedisConfig(url=redis_url))
 
@@ -196,9 +196,6 @@ def app(test_db_url, redis_url, tmp_path_factory):
 	assert flask_app.backend.redis.client.connection_pool \
 		       .connection_kwargs["db"] == REDIS_TEST_DB
 	flask_app.config.update(TESTING=True, WTF_CSRF_ENABLED=False)
-	# jobs.py copied LOGS_DIR by name at import — keep it on the test dir
-	import src.webapp.blueprints.jobs as jobs_bp
-	jobs_bp.LOGS_DIR = logging_utils.LOGS_DIR
 	_register_failure_routes(flask_app)
 	yield flask_app
 	flask_app.backend.postgres.engine.dispose()
