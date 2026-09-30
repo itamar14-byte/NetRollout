@@ -60,6 +60,12 @@
       </button>
     </span>
 
+    <span class="tip-wrap" id="wrapResetPassword">
+      <button class="tb-btn reset2fa-tb" id="btnResetPassword" disabled>
+        <i class="bi bi-key me-1"></i>Reset Password
+      </button>
+    </span>
+
     <span class="tip-wrap" id="wrapReset2FA">
       <button class="tb-btn reset2fa-tb" id="btnReset2FA" disabled>
         <i class="bi bi-shield-slash me-1"></i>Reset 2FA
@@ -162,6 +168,51 @@
   <input type="hidden" id="bulkIds" name="user_ids">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 </form>
+
+<!-- Reset password: confirm, then show the temporary password once -->
+<div class="modal fade" id="resetPwModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered" style="max-width:430px;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <div class="nr-badge" style="margin-bottom:0.3rem;">PASSWORD</div>
+          <h5 class="modal-title">Reset Password</h5>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body" id="resetPwConfirm">
+        <p style="font-size:0.88rem; color:var(--nr-text-secondary); margin-bottom:0.6rem;">
+          Reset the password of
+          <span id="resetPwUser" style="font-family:'JetBrains Mono',monospace; color:var(--nr-accent); font-weight:700;"></span>?
+        </p>
+        <p style="font-size:0.82rem; color:var(--nr-text-muted); margin-bottom:0;">
+          Their current password stops working and they're signed out. You get a temporary
+          password to hand over; at their next sign-in they must choose their own.
+          Only reset when you've confirmed the request is genuine.
+        </p>
+      </div>
+      <div class="modal-body" id="resetPwResult" style="display:none;">
+        <p style="font-size:0.85rem; color:var(--nr-text-secondary); margin-bottom:0.5rem;">
+          Temporary password for <span id="resetPwUser2" style="font-family:'JetBrains Mono',monospace; color:var(--nr-accent); font-weight:700;"></span>:
+        </p>
+        <div class="d-flex gap-2 align-items-center mb-3">
+          <code id="resetPwValue" style="font-size:1.05rem; padding:0.4rem 0.6rem; background:#111; border:1px solid #333; border-radius:4px; user-select:all; flex:1;"></code>
+          <button type="button" class="btn btn-outline-info btn-sm" id="resetPwCopy"><i class="bi bi-clipboard"></i></button>
+        </div>
+        <p style="font-size:0.82rem; color:#ffcc80; margin-bottom:0;">
+          <i class="bi bi-exclamation-triangle me-1"></i>Shown only now — it isn't stored anywhere
+          you can see it again. Hand it over privately.
+        </p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal" id="resetPwClose">Cancel</button>
+        <button type="button" class="btn btn-primary btn-sm" id="resetPwConfirmBtn">
+          <i class="bi bi-key me-1"></i>Reset password
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
 
 <!-- Reset 2FA confirmation modal -->
 <div class="modal fade" id="reset2faModal" tabindex="-1" aria-hidden="true">
@@ -328,7 +379,7 @@
 
 <script>
   // ── Data ──
-  const ACTIONS = ["Approve","Enable","Disable","Promote","Demote","TerminateSession","Reset2FA","Delete"];
+  const ACTIONS = ["Approve","Enable","Disable","Promote","Demote","TerminateSession","ResetPassword","Reset2FA","Delete"];
 
   const rules = {
     Approve: sel => {
@@ -365,6 +416,15 @@
       if (sel.some(u => u.is_factory)) return "The factory user's session cannot be terminated";
       const noSession = sel.filter(u => !u.has_session).length;
       return noSession ? `${noSession} user(s) have no active session` : null;
+    },
+    // One user at a time: one temporary password to hand over
+    ResetPassword: sel => {
+      if (sel.length !== 1) return sel.length ? "Select one user" : "No users selected";
+      const u = sel[0];
+      if (u.is_factory) return "The factory admin's password can't be reset";
+      if (u.is_self) return "Use Change password (My Account) for your own";
+      if (u.auth_type !== "local") return "LDAP passwords are managed in the directory";
+      return null;
     },
     // Only local users enroll 2FA — LDAP users and the factory admin don't use it
     Reset2FA: sel => {
@@ -448,6 +508,57 @@
       document.getElementById("bulkForm").action = `/admin/users/bulk/${name === "TerminateSession" ? "terminate_session" : name.toLowerCase()}`;
       document.getElementById("bulkForm").submit();
     });
+  });
+
+  // ── Reset password flow: confirm → POST → show the temporary password once ──
+  let resetPwTarget = null, resetPwDone = false;
+  document.getElementById("btnResetPassword").addEventListener("click", () => {
+    resetPwTarget = getSelected()[0];
+    resetPwDone = false;
+    document.getElementById("resetPwUser").textContent = resetPwTarget.username;
+    document.getElementById("resetPwConfirm").style.display = "";
+    document.getElementById("resetPwResult").style.display = "none";
+    document.getElementById("resetPwConfirmBtn").style.display = "";
+    document.getElementById("resetPwConfirmBtn").disabled = false;
+    document.getElementById("resetPwClose").textContent = "Cancel";
+    bootstrap.Modal.getOrCreateInstance(document.getElementById("resetPwModal")).show();
+  });
+
+  document.getElementById("resetPwConfirmBtn").addEventListener("click", async () => {
+    const btn = document.getElementById("resetPwConfirmBtn");
+    btn.disabled = true;
+    let data = {};
+    try {
+      const resp = await fetch(`/admin/users/${resetPwTarget.id}/reset_password`, {
+        method: "POST",
+        headers: {"X-CSRFToken": "{{ csrf_token() }}", "X-Requested-With": "XMLHttpRequest"},
+      });
+      data = await resp.json();
+      if (!resp.ok) throw new Error(data.message || `server error (${resp.status})`);
+    } catch (e) {
+      btn.disabled = false;
+      alert("Not reset: " + e.message);
+      return;
+    }
+    resetPwDone = true;
+    document.getElementById("resetPwUser2").textContent = data.username;
+    document.getElementById("resetPwValue").textContent = data.temporary_password;
+    document.getElementById("resetPwConfirm").style.display = "none";
+    document.getElementById("resetPwResult").style.display = "";
+    btn.style.display = "none";
+    document.getElementById("resetPwClose").textContent = "Done";
+  });
+
+  document.getElementById("resetPwCopy").addEventListener("click", () => {
+    navigator.clipboard.writeText(document.getElementById("resetPwValue").textContent)
+      .then(() => { document.querySelector("#resetPwCopy i").className = "bi bi-clipboard-check"; })
+      .catch(() => {});
+  });
+
+  document.getElementById("resetPwModal").addEventListener("hidden.bs.modal", () => {
+    document.getElementById("resetPwValue").textContent = "";   // don't keep it in the page
+    document.querySelector("#resetPwCopy i").className = "bi bi-clipboard";
+    if (resetPwDone) window.location.reload();                  // sessions / status changed
   });
 
   // ── Reset 2FA flow (confirmed: it lowers protection until re-enrollment) ──

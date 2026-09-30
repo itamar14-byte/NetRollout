@@ -22,6 +22,7 @@ from src.db.tables import LDAPServer, LDAPGroup, User
 from src.encryption import decrypt, encrypt
 from src.ldap_auth import (check_group_membership, fetch_user_details,
                            user_bind, LdapUnavailable)
+from src.passwords import RULE, password_problem
 from src.webapp.extensions import csrf, conn_limit
 from src.webapp.utils import with_form
 
@@ -213,6 +214,9 @@ def register_form():
 @with_form("username", "password", "email", "full_name")
 def register(data):
 	username = data["username"]
+	if problem := password_problem(data["password"], username):
+		flash(problem, "danger")
+		return redirect(url_for("auth.register_form"))
 	pass_hash = generate_password_hash(data["password"])
 	email = data["email"]
 	full_name = data["full_name"]
@@ -343,6 +347,49 @@ def logout():
 	logout_user()
 	session.clear()
 	return redirect(url_for("auth.home"))
+
+
+@bp.route("/account/password", methods=["GET", "POST"])
+@login_required
+@conn_limit.limit("10 per minute", methods=["POST"])
+def change_password():
+	"""Pick a new password: forced (must_change_password — the seeded admin,
+	or after an admin reset; the gate in extensions.py sends every page
+	here) or voluntary, from the Account page. Local accounts only."""
+	if current_user.auth_type != "local":
+		flash("Your password is managed by the directory (LDAP) — change it "
+		      "there.", "info")
+		return redirect(url_for("auth.account"))
+	forced = current_user.must_change_password
+	if request.method == "GET":
+		return render_template("change_password.html", forced=forced,
+		                       rule=RULE)
+
+	current = request.form.get("current_password", "")
+	new = request.form.get("new_password", "")
+	with current_app.backend.postgres.get_session() as db_session:
+		user = db_session.get(User, current_user.id)
+		if not check_password_hash(user.password_hash, current):
+			reason, problem = "wrong_current", "The current password is incorrect."
+		elif new != request.form.get("confirm_password", ""):
+			reason, problem = "mismatch", "The new passwords don't match."
+		else:
+			reason, problem = "rule", password_problem(new, user.username,
+			                                             current)
+		if problem:
+			current_app.web.audit("auth.password_change", success=False,
+			                      detail={"reason": reason, "forced": forced})
+			flash(problem, "danger")
+			return redirect(url_for("auth.change_password"))
+		user.password_hash = generate_password_hash(new)
+		user.must_change_password = False
+
+	# A new session id: one captured before the change is worthless after it
+	current_app.session_interface.regenerate(session)
+	record_redis_session(current_user.id)
+	current_app.web.audit("auth.password_change", detail={"forced": forced})
+	flash("Password changed.", "success")
+	return redirect(url_for("jobs.dashboard"))
 
 
 @bp.route("/account")

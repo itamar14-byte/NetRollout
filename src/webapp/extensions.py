@@ -23,6 +23,9 @@ login_mng.login_view = "auth.home"
 conn_limit = Limiter(get_remote_address, default_limits=[],
                      storage_uri="memory://")
 csrf = CSRFProtect()
+# Reachable while a password change is pending (must_change_password)
+PASSWORD_CHANGE_ALLOWED = {"auth.change_password", "auth.logout", "static",
+                           "system.instance", "system.health"}
 
 
 def register_extensions(app):
@@ -44,6 +47,21 @@ def register_auth(app):
 			if user:
 				db_session.expunge(user)
 			return user
+
+	@app.before_request
+	def require_password_change():
+		# The seeded admin, and a user after an admin reset, can do nothing
+		# but pick their own password (or leave)
+		if not (current_user.is_authenticated
+		        and current_user.must_change_password):
+			return None
+		if request.endpoint in PASSWORD_CHANGE_ALLOWED:
+			return None
+		if request.is_json or request.headers.get("X-Requested-With") == \
+				"XMLHttpRequest":
+			return err("Change your password first", 403,
+			           redirect=url_for("auth.change_password"))
+		return redirect(url_for("auth.change_password"))
 
 
 def register_handlers(app, backend: BackendServices):

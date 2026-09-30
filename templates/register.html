@@ -98,6 +98,7 @@
   <a href="{{ url_for('auth.home') }}" style="color:#00bcd4; text-decoration:none; font-weight:500;">Sign in</a>
 </p>
 
+{% include '_password_rule_script.html' %}
 <script>
   const usernameInput = document.getElementById("username");
   const emailInput    = document.getElementById("email");
@@ -150,35 +151,12 @@
   }
 
   function validatePassword() {
-    const val = passwordInput.value;
-    const username = usernameInput.value.trim().toLowerCase();
-
-    // ASCII printable only (no unicode letters like Hebrew)
-    if (/[^\x20-\x7E]/.test(val)) {
-      showError(passwordInput, passwordError, "Password must contain only ASCII characters.");
+    // The server enforces the same rule (src/passwords.py)
+    const problem = nrPasswordProblem(passwordInput.value, usernameInput.value.trim());
+    if (problem) {
+      showError(passwordInput, passwordError, problem);
       return false;
     }
-    if (val.length < 8) {
-      showError(passwordInput, passwordError, "Password must be at least 8 characters.");
-      return false;
-    }
-    if (username && val.toLowerCase().includes(username)) {
-      showError(passwordInput, passwordError, "Password cannot contain your username.");
-      return false;
-    }
-
-    // At least 2 of 3 groups: letters, numbers, special chars
-    const hasLetters  = /[a-zA-Z]/.test(val);
-    const hasNumbers  = /[0-9]/.test(val);
-    const hasSpecial  = /[^a-zA-Z0-9]/.test(val);
-    const groupCount  = [hasLetters, hasNumbers, hasSpecial].filter(Boolean).length;
-
-    if (groupCount < 2) {
-      showError(passwordInput, passwordError,
-        "Password must contain at least 2 of: letters, numbers, special characters.");
-      return false;
-    }
-
     clearError(passwordInput, passwordError);
     return true;
   }

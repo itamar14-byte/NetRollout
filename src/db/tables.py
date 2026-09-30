@@ -41,6 +41,10 @@ class User(UserMixin, Base):
 	created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now,
 	                                             nullable=False)
 	otp_secret: Mapped[str] = mapped_column(String(255), nullable=True)
+	# The seeded admin and a user after an admin reset: every page redirects
+	# to the change-password page until they pick their own password
+	must_change_password: Mapped[bool] = mapped_column(
+		Boolean, default=False, server_default=false(), nullable=False)
 
 	auth_type: Mapped[str] = mapped_column(String(20), default="local",
 	                                       nullable=False)
