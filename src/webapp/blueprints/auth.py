@@ -24,7 +24,7 @@ from src.ldap_auth import (check_group_membership, fetch_user_details,
                            user_bind, LdapUnavailable)
 from src.passwords import RULE, password_problem
 from src.webapp.extensions import csrf, conn_limit
-from src.webapp.utils import with_form
+from src.webapp.utils import end_user_sessions, with_form
 
 bp = Blueprint("auth", __name__)
 
@@ -384,10 +384,14 @@ def change_password():
 		user.password_hash = generate_password_hash(new)
 		user.must_change_password = False
 
-	# A new session id: one captured before the change is worthless after it
+	# A new session id: one captured before the change is worthless after it.
+	# Every other session of this user ends (e.g. a thief's, the reason for
+	# the change); this one stays signed in.
 	current_app.session_interface.regenerate(session)
+	ended = end_user_sessions(current_user.id, keep_sid=session.sid)
 	record_redis_session(current_user.id)
-	current_app.web.audit("auth.password_change", detail={"forced": forced})
+	current_app.web.audit("auth.password_change",
+	                      detail={"forced": forced, "other_sessions_ended": ended})
 	flash("Password changed.", "success")
 	return redirect(url_for("jobs.dashboard"))
 

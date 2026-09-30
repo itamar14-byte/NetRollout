@@ -163,6 +163,19 @@ def test_admin_analytics_page_and_job_count(app, admin, client_for,
 	assert (body["count"], body["running"], body["queued"]) == (3, 2, 1)
 
 
+def test_terminate_session_signs_the_user_out_everywhere(
+		admin, make_user, client_for, app):
+	target = make_user()
+	browsers = [client_for(target) for _ in range(2)]
+	for b in browsers:
+		b.get("/dashboard")
+	sids = [b.get_cookie("session").value for b in browsers]
+	app.backend.redis.client.set(f"user_session:{target.id}", sids[-1])
+	client_for(admin).post(f"/admin/users/{target.id}/terminate_session")
+	assert not any(app.backend.redis.client.exists(f"redis_session:{s}")
+	               for s in sids)
+
+
 # ── Server management ────────────────────────────────────────────────────────
 
 def test_server_page_renders(admin, client_for):

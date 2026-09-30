@@ -122,7 +122,7 @@ def test_forced_change_clears_the_flag_and_rotates_the_session(
 	assert check_password_hash(user.password_hash, NEW_PASSWORD)
 	assert client.get("/dashboard").status_code == 200  # still signed in
 	assert audits(session_scope, "auth.password_change") == [
-		(flagged.username, True, {"forced": True})]
+		(flagged.username, True, {"forced": True, "other_sessions_ended": 0})]
 
 
 def test_voluntary_change_from_the_account_page(make_user, client_for,
@@ -134,7 +134,31 @@ def test_voluntary_change_from_the_account_page(make_user, client_for,
 	assert check_password_hash(get_user(session_scope, user.id).password_hash,
 	                           NEW_PASSWORD)
 	assert audits(session_scope, "auth.password_change")[0][2] == \
-	       {"forced": False}
+	       {"forced": False, "other_sessions_ended": 0}
+
+
+def signed_in_clients(client_for, user, count):
+	"""`count` separate browsers signed in as `user`, each with a session
+	stored in Redis (user_session:<id> points at the last one only)."""
+	clients = [client_for(user) for _ in range(count)]
+	for c in clients:
+		c.get("/account/password")          # allowed even while flagged
+	return clients
+
+
+def sid_of(client):
+	return client.get_cookie("session").value
+
+
+def test_a_change_signs_out_every_other_session(make_user, client_for, app):
+	user = make_user()
+	me, other_browser = signed_in_clients(client_for, user, 2)
+	stolen = sid_of(other_browser)
+	assert change(me).headers["Location"] == "/dashboard"
+	assert not app.backend.redis.client.exists(f"redis_session:{stolen}")
+	assert other_browser.get("/dashboard").headers["Location"] \
+	       .startswith("/?")                               # to sign in
+	assert me.get("/dashboard").status_code == 200       # still signed in
 
 
 @pytest.mark.parametrize("kwargs, reason", [
@@ -198,6 +222,28 @@ def test_reset_gives_a_temporary_password_and_forces_a_change(
 	       != "/account/password"
 	(entry,) = audits(session_scope, "user.reset_password")
 	assert entry[0] == admin.username and temporary not in str(entry)
+
+
+def test_reset_signs_the_user_out_everywhere(admin, make_user, client_for,
+                                              session_scope, app):
+	target = make_user()
+	browsers = signed_in_clients(client_for, target, 3)
+	sids = [sid_of(b) for b in browsers]
+	# the pointer knows only the latest sign-in; the others must go too
+	app.backend.redis.client.set(f"user_session:{target.id}", sids[-1])
+	assert reset(client_for(admin), target.id).status_code == 200
+	for sid, browser in zip(sids, browsers):
+		assert not app.backend.redis.client.exists(f"redis_session:{sid}")
+		assert browser.get("/dashboard").headers["Location"].startswith("/?")
+	(entry,) = audits(session_scope, "user.reset_password")
+	assert entry[2] == {"sessions_ended": 3}
+
+
+def test_reset_leaves_other_users_signed_in(admin, make_user, client_for):
+	target, bystander = make_user(), make_user()
+	(bystander_browser,) = signed_in_clients(client_for, bystander, 1)
+	reset(client_for(admin), target.id)
+	assert bystander_browser.get("/dashboard").status_code == 200
 
 
 @pytest.mark.parametrize("target_kind, message", [
