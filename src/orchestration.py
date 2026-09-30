@@ -255,7 +255,8 @@ class RolloutOrchestrator:
 
 		if running := self.counts()["running"]:
 			report(f"[NetRollout] Cancelling {running} running rollout(s) — "
-			       f"devices already being configured finish first")
+			       f"devices already being configured get up to "
+			       f"{_CANCEL_WAIT}s to finish")
 			with self._lock:
 				jobs = list(self._jobs.values())
 			for job in jobs:

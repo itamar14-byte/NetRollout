@@ -365,7 +365,7 @@ job thread finishes → _cleanup(job_id)
 
 `cancel(job_id)` sets the job's cancel flag and meta `status=cancelling`.
 
-**Drain** (`drain(deadline)`, run by `lifecycle.Shutdown` on SIGTERM or the admin Restart): `submit()` raises `Draining` from then on (the routes show `DRAINING_MESSAGE`); queued jobs are recorded as cancelled, device by device, with the reason in their log (a job's definition lives only in this process, so it could never run after the restart); running jobs may finish for `deadline` seconds, then are cancelled and given up to 60 s to record. `counts()` returns running/queued from memory (the health endpoint, the Restart choice). A crash or `SIGKILL` still loses queued jobs silently.
+**Drain** (`drain(deadline)`, run by `lifecycle.Shutdown` on SIGTERM or the admin Restart): `submit()` raises `Draining` from then on (the routes show `DRAINING_MESSAGE`); queued jobs are recorded as cancelled, device by device, with the reason in their log (a job's definition lives only in this process, so it could never run after the restart); running jobs may finish for `deadline` seconds, then are cancelled and given up to 60 s to record — a job still running after that is cut off by the exit and leaves no result record (its log file remains). `counts()` returns running/queued from memory (the health endpoint, the Restart choice). A crash or `SIGKILL` still loses queued jobs silently.
  The Active Jobs page and the admin views read job state from the Redis `job:*:meta` hashes. The Prometheus collector reads `netrollout:active_count` and `netrollout:pending_count`.
 
 ---
