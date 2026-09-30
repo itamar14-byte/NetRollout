@@ -1,9 +1,10 @@
+import os
 from functools import cached_property
-from pathlib import Path
 
 from dotenv import dotenv_values, load_dotenv
 from sqlalchemy.exc import OperationalError
 
+from src import paths
 from src.db.db_install import install
 from src.db.postgres_db import PostgresConnection, PostgresConfig
 from src.db.redis_db import RedisConnection, RedisConfig, REDIS_UNAVAILABLE
@@ -17,14 +18,18 @@ _ENCRYPTED_COLUMNS = (SecurityProfile.password_secret,
                       User.otp_secret)
 # All Fernet tokens start with this (version byte 0x80, base64-encoded)
 _FERNET_PREFIX = "gAAAAA"
+# Hosts of the bundled services: local development, or the compose service
+# names (deploy/compose.yaml must use these names)
+BUNDLED_HOSTS = {"POSTGRES": ("localhost", "127.0.0.1", "postgres"),
+                 "REDIS": ("localhost", "127.0.0.1", "redis")}
 
 
 class BackendServices:
 	def __init__(self):
-		#initilaize db reference files
-		self._CONFIG_ENV = Path(__file__).parent.parent.parent / "config.env"
-		self._FLAG = Path(__file__).parent.parent.parent / "pending_db_init.flag"
-		#read config
+		# config/runtime.env holds only what Server Management wrote (a
+		# database / Redis switch); it wins over the container environment
+		# (the installer's .env), which wins over the code defaults
+		self._CONFIG_ENV = paths.runtime_env()
 		load_dotenv(self._CONFIG_ENV, override=True)
 		#initialize db instances
 		self.postgres = PostgresConnection()
@@ -71,23 +76,29 @@ class BackendServices:
 		cfg.update(updates)
 		for key in (pop_keys or []):
 			cfg.pop(key, None)
-		self._CONFIG_ENV.write_text(
-			"\n".join(f"{k}={v}" for k, v in cfg.items()) + "\n"
-		)
+		# Atomic (a crash mid-write can't leave half a file) and owner-only:
+		# it holds database / Redis passwords
+		self._CONFIG_ENV.parent.mkdir(parents=True, exist_ok=True)
+		tmp = self._CONFIG_ENV.with_name(self._CONFIG_ENV.name + ".tmp")
+		tmp.write_text("\n".join(f"{k}={v}" for k, v in cfg.items()) + "\n")
+		os.chmod(tmp, 0o600)
+		os.replace(tmp, self._CONFIG_ENV)
 
 	def connection_modes(self):
-		return {
-			"POSTGRES": "bundled" if self.postgres.config.host in (
-				"localhost", "127.0.0.1") else "external",
-			"REDIS": "bundled" if self.redis.config.host in (
-				"localhost", "127.0.0.1") else "external",
+		# The host of the live connection: with a DATABASE_URL / REDIS_URL,
+		# config.host is only the default
+		hosts = {
+			"POSTGRES": self.postgres.engine.url.host,
+			"REDIS": self.redis.client.connection_pool.connection_kwargs.get(
+				"host"),
 		}
+		return {service: "bundled" if host in BUNDLED_HOSTS[service]
+		        else "external" for service, host in hosts.items()}
 
 	def reload_postgres(self, config: PostgresConfig):
 		self.postgres.reload_db(config)
 		updates, pop_keys = config.to_env_dict()
 		self._write_config(updates, pop_keys)
-		self._FLAG.write_text(".")
 
 	def reload_redis(self, config: RedisConfig):
 		self.redis.reload_db(config)

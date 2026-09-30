@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
-import src.logging_utils as logging_utils
+from src import paths
 from src.db.settings import SETTINGS
 from src.db.tables import DeviceResult, JobMetadata
 
@@ -273,7 +273,8 @@ def test_log_download_is_owner_only(operator, client_for, session_scope,
                                     make_user):
 	job = uuid.uuid4()
 	add_result(session_scope, operator.user, job)
-	path = os.path.join(logging_utils.LOGS_DIR, f"rollout_20260101_000000_{job}.log")
+	os.makedirs(paths.logs_dir(), exist_ok=True)
+	path = os.path.join(paths.logs_dir(), f"rollout_20260101_000000_{job}.log")
 	with open(path, "w", encoding="utf-8") as f:
 		f.write("log body")
 	resp = client_for(operator.user).get(f"/results/download_log/{job}")
