@@ -188,7 +188,7 @@ def test_message_when_verified():
 	# nginx on another machine: the public step alone proves it
 	msg, target = announcement(8080, "https://nr.corp", "System Settings",
 	                           FAIL, OK)
-	assert target == "https://nr.corp" and "available at" in msg
+	assert target == "https://nr.corp" and msg.startswith("Available at")
 
 
 def test_message_when_only_this_machine_cant_reach_the_public_url():
