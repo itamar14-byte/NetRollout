@@ -9,7 +9,7 @@ from sqlalchemy.exc import SQLAlchemyError
 if TYPE_CHECKING:
 	from src.db.postgres_db import PostgresConnection
 from werkzeug.security import generate_password_hash
-from src.db.settings import SETTINGS, sql_value
+from src.db.settings import seed_settings, sql_value
 from src.db.tables import User
 
 # ── Retention policy ─────────────────────────────────────────────────────────
@@ -18,11 +18,8 @@ from src.db.tables import User
 # config snapshot (device_results.fetched_config) is cleared much earlier —
 # it only matters while investigating a failed verify.
 # The periods are System Settings (src/db/settings.py): each statement reads
-# the admin's value when it runs, falling back to the default — so a change
-# applies at the next nightly run, without a restart.
-JOB_RETENTION_DAYS = SETTINGS["job_retention_days"].default
-CONFIG_SNAPSHOT_RETENTION_DAYS = SETTINGS["config_snapshot_retention_days"].default
-AUDIT_RETENTION_DAYS = SETTINGS["audit_retention_days"].default
+# the setting's row when it runs, so a change applies at the next nightly
+# run, without a restart.
 
 
 def _older_than(column: str, setting: str) -> str:
@@ -87,6 +84,12 @@ def install(postgres: "PostgresConnection"):
 				            is_approved=True)
 				session.add(user)
 				session.flush()
+
+		# every setting gets a row (install value or default); existing rows
+		# are never changed — admins change them in System Settings
+		with postgres.get_session() as session:
+			for problem in seed_settings(session):
+				print(f"[NetRollout] {problem}", flush=True)
 	except SQLAlchemyError as e:
 		print(f"Initialization Error: {e}")
 		return

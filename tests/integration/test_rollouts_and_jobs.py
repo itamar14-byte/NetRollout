@@ -9,10 +9,12 @@ from types import SimpleNamespace
 import pytest
 
 import src.logging_utils as logging_utils
-from src.db.db_install import CONFIG_SNAPSHOT_RETENTION_DAYS
+from src.db.settings import SETTINGS
 from src.db.tables import DeviceResult, JobMetadata
 
 pytestmark = [pytest.mark.postgres, pytest.mark.redis]
+
+CONFIG_SNAPSHOT_RETENTION_DAYS = SETTINGS["config_snapshot_retention_days"].default
 
 
 @pytest.fixture

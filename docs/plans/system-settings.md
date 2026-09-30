@@ -20,7 +20,7 @@ Today the startup message hardcodes `127.0.0.1:8080 or localhost:8080`, retentio
 
 1. **Internal port** comes from the install-time `PORT` value; every message is built from the port actually bound — nothing hardcoded.
 2. **Instance token** — a random per-run token served at `/_netrollout/instance` (no login, no DB, reveals nothing).
-3. **Public URL source**: admin setting (DB) > install-time value (`NETROLLOUT_PUBLIC_URL`) > auto-detect from the nginx config in use (`NETROLLOUT_NGINX_CONF`, default `docs/nginx/nginx.conf`: the `listen … ssl` port and `server_name`).
+3. **Public URL source**: the Public URL setting (its row, seeded from `NETROLLOUT_PUBLIC_URL` at install) > auto-detect from the nginx config in use while the setting is empty (`NETROLLOUT_NGINX_CONF`, default `docs/nginx/nginx.conf`: the `listen … ssl` port and `server_name`). Until B2 adds the setting, Part A reads `NETROLLOUT_PUBLIC_URL` directly; B2 switches it to the row.
 4. **Two-step check**, in a background thread once Waitress answers (2 s timeouts; certificate not verified — this checks identity, not trust):
    - **Local proxy** — nginx on this machine returns our token → nginx is up *and* forwarding to this instance.
    - **Public URL** — the token comes back through the Public URL.
@@ -32,9 +32,11 @@ Today the startup message hardcodes `127.0.0.1:8080 or localhost:8080`, retentio
 
 ## Part B — System Settings (this branch)
 
-- **Storage** — migration for `system_settings(key text PK, value jsonb, updated_at, updated_by)`. A row exists only for an admin's change; **reset** deletes it.
-- **Registry** (`src/db/settings.py`) — per setting: type, default, range, description, card, how it applies, and its install-time env var (if any). API: `get` / `all_for_display` / `set` (validated, audited `settings.update` old → new) / `reset`.
-- **Precedence** — admin's change (DB) > install-time value (env) > code default. The page shows each value's source (default / set at install / changed by admin) and notes when an admin override differs from the install value.
+- **The table is the only runtime source** (revised 2026-09-30, replacing an earlier tiered design). Migration adds `system_settings(key PK, value json, updated_at, updated_by)`. **Every setting has a row**: at every startup `install()` seeds missing settings — with the install-time value (env) if the setting has one and it's valid, else the default — and never touches existing rows. So a fresh install is fully populated, an upgrade gains only new settings, and an install keeps its values across upgrades until an admin changes them (a release that must change an existing value does it with a deliberate migration). After seeding, the env is never consulted.
+- **Registry** (`src/db/settings.py`) — defines each setting (type, range, page text, card, when a change applies, seed value) and the cross-setting rules; it is not a runtime source. Store API: `get` / `values` / `list_for_display` / `update` (all-or-nothing, returns the changes for the `settings.update` audit entry) / `reset` (writes the default into the row).
+- **Rules enforced on both sides** — the cross-setting rules are declarative data (`left >= / <= right`, with a message): `update()` enforces them on the server and the page receives the same list (`rules_for_client()`) and checks it in the browser; per-field type and range also come from the registry, as input constraints on the page and `parse()` on the server. The server check is authoritative.
+- **Robustness** — a stored value out of range (e.g. a range tightened in a release) is used as the nearest valid value and reported in the startup log; a missing row (seeding failed) reads as the default; the background paths (log prune, startup message) fall back to the default if the DB is unreachable.
+- **Page markers** — "changed" = value differs from the default; "from install" = changed but never by an admin (seeded from env, `updated_by` empty).
 - **Settings**
 
   | Card | Setting | Default | Applies |
@@ -43,10 +45,10 @@ Today the startup message hardcodes `127.0.0.1:8080 or localhost:8080`, retentio
   | Retention | Config snapshots | 7 d (≥ 1, ≤ job record) | next nightly run |
   | Retention | Audit log | 90 d (≥ 7) | next nightly run |
   | Retention | Log files | 60 d (≥ job record) | next daily prune |
-  | Rollouts | Concurrent rollout jobs | 4 (1–32; install value `ORCHESTRATOR_WORKERS`) | after restart |
+  | Rollouts | Concurrent rollout jobs | 4 (1–32; seeded from `ORCHESTRATOR_WORKERS`) | after restart |
   | Rollouts | Devices in parallel per job | 10 (1–64) | next rollout |
   | Rollouts | Reachability cache | 60 s (10–3600) | immediately |
-  | Access | Public URL | empty → install value → auto-detect | next start; **Test** runs the two-step check live |
+  | Access | Public URL | seeded from `NETROLLOUT_PUBLIC_URL`, else empty (→ auto-detect from nginx config) | next start; **Test** runs the two-step check live |
   | Access | Internal app port | read-only ("set at install") | — |
 
 - **Wiring** — pg_cron jobs read values at run time (`COALESCE(setting, default)`; `install()` already reschedules them each start); `prune_logs` reads its setting each daily run; the Results page reads the snapshot setting; the orchestrator reads the worker count at start; rollouts read device parallelism; the reachability checker reads its TTL live.

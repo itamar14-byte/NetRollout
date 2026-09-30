@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 from sqlalchemy.dialects import postgresql
 
-from src.db.db_install import CONFIG_SNAPSHOT_RETENTION_DAYS
+from src.db.settings import SETTINGS
 from src.validation import Validator
 from src.webapp.blueprints.admin_observability import QUERY_AUDIT_LOG_FIELDS
 from src.webapp.blueprints.analytics import QUERY_DEVICE_RESULT_FIELDS
@@ -166,7 +166,7 @@ def test_job_status(statuses, expected):
 
 
 class TestConfigExpired:
-	DAYS = CONFIG_SNAPSHOT_RETENTION_DAYS
+	DAYS = SETTINGS["config_snapshot_retention_days"].default
 	OLD = DAYS + 1
 
 	def test_mismatch_past_window_without_config_is_expired(self):

@@ -10,9 +10,10 @@ from redis.client import PubSub
 
 LOGS_DIR = os.path.join(os.path.dirname(__file__), "..", "logs")
 
-# Log files are kept longer than job records (db_install.JOB_RETENTION_DAYS,
-# which bounds Download Log on Results): the logs folder is browsed directly
-# for older troubleshooting. Must stay >= the job retention.
+# Default for the "log_retention_days" System Setting (src/db/settings.py);
+# the CLI, which has no database, uses it directly. Log files are kept longer
+# than job records so the logs folder can be browsed for older
+# troubleshooting — the settings rules keep it >= the job retention.
 LOG_RETENTION_DAYS = 60
 LOG_PRUNE_INTERVAL_HOURS = 24
 

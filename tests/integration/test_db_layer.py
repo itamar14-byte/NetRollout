@@ -10,9 +10,8 @@ import pytest
 from cryptography.fernet import Fernet
 from sqlalchemy import create_engine, text
 
-from src.db.db_install import (_RETENTION_JOBS, _schedule_retention,
-                               JOB_RETENTION_DAYS,
-                               CONFIG_SNAPSHOT_RETENTION_DAYS)
+from src.db.db_install import _RETENTION_JOBS, _schedule_retention
+from src.db.settings import SETTINGS
 from tests.integration.conftest import ROOT
 
 pytestmark = pytest.mark.postgres
@@ -210,6 +209,8 @@ class SimpleJobs:
 		self.run_policy = run_policy
 
 
+JOB_RETENTION_DAYS = SETTINGS["job_retention_days"].default
+CONFIG_SNAPSHOT_RETENTION_DAYS = SETTINGS["config_snapshot_retention_days"].default
 OLD, EDGE = JOB_RETENTION_DAYS + 5, JOB_RETENTION_DAYS - 1
 SNAP_OLD = CONFIG_SNAPSHOT_RETENTION_DAYS + 3
 
@@ -254,8 +255,8 @@ def test_retention_follows_the_system_setting(app, retention_db):
 	assert retention_db.jobs["fifteen"] not in results
 	assert results[retention_db.jobs["five"]] is None  # snapshot > 2 days: cleared
 	# back to the default: a 15-day-old record survives again
-	app.backend.settings.reset("config_snapshot_retention_days")
-	app.backend.settings.reset("job_retention_days")
+	app.backend.settings.reset("config_snapshot_retention_days", None)
+	app.backend.settings.reset("job_retention_days", None)
 	retention_db.result("fifteen-again", 15)
 	results, _ = retention_db.run_policy()
 	assert retention_db.jobs["fifteen-again"] in results
