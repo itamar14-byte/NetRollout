@@ -142,3 +142,25 @@ def test_non_admins_cant_change_settings(client_for, make_user, app):
 	resp = client.post("/admin/settings", json={"values": {"device_parallelism": 1}})
 	assert resp.status_code in (302, 403)
 	assert app.backend.settings.get("device_parallelism") == 10
+
+
+def test_page_renders_every_setting_with_the_shared_rules(admin, client_for):
+	html = client_for(admin).get("/admin/settings").get_data(as_text=True)
+	for key in ("job_retention_days", "orchestrator_workers",
+	            "public_hostname", "https_port"):
+		assert f'id="set-{key}"' in html, key
+	assert 'min="7"' in html and 'max="65535"' in html     # ranges → inputs
+	assert "at least as long as job records" in html        # rules → the page
+	assert "Internal app port" in html and 'id="testBtn"' in html
+
+
+def test_restart_dot_shows_on_admin_pages_while_pending(admin, app, client_for):
+	client = client_for(admin)
+	started = app.config["SETTINGS_STARTED_WITH"]["orchestrator_workers"]
+	html = client.get("/admin/users").get_data(as_text=True)
+	assert 'title="Restart server"' in html
+	assert 'id="restartPendingDot" style="display:none' in html
+	save(client, orchestrator_workers=started + 1)
+	html = client.get("/admin/users").get_data(as_text=True)
+	assert 'title="Restart required — Concurrent rollout jobs changed"' in html
+	assert 'id="restartPendingDot" style="display:inline-block' in html
