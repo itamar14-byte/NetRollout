@@ -260,9 +260,11 @@ class LDAPGroup(Base):
 
 
 class SystemSetting(Base):
-	"""An admin's change to a system setting. Only changed values are stored:
-	no row means the setting's default (src/db/settings.py is the registry
-	of what settings exist, their defaults and rules)."""
+	"""The runtime value of one system setting — the only runtime source.
+	install() seeds a row for every setting at each start (install value from
+	the env if valid, else the default) and never overwrites one; admins
+	change it in System Settings (src/db/settings.py is the registry of what
+	settings exist, their defaults and rules)."""
 	__tablename__ = 'system_settings'
 	key: Mapped[str] = mapped_column(String(64), primary_key=True)
 	value: Mapped[object] = mapped_column(JSON, nullable=False)
