@@ -11,6 +11,7 @@ from src.webapp.blueprints.admin_servers import bp as admin_servers_bp
 from src.webapp.blueprints.admin_observability import bp as admin_observability_bp
 from src.webapp.blueprints.jobs import bp as jobs_bp
 from src.webapp.blueprints.system import bp as system_bp
+from src.webapp.blueprints.admin_settings import bp as admin_settings_bp
 
 
 def create_app():
@@ -28,4 +29,5 @@ def create_app():
 
 	net_rollout.register_blueprint(jobs_bp)
 	net_rollout.register_blueprint(system_bp)
+	net_rollout.register_blueprint(admin_settings_bp)
 	return net_rollout

@@ -132,15 +132,18 @@ def launch_app():
 
 	backend = BackendServices()
 	init_app_encryption(backend)
+	# restart-only settings: what this process runs with (System Settings
+	# shows "restart pending" while the saved value differs)
+	started_with = backend.settings.restart_only_values()
 	orchestrator = RolloutOrchestrator(backend,
-	                                   int(os.getenv("ORCHESTRATOR_WORKERS",
-	                                                 "4")))
+	                                   started_with["orchestrator_workers"])
 	web_services = WebServices(backend)
 	app = Flask(__name__, template_folder='../../templates',
 	            static_folder='../static')
 
 	# per-run identity for the startup reverse-proxy check (startup.py)
 	app.config["INSTANCE_TOKEN"] = new_instance_token()
+	app.config["SETTINGS_STARTED_WITH"] = started_with
 	app.backend = backend
 	app.orchestrator = orchestrator
 	app.web = web_services

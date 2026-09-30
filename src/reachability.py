@@ -33,10 +33,11 @@ def _cache_key(target: Target) -> str:
 
 
 class ReachabilityChecker:
-	def __init__(self, redis_client: Callable, ttl: int = CACHE_TTL,
+	def __init__(self, redis_client: Callable, ttl: int | Callable = CACHE_TTL,
 	             prober: Callable[[str, int], bool] = probe):
 		# redis_client is a callable: the connection can be hot-swapped from
-		# Server Management, so it's resolved on every use
+		# Server Management, so it's resolved on every use. ttl may be a
+		# callable too (the System Setting), read each time results are cached
 		self._redis = redis_client
 		self._ttl = ttl
 		self._probe = prober
@@ -74,11 +75,20 @@ class ReachabilityChecker:
 			return {}  # no cache: everything gets probed
 		return {t: json.loads(v) for t, v in zip(ordered, raw) if v}
 
+	def _current_ttl(self) -> int:
+		if not callable(self._ttl):
+			return self._ttl
+		try:
+			return int(self._ttl())
+		except Exception:   # settings unreachable: the default, not an error
+			return CACHE_TTL
+
 	def _store(self, results: dict[Target, dict]) -> None:
+		ttl = self._current_ttl()
 		try:
 			pipe = self._redis().pipeline()
 			for t, r in results.items():
-				pipe.setex(_cache_key(t), self._ttl, json.dumps(r))
+				pipe.setex(_cache_key(t), ttl, json.dumps(r))
 			pipe.execute()
 		except REDIS_UNAVAILABLE:
 			pass

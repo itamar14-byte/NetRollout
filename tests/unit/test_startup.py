@@ -63,14 +63,12 @@ def test_public_url_precedence(monkeypatch, tmp_path):
 	conf = tmp_path / "nginx.conf"
 	conf.write_text("server { listen 443 ssl; server_name detected; }")
 	monkeypatch.setenv(startup.NGINX_CONF_ENV, str(conf))
-	monkeypatch.delenv(startup.PUBLIC_URL_ENV, raising=False)
+	# no hostname set: the nginx config
 	assert resolve_public_url() == ("https://detected",
 	                                "auto-detected from nginx.conf")
-	monkeypatch.setenv(startup.PUBLIC_URL_ENV, "https://install.corp:8443/")
-	assert resolve_public_url()[0] == "https://install.corp:8443"
-	assert resolve_public_url("https://admin.corp") == ("https://admin.corp",
-	                                                    "System Settings")
-	monkeypatch.delenv(startup.PUBLIC_URL_ENV)
+	# the URL built from System Settings wins
+	assert resolve_public_url("https://admin.corp:8443/") == (
+		"https://admin.corp:8443", "from System Settings")
 	monkeypatch.setenv(startup.NGINX_CONF_ENV, str(tmp_path / "missing"))
 	assert resolve_public_url() == (None, "none configured")
 
@@ -206,14 +204,14 @@ def test_message_when_not_verified():
 	assert "Reverse proxy not verified at https://localhost" in msg
 	assert "http://localhost:9090" in msg and "this machine only" in msg
 	assert "Remote users can't sign in" in msg
-	assert "set the Public URL" in msg          # auto-detect hint
+	assert "set the hostname and HTTPS port" in msg   # auto-detect hint
 	assert target == "http://localhost:9090"
 	msg, _ = announcement(9090, None, "none configured", None, None)
 	assert "No reverse proxy configured" in msg and "http://localhost:9090" in msg
 	# nginx answered (wrong upstream), so the port was right: no port hint
 	msg, _ = announcement(9090, "https://localhost", "auto-detected from nginx.conf",
 	                      FAIL, FAIL)
-	assert "set the Public URL" not in msg
+	assert "set the hostname and HTTPS port" not in msg
 
 
 # ── Browser guards ──────────────────────────────────────────────────────────

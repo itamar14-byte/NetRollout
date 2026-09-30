@@ -250,7 +250,9 @@ class WebServices:
 	def __init__(self, backend: BackendServices):
 		self.backend = backend
 		# resolved per use: the Redis connection can be hot-swapped
-		self.reachability = ReachabilityChecker(lambda: backend.redis.client)
+		self.reachability = ReachabilityChecker(
+			lambda: backend.redis.client,
+			ttl=lambda: backend.settings.get("reachability_cache_seconds"))
 
 	##########################Audit############################################
 	def audit(self, action, *, object_type=None, object_id=None,

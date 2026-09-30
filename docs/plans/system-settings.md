@@ -13,6 +13,8 @@ Today the startup message hardcodes `127.0.0.1:8080 or localhost:8080`, retentio
 
 ## Terms
 
+_Revised 2026-09-30: the Public URL is two settings — **Hostname** (canonical) and **HTTPS port** — and the app builds `https://<hostname>[:<port>]` from them (the scheme is always https, no path). Empty hostname → auto-detect from the nginx config. The page title is **System Settings**._
+
 - **Public URL** — what people in the organisation type: nginx's hostname and port, e.g. `https://netrollout.corp.local:8443`. Admins can change it.
 - **Internal app port** — the port Waitress listens on (default 8080). Set once at install (so it can move off 8080 if another app uses it) and never changed from the GUI. nginx forwards to it; it's also the local-only fallback.
 
@@ -48,7 +50,8 @@ Today the startup message hardcodes `127.0.0.1:8080 or localhost:8080`, retentio
   | Rollouts | Concurrent rollout jobs | 4 (1–32; seeded from `ORCHESTRATOR_WORKERS`) | after restart |
   | Rollouts | Devices in parallel per job | 10 (1–64) | next rollout |
   | Rollouts | Reachability cache | 60 s (10–3600) | immediately |
-  | Access | Public URL | seeded from `NETROLLOUT_PUBLIC_URL`, else empty (→ auto-detect from nginx config) | next start; **Test** runs the two-step check live |
+  | Access | Hostname (canonical) | seeded from `NETROLLOUT_PUBLIC_HOSTNAME`, else empty (→ auto-detect from nginx config) | next start; **Test** runs the two-step check live |
+  | Access | HTTPS port | 443 (1–65535), seeded from `NETROLLOUT_HTTPS_PORT` | next start |
   | Access | Internal app port | read-only ("set at install") | — |
 
 - **Wiring** — pg_cron jobs read values at run time (`COALESCE(setting, default)`; `install()` already reschedules them each start); `prune_logs` reads its setting each daily run; the Results page reads the snapshot setting; the orchestrator reads the worker count at start; rollouts read device parallelism; the reachability checker reads its TTL live.
@@ -63,6 +66,7 @@ Today the startup message hardcodes `127.0.0.1:8080 or localhost:8080`, retentio
 - The VM deployment uses **host networking**, so nginx's listen port *is* the host port — no port mapping to change. The laptop (Docker Desktop) applies port changes through the launcher / `install.py`.
 - **Lockout safeguard** — the new port runs alongside the old one and reverts in ~2 min unless confirmed from the new address.
 - Hostname changes are flagged: the TLS certificate must match the new name.
+- **One canonical hostname** (decided 2026-09-30): the generated nginx config redirects every other name that reaches the machine (its IP, DNS aliases) to the canonical hostname, so users always land on the name the certificate matches and links stay consistent.
 
 Today's nginx is a standalone container (`docker run`, bridge network, host 80/443 mapped, `docs/nginx/nginx.conf` mounted read-only) — a port change there means recreating the container, which is why Part C waits for the compose layout.
 
@@ -71,6 +75,7 @@ Today's nginx is a standalone container (`docker run`, bridge network, host 80/4
 - **Expose only nginx; never publish the app port.** Otherwise anyone reaching the app port directly can spoof `X-Forwarded-For` (`ProxyFix` trusts it) — falsifying audit-log IPs and bypassing the login rate limit. Not changed on this branch: today's nginx container reaches the app on the host via `host.docker.internal`.
 - `install.py` sets the internal app port (checking for a clash on 8080) and the initial Public URL.
 - Part C's requirements above.
+- Certificates for organisations without internal DNS: they set the hostname to the VM's IP, so the certificate must be issued for that IP.
 
 ## Tests and verification
 
