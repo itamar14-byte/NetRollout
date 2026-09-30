@@ -5,16 +5,17 @@ import pytest
 from src.passwords import password_problem, temporary_password
 
 
-@pytest.mark.parametrize("password", ["Abcdefg1", "network2026", "P4ss word!"])
+@pytest.mark.parametrize("password", ["Abcdefg1", "network2026", "P4ss word!",
+                                      "letters-only", "1234-5678"])   # 2 of 3 groups
 def test_acceptable(password):
 	assert password_problem(password) is None
 
 
 @pytest.mark.parametrize("password, fragment", [
 	("Abc1234", "at least 8"),               # 7 characters
-	("abcdefgh", "letters and digits"),      # no digit
-	("12345678", "letters and digits"),      # no letter
-	("!!!!!!!!", "letters and digits"),
+	("abcdefgh", "at least 2 of"),           # letters only
+	("12345678", "at least 2 of"),           # digits only
+	("!!!!!!!!", "at least 2 of"),           # special only
 	("pässword12", "ASCII"),
 	("admin", "at least 8"),                 # the factory password
 ])

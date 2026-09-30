@@ -5,9 +5,10 @@ import secrets
 import string
 
 MIN_LENGTH = 8
-# Also rules out the seeded admin's "admin" (too short, no digit)
-RULE = (f"at least {MIN_LENGTH} characters, with at least one letter and one "
-        f"digit (ASCII only), not containing your username")
+# Also rules out the seeded admin's "admin" (too short, one group)
+RULE = (f"at least {MIN_LENGTH} characters with at least 2 of: letters, "
+        f"digits, special characters (ASCII only), not containing your "
+        f"username")
 _TEMP_ALPHABET = string.ascii_letters + string.digits
 _TEMP_LENGTH = 14
 
@@ -20,8 +21,11 @@ def password_problem(new: str, username: str | None = None,
 		return "The password must contain only ASCII characters."
 	if len(new) < MIN_LENGTH:
 		return f"The password must be at least {MIN_LENGTH} characters."
-	if not any(c.isalpha() for c in new) or not any(c.isdigit() for c in new):
-		return "The password must contain both letters and digits."
+	groups = (any(c.isalpha() for c in new), any(c.isdigit() for c in new),
+	          any(not c.isalnum() for c in new))
+	if sum(groups) < 2:
+		return ("The password must contain at least 2 of: letters, digits, "
+		        "special characters.")
 	if username and username.lower() in new.lower():
 		return "The password can't contain your username."
 	if current is not None and new == current:

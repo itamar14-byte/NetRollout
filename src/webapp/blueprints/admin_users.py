@@ -11,7 +11,7 @@ from werkzeug.security import generate_password_hash
 # local modules
 from src.db.tables import User
 from src.passwords import temporary_password
-from src.webapp.utils import ok, err, require_admin
+from src.webapp.utils import ok, err, require_admin, end_user_sessions
 
 bp = Blueprint('admin_users', __name__, url_prefix='/admin')
 
@@ -39,16 +39,7 @@ def user_action_factory(user, action, db_session):
 		# LDAP users and the factory admin don't use 2FA.
 		user.otp_secret = None
 	elif action == "terminate_session":
-		end_session(user.id)
-
-
-def end_session(user_id):
-	# Signs the user out everywhere: the next request finds no session
-	client = current_app.backend.redis.client
-	sid = client.get(f"user_session:{user_id}")
-	if sid:
-		client.delete(f"redis_session:{sid.decode()}")
-		client.delete(f"user_session:{user_id}")
+		end_user_sessions(user.id)
 
 
 ##############################Routes#######################################
@@ -104,7 +95,7 @@ def admin_user_action(user_id, action):
 def admin_reset_password(user_id):
 	"""A temporary password for another local user, returned once for the
 	admin to hand over; the user must choose their own at the next sign-in
-	(must_change_password) and their current sessions end now. Not for LDAP
+	(must_change_password) and every session of theirs ends now. Not for LDAP
 	users (the directory owns it), the admin's own account (use Change
 	password) or the factory admin."""
 	if user_id == current_user.id:
@@ -121,9 +112,10 @@ def admin_reset_password(user_id):
 		user.password_hash = generate_password_hash(temporary)
 		user.must_change_password = True
 		username = user.username
-	end_session(user_id)
+	ended = end_user_sessions(user_id)
 	current_app.web.audit("user.reset_password", object_type="User",
-	                      object_id=user_id, object_label=username)
+	                      object_id=user_id, object_label=username,
+	                      detail={"sessions_ended": ended})
 	return ok(username=username, temporary_password=temporary)
 
 
