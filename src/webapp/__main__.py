@@ -22,6 +22,7 @@ except EncryptionStartupError as e:
 start_log_pruning(lambda: app.backend.settings.get("log_retention_days"))
 # Internal app port: set at install; nginx forwards to it
 port = int(os.getenv("PORT", "8080"))
+app.config["APP_PORT"] = port   # shown read-only in System Settings
 # Once Waitress answers: check the reverse proxy and print the address people
 # should use (and open it in the browser on a normal desktop launch)
 settings = app.backend.settings

@@ -2,11 +2,14 @@
 live in src/db/settings.py; these routes call it, audit every change, and
 return per-field / rule errors for the page to show."""
 # flask
-from flask import Blueprint, current_app, jsonify
+from flask import Blueprint, current_app, jsonify, render_template, request
 from flask_login import current_user, login_required
+# sqlalchemy
+from sqlalchemy.exc import SQLAlchemyError
 
 # local modules
-from src.db.settings import SETTINGS, SettingsError, public_url
+from src.db.settings import (SETTINGS, SettingsError, public_url,
+                             rules_for_client)
 from src.webapp.startup import check_proxy, resolve_public_url
 from src.webapp.utils import err, ok, require_admin, with_json
 
@@ -40,7 +43,35 @@ def _audit(action, change):
 	                              "new": change.new})
 
 
+@bp.app_context_processor
+def restart_pending_for_admin_pages():
+	"""Every admin page's Restart button shows the orange dot while a
+	restart-only setting differs from what this process runs with — decided
+	on the server, so it survives page loads."""
+	if not (request.path.startswith("/admin") and current_user.is_authenticated
+	        and current_user.role == "admin"):
+		return {}
+	try:
+		pending = current_app.backend.settings.restart_pending(
+			current_app.config.get("SETTINGS_STARTED_WITH", {}))
+	except SQLAlchemyError:
+		pending = []
+	return {"settings_restart_pending": pending}
+
+
 ##############################Routes#######################################
+@bp.route("")
+@login_required
+@require_admin
+def settings_page():
+	state = _state()
+	cards = list(dict.fromkeys(s.card for s in SETTINGS.values()))
+	return render_template("admin_settings.html", active_section="settings",
+	                       cards=cards, settings=state["settings"],
+	                       rules=rules_for_client(),
+	                       app_port=current_app.config.get("APP_PORT"))
+
+
 @bp.route("", methods=["POST"])
 @login_required
 @require_admin

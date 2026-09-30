@@ -462,17 +462,25 @@
                 <span class="adm-sb-label">Server Management</span>
             </a>
 
+            <a href="{{ url_for('admin_settings.settings_page') }}"
+               class="adm-sb-link {% if active_section == 'settings' %}active{% endif %}"
+               title="System Settings">
+                <i class="bi bi-sliders adm-sb-icon"></i>
+                <span class="adm-sb-label">System Settings</span>
+            </a>
+
         </div>
 
         <div class="adm-sb-footer">
-            <div id="admRestartBtn" class="adm-sb-link" title="Restart server"
+            <div id="admRestartBtn" class="adm-sb-link"
+                 title="{% if settings_restart_pending %}Restart required — {{ settings_restart_pending|join(', ') }} changed{% else %}Restart server{% endif %}"
                  style="cursor:pointer; color:var(--nr-text-muted); transition:color 0.15s;"
                  onmouseenter="this.style.color='#ef9a9a'"
                  onmouseleave="this.style.color='var(--nr-text-muted)'"
                  onclick="admRestartClick()">
                 <i class="bi bi-arrow-clockwise adm-sb-icon" style="font-size:0.82rem;"></i>
                 <span class="adm-sb-label" style="font-family:'JetBrains Mono',monospace; font-size:0.72rem; letter-spacing:1px;">RESTART</span>
-                <span id="restartPendingDot" style="display:none; width:7px; height:7px; border-radius:50%;
+                <span id="restartPendingDot" style="display:{{ 'inline-block' if settings_restart_pending else 'none' }}; width:7px; height:7px; border-radius:50%;
                       background:#ffb74d; box-shadow:0 0 6px #ffb74d; margin-left:auto; flex-shrink:0;
                       animation:restartPulse 1.4s ease-in-out infinite;"></span>
             </div>
@@ -652,6 +660,14 @@ function fireRestart() {
 function markRestartPending() {
   document.getElementById('restartPendingDot').style.display = 'inline-block';
   document.getElementById('admRestartBtn').title = 'Restart required — config saved';
+}
+// System Settings: labels of restart-only settings saved with a new value
+function setSettingsRestartPending(labels) {
+  const dot = document.getElementById('restartPendingDot');
+  const btn = document.getElementById('admRestartBtn');
+  dot.style.display = labels.length ? 'inline-block' : 'none';
+  btn.title = labels.length ? 'Restart required — ' + labels.join(', ') + ' changed'
+                            : 'Restart server';
 }
 </script>
 

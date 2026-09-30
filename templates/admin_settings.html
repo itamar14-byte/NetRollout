@@ -1,0 +1,345 @@
+{% extends "admin.html" %}
+{% block title %}System Settings — Admin Panel{% endblock %}
+
+{% block extra_style %}
+/* inside admin.html's <style> element */
+  .set-row { display: grid; grid-template-columns: minmax(0, 1fr) 220px; gap: 0.5rem 1.5rem;
+             padding: 1rem 0; border-top: 1px solid #222; align-items: start; }
+  .set-row:first-of-type { border-top: none; padding-top: 0.25rem; }
+  .set-label { font-family: 'Inter', sans-serif; font-weight: 500; font-size: 0.9rem; color: #e0e0e0; }
+  .set-help { font-size: 0.8rem; color: var(--nr-text-muted); margin-top: 0.2rem; line-height: 1.45; }
+  .set-meta { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; margin-top: 0.45rem;
+              font-family: 'JetBrains Mono', monospace; font-size: 0.6875rem; color: var(--nr-text-muted); }
+  .set-chip { border-radius: 4px; padding: 0.05rem 0.4rem; border: 1px solid #2a2a2a; }
+  .set-chip.applies { color: var(--nr-text-secondary); }
+  .set-chip.changed { color: #80deea; border-color: rgba(0,188,212,0.35); background: rgba(0,188,212,0.06); }
+  .set-chip.install { color: #ffcc80; border-color: rgba(255,183,77,0.35); background: rgba(255,183,77,0.06); }
+  .set-reset { background: none; border: none; padding: 0; color: var(--nr-accent-soft, #4fa3ad);
+               font-family: 'JetBrains Mono', monospace; font-size: 0.6875rem; cursor: pointer; }
+  .set-reset:hover { color: #00bcd4; text-decoration: underline; }
+  .set-input { font-family: 'JetBrains Mono', monospace !important; }
+  .set-input.dirty { border-color: rgba(0,188,212,0.6) !important; }
+  .set-input.is-invalid { border-color: #ef5350 !important; }
+  .set-error { display: none; font-size: 0.78rem; color: #ef9a9a; margin-top: 0.35rem; }
+  .set-error.show { display: block; }
+  .set-alert { display: none; border-radius: 8px; padding: 0.7rem 0.9rem; font-size: 0.84rem; margin-bottom: 1.25rem; }
+  .set-alert.show { display: block; }
+  .set-alert.error { background: rgba(239,83,80,0.07); border: 1px solid rgba(239,83,80,0.3); color: #ef9a9a; }
+  .set-alert.success { background: rgba(102,187,106,0.07); border: 1px solid rgba(102,187,106,0.3); color: #a5d6a7; }
+  .set-alert.warn { background: rgba(255,183,77,0.07); border: 1px solid rgba(255,183,77,0.3); color: #ffcc80; }
+  .set-note { font-size: 0.8rem; color: var(--nr-text-muted); background: #151515; border: 1px solid #242424;
+              border-radius: 8px; padding: 0.65rem 0.85rem; margin-top: 1rem; line-height: 1.5; }
+  .set-note code { color: #80deea; }
+  .test-result { font-family: 'JetBrains Mono', monospace; font-size: 0.76rem; margin-top: 0.75rem; line-height: 1.6; }
+  .test-result .ok { color: #81c784; } .test-result .fail { color: #ef9a9a; }
+  .save-bar { position: sticky; bottom: 0; background: #121212; border-top: 1px solid #222;
+              padding: 0.85rem 0; display: flex; gap: 0.75rem; align-items: center; z-index: 5; }
+  .save-bar .hint { font-size: 0.8rem; color: var(--nr-text-muted); }
+  @media (max-width: 720px) { .set-row { grid-template-columns: 1fr; } }
+{% endblock %}
+
+{% block admin_content %}
+<div class="d-flex justify-content-between align-items-start mb-4">
+  <div>
+    <div class="nr-badge" style="margin-bottom:0.35rem;">SYSTEM SETTINGS</div>
+    <h4 class="mb-0" style="font-family:'Inter',sans-serif; font-weight:600; font-size:1.15rem; color:#e0e0e0;">
+      System Settings
+    </h4>
+    <div style="font-size:0.82rem; color:var(--nr-text-muted); margin-top:0.3rem;">
+      Apply to the whole installation and every user. Each change is recorded in the audit log.
+    </div>
+  </div>
+</div>
+
+<div id="alertBox" class="set-alert" role="alert"></div>
+
+<form id="settingsForm" novalidate>
+{% for card in cards %}
+<div class="nr-card mb-4">
+  <div class="nr-card-accent"></div>
+  <div class="nr-card-body">
+    <div class="d-flex align-items-center mb-3">
+      <i class="bi {{ {'Retention': 'bi-clock-history', 'Rollouts': 'bi-diagram-3', 'Access': 'bi-globe2'}.get(card, 'bi-sliders') }}"
+         style="color:#00bcd4; font-size:1.05rem;"></i>
+      <span style="font-family:'Inter',sans-serif; font-weight:600; color:#e0e0e0; font-size:0.97rem; margin-left:0.5rem;">{{ card }}</span>
+    </div>
+
+    {% for s in settings if s.card == card %}
+    <div class="set-row" data-key="{{ s.key }}">
+      <div>
+        <label class="set-label" for="set-{{ s.key }}">{{ s.label }}</label>
+        <div class="set-help" id="help-{{ s.key }}">{{ s.help }}</div>
+        <div class="set-meta">
+          <span class="set-chip applies">applies: {{ s.applies }}</span>
+          <span>default: {{ s.default if s.default not in (None, '') else '—' }}</span>
+          <span class="set-chip changed" data-marker="changed" {% if not s.changed or s.from_install %}hidden{% endif %}>changed</span>
+          <span class="set-chip install" data-marker="install" {% if not s.from_install %}hidden{% endif %}>set at install</span>
+          <button type="button" class="set-reset" data-reset="{{ s.key }}" {% if not s.changed %}hidden{% endif %}>reset to default</button>
+        </div>
+      </div>
+      <div>
+        {% if s.kind == 'int' %}
+        <input type="number" class="form-control form-control-sm set-input" id="set-{{ s.key }}"
+               name="{{ s.key }}" value="{{ s.value }}" step="1"
+               {% if s.minimum is not none %}min="{{ s.minimum }}"{% endif %}
+               {% if s.maximum is not none %}max="{{ s.maximum }}"{% endif %}
+               aria-describedby="help-{{ s.key }} err-{{ s.key }}" {% if not s.editable %}disabled{% endif %}>
+        {% else %}
+        <input type="text" class="form-control form-control-sm set-input" id="set-{{ s.key }}"
+               name="{{ s.key }}" value="{{ s.value }}" placeholder="{{ s.placeholder }}"
+               {% if s.max_length %}maxlength="{{ s.max_length }}"{% endif %}
+               autocomplete="off" spellcheck="false"
+               aria-describedby="help-{{ s.key }} err-{{ s.key }}" {% if not s.editable %}disabled{% endif %}>
+        {% endif %}
+        <div class="set-error" id="err-{{ s.key }}" role="alert"></div>
+      </div>
+    </div>
+    {% endfor %}
+
+    {% if card == 'Access' %}
+    <div class="set-row">
+      <div>
+        <div class="set-label">Internal app port</div>
+        <div class="set-help">The port this NetRollout process listens on; nginx forwards to it. Set at install.</div>
+      </div>
+      <div>
+        <input type="text" class="form-control form-control-sm set-input" value="{{ app_port if app_port else '—' }}"
+               disabled aria-label="Internal app port (read-only)">
+      </div>
+    </div>
+
+    <div class="d-flex align-items-center gap-2 mt-2">
+      <button type="button" id="testBtn" class="btn btn-sm btn-outline-info">
+        <i class="bi bi-broadcast me-1"></i>Test access
+      </button>
+      <span style="font-size:0.78rem; color:var(--nr-text-muted);">Checks the hostname and port above, saved or not.</span>
+    </div>
+    <div id="testResult" class="test-result" aria-live="polite"></div>
+
+    <div class="set-note">
+      <i class="bi bi-info-circle me-1"></i>
+      These tell NetRollout where people reach it. They don't reconfigure nginx yet —
+      after changing them, update <code>server_name</code> / <code>listen</code> in the nginx config
+      (and the certificate, for a new hostname). Automatic in a later release.
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endfor %}
+
+<div class="save-bar">
+  <button type="submit" id="saveBtn" class="btn btn-primary btn-sm" disabled>
+    <i class="bi bi-check-lg me-1"></i>Save changes
+  </button>
+  <button type="button" id="discardBtn" class="btn btn-secondary btn-sm" disabled>Discard</button>
+  <span class="hint" id="dirtyHint">No unsaved changes</span>
+</div>
+</form>
+{% endblock %}
+
+{% block extra_script %}
+<script>
+(() => {
+  const CSRF = '{{ csrf_token() }}';
+  // The registry and rules as the server enforces them — the page checks the
+  // same things before sending; the server checks again (authoritative).
+  let SETTINGS = {{ settings | tojson }};
+  const RULES = {{ rules | tojson }};
+  const RULES_KEY = '_rules';
+
+  const form = document.getElementById('settingsForm');
+  const saveBtn = document.getElementById('saveBtn');
+  const discardBtn = document.getElementById('discardBtn');
+  const dirtyHint = document.getElementById('dirtyHint');
+  const alertBox = document.getElementById('alertBox');
+  const byKey = () => Object.fromEntries(SETTINGS.map(s => [s.key, s]));
+
+  function input(key) { return document.getElementById('set-' + key); }
+
+  // ── Field validation: mirrors Setting.parse on the server ──
+  function parseField(s, raw) {
+    if (s.kind === 'int') {
+      const text = String(raw).trim();
+      if (!/^-?\d+$/.test(text)) throw `${s.label} must be a whole number`;
+      const n = parseInt(text, 10);
+      if (s.minimum !== null && n < s.minimum) throw `${s.label} must be at least ${s.minimum}`;
+      if (s.maximum !== null && n > s.maximum) throw `${s.label} must be at most ${s.maximum}`;
+      return n;
+    }
+    const v = String(raw ?? '').trim();
+    if (s.max_length && v.length > s.max_length) throw `${s.label} must be at most ${s.max_length} characters`;
+    if (v && s.pattern && !new RegExp('^(?:' + s.pattern + ')$').test(v))
+      throw `${s.label} ${s.pattern_hint || 'has an invalid format'}`;
+    return v;
+  }
+
+  function showFieldError(key, msg) {
+    const el = input(key), box = document.getElementById('err-' + key);
+    el.classList.toggle('is-invalid', !!msg);
+    el.setAttribute('aria-invalid', msg ? 'true' : 'false');
+    box.textContent = msg || '';
+    box.classList.toggle('show', !!msg);
+  }
+
+  function showAlert(kind, html) {
+    alertBox.className = 'set-alert show ' + kind;
+    alertBox.innerHTML = html;
+  }
+  function clearAlert() { alertBox.className = 'set-alert'; alertBox.textContent = ''; }
+  const esc = t => String(t).replace(/[&<>"']/g, c =>
+    ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+
+  // ── Edited fields, validated; returns {values, errors, ruleErrors} ──
+  function collect() {
+    const current = byKey(), values = {}, errors = {};
+    const merged = Object.fromEntries(SETTINGS.map(s => [s.key, s.value]));
+    for (const s of SETTINGS) {
+      if (!s.editable) continue;
+      const el = input(s.key);
+      if (String(el.value).trim() === String(s.value ?? '')) continue;
+      try {
+        const v = parseField(current[s.key], el.value);
+        if (v !== s.value) { values[s.key] = v; merged[s.key] = v; }
+      } catch (msg) { errors[s.key] = msg; }
+    }
+    // cross-setting rules: the same list update() checks on the server
+    const touched = new Set(Object.keys(values));
+    const ruleErrors = RULES.filter(r => (touched.has(r.left) || touched.has(r.right)) &&
+      !(r.op === '>=' ? merged[r.left] >= merged[r.right] : merged[r.left] <= merged[r.right]))
+      .map(r => r.message);
+    return {values, errors, ruleErrors};
+  }
+
+  function refreshDirty() {
+    let dirty = 0;
+    for (const s of SETTINGS) {
+      if (!s.editable) continue;
+      const changed = String(input(s.key).value).trim() !== String(s.value ?? '');
+      input(s.key).classList.toggle('dirty', changed);
+      dirty += changed;
+    }
+    saveBtn.disabled = discardBtn.disabled = !dirty;
+    dirtyHint.textContent = dirty ? `${dirty} unsaved change${dirty > 1 ? 's' : ''}` : 'No unsaved changes';
+  }
+
+  // Server state → inputs and markers (after save / reset)
+  function applyState(state) {
+    SETTINGS = state.settings;
+    for (const s of SETTINGS) {
+      const row = document.querySelector(`.set-row[data-key="${s.key}"]`);
+      input(s.key).value = s.value ?? '';
+      showFieldError(s.key, '');
+      row.querySelector('[data-marker="changed"]').hidden = !s.changed || s.from_install;
+      row.querySelector('[data-marker="install"]').hidden = !s.from_install;
+      row.querySelector('[data-reset]').hidden = !s.changed;
+    }
+    // only when the server reported it (a save / reset), not on Discard
+    if (Array.isArray(state.restart_pending) && window.setSettingsRestartPending)
+      setSettingsRestartPending(state.restart_pending);
+    refreshDirty();
+  }
+
+  function showServerErrors(data) {
+    const errors = data.errors || {};
+    for (const [key, msg] of Object.entries(errors)) {
+      if (key !== RULES_KEY && input(key)) showFieldError(key, msg);
+    }
+    const general = errors[RULES_KEY] ? [errors[RULES_KEY]] : [];
+    showAlert('error', '<i class="bi bi-x-circle me-1"></i>Not saved. ' +
+      (general.length ? esc(general.join(' ')) : 'Fix the highlighted fields.'));
+  }
+
+  async function post(url, body) {
+    const resp = await fetch(url, {method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
+      body: JSON.stringify(body || {})});
+    let data = {};
+    try { data = await resp.json(); } catch (_) {}
+    return {resp, data};
+  }
+
+  // ── Live checks while typing ──
+  form.addEventListener('input', e => {
+    const key = e.target.name;
+    if (!key) return;
+    const s = byKey()[key];
+    try { parseField(s, e.target.value); showFieldError(key, ''); }
+    catch (msg) { showFieldError(key, msg); }
+    refreshDirty();
+  });
+
+  // ── Save ──
+  form.addEventListener('submit', async e => {
+    e.preventDefault();
+    clearAlert();
+    const {values, errors, ruleErrors} = collect();
+    for (const s of SETTINGS) if (s.editable) showFieldError(s.key, errors[s.key] || '');
+    if (Object.keys(errors).length || ruleErrors.length) {
+      showAlert('error', '<i class="bi bi-x-circle me-1"></i>Not saved. ' +
+        (ruleErrors.length ? esc(ruleErrors.join(' ')) : 'Fix the highlighted fields.'));
+      return;                                   // nothing sent
+    }
+    if (!Object.keys(values).length) { refreshDirty(); return; }
+    saveBtn.disabled = true;
+    const {resp, data} = await post('/admin/settings', {values});
+    if (resp.ok && data.status === 'ok') {
+      applyState(data);
+      const n = data.changed.length;
+      let msg = `<i class="bi bi-check-circle me-1"></i>Saved ${n} setting${n === 1 ? '' : 's'}.`;
+      if ((data.restart_pending || []).length)
+        msg += ' ' + esc(data.restart_pending.join(', ')) + ' applies after a restart (Restart, bottom left).';
+      showAlert((data.restart_pending || []).length ? 'warn' : 'success', msg);
+    } else if (resp.status === 422) {
+      showServerErrors(data);
+      refreshDirty();
+    } else {
+      showAlert('error', 'Not saved: ' + esc(data.message || `server error (${resp.status})`));
+      refreshDirty();
+    }
+  });
+
+  discardBtn.addEventListener('click', () => { clearAlert(); applyState({settings: SETTINGS,
+    restart_pending: null}); });
+
+  // ── Reset to default ──
+  form.addEventListener('click', async e => {
+    const key = e.target.dataset && e.target.dataset.reset;
+    if (!key) return;
+    clearAlert();
+    const {resp, data} = await post(`/admin/settings/${encodeURIComponent(key)}/reset`);
+    if (resp.ok && data.status === 'ok') {
+      applyState(data);
+      showAlert('success', `<i class="bi bi-arrow-counterclockwise me-1"></i>${esc(byKey()[key].label)} reset to its default.`);
+    } else if (resp.status === 422) {
+      showServerErrors(data);
+    } else {
+      showAlert('error', 'Not reset: ' + esc(data.message || `server error (${resp.status})`));
+    }
+  });
+
+  // ── Test access (two-step reverse-proxy check) ──
+  const testBtn = document.getElementById('testBtn');
+  if (testBtn) testBtn.addEventListener('click', async () => {
+    const out = document.getElementById('testResult');
+    const hostname = input('public_hostname').value, port = input('https_port').value;
+    try {
+      parseField(byKey().public_hostname, hostname);
+      parseField(byKey().https_port, port);
+    } catch (msg) { out.innerHTML = `<span class="fail">✗ ${esc(msg)}</span>`; return; }
+    testBtn.disabled = true;
+    out.textContent = 'Checking…';
+    const {resp, data} = await post('/admin/settings/test', {hostname, port});
+    testBtn.disabled = false;
+    if (!resp.ok) { out.innerHTML = `<span class="fail">✗ ${esc(data.message || 'check failed')}</span>`; return; }
+    if (!data.url) { out.innerHTML = '<span class="fail">✗ No hostname set and none found in the nginx config.</span>'; return; }
+    const line = (name, r) => r.ok
+      ? `<span class="ok">✓ ${name}: forwards to this NetRollout</span>`
+      : `<span class="fail">✗ ${name}: ${esc(r.reason)}</span>`;
+    out.innerHTML = `${esc(data.url)} <span style="color:var(--nr-text-muted)">(${esc(data.source)})</span><br>` +
+      line('nginx on this machine', data.local) + '<br>' + line('via the URL', data.public);
+  });
+
+  refreshDirty();
+})();
+</script>
+{% endblock %}
