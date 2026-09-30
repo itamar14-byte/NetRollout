@@ -1,0 +1,15 @@
+# Stored as LF in the repo; checked out per platform unless pinned below
+* text=auto
+
+# Run inside Linux containers: must stay LF on every checkout
+*.sh       text eol=lf
+*.conf     text eol=lf
+*.template text eol=lf
+
+# Windows scripts
+*.bat      text eol=crlf
+*.cmd      text eol=crlf
+*.ps1      text eol=crlf
+
+*.png      binary
+*.ico      binary

@@ -36,6 +36,13 @@ cd src/db && alembic revision --autogenerate -m "..."   # new migration
 ```
 The app applies migrations itself at startup; the alembic CLI resolves `DATABASE_URL`, else `PG_*`.
 
+### Dependencies
+`requirements.txt` (runtime, `~=` ranges) → `requirements.lock` (exact pins, installed by the image); `requirements-dev.txt` adds pytest + mypy. After changing `requirements.txt`, regenerate the lock on Linux (a Windows freeze can pick up Windows-only packages):
+```bash
+MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd -W)/requirements.txt:/req/requirements.txt:ro" python:3.12-slim \
+  sh -c "pip install -q --root-user-action=ignore -r /req/requirements.txt >/dev/null && pip freeze" > requirements.lock
+```
+
 ### Configuration
 - `config.env` (repo root, loaded at startup): `DATABASE_URL` or `PG_HOST/PG_PORT/PG_NAME/PG_USER/PG_PASSWORD/PG_SCHEMA`; `REDIS_URL` or `REDIS_HOST/REDIS_PORT/REDIS_DB/REDIS_PASSWORD`. Server Management (admin) writes these.
 - Other env: `SECRET_KEY`, `PORT` (internal app port, set at install).

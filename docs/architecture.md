@@ -96,7 +96,7 @@ TypedDict returned per device by `RolloutEngine.run()`. Fields: `device_ip`, `de
 
 ## 3. ORM Models (`src/db/tables.py`)
 
-All models use UUID primary keys except `SystemSetting`, whose key is the setting name. The schema is managed by Alembic (`src/db/migrations`); the app applies migrations itself at every start.
+All models use UUID primary keys except `SystemSetting`, whose key is the setting name. The schema is managed by Alembic (`src/db/alembic/versions`, one `v1_0_0_baseline` revision; from v1.0.0 on, schema changes are new revisions on top of it); the app applies migrations itself at every start.
 
 ### `User`
 

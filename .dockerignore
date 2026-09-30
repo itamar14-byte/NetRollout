@@ -1,0 +1,13 @@
+# Whitelist: the repo root is the build context of the app image only, and
+# it needs just the code, the templates, the pinned dependencies and the
+# licence (the published image is a distribution under AGPL-3.0). Anything
+# not listed stays out (docs/credentials, config.env, certs, logs, .venv, .git).
+# The nginx and postgres images build from their own folders under deploy/.
+*
+!src/
+!templates/
+!requirements.lock
+!LICENSE
+**/__pycache__
+**/*.pyc
+templates/CLAUDE.md
