@@ -1,5 +1,5 @@
 # Development Workplan
-_Last updated: 2026-09-30 — Phase 4 stages 1 (hygiene + migration squash) and 2 (paths + config precedence) done; plan in `docs/plans/phase-4.md`, branch `phase-4-packaging`; see the status table under "Remaining work"_
+_Last updated: 2026-10-01 — Phase 4 stages 1 (hygiene + migration squash), 2 (paths + config precedence) and 3 (container runtime) done; plan in `docs/plans/phase-4.md`, branch `phase-4-packaging`; see the status table under "Remaining work"_
 
 > **How to read this file.** Phase entries are a dated log of what was built at the time. Later work changed some of it; those places are marked *Superseded* with a pointer, and small details (file names, signatures) have been corrected in place (checked against the code on 2026-09-30). The **current** design is in `docs/architecture.md`; open work is in the status table under "Remaining work" and in `docs/plans/`.
 
@@ -419,7 +419,7 @@ _Feature set is complete as of 2026-04-28. Remaining work is cleanup, packaging,
 | 2 — 4.0 | Blueprint split | ✅ Done — frontend asset splitting deferred |
 | 3 — 4.0b | BYO Postgres / Redis | ✅ Done — Grafana BYO post-v1.0 |
 | 3b | System settings + startup reverse-proxy check (`docs/plans/system-settings.md`, branch `system-settings`) | ✅ Parts A + B done (2026-09-30) — Part C (nginx follows the Access settings) is Phase 4 stage 8 |
-| 4 — Phase 4 | Packaging v1.0.0 — `docs/plans/phase-4.md` (approved 2026-09-30, branch `phase-4-packaging`): hygiene + migration squash, paths/config, container runtime, forced password change, **platform profiles (push commit + verify on all 12 platforms)**, CLI `.exe`, images, compose, Part C + certificate upload, installer + scripts, CI, docs | 🔄 In progress — stage 1 (hygiene + migration squash to the `v1_0_0_baseline` revision) and stage 2 (`src/paths.py`, `config/runtime.env` precedence) done 2026-09-30; next: stages 3, 4, 4b, 5 |
+| 4 — Phase 4 | Packaging v1.0.0 — `docs/plans/phase-4.md` (approved 2026-09-30, branch `phase-4-packaging`): hygiene + migration squash, paths/config, container runtime, forced password change, **platform profiles (push commit + verify on all 12 platforms)**, CLI `.exe`, images, compose, Part C + certificate upload, installer + scripts, CI, docs | 🔄 In progress — stage 1 (hygiene + migration squash to the `v1_0_0_baseline` revision) stage 2 (`src/paths.py`, `config/runtime.env` precedence) done 2026-09-30; stage 3 (container runtime: secrets fail-fast, drain on stop/Restart, health endpoint, sessions follow a Redis switch) done 2026-10-01; next: stages 4, 4b, 5 |
 | 5 — release | v1.0.0 — release gates in `docs/plans/phase-4.md` (EVE-NG round against the built image, backup/restore, upgrade) | ⬜ |
 
 ### Step 1 — 4.9c Codebase cleanup ✅ COMPLETE

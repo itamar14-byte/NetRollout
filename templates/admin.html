@@ -477,7 +477,7 @@
                  style="cursor:pointer; color:var(--nr-text-muted); transition:color 0.15s;"
                  onmouseenter="this.style.color='#ef9a9a'"
                  onmouseleave="this.style.color='var(--nr-text-muted)'"
-                 onclick="admRestartClick()">
+                 onclick="nrRestartClick()">
                 <i class="bi bi-arrow-clockwise adm-sb-icon" style="font-size:0.82rem;"></i>
                 <span class="adm-sb-label" style="font-family:'JetBrains Mono',monospace; font-size:0.72rem; letter-spacing:1px;">RESTART</span>
                 <span id="restartPendingDot" style="display:{{ 'inline-block' if settings_restart_pending else 'none' }}; width:7px; height:7px; border-radius:50%;
@@ -497,6 +497,7 @@
 
         <!-- Flash messages -->
         <div class="px-4 pt-3">
+            {% include '_drain_banner.html' %}
             {% with messages = get_flashed_messages(with_categories=true) %}
                 {% if messages %}
                     {% for category, message in messages %}
@@ -528,33 +529,7 @@
 </div>
 
 <!-- Restart modal -->
-<div class="modal fade" id="restartModal" tabindex="-1">
-    <div class="modal-dialog modal-dialog-centered" style="max-width:400px;">
-        <div class="modal-content">
-            <div class="modal-header" style="border-bottom:1px solid #222;">
-                <div>
-                    <div class="nr-badge" style="margin-bottom:0.3rem; border-color:rgba(239,83,80,0.4); color:#ef9a9a;">WARNING</div>
-                    <h5 class="modal-title" style="color:#ef9a9a;">Restart Server</h5>
-                </div>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <p style="font-size:0.85rem; color:#aaa; margin-bottom:0.5rem;">The server will restart immediately.</p>
-                <p style="font-size:0.85rem; color:#ef9a9a; margin:0;">
-                    <i class="bi bi-exclamation-triangle me-1"></i>
-                    <span id="restartJobWarning"></span>
-                </p>
-            </div>
-            <div class="modal-footer" style="justify-content:space-between; align-items:center;">
-                <span id="restartCountdown" style="font-family:'JetBrains Mono',monospace; font-size:0.78rem; color:var(--nr-text-muted);"></span>
-                <div class="d-flex gap-2">
-                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
-                    <button type="button" id="restartConfirmBtn" class="btn btn-danger btn-sm" disabled onclick="doRestart()">Confirm Restart</button>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
+{% include '_restart_modal.html' %}
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
@@ -585,69 +560,7 @@
     });
 </script>
 
-<script>
-let _restartTimer = null;
-
-async function admRestartClick() {
-    let count = 0;
-    try {
-        const resp = await fetch('/admin/active_job_count');
-        const data = await resp.json();
-        count = data.count || 0;
-    } catch(e) { count = 0; }
-
-    if (count === 0) { fireRestart(); return; }
-
-    const confirmBtn = document.getElementById('restartConfirmBtn');
-    const countdown  = document.getElementById('restartCountdown');
-    document.getElementById('restartJobWarning').textContent =
-        `${count} active rollout job${count !== 1 ? 's' : ''} will be terminated mid-execution. Devices may be left partially configured.`;
-
-    confirmBtn.disabled = true;
-    countdown.textContent = 'Available in 3…';
-    clearInterval(_restartTimer);
-    let secs = 3;
-    _restartTimer = setInterval(() => {
-        secs--;
-        if (secs > 0) { countdown.textContent = `Available in ${secs}…`; }
-        else { clearInterval(_restartTimer); countdown.textContent = ''; confirmBtn.disabled = false; }
-    }, 1000);
-
-    bootstrap.Modal.getOrCreateInstance(document.getElementById('restartModal')).show();
-}
-
-document.addEventListener('DOMContentLoaded', () => {
-    const modal = document.getElementById('restartModal');
-    if (!modal) return;
-    modal.addEventListener('hidden.bs.modal', () => {
-        clearInterval(_restartTimer);
-        document.getElementById('restartConfirmBtn').disabled = true;
-    });
-});
-
-function doRestart() {
-    const btn = document.getElementById('restartConfirmBtn');
-    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Restarting…'; }
-    bootstrap.Modal.getOrCreateInstance(document.getElementById('restartModal')).hide();
-    fireRestart();
-}
-
-function fireRestart() {
-    const sbBtn = document.getElementById('admRestartBtn');
-    if (sbBtn) {
-        sbBtn.querySelector('i').className = 'bi bi-arrow-clockwise adm-sb-icon spin';
-        sbBtn.querySelector('.adm-sb-label').textContent = 'RESTARTING…';
-        sbBtn.style.color = '#ef9a9a';
-        sbBtn.onclick = null;
-    }
-    fetch('/admin/server/restart', { method: 'POST', headers: { 'X-CSRFToken': '{{ csrf_token() }}' } })
-        .then(() => {
-            const poll = setInterval(() => {
-                fetch('/').then(r => { if (r.ok) { clearInterval(poll); window.location.replace('/'); } }).catch(() => {});
-            }, 1000);
-        });
-}
-</script>
+{% with restart_btn='admRestartBtn', restart_icon='adm-sb-icon', restart_label='.adm-sb-label' %}{% include '_restart_script.html' %}{% endwith %}
 <style>
 @keyframes spin { to { transform: rotate(360deg); } }
 .spin { display: inline-block; animation: spin 0.8s linear infinite; }

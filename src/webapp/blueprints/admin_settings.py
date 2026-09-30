@@ -10,6 +10,7 @@ from sqlalchemy.exc import SQLAlchemyError
 # local modules
 from src.db.settings import (SETTINGS, SettingsError, public_url,
                              rules_for_client)
+from src.deployment import in_container
 from src.webapp.startup import check_proxy, resolve_public_url
 from src.webapp.utils import err, ok, require_admin, with_json
 
@@ -119,6 +120,10 @@ def settings_test_access(data):
 	except ValueError as e:
 		return err(str(e), 422)
 	url, source = resolve_public_url(public_url(hostname, port))
+	if in_container():
+		# From inside the container the published port isn't reliably
+		# reachable: a probe here would report working setups as broken
+		return ok(url=url, source=source, container=True)
 	if not url:
 		return ok(url=None, source=source, local=None, public=None)
 	local, public = check_proxy(url, current_app.config["INSTANCE_TOKEN"])
