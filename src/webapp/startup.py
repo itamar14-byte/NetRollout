@@ -193,7 +193,7 @@ def announcement(app_port: int, public_url: str | None, source: str,
 	            f"only (the session cookie is HTTPS-only).")
 	# the public step alone proves it — nginx may live on another machine
 	if public_url and public and public.ok:
-		return (f"NetRollout is available at {public_url}\n"
+		return (f"Available at {public_url}\n"
 		        f"  (reverse proxy verified; Public URL {source})", public_url)
 	if public_url and local and local.ok:
 		return (f"nginx is up and forwarding to this instance, but "
@@ -273,7 +273,7 @@ def start_announcer(token: str, app_port: int, public_setting=None,
 		if url:
 			local, public = check_proxy(url, token)
 		message, target = announcement(app_port, url, source, local, public)
-		print("\n[NetRollout] " + message + "\n", flush=True)
+		print("[NetRollout] " + message, flush=True)
 		if should_open_browser() if open_browser is None else open_browser:
 			try:
 				webbrowser.open(target)
