@@ -1,13 +1,14 @@
 """Admin panel: user management, live sessions, audit/analytics, server
 management and LDAP configuration (directory calls mocked).
 
-Never called here, even as admin: /admin/server/restart (os._exit) and the
-postgres/redis *save* routes (they rewrite config.env and swap connections).
+Never called here, even as admin: /admin/server/restart (os._exit). The
+postgres/redis *save* routes run with the connection swap stubbed out.
 """
 import uuid
 from unittest.mock import patch
 
 import pytest
+from dotenv import dotenv_values
 
 from src.db.tables import AuditLog, LDAPGroup, LDAPServer, User
 from src.encryption import decrypt
@@ -181,6 +182,34 @@ def test_redis_test_endpoint(admin, client_for):
 	resp = client_for(admin).post("/admin/server/redis/test", json={
 		"host": "127.0.0.1", "port": "6999"})
 	assert resp.json["status"] == "error"
+
+
+@pytest.fixture
+def switch_writes_only(app, monkeypatch):
+	# A save swaps the shared app's connections; stub only the swap, so the
+	# route → backend → config/runtime.env path runs for real
+	monkeypatch.setattr(app.backend.postgres, "reload_db", lambda config: None)
+	monkeypatch.setattr(app.backend.redis, "reload_db", lambda config: None)
+	runtime_env = app.backend._CONFIG_ENV
+	runtime_env.unlink(missing_ok=True)
+	yield runtime_env
+	runtime_env.unlink(missing_ok=True)
+
+
+def test_save_routes_write_runtime_env(admin, client_for, switch_writes_only):
+	client = client_for(admin)
+	assert client.post("/admin/server/postgres/save", json={
+		"host": "db.example.org", "port": "5433", "name": "netrollout",
+		"user": "nr", "password": "pg-secret"}).json["status"] == "ok"
+	assert client.post("/admin/server/redis/save", json={
+		"host": "cache.example.org", "port": "6380"}).json["status"] == "ok"
+	# Both switches in one file; unused keys blank so nothing inherited wins
+	assert dotenv_values(switch_writes_only) == {
+		"PG_HOST": "db.example.org", "PG_PORT": "5433", "PG_NAME": "netrollout",
+		"PG_USER": "nr", "PG_PASSWORD": "pg-secret", "PG_SCHEMA": "",
+		"DATABASE_URL": "",
+		"REDIS_HOST": "cache.example.org", "REDIS_PORT": "6380",
+		"REDIS_DB": "0", "REDIS_PASSWORD": "", "REDIS_URL": ""}
 
 
 # ── LDAP configuration ───────────────────────────────────────────────────────

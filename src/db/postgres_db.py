@@ -37,24 +37,19 @@ class PostgresConfig:
 		return (f"postgresql+psycopg2://{self.user}:{self.password}@"
 		        f"{self.host}:{self.port}/{self.database}")
 
-	def to_env_dict(self) -> tuple[dict, list]:
-		updates = {
+	def to_env_dict(self) -> dict:
+		# Every key, blank rather than absent: runtime.env is loaded over the
+		# container environment, and an inherited DATABASE_URL or PG_SCHEMA
+		# would otherwise still apply after the switch
+		return {
 			"PG_HOST": self.host,
 			"PG_PORT": self.port,
 			"PG_NAME": self.database,
 			"PG_USER": self.user,
 			"PG_PASSWORD": self.password,
+			"PG_SCHEMA": self.schema or "",
+			"DATABASE_URL": "",
 		}
-		pop_keys = []
-		if self.host in ("localhost", "127.0.0.1"):
-			pop_keys.append("POSTGRES_EXTERNAL")
-		else:
-			updates["POSTGRES_EXTERNAL"] = "true"
-		if self.schema:
-			updates["PG_SCHEMA"] = self.schema
-		else:
-			pop_keys.append("PG_SCHEMA")
-		return updates, pop_keys
 
 class PostgresConnection:
 	def __init__(self, config: PostgresConfig | None = None):

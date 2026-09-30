@@ -40,22 +40,17 @@ class RedisConfig:
             return f"redis://:{self.password}@{self.host}:{self.port}/{self.db}"
         return f"redis://{self.host}:{self.port}/{self.db}"
 
-    def to_env_dict(self) -> tuple[dict, list]:
-        updates = {
+    def to_env_dict(self) -> dict:
+        # Every key, blank rather than absent: runtime.env is loaded over the
+        # container environment, and an inherited REDIS_URL or REDIS_PASSWORD
+        # would otherwise still apply after the switch
+        return {
             "REDIS_HOST": self.host,
             "REDIS_PORT": self.port,
             "REDIS_DB": self.db or "0",
+            "REDIS_PASSWORD": self.password or "",
+            "REDIS_URL": "",
         }
-        pop_keys = []
-        if self.host in ("localhost", "127.0.0.1"):
-            pop_keys.append("REDIS_EXTERNAL")
-        else:
-            updates["REDIS_EXTERNAL"] = "true"
-        if self.password:
-            updates["REDIS_PASSWORD"] = self.password
-        else:
-            pop_keys.append("REDIS_PASSWORD")
-        return updates, pop_keys
 
 
     
