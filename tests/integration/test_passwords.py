@@ -178,9 +178,8 @@ def test_reset_gives_a_temporary_password_and_forces_a_change(
 	target = make_user()
 	target_client = client_for(target)
 	target_client.get("/dashboard")                     # has a live session
-	app.backend.redis.client.set(
-		f"user_session:{target.id}",
-		target_client.get_cookie("session").value)
+	sid = target_client.get_cookie("session").value
+	app.backend.redis.client.set(f"user_session:{target.id}", sid)
 
 	resp = reset(client_for(admin), target.id)
 	assert resp.status_code == 200
@@ -192,7 +191,11 @@ def test_reset_gives_a_temporary_password_and_forces_a_change(
 	assert check_password_hash(user.password_hash, temporary)
 	assert not check_password_hash(user.password_hash, TEST_PASSWORD)
 	assert not app.backend.redis.client.exists(f"user_session:{target.id}")
-	assert target_client.get("/dashboard").status_code == 302   # signed out
+	assert not app.backend.redis.client.exists(f"redis_session:{sid}")
+	# Signed out: sent to sign in, not to the change page (the flag alone
+	# would redirect there too)
+	assert target_client.get("/dashboard").headers["Location"] \
+	       != "/account/password"
 	(entry,) = audits(session_scope, "user.reset_password")
 	assert entry[0] == admin.username and temporary not in str(entry)
 
