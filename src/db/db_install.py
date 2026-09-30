@@ -9,6 +9,7 @@ from sqlalchemy.exc import SQLAlchemyError
 if TYPE_CHECKING:
 	from src.db.postgres_db import PostgresConnection
 from werkzeug.security import generate_password_hash
+from src.db.settings import SETTINGS, sql_value
 from src.db.tables import User
 
 # ── Retention policy ─────────────────────────────────────────────────────────
@@ -16,29 +17,37 @@ from src.db.tables import User
 # are one logical record and expire together. The heavy per-device running
 # config snapshot (device_results.fetched_config) is cleared much earlier —
 # it only matters while investigating a failed verify.
-JOB_RETENTION_DAYS = 30
-CONFIG_SNAPSHOT_RETENTION_DAYS = 7
-AUDIT_RETENTION_DAYS = 90
+# The periods are System Settings (src/db/settings.py): each statement reads
+# the admin's value when it runs, falling back to the default — so a change
+# applies at the next nightly run, without a restart.
+JOB_RETENTION_DAYS = SETTINGS["job_retention_days"].default
+CONFIG_SNAPSHOT_RETENTION_DAYS = SETTINGS["config_snapshot_retention_days"].default
+AUDIT_RETENTION_DAYS = SETTINGS["audit_retention_days"].default
+
+
+def _older_than(column: str, setting: str) -> str:
+	return f"{column} < NOW() - make_interval(days => {sql_value(setting)})"
+
 
 _RETENTION_JOBS = {
 	"device_result_retention":
 		f"DELETE FROM device_results "
-		f"WHERE completed_at < NOW() - INTERVAL '{JOB_RETENTION_DAYS} days'",
+		f"WHERE {_older_than('completed_at', 'job_retention_days')}",
 	# created_at is submission time, results age from completion — only
 	# delete metadata once the job's results are gone, so both expire together
 	"job_metadata_retention":
 		f"DELETE FROM job_metadata m "
-		f"WHERE m.created_at < NOW() - INTERVAL '{JOB_RETENTION_DAYS} days' "
+		f"WHERE {_older_than('m.created_at', 'job_retention_days')} "
 		f"AND NOT EXISTS (SELECT 1 FROM device_results r "
 		f"WHERE r.job_id = m.job_id)",
 	# clear the payload, keep the row (status/analytics survive)
 	"device_result_config_retention":
 		f"UPDATE device_results SET fetched_config = NULL "
-		f"WHERE fetched_config IS NOT NULL AND completed_at < NOW() - "
-		f"INTERVAL '{CONFIG_SNAPSHOT_RETENTION_DAYS} days'",
+		f"WHERE fetched_config IS NOT NULL AND "
+		f"{_older_than('completed_at', 'config_snapshot_retention_days')}",
 	"audit_log_retention":
 		f"DELETE FROM audit_log "
-		f"WHERE timestamp < NOW() - INTERVAL '{AUDIT_RETENTION_DAYS} days'",
+		f"WHERE {_older_than('timestamp', 'audit_retention_days')}",
 }
 
 

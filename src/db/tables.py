@@ -257,3 +257,17 @@ class LDAPGroup(Base):
 		                                                  ondelete="CASCADE"),
 	                                                  nullable=False)
 	server: Mapped["LDAPServer"] = relationship(back_populates="user_groups")
+
+
+class SystemSetting(Base):
+	"""An admin's change to a system setting. Only changed values are stored:
+	no row means the setting's default (src/db/settings.py is the registry
+	of what settings exist, their defaults and rules)."""
+	__tablename__ = 'system_settings'
+	key: Mapped[str] = mapped_column(String(64), primary_key=True)
+	value: Mapped[object] = mapped_column(JSON, nullable=False)
+	updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now,
+	                                             onupdate=datetime.now,
+	                                             nullable=False)
+	updated_by: Mapped[uuid.UUID | None] = mapped_column(
+		Uuid, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)

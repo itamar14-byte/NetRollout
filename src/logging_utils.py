@@ -42,16 +42,29 @@ def prune_logs(retention_days: int = LOG_RETENTION_DAYS,
     return removed
 
 
-def start_log_pruning() -> None:
+def prune_once(retention_days=None, logs_dir: str = LOGS_DIR) -> tuple[int, int]:
+    """One pruning pass: (days used, files removed). retention_days is a
+    callable; if it fails (settings unreachable, DB down) the default is used
+    rather than skipping the pass."""
+    try:
+        days = int(retention_days()) if retention_days else LOG_RETENTION_DAYS
+    except Exception:
+        days = LOG_RETENTION_DAYS
+    removed = prune_logs(days, logs_dir)
+    if removed:
+        print(f"[NetRollout] Removed {removed} log file(s) older than "
+              f"{days} days", flush=True)
+    return days, removed
+
+
+def start_log_pruning(retention_days=None) -> None:
     """Prune now, then every LOG_PRUNE_INTERVAL_HOURS from a daemon thread —
     a server that never restarts still cleans up. Called by the web app's
-    entry point."""
+    entry point. retention_days: a callable read on every run (the System
+    Setting), so a change applies at the next run; the default if it fails."""
     def loop():
         while True:
-            removed = prune_logs()
-            if removed:
-                print(f"[NetRollout] Removed {removed} log file(s) older than "
-                      f"{LOG_RETENTION_DAYS} days", flush=True)
+            prune_once(retention_days)
             time.sleep(LOG_PRUNE_INTERVAL_HOURS * 3600)
     threading.Thread(target=loop, name="log-pruner", daemon=True).start()
 

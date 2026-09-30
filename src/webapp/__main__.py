@@ -18,7 +18,7 @@ except EncryptionStartupError as e:
 	      f"  {e}\n", file=sys.stderr, flush=True)
 	sys.exit(1)
 
-start_log_pruning()
+start_log_pruning(lambda: app.backend.settings.get("log_retention_days"))
 # Internal app port: set at install; nginx forwards to it
 port = int(os.getenv("PORT", "8080"))
 # Once Waitress answers: check the reverse proxy and print the address people

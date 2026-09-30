@@ -166,23 +166,34 @@ def test_job_status(statuses, expected):
 
 
 class TestConfigExpired:
-	OLD = CONFIG_SNAPSHOT_RETENTION_DAYS + 1
+	DAYS = CONFIG_SNAPSHOT_RETENTION_DAYS
+	OLD = DAYS + 1
 
 	def test_mismatch_past_window_without_config_is_expired(self):
-		assert config_expired(result("partial", verified=1, age_days=self.OLD))
+		assert config_expired(result("partial", verified=1, age_days=self.OLD),
+		                      self.DAYS)
 
 	def test_within_window_is_not_expired(self):
-		assert not config_expired(result("partial", verified=1, age_days=1))
+		assert not config_expired(result("partial", verified=1, age_days=1),
+		                          self.DAYS)
+
+	def test_window_follows_the_setting(self):
+		row = result("partial", verified=1, age_days=3)
+		assert not config_expired(row, 7)
+		assert config_expired(row, 2)
 
 	def test_config_still_present_is_not_expired(self):
 		assert not config_expired(
-			result("partial", verified=1, config="cfg", age_days=self.OLD))
+			result("partial", verified=1, config="cfg", age_days=self.OLD),
+			self.DAYS)
 
 	def test_fully_verified_never_had_a_snapshot(self):
-		assert not config_expired(result("success", verified=2, age_days=self.OLD))
+		assert not config_expired(
+			result("success", verified=2, age_days=self.OLD), self.DAYS)
 
 	def test_verify_not_run_never_had_a_snapshot(self):
-		assert not config_expired(result("success", verified=None, age_days=self.OLD))
+		assert not config_expired(
+			result("success", verified=None, age_days=self.OLD), self.DAYS)
 
 
 # ── Variable-mapping field validation ────────────────────────────────────────

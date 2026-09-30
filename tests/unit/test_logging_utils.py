@@ -5,7 +5,7 @@ import time
 
 import pytest
 
-from src.logging_utils import (LOG_RETENTION_DAYS, RolloutLogger,
+from src.logging_utils import (LOG_RETENTION_DAYS, RolloutLogger, prune_once,
                                prune_logs, utf8_console)
 
 
@@ -80,8 +80,14 @@ def test_prune_missing_folder_is_a_no_op(tmp_path):
 	assert prune_logs(60, str(tmp_path / "nope")) == 0
 
 
-def test_log_retention_covers_job_retention():
-	# Download Log on Results works while the job record exists; the file
-	# must not expire before its job does
-	from src.db.db_install import JOB_RETENTION_DAYS
-	assert LOG_RETENTION_DAYS >= JOB_RETENTION_DAYS
+def test_prune_once_uses_the_setting_and_survives_its_failure(tmp_path):
+	log_file(tmp_path, "rollout_a.log", 20)
+	# the setting (a callable, read on every pass) says 10 days
+	assert prune_once(lambda: 10, str(tmp_path)) == (10, 1)
+	log_file(tmp_path, "rollout_b.log", 20)
+
+	def unreachable():
+		raise ConnectionError("db down")
+	# settings unreachable: prune with the default rather than skip the pass
+	assert prune_once(unreachable, str(tmp_path)) == (LOG_RETENTION_DAYS, 0)
+	# (log ≥ job retention is now a System Settings rule: tests/unit/test_settings)
