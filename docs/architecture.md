@@ -366,7 +366,7 @@ job thread finishes → _cleanup(job_id)
 ## 6. DB Layer (`src/db/`)
 
 ### `PostgresConfig` / `RedisConfig`
-Frozen dataclasses built from env vars (the URL form, or the individual `PG_*` / `REDIS_*` vars). `get_url()` returns the connection string, and `to_env_dict()` returns what to write to `config/runtime.env` (with `DATABASE_URL` / `REDIS_URL` blank, so an inherited URL can't override the switch). A new config object is created for each hot-reload.
+Frozen dataclasses built from env vars (the URL form, or the individual `PG_*` / `REDIS_*` vars). `get_url()` returns the connection string, and `to_env_dict()` returns what to write to `config/runtime.env` (every key of the service, blank when unused — URL, password, schema — so nothing inherited from the container environment can override the switch). A new config object is created for each hot-reload.
 
 ### `PostgresConnection`
 Wraps a SQLAlchemy engine.

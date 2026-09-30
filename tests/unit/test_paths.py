@@ -92,27 +92,30 @@ def test_container_env_is_used_without_a_runtime_env(isolated_env, tmp_path):
 	assert PostgresConfig.unload_env().host == "postgres"
 
 
-def test_a_switch_blanks_an_inherited_url(isolated_env, tmp_path):
-	# A DATABASE_URL / REDIS_URL from the container env would otherwise win
-	# over the PG_* / REDIS_* the switch wrote, after the next restart
+def test_a_switch_overrides_everything_inherited(isolated_env, tmp_path):
+	# Values from the container env that the new target doesn't use (a URL,
+	# a password, a schema) must not survive the switch and the next restart
 	from dotenv import load_dotenv
 	isolated_env.setenv("DATABASE_URL", "postgresql://u:p@postgres/old")
-	isolated_env.setenv("REDIS_URL", "redis://redis:6379/0")
+	isolated_env.setenv("PG_SCHEMA", "old_schema")
+	isolated_env.setenv("REDIS_URL", "redis://:pw@redis:6379/0")
+	isolated_env.setenv("REDIS_PASSWORD", "compose-password")
 	backend = _backend_writing_to(tmp_path / "config" / "runtime.env")
-	backend._write_config(*PostgresConfig(host="db.example.org").to_env_dict())
-	backend._write_config(*RedisConfig(host="cache.example.org").to_env_dict())
+	backend._write_config(PostgresConfig(host="db.example.org").to_env_dict())
+	backend._write_config(RedisConfig(host="cache.example.org").to_env_dict())
 	load_dotenv(backend._CONFIG_ENV, override=True)
-	assert make_url(PostgresConfig.unload_env().get_url()).host == \
-	       "db.example.org"
-	assert "cache.example.org" in RedisConfig.unload_env().get_url()
+	pg, rd = PostgresConfig.unload_env(), RedisConfig.unload_env()
+	assert make_url(pg.get_url()).host == "db.example.org"
+	assert not pg.schema
+	assert rd.get_url() == "redis://cache.example.org:6379/0"   # no password
 
 
 def test_write_config_is_atomic_merged_and_owner_only(tmp_path):
 	backend = _backend_writing_to(tmp_path / "config" / "runtime.env")
-	backend._write_config({"PG_HOST": "a", "PG_SCHEMA": "s"})
-	backend._write_config({"PG_PORT": "5433"}, pop_keys=["PG_SCHEMA"])
-	assert dotenv_values(backend._CONFIG_ENV) == {"PG_HOST": "a",
-	                                             "PG_PORT": "5433"}
+	backend._write_config({"PG_HOST": "a", "REDIS_HOST": "r"})
+	backend._write_config({"PG_HOST": "b"})    # a Postgres switch keeps Redis
+	assert dotenv_values(backend._CONFIG_ENV) == {"PG_HOST": "b",
+	                                             "REDIS_HOST": "r"}
 	assert list((tmp_path / "config").iterdir()) == [backend._CONFIG_ENV]
 	if os.name == "posix":
 		assert stat.S_IMODE(backend._CONFIG_ENV.stat().st_mode) == 0o600
@@ -120,8 +123,7 @@ def test_write_config_is_atomic_merged_and_owner_only(tmp_path):
 
 def test_a_switch_no_longer_writes_external_flags():
 	for config in (PostgresConfig(host="10.0.0.5"), RedisConfig(host="10.0.0.5")):
-		updates, pop_keys = config.to_env_dict()
-		assert not [k for k in [*updates, *pop_keys] if k.endswith("_EXTERNAL")]
+		assert not [k for k in config.to_env_dict() if k.endswith("_EXTERNAL")]
 
 
 # ── Bundled or external ──────────────────────────────────────────────────────

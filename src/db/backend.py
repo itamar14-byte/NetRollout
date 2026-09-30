@@ -70,12 +70,10 @@ class BackendServices:
 					return value
 		return None
 
-	def _write_config(self, updates: dict, pop_keys: list | None = None):
+	def _write_config(self, updates: dict):
 		cfg = dict(dotenv_values(self._CONFIG_ENV)) if \
 			self._CONFIG_ENV.exists() else {}
 		cfg.update(updates)
-		for key in (pop_keys or []):
-			cfg.pop(key, None)
 		# Atomic (a crash mid-write can't leave half a file) and owner-only:
 		# it holds database / Redis passwords
 		self._CONFIG_ENV.parent.mkdir(parents=True, exist_ok=True)
@@ -97,10 +95,8 @@ class BackendServices:
 
 	def reload_postgres(self, config: PostgresConfig):
 		self.postgres.reload_db(config)
-		updates, pop_keys = config.to_env_dict()
-		self._write_config(updates, pop_keys)
+		self._write_config(config.to_env_dict())
 
 	def reload_redis(self, config: RedisConfig):
 		self.redis.reload_db(config)
-		updates, pop_keys = config.to_env_dict()
-		self._write_config(updates, pop_keys)
+		self._write_config(config.to_env_dict())
