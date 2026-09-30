@@ -1,3 +1,4 @@
+from functools import cached_property
 from pathlib import Path
 
 from dotenv import dotenv_values, load_dotenv
@@ -6,6 +7,7 @@ from sqlalchemy.exc import OperationalError
 from src.db.db_install import install
 from src.db.postgres_db import PostgresConnection, PostgresConfig
 from src.db.redis_db import RedisConnection, RedisConfig, REDIS_UNAVAILABLE
+from src.db.settings import SettingsStore
 from src.db.tables import SecurityProfile, LDAPServer, User
 
 # Every column holding Fernet ciphertext
@@ -28,6 +30,12 @@ class BackendServices:
 		self.postgres = PostgresConnection()
 		install(self.postgres)
 		self.redis = RedisConnection()
+
+	@cached_property
+	def settings(self) -> SettingsStore:
+		# the connection is looked up per call: follows a Server Management
+		# database switch
+		return SettingsStore(lambda: self.postgres)
 
 	def health(self):
 		try:

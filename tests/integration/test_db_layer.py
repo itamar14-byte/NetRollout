@@ -244,6 +244,41 @@ def test_config_snapshot_cleared_early_row_kept(retention_db):
 	assert results[retention_db.jobs["fresh"]] == "big-config"
 
 
+def test_retention_follows_the_system_setting(app, retention_db):
+	# the statements read the setting when they run: no restart needed
+	app.backend.settings.update({"job_retention_days": 10,
+	                             "config_snapshot_retention_days": 2}, None)
+	retention_db.result("fifteen", 15)                 # kept by the default (30)
+	retention_db.result("five", 5, config="big-config")
+	results, _ = retention_db.run_policy()
+	assert retention_db.jobs["fifteen"] not in results
+	assert results[retention_db.jobs["five"]] is None  # snapshot > 2 days: cleared
+	# back to the default: a 15-day-old record survives again
+	app.backend.settings.reset("config_snapshot_retention_days")
+	app.backend.settings.reset("job_retention_days")
+	retention_db.result("fifteen-again", 15)
+	results, _ = retention_db.run_policy()
+	assert retention_db.jobs["fifteen-again"] in results
+
+
+def test_audit_retention_follows_the_setting(app):
+	engine = app.backend.postgres.engine
+	with engine.begin() as c:
+		for days in (10, 100):
+			c.execute(text(
+				"insert into audit_log (id, timestamp, actor_username, action, "
+				"success) values (gen_random_uuid(), now() - make_interval("
+				"days => :d), 'x', :a, true)"), {"d": days, "a": f"age.{days}"})
+
+	def remaining():
+		with engine.begin() as c:
+			c.execute(text(_RETENTION_JOBS["audit_log_retention"]))
+			return {r[0] for r in c.execute(text("select action from audit_log"))}
+	assert remaining() == {"age.10"}                   # default 90 days
+	app.backend.settings.update({"audit_retention_days": 7}, None)
+	assert remaining() == set()
+
+
 @pytest.mark.pg_cron
 def test_retention_jobs_schedule_in_pg_cron():
 	"""pg_cron only schedules inside its own database (the live one), so this

@@ -12,7 +12,6 @@ from flask import (Blueprint, render_template, current_app, request, send_file,
 from flask_login import current_user, login_required
 
 # local modules
-from src.db.db_install import CONFIG_SNAPSHOT_RETENTION_DAYS
 from src.db.tables import DeviceResult, JobMetadata, User, Inventory
 from src.logging_utils import LOGS_DIR
 from src.webapp.utils import ok, err, build_kpi, visible_devices_clause
@@ -122,17 +121,18 @@ def get_active_job(user_id):
 	)
 
 
-def config_expired(row: DeviceResult) -> bool:
+def config_expired(row: DeviceResult, snapshot_days: int) -> bool:
 	# A snapshot is stored only when verify found a mismatch; past the
 	# snapshot retention window, such rows have had it cleared by pg_cron
 	verify_mismatch = (row.commands_verified is not None
 	                   and row.commands_verified < row.commands_sent)
 	too_old = row.completed_at < datetime.now() - timedelta(
-		days=CONFIG_SNAPSHOT_RETENTION_DAYS)
+		days=snapshot_days)
 	return verify_mismatch and row.fetched_config is None and too_old
 
 
-def build_jobs(result_rows, metadata_by_job, endpoint_labels, job_owner=None):
+def build_jobs(result_rows, metadata_by_job, endpoint_labels, snapshot_days,
+               job_owner=None):
 	sorted_rows = sorted(result_rows, key=lambda x: x.job_id)
 	out = []
 	for job_id, rows in groupby(sorted_rows, key=lambda x: x.job_id):
@@ -167,7 +167,7 @@ def build_jobs(result_rows, metadata_by_job, endpoint_labels, job_owner=None):
 					# flags only — the config itself is fetched on demand by
 					# config_diff, never shipped with the page
 					"has_config": r.fetched_config is not None,
-					"config_expired": config_expired(r)
+					"config_expired": config_expired(r, snapshot_days)
 				}
 				for r in rows
 			]
@@ -296,6 +296,9 @@ def active_jobs():
 @login_required
 def results():
 	is_admin = current_user.role == "admin"
+	# System Setting, read once per page (not per row)
+	snapshot_days = current_app.backend.settings.get(
+		"config_snapshot_retention_days")
 	with current_app.backend.postgres.get_session() as db_session:
 		if is_admin:
 			raw_results = db_session.query(DeviceResult).all()
@@ -317,7 +320,8 @@ def results():
 	if is_admin:
 		my_raw = [r for r in raw_results if r.user_id == current_user.id]
 		other_raw = [r for r in raw_results if r.user_id != current_user.id]
-		jobs = build_jobs(my_raw, metadata_by_job, endpoint_labels)
+		jobs = build_jobs(my_raw, metadata_by_job, endpoint_labels,
+		                  snapshot_days)
 		jobs.sort(key=lambda x: x["completed_at"], reverse=True)
 		other_jobs = []
 		# group other_raw by user_id so each job gets its job_owner username
@@ -327,10 +331,11 @@ def results():
 			owner = usernames.get(user_id, "unknown")
 			other_jobs.extend(
 				build_jobs(list(user_rows), metadata_by_job, endpoint_labels,
-				            job_owner=owner))
+				           snapshot_days, job_owner=owner))
 		other_jobs.sort(key=lambda x: x["completed_at"], reverse=True)
 	else:
-		jobs = build_jobs(raw_results, metadata_by_job, endpoint_labels)
+		jobs = build_jobs(raw_results, metadata_by_job, endpoint_labels,
+		                  snapshot_days)
 		jobs.sort(key=lambda x: x["completed_at"], reverse=True)
 		other_jobs = []
 
@@ -339,7 +344,7 @@ def results():
 	                       jobs=jobs,
 	                       other_jobs=other_jobs,
 	                       is_admin=is_admin,
-	                       config_retention_days=CONFIG_SNAPSHOT_RETENTION_DAYS)
+	                       config_retention_days=snapshot_days)
 
 
 @bp.route("/results/config_diff/<uuid:job_id>/<device_ip>")
@@ -359,7 +364,8 @@ def config_diff(job_id, device_ip):
 		config = row.fetched_config
 		if config is None:
 			return err(f"Config snapshot no longer available — snapshots are "
-			           f"kept {CONFIG_SNAPSHOT_RETENTION_DAYS} days", 410)
+			           f"kept {current_app.backend.settings.get('config_snapshot_retention_days')} "
+			           f"days", 410)
 		meta = db_session.query(JobMetadata).filter_by(job_id=job_id).first()
 		commands = meta.commands if meta else []
 	return ok(config=config, commands=commands)
