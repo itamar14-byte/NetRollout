@@ -28,7 +28,7 @@ At runtime, `RolloutOrchestrator` is the concurrency manager.
 
 The **CLI** (`src/cli.py`) uses the same `RolloutEngine` directly, from a devices CSV and a commands file. It has no database, no Redis and no orchestrator.
 
-**Configuration** comes from env vars. `config.env` at the repo root is loaded with override by `BackendServices` at startup, and Server Management writes it.
+**Configuration** comes from env vars. `config/runtime.env` (under the NetRollout home, `src/paths.py`) is loaded with override by `BackendServices` at startup; it holds only what a Server Management switch wrote, so it wins over the container environment (the installer's `.env`), which wins over the defaults.
 
 | Variable | Purpose |
 |---|---|
@@ -366,7 +366,7 @@ job thread finishes → _cleanup(job_id)
 ## 6. DB Layer (`src/db/`)
 
 ### `PostgresConfig` / `RedisConfig`
-Frozen dataclasses built from env vars (the URL form, or the individual `PG_*` / `REDIS_*` vars). `get_url()` returns the connection string, and `to_env_dict()` returns what to write to `config.env`. A new config object is created for each hot-reload.
+Frozen dataclasses built from env vars (the URL form, or the individual `PG_*` / `REDIS_*` vars). `get_url()` returns the connection string, and `to_env_dict()` returns what to write to `config/runtime.env` (every key of the service, blank when unused — URL, password, schema — so nothing inherited from the container environment can override the switch). A new config object is created for each hot-reload.
 
 ### `PostgresConnection`
 Wraps a SQLAlchemy engine.
@@ -382,7 +382,7 @@ The composition root for infrastructure. It is constructed once in `launch_app()
 
 ```python
 BackendServices()        # no arguments:
-#   load config.env (override) → PostgresConnection() → install() → RedisConnection()
+#   load config/runtime.env (override) → PostgresConnection() → install() → RedisConnection()
 # app.backend.postgres   →  PostgresConnection
 # app.backend.redis      →  RedisConnection
 # app.backend.settings   →  SettingsStore (System Settings)
@@ -391,9 +391,10 @@ BackendServices()        # no arguments:
 **`health()`:** returns `{"POSTGRES": bool, "REDIS": bool}`. Each service is checked independently, so one failure doesn't mask the other.
 
 **`reload_postgres(config)` / `reload_redis(config)`:** hot-reload without a restart, from the Server Management UI.
-- Both write the new values to `config.env`.
+- Both write the new values to `config/runtime.env` (atomically, owner-only).
 - Switching Postgres also runs `install()` on the new database.
-- The `pending_db_init.flag` file it still writes is unused and will be removed in Phase 4.
+
+**`connection_modes()`:** `bundled` or `external` per service, from the host of the live connection: `localhost`/`127.0.0.1` or the compose service name (`postgres`, `redis`) is bundled.
 
 **`encrypted_sample()`:** returns one stored Fernet token, for the startup key check.
 

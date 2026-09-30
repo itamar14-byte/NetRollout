@@ -27,6 +27,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from src import paths
+
 INSTANCE_PATH = "/_netrollout/instance"
 PROBE_TIMEOUT = 2.0
 READY_TIMEOUT = 60.0
@@ -34,8 +36,8 @@ READY_TIMEOUT = 60.0
 NGINX_CONF_ENV = "NETROLLOUT_NGINX_CONF"
 OPEN_BROWSER_ENV = "NETROLLOUT_OPEN_BROWSER"
 RELAUNCH_ENV = "NETROLLOUT_RELAUNCH"   # set by the admin Restart relaunch
-DEFAULT_NGINX_CONF = Path(__file__).resolve().parents[2] / "docs" / "nginx" \
-	/ "nginx.conf"
+# The development nginx config (a missing file just means "not detected")
+DEFAULT_NGINX_CONF = paths.REPO_ROOT / "docs" / "nginx" / "nginx.conf"
 
 
 def new_instance_token() -> str:

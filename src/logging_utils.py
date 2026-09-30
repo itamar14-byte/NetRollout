@@ -8,7 +8,7 @@ import time
 import redis
 from redis.client import PubSub
 
-LOGS_DIR = os.path.join(os.path.dirname(__file__), "..", "logs")
+from src import paths
 
 # Default for the "log_retention_days" System Setting (src/db/settings.py);
 # the CLI, which has no database, uses it directly. Log files are kept longer
@@ -19,15 +19,15 @@ LOG_PRUNE_INTERVAL_HOURS = 24
 
 
 def prune_logs(retention_days: int = LOG_RETENTION_DAYS,
-               logs_dir: str = LOGS_DIR) -> int:
+               logs_dir: str | os.PathLike | None = None) -> int:
     """Delete *.log files (web app and CLI alike) not modified for
-    `retention_days`. Uses the last-modified time, so a running job's file —
+    `retention_days` (in paths.logs_dir() unless `logs_dir` is given). Uses the last-modified time, so a running job's file —
     still being appended to — is never removed. Files that can't be removed
     (locked, permissions) are skipped. :return: number of files removed"""
     cutoff = time.time() - retention_days * 86400
     removed = 0
     try:
-        entries = os.scandir(logs_dir)
+        entries = os.scandir(logs_dir or paths.logs_dir())
     except FileNotFoundError:
         return 0
     with entries:
@@ -43,7 +43,8 @@ def prune_logs(retention_days: int = LOG_RETENTION_DAYS,
     return removed
 
 
-def prune_once(retention_days=None, logs_dir: str = LOGS_DIR) -> tuple[int, int]:
+def prune_once(retention_days=None,
+               logs_dir: str | os.PathLike | None = None) -> tuple[int, int]:
     """One pruning pass: (days used, files removed). retention_days is a
     callable; if it fails (settings unreachable, DB down) the default is used
     rather than skipping the pass."""
@@ -109,15 +110,16 @@ class RolloutLogger:
         self._redis = redis_client
 
         ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        os.makedirs(LOGS_DIR, exist_ok=True)
+        logs_dir = paths.logs_dir()
+        os.makedirs(logs_dir, exist_ok=True)
         if job_id:
-            self.logfile = os.path.join(LOGS_DIR,
+            self.logfile = os.path.join(logs_dir,
                                         f"{prefix}_{ts}_{job_id}.log")
             self._channel_key = f"job:{job_id}:logs"
             self._history_key = f"job:{job_id}:history"
 
         else:
-            self.logfile = os.path.join(LOGS_DIR,
+            self.logfile = os.path.join(logs_dir,
                                         f"{prefix}_{ts}.log")
             self._channel_key, self._history_key = None, None
 
