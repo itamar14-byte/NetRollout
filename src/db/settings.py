@@ -16,14 +16,19 @@ enforces on the server.
 """
 import operator
 import os
+import re
 import uuid
 from dataclasses import dataclass
 from typing import Callable
 
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from src.db.tables import SystemSetting
 from src.logging_utils import LOG_RETENTION_DAYS
+
+
+AFTER_RESTART = "after restart"
 
 
 @dataclass(frozen=True)
@@ -40,6 +45,12 @@ class Setting:
 	env: str | None = None      # install-time value: seeds a new row only
 	sql: bool = False           # also read inside Postgres (pg_cron)
 	editable: bool = True
+	# str settings: a regex both sides use (Python here, the input's
+	# `pattern` attribute on the page) and what to say when it doesn't match
+	pattern: str | None = None
+	pattern_hint: str = ""
+	placeholder: str = ""
+	max_length: int | None = None
 
 	def parse(self, raw):
 		"""Raw input (form string, JSON value, env string) → typed value.
@@ -56,7 +67,12 @@ class Setting:
 			if self.maximum is not None and value > self.maximum:
 				raise ValueError(f"must be at most {self.maximum}")
 			return value
-		return "" if raw is None else str(raw).strip()
+		value = "" if raw is None else str(raw).strip()
+		if self.max_length is not None and len(value) > self.max_length:
+			raise ValueError(f"must be at most {self.max_length} characters")
+		if value and self.pattern and not re.fullmatch(self.pattern, value):
+			raise ValueError(self.pattern_hint or "has an invalid format")
+		return value
 
 	def coerce(self, stored) -> tuple[object, str | None]:
 		"""A stored value made usable: (value, problem). Out of range → the
@@ -107,7 +123,45 @@ SETTINGS: dict[str, Setting] = {s.key: s for s in [
 	        "troubleshooting after the job record is gone.",
 	        "Retention", LOG_RETENTION_DAYS, minimum=1, maximum=3650,
 	        applies="next daily log clean-up"),
+	# ── Rollouts ──
+	Setting("orchestrator_workers", "Concurrent rollout jobs",
+	        "How many rollouts run at the same time; more wait in the queue.",
+	        "Rollouts", 4, minimum=1, maximum=32, applies=AFTER_RESTART,
+	        env="ORCHESTRATOR_WORKERS"),
+	Setting("device_parallelism", "Devices in parallel per job",
+	        "How many devices one rollout configures at the same time.",
+	        "Rollouts", 10, minimum=1, maximum=64, applies="next rollout"),
+	Setting("reachability_cache_seconds", "Reachability cache",
+	        "How long a device's up/down status is reused before it's probed "
+	        "again (seconds).",
+	        "Rollouts", 60, minimum=10, maximum=3600, applies="immediately"),
+	# ── Access ──
+	Setting("public_hostname", "Hostname",
+	        "The name people use to open NetRollout, e.g. "
+	        "netrollout.corp.local — the certificate must match it. Empty: "
+	        "read from the nginx config.",
+	        "Access", "", kind=str, applies="next start",
+	        env="NETROLLOUT_PUBLIC_HOSTNAME",
+	        # DNS name or IPv4 address; no scheme, port or path
+	        pattern=r"[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+	                r"(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*",
+	        pattern_hint="must be a hostname or IP address only — no "
+	                     "https://, port or path",
+	        placeholder="netrollout.corp.local", max_length=253),
+	Setting("https_port", "HTTPS port",
+	        "The port nginx serves NetRollout on (used with the hostname).",
+	        "Access", 443, minimum=1, maximum=65535, applies="next start",
+	        env="NETROLLOUT_HTTPS_PORT"),
 ]}
+
+
+def public_url(hostname: str, port: int) -> str | None:
+	"""The address people use, built from the Access settings: always https,
+	the port only when it isn't 443. None when no hostname is set (the
+	startup check then reads the nginx config)."""
+	if not hostname:
+		return None
+	return f"https://{hostname}" + ("" if int(port) == 443 else f":{port}")
 
 
 @dataclass(frozen=True)
@@ -214,6 +268,23 @@ class SettingsStore:
 		rows = self._rows()
 		return {k: self._value(s, rows) for k, s in SETTINGS.items()}
 
+	def restart_only_values(self) -> dict[str, object]:
+		"""Settings that apply after a restart, as the process starts with
+		them. At startup the DB may be unreachable — the defaults then."""
+		keys = [k for k, s in SETTINGS.items() if s.applies == AFTER_RESTART]
+		try:
+			current = self.values()
+		except SQLAlchemyError:
+			current = {k: SETTINGS[k].default for k in keys}
+		return {k: current[k] for k in keys}
+
+	def restart_pending(self, started_with: dict) -> list[str]:
+		"""Labels of restart-only settings saved with a different value than
+		the running process uses."""
+		saved = self.values()
+		return [SETTINGS[k].label for k, v in started_with.items()
+		        if saved.get(k) != v]
+
 	def list_for_display(self) -> list[dict]:
 		"""Every setting in registry order, with what the page shows: value,
 		default, whether it differs from the default and whether that came
@@ -231,6 +302,8 @@ class SettingsStore:
 				                and row.updated_by is None,
 				"updated_at": row.updated_at if row is not None else None,
 				"minimum": s.minimum, "maximum": s.maximum,
+				"pattern": s.pattern, "pattern_hint": s.pattern_hint,
+				"placeholder": s.placeholder, "max_length": s.max_length,
 				"applies": s.applies, "editable": s.editable,
 				"kind": s.kind.__name__,
 			})

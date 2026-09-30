@@ -31,7 +31,6 @@ INSTANCE_PATH = "/_netrollout/instance"
 PROBE_TIMEOUT = 2.0
 READY_TIMEOUT = 60.0
 
-PUBLIC_URL_ENV = "NETROLLOUT_PUBLIC_URL"
 NGINX_CONF_ENV = "NETROLLOUT_NGINX_CONF"
 OPEN_BROWSER_ENV = "NETROLLOUT_OPEN_BROWSER"
 RELAUNCH_ENV = "NETROLLOUT_RELAUNCH"   # set by the admin Restart relaunch
@@ -89,11 +88,11 @@ def _server_blocks(text: str) -> list[str]:
 
 
 def resolve_public_url(setting: str | None = None) -> tuple[str | None, str]:
-	"""(url, source). Admin setting > install-time env > nginx config."""
+	"""(url, source). The URL built from System Settings (hostname + HTTPS
+	port; install values are seeded into those rows) — or, while no hostname
+	is set, the nginx config."""
 	if setting:
-		return setting.rstrip("/"), "System Settings"
-	if os.environ.get(PUBLIC_URL_ENV):
-		return os.environ[PUBLIC_URL_ENV].rstrip("/"), f"{PUBLIC_URL_ENV}"
+		return setting.rstrip("/"), "from System Settings"
 	conf = Path(os.environ.get(NGINX_CONF_ENV) or DEFAULT_NGINX_CONF)
 	detected = detect_from_nginx_conf(conf)
 	if detected:
@@ -207,7 +206,8 @@ def announcement(app_port: int, public_url: str | None, source: str,
 		# a wrong port shows up as "couldn't connect"; nginx answering at all
 		# (404, 502, …) means the port was right
 		hint = ("\n  The port in the nginx config can differ from the host "
-		        "port behind a Docker mapping — set the Public URL if so."
+		        "port behind a Docker mapping — if so, set the hostname and "
+		        "HTTPS port in System Settings."
 		        if source.startswith("auto-detected") and public
 		        and public.unreachable else "")
 		return (f"Reverse proxy not verified at {public_url} "

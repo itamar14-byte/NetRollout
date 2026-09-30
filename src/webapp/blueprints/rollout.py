@@ -230,7 +230,8 @@ def new_start_rollout():
 	options = RolloutOptions(
 		verify=bool(request.form.get("_verify", "")),
 		verbose=bool(request.form.get("_verbose", "")),
-		webapp=True
+		webapp=True,
+		max_workers=current_app.backend.settings.get("device_parallelism")
 	)
 	audit_comment = request.form.get("comment", "").strip() or None
 
@@ -327,7 +328,8 @@ def rollback(job_id, data):
 	options = RolloutOptions(
 		verify=bool(data.get("verify", False)),
 		verbose=bool(data.get("verbose", False)),
-		webapp=True
+		webapp=True,
+		max_workers=current_app.backend.settings.get("device_parallelism")
 	)
 	new_job_id = current_app.orchestrator.submit(devices, commands, options,
 	                                 current_user.id)
