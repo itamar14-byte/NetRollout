@@ -28,8 +28,11 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from src import paths
+from src.deployment import in_container
+from src.version import VERSION
 
 INSTANCE_PATH = "/_netrollout/instance"
+HEALTH_PATH = "/_netrollout/health"
 PROBE_TIMEOUT = 2.0
 READY_TIMEOUT = 60.0
 
@@ -223,10 +226,6 @@ def announcement(app_port: int, public_url: str | None, source: str,
 
 # ── Opening the browser ──────────────────────────────────────────────────────
 
-def in_container() -> bool:
-	return Path("/.dockerenv").exists() or bool(os.environ.get("container"))
-
-
 def should_open_browser(env=os.environ, platform: str = sys.platform,
                         container: bool | None = None) -> bool:
 	"""Open on a normal launch at a desktop. Not in a container, not on an
@@ -243,6 +242,18 @@ def should_open_browser(env=os.environ, platform: str = sys.platform,
 	                                         env.get("WAYLAND_DISPLAY")):
 		return False
 	return True
+
+
+def container_announcement(public_url: str | None) -> str:
+	"""The startup line in a container. Nobody watches a container's console
+	and the app can't reliably reach its own published port from inside, so
+	nothing is probed here: the installer and `netrollout status` check the
+	address from the host (HEALTH_PATH)."""
+	if public_url:
+		return (f"NetRollout {VERSION} started — expected at {public_url} "
+		        f"(`netrollout status` checks it from the host)")
+	return (f"NetRollout {VERSION} started — no hostname set in System "
+	        f"Settings yet")
 
 
 # ── Wiring ───────────────────────────────────────────────────────────────────

@@ -14,6 +14,7 @@ from flask_login import current_user, login_required
 from src.db.tables import DeviceResult, Inventory
 from src.core import RolloutOptions
 from src.input_parser import InputParser
+from src.orchestration import Draining, DRAINING_MESSAGE
 from src.webapp.utils import (ok, err, with_form, with_json,
                               visible_devices_clause, query_visible_devices,
                               partition_devices)
@@ -196,6 +197,9 @@ def new_rollout():
 @bp.route("/start", methods=["POST"])
 @login_required
 def new_start_rollout():
+	if current_app.orchestrator.draining:   # before the reachability checks
+		flash(DRAINING_MESSAGE, "danger")
+		return redirect(url_for("rollout.new_rollout"))
 	raw_device_ids = request.form.getlist("device_ids")
 	if not raw_device_ids:
 		flash("Select at least one device.", "danger")
@@ -235,8 +239,12 @@ def new_start_rollout():
 	)
 	audit_comment = request.form.get("comment", "").strip() or None
 
-	job_id = submit_jobs(devices, commands, platform_commands_map,
-	                     is_multi_platform, options, audit_comment)
+	try:
+		job_id = submit_jobs(devices, commands, platform_commands_map,
+		                     is_multi_platform, options, audit_comment)
+	except Draining:
+		flash(DRAINING_MESSAGE, "danger")
+		return redirect(url_for("rollout.new_rollout"))
 	if isinstance(job_id, Response):
 		return job_id
 
@@ -331,8 +339,11 @@ def rollback(job_id, data):
 		webapp=True,
 		max_workers=current_app.backend.settings.get("device_parallelism")
 	)
-	new_job_id = current_app.orchestrator.submit(devices, commands, options,
-	                                 current_user.id)
+	try:
+		new_job_id = current_app.orchestrator.submit(devices, commands,
+		                                              options, current_user.id)
+	except Draining:
+		return err(DRAINING_MESSAGE, 503)
 	current_app.web.audit("rollout.rollback", object_id=job_id,
 	      detail={"new_job_id": str(new_job_id), "device_count": len(devices)})
 	return ok(job_id=str(new_job_id))

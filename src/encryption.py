@@ -4,6 +4,8 @@ from pathlib import Path
 
 from cryptography.fernet import Fernet, InvalidToken
 
+from src.deployment import StartupError, in_container
+
 KEY_DIR = Path.home() / ".netrollout"
 KEY_FILE = KEY_DIR / "encryption.key"
 ENV_VAR = "NETROLLOUT_ENCRYPTION_KEY"
@@ -19,7 +21,7 @@ class InvalidEncryptionKeyError(Exception):
 	pass
 
 
-class EncryptionStartupError(Exception):
+class EncryptionStartupError(StartupError):
 	"""Raised by init_encryption() when the app must refuse to start: the key
 	is malformed, missing while encrypted data exists, or doesn't match the
 	stored data."""
@@ -71,6 +73,18 @@ def _build_cipher(raw_key: bytes) -> Fernet:
 		)
 
 
+def require_key_in_container() -> None:
+	"""In a container the key must come from the environment: a key file
+	written inside it would vanish with it at the next update, and every
+	stored credential with it. Needs no database, so the app checks it before
+	touching one. :raises EncryptionStartupError: missing in a container"""
+	if in_container() and not os.environ.get(ENV_VAR):
+		raise EncryptionStartupError(
+			f"{ENV_VAR} is not set. In Docker the encryption key comes from the "
+			f"installation's .env (the installer generates it); a key is never "
+			f"generated inside a container. Restore it in .env and start again.")
+
+
 def init_encryption(sample_ciphertext: str | None,
                     db_checked: bool = True) -> None:
 	"""Load (or, on a fresh install only, generate) the key and verify it.
@@ -81,6 +95,7 @@ def init_encryption(sample_ciphertext: str | None,
 	:raises EncryptionStartupError: the app must not start
 	"""
 	global _fernet
+	require_key_in_container()
 	raw_key = _read_key()
 	if raw_key is None:
 		if sample_ciphertext is not None:
