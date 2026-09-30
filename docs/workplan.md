@@ -409,7 +409,7 @@ _Feature set is complete as of 2026-04-28. Remaining work is cleanup, packaging,
 | 1b | Pre-4.1 cleanup (branch `pre-4.1-cleanup`) | ✅ Done — EVE-NG round postponed (not blocking) |
 | 2 — 4.0 | Blueprint split | ✅ Done — frontend asset splitting deferred |
 | 3 — 4.0b | BYO Postgres / Redis | ✅ Done — Grafana BYO post-v1.0 |
-| 3b | System settings + startup reverse-proxy check (`docs/plans/system-settings.md`, branch `system-settings`) | 🔄 In progress — before the Phase 4 planning session |
+| 3b | System settings + startup reverse-proxy check (`docs/plans/system-settings.md`, branch `system-settings`) | ✅ Parts A + B done (2026-09-30) — Part C (nginx follows the Access settings) is built in 4.1 |
 | 4 — 4.1 | Docker image | ⬜ Next |
 | 5 — 4.2 | `install.py` | ⬜ |
 | 6 — 4.10 | Documentation | ⬜ |

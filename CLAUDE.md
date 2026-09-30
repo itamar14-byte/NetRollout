@@ -38,7 +38,9 @@ The app applies migrations itself at startup; the alembic CLI resolves `DATABASE
 
 ### Configuration
 - `config.env` (repo root, loaded at startup): `DATABASE_URL` or `PG_HOST/PG_PORT/PG_NAME/PG_USER/PG_PASSWORD/PG_SCHEMA`; `REDIS_URL` or `REDIS_HOST/REDIS_PORT/REDIS_DB/REDIS_PASSWORD`. Server Management (admin) writes these.
-- Other env: `SECRET_KEY`, `ORCHESTRATOR_WORKERS` (concurrent jobs, default 4), `PORT`.
+- Other env: `SECRET_KEY`, `PORT` (internal app port, set at install).
+- **System Settings** (admin panel → System; `src/db/settings.py`): retention periods, concurrent rollout jobs, devices per job, reachability cache, canonical hostname + HTTPS port. The `system_settings` table is the only runtime source: `install()` seeds every missing setting at each start (from `ORCHESTRATOR_WORKERS`, `NETROLLOUT_PUBLIC_HOSTNAME`, `NETROLLOUT_HTTPS_PORT` if set, else the default) and never overwrites; after that env vars are ignored. Cross-setting rules are declarative and enforced on the server and in the page.
+- Startup (`src/webapp/startup.py`): verifies nginx forwards to this instance (per-run token at `/_netrollout/instance`) and prints the address to use; opens it in the browser on desktop launches (`NETROLLOUT_OPEN_BROWSER=0` to disable).
 - Encryption key: `NETROLLOUT_ENCRYPTION_KEY`, else `~/.netrollout/encryption.key`. The app refuses to start on a malformed, missing-with-data, or mismatched key (fail-fast).
 - Dev DB: `postgresql+psycopg2://dbadmin:Pass123@localhost:5432/rollout_db`, in Docker: `docker exec -it NetRollout-DB psql -U dbadmin -d rollout_db`
 
@@ -46,7 +48,7 @@ The app applies migrations itself at startup; the alembic CLI resolves `DATABASE
 
 Full architecture in `docs/architecture.md`; plan and current status in `docs/workplan.md` (status table under "Remaining work").
 
-Retention: job record (results + metadata) 30 days, config snapshots 7 days, audit log 90 days (pg_cron, constants in `db_install.py`); log files 60 days (app-side).
+Retention (defaults; System Settings): job record (results + metadata) 30 days, config snapshots 7 days, audit log 90 days (pg_cron statements read the setting's row at run time); log files 60 days (app-side, daily).
 
 ### Webapp real-time logging
 Server-Sent Events at `/rollout/stream/<job_id>`: history from Redis, then live messages via Redis pub/sub (`job:{id}:logs`), a heartbeat every 0.5s. `X-Accel-Buffering: no` disables nginx buffering.

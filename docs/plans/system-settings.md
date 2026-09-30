@@ -1,5 +1,7 @@
 # Plan — System settings + startup reverse-proxy check
 
+_Status 2026-09-30: **Parts A and B done** on `system-settings`; Part C in 4.1._
+
 _Approved 2026-09-29. Branch `system-settings`. Parts A and B are built on this branch, before the Phase 4 planning session; Part C is specified here and built in 4.1 with the compose layout it depends on._
 
 ## Why
