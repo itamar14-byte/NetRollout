@@ -1,5 +1,7 @@
 # Development Workplan
-_Last updated: 2026-09-29 — pre-4.1 cleanup done except the EVE-NG round; see the status table under "Remaining work"_
+_Last updated: 2026-09-30 — Phase 4 planned and approved (`docs/plans/phase-4.md`, branch `phase-4-packaging`); see the status table under "Remaining work"_
+
+> **How to read this file.** Phase entries are a dated log of what was built at the time. Later work changed some of it; those places are marked *Superseded* with a pointer, and small details (file names, signatures) have been corrected in place (checked against the code on 2026-09-30). The **current** design is in `docs/architecture.md`; open work is in the status table under "Remaining work" and in `docs/plans/`.
 
 ---
 
@@ -8,7 +10,7 @@ _Last updated: 2026-09-29 — pre-4.1 cleanup done except the EVE-NG round; see 
 ### 1.1 Flask-Login setup ✅
 - `flask-login` installed, added to `requirements.txt`
 - `UserMixin` added to `User` model in `tables.py`
-- `LoginManager` initialized in `webapp.py`, login view set to `"home"`
+- `LoginManager` initialized (today in `src/webapp/extensions.py`), login view `"auth.home"`
 - `user_loader` callback wired to DB via `get_session()`, with `expunge()` to avoid DetachedInstanceError
 - `@login_required` applied to all protected routes
 
@@ -18,8 +20,8 @@ _Last updated: 2026-09-29 — pre-4.1 cleanup done except the EVE-NG round; see 
 - Full dark mode implemented across all Bootstrap components (cards, inputs, buttons, accordion, tables, alerts, dropdowns, modals)
 
 ### 1.3 Webapp infrastructure ✅
-- `app = Flask(__name__, template_folder='../templates')` — templates resolved from project root
-- `app.config["SECRET_KEY"] = "dev"` — required for flash/session (swap for env var in Phase 4)
+- Flask app with templates resolved from the project root (today `template_folder='../../templates'`, `static_folder='../static'` in `src/webapp/setup.py`)
+- `SECRET_KEY` — required for flash/session; now read from the env (default `dev`; Phase 4 makes it mandatory in a container)
 - `flash` imported — ready for auth feedback messages
 - `DATABASE_URL` must use `postgresql+psycopg2://` dialect (psycopg2-binary is installed, not psycopg3)
 
@@ -37,7 +39,7 @@ _Last updated: 2026-09-29 — pre-4.1 cleanup done except the EVE-NG round; see 
 - `templates/account.html` — username, full name, email, role badge, position, member since with live ticking age counter (years/months/days/hours/minutes/seconds)
 
 ### 1.6 TOTP (2FA) ✅
-- Mandatory for all non-admin users — no toggle, product-level requirement
+- Mandatory for all local users — no toggle, product-level requirement (admin-role users included; LDAP users skip it since 4.9b)
 - Factory admin (`username="admin"`) is exempt from OTP
 - Flow: first login after approval → `otp_secret` is null → forced enrollment → on success save secret → future logins go to verify
 - Pre-auth session guard: `session["pre_auth_user_id"]` set at login, checked at OTP routes — prevents navigating directly to OTP routes without credentials
@@ -49,17 +51,17 @@ _Last updated: 2026-09-29 — pre-4.1 cleanup done except the EVE-NG round; see 
 
 ### 1.7 Admin Panel ✅
 - Collapsible sidebar: icon-only (56px) ↔ icon+label (200px), toggled by hamburger button, state persisted in localStorage
-- Sidebar sections: User Management (active), Audit Logs (Phase 2 stub), Query (Phase 2 stub)
+- Sidebar sections at the time: User Management, Audit Logs (stub), Query (stub) — today: Access (User Management, Live Sessions), Observability (Audit Logs, Analytics), System (Server Management, System Settings); see 4.8c
 - `GET /admin` → guard + redirect to `/admin/users`
 - `GET /admin/users` → query all users ordered by `created_at`, `expunge_all()`, render table
 - `POST /admin/users/<user_id>/<action>` → UUID cast, apply action within session, commit on exit
-- Actions: `approve` (is_approved=True, is_active=True), `enable` (is_active=True), `disable` (is_active=False), `promote` (role="admin"), `demote` (role="user")
+- Actions: `approve` (is_approved=True, is_active=True), `enable` (is_active=True), `disable` (is_active=False), `promote` (role="admin"; since 3.3b also approves + activates), `demote` (role="user"). Added later: `delete`, `terminate_session`, `reset_2fa`, and bulk `/admin/users/bulk/<action>`
 - `admin_users.html` — live search, sortable columns (client-side), status filter buttons (all/pending/active/inactive)
 - Status is ternary: pending (not approved), active (approved + active), inactive (approved + not active)
 - Per-row single action button (pill-shaped, color-coded): Approve (green) / Enable (cyan) / Disable (orange) — only relevant button shown, others absent
 - Promote/demote always present except factory user row
 
-### 1.8 User Model (final schema) ✅
+### 1.8 User Model (Phase 1 schema) ✅
 ```
 User
   id            UUID PK (uuid.uuid4, non-sequential)
@@ -74,9 +76,10 @@ User
   otp_secret    String(32), nullable — null means unenrolled
   created_at    DateTime, default datetime.now
 ```
+Since then: `password_hash`, `email`, `full_name` nullable (LDAP users); `otp_secret` is `String(255)` and Fernet-encrypted; `auth_type` + `ldap_server_id` added (4.9b). Current schema: `docs/architecture.md` §3.
 
 ### 1.9 Security decisions ✅
-- **Data minimization**: device credentials never stored — reduces attack surface deliberately
+- **Data minimization**: at the time, device credentials were never stored. ⚠ *Superseded:* since Phase 2 they are stored, Fernet-encrypted only, in `SecurityProfile` (key handling: `docs/architecture.md` §1)
 - UUID PKs: non-sequential, non-enumerable in URLs
 - Pre-auth session guard on OTP routes
 - Server-side role guard on all `/admin/*` routes (UI hiding is UX only)
@@ -94,17 +97,17 @@ Full architecture documented in `docs/architecture.md`.
 **Decisions made:**
 - `RolloutJob` is the lifecycle owner — owns `thread`, `cancel_event`, `engine`, `logger`
 - `cancel_event` passed as argument at call time to `RolloutEngine.run()`, `_push_config()`, `_verify()` — no hanging state on engine
-- `RolloutLogger` is purely I/O — owns `queue` and `logfile`, replaces `logging_utils.py` globals
+- `RolloutLogger` is purely I/O — owns `queue` and `logfile`, replaces `logging_utils.py` globals (⚠ *Superseded:* Redis list + pub/sub since 4.6b)
 - `Validator` — all static methods, pure namespace
-- `InputParser` — three entry points: `from_files()`, `from_web()`, `from_inventory()`
+- `InputParser` — three entry points: `from_files()`, `from_web()`, `from_inventory()` (as built: see 2.8)
 - `Device.from_inventory()` factory — single boundary where decryption happens
-- `SecurityProfile` — separate table, FK to both `User` (ownership) and `Inventory` (assignment). Encrypted with Fernet. Key from `NETROLLOUT_ENCRYPTION_KEY` env var, fallback to `~/.netrollout/encryption.key`
-- `RolloutSession` — "RAM" table, ephemeral, deleted on job completion
-- `RolloutOrchestrator` — singleton at app startup, owns `{job_id: RolloutJob}` dict, coordinates multithreading via `_dispatch()`, syncs DB and in-memory state. Webapp routes are thin delegators.
-- Config env vars (`NETROLLOUT_ENCRYPTION_KEY`, `MAX_CONCURRENT_JOBS`, `DATABASE_URL`, `SECRET_KEY`) asked interactively in `db_install.py` at install time, with sensible defaults
+- `SecurityProfile` — separate table, owned by `User`; assigned via `Inventory.sec_profile_id` (the FK is on the inventory side). Encrypted with Fernet. Key from `NETROLLOUT_ENCRYPTION_KEY` env var, fallback to `~/.netrollout/encryption.key`
+- `RolloutSession` — "RAM" table, ephemeral, deleted on job completion (⚠ *Superseded:* dropped in 4.6b; Redis holds job state)
+- `RolloutOrchestrator` — singleton at app startup, owns `{job_id: RolloutJob}` dict, coordinates multithreading via `_dispatch()`, syncs DB and in-memory state. Webapp routes are thin delegators. (⚠ *Superseded:* Redis BLPOP dispatcher + semaphore since 4.6b)
+- ~~Config env vars asked interactively in `db_install.py` at install time~~ — ⚠ *Superseded:* never built that way. `db_install.py` doesn't prompt; config comes from env / `config.env`, `MAX_CONCURRENT_JOBS` became the *Concurrent rollout jobs* System Setting (seeded from `ORCHESTRATOR_WORKERS`), and install-time questions are the Phase 4 installer (`docs/plans/phase-4.md`, decision 4)
 - `DeviceResult` — "MEMORY" table, one row per device per job, soft `job_id` ref, used for analytics and audit
 - `VariableMapping` — Phase 3, hook points designed but not implemented yet
-- `User` owns five relationships: `inventory`, `security_profiles`, `variable_mappings`, `sessions`, `results`
+- `User` owns five relationships: `inventory`, `security_profiles`, `variable_mappings`, `sessions`, `results` (today: `sessions` gone; `job_metadata`, `property_definitions`, `ldap_server` added)
 
 ---
 
@@ -116,22 +119,24 @@ Add new ORM models:
 - `Inventory` — per-user device topology store, FK to `User` and `SecurityProfile`
 - `SecurityProfile` — encrypted credentials (Fernet), FK to `User`, loaded as `user.security_profiles`
 - `VariableMapping` — `$$TOKEN$$` (free text) → `property_name` + optional `index` (nullable int), FK to `User`, loaded as `user.variable_mappings`. `index=None` = simple string attribute; `index=N` = positional element of a list attribute (e.g. `vrfs[1]`). Validator checks list length at rollout time.
-- `RolloutSession` — ephemeral active jobs table ("RAM"), FK to `User`, loaded as `user.sessions`
+- `RolloutSession` — ephemeral active jobs table ("RAM"), FK to `User`, loaded as `user.sessions` (dropped in 4.6b)
 - `DeviceResult` — permanent archive ("MEMORY"), FK to `User`, soft `job_id` ref, loaded as `user.results`
 
 Add relationships to `User`: `inventory`, `security_profiles`, `variable_mappings`, `sessions`, `results`
 
 ### 2.2 Encryption layer ✅
 - Fernet encryption/decryption helpers for `SecurityProfile` fields
-- Key resolution: `NETROLLOUT_ENCRYPTION_KEY` env var → fallback generate + write to `~/.netrollout/encryption.key`
+- Key resolution: `NETROLLOUT_ENCRYPTION_KEY` env var → `~/.netrollout/encryption.key`; generated only on a fresh install and checked against stored data at startup (fail-fast, Step 1b)
 
 ### 2.3 `RolloutLogger` class — `logging_utils.py` ✅
 Refactored module-level globals into `RolloutLogger(webapp, verbose, logfile=None)`. Owns `queue` and `logfile`. Methods: `log()`, `notify()`, `get()`. All `base_notify` imports removed from entire codebase.
+⚠ *Superseded:* today `RolloutLogger(webapp, verbose, prefix="rollout", job_id=None, redis_client=None)` with `notify`, `get_history`, `subscribe`, `redis_cleanup` (3.4c, 4.6b).
 
 ### 2.4 `RolloutJob` + `RolloutOrchestrator` — `orchestration.py` ✅
 Both classes in one file. `RolloutJob(id, engine, options)` — constructs own logger, owns thread + cancel_flag. `start(on_complete)` uses closure + callback pattern. `RolloutOrchestrator(max_concurrent=4)` — singleton, builds engine+job internally in `submit()`, `_dispatch()` uses `is_alive()`/`is_pending()` for slot management. DB writes (RolloutSession, DeviceResult) stubbed as TODO — pending 2.9.
+⚠ *Superseded:* today `RolloutJob(job_id, user_id, engine, options, redis_client)` and `RolloutOrchestrator(backend, max_concurrent)` with a Redis BLPOP `_dispatcher` + semaphore (4.6b; `docs/architecture.md` §5).
 
-### 2.4b Install script — moved to Phase 4.
+### 2.4b Install script — moved to Phase 4 (now the native installer, `docs/plans/phase-4.md` stage 9).
 
 ### 2.5 `RolloutEngine` refactor — `core.py` ✅
 - `cancel_event` removed from constructor — passed as argument to `run(cancel_event, logger)`, `_push_config()`, `_verify()`
@@ -143,25 +148,26 @@ Both classes in one file. `RolloutJob(id, engine, options)` — constructs own l
 ### 2.6 `Device` updates — `core.py` ✅
 - `label` field added
 - `netmiko_connector()` kept public (called from different class — private would be bad practice)
-- `from_inventory(cls, row: Inventory) -> Device` factory implemented — decrypts credentials from linked `SecurityProfile` via `encryption.decrypt()`
+- `from_inventory(cls, row: Inventory) -> Device` factory implemented (today `from_inventory(row, user_id)` — applies only the rolling-out user's mappings) — decrypts credentials from linked `SecurityProfile` via `encryption.decrypt()`
 - `fetch_config(logger: RolloutLogger)` — logger injected, `base_notify` removed
 
 ### 2.7 `Validator` class — `validation.py` ✅
 Logger-injected instance class. `validate_device_data` and `validate_file_extension` are instance methods (need logger). `validate_ip`, `validate_port`, `validate_platform`, `test_tcp_port` remain static.
 
 ### 2.8 `InputParser` class — `input_parser.py` ✅ (renamed from parser.py)
-Constructor takes `Validator` + `RolloutLogger`. Methods: `csv_to_inventory`, `form_to_inventory`, `parse_commands`, `_prepare_devices`. Static: `import_from_inventory(inventory) -> list[Device]`. `parse_files()` and `prepare_devices()` removed from codebase. `webapp_input()` and `background_rollout()` removed from webapp.
+Constructor takes `Validator` + `RolloutLogger`. Methods at the time: `csv_to_inventory`, `form_to_inventory`, `parse_commands`, `_prepare_devices`. Static: `import_from_inventory(inventory) -> list[Device]`. `parse_files()` removed from codebase.
+Today: `prepare_devices(raw) -> (devices, errors)` (public, CLI path), `csv_to_inventory(...) -> ImportReport`, `parse_commands`, static `import_from_inventory(rows, user_id)`; `form_to_inventory` removed in the Step 1b dead-code sweep. `webapp_input()` and `background_rollout()` removed from webapp.
 
-**Webapp rewire ✅** — routes are thin delegators. `cancel_event` global removed. `start_rollout` loads inventory from DB, calls `import_from_inventory`, submits to orchestrator, stores `job_id` in Flask session. SSE reads from `job.logger.queue`.
+**Webapp rewire ✅** — routes are thin delegators. `cancel_event` global removed. `start_rollout` loads inventory from DB, calls `import_from_inventory`, submits to orchestrator, stores `job_id` in Flask session. SSE reads from `job.logger.queue`. (⚠ *Superseded:* since 3.2 the start route redirects to `active_jobs?new=<id>`; SSE replays Redis history then tails pub/sub since 4.6b)
 
-**Tests: 83/83 passing.** All previously disabled test classes updated to new API and passing.
+**Tests: 83/83 passing (at the time).** All previously disabled test classes updated to new API and passing.
 
 ### 2.9 Inventory management UI ✅
 
 **Done (2026-04-10):**
 - Operator zone restructure: `operator_base.html` with collapsible sidebar, dashboard, account, inventory stub, results stub
 - `DeviceResultDict` TypedDict in `core.py` — typed return from `run()`, consumed by `_cleanup()`
-- Orchestrator DB writes: `RolloutSession` written on `submit()`, promoted to "active" in `_dispatch()`, `DeviceResult` rows written + session deleted in `_cleanup()`
+- Orchestrator DB writes: `RolloutSession` written on `submit()`, promoted to "active" in `_dispatch()`, `DeviceResult` rows written + session deleted in `_cleanup()` (⚠ *Superseded:* Redis `job:<id>:meta` hash + counters since 4.6b)
 - `tables.py` fully fixed: ForeignKeys, `back_populates` pairs, `commands_verified: Mapped[int | None]`, `Inventory.security_profile` singular
 - Dashboard route: groupby logic, active job detection, last 5 jobs table, system summary stats
 - Account route + page: total rollouts, devices configured, commands pushed, success rate (color-coded), top platform, 2FA status, live tenure counter
@@ -212,6 +218,7 @@ Constructor takes `Validator` + `RolloutLogger`. Methods: `csv_to_inventory`, `f
   `InputParser.csv_to_inventory`, drains logger queue for per-device errors, flashes result
 - Both temp files (CSV + log) cleaned up in `finally` block
 - NOTE: TCP checks are sequential — Phase 3.6 concurrency will fix large-CSV blocking
+- ⚠ *Superseded:* today errors and notices come from an `ImportReport`, and web import does no reachability check at all (Inventory shows reachability live). Credentials and attribute columns are saved (Step 1b)
 - Phase 3 TODO: proper activity logging with operation-prefixed filenames
 
 ### 3.2 Rollout initiation from web UI ✅ COMPLETE (2026-04-12)
@@ -223,15 +230,15 @@ Constructor takes `Validator` + `RolloutLogger`. Methods: `csv_to_inventory`, `f
 - Single-platform submits natively; multi-platform JS packages `platform_commands` JSON hidden field
 - `new_start_rollout` route: multi-platform detection via `platform_commands` field, groupby per device_type, one `orchestrator.submit()` per group, redirects to `active_jobs?new=<job_id>`
 - `active_jobs.html` — stats bar (Running/Queued/Devices in flight/live clock), job table with pulsing status dot, elapsed timer, 3 action buttons per row
-- Log button: toggles inline SSE terminal, replays `RolloutLogger._buffer` (history) then tails live queue
-- Cancel button: POST to `cancel_rollout`, updates `RolloutSession.status` to "cancelling"
-- Rollback button: modal with compensatory commands textarea, verify/verbose toggles with `?` tooltip, device attributes warning note. On confirm, `fetch('/rollback/<job_id>')`, redirects to `active_jobs?new=<job_id>` with same glow animation
+- Log button: toggles inline SSE terminal, replays the job's log history then tails live messages (today: Redis `job:<id>:history` via LRANGE, then pub/sub `job:<id>:logs`)
+- Cancel button: POST to `/rollout/cancel`, sets the job's status to "cancelling" (today `job:<id>:meta` in Redis)
+- Rollback button: modal with compensatory commands textarea, verify/verbose toggles with `?` tooltip, device attributes warning note. On confirm, `fetch('/rollout/rollback/<job_id>')`, redirects to `active_jobs?new=<job_id>` with same glow animation
 - `job-new` CSS glow animation on new job row; auto-refresh strips `?new=` so glow fires once only
-- `RolloutLogger` dual-write: `_queue` for live SSE delivery, `_buffer` for full history replay
+- `RolloutLogger` dual-write: `_queue` for live SSE delivery, `_buffer` for full history replay (⚠ *Superseded:* Redis pub/sub + history list, 4.6b)
 - `important=True` flag on key engine messages (rollout start, verify start, per-device summary, completion)
-- `JobMetadata` table: soft `job_id` ref, JSON `commands` (pre-substitution), nullable `comment`, `user_id` FK — written in same DB session as `RolloutSession` on submit
+- `JobMetadata` table: soft `job_id` ref, JSON `commands` (pre-substitution), nullable `comment`, `user_id` FK — written on submit (today in its own session in `RolloutOrchestrator.submit()`)
 - pg_cron installed on PostgreSQL 17-bookworm container; `cron.database_name = 'rollout_db'` set via `ALTER SYSTEM`
-- Two cron jobs: `job_metadata_retention` (7 days) + `device_result_retention` (30 days), idempotent via DO block unschedule-then-schedule pattern
+- Two cron jobs at the time: `job_metadata_retention` (7 days) + `device_result_retention` (30 days), idempotent via DO block unschedule-then-schedule pattern. ⚠ *Superseded:* today four jobs daily at 03:00 (`device_result_retention`, `job_metadata_retention`, `device_result_config_retention`, `audit_log_retention`), periods read from System Settings at run time, re-scheduled at every startup (see the retention table in Step 1b)
 - Old routes (`/start_rollout`, `/upload`, old `sse_stream`) retired in the Blueprint split
 
 **Pending / loose threads:**
@@ -267,10 +274,10 @@ Constructor takes `Validator` + `RolloutLogger`. Methods: `csv_to_inventory`, `f
 
 **Audit log table:**
 - `AuditLog` ORM model: `id`, `timestamp` (indexed), `actor_id` (FK → users, ON DELETE SET NULL), `actor_username` (denormalized — survives user deletion), `action` (dot-namespaced e.g. `inventory.delete`), `object_type`, `object_id` (soft ref), `object_label` (denormalized), `success`, `ip_address`
-- `audit()` helper in `webapp.py` — opens own session, commits independently of calling route's transaction
+- `audit()` helper (today `WebServices.audit` in `src/webapp/utils.py`) — opens own session, commits independently of calling route's transaction
 - 21 routes instrumented: auth (login with failure reasons, register, logout), user management (all single + bulk actions), inventory CRUD + import + bulk_assign, security profile CRUD, variable mapping CRUD + bulk_assign, rollout start/cancel/rollback
 - Login failures record reason: `invalid_credentials`, `account_disabled`, `pending_approval`
-- pg_cron `audit_log_retention` job: 90-day retention, daily at 3AM
+- pg_cron `audit_log_retention` job: daily at 3AM; 90 days by default, now the *Audit log* System Setting (7–3650)
 
 **Admin UI (`/admin/audit`):**
 - Filterable table: actor username (contains search), action (dropdown of distinct values), success/fail toggle
@@ -280,7 +287,7 @@ Constructor takes `Validator` + `RolloutLogger`. Methods: `csv_to_inventory`, `f
 
 **Log file infrastructure:**
 - `LOGS_DIR` defined in `logging_utils.py` as `src/../logs/` (project root)
-- `RolloutLogger.__init__` takes `job_id` + `timestamp`, constructs path `rollout_{timestamp}_{job_id}.log`, calls `os.makedirs(LOGS_DIR, exist_ok=True)` — all filesystem setup in one place
+- `RolloutLogger.__init__` takes `job_id` (timestamp computed internally since 3.4c), constructs path `rollout_{timestamp}_{job_id}.log`, calls `os.makedirs(LOGS_DIR, exist_ok=True)` — all filesystem setup in one place
 - Naming: timestamp = submission time (matches `job_metadata.created_at`), job_id makes glob lookup deterministic from results page
 - `started_at` in results page gives actual execution time — intentional drift from filename timestamp shows queue wait time
 - `/results/download_log/<job_id>` — ownership-verified via `DeviceResult`, globs `rollout_*_{job_id}.log`, serves with `send_file`
@@ -300,7 +307,7 @@ Two separate surfaces, different scopes. Data sourced entirely from `DeviceResul
 - 5-card CSS grid KPI strip: Success Rate, Devices Reached, Commands Pushed, Top Failing Device, Top Platforms (ranked top 3)
 - Admin-only scope selector in page header; operators see only their own data
 - Device Results query engine (`bi-database-check`, cyan): jQuery QueryBuilder compound filter (AND/OR, field/operator/value trees), AJAX POST `{rules}` → `/analytics/query`, dynamic table, CSV export
-- QueryBuilder fields: `started_at` (date), `device_type` (select), `status` (select), `commands_sent` (integer), `device_ip` (string)
+- QueryBuilder fields: `started_at` (date), `device_type` (select), `status` (select), `commands_sent` (integer), `device_ip` (string), `device_port` (integer, added with ip:port identity)
 - `/analytics/query` always scoped to `current_user.id` (operators) or `?user=` param (admin); audit log never exposed here
 - Analytics link added to operator sidebar under Observability section
 
@@ -331,9 +338,9 @@ Extended `RolloutLogger` to cover sequential administrative workflows with full 
 - Security profile test connection excluded — atomic single-device action, AJAX response is sufficient
 
 ### 3.5 Test suite ✅ COMPLETE (2026-09-29)
-`pytest` from the repo root. Last full run: **358 passed, 1 skipped (2026-09-29)**.
-- `tests/unit/` — hermetic: engine, device, parser, validator, orchestration, reachability, encryption, LDAP auth logic, web helpers, Redis client, logging, and the CLI (`test_cli.py`: arguments, prompts, file input, error exits, Ctrl+C; engine and TCP probe mocked)
-- `tests/integration/` — real Postgres (`rollout_test`) and Redis (db 15), skipped with a reason when a service is unhealthy: auth, admin, inventory, profiles/mappings/properties, rollouts and jobs, error handling, DB layer, a route matrix, and LDAP against an ephemeral OpenLDAP container the suite starts and removes. The pg_cron test is opt-in (`TEST_PG_CRON_URL`)
+`pytest` from the repo root. Last full run: **456 passed, 1 skipped (2026-09-30)**.
+- `tests/unit/` — hermetic: engine, device, parser, validator, orchestration, reachability, encryption, LDAP auth logic, web helpers, Redis client, logging, settings registry and rules, the startup proxy check, and the CLI (`test_cli.py`: arguments, prompts, file input, error exits, Ctrl+C; engine and TCP probe mocked)
+- `tests/integration/` — real Postgres (`rollout_test`) and Redis (db 15), skipped with a reason when a service is unhealthy: auth, admin, inventory, profiles/mappings/properties, rollouts and jobs, error handling, DB layer, System Settings (store, seeding, rules, admin page), the `/_netrollout/instance` endpoint, a route matrix, and LDAP against an ephemeral OpenLDAP container the suite starts and removes. The pg_cron test is opt-in (`TEST_PG_CRON_URL`)
 - Known bugs are recorded as strict xfails: once fixed they fail as "unexpectedly passed", so the marker gets removed with the fix
 
 **CLI bugs found by the new tests — fixed (2026-09-29):** blank lines in the commands file were pushed as commands; a UTF-8 BOM stuck to the first command (the file is now read as `utf-8-sig`, like the devices CSV, and a non-UTF-8 file is refused with a clear message); the final "Press Enter to exit..." raised `EOFError` without a terminal (cron, CI, pipes).
@@ -346,8 +353,9 @@ Extended `RolloutLogger` to cover sequential administrative workflows with full 
 ### 3.6 Per-job device concurrency ✅ COMPLETE (2026-04-13)
 
 **Two-layer concurrency model:**
-- Layer 1 — job-level: `RolloutOrchestrator` runs up to `max_concurrent=4` jobs simultaneously, each in its own `threading.Thread`
-- Layer 2 — device-level: `RolloutEngine` uses `ThreadPoolExecutor(max_workers=10)` per job — up to 10 simultaneous SSH sessions per job, up to 40 total across 4 concurrent jobs
+- Layer 1 — job-level: `RolloutOrchestrator` runs up to `max_concurrent` jobs simultaneously (default 4), each in its own `threading.Thread`
+- Layer 2 — device-level: `RolloutEngine` uses `ThreadPoolExecutor(max_workers)` per job (default 10) — up to 40 simultaneous SSH sessions with the defaults
+- Both are System Settings since 2026-09-30: *Concurrent rollout jobs* (1–32, after restart) and *Devices in parallel per job* (1–64, next rollout)
 
 **Engine changes (`core.py`):**
 - `max_workers: int = 10` added to `RolloutOptions`
@@ -355,7 +363,7 @@ Extended `RolloutLogger` to cover sequential administrative workflows with full 
 - `_verify_device(device, logger) -> tuple[str, int]` extracted from `_verify`
 - Both `_push_config` and `_verify` rewritten to use `ThreadPoolExecutor` + `as_completed`
 
-**Thread safety (`logging_utils.py`):**
+**Thread safety (`logging_utils.py`):** ⚠ *Superseded:* `_buffer`, `_buffer_lock`, `get_buffer_snapshot()` and the `queue.Queue` were removed with the Redis rewrite (4.6b); only `_log_lock` remains.
 - `_buffer` made private; only accessible via `get_buffer_snapshot()` which acquires `_buffer_lock` and returns a copy — prevents `RuntimeError: list changed size during iteration` on SSE replay
 - `_buffer_lock: threading.Lock` — guards `_buffer.append()` in `notify()` and the copy in `get_buffer_snapshot()`
 - `_log_lock: threading.Lock` — serializes file writes in `_log()` across concurrent worker threads
@@ -372,12 +380,12 @@ Extended `RolloutLogger` to cover sequential administrative workflows with full 
 - Both sections use the same expand/collapse, See Commands, Download Log, and Diff features
 
 **Admin power over all jobs:**
-- `cancel_rollout` — ownership check bypassed for admin
-- `rollout_stream` — SSE stream accessible by admin for any job
+- cancel (`/rollout/cancel`) — ownership check bypassed for admin
+- SSE stream (`/rollout/stream/<job_id>`) — accessible by admin for any job
 - `download_log` — ownership check bypassed for admin
 
 **Backend:**
-- `active_jobs` route: if admin, queries all `RolloutSession` rows + username map; splits into `my_jobs` / `other_jobs`
+- `active_jobs` route: if admin, reads all jobs + username map; splits into `my_jobs` / `other_jobs` (today it scans the Redis `job:*:meta` hashes; `RolloutSession` was dropped in 4.6b)
 - `results` route: if admin, queries all `DeviceResult` + `JobMetadata`; groups other users' rows by `user_id` to attach owner username; passes `other_jobs` with `owner` field
 - Non-admin path unchanged — `other_jobs=[]`, `is_admin=False`
 
@@ -396,12 +404,13 @@ Extended `RolloutLogger` to cover sequential administrative workflows with full 
 ---
 
 ## Phase 4 — Packaging & Deployment
+The remaining work, and the Phase 4 plan it leads to, is below. Sections numbered 4.6–4.10 further down are completed earlier work from the original Phase 4 list, kept as a log.
 
 ---
 ## Remaining work — path to v1.0
 _Feature set is complete as of 2026-04-28. Remaining work is cleanup, packaging, and documentation._
 
-**Status (2026-09-29):**
+**Status (2026-09-30):**
 
 | Step | Scope | Status |
 |---|---|---|
@@ -409,11 +418,9 @@ _Feature set is complete as of 2026-04-28. Remaining work is cleanup, packaging,
 | 1b | Pre-4.1 cleanup (branch `pre-4.1-cleanup`) | ✅ Done — EVE-NG round postponed (not blocking) |
 | 2 — 4.0 | Blueprint split | ✅ Done — frontend asset splitting deferred |
 | 3 — 4.0b | BYO Postgres / Redis | ✅ Done — Grafana BYO post-v1.0 |
-| 3b | System settings + startup reverse-proxy check (`docs/plans/system-settings.md`, branch `system-settings`) | ✅ Parts A + B done (2026-09-30) — Part C (nginx follows the Access settings) is built in 4.1 |
-| 4 — 4.1 | Docker image | ⬜ Next |
-| 5 — 4.2 | `install.py` | ⬜ |
-| 6 — 4.10 | Documentation | ⬜ |
-| 7 — 4.4 | Release | ⬜ |
+| 3b | System settings + startup reverse-proxy check (`docs/plans/system-settings.md`, branch `system-settings`) | ✅ Parts A + B done (2026-09-30) — Part C (nginx follows the Access settings) is Phase 4 stage 8 |
+| 4 — Phase 4 | Packaging v1.0.0 — `docs/plans/phase-4.md` (approved 2026-09-30, branch `phase-4-packaging`): hygiene + migration squash, paths/config, container runtime, forced password change, **platform profiles (push commit + verify on all 12 platforms)**, CLI `.exe`, images, compose, Part C + certificate upload, installer + scripts, CI, docs | ⬜ Next — not started |
+| 5 — release | v1.0.0 — release gates in `docs/plans/phase-4.md` (EVE-NG round against the built image, backup/restore, upgrade) | ⬜ |
 
 ### Step 1 — 4.9c Codebase cleanup ✅ COMPLETE
 Do this before freezing into a Docker image. Code quality is easier to fix before packaging than after.
@@ -422,7 +429,7 @@ Do this before freezing into a Docker image. Code quality is easier to fix befor
 - All routes unified to `{"status": "ok"/"error", "message": "..."}`. All frontend consumers updated.
 
 **Route abstraction — decorators + DB helpers + operation factories:**
-The core insight: nearly every route in `webapp.py` is one of 5 archetypes — **list**, **create**, **edit**, **delete**, **action**. Each archetype has the same skeleton. The fix is a 3-layer mini-framework that absorbs all cross-cutting concerns so routes become pure declarative wiring.
+The core insight: nearly every route in `webapp.py` (the single-file app at the time) is one of 5 archetypes — **list**, **create**, **edit**, **delete**, **action**. Each archetype has the same skeleton. The fix is a 3-layer mini-framework that absorbs all cross-cutting concerns so routes become pure declarative wiring.
 
 *Layer 1 — Decorators (cross-cutting concerns):*
 - `@require_admin` — role check, returns 403 automatically
@@ -430,13 +437,13 @@ The core insight: nearly every route in `webapp.py` is one of 5 archetypes — *
 - `@with_form(*required_fields)` — same for form-encoded routes
 
 *Layer 2 — DB dispatcher:*
-- `act_on_db_object(model, id, callback, user_id=None)` — owns the session lifecycle, does the ownership-guarded lookup, returns 404 if missing, calls `callback(obj, db_session)` if found. Replaces the open-session / query / 404-check / expunge pattern repeated across ~30 routes.
+- `act_on_db_object(model, id, callback, user_id=None)` (implemented as `WebServices.act_on_db_obj`) — owns the session lifecycle, does the ownership-guarded lookup, returns 404 if missing, calls `callback(obj, db_session)` if found. Replaces the open-session / query / 404-check / expunge pattern repeated across ~30 routes.
 - `ok(message=None, **extra)` → `jsonify({"status": "ok", "message": ..., **extra})`
 - `err(message, code=200)` → `jsonify({"status": "error", "message": ...}, code)`
 
 *Layer 3 — Operation factories (build callbacks for `act_on_db_object`):*
 - `delete_op(audit_action, guard=None)` — returns a callback that checks the optional guard (e.g. "has assigned devices"), calls `db.delete(obj)`, calls `audit()`, returns `ok()`. Guard is a callable `(obj) -> err(...)` or `None`.
-- `edit_op(fields, audit_action)` — returns a callback that applies field updates from a dict, audits, returns `ok()`.
+- `edit_op(fields, audit_action)` (implemented as `update_op`) — returns a callback that applies field updates from a dict, audits, returns `ok()`.
 - Custom lambda or named function for "action" routes (test, assign, rollback) where the logic is genuinely unique.
 
 *The full call chain:*
@@ -527,7 +534,7 @@ Blocking and should-fix items found in a full codebase review after the Blueprin
 - Console output UTF-8 and never fatal (`utf8_console()` at the webapp and CLI entry points): a `→` in a log line used to fail requests on a non-UTF-8 stdout
 - Global devices browser click-through (admin + normal user) — done by the developer
 - CSV import — one format for the CLI and the web app: attribute columns (system or custom property, by name or label) saved as variable attributes; credential columns become security profiles (checkbox, default on): exact username/password/secret match reuses the user's profile, otherwise a new profile with a unique label (`admin · CSV import 29 Sep`), a warning when it shares a username with another profile, audited as `security_profile.create` (source csv_import); unknown columns reported; no TCP check on web import (the CLI keeps it)
-- Log file retention: `*.log` files in `logs/` (web app and CLI) not modified for 60 days (`LOG_RETENTION_DAYS`, kept >= the 30-day job retention so Download Log never loses its file) are pruned at web-app startup, then daily, and on each CLI run; mtime-based, so a running job's file is never removed. Loki keeps its own copy
+- Log file retention: `*.log` files in `logs/` (web app and CLI) not modified for 60 days (`LOG_RETENTION_DAYS`; since 2026-09-30 the *Log files* System Setting for the web app, kept >= the 30-day job retention so Download Log never loses its file) are pruned at web-app startup, then daily, and on each CLI run; mtime-based, so a running job's file is never removed. Loki keeps its own copy
 - `CLAUDE.md` refreshed from the code: commands (run from repo root, no DB-init step), configuration, module map, tables, retention, SSE, shared CSV format; per-feature backend exception recorded under Working style
 - `key_error.html` rebuilt: standalone in the app's style, no external scripts (was Tailwind CDN + unpkg), no fake status footer. Admins get concrete steps (which env var / file this server reads, restore the original key, restart; if lost: re-enter profile / LDAP passwords, clear 2FA via SQL) and a warning not to generate a new key; others are told to contact an admin. The steps are also written to the server log, since a failure at 2FA sign-in can lock admins out
 - Dead-code sweep and rename artifacts: find-and-replace leftovers fixed (incl. the Users page's "Factory user redis_session" text; the `redis_session:` Redis key prefix kept on purpose), unused `form_to_inventory` / `create_op` / imports removed, pyflakes clean, a latent `\,` escape in the test conftest fixed; `.coverage` untracked, stale `docs/TODO` and `docs/bug_report.md` removed
@@ -548,15 +555,15 @@ Blocking and should-fix items found in a full codebase review after the Blueprin
 | Config snapshot — `device_results.fetched_config` | 7 days | Column cleared, row kept (status/analytics unaffected) |
 | `audit_log` | 90 days | Unchanged |
 
-Constants live in `src/db/db_install.py` (`JOB_RETENTION_DAYS`, `CONFIG_SNAPSHOT_RETENTION_DAYS`, `AUDIT_RETENTION_DAYS`); `install()` re-schedules all pg_cron jobs at every startup. Results page shows "Verify Diff expired" once a job's snapshots are cleared.
+Since 2026-09-30 these are **System Settings** (defaults above, plus log files 60 days): the pg_cron statements read the setting's row when they run, `install()` re-schedules them at every startup, and admins change them in admin panel → System → System Settings. Results page shows "Verify Diff expired" once a job's snapshots are cleared.
 
 **Deferred past 4.1:**
-- nginx SSE `location /rollout_stream` → `/rollout/stream` (streaming works via `X-Accel-Buffering: no`)
+- ~~nginx SSE location~~ — fixed in Phase 4's nginx image (`docs/plans/phase-4.md`, stage 6)
 - Frontend asset splitting (Step 2)
-- Active Directory: test against a real AD (Samba AD DC container, ephemeral like the OpenLDAP one) — `sAMAccountName` logins, UPN binds, and nested-group membership (today only direct members of a mapped group match)
+- Active Directory: test against a real AD (Samba AD DC container, ephemeral like the OpenLDAP one) — `sAMAccountName` logins, UPN binds, and nested-group membership (today only direct members of a mapped group match). A v1.0.0 release gate only if v1.0 claims AD support (`docs/plans/phase-4.md`)
 - ~~System settings page~~ — moved ahead of Phase 4: see Step 3b and `docs/plans/system-settings.md` (approved 2026-09-29)
 
-**Noted for 4.2 (`install.py`):** force or generate the factory `admin` password instead of shipping `admin`/`admin`; factory-account documentation at release.
+**Factory admin:** decided in Phase 4 — `admin`/`admin` with a forced password change at first login (`docs/plans/phase-4.md`, decision 8).
 
 ---
 
@@ -576,8 +583,10 @@ Constants live in `src/db/db_install.py` (`JOB_RETENTION_DAYS`, `CONFIG_SNAPSHOT
 - `properties.py` — `/properties`: user-defined property CRUD
 - `rollout.py` — `/rollout`: new, start, stream, cancel, rollback
 - `jobs.py` — dashboard, active jobs, results, config diff, log download
-- `analytics.py` — `/analytics/query`
-- `admin_users.py`, `admin_observability.py`, `admin_servers.py` — `/admin`: users and sessions; audit and analytics; server management (Postgres, Redis, LDAP)
+- `analytics.py` — `/analytics`: KPI page + query
+- `admin_users.py`, `admin_observability.py`, `admin_servers.py` — `/admin`: users and sessions; audit and analytics; server management (Postgres, Redis, LDAP, restart)
+- Added 2026-09-30: `admin_settings.py` — `/admin/settings` (System Settings); `system.py` — `/_netrollout/instance` (startup proxy check)
+- Full route table: `docs/architecture.md` §7
 
 **Frontend asset splitting (deferred past 4.1):**
 Extract per-page inline `<style>` and `<script>` blocks into `static/css/<page>.css` and `static/js/<page>.js`. Templates become thin layout files. Makes JS/CSS independently cacheable and reviewable. Do alongside or after Blueprints.
@@ -587,7 +596,7 @@ Extract per-page inline `<style>` and `<script>` blocks into `static/css/<page>.
 ### Step 3 — 4.0b BYO Infrastructure ✅ COMPLETE for v1.0 (2026-04-28)
 Allow users to connect their own Postgres and Redis instead of the bundled Docker services.
 
-**PostgreSQL BYO ✅ COMPLETE** — server management UI card, `POST /admin/server/postgres/test` + `/save`, writes individual `DB_*` vars to `config.env`, merge-safe (does not overwrite Redis config).
+**PostgreSQL BYO ✅ COMPLETE** — server management UI card, `POST /admin/server/postgres/test` + `/save`, writes individual `PG_*` vars to `config.env`, merge-safe (does not overwrite Redis config).
 
 **Redis BYO ✅ COMPLETE (2026-04-28)** — server management UI "Database Services" card with two large service selector buttons (Postgres / Redis). Redis form: host, port, db number, optional password. `POST /admin/server/redis/test` (ping) + `/save` (writes `REDIS_*` vars to `config.env`, merge-safe). `redis_db.py` reads individual vars as fallback when `REDIS_URL` not set. Warning: switching Redis drops all active sessions and orphans running jobs — documented in UI.
 
@@ -595,63 +604,16 @@ Allow users to connect their own Postgres and Redis instead of the bundled Docke
 
 ---
 
-### Step 4 — 4.1 Docker image
-Build and publish to Docker Hub as `itamar14/netrollout:latest` and `itamar14/netrollout:v1.0`.
-
-`docker-compose.yml` services:
-- `app` — Waitress + Flask, pulls from Docker Hub
-- `db` — PostgreSQL
-- `redis` — Redis
-- `nginx` — reverse proxy, TLS termination
-
-Grafana/Prometheus/Loki remain on a separate `docker-compose.obs.yml` — optional observability stack, not bundled in the base image.
-
-**Pending Grafana wiring (carry over from 4.9):**
-- docker-compose volume mounts for `docs/grafana/provisioning/` and `docs/grafana/dashboard_config/`
-- `GRAFANA_DB_PASSWORD` env var in docker-compose
-
-**Logs must be a bind mount:** mount the app's `logs/` to a host folder (e.g. `./logs:/app/logs`) — browsable like today (60-day retention), survives updates (a recreated container loses anything not mounted), and promtail reads the same folder.
-
-**Encryption key must survive container recreation:** the `app` service must set `NETROLLOUT_ENCRYPTION_KEY` or mount a volume at `~/.netrollout/`. Otherwise a re-pulled container has no key; since 2026-09 the app then refuses to start (fail-fast) rather than silently generating a new key that orphans every stored credential. `install.py` (4.2) should generate the key once and write it to `config.env`.
-
----
-
-### Step 5 — 4.2 Install script — `install.py`
-Single script, zero manual steps. `python install.py` → fully running stack.
-
-Interactively asks (with defaults):
-- `SECRET_KEY` — auto-generate via `secrets.token_urlsafe(32)`
-- `NETROLLOUT_ENCRYPTION_KEY` — auto-generate, write to `~/.netrollout/encryption.key`
-- `MAX_CONCURRENT_JOBS` — default `4`
-- DB credentials — default bundled Postgres
-
-Then:
-1. Writes `config.env`
-2. `docker compose pull`
-3. `docker compose up -d`
-4. `alembic upgrade head`
-5. Seeds factory admin (`admin`/`admin`)
-6. Prints `NetRollout is running at https://localhost`
-
-Re-running pulls `:latest` and restarts — doubles as update mechanism.
-
----
-
-### Step 6 — 4.10 Documentation
-- `README.md` — project overview, quick start (`python install.py`), CLI usage (incl. exit codes 0/1/2/130), CSV format reference, security posture (data minimization, encryption key management), update instructions
-- Inline docstrings pass on public APIs in `ldap_auth.py`, `orchestration.py`, `core.py`
-
----
-
-### Step 7 — 4.4 Release
-Tag v1.0 on GitHub, push `v1.0` and `latest` to Docker Hub.
-
----
+### Phase 4 — Packaging v1.0.0 → `docs/plans/phase-4.md`
+Approved 2026-09-30, branch `phase-4-packaging`. Replaces the earlier Steps 4–7 (Docker image, Python `install.py`, docs, release), which predated the planning session. In short: a compose project on Docker Hub (`itamar14/netrollout`, `-postgres`, `-nginx`) delivered as a GitHub release zip; native installer (PowerShell + bash) with a licence notice and `[default]` questions; Docker Desktop on Windows 10/11 VMs as the main team-server case (nested virtualization, auto-logon), Linux supported; only nginx published, Grafana at `/grafana` (optional monitoring profile); management + update scripts; forced admin password change; certificates (self-signed / organisation / upload); Part C (hostname + certificate apply live, HTTPS port via `netrollout apply`); **platform profiles** fixing push commit (Junos / PAN-OS / IOS-XR) and verify on all 12 platforms, NAPALM dropped; CLI `.exe`; GitHub Actions release on a tag; migration history squashed. The plan holds the 15 decisions, 11 stages, verification and release gates.
 
 ### Post-v1.0 (deferred)
-- **4.3 Update mechanism** — in-app version check widget hitting Docker Hub API
-- **4.5 CLI `.exe`** — PyInstaller standalone for `cli.py`
+- **4.3 Update mechanism** — in-app "check for updates" button (the update *script* ships in v1.0)
+- **Offline / isolated networks** — bundle the CDN assets (Bootstrap, jQuery, fonts, icons) into the image + offline image transfer (`docker save` / `load`)
+- **Frontend asset splitting** (see Step 2)
 - **4.0b Grafana BYO** — server management card for external Grafana instance
+- **Local-AI "Explain this failure"** — optional small quantized model on the server, on demand per failed device, advisory only (never the pass/fail verdict), no cloud
+- ~~4.5 CLI `.exe`~~ — moved into Phase 4
 
 ---
 
@@ -660,20 +622,20 @@ Tag v1.0 on GitHub, push `v1.0` and `latest` to Docker Hub.
 Critics are right that `Device` and `InputParser` mix concerns. Goal: each class has one reason to change.
 
 **Class splits:**
-- `Device` → `DeviceConfig` (pure value object, no I/O) + `DeviceConnector` (owns Netmiko/NAPALM operations)
+- `Device` → `DeviceConfig` (pure value object, no I/O) + `DeviceConnector` (owns the Netmiko operations)
 - `InputParser` → `CSVParser` + `FormParser` (each returns plain data) + `DeviceFactory` (constructs `DeviceConfig` from parsed data)
 
 **OOP patterns with genuine use cases:**
 
 *Polymorphism via ABC:*
 - `BaseConnector(ABC)` — declares `push_config()` and `verify()` as `@abstractmethod`
-- `NetmikoConnector(BaseConnector)` — Netmiko implementation
-- `NAPALMConnector(BaseConnector)` — NAPALM implementation
-- `RolloutEngine` receives a `BaseConnector` — swappable backend without touching engine logic
+- `NetmikoConnector(BaseConnector)` — Netmiko implementation, driven by the per-platform profiles introduced in Phase 4 (how to finish a push, how to fetch the config, which matcher)
+- A future backend (e.g. an API-based vendor) is another `BaseConnector` — `RolloutEngine` receives a `BaseConnector`, so backends swap without touching engine logic
+- (NAPALM was dropped in Phase 4 — it was only used to fetch configs for verify)
 - Python duck typing means polymorphism works without ABC, but ABC makes the contract explicit and raises `TypeError` at instantiation if a subclass is incomplete
 
 *Factory:*
-- `ConnectorFactory.build(device_config)` — picks `NetmikoConnector` vs `NAPALMConnector` based on `device_type`, replacing current if/else in the engine
+- `ConnectorFactory.build(device_config)` — picks the connector and platform profile for a `device_type`
 
 *Template Method:*
 - `RolloutEngine` defines a fixed execution skeleton (`push → optionally verify → record result`)
@@ -687,21 +649,21 @@ Critics are right that `Device` and `InputParser` mix concerns. Goal: each class
 
 Upgrade the verify flow from best-effort substring matching to a true before/after config diff.
 
-**Problem with current shallow verify:**
-- Fetches running config once after push, does substring match per command
-- False negatives possible — a command may appear in the config from a previous job or different context and still register as verified
-- Moves verify from "actual proof of change" to "best-effort signal"
+**What Phase 4's verify still can't tell (platform profiles fix everything else):**
+- A line that was already in the config before the rollout still counts as verified (false positive)
+- Typed abbreviations (`int gi0/1`) and values the device rewrites (hashed secrets, reformatting, hidden defaults) can still show as not configured
 
 **Deep Diff feature:**
 - New `RolloutOptions` flag: `deep_diff` (only valid when `verify=True`)
 - `_verify_device()`: fetch config before push, push, fetch config after — diff the two
 - `DeviceResult` schema: replace `fetched_config` (Text) with `config_before` + `config_after` (both Text, nullable) — Alembic migration required
 - Pass/fail still derivable: commands that appear in the diff came from this push, no ambiguity about context
+- **Comparison engine: `hier_config`** (hierarchy-aware intended-vs-running comparison, negation, per-vendor rules) with **`netutils`** normalization (e.g. interface abbreviations); Junos can use its own commit diff (`show | compare rollback 1`)
 - Frontend diff view unchanged — feed `config_before` vs `config_after` instead of commands vs config
 
-**Shallow verify (current, unchanged):**
-- Fetch post-push config only, substring match per command
-- Fast, one NAPALM connection per device
+**Standard verify (Phase 4, unchanged by 5b):**
+- Fetch the post-push config once over Netmiko in the vendor's typed syntax, per-command match (section-aware; removals as "must be absent")
+- Fast, one connection per device
 - Still shows commands-vs-result view for quick signal
 
 **UI:**
@@ -710,7 +672,7 @@ Upgrade the verify flow from best-effort substring matching to a true before/aft
 - Results diff view: if `config_before` + `config_after` present → full LCS colored diff; if only shallow verify → commands vs config view
 
 ### 4.6 Server-side sessions (Flask-Session) ✅ COMPLETE (2026-04-23)
-Flask-Session backed by Redis (`SESSION_TYPE=redis`). On startup, all `session:*` keys flushed from Redis — FortiGate-style invalidation, no SECRET_KEY rotation needed. SECRET_KEY is now a fixed env var (`SECRET_KEY=dev` default), session lifecycle managed by Redis flush instead.
+Flask-Session backed by Redis (`SESSION_TYPE=redis`). On startup, all `redis_session:*` keys flushed from Redis — FortiGate-style invalidation, no SECRET_KEY rotation needed. SECRET_KEY is now a fixed env var (`SECRET_KEY=dev` default), session lifecycle managed by Redis flush instead.
 
 ### 4.6b Redis integration (v1.1) ✅ COMPLETE (2026-04-25)
 Redis as a fourth Docker service, enabling three features under one infrastructure dependency:
@@ -720,27 +682,29 @@ Redis as a fourth Docker service, enabling three features under one infrastructu
 
 **2. Pub/sub log streaming ✅ COMPLETE (2026-04-24)**
 Replace the in-process `queue.Queue` + `_buffer` in `RolloutLogger` with a Redis pub/sub channel per job (`job:<job_id>:logs`). Workers publish log lines; SSE endpoint subscribes by job ID — no shared in-process state, no buffer locks. History replay handled via a parallel Redis list (`job:<job_id>:history`) — on SSE connect, `LRANGE` for history then subscribe for live tail.
-- `RolloutLogger` rewritten: keys only created when `job_id` + `timestamp` provided; `notify()` guards Redis writes with `if self._channel_key`; `get_history()` via `LRANGE`; `subscribe()` returns `PubSub`; `redis_cleanup()` publishes `__done__` sentinel then deletes both keys
+- `RolloutLogger` rewritten: keys only created when `job_id` provided; `notify()` guards Redis writes with `if self._channel_key`; `get_history()` via `LRANGE`; `subscribe()` returns `PubSub`; `redis_cleanup()` publishes `__done__` sentinel then deletes both keys
 - `RolloutJob` adds `get_log_queue()`, `get_log_history()`, `log_cleanup()` — encapsulates logger access
 - SSE route replays history snapshot then tails live pub/sub channel; exits on `__done__` sentinel or dead thread
 - CSV import drain loop removed; `prepare_devices()` now returns `(list[Device], list[str])` — errors surfaced to caller directly
 
 **3. Session store + revocation ✅ COMPLETE (2026-04-23)**
 Flask-Session backed by Redis. Two keys per logged-in user:
-- `session:<sid>` — Flask-Session owns this, actual session data
+- `redis_session:<sid>` — Flask-Session owns this, actual session data
 - `user_session:<user_id>` — our mapping, allows admin to locate and delete a user's session
 
-On login: `user_session:<user_id>` written with `session.sid`. On logout: `session.clear()` triggers Flask-Session to delete `session:<sid>`; we delete `user_session:<user_id>`. On terminate: we delete both manually (no Flask request context for target user). Admin "Terminate Session" button added to User Management toolbar.
+On login: `user_session:<user_id>` written with `session.sid`. On logout: `session.clear()` triggers Flask-Session to delete `redis_session:<sid>`; we delete `user_session:<user_id>`. On terminate: we delete both manually (no Flask request context for target user). Admin "Terminate Session" button added to User Management toolbar.
 
 - `redis-py`, `Flask-Session==0.8.0` added as dependencies
-- `src/db/redis_db.py` — dedicated Redis module (`redis_client` singleton)
-- Redis added as a service in `docker-compose.yml`, reachable by Flask and workers on the Docker network
+- `src/db/redis_db.py` — dedicated Redis module (today `RedisConfig` + `RedisConnection`, owned by `BackendServices` and reached as `app.backend.redis.client` — no module singleton, so a Server Management switch is picked up)
+- Redis runs as a Docker container in development; the packaged compose file is Phase 4 stage 7
 
 ### 4.7 Alembic migrations ✅ COMPLETE (2026-04-17)
-DB layer refactored into `src/db/` package. `create_all` replaced with Alembic. Initial migration generated and applied. `db_install.py` calls `alembic upgrade head` programmatically. Migration files ship in the Docker image — fresh installs and schema upgrades both handled via `alembic upgrade head`.
+DB layer refactored into `src/db/` package. `create_all` replaced with Alembic. Initial migration generated and applied. `db_install.py` calls `alembic upgrade head` programmatically — today on the app's own connection at every start, followed by seeding the factory admin and System Settings and scheduling pg_cron (`docs/architecture.md` §6). Migration files ship in the Docker image — fresh installs and schema upgrades both handled via `alembic upgrade head`.
 
 ### 4.8 Server Management ✅ COMPLETE (2026-04-17)
-External DB configuration UI in admin panel. `db.py` refactored: `construct_url()` builds URL from individual env vars (`DB_HOST/PORT/NAME/USER/PASSWORD/SCHEMA`), `build_engine()` prefers `DATABASE_URL` then falls back to individual vars, `search_path` injected via `connect_args` if `DB_SCHEMA` set. `db_install.py` imports fixed to fully-qualified `db.db`/`db.tables` paths. `webapp.py`: `load_dotenv(config.env)` runs before DB imports; `_DB_HOST/_DB_PORT` read from `engine.url`; `pending_db_init.flag` checked on startup → runs `install()` → deletes flag. Three new routes: `GET /admin/server`, `POST /admin/server/db/test` (live connection test, blocks same-DB target), `POST /admin/server/db/save` (writes `config.env` + flag). `POST /admin/server/restart` uses `os.execv` for hot process restart (picks up new config + code changes). `server_management.html`: DB config card (status strip, migration warning, test/save/restart flow) + locked LDAP stub.
+⚠ *Superseded:* the module, variable and route names below were replaced: today `src/db/postgres_db.py` (`PostgresConfig.get_url`, `PostgresConnection`) with `PG_HOST/PG_PORT/PG_NAME/PG_USER/PG_PASSWORD/PG_SCHEMA`; `load_dotenv(config.env)` in `BackendServices`; `install()` runs at every start and after a switch (the `pending_db_init.flag` is still written but never read — removed in Phase 4 stage 2); routes `/admin/server/postgres/{test,save}` and `/admin/server/redis/{test,save}`; Restart relaunches `sys.orig_argv` via `subprocess.Popen` then `os._exit(0)` (Phase 4 stage 3 changes it for containers); the LDAP card is real since 4.9b.
+
+As built on 2026-04-17: external DB configuration UI in admin panel. `db.py` refactored: `construct_url()` builds URL from individual env vars (`DB_HOST/PORT/NAME/USER/PASSWORD/SCHEMA`), `build_engine()` prefers `DATABASE_URL` then falls back to individual vars, `search_path` injected via `connect_args` if `DB_SCHEMA` set. `db_install.py` imports fixed to fully-qualified `db.db`/`db.tables` paths. `webapp.py`: `load_dotenv(config.env)` runs before DB imports; `_DB_HOST/_DB_PORT` read from `engine.url`; `pending_db_init.flag` checked on startup → runs `install()` → deletes flag. Three new routes: `GET /admin/server`, `POST /admin/server/db/test` (live connection test, blocks same-DB target), `POST /admin/server/db/save` (writes `config.env` + flag). `POST /admin/server/restart` uses `os.execv` for hot process restart (picks up new config + code changes). `server_management.html`: DB config card (status strip, migration warning, test/save/restart flow) + locked LDAP stub.
 
 ### 4.8b nginx integration ✅ COMPLETE (2026-04-18)
 nginx reverse proxy running in Docker, terminating TLS and forwarding to Waitress on port 8080.
@@ -749,12 +713,12 @@ nginx reverse proxy running in Docker, terminating TLS and forwarding to Waitres
 - `proxy_set_header Host/X-Real-IP/X-Forwarded-For/X-Forwarded-Proto`
 - `ProxyFix(x_for=1, x_proto=1, x_host=1)` in Flask — trusts exactly 1 proxy hop
 - `SESSION_COOKIE_SECURE=True`, `SESSION_COOKIE_HTTPONLY=True`, `SESSION_COOKIE_SAMESITE=Lax`
-- `ProxyFix(x_for=1, x_proto=1, x_host=1)` + secure cookie config added to `webapp.py`
+- `ProxyFix(x_for=1, x_proto=1, x_host=1)` + secure cookie config (today in `src/webapp/setup.py`)
 - Origin check on `@csrf.exempt` login route compares hostnames only via `urlparse` (scheme/port vary under proxy — full URL comparison was rejecting legitimate logins)
 - SSL hardening: `TLSv1.2 TLSv1.3` only, `HIGH:!aNULL:!MD5` ciphers
 - Security headers: `Strict-Transport-Security`, `X-Frame-Options SAMEORIGIN`, `X-Content-Type-Options nosniff`
 - `client_max_body_size 10M` for CSV uploads
-- `/rollout_stream` location block: `proxy_buffering off`, `proxy_cache off`, `proxy_http_version 1.1`, `Connection ''` — required for SSE log streaming
+- `/rollout_stream` location block: `proxy_buffering off`, `proxy_cache off`, `proxy_http_version 1.1`, `Connection ''` — required for SSE log streaming. **Known issue:** the SSE route moved to `/rollout/stream/<job_id>` in the Blueprint split, so this block no longer matches; streaming still works because the app sends `X-Accel-Buffering: no`. Fixed in Phase 4's nginx image (stage 6)
 - Config lives at `docs/nginx/nginx.conf`, bind-mounted to `/etc/nginx/nginx.conf` in container
 
 ### 4.8c Admin panel redesign ✅ COMPLETE (2026-04-18)
@@ -762,10 +726,10 @@ Admin panel is now a fully standalone page — own layout, own topbar, own sideb
 - Standalone `admin.html` (does not extend `base.html` or `operator_base.html`)
 - Topbar: ← Home button back to dashboard + "ADMINISTRATION" monospace label + user dropdown
 - Left sidebar: collapsed icon-only (52px) ↔ expanded with labels (210px), localStorage state
-- Sidebar sections with labels: **Access** (User Management), **Observability** (Audit Logs, Analytics), **System** (Server Management)
+- Sidebar sections with labels: **Access** (User Management, Live Sessions), **Observability** (Audit Logs, Analytics), **System** (Server Management, System Settings — gear icon, 2026-09-30)
 - Restart button in sidebar footer — same modal + countdown + active-job warning as operator sidebar
 - Matching footer style (JetBrains Mono, same copy as operator pages)
-- All admin sub-pages (`admin_users`, `admin_audit`, `admin_analytics`, `server_management`) extend `admin.html` unchanged
+- All admin sub-pages (`admin_users`, `live_sessions`, `admin_audit`, `admin_analytics`, `server_management`, `admin_settings`) extend `admin.html`
 
 ### 4.9 Grafana analytics ✅ COMPLETE (2026-04-23)
 
@@ -777,8 +741,8 @@ Admin panel is now a fully standalone page — own layout, own topbar, own sideb
 **4 dashboards built and exported to `docs/grafana/dashbaord_config/`:**
 - `operations_overview.json` — Active Jobs, Pending Jobs, p99 latency, request rate by endpoint, rollouts per day, job status breakdown pie
 - `job_analytics.json` — Total Jobs, Success Rate, Avg Duration, Commands Sent vs Verified, Platform Success Rate bar gauge, Activity Heatmap (hour-of-day × day)
-- `job_detail.json` — drill-down by `$job_id` template variable: Job Status stat, Device Results table, Commands table, Loki log stream panel
-- `audit_security.json` — Total Events, Failed Actions, Unique Actors, Failure Rate stats, Audit Events Over Time, Failed Actions Over Time, Action Breakdown donut, Top Actors bar gauge, Failed Actions Log table
+- `job_details.json` — drill-down by `$job_id` template variable: Job Status stat, Device Results table, Commands table, Loki log stream panel
+- `audit&security.json` — Total Events, Failed Actions, Unique Actors, Failure Rate stats, Audit Events Over Time, Failed Actions Over Time, Action Breakdown donut, Top Actors bar gauge, Failed Actions Log table
 
 **Provisioning files written (`docs/grafana/provisioning/`):**
 - `datasources/netrollout.yml` — all 3 datasources with fixed UIDs, grafana_reader credentials via `$GRAFANA_DB_PASSWORD` env var
@@ -790,16 +754,13 @@ Admin panel is now a fully standalone page — own layout, own topbar, own sideb
 
 **Prometheus metrics:**
 - `prometheus_flask_exporter` with `group_by='url_rule'` — per-endpoint request metrics
-- Custom `RolloutSessionCollector` in `webapp.py` — exposes `netrollout_active_jobs` + `netrollout_pending_jobs` gauges
+- Custom `RolloutSessionCollector` (today in `src/webapp/setup.py`) — exposes `netrollout_active_jobs` + `netrollout_pending_jobs` gauges
 
 **Loki + Promtail:**
 - Promtail watches `logs/*.log`, extracts `job_id` label from filename pattern `rollout_{ts}_{uuid}.log`
 - `reject_old_samples: false` in loki-config.yml — allows ingesting historical log files
 
-**Pending (packaging session):**
-- docker-compose volume mounts for `docs/grafana/provisioning/` and `docs/grafana/dashbaord_config/`
-- `GRAFANA_DB_PASSWORD` env var wired in docker-compose
-- Optional webapp iframe embed in `/admin/analytics`
+**Pending → Phase 4 stage 7** (`docs/plans/phase-4.md`): configs move to `deploy/` (`dashbaord_config` → `dashboards`), compose mounts + generated `GRAFANA_DB_PASSWORD`, Grafana served through nginx at `/grafana` as an optional monitoring profile. The iframe embed in `/admin/analytics` is replaced by an admin sidebar "Monitoring" link.
 
 ### 4.9b LDAP Integration ✅ COMPLETE (2026-04-28)
 
@@ -808,11 +769,11 @@ Admin panel is now a fully standalone page — own layout, own topbar, own sideb
 ---
 
 **New DB table — `LDAPServer`:**
-- `id` (UUID PK), `name` (display name), `host`, `port` (int, default 389/636), `base_dn`, `cn_identifier` (e.g. `SAMAccountName`, `cn`, `uid`), `bind_type` (enum: `anonymous`, `simple`, `regular`), `bind_dn` (nullable), `bind_password` (Fernet-encrypted, nullable), `use_ssl` (bool)
+- `id` (UUID PK), `name` (display name), `host`, `port` (int, default 389/636), `base_dn`, `cn_identifier` (e.g. `SAMAccountName`, `cn`, `uid`), `bind_type` (enum: `anonymous`, `simple`, `regular`), `bind_dn` (nullable), `bind_password` (Fernet-encrypted, nullable), `use_ssl` (bool), `is_active` (bool)
 - Org-level — one row, shared across all users
 
 **New DB table — `LDAPGroup`:**
-- `id`, `ldap_server_id` FK, `group_dn` (full DN of the AD group), `label` (display name)
+- `id`, `ldap_server_id` FK (ON DELETE CASCADE), `group_dn` (full DN of the AD group), `label` (display name), `role` (given to auto-provisioned users), `is_active`
 - Group-level rules — any member of this AD group can authenticate, checked at login time
 - No per-user pre-import needed for group rules
 
@@ -862,8 +823,8 @@ Admin panel is now a fully standalone page — own layout, own topbar, own sideb
 - Reads all `user_session:*` keys from Redis
 - Resolves username + auth_type for each session
 - Two sections: **Local Sessions** and **Remote Sessions (LDAP)**
-- Shows: username, auth type badge, login time (if stored in session), IP address
-- **Kick** button per row — deletes `session:<sid>` + `user_session:<user_id>` from Redis (same logic as existing terminate session)
+- Shows: username, auth type badge, role, time since login (from the session key's TTL). No IP address
+- **Kick** button per row — deletes `redis_session:<sid>` + `user_session:<user_id>` from Redis (same logic as existing terminate session)
 - Replaces the per-user terminate button in user management (or keeps both)
 - New sidebar entry under **Access** section in admin panel
 
@@ -875,13 +836,13 @@ Admin panel is now a fully standalone page — own layout, own topbar, own sideb
 - `a19370a56122_add_ldap` — `ldap_servers`, `ldap_groups` tables; `auth_type` + `ldap_server_id` on `users`; `password_hash` made nullable
 - `5c2b80c49fc9_nullable_user_email_fullname` — `email` + `full_name` nullable (LDAP users have no local registration)
 
-**`src/ldap_auth.py`** — new module: `make_server`, `service_bind`, `user_bind`, `test_connection`, `test_user`, `check_group_membership`, `fetch_user_details`, `fetch_base_dn`, `walk_tree`. All network calls wrapped in `(LDAPBindError, LDAPSocketOpenError)` try/except. Consistent `{"status": "ok/error", ...}` response shape throughout.
+**`src/ldap_auth.py`** — new module: `make_server`, `service_bind`, `user_bind`, `test_connection`, `test_user`, `check_group_membership`, `fetch_user_details`, `fetch_base_dn`, `walk_tree`. Error handling (hardened in Step 1b): bad credentials (`LDAPBindError`, `LDAPInvalidCredentialsResult`) are a normal "no"; any other LDAP exception becomes `LdapUnavailable` ("LDAP authentication service unavailable"). Later helpers: `constructed_dn`, `user_filter`, `find_user_dn`, `authenticate` (search-then-bind). Consistent `{"status": "ok/error", ...}` response shape throughout.
 
 **Login flow** — extended with two new branches:
 - Existing LDAP user: `user_bind` → check `is_approved`/`is_active` → `login_user()` or flash
 - Unknown user: `check_group_membership` against all active groups → auto-create `User(auth_type="ldap")` → `login_user()`
 
-**LDAP routes in `webapp.py`** (10 routes under `/admin/server/ldap/`): GET list, new, save, delete, test, test_user, fetch_dn, explore (walk_tree), import (users + groups), groups list, group toggle, group delete.
+**LDAP routes** (today in `src/webapp/blueprints/admin_servers.py`; 12 routes under `/admin/server/ldap`): GET list, new, save, delete, test, test_user, fetch_dn, explore (walk_tree), import (users + groups), groups list, group toggle, group delete.
 
 **`templates/server_management.html`** — full LDAP card replacing locked stub: server list with inline expand/collapse edit panels, bind type selector (two styled option cards), LDAPS toggle (auto-flips 389↔636), Test/Test User/Fetch DN/Save/Delete per server. Explorer modal (modal-xl) with DOM-built tree browser, breadcrumb nav, selected panel, import with summary. All Explorer JS uses `createElement` + `addEventListener` + `data-dn` + `CSS.escape` — no inline onclick injection.
 
@@ -896,8 +857,8 @@ Admin panel is now a fully standalone page — own layout, own topbar, own sideb
 ### 4.9c Codebase Cleanup (post-LDAP)
 See "Step 1" in the Remaining Work section above — detailed there.
 
-### 4.10 Documentation
-- `README.md` — project overview, quick start (install.py), CLI usage, CSV format reference, security posture section, update instructions
+### 4.10 Documentation → Phase 4 stage 11
+- `README.md` — project overview, quick start (the Phase 4 installer and release zip), CLI usage (incl. the `.exe`), CSV format reference, backup/restore, update, certificates, security posture section; `docs/deployment.md` for VM prerequisites
 - Inline docs review — docstrings consistent across all public APIs
 - Security posture section: data minimization rationale, encryption key management, Docker socket decision
 

@@ -46,7 +46,7 @@ The app applies migrations itself at startup; the alembic CLI resolves `DATABASE
 
 ## Architecture
 
-Full architecture in `docs/architecture.md`; plan and current status in `docs/workplan.md` (status table under "Remaining work").
+Full architecture in `docs/architecture.md`; plan and current status in `docs/workplan.md` (status table under "Remaining work"). Phase 4 (packaging v1.0.0) is planned in `docs/plans/phase-4.md`.
 
 Retention (defaults; System Settings): job record (results + metadata) 30 days, config snapshots 7 days, audit log 90 days (pg_cron statements read the setting's row at run time); log files 60 days (app-side, daily).
 
