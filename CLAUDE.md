@@ -52,6 +52,7 @@ MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd -W)/requirements.txt:/req/requireme
 - Startup in dev (`src/webapp/startup.py`): verifies nginx forwards to this instance (per-run token at `/_netrollout/instance`) and prints the address to use; opens it in the browser on desktop launches (`NETROLLOUT_OPEN_BROWSER=0` to disable).
 - Stop / Restart drain (`src/webapp/lifecycle.py`, `RolloutOrchestrator.drain`): on SIGTERM or the admin Restart, new rollouts are refused (banner on every page), queued ones are recorded as cancelled, running ones finish within `NETROLLOUT_DRAIN_SECONDS` (default 600) and are cancelled after. Restart with rollouts running asks: when finished / now.
 - Health: `/_netrollout/health` (public) — Postgres/Redis up, running/queued rollouts, draining, version; 200 or 503. Version string in `src/version.py`.
+- Passwords (`src/passwords.py`, local accounts): one rule — 8+ characters with a letter and a digit, ASCII, not containing the username — for registration, `/account/password` and admin resets (a temporary password shown once). `users.must_change_password` (the seeded `admin`, after a reset) gates every page to the change page.
 - Encryption key: `NETROLLOUT_ENCRYPTION_KEY`, else (dev only) `~/.netrollout/encryption.key`. The app refuses to start on a malformed, missing-with-data, or mismatched key (fail-fast).
 - Dev DB: `postgresql+psycopg2://dbadmin:Pass123@localhost:5432/rollout_db`, in Docker: `docker exec -it NetRollout-DB psql -U dbadmin -d rollout_db`
 
