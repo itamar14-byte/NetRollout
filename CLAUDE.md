@@ -20,7 +20,7 @@ App at `http://localhost:8080` (nginx in front on 80/443). Every start runs the 
 ```bash
 python -m src.cli -d <devices.csv> -c <commands.txt> [-vy] [-vb]
 ```
-- `-vy` / `--verify`: verify config was applied after push (NAPALM); `-vb` / `--verbose`: print logs to the console (always written to `logs/`)
+- `-vy` / `--verify`: after the push, read each device's config and check every command; `-vb` / `--verbose`: print logs to the console (always written to `logs/`)
 - Missing paths (and verify) are prompted for. Exit code: 0 all devices succeeded, 1 mixed, 2 nothing applied, 130 Ctrl+C
 
 ### Run tests
@@ -66,7 +66,7 @@ Retention (defaults; System Settings): job record (results + metadata) 30 days, 
 Server-Sent Events at `/rollout/stream/<job_id>`: history from Redis, then live messages via Redis pub/sub (`job:{id}:logs`), a heartbeat every 0.5s. `X-Accel-Buffering: no` disables nginx buffering.
 
 ### Supported platforms (Netmiko device types)
-The list is `Validator.SUPPORTED_PLATFORMS` (`src/validation.py`). NAPALM verification not supported for `checkpoint_gaia` and `hp_comware`.
+The list is `Validator.SUPPORTED_PLATFORMS` (`src/validation.py`); how each one finishes a push (save / commit / a command / nothing) and prints its config is the `PLATFORMS` dict in `src/core.py` — adding a vendor is one row there plus a fixture in `tests/unit/test_platforms.py`. Verify (`verify_commands`) places each typed command in its config section and checks presence / absence (`no`/`undo`/`delete`/`unset`); all 12 platforms are covered.
 
 ### Device CSV format (shared by CLI and web import)
 Required: `ip`, `device_type`, `port`. Optional: `label`; credentials `username`, `password`, `secret`; attribute columns named after a property (by name or label).

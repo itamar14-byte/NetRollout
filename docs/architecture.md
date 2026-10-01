@@ -1,5 +1,5 @@
 # NetRollout — Architecture Document
-_Written: 2026-04-07 — Updated: 2026-10-01 (Phase 4 stages 3–4: container runtime, drain, health; passwords)_
+_Written: 2026-04-07 — Updated: 2026-10-02 (Phase 4 stages 3–4b: container runtime, drain, health; passwords; per-platform push + verify)_
 
 Deployment and packaging (Docker images, compose, installer, platform profiles) are planned in `docs/plans/phase-4.md`. Where that plan will change something described here, the section says so.
 
@@ -90,7 +90,7 @@ Represents a single network device at runtime. The web app builds it from an `In
 |---|---|---|
 | `from_inventory` | `cls(row: Inventory, user_id) -> Device` | Factory. Decrypts the assigned SecurityProfile's credentials. It raises if the device has no profile |
 | `netmiko_connector` | `() -> dict` | Builds the Netmiko `ConnectHandler` params |
-| `fetch_config` | `(logger) -> str \| None` | Opens a NAPALM connection and returns the running config. **Replaced in Phase 4 (stage 4b)** by per-platform profiles over Netmiko. NAPALM is dropped because the current mapping breaks verify on several platforms |
+| `fetch_config` | `(logger) -> str \| None` | The running config over Netmiko (the push's SSH: the device's port and credentials), printed by the platform's `show_config` command(s) in the syntax engineers type. None if it can't be fetched (logged) |
 
 ### `DeviceResultDict`
 TypedDict returned per device by `RolloutEngine.run()`. Fields: `device_ip`, `device_port`, `device_type`, `commands_sent`, `commands_verified`, `fetched_config`, `status`.
@@ -193,7 +193,7 @@ Result archive, with one row per device per job. `job_id` is a soft reference: t
 | `device_port` | `int` | Server default 22 for rows from before the column existed |
 | `device_type` | `str(64)` | |
 | `commands_sent` | `int` | |
-| `commands_verified` | `int \| None` | Null if verify was not run |
+| `commands_verified` | `int \| None` | Commands confirmed, plus those that can't be checked (navigation, operational). Null if verify didn't run or the config couldn't be fetched |
 | `status` | `str` | `success` / `partial` / `failed` / `cancelled` |
 | `fetched_config` | `TEXT` | Running config captured by Verify. Stored only when some commands didn't verify, which feeds the Results page's side-by-side diff. Cleared after the *Config snapshots* retention (default 7 days); the Results page then shows "Verify Diff expired" |
 
@@ -326,15 +326,17 @@ Error handling:
 Pure pipeline object: `RolloutEngine(param: RolloutOptions, devices: list[Device], commands: list[str])`. `run(cancel_flag, logger) -> list[DeviceResultDict]`:
 1. **Per device, in parallel** (`ThreadPoolExecutor(max_workers)`):
    - it substitutes `$$TOKEN$$`s;
-   - it pushes over Netmiko (`send_config_set`, then `save_config()`);
-   - it honours the cancel flag between devices.
-2. **Verify:** if on, it fetches each pushed device's config and counts the commands that appear in it.
-3. **Summary:** it logs one summary line for the rollout.
+   - it pushes over Netmiko, one `send_config_set` per command; a refused command (`rejection()`: one list of vendor error strings, the command's own echo skipped) is logged with the device's reply and the rest are still sent;
+   - it **finishes the way the platform needs** (`PLATFORMS` in `core.py`): `save_config()` after leaving config mode (Cisco IOS/IOS-XE/NX-OS, Arista, Aruba CX, HP ProCurve/Comware); `commit()` *before* leaving it (Junos, PAN-OS, IOS-XR — leaving discards uncommitted changes; up to `COMMIT_TIMEOUT` = 300 s; a failed commit is a failure, Junos then `rollback 0`, PAN-OS keeps the candidate and the log says so); `save config` (Check Point Gaia); nothing (FortiOS, after closing any open config block with `end`);
+   - the session is always closed; the cancel flag is honoured between devices.
+2. **Verify** (if on, only on devices the push applied to): `fetch_config()`, then `verify_commands(device_type, config, commands)` — one verdict per command: *verified*, *not configured*, *still configured* (a removal that didn't take), *not verifiable* (navigation like `exit`/`end`/`next`, operational like `write memory`/`commit`), *variable* (an unresolved `$$TOKEN$$`, only on the Verify Diff page).
+   - **Indented configs** (Cisco-style, FortiOS): a plain indentation parser; typed commands are flat (the device tracks the mode), so each is placed in its section from the config's own structure — a typed line that is a section there opens it, `exit`/`next`/`exit-…` close one (`end` too on FortiOS, all on Cisco), a command found only at an outer level leaves the section, one found nowhere stays put. A command must exist at its place; `no`/`undo`/`unset`/`delete X` passes when `X` is gone.
+   - **Flat configs** (Junos `display set`, PAN-OS set format, Gaia): one line per setting; `edit`/`up`/`top` move the prefix relative `set`/`delete` extend; `delete X` passes when no `set X…`/`add X…` line remains.
+   - A config that can't be fetched means "couldn't verify", not "failed".
+3. **Status:** *cancelled* (never connected), *failed* (nothing applied: no connection, a failed commit, or every configuring command refused), otherwise from verify (all checkable verified → success; none → failed; else partial) or, without verify, from the refusals (none → success, some → partial).
+4. **Summary:** it logs one summary line for the rollout.
 
-Phase 4 stage 4b replaces the generic finish (`save_config()`) with per-platform profiles:
-- `commit()` for Junos, PAN-OS and IOS-XR, whose changes today are not committed;
-- the right save for the other platforms.
-- a per-platform config fetch and matcher for verify.
+Known limits (Phase 5b: Deep Diff with hier_config + netutils): typed abbreviations (`int gi1`), values the device rewrites (hashed secrets, normalised values like Junos `area 0` → `0.0.0.0`, hidden defaults), "already there before the rollout", multi-line banners; Junos `up` is taken as leaving the whole last `edit`. The Verify Diff route (`/results/config_diff`) returns the same verdicts, so the page can't disagree with the rollout.
 
 ### `RolloutJob`
 Lifecycle owner, constructed as `RolloutJob(job_id, user_id, engine, options, redis_client)`. It owns the thread, cancel flag, engine and logger.

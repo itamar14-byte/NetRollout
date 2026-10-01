@@ -3,7 +3,7 @@
 ## Context
 NetRollout is feature-complete on `master` (System Settings merged 2026-09-30). Phase 4 turns it into a free community product (GNU AGPL v3) that a team installs with minimal friction: download a release zip, run the installer, answer a few questions, get a running HTTPS NetRollout. This plan records the vision agreed in the planning session and the staged implementation.
 
-_Approved 2026-09-30. Branch `phase-4-packaging`. Status: stages 1–4 done (2026-10-01) — the dev DB is stamped `v1_0_0_baseline`, so `master` can't start against it until the Phase 4 fast-forward; dev settings moved to `config/runtime.env`; next: stages 4b, 5._
+_Approved 2026-09-30. Branch `phase-4-packaging`. Status: stages 1–4b done (2026-10-02) — the dev DB is stamped `v1_0_0_baseline`, so `master` can't start against it until the Phase 4 fast-forward; dev settings moved to `config/runtime.env`; next: stage 5._
 
 ## Vision
 - **Three uses:** (1) engineer's PC, (2) **team server — main case**: a Windows 10/11 VM running Docker Desktop, reached remotely over HTTPS, (3) **headless CLI** as a standalone `netrollout-cli.exe` (no Docker/Python).
@@ -44,7 +44,7 @@ _Approved 2026-09-30. Branch `phase-4-packaging`. Status: stages 1–4 done (202
 - **Rejected commands** (one combined list of vendor error strings) are reported with the device's message; the remaining commands are still sent; the device is partial (some rejected) or failed (all rejected) even without Verify.
 - **Verify Diff** shows the server's verdicts (the route runs the same matcher on the stored config) — no second matcher in the browser.
 - Spike result (kept in mind for 5b): hier_config 3.7 covers the indented platforms, but its `future()` (experimental) got negations wrong and its parser added nothing over the plain one here (44/44 identical verdicts) — it stays in Phase 5b for the remediation between before/after configs (`config_to_get_to`).
-- Known remaining limits (documented, solved in 5b): typed abbreviations, values the device rewrites (hashed secrets, reformatting, hidden defaults), "already present before the rollout", multi-line banners. Update the Verify tooltip on New Rollout. Tests: per-platform fixtures (recorded config output + commands → expected verdicts) incl. `delete`, `no …`, FortiOS nested blocks; push finish per platform with a mocked Netmiko; a port-forwarded device fetch uses its port. Real-device check: the EVE-NG round (release gate).
+- Known remaining limits (documented, solved in 5b): typed abbreviations, values the device rewrites (hashed secrets, reformatting, hidden defaults), "already present before the rollout", multi-line banners, Junos `up` taken as leaving the whole last `edit`. Update the Verify tooltip on New Rollout. Tests: per-platform fixtures (recorded config output + commands → expected verdicts) incl. `delete`, `no …`, FortiOS nested blocks; push finish per platform with a mocked Netmiko; a port-forwarded device fetch uses its port. Real-device check: the EVE-NG round (release gate).
 - Also in this stage (developer's request): `src/paths.py`, `src/deployment.py` and `src/version.py` folded into one `src/runtime.py`.
 
 **5. CLI `.exe`.** Decouple `src/cli.py` from the DB/web stack (`core.py` imports `Inventory` only for typing → `TYPE_CHECKING`; lazy `redis` import in `logging_utils`), guarded by an import-isolation test. Logs next to the exe (`paths`). `netrollout-cli.spec` with netmiko/ntc-templates data (no NAPALM after 4b); `--version`.
