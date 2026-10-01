@@ -27,6 +27,49 @@ def test_models_match_migrated_schema(test_db_url):
 	assert result.returncode == 0, result.stdout + result.stderr
 
 
+def test_must_change_password_migration_flags_only_a_factory_admin(
+		test_db_url):
+	# An install upgraded from the v1.0.0 baseline: its admin still on
+	# "admin" gets the flag, one that changed it (and anyone else) doesn't
+	from werkzeug.security import generate_password_hash
+	name = f"rollout_mig_{uuid.uuid4().hex[:6]}"
+	admin_url = test_db_url.rsplit("/", 1)[0] + "/postgres"
+	url = test_db_url.rsplit("/", 1)[0] + "/" + name
+	admin = create_engine(admin_url, isolation_level="AUTOCOMMIT")
+	alembic = lambda *args: subprocess.run(
+		[sys.executable, "-m", "alembic", *args], cwd=ROOT / "src" / "db",
+		capture_output=True, text=True, env=dict(os.environ, DATABASE_URL=url))
+	with admin.connect() as c:
+		c.execute(text(f'CREATE DATABASE "{name}"'))
+	engine = create_engine(url)
+	try:
+		for passwords in ({"admin": "admin", "bob": "admin"},
+		                  {"admin": "Changed-123"}):
+			assert alembic("upgrade", "v1_0_0_baseline").returncode == 0
+			with engine.begin() as c:
+				c.execute(text("delete from users"))
+				for username, password in passwords.items():
+					c.execute(text(
+						"insert into users (id, username, password_hash, role,"
+						" is_active, is_approved, created_at, auth_type) values"
+						" (:i, :u, :h, 'admin', true, true, now(), 'local')"),
+						{"i": uuid.uuid4(), "u": username,
+						 "h": generate_password_hash(password)})
+			assert alembic("upgrade", "head").returncode == 0
+			with engine.connect() as c:
+				flags = dict(c.execute(text(
+					"select username, must_change_password from users")).all())
+			expected = {u: (u == "admin" and p == "admin")
+			            for u, p in passwords.items()}
+			assert flags == expected
+			assert alembic("downgrade", "v1_0_0_baseline").returncode == 0
+	finally:
+		engine.dispose()
+		with admin.connect() as c:
+			c.execute(text(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)'))
+		admin.dispose()
+
+
 def test_baseline_round_trips_and_sets_server_defaults(test_db_url):
 	# Own throwaway DB: downgrade must not disturb the shared test DB
 	name = f"rollout_mig_{uuid.uuid4().hex[:6]}"
@@ -122,6 +165,9 @@ def test_install_migrates_the_connected_db_not_database_url(
 				       .scalar() == _head_revision()
 			assert c.execute(text("select count(*) from users where "
 			                      "username='admin'")).scalar() == 1
+			# the seeded admin must pick its own password first (stage 4)
+			assert c.execute(text("select must_change_password from users "
+			                      "where username='admin'")).scalar() is True
 	finally:
 		conn.disconnect()
 	# no pg_cron here: warned about, and it didn't block the schema
