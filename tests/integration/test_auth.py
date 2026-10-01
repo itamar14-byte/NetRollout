@@ -139,7 +139,7 @@ def test_registration_creates_pending_user_and_ignores_role(client_for,
 def test_duplicate_registration_rejected(client_for, make_user):
 	user = make_user()
 	resp = client_for().post("/register", data={
-		"username": user.username, "password": "x", "email": "other@x.io",
+		"username": user.username, "password": "Str0ng-pass", "email": "other@x.io",
 		"full_name": "Dup"})
 	assert resp.headers["Location"] == "/register"
 

@@ -71,6 +71,19 @@
           {% endif %}
         </div>
 
+        <hr>
+
+        <div>
+          <div class="nr-label">Password</div>
+          {% if user.auth_type == "local" %}
+            <a href="{{ url_for('auth.change_password') }}" class="btn btn-outline-info btn-sm mt-1">
+              <i class="bi bi-key me-1"></i>Change password
+            </a>
+          {% else %}
+            <span style="font-size:0.82rem; color:var(--nr-text-muted);">Managed by your directory (LDAP)</span>
+          {% endif %}
+        </div>
+
       </div>
     </div>
   </div>

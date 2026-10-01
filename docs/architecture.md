@@ -1,5 +1,5 @@
 # NetRollout — Architecture Document
-_Written: 2026-04-07 — Updated: 2026-10-01 (Phase 4 stage 3: container runtime, drain, health)_
+_Written: 2026-04-07 — Updated: 2026-10-01 (Phase 4 stages 3–4: container runtime, drain, health; passwords)_
 
 Deployment and packaging (Docker images, compose, installer, platform profiles) are planned in `docs/plans/phase-4.md`. Where that plan will change something described here, the section says so.
 
@@ -99,7 +99,7 @@ TypedDict returned per device by `RolloutEngine.run()`. Fields: `device_ip`, `de
 
 ## 3. ORM Models (`src/db/tables.py`)
 
-All models use UUID primary keys except `SystemSetting`, whose key is the setting name. The schema is managed by Alembic (`src/db/alembic/versions`, one `v1_0_0_baseline` revision; from v1.0.0 on, schema changes are new revisions on top of it); the app applies migrations itself at every start.
+All models use UUID primary keys except `SystemSetting`, whose key is the setting name. The schema is managed by Alembic (`src/db/alembic/versions`: the `v1_0_0_baseline` revision, then `must_change_password`; from v1.0.0 on, schema changes are new revisions on top); the app applies migrations itself at every start.
 
 ### `User`
 
@@ -115,13 +115,14 @@ All models use UUID primary keys except `SystemSetting`, whose key is the settin
 | `is_active` | `bool` | Default False |
 | `is_approved` | `bool` | Default False |
 | `otp_secret` | `str(255)` | Fernet-encrypted TOTP secret. Null = not enrolled |
+| `must_change_password` | `bool` | Default False. Set for the seeded admin and by an admin password reset: every page redirects to `/account/password` until the user picks a password |
 | `auth_type` | `str(20)` | `"local"` or `"ldap"` |
 | `ldap_server_id` | `UUID` | FK → `LDAPServer`, ON DELETE SET NULL, nullable |
 | `created_at` | `DateTime` | Set at creation |
 
 **Relationships:** `inventory`, `security_profiles`, `variable_mappings`, `property_definitions`, `results`, `job_metadata` (all cascade-delete with the user), `ldap_server`
 
-The factory account `admin`/`admin` is seeded at startup if missing (`db_install.py`). Phase 4 adds a forced password change at first login.
+The factory account `admin`/`admin` is seeded at startup if missing (`db_install.py`), with `must_change_password` set: its first sign-in forces a new password.
 
 ### `Inventory`
 
@@ -531,7 +532,7 @@ Each blueprint owns its routes and route-specific helpers. Blueprints reach `app
 
 | Blueprint | Prefix | Routes |
 |---|---|---|
-| `auth` | — | `/`, `/login`, `/register`, `/otp_enroll`, `/otp_verify`, `/logout`, `/account` |
+| `auth` | — | `/`, `/login`, `/register`, `/otp_enroll`, `/otp_verify`, `/logout`, `/account`, `/account/password` (forced or voluntary change; local users) |
 | `jobs` | — | `/dashboard`, `/active_jobs`, `/results`, `/results/config_diff/<job_id>/<ip>`, `/results/download_log/<job_id>` |
 | `rollout` | `/rollout` | `/new`, `/start`, `/cancel`, `/stream/<job_id>` (SSE), `/rollback/<job_id>` |
 | `inventory` | `/inventory` | list, `/create`, `/test_connection`, `/reachability`, `/<id>/edit`, `/<id>/mappings`, `/<id>/delete`, `/import_csv`, `/bulk_assign` |
@@ -539,7 +540,7 @@ Each blueprint owns its routes and route-specific helpers. Blueprints reach `app
 | `mappings` | `/mappings` | list, `/create`, `/quick_create`, `/<id>/edit`, `/<id>/delete`, `/bulk_assign` |
 | `properties` | `/properties` | list, `/create` + `/quick_create`, `/<id>/edit`, `/<id>/delete` |
 | `analytics` | `/analytics` | KPI page, `/query` (POST, own results) |
-| `admin_users` | `/admin` | admin home, `/users`, `/users/<id>/<action>` (approve, enable, disable, promote, demote, delete, reset_2fa, terminate_session), `/users/bulk/<action>`, `/sessions`, `/sessions/<id>/kick` |
+| `admin_users` | `/admin` | admin home, `/users`, `/users/<id>/<action>` (approve, enable, disable, promote, demote, delete, reset_2fa, terminate_session), `/users/<id>/reset_password` (JSON: a temporary password, shown once), `/users/bulk/<action>`, `/sessions`, `/sessions/<id>/kick` |
 | `admin_servers` | `/admin/server` | Server Management page; `/postgres/{test,save}`, `/redis/{test,save}`; 12 LDAP routes (`/ldap`, new, save, delete, test, test_user, fetch_dn, explore, import, groups list/toggle/delete); `/restart` (with rollouts running or queued: 409 unless `mode` is `when_finished` (drain) or `now` (cancel)) |
 | `admin_observability` | `/admin` | `/audit`, `/analytics`, `/analytics/query`, `/active_job_count` |
 | `admin_settings` | `/admin/settings` | page, save (POST), `/<key>/reset`, `/test` (public URL check) |
@@ -565,6 +566,10 @@ complete_login()
 ```
 
 Admins can reset a user's 2FA; the user re-enrols at the next login.
+
+**Passwords** (local accounts): one rule, `src/passwords.py` — at least 8 characters with at least 2 of letters / digits / special characters, ASCII only, not containing the username; a change must differ from the current one. Registration, `/account/password` and generated temporary passwords all use it; `templates/_password_rule_script.html` mirrors it in the pages. While `must_change_password` is set, a `before_request` gate (`extensions.py`, allowlist `PASSWORD_CHANGE_ALLOWED`: the change page, logout, static, instance/health) redirects pages to `/account/password` and answers fetch calls with 403. A change (rate-limited like login) clears the flag, rotates the session id, **signs the user out of every other session** and is audited (`auth.password_change`). An admin *Reset password* on another local user (not LDAP, not themselves, not the factory admin) replaces the stored password with a random temporary one shown once, sets the flag and **signs the user out everywhere** (`user.reset_password`; the password is never logged). Admin *Terminate Session* signs out everywhere too.
+
+**Signing a user out everywhere** (`utils.end_user_sessions`): `user_session:<id>` points only at the latest sign-in, so every `redis_session:*` is decoded with flask-session's serializer and the user's (`_user_id`) are deleted — complete (sessions from before the change too) and cheap at this scale; a per-user index would be faster but miss existing sessions and need expiry cleanup.
 
 **Real-time logs:** `/rollout/stream/<job_id>` is Server-Sent Events. It replays `job:<id>:history` (LRANGE), then tails the pub/sub channel `job:<id>:logs`, sending a heartbeat every 0.5 s. The response sets `X-Accel-Buffering: no` so nginx doesn't buffer.
 
