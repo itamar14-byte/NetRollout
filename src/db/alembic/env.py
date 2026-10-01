@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 # make project root importable
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
-from src import paths
+from src import runtime
 from src.db.tables import Base
 from src.db.postgres_db import PostgresConfig, PostgresConnection
 
@@ -33,7 +33,7 @@ def cli_config() -> PostgresConfig:
 	# Same resolution as the app: DATABASE_URL if set, else PG_* vars.
 	# config/runtime.env is loaded WITHOUT override so variables set in the
 	# shell (e.g. the test suite's DATABASE_URL) always win.
-	load_dotenv(paths.runtime_env(), override=False)
+	load_dotenv(runtime.runtime_env(), override=False)
 	return PostgresConfig.unload_env()
 
 

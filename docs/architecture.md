@@ -28,7 +28,7 @@ At runtime, `RolloutOrchestrator` is the concurrency manager.
 
 The **CLI** (`src/cli.py`) uses the same `RolloutEngine` directly, from a devices CSV and a commands file. It has no database, no Redis and no orchestrator.
 
-**Configuration** comes from env vars. `config/runtime.env` (under the NetRollout home, `src/paths.py`) is loaded with override by `BackendServices` at startup; it holds only what a Server Management switch wrote, so it wins over the container environment (the installer's `.env`), which wins over the defaults.
+**Configuration** comes from env vars. `config/runtime.env` (under the NetRollout home, `src/runtime.py`) is loaded with override by `BackendServices` at startup; it holds only what a Server Management switch wrote, so it wins over the container environment (the installer's `.env`), which wins over the defaults.
 
 | Variable | Purpose |
 |---|---|
@@ -39,9 +39,9 @@ The **CLI** (`src/cli.py`) uses the same `RolloutEngine` directly, from a device
 | `NETROLLOUT_ENCRYPTION_KEY` | Fernet key; else `~/.netrollout/encryption.key` (see below) |
 | `ORCHESTRATOR_WORKERS`, `NETROLLOUT_PUBLIC_HOSTNAME`, `NETROLLOUT_HTTPS_PORT` | **Install-time seeds only** for the matching System Settings (§6). They are read when the setting's row doesn't exist yet and ignored after that |
 | `NETROLLOUT_OPEN_BROWSER` | `0` disables opening the browser on a desktop launch |
-| `NETROLLOUT_DEPLOYMENT` | `docker` (set by the image) turns on container behaviour (`src/deployment.py`): secrets required, Restart via the restart policy, no startup proxy probe |
+| `NETROLLOUT_DEPLOYMENT` | `docker` (set by the image) turns on container behaviour (`src/runtime.py`): secrets required, Restart via the restart policy, no startup proxy probe |
 | `NETROLLOUT_DRAIN_SECONDS` | How long a stop / Restart waits for running rollouts before cancelling them (default 600; compose's `stop_grace_period` must be longer) |
-| `NETROLLOUT_HOME` | Base folder for `logs/`, `config/`, `certs/` (`src/paths.py`; the image uses `/data`) |
+| `NETROLLOUT_HOME` | Base folder for `logs/`, `config/`, `certs/` (`src/runtime.py`; the image uses `/data`) |
 
 **Encryption key.** Fernet protects security-profile passwords and enable secrets, LDAP bind passwords and OTP secrets.
 - **When no key exists:** one is generated only on a fresh install, meaning the DB is reachable and holds no encrypted data — and never in a container, where the key must come from `NETROLLOUT_ENCRYPTION_KEY` (a file inside the container would vanish with it at the next update).
