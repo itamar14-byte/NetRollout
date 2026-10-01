@@ -655,15 +655,14 @@
 <script>
 // ── Fetched configs (verify diff data) — loaded on demand ────────────────────
 const FETCHED_CONFIGS = {}; // cache: "job_id:ip:port" → config text
+const FETCHED_VERDICTS = {}; // cache: "job_id:ip:port" → [[command, verdict], …] (the server's matcher)
 
 // ── Verify Diff ───────────────────────────────────────────────────────────────
 const VD_TAB_THRESHOLD = 5;
 let _verifyDiffJobId = null;
-let _verifyDiffCmds  = null;
 
 async function showConfigDiff(btn) {
     _verifyDiffJobId   = btn.dataset.jobId;
-    _verifyDiffCmds    = [];
     const devices      = JSON.parse(btn.dataset.devices);
     const deviceIps    = devices.map(d => d.ip);
     const deviceLabels = devices.map(d => d.label || d.ip);
@@ -772,31 +771,39 @@ async function _renderVerifyDiff(device, activeTab) {
                 return;
             }
             FETCHED_CONFIGS[cacheKey] = data.config || '';
-            if (data.commands && data.commands.length) _verifyDiffCmds = data.commands;
+            FETCHED_VERDICTS[cacheKey] = data.verdicts || [];
         } catch (e) {
             list.innerHTML = '<div style="padding:1rem; color:#ef5350; font-size:0.82rem;">Failed to load config.</div>';
             return;
         }
     }
 
-    const config = FETCHED_CONFIGS[cacheKey];
+    const verdicts = FETCHED_VERDICTS[cacheKey] || [];
     list.innerHTML = '';
-    if (!_verifyDiffCmds.length) {
+    if (!verdicts.length) {
         list.innerHTML = '<div style="padding:1rem; color:var(--nr-text-muted); font-size:0.82rem;">' +
             'Commands for this job are no longer available.</div>';
         return;
     }
-    _verifyDiffCmds.forEach(cmd => {
-        const found = config.toLowerCase().includes(cmd.trim().toLowerCase());
-        const row   = document.createElement('div');
-        row.style.cssText = 'display:flex; align-items:center; gap:10px; padding:6px 10px; border-radius:6px; background:' +
-            (found ? 'rgba(76,175,80,0.06)' : 'rgba(239,83,80,0.06)');
+    // The verdicts come from the server's matcher (the one the rollout used)
+    const LOOK = {
+        'verified':         {icon: 'bi-check-circle', color: '#66bb6a', text: '#a5d6a7', bg: 'rgba(76,175,80,0.06)', note: ''},
+        'not configured':   {icon: 'bi-x-circle',     color: '#ef5350', text: '#ef9a9a', bg: 'rgba(239,83,80,0.06)', note: 'not configured'},
+        'still configured': {icon: 'bi-x-circle',     color: '#ef5350', text: '#ef9a9a', bg: 'rgba(239,83,80,0.06)', note: 'still configured'},
+        'not verifiable':   {icon: 'bi-dash-circle',  color: 'var(--nr-text-faint)', text: 'var(--nr-text-muted)', bg: 'transparent', note: 'not verifiable'},
+        'variable':         {icon: 'bi-question-circle', color: 'var(--nr-text-faint)', text: 'var(--nr-text-muted)', bg: 'transparent', note: 'variable — see the rollout log'},
+    };
+    const esc = t => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    verdicts.forEach(([cmd, verdict]) => {
+        const look = LOOK[verdict] || LOOK['not verifiable'];
+        const row  = document.createElement('div');
+        row.style.cssText = 'display:flex; align-items:center; gap:10px; padding:6px 10px; border-radius:6px; background:' + look.bg;
         row.innerHTML =
-            '<i class="bi ' + (found ? 'bi-check-circle' : 'bi-x-circle') + '" style="font-size:0.95rem; flex-shrink:0; color:' +
-            (found ? '#66bb6a' : '#ef5350') + ';"></i>' +
-            '<span style="font-family:\'JetBrains Mono\',monospace; font-size:0.78rem; color:' +
-            (found ? '#a5d6a7' : '#ef9a9a') + ';">' +
-            cmd.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span>';
+            '<i class="bi ' + look.icon + '" style="font-size:0.95rem; flex-shrink:0; color:' + look.color + ';"></i>' +
+            '<span style="font-family:\'JetBrains Mono\',monospace; font-size:0.78rem; color:' + look.text + ';">' +
+            esc(cmd) + '</span>' +
+            (look.note ? '<span style="margin-left:auto; font-size:0.7rem; color:var(--nr-text-muted); white-space:nowrap;">' +
+                         look.note + '</span>' : '');
         list.appendChild(row);
     });
 }

@@ -13,6 +13,7 @@ from flask_login import current_user, login_required
 
 # local modules
 from src import runtime
+from src.core import PLATFORMS, verify_commands
 from src.db.tables import DeviceResult, JobMetadata, User, Inventory
 from src.webapp.utils import ok, err, build_kpi, visible_devices_clause
 
@@ -368,7 +369,14 @@ def config_diff(job_id, device_ip):
 			           f"days", 410)
 		meta = db_session.query(JobMetadata).filter_by(job_id=job_id).first()
 		commands = meta.commands if meta else []
-	return ok(config=config, commands=commands)
+		device_type = row.device_type
+	# The engine's own matcher, so the page can't disagree with the rollout
+	# (commands with an unresolved $$TOKEN$$ come back "variable": the
+	# rollout log has their verdicts with the device's values)
+	verdicts = verify_commands(device_type, config, commands) \
+		if device_type in PLATFORMS else []
+	return ok(config=config, commands=commands,
+	          verdicts=[[c, v] for c, v in zip(commands, verdicts)])
 
 
 @bp.route("/results/download_log/<uuid:job_id>")
