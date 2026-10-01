@@ -633,7 +633,7 @@
                             <i class="bi bi-patch-check" style="color:#00bcd4;"></i>
                             Verify after push
                             <span class="tooltip-q">?
-                                <span class="tip-text">Verification is based on best-effort text matching. Vendors that restructure the config file (e.g. JSON-based platforms) may produce false negatives.</span>
+                                <span class="tip-text">After the push, NetRollout reads each device's configuration and checks every command in the section it was typed in: a command must be there, a removal (<code>no</code> / <code>undo</code> / <code>delete</code> / <code>unset</code>) must be gone. Navigation and operational commands (<code>exit</code>, <code>write memory</code>, <code>commit</code>…) are marked not verifiable. Typed abbreviations, values the device rewrites (hashed secrets, defaults) and settings that were already there can mislead it.</span>
                             </span>
                         </label>
                         <label class="option-check">

@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 # isinstance checks would then silently target the wrong one).
 from src.validation import Validator
 from src.logging_utils import RolloutLogger
-from src.core import Device, RolloutOptions, RolloutEngine
+from src.core import PushResult, VerifyResult, Device, RolloutOptions, RolloutEngine
 from src.input_parser import InputParser
 
 
@@ -389,36 +389,47 @@ class TestDeviceNetmikoConnector(unittest.TestCase):
 
 
 class TestDeviceFetchConfig(unittest.TestCase):
+    """The config is fetched over Netmiko (the push's SSH): every platform,
+    the device's own port, the platform's show command(s)."""
 
     def setUp(self):
         self.logger = RolloutLogger(webapp=False, verbose=False)
 
-    def test_returns_config_string_on_success(self):
-        device = make_device(device_type="cisco_ios")
-        mock_driver = MagicMock()
-        mock_node = MagicMock()
-        mock_node.get_config.return_value = {"running": "interface GigabitEthernet0/0"}
-        mock_driver.return_value = mock_node
+    @staticmethod
+    def _connection(mock_ch, output="interface GigabitEthernet0/0"):
+        conn = MagicMock()
+        conn.__enter__.return_value = conn
+        conn.send_command.return_value = output
+        mock_ch.return_value = conn
+        return conn
 
-        with patch("napalm.get_network_driver", return_value=mock_driver):
-            result = device.fetch_config(self.logger)
+    @patch("netmiko.ConnectHandler")
+    def test_returns_config_string_on_success(self, mock_ch):
+        conn = self._connection(mock_ch)
+        result = make_device(device_type="cisco_ios").fetch_config(self.logger)
         self.assertEqual(result, "interface GigabitEthernet0/0")
+        conn.send_command.assert_called_once_with("show running-config",
+                                                  read_timeout=60)
 
-    def test_returns_none_for_unsupported_platform(self):
-        device = make_device(device_type="checkpoint_gaia")
-        result = device.fetch_config(self.logger)
-        self.assertIsNone(result)
+    @patch("netmiko.ConnectHandler")
+    def test_uses_the_device_port(self, mock_ch):
+        self._connection(mock_ch)
+        make_device(port=2201).fetch_config(self.logger)   # port-forwarded
+        self.assertEqual(mock_ch.call_args.kwargs["port"], 2201)
 
-    def test_returns_none_on_connection_exception(self):
-        device = make_device(device_type="cisco_ios")
-        mock_driver = MagicMock()
-        mock_node = MagicMock()
-        mock_node.open.side_effect = Exception("timeout")
-        mock_driver.return_value = mock_node
+    @patch("netmiko.ConnectHandler")
+    def test_every_platform_has_a_show_command(self, mock_ch):
+        from src.core import PLATFORMS
+        for device_type, platform in PLATFORMS.items():
+            conn = self._connection(mock_ch, output="set x")
+            make_device(device_type=device_type).fetch_config(self.logger)
+            sent = [c.args[0] for c in conn.send_command.call_args_list]
+            self.assertEqual(sent, list(platform.show_config), device_type)
 
-        with patch("napalm.get_network_driver", return_value=mock_driver):
-            result = device.fetch_config(self.logger)
-        self.assertIsNone(result)
+    @patch("netmiko.ConnectHandler")
+    def test_returns_none_on_connection_exception(self, mock_ch):
+        mock_ch.side_effect = Exception("timeout")
+        self.assertIsNone(make_device().fetch_config(self.logger))
 
 
 # ---------------------------------------------------------------------------
@@ -616,7 +627,7 @@ class TestRolloutEnginePushConfig(unittest.TestCase):
         engine = self._make_engine()
         cancel_signal, push_results = engine._push_config(self.cancel, self.logger)
         self.assertIsNone(cancel_signal)
-        self.assertTrue(push_results.get(0))
+        self.assertEqual(push_results.get(0), PushResult(applied=True, rejected=0))
         mock_conn.save_config.assert_called_once()
         mock_conn.disconnect.assert_called_once()
 
@@ -629,8 +640,9 @@ class TestRolloutEnginePushConfig(unittest.TestCase):
         engine = self._make_engine(commands=["bad command", "good command"])
         cancel_signal, push_results = engine._push_config(self.cancel, self.logger)
         self.assertIsNone(cancel_signal)
-        # Both commands were attempted despite first error
+        # Both commands were attempted despite first error, both counted
         self.assertEqual(mock_conn.send_config_set.call_count, 2)
+        self.assertEqual(push_results[0], PushResult(applied=True, rejected=2))
 
     @patch("netmiko.ConnectHandler")
     def test_auth_failure_marks_device_failed(self, mock_ch):
@@ -639,7 +651,7 @@ class TestRolloutEnginePushConfig(unittest.TestCase):
         engine = self._make_engine()
         cancel_signal, push_results = engine._push_config(self.cancel, self.logger)
         self.assertIsNone(cancel_signal)
-        self.assertFalse(push_results.get(0))
+        self.assertFalse(push_results[0].applied)
 
     @patch("netmiko.ConnectHandler")
     def test_cancel_event_stops_rollout(self, mock_ch):
@@ -679,7 +691,8 @@ class TestRolloutEnginePushConfig(unittest.TestCase):
                                                               self.logger)
         self.assertEqual(cancel_signal, "cancel_sent")
         # C (10.0.0.3) started after the cancel: never connected
-        self.assertEqual(push_results, {0: True, 1: True})  # by device index
+        applied = PushResult(applied=True, rejected=0)
+        self.assertEqual(push_results, {0: applied, 1: applied})  # by index
 
     @patch("netmiko.ConnectHandler")
     def test_multiple_devices_all_attempted(self, mock_ch):
@@ -719,9 +732,10 @@ class TestRolloutEngineVerify(unittest.TestCase):
         )
         with patch.object(device, "fetch_config",
                           return_value="ip route 0.0.0.0 0.0.0.0 1.1.1.1"):
-            result = engine._verify(self.logger)
+            result = engine._verify([0], self.logger)
         # fully verified -> no config snapshot kept (nothing to diff)
-        self.assertEqual(result[0], (None, 1))
+        self.assertEqual(result[0], VerifyResult(verified=1, checkable=1,
+                                                 config=None))
 
     def test_command_not_in_config(self):
         device = make_device()
@@ -730,15 +744,16 @@ class TestRolloutEngineVerify(unittest.TestCase):
             commands=["ip route 0.0.0.0 0.0.0.0 1.1.1.1"],
         )
         with patch.object(device, "fetch_config", return_value="no relevant config"):
-            result = engine._verify(self.logger)
-        self.assertEqual(result[0][1], 0)
+            result = engine._verify([0], self.logger)
+        self.assertEqual((result[0].verified, result[0].checkable), (0, 1))
 
-    def test_fetch_config_returns_none_counts_zero(self):
+    def test_config_not_fetched_is_not_a_failure(self):
+        # couldn't verify ≠ not configured: the status then comes from the push
         device = make_device()
         engine = self._make_engine(devices=[device])
         with patch.object(device, "fetch_config", return_value=None):
-            result = engine._verify(self.logger)
-        self.assertEqual(result[0], (None, 0))
+            result = engine._verify([0], self.logger)
+        self.assertIsNone(result[0])
 
     def test_partial_commands_matched(self):
         device = make_device()
@@ -746,9 +761,10 @@ class TestRolloutEngineVerify(unittest.TestCase):
         config = "ip route 0.0.0.0 0.0.0.0 1.1.1.1\nno relevant line"
         engine = self._make_engine(devices=[device], commands=commands)
         with patch.object(device, "fetch_config", return_value=config):
-            result = engine._verify(self.logger)
+            result = engine._verify([0], self.logger)
         # mismatch -> config snapshot kept for Verify Diff
-        self.assertEqual(result[0], (config, 1))
+        self.assertEqual(result[0], VerifyResult(verified=1, checkable=2,
+                                                 config=config))
 
 
 # ---------------------------------------------------------------------------
@@ -857,7 +873,7 @@ class TestFullRolloutAndVerifyPipeline(unittest.TestCase):
     """
     End-to-end test of the full pipeline:
       import_from_inventory -> RolloutEngine.run() with verify=True
-    All network I/O is mocked: Netmiko SSH, NAPALM config fetch.
+    All network I/O is mocked: Netmiko SSH for the push and the config fetch.
     Device.from_inventory is mocked because it requires a live DB redis_session.
     """
 
@@ -879,9 +895,8 @@ class TestFullRolloutAndVerifyPipeline(unittest.TestCase):
         )
 
     @patch("netmiko.ConnectHandler")
-    @patch("napalm.get_network_driver")
     @patch("src.core.Device.from_inventory")
-    def test_full_pipeline_all_commands_verified(self, mock_from_inv, mock_napalm_driver, mock_netmiko_ch):
+    def test_full_pipeline_all_commands_verified(self, mock_from_inv, mock_netmiko_ch):
         device = self._make_device()
         mock_from_inv.return_value = device
 
@@ -889,11 +904,8 @@ class TestFullRolloutAndVerifyPipeline(unittest.TestCase):
         mock_conn.send_config_set.return_value = "ok"
         mock_netmiko_ch.return_value = mock_conn
 
-        mock_driver = MagicMock()
-        mock_node = MagicMock()
-        mock_node.get_config.return_value = {"running": self.COMMAND}
-        mock_driver.return_value = mock_node
-        mock_napalm_driver.return_value = mock_driver
+        mock_conn.__enter__.return_value = mock_conn      # the config fetch
+        mock_conn.send_command.return_value = self.COMMAND
 
         inventory_rows = [self._make_inventory_row()]
         devices = InputParser.import_from_inventory(inventory_rows, None)
@@ -936,9 +948,8 @@ class TestFullRolloutAndVerifyPipeline(unittest.TestCase):
         self.assertIsNone(result[0]["commands_verified"])
 
     @patch("netmiko.ConnectHandler")
-    @patch("napalm.get_network_driver")
     @patch("src.core.Device.from_inventory")
-    def test_full_pipeline_verify_fails_command_not_in_config(self, mock_from_inv, mock_napalm_driver, mock_netmiko_ch):
+    def test_full_pipeline_verify_fails_command_not_in_config(self, mock_from_inv, mock_netmiko_ch):
         device = self._make_device()
         mock_from_inv.return_value = device
 
@@ -946,11 +957,8 @@ class TestFullRolloutAndVerifyPipeline(unittest.TestCase):
         mock_conn.send_config_set.return_value = "ok"
         mock_netmiko_ch.return_value = mock_conn
 
-        mock_driver = MagicMock()
-        mock_node = MagicMock()
-        mock_node.get_config.return_value = {"running": "no relevant config"}
-        mock_driver.return_value = mock_node
-        mock_napalm_driver.return_value = mock_driver
+        mock_conn.__enter__.return_value = mock_conn      # the config fetch
+        mock_conn.send_command.return_value = "no relevant config"
 
         inventory_rows = [self._make_inventory_row()]
         devices = InputParser.import_from_inventory(inventory_rows, None)

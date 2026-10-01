@@ -269,6 +269,28 @@ def test_config_diff_endpoint(operator, client_for, session_scope, make_user):
 	assert other.status_code == 403
 
 
+def test_config_diff_returns_the_engines_verdicts(operator, client_for,
+                                                  session_scope):
+	# The page shows the server's matcher (sections, removals, variables),
+	# not a text search of its own
+	job = uuid.uuid4()
+	config = ("interface GigabitEthernet1\n description core\n!\n"
+	          "interface GigabitEthernet2\n shutdown\n!\n")
+	commands = ["interface GigabitEthernet1", "description core",
+	            "interface GigabitEthernet2", "no shutdown",
+	            "description $$DESC$$", "write memory"]
+	add_result(session_scope, operator.user, job, status="partial",
+	           verified=3, config=config, commands=commands)
+	resp = client_for(operator.user).get(f"/results/config_diff/{job}/10.0.0.1")
+	assert resp.json["verdicts"] == [
+		["interface GigabitEthernet1", "verified"],
+		["description core", "verified"],
+		["interface GigabitEthernet2", "verified"],
+		["no shutdown", "still configured"],
+		["description $$DESC$$", "variable"],
+		["write memory", "not verifiable"]]
+
+
 def test_log_download_is_owner_only(operator, client_for, session_scope,
                                     make_user):
 	job = uuid.uuid4()
