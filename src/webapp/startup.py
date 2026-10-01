@@ -27,9 +27,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from src import paths
-from src.deployment import in_container
-from src.version import VERSION
+from src import runtime
+from src.runtime import VERSION, in_container
 
 INSTANCE_PATH = "/_netrollout/instance"
 HEALTH_PATH = "/_netrollout/health"
@@ -40,7 +39,7 @@ NGINX_CONF_ENV = "NETROLLOUT_NGINX_CONF"
 OPEN_BROWSER_ENV = "NETROLLOUT_OPEN_BROWSER"
 RELAUNCH_ENV = "NETROLLOUT_RELAUNCH"   # set by the admin Restart relaunch
 # The development nginx config (a missing file just means "not detected")
-DEFAULT_NGINX_CONF = paths.REPO_ROOT / "docs" / "nginx" / "nginx.conf"
+DEFAULT_NGINX_CONF = runtime.REPO_ROOT / "docs" / "nginx" / "nginx.conf"
 
 
 def new_instance_token() -> str:

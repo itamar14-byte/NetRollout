@@ -4,7 +4,7 @@ from functools import cached_property
 from dotenv import dotenv_values, load_dotenv
 from sqlalchemy.exc import OperationalError
 
-from src import paths
+from src import runtime
 from src.db.db_install import install
 from src.db.postgres_db import PostgresConnection, PostgresConfig
 from src.db.redis_db import RedisConnection, RedisConfig, REDIS_UNAVAILABLE
@@ -29,7 +29,7 @@ class BackendServices:
 		# config/runtime.env holds only what Server Management wrote (a
 		# database / Redis switch); it wins over the container environment
 		# (the installer's .env), which wins over the code defaults
-		self._CONFIG_ENV = paths.runtime_env()
+		self._CONFIG_ENV = runtime.runtime_env()
 		load_dotenv(self._CONFIG_ENV, override=True)
 		#initialize db instances
 		self.postgres = PostgresConnection()

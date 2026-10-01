@@ -4,7 +4,7 @@ from pathlib import Path
 
 from cryptography.fernet import Fernet, InvalidToken
 
-from src.deployment import StartupError, in_container
+from src.runtime import StartupError, in_container
 
 KEY_DIR = Path.home() / ".netrollout"
 KEY_FILE = KEY_DIR / "encryption.key"

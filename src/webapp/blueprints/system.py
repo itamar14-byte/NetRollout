@@ -1,6 +1,6 @@
 from flask import Blueprint, current_app, jsonify
 
-from src.version import VERSION
+from src.runtime import VERSION
 from src.webapp.startup import HEALTH_PATH, INSTANCE_PATH
 
 bp = Blueprint("system", __name__)

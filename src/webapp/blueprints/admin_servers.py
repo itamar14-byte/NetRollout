@@ -15,7 +15,7 @@ from src.db.redis_db import RedisConfig
 from src.db.tables import LDAPServer, LDAPGroup, User
 from src.encryption import encrypt
 from src.ldap_auth import test_user, test_connection, fetch_base_dn, walk_tree
-from src.deployment import drain_seconds
+from src.runtime import drain_seconds
 from src.webapp.utils import ok, err, require_admin, with_json, with_form
 
 bp = Blueprint('admin_servers', __name__, url_prefix='/admin/server')

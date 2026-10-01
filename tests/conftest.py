@@ -8,7 +8,7 @@ import os
 import pytest
 
 import src.encryption as encryption
-from src import paths
+from src import runtime
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -20,14 +20,14 @@ def _isolate_filesystem(tmp_path_factory):
 	encryption.KEY_DIR = key_dir
 	encryption.KEY_FILE = key_dir / "encryption.key"
 	# Every NetRollout folder (logs/, config/, certs/) under a throwaway home
-	saved_home = os.environ.get(paths.HOME_ENV)
-	os.environ[paths.HOME_ENV] = str(tmp_path_factory.mktemp("netrollout_home"))
+	saved_home = os.environ.get(runtime.HOME_ENV)
+	os.environ[runtime.HOME_ENV] = str(tmp_path_factory.mktemp("netrollout_home"))
 	yield
 	encryption.KEY_DIR, encryption.KEY_FILE = saved_key
 	if saved_home is None:
-		os.environ.pop(paths.HOME_ENV, None)
+		os.environ.pop(runtime.HOME_ENV, None)
 	else:
-		os.environ[paths.HOME_ENV] = saved_home
+		os.environ[runtime.HOME_ENV] = saved_home
 
 
 @pytest.fixture(autouse=True)
