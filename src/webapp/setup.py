@@ -20,7 +20,7 @@ from src.webapp.extensions import register_extensions, register_handlers, \
 from src.webapp.utils import WebServices
 from src.db.backend import BackendServices
 from src.db.redis_db import REDIS_UNAVAILABLE
-from src.deployment import StartupError, in_container
+from src.runtime import StartupError, in_container
 from src.encryption import init_encryption, require_key_in_container
 from src.orchestration import RolloutOrchestrator
 from src.webapp.lifecycle import Shutdown

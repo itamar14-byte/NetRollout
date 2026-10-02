@@ -10,7 +10,7 @@ from sqlalchemy.exc import SQLAlchemyError
 # local modules
 from src.db.settings import (SETTINGS, SettingsError, public_url,
                              rules_for_client)
-from src.deployment import in_container
+from src.runtime import in_container
 from src.webapp.startup import check_proxy, resolve_public_url
 from src.webapp.utils import err, ok, require_admin, with_json
 

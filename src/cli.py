@@ -19,7 +19,7 @@ def get_args():
 	parser.add_argument("-c", "--commands",
 	                    help="Path to a txt file containing commands to push, one per line")
 	parser.add_argument("-vy", "--verify",
-	                    help="Verify configuration was applied after push (uses NAPALM)",
+	                    help="Verify the configuration was applied: after the push, each device's config is read and every command checked",
 	                    action="store_true")
 	parser.add_argument("-vb", "--verbose",
 	                    help="Print logs to console",

@@ -8,7 +8,7 @@ import sys
 import threading
 import time
 
-from src.deployment import in_container
+from src.runtime import in_container
 from src.webapp.startup import RELAUNCH_ENV
 
 # Lets the HTTP response to the Restart request go out before the exit

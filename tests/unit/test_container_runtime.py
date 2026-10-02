@@ -8,19 +8,19 @@ from cryptography.fernet import Fernet
 
 import src.encryption as enc
 import src.webapp.lifecycle as lifecycle
-from src import deployment
+from src import runtime
 from src.webapp.setup import resolve_secret_key
 from src.webapp.startup import container_announcement, should_open_browser
 
 
 @pytest.fixture
 def container(monkeypatch):
-	monkeypatch.setenv(deployment.DEPLOYMENT_ENV, "docker")
+	monkeypatch.setenv(runtime.DEPLOYMENT_ENV, "docker")
 
 
 @pytest.fixture
 def dev(monkeypatch):
-	monkeypatch.delenv(deployment.DEPLOYMENT_ENV, raising=False)
+	monkeypatch.delenv(runtime.DEPLOYMENT_ENV, raising=False)
 
 
 # ── Deployment mode ──────────────────────────────────────────────────────────
@@ -28,25 +28,25 @@ def dev(monkeypatch):
 @pytest.mark.parametrize("value, expected", [
 	("docker", True), ("Docker ", True), ("", False), ("podman", False)])
 def test_in_container_is_explicit(monkeypatch, value, expected):
-	monkeypatch.setenv(deployment.DEPLOYMENT_ENV, value)
-	assert deployment.in_container() is expected
+	monkeypatch.setenv(runtime.DEPLOYMENT_ENV, value)
+	assert runtime.in_container() is expected
 
 
 def test_no_guessing_from_dockerenv(dev):
 	# the old check looked for /.dockerenv; only the variable counts now
-	assert deployment.in_container() is False
+	assert runtime.in_container() is False
 	assert should_open_browser({}, "win32") is True
 
 
 @pytest.mark.parametrize("value, expected", [
-	(None, deployment.DEFAULT_DRAIN_SECONDS), ("30", 30), ("-5", 0),
-	("soon", deployment.DEFAULT_DRAIN_SECONDS)])
+	(None, runtime.DEFAULT_DRAIN_SECONDS), ("30", 30), ("-5", 0),
+	("soon", runtime.DEFAULT_DRAIN_SECONDS)])
 def test_drain_seconds(monkeypatch, value, expected):
 	if value is None:
-		monkeypatch.delenv(deployment.DRAIN_SECONDS_ENV, raising=False)
+		monkeypatch.delenv(runtime.DRAIN_SECONDS_ENV, raising=False)
 	else:
-		monkeypatch.setenv(deployment.DRAIN_SECONDS_ENV, value)
-	assert deployment.drain_seconds() == expected
+		monkeypatch.setenv(runtime.DRAIN_SECONDS_ENV, value)
+	assert runtime.drain_seconds() == expected
 
 
 # ── SECRET_KEY ───────────────────────────────────────────────────────────────
@@ -56,7 +56,7 @@ def test_secret_key_from_the_environment(container):
 
 
 def test_missing_secret_key_refuses_in_a_container(container):
-	with pytest.raises(deployment.StartupError, match="SECRET_KEY is not set"):
+	with pytest.raises(runtime.StartupError, match="SECRET_KEY is not set"):
 		resolve_secret_key({})
 
 
@@ -104,7 +104,7 @@ def test_container_key_is_checked_without_a_database(container, no_env_key):
 
 def test_encryption_error_is_a_startup_error():
 	# the entry point catches StartupError for a readable abort
-	assert issubclass(enc.EncryptionStartupError, deployment.StartupError)
+	assert issubclass(enc.EncryptionStartupError, runtime.StartupError)
 
 
 # ── Container startup line ───────────────────────────────────────────────────

@@ -276,6 +276,10 @@
                         </td>
                         <td class="text-center">
                             <span class="status-pill {{ job.status }}">{{ job.status }}</span>
+                            {% if job.action_needed %}
+                            <a href="{{ url_for('jobs.results', job=job.job_id) }}" title="Action needed — open the job"
+                               style="color:#ffb74d; margin-left:4px;"><i class="bi bi-exclamation-triangle-fill"></i></a>
+                            {% endif %}
                         </td>
                     </tr>
                     {% endfor %}

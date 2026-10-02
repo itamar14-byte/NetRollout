@@ -5,7 +5,7 @@ import sys
 from waitress import serve
 
 from src.db.settings import public_url
-from src.deployment import StartupError, drain_seconds, in_container
+from src.runtime import StartupError, drain_seconds, in_container
 from src.logging_utils import start_log_pruning, utf8_console
 from src.webapp import create_app
 from src.webapp.startup import container_announcement, start_announcer

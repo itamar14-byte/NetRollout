@@ -155,6 +155,9 @@ class DeviceResult(Base):
 	                                                      nullable=True)
 	fetched_config: Mapped[str | None] = mapped_column(Text, nullable=True)
 	status: Mapped[str] = mapped_column(String(64), nullable=False)
+	# What only a person can resolve on the device (e.g. "the change is live
+	# but NOT saved — save it on the device"); shown on the Results page
+	action_needed: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 	user_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id"),
 	                                           nullable=False)

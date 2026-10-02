@@ -76,7 +76,8 @@ class RolloutJob:
 		self.results = [DeviceResultDict(device_ip=d.ip, device_port=int(d.port),
 		                                 device_type=d.device_type,
 		                                 commands_sent=0, commands_verified=None,
-		                                 fetched_config=None, status="cancelled")
+		                                 fetched_config=None, status="cancelled",
+		                                 action_needed=None)
 		                for d in self._engine.devices]
 
 	def is_alive(self) -> bool:
@@ -308,7 +309,9 @@ class RolloutOrchestrator:
 						                            "commands_verified"],
 					                            fetched_config=result[
 						                            "fetched_config"],
-					                            status=result["status"]
+					                            status=result["status"],
+					                            action_needed=result.get(
+						                            "action_needed")
 					                            ))
 				self._backend.redis.client.delete(f"job:{job.job_id}:meta")
 				self._backend.redis.client.srem(f"user_jobs:{job.user_id}", str(job_id))
