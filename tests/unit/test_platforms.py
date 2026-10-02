@@ -493,6 +493,12 @@ def test_junos_failed_commit_rolls_back_and_reports_not_applied():
 		call.exit_config_mode()]
 
 
+def fresh_logger():
+	# its own file: a logger without a job id names it by the second
+	import uuid
+	return RolloutLogger(webapp=False, verbose=False, job_id=str(uuid.uuid4()))
+
+
 def log_of(logger):
 	with open(logger.logfile, encoding="utf-8") as f:   # the rollout log
 		return f.read()
@@ -501,7 +507,7 @@ def log_of(logger):
 def test_panos_failed_commit_reverts_the_candidate():
 	conn = connection()
 	conn.commit.side_effect = ValueError("Commit failed")
-	logger = RolloutLogger(webapp=False, verbose=False)
+	logger = fresh_logger()
 	assert not push("paloalto_panos", conn, logger=logger).applied
 	assert call.send_config_set(["revert config"], exit_config_mode=False) \
 	       in conn.method_calls
@@ -513,7 +519,7 @@ def test_panos_revert_refused_says_to_discard_on_the_device():
 	conn.commit.side_effect = ValueError("Commit failed")
 	conn.send_config_set.side_effect = lambda cmds, **kw: (
 		"Unknown command: revert" if cmds == ["revert config"] else "ok")
-	logger = RolloutLogger(webapp=False, verbose=False)
+	logger = fresh_logger()
 	assert not push("paloalto_panos", conn, logger=logger).applied
 	assert "discard them on the device" in log_of(logger)
 
@@ -548,7 +554,7 @@ def test_fortios_saves_only_when_cfg_save_isnt_automatic(vdoms, cfg_save,
 def test_gaia_refuses_an_expert_shell():
 	for prompt in ("[Expert@gw-1:0]#", "gw-1#"):
 		conn = connection(prompt=prompt)
-		logger = RolloutLogger(webapp=False, verbose=False)
+		logger = fresh_logger()
 		assert push("checkpoint_gaia", conn, logger=logger) == \
 		       PushResult(applied=False, rejected=0)
 		conn.send_config_set.assert_not_called()     # nothing was sent
@@ -660,7 +666,7 @@ def test_a_commit_that_outlasts_the_wait_is_reported_honestly():
 	import netmiko
 	conn = connection()
 	conn.commit.side_effect = netmiko.exceptions.ReadTimeout("slow")
-	logger = RolloutLogger(webapp=False, verbose=False)
+	logger = fresh_logger()
 	assert not push("paloalto_panos", conn, logger=logger).applied
 	with open(logger.logfile, encoding="utf-8") as f:
 		assert "didn't finish within" in f.read()
@@ -732,8 +738,35 @@ def test_junos_private_mode_refused_fails_with_the_likely_reason():
 	import netmiko
 	conn = connection()
 	conn.config_mode.side_effect = netmiko.exceptions.ReadTimeout("pattern not found")
-	logger = RolloutLogger(webapp=False, verbose=False)
+	logger = fresh_logger()
 	assert push("juniper_junos", conn, logger=logger) == \
 	       PushResult(applied=False, rejected=0)
 	conn.send_config_set.assert_not_called()
 	assert "uncommitted changes in the shared configuration" in log_of(logger)
+
+
+def test_a_failed_save_is_reported_as_not_saved():
+	# Gaia's config lock: the change is live, but lost at the next reboot
+	conn = connection(prompt="gw-1>")
+	conn.send_command.return_value = ("CLINFR0771  Config lock is owned by admin. "
+	                                  "Use the command 'lock database override'")
+	logger = fresh_logger()
+	assert push("checkpoint_gaia", conn, logger=logger).applied
+	assert "applied, but NOT saved" in log_of(logger)
+
+
+def test_a_successful_save_says_nothing_extra():
+	conn = connection()
+	conn.save_config.return_value = "Building configuration...\n[OK]"
+	logger = fresh_logger()
+	assert push("cisco_ios", conn, logger=logger).applied
+	assert "NOT saved" not in log_of(logger)
+
+
+def test_xr_route_policy_blocks_close_with_end_policy():
+	config = ("route-policy PASS\n  pass\nend-policy\n!\n"
+	          "router bgp 65000\n neighbor 10.0.0.2\n  remote-as 65001\n !\n!\n")
+	verdicts = verify_commands("cisco_xr", config, [
+		"route-policy PASS", "pass", "end-policy",
+		"router bgp 65000", "neighbor 10.0.0.2", "remote-as 65001"])
+	assert verdicts == [OK, OK, NV, OK, OK, OK]
