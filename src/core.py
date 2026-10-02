@@ -74,7 +74,8 @@ REJECTION_MARKERS = ("% invalid", "invalid input", "invalid command",
                      "syntax error", "command fail", "% incomplete",
                      "% ambiguous", "error:")
 # Leave or close a config section — they configure nothing
-NAVIGATION = {"exit", "end", "next", "abort", "quit", "return", "top", "up"}
+NAVIGATION = {"exit", "end", "next", "abort", "quit", "return", "top", "up",
+              "root"}   # IOS-XR: back to the top of config mode
 
 
 def _navigates(word: str) -> bool:
@@ -156,7 +157,7 @@ def _verify_sectioned(config: str, commands: list[str],
 		key = _norm(command)
 		word = key.split()[0] if key else ""
 		if _navigates(word):
-			leaves_all = word == "return" or (word == "end" and not blocks)
+			leaves_all = word in ("return", "root") or (word == "end" and not blocks)
 			stack = [] if leaves_all else stack[:-1]
 			verdicts.append(UNVERIFIABLE)
 			continue
