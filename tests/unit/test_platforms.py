@@ -514,11 +514,26 @@ def test_panos_failed_commit_reverts_the_candidate():
 	assert "still be in the candidate" not in log_of(logger)
 
 
-def test_panos_revert_refused_says_to_discard_on_the_device():
+def test_panos_falls_back_to_loading_the_running_config():
+	# older releases without "revert config"
 	conn = connection()
 	conn.commit.side_effect = ValueError("Commit failed")
 	conn.send_config_set.side_effect = lambda cmds, **kw: (
 		"Unknown command: revert" if cmds == ["revert config"] else "ok")
+	logger = fresh_logger()
+	assert not push("paloalto_panos", conn, logger=logger).applied
+	assert call.send_config_set(["load config from running-config.xml"],
+	                            exit_config_mode=False) in conn.method_calls
+	assert "discard them on the device" not in log_of(logger)
+
+
+def test_panos_both_discards_refused_says_to_discard_on_the_device():
+	conn = connection()
+	conn.commit.side_effect = ValueError("Commit failed")
+	conn.send_config_set.side_effect = lambda cmds, **kw: (
+		"Unknown command" if cmds[0] in ("revert config",
+		                                 "load config from running-config.xml")
+		else "ok")
 	logger = fresh_logger()
 	assert not push("paloalto_panos", conn, logger=logger).applied
 	assert "discard them on the device" in log_of(logger)
@@ -770,3 +785,56 @@ def test_xr_route_policy_blocks_close_with_end_policy():
 		"route-policy PASS", "pass", "end-policy",
 		"router bgp 65000", "neighbor 10.0.0.2", "remote-as 65001"])
 	assert verdicts == [OK, OK, NV, OK, OK, OK]
+
+
+
+def test_gaia_switches_an_expert_shell_to_clish():
+	conn = connection()
+	conn.find_prompt.side_effect = ["[Expert@gw-1:0]#", "gw-1>"]
+	assert push("checkpoint_gaia", conn).applied
+	conn.send_command_timing.assert_any_call("clish")
+	conn.send_config_set.assert_called_once()        # the command went in
+
+
+def test_gaia_fetch_switches_to_clish_too():
+	conn = connection()
+	conn.__enter__.return_value = conn
+	conn.find_prompt.side_effect = ["[Expert@gw-1:0]#", "gw-1>"]
+	conn.send_command.return_value = "set hostname gw-1"
+	device = Device(ip="10.0.0.1", label="d", username="u", password="p",
+	                device_type="checkpoint_gaia", secret="", port=22)
+	with patch("netmiko.ConnectHandler", return_value=conn):
+		config = device.fetch_config(fresh_logger())
+	assert config == "set hostname gw-1"
+	conn.send_command_timing.assert_any_call("clish")
+
+
+def test_a_new_hostname_is_saved_from_a_new_session():
+	import netmiko
+	first, second = connection(), connection()
+	second.__enter__.return_value = second
+	first.send_config_set.side_effect = ["ok", netmiko.exceptions.ReadTimeout("prompt")]
+	logger = fresh_logger()
+	device = Device(ip="10.0.0.1", label="d", username="u", password="p",
+	                device_type="cisco_ios", secret="", port=22)
+	engine = RolloutEngine(RolloutOptions(), [device], ["hostname r9", "x"])
+	with patch("netmiko.ConnectHandler", side_effect=[first, second]):
+		_, results = engine._push_config(threading.Event(), logger)
+	assert results[0].applied
+	first.save_config.assert_not_called()
+	second.save_config.assert_called_once()
+	assert "saved from a new session" in log_of(logger)
+
+
+def test_a_new_hostname_that_cant_be_saved_says_so():
+	import netmiko
+	first = connection()
+	first.send_config_set.side_effect = netmiko.exceptions.ReadTimeout("prompt")
+	logger = fresh_logger()
+	device = Device(ip="10.0.0.1", label="d", username="u", password="p",
+	                device_type="cisco_ios", secret="", port=22)
+	engine = RolloutEngine(RolloutOptions(), [device], ["hostname r9"])
+	with patch("netmiko.ConnectHandler", side_effect=[first, OSError("refused")]):
+		_, results = engine._push_config(threading.Event(), logger)
+	assert results[0].applied
+	assert "NOT saved" in log_of(logger)

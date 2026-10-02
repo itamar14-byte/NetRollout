@@ -43,13 +43,15 @@ class Platform:
 	finish: str
 	show_config: tuple[str, ...] = ("show running-config",)
 	flat: bool = False         # one "set …" line per setting, no sections
-	discard: str = ""          # after a failed commit: drop the candidate
+	# after a failed commit: drop the candidate — tried in order until one
+	# is accepted
+	discard: tuple[str, ...] = ()
 	close_blocks: bool = False  # FortiOS: an open config block is discarded
 	config_command: str = ""   # instead of the driver's default config mode
 	leave_first: str = ""      # sent before leaving config mode (Aruba CX:
 	                           # Netmiko only recognises "(config)#")
-	wrong_shell: tuple[str, ...] = ()  # prompt marks: logged into the wrong
-	                                   # shell — refuse to push
+	wrong_shell: tuple[str, ...] = ()  # prompt marks of the wrong shell…
+	cli_shell: str = ""                # …and the command that leaves it
 
 
 PLATFORMS = {
@@ -67,15 +69,20 @@ PLATFORMS = {
 	# our rollback can't wipe them (Junos refuses it while someone has
 	# uncommitted shared edits — the device then fails, with the reason)
 	"juniper_junos": Platform("commit", ("show configuration | display set",),
-	                          flat=True, discard="rollback 0",
+	                          flat=True, discard=("rollback 0",),
 	                          config_command="configure private"),
+	# revert config (8.0+); loading the running config into the candidate
+	# discards too, also on older releases
 	"paloalto_panos": Platform("commit", ("set cli config-output-format set",
 	                                      "show config running"), flat=True,
-	                           discard="revert config"),
+	                           discard=("revert config",
+	                                    "load config from running-config.xml")),
 	# An account whose shell is expert (bash) would take every "set …" as
-	# bash's own set builtin: nothing configured, nothing refused
+	# bash's own set builtin (nothing configured, nothing refused): switch to
+	# clish first, or refuse
 	"checkpoint_gaia": Platform("save config", ("show configuration",),
-	                            flat=True, wrong_shell=("expert@", "#")),
+	                            flat=True, wrong_shell=("expert@", "#"),
+	                            cli_shell="clish"),
 	"fortinet": Platform("", ("show",), close_blocks=True),
 }
 
@@ -348,6 +355,10 @@ class Device:
 		platform = PLATFORMS[self.device_type]
 		try:
 			with netmiko.ConnectHandler(**self.netmiko_connector()) as conn:
+				if problem := _enter_cli_shell(conn, platform):
+					logger.notify(f"could not fetch the config of {self.endpoint} "
+					              f"to verify it: {problem}", "red")
+					return None
 				conn.enable()
 				output = ""
 				for command in platform.show_config:
@@ -377,6 +388,29 @@ class Device:
 		           profile.enable_secret else "",
 		           var_map_subs=parsed_mappings,
 		           extra=row.var_maps or {})
+
+
+def _enter_cli_shell(conn, platform: Platform) -> str | None:
+	"""Leave a wrong login shell (Gaia expert / bash) for the CLI.
+	:return: the problem if the CLI shell couldn't be reached, else None"""
+	if not platform.wrong_shell:
+		return None
+
+	def wrong(prompt: str) -> bool:
+		prompt = prompt.strip().lower()
+		return any(prompt.endswith(m) if m == "#" else m in prompt
+		           for m in platform.wrong_shell)
+
+	if not wrong(conn.find_prompt()):
+		return None
+	if platform.cli_shell:
+		conn.send_command_timing(platform.cli_shell)
+		conn.set_base_prompt()
+		if not wrong(conn.find_prompt()):
+			return None
+	return (f"the account logs in to the wrong shell and "
+	        f"'{platform.cli_shell or '?'}' didn't leave it — set its shell to "
+	        f"clish")
 
 
 def _fortios_save_if_manual(conn, device: "Device",
@@ -459,13 +493,9 @@ class RolloutEngine:
 			try:
 				logger.notify(f"{device.ip} connected successfully", "green")
 				# Goes into privileged config mode, depending on the platform
-				prompt = net_connect.find_prompt().strip().lower() \
-					if platform.wrong_shell else ""
-				if prompt and any(prompt.endswith(m) if m == "#" else m in prompt
-				                  for m in platform.wrong_shell):
-					logger.notify(f"{device.endpoint}: the account logs in to "
-					              f"the wrong shell (prompt '{prompt}') — set its "
-					              f"shell to clish; nothing was sent", "red")
+				if problem := _enter_cli_shell(net_connect, platform):
+					logger.notify(f"{device.endpoint}: {problem}; nothing was "
+					              f"sent", "red")
 					return device.ip, PushResult(applied=False, rejected=0)
 				net_connect.enable()
 				if platform.config_command:
@@ -516,18 +546,42 @@ class RolloutEngine:
 			return device.ip, PushResult(applied=False, rejected=0)
 		except netmiko.exceptions.ReadTimeout as e:
 			if commands_sent and platform.finish != "commit":
-				# Prompt changed mid-session (e.g. hostname rename): the
-				# commands were applied, but the finish couldn't run
-				logger.notify(
-					f"{device.endpoint}: prompt detection lost after the config "
-					f"push — applied{', but NOT saved: save it on the device' if platform.finish else ''}",
-					"yellow")
+				# Prompt changed mid-session (e.g. a new hostname): the commands
+				# were applied, but the finish couldn't run in this session —
+				# a fresh one learns the new prompt
+				self._finish_in_new_session(device, platform, logger)
 				return device.ip, PushResult(applied=True, rejected=0)
 			logger.notify(f"{device.ip} failed: {e}", "red")
 			return device.ip, PushResult(applied=False, rejected=0)
 		except Exception as e:
 			logger.notify(f"{device.ip} failed: {e}", "red")
 			return device.ip, PushResult(applied=False, rejected=0)
+
+	@staticmethod
+	def _finish_in_new_session(device: Device, platform: Platform,
+	                           logger: RolloutLogger) -> None:
+		"""Save from a fresh session after the old one lost its prompt."""
+		if not platform.finish:
+			logger.notify(f"{device.endpoint}: prompt changed after the push "
+			              f"(e.g. a new hostname) — applied", "yellow")
+			return
+		try:
+			with netmiko.ConnectHandler(**device.netmiko_connector()) as conn:
+				conn.enable()
+				if platform.finish == "save":
+					reply, command = conn.save_config(), "save"
+				else:
+					reply = conn.send_command(platform.finish)
+					command = platform.finish
+			if isinstance(reply, str) and (complaint := rejection(reply, command)):
+				raise RuntimeError(complaint)
+			logger.notify(f"{device.endpoint}: prompt changed after the push (e.g. "
+			              f"a new hostname) — applied, and saved from a new "
+			              f"session", "yellow")
+		except Exception as e:
+			logger.notify(f"{device.endpoint}: prompt changed after the push — "
+			              f"applied, but NOT saved ({e}): save it on the device",
+			              "red")
 
 	@staticmethod
 	def _finish(conn, platform: Platform, device: Device,
@@ -556,10 +610,12 @@ class RolloutEngine:
 			except ValueError as e:
 				logger.notify(f"{device.endpoint}: commit failed — nothing was "
 				              f"applied. {e}", "red")
-				discarded = bool(platform.discard) and rejection(
-					conn.send_config_set([platform.discard],
-					                     exit_config_mode=False),
-					platform.discard) is None
+				discarded = False
+				for command in platform.discard:
+					reply = conn.send_config_set([command], exit_config_mode=False)
+					if rejection(reply, command) is None:
+						discarded = True
+						break
 				if not discarded and platform.finish == "commit" and \
 						device.device_type != "cisco_xr":
 					logger.notify(f"{device.endpoint}: the uncommitted changes "
