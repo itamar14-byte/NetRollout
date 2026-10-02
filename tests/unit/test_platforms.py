@@ -767,7 +767,7 @@ def test_a_failed_save_is_reported_as_not_saved():
 	                                  "Use the command 'lock database override'")
 	logger = fresh_logger()
 	assert push("checkpoint_gaia", conn, logger=logger).applied
-	assert "applied, but NOT saved" in log_of(logger)
+	assert "ACTION NEEDED — 10.0.0.1:22: the change is live but NOT saved" in log_of(logger)
 
 
 def test_a_successful_save_says_nothing_extra():
@@ -838,3 +838,56 @@ def test_a_new_hostname_that_cant_be_saved_says_so():
 		_, results = engine._push_config(threading.Event(), logger)
 	assert results[0].applied
 	assert "NOT saved" in log_of(logger)
+
+
+# ── Cases only a person can resolve: unmistakable, and in the summary ──
+
+@pytest.mark.parametrize("device_type, setup, words", [
+	("juniper_junos",          # another admin's uncommitted shared edits
+	 lambda c: setattr(c.config_mode, "side_effect",
+	                   __import__("netmiko").exceptions.ReadTimeout("x")),
+	 "uncommitted changes in the shared configuration"),
+	("paloalto_panos",         # failed commit, both discards refused
+	 lambda c: (setattr(c.commit, "side_effect", ValueError("Commit failed")),
+	            setattr(c.send_config_set, "side_effect",
+	                    lambda cmds, **kw: "Unknown command"
+	                    if cmds[0] in ("revert config",
+	                                   "load config from running-config.xml")
+	                    else "ok")),
+	 "discard them on the device"),
+	("paloalto_panos",         # commit still running after the wait
+	 lambda c: setattr(c.commit, "side_effect",
+	                   __import__("netmiko").exceptions.ReadTimeout("slow")),
+	 "check on the device"),
+	("checkpoint_gaia",        # stuck in expert even after "clish"
+	 lambda c: setattr(c.find_prompt, "return_value", "[Expert@gw-1:0]#"),
+	 "set its shell to clish"),
+	("checkpoint_gaia",        # save refused: config lock
+	 lambda c: (setattr(c.find_prompt, "return_value", "gw-1>"),
+	            setattr(c.send_command, "return_value",
+	                    "CLINFR0771  Config lock is owned by admin.")),
+	 "NOT saved"),
+])
+def test_manual_cases_are_flagged_action_needed(device_type, setup, words):
+	conn = connection()
+	setup(conn)
+	logger = fresh_logger()
+	device = Device(ip="10.0.0.1", label="d", username="u", password="p",
+	                device_type=device_type, secret="", port=22)
+	engine = RolloutEngine(RolloutOptions(), [device], ["set x"])
+	with patch("netmiko.ConnectHandler", return_value=conn):
+		engine.run(threading.Event(), logger)
+	log = log_of(logger)
+	flagged = [l for l in log.splitlines() if "ACTION NEEDED — 10.0.0.1:22:" in l]
+	assert flagged and words in flagged[0]
+	assert "ACTION NEEDED on 1 device (10.0.0.1:22)" in log     # the summary
+
+
+def test_no_action_line_when_nothing_needs_a_person():
+	logger = fresh_logger()
+	device = Device(ip="10.0.0.1", label="d", username="u", password="p",
+	                device_type="cisco_ios", secret="", port=22)
+	engine = RolloutEngine(RolloutOptions(), [device], ["hostname r1"])
+	with patch("netmiko.ConnectHandler", return_value=connection()):
+		engine.run(threading.Event(), logger)
+	assert "ACTION NEEDED" not in log_of(logger)
