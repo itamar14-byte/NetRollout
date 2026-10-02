@@ -133,17 +133,17 @@ def test_only_devices_given_prompts_for_commands_and_verify(files, run_cli):
 
 # ── Input errors: abort before any rollout ───────────────────────────────────
 
-def test_missing_devices_file_exits_1(files, run_cli, tmp_path):
+def test_missing_devices_file_exits_2(files, run_cli, tmp_path):
 	_, commands = files()
 	code, engine, _ = run_cli(["-d", str(tmp_path / "nope.csv"),
 	                           "-c", commands])
-	assert code == 1 and not engine.called
+	assert code == 2 and not engine.called
 
 
-def test_wrong_commands_extension_exits_1(files, run_cli):
+def test_wrong_commands_extension_exits_2(files, run_cli):
 	devices, commands = files(commands_name="commands.cfg")
 	code, engine, _ = run_cli(["-d", devices, "-c", commands])
-	assert code == 1 and not engine.called
+	assert code == 2 and not engine.called
 
 
 def test_bad_rows_are_skipped_and_good_rows_still_run(files, run_cli):
@@ -159,23 +159,25 @@ def test_bad_rows_are_skipped_and_good_rows_still_run(files, run_cli):
 	       ("10.0.0.4", 2222, "cisco_ios")
 
 
-def test_no_valid_devices_exits_1(files, run_cli):
+def test_no_valid_devices_exits_2(files, run_cli):
 	devices, commands = files(rows="999.0.0.1,admin,pw,cisco_ios,,22\n")
 	code, engine, _ = run_cli(["-d", devices, "-c", commands])
-	assert code == 1 and not engine.called
+	assert code == 2 and not engine.called
 
 
 def test_unreachable_devices_are_dropped(files, run_cli):
 	devices, commands = files()
-	code, engine, _ = run_cli(["-d", devices, "-c", commands],
-	                          reachable=False)
-	assert code == 1 and not engine.called
+	code, engine, prompts = run_cli(["-d", devices, "-c", commands],
+	                                reachable=False)
+	assert code == 2 and not engine.called
+	# a double-clicked window stays open long enough to read why
+	assert prompts[-1] == "Press Enter to exit..."
 
 
-def test_empty_commands_file_exits_1(files, run_cli):
+def test_empty_commands_file_exits_2(files, run_cli):
 	devices, commands = files(commands="")
 	code, engine, _ = run_cli(["-d", devices, "-c", commands])
-	assert code == 1 and not engine.called
+	assert code == 2 and not engine.called
 
 
 # ── Exit code reflects the outcome ───────────────────────────────────────────
@@ -229,10 +231,10 @@ def test_utf8_bom_commands_file(files, run_cli):
 	assert engine_args(engine)["commands"][0] == "hostname r1"
 
 
-def test_non_utf8_commands_file_exits_1(files, run_cli):
+def test_non_utf8_commands_file_exits_2(files, run_cli):
 	devices, commands = files(commands_bytes="description café\n".encode("cp1252"))
 	code, engine, _ = run_cli(["-d", devices, "-c", commands])
-	assert code == 1 and not engine.called
+	assert code == 2 and not engine.called
 
 
 # ── Non-interactive use ──────────────────────────────────────────────────────
@@ -253,3 +255,35 @@ def test_non_interactive_run_exits_cleanly(files, monkeypatch):
 			cli.main()
 	assert exc.value.code == 0
 	engine.return_value.run.assert_called_once()
+
+
+# ── Stage 5: the CLI stands alone (it ships as a PyInstaller .exe) ──
+
+WEB_STACK = {"flask", "sqlalchemy", "redis", "psycopg2", "alembic",
+             "flask_login", "flask_session", "flask_wtf", "flask_limiter",
+             "waitress", "prometheus_client", "prometheus_flask_exporter",
+             "ldap3", "pyotp", "qrcode", "PIL", "werkzeug", "jinja2"}
+
+
+def test_the_cli_loads_nothing_from_the_web_stack():
+	# A fresh interpreter: this test session has the web app loaded already
+	import json
+	import subprocess
+	import sys
+	from pathlib import Path
+	probe = ("import json, sys, src.cli; "
+	         "print(json.dumps(sorted({m.split('.')[0] for m in sys.modules})))")
+	out = subprocess.run([sys.executable, "-c", probe], capture_output=True,
+	                     text=True, cwd=Path(__file__).resolve().parents[2],
+	                     check=True).stdout
+	assert not WEB_STACK & set(json.loads(out))
+
+
+def test_version_flag(capsys, monkeypatch):
+	import sys
+	from src import cli, runtime
+	monkeypatch.setattr(sys, "argv", ["netrollout-cli", "--version"])
+	with pytest.raises(SystemExit) as exit_info:
+		cli.get_args()
+	assert exit_info.value.code == 0
+	assert capsys.readouterr().out.strip() == f"NetRollout CLI {runtime.VERSION}"

@@ -26,7 +26,7 @@ At runtime, `RolloutOrchestrator` is the concurrency manager.
 - **`RolloutJob`:** the lifecycle owner of a single job. It owns the thread, the cancel event, the logger and the engine.
 - **`RolloutEngine`:** execution context flows into it as arguments at call time, so it holds no hanging state.
 
-The **CLI** (`src/cli.py`) uses the same `RolloutEngine` directly, from a devices CSV and a commands file. It has no database, no Redis and no orchestrator.
+The **CLI** (`src/cli.py`) uses the same `RolloutEngine` directly, from a devices CSV and a commands file. It has no database, no Redis and no orchestrator — and doesn't even import them: the DB models and Redis are imported for type checking only (`core.py`, `logging_utils.py`) or inside the web-only CSV import (`input_parser.py`), guarded by an import-isolation test. It ships as a standalone `netrollout-cli.exe` (PyInstaller, `netrollout-cli.spec`, the web stack excluded; logs next to the exe via `runtime.logs_dir()`).
 
 **Configuration** comes from env vars. `config/runtime.env` (under the NetRollout home, `src/runtime.py`) is loaded with override by `BackendServices` at startup; it holds only what a Server Management switch wrote, so it wins over the container environment (the installer's `.env`), which wins over the defaults.
 

@@ -468,7 +468,7 @@ class TestPrepareDevices(unittest.TestCase):
     def test_unreachable_device_excluded(self, _):
         devices, errors = self.parser.prepare_devices([self._raw()])
         self.assertEqual(len(devices), 0)
-        self.assertEqual(errors, ["10.0.0.1 is not reachable"])
+        self.assertEqual(errors, ["10.0.0.1:22 is not reachable"])
 
     @patch("src.validation.Validator.test_tcp_port", return_value=True)
     def test_invalid_ip_excluded(self, _):
