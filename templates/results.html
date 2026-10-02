@@ -962,6 +962,19 @@ document.querySelectorAll('.data_filter-btn').forEach(btn => {
 
 applyPagination();
 
+// ── /results?job=<id> (the completion card's link): open that job ─────────────
+(() => {
+    const id = new URLSearchParams(window.location.search).get('job');
+    if (!id) return;
+    const rows = _filteredRows();
+    const idx  = rows.findIndex(r => r.dataset.jobId === id);
+    if (idx < 0) return;
+    const perPage = parseInt(document.getElementById('perPageSelect').value);
+    if (perPage) { _pgCurrent = Math.floor(idx / perPage) + 1; applyPagination(); }
+    rows[idx].classList.add('expanded');
+    rows[idx].scrollIntoView({block: 'center'});
+})();
+
 // ── Filter buttons (split view) ──────────────────────────────────────────────
 document.querySelectorAll('.data_filter-btn-split').forEach(btn => {
     btn.addEventListener('click', function() {

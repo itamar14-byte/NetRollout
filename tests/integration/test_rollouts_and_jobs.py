@@ -311,6 +311,52 @@ def test_results_page_shows_what_needs_a_person(operator, client_for,
 	assert "save it on the device (config lock)" in html
 
 
+def test_job_summary_for_the_completion_card(operator, client_for,
+                                            session_scope, make_user):
+	job = uuid.uuid4()
+	now = dt.datetime.now()
+	with session_scope() as s:
+		s.add(DeviceResult(user_id=operator.user.id, job_id=job, started_at=now,
+		                   completed_at=now, device_ip="10.0.0.1", device_port=22,
+		                   device_type="checkpoint_gaia", commands_sent=1,
+		                   status="success",
+		                   action_needed="the change is live but NOT saved"))
+		s.add(JobMetadata(job_id=job, user_id=operator.user.id,
+		                  commands=["set x"], comment="chg-42"))
+	add_result(session_scope, operator.user, job, ip="10.0.0.2", status="failed")
+	resp = client_for(operator.user).get(f"/results/summary/{job}")
+	assert resp.status_code == 200
+	body = resp.json
+	assert body["device_count"] == 2
+	assert body["counts"] == {"success": 1, "failed": 1}
+	# devices by their inventory label
+	assert body["action_needed"] == [{"device": "dev-10.0.0.1",
+	                                  "text": "the change is live but NOT saved"}]
+	# which job, when several finish in parallel
+	assert body["job_id"] == str(job) and body["comment"] == "chg-42"
+	assert body["results_url"] == f"/results?job={job}"
+	# not stored yet → 404, so the card retries; other users can't see it
+	assert client_for(operator.user).get(
+		f"/results/summary/{uuid.uuid4()}").status_code == 404
+	assert client_for(make_user()).get(
+		f"/results/summary/{job}").status_code == 404
+	assert client_for(make_user(role="admin")).get(
+		f"/results/summary/{job}").status_code == 200
+
+
+def test_dashboard_marks_recent_jobs_that_need_a_person(operator, client_for,
+                                                         session_scope):
+	job = uuid.uuid4()
+	now = dt.datetime.now()
+	with session_scope() as s:
+		s.add(DeviceResult(user_id=operator.user.id, job_id=job, started_at=now,
+		                   completed_at=now, device_ip="10.0.0.1", device_port=22,
+		                   device_type="cisco_ios", commands_sent=1,
+		                   status="success", action_needed="save it"))
+	html = client_for(operator.user).get("/dashboard").get_data(as_text=True)
+	assert f'href="/results?job={job}"' in html
+
+
 def test_log_download_is_owner_only(operator, client_for, session_scope,
                                     make_user):
 	job = uuid.uuid4()
