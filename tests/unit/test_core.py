@@ -399,6 +399,7 @@ class TestDeviceFetchConfig(unittest.TestCase):
     def _connection(mock_ch, output="interface GigabitEthernet0/0"):
         conn = MagicMock()
         conn.__enter__.return_value = conn
+        conn.find_prompt.return_value = "dev>"      # a CLI prompt, not a shell
         conn.send_command.return_value = output
         mock_ch.return_value = conn
         return conn
