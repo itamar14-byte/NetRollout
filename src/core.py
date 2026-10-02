@@ -308,6 +308,7 @@ class DeviceResultDict(TypedDict):
 	commands_verified: int | None
 	fetched_config: str | None
 	status: str
+	action_needed: str | None   # what only a person can resolve, or None
 
 
 @dataclass(slots=True, kw_only=True)
@@ -436,7 +437,9 @@ class RolloutEngine:
 	def __init__(self, param: RolloutOptions, devices: list[Device],
 	             commands: list[str]) -> None:
 		self.devices = devices
-		self._needs_action: set[str] = set()   # endpoints, for the summary
+		# endpoint → what only a person can resolve there (Results page,
+		# summary)
+		self._needs_action: dict[str, list[str]] = {}
 		self._verify_flag = param.verify
 		self._max_workers = param.max_workers
 		self._commands = commands
@@ -561,7 +564,7 @@ class RolloutEngine:
 	                   logger: RolloutLogger) -> None:
 		"""Something only a person can do on the device: one unmistakable
 		line (live log, log file, CLI console), counted in the summary."""
-		self._needs_action.add(device.endpoint)
+		self._needs_action.setdefault(device.endpoint, []).append(what)
 		logger.notify(f"ACTION NEEDED — {device.endpoint}: {what}", "red",
 		              important=True)
 
@@ -816,7 +819,11 @@ class RolloutEngine:
 				                                commands_sent=commands_sent,
 				                                commands_verified=commands_verified,
 				                                fetched_config=fetched_config,
-				                                status=status))
+				                                status=status,
+				                                action_needed="\n".join(
+					                                self._needs_action.get(
+						                                device.endpoint, []))
+				                                or None))
 
 			self._log_summary(results, logger)
 			return results

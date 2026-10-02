@@ -291,6 +291,26 @@ def test_config_diff_returns_the_engines_verdicts(operator, client_for,
 		["write memory", "not verifiable"]]
 
 
+def test_results_page_shows_what_needs_a_person(operator, client_for,
+                                                session_scope):
+	# Visible without reading the log: a badge on the job, the instruction
+	# per device in the expanded job, a marker on the device row
+	job, clean = uuid.uuid4(), uuid.uuid4()
+	now = dt.datetime.now()
+	with session_scope() as s:
+		s.add(DeviceResult(user_id=operator.user.id, job_id=job, started_at=now,
+		                   completed_at=now, device_ip="10.0.0.1", device_port=22,
+		                   device_type="checkpoint_gaia", commands_sent=1,
+		                   status="success",
+		                   action_needed="the change is live but NOT saved — "
+		                                 "save it on the device (config lock)"))
+	add_result(session_scope, operator.user, clean, ip="10.0.0.2")
+	html = client_for(operator.user).get("/results").get_data(as_text=True)
+	assert html.count('class="action-needed-badge"') == 1      # only that job
+	assert "Action needed on" in html
+	assert "save it on the device (config lock)" in html
+
+
 def test_log_download_is_owner_only(operator, client_for, session_scope,
                                     make_user):
 	job = uuid.uuid4()

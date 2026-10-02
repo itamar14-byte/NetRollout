@@ -214,6 +214,22 @@ def test_results_are_persisted_with_port(make_orchestrator):
 	assert [(r.device_ip, r.device_port) for r in rows] == [("10.9.9.9", 2002)]
 
 
+def test_the_action_needed_instruction_is_stored(make_orchestrator):
+	fake = FakeRedis()
+	orch = make_orchestrator(fake)
+	options = RolloutOptions(verify=False, verbose=False, webapp=False)
+	result = {"device_ip": "10.9.9.9", "device_port": 22,
+	          "device_type": "checkpoint_gaia", "commands_sent": 1,
+	          "commands_verified": None, "fetched_config": None,
+	          "status": "success", "action_needed": "save it on the device"}
+	with patch.object(RolloutEngine, "run", return_value=[result]):
+		orch.submit([], ["cmd"], options, uuid.uuid4())
+		assert wait_for(lambda: not orch._jobs)
+	(row,) = [o for o in orch._backend.postgres.added
+	          if type(o).__name__ == "DeviceResult"]
+	assert row.action_needed == "save it on the device"
+
+
 def test_submit_records_job_metadata(make_orchestrator):
 	fake = FakeRedis()
 	orch = make_orchestrator(fake)
