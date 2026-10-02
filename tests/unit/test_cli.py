@@ -133,17 +133,17 @@ def test_only_devices_given_prompts_for_commands_and_verify(files, run_cli):
 
 # ── Input errors: abort before any rollout ───────────────────────────────────
 
-def test_missing_devices_file_exits_1(files, run_cli, tmp_path):
+def test_missing_devices_file_exits_2(files, run_cli, tmp_path):
 	_, commands = files()
 	code, engine, _ = run_cli(["-d", str(tmp_path / "nope.csv"),
 	                           "-c", commands])
-	assert code == 1 and not engine.called
+	assert code == 2 and not engine.called
 
 
-def test_wrong_commands_extension_exits_1(files, run_cli):
+def test_wrong_commands_extension_exits_2(files, run_cli):
 	devices, commands = files(commands_name="commands.cfg")
 	code, engine, _ = run_cli(["-d", devices, "-c", commands])
-	assert code == 1 and not engine.called
+	assert code == 2 and not engine.called
 
 
 def test_bad_rows_are_skipped_and_good_rows_still_run(files, run_cli):
@@ -159,23 +159,25 @@ def test_bad_rows_are_skipped_and_good_rows_still_run(files, run_cli):
 	       ("10.0.0.4", 2222, "cisco_ios")
 
 
-def test_no_valid_devices_exits_1(files, run_cli):
+def test_no_valid_devices_exits_2(files, run_cli):
 	devices, commands = files(rows="999.0.0.1,admin,pw,cisco_ios,,22\n")
 	code, engine, _ = run_cli(["-d", devices, "-c", commands])
-	assert code == 1 and not engine.called
+	assert code == 2 and not engine.called
 
 
 def test_unreachable_devices_are_dropped(files, run_cli):
 	devices, commands = files()
-	code, engine, _ = run_cli(["-d", devices, "-c", commands],
-	                          reachable=False)
-	assert code == 1 and not engine.called
+	code, engine, prompts = run_cli(["-d", devices, "-c", commands],
+	                                reachable=False)
+	assert code == 2 and not engine.called
+	# a double-clicked window stays open long enough to read why
+	assert prompts[-1] == "Press Enter to exit..."
 
 
-def test_empty_commands_file_exits_1(files, run_cli):
+def test_empty_commands_file_exits_2(files, run_cli):
 	devices, commands = files(commands="")
 	code, engine, _ = run_cli(["-d", devices, "-c", commands])
-	assert code == 1 and not engine.called
+	assert code == 2 and not engine.called
 
 
 # ── Exit code reflects the outcome ───────────────────────────────────────────
@@ -229,10 +231,10 @@ def test_utf8_bom_commands_file(files, run_cli):
 	assert engine_args(engine)["commands"][0] == "hostname r1"
 
 
-def test_non_utf8_commands_file_exits_1(files, run_cli):
+def test_non_utf8_commands_file_exits_2(files, run_cli):
 	devices, commands = files(commands_bytes="description café\n".encode("cp1252"))
 	code, engine, _ = run_cli(["-d", devices, "-c", commands])
-	assert code == 1 and not engine.called
+	assert code == 2 and not engine.called
 
 
 # ── Non-interactive use ──────────────────────────────────────────────────────

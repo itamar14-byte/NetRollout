@@ -21,7 +21,7 @@ App at `http://localhost:8080` (nginx in front on 80/443). Every start runs the 
 python -m src.cli -d <devices.csv> -c <commands.txt> [-vy] [-vb]
 ```
 - `-vy` / `--verify`: after the push, read each device's config and check every command; `-vb` / `--verbose`: print logs to the console (always written to `logs/`)
-- Missing paths (and verify) are prompted for. Exit code: 0 all devices succeeded, 1 mixed (also: an input problem — missing file, no devices or commands left), 2 nothing applied, 130 Ctrl+C. `--version` prints the version.
+- Missing paths (and verify) are prompted for. Exit code: 0 all devices succeeded, 1 mixed, 2 nothing applied (including a stop before the push: missing file, no devices or commands left), 130 Ctrl+C. Every exit but Ctrl+C waits for Enter when run from a terminal, so a double-clicked window stays readable. `--version` prints the version.
 - **Standalone `netrollout-cli.exe`** (no Python needed; same flags): `pyinstaller --clean --noconfirm netrollout-cli.spec` from the repo root in the dev venv → `dist/netrollout-cli.exe` (one file, ~15 MB, ~2 s startup; logs go to `logs/` next to it). The CLI must not import the web stack — `tests/unit/test_cli.py` guards it, and the spec excludes it. The exe is unsigned: Windows Defender / SmartScreen may flag it (code-signing is post-v1.0).
 
 ### Run tests
