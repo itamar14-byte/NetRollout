@@ -107,7 +107,8 @@ REJECTION_MARKERS = (
 _CODED_ERROR = re.compile(r"^[A-Z]{6}\d{4}\s")
 # Leave or close a config section — they configure nothing
 NAVIGATION = {"exit", "end", "next", "abort", "quit", "return", "top", "up",
-              "root"}   # IOS-XR: back to the top of config mode
+              "root",                   # IOS-XR: back to the top of config
+              "end-policy", "end-set"}  # IOS-XR: close route-policy / sets
 
 
 def _navigates(word: str) -> bool:
@@ -569,10 +570,16 @@ class RolloutEngine:
 		if platform.leave_first:
 			conn.send_command_timing(platform.leave_first)
 		conn.exit_config_mode()
+		reply, command = "", ""
 		if platform.finish == "save":
-			conn.save_config()
+			reply, command = conn.save_config(), "save"
 		elif platform.finish and platform.finish != "commit":
-			conn.send_command(platform.finish)
+			reply, command = conn.send_command(platform.finish), platform.finish
+		# The change is live either way; saving failing (e.g. Gaia's config
+		# lock) means it's lost at the next reboot — say so
+		if command and isinstance(reply, str) and 				(complaint := rejection(reply, command)):
+			logger.notify(f"{device.endpoint}: applied, but NOT saved — "
+			              f"{complaint}", "red")
 		return True
 
 	def _push_config(self, cancel_event: threading.Event,
