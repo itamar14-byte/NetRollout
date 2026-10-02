@@ -3,6 +3,7 @@ import threading
 from argparse import ArgumentParser
 from csv import DictReader
 
+from src import runtime
 from src.core import RolloutOptions, RolloutEngine
 from src.input_parser import InputParser
 from src.logging_utils import RolloutLogger, prune_logs, utf8_console
@@ -24,6 +25,8 @@ def get_args():
 	parser.add_argument("-vb", "--verbose",
 	                    help="Print logs to console",
 	                    action="store_true")
+	parser.add_argument("--version", action="version",
+	                    version=f"NetRollout CLI {runtime.VERSION}")
 	return parser.parse_args()
 
 
@@ -58,11 +61,9 @@ def main():
 		with open(devices_path, "r", encoding="utf-8-sig") as f:
 			raw_devices = list(DictReader(f))
 	except FileNotFoundError:
-		logger.notify(f"File not found: {devices_path}", "red")
-		sys.exit(1)
+		abort(logger, f"File not found: {devices_path}")
 	except Exception as e:
-		logger.notify(f"Failed to read device file: {e}", "red")
-		sys.exit(1)
+		abort(logger, f"Failed to read device file: {e}")
 
 	devices, errors  = parser.prepare_devices(raw_devices)
 	for msg in errors:
@@ -70,8 +71,7 @@ def main():
 
 	commands = parser.parse_commands(commands_path)
 	if not devices or not commands:
-		logger.notify("Aborting — no devices or commands to process.", "red")
-		sys.exit(1)
+		abort(logger, "Aborting — no devices or commands to process.")
 
 	cancel = threading.Event()
 	engine = RolloutEngine(param=options, devices=devices, commands=commands)
@@ -80,10 +80,7 @@ def main():
 	# On Ctrl+C from the user, the cancel event is set and the system exits
 	try:
 		results = engine.run(cancel, logger)
-		try:
-			input("Press Enter to exit...")
-		except EOFError:
-			pass  # no terminal (cron, CI, piped stdin): nothing to wait for
+		pause()
 		sys.exit(exit_code(results))
 	except KeyboardInterrupt:
 		cancel.set()
@@ -91,10 +88,26 @@ def main():
 		sys.exit(130)  # shell convention for Ctrl+C (128 + SIGINT)
 
 
+def pause():
+	"""Keep a double-clicked window open until the user has read it."""
+	try:
+		input("Press Enter to exit...")
+	except EOFError:
+		pass  # no terminal (cron, CI, piped stdin): nothing to wait for
+
+
+def abort(logger, message):
+	"""Stop before the push: nothing was applied anywhere, so exit 2."""
+	logger.notify(message, "red")
+	pause()
+	sys.exit(2)
+
+
 def exit_code(results) -> int:
 	"""0 = every device succeeded; 1 = mixed (some devices partial, failed
 	or cancelled); 2 = nothing applied anywhere (every device failed or
-	was cancelled) — so scripts and CI can tell."""
+	was cancelled, or the run stopped before the push — abort()) — so
+	scripts and CI can tell."""
 	statuses = [r["status"] for r in results]
 	if statuses and all(s == "success" for s in statuses):
 		return 0
