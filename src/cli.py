@@ -3,6 +3,7 @@ import threading
 from argparse import ArgumentParser
 from csv import DictReader
 
+from src import runtime
 from src.core import RolloutOptions, RolloutEngine
 from src.input_parser import InputParser
 from src.logging_utils import RolloutLogger, prune_logs, utf8_console
@@ -24,6 +25,8 @@ def get_args():
 	parser.add_argument("-vb", "--verbose",
 	                    help="Print logs to console",
 	                    action="store_true")
+	parser.add_argument("--version", action="version",
+	                    version=f"NetRollout CLI {runtime.VERSION}")
 	return parser.parse_args()
 
 

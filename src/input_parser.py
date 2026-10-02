@@ -1,17 +1,24 @@
+from __future__ import annotations   # type hints are never evaluated
+
 import datetime
 import hmac
 import uuid
 from collections import Counter
 from csv import DictReader
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
-from sqlalchemy.orm import Session
 
-from src.db.tables import Inventory, SecurityProfile
 from src.encryption import decrypt, encrypt
 from src.validation import Validator
 from src.core import Device
 from src.logging_utils import RolloutLogger
+
+if TYPE_CHECKING:
+	# The web app's import uses the DB models; the CLI (.exe) never does, so
+	# they're imported where used — loading them pulls in the web stack
+	from sqlalchemy.orm import Session
+	from src.db.tables import Inventory, SecurityProfile
 
 
 class InputParser:
@@ -59,8 +66,8 @@ class InputParser:
 				              f"are required")
 				continue
 			if check_reachable and not self.validator.test_tcp_port(ip, int(port)):
-				errors.append(f"{ip} is not reachable")
-				self.logger.notify(f"{ip} is not reachable", "red")
+				# returned like every other row error: the caller logs them
+				errors.append(f"{ip}:{port} is not reachable")
 				continue
 
 			core = {k: item.get(k, "") for k in self.CORE_KEYS}
@@ -95,6 +102,7 @@ class InputParser:
 		:param properties: the user's property definitions
 		 ({name, label, is_list}) — see WebServices.get_property_defs
 		"""
+		from src.db.tables import Inventory   # web app only
 		report = ImportReport()
 		device_path = device_path.strip('"')
 		if not self.validator.validate_file_extension(device_path, "csv"):
@@ -271,6 +279,7 @@ class _ProfileResolver:
 	the same exposure as a rollout; nothing is logged or stored in clear."""
 
 	def __init__(self, user_id: uuid.UUID, db_session: Session):
+		from src.db.tables import SecurityProfile   # web app only
 		self._user_id, self._db = user_id, db_session
 		self._known = []  # [(username, password, secret), profile]
 		for p in db_session.query(SecurityProfile).filter_by(user_id=user_id):
@@ -309,6 +318,7 @@ class _ProfileResolver:
 		return lines + [("warning", w) for w in self._warnings]
 
 	def _create(self, creds: tuple[str, str, str]) -> SecurityProfile:
+		from src.db.tables import SecurityProfile   # web app only
 		username, password, secret = creds
 		profile = SecurityProfile(
 			label=self._unique_label(username), username=username,

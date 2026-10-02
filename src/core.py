@@ -4,13 +4,14 @@ import threading
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
-from typing import NamedTuple, Optional, TypedDict
+from typing import TYPE_CHECKING, NamedTuple, Optional, TypedDict
 
 import netmiko
 
 from src import encryption
 from src.logging_utils import RolloutLogger
-from src.db.tables import Inventory
+if TYPE_CHECKING:   # type hints only: the CLI (.exe) must not load the DB stack
+	from src.db.tables import Inventory
 
 
 class SubstitutionError(ValueError):
@@ -371,7 +372,7 @@ class Device:
 			return None
 
 	@classmethod
-	def from_inventory(cls, row: Inventory, user_id) -> "Device":
+	def from_inventory(cls, row: "Inventory", user_id) -> "Device":
 		profile = row.security_profile
 		# The join table is shared across users (global devices), so only the
 		# rolling-out user's own mappings are applied
