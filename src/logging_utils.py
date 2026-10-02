@@ -5,8 +5,11 @@ import sys
 import threading
 import time
 
-import redis
-from redis.client import PubSub
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:   # the web app passes its client in; the CLI (.exe) has none
+    import redis
+    from redis.client import PubSub
 
 from src import runtime
 
@@ -103,7 +106,7 @@ ANSI_TO_HTML = {"RED": WEBAPP_RED, "GREEN": WEBAPP_GREEN, "YELLOW": WEBAPP_YELLO
 class RolloutLogger:
     def __init__(self, webapp: bool, verbose: bool,
                  prefix: str = "rollout", job_id: str = None,
-                 redis_client: redis.Redis | None = None):
+                 redis_client: "redis.Redis | None" = None):
         self._log_lock = threading.Lock()
         self._webapp = webapp
         self._verbose = verbose
@@ -173,7 +176,7 @@ class RolloutLogger:
     def get_history(self) -> list[str]:
         return [m.decode() for m in self._redis.lrange(self._history_key, 0, -1)]
 
-    def subscribe(self) -> PubSub:
+    def subscribe(self) -> "PubSub":
         ps = self._redis.pubsub()
         ps.subscribe(self._channel_key)
         return ps
