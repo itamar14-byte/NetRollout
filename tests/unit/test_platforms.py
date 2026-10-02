@@ -152,7 +152,7 @@ end
 		("interface GigabitEthernet0/0/0/0", OK),       # the one inside area 0
 		("cost 10", OK),
 		("cost 20", MISSING),
-		("root", MISSING),                              # XR's "root": not a navigation word we know
+		("root", NV),                                   # XR: back to the top
 		("commit", NV),
 	]),
 	("arista_eos", """! Command: show running-config
