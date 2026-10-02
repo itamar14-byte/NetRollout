@@ -69,7 +69,7 @@ def results(*statuses):
 
 def test_get_args_parses_short_and_long_flags(monkeypatch):
 	monkeypatch.setattr(sys, "argv", ["cli.py", "-d", "d.csv", "--commands",
-	                                  "c.txt", "-vy", "--verbose"])
+	                                  "c.txt", "-vf", "--verbose"])
 	args = cli.get_args()
 	assert (args.devices, args.commands, args.verify, args.verbose) == \
 	       ("d.csv", "c.txt", True, True)
@@ -102,7 +102,7 @@ def test_rollout_runs_with_parsed_devices_and_commands(files, run_cli):
 
 def test_verify_and_verbose_flags_reach_the_engine(files, run_cli):
 	devices, commands = files()
-	_, engine, _ = run_cli(["-d", devices, "-c", commands, "-vy", "-vb"])
+	_, engine, _ = run_cli(["-d", devices, "-c", commands, "-vf", "-v"])
 	param = engine_args(engine)["param"]
 	assert param.verify is True and param.verbose is True
 
@@ -115,17 +115,18 @@ def test_prompts_for_missing_paths_and_verify(files, run_cli, answer, expected):
 	devices, commands = files()
 	# paths dragged into a Windows terminal arrive wrapped in quotes
 	code, engine, prompts = run_cli(
-		[], answers=[f'"{devices}"', f'"{commands}"', answer])
+		[], answers=[f'"{devices}"', f'"{commands}"', answer, "y"])
 	assert code == 0
-	assert prompts[:3] == ["Enter device file path: ",
+	assert prompts[:4] == ["Enter device file path: ",
 	                       "Enter commands file path: ",
-	                       "Verify rollout? (y/n): "]
+	                       "Verify rollout? (y/n): ",
+	                       "About to push 2 commands to 1 device. Continue? (y/n): "]
 	assert engine_args(engine)["param"].verify is expected
 
 
 def test_only_devices_given_prompts_for_commands_and_verify(files, run_cli):
 	devices, commands = files()
-	_, engine, prompts = run_cli(["-d", devices], answers=[commands, "y"])
+	_, engine, prompts = run_cli(["-d", devices], answers=[commands, "y", "y"])
 	assert prompts[:2] == ["Enter commands file path: ",
 	                       "Verify rollout? (y/n): "]
 	assert engine_args(engine)["param"].verify is True
@@ -287,3 +288,38 @@ def test_version_flag(capsys, monkeypatch):
 		cli.get_args()
 	assert exit_info.value.code == 0
 	assert capsys.readouterr().out.strip() == f"NetRollout CLI {runtime.VERSION}"
+
+
+# ── Interactive safety: retry a typo, confirm before the push ──
+
+def test_a_mistyped_path_is_asked_again(files, run_cli, tmp_path):
+	devices, commands = files()
+	code, engine, prompts = run_cli(
+		[], answers=[str(tmp_path / "typo.csv"), "", devices, commands, "n", "y"])
+	assert code == 0 and engine.called
+	assert prompts[:3] == ["Enter device file path: "] * 3
+
+
+def test_declining_the_confirmation_pushes_nothing(files, run_cli):
+	devices, commands = files()
+	code, engine, prompts = run_cli([], answers=[devices, commands, "n", "n"])
+	assert code == 2 and not engine.called
+	assert prompts[-1].startswith("About to push")
+
+
+def test_full_flag_runs_never_ask(files, run_cli):
+	# scripts: no confirmation; only the closing pause (skipped without a tty)
+	devices, commands = files()
+	_, engine, prompts = run_cli(["-d", devices, "-c", commands])
+	assert engine.called and prompts == ["Press Enter to exit..."]
+
+
+@pytest.mark.parametrize("argv,expected", [
+	([], "Verify: off (add -vf to check the config after the push)"),
+	(["-vf"], "Verify: on"),
+])
+def test_the_verify_choice_is_always_shown(files, run_cli, capsys, argv,
+                                           expected):
+	devices, commands = files()
+	run_cli(["-d", devices, "-c", commands, *argv])
+	assert expected in capsys.readouterr().out
