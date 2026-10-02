@@ -891,3 +891,25 @@ def test_no_action_line_when_nothing_needs_a_person():
 	with patch("netmiko.ConnectHandler", return_value=connection()):
 		engine.run(threading.Event(), logger)
 	assert "ACTION NEEDED" not in log_of(logger)
+
+
+def test_the_instruction_travels_in_the_device_result():
+	# what the Results page shows (device_results.action_needed)
+	conn = connection(prompt="gw-1>")
+	conn.send_command.return_value = "CLINFR0771  Config lock is owned by admin."
+	device = Device(ip="10.0.0.1", label="d", username="u", password="p",
+	                device_type="checkpoint_gaia", secret="", port=22)
+	engine = RolloutEngine(RolloutOptions(), [device], ["set hostname x"])
+	with patch("netmiko.ConnectHandler", return_value=conn):
+		(result,) = engine.run(threading.Event(), fresh_logger())
+	assert result["action_needed"].startswith("the change is live but NOT saved")
+	assert result["status"] == "success"            # applied; saving is the issue
+
+
+def test_no_instruction_in_a_clean_result():
+	device = Device(ip="10.0.0.1", label="d", username="u", password="p",
+	                device_type="cisco_ios", secret="", port=22)
+	engine = RolloutEngine(RolloutOptions(), [device], ["hostname r1"])
+	with patch("netmiko.ConnectHandler", return_value=connection()):
+		(result,) = engine.run(threading.Event(), fresh_logger())
+	assert result["action_needed"] is None
