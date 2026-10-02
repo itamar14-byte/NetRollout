@@ -413,31 +413,30 @@ def _enter_cli_shell(conn, platform: Platform) -> str | None:
 	        f"clish")
 
 
-def _fortios_save_if_manual(conn, device: "Device",
-                            logger: RolloutLogger) -> None:
+def _fortios_save_if_manual(conn) -> tuple[bool, str | None]:
 	"""FortiOS saves changes automatically unless `cfg-save` is manual (lost
 	at reboot) or revert (undone after a timeout) — then save explicitly.
-	With VDOMs, the setting lives under `config global`."""
+	With VDOMs, the setting lives under `config global`.
+	:return: (saved explicitly, the device's complaint if saving failed)"""
 	vdoms = getattr(conn, "_vdoms", False)
 	if vdoms:
 		conn.send_command_timing("config global")
 	mode = conn.send_command_timing("get system global | grep cfg-save")
+	saved, complaint = False, None
 	if "manual" in mode or "revert" in mode:
-		reply = conn.send_command_timing("execute cfg save")
-		if complaint := rejection(reply, "execute cfg save"):
-			logger.notify(f"{device.endpoint}: cfg-save is not automatic and "
-			              f"saving failed — {complaint}", "red")
-		else:
-			logger.notify(f"{device.endpoint}: cfg-save is not automatic — "
-			              f"configuration saved", "yellow")
+		complaint = rejection(conn.send_command_timing("execute cfg save"),
+		                      "execute cfg save")
+		saved = complaint is None
 	if vdoms:
 		conn.send_command_timing("end")
+	return saved, complaint
 
 
 class RolloutEngine:
 	def __init__(self, param: RolloutOptions, devices: list[Device],
 	             commands: list[str]) -> None:
 		self.devices = devices
+		self._needs_action: set[str] = set()   # endpoints, for the summary
 		self._verify_flag = param.verify
 		self._max_workers = param.max_workers
 		self._commands = commands
@@ -494,8 +493,8 @@ class RolloutEngine:
 				logger.notify(f"{device.ip} connected successfully", "green")
 				# Goes into privileged config mode, depending on the platform
 				if problem := _enter_cli_shell(net_connect, platform):
-					logger.notify(f"{device.endpoint}: {problem}; nothing was "
-					              f"sent", "red")
+					self._action_needed(device, f"{problem} (nothing was sent)",
+					                    logger)
 					return device.ip, PushResult(applied=False, rejected=0)
 				net_connect.enable()
 				if platform.config_command:
@@ -503,11 +502,12 @@ class RolloutEngine:
 						net_connect.config_mode(
 							config_command=platform.config_command)
 					except (ValueError, netmiko.exceptions.ReadTimeout) as e:
-						logger.notify(
-							f"{device.endpoint}: '{platform.config_command}' was "
-							f"refused — on Junos usually because another session "
-							f"has uncommitted changes in the shared configuration; "
-							f"nothing was sent ({e})", "red")
+						self._action_needed(
+							device, f"'{platform.config_command}' was refused — "
+							f"usually another session has uncommitted changes in "
+							f"the shared configuration: commit or discard them "
+							f"(they're someone else's work), then rerun. Nothing "
+							f"was sent ({e})", logger)
 						return device.ip, PushResult(applied=False, rejected=0)
 				else:
 					net_connect.config_mode()
@@ -557,8 +557,15 @@ class RolloutEngine:
 			logger.notify(f"{device.ip} failed: {e}", "red")
 			return device.ip, PushResult(applied=False, rejected=0)
 
-	@staticmethod
-	def _finish_in_new_session(device: Device, platform: Platform,
+	def _action_needed(self, device: Device, what: str,
+	                   logger: RolloutLogger) -> None:
+		"""Something only a person can do on the device: one unmistakable
+		line (live log, log file, CLI console), counted in the summary."""
+		self._needs_action.add(device.endpoint)
+		logger.notify(f"ACTION NEEDED — {device.endpoint}: {what}", "red",
+		              important=True)
+
+	def _finish_in_new_session(self, device: Device, platform: Platform,
 	                           logger: RolloutLogger) -> None:
 		"""Save from a fresh session after the old one lost its prompt."""
 		if not platform.finish:
@@ -579,12 +586,12 @@ class RolloutEngine:
 			              f"a new hostname) — applied, and saved from a new "
 			              f"session", "yellow")
 		except Exception as e:
-			logger.notify(f"{device.endpoint}: prompt changed after the push — "
-			              f"applied, but NOT saved ({e}): save it on the device",
-			              "red")
+			self._action_needed(device, f"the change is live but NOT saved — "
+			                    f"save it on the device (the prompt changed "
+			                    f"after the push and saving from a new session "
+			                    f"failed: {e})", logger)
 
-	@staticmethod
-	def _finish(conn, platform: Platform, device: Device,
+	def _finish(self, conn, platform: Platform, device: Device,
 	            logger: RolloutLogger) -> bool:
 		""":return: False if the change didn't take effect (a failed commit)"""
 		if platform.close_blocks:
@@ -596,16 +603,25 @@ class RolloutEngine:
 				if complaint := rejection(conn.send_command_timing("end"), "end"):
 					logger.notify(f"{device.endpoint}: closing a config block "
 					              f"failed — {complaint}", "red")
-			_fortios_save_if_manual(conn, device, logger)
+			saved, complaint = _fortios_save_if_manual(conn)
+			if complaint:
+				self._action_needed(device, f"cfg-save is not automatic and "
+				                    f"saving failed — run 'execute cfg save' on "
+				                    f"the device, or the change is lost at reboot "
+				                    f"/ reverted ({complaint})", logger)
+			elif saved:
+				logger.notify(f"{device.endpoint}: cfg-save is not automatic — "
+				              f"configuration saved", "yellow")
 		if platform.finish == "commit":
 			# Before leaving config mode: leaving discards uncommitted changes
 			try:
 				conn.commit(read_timeout=COMMIT_TIMEOUT)
 			except netmiko.exceptions.ReadTimeout:
 				# It may still complete on the device: don't claim either way
-				logger.notify(f"{device.endpoint}: the commit didn't finish within "
-				              f"{COMMIT_TIMEOUT}s — check the device; reported as "
-				              f"failed", "red")
+				self._action_needed(device, f"the commit didn't finish within "
+				                    f"{COMMIT_TIMEOUT}s — check on the device "
+				                    f"whether it went through (reported as failed)",
+				                    logger)
 				return False
 			except ValueError as e:
 				logger.notify(f"{device.endpoint}: commit failed — nothing was "
@@ -618,9 +634,9 @@ class RolloutEngine:
 						break
 				if not discarded and platform.finish == "commit" and \
 						device.device_type != "cisco_xr":
-					logger.notify(f"{device.endpoint}: the uncommitted changes "
-					              f"may still be in the candidate configuration "
-					              f"— discard them on the device", "yellow")
+					self._action_needed(device, "the failed changes may still be "
+					                    "in the candidate configuration — discard "
+					                    "them on the device", logger)
 				conn.exit_config_mode()
 				return False
 		if platform.leave_first:
@@ -632,10 +648,11 @@ class RolloutEngine:
 		elif platform.finish and platform.finish != "commit":
 			reply, command = conn.send_command(platform.finish), platform.finish
 		# The change is live either way; saving failing (e.g. Gaia's config
-		# lock) means it's lost at the next reboot — say so
-		if command and isinstance(reply, str) and 				(complaint := rejection(reply, command)):
-			logger.notify(f"{device.endpoint}: applied, but NOT saved — "
-			              f"{complaint}", "red")
+		# lock held by another session) means it's lost at the next reboot
+		if command and isinstance(reply, str) and \
+				(complaint := rejection(reply, command)):
+			self._action_needed(device, f"the change is live but NOT saved — "
+			                    f"save it on the device ({complaint})", logger)
 		return True
 
 	def _push_config(self, cancel_event: threading.Event,
@@ -718,8 +735,7 @@ class RolloutEngine:
 				result[futures[future]] = future.result()
 		return result
 
-	@staticmethod
-	def _log_summary(results: list[DeviceResultDict],
+	def _log_summary(self, results: list[DeviceResultDict],
 	                 logger: RolloutLogger) -> None:
 		"""Final line, counted from the per-device statuses (it used to
 		report every attempted device as configured)."""
@@ -732,6 +748,12 @@ class RolloutEngine:
 		logger.notify(f"Configuration rollout complete: "
 		              f"{', '.join(parts)} (of {len(results)} devices)",
 		              color, important=True)
+		if self._needs_action:
+			count = len(self._needs_action)
+			logger.notify(f"ACTION NEEDED on {count} device"
+			              f"{'s' if count != 1 else ''} "
+			              f"({', '.join(sorted(self._needs_action))}) — see the "
+			              f"lines marked ACTION NEEDED", "red", important=True)
 		logger.notify(
 			f"Please see Execution logs in {os.path.abspath(logger.logfile)}",
 			important=True)
