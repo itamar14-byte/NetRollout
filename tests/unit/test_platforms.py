@@ -450,7 +450,8 @@ def finish_calls(conn):
 	return [c for c in conn.method_calls
 	        if c[0] in ("commit", "exit_config_mode", "save_config",
 	                    "send_command", "send_config_set", "send_command_timing")
-	        and c != call.send_config_set(["hostname x"], exit_config_mode=False)]
+	        and c != call.send_config_set(["hostname x"], enter_config_mode=False,
+	                                    exit_config_mode=False)]
 
 
 @pytest.mark.parametrize("device_type", [t for t, p in PLATFORMS.items()
@@ -713,3 +714,26 @@ def test_the_whole_rollout_on_each_platform(device_type, config, expected):
 	assert shown == list(platform.show_config)
 	assert conn.commit.called == (platform.finish == "commit")
 	assert conn.save_config.called == (platform.finish == "save")
+
+
+def test_each_command_is_sent_as_typed_without_reentering_config_mode():
+	# Netmiko's default re-checks config mode per call; Aruba CX's driver only
+	# recognises "(config)#", so inside "(config-if)#" it would try to enter
+	# config mode again and fail on the second command of a section
+	conn = connection(prompt="a1(config-if)#")
+	push("aruba_aoscx", conn, commands=("interface 1/1/1", "description x"))
+	sends = [c for c in conn.send_config_set.call_args_list]
+	assert len(sends) == 2
+	assert all(c.kwargs == {"enter_config_mode": False,
+	                        "exit_config_mode": False} for c in sends)
+
+
+def test_junos_private_mode_refused_fails_with_the_likely_reason():
+	import netmiko
+	conn = connection()
+	conn.config_mode.side_effect = netmiko.exceptions.ReadTimeout("pattern not found")
+	logger = RolloutLogger(webapp=False, verbose=False)
+	assert push("juniper_junos", conn, logger=logger) == \
+	       PushResult(applied=False, rejected=0)
+	conn.send_config_set.assert_not_called()
+	assert "uncommitted changes in the shared configuration" in log_of(logger)

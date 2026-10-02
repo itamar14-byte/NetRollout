@@ -468,15 +468,29 @@ class RolloutEngine:
 					return device.ip, PushResult(applied=False, rejected=0)
 				net_connect.enable()
 				if platform.config_command:
-					net_connect.config_mode(config_command=platform.config_command)
+					try:
+						net_connect.config_mode(
+							config_command=platform.config_command)
+					except (ValueError, netmiko.exceptions.ReadTimeout) as e:
+						logger.notify(
+							f"{device.endpoint}: '{platform.config_command}' was "
+							f"refused — on Junos usually because another session "
+							f"has uncommitted changes in the shared configuration; "
+							f"nothing was sent ({e})", "red")
+						return device.ip, PushResult(applied=False, rejected=0)
 				else:
 					net_connect.config_mode()
 
 				rejected = 0
 				for command in commands:
 					commands_sent = True
+					# Config mode was entered above: each command goes in exactly
+					# as typed. Netmiko's default re-checks config mode per call,
+					# and drivers that only recognise their top-level config
+					# prompt (Aruba CX: "(config)#") then fail inside a section
 					output = net_connect.send_config_set(
-						[command.strip()], exit_config_mode=False)
+						[command.strip()], enter_config_mode=False,
+						exit_config_mode=False)
 					if complaint := rejection(output, command.strip()):
 						rejected += 1
 						logger.notify(f"{device.endpoint}: '{command.strip()}' "
