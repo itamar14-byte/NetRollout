@@ -174,3 +174,25 @@ def test_a_second_stop_request_is_ignored(monkeypatch):
 	assert shutdown.begin(0, restart=True) is False
 	assert started == [(600, False)]
 	assert shutdown.in_progress and not shutdown.restarting
+
+
+# ── Stage 6.1: version + source link ──
+
+def test_the_version_line_stays_rewritable_by_the_image_build():
+	# The Dockerfile's sed matches exactly this shape; a reformat would make
+	# every release image report the dev version
+	import re
+	from src import runtime
+	text = (runtime.REPO_ROOT / "src" / "runtime.py").read_text(encoding="utf-8")
+	assert len(re.findall(r'^VERSION = "[^"]*"$', text, re.MULTILINE)) == 1
+
+
+@pytest.mark.parametrize("version,url", [
+	("1.0.0.dev0", "https://github.com/itamar14-byte/NetRollout"),
+	("1.0.0", "https://github.com/itamar14-byte/NetRollout/tree/v1.0.0"),
+	("1.1.0-rc1", "https://github.com/itamar14-byte/NetRollout/tree/v1.1.0-rc1"),
+])
+def test_source_url_points_at_the_running_version(monkeypatch, version, url):
+	from src import runtime
+	monkeypatch.setattr(runtime, "VERSION", version)
+	assert runtime.source_url() == url
