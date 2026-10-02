@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 # isinstance checks would then silently target the wrong one).
 from src.validation import Validator
 from src.logging_utils import RolloutLogger
-from src.core import PushResult, VerifyResult, Device, RolloutOptions, RolloutEngine
+from src.core import FETCH_TIMEOUT, PushResult, VerifyResult, Device, RolloutOptions, RolloutEngine
 from src.input_parser import InputParser
 
 
@@ -409,7 +409,7 @@ class TestDeviceFetchConfig(unittest.TestCase):
         result = make_device(device_type="cisco_ios").fetch_config(self.logger)
         self.assertEqual(result, "interface GigabitEthernet0/0")
         conn.send_command.assert_called_once_with("show running-config",
-                                                  read_timeout=60)
+                                                  read_timeout=FETCH_TIMEOUT)
 
     @patch("netmiko.ConnectHandler")
     def test_uses_the_device_port(self, mock_ch):

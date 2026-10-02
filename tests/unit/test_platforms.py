@@ -228,7 +228,8 @@ vlan 10
 #
  sysname c1
 #
- vlan 10
+vlan 10
+ name users
 #
 interface GigabitEthernet1/0/1
  port link-mode bridge
@@ -243,6 +244,8 @@ return
 """, [
 		("sysname c1", OK),                             # top level after '#'
 		("vlan 10", OK),
+		("name users", OK),
+		("quit", NV),
 		("interface GigabitEthernet1/0/1", OK),
 		("description to-core", OK),
 		("port access vlan 20", MISSING),
@@ -300,6 +303,8 @@ set static-route default nexthop gateway address 10.0.0.254 on
 		("add user ops uid 2001 homedir /home/ops", OK),
 		("delete user ops", STILL),                     # still an "add" line
 		("delete user old", OK),
+		("set static-route 10.9.0.0/16 off", OK),            # no such route
+		("set static-route default off", STILL),             # still there
 		("save config", NV),
 	]),
 	("fortinet", """#config-version=FGVM64-7.2.4-FW-build1396-230131:opmode=0:vdom=0:user=admin
@@ -383,9 +388,30 @@ def test_unresolved_variables_are_not_judged():
 	("sett zone", "Unknown command: sett"),
 	("set interfce eth1", "CLINFR0329  Invalid command:'set interfce eth1'."),  # Gaia
 	("set ipp 1.1.1.1", "command parse error before 'ipp'\nCommand fail. Return code -61"),  # FortiOS
+	# found in the vendor documentation (2026-10-02)
+	("set srcintf LAN", "node_check_object fail! for name LAN\nvalue parse error before 'LAN'"),
+	("set member web", "entry not found in datasource"),
+	('set alias "LAN', "token line: Unmatched double quote."),
+	("set routing-options autonomous-system 0", "invalid autonomous system value at '0' not in range 1 to 65535"),
+	("set protocols bgp group", "missing argument."),
+	("set rulebase security rules r1 to x", "Validation Error: rulebase -> security -> rules -> r1 -> to 'x' is not a valid reference"),
+	("router bgp", "% Incomplete command"),                           # EOS
+	("ip ospf", "% Error: ...\n"),
+	("set static-route x", "CLINFR0349  Incomplete command."),             # Gaia
+	("set ospf area x", "RTGRTG0019  OSPF: Area value must be ..."),
+	("add user x", "-bash: add: command not found"),
+	("port access vlan x", "% Wrong parameter found at '^' position."),   # Comware
+	("vlan 10 20 30 40", "% Too many parameters found at '^' position."),
+	("spanning-tree priority", "Incomplete input: priority"),            # ProCurve
+	("interface", "% Command incomplete."),                              # Aruba CX
 ])
+
 def test_rejections_are_recognised(command, output):
 	assert rejection(output, command)
+
+
+def test_a_hostname_like_a_gaia_code_isnt_an_error():
+	assert rejection("FWPROD0001> set hostname x", "set hostname x") is None
 
 
 @pytest.mark.parametrize("command, output", [
@@ -410,10 +436,13 @@ def push(device_type, conn, commands=("hostname x",), logger=None):
 	return results[0]
 
 
-def connection(prompt="r1#"):
+def connection(prompt="r1#", vdoms=False, cfg_save="automatic"):
 	conn = MagicMock()
 	conn.send_config_set.return_value = "ok"
 	conn.find_prompt.return_value = prompt
+	conn._vdoms = vdoms                        # Netmiko's FortiOS VDOM flag
+	conn.send_command_timing.side_effect = lambda cmd: (
+		f"cfg-save            : {cfg_save}" if "cfg-save" in cmd else "")
 	return conn
 
 
@@ -429,7 +458,19 @@ def finish_calls(conn):
 def test_save_platforms_leave_config_mode_then_save(device_type):
 	conn = connection()
 	assert push(device_type, conn) == PushResult(applied=True, rejected=0)
-	assert finish_calls(conn) == [call.exit_config_mode(), call.save_config()]
+	first = [call.send_command_timing("end")] \
+		if device_type == "aruba_aoscx" else []
+	assert finish_calls(conn) == [*first, call.exit_config_mode(),
+	                              call.save_config()]
+
+
+def test_aruba_cx_leaves_sub_contexts_before_saving():
+	# Netmiko's AOS-CX driver only recognises "(config)#": from "(config-if)#"
+	# its exit would do nothing and the save would run inside the interface
+	conn = connection(prompt="a1(config-if)#")
+	assert push("aruba_aoscx", conn).applied
+	names = [c[0] for c in conn.method_calls]
+	assert names.index("send_command_timing") < names.index("save_config")
 
 
 @pytest.mark.parametrize("device_type", ["juniper_junos", "paloalto_panos",
@@ -451,19 +492,70 @@ def test_junos_failed_commit_rolls_back_and_reports_not_applied():
 		call.exit_config_mode()]
 
 
-def test_panos_failed_commit_leaves_the_candidate_and_says_so():
+def log_of(logger):
+	with open(logger.logfile, encoding="utf-8") as f:   # the rollout log
+		return f.read()
+
+
+def test_panos_failed_commit_reverts_the_candidate():
 	conn = connection()
 	conn.commit.side_effect = ValueError("Commit failed")
 	logger = RolloutLogger(webapp=False, verbose=False)
 	assert not push("paloalto_panos", conn, logger=logger).applied
-	assert call.send_config_set(["rollback 0"], exit_config_mode=False) \
-	       not in conn.method_calls
-	with open(logger.logfile, encoding="utf-8") as f:   # the rollout log
-		assert "still in the candidate configuration" in f.read()
+	assert call.send_config_set(["revert config"], exit_config_mode=False) \
+	       in conn.method_calls
+	assert "still be in the candidate" not in log_of(logger)
+
+
+def test_panos_revert_refused_says_to_discard_on_the_device():
+	conn = connection()
+	conn.commit.side_effect = ValueError("Commit failed")
+	conn.send_config_set.side_effect = lambda cmds, **kw: (
+		"Unknown command: revert" if cmds == ["revert config"] else "ok")
+	logger = RolloutLogger(webapp=False, verbose=False)
+	assert not push("paloalto_panos", conn, logger=logger).applied
+	assert "discard them on the device" in log_of(logger)
+
+
+def test_junos_configures_privately():
+	conn = connection()
+	push("juniper_junos", conn)
+	conn.config_mode.assert_called_once_with(config_command="configure private")
+
+
+def test_other_platforms_use_the_drivers_config_mode():
+	conn = connection()
+	push("cisco_ios", conn)
+	conn.config_mode.assert_called_once_with()
+
+
+@pytest.mark.parametrize("vdoms, cfg_save, expected", [
+	(False, "automatic", ["get system global | grep cfg-save"]),
+	(False, "manual", ["get system global | grep cfg-save", "execute cfg save"]),
+	(False, "revert", ["get system global | grep cfg-save", "execute cfg save"]),
+	(True, "manual", ["config global", "get system global | grep cfg-save",
+	                  "execute cfg save", "end"]),
+])
+def test_fortios_saves_only_when_cfg_save_isnt_automatic(vdoms, cfg_save,
+                                                          expected):
+	conn = connection(prompt="fw1 #", vdoms=vdoms, cfg_save=cfg_save)
+	assert push("fortinet", conn).applied
+	sent = [c.args[0] for c in conn.send_command_timing.call_args_list]
+	assert sent == expected
+
+
+def test_gaia_refuses_an_expert_shell():
+	for prompt in ("[Expert@gw-1:0]#", "gw-1#"):
+		conn = connection(prompt=prompt)
+		logger = RolloutLogger(webapp=False, verbose=False)
+		assert push("checkpoint_gaia", conn, logger=logger) == \
+		       PushResult(applied=False, rejected=0)
+		conn.send_config_set.assert_not_called()     # nothing was sent
+		assert "wrong shell" in log_of(logger)
 
 
 def test_gaia_saves_with_its_own_command():
-	conn = connection()
+	conn = connection(prompt="gw-1>")
 	assert push("checkpoint_gaia", conn).applied
 	assert finish_calls(conn) == [call.exit_config_mode(),
 	                              call.send_command("save config")]
@@ -474,7 +566,8 @@ def test_fortios_closes_open_blocks_and_saves_nothing():
 	conn.find_prompt.side_effect = ["fw1 (ipv6) #", "fw1 (port1) #",
 	                                "fw1 (interface) #", "fw1 #"]
 	assert push("fortinet", conn, commands=("config system interface",)).applied
-	assert conn.send_command_timing.call_args_list == [call("end")] * 3
+	ends = [c for c in conn.send_command_timing.call_args_list if c == call("end")]
+	assert len(ends) == 3
 	conn.save_config.assert_not_called()
 	conn.commit.assert_not_called()
 
@@ -595,7 +688,8 @@ def test_the_whole_rollout_on_each_platform(device_type, config, expected):
 	"""push → the platform's finish → fetch with its show command(s) → the
 	verdicts → the device status, with Netmiko mocked end to end."""
 	commands = [command for command, _ in expected]
-	conn = connection(prompt="fw1 #" if device_type == "fortinet" else "r1#")
+	conn = connection(prompt={"fortinet": "fw1 #",
+	                          "checkpoint_gaia": "gw-1>"}.get(device_type, "r1#"))
 	conn.__enter__.return_value = conn
 	conn.send_command.return_value = config
 	device = Device(ip="10.0.0.1", label="d", username="u", password="p",

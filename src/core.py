@@ -1,4 +1,5 @@
 import os
+import re
 import threading
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -44,35 +45,66 @@ class Platform:
 	flat: bool = False         # one "set …" line per setting, no sections
 	discard: str = ""          # after a failed commit: drop the candidate
 	close_blocks: bool = False  # FortiOS: an open config block is discarded
+	config_command: str = ""   # instead of the driver's default config mode
+	leave_first: str = ""      # sent before leaving config mode (Aruba CX:
+	                           # Netmiko only recognises "(config)#")
+	wrong_shell: tuple[str, ...] = ()  # prompt marks: logged into the wrong
+	                                   # shell — refuse to push
 
 
 PLATFORMS = {
 	"cisco_ios": Platform("save"),
 	"cisco_xe": Platform("save"),
 	"cisco_nxos": Platform("save"),
-	"cisco_xr": Platform("commit"),        # a failed commit reverts itself
+	# a failed commit reverts the running config; leaving config mode
+	# (Netmiko answers "no" to "commit them?") drops the pending changes
+	"cisco_xr": Platform("commit"),
 	"arista_eos": Platform("save"),
-	"aruba_aoscx": Platform("save"),
+	"aruba_aoscx": Platform("save", leave_first="end"),
 	"hp_procurve": Platform("save"),
 	"hp_comware": Platform("save", ("display current-configuration",)),
+	# private: our commit can't take other users' pending edits along, and
+	# our rollback can't wipe them (Junos refuses it while someone has
+	# uncommitted shared edits — the device then fails, with the reason)
 	"juniper_junos": Platform("commit", ("show configuration | display set",),
-	                          flat=True, discard="rollback 0"),
+	                          flat=True, discard="rollback 0",
+	                          config_command="configure private"),
 	"paloalto_panos": Platform("commit", ("set cli config-output-format set",
-	                                      "show config running"), flat=True),
+	                                      "show config running"), flat=True,
+	                           discard="revert config"),
+	# An account whose shell is expert (bash) would take every "set …" as
+	# bash's own set builtin: nothing configured, nothing refused
 	"checkpoint_gaia": Platform("save config", ("show configuration",),
-	                            flat=True),
+	                            flat=True, wrong_shell=("expert@", "#")),
 	"fortinet": Platform("", ("show",), close_blocks=True),
 }
 
 # PAN-OS commits can take minutes; Netmiko waits 120 s by default
 COMMIT_TIMEOUT = 300
+# Printing a large firewall config (PAN-OS, FortiOS) takes a while
+FETCH_TIMEOUT = 120
 
 # A device's reply to a command it refused (any vendor; matched with the
 # command's own echo removed, so "description unknown-host" isn't one)
-REJECTION_MARKERS = ("% invalid", "invalid input", "invalid command",
-                     "invalid syntax", "unknown command", "unrecognized command",
-                     "syntax error", "command fail", "% incomplete",
-                     "% ambiguous", "error:")
+REJECTION_MARKERS = (
+	"% invalid", "invalid input", "invalid command", "invalid syntax",
+	"unknown command", "unrecognized command", "syntax error", "error:",
+	"% error", "% incomplete", "incomplete command", "% ambiguous",
+	"ambiguous command",
+	"not in range", "missing argument",                       # Junos
+	"failed to commit",                                       # IOS-XR
+	"validation error", "commit failed",                      # PAN-OS
+	"command fail", "parse error", "node_check_object fail",  # FortiOS
+	"entry not found in datasource", "unmatched double quote",
+	"invalid object",
+	"% wrong parameter", "too many parameters",               # Comware
+	"incomplete input", "ambiguous input",                    # ProCurve
+	"% command incomplete",                                   # Aruba CX
+	"command not found")                                      # Gaia expert
+# Check Point Gaia prefixes its errors with a code: "CLINFR0349  Incomplete
+# command.", "RTGRTG0019  OSPF: …" (at the start of a line, so a hostname in
+# the prompt can't match)
+_CODED_ERROR = re.compile(r"^[A-Z]{6}\d{4}\s")
 # Leave or close a config section — they configure nothing
 NAVIGATION = {"exit", "end", "next", "abort", "quit", "return", "top", "up",
               "root"}   # IOS-XR: back to the top of config mode
@@ -102,7 +134,8 @@ def rejection(output: str, command: str) -> str | None:
 		# ("Invalid input: foo" for the command "foo" is still a complaint)
 		said = text[:-len(command)] if command and text.endswith(command) \
 			else text
-		if any(marker in said.lower() for marker in REJECTION_MARKERS):
+		if any(marker in said.lower() for marker in REJECTION_MARKERS) or \
+				_CODED_ERROR.match(said):
 			return text
 	return None
 
@@ -218,6 +251,11 @@ def _verify_flat(config: str, commands: list[str]) -> list[str]:
 			path = [w for level in prefix for w in level]
 			if word in ("set", "delete"):
 				words = [word, *path, *words[1:]]
+			if words[:2] == ["set", "static-route"] and words[-1] == "off" \
+					and len(words) == 4:
+				# Gaia: "set static-route <dst> off" removes the route
+				words = ["delete", "static-route", words[2]]
+				word = "delete"
 			if word == "delete":
 				# gone as a "set" line, and as an "add" line (Gaia's users etc.)
 				targets = [" ".join([verb, *words[1:]]) for verb in ("set", "add")]
@@ -312,7 +350,7 @@ class Device:
 				conn.enable()
 				output = ""
 				for command in platform.show_config:
-					output = conn.send_command(command, read_timeout=60)
+					output = conn.send_command(command, read_timeout=FETCH_TIMEOUT)
 				return output
 		except Exception as e:
 			logger.notify(f"could not fetch the config of {self.endpoint} to "
@@ -338,6 +376,27 @@ class Device:
 		           profile.enable_secret else "",
 		           var_map_subs=parsed_mappings,
 		           extra=row.var_maps or {})
+
+
+def _fortios_save_if_manual(conn, device: "Device",
+                            logger: RolloutLogger) -> None:
+	"""FortiOS saves changes automatically unless `cfg-save` is manual (lost
+	at reboot) or revert (undone after a timeout) — then save explicitly.
+	With VDOMs, the setting lives under `config global`."""
+	vdoms = getattr(conn, "_vdoms", False)
+	if vdoms:
+		conn.send_command_timing("config global")
+	mode = conn.send_command_timing("get system global | grep cfg-save")
+	if "manual" in mode or "revert" in mode:
+		reply = conn.send_command_timing("execute cfg save")
+		if complaint := rejection(reply, "execute cfg save"):
+			logger.notify(f"{device.endpoint}: cfg-save is not automatic and "
+			              f"saving failed — {complaint}", "red")
+		else:
+			logger.notify(f"{device.endpoint}: cfg-save is not automatic — "
+			              f"configuration saved", "yellow")
+	if vdoms:
+		conn.send_command_timing("end")
 
 
 class RolloutEngine:
@@ -399,8 +458,19 @@ class RolloutEngine:
 			try:
 				logger.notify(f"{device.ip} connected successfully", "green")
 				# Goes into privileged config mode, depending on the platform
+				prompt = net_connect.find_prompt().strip().lower() \
+					if platform.wrong_shell else ""
+				if prompt and any(prompt.endswith(m) if m == "#" else m in prompt
+				                  for m in platform.wrong_shell):
+					logger.notify(f"{device.endpoint}: the account logs in to "
+					              f"the wrong shell (prompt '{prompt}') — set its "
+					              f"shell to clish; nothing was sent", "red")
+					return device.ip, PushResult(applied=False, rejected=0)
 				net_connect.enable()
-				net_connect.config_mode()
+				if platform.config_command:
+					net_connect.config_mode(config_command=platform.config_command)
+				else:
+					net_connect.config_mode()
 
 				rejected = 0
 				for command in commands:
@@ -450,10 +520,14 @@ class RolloutEngine:
 		""":return: False if the change didn't take effect (a failed commit)"""
 		if platform.close_blocks:
 			# FortiOS applies a block at "end"; one left open is discarded
+			# (and Netmiko's own cleanup would run inside it)
 			for _ in range(10):
 				if "(" not in conn.find_prompt():
 					break
-				conn.send_command_timing("end")
+				if complaint := rejection(conn.send_command_timing("end"), "end"):
+					logger.notify(f"{device.endpoint}: closing a config block "
+					              f"failed — {complaint}", "red")
+			_fortios_save_if_manual(conn, device, logger)
 		if platform.finish == "commit":
 			# Before leaving config mode: leaving discards uncommitted changes
 			try:
@@ -467,15 +541,19 @@ class RolloutEngine:
 			except ValueError as e:
 				logger.notify(f"{device.endpoint}: commit failed — nothing was "
 				              f"applied. {e}", "red")
-				if platform.discard:
+				discarded = bool(platform.discard) and rejection(
 					conn.send_config_set([platform.discard],
-					                     exit_config_mode=False)
-				else:
+					                     exit_config_mode=False),
+					platform.discard) is None
+				if not discarded and platform.finish == "commit" and \
+						device.device_type != "cisco_xr":
 					logger.notify(f"{device.endpoint}: the uncommitted changes "
-					              f"are still in the candidate configuration — "
-					              f"discard them on the device", "yellow")
+					              f"may still be in the candidate configuration "
+					              f"— discard them on the device", "yellow")
 				conn.exit_config_mode()
 				return False
+		if platform.leave_first:
+			conn.send_command_timing(platform.leave_first)
 		conn.exit_config_mode()
 		if platform.finish == "save":
 			conn.save_config()
