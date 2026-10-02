@@ -1,3 +1,4 @@
+import os
 import sys
 import threading
 from argparse import ArgumentParser
@@ -19,10 +20,10 @@ def get_args():
 	                    help="Path to a CSV file. Required fields: ip, device_type, port, username, password, secret")
 	parser.add_argument("-c", "--commands",
 	                    help="Path to a txt file containing commands to push, one per line")
-	parser.add_argument("-vy", "--verify",
+	parser.add_argument("-vf", "--verify",
 	                    help="Verify the configuration was applied: after the push, each device's config is read and every command checked",
 	                    action="store_true")
-	parser.add_argument("-vb", "--verbose",
+	parser.add_argument("-v", "--verbose",
 	                    help="Print logs to console",
 	                    action="store_true")
 	parser.add_argument("--version", action="version",
@@ -34,15 +35,18 @@ def main():
 	# Gets the parameters from file paths and boolean flag status. If no input was entered through cli,
 	# user will be prompted to enter the data
 	args = get_args()
-	devices_path  = args.devices  or input("Enter device file path: ")
-	commands_path = args.commands or input("Enter commands file path: ")
+	# Anything asked for means a person is at the keyboard: they also get the
+	# verify question and a last confirmation before the push
+	interactive = not (args.devices and args.commands)
+	devices_path  = args.devices  or ask_path("Enter device file path: ")
+	commands_path = args.commands or ask_path("Enter commands file path: ")
 
 	# If the verify flag was supplied, we activate verification, and if other
 	# flags were supplied we disable it,
 	# and if no flags were supplied we prompt for verification alongside the other flag prompts
 	if args.verify:
 		verify = True
-	elif args.devices and args.commands:
+	elif not interactive:
 		verify = False
 	else:
 		verify = input("Verify rollout? (y/n): ").lower() == "y"
@@ -73,6 +77,17 @@ def main():
 	if not devices or not commands:
 		abort(logger, "Aborting — no devices or commands to process.")
 
+	logger.notify("Verify: on" if verify else
+	              "Verify: off (add -vf to check the config after the push)",
+	              important=True)
+	if interactive:
+		answer = input(f"About to push {len(commands)} command"
+		               f"{'s' if len(commands) != 1 else ''} to {len(devices)} "
+		               f"device{'s' if len(devices) != 1 else ''}. Continue? (y/n): ")
+		if answer.strip().lower() != "y":
+			logger.notify("Cancelled — nothing was pushed.", "red")
+			sys.exit(2)
+
 	cancel = threading.Event()
 	engine = RolloutEngine(param=options, devices=devices, commands=commands)
 
@@ -86,6 +101,16 @@ def main():
 		cancel.set()
 		logger.notify("Interrupted by user. Exiting.", "red")
 		sys.exit(130)  # shell convention for Ctrl+C (128 + SIGINT)
+
+
+def ask_path(prompt):
+	"""Ask until the file exists: a typo shouldn't end an interactive run.
+	Paths dragged into a Windows terminal arrive wrapped in quotes."""
+	while True:
+		path = input(prompt).strip().strip('"')
+		if os.path.isfile(path):
+			return path
+		print(f"File not found: {path or '(nothing entered)'} — try again.")
 
 
 def pause():
