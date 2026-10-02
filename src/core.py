@@ -1,11 +1,11 @@
 import os
+import re
 import threading
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
-from typing import Optional, TypedDict
+from typing import NamedTuple, Optional, TypedDict
 
-import napalm
 import netmiko
 
 from src import encryption
@@ -32,6 +32,274 @@ def mapping_resolvable(var_maps: dict | None, property_name: str,
 	return isinstance(value, list) and 0 <= index < len(value)
 
 
+@dataclass(frozen=True)
+class Platform:
+	"""How a platform finishes a push and prints its config in the syntax
+	engineers type.
+	finish: "save" → save_config() after leaving config mode; "commit" →
+	 commit() before leaving it (leaving discards uncommitted changes); any
+	 other text → that CLI command after leaving config mode; "" → nothing
+	 (the change is live as typed)."""
+	finish: str
+	show_config: tuple[str, ...] = ("show running-config",)
+	flat: bool = False         # one "set …" line per setting, no sections
+	# after a failed commit: drop the candidate — tried in order until one
+	# is accepted
+	discard: tuple[str, ...] = ()
+	close_blocks: bool = False  # FortiOS: an open config block is discarded
+	config_command: str = ""   # instead of the driver's default config mode
+	leave_first: str = ""      # sent before leaving config mode (Aruba CX:
+	                           # Netmiko only recognises "(config)#")
+	wrong_shell: tuple[str, ...] = ()  # prompt marks of the wrong shell…
+	cli_shell: str = ""                # …and the command that leaves it
+
+
+PLATFORMS = {
+	"cisco_ios": Platform("save"),
+	"cisco_xe": Platform("save"),
+	"cisco_nxos": Platform("save"),
+	# a failed commit reverts the running config; leaving config mode
+	# (Netmiko answers "no" to "commit them?") drops the pending changes
+	"cisco_xr": Platform("commit"),
+	"arista_eos": Platform("save"),
+	"aruba_aoscx": Platform("save", leave_first="end"),
+	"hp_procurve": Platform("save"),
+	"hp_comware": Platform("save", ("display current-configuration",)),
+	# private: our commit can't take other users' pending edits along, and
+	# our rollback can't wipe them (Junos refuses it while someone has
+	# uncommitted shared edits — the device then fails, with the reason)
+	"juniper_junos": Platform("commit", ("show configuration | display set",),
+	                          flat=True, discard=("rollback 0",),
+	                          config_command="configure private"),
+	# revert config (8.0+); loading the running config into the candidate
+	# discards too, also on older releases
+	"paloalto_panos": Platform("commit", ("set cli config-output-format set",
+	                                      "show config running"), flat=True,
+	                           discard=("revert config",
+	                                    "load config from running-config.xml")),
+	# An account whose shell is expert (bash) would take every "set …" as
+	# bash's own set builtin (nothing configured, nothing refused): switch to
+	# clish first, or refuse
+	"checkpoint_gaia": Platform("save config", ("show configuration",),
+	                            flat=True, wrong_shell=("expert@", "#"),
+	                            cli_shell="clish"),
+	"fortinet": Platform("", ("show",), close_blocks=True),
+}
+
+# PAN-OS commits can take minutes; Netmiko waits 120 s by default
+COMMIT_TIMEOUT = 300
+# Printing a large firewall config (PAN-OS, FortiOS) takes a while
+FETCH_TIMEOUT = 120
+
+# A device's reply to a command it refused (any vendor; matched with the
+# command's own echo removed, so "description unknown-host" isn't one)
+REJECTION_MARKERS = (
+	"% invalid", "invalid input", "invalid command", "invalid syntax",
+	"unknown command", "unrecognized command", "syntax error", "error:",
+	"% error", "% incomplete", "incomplete command", "% ambiguous",
+	"ambiguous command",
+	"not in range", "missing argument",                       # Junos
+	"failed to commit",                                       # IOS-XR
+	"validation error", "commit failed",                      # PAN-OS
+	"command fail", "parse error", "node_check_object fail",  # FortiOS
+	"entry not found in datasource", "unmatched double quote",
+	"invalid object",
+	"% wrong parameter", "too many parameters",               # Comware
+	"incomplete input", "ambiguous input",                    # ProCurve
+	"% command incomplete",                                   # Aruba CX
+	"command not found")                                      # Gaia expert
+# Check Point Gaia prefixes its errors with a code: "CLINFR0349  Incomplete
+# command.", "RTGRTG0019  OSPF: …" (at the start of a line, so a hostname in
+# the prompt can't match)
+_CODED_ERROR = re.compile(r"^[A-Z]{6}\d{4}\s")
+# Leave or close a config section — they configure nothing
+NAVIGATION = {"exit", "end", "next", "abort", "quit", "return", "top", "up",
+              "root",                   # IOS-XR: back to the top of config
+              "end-policy", "end-set"}  # IOS-XR: close route-policy / sets
+
+
+def _navigates(word: str) -> bool:
+	# also IOS exit-address-family, exit-vrf, …
+	return word in NAVIGATION or word.startswith("exit-")
+
+# Operational commands: they leave no trace in the config to check
+NOT_VERIFIABLE = ("commit", "write", "copy ", "clear ", "do ", "show ", "save",
+                  "reload", "ping ", "traceroute ", "request ", "run ")
+
+# Per-command verify verdicts
+VERIFIED, NOT_CONFIGURED, STILL_CONFIGURED = "verified", "not configured", \
+	"still configured"
+UNVERIFIABLE, VARIABLE = "not verifiable", "variable"
+
+
+def rejection(output: str, command: str) -> str | None:
+	"""The device's complaint about `command`, or None if it was accepted.
+	The echo of the command itself is skipped, so its own words (e.g.
+	"description invalid-vlan") are never mistaken for a complaint."""
+	for line in output.splitlines():
+		text = line.strip()
+		# On the echo line only the prompt before the command is the device's
+		# ("Invalid input: foo" for the command "foo" is still a complaint)
+		said = text[:-len(command)] if command and text.endswith(command) \
+			else text
+		if any(marker in said.lower() for marker in REJECTION_MARKERS) or \
+				_CODED_ERROR.match(said):
+			return text
+	return None
+
+
+def _norm(line: str) -> str:
+	# Spacing, case and FortiOS / ProCurve quoting don't change the meaning
+	return " ".join(line.replace('"', "").split()).lower()
+
+
+class _Section:
+	__slots__ = ("children",)
+
+	def __init__(self):
+		self.children: dict[str, _Section] = {}
+
+
+def _parse_config(config: str) -> _Section:
+	"""The config as a tree of sections by indentation. Comment and separator
+	lines ('!', '#') are skipped; at column 0 they also end any open section
+	(Comware indents its top-level lines after '#')."""
+	root = _Section()
+	stack: list[tuple[int, _Section]] = [(-1, root)]
+	for line in config.splitlines():
+		stripped = line.strip()
+		if not stripped:
+			continue
+		indent = len(line) - len(line.lstrip())
+		if stripped[0] in "!#":
+			if indent == 0:
+				stack = [(-1, root)]
+			continue
+		while stack[-1][0] >= indent:
+			stack.pop()
+		node = stack[-1][1].children.setdefault(_norm(stripped), _Section())
+		stack.append((indent, node))
+	return root
+
+
+def _verify_sectioned(config: str, commands: list[str],
+                      blocks: bool = False) -> list[str]:
+	"""Verdicts for an indented config (Cisco-style, FortiOS). Typed commands
+	are flat — the device tracks the mode — so each is placed in its section
+	using the config's own structure: a typed line that is a section there
+	opens it; exit/next close one; a command found only at an outer level
+	leaves the section (as IOS does); one found nowhere stays where it was.
+	blocks (FortiOS): "end" closes only the current config block — elsewhere
+	it leaves configuration altogether."""
+	root = _parse_config(config)
+	stack: list[_Section] = []
+	verdicts = []
+	for command in commands:
+		key = _norm(command)
+		word = key.split()[0] if key else ""
+		if _navigates(word):
+			leaves_all = word in ("return", "root") or (word == "end" and not blocks)
+			stack = [] if leaves_all else stack[:-1]
+			verdicts.append(UNVERIFIABLE)
+			continue
+		if key.startswith(NOT_VERIFIABLE):
+			verdicts.append(UNVERIFIABLE)
+			continue
+		# A removal: "no X" (Cisco-style), "undo X" (Comware), "unset X" /
+		# "delete X" (FortiOS)
+		removed = None
+		if word in ("no", "undo", "unset", "delete"):
+			removed = key.split(" ", 1)[1] if " " in key else ""
+		forms = [key] if removed is None else [key, removed]
+		found, depth = None, len(stack)
+		for level in range(len(stack), -1, -1):
+			node = stack[level - 1] if level else root
+			found = next((node.children[f] for f in forms
+			              if f in node.children), None)
+			if found is not None:
+				depth = level
+				break
+		stack = stack[:depth]
+		here = stack[-1] if stack else root
+		if removed is None:
+			verdicts.append(VERIFIED if found is not None else NOT_CONFIGURED)
+			if found is not None and found.children:
+				stack.append(found)
+		else:
+			gone = not any(child == removed or child.startswith(removed + " ")
+			               or child in (f"set {removed}", f"edit {removed}")
+			               or child.startswith(f"set {removed} ")
+			               for child in here.children)
+			verdicts.append(VERIFIED if gone else STILL_CONFIGURED)
+	return verdicts
+
+
+def _verify_flat(config: str, commands: list[str]) -> list[str]:
+	"""Verdicts for a flat config (Junos display set, PAN-OS set format,
+	Gaia): one full line per setting. "edit" / "up" / "top" move the prefix
+	that relative "set" / "delete" commands extend."""
+	lines = {_norm(line) for line in config.splitlines() if line.strip()}
+	prefix: list[list[str]] = []
+	verdicts = []
+	for command in commands:
+		words = _norm(command).split()
+		word = words[0] if words else ""
+		if word == "edit":
+			prefix.append(words[1:])
+			verdicts.append(UNVERIFIABLE)
+		elif word in ("top", "end"):
+			prefix = []
+			verdicts.append(UNVERIFIABLE)
+		elif _navigates(word):
+			prefix = prefix[:-1]
+			verdicts.append(UNVERIFIABLE)
+		elif " ".join(words).startswith(NOT_VERIFIABLE):
+			verdicts.append(UNVERIFIABLE)
+		else:
+			path = [w for level in prefix for w in level]
+			if word in ("set", "delete"):
+				words = [word, *path, *words[1:]]
+			if words[:2] == ["set", "static-route"] and words[-1] == "off" \
+					and len(words) == 4:
+				# Gaia: "set static-route <dst> off" removes the route
+				words = ["delete", "static-route", words[2]]
+				word = "delete"
+			if word == "delete":
+				# gone as a "set" line, and as an "add" line (Gaia's users etc.)
+				targets = [" ".join([verb, *words[1:]]) for verb in ("set", "add")]
+				gone = not any(line == t or line.startswith(t + " ")
+				               for line in lines for t in targets)
+				verdicts.append(VERIFIED if gone else STILL_CONFIGURED)
+			else:
+				verdicts.append(VERIFIED if " ".join(words) in lines
+				                else NOT_CONFIGURED)
+	return verdicts
+
+
+def verify_commands(device_type: str, config: str,
+                    commands: list[str]) -> list[str]:
+	"""One verdict per command: verified / not configured / still configured
+	(a removal that didn't take) / not verifiable (navigation, operational) /
+	variable (an unresolved $$TOKEN$$ — the rollout log has the real one)."""
+	platform = PLATFORMS[device_type]
+	verdicts = _verify_flat(config, commands) if platform.flat else \
+		_verify_sectioned(config, commands, blocks=platform.close_blocks)
+	return [VARIABLE if "$$" in command else verdict
+	        for command, verdict in zip(commands, verdicts)]
+
+
+class PushResult(NamedTuple):
+	applied: bool    # the change took effect (connected, finished, committed)
+	rejected: int    # commands the device refused
+
+
+class VerifyResult(NamedTuple):
+	verified: int        # commands confirmed in the config
+	checkable: int       # commands that can be checked (not navigation /
+	                     # operational)
+	config: str | None   # kept only when something didn't verify
+
+
 class DeviceResultDict(TypedDict):
 	device_ip: str
 	device_port: int
@@ -40,6 +308,7 @@ class DeviceResultDict(TypedDict):
 	commands_verified: int | None
 	fetched_config: str | None
 	status: str
+	action_needed: str | None   # what only a person can resolve, or None
 
 
 @dataclass(slots=True, kw_only=True)
@@ -81,55 +350,24 @@ class Device:
 		return params
 
 	def fetch_config(self, logger: RolloutLogger) -> Optional[str]:
-		"""
-		The function is tasked with connecting to a device and getting the running configuration, saved into a string,
-		which will be searched downstream
-		 In that case, notifications will be added to SSE _queue
-		:return: if connection is successful, the function returns the running config as a string and returns false otherwise
-		"""
-		# Translation dictionary mapping Netmiko device type values to corresponding NAPALM values
-		netmiko_to_napalm = {
-			"fortinet": "fortios",
-			"paloalto_panos": "panos",
-			"cisco_ios": "ios",
-			"cisco_nxos": "nxos",
-			"cisco_xe": "iosxe",
-			"cisco_xr": "iosxr",
-			"juniper_junos": "junos",
-			"arista_eos": "eos",
-			"aruba_aoscx": "aoscx",
-			"checkpoint_gaia": False,
-			"hp_procurve": "procurve",
-			"hp_comware": False,
-		}
-
+		"""The running config, printed in the syntax engineers type (see
+		PLATFORMS), over the same SSH as the push — the device's port and
+		credentials. None if it can't be fetched (reported in the log)."""
+		platform = PLATFORMS[self.device_type]
 		try:
-			# Attempts to establish a NAPALM connection to the device, using the translated platform value
-			# and other device fields, contingent on if the platform has a supported NAPALM driver
-			if netmiko_to_napalm.get(self.device_type):
-				driver = napalm.get_network_driver(
-					netmiko_to_napalm.get(self.device_type))
-				node = driver(
-					hostname=self.ip,
-					username=self.username,
-					password=self.password,
-					optional_args={"secret": self.secret}
-				)
-				# Opens a connection to the device and saves the running config
-				node.open()
-				config = node.get_config()["running"]
-				node.close()
-				return config
-			# If we encounter an issue in connection,
-			# an error message is printed and logged, and we return false
-			else:
-				logger.notify(
-					f"issue verifying {self.ip}: {self.device_type} is not supported for verification",
-					"red")
-				return None
-
+			with netmiko.ConnectHandler(**self.netmiko_connector()) as conn:
+				if problem := _enter_cli_shell(conn, platform):
+					logger.notify(f"could not fetch the config of {self.endpoint} "
+					              f"to verify it: {problem}", "red")
+					return None
+				conn.enable()
+				output = ""
+				for command in platform.show_config:
+					output = conn.send_command(command, read_timeout=FETCH_TIMEOUT)
+				return output
 		except Exception as e:
-			logger.notify(f"could not connect to {self.ip}: {e}", "red")
+			logger.notify(f"could not fetch the config of {self.endpoint} to "
+			              f"verify it: {e}", "red")
 			return None
 
 	@classmethod
@@ -153,10 +391,55 @@ class Device:
 		           extra=row.var_maps or {})
 
 
+def _enter_cli_shell(conn, platform: Platform) -> str | None:
+	"""Leave a wrong login shell (Gaia expert / bash) for the CLI.
+	:return: the problem if the CLI shell couldn't be reached, else None"""
+	if not platform.wrong_shell:
+		return None
+
+	def wrong(prompt: str) -> bool:
+		prompt = prompt.strip().lower()
+		return any(prompt.endswith(m) if m == "#" else m in prompt
+		           for m in platform.wrong_shell)
+
+	if not wrong(conn.find_prompt()):
+		return None
+	if platform.cli_shell:
+		conn.send_command_timing(platform.cli_shell)
+		conn.set_base_prompt()
+		if not wrong(conn.find_prompt()):
+			return None
+	return (f"the account logs in to the wrong shell and "
+	        f"'{platform.cli_shell or '?'}' didn't leave it — set its shell to "
+	        f"clish")
+
+
+def _fortios_save_if_manual(conn) -> tuple[bool, str | None]:
+	"""FortiOS saves changes automatically unless `cfg-save` is manual (lost
+	at reboot) or revert (undone after a timeout) — then save explicitly.
+	With VDOMs, the setting lives under `config global`.
+	:return: (saved explicitly, the device's complaint if saving failed)"""
+	vdoms = getattr(conn, "_vdoms", False)
+	if vdoms:
+		conn.send_command_timing("config global")
+	mode = conn.send_command_timing("get system global | grep cfg-save")
+	saved, complaint = False, None
+	if "manual" in mode or "revert" in mode:
+		complaint = rejection(conn.send_command_timing("execute cfg save"),
+		                      "execute cfg save")
+		saved = complaint is None
+	if vdoms:
+		conn.send_command_timing("end")
+	return saved, complaint
+
+
 class RolloutEngine:
 	def __init__(self, param: RolloutOptions, devices: list[Device],
 	             commands: list[str]) -> None:
 		self.devices = devices
+		# endpoint → what only a person can resolve there (Results page,
+		# summary)
+		self._needs_action: dict[str, list[str]] = {}
 		self._verify_flag = param.verify
 		self._max_workers = param.max_workers
 		self._commands = commands
@@ -182,12 +465,16 @@ class RolloutEngine:
 		return commands_copy
 
 	def _push_device(self, device: Device, cancel_event: threading.Event,
-	                 logger: RolloutLogger) -> tuple[str, bool | None]:
+	                 logger: RolloutLogger) -> tuple[str, "PushResult | None"]:
 		"""
-		Pushes configuration to a single device via Netmiko SSH.
-		Called concurrently by _push_config via ThreadPoolExecutor.
-		:return: (ip, True) on success, (ip, False) on failure,
-				 (ip, None) if cancelled before connecting
+		Pushes configuration to a single device via Netmiko SSH, then finishes
+		it the way its platform needs (PLATFORMS: save, commit, a command or
+		nothing). Called concurrently by _push_config via ThreadPoolExecutor.
+		A command the device refuses is reported with its reply and the rest
+		are still sent.
+		:return: (ip, PushResult) — applied False when nothing took effect
+		 (no connection, a failed commit) — or (ip, None) if cancelled before
+		 connecting
 		"""
 		if cancel_event and cancel_event.is_set():
 			return device.ip, None
@@ -198,63 +485,182 @@ class RolloutEngine:
 			commands = self._substitute_commands(device)
 		except SubstitutionError as e:
 			logger.notify(f"{device.endpoint} skipped — {e}", "red")
-			return device.ip, False
+			return device.ip, PushResult(applied=False, rejected=0)
 
+		platform = PLATFORMS[device.device_type]
 		logger.notify(f"connecting to {device.ip}:{device.port}", "yellow")
 		commands_sent = False
 		try:
-			# Initialise a netmiko connection object
 			net_connect = netmiko.ConnectHandler(**(device.netmiko_connector()))
-			logger.notify(f"{device.ip} connected successfully", "green")
-			# Goes into privileged config mode, depending on the platform
-			net_connect.enable()
-			net_connect.config_mode()
+			try:
+				logger.notify(f"{device.ip} connected successfully", "green")
+				# Goes into privileged config mode, depending on the platform
+				if problem := _enter_cli_shell(net_connect, platform):
+					self._action_needed(device, f"{problem} (nothing was sent)",
+					                    logger)
+					return device.ip, PushResult(applied=False, rejected=0)
+				net_connect.enable()
+				if platform.config_command:
+					try:
+						net_connect.config_mode(
+							config_command=platform.config_command)
+					except (ValueError, netmiko.exceptions.ReadTimeout) as e:
+						self._action_needed(
+							device, f"'{platform.config_command}' was refused — "
+							f"usually another session has uncommitted changes in "
+							f"the shared configuration: commit or discard them "
+							f"(they're someone else's work), then rerun. Nothing "
+							f"was sent ({e})", logger)
+						return device.ip, PushResult(applied=False, rejected=0)
+				else:
+					net_connect.config_mode()
 
-			# Runs all _commands in order,
-			# and checks that the command was accepted in the device
-			# In case of syntax error or rejection, an error message is printed,
-			# and we move to the next command
-			for command in commands:
-				commands_sent = True
-				output = net_connect.send_config_set(
-					[command.strip()], exit_config_mode=False)
-				errors = ["Invalid", "unrecognized", "unknown"]
-				if any(err.lower() in output.lower() for err in errors):
-					logger.notify(
-						f"{command} failed on {device.ip}: {output}", "red")
-					continue
+				rejected = 0
+				for command in commands:
+					commands_sent = True
+					# Config mode was entered above: each command goes in exactly
+					# as typed. Netmiko's default re-checks config mode per call,
+					# and drivers that only recognise their top-level config
+					# prompt (Aruba CX: "(config)#") then fail inside a section
+					output = net_connect.send_config_set(
+						[command.strip()], enter_config_mode=False,
+						exit_config_mode=False)
+					if complaint := rejection(output, command.strip()):
+						rejected += 1
+						logger.notify(f"{device.endpoint}: '{command.strip()}' "
+						              f"rejected — {complaint}", "red")
 
-			# After _commands finish running,
-			# the configuration is saved and we gracefully close the SSH session
-			net_connect.exit_config_mode()
-			net_connect.save_config()
-			net_connect.disconnect()
-			return device.ip, True
+				applied = self._finish(net_connect, platform, device, logger)
+				return device.ip, PushResult(applied=applied, rejected=rejected)
+			finally:
+				# Always closed, also when the push fails half-way
+				try:
+					net_connect.disconnect()
+				except Exception:
+					pass
 
 		# In case of exception or issue in connecting and executing the _commands,
 		# an error message will be printed, and we move to the next device
 		except netmiko.NetMikoAuthenticationException:
 			logger.notify(f"{device.ip} authentication failed", "red")
-			return device.ip, False
+			return device.ip, PushResult(applied=False, rejected=0)
 		except netmiko.NetmikoTimeoutException:
 			logger.notify(f"{device.ip} timed out", "red")
-			return device.ip, False
+			return device.ip, PushResult(applied=False, rejected=0)
 		except netmiko.exceptions.ReadTimeout as e:
-			if commands_sent:
-				# Prompt changed mid-session (e.g. hostname rename) — config was applied
-				logger.notify(
-					f"{device.ip}: prompt detection lost after config push"
-					f" — treating as success", "yellow")
-				return device.ip, True
+			if commands_sent and platform.finish != "commit":
+				# Prompt changed mid-session (e.g. a new hostname): the commands
+				# were applied, but the finish couldn't run in this session —
+				# a fresh one learns the new prompt
+				self._finish_in_new_session(device, platform, logger)
+				return device.ip, PushResult(applied=True, rejected=0)
 			logger.notify(f"{device.ip} failed: {e}", "red")
-			return device.ip, False
+			return device.ip, PushResult(applied=False, rejected=0)
 		except Exception as e:
 			logger.notify(f"{device.ip} failed: {e}", "red")
-			return device.ip, False
+			return device.ip, PushResult(applied=False, rejected=0)
+
+	def _action_needed(self, device: Device, what: str,
+	                   logger: RolloutLogger) -> None:
+		"""Something only a person can do on the device: one unmistakable
+		line (live log, log file, CLI console), counted in the summary."""
+		self._needs_action.setdefault(device.endpoint, []).append(what)
+		logger.notify(f"ACTION NEEDED — {device.endpoint}: {what}", "red",
+		              important=True)
+
+	def _finish_in_new_session(self, device: Device, platform: Platform,
+	                           logger: RolloutLogger) -> None:
+		"""Save from a fresh session after the old one lost its prompt."""
+		if not platform.finish:
+			logger.notify(f"{device.endpoint}: prompt changed after the push "
+			              f"(e.g. a new hostname) — applied", "yellow")
+			return
+		try:
+			with netmiko.ConnectHandler(**device.netmiko_connector()) as conn:
+				conn.enable()
+				if platform.finish == "save":
+					reply, command = conn.save_config(), "save"
+				else:
+					reply = conn.send_command(platform.finish)
+					command = platform.finish
+			if isinstance(reply, str) and (complaint := rejection(reply, command)):
+				raise RuntimeError(complaint)
+			logger.notify(f"{device.endpoint}: prompt changed after the push (e.g. "
+			              f"a new hostname) — applied, and saved from a new "
+			              f"session", "yellow")
+		except Exception as e:
+			self._action_needed(device, f"the change is live but NOT saved — "
+			                    f"save it on the device (the prompt changed "
+			                    f"after the push and saving from a new session "
+			                    f"failed: {e})", logger)
+
+	def _finish(self, conn, platform: Platform, device: Device,
+	            logger: RolloutLogger) -> bool:
+		""":return: False if the change didn't take effect (a failed commit)"""
+		if platform.close_blocks:
+			# FortiOS applies a block at "end"; one left open is discarded
+			# (and Netmiko's own cleanup would run inside it)
+			for _ in range(10):
+				if "(" not in conn.find_prompt():
+					break
+				if complaint := rejection(conn.send_command_timing("end"), "end"):
+					logger.notify(f"{device.endpoint}: closing a config block "
+					              f"failed — {complaint}", "red")
+			saved, complaint = _fortios_save_if_manual(conn)
+			if complaint:
+				self._action_needed(device, f"cfg-save is not automatic and "
+				                    f"saving failed — run 'execute cfg save' on "
+				                    f"the device, or the change is lost at reboot "
+				                    f"/ reverted ({complaint})", logger)
+			elif saved:
+				logger.notify(f"{device.endpoint}: cfg-save is not automatic — "
+				              f"configuration saved", "yellow")
+		if platform.finish == "commit":
+			# Before leaving config mode: leaving discards uncommitted changes
+			try:
+				conn.commit(read_timeout=COMMIT_TIMEOUT)
+			except netmiko.exceptions.ReadTimeout:
+				# It may still complete on the device: don't claim either way
+				self._action_needed(device, f"the commit didn't finish within "
+				                    f"{COMMIT_TIMEOUT}s — check on the device "
+				                    f"whether it went through (reported as failed)",
+				                    logger)
+				return False
+			except ValueError as e:
+				logger.notify(f"{device.endpoint}: commit failed — nothing was "
+				              f"applied. {e}", "red")
+				discarded = False
+				for command in platform.discard:
+					reply = conn.send_config_set([command], exit_config_mode=False)
+					if rejection(reply, command) is None:
+						discarded = True
+						break
+				if not discarded and platform.finish == "commit" and \
+						device.device_type != "cisco_xr":
+					self._action_needed(device, "the failed changes may still be "
+					                    "in the candidate configuration — discard "
+					                    "them on the device", logger)
+				conn.exit_config_mode()
+				return False
+		if platform.leave_first:
+			conn.send_command_timing(platform.leave_first)
+		conn.exit_config_mode()
+		reply, command = "", ""
+		if platform.finish == "save":
+			reply, command = conn.save_config(), "save"
+		elif platform.finish and platform.finish != "commit":
+			reply, command = conn.send_command(platform.finish), platform.finish
+		# The change is live either way; saving failing (e.g. Gaia's config
+		# lock held by another session) means it's lost at the next reboot
+		if command and isinstance(reply, str) and \
+				(complaint := rejection(reply, command)):
+			self._action_needed(device, f"the change is live but NOT saved — "
+			                    f"save it on the device ({complaint})", logger)
+		return True
 
 	def _push_config(self, cancel_event: threading.Event,
 	                 logger: RolloutLogger) -> tuple[
-		str | None, dict[str, bool]]:
+		str | None, dict[int, "PushResult"]]:
 		"""
 		The function will accept device and command data, as processed by parse_files and push the configuration,
 		using netmiko for SSH connections over the provided ip and port.
@@ -290,65 +696,49 @@ class RolloutEngine:
 		return ("cancel_sent" if cancelled else None), push_results
 
 	def _verify_device(self, device: Device,
-	                   logger: RolloutLogger) -> tuple[str, int, str | None]:
+	                   logger: RolloutLogger) -> "VerifyResult | None":
+		"""Fetches the device's config and checks every command in it
+		(verify_commands). Called concurrently by _verify.
+		:return: the counts, the config kept only when something didn't
+		 verify (for Verify Diff) — or None if the config couldn't be fetched
 		"""
-		Verifies a single device by fetching its running config and comparing
-		against the substituted commands. Called concurrently by _verify.
-		:return: (ip, successful_commands_count, fetched_config) — the config
-		 is kept only when some commands didn't verify (for Verify Diff)
-		"""
-		successful_commands = 0
 		try:
 			expected = self._substitute_commands(device)
 		except SubstitutionError:
-			# already reported (and the device failed) during the push
-			return device.ip, 0, None
-		# Loops through the devices and gets the running config, using fetch config function
+			return None   # already reported (and the device failed) at the push
 		config = device.fetch_config(logger)
-		# If there is a config file,
-		# we go through the command list
-		# and check it against the running config string
-		if config:
-			rejects = []
-			for command in expected:
-				command = command.strip()
-				# If a command has no match in the config, we print a notification. On a successful match,
-				# we increment the counter
-				if command.lower() not in config.lower():
-					rejects.append(command)
-					logger.notify(
-						f"{command} not configured on {device.ip}", "red")
-				else:
-					successful_commands += 1
-			# when a device has no rejects, such that all _commands match, we increment the counter, self.notify the user and
-			# move to the next device
-			if not rejects:
-				config = None
-				logger.notify(f"{device.ip} successfully configured", "green")
-		# Updates the result dictionary with the device ip and the number of successful _commands
-		return device.ip, successful_commands, config
+		if config is None:
+			return None
+		verdicts = verify_commands(device.device_type, config, expected)
+		for command, verdict in zip(expected, verdicts):
+			if verdict in (NOT_CONFIGURED, STILL_CONFIGURED):
+				logger.notify(f"{device.endpoint}: '{command.strip()}' "
+				              f"{verdict}", "red")
+			elif verdict == UNVERIFIABLE and \
+					not _navigates(_norm(command).split()[0]):
+				logger.notify(f"{device.endpoint}: '{command.strip()}' not "
+				              f"verifiable — it leaves nothing in the config",
+				              "yellow")
+		verified = verdicts.count(VERIFIED)
+		checkable = verified + verdicts.count(NOT_CONFIGURED) + \
+			verdicts.count(STILL_CONFIGURED)
+		return VerifyResult(verified=verified, checkable=checkable,
+		                    config=None if verified == checkable else config)
 
-	def _verify(self, logger: RolloutLogger) -> dict[
-		str, tuple[str | None, int]]:
-		"""
-		The function gets the list of devices and verifies which devices have been successfully configured
-		by comparing the _commands to the config file from fetch_config()
-		Devices are verified concurrently via ThreadPoolExecutor.
-		:return: {device index: (fetched_config, successful_commands_count)}
-		"""
+	def _verify(self, indexes: list[int],
+	            logger: RolloutLogger) -> dict[int, "VerifyResult | None"]:
+		"""Verifies the devices at `indexes` (those the push applied to)
+		concurrently via ThreadPoolExecutor.
+		:return: {device index: VerifyResult, or None if not fetched}"""
 		result = {}
 		with ThreadPoolExecutor(max_workers=self._max_workers) as executor:
-			futures = {
-				executor.submit(self._verify_device, device, logger): idx
-				for idx, device in enumerate(self.devices)
-			}
+			futures = {executor.submit(self._verify_device, self.devices[idx],
+			                           logger): idx for idx in indexes}
 			for future in as_completed(futures):
-				_, count, config = future.result()
-				result[futures[future]] = (config, count)
+				result[futures[future]] = future.result()
 		return result
 
-	@staticmethod
-	def _log_summary(results: list[DeviceResultDict],
+	def _log_summary(self, results: list[DeviceResultDict],
 	                 logger: RolloutLogger) -> None:
 		"""Final line, counted from the per-device statuses (it used to
 		report every attempted device as configured)."""
@@ -361,6 +751,12 @@ class RolloutEngine:
 		logger.notify(f"Configuration rollout complete: "
 		              f"{', '.join(parts)} (of {len(results)} devices)",
 		              color, important=True)
+		if self._needs_action:
+			count = len(self._needs_action)
+			logger.notify(f"ACTION NEEDED on {count} device"
+			              f"{'s' if count != 1 else ''} "
+			              f"({', '.join(sorted(self._needs_action))}) — see the "
+			              f"lines marked ACTION NEEDED", "red", important=True)
 		logger.notify(
 			f"Please see Execution logs in {os.path.abspath(logger.logfile)}",
 			important=True)
@@ -374,74 +770,60 @@ class RolloutEngine:
 			# Runs the config push procedure
 			cancel_signal, push_results = self._push_config(cancel_flag, logger)
 
-			# If the _verify flag is activated, runs the _verify function,
-			# getting a dictionary of the devices and the successful _commands count
+			# Verify only what the push applied to
+			applied = [idx for idx, push in push_results.items() if push.applied]
 			verify_results = {}
-			if self._verify_flag and cancel_signal != "cancel_sent":
+			if self._verify_flag and cancel_signal != "cancel_sent" and applied:
 				logger.notify(
 					"Configuration rollout finished. Initiating verification process",
-					important=True
-				)
-				verify_results = self._verify(logger)
-				failed, partial, successful = 0, 0, 0
-
-				# Number of successful _commands in each device and status of
-				# devices,
-				# based on comparing the value to the list of _commands
-				for idx, (_, count) in verify_results.items():
-					ip_addr = self.devices[idx].endpoint
-
-					if count == 0:
-						failed += 1
-					elif 0 < count < len(self._commands):
-						partial += 1
-					else:
-						successful += 1
-
-					logger.notify(
-						f"{ip_addr}: {count}/{len(self._commands)} commands "
-						f"verified", important=True)
-
-				# Logs and prints (if _verbose), the rollout status per device and the summary
-				if failed > 0:
-					logger.notify(f"{failed} devices failed rollout", "red")
-				if partial > 0:
-					logger.notify(
-						f"{partial} devices with problems in configuration",
-						"yellow", important=True)
-				logger.notify(f"{successful} devices successfully configured",
-				              "green", important=True)
+					important=True)
+				verify_results = self._verify(applied, logger)
 
 			results = []
+			total = len(self._commands)
+			# the commands that configure something (not exit / end / next…)
+			configuring = sum(1 for c in self._commands
+			                  if not _navigates(_norm(c).split()[0] if c.strip() else ""))
 			for idx, device in enumerate(self.devices):
+				commands_verified, fetched_config = None, None
 				if idx not in push_results:
-					status, commands_sent, commands_verified = "cancelled", 0, None
-				elif not push_results[idx]:
-					status, commands_sent, commands_verified = "failed", 0, None
+					status, commands_sent = "cancelled", 0
+				elif not push_results[idx].applied:
+					status, commands_sent = "failed", 0
 				else:
-					commands_sent = len(self._commands)
-					verified_entry = verify_results.get(idx, None)
-					verified_count = verified_entry[1] if (verified_entry is
-					                                       not None) else None
-
-					if verified_count is None:
-						status, commands_verified = "success", None
-					elif verified_count == commands_sent:
-						status, commands_verified = "success", verified_count
-					elif verified_count > 0:
-						status, commands_verified = "partial", verified_count
+					commands_sent = total
+					rejected = push_results[idx].rejected
+					check = verify_results.get(idx)
+					if check is not None:
+						# not verifiable commands count as accounted for
+						commands_verified = check.verified + total - check.checkable
+						fetched_config = check.config
+						logger.notify(f"{device.endpoint}: {check.verified}/"
+						              f"{check.checkable} commands verified"
+						              f"{f' ({total - check.checkable} not verifiable)' if total > check.checkable else ''}",
+						              important=True)
+						if check.verified == check.checkable and not rejected:
+							status = "success"
+						elif check.verified == 0 and check.checkable:
+							status = "failed"
+						else:
+							status = "partial"
 					else:
-						status, commands_verified = "failed", 0
-
-				fetched_config = verify_results[idx][0] if \
-					idx in verify_results else None
+						# no verify (or the config couldn't be fetched): what
+						# the device said while the commands were sent
+						status = ("success" if not rejected else
+						          "failed" if rejected >= configuring else "partial")
 				results.append(DeviceResultDict(device_ip=device.ip,
 				                                device_port=int(device.port),
 				                                device_type=device.device_type,
 				                                commands_sent=commands_sent,
 				                                commands_verified=commands_verified,
-                                                fetched_config=fetched_config,
-				                                status=status))
+				                                fetched_config=fetched_config,
+				                                status=status,
+				                                action_needed="\n".join(
+					                                self._needs_action.get(
+						                                device.endpoint, []))
+				                                or None))
 
 			self._log_summary(results, logger)
 			return results

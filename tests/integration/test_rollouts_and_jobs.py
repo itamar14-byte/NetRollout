@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from src import paths
+from src import runtime
 from src.db.settings import SETTINGS
 from src.db.tables import DeviceResult, JobMetadata
 
@@ -269,12 +269,100 @@ def test_config_diff_endpoint(operator, client_for, session_scope, make_user):
 	assert other.status_code == 403
 
 
+def test_config_diff_returns_the_engines_verdicts(operator, client_for,
+                                                  session_scope):
+	# The page shows the server's matcher (sections, removals, variables),
+	# not a text search of its own
+	job = uuid.uuid4()
+	config = ("interface GigabitEthernet1\n description core\n!\n"
+	          "interface GigabitEthernet2\n shutdown\n!\n")
+	commands = ["interface GigabitEthernet1", "description core",
+	            "interface GigabitEthernet2", "no shutdown",
+	            "description $$DESC$$", "write memory"]
+	add_result(session_scope, operator.user, job, status="partial",
+	           verified=3, config=config, commands=commands)
+	resp = client_for(operator.user).get(f"/results/config_diff/{job}/10.0.0.1")
+	assert resp.json["verdicts"] == [
+		["interface GigabitEthernet1", "verified"],
+		["description core", "verified"],
+		["interface GigabitEthernet2", "verified"],
+		["no shutdown", "still configured"],
+		["description $$DESC$$", "variable"],
+		["write memory", "not verifiable"]]
+
+
+def test_results_page_shows_what_needs_a_person(operator, client_for,
+                                                session_scope):
+	# Visible without reading the log: a badge on the job, the instruction
+	# per device in the expanded job, a marker on the device row
+	job, clean = uuid.uuid4(), uuid.uuid4()
+	now = dt.datetime.now()
+	with session_scope() as s:
+		s.add(DeviceResult(user_id=operator.user.id, job_id=job, started_at=now,
+		                   completed_at=now, device_ip="10.0.0.1", device_port=22,
+		                   device_type="checkpoint_gaia", commands_sent=1,
+		                   status="success",
+		                   action_needed="the change is live but NOT saved — "
+		                                 "save it on the device (config lock)"))
+	add_result(session_scope, operator.user, clean, ip="10.0.0.2")
+	html = client_for(operator.user).get("/results").get_data(as_text=True)
+	assert html.count('class="action-needed-badge"') == 1      # only that job
+	assert "Action needed on" in html
+	assert "save it on the device (config lock)" in html
+
+
+def test_job_summary_for_the_completion_card(operator, client_for,
+                                            session_scope, make_user):
+	job = uuid.uuid4()
+	now = dt.datetime.now()
+	with session_scope() as s:
+		s.add(DeviceResult(user_id=operator.user.id, job_id=job, started_at=now,
+		                   completed_at=now, device_ip="10.0.0.1", device_port=22,
+		                   device_type="checkpoint_gaia", commands_sent=1,
+		                   status="success",
+		                   action_needed="the change is live but NOT saved"))
+		s.add(JobMetadata(job_id=job, user_id=operator.user.id,
+		                  commands=["set x"], comment="chg-42"))
+	add_result(session_scope, operator.user, job, ip="10.0.0.2", status="failed")
+	resp = client_for(operator.user).get(f"/results/summary/{job}")
+	assert resp.status_code == 200
+	body = resp.json
+	assert body["device_count"] == 2
+	assert body["counts"] == {"success": 1, "failed": 1}
+	# devices by their inventory label
+	assert body["action_needed"] == [{"device": "dev-10.0.0.1",
+	                                  "text": "the change is live but NOT saved"}]
+	# which job, when several finish in parallel
+	assert body["job_id"] == str(job) and body["comment"] == "chg-42"
+	assert body["results_url"] == f"/results?job={job}"
+	# not stored yet → 404, so the card retries; other users can't see it
+	assert client_for(operator.user).get(
+		f"/results/summary/{uuid.uuid4()}").status_code == 404
+	assert client_for(make_user()).get(
+		f"/results/summary/{job}").status_code == 404
+	assert client_for(make_user(role="admin")).get(
+		f"/results/summary/{job}").status_code == 200
+
+
+def test_dashboard_marks_recent_jobs_that_need_a_person(operator, client_for,
+                                                         session_scope):
+	job = uuid.uuid4()
+	now = dt.datetime.now()
+	with session_scope() as s:
+		s.add(DeviceResult(user_id=operator.user.id, job_id=job, started_at=now,
+		                   completed_at=now, device_ip="10.0.0.1", device_port=22,
+		                   device_type="cisco_ios", commands_sent=1,
+		                   status="success", action_needed="save it"))
+	html = client_for(operator.user).get("/dashboard").get_data(as_text=True)
+	assert f'href="/results?job={job}"' in html
+
+
 def test_log_download_is_owner_only(operator, client_for, session_scope,
                                     make_user):
 	job = uuid.uuid4()
 	add_result(session_scope, operator.user, job)
-	os.makedirs(paths.logs_dir(), exist_ok=True)
-	path = os.path.join(paths.logs_dir(), f"rollout_20260101_000000_{job}.log")
+	os.makedirs(runtime.logs_dir(), exist_ok=True)
+	path = os.path.join(runtime.logs_dir(), f"rollout_20260101_000000_{job}.log")
 	with open(path, "w", encoding="utf-8") as f:
 		f.write("log body")
 	resp = client_for(operator.user).get(f"/results/download_log/{job}")

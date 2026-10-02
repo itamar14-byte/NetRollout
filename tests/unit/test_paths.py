@@ -1,4 +1,4 @@
-"""Where NetRollout keeps its files (src/paths.py) and which config wins
+"""Where NetRollout keeps its files (src/runtime.py) and which config wins
 (BackendServices: config/runtime.env over the container environment)."""
 import os
 import stat
@@ -9,7 +9,7 @@ import pytest
 from dotenv import dotenv_values
 from sqlalchemy.engine import make_url
 
-from src import paths
+from src import runtime
 from src.db.backend import BackendServices
 from src.db.postgres_db import PostgresConfig
 from src.db.redis_db import RedisConfig
@@ -19,32 +19,32 @@ from src.logging_utils import RolloutLogger, prune_logs
 # ── Folders ──────────────────────────────────────────────────────────────────
 
 def test_netrollout_home_wins(monkeypatch, tmp_path):
-	monkeypatch.setenv(paths.HOME_ENV, str(tmp_path))
+	monkeypatch.setenv(runtime.HOME_ENV, str(tmp_path))
 	monkeypatch.setattr(sys, "frozen", True, raising=False)
-	assert paths.home() == tmp_path
-	assert paths.logs_dir() == tmp_path / "logs"
-	assert paths.config_dir() == tmp_path / "config"
-	assert paths.certs_dir() == tmp_path / "certs"
-	assert paths.runtime_env() == tmp_path / "config" / "runtime.env"
+	assert runtime.home() == tmp_path
+	assert runtime.logs_dir() == tmp_path / "logs"
+	assert runtime.config_dir() == tmp_path / "config"
+	assert runtime.certs_dir() == tmp_path / "certs"
+	assert runtime.runtime_env() == tmp_path / "config" / "runtime.env"
 
 
 def test_frozen_exe_uses_its_own_folder(monkeypatch, tmp_path):
-	monkeypatch.delenv(paths.HOME_ENV)
+	monkeypatch.delenv(runtime.HOME_ENV)
 	monkeypatch.setattr(sys, "frozen", True, raising=False)
 	monkeypatch.setattr(sys, "executable", str(tmp_path / "netrollout-cli.exe"))
-	assert paths.logs_dir() == tmp_path.resolve() / "logs"
+	assert runtime.logs_dir() == tmp_path.resolve() / "logs"
 
 
 def test_development_uses_the_repo_root(monkeypatch):
-	monkeypatch.delenv(paths.HOME_ENV)
+	monkeypatch.delenv(runtime.HOME_ENV)
 	assert not getattr(sys, "frozen", False)
-	assert paths.home() == paths.REPO_ROOT
-	assert (paths.REPO_ROOT / "src" / "paths.py").is_file()
+	assert runtime.home() == runtime.REPO_ROOT
+	assert (runtime.REPO_ROOT / "src" / "runtime.py").is_file()
 
 
 def test_folders_follow_a_home_change_after_import(monkeypatch, tmp_path):
 	# Resolved per call: the rollout logger and pruning follow NETROLLOUT_HOME
-	monkeypatch.setenv(paths.HOME_ENV, str(tmp_path))
+	monkeypatch.setenv(runtime.HOME_ENV, str(tmp_path))
 	logger = RolloutLogger(webapp=False, verbose=False, job_id="abc")
 	assert os.path.dirname(logger.logfile) == str(tmp_path / "logs")
 	old = tmp_path / "logs" / "old.log"

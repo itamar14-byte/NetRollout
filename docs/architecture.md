@@ -1,5 +1,5 @@
 # NetRollout — Architecture Document
-_Written: 2026-04-07 — Updated: 2026-10-01 (Phase 4 stages 3–4: container runtime, drain, health; passwords)_
+_Written: 2026-04-07 — Updated: 2026-10-02 (Phase 4 stages 3–4b: container runtime, drain, health; passwords; per-platform push + verify)_
 
 Deployment and packaging (Docker images, compose, installer, platform profiles) are planned in `docs/plans/phase-4.md`. Where that plan will change something described here, the section says so.
 
@@ -28,7 +28,7 @@ At runtime, `RolloutOrchestrator` is the concurrency manager.
 
 The **CLI** (`src/cli.py`) uses the same `RolloutEngine` directly, from a devices CSV and a commands file. It has no database, no Redis and no orchestrator.
 
-**Configuration** comes from env vars. `config/runtime.env` (under the NetRollout home, `src/paths.py`) is loaded with override by `BackendServices` at startup; it holds only what a Server Management switch wrote, so it wins over the container environment (the installer's `.env`), which wins over the defaults.
+**Configuration** comes from env vars. `config/runtime.env` (under the NetRollout home, `src/runtime.py`) is loaded with override by `BackendServices` at startup; it holds only what a Server Management switch wrote, so it wins over the container environment (the installer's `.env`), which wins over the defaults.
 
 | Variable | Purpose |
 |---|---|
@@ -39,9 +39,9 @@ The **CLI** (`src/cli.py`) uses the same `RolloutEngine` directly, from a device
 | `NETROLLOUT_ENCRYPTION_KEY` | Fernet key; else `~/.netrollout/encryption.key` (see below) |
 | `ORCHESTRATOR_WORKERS`, `NETROLLOUT_PUBLIC_HOSTNAME`, `NETROLLOUT_HTTPS_PORT` | **Install-time seeds only** for the matching System Settings (§6). They are read when the setting's row doesn't exist yet and ignored after that |
 | `NETROLLOUT_OPEN_BROWSER` | `0` disables opening the browser on a desktop launch |
-| `NETROLLOUT_DEPLOYMENT` | `docker` (set by the image) turns on container behaviour (`src/deployment.py`): secrets required, Restart via the restart policy, no startup proxy probe |
+| `NETROLLOUT_DEPLOYMENT` | `docker` (set by the image) turns on container behaviour (`src/runtime.py`): secrets required, Restart via the restart policy, no startup proxy probe |
 | `NETROLLOUT_DRAIN_SECONDS` | How long a stop / Restart waits for running rollouts before cancelling them (default 600; compose's `stop_grace_period` must be longer) |
-| `NETROLLOUT_HOME` | Base folder for `logs/`, `config/`, `certs/` (`src/paths.py`; the image uses `/data`) |
+| `NETROLLOUT_HOME` | Base folder for `logs/`, `config/`, `certs/` (`src/runtime.py`; the image uses `/data`) |
 
 **Encryption key.** Fernet protects security-profile passwords and enable secrets, LDAP bind passwords and OTP secrets.
 - **When no key exists:** one is generated only on a fresh install, meaning the DB is reachable and holds no encrypted data — and never in a container, where the key must come from `NETROLLOUT_ENCRYPTION_KEY` (a file inside the container would vanish with it at the next update).
@@ -90,7 +90,7 @@ Represents a single network device at runtime. The web app builds it from an `In
 |---|---|---|
 | `from_inventory` | `cls(row: Inventory, user_id) -> Device` | Factory. Decrypts the assigned SecurityProfile's credentials. It raises if the device has no profile |
 | `netmiko_connector` | `() -> dict` | Builds the Netmiko `ConnectHandler` params |
-| `fetch_config` | `(logger) -> str \| None` | Opens a NAPALM connection and returns the running config. **Replaced in Phase 4 (stage 4b)** by per-platform profiles over Netmiko. NAPALM is dropped because the current mapping breaks verify on several platforms |
+| `fetch_config` | `(logger) -> str \| None` | The running config over Netmiko (the push's SSH: the device's port and credentials), printed by the platform's `show_config` command(s) in the syntax engineers type. None if it can't be fetched (logged) |
 
 ### `DeviceResultDict`
 TypedDict returned per device by `RolloutEngine.run()`. Fields: `device_ip`, `device_port`, `device_type`, `commands_sent`, `commands_verified`, `fetched_config`, `status`.
@@ -99,7 +99,7 @@ TypedDict returned per device by `RolloutEngine.run()`. Fields: `device_ip`, `de
 
 ## 3. ORM Models (`src/db/tables.py`)
 
-All models use UUID primary keys except `SystemSetting`, whose key is the setting name. The schema is managed by Alembic (`src/db/alembic/versions`: the `v1_0_0_baseline` revision, then `must_change_password`; from v1.0.0 on, schema changes are new revisions on top); the app applies migrations itself at every start.
+All models use UUID primary keys except `SystemSetting`, whose key is the setting name. The schema is managed by Alembic (`src/db/alembic/versions`: the `v1_0_0_baseline` revision, then `must_change_password`, `device_results_action_needed`; from v1.0.0 on, schema changes are new revisions on top); the app applies migrations itself at every start.
 
 ### `User`
 
@@ -193,8 +193,9 @@ Result archive, with one row per device per job. `job_id` is a soft reference: t
 | `device_port` | `int` | Server default 22 for rows from before the column existed |
 | `device_type` | `str(64)` | |
 | `commands_sent` | `int` | |
-| `commands_verified` | `int \| None` | Null if verify was not run |
+| `commands_verified` | `int \| None` | Commands confirmed, plus those that can't be checked (navigation, operational). Null if verify didn't run or the config couldn't be fetched |
 | `status` | `str` | `success` / `partial` / `failed` / `cancelled` |
+| `action_needed` | `TEXT` | Nullable. What only a person can resolve on the device after the rollout (the `ACTION NEEDED` lines), shown on the Results page: a badge on the job row, the instructions at the top of the expanded job, a marker on the device |
 | `fetched_config` | `TEXT` | Running config captured by Verify. Stored only when some commands didn't verify, which feeds the Results page's side-by-side diff. Cleared after the *Config snapshots* retention (default 7 days); the Results page then shows "Verify Diff expired" |
 
 Rows are deleted after the *Job records* retention (default 30 days).
@@ -326,15 +327,20 @@ Error handling:
 Pure pipeline object: `RolloutEngine(param: RolloutOptions, devices: list[Device], commands: list[str])`. `run(cancel_flag, logger) -> list[DeviceResultDict]`:
 1. **Per device, in parallel** (`ThreadPoolExecutor(max_workers)`):
    - it substitutes `$$TOKEN$$`s;
-   - it pushes over Netmiko (`send_config_set`, then `save_config()`);
-   - it honours the cancel flag between devices.
-2. **Verify:** if on, it fetches each pushed device's config and counts the commands that appear in it.
-3. **Summary:** it logs one summary line for the rollout.
+   - it pushes over Netmiko, one `send_config_set(…, enter_config_mode=False)` per command after entering config mode once — exactly as typed (Netmiko's default re-checks config mode per call, and Aruba CX's driver only recognises `(config)#`, so inside a section it failed); a typed `end` followed by more config commands is refused as on the device; a refused command (`rejection()`: one list of vendor error strings, the command's own echo skipped) is logged with the device's reply and the rest are still sent;
+   - it **finishes the way the platform needs** (`PLATFORMS` in `core.py`): `save_config()` after leaving config mode (Cisco IOS/IOS-XE/NX-OS, Arista, Aruba CX, HP ProCurve/Comware); `commit()` *before* leaving it (Junos, PAN-OS, IOS-XR — leaving discards uncommitted changes; up to `COMMIT_TIMEOUT` = 300 s; a failed commit is a failure, Junos then `rollback 0`, PAN-OS keeps the candidate and the log says so); `save config` (Check Point Gaia); nothing (FortiOS, after closing any open config block with `end`);
+   - per-platform details, checked against the vendor documentation and Netmiko 4.6.0's source (2026-10-02): Junos configures with **`configure private`** (our commit can't take another admin's pending shared edits along, and our `rollback 0` can't wipe them; Junos refuses private mode while someone has uncommitted shared edits — that device then fails with the reason); PAN-OS discards a failed commit with `revert config`, else `load config from running-config.xml` (only if both are refused does the log ask to discard on the device); FortiOS checks `cfg-save` after the push and runs `execute cfg save` when it is manual or revert (else the change is lost at reboot / undone after the revert timeout); Check Point Gaia switches an account that lands in expert (bash) to clish (`clish`) for both the push and the config fetch — bash would silently swallow every `set …` — and refuses only if that fails; Aruba CX sends `end` before leaving config mode (Netmiko only recognises `(config)#`, so from `(config-if)#` its exit did nothing);
+   - a prompt that changes mid-push (e.g. a new hostname) ends that session: the save then runs from a fresh one ("applied, and saved from a new session"), or the log says it wasn't saved;
+   - the session is always closed; the cancel flag is honoured between devices.
+   - **Only a person can resolve** (another admin's work, or the device's state is unknown): Junos refusing `configure private` while someone has uncommitted shared edits; a save refused (e.g. a Gaia config lock held by another session); a commit still running after `COMMIT_TIMEOUT`; PAN-OS changes left in the candidate when both discards are refused; Gaia stuck in expert even after `clish`; FortiOS `execute cfg save` refused. Each is logged as one red `ACTION NEEDED — <ip:port>: <what to do>` line (live log, log file, CLI console), and the rollout summary ends with `ACTION NEEDED on N devices (…)`. The web app also stores it per device (`device_results.action_needed`): when a live log ends, Active Jobs shows a completion card (job note + `[id]`, status, counts, the action-needed instructions, *View in Results*); the Results page shows a badge on the job and the instructions in it; the Dashboard's Recent Jobs mark it — so it doesn't depend on anyone reading the log; the CLI prints it on the console.
+2. **Verify** (if on, only on devices the push applied to): `fetch_config()`, then `verify_commands(device_type, config, commands)` — one verdict per command: *verified*, *not configured*, *still configured* (a removal that didn't take), *not verifiable* (navigation like `exit`/`end`/`next`, operational like `write memory`/`commit`), *variable* (an unresolved `$$TOKEN$$`, only on the Verify Diff page).
+   - **Indented configs** (Cisco-style, FortiOS): a plain indentation parser; typed commands are flat (the device tracks the mode), so each is placed in its section from the config's own structure — a typed line that is a section there opens it, `exit`/`next`/`exit-…` close one (`end` too on FortiOS, all on Cisco), a command found only at an outer level leaves the section, one found nowhere stays put. A command must exist at its place; `no`/`undo`/`unset`/`delete X` passes when `X` is gone.
+   - **Flat configs** (Junos `display set`, PAN-OS set format, Gaia): one line per setting; `edit`/`up`/`top` move the prefix relative `set`/`delete` extend; `delete X` passes when no `set X…`/`add X…` line remains.
+   - A config that can't be fetched means "couldn't verify", not "failed".
+3. **Status:** *cancelled* (never connected), *failed* (nothing applied: no connection, a failed commit, or every configuring command refused), otherwise from verify (all checkable verified → success; none → failed; else partial) or, without verify, from the refusals (none → success, some → partial).
+4. **Summary:** it logs one summary line for the rollout.
 
-Phase 4 stage 4b replaces the generic finish (`save_config()`) with per-platform profiles:
-- `commit()` for Junos, PAN-OS and IOS-XR, whose changes today are not committed;
-- the right save for the other platforms.
-- a per-platform config fetch and matcher for verify.
+Known limits (Phase 5b: Deep Diff with hier_config + netutils): typed abbreviations (`int gi1`), values the device rewrites (hashed secrets, normalised values like Junos `area 0` → `0.0.0.0`, Comware VLAN ranges `101 to 102`, hidden defaults — FortiOS `show` omits values equal to their default), "already there before the rollout", multi-line banners; PAN-OS prints one setting per line, so a compound typed `set … from x to y action allow` never matches (type one setting per line); Junos `up` is taken as leaving the whole last `edit` (it really goes up one statement level). The Verify Diff route (`/results/config_diff`) returns the same verdicts, so the page can't disagree with the rollout.
 
 ### `RolloutJob`
 Lifecycle owner, constructed as `RolloutJob(job_id, user_id, engine, options, redis_client)`. It owns the thread, cancel flag, engine and logger.
@@ -533,7 +539,7 @@ Each blueprint owns its routes and route-specific helpers. Blueprints reach `app
 | Blueprint | Prefix | Routes |
 |---|---|---|
 | `auth` | — | `/`, `/login`, `/register`, `/otp_enroll`, `/otp_verify`, `/logout`, `/account`, `/account/password` (forced or voluntary change; local users) |
-| `jobs` | — | `/dashboard`, `/active_jobs`, `/results`, `/results/config_diff/<job_id>/<ip>`, `/results/download_log/<job_id>` |
+| `jobs` | — | `/dashboard`, `/active_jobs`, `/results` (`?job=<id>` opens that job), `/results/summary/<job_id>` (a finished job in a few lines: the completion card), `/results/config_diff/<job_id>/<ip>`, `/results/download_log/<job_id>` |
 | `rollout` | `/rollout` | `/new`, `/start`, `/cancel`, `/stream/<job_id>` (SSE), `/rollback/<job_id>` |
 | `inventory` | `/inventory` | list, `/create`, `/test_connection`, `/reachability`, `/<id>/edit`, `/<id>/mappings`, `/<id>/delete`, `/import_csv`, `/bulk_assign` |
 | `security` | `/security` | list, `/create`, `/quick_create`, `/<id>/edit`, `/<id>/delete`, `/<id>/test` |

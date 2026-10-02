@@ -20,7 +20,7 @@ App at `http://localhost:8080` (nginx in front on 80/443). Every start runs the 
 ```bash
 python -m src.cli -d <devices.csv> -c <commands.txt> [-vy] [-vb]
 ```
-- `-vy` / `--verify`: verify config was applied after push (NAPALM); `-vb` / `--verbose`: print logs to the console (always written to `logs/`)
+- `-vy` / `--verify`: after the push, read each device's config and check every command; `-vb` / `--verbose`: print logs to the console (always written to `logs/`)
 - Missing paths (and verify) are prompted for. Exit code: 0 all devices succeeded, 1 mixed, 2 nothing applied, 130 Ctrl+C
 
 ### Run tests
@@ -44,14 +44,14 @@ MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd -W)/requirements.txt:/req/requireme
 ```
 
 ### Configuration
-- Folders (`src/paths.py`, resolved per call): `NETROLLOUT_HOME` (image: `/data`), else the exe's folder when frozen, else the repo root → `logs/`, `config/`, `certs/`.
+- Folders (`src/runtime.py`, resolved per call): `NETROLLOUT_HOME` (image: `/data`), else the exe's folder when frozen, else the repo root → `logs/`, `config/`, `certs/`.
 - Connection settings: `DATABASE_URL` or `PG_HOST/PG_PORT/PG_NAME/PG_USER/PG_PASSWORD/PG_SCHEMA`; `REDIS_URL` or `REDIS_HOST/REDIS_PORT/REDIS_DB/REDIS_PASSWORD`. Precedence: `config/runtime.env` (app-owned, written only by a Server Management switch, loaded with override) > the environment (in Docker: the installer's compose `.env`) > defaults. A switch writes every key of that service, blank when unused (URL, password, schema), so nothing inherited can override it. Dev keeps its settings in `config/runtime.env`.
 - Other env: `SECRET_KEY`, `PORT` (internal app port, set at install).
 - **System Settings** (admin panel → System; `src/db/settings.py`): retention periods, concurrent rollout jobs, devices per job, reachability cache, canonical hostname + HTTPS port. The `system_settings` table is the only runtime source: `install()` seeds every missing setting at each start (from `ORCHESTRATOR_WORKERS`, `NETROLLOUT_PUBLIC_HOSTNAME`, `NETROLLOUT_HTTPS_PORT` if set, else the default) and never overwrites; after that env vars are ignored. Cross-setting rules are declarative and enforced on the server and in the page.
-- Deployment (`src/deployment.py`): `NETROLLOUT_DEPLOYMENT=docker` (set by the image) → `SECRET_KEY` and the encryption key are required (never defaulted or generated), Restart exits and the restart policy brings it back, no startup proxy probe (one log line with the expected URL instead). Dev: a missing `SECRET_KEY` gets a random per-run key.
+- Deployment (`src/runtime.py`): `NETROLLOUT_DEPLOYMENT=docker` (set by the image) → `SECRET_KEY` and the encryption key are required (never defaulted or generated), Restart exits and the restart policy brings it back, no startup proxy probe (one log line with the expected URL instead). Dev: a missing `SECRET_KEY` gets a random per-run key.
 - Startup in dev (`src/webapp/startup.py`): verifies nginx forwards to this instance (per-run token at `/_netrollout/instance`) and prints the address to use; opens it in the browser on desktop launches (`NETROLLOUT_OPEN_BROWSER=0` to disable).
 - Stop / Restart drain (`src/webapp/lifecycle.py`, `RolloutOrchestrator.drain`): on SIGTERM or the admin Restart, new rollouts are refused (banner on every page), queued ones are recorded as cancelled, running ones finish within `NETROLLOUT_DRAIN_SECONDS` (default 600) and are cancelled after. Restart with rollouts running asks: when finished / now.
-- Health: `/_netrollout/health` (public) — Postgres/Redis up, running/queued rollouts, draining, version; 200 or 503. Version string in `src/version.py`.
+- Health: `/_netrollout/health` (public) — Postgres/Redis up, running/queued rollouts, draining, version; 200 or 503. Version string in `src/runtime.py`.
 - Passwords (`src/passwords.py`, local accounts): one rule — 8+ characters, at least 2 of letters / digits / special, ASCII, not containing the username — for registration, `/account/password` and admin resets (a temporary password shown once). `users.must_change_password` (the seeded `admin`, after a reset) gates every page to the change page. A reset or Terminate Session signs the user out everywhere, a change signs out the user's other sessions (`utils.end_user_sessions`).
 - Encryption key: `NETROLLOUT_ENCRYPTION_KEY`, else (dev only) `~/.netrollout/encryption.key`. The app refuses to start on a malformed, missing-with-data, or mismatched key (fail-fast).
 - Dev DB: `postgresql+psycopg2://dbadmin:Pass123@localhost:5432/rollout_db`, in Docker: `docker exec -it NetRollout-DB psql -U dbadmin -d rollout_db`
@@ -66,7 +66,7 @@ Retention (defaults; System Settings): job record (results + metadata) 30 days, 
 Server-Sent Events at `/rollout/stream/<job_id>`: history from Redis, then live messages via Redis pub/sub (`job:{id}:logs`), a heartbeat every 0.5s. `X-Accel-Buffering: no` disables nginx buffering.
 
 ### Supported platforms (Netmiko device types)
-The list is `Validator.SUPPORTED_PLATFORMS` (`src/validation.py`). NAPALM verification not supported for `checkpoint_gaia` and `hp_comware`.
+The list is `Validator.SUPPORTED_PLATFORMS` (`src/validation.py`); how each one finishes a push (save / commit / a command / nothing) and prints its config is the `PLATFORMS` dict in `src/core.py` — adding a vendor is one row there plus a fixture in `tests/unit/test_platforms.py`. Cases only a person can resolve are logged as `ACTION NEEDED — <ip:port>: …` and counted in the rollout summary. Verify (`verify_commands`) places each typed command in its config section and checks presence / absence (`no`/`undo`/`delete`/`unset`); all 12 platforms are covered.
 
 ### Device CSV format (shared by CLI and web import)
 Required: `ip`, `device_type`, `port`. Optional: `label`; credentials `username`, `password`, `secret`; attribute columns named after a property (by name or label).

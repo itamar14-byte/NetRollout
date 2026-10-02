@@ -8,11 +8,12 @@ from itertools import groupby
 # services
 # flask
 from flask import (Blueprint, render_template, current_app, request, send_file,
-                   Response)
+                   Response, url_for)
 from flask_login import current_user, login_required
 
 # local modules
-from src import paths
+from src import runtime
+from src.core import PLATFORMS, verify_commands
 from src.db.tables import DeviceResult, JobMetadata, User, Inventory
 from src.webapp.utils import ok, err, build_kpi, visible_devices_clause
 
@@ -105,6 +106,7 @@ def build_job_summaries(results):
 			"device_count": len(rows),
 			"commands_sent": rows[0].commands_sent,
 			"status": job_status(rows),
+			"action_needed": any(r.action_needed for r in rows),
 		})
 	summaries.sort(key=lambda x: x["completed_at"], reverse=True)
 	return summaries
@@ -139,7 +141,7 @@ def build_jobs(result_rows, metadata_by_job, endpoint_labels, snapshot_days,
 		rows = list(rows)
 		meta = metadata_by_job.get(job_id)
 		log_matches = glob.glob(
-			os.path.join(paths.logs_dir(), f"rollout_*_{job_id}.log"))
+			os.path.join(runtime.logs_dir(), f"rollout_*_{job_id}.log"))
 		entry = {
 			"job_id": str(job_id),
 			"has_log": bool(log_matches),
@@ -148,6 +150,7 @@ def build_jobs(result_rows, metadata_by_job, endpoint_labels, snapshot_days,
 			"device_count": len(rows),
 			"commands_sent": rows[0].commands_sent,
 			"status": job_status(rows),
+			"action_needed": any(r.action_needed for r in rows),
 			"comment": meta.comment if meta else None,
 			"commands": meta.commands if meta else [],
 			"devices": [
@@ -162,6 +165,7 @@ def build_jobs(result_rows, metadata_by_job, endpoint_labels, snapshot_days,
 						else f"{r.device_ip}:{r.device_port}"),
 					"device_type": r.device_type,
 					"status": r.status,
+					"action_needed": r.action_needed,
 					"commands_sent": r.commands_sent,
 					"commands_verified": r.commands_verified,
 					# flags only — the config itself is fetched on demand by
@@ -368,7 +372,45 @@ def config_diff(job_id, device_ip):
 			           f"days", 410)
 		meta = db_session.query(JobMetadata).filter_by(job_id=job_id).first()
 		commands = meta.commands if meta else []
-	return ok(config=config, commands=commands)
+		device_type = row.device_type
+	# The engine's own matcher, so the page can't disagree with the rollout
+	# (commands with an unresolved $$TOKEN$$ come back "variable": the
+	# rollout log has their verdicts with the device's values)
+	verdicts = verify_commands(device_type, config, commands) \
+		if device_type in PLATFORMS else []
+	return ok(config=config, commands=commands,
+	          verdicts=[[c, v] for c, v in zip(commands, verdicts)])
+
+
+@bp.route("/results/summary/<uuid:job_id>")
+@login_required
+def job_summary(job_id):
+	"""A finished job in a few lines, for the completion card on Active Jobs.
+	404 until its results are stored (the log stream can end a moment
+	before) — the card retries."""
+	with current_app.backend.postgres.get_session() as db_session:
+		rows = db_session.query(DeviceResult).filter_by(job_id=job_id).all()
+		if not rows or (current_user.role != "admin"
+		                and rows[0].user_id != current_user.id):
+			return err("Not found", 404)
+		labels = visible_endpoint_labels(db_session, current_user.id)
+		meta = db_session.query(JobMetadata).filter_by(job_id=job_id).first()
+		comment = meta.comment if meta else None
+		db_session.expunge_all()
+
+	def label(r):
+		return labels.get((r.device_ip, r.device_port),
+		                  r.device_ip if r.device_port == 22
+		                  else f"{r.device_ip}:{r.device_port}")
+
+	counts = {}
+	for r in rows:
+		counts[r.status] = counts.get(r.status, 0) + 1
+	return ok(job_id=str(job_id), comment=comment,
+	          status=job_status(rows), device_count=len(rows), counts=counts,
+	          action_needed=[{"device": label(r), "text": r.action_needed}
+	                         for r in rows if r.action_needed],
+	          results_url=url_for("jobs.results", job=str(job_id)))
 
 
 @bp.route("/results/download_log/<uuid:job_id>")
@@ -378,7 +420,7 @@ def download_log(job_id):
 		owned = user_owns_job(job_id, current_user.id)
 		if not owned:
 			return Response("Not found", status=404)
-	matches = glob.glob(os.path.join(paths.logs_dir(), f"rollout_*_{job_id}.log"))
+	matches = glob.glob(os.path.join(runtime.logs_dir(), f"rollout_*_{job_id}.log"))
 	if not matches:
 		return Response("Log file not found", status=404)
 	return send_file(matches[0], as_attachment=True,
