@@ -24,6 +24,13 @@ python -m src.cli -d <devices.csv> -c <commands.txt> [-vf] [-v]
 - Missing paths are prompted for (asked again until the file exists); a prompted run also asks verify and confirms ("About to push N commands to M devices") before the push — full-flag runs never ask. The verify choice is always printed. Exit code: 0 all devices succeeded, 1 mixed, 2 nothing applied (including a stop before the push: missing file, no devices or commands left), 130 Ctrl+C. Every exit but Ctrl+C waits for Enter when run from a terminal, so a double-clicked window stays readable. `--version` prints the version.
 - **Standalone `netrollout-cli.exe`** (no Python needed; same flags): `pyinstaller --clean --noconfirm netrollout-cli.spec` from the repo root in the dev venv → `dist/netrollout-cli.exe` (one file, ~15 MB, ~2 s startup; logs go to `logs/` next to it). The CLI must not import the web stack — `tests/unit/test_cli.py` guards it, and the spec excludes it. The exe is unsigned: Windows Defender / SmartScreen may flag it (code-signing is post-v1.0).
 
+### Build the app image
+```bash
+docker build -t netrollout .                              # dev: 1.0.0.dev0
+docker build --build-arg VERSION=1.0.0 -t netrollout .    # a release (stamps src/runtime.py)
+```
+`python:3.12-slim-bookworm`, non-root `netrollout` (uid 10001), `NETROLLOUT_DEPLOYMENT=docker`, `NETROLLOUT_HOME=/data`; health check on `/_netrollout/health`. Context = the `.dockerignore` whitelist. The footer (`templates/_footer.html`) shows the version and links the source of that version (AGPL §13).
+
 ### Run tests
 ```bash
 pytest                    # all
