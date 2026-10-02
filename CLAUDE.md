@@ -30,6 +30,7 @@ docker build -t netrollout .                              # dev: 1.0.0.dev0
 docker build --build-arg VERSION=1.0.0 -t netrollout .    # a release (stamps src/runtime.py)
 ```
 `python:3.12-slim-bookworm`, non-root `netrollout` (uid 10001), `NETROLLOUT_DEPLOYMENT=docker`, `NETROLLOUT_HOME=/data`; health check on `/_netrollout/health`. Context = the `.dockerignore` whitelist. The footer (`templates/_footer.html`) shows the version and links the source of that version (AGPL §13).
+- TLS certificates (`src/certs.py`, inside the image so the host needs no OpenSSL): `python -m src.certs selfsigned --host <name> [--ip <addr>]...` writes `fullchain.pem` + `privkey.pem` + a `.selfsigned` marker (ECDSA P-256, 825 days, the IPs as SANs) to the certs folder; `validate --cert --key [--host]` checks key match, encrypted key, dates, SAN/wildcard coverage, chain order.
 
 ### Run tests
 ```bash
