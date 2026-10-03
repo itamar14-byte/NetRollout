@@ -593,7 +593,19 @@ Optional sidecar services. The Flask app runs independently and is unaffected wh
 
 **Custom Prometheus collector** (`RolloutSessionCollector`, `src/webapp/setup.py`): reads `netrollout:active_count` and `netrollout:pending_count` from Redis and exposes the `netrollout_active_jobs` and `netrollout_pending_jobs` gauges.
 
-**Four Grafana dashboards**, provisioned from `deploy/grafana/dashboards/` (mounted at `/etc/grafana/dashboards`); `tests/unit/test_monitoring_config.py` checks every datasource they reference is provisioned (they reference datasources by uid — keep the uids):
+**Access:** Grafana is served by nginx at `/grafana/` to signed-in NetRollout **admins only**: for every request nginx asks the app (`auth_request` → `/_netrollout/grafana-auth`: 204 + the username / 401 / 403) and passes the username in `X-WEBAUTH-USER`, which Grafana trusts (proxy auth; the browser's own header is replaced). Admins are Grafana Editors; there is no Grafana login form. Not operators: free Grafana lets anyone signed in query every datasource through its API (per-datasource permissions are Enterprise), which would bypass NetRollout's own-jobs-only rule — a separate organization for operators is a post-v1 item.
+
+**Layout** (kept by the `grafana-setup` service, `deploy/grafana/setup.py`, re-applied every 5 min):
+
+```
+NetRollout          the shipped dashboards — view-only, re-imported on every update
+├── Operations      Operations Overview, Job Analytics
+├── Jobs            Job Details
+└── Security        Audit & Security
+Custom              the admins' own (Save as, new dashboards, subfolders) — never touched by updates
+```
+
+**Four Grafana dashboards**, dashboard v2 files in `deploy/grafana/dashboards/<subfolder>/`, imported through Grafana's v2 API (`metadata.name` is the stable id); `tests/unit/test_monitoring_config.py` checks every datasource they reference is provisioned (by uid — keep the uids) and every subfolder is one the setup imports:
 
 | Dashboard | File | Datasources | Purpose |
 |---|---|---|---|

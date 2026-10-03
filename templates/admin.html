@@ -254,6 +254,14 @@
             font-weight: 600;
         }
 
+        /* Grafana's glyph (Simple Icons), drawn in the link's own colour */
+        .nr-grafana-glyph {
+            display: inline-block;
+            width: 1rem; height: 1rem;
+            background-color: currentColor;
+            -webkit-mask: url("https://cdn.simpleicons.org/grafana") center / contain no-repeat;
+                    mask: url("https://cdn.simpleicons.org/grafana") center / contain no-repeat;
+        }
         .adm-sb-icon {
             font-size: 1rem;
             flex-shrink: 0;
@@ -451,6 +459,14 @@
                 <i class="bi bi-bar-chart-line adm-sb-icon"></i>
                 <span class="adm-sb-label">Analytics</span>
             </a>
+
+            {% if NR_MONITORING %}
+            <a href="/grafana/" target="_blank" rel="noopener"
+               class="adm-sb-link" title="Monitoring (Grafana)">
+                <span class="adm-sb-icon nr-grafana-glyph" aria-hidden="true"></span>
+                <span class="adm-sb-label">Monitoring</span>
+            </a>
+            {% endif %}
 
             <hr style="border-color:#181818; margin:0.4rem 0.5rem;">
             <div class="adm-sb-section">System</div>

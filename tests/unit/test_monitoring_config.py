@@ -1,4 +1,5 @@
-"""deploy/grafana: the shipped dashboards must only reference datasources the
+"""deploy/grafana: the shipped dashboards (one subfolder per NetRollout
+folder, imported by setup.py) must only reference datasources the
 provisioning defines — a renamed datasource or a newly exported dashboard
 would otherwise leave panels empty with no error anywhere but Grafana."""
 import json
@@ -35,13 +36,26 @@ def referenced(node, found):
 	return found
 
 
+def shipped():
+	return sorted((GRAFANA / "dashboards").glob("*/*.json"))
+
+
 def test_there_are_dashboards_to_check():
-	assert len(list((GRAFANA / "dashboards").glob("*.json"))) == 4
+	assert len(shipped()) == 4
+
+
+def test_every_subfolder_is_one_setup_imports():
+	# a dashboard in a folder setup.py doesn't know would never be imported
+	import importlib.util
+	spec = importlib.util.spec_from_file_location("setup", GRAFANA / "setup.py")
+	setup = importlib.util.module_from_spec(spec)
+	spec.loader.exec_module(setup)
+	assert {p.parent.name for p in shipped()} <= set(setup.SUBFOLDERS)
 
 
 def test_every_dashboard_datasource_is_provisioned():
 	uids = provisioned_uids()
-	for path in (GRAFANA / "dashboards").glob("*.json"):
+	for path in shipped():
 		refs = referenced(json.loads(path.read_text(encoding="utf-8")), set())
 		missing = refs - uids - BUILT_IN
 		assert not missing, f"{path.name} uses unknown datasources {missing}"

@@ -65,6 +65,7 @@ services:
       NETROLLOUT_HTTPS_PORT: ${HTTPS_PORT:-443}
       ORCHESTRATOR_WORKERS: ${ORCHESTRATOR_WORKERS:-4}
       TZ: ${TZ:-UTC}
+      NETROLLOUT_MONITORING: ${COMPOSE_PROFILES:-}   # "monitoring" -> the Grafana link
     volumes:
       - ./logs:/data/logs
       - ./config:/data/config
@@ -141,13 +142,25 @@ services:
     depends_on:
       - loki
 
+  # Served by nginx at /grafana/ to signed-in NetRollout admins only (nginx
+  # asks the app; Grafana trusts the user header nginx sets - proxy auth).
+  # Every Grafana user is an admin -> Editor. No port of its own.
   grafana:
     <<: *restart
     profiles: [monitoring]
     image: grafana/grafana:13.0.1
     environment:
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}   # maintenance + grafana-setup
       GRAFANA_DB_PASSWORD: ${GRAFANA_DB_PASSWORD}   # read by the datasource provisioning
+      GF_SERVER_ROOT_URL: "%(protocol)s://%(domain)s:%(http_port)s/grafana/"
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      GF_AUTH_PROXY_ENABLED: "true"
+      GF_AUTH_PROXY_HEADER_NAME: X-WEBAUTH-USER
+      GF_AUTH_PROXY_HEADER_PROPERTY: username
+      GF_AUTH_PROXY_AUTO_SIGN_UP: "true"
+      GF_USERS_AUTO_ASSIGN_ORG_ROLE: Editor
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_AUTH_DISABLE_SIGNOUT_MENU: "true"     # signing out happens in NetRollout
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_ANALYTICS_REPORTING_ENABLED: "false"
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
@@ -155,7 +168,6 @@ services:
       GF_NEWS_NEWS_FEED_ENABLED: "false"
     volumes:
       - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
-      - ./deploy/grafana/dashboards:/etc/grafana/dashboards:ro
       - grafana:/var/lib/grafana
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3000/api/health"]
@@ -169,6 +181,29 @@ services:
         condition: service_started
       prometheus:
         condition: service_started
+
+  # The NetRollout folders (read-only) + Custom (the admins'), the shipped
+  # dashboards imported, then re-applied every 5 min (deploy/grafana/setup.py).
+  # Stays running: `up --wait` counts an exited container as a failure.
+  # Runs on the app image - it only needs Python.
+  grafana-setup:
+    <<: *restart
+    profiles: [monitoring]
+    image: itamar14/netrollout:${NETROLLOUT_VERSION}
+    command: ["python", "/setup/setup.py"]
+    environment:
+      GRAFANA_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+    volumes:
+      - ./deploy/grafana/setup.py:/setup/setup.py:ro
+      - ./deploy/grafana/dashboards:/dashboards:ro
+    healthcheck:
+      test: ["CMD", "test", "-f", "/tmp/grafana-setup.done"]
+      interval: 5s
+      timeout: 3s
+      retries: 60
+    depends_on:
+      grafana:
+        condition: service_healthy
 
 volumes:
   postgres:

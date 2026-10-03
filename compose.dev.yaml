@@ -31,6 +31,3 @@ services:
     extra_hosts:
       - "app:host-gateway"      # scrape the host app as app:8080
 
-  grafana:
-    ports:
-      - "127.0.0.1:3000:3000"   # until Grafana is served through nginx (7.3)
