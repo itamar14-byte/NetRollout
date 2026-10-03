@@ -1,0 +1,86 @@
+# NetRollout site — rendered by netrollout-render.sh (envsubst of the NR_*
+# values only; nginx's own $variables are left alone). Don't edit the
+# rendered copy: change the template, or the values (env / shared/site.env).
+
+# HTTPS requests that used another name go to the canonical one — not IPs or
+# localhost (the IP is how people get in when DNS doesn't know the name)
+map $host $nr_other_name {
+    default                 ${NR_REDIRECT_OTHER_NAMES};
+    "${NR_CANONICAL_KEY}"   0;
+    localhost               0;
+    ~^\d+\.\d+\.\d+\.\d+$   0;
+    ~^\[                    0;
+}
+
+# Where plain HTTP is sent: the canonical name, or the name/IP it came on
+map $host $nr_https_host {
+    default                 ${NR_HTTPS_HOST_DEFAULT};
+    localhost               $host;
+    ~^\d+\.\d+\.\d+\.\d+$   $host;
+    ~^\[                    $host;
+}
+
+server {
+    listen 80 default_server;
+    server_name _;
+    return 301 https://$nr_https_host${NR_PORT_SUFFIX}$request_uri;
+}
+
+server {
+    listen 443 ssl default_server;
+    http2 on;   # many live log streams on one connection (HTTP/1.1 allows 6)
+    server_name _;
+
+    ssl_certificate     /etc/nginx/certs/fullchain.pem;
+    ssl_certificate_key /etc/nginx/certs/privkey.pem;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_ciphers         HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
+    ssl_session_cache   shared:SSL:10m;
+
+    add_header Strict-Transport-Security "max-age=31536000" always;
+    add_header X-Frame-Options           SAMEORIGIN always;
+    add_header X-Content-Type-Options    nosniff always;
+
+    client_max_body_size 10M;   # CSV inventory uploads
+
+    if ($nr_other_name) {
+        return 301 https://${NR_CANONICAL}${NR_PORT_SUFFIX}$request_uri;
+    }
+
+    # A variable upstream is resolved per request (see the resolver)
+    set $nr_app http://${NR_APP_UPSTREAM};
+
+    # Prometheus scrapes the app directly inside the network, never through here
+    location = /metrics {
+        return 404;
+    }
+
+    # Live rollout logs (Server-Sent Events): no buffering, long-lived
+    location /rollout/stream/ {
+        proxy_pass $nr_app;
+        # $http_host keeps the port people typed ($host drops it): the app's
+        # redirects stay on a non-443 port
+        proxy_set_header Host              $http_host;
+        proxy_set_header X-Forwarded-Host  $http_host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header Connection "";
+        proxy_http_version 1.1;
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 1h;
+    }
+
+    location / {
+        proxy_pass $nr_app;
+        # $http_host keeps the port people typed ($host drops it): the app's
+        # redirects stay on a non-443 port
+        proxy_set_header Host              $http_host;
+        proxy_set_header X-Forwarded-Host  $http_host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Real-IP         $remote_addr;
+    }
+}
