@@ -583,17 +583,17 @@ Admins can reset a user's 2FA; the user re-enrols at the next login.
 
 ## 8. Observability Stack
 
-Optional sidecar services. The Flask app runs independently and is unaffected when they are down. Configs are currently under `docs/{grafana,prometheus,loki,promtail}`. Phase 4 moves them to `deploy/` as an optional compose profile, with Grafana served through nginx at `/grafana`.
+Optional sidecar services. The Flask app runs independently and is unaffected when they are down. Configs live under `deploy/{grafana,prometheus,loki,alloy}` (an optional compose profile; Grafana served through nginx at `/grafana`).
 
 | Service | Role |
 |---|---|
-| PostgreSQL | Historical business metrics. A direct Grafana datasource through the `grafana_reader` read-only user |
-| Prometheus | Live metrics: active and pending jobs, Flask request rates and latencies (scrapes `/metrics`) |
-| Loki + Promtail | Log stream: per-job log files shipped by Promtail, searchable by the `job_id` label |
+| PostgreSQL | Historical business metrics. A direct Grafana datasource through the `grafana_reader` read-only user, which can read exactly `device_results`, `job_metadata` and `audit_log` (`GRAFANA_TABLES`, granted by `install()`) |
+| Prometheus | Live metrics: active and pending jobs, Flask request rates and latencies (scrapes the app's `/metrics` directly at `app:8080`; nginx answers `/metrics` with 404) |
+| Loki + Grafana Alloy | Log stream: the log files shipped by Alloy (promtail is end-of-life) with labels `prefix` and `job_id` from the file name, each entry at its own timestamp (local time, `TZ`), continuation lines joined to their entry; Loki keeps 60 days. Entries with old timestamps (e.g. files written while Loki was down) become searchable once Loki writes them to storage, not immediately |
 
 **Custom Prometheus collector** (`RolloutSessionCollector`, `src/webapp/setup.py`): reads `netrollout:active_count` and `netrollout:pending_count` from Redis and exposes the `netrollout_active_jobs` and `netrollout_pending_jobs` gauges.
 
-**Four Grafana dashboards**, provisioned from `docs/grafana/dashbaord_config/` (sic; renamed to `deploy/grafana/dashboards` in Phase 4):
+**Four Grafana dashboards**, provisioned from `deploy/grafana/dashboards/` (mounted at `/etc/grafana/dashboards`); `tests/unit/test_monitoring_config.py` checks every datasource they reference is provisioned (they reference datasources by uid — keep the uids):
 
 | Dashboard | File | Datasources | Purpose |
 |---|---|---|---|
