@@ -96,3 +96,4 @@ Design rules, template gotchas and widget notes live in `templates/CLAUDE.md` (l
 - Developer has real networking domain knowledge (3+ years, Netmiko/NAPALM fluency) — no need to explain networking basics
 - Distinguish critical issues from design improvements from minor polish when reviewing
 - For frontend work, Claude writes the templates/HTML directly (exception to the "developer writes" rule)
+- **Changing an existing test needs a proper reason, stated in the commit** — a behavior change the developer approved, a wrong fixture/expectation proven against the source or the vendor's documentation, or a rename. A failing test is a finding first: fix the code, or report it. Never edit an expectation to match what the code now does (retrofitting) without the developer's approval, never loosen an assertion (exact → "somewhere", value → truthy) to make it pass, and never add `skip`/`xfail` to get green. A new test must fail without the change it covers.
