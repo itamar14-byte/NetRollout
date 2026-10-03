@@ -1,0 +1,7 @@
+# Port 80, redirected by nginx to https://<host>:<HTTPS port>. Included only
+# when port 80 is free (the installer adds it to COMPOSE_FILE in .env):
+# publishing a busy port would stop the whole stack from starting.
+services:
+  nginx:
+    ports:
+      - "${HTTP_PORT:-80}:80"
