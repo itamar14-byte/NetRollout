@@ -588,8 +588,9 @@ def test_fortios_closes_open_blocks_and_saves_nothing():
 	conn.find_prompt.side_effect = ["fw1 (ipv6) #", "fw1 (port1) #",
 	                                "fw1 (interface) #", "fw1 #"]
 	assert push("fortinet", conn, commands=("config system interface",)).applied
-	ends = [c for c in conn.send_command_timing.call_args_list if c == call("end")]
-	assert len(ends) == 3
+	# every open block closed first, then the save mode is checked
+	assert conn.send_command_timing.call_args_list == \
+	       [call("end")] * 3 + [call("get system global | grep cfg-save")]
 	conn.save_config.assert_not_called()
 	conn.commit.assert_not_called()
 
