@@ -10,11 +10,14 @@ Network bulk configuration tool that pushes configuration snippets to multiple n
 
 Everything runs **from the repo root**: `src` is a package and all imports are `src.*`.
 
-### Run the web app
+### Run the web app (dev)
+The services run in the **dev stack** (`compose.dev.yaml`: the product's Postgres, Redis, nginx and monitoring, project `netrollout-dev`); the app runs on the host:
 ```bash
-python -m src.webapp
+docker compose up -d          # the dev stack (.env lists all four compose files)
+python -m src.webapp          # the app, from the repo root (PyCharm or a terminal)
+docker compose ps             # health; `docker compose down` stops it (data kept in volumes)
 ```
-App at `http://localhost:8080` (nginx in front on 80/443). Every start runs the Alembic migrations, seeds the factory `admin`/`admin` account if missing, schedules the pg_cron retention jobs (skipped if pg_cron is unavailable), and prunes old log files. There is no separate DB-init step.
+Open `https://localhost` (nginx → the host app on 8080; certificate in `certs/`, self-signed for localhost/127.0.0.1); Grafana at `http://127.0.0.1:3000` (admin password in `.env`) until it is served through nginx. After changing an image's source (`deploy/…`, the Dockerfile): `docker compose up -d --build`. The repo's `.env` (gitignored) holds the stack's generated passwords; `config/runtime.env` points the host app at it (`127.0.0.1`, not `localhost`: the stack publishes IPv4 only and Windows waits ~2 s on every refused `::1` attempt). Every start runs the Alembic migrations, seeds the factory `admin`/`admin` account if missing, schedules the pg_cron retention jobs (skipped if pg_cron is unavailable), and prunes old log files. There is no separate DB-init step.
 
 ### Run the CLI
 ```bash
@@ -39,7 +42,7 @@ docker build --build-arg VERSION=1.0.0 -t netrollout .    # a release (stamps sr
 pytest                    # all
 pytest tests/unit         # hermetic, no services
 ```
-Integration tests use a real Postgres (`rollout_test` DB) and Redis (db 15) and are skipped with a reason when a service is unhealthy — if ~150 skip right after `docker` starts, Postgres wasn't ready; rerun. LDAP tests start and remove an ephemeral OpenLDAP container. The pg_cron test is opt-in (`TEST_PG_CRON_URL`). Known bugs are recorded as strict xfails.
+Integration tests use a real Postgres (`rollout_test` DB, created on the dev stack's Postgres as its superuser — password from `.env`; `TEST_PG_ADMIN_URL` overrides) and Redis (db 15, the server in `config/runtime.env`) and are skipped with a reason when a service is unhealthy — if ~150 skip right after `docker` starts, Postgres wasn't ready; rerun. LDAP tests start and remove an ephemeral OpenLDAP container. The pg_cron test is opt-in (`TEST_PG_CRON_URL`). Known bugs are recorded as strict xfails.
 
 ### Migrations
 ```bash
@@ -65,7 +68,7 @@ MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd -W)/requirements.txt:/req/requireme
 - Health: `/_netrollout/health` (public) — Postgres/Redis up, running/queued rollouts, draining, version; 200 or 503. Version string in `src/runtime.py`.
 - Passwords (`src/passwords.py`, local accounts): one rule — 8+ characters, at least 2 of letters / digits / special, ASCII, not containing the username — for registration, `/account/password` and admin resets (a temporary password shown once). `users.must_change_password` (the seeded `admin`, after a reset) gates every page to the change page. A reset or Terminate Session signs the user out everywhere, a change signs out the user's other sessions (`utils.end_user_sessions`).
 - Encryption key: `NETROLLOUT_ENCRYPTION_KEY`, else (dev only) `~/.netrollout/encryption.key`. The app refuses to start on a malformed, missing-with-data, or mismatched key (fail-fast).
-- Dev DB: `postgresql+psycopg2://dbadmin:Pass123@localhost:5432/rollout_db`, in Docker: `docker exec -it NetRollout-DB psql -U dbadmin -d rollout_db`
+- Dev DB: the dev stack's `netrollout` database, owned by the `netrollout` role (not a superuser) — `docker compose exec postgres psql -U postgres -d netrollout`. Moved from the hand-made `NetRollout-DB` container on 2026-10-04 (backup in `backups/`).
 
 ## Architecture
 

@@ -35,9 +35,20 @@ from werkzeug.security import generate_password_hash
 
 ROOT = Path(__file__).resolve().parents[2]
 REDIS_TEST_DB = 15
-PG_ADMIN_URL = os.environ.get(
-	"TEST_PG_ADMIN_URL",
-	"postgresql+psycopg2://dbadmin:Pass123@localhost:5432/postgres")
+def _pg_admin_url() -> str:
+	"""A superuser login (it creates and drops the test database): the dev
+	stack's Postgres (compose.dev.yaml), with the superuser password from the
+	repo's .env — unless TEST_PG_ADMIN_URL says otherwise (e.g. CI)."""
+	url = os.environ.get("TEST_PG_ADMIN_URL")
+	if url:
+		return url
+	password = dotenv_values(ROOT / ".env").get("POSTGRES_PASSWORD") or ""
+	# 127.0.0.1, not localhost: the stack publishes IPv4 only, and on Windows
+	# each refused ::1 attempt costs ~2 s per new connection
+	return f"postgresql+psycopg2://postgres:{password}@127.0.0.1:5432/postgres"
+
+
+PG_ADMIN_URL = _pg_admin_url()
 TEST_DB = os.environ.get("TEST_PG_DBNAME", "rollout_test")
 TEST_DB_URL = PG_ADMIN_URL.rsplit("/", 1)[0] + "/" + TEST_DB
 TEST_PASSWORD = "Test-pass-1"
