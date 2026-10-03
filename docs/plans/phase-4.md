@@ -3,7 +3,7 @@
 ## Context
 NetRollout is feature-complete on `master` (System Settings merged 2026-09-30). Phase 4 turns it into a free community product (GNU AGPL v3) that a team installs with minimal friction: download a release zip, run the installer, answer a few questions, get a running HTTPS NetRollout. This plan records the vision agreed in the planning session and the staged implementation.
 
-_Approved 2026-09-30. Branch `phase-4-packaging`. Status: stages 1–5 done (2026-10-02) — the dev DB is stamped `v1_0_0_baseline`, so `master` can't start against it until the Phase 4 fast-forward; dev settings moved to `config/runtime.env`; next: stage 6._
+_Approved 2026-09-30. Branch `phase-4-packaging`. Status: stages 1–6 done (2026-10-03) — the dev DB is stamped `v1_0_0_baseline`, so `master` can't start against it until the Phase 4 fast-forward; dev settings moved to `config/runtime.env`; next: stage 7._
 
 ## Vision
 - **Three uses:** (1) engineer's PC, (2) **team server — main case**: a Windows 10/11 VM running Docker Desktop, reached remotely over HTTPS, (3) **headless CLI** as a standalone `netrollout-cli.exe` (no Docker/Python).
