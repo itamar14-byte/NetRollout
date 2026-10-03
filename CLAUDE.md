@@ -30,6 +30,7 @@ docker build -t netrollout .                              # dev: 1.0.0.dev0
 docker build --build-arg VERSION=1.0.0 -t netrollout .    # a release (stamps src/runtime.py)
 ```
 `python:3.12-slim-bookworm`, non-root `netrollout` (uid 10001), `NETROLLOUT_DEPLOYMENT=docker`, `NETROLLOUT_HOME=/data`; health check on `/_netrollout/health`. Context = the `.dockerignore` whitelist. The footer (`templates/_footer.html`) shows the version and links the source of that version (AGPL §13).
+- Postgres image (`deploy/postgres/`, `docker build -t netrollout-postgres deploy/postgres`): `postgres:17-bookworm` + pg_cron, started by `netrollout-postgres.sh` with `cron.use_background_workers=on` and `cron.timezone`/`timezone` from `TZ` (retention at 03:00 local). First start only (empty volume): roles `netrollout` (the app: owns the `netrollout` DB and `public`, not a superuser, may use `cron`) and `grafana_reader`; env `POSTGRES_PASSWORD`, `NETROLLOUT_DB_PASSWORD`, `GRAFANA_DB_PASSWORD`. At every start `install()` gives `grafana_reader` SELECT on exactly `GRAFANA_TABLES` (`device_results`, `job_metadata`, `audit_log`) when the role exists.
 - TLS certificates (`src/certs.py`, inside the image so the host needs no OpenSSL): `python -m src.certs selfsigned --host <name> [--ip <addr>]...` writes `fullchain.pem` + `privkey.pem` + a `.selfsigned` marker (ECDSA P-256, 825 days, the IPs as SANs) to the certs folder; `validate --cert --key [--host]` checks key match, encrypted key, dates, SAN/wildcard coverage, chain order.
 
 ### Run tests

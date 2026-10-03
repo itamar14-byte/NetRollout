@@ -10,7 +10,8 @@ import pytest
 from cryptography.fernet import Fernet
 from sqlalchemy import create_engine, text
 
-from src.db.db_install import _RETENTION_JOBS, _schedule_retention
+from src.db.db_install import (_RETENTION_JOBS, _schedule_retention,
+                                 _grant_grafana_read, GRAFANA_TABLES)
 from src.db.settings import SETTINGS
 from tests.integration.conftest import ROOT
 
@@ -340,6 +341,39 @@ def test_audit_retention_follows_the_setting(app):
 	assert remaining() == {"age.10"}                   # default 90 days
 	app.backend.settings.update({"audit_retention_days": 7}, None)
 	assert remaining() == set()
+
+
+def test_grafana_reads_exactly_the_dashboard_tables(app):
+	# Roles are cluster-wide: a throwaway role, dropped afterwards
+	engine = app.backend.postgres.engine
+	role = f"nr_test_reader_{uuid.uuid4().hex[:8]}"
+	with engine.begin() as c:
+		c.execute(text(f'CREATE ROLE "{role}"'))
+	try:
+		with engine.begin() as c:
+			c.execute(text(f'GRANT SELECT ON users, inventory TO "{role}"'))
+			assert _grant_grafana_read(c, role)
+			assert _grant_grafana_read(c, role)       # every start: idempotent
+
+			def can_read(table):
+				return c.execute(text("SELECT has_table_privilege(:r, :t, "
+				                      "'SELECT')"), {"r": role, "t": table}).scalar()
+			assert all(can_read(t) for t in GRAFANA_TABLES)
+			# credentials, password hashes, LDAP, settings: never — also a
+			# wider grant from before is taken back
+			for table in ("users", "security_profiles", "inventory",
+			              "ldap_servers", "system_settings"):
+				assert not can_read(table), table
+	finally:
+		with engine.begin() as c:
+			c.execute(text(f'REVOKE ALL ON ALL TABLES IN SCHEMA public FROM "{role}"'))
+			c.execute(text(f'DROP ROLE "{role}"'))
+
+
+def test_grafana_grant_is_skipped_without_the_role(app):
+	# dev databases and external Postgres servers have no grafana_reader
+	with app.backend.postgres.engine.begin() as c:
+		assert _grant_grafana_read(c, "nr_no_such_role") is False
 
 
 @pytest.mark.pg_cron
