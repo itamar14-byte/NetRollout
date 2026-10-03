@@ -755,6 +755,9 @@ class TestRolloutEngineVerify(unittest.TestCase):
         with patch.object(device, "fetch_config", return_value=None):
             result = engine._verify([0], self.logger)
         self.assertIsNone(result[0])
+        # ...but nobody checked the result: a person must, and is told so
+        (what,) = engine._needs_action[device.endpoint]
+        self.assertIn("applied but NOT verified", what)
 
     def test_partial_commands_matched(self):
         device = make_device()
@@ -922,6 +925,32 @@ class TestFullRolloutAndVerifyPipeline(unittest.TestCase):
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0]["status"], "success")
         self.assertEqual(result[0]["commands_verified"], 1)
+
+    @patch("netmiko.ConnectHandler")
+    @patch("src.core.Device.from_inventory")
+    def test_full_pipeline_config_unreadable_is_action_needed(self, mock_from_inv, mock_netmiko_ch):
+        # The push works; the verify's config fetch can't log in
+        device = self._make_device()
+        mock_from_inv.return_value = device
+        mock_conn = MagicMock()
+        mock_conn.send_config_set.return_value = "ok"
+        mock_netmiko_ch.return_value = mock_conn
+        mock_conn.__enter__.side_effect = Exception("Authentication failed")
+
+        devices = InputParser.import_from_inventory([self._make_inventory_row()], None)
+        engine = RolloutEngine(param=make_options(verify=True), devices=devices,
+                               commands=[self.COMMAND])
+        logger = RolloutLogger(webapp=False, verbose=False)
+        (result,) = engine.run(threading.Event(), logger)
+        # status from the push, but flagged for a person: the completion card,
+        # Results and the Dashboard all read action_needed
+        self.assertEqual(result["status"], "success")
+        self.assertIsNone(result["commands_verified"])
+        self.assertIn("applied but NOT verified", result["action_needed"])
+        with open(logger.logfile, encoding="utf-8") as f:
+            log = f.read()
+        self.assertIn("could not fetch the config", log)       # the reason
+        self.assertIn("ACTION NEEDED", log)
 
     @patch("netmiko.ConnectHandler")
     @patch("src.core.Device.from_inventory")
