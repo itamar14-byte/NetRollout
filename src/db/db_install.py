@@ -62,6 +62,30 @@ def _schedule_retention(conn, name: str, statement: str):
     """))
 
 
+# ── Grafana's read access ────────────────────────────────────────────────────
+# The dashboards read only these; users, credentials (security profiles),
+# inventory, LDAP and settings stay out of reach. A new dashboard table is a
+# deliberate addition here.
+GRAFANA_ROLE = "grafana_reader"
+GRAFANA_TABLES = ("device_results", "job_metadata", "audit_log")
+
+
+def _grant_grafana_read(conn, role: str = GRAFANA_ROLE) -> bool:
+	"""Exactly GRAFANA_TABLES readable by `role`, in the app's schema —
+	repeated at every start (a table a migration recreates keeps it). Only
+	where the role exists (the bundled Postgres creates it); returns whether
+	it was applied."""
+	if not conn.execute(text("SELECT 1 FROM pg_roles WHERE rolname = :r"),
+	                    {"r": role}).scalar():
+		return False
+	schema = conn.execute(text("SELECT current_schema()")).scalar()
+	conn.execute(text(f'REVOKE ALL ON ALL TABLES IN SCHEMA "{schema}" '
+	                  f'FROM "{role}"'))
+	conn.execute(text(f"GRANT SELECT ON {', '.join(GRAFANA_TABLES)} "
+	                  f'TO "{role}"'))
+	return True
+
+
 def install(postgres: "PostgresConnection"):
 	# 1. Schema (essential). Migrations run on the app's own connection, so
 	#    they hit the exact database/credentials/schema the app uses — also
@@ -107,4 +131,13 @@ def install(postgres: "PostgresConnection"):
 	except SQLAlchemyError as e:
 		print(f"[NetRollout] Retention jobs not scheduled — pg_cron "
 		      f"unavailable in this database: {str(e).splitlines()[0]}")
+
+	# 3. Grafana's read access (optional): only where its role exists
+	try:
+		with postgres.engine.connect() as conn:
+			_grant_grafana_read(conn)
+			conn.commit()
+	except SQLAlchemyError as e:
+		print(f"[NetRollout] Grafana's read access not granted: "
+		      f"{str(e).splitlines()[0]}")
 	print("DB Initialized")

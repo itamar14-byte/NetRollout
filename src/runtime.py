@@ -8,9 +8,19 @@ import os
 import sys
 from pathlib import Path
 
-# The release build (stage 6/10) sets this from the vX.Y.Z tag; between
+# The release build sets this from the vX.Y.Z tag (the Dockerfile's VERSION
+# build arg rewrites this line — keep it one line, double quotes); between
 # releases it names the next one
 VERSION = "1.0.0.dev0"
+SOURCE_REPO = "https://github.com/itamar14-byte/NetRollout"
+
+
+def source_url() -> str:
+	"""Where the source of *this* version is (AGPL-3.0 §13: offered to every
+	network user): its release tag, or the repository for a dev build."""
+	if "dev" in VERSION:
+		return SOURCE_REPO
+	return f"{SOURCE_REPO}/tree/v{VERSION}"
 
 
 # ── Deployment ───────────────────────────────────────────────────────────────

@@ -20,7 +20,7 @@ from src.webapp.extensions import register_extensions, register_handlers, \
 from src.webapp.utils import WebServices
 from src.db.backend import BackendServices
 from src.db.redis_db import REDIS_UNAVAILABLE
-from src.runtime import StartupError, in_container
+from src.runtime import VERSION, StartupError, in_container, source_url
 from src.encryption import init_encryption, require_key_in_container
 from src.orchestration import RolloutOrchestrator
 from src.webapp.lifecycle import Shutdown
@@ -108,6 +108,8 @@ def configure_app(app, redis, secret_key: str):
 
 	app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 	app.jinja_env.globals['VENDOR_LOGOS'] = VENDOR_LOGOS
+	app.jinja_env.globals['NR_VERSION'] = VERSION        # the footer
+	app.jinja_env.globals['NR_SOURCE_URL'] = source_url()
 
 
 # set up prometheus scraping
