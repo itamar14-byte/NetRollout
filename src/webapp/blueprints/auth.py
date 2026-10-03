@@ -226,7 +226,7 @@ def register(data):
 	                password_hash=pass_hash,
 	                email=email,
 	                full_name=full_name,
-	                role="user",
+	                role="operator",
 	                position=position)
 
 	with current_app.backend.postgres.get_session() as db_session:

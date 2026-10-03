@@ -41,12 +41,12 @@ def test_panel_and_users_page(admin, client_for):
 	("approve", {"is_approved": True, "is_active": True}),
 	("disable", {"is_active": False}),
 	("promote", {"role": "admin", "is_approved": True}),
-	("demote", {"role": "user"}),
+	("demote", {"role": "operator"}),
 ])
 def test_user_actions(admin, client_for, make_user, session_scope, action,
                       expected):
 	target = make_user(approved=False, active=False) if action == "approve" \
-		else make_user(role="admin" if action == "demote" else "user")
+		else make_user(role="admin" if action == "demote" else "operator")
 	client_for(admin).post(f"/admin/users/{target.id}/{action}")
 	user = get_user(session_scope, target.id)
 	for field, value in expected.items():

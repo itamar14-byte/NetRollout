@@ -287,7 +287,7 @@ def session_scope(app):
 def make_user(app):
 	from src.db.tables import User
 
-	def _make(username=None, role="user", approved=True, active=True, **kw):
+	def _make(username=None, role="operator", approved=True, active=True, **kw):
 		username = username or f"u_{uuid.uuid4().hex[:8]}"
 		with app.backend.postgres.get_session() as s:
 			user = User(username=username, role=role, is_approved=approved,

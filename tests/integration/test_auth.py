@@ -132,7 +132,7 @@ def test_registration_creates_pending_user_and_ignores_role(client_for,
 	assert resp.headers["Location"] == "/"
 	with session_scope() as s:
 		u = s.query(User).filter_by(username="newbie").one()
-		assert (u.role, u.is_approved, u.is_active) == ("user", False, False)
+		assert (u.role, u.is_approved, u.is_active) == ("operator", False, False)
 		assert u.password_hash != "Str0ng-pass"
 
 
@@ -183,16 +183,16 @@ def test_ldap_group_member_is_auto_provisioned(client_for, ldap_server,
                                                session_scope):
 	with session_scope() as s:
 		s.add(LDAPGroup(group_dn="cn=netops,dc=corp", label="netops",
-		                role="user", ldap_server_id=ldap_server))
+		                role="operator", ldap_server_id=ldap_server))
 	with patch("src.webapp.blueprints.auth.check_group_membership",
-	           return_value=("cn=netops,dc=corp", "user")), \
+	           return_value=("cn=netops,dc=corp", "operator")), \
 			patch("src.webapp.blueprints.auth.fetch_user_details",
 			      return_value={"email": "jd@corp", "full_name": "J D"}):
 		resp = login(client_for(), "jdoe", "directory-pass")
 	assert resp.headers["Location"] == "/dashboard"
 	with session_scope() as s:
 		u = s.query(User).filter_by(username="jdoe").one()
-		assert (u.auth_type, u.role, u.is_approved) == ("ldap", "user", True)
+		assert (u.auth_type, u.role, u.is_approved) == ("ldap", "operator", True)
 
 
 def test_unknown_user_without_group_match_is_rejected(client_for, ldap_server):

@@ -42,7 +42,7 @@ def test_grafana_is_for_signed_in_admins(client_for, make_user):
 	assert resp.status_code == 204
 	assert resp.headers["X-NetRollout-User"] == admin.username   # → Grafana's user
 	assert client_for().get(GRAFANA_AUTH).status_code == 401       # → sign in
-	operator = client_for(make_user(role="user")).get(GRAFANA_AUTH)
+	operator = client_for(make_user(role="operator")).get(GRAFANA_AUTH)
 	assert operator.status_code == 403
 	assert "X-NetRollout-User" not in operator.headers
 

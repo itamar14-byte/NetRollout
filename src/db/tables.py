@@ -31,7 +31,8 @@ class User(UserMixin, Base):
 	email: Mapped[str | None] = mapped_column(String(120), unique=True,
 	                                     nullable=True)
 	full_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
-	role: Mapped[str] = mapped_column(String(40), default='user',
+	# "admin" or "operator" — the app only ever checks for "admin"
+	role: Mapped[str] = mapped_column(String(40), default='operator',
 	                                  nullable=False)
 	position: Mapped[str] = mapped_column(String(64), nullable=True)
 	is_active: Mapped[bool] = mapped_column(Boolean, default=False,
@@ -254,7 +255,7 @@ class LDAPGroup(Base):
 	group_dn: Mapped[str] = mapped_column(String(512), nullable=False)
 	label: Mapped[str] = mapped_column(String(128), nullable=False)
 	role: Mapped[str] = mapped_column(String(40), nullable=False,
-	                                  default='user')
+	                                  default='operator')
 	is_active: Mapped[bool] = mapped_column(Boolean, nullable=False,
 	                                        default=True)
 

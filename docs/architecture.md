@@ -110,7 +110,7 @@ All models use UUID primary keys except `SystemSetting`, whose key is the settin
 | `password_hash` | `str(255)` | Nullable — null for LDAP users |
 | `email` | `str(120)` | Unique, nullable |
 | `full_name` | `str(120)` | Nullable |
-| `role` | `str(40)` | `"user"` or `"admin"` |
+| `role` | `str(40)` | `"operator"` or `"admin"` (the app only checks for `"admin"`; stored as `"user"` before the `role_user_to_operator` migration) |
 | `position` | `str(64)` | Nullable |
 | `is_active` | `bool` | Default False |
 | `is_approved` | `bool` | Default False |
@@ -257,7 +257,7 @@ Group rule: members of this group are auto-provisioned as users on their first l
 | `ldap_server_id` | `UUID` | FK → `LDAPServer`, ON DELETE CASCADE |
 | `group_dn` | `str(512)` | Group DN to match against |
 | `label` | `str(128)` | Display name |
-| `role` | `str(40)` | Role given to auto-provisioned users (`"user"` or `"admin"`) |
+| `role` | `str(40)` | Role given to auto-provisioned users (`"operator"` or `"admin"`) |
 | `is_active` | `bool` | |
 
 Only direct members of a mapped group match. Nested groups are not resolved (see the Active Directory note in the workplan).

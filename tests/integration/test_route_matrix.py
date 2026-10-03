@@ -69,7 +69,7 @@ def test_unauthenticated_requests_are_refused(app, client_for):
 
 
 def test_non_admins_are_refused_on_admin_routes(app, client_for, make_user):
-	user = make_user(role="user")
+	user = make_user(role="operator")
 	page, xhr = client_for(user), client_for(user, xhr=True)
 	failures = []
 	for rule, method in _routes(app):
