@@ -25,7 +25,8 @@ conn_limit = Limiter(get_remote_address, default_limits=[],
 csrf = CSRFProtect()
 # Reachable while a password change is pending (must_change_password)
 PASSWORD_CHANGE_ALLOWED = {"auth.change_password", "auth.logout", "static",
-                           "system.instance", "system.health"}
+                           "system.instance", "system.health",
+                           "system.grafana_auth"}   # answers 403 itself
 
 
 def register_extensions(app):

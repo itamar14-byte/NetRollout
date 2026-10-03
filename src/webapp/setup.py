@@ -110,6 +110,9 @@ def configure_app(app, redis, secret_key: str):
 	app.jinja_env.globals['VENDOR_LOGOS'] = VENDOR_LOGOS
 	app.jinja_env.globals['NR_VERSION'] = VERSION        # the footer
 	app.jinja_env.globals['NR_SOURCE_URL'] = source_url()
+	# compose passes COMPOSE_PROFILES: Grafana runs (at /grafana/) with "monitoring"
+	app.jinja_env.globals['NR_MONITORING'] = "monitoring" in [
+		p.strip() for p in os.environ.get("NETROLLOUT_MONITORING", "").split(",")]
 
 
 # set up prometheus scraping

@@ -32,6 +32,8 @@ from src.runtime import VERSION, in_container
 
 INSTANCE_PATH = "/_netrollout/instance"
 HEALTH_PATH = "/_netrollout/health"
+# nginx's auth check for /grafana/ (deploy/nginx/site.conf.template)
+GRAFANA_AUTH_PATH = "/_netrollout/grafana-auth"
 PROBE_TIMEOUT = 2.0
 READY_TIMEOUT = 60.0
 
