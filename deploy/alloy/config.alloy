@@ -1,0 +1,54 @@
+// Ships NetRollout's log files (logs/*.log, mounted read-only at /data/logs)
+// to Loki. Grafana Alloy replaces promtail (end of life). Where each file was
+// read up to is kept in Alloy's storage path (a volume), so a restart doesn't
+// send everything again.
+
+local.file_match "netrollout" {
+  path_targets = [{"__path__" = "/data/logs/*.log", "job" = "netrollout"}]
+  sync_period  = "10s"
+}
+
+loki.source.file "netrollout" {
+  targets    = local.file_match.netrollout.targets
+  forward_to = [loki.process.netrollout.receiver]
+}
+
+loki.process "netrollout" {
+  // An entry starts with its timestamp; a line without one (e.g. the second
+  // line of a multi-line message) belongs to the entry above
+  stage.multiline {
+    firstline     = "^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}"
+    max_wait_time = "3s"
+  }
+
+  // Labels from the file name: <prefix>_<YYYYmmdd>_<HHMMSS>[_<job id>].log
+  // (CLI logs have no job id)
+  stage.regex {
+    source     = "filename"
+    expression = "(?P<prefix>[a-z_]+?)_\\d{8}_\\d{6}(?:_(?P<job_id>[a-f0-9-]+))?\\.log$"
+  }
+  stage.labels {
+    values = {
+      prefix = "",
+      job_id = "",
+    }
+  }
+
+  // The entry's own time — local time (TZ), as the app writes it
+  stage.regex {
+    expression = "^(?P<log_time>\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2})"
+  }
+  stage.timestamp {
+    source   = "log_time"
+    format   = "2006-01-02 15:04:05"
+    location = coalesce(sys.env("TZ"), "UTC")
+  }
+
+  forward_to = [loki.write.loki.receiver]
+}
+
+loki.write "loki" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}
