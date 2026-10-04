@@ -538,3 +538,76 @@ def test_a_later_change_does_not_extend_an_old_names_deadline(
 	names.write_text(_json.dumps({"a.lab": soon}))
 	save(client, public_hostname="c.lab")
 	assert _json.loads(names.read_text())["a.lab"] == soon
+
+
+# ── The Access status: nginx's last verdict and the certificate, any time ───
+
+def overview(app):
+	return _pc.overview(app.backend.settings.get("public_hostname"))
+
+
+def test_status_with_nothing_there(admin, app, proxy):
+	assert overview(app) == {"nginx": None, "certificate": None}
+
+
+def test_status_shows_nginxs_verdict(admin, app, proxy):
+	proxy.managed()
+	assert overview(app)["nginx"]["state"] == "applied"
+	(_pc.shared_dir() / _pc.STATUS_FILE).write_text(_json.dumps(
+		{"state": "rejected", "message": "nginx: [emerg] bad", "time": "2026-10-04T10:00:00Z"}))
+	assert overview(app)["nginx"] == {"state": "rejected", "message": "nginx: [emerg] bad",
+	                                  "time": "2026-10-04T10:00:00Z"}
+
+
+def test_status_shows_the_certificate_and_its_old_names(admin, app, client_for,
+                                                        proxy):
+	_certs.selfsigned("a.lab", ["10.0.0.5"], _runtime.certs_dir())
+	save(client_for(admin), public_hostname="b.lab")
+	cert = overview(app)["certificate"]
+	assert cert["selfsigned"] and cert["names"] == ["b.lab", "a.lab", "10.0.0.5"]
+	assert cert["problems"] == [] and cert["warnings"] == []
+	(old,) = cert["old_names"]
+	assert old["name"] == "a.lab" and old["until"] > _time.time()
+
+
+def test_status_flags_a_certificate_that_does_not_cover_the_hostname(
+		admin, app, proxy):
+	_org_cert(("nr01.corp.local",))
+	app.backend.settings.update({"public_hostname": "other.corp.local"}, None)
+	cert = overview(app)["certificate"]
+	assert not cert["selfsigned"]
+	assert any("doesn't cover other.corp.local" in p for p in cert["problems"])
+
+
+def test_status_flags_a_key_that_does_not_match(admin, app, proxy):
+	_certs.selfsigned("a.lab", [], _runtime.certs_dir())
+	key = (_runtime.certs_dir() / _certs.KEY_FILE).read_bytes()
+	_certs.selfsigned("a.lab", [], _runtime.certs_dir())       # a new key
+	(_runtime.certs_dir() / _certs.KEY_FILE).write_bytes(key)    # the old one back
+	assert any("private key doesn't belong" in p
+	           for p in overview(app)["certificate"]["problems"])
+
+
+def test_status_warns_before_expiry(admin, app, proxy):
+	_certs.selfsigned("a.lab", [], _runtime.certs_dir(), days=5)
+	assert any("expires on" in w for w in overview(app)["certificate"]["warnings"])
+
+
+def test_the_page_and_every_save_carry_the_status(admin, app, client_for, proxy):
+	_certs.selfsigned("a.lab", [], _runtime.certs_dir())
+	client = client_for(admin)
+	assert b'id="accessStatus"' in client.get("/admin/settings").data
+	resp = save(client, device_parallelism=11)
+	assert resp.json["access"]["certificate"]["names"] == ["a.lab"]
+	save(client, device_parallelism=10)
+
+
+def test_in_docker_the_test_button_shows_what_nginx_reported(
+		admin, app, client_for, proxy, monkeypatch):
+	from src.webapp.blueprints import admin_settings
+	monkeypatch.setattr(admin_settings, "in_container", lambda: True)
+	proxy.managed()
+	resp = client_for(admin).post("/admin/settings/test",
+	                              json={"hostname": "", "port": 443})
+	assert resp.status_code == 200 and resp.json["container"]
+	assert resp.json["access"]["nginx"]["state"] == "applied"

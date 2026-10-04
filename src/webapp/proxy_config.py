@@ -203,6 +203,41 @@ def start_certificate_upkeep() -> None:
 	threading.Thread(target=loop, name="certificate-upkeep", daemon=True).start()
 
 
+def overview(hostname: str | None) -> dict:
+	"""What the Access card shows, whenever an admin looks — not only right
+	after a save: nginx's last verdict and the certificate in use, checked
+	against `hostname` (the saved one).
+	{"nginx": None (no NetRollout nginx reports here) | {"state", "message",
+	 "time"}, "certificate": None (no file) | {"names", "not_after",
+	 "selfsigned", "problems", "warnings", "old_names": [{"name", "until"}]}}"""
+	status = read_status()
+	nginx = None if status is None else {
+		"state": status.get("state", "unknown"),
+		"message": status.get("message", ""), "time": status.get("time")}
+	cert_dir = runtime.certs_dir()
+	try:
+		cert_pem = (cert_dir / certs.CERT_FILE).read_bytes()
+	except FileNotFoundError:
+		return {"nginx": nginx, "certificate": None}
+	except OSError as e:
+		return {"nginx": nginx, "certificate": {
+			"names": [], "not_after": None, "selfsigned": False, "old_names": [],
+			"problems": [f"NetRollout can't read the certificate: {e.strerror or e}."],
+			"warnings": []}}
+	try:
+		key_pem = (cert_dir / certs.KEY_FILE).read_bytes()
+	except OSError:
+		key_pem = b""                    # validate() reports the key as missing
+	check = certs.validate(cert_pem, key_pem, hostname or None)
+	old = _read_old_names(cert_dir)
+	return {"nginx": nginx, "certificate": {
+		"names": check.names,
+		"not_after": check.not_after.isoformat() if check.not_after else None,
+		"selfsigned": certs.is_selfsigned(cert_dir),
+		"problems": check.problems, "warnings": check.warnings,
+		"old_names": [{"name": n, "until": old[n]} for n in check.names if n in old]}}
+
+
 def read_status() -> dict | None:
 	"""The watcher's last verdict: {"state": "applied" | "rejected",
 	"message", "time"}. None when no nginx reports here (an external proxy,

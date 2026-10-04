@@ -38,6 +38,7 @@ def _state():
 		"restart_pending": settings.restart_pending(
 			current_app.config.get("SETTINGS_STARTED_WITH", {})),
 		"port": port_apply.state(settings.get("https_port")),
+		"access": proxy_config.overview(settings.get("public_hostname")),
 	}
 
 
@@ -77,6 +78,7 @@ def settings_page():
 	return render_template("admin_settings.html", active_section="settings",
 	                       cards=cards, settings=state["settings"],
 	                       rules=rules_for_client(), port=state["port"],
+	                       access=state["access"],
 	                       app_port=current_app.config.get("APP_PORT"))
 
 
@@ -242,8 +244,11 @@ def settings_test_access(data):
 	url, source = resolve_public_url(public_url(hostname, port))
 	if in_container():
 		# From inside the container the published port isn't reliably
-		# reachable: a probe here would report working setups as broken
-		return ok(url=url, source=source, container=True)
+		# reachable: a probe here would report working setups as broken —
+		# what nginx itself last reported is shown instead
+		return ok(url=url, source=source, container=True,
+		          access=proxy_config.overview(
+		              current_app.backend.settings.get("public_hostname")))
 	if not url:
 		return ok(url=None, source=source, local=None, public=None)
 	local, public = check_proxy(url, current_app.config["INSTANCE_TOKEN"])
