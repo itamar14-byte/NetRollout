@@ -1,6 +1,8 @@
 """System Settings (admin panel → System). The registry and all validation
 live in src/db/settings.py; these routes call it, audit every change, and
 return per-field / rule errors for the page to show."""
+import time
+
 # flask
 from flask import Blueprint, current_app, jsonify, render_template, request
 from flask_login import current_user, login_required
@@ -11,6 +13,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from src.db.settings import (SETTINGS, SettingsError, public_url,
                              rules_for_client)
 from src.runtime import in_container
+from src.webapp import proxy_config
 from src.webapp.startup import check_proxy, resolve_public_url
 from src.webapp.utils import err, ok, require_admin, with_json
 
@@ -37,11 +40,12 @@ def _state():
 	}
 
 
-def _audit(action, change):
+def _audit(action, change, proxy=None):
+	detail = {"key": change.key, "old": change.old, "new": change.new}
+	if proxy:
+		detail["nginx"] = proxy.get("state")     # applied / not_managed / no_answer
 	current_app.web.audit(action, object_type="SystemSetting",
-	                      object_label=change.key,
-	                      detail={"key": change.key, "old": change.old,
-	                              "new": change.new})
+	                      object_label=change.key, detail=detail)
 
 
 @bp.app_context_processor
@@ -73,6 +77,56 @@ def settings_page():
 	                       app_port=current_app.config.get("APP_PORT"))
 
 
+def _save(values: dict, action: str):
+	"""Validate, prepare nginx for a new hostname, save, and report nginx's
+	verdict — all or nothing: an invalid value, a certificate that doesn't
+	cover the new name, a file that can't be written, or nginx rejecting the
+	result leaves every setting and file as it was, and says why."""
+	store = current_app.backend.settings
+	try:
+		changes = store.plan(values)
+	except SettingsError as e:
+		return _errors_response(e)
+	host = next((c for c in changes if c.key == "public_hostname"), None)
+	undo, proxy = None, None
+	if host:
+		managed = proxy_config.read_status() is not None
+		started = time.time()
+		try:
+			undo = proxy_config.change_hostname(host.new)
+		except proxy_config.ProxyError as e:
+			return _errors_response(SettingsError({"public_hostname": str(e)}))
+	try:
+		changes = store.update(values, current_user.id)
+	except SettingsError as e:            # changed meanwhile: back out
+		if undo:
+			undo()
+		return _errors_response(e)
+	if host:
+		proxy = _verdict(managed, started, host.new)
+		if proxy["state"] == "rejected":
+			store.update({"public_hostname": host.old}, current_user.id)
+			undo()
+			return _errors_response(SettingsError({"public_hostname":
+				f"nginx rejected the new hostname: {proxy.get('message')} — "
+				f"nothing was changed, the previous hostname is back."}))
+	for change in changes:
+		_audit(action, change,
+		       proxy=proxy if change.key == "public_hostname" else None)
+	return ok(changed=[c.key for c in changes], proxy=proxy, **_state())
+
+
+def _verdict(managed: bool, started: float, hostname: str) -> dict:
+	"""nginx's answer for the new hostname: applied / rejected, or why
+	there is none."""
+	if not managed:
+		return {"state": "not_managed"}
+	status = proxy_config.wait_for_status(started, hostname=hostname)
+	if status is None:
+		return {"state": "no_answer"}
+	return {"state": status.get("state"), "message": status.get("message")}
+
+
 @bp.route("", methods=["POST"])
 @login_required
 @require_admin
@@ -82,13 +136,7 @@ def settings_save(data):
 	values = data["values"]
 	if not isinstance(values, dict):
 		return err("Invalid request")
-	try:
-		changes = current_app.backend.settings.update(values, current_user.id)
-	except SettingsError as e:
-		return _errors_response(e)
-	for change in changes:
-		_audit("settings.update", change)
-	return ok(changed=[c.key for c in changes], **_state())
+	return _save(values, "settings.update")
 
 
 @bp.route("/<key>/reset", methods=["POST"])
@@ -97,6 +145,8 @@ def settings_save(data):
 def settings_reset(key):
 	if key not in SETTINGS or not SETTINGS[key].editable:
 		return err("Unknown setting", 404)
+	if key == "public_hostname":          # nginx follows it: the full path
+		return _save({key: SETTINGS[key].default}, "settings.reset")
 	try:
 		change = current_app.backend.settings.reset(key, current_user.id)
 	except SettingsError as e:

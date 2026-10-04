@@ -118,9 +118,9 @@
 
     <div class="set-note">
       <i class="bi bi-info-circle me-1"></i>
-      These tell NetRollout where people reach it. They don't reconfigure nginx yet —
-      after changing them, update <code>server_name</code> / <code>listen</code> in the nginx config
-      (and the certificate, for a new hostname). Automatic in a later release.
+      A new hostname is applied by NetRollout's nginx at once, and its result is shown when you save —
+      if anything can't be applied, nothing changes and you're told why. Behind your own reverse proxy
+      instead, update that proxy yourself.
     </div>
     {% endif %}
   </div>
@@ -288,7 +288,14 @@
       let msg = `<i class="bi bi-check-circle me-1"></i>Saved ${n} setting${n === 1 ? '' : 's'}.`;
       if ((data.restart_pending || []).length)
         msg += ' ' + esc(data.restart_pending.join(', ')) + ' applies after a restart (Restart, bottom left).';
-      showAlert((data.restart_pending || []).length ? 'warn' : 'success', msg);
+      // what nginx did with a new hostname
+      const proxy = data.proxy, proxyWarn = proxy && proxy.state === 'no_answer';
+      if (proxy) msg += ' ' + {
+        applied: 'nginx applied it' + (proxy.message ? ' (' + esc(proxy.message) + ')' : '') + '.',
+        not_managed: 'Your own reverse proxy serves NetRollout — update it for the new hostname.',
+        no_answer: "nginx didn't confirm within a few seconds — check <code>netrollout status</code> on the server.",
+      }[proxy.state] || '';
+      showAlert((data.restart_pending || []).length || proxyWarn ? 'warn' : 'success', msg);
     } else if (resp.status === 422) {
       showServerErrors(data);
       refreshDirty();

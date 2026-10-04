@@ -101,3 +101,24 @@ def test_start_never_fails_because_of_nginx(home, capsys):
 			return "not a hostname!"
 	pc.sync_at_start(Settings())                          # no exception
 	assert "nginx site values not written" in capsys.readouterr().out
+
+
+def test_waiting_for_a_hostname_ignores_other_reloads(home):
+	# a reissued certificate alone reloads nginx a moment before the new
+	# hostname does: that earlier verdict isn't the answer
+	folder = home / "config" / "nginx"
+	folder.mkdir(parents=True)
+	now = datetime.datetime.now(datetime.timezone.utc)
+	t = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+	def status(state, message):
+		(folder / "status.json").write_text(json.dumps(
+			{"state": state, "message": message, "time": t}))
+	status("applied", "hostname=old.lab https_port=443 app=app:8080")
+	assert pc.wait_for_status(now.timestamp(), timeout=0.6, poll=0.2,
+	                          hostname="new.lab") is None
+	status("applied", "hostname=new.lab https_port=443 app=app:8080")
+	assert pc.wait_for_status(now.timestamp(), timeout=0.6, hostname="new.lab")["state"] == "applied"
+	status("rejected", "nginx: [emerg] …")                  # a rejection always counts
+	assert pc.wait_for_status(now.timestamp(), timeout=0.6, hostname="new.lab")["state"] == "rejected"
+	status("applied", "hostname=(none) https_port=443 app=app:8080")   # cleared
+	assert pc.wait_for_status(now.timestamp(), timeout=0.6, hostname="")["state"] == "applied"

@@ -16,7 +16,7 @@ from pathlib import Path
 
 from sqlalchemy.exc import SQLAlchemyError
 
-from src import runtime
+from src import certs, runtime
 from src.db.settings import SETTINGS
 
 SITE_FILE = "site.env"
@@ -65,6 +65,62 @@ def write_site(hostname: str | None) -> bool:
 	return True
 
 
+class ProxyError(Exception):
+	"""A hostname change couldn't be prepared; the message is for the page.
+	Nothing was left changed."""
+
+
+def _snapshot(paths: list[Path]) -> dict[Path, bytes | None]:
+	return {p: (p.read_bytes() if p.is_file() else None) for p in paths}
+
+
+def _restore(saved: dict[Path, bytes | None]) -> None:
+	for path, data in saved.items():
+		if data is None:
+			path.unlink(missing_ok=True)
+			continue
+		fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
+		with os.fdopen(fd, "wb") as f:
+			f.write(data)
+		os.chmod(tmp, 0o600 if path.name == certs.KEY_FILE else 0o644)
+		os.replace(tmp, path)
+
+
+def change_hostname(new: str):
+	"""Prepare nginx for the hostname `new`: the certificate first — a
+	self-signed one is reissued for the new name (keeping the addresses it
+	covered); an organisation's must already cover it — then site.env.
+	Returns undo(), which puts the previous files back. Raises ProxyError
+	with the reason, having changed nothing."""
+	cert_dir = runtime.certs_dir()
+	cert = cert_dir / certs.CERT_FILE
+	saved = _snapshot([shared_dir() / SITE_FILE, cert, cert_dir / certs.KEY_FILE,
+	                   cert_dir / certs.SELFSIGNED_MARKER])
+	try:
+		if new and cert.is_file():
+			dns, ips = certs.names_in(cert.read_bytes())
+			if certs.is_selfsigned(cert_dir):
+				certs.selfsigned(new, [str(ip) for ip in ips], cert_dir)
+			elif not certs.host_matches(new, dns, ips):
+				covers = ", ".join([*dns, *map(str, ips)]) or "no names"
+				raise ProxyError(
+					f"The certificate in use covers {covers} — not {new}. Upload "
+					f"a certificate for {new} first (Server Management → "
+					f"Certificate), then change the hostname.")
+		write_site(new)
+	except ProxyError:
+		_restore(saved)
+		raise
+	except OSError as e:
+		_restore(saved)
+		raise ProxyError(f"NetRollout couldn't write {e.filename or shared_dir()}: "
+		                 f"{e.strerror or e}. Nothing was changed.") from e
+	except ValueError as e:
+		_restore(saved)
+		raise ProxyError(f"{e}. Nothing was changed.") from e
+	return lambda: _restore(saved)
+
+
 def read_status() -> dict | None:
 	"""The watcher's last verdict: {"state": "applied" | "rejected",
 	"message", "time"}. None when no nginx reports here (an external proxy,
@@ -90,16 +146,21 @@ def _status_time(status: dict) -> float | None:
 		return None
 
 
-def wait_for_status(after: float, timeout: float = 8.0,
-                    poll: float = 0.5) -> dict | None:
+def wait_for_status(after: float, timeout: float = 8.0, poll: float = 0.5,
+                    hostname: str | None = None) -> dict | None:
 	"""The first verdict the watcher writes at or after `after` (epoch
-	seconds; it checks every 3 s), or None if none comes within `timeout`."""
+	seconds; it checks every 3 s), or None if none comes within `timeout`.
+	With `hostname`: only a rejection, or the site applied for that name —
+	not an earlier reload (e.g. of a reissued certificate alone)."""
 	deadline = time.monotonic() + timeout
 	while True:
 		status = read_status()
 		written = _status_time(status) if status else None
 		# the watcher's clock has whole seconds
-		if written is not None and written >= int(after):
+		if written is not None and written >= int(after) and (
+				hostname is None or status.get("state") == "rejected"
+				or f"hostname={hostname or '(none)'} " in
+				f"{status.get('message', '')} "):
 			return status
 		if time.monotonic() >= deadline:
 			return None

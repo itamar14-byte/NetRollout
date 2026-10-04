@@ -171,3 +171,170 @@ def test_restart_dot_shows_on_admin_pages_while_pending(admin, app, client_for):
 	html = client.get("/admin/users").get_data(as_text=True)
 	assert 'title="Restart required — Concurrent rollout jobs changed"' in html
 	assert 'id="restartPendingDot" style="display:inline-block' in html
+
+
+# ── The hostname: applied by nginx at once, all or nothing ──────────────────
+
+import json as _json
+
+from src import certs as _certs
+from src import runtime as _runtime
+from src.webapp import proxy_config as _pc
+
+
+@pytest.fixture
+def proxy(app, monkeypatch):
+	"""Clean nginx folder + certs folder; hostname back to empty afterwards.
+	`managed()` makes it look like NetRollout's nginx reports there;
+	`verdict(...)` is what the watcher answers."""
+	site_dir, cert_dir = _pc.shared_dir(), _runtime.certs_dir()
+	# what was there (e.g. the site.env the app wrote at startup) comes back
+	found = {p: p.read_bytes() for d in (site_dir, cert_dir) if d.exists()
+	         for p in d.iterdir() if p.is_file()}
+
+	def wipe():
+		for d in (site_dir, cert_dir):
+			if d.exists():
+				for p in d.iterdir():
+					p.unlink()
+	wipe()
+	answer = {"status": None}
+	monkeypatch.setattr(_pc, "wait_for_status",
+	                    lambda after, hostname=None, **kw: answer["status"])
+
+	class Proxy:
+		site = site_dir / _pc.SITE_FILE
+		cert = cert_dir / _certs.CERT_FILE
+
+		@staticmethod
+		def managed():
+			site_dir.mkdir(parents=True, exist_ok=True)
+			(site_dir / _pc.STATUS_FILE).write_text(_json.dumps(
+				{"state": "applied", "message": "hostname=(none) https_port=443",
+				 "time": "2026-01-01T00:00:00Z"}))
+
+		@staticmethod
+		def verdict(state, message=""):
+			answer["status"] = {"state": state, "message": message} if state else None
+
+		@staticmethod
+		def files():
+			return {p.name: p.read_bytes() for d in (site_dir, cert_dir)
+			        if d.exists() for p in d.iterdir() if p.name != _pc.STATUS_FILE}
+	yield Proxy
+	app.backend.settings.update({"public_hostname": ""}, None)
+	wipe()
+	for path, data in found.items():
+		path.parent.mkdir(parents=True, exist_ok=True)
+		path.write_bytes(data)
+
+
+def hostname(app):
+	return app.backend.settings.get("public_hostname")
+
+
+def test_a_new_hostname_reaches_nginx(admin, app, client_for, proxy):
+	resp = save(client_for(admin), public_hostname="nr01.corp.local")
+	assert resp.status_code == 200
+	assert resp.json["proxy"] == {"state": "not_managed"}       # no nginx here
+	assert "NETROLLOUT_HOSTNAME=nr01.corp.local\n" in proxy.site.read_text()
+
+
+def test_nginx_applying_it_is_reported(admin, app, client_for, proxy):
+	proxy.managed()
+	proxy.verdict("applied", "hostname=nr01.corp.local https_port=443 app=app:8080")
+	resp = save(client_for(admin), public_hostname="nr01.corp.local")
+	assert resp.json["proxy"]["state"] == "applied"
+	proxy.verdict(None)                                         # silence
+	resp = save(client_for(admin), public_hostname="nr02.corp.local")
+	assert resp.status_code == 200 and resp.json["proxy"] == {"state": "no_answer"}
+
+
+def test_a_self_signed_certificate_is_reissued_for_the_new_name(
+		admin, app, client_for, proxy):
+	_certs.selfsigned("old.lab", ["10.0.0.5"], _runtime.certs_dir())
+	assert save(client_for(admin), public_hostname="new.lab").status_code == 200
+	dns, ips = _certs.names_in(proxy.cert.read_bytes())
+	assert dns == ["new.lab"] and [str(i) for i in ips] == ["10.0.0.5"]
+	assert _certs.is_selfsigned(_runtime.certs_dir())
+
+
+def _org_cert(names):
+	"""An organisation's certificate (no self-signed marker) for `names`."""
+	from tests.unit.test_certs import key_pem, make_cert, pem
+	cert, key = make_cert(names=names)
+	d = _runtime.certs_dir()
+	d.mkdir(parents=True, exist_ok=True)
+	(d / _certs.CERT_FILE).write_bytes(pem(cert))
+	(d / _certs.KEY_FILE).write_bytes(key_pem(key))
+
+
+def test_an_organisation_certificate_that_covers_it_stays(admin, app,
+                                                          client_for, proxy):
+	_org_cert(("*.corp.local",))
+	before = proxy.cert.read_bytes()
+	assert save(client_for(admin), public_hostname="nr01.corp.local").status_code == 200
+	assert proxy.cert.read_bytes() == before
+
+
+def test_one_that_does_not_cover_it_refuses_and_changes_nothing(
+		admin, app, client_for, proxy):
+	_org_cert(("nr01.corp.local",))
+	before = proxy.files()
+	resp = save(client_for(admin), public_hostname="other.example")
+	assert resp.status_code == 422
+	assert "covers nr01.corp.local — not other.example" in \
+	       resp.json["errors"]["public_hostname"]
+	assert hostname(app) == "" and proxy.files() == before
+
+
+def test_a_file_that_cannot_be_written_changes_nothing(admin, app, client_for,
+                                                       proxy, monkeypatch):
+	_certs.selfsigned("old.lab", ["10.0.0.5"], _runtime.certs_dir())
+	before = proxy.files()
+
+	def no_permission(hostname):
+		raise PermissionError(13, "Permission denied", str(proxy.site))
+	monkeypatch.setattr(_pc, "write_site", no_permission)
+	resp = save(client_for(admin), public_hostname="new.lab")
+	assert resp.status_code == 422
+	message = resp.json["errors"]["public_hostname"]
+	assert "couldn't write" in message and "Permission denied" in message
+	# the certificate was already reissued — and put back
+	assert hostname(app) == "" and proxy.files() == before
+
+
+def test_nginx_rejecting_it_puts_everything_back(admin, app, client_for, proxy):
+	_certs.selfsigned("old.lab", ["10.0.0.5"], _runtime.certs_dir())
+	app.backend.settings.update({"public_hostname": "old.lab"}, None)
+	_pc.write_site("old.lab")
+	before = proxy.files()
+	proxy.managed()
+	proxy.verdict("rejected", "nginx: [emerg] something")
+	resp = save(client_for(admin), public_hostname="new.lab")
+	assert resp.status_code == 422
+	assert "nginx rejected the new hostname: nginx: [emerg] something" in \
+	       resp.json["errors"]["public_hostname"]
+	assert hostname(app) == "old.lab" and proxy.files() == before
+
+
+def test_an_illegal_hostname_never_reaches_nginx(admin, app, client_for, proxy):
+	resp = save(client_for(admin), public_hostname="nr01;evil")
+	assert resp.status_code == 422 and not proxy.site.exists()
+
+
+def test_resetting_the_hostname_goes_through_nginx_too(admin, app, client_for,
+                                                       proxy):
+	client = client_for(admin)
+	save(client, public_hostname="nr01.corp.local")
+	resp = client.post("/admin/settings/public_hostname/reset")
+	assert resp.status_code == 200 and hostname(app) == ""
+	assert "NETROLLOUT_HOSTNAME=\n" in proxy.site.read_text()
+
+
+def test_the_audit_says_what_nginx_did(admin, app, client_for, proxy,
+                                       session_scope):
+	save(client_for(admin), public_hostname="nr01.corp.local")
+	(detail,) = [d for label, d in audit(session_scope, "settings.update")
+	             if label == "public_hostname"]
+	assert detail["nginx"] == "not_managed"

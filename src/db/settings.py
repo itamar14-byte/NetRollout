@@ -138,9 +138,11 @@ SETTINGS: dict[str, Setting] = {s.key: s for s in [
 	# ── Access ──
 	Setting("public_hostname", "Hostname",
 	        "The name people use to open NetRollout, e.g. "
-	        "netrollout.corp.local — the certificate must match it. Empty: "
-	        "read from the nginx config.",
-	        "Access", "", kind=str, applies="next start",
+	        "netrollout.corp.local. Other names that reach the server "
+	        "redirect to it (IP addresses are always served). The certificate "
+	        "must cover it — a self-signed one is reissued automatically. "
+	        "Empty: no canonical name.",
+	        "Access", "", kind=str, applies="immediately",
 	        env="NETROLLOUT_PUBLIC_HOSTNAME",
 	        # DNS name or IPv4 address; no scheme, port or path
 	        pattern=r"[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
@@ -335,6 +337,15 @@ class SettingsStore:
 	def update(self, raw: dict[str, object], user_id: uuid.UUID | None) -> list[Change]:
 		"""Validate and save several settings at once; returns what changed.
 		All-or-nothing: raises SettingsError without saving on any problem."""
+		changes = self.plan(raw)
+		if changes:
+			self._write({c.key: c.new for c in changes}, user_id)
+		return changes
+
+	def plan(self, raw: dict[str, object]) -> list[Change]:
+		"""What update() would change — validated, nothing written. Raises
+		SettingsError. (Lets a caller prepare side effects, e.g. nginx for a
+		new hostname, before anything is saved.)"""
 		errors, parsed = {}, {}
 		for key, value in raw.items():
 			s = SETTINGS.get(key)
@@ -351,11 +362,8 @@ class SettingsStore:
 		errors = self._check_rules({**current, **parsed}, set(parsed))
 		if errors:
 			raise SettingsError(errors)
-		changes = [Change(k, current[k], v) for k, v in parsed.items()
-		           if v != current[k]]
-		if changes:
-			self._write({c.key: c.new for c in changes}, user_id)
-		return changes
+		return [Change(k, current[k], v) for k, v in parsed.items()
+		        if v != current[k]]
 
 	def reset(self, key: str, user_id: uuid.UUID | None) -> Change | None:
 		"""Back to the default (written into the row, like any change).

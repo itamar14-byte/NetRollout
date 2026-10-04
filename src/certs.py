@@ -186,6 +186,12 @@ def validate(cert_pem: bytes, key_pem: bytes, hostname: str | None = None,
 	return check
 
 
+def names_in(cert_pem: bytes) -> tuple[list[str], list]:
+	"""(DNS names, IP addresses) the server certificate (the first in the
+	file) covers."""
+	return _san(x509.load_pem_x509_certificates(cert_pem)[0])
+
+
 def host_matches(hostname: str, dns_names, ips) -> bool:
 	"""Browser rules: an IP must be listed as an IP; a wildcard covers
 	exactly one label, and only as the whole left-most label."""
