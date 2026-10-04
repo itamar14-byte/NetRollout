@@ -1,4 +1,5 @@
 import datetime
+import json
 import threading
 import time
 import uuid
@@ -6,8 +7,10 @@ from typing import Callable
 
 from redis.client import PubSub
 
+from src import runtime
 from src.core import RolloutEngine, RolloutOptions, Device, DeviceResultDict
 from src.db.tables import DeviceResult, JobMetadata
+from src.job_store import JobStore
 from src.logging_utils import RolloutLogger
 from src.db.backend import BackendServices
 from src.db.redis_db import REDIS_UNAVAILABLE
@@ -21,6 +24,8 @@ _BLPOP_TIMEOUT = 5
 # the wait for running jobs is reported
 _CANCEL_WAIT = 60
 _DRAIN_REPORT_EVERY = 30
+# Saving a finished job's results: tries, and the wait before each retry
+_SAVE_TRIES, _SAVE_RETRY_WAIT = 3, 2
 QUEUED_CANCEL_REASON = ("Cancelled: NetRollout restarted before this rollout "
                         "started. Nothing was sent to the devices.")
 
@@ -73,12 +78,7 @@ class RolloutJob:
 		cancelled, with the reason in its log, so it shows in Results."""
 		self.started_at = datetime.datetime.now()
 		self._logger.notify(reason, "red", important=True)
-		self.results = [DeviceResultDict(device_ip=d.ip, device_port=int(d.port),
-		                                 device_type=d.device_type,
-		                                 commands_sent=0, commands_verified=None,
-		                                 fetched_config=None, status="cancelled",
-		                                 action_needed=None)
-		                for d in self._engine.devices]
+		self.results = self._engine.cancelled_results()
 
 	def is_alive(self) -> bool:
 		return self._thread is not None and self._thread.is_alive()
@@ -93,7 +93,7 @@ class RolloutJob:
 		return self._logger.redis_cleanup()
 
 	def get_device_count(self) -> int:
-		return len(self._engine.devices)
+		return self._engine.device_count
 
 
 class RolloutOrchestrator:
@@ -101,6 +101,7 @@ class RolloutOrchestrator:
 			->	None:
 		self.max_concurrent = max_concurrent
 		self._backend = backend_obj
+		self._store = JobStore(backend_obj.redis)
 		self._slots = threading.Semaphore(max_concurrent)
 		self._jobs: dict[uuid.UUID, RolloutJob] = {}
 		self._lock = threading.Lock()
@@ -135,14 +136,7 @@ class RolloutOrchestrator:
 				raise Draining()
 			self._jobs[job.job_id] = job
 
-		self._backend.redis.client.hset(f"job:{job.job_id}:meta", mapping={
-			"user_id": str(user_id),
-			"status": "pending",
-			"device_count": job.get_device_count(),
-			"created_at": datetime.datetime.now().isoformat(),
-		})
-		self._backend.redis.client.sadd(f"user_jobs:{user_id}", str(job.job_id))
-		self._backend.redis.client.incr("netrollout:pending_count")
+		self._store.add(job.job_id, user_id, job.get_device_count())
 
 		with self._backend.postgres.get_session() as db_session:
 			db_session.add(JobMetadata(job_id=job.job_id,
@@ -150,7 +144,7 @@ class RolloutOrchestrator:
 			                           commands=commands,
 			                           comment=comment))
 
-		self._backend.redis.client.rpush("netrollout:job_queue", str(job.job_id))
+		self._store.enqueue(job.job_id)
 		return job.job_id
 
 	def cancel(self, job_id: uuid.UUID) -> None:
@@ -158,8 +152,7 @@ class RolloutOrchestrator:
 			job = self._jobs.get(job_id, None)
 		if job:
 			job.cancel()
-			self._backend.redis.client.hset(f"job:{job.job_id}:meta", "status",
-			                                "cancelling")
+			self._store.set_status(job.job_id, "cancelling")
 
 	def get_job(self, job_id: uuid.UUID) -> RolloutJob | None:
 		with self._lock:
@@ -173,8 +166,7 @@ class RolloutOrchestrator:
 		backoff = _BACKOFF_START
 		while True:
 			try:
-				result = self._backend.redis.client.blpop(
-					"netrollout:job_queue", timeout=_BLPOP_TIMEOUT)
+				entry = self._store.next_queued(_BLPOP_TIMEOUT)
 			except REDIS_UNAVAILABLE as e:
 				print(f"[NetRollout] dispatcher: Redis unavailable ({e}); "
 				      f"retrying in {backoff}s", flush=True)
@@ -182,14 +174,13 @@ class RolloutOrchestrator:
 				backoff = min(backoff * 2, _BACKOFF_MAX)
 				continue
 			backoff = _BACKOFF_START
-			if result is None:
+			if entry is None:
 				continue
-			_, job_id_bytes = result
 			try:
-				job_id = uuid.UUID(job_id_bytes.decode())
+				job_id = uuid.UUID(entry)
 			except ValueError:
 				print(f"[NetRollout] dispatcher: skipping malformed queue "
-				      f"entry {job_id_bytes!r}", flush=True)
+				      f"entry {entry!r}", flush=True)
 				continue
 
 			self._slots.acquire()
@@ -211,12 +202,7 @@ class RolloutOrchestrator:
 			# The job is already running; a Redis failure here only leaves
 			# status/counters stale, so it must not take the loop down.
 			try:
-				client = self._backend.redis.client
-				client.hset(f"job:{job.job_id}:meta", "status", "active")
-				client.hset(f"job:{job.job_id}:meta", "started_at",
-				            datetime.datetime.now().isoformat())
-				client.decr("netrollout:pending_count")
-				client.incr("netrollout:active_count")
+				self._store.started(job.job_id)
 			except REDIS_UNAVAILABLE as e:
 				print(f"[NetRollout] dispatcher: job {job.job_id} started but "
 				      f"status update failed ({e})", flush=True)
@@ -263,8 +249,7 @@ class RolloutOrchestrator:
 			for job in jobs:
 				job.cancel()
 				try:
-					self._backend.redis.client.hset(f"job:{job.job_id}:meta",
-					                                "status", "cancelling")
+					self._store.set_status(job.job_id, "cancelling")
 				except REDIS_UNAVAILABLE:
 					pass
 			end = time.monotonic() + _CANCEL_WAIT
@@ -277,43 +262,66 @@ class RolloutOrchestrator:
 		try:
 			job.cancel_before_start(QUEUED_CANCEL_REASON)
 			try:
-				self._backend.redis.client.lrem("netrollout:job_queue", 0,
-				                                str(job.job_id))
+				self._store.unqueue(job.job_id)
 			except REDIS_UNAVAILABLE:
-				pass   # a leftover entry is skipped after the restart
-			self._finalize(job.job_id, counter="netrollout:pending_count")
+				pass   # a leftover entry is cleared at the next start
+			self._finalize(job.job_id, was_running=False)
 		except Exception as e:
 			print(f"[NetRollout] Couldn't record queued rollout {job.job_id} "
 			      f"as cancelled ({e})", flush=True)
 			with self._lock:   # else the drain would wait for it as "running"
 				self._jobs.pop(job.job_id, None)
 
-	def _finalize(self, job_id: uuid.UUID,
-	              counter: str = "netrollout:active_count") -> None:
+	def _finalize(self, job_id: uuid.UUID, was_running: bool = True) -> None:
+		"""A job is over: its results to Postgres, its keys out of Redis, its
+		live log closed. Each step runs even if another failed — a service
+		down at that moment must not lose the results (they go to a file
+		then) nor leave the job "active" forever."""
 		with self._lock:
 			job = self._jobs.pop(job_id, None)
-		if job:
-			with self._backend.postgres.get_session() as db_session:
-				for result in job.results:
-					db_session.add(DeviceResult(user_id=job.user_id,
-					                            job_id=job.job_id,
-					                            started_at=job.started_at,
-					                            completed_at=datetime.datetime.now(),
-					                            device_ip=result["device_ip"],
-					                            device_port=result["device_port"],
-					                            device_type=result[
-						                            "device_type"],
-					                            commands_sent=result[
-						                            "commands_sent"],
-					                            commands_verified=result[
-						                            "commands_verified"],
-					                            fetched_config=result[
-						                            "fetched_config"],
-					                            status=result["status"],
-					                            action_needed=result.get(
-						                            "action_needed")
-					                            ))
-				self._backend.redis.client.delete(f"job:{job.job_id}:meta")
-				self._backend.redis.client.srem(f"user_jobs:{job.user_id}", str(job_id))
-				self._backend.redis.client.decr(counter)
-			job.log_cleanup()
+		if not job:
+			return
+		try:
+			self._save_results(job)
+		finally:
+			try:
+				self._store.finished(job.job_id, job.user_id, was_running)
+			except REDIS_UNAVAILABLE as e:
+				print(f"[NetRollout] rollout {job.job_id}: Redis unavailable, "
+				      f"its live status stays until the next start ({e})",
+				      flush=True)
+			try:
+				job.log_cleanup()      # live log viewers get "done"
+			except REDIS_UNAVAILABLE:
+				pass
+
+	def _save_results(self, job: "RolloutJob") -> None:
+		"""Into Postgres, retried; if that keeps failing, into a JSON file in
+		logs/ (ACTION NEEDED on the console) — never dropped."""
+		completed_at = datetime.datetime.now()
+		error = None
+		for attempt in range(_SAVE_TRIES):
+			if attempt:
+				time.sleep(_SAVE_RETRY_WAIT)
+			try:
+				with self._backend.postgres.get_session() as db_session:
+					for result in job.results:
+						db_session.add(DeviceResult(
+							**result, user_id=job.user_id, job_id=job.job_id,
+							started_at=job.started_at, completed_at=completed_at))
+				return
+			except Exception as e:     # noqa: BLE001 — any failure: keep them
+				error = e
+		path = runtime.logs_dir() / f"unsaved-results-{job.job_id}.json"
+		try:   # the last resort: nothing here may raise
+			path.parent.mkdir(parents=True, exist_ok=True)
+			path.write_text(json.dumps({
+				"job_id": job.job_id, "user_id": job.user_id,
+				"started_at": job.started_at, "completed_at": completed_at,
+				"results": job.results}, indent=1, default=str), encoding="utf-8")
+			where = f"saved to {path}"
+		except Exception as e:     # noqa: BLE001
+			where = f"and couldn't be written to {path} either ({e})"
+		print(f"[NetRollout] ACTION NEEDED — rollout {job.job_id}: its results "
+		      f"couldn't be saved to the database ({error}); {where}",
+		      flush=True)

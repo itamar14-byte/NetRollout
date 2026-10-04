@@ -4,6 +4,7 @@ The orchestrator has no stop(), so each test leaves a daemon dispatcher
 thread behind. FakeRedis.blpop therefore genuinely blocks (queue.get with a
 timeout) so leftover threads sit idle instead of busy-looping.
 """
+import json
 import queue
 import threading
 import time
@@ -329,3 +330,100 @@ def test_dispatcher_does_not_start_a_job_once_draining(make_orchestrator):
 	time.sleep(0.3)
 	assert not job.ran.is_set()
 	assert orch._slots._value == 2   # the slot was given back
+
+
+# ── The end of a job: results never lost, state never stuck ─────────────────
+
+RESULT = dict(device_ip="10.0.0.1", device_port=22, device_type="cisco_ios",
+              commands_sent=1, commands_verified=None, fetched_config=None,
+              status="success", action_needed=None)
+
+
+class TrackingRedis(FakeRedis):
+	"""Records the end-of-job cleanup; `fail_cleanup` makes it raise."""
+
+	def __init__(self):
+		super().__init__()
+		self.deleted, self.fail_cleanup = [], False
+
+	def delete(self, *keys):
+		if self.fail_cleanup:
+			raise redis.exceptions.ConnectionError("simulated drop")
+		self.deleted.extend(keys)
+
+
+class FlakyPostgres(FakePostgres):
+	"""Fails the first `failures` sessions (None: always)."""
+
+	def __init__(self, failures=None):
+		super().__init__()
+		self.failures = failures
+
+	@contextmanager
+	def get_session(self):
+		if self.failures is None or self.failures > 0:
+			if self.failures:
+				self.failures -= 1
+			raise RuntimeError("simulated: database unreachable")
+		with super().get_session() as session:
+			yield session
+
+
+class EndedJob(FakeJob):
+	def __init__(self):
+		super().__init__()
+		self.results = [dict(RESULT)]
+		self.cleaned = threading.Event()
+
+	def log_cleanup(self):
+		self.cleaned.set()
+
+
+@pytest.fixture
+def end_of_job(monkeypatch, tmp_path):
+	monkeypatch.setattr(orchestration, "_BACKOFF_START", 0)
+	monkeypatch.setattr(orchestration, "_SAVE_RETRY_WAIT", 0, raising=False)
+	monkeypatch.setenv("NETROLLOUT_HOME", str(tmp_path))
+
+	def run(fake_redis, postgres):
+		orch = RolloutOrchestrator(SimpleNamespace(
+			redis=SimpleNamespace(client=fake_redis), postgres=postgres),
+			max_concurrent=1)
+		job = EndedJob()
+		enqueue(orch, fake_redis, job)
+		# popped from the job table first, then saved: wait for the very end
+		assert job.cleaned.wait(timeout=10), "job never finalized"
+		assert wait_for(lambda: orch._slots._value == 1)
+		return orch, job
+	return run
+
+
+def test_results_go_to_a_file_when_postgres_stays_down(end_of_job, tmp_path,
+                                                       capsys):
+	fake = TrackingRedis()
+	orch, job = end_of_job(fake, FlakyPostgres())
+	saved = tmp_path / "logs" / f"unsaved-results-{job.job_id}.json"
+	data = json.loads(saved.read_text(encoding="utf-8"))
+	assert data["job_id"] == str(job.job_id) and data["results"] == [RESULT]
+	assert "ACTION NEEDED" in capsys.readouterr().out
+	# and the job doesn't stay "active", its log is closed, its slot free
+	assert f"job:{job.job_id}:meta" in fake.deleted
+	assert job.cleaned.is_set() and orch._slots._value == 1
+
+
+def test_a_brief_postgres_outage_is_retried(end_of_job, tmp_path):
+	postgres = FlakyPostgres(failures=1)
+	_, job = end_of_job(TrackingRedis(), postgres)
+	assert [r.status for r in postgres.added] == ["success"]
+	assert not (tmp_path / "logs").exists()
+
+
+def test_results_are_saved_when_redis_is_down_at_the_end(end_of_job):
+	fake = TrackingRedis()
+	fake.fail_cleanup = True
+	postgres = FakePostgres()
+	orch, job = end_of_job(fake, postgres)
+	# the Redis failure no longer rolls the database write back
+	assert [(r.device_ip, r.job_id) for r in postgres.added] == \
+	       [("10.0.0.1", job.job_id)]
+	assert orch._slots._value == 1

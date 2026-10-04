@@ -1,0 +1,17 @@
+# NetRollout: tabs for indentation (spaces only to align continuation lines)
+root = true
+
+[*]
+charset = utf-8
+insert_final_newline = true
+
+[*.py]
+indent_style = tab
+indent_size = 4
+tab_width = 4
+
+# Alembic migrations stay as generated
+[src/db/alembic/versions/*.py]
+indent_style = space
+indent_size = 4
+

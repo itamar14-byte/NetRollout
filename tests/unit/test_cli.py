@@ -48,7 +48,7 @@ def run_cli(monkeypatch):
 		if engine_run is not None:
 			engine_ctor.return_value.run.side_effect = engine_run
 		with patch.object(cli, "RolloutEngine", engine_ctor), \
-				patch("src.validation.Validator.test_tcp_port",
+				patch("src.validation.tcp_reachable",
 				      return_value=reachable):
 			with pytest.raises(SystemExit) as exc:
 				cli.main()
@@ -251,7 +251,7 @@ def test_non_interactive_run_exits_cleanly(files, monkeypatch):
 	engine = MagicMock()
 	engine.return_value.run.return_value = results("success")
 	with patch.object(cli, "RolloutEngine", engine), \
-			patch("src.validation.Validator.test_tcp_port", return_value=True):
+			patch("src.validation.tcp_reachable", return_value=True):
 		with pytest.raises(SystemExit) as exc:
 			cli.main()
 	assert exc.value.code == 0

@@ -321,14 +321,16 @@ Error handling:
 
 ---
 
-## 5. Job Execution Classes (`src/core.py`, `src/orchestration.py`)
+## 5. Job Execution Classes (`src/core.py`, `src/platforms.py`, `src/orchestration.py`)
+
+`src/platforms.py` holds what NetRollout knows per platform, with no I/O (`PLATFORMS`, `rejection()`, the config parser, `verify_commands()`); `src/core.py` holds the engine that does the SSH, and `classify(push, verify)` — the status rules; `src/job_store.py` owns the Redis job keys.
 
 ### `RolloutEngine`
 Pure pipeline object: `RolloutEngine(param: RolloutOptions, devices: list[Device], commands: list[str])`. `run(cancel_flag, logger) -> list[DeviceResultDict]`:
 1. **Per device, in parallel** (`ThreadPoolExecutor(max_workers)`):
    - it substitutes `$$TOKEN$$`s;
    - it pushes over Netmiko, one `send_config_set(…, enter_config_mode=False)` per command after entering config mode once — exactly as typed (Netmiko's default re-checks config mode per call, and Aruba CX's driver only recognises `(config)#`, so inside a section it failed); a typed `end` followed by more config commands is refused as on the device; a refused command (`rejection()`: one list of vendor error strings, the command's own echo skipped) is logged with the device's reply and the rest are still sent;
-   - it **finishes the way the platform needs** (`PLATFORMS` in `core.py`): `save_config()` after leaving config mode (Cisco IOS/IOS-XE/NX-OS, Arista, Aruba CX, HP ProCurve/Comware); `commit()` *before* leaving it (Junos, PAN-OS, IOS-XR — leaving discards uncommitted changes; up to `COMMIT_TIMEOUT` = 300 s; a failed commit is a failure, Junos then `rollback 0`, PAN-OS keeps the candidate and the log says so); `save config` (Check Point Gaia); nothing (FortiOS, after closing any open config block with `end`);
+   - it **finishes the way the platform needs** (`PLATFORMS` in `platforms.py`): `save_config()` after leaving config mode (Cisco IOS/IOS-XE/NX-OS, Arista, Aruba CX, HP ProCurve/Comware); `commit()` *before* leaving it (Junos, PAN-OS, IOS-XR — leaving discards uncommitted changes; up to `COMMIT_TIMEOUT` = 300 s; a failed commit is a failure, Junos then `rollback 0`, PAN-OS keeps the candidate and the log says so); `save config` (Check Point Gaia); nothing (FortiOS, after closing any open config block with `end`);
    - per-platform details, checked against the vendor documentation and Netmiko 4.6.0's source (2026-10-02): Junos configures with **`configure private`** (our commit can't take another admin's pending shared edits along, and our `rollback 0` can't wipe them; Junos refuses private mode while someone has uncommitted shared edits — that device then fails with the reason); PAN-OS discards a failed commit with `revert config`, else `load config from running-config.xml` (only if both are refused does the log ask to discard on the device); FortiOS checks `cfg-save` after the push and runs `execute cfg save` when it is manual or revert (else the change is lost at reboot / undone after the revert timeout); Check Point Gaia switches an account that lands in expert (bash) to clish (`clish`) for both the push and the config fetch — bash would silently swallow every `set …` — and refuses only if that fails; Aruba CX sends `end` before leaving config mode (Netmiko only recognises `(config)#`, so from `(config-if)#` its exit did nothing);
    - a prompt that changes mid-push (e.g. a new hostname) ends that session: the save then runs from a fresh one ("applied, and saved from a new session"), or the log says it wasn't saved;
    - the session is always closed; the cancel flag is honoured between devices.

@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 
 
 from src.encryption import decrypt, encrypt
+from src import validation
 from src.validation import Validator
 from src.core import Device
 from src.logging_utils import RolloutLogger
@@ -65,7 +66,7 @@ class InputParser:
 				errors.append(f"Row {row_no} ({ip}): username and password "
 				              f"are required")
 				continue
-			if check_reachable and not self.validator.test_tcp_port(ip, int(port)):
+			if check_reachable and not validation.tcp_reachable(ip, int(port)):
 				# returned like every other row error: the caller logs them
 				errors.append(f"{ip}:{port} is not reachable")
 				continue

@@ -13,7 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from src.core import mapping_resolvable
 from src.db.tables import VariableMapping, Inventory, User
 from src.logging_utils import RolloutLogger
-from src.validation import Validator
+from src import validation
 from src.webapp.utils import (ok, err, with_form, with_json, flash_redirect,
                               visible_devices_clause, query_visible_devices,
                               partition_devices)
@@ -33,19 +33,19 @@ def property_rules() -> tuple[set[str], set[str]]:
 
 def validate_mapping_fields(index: int, property_name: str, inner_token: str) \
 		-> Response | None:
-	status, msg = Validator.validate_var_map_inner_token(inner_token)
+	status, msg = validation.validate_var_map_inner_token(inner_token)
 	if not status:
 		flash(msg, "danger")
 		return redirect(url_for("mappings.mappings"))
 
 	allowed, list_props = property_rules()
-	status, msg = Validator.validate_var_map_property_name(property_name,
+	status, msg = validation.validate_var_map_property_name(property_name,
 	                                                       allowed)
 	if not status:
 		flash(msg, "danger")
 		return redirect(url_for("mappings.mappings"))
 
-	status, msg = Validator.validate_var_index(index, property_name, list_props)
+	status, msg = validation.validate_var_index(index, property_name, list_props)
 	if not status:
 		flash(msg, "danger")
 		return redirect(url_for("mappings.mappings"))
@@ -126,15 +126,15 @@ def mappings_quick_create(data):
 	index_raw = data.get("index")
 	index = int(index_raw) if index_raw is not None else None
 
-	status, msg = Validator.validate_var_map_inner_token(inner_token)
+	status, msg = validation.validate_var_map_inner_token(inner_token)
 	if not status:
 		return err(msg)
 	allowed, list_props = property_rules()
-	status, msg = Validator.validate_var_map_property_name(property_name,
+	status, msg = validation.validate_var_map_property_name(property_name,
 	                                                       allowed)
 	if not status:
 		return err(msg)
-	status, msg = Validator.validate_var_index(index, property_name, list_props)
+	status, msg = validation.validate_var_index(index, property_name, list_props)
 	if not status:
 		return err(msg)
 
