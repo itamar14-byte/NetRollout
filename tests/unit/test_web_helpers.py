@@ -8,7 +8,7 @@ import pytest
 from sqlalchemy.dialects import postgresql
 
 from src.db.settings import SETTINGS
-from src.validation import Validator
+from src import validation
 from src.webapp.blueprints.admin_observability import QUERY_AUDIT_LOG_FIELDS
 from src.webapp.blueprints.analytics import QUERY_DEVICE_RESULT_FIELDS
 from src.webapp.blueprints.jobs import config_expired, job_status
@@ -202,22 +202,22 @@ class TestConfigExpired:
 	("HOSTNAME", True), ("loop_0", True), ("", False), ("   ", False),
 	("has space", False), ("$$X$$", False), ("A" * 65, False)])
 def test_mapping_token_validation(token, ok):
-	assert Validator.validate_var_map_inner_token(token)[0] is ok
+	assert validation.validate_var_map_inner_token(token)[0] is ok
 
 
 def test_mapping_index_only_for_list_properties():
 	lists = {"vrfs", "uplinks"}  # system list + a user-defined list
-	assert Validator.validate_var_index(1, "vrfs", lists) == (True, None)
-	assert Validator.validate_var_index(0, "uplinks", lists) == (True, None)
-	assert Validator.validate_var_index(None, "hostname", lists) == (True, None)
-	assert Validator.validate_var_index(0, "hostname", lists)[0] is False
-	assert Validator.validate_var_index(-1, "vrfs", lists)[0] is False
+	assert validation.validate_var_index(1, "vrfs", lists) == (True, None)
+	assert validation.validate_var_index(0, "uplinks", lists) == (True, None)
+	assert validation.validate_var_index(None, "hostname", lists) == (True, None)
+	assert validation.validate_var_index(0, "hostname", lists)[0] is False
+	assert validation.validate_var_index(-1, "vrfs", lists)[0] is False
 
 
 def test_property_name_checked_against_the_users_definitions():
 	allowed = {"hostname", "rack"}  # includes a user-defined property
-	assert Validator.validate_var_map_property_name("rack", allowed)[0] is True
-	assert Validator.validate_var_map_property_name("nope", allowed)[0] is False
+	assert validation.validate_var_map_property_name("rack", allowed)[0] is True
+	assert validation.validate_var_map_property_name("nope", allowed)[0] is False
 
 
 # ── Admin restart relaunch ───────────────────────────────────────────────────

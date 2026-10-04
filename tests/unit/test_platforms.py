@@ -12,13 +12,13 @@ from src.platforms import (COMMIT_TIMEOUT, NOT_CONFIGURED, PLATFORMS,
                            STILL_CONFIGURED, UNVERIFIABLE, VARIABLE, VERIFIED,
                            rejection, verify_commands)
 from src.logging_utils import RolloutLogger
-from src.validation import Validator
+from src import validation
 
 OK, MISSING, STILL, NV = VERIFIED, NOT_CONFIGURED, STILL_CONFIGURED, UNVERIFIABLE
 
 
 def test_every_supported_platform_has_a_row():
-	assert set(PLATFORMS) == set(Validator.SUPPORTED_PLATFORMS)
+	assert set(PLATFORMS) == set(validation.SUPPORTED_PLATFORMS)
 
 
 # ── Verify verdicts, per platform ────────────────────────────────────────────

@@ -215,13 +215,26 @@ def _fortios_save_if_manual(conn) -> tuple[bool, str | None]:
 class RolloutEngine:
 	def __init__(self, param: RolloutOptions, devices: list[Device],
 	             commands: list[str]) -> None:
-		self.devices = devices
+		self._devices = devices
 		# endpoint → what only a person can resolve there (Results page,
 		# summary)
 		self._needs_action: dict[str, list[str]] = {}
 		self._verify_flag = param.verify
 		self._max_workers = param.max_workers
 		self._commands = commands
+
+	@property
+	def device_count(self) -> int:
+		return len(self._devices)
+
+	def cancelled_results(self) -> list["DeviceResultDict"]:
+		"""Every device recorded as cancelled — for a job that never
+		started."""
+		return [DeviceResultDict(device_ip=d.ip, device_port=int(d.port),
+		                         device_type=d.device_type, commands_sent=0,
+		                         commands_verified=None, fetched_config=None,
+		                         status="cancelled", action_needed=None)
+		        for d in self._devices]
 
 	def _substitute_commands(self, device: Device) -> list[str]:
 		""":raises SubstitutionError: a mapped attribute is missing on the
@@ -450,7 +463,7 @@ class RolloutEngine:
 		cancelled device used to drop the results of devices still in flight,
 		recording them as cancelled although their config was applied.
 		:return: (cancel_signal, push_results) where cancel_signal is "cancel_sent" or None
-		 and push_results maps each device's index in self.devices to its
+		 and push_results maps each device's index in self._devices to its
 		 result; devices that never connected are absent
 		"""
 		# Keyed by position, not IP: several devices can share an IP (NAT /
@@ -462,7 +475,7 @@ class RolloutEngine:
 			futures = {
 				executor.submit(self._push_device, device, cancel_event,
 				                logger): idx
-				for idx, device in enumerate(self.devices)
+				for idx, device in enumerate(self._devices)
 			}
 			for future in as_completed(futures):
 				_, result = future.result()
@@ -517,7 +530,7 @@ class RolloutEngine:
 		:return: {device index: VerifyResult, or None if not fetched}"""
 		result = {}
 		with ThreadPoolExecutor(max_workers=self._max_workers) as executor:
-			futures = {executor.submit(self._verify_device, self.devices[idx],
+			futures = {executor.submit(self._verify_device, self._devices[idx],
 			                           logger): idx for idx in indexes}
 			for future in as_completed(futures):
 				result[futures[future]] = future.result()
@@ -551,7 +564,7 @@ class RolloutEngine:
 		logger.notify("Starting configuration rollout", important=True)
 		# Runs parse_files to subscribe data from the provided file paths
 		# If parsing was successful and the output of the function was not empty lists, we continue the process
-		if self.devices and self._commands:
+		if self._devices and self._commands:
 			# Runs the config push procedure
 			cancel_signal, push_results = self._push_config(cancel_flag, logger)
 
@@ -569,7 +582,7 @@ class RolloutEngine:
 			# the commands that configure something (not exit / end / next…)
 			configuring = sum(1 for c in self._commands
 			                  if not navigates(normalize(c).split()[0] if c.strip() else ""))
-			for idx, device in enumerate(self.devices):
+			for idx, device in enumerate(self._devices):
 				push = push_results.get(idx)
 				check = verify_results.get(idx) if push and push.applied else None
 				status, commands_sent, commands_verified = classify(

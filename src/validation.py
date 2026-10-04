@@ -1,188 +1,127 @@
+"""Input checks.
+
+Pure functions — an IP, a port, a platform, a variable mapping's fields —
+used alike by the web routes and the CLI; tcp_reachable() probes a device's
+management port; Validator checks the files a rollout is read from (devices
+CSV, commands file) and reports each problem to its RolloutLogger."""
 import ipaddress
 import os
+import re
 import socket
 import time
-import re
 
 from src.logging_utils import RolloutLogger
+from src.platforms import PLATFORMS
+
+# Netmiko device types NetRollout supports: those it knows how to finish a
+# push on (src/platforms.py)
+SUPPORTED_PLATFORMS = frozenset(PLATFORMS)
+
+TCP_TIMEOUT = 5
+TCP_RETRIES = 3
+TCP_RETRY_DELAY = 1
+
+
+def validate_ip(ip: str) -> bool:
+	"""checks that address is a valid ip"""
+	try:
+		ipaddress.ip_address(ip)
+		return True
+	except ValueError:
+		return False
+
+
+def validate_port(port: str) -> bool:
+	"""checks that port is a valid port number in the tcp IETF range"""
+	if not port.isnumeric():
+		return False
+	return 1 <= int(port) <= 65535
+
+
+def validate_platform(platform: str) -> bool:
+	"""checks that platform is supported by NetRollout"""
+	return platform in SUPPORTED_PLATFORMS
+
+
+def tcp_reachable(ip: str, port: int = 22) -> bool:
+	"""Can the device be reached on its management (SSH) port? TCP_RETRIES
+	attempts, TCP_RETRY_DELAY apart."""
+	for attempt in range(TCP_RETRIES):
+		# a fresh socket per attempt — reusing a failed one raises WinError
+		# 10056 on Windows
+		try:
+			with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as conn:
+				conn.settimeout(TCP_TIMEOUT)
+				conn.connect((ip, port))
+				return True
+		except OSError:
+			if attempt < TCP_RETRIES - 1:
+				time.sleep(TCP_RETRY_DELAY)
+	return False
+
+
+def validate_var_map_inner_token(token: str) -> tuple[bool, str | None]:
+	if token.strip():
+		if re.match(r'^[A-Za-z0-9_]+$', token):
+			if len(token) <= 64:
+				return True, None
+			return False, "Token must be maximum 64 characters long"
+		return False, "Token must contain only letters, numbers and underscores"
+	return False, "Token cannot be empty"
+
+
+def validate_var_map_property_name(property_name: str, allowed: set[str]) \
+		-> tuple[bool, str | None]:
+	""":param allowed: the user's property names — system defaults plus
+	 their own definitions (webapp: get_property_defs)"""
+	if property_name.strip().lower() not in allowed:
+		return False, f"Property name {property_name} is not valid"
+	return True, None
+
+
+def validate_var_index(index: int | None, property_name: str,
+                       list_properties: set[str]) -> tuple[bool, str | None]:
+	"""Only list properties (system `vrfs`, or user-defined lists) can be
+	indexed."""
+	if index is None:
+		return True, None
+	if property_name not in list_properties:
+		return False, f"Property {property_name} can not be indexed"
+	if index < 0:
+		return False, "Index cannot be negative"
+	return True, None
 
 
 class Validator:
-    def __init__(self, logger: RolloutLogger):
-        self.logger = logger
+	"""Checks the files a rollout is read from, reporting each problem to
+	the logger (the CLI's console, an import's log)."""
 
-    # Netmiko device types NetRollout supports
-    SUPPORTED_PLATFORMS = {
-    "fortinet",
-    "paloalto_panos",
-    "cisco_ios",
-    "cisco_nxos",
-    "cisco_xe",
-    "cisco_xr",
-    "juniper_junos",
-    "arista_eos",
-    "aruba_aoscx",
-    "checkpoint_gaia",
-    "hp_procurve",
-    "hp_comware",
-    }
+	def __init__(self, logger: RolloutLogger):
+		self._logger = logger
 
+	def validate_file_extension(self, path: str, extension: str) -> bool:
+		"""The path is an existing file with the expected extension (csv for
+		devices, txt for commands)."""
+		if not os.path.isfile(path):
+			self._logger.notify(f"{path} is not a file", "red")
+			return False
+		if not path.lower().endswith(extension):
+			self._logger.notify(f"file must be {extension}", "red")
+			return False
+		return True
 
-    TCP_TIMEOUT = 5
-    TCP_RETRIES = 3
-    TCP_RETRY_DELAY = 1
-
-    def validate_file_extension(self,path: str, extension: str) -> bool:
-        """
-        This function validates the file extensions part of file parsing,
-         and makes sure the files are correct and fit the expected type
-        :param path: file path provided by the user
-        :param extension: expected file type - csv for devices, txt for _commands
-        :return: True if file extension is correct, False otherwise
-        """
-        if not os.path.isfile(path):
-            # Verifies file extension indeed exists in the system
-            # and is a recognized file type
-            # (not directory or something else)
-            self.logger.notify(f"{path} is not a file", "red")
-            return False
-        if not path.lower().endswith(extension):
-            # Verifies the type of the file indeed conforms to the extension we expect for the file
-            self.logger.notify(f"file must be {extension}", "red")
-            return False
-        return True
-
-
-    @staticmethod
-    def validate_ip(ip: str) -> bool:
-        """checks that address is a valid ip"""
-        try:
-            ipaddress.ip_address(ip)
-            return True
-        except ValueError:
-            return False
-
-
-    @staticmethod
-    def validate_port(port: str) -> bool:
-        """checks that port is a valid port number in the tcp IETF range"""
-        if not port.isnumeric():
-            return False
-        elif int(port) < 1 or int(port) > 65535:
-            return False
-        return True
-
-
-    @staticmethod
-    def validate_platform(platform: str) -> bool:
-        """checks that platform is supported by NetRollout"""
-        if platform not in Validator.SUPPORTED_PLATFORMS:
-            return False
-        return True
-
-
-    def validate_device_data(self,device: dict[str, str]) -> bool:
-        """
-        This function runs as part of the device files parsing and is used to validate values of the device data,
-        when unpacking the csv iterable of dictionaries into a list. As we run on the provided devices, the function checks
-        applicable values such as ip address and tcp port and makes sure they are in correct format
-         In that case, notifications will be added to SSE _queue
-        :param device: device dictionary unpacked from csv file
-        :return: True if device data is correct, False otherwise
-        """
-        # Uses the ipaddress library to _verify the ip address is in the X.X.X.X ipv4
-        # format,
-        # such that x is an int in the range 0-255
-        if Validator.validate_ip(device["ip"]):
-            # Verifies supplied port number matches expected TCP port values - a number in the 1-65535 range
-
-            if Validator.validate_port(device["port"]):
-                # Checks that the supplied device type matches the list of supported platforms
-
-                if Validator.validate_platform(device["device_type"]):
-                    # If all required validations pass, the function returns true and the device may be parsed
-                    return True
-
-                else:
-                    self.logger.notify(
-                        f"{device['device_type']} is not supported",
-                        "red")
-
-            else:
-                self.logger.notify(f"{device['port']} is not a valid port "
-                                   f"number", "red")
-
-        else:
-            self.logger.notify(f"{device['ip']} is not a valid IPv4 address",
-                               "red")
-
-        return False
-
-
-    @staticmethod
-    def test_tcp_port(ip: str, port: int = 22) -> bool:
-        """
-        A wrapper for the socket libray used to test connectivity to the device over the supplied SSH port
-        :param ip: ip address of the device
-        :param port: TCP port used for SSH connection
-        :return: True if the device is reachable, and false otherwise
-        """
-        # Connection will run for 3 attempts, with a 1-second delay between tries.
-        # A fresh socket is created per attempt — reusing a failed socket raises WinError 10056 on Windows.
-        for attempt in range(Validator.TCP_RETRIES):
-            # Creates a Connection object which will be used to probe the device. Connection is gracefully closed by socket
-            try:
-                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as conn:
-                    conn.settimeout(Validator.TCP_TIMEOUT)
-                    # Tries a connection to the device over the supplied ip and port
-                    conn.connect((ip, port))
-                    # Returns True if the connection is successful.
-                    # Otherwise, socket throws an exception and a device is deemed
-                    # unreachable
-                    return True
-            except OSError:
-                if attempt < Validator.TCP_RETRIES - 1:
-                    time.sleep(Validator.TCP_RETRY_DELAY)
-                    continue
-        return False
-
-    @staticmethod
-    def validate_var_map_inner_token(token: str) -> tuple[bool, str | None]:
-        if token.strip():
-            if re.match(r'^[A-Za-z0-9_]+$', token):
-                if len(token) <= 64:
-                    return True, None
-                return False, "Token must be maximum 64 characters long"
-            return False, "Token must contain only letters, numbers and underscores"
-        return False, "Token cannot be empty"
-
-    @staticmethod
-    def validate_var_map_property_name(property_name: str,
-                                       allowed: set[str]) -> \
-            tuple[bool, str | None]:
-        """:param allowed: the user's property names — system defaults plus
-         their own definitions (webapp: get_property_defs)"""
-        if property_name.strip().lower() not in allowed:
-            return False, f"Property name {property_name} is not valid"
-        return True, None
-
-    @staticmethod
-    def validate_var_index(index: int | None, property_name: str,
-                           list_properties: set[str]) -> \
-            tuple[bool, str | None]:
-        """Only list properties (system `vrfs`, or user-defined lists) can be
-        indexed."""
-        if index is None:
-            return True, None
-        if property_name not in list_properties:
-            return False, f"Property {property_name} can not be indexed"
-        if index < 0:
-            return False, "Index cannot be negative"
-        return True, None
-
-
-
-
-
-
-
+	def validate_device_data(self, device: dict[str, str]) -> bool:
+		"""One row of a devices CSV: a valid IP, port and supported platform;
+		the first problem is reported."""
+		if not validate_ip(device["ip"]):
+			self._logger.notify(f"{device['ip']} is not a valid IPv4 address",
+			                    "red")
+		elif not validate_port(device["port"]):
+			self._logger.notify(f"{device['port']} is not a valid port number",
+			                    "red")
+		elif not validate_platform(device["device_type"]):
+			self._logger.notify(f"{device['device_type']} is not supported",
+			                    "red")
+		else:
+			return True
+		return False

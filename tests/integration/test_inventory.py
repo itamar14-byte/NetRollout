@@ -74,7 +74,7 @@ def test_invalid_profile_id_is_rejected_without_partial_edit(
 
 def test_connection_test_endpoint(client_for, make_user):
 	client = client_for(make_user())
-	with patch("src.validation.Validator.test_tcp_port", return_value=True):
+	with patch("src.validation.tcp_reachable", return_value=True):
 		ok = client.post("/inventory/test_connection",
 		                 json={"ip": "10.0.0.1", "port": "22"})
 	assert ok.json["status"] == "ok"
@@ -88,7 +88,7 @@ def test_csv_import(client_for, make_user, session_scope):
 	csv = ("ip,username,password,device_type,secret,port\n"
 	       "10.2.2.1,u,p,cisco_ios,s,22\n"
 	       "not-an-ip,u,p,cisco_ios,s,22\n")
-	with patch("src.validation.Validator.test_tcp_port", return_value=True):
+	with patch("src.validation.tcp_reachable", return_value=True):
 		client_for(user).post("/inventory/import_csv", data={
 			"csv_file": (io.BytesIO(csv.encode()), "devices.csv")},
 			content_type="multipart/form-data")
@@ -107,7 +107,7 @@ def test_csv_import_tolerates_blanks_and_needs_no_credentials(
 	       "10.3.3.2,not_a_platform,22,x\n"
 	       "10.3.3.3,arista_eos,22,edge-3\n")
 	client = client_for(user)
-	with patch("src.validation.Validator.test_tcp_port", return_value=True):
+	with patch("src.validation.tcp_reachable", return_value=True):
 		client.post("/inventory/import_csv", data={
 			"csv_file": (io.BytesIO(csv.encode()), "devices.csv")},
 			content_type="multipart/form-data")
@@ -253,7 +253,7 @@ def test_csv_import_partial_credentials_get_no_profile(client_for, make_user,
 def test_csv_import_does_not_check_reachability(client_for, make_user,
                                                 session_scope):
 	user = make_user()
-	with patch("src.validation.Validator.test_tcp_port",
+	with patch("src.validation.tcp_reachable",
 	           return_value=False) as probe:
 		import_csv(client_for(user), "ip,device_type,port,label\n"
 		                             "10.9.9.1,cisco_ios,22,offline\n")

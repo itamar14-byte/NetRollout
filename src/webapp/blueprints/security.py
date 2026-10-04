@@ -14,7 +14,7 @@ from netmiko import ConnectHandler, NetmikoTimeoutException, \
 from src.core import Device
 from src.db.tables import SecurityProfile, User, Inventory
 from src.encryption import encrypt, decrypt
-from src.validation import Validator
+from src import validation
 from src.webapp.utils import ok, err, with_json, with_form, flash_redirect
 
 bp = Blueprint('security', __name__, url_prefix='/security')
@@ -137,7 +137,7 @@ def security_test(profile_id, data):
 			id=device_id, user_id=current_user.id).first()
 		if not profile or not device:
 			return err("Profile or device not found", 404)
-		if not Validator.test_tcp_port(device.ip, device.port):
+		if not validation.tcp_reachable(device.ip, device.port):
 			return err(f"TCP port {device.port} unreachable on {device.ip}",
 			           503)
 		db_session.expunge_all()

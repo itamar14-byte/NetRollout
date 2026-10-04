@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 # Import through the src package only — the app itself imports src.*, and a
 # bare `import core` would load a second copy of every module (patches and
 # isinstance checks would then silently target the wrong one).
+from src import validation
 from src.validation import Validator
 from src.logging_utils import RolloutLogger
 from src.core import PushResult, VerifyResult, Device, RolloutOptions, RolloutEngine
@@ -45,72 +46,72 @@ def make_options(**kwargs) -> RolloutOptions:
 class TestValidateIp(unittest.TestCase):
 
     def test_valid_ipv4(self):
-        self.assertTrue(Validator.validate_ip("192.168.1.1"))
+        self.assertTrue(validation.validate_ip("192.168.1.1"))
 
     def test_valid_ipv4_edge_zeros(self):
-        self.assertTrue(Validator.validate_ip("0.0.0.0"))
+        self.assertTrue(validation.validate_ip("0.0.0.0"))
 
     def test_valid_ipv4_broadcast(self):
-        self.assertTrue(Validator.validate_ip("255.255.255.255"))
+        self.assertTrue(validation.validate_ip("255.255.255.255"))
 
     def test_invalid_octet_out_of_range(self):
-        self.assertFalse(Validator.validate_ip("999.1.1.1"))
+        self.assertFalse(validation.validate_ip("999.1.1.1"))
 
     def test_invalid_missing_octet(self):
-        self.assertFalse(Validator.validate_ip("192.168.1"))
+        self.assertFalse(validation.validate_ip("192.168.1"))
 
     def test_invalid_empty_string(self):
-        self.assertFalse(Validator.validate_ip(""))
+        self.assertFalse(validation.validate_ip(""))
 
     def test_invalid_hostname(self):
-        self.assertFalse(Validator.validate_ip("router.local"))
+        self.assertFalse(validation.validate_ip("router.local"))
 
     def test_invalid_with_port(self):
-        self.assertFalse(Validator.validate_ip("192.168.1.1:22"))
+        self.assertFalse(validation.validate_ip("192.168.1.1:22"))
 
 
 class TestValidatePort(unittest.TestCase):
 
     def test_standard_ssh(self):
-        self.assertTrue(Validator.validate_port("22"))
+        self.assertTrue(validation.validate_port("22"))
 
     def test_min_port(self):
-        self.assertFalse(Validator.validate_port("0"))
+        self.assertFalse(validation.validate_port("0"))
 
     def test_max_port(self):
-        self.assertTrue(Validator.validate_port("65535"))
+        self.assertTrue(validation.validate_port("65535"))
 
     def test_above_max(self):
-        self.assertFalse(Validator.validate_port("65536"))
+        self.assertFalse(validation.validate_port("65536"))
 
     def test_negative(self):
-        self.assertFalse(Validator.validate_port("-1"))
+        self.assertFalse(validation.validate_port("-1"))
 
     def test_non_numeric(self):
-        self.assertFalse(Validator.validate_port("ssh"))
+        self.assertFalse(validation.validate_port("ssh"))
 
     def test_float_string(self):
-        self.assertFalse(Validator.validate_port("22.0"))
+        self.assertFalse(validation.validate_port("22.0"))
 
     def test_empty_string(self):
-        self.assertFalse(Validator.validate_port(""))
+        self.assertFalse(validation.validate_port(""))
 
 
 class TestValidatePlatform(unittest.TestCase):
 
     def test_all_supported_platforms(self):
-        for platform in Validator.SUPPORTED_PLATFORMS:
+        for platform in validation.SUPPORTED_PLATFORMS:
             with self.subTest(platform=platform):
-                self.assertTrue(Validator.validate_platform(platform))
+                self.assertTrue(validation.validate_platform(platform))
 
     def test_unsupported_platform(self):
-        self.assertFalse(Validator.validate_platform("cisco_cat9k"))
+        self.assertFalse(validation.validate_platform("cisco_cat9k"))
 
     def test_empty_string(self):
-        self.assertFalse(Validator.validate_platform(""))
+        self.assertFalse(validation.validate_platform(""))
 
     def test_case_sensitive(self):
-        self.assertFalse(Validator.validate_platform("Cisco_IOS"))
+        self.assertFalse(validation.validate_platform("Cisco_IOS"))
 
 
 class TestValidateDeviceData(unittest.TestCase):
@@ -197,7 +198,7 @@ class TestTcpPort(unittest.TestCase):
         mock_sock = MagicMock()
         mock_socket_cls.return_value.__enter__.return_value = mock_sock
         mock_sock.connect.return_value = None
-        self.assertTrue(Validator.test_tcp_port("10.0.0.1", 22))
+        self.assertTrue(validation.tcp_reachable("10.0.0.1", 22))
 
     @patch("src.validation.socket.socket")
     def test_unreachable_after_all_retries(self, mock_socket_cls):
@@ -205,7 +206,7 @@ class TestTcpPort(unittest.TestCase):
         mock_socket_cls.return_value.__enter__.return_value = mock_sock
         mock_sock.connect.side_effect = OSError("refused")
         with patch("src.validation.time.sleep"):
-            self.assertFalse(Validator.test_tcp_port("10.0.0.1", 22))
+            self.assertFalse(validation.tcp_reachable("10.0.0.1", 22))
 
     @patch("src.validation.socket.socket")
     def test_succeeds_on_second_attempt(self, mock_socket_cls):
@@ -213,7 +214,7 @@ class TestTcpPort(unittest.TestCase):
         mock_socket_cls.return_value.__enter__.return_value = mock_sock
         mock_sock.connect.side_effect = [OSError("refused"), None]
         with patch("src.validation.time.sleep"):
-            self.assertTrue(Validator.test_tcp_port("10.0.0.1", 22))
+            self.assertTrue(validation.tcp_reachable("10.0.0.1", 22))
 
 
 # ---------------------------------------------------------------------------
@@ -458,37 +459,37 @@ class TestPrepareDevices(unittest.TestCase):
         base.update(overrides)
         return base
 
-    @patch("src.validation.Validator.test_tcp_port", return_value=True)
+    @patch("src.validation.tcp_reachable", return_value=True)
     def test_valid_device_is_added(self, _):
         devices, errors = self.parser.prepare_devices([self._raw()])
         self.assertEqual(len(devices), 1)
         self.assertEqual(errors, [])
         self.assertIsInstance(devices[0], Device)
 
-    @patch("src.validation.Validator.test_tcp_port", return_value=False)
+    @patch("src.validation.tcp_reachable", return_value=False)
     def test_unreachable_device_excluded(self, _):
         devices, errors = self.parser.prepare_devices([self._raw()])
         self.assertEqual(len(devices), 0)
         self.assertEqual(errors, ["10.0.0.1:22 is not reachable"])
 
-    @patch("src.validation.Validator.test_tcp_port", return_value=True)
+    @patch("src.validation.tcp_reachable", return_value=True)
     def test_invalid_ip_excluded(self, _):
         devices, _ = self.parser.prepare_devices([self._raw(ip="bad")])
         self.assertEqual(len(devices), 0)
 
-    @patch("src.validation.Validator.test_tcp_port", return_value=True)
+    @patch("src.validation.tcp_reachable", return_value=True)
     def test_device_type_lowercased(self, _):
         devices, _ = self.parser.prepare_devices([self._raw(device_type="CISCO_IOS")])
         self.assertEqual(devices[0].device_type, "cisco_ios")
 
-    @patch("src.validation.Validator.test_tcp_port", return_value=True)
+    @patch("src.validation.tcp_reachable", return_value=True)
     def test_blank_cells_are_empty_values_not_missing_columns(self, _):
         devices, errors = self.parser.prepare_devices(
             [self._raw(secret="", label="")])
         self.assertEqual(errors, [])
         self.assertEqual((devices[0].secret, devices[0].label), ("", "10.0.0.1"))
 
-    @patch("src.validation.Validator.test_tcp_port", return_value=True)
+    @patch("src.validation.tcp_reachable", return_value=True)
     def test_short_rows_from_csv_reader_are_tolerated(self, _):
         # DictReader gives None for missing trailing cells
         row = self._raw()
@@ -496,7 +497,7 @@ class TestPrepareDevices(unittest.TestCase):
         devices, errors = self.parser.prepare_devices([row])
         self.assertEqual((len(devices), errors), (1, []))
 
-    @patch("src.validation.Validator.test_tcp_port", return_value=True)
+    @patch("src.validation.tcp_reachable", return_value=True)
     def test_bad_row_is_reported_and_does_not_abort_the_rest(self, _):
         rows = [self._raw(ip="10.0.0.1"), self._raw(ip="bad"),
                 self._raw(ip="", port=""), self._raw(ip="10.0.0.4")]
@@ -506,7 +507,7 @@ class TestPrepareDevices(unittest.TestCase):
         self.assertIn("Row 2", errors[0])
         self.assertIn("Row 3", errors[1])
 
-    @patch("src.validation.Validator.test_tcp_port", return_value=True)
+    @patch("src.validation.tcp_reachable", return_value=True)
     def test_credentials_required_only_when_asked(self, _):
         row = {"ip": "10.0.0.1", "device_type": "cisco_ios", "port": "22"}
         devices, errors = self.parser.prepare_devices([dict(row)])
@@ -516,7 +517,7 @@ class TestPrepareDevices(unittest.TestCase):
             [dict(row)], require_credentials=False)
         self.assertEqual((len(devices), errors), (1, []))
 
-    @patch("src.validation.Validator.test_tcp_port", return_value=True)
+    @patch("src.validation.tcp_reachable", return_value=True)
     def test_multiple_devices(self, _):
         raw = [self._raw(ip=f"10.0.0.{i}") for i in range(1, 4)]
         devices, _ = self.parser.prepare_devices(raw)
@@ -551,7 +552,7 @@ class TestParseFiles(unittest.TestCase):
         with open(path, "w") as f:
             f.write("\n".join(commands))
 
-    @patch("src.validation.Validator.test_tcp_port", return_value=True)
+    @patch("src.validation.tcp_reachable", return_value=True)
     def test_csv_to_inventory_returns_devices(self, _):
         with tempfile.TemporaryDirectory() as tmpdir:
             csv_path = os.path.join(tmpdir, "devices.csv")

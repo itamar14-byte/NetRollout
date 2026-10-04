@@ -78,12 +78,7 @@ class RolloutJob:
 		cancelled, with the reason in its log, so it shows in Results."""
 		self.started_at = datetime.datetime.now()
 		self._logger.notify(reason, "red", important=True)
-		self.results = [DeviceResultDict(device_ip=d.ip, device_port=int(d.port),
-		                                 device_type=d.device_type,
-		                                 commands_sent=0, commands_verified=None,
-		                                 fetched_config=None, status="cancelled",
-		                                 action_needed=None)
-		                for d in self._engine.devices]
+		self.results = self._engine.cancelled_results()
 
 	def is_alive(self) -> bool:
 		return self._thread is not None and self._thread.is_alive()
@@ -98,7 +93,7 @@ class RolloutJob:
 		return self._logger.redis_cleanup()
 
 	def get_device_count(self) -> int:
-		return len(self._engine.devices)
+		return self._engine.device_count
 
 
 class RolloutOrchestrator:

@@ -14,6 +14,7 @@ from src.core import mapping_resolvable
 from src.db.tables import VariableMapping, Inventory, SecurityProfile, User
 from src.input_parser import InputParser
 from src.logging_utils import RolloutLogger
+from src import validation
 from src.validation import Validator
 from src.webapp.utils import (ok, err, with_form, with_json, flash_redirect,
                               query_visible_devices, partition_devices,
@@ -145,12 +146,12 @@ def inventory_test_connection(data):
 	ip = str(data.get("ip", "")).strip()
 	port = str(data.get("port", "")).strip()
 
-	if not Validator.validate_ip(ip):
+	if not validation.validate_ip(ip):
 		return err("Invalid IP address")
-	if not Validator.validate_port(port):
+	if not validation.validate_port(port):
 		return err("Port must be between 1 and 65535")
 
-	if Validator.test_tcp_port(ip, int(port)):
+	if validation.tcp_reachable(ip, int(port)):
 		return ok(f"TCP port {port} reachable on {ip}")
 	return err(f"TCP port {port} unreachable on {ip}")
 
