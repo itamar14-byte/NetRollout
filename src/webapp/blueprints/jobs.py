@@ -13,7 +13,7 @@ from flask_login import current_user, login_required
 
 # local modules
 from src import runtime
-from src.core import PLATFORMS, verify_commands
+from src.platforms import PLATFORMS, verify_commands
 from src.db.tables import DeviceResult, JobMetadata, User, Inventory
 from src.job_store import JobStore
 from src.webapp.utils import ok, err, build_kpi, visible_devices_clause

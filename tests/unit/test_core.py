@@ -9,7 +9,8 @@ from unittest.mock import MagicMock, patch
 # isinstance checks would then silently target the wrong one).
 from src.validation import Validator
 from src.logging_utils import RolloutLogger
-from src.core import FETCH_TIMEOUT, PushResult, VerifyResult, Device, RolloutOptions, RolloutEngine
+from src.core import PushResult, VerifyResult, Device, RolloutOptions, RolloutEngine
+from src.platforms import FETCH_TIMEOUT
 from src.input_parser import InputParser
 
 
@@ -420,7 +421,7 @@ class TestDeviceFetchConfig(unittest.TestCase):
 
     @patch("netmiko.ConnectHandler")
     def test_every_platform_has_a_show_command(self, mock_ch):
-        from src.core import PLATFORMS
+        from src.platforms import PLATFORMS
         for device_type, platform in PLATFORMS.items():
             conn = self._connection(mock_ch, output="set x")
             make_device(device_type=device_type).fetch_config(self.logger)
