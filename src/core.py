@@ -301,6 +301,37 @@ class VerifyResult(NamedTuple):
 	config: str | None   # kept only when something didn't verify
 
 
+def classify(push: PushResult | None, verify: VerifyResult | None,
+             total: int, configuring: int) -> tuple[str, int, int | None]:
+	"""A device's outcome: (status, commands_sent, commands_verified).
+
+	push: None if the device never started (cancelled first). verify: None
+	when verify was off or the config couldn't be fetched. total: commands
+	sent; configuring: those that configure something (not navigation).
+	- not applied (no connection, no commit) → failed, nothing counted
+	- verified: every checkable command confirmed and none refused →
+	  success; none confirmed (of some checkable) → failed; else partial.
+	  Commands that can't be checked count as accounted for.
+	- not verified: what the device said while the commands were sent —
+	  none refused → success; every configuring one refused → failed;
+	  else partial."""
+	if push is None:
+		return "cancelled", 0, None
+	if not push.applied:
+		return "failed", 0, None
+	if verify is not None:
+		if verify.verified == verify.checkable and not push.rejected:
+			status = "success"
+		elif verify.verified == 0 and verify.checkable:
+			status = "failed"
+		else:
+			status = "partial"
+		return status, total, verify.verified + total - verify.checkable
+	status = ("success" if not push.rejected else
+	          "failed" if push.rejected >= configuring else "partial")
+	return status, total, None
+
+
 class DeviceResultDict(TypedDict):
 	device_ip: str
 	device_port: int
@@ -792,34 +823,16 @@ class RolloutEngine:
 			configuring = sum(1 for c in self._commands
 			                  if not _navigates(_norm(c).split()[0] if c.strip() else ""))
 			for idx, device in enumerate(self.devices):
-				commands_verified, fetched_config = None, None
-				if idx not in push_results:
-					status, commands_sent = "cancelled", 0
-				elif not push_results[idx].applied:
-					status, commands_sent = "failed", 0
-				else:
-					commands_sent = total
-					rejected = push_results[idx].rejected
-					check = verify_results.get(idx)
-					if check is not None:
-						# not verifiable commands count as accounted for
-						commands_verified = check.verified + total - check.checkable
-						fetched_config = check.config
-						logger.notify(f"{device.endpoint}: {check.verified}/"
-						              f"{check.checkable} commands verified"
-						              f"{f' ({total - check.checkable} not verifiable)' if total > check.checkable else ''}",
-						              important=True)
-						if check.verified == check.checkable and not rejected:
-							status = "success"
-						elif check.verified == 0 and check.checkable:
-							status = "failed"
-						else:
-							status = "partial"
-					else:
-						# no verify (or the config couldn't be fetched): what
-						# the device said while the commands were sent
-						status = ("success" if not rejected else
-						          "failed" if rejected >= configuring else "partial")
+				push = push_results.get(idx)
+				check = verify_results.get(idx) if push and push.applied else None
+				status, commands_sent, commands_verified = classify(
+					push, check, total, configuring)
+				fetched_config = check.config if check else None
+				if check is not None:
+					logger.notify(f"{device.endpoint}: {check.verified}/"
+					              f"{check.checkable} commands verified"
+					              f"{f' ({total - check.checkable} not verifiable)' if total > check.checkable else ''}",
+					              important=True)
 				results.append(DeviceResultDict(device_ip=device.ip,
 				                                device_port=int(device.port),
 				                                device_type=device.device_type,
