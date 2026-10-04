@@ -255,8 +255,11 @@ def test_a_self_signed_certificate_is_reissued_for_the_new_name(
 	_certs.selfsigned("old.lab", ["10.0.0.5"], _runtime.certs_dir())
 	assert save(client_for(admin), public_hostname="new.lab").status_code == 200
 	dns, ips = _certs.names_in(proxy.cert.read_bytes())
-	assert dns == ["new.lab"] and [str(i) for i in ips] == ["10.0.0.5"]
+	# the previous name stays for the transition period (approved 2026-10-04)
+	assert dns == ["new.lab", "old.lab"] and [str(i) for i in ips] == ["10.0.0.5"]
 	assert _certs.is_selfsigned(_runtime.certs_dir())
+	until = _json.loads((_runtime.certs_dir() / _pc.OLD_NAMES_FILE).read_text())["old.lab"]
+	assert abs(until - (_time.time() + _pc.NAME_TRANSITION_DAYS * 86400)) < 60
 
 
 def _org_cert(names):
@@ -476,3 +479,62 @@ def test_try_again_is_a_new_request(admin, app, client_for, port_files):
 	resp = client.post("/admin/settings/port/retry")
 	assert resp.status_code == 200 and _pa.read_request()["id"] != rid
 	assert _pa.read_request()["port"] == 8443
+
+
+def test_old_names_leave_after_the_transition(admin, app, client_for, proxy):
+	_certs.selfsigned("a.lab", ["10.0.0.5"], _runtime.certs_dir())
+	client = client_for(admin)
+	save(client, public_hostname="b.lab")
+	save(client, public_hostname="c.lab")          # a.lab and b.lab both kept
+	assert _certs.names_in(proxy.cert.read_bytes())[0] == ["c.lab", "a.lab", "b.lab"]
+	assert _pc.drop_expired_names() == []          # nothing due yet
+	later = _time.time() + _pc.NAME_TRANSITION_DAYS * 86400 + 60
+	assert sorted(_pc.drop_expired_names(now=later)) == ["a.lab", "b.lab"]
+	dns, ips = _certs.names_in(proxy.cert.read_bytes())
+	assert dns == ["c.lab"] and [str(i) for i in ips] == ["10.0.0.5"]
+	assert _certs.is_selfsigned(_runtime.certs_dir())
+	assert not (_runtime.certs_dir() / _pc.OLD_NAMES_FILE).exists()
+
+
+def test_going_back_to_an_old_name_ends_its_transition(admin, app, client_for,
+                                                       proxy):
+	_certs.selfsigned("a.lab", [], _runtime.certs_dir())
+	client = client_for(admin)
+	save(client, public_hostname="b.lab")
+	save(client, public_hostname="a.lab")
+	assert _certs.names_in(proxy.cert.read_bytes())[0] == ["a.lab", "b.lab"]
+	stored = _json.loads((_runtime.certs_dir() / _pc.OLD_NAMES_FILE).read_text())
+	assert list(stored) == ["b.lab"]               # a.lab is the hostname again
+
+
+def test_an_organisation_certificate_is_never_reissued(admin, app, proxy):
+	_org_cert(("nr01.corp.local", "old.corp.local"))
+	(_runtime.certs_dir() / _pc.OLD_NAMES_FILE).write_text('{"old.corp.local": 1}')
+	before = proxy.cert.read_bytes()
+	assert _pc.drop_expired_names() == [] and proxy.cert.read_bytes() == before
+
+
+def test_a_refused_save_keeps_the_old_names_file(admin, app, client_for, proxy,
+                                                 monkeypatch):
+	_certs.selfsigned("a.lab", [], _runtime.certs_dir())
+	client = client_for(admin)
+	save(client, public_hostname="b.lab")
+	before = proxy.files()
+
+	def no_permission(hostname):
+		raise PermissionError(13, "Permission denied", str(proxy.site))
+	monkeypatch.setattr(_pc, "write_site", no_permission)
+	assert save(client, public_hostname="c.lab").status_code == 422
+	assert proxy.files() == before
+
+
+def test_a_later_change_does_not_extend_an_old_names_deadline(
+		admin, app, client_for, proxy):
+	_certs.selfsigned("a.lab", [], _runtime.certs_dir())
+	client = client_for(admin)
+	save(client, public_hostname="b.lab")
+	names = _runtime.certs_dir() / _pc.OLD_NAMES_FILE
+	soon = _time.time() + 86400                       # a.lab: one day left
+	names.write_text(_json.dumps({"a.lab": soon}))
+	save(client, public_hostname="c.lab")
+	assert _json.loads(names.read_text())["a.lab"] == soon

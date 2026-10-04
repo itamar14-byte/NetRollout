@@ -11,6 +11,7 @@ import datetime
 import json
 import os
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -23,6 +24,14 @@ from src.webapp import port_apply
 SITE_FILE = "site.env"
 STATUS_FILE = "status.json"
 APPLIED_PORT_ENV = port_apply.PUBLISHED_PORT_ENV
+# A self-signed certificate reissued for a new hostname keeps the previous
+# names this long, so people still typing one reach the redirect without a
+# name warning — then they're dropped (the deadlines: OLD_NAMES_FILE).
+OLD_NAMES_FILE = ".old-names.json"     # in the certs folder
+NAME_TRANSITION_DAYS = 7
+UPKEEP_INTERVAL_SECONDS = 3600
+# a hostname save and the upkeep thread never reissue at the same moment
+_cert_lock = threading.Lock()
 
 
 def shared_dir() -> Path:
@@ -90,15 +99,29 @@ def change_hostname(new: str):
 	covered); an organisation's must already cover it — then site.env.
 	Returns undo(), which puts the previous files back. Raises ProxyError
 	with the reason, having changed nothing."""
+	with _cert_lock:
+		return _change_hostname(new)
+
+
+def _change_hostname(new: str):
 	cert_dir = runtime.certs_dir()
 	cert = cert_dir / certs.CERT_FILE
 	saved = _snapshot([shared_dir() / SITE_FILE, cert, cert_dir / certs.KEY_FILE,
-	                   cert_dir / certs.SELFSIGNED_MARKER])
+	                   cert_dir / certs.SELFSIGNED_MARKER,
+	                   cert_dir / OLD_NAMES_FILE])
 	try:
 		if new and cert.is_file():
 			dns, ips = certs.names_in(cert.read_bytes())
 			if certs.is_selfsigned(cert_dir):
-				certs.selfsigned(new, [str(ip) for ip in ips], cert_dir)
+				# the names it covered stay for a transition period
+				now = time.time()
+				old = {n: u for n, u in _read_old_names(cert_dir).items() if u > now}
+				for name in dns:
+					old.setdefault(name, now + NAME_TRANSITION_DAYS * 86400)
+				old.pop(new, None)
+				certs.selfsigned(new, [str(ip) for ip in ips], cert_dir,
+				                 also_names=sorted(old))
+				_write_old_names(cert_dir, old)
 			elif not certs.host_matches(new, dns, ips):
 				covers = ", ".join([*dns, *map(str, ips)]) or "no names"
 				raise ProxyError(
@@ -117,6 +140,67 @@ def change_hostname(new: str):
 		_restore(saved)
 		raise ProxyError(f"{e}. Nothing was changed.") from e
 	return lambda: _restore(saved)
+
+
+def _read_old_names(cert_dir: Path) -> dict[str, float]:
+	"""{name: until (epoch seconds)}; nothing readable → {}."""
+	try:
+		data = json.loads((cert_dir / OLD_NAMES_FILE).read_text(encoding="utf-8"))
+	except (OSError, ValueError):
+		return {}
+	if not isinstance(data, dict):
+		return {}
+	return {n: float(u) for n, u in data.items()
+	        if isinstance(n, str) and isinstance(u, (int, float))}
+
+
+def _write_old_names(cert_dir: Path, names: dict[str, float]) -> None:
+	path = cert_dir / OLD_NAMES_FILE
+	if not names:
+		path.unlink(missing_ok=True)
+		return
+	_restore({path: json.dumps(names, indent=1, sort_keys=True).encode()})
+
+
+def drop_expired_names(now: float | None = None) -> list[str]:
+	"""Reissue NetRollout's self-signed certificate without the previous
+	hostnames whose transition period ended (nginx reloads it, no restart).
+	Returns the names dropped. An organisation's certificate is never
+	touched."""
+	with _cert_lock:
+		cert_dir = runtime.certs_dir()
+		cert = cert_dir / certs.CERT_FILE
+		stored = _read_old_names(cert_dir)
+		if not stored or not cert.is_file() or not certs.is_selfsigned(cert_dir):
+			return []
+		now = time.time() if now is None else now
+		keep = {n: u for n, u in stored.items() if u > now}
+		dns, ips = certs.names_in(cert.read_bytes())
+		expired = [n for n in dns[1:] if n in stored and n not in keep]
+		if expired:
+			# the first name is the hostname itself
+			certs.selfsigned(dns[0], [str(ip) for ip in ips], cert_dir,
+			                 also_names=[n for n in dns[1:] if n not in expired])
+		_write_old_names(cert_dir, keep)
+		return expired
+
+
+def start_certificate_upkeep() -> None:
+	"""drop_expired_names() now and every hour, from a daemon thread — a
+	server that never restarts still drops them. Called by the web app's
+	entry point. Never raises."""
+	def loop():
+		while True:
+			try:
+				dropped = drop_expired_names()
+				if dropped:
+					print(f"[NetRollout] certificate reissued without the previous "
+					      f"hostname(s) {', '.join(dropped)} (transition of "
+					      f"{NAME_TRANSITION_DAYS} days over)", flush=True)
+			except Exception as e:      # noqa: BLE001 — keep the thread alive
+				print(f"[NetRollout] certificate upkeep failed: {e}", flush=True)
+			time.sleep(UPKEEP_INTERVAL_SECONDS)
+	threading.Thread(target=loop, name="certificate-upkeep", daemon=True).start()
 
 
 def read_status() -> dict | None:
