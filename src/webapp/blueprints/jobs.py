@@ -15,6 +15,7 @@ from flask_login import current_user, login_required
 from src import runtime
 from src.core import PLATFORMS, verify_commands
 from src.db.tables import DeviceResult, JobMetadata, User, Inventory
+from src.job_store import JobStore
 from src.webapp.utils import ok, err, build_kpi, visible_devices_clause
 
 bp = Blueprint('jobs', __name__)
@@ -113,8 +114,7 @@ def build_job_summaries(results):
 
 
 def get_active_job(user_id):
-	raw_ids = current_app.backend.redis.client.smembers(f"user_jobs:{user_id}")
-	job_ids = [jid.decode() for jid in raw_ids]
+	job_ids = JobStore(current_app.backend.redis).job_ids(user_id)
 	return next(
 		(j for jid in job_ids
 		 if (j := current_app.orchestrator.get_job(
@@ -183,9 +183,7 @@ def build_jobs(result_rows, metadata_by_job, endpoint_labels, snapshot_days,
 
 
 def build_job_dict(job_id, usernames):
-	meta = {k.decode(): v.decode() for k, v in
-	        current_app.backend.redis.client.hgetall(
-		        f"job:{job_id}:meta").items()}
+	meta = JobStore(current_app.backend.redis).meta(job_id)
 	job = current_app.orchestrator.get_job(uuid.UUID(job_id))
 	# Not in memory (e.g. after a restart): Redis hash values are strings,
 	# and the page sums device counts — always return an int
@@ -265,16 +263,14 @@ def dashboard():
 @login_required
 def active_jobs():
 	is_admin = current_user.role == "admin"
+	store = JobStore(current_app.backend.redis)
 	with current_app.backend.postgres.get_session() as db_session:
 		if is_admin:
-			job_ids = [k.decode().split(":")[1] for k in
-			           current_app.backend.redis.client.scan_iter("job:*:meta")]
+			job_ids = store.job_ids()
 			usernames = {str(u.id): u.username for u in
 			             db_session.query(User).all()}
 		else:
-			job_ids = [jid.decode() for jid in
-			           current_app.backend.redis.client.smembers(
-				           f"user_jobs:{current_user.id}")]
+			job_ids = store.job_ids(current_user.id)
 			usernames = {}
 		db_session.expunge_all()
 

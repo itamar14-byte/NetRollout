@@ -22,6 +22,7 @@ from src.db.backend import BackendServices
 from src.db.redis_db import REDIS_UNAVAILABLE
 from src.runtime import VERSION, StartupError, in_container, source_url
 from src.encryption import init_encryption, require_key_in_container
+from src.job_store import JobStore
 from src.orchestration import RolloutOrchestrator
 from src.webapp.lifecycle import Shutdown
 from src.webapp.proxy_config import sync_at_start
@@ -124,9 +125,7 @@ class RolloutSessionCollector:
 
 	def collect(self):
 		try:
-			active = int(self.redis.client.get("netrollout:active_count") or 0)
-			pending = int(
-				self.redis.client.get("netrollout:pending_count") or 0)
+			active, pending = JobStore(self.redis).counts()
 		except REDIS_UNAVAILABLE:
 			active, pending = 0, 0
 
@@ -169,6 +168,21 @@ def init_app_encryption(backend: BackendServices):
 	except OperationalError:
 		sample, db_checked = None, False
 	init_encryption(sample, db_checked=db_checked)
+
+
+def clear_stale_jobs(redis_conn):
+	"""Rollout jobs live only in the process running them: any job state in
+	Redis at startup is left over from a crash and would show as a job that
+	never ends (and skew the metrics). Never stops the start."""
+	try:
+		cleared = JobStore(redis_conn).reset_stale()
+	except REDIS_UNAVAILABLE as e:
+		print(f"[NetRollout] Leftover rollout state not cleared: Redis "
+		      f"unavailable ({e})", flush=True)
+		return
+	if cleared:
+		print(f"[NetRollout] Cleared {cleared} rollout(s) left over from a "
+		      f"previous run that didn't stop cleanly", flush=True)
 
 
 def clear_sessions(redis_conn):
@@ -224,6 +238,7 @@ def launch_app():
 		permanent=False,
 	)
 	clear_sessions(app.backend.redis)
+	clear_stale_jobs(app.backend.redis)
 	# nginx serves the saved hostname (deploy/nginx's watcher applies it)
 	sync_at_start(app.backend.settings)
 

@@ -80,6 +80,9 @@ Full architecture in `docs/architecture.md`; plan and current status in `docs/wo
 
 Retention (defaults; System Settings): job record (results + metadata) 30 days, config snapshots 7 days, audit log 90 days (pg_cron statements read the setting's row at run time); log files 60 days (app-side, daily).
 
+### Rollout job state
+`src/job_store.py` (`JobStore`) owns the Redis job keys (`job:{id}:meta`, `user_jobs:{uid}`, the queue, the pending/active counters): the orchestrator writes through it, the pages and the Prometheus collector read through it — no other code spells a key. Every start clears leftover job state (`setup.clear_stale_jobs`: jobs live only in their process, so anything there came from a crash). A finished job (`RolloutOrchestrator._finalize`): results to Postgres (retried; still failing → `logs/unsaved-results-<job>.json` + an ACTION NEEDED console line), then the Redis cleanup and the live log's end — each step runs even if another failed.
+
 ### Webapp real-time logging
 Server-Sent Events at `/rollout/stream/<job_id>`: history from Redis, then live messages via Redis pub/sub (`job:{id}:logs`), a heartbeat every 0.5s. `X-Accel-Buffering: no` disables nginx buffering.
 
