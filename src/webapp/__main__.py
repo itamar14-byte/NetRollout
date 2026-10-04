@@ -5,7 +5,7 @@ import sys
 from waitress import serve
 
 from src.db.settings import public_url
-from src.runtime import StartupError, drain_seconds, in_container
+from src.runtime import StartupError, drain_seconds, in_container, server_threads
 from src.logging_utils import start_log_pruning, utf8_console
 from src.webapp import create_app
 from src.webapp.startup import container_announcement, start_announcer
@@ -49,4 +49,4 @@ else:
 	# launch)
 	start_announcer(app.config["INSTANCE_TOKEN"], port,
 	                public_setting=configured_public_url)
-serve(app, host="0.0.0.0", port=port)
+serve(app, host="0.0.0.0", port=port, threads=server_threads())

@@ -196,3 +196,20 @@ def test_source_url_points_at_the_running_version(monkeypatch, version, url):
 	from src import runtime
 	monkeypatch.setattr(runtime, "VERSION", version)
 	assert runtime.source_url() == url
+
+
+@pytest.mark.parametrize("value, expected", [
+	(None, 32), ("16", 16), ("1", 4), ("100000", 256), ("lots", 32)])
+def test_server_threads(monkeypatch, value, expected):
+	# Waitress's own default (4) stalled the app with four open live logs
+	if value is None:
+		monkeypatch.delenv(runtime.THREADS_ENV, raising=False)
+	else:
+		monkeypatch.setenv(runtime.THREADS_ENV, value)
+	assert runtime.server_threads() == expected
+
+
+def test_the_server_is_started_with_those_threads():
+	from pathlib import Path
+	main = (Path(runtime.REPO_ROOT) / "src" / "webapp" / "__main__.py").read_text(encoding="utf-8")
+	assert "threads=server_threads()" in main
