@@ -456,7 +456,7 @@ Admin-editable runtime settings. The `system_settings` table is the **only runti
   - `reset(key)` writes the default;
   - `restart_only_values()` / `restart_pending()` drive the "restart pending" marker.
 - **`sql_value(key)`:** gives pg_cron a `COALESCE((SELECT value …), default)` expression.
-- **Phase 4, stage 8 (Part C):** the hostname will apply live, via an nginx config the app renders. An HTTPS port change will need `netrollout apply`.
+- **The hostname and HTTPS port reach nginx** (Phase 4 stage 8, `src/webapp/proxy_config.py` / `port_apply.py`): a saved hostname applies live — the app writes values (`config/nginx/site.env`), never nginx syntax; nginx's watcher validates, renders and reloads; a refused change is rolled back. A new HTTPS port goes to the host-side port helper (stage 9) as a confirm-or-roll-back trial; without it, `netrollout apply`.
 
 ---
 
@@ -474,7 +474,7 @@ In a container nothing is probed: its console isn't watched and the published po
 1. **Locally:** it connects to the local nginx, presenting the public hostname (SNI/Host).
 2. **Publicly:** it tries the public URL.
 
-The public URL comes from the *Hostname* / *HTTPS port* settings, or is auto-detected from the nginx config. The check confirms that nginx forwards to *this* process, then prints the address people should use, with a message that fits the case (proxy missing, wrong upstream, DNS, …). On a desktop launch it opens that address in the browser (`NETROLLOUT_OPEN_BROWSER=0` disables this).
+The public URL comes from the *Hostname* / *HTTPS port* settings; with no hostname set, it is `https://localhost` (the old auto-detect from `docs/nginx/nginx.conf` was retired in stage 8 with that file). The check confirms that nginx forwards to *this* process, then prints the address people should use, with a message that fits the case (proxy missing, wrong upstream, DNS, …). On a desktop launch it opens that address in the browser (`NETROLLOUT_OPEN_BROWSER=0` disables this).
 
 ### `setup.py` — app factory
 `launch_app()` is the composition root.

@@ -1,4 +1,6 @@
 # services
+import time
+
 # flask
 from flask import Blueprint, render_template, request, current_app, jsonify
 from flask_login import login_required
@@ -16,6 +18,7 @@ from src.db.tables import LDAPServer, LDAPGroup, User
 from src.encryption import encrypt
 from src.ldap_auth import test_user, test_connection, fetch_base_dn, walk_tree
 from src.runtime import drain_seconds
+from src.webapp import proxy_config
 from src.webapp.utils import ok, err, require_admin, with_json, with_form
 
 bp = Blueprint('admin_servers', __name__, url_prefix='/admin/server')
@@ -103,7 +106,9 @@ def admin_server():
 	                       redis_connected=redis_connected,
 	                       redis_host=current_app.backend.redis.config.host,
 	                       redis_port=current_app.backend.redis.config.port,
-	                       redis_db=current_app.backend.redis.config.db)
+	                       redis_db=current_app.backend.redis.config.db,
+	                       access=proxy_config.overview(
+		                       current_app.backend.settings.get("public_hostname")))
 
 
 @bp.route("/postgres/test", methods=["POST"])
@@ -438,6 +443,75 @@ def admin_server_ldap_group_delete(server_id, group_id):
 		                      object_type="LDAPGroup",
 		                      object_label=g.label, success=True)
 	return ok()
+
+# a PEM certificate chain or key is a few KB; anything bigger isn't one
+CERT_UPLOAD_MAX_BYTES = 256 * 1024
+
+
+def _certificate_applied(action: str, undo, started: float, managed: bool,
+                         detail: dict):
+	"""After the files are written: nginx's verdict — rejected → the previous
+	files are put back and the reason returned; otherwise audited and the
+	new status returned."""
+	settings = current_app.backend.settings
+	proxy = proxy_config.verdict(managed, started)
+	if proxy["state"] == "rejected":
+		undo()
+		return err(f"nginx rejected the certificate: {proxy.get('message')} — "
+		           f"the previous certificate is back.", 422)
+	current_app.web.audit(action, object_type="Certificate",
+	                      object_label=", ".join(detail.get("names", [])[:3]),
+	                      detail={**detail, "nginx": proxy["state"]})
+	return ok(proxy=proxy,
+	          access=proxy_config.overview(settings.get("public_hostname")))
+
+
+@bp.route("/certificate", methods=["POST"])
+@login_required
+@require_admin
+def certificate_upload():
+	"""An organisation's certificate (+ chain) and key: checked, then used —
+	all or nothing, nginx's verdict included."""
+	files = {}
+	for field in ("certificate", "key"):
+		upload = request.files.get(field)
+		if not upload or not upload.filename:
+			return err("Choose both files: the certificate and its private key.")
+		data = upload.read(CERT_UPLOAD_MAX_BYTES + 1)
+		if len(data) > CERT_UPLOAD_MAX_BYTES:
+			return err(f"The {field} file is too big for a PEM {field}.")
+		files[field] = data
+	hostname = current_app.backend.settings.get("public_hostname")
+	managed = proxy_config.read_status() is not None
+	started = time.time()
+	try:
+		check, undo = proxy_config.install_certificate(
+			files["certificate"], files["key"], hostname)
+	except proxy_config.ProxyError as e:
+		return err(f"Not used: {e}", 422)
+	return _certificate_applied(
+		"server.certificate_uploaded", undo, started, managed,
+		{"subject": check.subject, "names": check.names,
+		 "not_after": check.not_after.isoformat() if check.not_after else None,
+		 "warnings": check.warnings})
+
+
+@bp.route("/certificate/selfsigned", methods=["POST"])
+@login_required
+@require_admin
+def certificate_selfsigned():
+	"""A new self-signed certificate for the saved hostname (D2)."""
+	hostname = current_app.backend.settings.get("public_hostname")
+	managed = proxy_config.read_status() is not None
+	started = time.time()
+	try:
+		undo = proxy_config.generate_selfsigned(hostname)
+	except proxy_config.ProxyError as e:
+		return err(str(e), 422)
+	names = (proxy_config.overview(hostname)["certificate"] or {}).get("names", [])
+	return _certificate_applied("server.certificate_generated", undo, started,
+	                            managed, {"names": names})
+
 
 @bp.route("/restart", methods=["POST"])
 @login_required

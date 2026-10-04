@@ -24,6 +24,7 @@ from src.runtime import VERSION, StartupError, in_container, source_url
 from src.encryption import init_encryption, require_key_in_container
 from src.orchestration import RolloutOrchestrator
 from src.webapp.lifecycle import Shutdown
+from src.webapp.proxy_config import sync_at_start
 
 ########Constants###################################################
 
@@ -223,6 +224,8 @@ def launch_app():
 		permanent=False,
 	)
 	clear_sessions(app.backend.redis)
+	# nginx serves the saved hostname (deploy/nginx's watcher applies it)
+	sync_at_start(app.backend.settings)
 
 	return app
 

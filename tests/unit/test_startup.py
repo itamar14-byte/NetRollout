@@ -1,5 +1,5 @@
-"""Startup reverse-proxy check (src/webapp/startup.py): nginx-config
-detection, Public URL precedence, the token probe against real local HTTP
+"""Startup reverse-proxy check (src/webapp/startup.py): Public URL
+precedence, the token probe against real local HTTP
 and TLS listeners, the message variants, and the browser guards."""
 import datetime
 import http.server
@@ -10,67 +10,19 @@ import threading
 import pytest
 
 from src.webapp import startup
-from src.webapp.startup import (Probe, announcement, detect_from_nginx_conf,
-                                probe, resolve_public_url, should_open_browser)
+from src.webapp.startup import (Probe, announcement, probe,
+                                resolve_public_url, should_open_browser)
 
 TOKEN = "a" * 32
 
 
-# ── nginx config detection ──────────────────────────────────────────────────
-
-NGINX = """
-http {
-    server {            # port 80 only redirects
-        listen 80;
-        server_name localhost;
-        return 301 https://$host$request_uri;
-    }
-    server {
-        listen %s;
-        server_name %s;
-        location / { proxy_pass http://host.docker.internal:8080; }
-    }
-}
-"""
-
-
-@pytest.mark.parametrize("listen,name,expected", [
-	("443 ssl", "localhost", "https://localhost"),
-	("8443 ssl http2", "netrollout.corp.local", "https://netrollout.corp.local:8443"),
-	("[::]:443 ssl", "_", "https://localhost"),
-	("0.0.0.0:8443 ssl", "a.example b.example", "https://a.example:8443"),
-])
-def test_detect_prefers_the_tls_server_block(tmp_path, listen, name, expected):
-	conf = tmp_path / "nginx.conf"
-	conf.write_text(NGINX % (listen, name))
-	assert detect_from_nginx_conf(conf) == expected
-
-
-def test_detect_plain_http_and_missing(tmp_path):
-	conf = tmp_path / "nginx.conf"
-	conf.write_text("server { listen 8081; server_name box; }")
-	assert detect_from_nginx_conf(conf) == "http://box:8081"
-	assert detect_from_nginx_conf(tmp_path / "nope.conf") is None
-	conf.write_text("# listen 443 ssl;\nevents {}")
-	assert detect_from_nginx_conf(conf) is None
-
-
-def test_detects_the_repos_real_config():
-	assert detect_from_nginx_conf(startup.DEFAULT_NGINX_CONF) == "https://localhost"
-
-
-def test_public_url_precedence(monkeypatch, tmp_path):
-	conf = tmp_path / "nginx.conf"
-	conf.write_text("server { listen 443 ssl; server_name detected; }")
-	monkeypatch.setenv(startup.NGINX_CONF_ENV, str(conf))
-	# no hostname set: the nginx config
-	assert resolve_public_url() == ("https://detected",
-	                                "auto-detected from nginx.conf")
+def test_public_url_precedence():
+	# no hostname set: https://localhost
+	assert resolve_public_url() == ("https://localhost", startup.DEFAULT_SOURCE)
+	assert resolve_public_url(None) == ("https://localhost", startup.DEFAULT_SOURCE)
 	# the URL built from System Settings wins
 	assert resolve_public_url("https://admin.corp:8443/") == (
 		"https://admin.corp:8443", "from System Settings")
-	monkeypatch.setenv(startup.NGINX_CONF_ENV, str(tmp_path / "missing"))
-	assert resolve_public_url() == (None, "none configured")
 
 
 # ── The probe, against real listeners ───────────────────────────────────────
@@ -198,18 +150,18 @@ def test_message_when_only_this_machine_cant_reach_the_public_url():
 
 
 def test_message_when_not_verified():
-	msg, target = announcement(9090, "https://localhost", "auto-detected from nginx.conf",
+	msg, target = announcement(9090, "https://localhost", startup.DEFAULT_SOURCE,
 	                           Probe(False, "nothing listening on 127.0.0.1:443", True),
 	                           Probe(False, "nothing listening on localhost:443", True))
 	assert "Reverse proxy not verified at https://localhost" in msg
 	assert "http://localhost:9090" in msg and "this machine only" in msg
 	assert "Remote users can't sign in" in msg
-	assert "set the hostname and HTTPS port" in msg   # auto-detect hint
+	assert "set the hostname and HTTPS port" in msg   # the default's hint
 	assert target == "http://localhost:9090"
 	msg, _ = announcement(9090, None, "none configured", None, None)
 	assert "No reverse proxy configured" in msg and "http://localhost:9090" in msg
 	# nginx answered (wrong upstream), so the port was right: no port hint
-	msg, _ = announcement(9090, "https://localhost", "auto-detected from nginx.conf",
+	msg, _ = announcement(9090, "https://localhost", startup.DEFAULT_SOURCE,
 	                      FAIL, FAIL)
 	assert "set the hostname and HTTPS port" not in msg
 

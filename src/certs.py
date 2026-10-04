@@ -37,10 +37,11 @@ EXPIRY_WARNING_DAYS = 30
 # ── Self-signed ──────────────────────────────────────────────────────────────
 
 def selfsigned(hostname: str, ips=(), out_dir=None,
-               days: int = SELFSIGNED_DAYS) -> Path:
+               days: int = SELFSIGNED_DAYS, also_names=()) -> Path:
 	"""Write a self-signed certificate for `hostname` (and each address in
-	`ips`, so https://<ip> works too) into `out_dir` (default: the certs
-	folder), plus the marker. Returns the folder."""
+	`ips`, so https://<ip> works too, and each name in `also_names`) into
+	`out_dir` (default: the certs folder), plus the marker. Returns the
+	folder."""
 	out = Path(out_dir) if out_dir else runtime.certs_dir()
 	out.mkdir(parents=True, exist_ok=True)
 	host = hostname.strip().rstrip(".").lower()
@@ -48,7 +49,7 @@ def selfsigned(hostname: str, ips=(), out_dir=None,
 		raise ValueError("a hostname is required")
 
 	names, seen = [], set()
-	for value in (host, *ips):
+	for value in (host, *also_names, *ips):
 		ip = _ip(value)
 		general = x509.IPAddress(ip) if ip else x509.DNSName(value)
 		if general not in seen:
@@ -184,6 +185,12 @@ def validate(cert_pem: bytes, key_pem: bytes, hostname: str | None = None,
 			                      "certificate first, then each issuer.")
 			break
 	return check
+
+
+def names_in(cert_pem: bytes) -> tuple[list[str], list]:
+	"""(DNS names, IP addresses) the server certificate (the first in the
+	file) covers."""
+	return _san(x509.load_pem_x509_certificates(cert_pem)[0])
 
 
 def host_matches(hostname: str, dns_names, ips) -> bool:

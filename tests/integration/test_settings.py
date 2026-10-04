@@ -125,3 +125,18 @@ def test_missing_row_falls_back_to_the_default(app, session_scope):
 	# only if seeding failed — reading a setting never crashes
 	assert rows(session_scope) == {}
 	assert app.backend.settings.get("job_retention_days") == 30
+
+
+def test_the_app_hands_nginx_the_saved_hostname_at_start(app):
+	# what the nginx watcher reads (config/nginx/site.env in NETROLLOUT_HOME)
+	from src import runtime
+	from src.webapp.proxy_config import sync_at_start
+	site = runtime.config_dir() / "nginx" / "site.env"
+	assert site.read_text(encoding="utf-8").startswith("NETROLLOUT_HOSTNAME=")
+	app.backend.settings.update({"public_hostname": "nr01.corp.local"}, None)
+	try:
+		sync_at_start(app.backend.settings)          # what the next start does
+		assert "NETROLLOUT_HOSTNAME=nr01.corp.local\n" in site.read_text(encoding="utf-8")
+	finally:
+		app.backend.settings.update({"public_hostname": ""}, None)
+		sync_at_start(app.backend.settings)

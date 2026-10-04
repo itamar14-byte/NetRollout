@@ -230,3 +230,9 @@ def test_cli_rejects_a_bad_ip(tmp_path):
 	assert certs.main(["selfsigned", "--host", "nr01", "--ip", "nr02",
 	                   "--out", str(tmp_path)]) == 1
 	assert not any(tmp_path.iterdir())
+
+
+def test_extra_names_follow_the_hostname(tmp_path):
+	certs.selfsigned("new.lab", ["10.1.1.5"], tmp_path, also_names=["old.lab"])
+	dns, ips = certs.names_in((tmp_path / certs.CERT_FILE).read_bytes())
+	assert dns == ["new.lab", "old.lab"] and [str(i) for i in ips] == ["10.1.1.5"]
