@@ -154,6 +154,13 @@ def test_page_renders_every_setting_with_the_shared_rules(admin, client_for):
 	assert "Internal app port" in html and 'id="testBtn"' in html
 
 
+def test_the_sessions_card_offers_the_idle_timeout(admin, client_for):
+	html = client_for(admin).get("/admin/settings").get_data(as_text=True)
+	assert ">Sessions<" in html and 'id="set-session_idle_minutes"' in html
+	assert "Sign out after inactivity" in html
+	assert 'min="5"' in html and 'max="480"' in html
+
+
 def test_restart_dot_shows_on_admin_pages_while_pending(admin, app, client_for):
 	client = client_for(admin)
 	started = app.config["SETTINGS_STARTED_WITH"]["orchestrator_workers"]
