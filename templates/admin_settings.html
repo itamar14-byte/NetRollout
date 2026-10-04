@@ -30,6 +30,10 @@
   .set-note { font-size: 0.8rem; color: var(--nr-text-muted); background: #151515; border: 1px solid #242424;
               border-radius: 8px; padding: 0.65rem 0.85rem; margin-top: 1rem; line-height: 1.5; }
   .set-note code { color: #80deea; }
+  .port-state { margin: 0.25rem 0 0.75rem; }
+  .port-state code { color: #80deea; }
+  .port-state a { color: #80deea; font-weight: 500; }
+  .port-state .btn { margin-left: 0.4rem; padding: 0.05rem 0.5rem; font-size: 0.78rem; }
   .test-result { font-family: 'JetBrains Mono', monospace; font-size: 0.76rem; margin-top: 0.75rem; line-height: 1.6; }
   .test-result .ok { color: #81c784; } .test-result .fail { color: #ef9a9a; }
   .save-bar { position: sticky; bottom: 0; background: #121212; border-top: 1px solid #222;
@@ -97,6 +101,8 @@
     {% endfor %}
 
     {% if card == 'Access' %}
+    {# where a new HTTPS port stands — filled by the script (port_apply.state) #}
+    <div id="portState" class="set-alert port-state" aria-live="polite"></div>
     <div class="set-row">
       <div>
         <div class="set-label">Internal app port</div>
@@ -236,8 +242,77 @@
     // only when the server reported it (a save / reset), not on Discard
     if (Array.isArray(state.restart_pending) && window.setSettingsRestartPending)
       setSettingsRestartPending(state.restart_pending);
+    if (state.port) renderPort(state.port);
     refreshDirty();
   }
+
+  // ── HTTPS port: applied by the server's port helper (src/webapp/port_apply.py).
+  // A trial opens the new port next to the current one; the page served on the
+  // new port confirms it — unconfirmed, the helper goes back.
+  const portBox = document.getElementById('portState');
+  let portTimer = null, probedId = null;
+  const onPort = p => `https://${location.hostname}:${p}`;
+
+  function renderPort(p) {
+    clearTimeout(portTimer);
+    const s = p.state;
+    if (s === 'applied') { portBox.className = 'set-alert port-state'; portBox.textContent = ''; return; }
+    let kind = 'warn', icon = 'bi-hourglass-split', html;
+    if (s === 'manual') {
+      icon = 'bi-info-circle';
+      html = `Port ${p.saved} is saved. NetRollout stays on port ${p.serving} until ` +
+             '<code>netrollout apply</code> is run on the server.';
+    } else if (s === 'waiting') {
+      html = `Opening port ${p.saved}… NetRollout is unavailable for a few seconds while nginx restarts.`;
+    } else if (s === 'no_helper_answer') {
+      icon = 'bi-exclamation-triangle';
+      html = `The server hasn't picked up port ${p.saved} — check <code>netrollout status</code> on the server. ` +
+             `NetRollout stays on port ${p.serving}.`;
+    } else if (s === 'trying') {
+      const url = onPort(p.trying) + '/admin/settings?confirm_port=' + encodeURIComponent(p.id);
+      const left = p.deadline ? Math.max(0, Math.round(p.deadline - Date.now() / 1000)) : null;
+      icon = 'bi-signpost-split';
+      html = `Port ${p.trying} is open next to port ${p.serving}. <a href="${esc(url)}">Open NetRollout on port ${p.trying}</a> ` +
+             `to keep it${left !== null ? ` (${left} s left)` : ''} — if it doesn't open (e.g. a firewall blocks it), ` +
+             `port ${p.serving} stays.`;
+      // reachable from this browser → go there; the page there confirms
+      if (probedId !== p.id) {
+        probedId = p.id;
+        fetch(onPort(p.trying) + '/_netrollout/health', {mode: 'no-cors', cache: 'no-store'})
+          .then(() => { location.href = url; }).catch(() => {});
+      }
+    } else if (s === 'confirming') {
+      html = `Keeping port ${p.saved}…`;
+    } else if (s === 'rolled_back' || s === 'failed') {
+      kind = 'error'; icon = 'bi-x-circle';
+      html = `Port ${p.saved} wasn't applied: ${esc(p.message || 'no reason given')}. ` +
+             `NetRollout stays on port ${p.serving}. ` +
+             '<button type="button" class="btn btn-sm btn-outline-warning" data-port-retry>Try again</button>';
+    } else {
+      html = `Port change: unknown state (${esc(s)}) — check <code>netrollout status</code> on the server.`;
+    }
+    portBox.className = 'set-alert show port-state ' + kind;
+    portBox.innerHTML = `<i class="bi ${icon} me-1"></i>` + html;
+    if (['waiting', 'trying', 'confirming'].includes(s)) portTimer = setTimeout(pollPort, 1500);
+  }
+
+  async function pollPort() {
+    try {
+      // a background request: watching this must not keep the session alive
+      const resp = await fetch('/admin/settings/port?_bg=1', {headers: {'X-NR-Background': '1'}});
+      if (resp.status === 401) return;          // signed out: _idle_timeout takes over
+      const data = await resp.json();
+      if (data.status === 'ok') { renderPort(data.port); return; }
+    } catch (_) {}                              // nginx restarting: ask again
+    portTimer = setTimeout(pollPort, 1500);
+  }
+
+  portBox.addEventListener('click', async e => {
+    if (!e.target.closest('[data-port-retry]')) return;
+    const {resp, data} = await post('/admin/settings/port/retry');
+    if (resp.ok && data.status === 'ok') renderPort(data.port);
+    else showAlert('error', 'Not retried: ' + esc(data.message || `server error (${resp.status})`));
+  });
 
   function showServerErrors(data) {
     const errors = data.errors || {};
@@ -307,6 +382,23 @@
 
   discardBtn.addEventListener('click', () => { clearAlert(); applyState({settings: SETTINGS,
     restart_pending: null}); });
+
+  // Opened on the new port during a trial (the link above): confirm from here.
+  const confirmId = new URLSearchParams(location.search).get('confirm_port');
+  if (confirmId) {
+    history.replaceState(null, '', location.pathname);
+    post('/admin/settings/port/confirm', {id: confirmId}).then(({resp, data}) => {
+      if (resp.ok && data.status === 'ok') {
+        showAlert('success', `<i class="bi bi-check-circle me-1"></i>Port ${esc(location.port || 443)} kept — ` +
+          `NetRollout is now at <code>${esc(location.origin)}</code>.`);
+        renderPort(data.port);
+      } else {
+        showAlert('error', 'Port not confirmed: ' + esc(data.message || `server error (${resp.status})`));
+      }
+    });
+  } else {
+    renderPort({{ port | tojson }});
+  }
 
   // ── Reset to default ──
   form.addEventListener('click', async e => {

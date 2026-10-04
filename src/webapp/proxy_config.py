@@ -18,11 +18,11 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from src import certs, runtime
 from src.db.settings import SETTINGS
+from src.webapp import port_apply
 
 SITE_FILE = "site.env"
 STATUS_FILE = "status.json"
-# compose passes .env's HTTPS_PORT (what Docker publishes) under this name
-APPLIED_PORT_ENV = "NETROLLOUT_HTTPS_PORT"
+APPLIED_PORT_ENV = port_apply.PUBLISHED_PORT_ENV
 
 
 def shared_dir() -> Path:
@@ -30,12 +30,10 @@ def shared_dir() -> Path:
 
 
 def applied_https_port() -> int:
-	"""The port Docker publishes — not the System Settings value, which waits
-	for `netrollout apply`: until then redirects must keep using this one."""
-	try:
-		return SETTINGS["https_port"].parse(os.environ.get(APPLIED_PORT_ENV, "443"))
-	except ValueError:
-		return 443
+	"""The port NetRollout is served on — not the System Settings value, which
+	is the port wanted: redirects keep using this one until the port helper
+	applies the new one (port_apply.serving_port)."""
+	return port_apply.serving_port()
 
 
 def write_site(hostname: str | None) -> bool:

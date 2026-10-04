@@ -158,8 +158,12 @@ SETTINGS: dict[str, Setting] = {s.key: s for s in [
 	        "after 12 hours.",
 	        "Sessions", 15, minimum=5, maximum=480, applies="within 30 s"),
 	Setting("https_port", "HTTPS port",
-	        "The port nginx serves NetRollout on (used with the hostname).",
-	        "Access", 443, minimum=1, maximum=65535, applies="next start",
+	        "The port people use to reach NetRollout. Saving a new one opens "
+	        "it next to the current one; open NetRollout on the new port to "
+	        "keep it — unconfirmed (e.g. a firewall blocks it), the current "
+	        "port stays.",
+	        "Access", 443, minimum=1, maximum=65535,
+	        applies="once confirmed on the new port",
 	        env="NETROLLOUT_HTTPS_PORT"),
 ]}
 

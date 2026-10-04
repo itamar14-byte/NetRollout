@@ -8,6 +8,7 @@ from src.db.settings import public_url
 from src.runtime import StartupError, drain_seconds, in_container, server_threads
 from src.logging_utils import start_log_pruning, utf8_console
 from src.webapp import create_app
+from src.webapp.port_apply import serving_port
 from src.webapp.startup import container_announcement, start_announcer
 
 utf8_console()
@@ -33,8 +34,8 @@ settings = app.backend.settings
 
 
 def configured_public_url():
-	return public_url(settings.get("public_hostname"),
-	                  settings.get("https_port"))
+	# the port served now — the setting is the one wanted, maybe not applied yet
+	return public_url(settings.get("public_hostname"), serving_port())
 
 
 if in_container():
