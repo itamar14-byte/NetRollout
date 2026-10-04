@@ -110,6 +110,9 @@ def configure_app(app, redis, secret_key: str):
 	app.jinja_env.globals['VENDOR_LOGOS'] = VENDOR_LOGOS
 	app.jinja_env.globals['NR_VERSION'] = VERSION        # the footer
 	app.jinja_env.globals['NR_SOURCE_URL'] = source_url()
+	# compose passes COMPOSE_PROFILES: Grafana runs (at /grafana/) with "monitoring"
+	app.jinja_env.globals['NR_MONITORING'] = "monitoring" in [
+		p.strip() for p in os.environ.get("NETROLLOUT_MONITORING", "").split(",")]
 
 
 # set up prometheus scraping
@@ -168,6 +171,11 @@ def init_app_encryption(backend: BackendServices):
 
 
 def clear_sessions(redis_conn):
+	"""Every start signs everyone out — deliberately (2026-10-04): a privileged
+	network-management console starts clean after a restart, update or
+	reboot, like a firewall's management plane. Rollouts don't depend on
+	sessions (the drain lets them finish). Within a run, sessions end after
+	inactivity (session_idle_minutes) and after 12 hours (extensions.py)."""
 	try:
 		for redis_key in redis_conn.client.scan_iter("redis_session:*"):
 			redis_conn.client.delete(redis_key)

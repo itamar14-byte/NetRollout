@@ -227,7 +227,7 @@ def retention_db(app):
 	with engine.begin() as c:
 		c.execute(text("insert into users (id, username, role, is_active, "
 		               "is_approved, created_at, auth_type) values (:u, 'r', "
-		               "'user', true, true, now(), 'local')"), {"u": user})
+		               "'operator', true, true, now(), 'local')"), {"u": user})
 	jobs = {}
 
 	def result(key, completed_days, config="cfg"):
@@ -435,3 +435,55 @@ def test_startup_canary_refuses_mismatched_key_against_real_db(app, make_user):
 @pytest.mark.redis
 def test_health_reports_each_service(app):
 	assert app.backend.health() == {"POSTGRES": True, "REDIS": True}
+
+
+def test_role_migration_renames_user_to_operator(test_db_url):
+	# An install from before the rename: its operators (and LDAP group rules)
+	# stored as "user" become "operator"; admins stay; downgrade reverses it
+	name = f"rollout_mig_{uuid.uuid4().hex[:6]}"
+	admin_url = test_db_url.rsplit("/", 1)[0] + "/postgres"
+	url = test_db_url.rsplit("/", 1)[0] + "/" + name
+	admin = create_engine(admin_url, isolation_level="AUTOCOMMIT")
+	alembic = lambda *args: subprocess.run(
+		[sys.executable, "-m", "alembic", *args], cwd=ROOT / "src" / "db",
+		capture_output=True, text=True, env=dict(os.environ, DATABASE_URL=url))
+	with admin.connect() as c:
+		c.execute(text(f'CREATE DATABASE "{name}"'))
+	engine = create_engine(url)
+
+	def roles():
+		with engine.connect() as c:
+			return (dict(c.execute(text("select username, role from users")).all()),
+			        dict(c.execute(text("select label, role from ldap_groups")).all()))
+	try:
+		assert alembic("upgrade", "device_results_action_needed").returncode == 0
+		server = uuid.uuid4()
+		with engine.begin() as c:
+			for username, role in (("ops", "user"), ("boss", "admin")):
+				c.execute(text(
+					"insert into users (id, username, password_hash, role, is_active,"
+					" is_approved, created_at, auth_type, must_change_password)"
+					" values (:i, :u, 'x', :r, true, true, now(), 'local', false)"),
+					{"i": uuid.uuid4(), "u": username, "r": role})
+			c.execute(text(
+				"insert into ldap_servers (id, name, host, port, base_dn,"
+				" cn_identifier, bind_type, use_ssl, is_active) values"
+				" (:i, 'dc', 'dc.local', 389, 'dc=x', 'uid', 'anonymous', false, true)"),
+				{"i": server})
+			for label, role in (("netops", "user"), ("leads", "admin")):
+				c.execute(text(
+					"insert into ldap_groups (id, group_dn, label, role, is_active,"
+					" ldap_server_id) values (:i, :d, :l, :r, true, :s)"),
+					{"i": uuid.uuid4(), "d": f"cn={label}", "l": label, "r": role,
+					 "s": server})
+		assert alembic("upgrade", "head").returncode == 0
+		assert roles() == ({"ops": "operator", "boss": "admin"},
+		                   {"netops": "operator", "leads": "admin"})
+		assert alembic("downgrade", "device_results_action_needed").returncode == 0
+		assert roles() == ({"ops": "user", "boss": "admin"},
+		                   {"netops": "user", "leads": "admin"})
+	finally:
+		engine.dispose()
+		with admin.connect() as c:
+			c.execute(text(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)'))
+		admin.dispose()

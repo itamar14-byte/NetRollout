@@ -1,0 +1,76 @@
+{# Sign-out after inactivity: the page's side of enforce_session_lifetime
+   (src/webapp/extensions.py). Included by operator_base.html, admin.html and
+   base.html for signed-in users. The server is the judge; this only warns a
+   minute ahead and, at the end, asks the server before leaving — another tab
+   may have kept the session alive. #}
+{% if NR_IDLE_SECONDS is defined %}
+<div class="modal fade" id="idleModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
+    <div class="modal-dialog modal-dialog-centered" style="max-width:380px;">
+        <div class="modal-content">
+            <div class="modal-body" style="text-align:center; padding:1.6rem 1.4rem 1.2rem;">
+                <i class="bi bi-hourglass-split" style="font-size:1.6rem; color:#ffb74d;"></i>
+                <p style="margin:0.7rem 0 0.2rem; color:#e0e0e0; font-size:0.95rem;">Still there?</p>
+                <p style="margin:0; color:var(--nr-text-muted); font-size:0.82rem;">
+                    You'll be signed out in <strong id="idleSecondsLeft" style="color:#ffb74d;">60</strong> s
+                    for inactivity.
+                </p>
+            </div>
+            <div class="modal-footer" style="justify-content:center; border-top:1px solid #222;">
+                <a href="{{ url_for('auth.logout') }}" class="btn btn-secondary btn-sm">Sign out</a>
+                <button type="button" class="btn btn-info btn-sm" id="idleStayBtn">Stay signed in</button>
+            </div>
+        </div>
+    </div>
+</div>
+<script>
+(() => {
+    const IDLE_MS = {{ NR_IDLE_SECONDS }} * 1000, WARN_MS = 60 * 1000;
+    const BG = {'X-NR-Background': '1'};
+    const plainFetch = window.fetch.bind(window);
+    let deadline = Date.now() + IDLE_MS, synced = false, leaving = false;
+    let modal = null;
+
+    // A request this page makes for the user counts on the server too
+    window.fetch = function (input, init) {
+        const headers = new Headers((init && init.headers) || {});
+        if (headers.get('X-NR-Background') !== '1') { deadline = Date.now() + IDLE_MS; synced = false; }
+        return plainFetch(input, init);
+    };
+
+    const signIn = () => {
+        leaving = true;
+        window.location.href = '/?next=' + encodeURIComponent(location.pathname + location.search);
+    };
+    async function ask(stay) {      // the server's view (stay: also counts as activity)
+        try {
+            const r = await plainFetch('/account/session', {cache: 'no-store', headers: stay ? {} : BG});
+            if (r.status === 401 || r.redirected) { signIn(); return; }
+            const d = await r.json();
+            deadline = Date.now() + Math.min(d.idle_seconds_left, d.absolute_seconds_left) * 1000;
+        } catch (e) { /* server unreachable: keep the local clock */ }
+    }
+    function showWarning(ms) {
+        document.getElementById('idleSecondsLeft').textContent = Math.max(0, Math.ceil(ms / 1000));
+        modal = modal || bootstrap.Modal.getOrCreateInstance(document.getElementById('idleModal'));
+        if (!document.getElementById('idleModal').classList.contains('show')) modal.show();
+    }
+    function hideWarning() { if (modal) modal.hide(); }
+
+    document.getElementById('idleStayBtn').addEventListener('click', async () => {
+        await ask(true); synced = false; hideWarning();
+    });
+
+    // A session ended elsewhere (Terminate Session, a password reset) is
+    // noticed within 30 s, without waiting for a click
+    setInterval(() => { if (!leaving) ask(false); }, 30000);
+
+    setInterval(async () => {
+        if (leaving) return;
+        let left = deadline - Date.now();
+        if (left <= WARN_MS && !synced) { synced = true; await ask(false); left = deadline - Date.now(); }
+        if (left <= 0) { await ask(false); if (deadline - Date.now() <= 0) signIn(); return; }
+        if (left <= WARN_MS) showWarning(left); else hideWarning();
+    }, 1000);
+})();
+</script>
+{% endif %}

@@ -1,11 +1,13 @@
 import sys
+import time
 import uuid
 
 import flask_wtf.csrf as csrf_err
-from flask import request, redirect, url_for, render_template
+from flask import (request, redirect, url_for, render_template, session,
+                   flash, current_app, Response)
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
-from flask_login import LoginManager, current_user
+from flask_login import LoginManager, current_user, logout_user
 from flask_wtf import CSRFProtect
 from prometheus_flask_exporter import PrometheusMetrics
 from redis.exceptions import ConnectionError as RedisConnectionError, \
@@ -25,7 +27,55 @@ conn_limit = Limiter(get_remote_address, default_limits=[],
 csrf = CSRFProtect()
 # Reachable while a password change is pending (must_change_password)
 PASSWORD_CHANGE_ALLOWED = {"auth.change_password", "auth.logout", "static",
-                           "system.instance", "system.health"}
+                           "system.instance", "system.health",
+                           "system.grafana_auth",   # answers 403 itself
+                           "auth.session_state"}
+
+
+# ── Session lifetime ──
+# A session ends after `session_idle_minutes` (System Settings) without user
+# activity, and after ABSOLUTE_SESSION_HOURS however active. Activity is what
+# a person does: a page load, a form, a click that calls the server. What a
+# page does by itself doesn't count — requests marked background (header
+# X-NR-Background: 1, or ?_bg=1 on an automatic reload) and the live log
+# stream — but expiry is checked on every request.
+ABSOLUTE_SESSION_HOURS = 12
+SIGNED_IN_AT = "nr_signed_in_at"
+LAST_ACTIVE = "nr_last_active"
+_NO_SESSION_PATHS = ("/static/", "/_netrollout/instance", "/_netrollout/health")
+_PASSIVE_PATHS = ("/rollout/stream/",)
+_IDLE_CACHE = {"at": 0.0, "seconds": None}
+
+
+def idle_seconds() -> int:
+	"""The idle limit, re-read from System Settings at most every 30 s (this
+	runs on every request, Grafana's included)."""
+	now = time.monotonic()
+	if _IDLE_CACHE["seconds"] is None or now - _IDLE_CACHE["at"] > 30:
+		_IDLE_CACHE["seconds"] = \
+			current_app.backend.settings.get("session_idle_minutes") * 60
+		_IDLE_CACHE["at"] = now
+	return _IDLE_CACHE["seconds"]
+
+
+def is_background() -> bool:
+	return (request.headers.get("X-NR-Background") == "1"
+	        or request.args.get("_bg") == "1"
+	        or request.path.startswith(_PASSIVE_PATHS))
+
+
+def session_seconds_left(now: float | None = None) -> tuple[float, float]:
+	"""(idle, absolute) seconds left for the current session."""
+	now = now or time.time()
+	idle = idle_seconds() - (now - session.get(LAST_ACTIVE, now))
+	absolute = ABSOLUTE_SESSION_HOURS * 3600 - (now - session.get(SIGNED_IN_AT, now))
+	return idle, absolute
+
+
+def mark_signed_in():
+	"""A sign-in just completed: both clocks start now."""
+	now = time.time()
+	session[SIGNED_IN_AT] = session[LAST_ACTIVE] = now
 
 
 def register_extensions(app):
@@ -47,6 +97,43 @@ def register_auth(app):
 			if user:
 				db_session.expunge(user)
 			return user
+
+	@app.before_request
+	def enforce_session_lifetime():
+		if request.path.startswith(_NO_SESSION_PATHS) \
+				or not current_user.is_authenticated:
+			return None
+		now = time.time()
+		session.setdefault(SIGNED_IN_AT, now)     # sessions from before this
+		session.setdefault(LAST_ACTIVE, now)
+		idle_left, absolute_left = session_seconds_left(now)
+		if idle_left > 0 and absolute_left > 0:
+			if not is_background():
+				session[LAST_ACTIVE] = now
+			return None
+		reason = "idle" if idle_left <= 0 else "absolute"
+		current_app.web.audit("auth.session_expired", detail={"reason": reason})
+		current_app.backend.redis.client.delete(f"user_session:{current_user.id}")
+		logout_user()
+		session.clear()
+		if request.endpoint == "system.grafana_auth":
+			return Response(status=401)           # nginx: only a status
+		if request.method != "GET" or is_background() or request.is_json or \
+				request.headers.get("X-Requested-With") == "XMLHttpRequest":
+			return err("Your session has ended — sign in again", 401,
+			           redirect=url_for("auth.home"))
+		flash(f"You were signed out after {idle_seconds() // 60} minutes "
+		      f"without activity." if reason == "idle" else
+		      f"Signed out: sessions last at most {ABSOLUTE_SESSION_HOURS} "
+		      f"hours. Sign in again.", "info")
+		return redirect(url_for("auth.home", next=request.full_path.rstrip("?")))
+
+	@app.context_processor
+	def session_lifetime_for_pages():
+		# the page's own countdown and warning (_idle_timeout.html)
+		if not current_user.is_authenticated:
+			return {}
+		return {"NR_IDLE_SECONDS": idle_seconds()}
 
 	@app.before_request
 	def require_password_change():

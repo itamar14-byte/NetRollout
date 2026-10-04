@@ -5,8 +5,8 @@ datasources:
     type: grafana-postgresql-datasource
     uid: cfjxoedixn7r4d
     access: proxy
-    url: NetRollout-DB:5432
-    database: rollout_db
+    url: postgres:5432
+    database: netrollout
     user: grafana_reader
     secureJsonData:
       password: "${GRAFANA_DB_PASSWORD}"

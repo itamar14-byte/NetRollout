@@ -41,7 +41,7 @@ def test_bad_encryption_key_admin_gets_the_fix(client_for, make_user):
 	assert "<script" not in body                  # renders with no scripts
 
 
-@pytest.mark.parametrize("role", [None, "user"])
+@pytest.mark.parametrize("role", [None, "operator"])
 def test_bad_encryption_key_others_are_told_to_ask_an_admin(client_for,
                                                             make_user, role):
 	client = client_for(make_user(role=role) if role else None)

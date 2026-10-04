@@ -148,6 +148,13 @@ SETTINGS: dict[str, Setting] = {s.key: s for s in [
 	        pattern_hint="must be a hostname or IP address only — no "
 	                     "https://, port or path",
 	        placeholder="netrollout.corp.local", max_length=253),
+	# ── Sessions ──
+	Setting("session_idle_minutes", "Sign out after inactivity",
+	        "Minutes without a click or a page change before a session ends "
+	        "(a warning comes a minute before). Background refreshes and live "
+	        "logs don't count. However active, signing in is required again "
+	        "after 12 hours.",
+	        "Sessions", 15, minimum=5, maximum=480, applies="within 30 s"),
 	Setting("https_port", "HTTPS port",
 	        "The port nginx serves NetRollout on (used with the hostname).",
 	        "Access", 443, minimum=1, maximum=65535, applies="next start",

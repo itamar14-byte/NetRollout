@@ -30,7 +30,7 @@ def user_action_factory(user, action, db_session):
 		user.is_approved = True
 		user.is_active = True
 	elif action == "demote":
-		user.role = "user"
+		user.role = "operator"
 	elif action == "delete":
 		db_session.delete(user)
 	elif action == "reset_2fa":

@@ -19,7 +19,7 @@ pytestmark = pytest.mark.ldap
 JDOE_DN, JDOE_PW = LDAP_USERS["jdoe"]
 BOB_DN, BOB_PW = LDAP_USERS["bsmith"]
 ALICE_DN, ALICE_PW = LDAP_USERS["alice"]
-GROUPS = [SimpleNamespace(group_dn=LDAP_GROUP_DN, role="user")]
+GROUPS = [SimpleNamespace(group_dn=LDAP_GROUP_DN, role="operator")]
 
 
 @pytest.fixture(autouse=True)
@@ -88,13 +88,13 @@ def test_directory_down_is_unavailable_and_fast(ldap_server_config):
 
 def test_group_member_matches(ldap_server_config):
 	assert ldap_auth.check_group_membership(
-		ldap_server_config, "jdoe", JDOE_PW, GROUPS) == (LDAP_GROUP_DN, "user")
+		ldap_server_config, "jdoe", JDOE_PW, GROUPS) == (LDAP_GROUP_DN, "operator")
 
 
 def test_member_dn_with_comma_matches(ldap_server_config):
 	# "cn=Smith\, Bob" must be escaped inside the (member=...) filter
 	assert ldap_auth.check_group_membership(
-		ldap_server_config, "bsmith", BOB_PW, GROUPS) == (LDAP_GROUP_DN, "user")
+		ldap_server_config, "bsmith", BOB_PW, GROUPS) == (LDAP_GROUP_DN, "operator")
 
 
 def test_non_member_and_bad_password_do_not_match(ldap_server_config):
@@ -136,7 +136,7 @@ def directory_in_db(app, ldap_directory):
 		                 is_active=True)
 		s.add(srv)
 		s.flush()
-		s.add(LDAPGroup(group_dn=LDAP_GROUP_DN, label="netops", role="user",
+		s.add(LDAPGroup(group_dn=LDAP_GROUP_DN, label="netops", role="operator",
 		                ldap_server_id=srv.id))
 		return srv.id
 

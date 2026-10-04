@@ -161,8 +161,9 @@ def test_a_change_signs_out_every_other_session(make_user, client_for, app):
 	assert me.get("/dashboard").status_code == 200       # still signed in
 
 
+# (wrong_current moved to the voluntary change below: a forced change no
+# longer asks for the current password — approved 2026-10-04)
 @pytest.mark.parametrize("kwargs, reason", [
-	({"current": "wrong-Pass-1"}, "wrong_current"),
 	({"confirm": "Other-pass-42"}, "mismatch"),
 	({"new": "short1"}, "rule"),
 	({"new": TEST_PASSWORD}, "rule"),                  # same as the current
@@ -176,6 +177,48 @@ def test_a_refused_change_keeps_everything(flagged, client_for, session_scope,
 	assert check_password_hash(user.password_hash, TEST_PASSWORD)
 	((_, success, detail),) = audits(session_scope, "auth.password_change")
 	assert success is False and detail["reason"] == reason
+
+
+def test_a_voluntary_change_needs_the_current_password(make_user, client_for,
+                                                       session_scope):
+	user = make_user()
+	client = client_for(user)
+	assert change(client, current="wrong-Pass-1").headers["Location"] == 	       "/account/password"
+	assert check_password_hash(get_user(session_scope, user.id).password_hash,
+	                           TEST_PASSWORD)
+	((_, success, detail),) = audits(session_scope, "auth.password_change")
+	assert success is False and detail["reason"] == "wrong_current"
+
+
+def test_a_forced_change_does_not_ask_for_the_current_password(
+		flagged, client_for, session_scope):
+	# the sign-in that just happened proved it (factory admin / reset)
+	client = client_for(flagged)
+	page = client.get("/account/password").get_data(as_text=True)
+	assert 'name="current_password"' not in page
+	resp = client.post("/account/password", data={
+		"new_password": NEW_PASSWORD, "confirm_password": NEW_PASSWORD})
+	assert resp.headers["Location"] == "/dashboard"
+	user = get_user(session_scope, flagged.id)
+	assert user.must_change_password is False
+	assert check_password_hash(user.password_hash, NEW_PASSWORD)
+
+
+def test_a_forced_change_still_refuses_the_current_password(
+		flagged, client_for, session_scope):
+	client = client_for(flagged)
+	resp = client.post("/account/password", data={
+		"new_password": TEST_PASSWORD, "confirm_password": TEST_PASSWORD})
+	assert resp.headers["Location"] == "/account/password"
+	assert get_user(session_scope, flagged.id).must_change_password is True
+	((_, success, detail),) = audits(session_scope, "auth.password_change")
+	assert success is False and detail["reason"] == "rule"   # not "wrong_current"
+
+
+def test_the_voluntary_page_asks_for_the_current_password(make_user,
+                                                          client_for):
+	page = client_for(make_user()).get("/account/password").get_data(as_text=True)
+	assert 'name="current_password"' in page
 
 
 def test_ldap_users_are_told_to_use_the_directory(make_user, client_for):

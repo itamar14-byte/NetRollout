@@ -1,0 +1,214 @@
+# NetRollout — the whole product. Settings come from .env (written by the
+# installer; every variable is explained in .env.example):
+#
+#   docker compose up -d        start (or apply a changed .env)
+#   docker compose ps           what runs, and whether it's healthy
+#   docker compose stop         stop — running rollouts finish first (drain)
+#
+# Monitoring (Prometheus, Loki, Alloy, Grafana) is the "monitoring" profile,
+# switched on by COMPOSE_PROFILES=monitoring in .env; port 80 → 443 is
+# compose.http.yaml, added through COMPOSE_FILE when port 80 is free.
+# Only nginx publishes ports. Data lives in the named volumes and in the
+# logs/, config/ and certs/ folders next to this file.
+
+name: netrollout
+
+x-restart: &restart
+  restart: unless-stopped
+
+services:
+
+  postgres:
+    <<: *restart
+    image: itamar14/netrollout-postgres:${NETROLLOUT_VERSION:?NETROLLOUT_VERSION is not set in .env}
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      NETROLLOUT_DB_PASSWORD: ${NETROLLOUT_DB_PASSWORD}
+      GRAFANA_DB_PASSWORD: ${GRAFANA_DB_PASSWORD}
+      TZ: ${TZ:-UTC}
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    # Over TCP: the temporary server of the first start (socket only) isn't "ready"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d netrollout"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    stop_grace_period: 60s
+
+  redis:
+    <<: *restart
+    image: redis:8.6-alpine
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    # Password required; data saved to disk (append-only file) on the volume
+    command: ["sh", "-c", "exec redis-server --requirepass \"$$REDIS_PASSWORD\" --appendonly yes"]
+    volumes:
+      - redis:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning ping | grep -q PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  app:
+    <<: *restart
+    image: itamar14/netrollout:${NETROLLOUT_VERSION}
+    environment:
+      DATABASE_URL: postgresql+psycopg2://netrollout:${NETROLLOUT_DB_PASSWORD}@postgres:5432/netrollout
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      SECRET_KEY: ${SECRET_KEY}
+      NETROLLOUT_ENCRYPTION_KEY: ${NETROLLOUT_ENCRYPTION_KEY}
+      # Seed System Settings at the first start only (then System Settings rule)
+      NETROLLOUT_PUBLIC_HOSTNAME: ${NETROLLOUT_HOSTNAME:-}
+      NETROLLOUT_HTTPS_PORT: ${HTTPS_PORT:-443}
+      ORCHESTRATOR_WORKERS: ${ORCHESTRATOR_WORKERS:-4}
+      TZ: ${TZ:-UTC}
+      NETROLLOUT_MONITORING: ${COMPOSE_PROFILES:-}   # "monitoring" -> the Grafana link
+    volumes:
+      - ./logs:/data/logs
+      - ./config:/data/config
+      - ./certs:/data/certs
+    # Python as PID 1 ignores a SIGTERM that comes before its handler exists
+    init: true
+    # Longer than the drain (NETROLLOUT_DRAIN_SECONDS, 600): running rollouts
+    # finish and are recorded before Docker would kill the process
+    stop_grace_period: 11m
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  nginx:
+    <<: *restart
+    image: itamar14/netrollout-nginx:${NETROLLOUT_VERSION}
+    environment:
+      NETROLLOUT_HOSTNAME: ${NETROLLOUT_HOSTNAME:-}
+      NETROLLOUT_HTTPS_PORT: ${HTTPS_PORT:-443}
+    ports:
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      - ./certs:/etc/nginx/certs:ro
+      # site.env from the app in, status.json from the watcher out
+      - ./config/nginx:/etc/nginx/netrollout/shared
+    # Listening on 443 = the certificate was there and the site is in place
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 443"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  # ── Monitoring (COMPOSE_PROFILES=monitoring) ─────────────────────────────
+
+  prometheus:
+    <<: *restart
+    profiles: [monitoring]
+    image: prom/prometheus:v3.11.2
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=30d
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus:/prometheus
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:9090/-/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  loki:
+    <<: *restart
+    profiles: [monitoring]
+    image: grafana/loki:3.7.1
+    command: ["-config.file=/etc/loki/loki-config.yml"]
+    volumes:
+      - ./deploy/loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - loki:/loki
+
+  alloy:
+    <<: *restart
+    profiles: [monitoring]
+    image: grafana/alloy:v1.20.1
+    command: ["run", "--storage.path=/var/lib/alloy/data", "/etc/alloy/config.alloy"]
+    environment:
+      TZ: ${TZ:-UTC}   # the log files' times are local
+    volumes:
+      - ./deploy/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - ./logs:/data/logs:ro
+      - alloy:/var/lib/alloy/data
+    depends_on:
+      - loki
+
+  # Served by nginx at /grafana/ to signed-in NetRollout admins only (nginx
+  # asks the app; Grafana trusts the user header nginx sets - proxy auth).
+  # Every Grafana user is an admin -> Editor. No port of its own.
+  grafana:
+    <<: *restart
+    profiles: [monitoring]
+    image: grafana/grafana:13.0.1
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}   # maintenance + grafana-setup
+      GRAFANA_DB_PASSWORD: ${GRAFANA_DB_PASSWORD}   # read by the datasource provisioning
+      GF_SERVER_ROOT_URL: "%(protocol)s://%(domain)s:%(http_port)s/grafana/"
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      GF_AUTH_PROXY_ENABLED: "true"
+      GF_AUTH_PROXY_HEADER_NAME: X-WEBAUTH-USER
+      GF_AUTH_PROXY_HEADER_PROPERTY: username
+      GF_AUTH_PROXY_AUTO_SIGN_UP: "true"
+      GF_USERS_AUTO_ASSIGN_ORG_ROLE: Editor
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_AUTH_DISABLE_SIGNOUT_MENU: "true"     # signing out happens in NetRollout
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+    volumes:
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana:/var/lib/grafana
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    depends_on:
+      postgres:
+        condition: service_healthy
+      loki:
+        condition: service_started
+      prometheus:
+        condition: service_started
+
+  # The NetRollout folders (read-only) + Custom (the admins'), the shipped
+  # dashboards imported, then re-applied every 5 min (deploy/grafana/setup.py).
+  # Stays running: `up --wait` counts an exited container as a failure.
+  # Runs on the app image - it only needs Python.
+  grafana-setup:
+    <<: *restart
+    profiles: [monitoring]
+    image: itamar14/netrollout:${NETROLLOUT_VERSION}
+    command: ["python", "/setup/setup.py"]
+    environment:
+      GRAFANA_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+    volumes:
+      - ./deploy/grafana/setup.py:/setup/setup.py:ro
+      - ./deploy/grafana/dashboards:/dashboards:ro
+    healthcheck:
+      test: ["CMD", "test", "-f", "/tmp/grafana-setup.done"]
+      interval: 5s
+      timeout: 3s
+      retries: 60
+    depends_on:
+      grafana:
+        condition: service_healthy
+
+volumes:
+  postgres:
+  redis:
+  prometheus:
+  loki:
+  alloy:
+  grafana:

@@ -20,6 +20,11 @@ PUBLIC_ENDPOINTS = {
 	"system.instance",   # startup proxy check: a random per-run token only
 	"system.health",     # Docker / installer / status: up-down, counts, version
 }
+# Not public, but refused with a bare status instead of the login redirect:
+# their caller isn't a browser
+STATUS_REFUSALS = {
+	"system.grafana_auth": 401,   # nginx's auth_request: only 2xx/401/403
+}
 SKIP_PREFIXES = ("/_test/", "/rollout/stream/_test/", "/static/")
 
 
@@ -54,13 +59,17 @@ def test_unauthenticated_requests_are_refused(app, client_for):
 			continue
 		resp = client.open(_url(rule), method=method)
 		location = resp.headers.get("Location", "")
-		if not (resp.status_code == 302 and location.startswith("/?next=")):
+		if rule.endpoint in STATUS_REFUSALS:
+			if resp.status_code != STATUS_REFUSALS[rule.endpoint]:
+				failures.append(f"{method} {rule.rule} -> {resp.status_code} "
+				                f"(expected {STATUS_REFUSALS[rule.endpoint]})")
+		elif not (resp.status_code == 302 and location.startswith("/?next=")):
 			failures.append(f"{method} {rule.rule} -> {resp.status_code} {location}")
 	assert not failures, "\n".join(failures)
 
 
 def test_non_admins_are_refused_on_admin_routes(app, client_for, make_user):
-	user = make_user(role="user")
+	user = make_user(role="operator")
 	page, xhr = client_for(user), client_for(user, xhr=True)
 	failures = []
 	for rule, method in _routes(app):

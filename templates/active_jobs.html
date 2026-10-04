@@ -567,6 +567,7 @@
                 clearInterval(iv);
                 const url = new URL(window.location.href);
                 url.searchParams.delete("new");
+                url.searchParams.set("_bg", "1");   // an automatic reload: not activity
                 window.location.href = url.toString();
             }
         }, 1000);
@@ -652,7 +653,8 @@
         // the results are stored a moment after the stream ends: retry briefly
         for (let i = 0; i < 15 && !data; i++) {
             try {
-                const r = await fetch(`/results/summary/${jobId}`);
+                const r = await fetch(`/results/summary/${jobId}`,
+                                      {headers: {'X-NR-Background': '1'}});
                 if (r.ok) data = await r.json();
             } catch (e) { /* retry */ }
             if (!data) await new Promise(res => setTimeout(res, 1000));

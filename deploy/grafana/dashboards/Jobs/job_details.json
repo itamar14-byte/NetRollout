@@ -2,21 +2,21 @@
   "apiVersion": "dashboard.grafana.app/v2",
   "kind": "Dashboard",
   "metadata": {
-    "name": "ad5tx26",
+    "name": "adr9q57",
     "namespace": "default",
-    "uid": "99e27d9a-65ac-4378-ba32-9c2e4f55e772",
-    "resourceVersion": "1776967834074010",
-    "generation": 5,
-    "creationTimestamp": "2026-04-23T17:13:41Z",
+    "uid": "38251e51-cdd6-4f47-ba88-8fa1593d0279",
+    "resourceVersion": "1776960501568016",
+    "generation": 10,
+    "creationTimestamp": "2026-04-23T14:52:09Z",
     "labels": {
-      "grafana.app/deprecatedInternalID": "2672530072125440"
+      "grafana.app/deprecatedInternalID": "2642502978486272"
     },
     "annotations": {
       "grafana.app/createdBy": "user:afje1qcn1pdz4c",
       "grafana.app/folder": "",
       "grafana.app/saved-from-ui": "Grafana v13.0.1 (a100054f)",
       "grafana.app/updatedBy": "user:afje1qcn1pdz4c",
-      "grafana.app/updatedTimestamp": "2026-04-23T18:10:34Z"
+      "grafana.app/updatedTimestamp": "2026-04-23T16:08:21Z"
     }
   },
   "spec": {
@@ -48,7 +48,7 @@
         "kind": "Panel",
         "spec": {
           "id": 1,
-          "title": "Total Events (7d)",
+          "title": "Job Status",
           "description": "",
           "links": [],
           "data": {
@@ -66,11 +66,11 @@
                         "name": "cfjxoedixn7r4d"
                       },
                       "spec": {
-                        "dataset": "rollout_db",
+                        "dataset": "netrollout",
                         "editorMode": "code",
                         "format": "table",
                         "rawQuery": true,
-                        "rawSql": "SELECT COUNT(*) FROM audit_log WHERE timestamp >= NOW() - INTERVAL '7 days'",
+                        "rawSql": "SELECT status FROM device_results WHERE job_id = '$job_id'::uuid LIMIT 1",
                         "sql": {
                           "columns": [
                             {
@@ -105,7 +105,7 @@
             "version": "13.0.1",
             "spec": {
               "options": {
-                "colorMode": "none",
+                "colorMode": "value",
                 "graphMode": "area",
                 "justifyMode": "auto",
                 "orientation": "auto",
@@ -114,7 +114,7 @@
                   "calcs": [
                     "lastNotNull"
                   ],
-                  "fields": "/^count$/",
+                  "fields": "/^status$/",
                   "values": false
                 },
                 "showPercentChange": false,
@@ -123,12 +123,39 @@
               },
               "fieldConfig": {
                 "defaults": {
+                  "mappings": [
+                    {
+                      "type": "value",
+                      "options": {
+                        "cancelled": {
+                          "color": "blue",
+                          "index": 3
+                        },
+                        "failed": {
+                          "color": "red",
+                          "index": 2
+                        },
+                        "partial": {
+                          "color": "yellow",
+                          "index": 1
+                        },
+                        "success": {
+                          "color": "green",
+                          "index": 0
+                        }
+                      }
+                    }
+                  ],
                   "thresholds": {
                     "mode": "absolute",
                     "steps": [
                       {
                         "value": 0,
-                        "color": "light-blue"
+                        "color": "green"
+                      },
+                      {
+                        "value": 80,
+                        "color": "red"
                       }
                     ]
                   },
@@ -142,11 +169,11 @@
           }
         }
       },
-      "panel-10": {
+      "panel-2": {
         "kind": "Panel",
         "spec": {
-          "id": 10,
-          "title": "Failed Actions Log",
+          "id": 2,
+          "title": "Device Count",
           "description": "",
           "links": [],
           "data": {
@@ -164,11 +191,215 @@
                         "name": "cfjxoedixn7r4d"
                       },
                       "spec": {
-                        "dataset": "rollout_db",
+                        "dataset": "netrollout",
                         "editorMode": "code",
                         "format": "table",
                         "rawQuery": true,
-                        "rawSql": "SELECT\r\n    timestamp AS \"Time\",\r\n    actor_username AS \"Actor\",\r\n    action AS \"Action\",\r\n    object_type AS \"Object Type\",\r\n    object_label AS \"Object\",\r\n    ip_address AS \"IP\",\r\n    detail->>'reason' AS \"Reason\"\r\n  FROM audit_log\r\n  WHERE $__timeFilter(timestamp)\r\n    AND success = false\r\n  ORDER BY timestamp DESC\r\n  LIMIT 100",
+                        "rawSql": "SELECT COUNT(*) FROM device_results WHERE job_id='$job_id'",
+                        "sql": {
+                          "columns": [
+                            {
+                              "parameters": [],
+                              "type": "function"
+                            }
+                          ],
+                          "groupBy": [
+                            {
+                              "property": {
+                                "type": "string"
+                              },
+                              "type": "groupBy"
+                            }
+                          ],
+                          "limit": 50
+                        }
+                      }
+                    },
+                    "refId": "A",
+                    "hidden": false
+                  }
+                }
+              ],
+              "transformations": [],
+              "queryOptions": {}
+            }
+          },
+          "vizConfig": {
+            "kind": "VizConfig",
+            "group": "stat",
+            "version": "13.0.1",
+            "spec": {
+              "options": {
+                "colorMode": "value",
+                "graphMode": "area",
+                "justifyMode": "auto",
+                "orientation": "auto",
+                "percentChangeColorMode": "standard",
+                "reduceOptions": {
+                  "calcs": [
+                    "lastNotNull"
+                  ],
+                  "fields": "",
+                  "values": false
+                },
+                "showPercentChange": false,
+                "textMode": "auto",
+                "wideLayout": true
+              },
+              "fieldConfig": {
+                "defaults": {
+                  "thresholds": {
+                    "mode": "absolute",
+                    "steps": [
+                      {
+                        "value": 0,
+                        "color": "green"
+                      },
+                      {
+                        "value": 80,
+                        "color": "red"
+                      }
+                    ]
+                  },
+                  "color": {
+                    "mode": "thresholds"
+                  }
+                },
+                "overrides": []
+              }
+            }
+          }
+        }
+      },
+      "panel-3": {
+        "kind": "Panel",
+        "spec": {
+          "id": 3,
+          "title": "Duration",
+          "description": "",
+          "links": [],
+          "data": {
+            "kind": "QueryGroup",
+            "spec": {
+              "queries": [
+                {
+                  "kind": "PanelQuery",
+                  "spec": {
+                    "query": {
+                      "kind": "DataQuery",
+                      "group": "grafana-postgresql-datasource",
+                      "version": "v0",
+                      "datasource": {
+                        "name": "cfjxoedixn7r4d"
+                      },
+                      "spec": {
+                        "dataset": "netrollout",
+                        "editorMode": "code",
+                        "format": "table",
+                        "rawQuery": true,
+                        "rawSql": "SELECT EXTRACT(EPOCH FROM (MAX(completed_at) -\r\n  MIN(started_at)))\r\n    FROM device_results WHERE job_id='$job_id'",
+                        "sql": {
+                          "columns": [
+                            {
+                              "parameters": [],
+                              "type": "function"
+                            }
+                          ],
+                          "groupBy": [
+                            {
+                              "property": {
+                                "type": "string"
+                              },
+                              "type": "groupBy"
+                            }
+                          ],
+                          "limit": 50
+                        }
+                      }
+                    },
+                    "refId": "A",
+                    "hidden": false
+                  }
+                }
+              ],
+              "transformations": [],
+              "queryOptions": {}
+            }
+          },
+          "vizConfig": {
+            "kind": "VizConfig",
+            "group": "stat",
+            "version": "13.0.1",
+            "spec": {
+              "options": {
+                "colorMode": "value",
+                "graphMode": "area",
+                "justifyMode": "auto",
+                "orientation": "auto",
+                "percentChangeColorMode": "standard",
+                "reduceOptions": {
+                  "calcs": [
+                    "lastNotNull"
+                  ],
+                  "fields": "",
+                  "values": false
+                },
+                "showPercentChange": false,
+                "textMode": "auto",
+                "wideLayout": true
+              },
+              "fieldConfig": {
+                "defaults": {
+                  "thresholds": {
+                    "mode": "absolute",
+                    "steps": [
+                      {
+                        "value": 0,
+                        "color": "green"
+                      },
+                      {
+                        "value": 30,
+                        "color": "red"
+                      }
+                    ]
+                  },
+                  "color": {
+                    "mode": "thresholds"
+                  }
+                },
+                "overrides": []
+              }
+            }
+          }
+        }
+      },
+      "panel-4": {
+        "kind": "Panel",
+        "spec": {
+          "id": 4,
+          "title": "Commands",
+          "description": "",
+          "links": [],
+          "data": {
+            "kind": "QueryGroup",
+            "spec": {
+              "queries": [
+                {
+                  "kind": "PanelQuery",
+                  "spec": {
+                    "query": {
+                      "kind": "DataQuery",
+                      "group": "grafana-postgresql-datasource",
+                      "version": "v0",
+                      "datasource": {
+                        "name": "cfjxoedixn7r4d"
+                      },
+                      "spec": {
+                        "dataset": "netrollout",
+                        "editorMode": "code",
+                        "format": "table",
+                        "rawQuery": true,
+                        "rawSql": "  SELECT json_array_elements_text(commands::json) AS command\r\n  FROM job_metadata\r\n  WHERE job_id = '$job_id'::uuid",
                         "sql": {
                           "columns": [
                             {
@@ -241,11 +472,11 @@
           }
         }
       },
-      "panel-2": {
+      "panel-5": {
         "kind": "Panel",
         "spec": {
-          "id": 2,
-          "title": "Failed Actions (7d)",
+          "id": 5,
+          "title": "Device Results",
           "description": "",
           "links": [],
           "data": {
@@ -263,11 +494,11 @@
                         "name": "cfjxoedixn7r4d"
                       },
                       "spec": {
-                        "dataset": "rollout_db",
+                        "dataset": "netrollout",
                         "editorMode": "code",
                         "format": "table",
                         "rawQuery": true,
-                        "rawSql": "SELECT COUNT(*) FROM audit_log WHERE success = false AND timestamp >=\r\n  NOW() - INTERVAL '7 days'",
+                        "rawSql": "SELECT device_ip, device_type, status, commands_sent,\r\n    commands_verified, completed_at FROM device_results WHERE\r\n    job_id='$job_id'",
                         "sql": {
                           "columns": [
                             {
@@ -298,127 +529,12 @@
           },
           "vizConfig": {
             "kind": "VizConfig",
-            "group": "stat",
+            "group": "table",
             "version": "13.0.1",
             "spec": {
               "options": {
-                "colorMode": "value",
-                "graphMode": "area",
-                "justifyMode": "auto",
-                "orientation": "auto",
-                "percentChangeColorMode": "standard",
-                "reduceOptions": {
-                  "calcs": [
-                    "lastNotNull"
-                  ],
-                  "fields": "",
-                  "values": false
-                },
-                "showPercentChange": false,
-                "textMode": "auto",
-                "wideLayout": true
-              },
-              "fieldConfig": {
-                "defaults": {
-                  "thresholds": {
-                    "mode": "absolute",
-                    "steps": [
-                      {
-                        "value": 0,
-                        "color": "green"
-                      },
-                      {
-                        "value": 10,
-                        "color": "red"
-                      }
-                    ]
-                  },
-                  "color": {
-                    "mode": "thresholds"
-                  }
-                },
-                "overrides": []
-              }
-            }
-          }
-        }
-      },
-      "panel-3": {
-        "kind": "Panel",
-        "spec": {
-          "id": 3,
-          "title": " Unique Actors (7d)",
-          "description": "",
-          "links": [],
-          "data": {
-            "kind": "QueryGroup",
-            "spec": {
-              "queries": [
-                {
-                  "kind": "PanelQuery",
-                  "spec": {
-                    "query": {
-                      "kind": "DataQuery",
-                      "group": "grafana-postgresql-datasource",
-                      "version": "v0",
-                      "datasource": {
-                        "name": "cfjxoedixn7r4d"
-                      },
-                      "spec": {
-                        "dataset": "rollout_db",
-                        "editorMode": "code",
-                        "format": "table",
-                        "rawQuery": true,
-                        "rawSql": " SELECT COUNT(DISTINCT actor_username) FROM audit_log WHERE timestamp\r\n  >= NOW() - INTERVAL '7 days'",
-                        "sql": {
-                          "columns": [
-                            {
-                              "parameters": [],
-                              "type": "function"
-                            }
-                          ],
-                          "groupBy": [
-                            {
-                              "property": {
-                                "type": "string"
-                              },
-                              "type": "groupBy"
-                            }
-                          ],
-                          "limit": 50
-                        }
-                      }
-                    },
-                    "refId": "A",
-                    "hidden": false
-                  }
-                }
-              ],
-              "transformations": [],
-              "queryOptions": {}
-            }
-          },
-          "vizConfig": {
-            "kind": "VizConfig",
-            "group": "stat",
-            "version": "13.0.1",
-            "spec": {
-              "options": {
-                "colorMode": "none",
-                "graphMode": "area",
-                "justifyMode": "auto",
-                "orientation": "auto",
-                "percentChangeColorMode": "standard",
-                "reduceOptions": {
-                  "calcs": [
-                    "lastNotNull"
-                  ],
-                  "fields": "",
-                  "values": false
-                },
-                "showPercentChange": false,
-                "textMode": "auto",
-                "wideLayout": true
+                "cellHeight": "sm",
+                "showHeader": true
               },
               "fieldConfig": {
                 "defaults": {
@@ -437,119 +553,16 @@
                   },
                   "color": {
                     "mode": "thresholds"
-                  }
-                },
-                "overrides": []
-              }
-            }
-          }
-        }
-      },
-      "panel-4": {
-        "kind": "Panel",
-        "spec": {
-          "id": 4,
-          "title": " Failure Rate (7d)",
-          "description": "",
-          "links": [],
-          "data": {
-            "kind": "QueryGroup",
-            "spec": {
-              "queries": [
-                {
-                  "kind": "PanelQuery",
-                  "spec": {
-                    "query": {
-                      "kind": "DataQuery",
-                      "group": "grafana-postgresql-datasource",
-                      "version": "v0",
-                      "datasource": {
-                        "name": "cfjxoedixn7r4d"
-                      },
-                      "spec": {
-                        "dataset": "rollout_db",
-                        "editorMode": "code",
-                        "format": "table",
-                        "rawQuery": true,
-                        "rawSql": "SELECT ROUND(100.0 * SUM(CASE WHEN success = false THEN 1 ELSE 0 END)\r\n  / NULLIF(COUNT(*), 0), 1) FROM audit_log WHERE timestamp >= NOW() -\r\n  INTERVAL '7 days'",
-                        "sql": {
-                          "columns": [
-                            {
-                              "parameters": [],
-                              "type": "function"
-                            }
-                          ],
-                          "groupBy": [
-                            {
-                              "property": {
-                                "type": "string"
-                              },
-                              "type": "groupBy"
-                            }
-                          ],
-                          "limit": 50
-                        }
-                      }
-                    },
-                    "refId": "A",
-                    "hidden": false
-                  }
-                }
-              ],
-              "transformations": [],
-              "queryOptions": {}
-            }
-          },
-          "vizConfig": {
-            "kind": "VizConfig",
-            "group": "stat",
-            "version": "13.0.1",
-            "spec": {
-              "options": {
-                "colorMode": "value",
-                "graphMode": "area",
-                "justifyMode": "auto",
-                "orientation": "auto",
-                "percentChangeColorMode": "standard",
-                "reduceOptions": {
-                  "calcs": [
-                    "lastNotNull"
-                  ],
-                  "fields": "",
-                  "values": false
-                },
-                "showPercentChange": false,
-                "textMode": "auto",
-                "wideLayout": true
-              },
-              "fieldConfig": {
-                "defaults": {
-                  "unit": "percent",
-                  "min": 0,
-                  "max": 100,
-                  "thresholds": {
-                    "mode": "absolute",
-                    "steps": [
-                      {
-                        "value": 0,
-                        "color": "green"
-                      },
-                      {
-                        "value": 0,
-                        "color": "green"
-                      },
-                      {
-                        "value": 10,
-                        "color": "#EAB839"
-                      },
-                      {
-                        "value": 25,
-                        "color": "red"
-                      }
-                    ]
                   },
-                  "color": {
-                    "mode": "thresholds"
+                  "custom": {
+                    "align": "auto",
+                    "cellOptions": {
+                      "type": "auto"
+                    },
+                    "footer": {
+                      "reducers": []
+                    },
+                    "inspect": false
                   }
                 },
                 "overrides": []
@@ -562,7 +575,7 @@
         "kind": "Panel",
         "spec": {
           "id": 6,
-          "title": " Audit Events Over Time",
+          "title": "Log Stream",
           "description": "",
           "links": [],
           "data": {
@@ -574,34 +587,16 @@
                   "spec": {
                     "query": {
                       "kind": "DataQuery",
-                      "group": "grafana-postgresql-datasource",
+                      "group": "loki",
                       "version": "v0",
                       "datasource": {
-                        "name": "cfjxoedixn7r4d"
+                        "name": "bfjxobrgrah34b"
                       },
                       "spec": {
-                        "dataset": "rollout_db",
+                        "direction": "backward",
                         "editorMode": "code",
-                        "format": "time_series",
-                        "rawQuery": true,
-                        "rawSql": "  SELECT\r\n    $__timeGroupAlias(timestamp, $__interval),\r\n    COUNT(*) AS events\r\n  FROM audit_log\r\n  WHERE $__timeFilter(timestamp)\r\n  GROUP BY 1\r\n  ORDER BY 1",
-                        "sql": {
-                          "columns": [
-                            {
-                              "parameters": [],
-                              "type": "function"
-                            }
-                          ],
-                          "groupBy": [
-                            {
-                              "property": {
-                                "type": "string"
-                              },
-                              "type": "groupBy"
-                            }
-                          ],
-                          "limit": 50
-                        }
+                        "expr": " {job=\"netrollout\", job_id=\"$job_id\"}",
+                        "queryType": "range"
                       }
                     },
                     "refId": "A",
@@ -615,79 +610,25 @@
           },
           "vizConfig": {
             "kind": "VizConfig",
-            "group": "timeseries",
+            "group": "logs",
             "version": "13.0.1",
             "spec": {
               "options": {
-                "annotations": {
-                  "clustering": -1,
-                  "multiLane": false
-                },
-                "legend": {
-                  "calcs": [],
-                  "displayMode": "list",
-                  "placement": "bottom",
-                  "showLegend": true
-                },
-                "tooltip": {
-                  "hideZeros": false,
-                  "mode": "single",
-                  "sort": "none"
-                }
+                "dedupStrategy": "none",
+                "enableInfiniteScrolling": false,
+                "enableLogDetails": true,
+                "prettifyLogMessage": true,
+                "showControls": false,
+                "showFieldSelector": false,
+                "showLevel": true,
+                "showTime": false,
+                "sortOrder": "Descending",
+                "timestampResolution": "ms",
+                "unwrappedColumns": false,
+                "wrapLogMessage": false
               },
               "fieldConfig": {
-                "defaults": {
-                  "thresholds": {
-                    "mode": "absolute",
-                    "steps": [
-                      {
-                        "value": 0,
-                        "color": "green"
-                      },
-                      {
-                        "value": 80,
-                        "color": "red"
-                      }
-                    ]
-                  },
-                  "color": {
-                    "mode": "palette-classic"
-                  },
-                  "custom": {
-                    "axisBorderShow": false,
-                    "axisCenteredZero": false,
-                    "axisColorMode": "text",
-                    "axisLabel": "",
-                    "axisPlacement": "auto",
-                    "barAlignment": 0,
-                    "barWidthFactor": 0.6,
-                    "drawStyle": "line",
-                    "fillOpacity": 0,
-                    "gradientMode": "none",
-                    "hideFrom": {
-                      "legend": false,
-                      "tooltip": false,
-                      "viz": false
-                    },
-                    "insertNulls": false,
-                    "lineInterpolation": "linear",
-                    "lineWidth": 1,
-                    "pointSize": 5,
-                    "scaleDistribution": {
-                      "type": "linear"
-                    },
-                    "showPoints": "auto",
-                    "showValues": false,
-                    "spanNulls": false,
-                    "stacking": {
-                      "group": "A",
-                      "mode": "none"
-                    },
-                    "thresholdsStyle": {
-                      "mode": "off"
-                    }
-                  }
-                },
+                "defaults": {},
                 "overrides": []
               }
             }
@@ -698,7 +639,7 @@
         "kind": "Panel",
         "spec": {
           "id": 7,
-          "title": "Failed Actions Over Time",
+          "title": "Log Lines",
           "description": "",
           "links": [],
           "data": {
@@ -710,34 +651,16 @@
                   "spec": {
                     "query": {
                       "kind": "DataQuery",
-                      "group": "grafana-postgresql-datasource",
+                      "group": "loki",
                       "version": "v0",
                       "datasource": {
-                        "name": "cfjxoedixn7r4d"
+                        "name": "bfjxobrgrah34b"
                       },
                       "spec": {
-                        "dataset": "rollout_db",
+                        "direction": "backward",
                         "editorMode": "code",
-                        "format": "time_series",
-                        "rawQuery": true,
-                        "rawSql": "  SELECT\r\n    $__timeGroupAlias(timestamp, $__interval),\r\n    COUNT(*) AS failed\r\n  FROM audit_log\r\n  WHERE $__timeFilter(timestamp)\r\n    AND success = false\r\n  GROUP BY 1\r\n  ORDER BY 1",
-                        "sql": {
-                          "columns": [
-                            {
-                              "parameters": [],
-                              "type": "function"
-                            }
-                          ],
-                          "groupBy": [
-                            {
-                              "property": {
-                                "type": "string"
-                              },
-                              "type": "groupBy"
-                            }
-                          ],
-                          "limit": 50
-                        }
+                        "expr": "count_over_time({job=\"netrollout\", job_id=\"$job_id\"}[$__range])",
+                        "queryType": "instant"
                       }
                     },
                     "refId": "A",
@@ -751,25 +674,25 @@
           },
           "vizConfig": {
             "kind": "VizConfig",
-            "group": "timeseries",
+            "group": "stat",
             "version": "13.0.1",
             "spec": {
               "options": {
-                "annotations": {
-                  "clustering": -1,
-                  "multiLane": false
+                "colorMode": "value",
+                "graphMode": "area",
+                "justifyMode": "auto",
+                "orientation": "auto",
+                "percentChangeColorMode": "standard",
+                "reduceOptions": {
+                  "calcs": [
+                    "lastNotNull"
+                  ],
+                  "fields": "",
+                  "values": false
                 },
-                "legend": {
-                  "calcs": [],
-                  "displayMode": "list",
-                  "placement": "bottom",
-                  "showLegend": true
-                },
-                "tooltip": {
-                  "hideZeros": false,
-                  "mode": "single",
-                  "sort": "none"
-                }
+                "showPercentChange": false,
+                "textMode": "auto",
+                "wideLayout": true
               },
               "fieldConfig": {
                 "defaults": {
@@ -778,286 +701,13 @@
                     "steps": [
                       {
                         "value": 0,
-                        "color": "red"
-                      },
-                      {
-                        "value": 80,
-                        "color": "red"
-                      }
-                    ]
-                  },
-                  "color": {
-                    "mode": "fixed",
-                    "fixedColor": "red"
-                  },
-                  "custom": {
-                    "axisBorderShow": false,
-                    "axisCenteredZero": false,
-                    "axisColorMode": "text",
-                    "axisLabel": "",
-                    "axisPlacement": "auto",
-                    "barAlignment": 0,
-                    "barWidthFactor": 0.6,
-                    "drawStyle": "line",
-                    "fillOpacity": 0,
-                    "gradientMode": "none",
-                    "hideFrom": {
-                      "legend": false,
-                      "tooltip": false,
-                      "viz": false
-                    },
-                    "insertNulls": false,
-                    "lineInterpolation": "linear",
-                    "lineWidth": 1,
-                    "pointSize": 5,
-                    "scaleDistribution": {
-                      "type": "linear"
-                    },
-                    "showPoints": "auto",
-                    "showValues": false,
-                    "spanNulls": false,
-                    "stacking": {
-                      "group": "A",
-                      "mode": "none"
-                    },
-                    "thresholdsStyle": {
-                      "mode": "off"
-                    }
-                  }
-                },
-                "overrides": []
-              }
-            }
-          }
-        }
-      },
-      "panel-8": {
-        "kind": "Panel",
-        "spec": {
-          "id": 8,
-          "title": "Action Breakdown",
-          "description": "",
-          "links": [],
-          "data": {
-            "kind": "QueryGroup",
-            "spec": {
-              "queries": [
-                {
-                  "kind": "PanelQuery",
-                  "spec": {
-                    "query": {
-                      "kind": "DataQuery",
-                      "group": "grafana-postgresql-datasource",
-                      "version": "v0",
-                      "datasource": {
-                        "name": "cfjxoedixn7r4d"
-                      },
-                      "spec": {
-                        "dataset": "rollout_db",
-                        "editorMode": "code",
-                        "format": "table",
-                        "rawQuery": true,
-                        "rawSql": "SELECT action, COUNT(*) AS count\r\n  FROM audit_log\r\n  WHERE $__timeFilter(timestamp)\r\n  GROUP BY action\r\n  ORDER BY count DESC\r\n  LIMIT 15",
-                        "sql": {
-                          "columns": [
-                            {
-                              "parameters": [],
-                              "type": "function"
-                            }
-                          ],
-                          "groupBy": [
-                            {
-                              "property": {
-                                "type": "string"
-                              },
-                              "type": "groupBy"
-                            }
-                          ],
-                          "limit": 50
-                        }
-                      }
-                    },
-                    "refId": "A",
-                    "hidden": false
-                  }
-                }
-              ],
-              "transformations": [
-                {
-                  "kind": "Transformation",
-                  "group": "rowsToFields",
-                  "spec": {
-                    "options": {}
-                  }
-                }
-              ],
-              "queryOptions": {}
-            }
-          },
-          "vizConfig": {
-            "kind": "VizConfig",
-            "group": "piechart",
-            "version": "13.0.1",
-            "spec": {
-              "options": {
-                "displayLabels": [
-                  "value"
-                ],
-                "legend": {
-                  "displayMode": "list",
-                  "placement": "bottom",
-                  "showLegend": true
-                },
-                "pieType": "donut",
-                "reduceOptions": {
-                  "calcs": [
-                    "lastNotNull"
-                  ],
-                  "fields": "",
-                  "values": false
-                },
-                "sort": "desc",
-                "tooltip": {
-                  "hideZeros": false,
-                  "mode": "single",
-                  "sort": "none"
-                }
-              },
-              "fieldConfig": {
-                "defaults": {
-                  "color": {
-                    "mode": "palette-classic"
-                  },
-                  "custom": {
-                    "hideFrom": {
-                      "legend": false,
-                      "tooltip": false,
-                      "viz": false
-                    }
-                  }
-                },
-                "overrides": []
-              }
-            }
-          }
-        }
-      },
-      "panel-9": {
-        "kind": "Panel",
-        "spec": {
-          "id": 9,
-          "title": "Top Actors (by Actions)",
-          "description": "",
-          "links": [],
-          "data": {
-            "kind": "QueryGroup",
-            "spec": {
-              "queries": [
-                {
-                  "kind": "PanelQuery",
-                  "spec": {
-                    "query": {
-                      "kind": "DataQuery",
-                      "group": "grafana-postgresql-datasource",
-                      "version": "v0",
-                      "datasource": {
-                        "name": "cfjxoedixn7r4d"
-                      },
-                      "spec": {
-                        "dataset": "rollout_db",
-                        "editorMode": "code",
-                        "format": "table",
-                        "rawQuery": true,
-                        "rawSql": "  SELECT actor_username, COUNT(*) AS actions\r\n  FROM audit_log\r\n  WHERE $__timeFilter(timestamp)\r\n    AND actor_id IS NOT NULL\r\n  GROUP BY actor_username\r\n  ORDER BY actions DESC\r\n  LIMIT 10",
-                        "sql": {
-                          "columns": [
-                            {
-                              "parameters": [],
-                              "type": "function"
-                            }
-                          ],
-                          "groupBy": [
-                            {
-                              "property": {
-                                "type": "string"
-                              },
-                              "type": "groupBy"
-                            }
-                          ],
-                          "limit": 50
-                        }
-                      }
-                    },
-                    "refId": "A",
-                    "hidden": false
-                  }
-                }
-              ],
-              "transformations": [
-                {
-                  "kind": "Transformation",
-                  "group": "rowsToFields",
-                  "spec": {
-                    "options": {}
-                  }
-                }
-              ],
-              "queryOptions": {}
-            }
-          },
-          "vizConfig": {
-            "kind": "VizConfig",
-            "group": "bargauge",
-            "version": "13.0.1",
-            "spec": {
-              "options": {
-                "displayMode": "gradient",
-                "legend": {
-                  "calcs": [],
-                  "displayMode": "list",
-                  "placement": "bottom",
-                  "showLegend": false
-                },
-                "maxVizHeight": 300,
-                "minVizHeight": 16,
-                "minVizWidth": 8,
-                "namePlacement": "auto",
-                "orientation": "horizontal",
-                "reduceOptions": {
-                  "calcs": [
-                    "lastNotNull"
-                  ],
-                  "fields": "",
-                  "values": false
-                },
-                "showUnfilled": true,
-                "sizing": "auto",
-                "valueMode": "text"
-              },
-              "fieldConfig": {
-                "defaults": {
-                  "min": 0,
-                  "thresholds": {
-                    "mode": "percentage",
-                    "steps": [
-                      {
-                        "value": 0,
-                        "color": "red"
-                      },
-                      {
-                        "value": 33,
-                        "color": "yellow"
-                      },
-                      {
-                        "value": 66,
                         "color": "green"
                       }
                     ]
                   },
                   "color": {
                     "mode": "thresholds"
-                  },
-                  "fieldMinMax": false
+                  }
                 },
                 "overrides": []
               }
@@ -1073,19 +723,19 @@
           {
             "kind": "RowsLayoutRow",
             "spec": {
-              "title": "Overview",
+              "title": "Log Stream",
               "collapse": false,
+              "fillScreen": false,
               "layout": {
-                "kind": "GridLayout",
+                "kind": "AutoGridLayout",
                 "spec": {
+                  "maxColumnCount": 3,
+                  "columnWidthMode": "standard",
+                  "rowHeightMode": "standard",
                   "items": [
                     {
-                      "kind": "GridLayoutItem",
+                      "kind": "AutoGridLayoutItem",
                       "spec": {
-                        "x": 0,
-                        "y": 0,
-                        "width": 12,
-                        "height": 8,
                         "element": {
                           "kind": "ElementReference",
                           "name": "panel-1"
@@ -1093,12 +743,8 @@
                       }
                     },
                     {
-                      "kind": "GridLayoutItem",
+                      "kind": "AutoGridLayoutItem",
                       "spec": {
-                        "x": 12,
-                        "y": 0,
-                        "width": 12,
-                        "height": 8,
                         "element": {
                           "kind": "ElementReference",
                           "name": "panel-2"
@@ -1106,12 +752,8 @@
                       }
                     },
                     {
-                      "kind": "GridLayoutItem",
+                      "kind": "AutoGridLayoutItem",
                       "spec": {
-                        "x": 0,
-                        "y": 8,
-                        "width": 12,
-                        "height": 8,
                         "element": {
                           "kind": "ElementReference",
                           "name": "panel-3"
@@ -1119,15 +761,20 @@
                       }
                     },
                     {
-                      "kind": "GridLayoutItem",
+                      "kind": "AutoGridLayoutItem",
                       "spec": {
-                        "x": 12,
-                        "y": 8,
-                        "width": 12,
-                        "height": 8,
                         "element": {
                           "kind": "ElementReference",
                           "name": "panel-4"
+                        }
+                      }
+                    },
+                    {
+                      "kind": "AutoGridLayoutItem",
+                      "spec": {
+                        "element": {
+                          "kind": "ElementReference",
+                          "name": "panel-5"
                         }
                       }
                     }
@@ -1139,7 +786,7 @@
           {
             "kind": "RowsLayoutRow",
             "spec": {
-              "title": "Activity",
+              "title": "Logging",
               "collapse": false,
               "layout": {
                 "kind": "GridLayout",
@@ -1175,73 +822,6 @@
                 }
               }
             }
-          },
-          {
-            "kind": "RowsLayoutRow",
-            "spec": {
-              "title": " Breakdowns",
-              "collapse": false,
-              "layout": {
-                "kind": "GridLayout",
-                "spec": {
-                  "items": [
-                    {
-                      "kind": "GridLayoutItem",
-                      "spec": {
-                        "x": 0,
-                        "y": 0,
-                        "width": 12,
-                        "height": 8,
-                        "element": {
-                          "kind": "ElementReference",
-                          "name": "panel-8"
-                        }
-                      }
-                    },
-                    {
-                      "kind": "GridLayoutItem",
-                      "spec": {
-                        "x": 12,
-                        "y": 0,
-                        "width": 12,
-                        "height": 8,
-                        "element": {
-                          "kind": "ElementReference",
-                          "name": "panel-9"
-                        }
-                      }
-                    }
-                  ]
-                }
-              }
-            }
-          },
-          {
-            "kind": "RowsLayoutRow",
-            "spec": {
-              "title": "Investiagtion",
-              "collapse": false,
-              "layout": {
-                "kind": "GridLayout",
-                "spec": {
-                  "items": [
-                    {
-                      "kind": "GridLayoutItem",
-                      "spec": {
-                        "x": 0,
-                        "y": 0,
-                        "width": 12,
-                        "height": 8,
-                        "element": {
-                          "kind": "ElementReference",
-                          "name": "panel-10"
-                        }
-                      }
-                    }
-                  ]
-                }
-              }
-            }
           }
         ]
       }
@@ -1252,7 +832,7 @@
     "tags": [],
     "timeSettings": {
       "timezone": "browser",
-      "from": "now-6h",
+      "from": "now-30d",
       "to": "now",
       "autoRefresh": "",
       "autoRefreshIntervals": [
@@ -1270,8 +850,23 @@
       "hideTimepicker": false,
       "fiscalYearStartMonth": 0
     },
-    "title": "Audit & Security",
-    "variables": [],
+    "title": "Job Details",
+    "variables": [
+      {
+        "kind": "TextVariable",
+        "spec": {
+          "name": "job_id",
+          "current": {
+            "text": "c16ad068-9b7a-4bce-8118-a99802ceeb0b",
+            "value": "c16ad068-9b7a-4bce-8118-a99802ceeb0b"
+          },
+          "query": "c16ad068-9b7a-4bce-8118-a99802ceeb0b",
+          "label": "Job ID",
+          "hide": "dontHide",
+          "skipUrlSync": false
+        }
+      }
+    ],
     "preferences": {
       "layout": {
         "kind": "GridLayout",

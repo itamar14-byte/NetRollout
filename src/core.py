@@ -709,6 +709,12 @@ class RolloutEngine:
 			return None   # already reported (and the device failed) at the push
 		config = device.fetch_config(logger)
 		if config is None:
+			# Couldn't verify ≠ not configured: the status comes from the push,
+			# but nobody checked the result — say so where it can't be missed
+			self._action_needed(device, "the change was applied but NOT "
+			                    "verified — its config couldn't be read (the "
+			                    "reason is in the log): check it on the device",
+			                    logger)
 			return None
 		verdicts = verify_commands(device.device_type, config, expected)
 		for command, verdict in zip(expected, verdicts):

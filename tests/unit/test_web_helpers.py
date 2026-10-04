@@ -95,7 +95,7 @@ def device(user_id, is_global):
 	return SimpleNamespace(user_id=user_id, is_global=is_global)
 
 
-def user(user_id, role="user"):
+def user(user_id, role="operator"):
 	return SimpleNamespace(id=user_id, role=role)
 
 

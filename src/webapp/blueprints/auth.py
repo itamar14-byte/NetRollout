@@ -3,7 +3,7 @@ import base64
 import uuid
 from collections import Counter
 from io import BytesIO
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlsplit
 import pyotp
 import qrcode
 
@@ -23,8 +23,9 @@ from src.encryption import decrypt, encrypt
 from src.ldap_auth import (check_group_membership, fetch_user_details,
                            user_bind, LdapUnavailable)
 from src.passwords import RULE, password_problem
-from src.webapp.extensions import csrf, conn_limit
-from src.webapp.utils import end_user_sessions, with_form
+from src.webapp.extensions import (csrf, conn_limit, mark_signed_in,
+                                   session_seconds_left, is_background)
+from src.webapp.utils import end_user_sessions, ok, with_form
 
 bp = Blueprint("auth", __name__)
 
@@ -39,6 +40,36 @@ _LOGIN_FAIL_MESSAGES = {
 
 
 #######################Auth helpers###############################
+
+# Where to go after signing in. The sign-in page is opened with ?next=<path>
+# (Flask-Login for app pages, nginx for /grafana/); it's kept in the session
+# across the password, 2FA and forced-password-change steps and used once.
+# Local paths only: a crafted ?next=https://evil... must not turn a real
+# sign-in into a bounce to someone else's page.
+NEXT_KEY = "login_next"
+
+
+def safe_next(value):
+	"""`value` if it's a path on this site worth returning to, else None."""
+	if not value or not value.startswith("/") or value.startswith("//"):
+		return None
+	if "\\" in value or any(ord(c) < 32 or ord(c) == 127 for c in value):
+		return None
+	parts = urlsplit(value)
+	if parts.scheme or parts.netloc or parts.path in ("/", "/logout"):
+		return None
+	return value
+
+
+def after_login(user):
+	"""The redirect that ends a successful sign-in: the page asked for, else
+	the Dashboard. A user who must change the password goes through the
+	password gate first; the page waits for the change."""
+	mark_signed_in()
+	if user.must_change_password:
+		return redirect(url_for("jobs.dashboard"))
+	return redirect(session.pop(NEXT_KEY, None) or url_for("jobs.dashboard"))
+
 
 def login_fail(username, reason, actor_id=None):
 	# Single exit point for all failed auth paths — flashes the user-facing
@@ -61,7 +92,7 @@ def complete_login(user, db_session, **audit_detail):
 	record_redis_session(user.id)
 	current_app.web.audit("auth.login", success=True, username=user.username,
 	           actor_id=user.id, detail=audit_detail or None)
-	return redirect(url_for("jobs.dashboard"))
+	return after_login(user)
 
 
 def start_otp_flow(user):
@@ -174,6 +205,9 @@ def login_ldap_group(username, password, db_session):
 #######################Routes###############################
 @bp.route("/")
 def home():
+	target = safe_next(request.args.get("next"))
+	if target:
+		session[NEXT_KEY] = target
 	return render_template("index.html")
 
 @bp.route("/login", methods=["GET"])
@@ -226,7 +260,7 @@ def register(data):
 	                password_hash=pass_hash,
 	                email=email,
 	                full_name=full_name,
-	                role="user",
+	                role="operator",
 	                position=position)
 
 	with current_app.backend.postgres.get_session() as db_session:
@@ -301,7 +335,7 @@ def otp_enroll(data):
 			session.pop("pre_auth_user_id")
 			login_user(user)
 			record_redis_session(user.id)
-			return redirect(url_for("jobs.dashboard"))
+			return after_login(user)
 		flash("invalid code, please try again", "danger")
 		return redirect(url_for("auth.otp_enroll"))
 
@@ -330,7 +364,7 @@ def otp_verify(data):
 			login_user(user)
 			record_redis_session(user.id)
 			session.pop("pre_auth_user_id")
-			return redirect(url_for("jobs.dashboard"))
+			return after_login(user)
 		flash("invalid code, please try again", "danger")
 		return redirect(url_for("auth.otp_verify"))
 	elif request.method == "GET":
@@ -369,13 +403,18 @@ def change_password():
 	new = request.form.get("new_password", "")
 	with current_app.backend.postgres.get_session() as db_session:
 		user = db_session.get(User, current_user.id)
-		if not check_password_hash(user.password_hash, current):
+		# A forced change follows the sign-in that just proved the password
+		# (the factory admin's, or an admin reset's temporary one): asking for
+		# it again adds nothing. A voluntary change proves it here.
+		if not forced and not check_password_hash(user.password_hash, current):
 			reason, problem = "wrong_current", "The current password is incorrect."
 		elif new != request.form.get("confirm_password", ""):
 			reason, problem = "mismatch", "The new passwords don't match."
+		elif forced and check_password_hash(user.password_hash, new):
+			reason, problem = "rule", "The new password must differ from the current one."
 		else:
 			reason, problem = "rule", password_problem(new, user.username,
-			                                             current)
+			                                             None if forced else current)
 		if problem:
 			current_app.web.audit("auth.password_change", success=False,
 			                      detail={"reason": reason, "forced": forced})
@@ -393,7 +432,20 @@ def change_password():
 	current_app.web.audit("auth.password_change",
 	                      detail={"forced": forced, "other_sessions_ended": ended})
 	flash("Password changed.", "success")
-	return redirect(url_for("jobs.dashboard"))
+	# a page asked for before a forced change waited for it
+	return redirect(session.pop(NEXT_KEY, None) or url_for("jobs.dashboard"))
+
+
+@bp.route("/account/session")
+@login_required
+def session_state():
+	"""How long this session has left — for the page's warning. Asked with
+	X-NR-Background it doesn't count as activity; without ("Stay signed in")
+	it does (the session gate extended it before this runs)."""
+	idle_left, absolute_left = session_seconds_left()
+	return ok(idle_seconds_left=int(idle_left),
+	          absolute_seconds_left=int(absolute_left),
+	          background=is_background())
 
 
 @bp.route("/account")

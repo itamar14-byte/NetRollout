@@ -13,7 +13,7 @@
     {% if user.role == "admin" %}
       <span class="badge bg-danger" style="font-size: 0.75rem; vertical-align:middle; margin-right:0.4rem;">Admin</span>
     {% else %}
-      <span class="badge bg-secondary" style="font-size: 0.75rem; vertical-align:middle; margin-right:0.4rem;">User</span>
+      <span class="badge bg-secondary" style="font-size: 0.75rem; vertical-align:middle; margin-right:0.4rem;">Operator</span>
     {% endif %}
     Member since {{ user.created_at.strftime("%B %Y") }}
   </p>

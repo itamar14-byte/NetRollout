@@ -134,7 +134,7 @@
           {% if user.role == "admin" %}
             <span class="badge bg-danger">Admin</span>
           {% else %}
-            <span class="badge bg-secondary">User</span>
+            <span class="badge bg-secondary">Operator</span>
           {% endif %}
         </td>
         <td style="color:var(--nr-text-muted); font-size:0.82rem;">{{ user.position or "—" }}</td>
@@ -197,7 +197,7 @@
         </p>
         <div class="d-flex gap-2 align-items-center mb-3">
           <code id="resetPwValue" style="font-size:1.05rem; padding:0.4rem 0.6rem; background:#111; border:1px solid #333; border-radius:4px; user-select:all; flex:1;"></code>
-          <button type="button" class="btn btn-outline-info btn-sm" id="resetPwCopy"><i class="bi bi-clipboard"></i></button>
+          <button type="button" class="btn btn-outline-info btn-sm" id="resetPwCopy" title="Copy"><i class="bi bi-copy"></i></button>
         </div>
         <p style="font-size:0.82rem; color:#ffcc80; margin-bottom:0;">
           <i class="bi bi-exclamation-triangle me-1"></i>Shown only now — it isn't stored anywhere
@@ -551,13 +551,13 @@
 
   document.getElementById("resetPwCopy").addEventListener("click", () => {
     navigator.clipboard.writeText(document.getElementById("resetPwValue").textContent)
-      .then(() => { document.querySelector("#resetPwCopy i").className = "bi bi-clipboard-check"; })
+      .then(() => { document.querySelector("#resetPwCopy i").className = "bi bi-check2"; })
       .catch(() => {});
   });
 
   document.getElementById("resetPwModal").addEventListener("hidden.bs.modal", () => {
     document.getElementById("resetPwValue").textContent = "";   // don't keep it in the page
-    document.querySelector("#resetPwCopy i").className = "bi bi-clipboard";
+    document.querySelector("#resetPwCopy i").className = "bi bi-copy";
     if (resetPwDone) window.location.reload();                  // sessions / status changed
   });
 
@@ -689,7 +689,7 @@
     padding:0.15rem 0.45rem; border-radius:3px;
   }
   .gr-role-admin { background:rgba(239,83,80,0.1); color:#ef9a9a; border:1px solid rgba(239,83,80,0.2); }
-  .gr-role-user  { background:rgba(100,100,100,0.1); color:var(--nr-text-muted); border:1px solid #222; }
+  .gr-role-operator { background:rgba(100,100,100,0.1); color:var(--nr-text-muted); border:1px solid #222; }
   .gr-toggle {
     font-family:'JetBrains Mono',monospace; font-size: 0.6875rem; cursor:pointer;
     padding:0.18rem 0.5rem; border-radius:3px; border:1px solid;
@@ -746,7 +746,7 @@
       groups.forEach(g => {
         const roleBadge = g.role === 'admin'
           ? `<span class="gr-role-badge gr-role-admin">ADMIN</span>`
-          : `<span class="gr-role-badge gr-role-user">USER</span>`;
+          : `<span class="gr-role-badge gr-role-operator">OPERATOR</span>`;
         const toggleClass = g.is_active ? 'active' : 'inactive';
         const toggleLabel = g.is_active ? 'ACTIVE' : 'INACTIVE';
         html += `<tr id="gr-row-${g.id}">

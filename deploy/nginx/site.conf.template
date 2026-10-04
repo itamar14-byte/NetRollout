@@ -12,6 +12,12 @@ map $host $nr_other_name {
     ~^\[                    0;
 }
 
+# WebSocket upgrade for Grafana's live updates
+map $http_upgrade $nr_connection_upgrade {
+    default  upgrade;
+    ""       close;
+}
+
 # Where plain HTTP is sent: the canonical name, or the name/IP it came on
 map $host $nr_https_host {
     default                 ${NR_HTTPS_HOST_DEFAULT};
@@ -30,6 +36,10 @@ server {
     listen 443 ssl default_server;
     http2 on;   # many live log streams on one connection (HTTP/1.1 allows 6)
     server_name _;
+    # Redirects nginx itself makes (/grafana -> /grafana/, sign-in) stay
+    # relative: absolute ones would carry the container's port 443, not the
+    # one people use (e.g. 8443), and send them to a dead address
+    absolute_redirect off;
 
     ssl_certificate     /etc/nginx/certs/fullchain.pem;
     ssl_certificate_key /etc/nginx/certs/privkey.pem;
@@ -71,6 +81,56 @@ server {
         proxy_buffering off;
         proxy_cache off;
         proxy_read_timeout 1h;
+    }
+
+    # Grafana (monitoring profile): signed-in NetRollout admins only. The app
+    # answers every request (204 + the username / 401 / 403); Grafana trusts
+    # X-WEBAUTH-USER, which is always set here from that answer — whatever the
+    # browser sent under that name is replaced. Without monitoring there's no
+    # Grafana to find and only this location fails.
+    location = /_nr_auth/grafana {
+        internal;
+        proxy_pass $nr_app/_netrollout/grafana-auth;
+        proxy_pass_request_body off;
+        proxy_set_header Content-Length    "";
+        proxy_set_header Host              $http_host;
+        proxy_set_header X-Forwarded-Host  $http_host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+    }
+
+    location = /grafana {
+        return 301 /grafana/;
+    }
+
+    location /grafana/ {
+        auth_request /_nr_auth/grafana;
+        auth_request_set $nr_grafana_user $upstream_http_x_netrollout_user;
+        error_page 401 = @nr_sign_in;
+        error_page 403 = @nr_admins_only;
+
+        set $nr_grafana http://grafana:3000;
+        proxy_pass $nr_grafana;
+        proxy_set_header X-WEBAUTH-USER    $nr_grafana_user;
+        proxy_set_header Authorization     "";   # no logging into Grafana itself through here
+        proxy_set_header Host              $http_host;
+        proxy_set_header X-Forwarded-Host  $http_host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade           $http_upgrade;
+        proxy_set_header Connection        $nr_connection_upgrade;
+        proxy_read_timeout 1h;
+    }
+
+    # Back to Grafana's start page after signing in (the app keeps ?next=)
+    location @nr_sign_in {
+        return 302 /?next=/grafana/;
+    }
+
+    location @nr_admins_only {
+        default_type text/html;
+        return 403 '<!doctype html><meta charset="utf-8"><title>NetRollout</title><body style="background:#111;color:#ddd;font-family:Inter,system-ui,sans-serif;text-align:center;padding-top:20vh"><p style="font-size:1.1rem">Monitoring is for NetRollout administrators.</p><p><a href="/" style="color:#00bcd4">Back to NetRollout</a></p></body>';
     }
 
     location / {

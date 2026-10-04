@@ -1,0 +1,33 @@
+# Development (repo only, never shipped): the product's stack with the app
+# running from the IDE on the host instead of in a container.
+#
+#   docker compose -f compose.yaml -f compose.build.yaml -f compose.dev.yaml up -d --build
+#
+# Its own project (netrollout-dev): volumes separate from any install. The
+# repo's logs/, config/ and certs/ are the folders the host app uses, so
+# Alloy ships its logs and nginx serves its certificate. The host app reaches
+# Postgres / Redis on localhost (config/runtime.env).
+name: netrollout-dev
+
+services:
+  app:
+    profiles: [app-container]   # not started: the app runs from the IDE
+
+  nginx:
+    environment:
+      APP_UPSTREAM: host.docker.internal:8080   # resolved by Docker Desktop's DNS
+    extra_hosts:
+      - "host.docker.internal:host-gateway"     # Linux hosts
+
+  postgres:
+    ports:
+      - "127.0.0.1:5432:5432"
+
+  redis:
+    ports:
+      - "127.0.0.1:6379:6379"
+
+  prometheus:
+    extra_hosts:
+      - "app:host-gateway"      # scrape the host app as app:8080
+
