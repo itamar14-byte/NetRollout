@@ -719,7 +719,7 @@ nginx reverse proxy running in Docker, terminating TLS and forwarding to Waitres
 - Security headers: `Strict-Transport-Security`, `X-Frame-Options SAMEORIGIN`, `X-Content-Type-Options nosniff`
 - `client_max_body_size 10M` for CSV uploads
 - `/rollout_stream` location block: `proxy_buffering off`, `proxy_cache off`, `proxy_http_version 1.1`, `Connection ''` — required for SSE log streaming. **Known issue:** the SSE route moved to `/rollout/stream/<job_id>` in the Blueprint split, so this block no longer matches; streaming still works because the app sends `X-Accel-Buffering: no`. Fixed in Phase 4's nginx image (stage 6)
-- Config lives at `docs/nginx/nginx.conf`, bind-mounted to `/etc/nginx/nginx.conf` in container
+- Config lives at `docs/nginx/nginx.conf`, bind-mounted to `/etc/nginx/nginx.conf` in container _(retired in Phase 4 stage 8: the nginx image in `deploy/nginx/` replaced it)_
 
 ### 4.8c Admin panel redesign ✅ COMPLETE (2026-04-18)
 Admin panel is now a fully standalone page — own layout, own topbar, own sidebar, not embedded in operator chrome.

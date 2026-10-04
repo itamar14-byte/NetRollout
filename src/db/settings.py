@@ -171,7 +171,7 @@ SETTINGS: dict[str, Setting] = {s.key: s for s in [
 def public_url(hostname: str, port: int) -> str | None:
 	"""The address people use, built from the Access settings: always https,
 	the port only when it isn't 443. None when no hostname is set (the
-	startup check then reads the nginx config)."""
+	startup check then uses https://localhost)."""
 	if not hostname:
 		return None
 	return f"https://{hostname}" + ("" if int(port) == 443 else f":{port}")

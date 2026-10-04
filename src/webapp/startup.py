@@ -15,7 +15,6 @@ through an HTTP proxy — a corporate proxy would otherwise answer for us.
 import http.client
 import json
 import os
-import re
 import secrets
 import socket
 import ssl
@@ -24,10 +23,8 @@ import threading
 import time
 import webbrowser
 from dataclasses import dataclass
-from pathlib import Path
 from urllib.parse import urlsplit
 
-from src import runtime
 from src.runtime import VERSION, in_container
 
 INSTANCE_PATH = "/_netrollout/instance"
@@ -37,11 +34,12 @@ GRAFANA_AUTH_PATH = "/_netrollout/grafana-auth"
 PROBE_TIMEOUT = 2.0
 READY_TIMEOUT = 60.0
 
-NGINX_CONF_ENV = "NETROLLOUT_NGINX_CONF"
 OPEN_BROWSER_ENV = "NETROLLOUT_OPEN_BROWSER"
 RELAUNCH_ENV = "NETROLLOUT_RELAUNCH"   # set by the admin Restart relaunch
-# The development nginx config (a missing file just means "not detected")
-DEFAULT_NGINX_CONF = runtime.REPO_ROOT / "docs" / "nginx" / "nginx.conf"
+# While no hostname is set: where nginx serves on this machine (dev, a fresh
+# install) — the address the dev stack and the installer's certificate cover
+DEFAULT_PUBLIC_URL = "https://localhost"
+DEFAULT_SOURCE = "the default — no hostname set in System Settings"
 
 
 def new_instance_token() -> str:
@@ -50,60 +48,13 @@ def new_instance_token() -> str:
 
 # ── Where the Public URL comes from ──────────────────────────────────────────
 
-def detect_from_nginx_conf(path: Path) -> str | None:
-	"""Public URL from an nginx config: the first server block that listens
-	with ssl (else plain http), and its server_name (`_` or none → localhost).
-	The port is nginx's own — behind a Docker port mapping the host port can
-	differ, which is why an explicit Public URL wins over this."""
-	try:
-		text = path.read_text(encoding="utf-8")
-	except OSError:
-		return None
-	text = re.sub(r"#[^\n]*", "", text)
-	candidates = []
-	for block in _server_blocks(text):
-		names = re.findall(r"\bserver_name\s+([^;]+);", block)
-		name = next((n for n in (names[0].split() if names else [])
-		             if n not in ("_", "\"\"")), "localhost")
-		for listen in re.findall(r"\blisten\s+([^;]+);", block):
-			parts = listen.split()
-			port_match = re.search(r"(\d+)$", parts[0])
-			if not port_match:
-				continue
-			port = int(port_match.group(1))
-			tls = "ssl" in parts[1:]
-			candidates.append((tls, name, port))
-	if not candidates:
-		return None
-	tls, name, port = sorted(candidates, key=lambda c: not c[0])[0]
-	scheme = "https" if tls else "http"
-	default = 443 if tls else 80
-	return f"{scheme}://{name}" + ("" if port == default else f":{port}")
-
-
-def _server_blocks(text: str) -> list[str]:
-	"""Bodies of `server { … }` blocks (brace-matched)."""
-	blocks = []
-	for m in re.finditer(r"\bserver\s*\{", text):
-		depth, i = 1, m.end()
-		while i < len(text) and depth:
-			depth += {"{": 1, "}": -1}.get(text[i], 0)
-			i += 1
-		blocks.append(text[m.end():i - 1])
-	return blocks
-
-
-def resolve_public_url(setting: str | None = None) -> tuple[str | None, str]:
+def resolve_public_url(setting: str | None = None) -> tuple[str, str]:
 	"""(url, source). The URL built from System Settings (hostname + HTTPS
 	port; install values are seeded into those rows) — or, while no hostname
-	is set, the nginx config."""
+	is set, https://localhost."""
 	if setting:
 		return setting.rstrip("/"), "from System Settings"
-	conf = Path(os.environ.get(NGINX_CONF_ENV) or DEFAULT_NGINX_CONF)
-	detected = detect_from_nginx_conf(conf)
-	if detected:
-		return detected, f"auto-detected from {conf.name}"
-	return None, "none configured"
+	return DEFAULT_PUBLIC_URL, DEFAULT_SOURCE
 
 
 # ── Probing ──────────────────────────────────────────────────────────────────
@@ -211,10 +162,9 @@ def announcement(app_port: int, public_url: str | None, source: str,
 			why += f"; on this machine: {local.reason}"
 		# a wrong port shows up as "couldn't connect"; nginx answering at all
 		# (404, 502, …) means the port was right
-		hint = ("\n  The port in the nginx config can differ from the host "
-		        "port behind a Docker mapping — if so, set the hostname and "
-		        "HTTPS port in System Settings."
-		        if source.startswith("auto-detected") and public
+		hint = ("\n  nginx may serve on another name or port — if so, set "
+		        "the hostname and HTTPS port in System Settings."
+		        if source == DEFAULT_SOURCE and public
 		        and public.unreachable else "")
 		return (f"Reverse proxy not verified at {public_url} "
 		        f"({why}). (Public URL {source}){hint}\n{fallback}\n"

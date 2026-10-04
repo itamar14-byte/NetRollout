@@ -238,8 +238,6 @@ def settings_test_access(data):
 		return ok(url=url, source=source, container=True,
 		          access=proxy_config.overview(
 		              current_app.backend.settings.get("public_hostname")))
-	if not url:
-		return ok(url=None, source=source, local=None, public=None)
 	local, public = check_proxy(url, current_app.config["INSTANCE_TOKEN"])
 	return ok(url=url, source=source,
 	          local={"ok": local.ok, "reason": local.reason},

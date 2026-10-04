@@ -448,7 +448,6 @@
       out.innerHTML = (data.url ? `${esc(data.url)}<br>` : '') + 'nginx: ' + nrNginxLine(data.access && data.access.nginx);
       return;
     }
-    if (!data.url) { out.innerHTML = '<span class="fail">✗ No hostname set and none found in the nginx config.</span>'; return; }
     const line = (name, r) => r.ok
       ? `<span class="ok">✓ ${name}: forwards to this NetRollout</span>`
       : `<span class="fail">✗ ${name}: ${esc(r.reason)}</span>`;
