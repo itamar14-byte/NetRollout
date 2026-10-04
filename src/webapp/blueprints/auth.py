@@ -403,13 +403,18 @@ def change_password():
 	new = request.form.get("new_password", "")
 	with current_app.backend.postgres.get_session() as db_session:
 		user = db_session.get(User, current_user.id)
-		if not check_password_hash(user.password_hash, current):
+		# A forced change follows the sign-in that just proved the password
+		# (the factory admin's, or an admin reset's temporary one): asking for
+		# it again adds nothing. A voluntary change proves it here.
+		if not forced and not check_password_hash(user.password_hash, current):
 			reason, problem = "wrong_current", "The current password is incorrect."
 		elif new != request.form.get("confirm_password", ""):
 			reason, problem = "mismatch", "The new passwords don't match."
+		elif forced and check_password_hash(user.password_hash, new):
+			reason, problem = "rule", "The new password must differ from the current one."
 		else:
 			reason, problem = "rule", password_problem(new, user.username,
-			                                             current)
+			                                             None if forced else current)
 		if problem:
 			current_app.web.audit("auth.password_change", success=False,
 			                      detail={"reason": reason, "forced": forced})

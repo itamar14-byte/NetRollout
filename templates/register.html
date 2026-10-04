@@ -150,29 +150,49 @@
     return true;
   }
 
+  // Passwords are judged once the field is left (the confirmation also once
+  // it's as long as the password); what more typing can't fix shows at once.
+  // A field turns red and shakes when a problem appears.
+  const pwTouched = new Set();
+
+  function passwordProblem() {
+    const v = passwordInput.value;
+    return v ? nrPasswordProblem(v, usernameInput.value.trim()) : "Password is required.";
+  }
+
+  function confirmProblem() {
+    if (!confirmInput.value) return "Please confirm your password.";
+    return confirmInput.value !== passwordInput.value ? "Passwords do not match." : null;
+  }
+
+  function markPassword(input, errorEl, message) {
+    const was = input.classList.contains("is-invalid");
+    if (message) { showError(input, errorEl, message); if (!was) nrShake(input); }
+    else clearError(input, errorEl);
+  }
+
   function validatePassword() {
     // The server enforces the same rule (src/passwords.py)
-    const problem = nrPasswordProblem(passwordInput.value, usernameInput.value.trim());
-    if (problem) {
-      showError(passwordInput, passwordError, problem);
-      return false;
-    }
-    clearError(passwordInput, passwordError);
-    return true;
+    const v = passwordInput.value;
+    const shown = pwTouched.has(passwordInput) ? (v ? passwordProblem() : null)
+                                               : nrPasswordUnfixable(v, usernameInput.value.trim());
+    markPassword(passwordInput, passwordError, shown);
+    return !passwordProblem();
   }
 
   function validateConfirm() {
-    if (confirmInput.value !== passwordInput.value) {
-      showError(confirmInput, confirmError, "Passwords do not match.");
-      return false;
-    }
-    if (!confirmInput.value) {
-      showError(confirmInput, confirmError, "Please confirm your password.");
-      return false;
-    }
-    clearError(confirmInput, confirmError);
-    return true;
+    const judge = pwTouched.has(confirmInput) ||
+                  (confirmInput.value && confirmInput.value.length >= passwordInput.value.length);
+    markPassword(confirmInput, confirmError, judge && confirmInput.value ? confirmProblem() : null);
+    return !confirmProblem();
   }
+
+  [passwordInput, confirmInput].forEach(el => el.addEventListener("blur", e => {
+    if (el.value && nrLeftField(e)) {
+      pwTouched.add(el);
+      validatePassword(); if (confirmInput.value) validateConfirm(); checkAllValid();
+    }
+  }));
 
   // --- Helpers ---
 
@@ -196,7 +216,9 @@
       passwordInput.value &&
       confirmInput.value;
 
-    const noErrors = document.querySelectorAll("#registerForm .is-invalid").length === 0;
+    // the passwords by their rule, not by what's shown yet (shown errors wait)
+    const noErrors = document.querySelectorAll("#registerForm .is-invalid").length === 0
+                     && !passwordProblem() && !confirmProblem();
 
     submitBtn.disabled = !(allFilled && noErrors);
   }

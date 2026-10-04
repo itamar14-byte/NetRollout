@@ -197,7 +197,7 @@
         </p>
         <div class="d-flex gap-2 align-items-center mb-3">
           <code id="resetPwValue" style="font-size:1.05rem; padding:0.4rem 0.6rem; background:#111; border:1px solid #333; border-radius:4px; user-select:all; flex:1;"></code>
-          <button type="button" class="btn btn-outline-info btn-sm" id="resetPwCopy"><i class="bi bi-clipboard"></i></button>
+          <button type="button" class="btn btn-outline-info btn-sm" id="resetPwCopy" title="Copy"><i class="bi bi-copy"></i></button>
         </div>
         <p style="font-size:0.82rem; color:#ffcc80; margin-bottom:0;">
           <i class="bi bi-exclamation-triangle me-1"></i>Shown only now — it isn't stored anywhere
@@ -551,13 +551,13 @@
 
   document.getElementById("resetPwCopy").addEventListener("click", () => {
     navigator.clipboard.writeText(document.getElementById("resetPwValue").textContent)
-      .then(() => { document.querySelector("#resetPwCopy i").className = "bi bi-clipboard-check"; })
+      .then(() => { document.querySelector("#resetPwCopy i").className = "bi bi-check2"; })
       .catch(() => {});
   });
 
   document.getElementById("resetPwModal").addEventListener("hidden.bs.modal", () => {
     document.getElementById("resetPwValue").textContent = "";   // don't keep it in the page
-    document.querySelector("#resetPwCopy i").className = "bi bi-clipboard";
+    document.querySelector("#resetPwCopy i").className = "bi bi-copy";
     if (resetPwDone) window.location.reload();                  // sessions / status changed
   });
 

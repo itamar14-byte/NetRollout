@@ -174,6 +174,12 @@ def test_terminate_session_signs_the_user_out_everywhere(
 	client_for(admin).post(f"/admin/users/{target.id}/terminate_session")
 	assert not any(app.backend.redis.client.exists(f"redis_session:{s}")
 	               for s in sids)
+	# ...and really out: the next page goes to sign-in, and the page's own
+	# background check (every 30 s) is refused too
+	for b in browsers:
+		assert b.get("/dashboard").headers["Location"].startswith("/?next=")
+		check = b.get("/account/session", headers={"X-NR-Background": "1"})
+		assert check.status_code == 302 and check.headers["Location"].startswith("/?next=")
 
 
 # ── Server management ────────────────────────────────────────────────────────
