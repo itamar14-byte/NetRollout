@@ -285,3 +285,129 @@ def test_a_forced_password_change_comes_first_then_the_page(client_for,
 		"current_password": TEST_PASSWORD, "new_password": "Brand-new-pass-7",
 		"confirm_password": "Brand-new-pass-7"})
 	assert resp.headers["Location"] == "/grafana/"
+
+
+# ── Sign-out after inactivity / after 12 hours ──────────────────────────────
+
+import time as _time
+
+from src.webapp import extensions as _ext
+
+
+@pytest.fixture
+def fresh_idle_limit():
+	_ext._IDLE_CACHE.update(at=0.0, seconds=None)     # re-read the setting
+	yield
+	_ext._IDLE_CACHE.update(at=0.0, seconds=None)
+
+
+def stamp(client, *, idle_ago=0, signed_in_ago=0):
+	now = _time.time()
+	with client.session_transaction() as s:
+		s[_ext.LAST_ACTIVE] = now - idle_ago
+		s[_ext.SIGNED_IN_AT] = now - signed_in_ago
+
+
+def last_active(client):
+	with client.session_transaction() as s:
+		return s.get(_ext.LAST_ACTIVE)
+
+
+def test_inactivity_signs_out_and_comes_back_after_signing_in(
+		client_for, make_user, session_scope, fresh_idle_limit):
+	user = make_user()
+	client = client_for(user)
+	stamp(client, idle_ago=16 * 60)                 # default limit: 15 min
+	resp = client.get("/results?job=1")
+	assert resp.status_code == 302
+	assert resp.headers["Location"] == "/?next=/results?job%3D1"
+	assert client.get("/dashboard").headers["Location"].startswith("/?next=")
+	assert ("auth.session_expired", True, "idle") in audit_actions(
+		session_scope, user.username)
+
+
+def test_activity_keeps_the_session_and_background_does_not(
+		client_for, make_user, fresh_idle_limit):
+	client = client_for(make_user())
+	stamp(client, idle_ago=14 * 60)
+	before = last_active(client)
+	for background in ({"headers": {"X-NR-Background": "1"}},
+	                   {"query_string": {"_bg": "1"}}):
+		assert client.get("/active_jobs", **background).status_code == 200
+		assert last_active(client) == before          # still idle
+	assert client.get("/dashboard").status_code == 200
+	assert last_active(client) > before + 13 * 60     # a person: extended
+
+
+def test_background_requests_still_expire(client_for, make_user,
+                                          fresh_idle_limit):
+	client = client_for(make_user())
+	stamp(client, idle_ago=16 * 60)
+	resp = client.get("/account/session", headers={"X-NR-Background": "1"})
+	assert resp.status_code == 401 and resp.json["redirect"] == "/"
+
+
+def test_twelve_hours_is_the_limit_however_active(client_for, make_user,
+                                                  session_scope,
+                                                  fresh_idle_limit):
+	user = make_user()
+	client = client_for(user)
+	stamp(client, idle_ago=0, signed_in_ago=12 * 3600 + 1)
+	resp = client.get("/dashboard")
+	assert resp.status_code == 302 and resp.headers["Location"].startswith("/?next=")
+	with session_scope() as s:
+		(detail,) = [a.detail for a in s.query(AuditLog).filter_by(
+			actor_username=user.username, action="auth.session_expired")]
+	assert detail == {"reason": "absolute"}
+
+
+def test_grafana_gets_a_bare_401_when_the_session_has_expired(
+		client_for, make_user, fresh_idle_limit):
+	client = client_for(make_user(role="admin"))
+	stamp(client, idle_ago=16 * 60)
+	resp = client.get("/_netrollout/grafana-auth")
+	assert resp.status_code == 401 and not resp.data   # nginx: a status only
+
+
+def test_the_limit_follows_system_settings(app, client_for, make_user,
+                                           fresh_idle_limit):
+	app.backend.settings.update({"session_idle_minutes": 5}, None)
+	try:
+		client = client_for(make_user())
+		stamp(client, idle_ago=6 * 60)
+		assert client.get("/dashboard").status_code == 302
+	finally:
+		app.backend.settings.update({"session_idle_minutes": 15}, None)
+
+
+def test_the_page_can_ask_how_long_is_left(client_for, make_user,
+                                           fresh_idle_limit):
+	client = client_for(make_user())
+	stamp(client, idle_ago=60, signed_in_ago=3600)
+	body = client.get("/account/session",
+	                  headers={"X-NR-Background": "1"}).json
+	assert 13 * 60 <= body["idle_seconds_left"] <= 14 * 60
+	assert 10 * 3600 <= body["absolute_seconds_left"] <= 11 * 3600
+	# "Stay signed in" asks without the background header: it extends
+	assert client.get("/account/session").json["idle_seconds_left"] >= 15 * 60 - 2
+
+
+def test_signing_in_starts_both_clocks(client_for, make_user):
+	make_user(username="admin", role="admin")          # no 2FA step
+	client = client_for()
+	login(client, "admin")
+	with client.session_transaction() as s:
+		assert _time.time() - s[_ext.SIGNED_IN_AT] < 5
+		assert _time.time() - s[_ext.LAST_ACTIVE] < 5
+
+
+@pytest.mark.parametrize("minutes, ok", [(4, False), (5, True), (480, True),
+                                         (481, False)])
+def test_the_setting_range(minutes, ok):
+	from src.db.settings import SETTINGS
+	s = SETTINGS["session_idle_minutes"]
+	if ok:
+		assert s.parse(minutes) == minutes
+	else:
+		with pytest.raises(ValueError):
+			s.parse(minutes)

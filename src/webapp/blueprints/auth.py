@@ -23,8 +23,9 @@ from src.encryption import decrypt, encrypt
 from src.ldap_auth import (check_group_membership, fetch_user_details,
                            user_bind, LdapUnavailable)
 from src.passwords import RULE, password_problem
-from src.webapp.extensions import csrf, conn_limit
-from src.webapp.utils import end_user_sessions, with_form
+from src.webapp.extensions import (csrf, conn_limit, mark_signed_in,
+                                   session_seconds_left, is_background)
+from src.webapp.utils import end_user_sessions, ok, with_form
 
 bp = Blueprint("auth", __name__)
 
@@ -64,6 +65,7 @@ def after_login(user):
 	"""The redirect that ends a successful sign-in: the page asked for, else
 	the Dashboard. A user who must change the password goes through the
 	password gate first; the page waits for the change."""
+	mark_signed_in()
 	if user.must_change_password:
 		return redirect(url_for("jobs.dashboard"))
 	return redirect(session.pop(NEXT_KEY, None) or url_for("jobs.dashboard"))
@@ -427,6 +429,18 @@ def change_password():
 	flash("Password changed.", "success")
 	# a page asked for before a forced change waited for it
 	return redirect(session.pop(NEXT_KEY, None) or url_for("jobs.dashboard"))
+
+
+@bp.route("/account/session")
+@login_required
+def session_state():
+	"""How long this session has left — for the page's warning. Asked with
+	X-NR-Background it doesn't count as activity; without ("Stay signed in")
+	it does (the session gate extended it before this runs)."""
+	idle_left, absolute_left = session_seconds_left()
+	return ok(idle_seconds_left=int(idle_left),
+	          absolute_seconds_left=int(absolute_left),
+	          background=is_background())
 
 
 @bp.route("/account")

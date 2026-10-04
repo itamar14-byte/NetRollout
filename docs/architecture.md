@@ -493,7 +493,7 @@ app.orchestrator  →  RolloutOrchestrator
 app.shutdown      →  lifecycle.Shutdown (drain, then exit; relaunch in dev)
 ```
 
-- **Sessions:** server-side in Redis via Flask-Session, prefix `redis_session:`, not permanent. The cookie is `Secure`, `HttpOnly`, `SameSite=Lax`.
+- **Sessions:** server-side in Redis via Flask-Session, prefix `redis_session:`, not permanent. The cookie is `Secure`, `HttpOnly`, `SameSite=Lax`. A session ends after `session_idle_minutes` (System Settings, default 15) without user activity — background requests (`X-NR-Background: 1`, `?_bg=1`, the live log stream) don't count but are checked — and after 12 hours regardless; the page warns a minute ahead (`_idle_timeout.html`) and returns to the page after signing in again (`?next=`). Every app start clears all sessions on purpose (a restart / update / reboot starts clean, like a firewall's management plane; rollouts don't depend on sessions).
 - **`_SafeRedisSessionInterface`:** catches `REDIS_UNAVAILABLE` on open and save and returns an empty session instead of crashing. Its `client` is looked up per request from `backend.redis`, so a Server Management Redis switch keeps sign-ins working. It is registered **after** `configure_app()` (which calls `Session(app)`) so it isn't overwritten.
 - **Proxy headers:** `ProxyFix(x_for=1, x_proto=1, x_host=1)` sits behind nginx.
 - **Drain banner:** a context processor gives every template `server_draining`; `_drain_banner.html` (in both base templates) says new rollouts are paused and reloads the page when a new instance answers. The Restart modal and script are shared includes too (`_restart_modal.html`, `_restart_script.html`).

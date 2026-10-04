@@ -13,7 +13,11 @@ async function nrRestartClick() {
     try {
         counts = await (await fetch('/admin/active_job_count')).json();
     } catch (e) { /* unknown: the server answers 409 if rollouts run */ }
-    if (!counts.count) { nrFireRestart(); return; }
+    if (!counts.count) {
+        if (confirm('Restart NetRollout? Everyone will be signed out and sign in again.'))
+            nrFireRestart();
+        return;
+    }
     nrShowRestartChoice(counts);
 }
 

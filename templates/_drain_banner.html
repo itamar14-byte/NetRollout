@@ -15,7 +15,8 @@
 <script>
 (() => {
     let first = null;
-    const check = () => fetch('/_netrollout/instance', {cache: 'no-store'})
+    const check = () => fetch('/_netrollout/instance', {cache: 'no-store',
+                               headers: {'X-NR-Background': '1'}})
         .then(r => r.ok ? r.json() : null)
         .then(d => {
             if (!d) return;

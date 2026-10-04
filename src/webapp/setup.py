@@ -171,6 +171,11 @@ def init_app_encryption(backend: BackendServices):
 
 
 def clear_sessions(redis_conn):
+	"""Every start signs everyone out — deliberately (2026-10-04): a privileged
+	network-management console starts clean after a restart, update or
+	reboot, like a firewall's management plane. Rollouts don't depend on
+	sessions (the drain lets them finish). Within a run, sessions end after
+	inactivity (session_idle_minutes) and after 12 hours (extensions.py)."""
 	try:
 		for redis_key in redis_conn.client.scan_iter("redis_session:*"):
 			redis_conn.client.delete(redis_key)
