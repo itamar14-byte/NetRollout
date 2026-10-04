@@ -46,6 +46,21 @@ def in_container() -> bool:
 	return os.environ.get(DEPLOYMENT_ENV, "").strip().lower() == "docker"
 
 
+# Waitress worker threads. A live rollout log holds one for the whole rollout,
+# and every Grafana request makes a quick sign-in check — with Waitress's
+# default of 4, four open live logs stalled every other request. The threads
+# mostly wait (Redis, Postgres), so many cost little.
+THREADS_ENV = "NETROLLOUT_THREADS"
+DEFAULT_THREADS = 32
+
+
+def server_threads() -> int:
+	try:
+		return min(max(int(os.environ.get(THREADS_ENV, DEFAULT_THREADS)), 4), 256)
+	except ValueError:
+		return DEFAULT_THREADS
+
+
 def drain_seconds() -> float:
 	try:
 		return max(0.0, float(os.environ.get(DRAIN_SECONDS_ENV,

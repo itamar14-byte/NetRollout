@@ -66,6 +66,7 @@ services:
       ORCHESTRATOR_WORKERS: ${ORCHESTRATOR_WORKERS:-4}
       TZ: ${TZ:-UTC}
       NETROLLOUT_MONITORING: ${COMPOSE_PROFILES:-}   # "monitoring" -> the Grafana link
+      NETROLLOUT_THREADS: ${NETROLLOUT_THREADS:-32}   # web server threads (live logs hold one each)
     volumes:
       - ./logs:/data/logs
       - ./config:/data/config
