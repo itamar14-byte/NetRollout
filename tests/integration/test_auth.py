@@ -213,3 +213,75 @@ def test_logout_ends_session(client_for, make_user):
 
 def test_account_page(client_for, make_user):
 	assert client_for(make_user()).get("/account").status_code == 200
+
+
+# ── Back to the page asked for (?next=) ──────────────────────────────────────
+
+@pytest.mark.parametrize("value, kept", [
+	("/results?job=abc", True),
+	("/grafana/", True),
+	("/inventory/", True),
+	("//evil.example/login", False),          # protocol-relative: another site
+	("///evil.example", False),               # no host for Python, one for browsers
+	("https://evil.example/", False),
+	("/\evil.example", False),               # browsers read \ as /
+	("javascript:alert(1)", False),
+	(" /results", False),
+	("/res\nults", False),
+	("/logout", False),                       # signing straight back out
+	("/", False),
+	("", False),
+	(None, False),
+])
+def test_only_local_paths_are_returned_to(value, kept):
+	from src.webapp.blueprints.auth import safe_next
+	assert safe_next(value) == (value if kept else None)
+
+
+def asked_for(client, path):
+	# what Flask-Login / nginx do: the sign-in page with ?next=
+	client.get("/", query_string={"next": path})
+
+
+def test_sign_in_returns_to_the_page_asked_for_through_2fa(client_for,
+                                                            make_user):
+	user = make_user()
+	client = client_for()
+	asked_for(client, "/results?job=abc")
+	assert login(client, user.username).headers["Location"] == "/otp_enroll"
+	client.get("/otp_enroll")
+	with client.session_transaction() as s:
+		secret = s["pending_totp_secret"]
+	resp = client.post("/otp_enroll", data={"code": pyotp.TOTP(secret).now()})
+	assert resp.headers["Location"] == "/results?job=abc"
+	# used once: the next sign-in (2FA verify) lands on the Dashboard
+	client.get("/logout")
+	login(client, user.username)
+	resp = client.post("/otp_verify", data={"code": pyotp.TOTP(secret).now()})
+	assert resp.headers["Location"] == "/dashboard"
+	# and through 2FA verify too
+	client.get("/logout")
+	asked_for(client, "/inventory/")
+	login(client, user.username)
+	resp = client.post("/otp_verify", data={"code": pyotp.TOTP(secret).now()})
+	assert resp.headers["Location"] == "/inventory/"
+
+
+def test_a_crafted_next_lands_on_the_dashboard(client_for, make_user):
+	make_user(username="admin", role="admin")          # no 2FA step
+	client = client_for()
+	asked_for(client, "https://evil.example/login")
+	assert login(client, "admin").headers["Location"] == "/dashboard"
+
+
+def test_a_forced_password_change_comes_first_then_the_page(client_for,
+                                                             make_user):
+	make_user(username="admin", role="admin", must_change_password=True)
+	client = client_for()
+	asked_for(client, "/grafana/")
+	assert login(client, "admin").headers["Location"] == "/dashboard"
+	assert client.get("/dashboard").headers["Location"] == "/account/password"
+	resp = client.post("/account/password", data={
+		"current_password": TEST_PASSWORD, "new_password": "Brand-new-pass-7",
+		"confirm_password": "Brand-new-pass-7"})
+	assert resp.headers["Location"] == "/grafana/"

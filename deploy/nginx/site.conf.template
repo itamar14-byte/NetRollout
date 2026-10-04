@@ -119,8 +119,9 @@ server {
         proxy_read_timeout 1h;
     }
 
+    # Back to Grafana's start page after signing in (the app keeps ?next=)
     location @nr_sign_in {
-        return 302 /;
+        return 302 /?next=/grafana/;
     }
 
     location @nr_admins_only {
