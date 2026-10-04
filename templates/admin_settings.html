@@ -30,12 +30,6 @@
   .set-note { font-size: 0.8rem; color: var(--nr-text-muted); background: #151515; border: 1px solid #242424;
               border-radius: 8px; padding: 0.65rem 0.85rem; margin-top: 1rem; line-height: 1.5; }
   .set-note code { color: #80deea; }
-  .access-status { font-family: 'JetBrains Mono', monospace; font-size: 0.76rem; line-height: 1.7;
-                   background: #151515; border: 1px solid #242424; border-radius: 8px;
-                   padding: 0.6rem 0.85rem; margin-top: 0.75rem; }
-  .access-status .k { color: var(--nr-text-muted); display: inline-block; min-width: 7.5rem; }
-  .access-status .ok { color: #81c784; } .access-status .fail { color: #ef9a9a; }
-  .access-status .warn { color: #ffcc80; } .access-status .dim { color: var(--nr-text-muted); }
   .port-state { margin: 0.25rem 0 0.75rem; }
   .port-state code { color: #80deea; }
   .port-state a { color: #80deea; font-weight: 500; }
@@ -153,6 +147,7 @@
 {% endblock %}
 
 {% block extra_script %}
+{% include '_access_status.html' %}
 <script>
 (() => {
   const CSRF = '{{ csrf_token() }}';
@@ -257,39 +252,9 @@
   }
 
   // ── What nginx last did and the certificate in use (shown whenever the page
-  // is open, not only after a save) ──
+  // is open, not only after a save; _access_status.html) ──
   const accessBox = document.getElementById('accessStatus');
-  const when = iso => { const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleString(); };
-  const day = iso => { const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleDateString(); };
-
-  function nginxLine(n) {
-    if (!n) return '<span class="dim">no NetRollout nginx reports here — with your own reverse proxy, check it there</span>';
-    const at = n.time ? ` <span class="dim">· ${esc(when(n.time))}</span>` : '';
-    if (n.state === 'applied') return `<span class="ok">✓ applied</span> <span class="dim">${esc(n.message || '')}</span>${at}`;
-    if (n.state === 'rejected')
-      return `<span class="fail">✗ rejected: ${esc(n.message || 'no message')}</span>${at}<br>` +
-             '<span class="k"></span><span class="dim">nginx keeps serving the last good site</span>';
-    return `<span class="warn">? ${esc(n.state)}</span> <span class="dim">— check <code>netrollout status</code> on the server</span>`;
-  }
-
-  function renderAccess(a) {
-    const rows = [`<span class="k">nginx</span>${nginxLine(a.nginx)}`];
-    const c = a.certificate;
-    if (!c) {
-      rows.push('<span class="k">certificate</span><span class="fail">✗ none in the certs folder</span>');
-    } else {
-      const left = c.not_after ? Math.floor((new Date(c.not_after) - Date.now()) / 86400000) : null;
-      rows.push(`<span class="k">certificate</span>${c.selfsigned ? 'self-signed' : "your organisation's"}` +
-        (c.not_after ? ` <span class="dim">· valid until ${esc(day(c.not_after))} (${left} days)</span>` : ''));
-      rows.push(`<span class="k">covers</span>${esc(c.names.join(', ') || '—')}`);
-      for (const o of c.old_names)
-        rows.push(`<span class="k"></span><span class="dim">${esc(o.name)}: previous hostname, ` +
-                  `leaves on ${esc(day(new Date(o.until * 1000).toISOString()))}</span>`);
-      for (const p of c.problems) rows.push(`<span class="k"></span><span class="fail">✗ ${esc(p)}</span>`);
-      for (const w of c.warnings) rows.push(`<span class="k"></span><span class="warn">⚠ ${esc(w)}</span>`);
-    }
-    accessBox.innerHTML = rows.join('<br>');
-  }
+  const renderAccess = a => nrAccessStatus(accessBox, a);
   renderAccess({{ access | tojson }});
 
   // ── HTTPS port: applied by the server's port helper (src/webapp/port_apply.py).
@@ -480,7 +445,7 @@
       // from inside the container the published port can't be probed: what
       // nginx itself last reported (the status below, refreshed)
       if (data.access) renderAccess(data.access);
-      out.innerHTML = (data.url ? `${esc(data.url)}<br>` : '') + 'nginx: ' + nginxLine(data.access && data.access.nginx);
+      out.innerHTML = (data.url ? `${esc(data.url)}<br>` : '') + 'nginx: ' + nrNginxLine(data.access && data.access.nginx);
       return;
     }
     if (!data.url) { out.innerHTML = '<span class="fail">✗ No hostname set and none found in the nginx config.</span>'; return; }

@@ -106,9 +106,7 @@ def change_hostname(new: str):
 def _change_hostname(new: str):
 	cert_dir = runtime.certs_dir()
 	cert = cert_dir / certs.CERT_FILE
-	saved = _snapshot([shared_dir() / SITE_FILE, cert, cert_dir / certs.KEY_FILE,
-	                   cert_dir / certs.SELFSIGNED_MARKER,
-	                   cert_dir / OLD_NAMES_FILE])
+	saved = _snapshot([shared_dir() / SITE_FILE, *_cert_files(cert_dir)])
 	try:
 		if new and cert.is_file():
 			dns, ips = certs.names_in(cert.read_bytes())
@@ -201,6 +199,81 @@ def start_certificate_upkeep() -> None:
 				print(f"[NetRollout] certificate upkeep failed: {e}", flush=True)
 			time.sleep(UPKEEP_INTERVAL_SECONDS)
 	threading.Thread(target=loop, name="certificate-upkeep", daemon=True).start()
+
+
+def _cert_files(cert_dir: Path) -> list[Path]:
+	"""Everything a certificate change replaces — the undo snapshot."""
+	return [cert_dir / certs.CERT_FILE, cert_dir / certs.KEY_FILE,
+	        cert_dir / certs.SELFSIGNED_MARKER, cert_dir / OLD_NAMES_FILE]
+
+
+def install_certificate(cert_pem: bytes, key_pem: bytes,
+                        hostname: str | None):
+	"""Use an organisation's certificate + key: checked first (certs.validate,
+	against the saved `hostname`), then written key first (nginx's watcher
+	tests the pair before using it). The self-signed marker goes, so
+	NetRollout never reissues it. Returns (check, undo). Raises ProxyError
+	with every problem found, having changed nothing."""
+	check = certs.validate(cert_pem, key_pem, hostname or None)
+	if not check.ok:
+		raise ProxyError(" ".join(check.problems))
+	with _cert_lock:
+		cert_dir = runtime.certs_dir()
+		saved = _snapshot(_cert_files(cert_dir))
+		try:
+			cert_dir.mkdir(parents=True, exist_ok=True)
+			_restore({cert_dir / certs.KEY_FILE: key_pem})
+			_restore({cert_dir / certs.CERT_FILE: cert_pem})
+			(cert_dir / certs.SELFSIGNED_MARKER).unlink(missing_ok=True)
+			(cert_dir / OLD_NAMES_FILE).unlink(missing_ok=True)
+		except OSError as e:
+			_restore(saved)
+			raise ProxyError(f"NetRollout couldn't write {e.filename or cert_dir}: "
+			                 f"{e.strerror or e}. Nothing was changed.") from e
+	return check, lambda: _restore(saved)
+
+
+def generate_selfsigned(hostname: str | None):
+	"""Replace the certificate with a new self-signed one for `hostname`
+	(else the name the current certificate is for), keeping the IP addresses
+	the current one covers. Returns undo(). Raises ProxyError, having changed
+	nothing."""
+	with _cert_lock:
+		cert_dir = runtime.certs_dir()
+		cert = cert_dir / certs.CERT_FILE
+		dns, ips = [], []
+		try:
+			if cert.is_file():
+				dns, ips = certs.names_in(cert.read_bytes())
+		except (OSError, ValueError):
+			pass                          # unreadable: start from the hostname
+		name = hostname or (dns[0] if dns else "")
+		if not name:
+			raise ProxyError("Set the hostname first (System Settings → Access): "
+			                 "the certificate is made for it.")
+		saved = _snapshot(_cert_files(cert_dir))
+		try:
+			certs.selfsigned(name, [str(ip) for ip in ips], cert_dir)
+			(cert_dir / OLD_NAMES_FILE).unlink(missing_ok=True)
+		except (OSError, ValueError) as e:
+			_restore(saved)
+			where = getattr(e, "filename", None) or cert_dir
+			raise ProxyError(f"NetRollout couldn't write {where}: "
+			                 f"{getattr(e, 'strerror', None) or e}. Nothing was "
+			                 f"changed.") from e
+	return lambda: _restore(saved)
+
+
+def verdict(managed: bool, started: float, hostname: str | None = None) -> dict:
+	"""nginx's answer to a change written at `started`: applied / rejected,
+	or why there is none — not_managed (no NetRollout nginx reports here) or
+	no_answer. With `hostname`: the answer for that hostname."""
+	if not managed:
+		return {"state": "not_managed"}
+	status = wait_for_status(started, hostname=hostname)
+	if status is None:
+		return {"state": "no_answer"}
+	return {"state": status.get("state"), "message": status.get("message")}
 
 
 def overview(hostname: str | None) -> dict:

@@ -121,7 +121,7 @@ def _save(values: dict, action: str):
 				back()
 		return _errors_response(e)
 	if host:
-		proxy = _verdict(managed, started, host.new)
+		proxy = proxy_config.verdict(managed, started, host.new)
 		if proxy["state"] == "rejected":
 			store.update({"public_hostname": host.old}, current_user.id)
 			undo()
@@ -134,17 +134,6 @@ def _save(values: dict, action: str):
 		       proxy=proxy if change.key == "public_hostname" else None,
 		       port=state["port"] if change.key == "https_port" else None)
 	return ok(changed=[c.key for c in changes], proxy=proxy, **state)
-
-
-def _verdict(managed: bool, started: float, hostname: str) -> dict:
-	"""nginx's answer for the new hostname: applied / rejected, or why
-	there is none."""
-	if not managed:
-		return {"state": "not_managed"}
-	status = proxy_config.wait_for_status(started, hostname=hostname)
-	if status is None:
-		return {"state": "no_answer"}
-	return {"state": status.get("state"), "message": status.get("message")}
 
 
 @bp.route("", methods=["POST"])

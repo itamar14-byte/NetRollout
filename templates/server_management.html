@@ -180,6 +180,49 @@
   </div>
 </div>
 
+<!-- ── TLS CERTIFICATE CARD ─────────────────────────────────────── -->
+<div class="nr-card mb-4">
+  <div class="nr-card-accent"></div>
+  <div class="nr-card-body">
+    <div class="d-flex align-items-center mb-2">
+      <i class="bi bi-shield-lock" style="color:#00bcd4; font-size:1.1rem;"></i>
+      <span style="font-family:'Inter',sans-serif; font-weight:600; color:#e0e0e0; font-size:0.97rem; margin-left:0.5rem;">
+        TLS Certificate
+      </span>
+    </div>
+    <div class="cert-help">
+      The certificate nginx serves NetRollout with. A new one is checked first and applied within seconds,
+      without a restart — if nginx can't use it, the previous one stays.
+    </div>
+
+    <div id="certStatus" class="access-status" aria-live="polite"></div>
+
+    <form id="certForm" class="cert-form" autocomplete="off">
+      <div class="cert-files">
+        <label class="cert-file">
+          <span class="nr-label">Certificate</span>
+          <input type="file" name="certificate" class="form-control form-control-sm" accept=".pem,.crt,.cer">
+          <span class="cert-hint">PEM: the server's certificate first, then each issuer</span>
+        </label>
+        <label class="cert-file">
+          <span class="nr-label">Private key</span>
+          <input type="file" name="key" class="form-control form-control-sm" accept=".pem,.key">
+          <span class="cert-hint">PEM, without a password</span>
+        </label>
+      </div>
+      <div class="d-flex flex-wrap align-items-center gap-2 mt-3">
+        <button type="submit" id="certUploadBtn" class="btn btn-primary btn-sm">
+          <i class="bi bi-upload me-1"></i>Upload and apply
+        </button>
+        <button type="button" id="certSelfBtn" class="btn btn-outline-secondary btn-sm">
+          <i class="bi bi-arrow-repeat me-1"></i>Generate self-signed certificate
+        </button>
+      </div>
+    </form>
+    <div id="certResult" class="cert-result" aria-live="polite"></div>
+  </div>
+</div>
+
 <!-- ── LDAP CARD ──────────────────────────────────────────────── -->
 <div class="nr-card mb-4">
   <div class="nr-card-accent"></div>
@@ -454,11 +497,84 @@
   .exp-sel-label { flex:1; color:#ccc; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .exp-sel-remove { color:var(--nr-text-muted); cursor:pointer; flex-shrink:0; transition:color 0.15s; font-size:0.75rem; }
   .exp-sel-remove:hover { color:#ef5350; }
+  .cert-help { font-size:0.8rem; color:var(--nr-text-muted); line-height:1.5; }
+  .cert-form { margin-top:1rem; }
+  .cert-files { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:0.75rem 1.25rem; }
+  .cert-file { display:flex; flex-direction:column; gap:0.3rem; }
+  .cert-hint { font-size:0.72rem; color:var(--nr-text-muted); }
+  .cert-file input[type=file]::file-selector-button { background:#1e1e1e; color:#cfd8dc; border:0;
+    border-right:1px solid #2a2a2a; padding:0.25rem 0.75rem; margin-right:0.6rem; cursor:pointer; }
+  .cert-file input[type=file]:hover::file-selector-button { background:#262626; color:#80deea; }
+  .cert-result { display:none; border-radius:8px; padding:0.65rem 0.85rem; font-size:0.82rem; margin-top:0.9rem; line-height:1.5; }
+  .cert-result.show { display:block; }
+  .cert-result.error { background:rgba(239,83,80,0.07); border:1px solid rgba(239,83,80,0.3); color:#ef9a9a; }
+  .cert-result.success { background:rgba(102,187,106,0.07); border:1px solid rgba(102,187,106,0.3); color:#a5d6a7; }
+  .cert-result.warn { background:rgba(255,183,77,0.07); border:1px solid rgba(255,183,77,0.3); color:#ffcc80; }
+  @media (max-width: 720px) { .cert-files { grid-template-columns:1fr; } }
 </style>
+
+{% include '_access_status.html' %}
 
 <script>
   const CSRF = '{{ csrf_token() }}';
   const LDAP_BASE = '/admin/server/ldap';
+
+  /* ── TLS certificate (proxy_config: install_certificate / generate_selfsigned) ── */
+  (() => {
+    const status = document.getElementById('certStatus');
+    const result = document.getElementById('certResult');
+    const form = document.getElementById('certForm');
+    const uploadBtn = document.getElementById('certUploadBtn');
+    const selfBtn = document.getElementById('certSelfBtn');
+    let access = {{ access | tojson }};
+    nrAccessStatus(status, access);
+
+    const show = (kind, html) => { result.className = 'cert-result show ' + kind; result.innerHTML = html; };
+    // what nginx did with it — the reply of both buttons
+    const NGINX = {
+      applied: 'nginx applied it.',
+      not_managed: 'No NetRollout nginx reports here — with your own reverse proxy, give it the new files too.',
+      no_answer: "nginx didn't confirm within a few seconds — check <code>netrollout status</code> on the server.",
+    };
+
+    async function send(url, body, label) {
+      uploadBtn.disabled = selfBtn.disabled = true;
+      show('warn', '<i class="bi bi-hourglass-split me-1"></i>Applying…');
+      let resp, data = {};
+      try {
+        resp = await fetch(url, {method: 'POST', headers: {'X-CSRFToken': CSRF}, body});
+        try { data = await resp.json(); } catch (_) {}
+      } catch (_) { resp = {ok: false, status: 0}; }
+      uploadBtn.disabled = selfBtn.disabled = false;
+      if (resp.ok && data.status === 'ok') {
+        access = data.access; nrAccessStatus(status, access);
+        const state = data.proxy && data.proxy.state;
+        show(state === 'no_answer' ? 'warn' : 'success',
+          `<i class="bi bi-check-circle me-1"></i>${label} ${NGINX[state] || ''}`);
+        form.reset();
+      } else {
+        show('error', '<i class="bi bi-x-circle me-1"></i>' +
+          escHtml(data.message || `Server error (${resp.status || 'no answer'}).`));
+      }
+    }
+
+    form.addEventListener('submit', e => {
+      e.preventDefault();
+      const cert = form.elements.certificate.files[0], key = form.elements.key.files[0];
+      if (!cert || !key) { show('error', '<i class="bi bi-x-circle me-1"></i>Choose both files: the certificate and its private key.'); return; }
+      const body = new FormData();
+      body.append('certificate', cert); body.append('key', key);
+      send('/admin/server/certificate', body, 'Certificate in use.');
+    });
+
+    selfBtn.addEventListener('click', () => {
+      const ours = access.certificate && access.certificate.selfsigned;
+      const ask = ours || !access.certificate
+        ? 'Generate a new self-signed certificate? Browsers warn about it until each one trusts it.'
+        : "Replace your organisation's certificate with a self-signed one? Browsers will warn about it.";
+      if (confirm(ask)) send('/admin/server/certificate/selfsigned', null, 'New self-signed certificate in use.');
+    });
+  })();
 
   /* ── Service selector ─────────────────────────────────────── */
   function selectService(svc) {
