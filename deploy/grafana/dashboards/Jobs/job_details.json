@@ -659,8 +659,8 @@
                       "spec": {
                         "direction": "backward",
                         "editorMode": "code",
-                        "expr": "count_over_time({job=\"netrollout\", job_id=\"$job_id\"}[90d])",
-                        "queryType": "range"
+                        "expr": "count_over_time({job=\"netrollout\", job_id=\"$job_id\"}[$__range])",
+                        "queryType": "instant"
                       }
                     },
                     "refId": "A",

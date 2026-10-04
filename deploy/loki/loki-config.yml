@@ -36,3 +36,6 @@ compactor:
 limits_config:
   reject_old_samples: false   # log files written while Loki was down still arrive
   retention_period: 1440h
+  # a query may span everything still kept (retention + 1 h); the default
+  # 30 days would fail any panel set to a longer range
+  max_query_length: 1441h

@@ -36,6 +36,10 @@ server {
     listen 443 ssl default_server;
     http2 on;   # many live log streams on one connection (HTTP/1.1 allows 6)
     server_name _;
+    # Redirects nginx itself makes (/grafana -> /grafana/, sign-in) stay
+    # relative: absolute ones would carry the container's port 443, not the
+    # one people use (e.g. 8443), and send them to a dead address
+    absolute_redirect off;
 
     ssl_certificate     /etc/nginx/certs/fullchain.pem;
     ssl_certificate_key /etc/nginx/certs/privkey.pem;
