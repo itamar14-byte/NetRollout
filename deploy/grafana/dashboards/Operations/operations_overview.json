@@ -151,7 +151,7 @@
                         "name": "cfjxoedixn7r4d"
                       },
                       "spec": {
-                        "dataset": "rollout_db",
+                        "dataset": "netrollout",
                         "editorMode": "code",
                         "format": "table",
                         "rawQuery": true,
@@ -531,7 +531,7 @@
                         "name": "cfjxoedixn7r4d"
                       },
                       "spec": {
-                        "dataset": "rollout_db",
+                        "dataset": "netrollout",
                         "editorMode": "code",
                         "format": "table",
                         "rawQuery": true,
@@ -633,7 +633,7 @@
                         "name": "cfjxoedixn7r4d"
                       },
                       "spec": {
-                        "dataset": "rollout_db",
+                        "dataset": "netrollout",
                         "editorMode": "code",
                         "format": "table",
                         "rawQuery": true,
@@ -736,7 +736,7 @@
                         "name": "cfjxoedixn7r4d"
                       },
                       "spec": {
-                        "dataset": "rollout_db",
+                        "dataset": "netrollout",
                         "editorMode": "code",
                         "format": "table",
                         "rawQuery": true,
@@ -1015,7 +1015,7 @@
                         "name": "cfjxoedixn7r4d"
                       },
                       "spec": {
-                        "dataset": "rollout_db",
+                        "dataset": "netrollout",
                         "editorMode": "code",
                         "format": "table",
                         "rawQuery": true,
