@@ -4,7 +4,7 @@
 #
 #   sudo ./bin/install.sh                      install in this folder
 #   sudo ./bin/netrollout.sh start | stop | status | open | logs [service] |
-#                            backup | restore <file> | update | uninstall | help
+#                            backup | restore <file> | update | apply | uninstall | help
 #   sudo ./bin/netrollout.sh                   the menu
 #
 # The install folder is this script's parent folder. The script does what
@@ -20,6 +20,7 @@ BIN="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"   # the scripts (bin/)
 ROOT="$(dirname "$BIN")"
 VERSION="$(tr -d ' \r\n' < "$ROOT/VERSION" 2>/dev/null || true)"
 PROJECT="${NETROLLOUT_PROJECT:-netrollout}"   # another name only for testing
+UNIT="netrollout-port-$PROJECT"               # the port helper's systemd units
 APP_IMAGE="itamarweinstein/netrollout:$VERSION"
 ENV_FILE="$ROOT/.env"
 APP_UID=10001                                  # the app container's user
@@ -65,6 +66,7 @@ case "$COMMAND" in
 	restore) do_restore ;;
 	update) do_update ;;
 	update-finish) do_update_finish ;;     # the new script, run by update
+	apply) do_apply ;;
 	uninstall) do_uninstall ;;
 	help|-h|--help) show_help ;;
 	"") show_menu ;;
@@ -196,6 +198,7 @@ set_owners() {
 do_start() {
 	need_root; need_docker
 	set_owners
+	port_helper_on
 	step "Checking the ports"
 	facts
 	setup_core prepare-start --busy-ports "$(busy_ports)" "${FACTS[@]}" | sed 's/^/   /'
@@ -466,6 +469,114 @@ do_update_finish() {
 	good "Updated to NetRollout $VERSION. Everyone signs in again."
 }
 
+# ── the port helper (System Settings -> HTTPS port) ──────────────────────────
+# The setup core decides (src/setup/port.py), this does the Docker part: a
+# trial file adds the new port to nginx, nginx is recreated, the trial ends
+# kept or rolled back. Run by a systemd path unit when site.env changes, or by
+# hand: netrollout.sh apply.
+has_systemd() { [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; }
+
+# the path unit watching site.env (no systemd: the page says to run apply)
+port_helper_on() {
+	has_systemd || return 0
+	local project_env=""
+	if [ "$PROJECT" != netrollout ]; then project_env="Environment=NETROLLOUT_PROJECT=$PROJECT"; fi
+	cat > "/etc/systemd/system/$UNIT.service" <<UNITEOF
+[Unit]
+Description=NetRollout port helper ($ROOT): applies an HTTPS port saved in System Settings
+[Service]
+Type=oneshot
+$project_env
+ExecStart=$ROOT/bin/netrollout.sh apply --yes
+TimeoutStartSec=600
+UNITEOF
+	cat > "/etc/systemd/system/$UNIT.path" <<UNITEOF
+[Unit]
+Description=NetRollout port helper ($ROOT): watches its site.env
+[Path]
+PathModified=$ROOT/config/nginx/site.env
+[Install]
+WantedBy=multi-user.target
+UNITEOF
+	systemctl daemon-reload >/dev/null 2>&1 || true
+	if systemctl enable --now "$UNIT.path" >/dev/null 2>&1; then
+		setup_core port-ready >/dev/null 2>&1 || true    # the page knows a helper is here
+	else
+		warn "The port helper couldn't be enabled (systemctl enable $UNIT.path) - a new HTTPS port then needs: netrollout.sh apply"
+	fi
+}
+
+port_helper_off() {
+	has_systemd || return 0
+	systemctl disable --now "$UNIT.path" >/dev/null 2>&1 || true
+	rm -f "/etc/systemd/system/$UNIT.path" "/etc/systemd/system/$UNIT.service"
+	systemctl daemon-reload >/dev/null 2>&1 || true
+}
+
+update_nginx() { compose up -d --no-deps --wait --wait-timeout 120 nginx; }
+
+# the trial's confirmation within its 120 s, timed here (never compared with
+# a deadline written elsewhere); 0 = confirmed
+wait_port_trial() {
+	local i=0
+	while [ "$i" -lt 120 ]; do
+		grep -qx "NETROLLOUT_PORT_CONFIRMED=$1" "$ROOT/config/nginx/site.env" 2>/dev/null && return 0
+		sleep 1; i=$((i + 1))
+	done
+	return 1
+}
+
+do_apply() {
+	need_installed; need_root; need_docker
+	# one at a time (the path unit, and a hand-run apply): a second one waits
+	# its turn, then handles what's still pending
+	exec 9>"$ROOT/config/.port-helper.lock"
+	flock -w 300 9 || { say "A port change is still being applied - try again in a few minutes."; return 0; }
+	local out action port id message current why
+	while true; do
+		out="$(setup_core port-next --busy-ports "$(busy_ports)" 2>&1)" || { show "$out"; fail "The port helper couldn't decide - see above."; }
+		read -r action port id <<< "$(printf '%s\n' "$out" | head -1)"
+		message="$(printf '%s\n' "$out" | sed -n 2p)"
+		current="$(sed -n 's/^HTTPS_PORT=//p' "$ENV_FILE" | tail -1)"
+		case "$action" in
+			none)
+				if [ -n "$message" ]; then warn "Port $port not applied: $message"; else say "No port change to apply."; fi
+				return 0 ;;
+			wait)
+				if ! wait_port_trial "$id"; then
+					setup_core port-close --outcome rollback --id "$id" --timed-out >/dev/null 2>&1
+					update_nginx >/dev/null 2>&1 || true
+					warn "Port $port wasn't confirmed within 2 minutes (it didn't open from a browser - a firewall?) - NetRollout stays on port $current."
+					return 0
+				fi ;;
+			try)
+				step "Opening port $port next to port $current"
+				setup_core port-open --port "$port" >/dev/null 2>&1
+				if ! out="$(update_nginx 2>&1)"; then
+					show "$out"     # what Docker said (the unit's journal)
+					why="$(printf '%s\n' "$out" | grep -iE 'error|failed|allocated' | head -1)"
+					[ -n "$why" ] || why="nginx did not start with it"
+					setup_core port-close --outcome failed --id "$id" --message "port $port: $why" >/dev/null 2>&1
+					update_nginx >/dev/null 2>&1 || true
+					warn "Port $port couldn't be opened: $why - port $current stays."
+					return 0
+				fi
+				setup_core port-trying --port "$port" --id "$id" >/dev/null 2>&1
+				good "Port $port is open next to port $current. Open NetRollout on port $port within 2 minutes to keep it - else port $current stays." ;;
+			keep)
+				setup_core port-close --outcome keep --id "$id" >/dev/null 2>&1
+				update_nginx >/dev/null 2>&1 || true
+				good "Port $port kept - NetRollout is at $(address)." ;;   # then: anything newer?
+			rollback)
+				setup_core port-close --outcome rollback --id "$id" --message "$message" >/dev/null 2>&1
+				update_nginx >/dev/null 2>&1 || true
+				warn "Port change rolled back ($message) - NetRollout stays on port $current." ;;
+			*)
+				show "$out"; fail "Unexpected answer from the port helper: $(printf '%s\n' "$out" | head -1)" ;;
+		esac
+	done
+}
+
 do_status() {
 	need_installed; need_root; need_docker
 	local states reach=no
@@ -493,6 +604,7 @@ do_uninstall() {
 		read -r -p "Remove NetRollout's files in $ROOT too (the scripts, compose files)? [y/N] " a || true
 		case "$a" in y|Y|yes) remove_files=1 ;; esac
 	fi
+	port_helper_off
 	if docker info >/dev/null 2>&1; then
 		step "Removing NetRollout's containers${delete:+ and its data}"
 		if [ -n "$delete" ]; then compose down --remove-orphans -v >/dev/null 2>&1 || warn "Docker couldn't remove everything."
@@ -535,6 +647,7 @@ show_help() {
 	say "  sudo $BIN/netrollout.sh backup          back up now (into $ROOT/backups)"
 	say "  sudo $BIN/netrollout.sh restore <file>  put NetRollout back to a backup (asks first)"
 	say "  sudo $BIN/netrollout.sh update          update to the latest release (asks first; --check only looks)"
+	say "  sudo $BIN/netrollout.sh apply           apply an HTTPS port saved in System Settings (systemd does it by itself)"
 	say "  sudo $BIN/netrollout.sh uninstall       remove it (asks whether to delete the data too)"
 	say "  sudo $BIN/netrollout.sh                 the menu"
 	say ""

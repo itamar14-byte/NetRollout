@@ -391,6 +391,7 @@ function Invoke-Install {
 	# settings live in System Settings: .env is for Docker, not for people
 	(Get-Item -Force $EnvFile).Attributes += "Hidden"
 	Start-NetRollout
+	Start-PortHelper
 	Say ""
 	Good "Installed. Open $(Get-Address) and sign in as admin / admin - you'll set a new password."
 }
@@ -611,6 +612,7 @@ function Invoke-Update {
 	Show-RunningRollouts
 	Step "Restarting on the new version (about a minute; running rollouts finish first)"
 	Start-NetRollout
+	Start-PortHelper
 	Good "Updated to NetRollout $Version. Everyone signs in again."
 }
 
@@ -622,9 +624,12 @@ function Invoke-Update {
 
 $HelperExe = Join-Path $PSScriptRoot "NetRollout Manager.exe"
 
-# The helper itself (headless; one per install - a second start adds nothing)
+# The helper itself (headless; one per install - a second start adds nothing),
+# announced to the page (else it says to run netrollout apply by hand)
 function Start-PortHelper {
-	if (Test-Path $HelperExe) { Start-Process $HelperExe -ArgumentList "--helper" | Out-Null }
+	if (-not (Test-Path $HelperExe)) { return }
+	Start-Process $HelperExe -ArgumentList "--helper" | Out-Null
+	Get-SetupAnswer @("port-ready") | Out-Null
 }
 
 function Update-Nginx {
@@ -651,10 +656,18 @@ function Wait-PortTrial([string]$Id, [int]$Seconds = 120) {
 function Invoke-Apply {
 	if (-not (Test-Installed)) { Fail "NetRollout isn't installed in $Root." }
 	if (-not ((Test-DockerCli) -and (Test-DockerRunning))) { Warn "Docker isn't running - nothing applied."; return }
-	# one at a time (the helper, and a hand-run apply)
+	# one at a time (the helper, and a hand-run apply): a second one waits its
+	# turn, then handles what's still pending
 	$lockPath = Join-Path $Root "config\.port-helper.lock"
-	try { $lock = [IO.File]::Open($lockPath, "OpenOrCreate", "ReadWrite", "None") }
-	catch { Say "A port change is being applied already."; return }
+	$lock = $null
+	$clock = [Diagnostics.Stopwatch]::StartNew()
+	while (-not $lock) {
+		try { $lock = [IO.File]::Open($lockPath, "OpenOrCreate", "ReadWrite", "None") }
+		catch {
+			if ($clock.Elapsed.TotalSeconds -gt 300) { Say "A port change is still being applied - try again in a few minutes."; return }
+			Start-Sleep -Seconds 2
+		}
+	}
 	try {
 		while ($true) {
 			$busy = Get-BusyPorts (Get-OurPorts)
@@ -693,8 +706,7 @@ function Invoke-Apply {
 				"keep" {
 					Get-SetupAnswer @("port-close", "--outcome", "keep", "--id", $id) | Out-Null
 					Update-Nginx | Out-Null
-					Good "Port $port kept - NetRollout is at $(Get-Address)."
-					return
+					Good "Port $port kept - NetRollout is at $(Get-Address)."   # then: anything newer?
 				}
 				"rollback" {
 					Get-SetupAnswer @("port-close", "--outcome", "rollback", "--id", $id, "--message", $message) | Out-Null

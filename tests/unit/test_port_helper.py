@@ -138,3 +138,16 @@ def test_the_scripts_stopwatch_ends_a_trial_whatever_the_clocks_say(install):
 	assert (recorded["state"], recorded["message"]) == ("rolled_back", port.timed_out(9443))
 	assert "not confirmed within 120 s - port 9443" in recorded["message"]
 	assert port.TRIAL_ENTRY not in env()["COMPOSE_FILE"] and not port.trial_path().exists()
+
+
+def test_a_helper_announces_itself_before_the_first_change(install):
+	# without a status the page says "run netrollout apply"; where a helper
+	# runs, the page must wait for it instead
+	request(9443)
+	assert port_apply.state(9443)["state"] == "manual"
+	assert run(["port-ready"])[0] == 0
+	assert port_apply.state(9443)["state"] == "waiting"
+	recorded = json.loads(port.status_path().read_text())
+	assert (recorded["state"], recorded["port"], recorded["id"]) == ("applied", 8443, "")
+	assert port.ready() is False                      # never over a real status
+	assert port.next_step({}, NOW).action == "try"    # the request still goes through

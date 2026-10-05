@@ -83,6 +83,16 @@ def write_status(id_: str, state: str, port: int, trying: int | None = None,
 	return status
 
 
+def ready() -> bool:
+	"""A helper is here (the Windows helper, Linux's systemd unit): the page
+	learns it before the first change - without a status it says to run
+	`netrollout apply` by hand. Only when there's none yet; True if written."""
+	if status_path().exists():
+		return False
+	write_status("", "applied", current_port())
+	return True
+
+
 def current_port() -> int:
 	"""The port Docker publishes now (.env's HTTPS_PORT)."""
 	try:

@@ -1,6 +1,6 @@
 """python -m src.setup init | check | prepare-start | status | restore-key |
-check-update | upgrade | release | port-next | port-open | port-trying |
-port-close - see src/setup/__init__.py."""
+check-update | upgrade | release | port-ready | port-next | port-open |
+port-trying | port-close - see src/setup/__init__.py."""
 import argparse
 import sys
 from pathlib import Path
@@ -20,7 +20,8 @@ def parse_args(argv):
 	p = argparse.ArgumentParser(prog="python -m src.setup")
 	p.add_argument("command", choices=("init", "check", "prepare-start", "status",
 	                                   "restore-key", "check-update", "upgrade", "release",
-	                                   "port-next", "port-open", "port-trying", "port-close"))
+	                                   "port-ready", "port-next", "port-open", "port-trying",
+	                                   "port-close"))
 	facts = p.add_argument_group("facts (from the host script)")
 	facts.add_argument("--os", choices=("windows", "linux"), default="linux")
 	facts.add_argument("--computer-name", default="")
@@ -182,7 +183,9 @@ def main(argv=None, read=input, write=print) -> int:
 def _port(args, facts, write) -> int:
 	"""port-next prints "<action> <port|-> <id|->" and, when there is one, a
 	second line saying why; the others do their step and print nothing."""
-	if args.command == "port-next":
+	if args.command == "port-ready":
+		port.ready()
+	elif args.command == "port-next":
 		step = port.next_step(facts.busy_ports)
 		write(f"{step.action} {step.port or '-'} {step.id or '-'}")
 		if step.message:
