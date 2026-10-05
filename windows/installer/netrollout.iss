@@ -86,6 +86,8 @@ Source: "{#Root}\deploy\alloy\config.alloy"; DestDir: "{app}\deploy\alloy"; Flag
 Source: "{#Root}\deploy\grafana\provisioning\datasources\netrollout.yml"; DestDir: "{app}\deploy\grafana\provisioning\datasources"; Flags: ignoreversion
 ; for the wizard, before anything is installed (the checks, the defaults)
 Source: "..\manage.ps1"; Flags: dontcopy
+; the licence page: the notice, then the full licence (the repo's one file)
+Source: "{#Root}\LICENSE"; Flags: dontcopy
 
 [Icons]
 Name: "{autoprograms}\NetRollout\NetRollout Manager"; Filename: "{app}\bin\NetRollout Manager.exe"; WorkingDir: "{app}"; Comment: "Start, stop and check NetRollout"
@@ -250,9 +252,25 @@ begin
 	if TimezoneBox.ItemIndex < 0 then TimezoneBox.ItemIndex := 0;
 end;
 
+{ The licence page: the notice (what people read: the AGPL in short, Docker
+  Desktop's terms), then the full licence below a line }
+procedure ShowFullLicence;
+var Lines: TArrayOfString; I: Integer;
+begin
+	ExtractTemporaryFile('LICENSE');
+	if not LoadStringsFromFile(ExpandConstant('{tmp}\LICENSE'), Lines) then exit;
+	{ added to the notice (LicenseFile, already on the page) line by line, so
+	  the lines keep the page's text colour (light / dark) }
+	WizardForm.LicenseMemo.Lines.Add(StringOfChar('_', 60));
+	WizardForm.LicenseMemo.Lines.Add('');
+	for I := 0 to GetArrayLength(Lines) - 1 do WizardForm.LicenseMemo.Lines.Add(Lines[I]);
+	WizardForm.LicenseMemo.SelStart := 0;
+end;
+
 procedure InitializeWizard;
 var Busy80: String;
 begin
+	ShowFullLicence;
 	DockerPage := CreateCustomPage(wpLicense, 'Docker Desktop', 'NetRollout runs in Docker containers.');
 	DockerState := MakeLabel(DockerPage, '', 0, True);
 	DockerHint := MakeLabel(DockerPage, '', 26, False);

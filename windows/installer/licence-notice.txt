@@ -12,4 +12,4 @@ organisations need a paid Docker subscription (https://www.docker.com/pricing/).
 Complying is your organisation's responsibility. Running Windows 10/11 in a
 virtual machine needs a Windows licence that covers it.
 
-The full licence: LICENSE, in the install folder.
+The full licence follows (also installed as LICENSE, in the install folder).

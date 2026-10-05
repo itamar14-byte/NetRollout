@@ -108,6 +108,15 @@ def test_the_netrollout_command_on_path_is_only_the_bat():
 	assert "App Paths\\netrollout.exe" in text
 
 
+def test_the_licence_page_shows_the_full_licence_from_the_one_file():
+	# the notice on top, then the repo's LICENSE (packed for the page, not a copy)
+	import re
+	text = (ROOT / "windows" / "installer" / "netrollout.iss").read_text(encoding="utf-8")
+	assert re.search(r'^Source: "\{#Root\}\\LICENSE"; Flags: dontcopy$', text, re.M)
+	assert re.search(r"^\tShowFullLicence;$", text, re.M)
+	assert "ExtractTemporaryFile('LICENSE')" in text
+
+
 def test_the_installer_ends_honestly():
 	# success: the portal opens on Finish (ticked); failure: Retry unless the
 	# script says retrying can't help (exit 3: the release's image is missing)
