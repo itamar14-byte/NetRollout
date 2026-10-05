@@ -36,7 +36,18 @@ alternative). Knows networking, not necessarily Docker — and never has to type
    edits; the app hands nginx and the port helper one file.
 8. **Bring your own database / Redis** is supported as a *move*, with the data
    — not as a live switch (below).
-9. Backups include `.env` (with a clear warning; the `backups\` folder
+9. **The version lives in one file** (2026-10-05): `VERSION` at the repo root
+   is the source — `src/runtime.py` reads it (copied into the image, bundled
+   into the `.exe`, the repo root in dev), so the footer, the health endpoint
+   and the source link follow it; the Dockerfile's `sed` stamping goes; the
+   release job checks the tag equals `VERSION` and refuses a mismatch. The same
+   file ships in the zip. Releasing: set `VERSION` to `1.0.0`, commit, tag
+   `v1.0.0`; then `1.0.1.dev0`.
+10. **No `.env.example`**, shipped or in the repo: the `.env` the setup core
+   writes explains every line itself, and its template is the only
+   description of the file. Developers get theirs the same way:
+   `python -m src.setup init --dev` (adds the dev compose files).
+11. Backups include `.env` (with a clear warning; the `backups\` folder
    restricted to admins); restore accepts the same or an older version; Postgres
    password rotation is documented (a command post-v1); Linux: the script checks
    for Docker Engine and explains, never installs it; Ubuntu is the tested
@@ -181,8 +192,8 @@ behind. It runs from **Server Management**, in the background, in the app
 
 | # | Subtask |
 |---|---|
-| 9.1 | Thinner settings: A–F + the merge (compose, `site.env` seed, the image gets Grafana's setup + dashboards; port-helper contract updated) |
-| 9.2 | The setup core (`src/setup/`): `init` / `check` (questions, validation, secrets, `.env`, `site.env`, folders), the status report, the contract with the scripts (arguments, exit codes, messages) |
+| 9.1 | Thinner settings: A–F + the merge (compose, `site.env` seed, the image gets Grafana's setup + dashboards; port-helper contract updated); the `VERSION` file as the one version source |
+| 9.2 | The setup core (`src/setup/`): `init` / `check` (questions, validation, secrets, `.env`, `site.env`, folders; `init --dev` for developers — `.env.example` removed), the status report, the contract with the scripts (arguments, exit codes, messages) |
 | 9.3 | Windows: `netrollout.ps1` + the two launchers — install, start, stop, status, open, logs |
 | 9.4 | Linux: `netrollout.sh` + `install.sh` — the same |
 | 9.5 | `backup` / `restore` |
