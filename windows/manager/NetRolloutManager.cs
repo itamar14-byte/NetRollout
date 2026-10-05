@@ -10,6 +10,8 @@
 //
 //   NetRollout Manager.exe              the window (and the tray icon)
 //   NetRollout Manager.exe --tray       only the tray icon (start at sign-in)
+//   NetRollout Manager.exe --exit       closes this install's running Manager
+//                                       (the uninstaller, before removing it)
 //   NetRollout Manager.exe --snapshot <file.png>   the window as an image
 //                                                  (README screenshots)
 
@@ -40,10 +42,11 @@ namespace NetRollout
 		static int Main(string[] args)
 		{
 			string snapshot = null;
-			bool tray = false;
+			bool tray = false, exitRunning = false;
 			for (int i = 0; i < args.Length; i++)
 			{
 				if (args[i] == "--tray") tray = true;
+				if (args[i] == "--exit") exitRunning = true;
 				if (args[i] == "--snapshot" && i + 1 < args.Length) snapshot = args[++i];
 			}
 			Application.EnableVisualStyles();
@@ -60,8 +63,10 @@ namespace NetRollout
 			bool first;
 			// one Manager per install folder (a second install - a test - has its own)
 			string name = "NetRolloutManager-" + Install.Id;
+			if (exitRunning) return ExitRunning(name);
 			using (var mutex = new Mutex(true, name, out first))
 			using (var showSignal = new EventWaitHandle(false, EventResetMode.AutoReset, name + ".Show"))
+			using (var exitSignal = new EventWaitHandle(false, EventResetMode.AutoReset, name + ".Exit"))
 			{
 				if (!first)
 				{
@@ -75,9 +80,28 @@ namespace NetRollout
 					return 0;
 				}
 				var form = new ManagerForm(tray);
-				form.ShowWhenSignalled(showSignal);
+				form.ShowWhenSignalled(showSignal, exitSignal);
 				Application.Run(form);
 			}
+			return 0;
+		}
+
+		// --exit: the running Manager (if any) closes itself - its tray icon goes
+		// properly; waits until it's gone, at most 10 s
+		static int ExitRunning(string name)
+		{
+			EventWaitHandle exit;
+			if (!EventWaitHandle.TryOpenExisting(name + ".Exit", out exit)) return 0;
+			using (exit) exit.Set();
+			try
+			{
+				using (var running = Mutex.OpenExisting(name))
+				{
+					try { if (running.WaitOne(10000)) running.ReleaseMutex(); }
+					catch (AbandonedMutexException) { }
+				}
+			}
+			catch (WaitHandleCannotBeOpenedException) { }
 			return 0;
 		}
 
@@ -426,15 +450,21 @@ namespace NetRollout
 			Activate();
 		}
 
-		// another launch of the Manager asks this one to show its window
-		public void ShowWhenSignalled(EventWaitHandle signal)
+		// another launch of the Manager asks this one to show its window, or
+		// (--exit, the uninstaller) to close
+		public void ShowWhenSignalled(EventWaitHandle show, EventWaitHandle exit)
 		{
 			var listener = new Thread(delegate ()
 			{
 				while (true)
 				{
-					signal.WaitOne();
-					try { if (IsHandleCreated) BeginInvoke((MethodInvoker)ShowWindow); }
+					int which = WaitHandle.WaitAny(new WaitHandle[] { show, exit });
+					try
+					{
+						if (!IsHandleCreated) continue;
+						if (which == 0) BeginInvoke((MethodInvoker)ShowWindow);
+						else { BeginInvoke((MethodInvoker)delegate { exiting = true; Close(); }); return; }
+					}
 					catch (InvalidOperationException) { return; }   // closing
 				}
 			});

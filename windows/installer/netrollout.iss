@@ -128,6 +128,8 @@ Type: dirifempty; Name: "{app}\bin"
 Type: dirifempty; Name: "{app}"
 
 [Run]
+; the tray now, not only from the next sign-in (also after an update closed it)
+Filename: "{app}\bin\NetRollout Manager.exe"; Parameters: "--tray"; WorkingDir: "{app}"; Flags: nowait; Tasks: trayatsignin; Check: SetUpOk
 Filename: "{code:Address}"; Description: "Open NetRollout in the browser"; Flags: postinstall shellexec nowait skipifsilent; Check: SetUpOk
 Filename: "{app}\bin\NetRollout Manager.exe"; Description: "Open NetRollout Manager"; Flags: postinstall nowait skipifsilent unchecked; Check: SetUpOk
 ; set up but not started: the Manager's Start is the next step, so it's ticked
@@ -688,6 +690,9 @@ var Code: Integer; Data: String;
 begin
 	if CurUninstallStep = usPostUninstall then SetOurPath(False);
 	if CurUninstallStep <> usUninstall then exit;
+	{ this install's Manager (the tray) closes first: its files can go }
+	Exec(ExpandConstant('{app}\bin\NetRollout Manager.exe'), '--exit', '', SW_HIDE,
+		ewWaitUntilTerminated, Code);
 	{ a silent uninstall keeps everything }
 	Data := '-KeepData';
 	if not UninstallSilent and (MsgBox('Also delete NetRollout''s data - the database, settings, ' +

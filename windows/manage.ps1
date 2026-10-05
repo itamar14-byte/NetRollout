@@ -308,7 +308,8 @@ function Start-NetRollout {
 	Step "Checking the ports"
 	$busy = Get-BusyPorts (Get-OurPorts)
 	Invoke-Setup (@("prepare-start", "--busy-ports", $busy) + (Get-Facts)) | Out-Null
-	Step "Starting NetRollout (the first time takes a few minutes: the images are downloaded)"
+	if ((Invoke-Native "docker" @("image", "inspect", $AppImage)).Code -eq 0) { Step "Starting NetRollout" }
+	else { Step "Starting NetRollout (the first time takes a few minutes: the images are downloaded)" }
 	$r = Compose @("up", "-d", "--wait", "--wait-timeout", "600")
 	if ($r.Code -ne 0) {
 		Write-Host $r.Output

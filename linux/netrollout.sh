@@ -199,7 +199,8 @@ do_start() {
 	step "Checking the ports"
 	facts
 	setup_core prepare-start --busy-ports "$(busy_ports)" "${FACTS[@]}" | sed 's/^/   /'
-	step "Starting NetRollout (the first time takes a few minutes: the images are downloaded)"
+	if docker image inspect "$APP_IMAGE" >/dev/null 2>&1; then step "Starting NetRollout"
+	else step "Starting NetRollout (the first time takes a few minutes: the images are downloaded)"; fi
 	local out
 	if ! out="$(compose up -d --wait --wait-timeout 600 2>&1)"; then
 		printf '%s\n' "$out"
