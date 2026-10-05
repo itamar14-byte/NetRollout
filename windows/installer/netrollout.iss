@@ -36,9 +36,13 @@ PrivilegesRequired=lowest
 MinVersion=10.0
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
-WizardStyle=modern
+; windows11: Inno draws the controls itself (the native check boxes are clipped at 200% DPI); dynamic: follows Windows' light / dark mode
+WizardStyle=modern dynamic windows11 includetitlebar
 WizardImageFile=wizard.bmp,wizard-200.bmp
-WizardSmallImageFile=wizard-small.bmp,wizard-small-200.bmp
+WizardSmallImageFile=wizard-small.png,wizard-small-200.png
+; dark mode uses its own images: the same ones (they are dark already)
+WizardImageFileDynamicDark=wizard.bmp,wizard-200.bmp
+WizardSmallImageFileDynamicDark=wizard-small.png,wizard-small-200.png
 SetupIconFile=..\netrollout.ico
 UninstallDisplayIcon={app}\bin\netrollout.ico
 UninstallDisplayName=NetRollout

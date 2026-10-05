@@ -58,17 +58,30 @@ namespace NetRollout
 			}
 			bool first;
 			using (var mutex = new Mutex(true, "NetRolloutManager", out first))
+			using (var showSignal = new EventWaitHandle(false, EventResetMode.AutoReset, "NetRolloutManager.Show"))
 			{
 				if (!first)
 				{
-					MessageBox.Show("NetRollout Manager is already open (see the tray, next to the clock).",
-						"NetRollout Manager", MessageBoxButtons.OK, MessageBoxIcon.Information);
+					// one Manager: opening it again (Start Menu, Win+R, desktop)
+					// brings the running one's window forward; --tray adds nothing
+					if (!tray)
+					{
+						AllowSetForegroundWindow(ASFW_ANY);
+						showSignal.Set();
+					}
 					return 0;
 				}
-				Application.Run(new ManagerForm(tray));
+				var form = new ManagerForm(tray);
+				form.ShowWhenSignalled(showSignal);
+				Application.Run(form);
 			}
 			return 0;
 		}
+
+		// the running Manager may take the foreground when this one hands it over
+		const int ASFW_ANY = -1;
+		[System.Runtime.InteropServices.DllImport("user32.dll")]
+		static extern bool AllowSetForegroundWindow(int processId);
 	}
 
 	// The install folder: this program sits in its bin\ folder
@@ -288,7 +301,10 @@ namespace NetRollout
 			menu.Items.Add(new ToolStripSeparator());
 			menu.Items.Add("Exit", null, delegate { exiting = true; Close(); });
 			trayIcon.ContextMenuStrip = menu;
-			trayIcon.DoubleClick += delegate { ShowWindow(); };
+			trayIcon.MouseClick += delegate (object s, MouseEventArgs e)
+			{
+				if (e.Button == MouseButtons.Left) ShowWindow();
+			};
 			trayIcon.Visible = true;
 
 			timer.Interval = 15000;
@@ -324,6 +340,22 @@ namespace NetRollout
 			Show();
 			if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
 			Activate();
+		}
+
+		// another launch of the Manager asks this one to show its window
+		public void ShowWhenSignalled(EventWaitHandle signal)
+		{
+			var listener = new Thread(delegate ()
+			{
+				while (true)
+				{
+					signal.WaitOne();
+					try { if (IsHandleCreated) BeginInvoke((MethodInvoker)ShowWindow); }
+					catch (InvalidOperationException) { return; }   // closing
+				}
+			});
+			listener.IsBackground = true;
+			listener.Start();
 		}
 
 		protected override void OnFormClosing(FormClosingEventArgs e)
