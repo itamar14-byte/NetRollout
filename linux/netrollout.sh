@@ -285,13 +285,14 @@ do_backup() {
 }
 
 # Grafana's admin password back to this installation's (.env): the restored
-# Grafana database has the backup's, and grafana-setup signs in with ours
+# Grafana database has the backup's, and grafana-setup signs in with ours.
+# Grafana must run, grafana-setup not yet (it would sign in with the wrong one).
 reset_grafana_admin() {
 	local pw
 	pw="$(sed -n 's/^GRAFANA_ADMIN_PASSWORD=//p' "$ENV_FILE" | tail -1)"
 	if printf '%s' "$pw" | compose exec -T grafana grafana cli --homepath /usr/share/grafana \
 			admin reset-admin-password --password-from-stdin >/dev/null 2>&1; then
-		compose restart grafana-setup >/dev/null 2>&1 || true
+		return 0
 	else
 		warn "Grafana's admin password couldn't be reset - Grafana's dashboards may not update until it is (netrollout.sh logs grafana-setup)."
 	fi
@@ -355,8 +356,12 @@ do_restore() {
 	out="$(setup_core restore-key 2>&1)" ||
 		{ show "$out"; fail "Restored, but the backup's encryption key couldn't be put into .env - NetRollout isn't started (it couldn't decrypt the saved credentials). See above."; }
 	show "$out"
+	if monitoring_on; then
+		# Grafana alone first (not grafana-setup), its password reset, then the rest
+		if out="$(compose up -d --wait grafana 2>&1)"; then reset_grafana_admin
+		else show "$out"; warn "Grafana didn't start - its admin password wasn't reset (netrollout.sh logs grafana)."; fi
+	fi
 	do_start
-	if monitoring_on; then reset_grafana_admin; fi
 	good "Restored $shown. Everyone signs in again."
 }
 

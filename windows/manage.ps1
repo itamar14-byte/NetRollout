@@ -446,7 +446,8 @@ function Invoke-Backup {
 function Test-Monitoring { return (Read-EnvValue "COMPOSE_PROFILES") -match "monitoring" }
 
 # Grafana's admin password back to this installation's (.env): the restored
-# Grafana database has the backup's, and grafana-setup signs in with ours
+# Grafana database has the backup's, and grafana-setup signs in with ours.
+# Grafana must run, grafana-setup not yet (it would sign in with the wrong one).
 function Reset-GrafanaAdmin {
 	# Not piped from PowerShell: 5.1 adds a byte-order mark and CR LF, and
 	# Grafana takes them as part of the password. Passed through the
@@ -461,9 +462,7 @@ function Reset-GrafanaAdmin {
 	if ($r.Code -ne 0) {
 		Show-Output $r.Output
 		Warn "Grafana's admin password couldn't be reset - Grafana's dashboards may not update until it is (netrollout logs grafana-setup)."
-		return
 	}
-	Compose @("restart", "grafana-setup") | Out-Null
 }
 
 function Invoke-Restore {
@@ -530,8 +529,13 @@ function Invoke-Restore {
 			Fail ("Restored, but the backup's encryption key couldn't be put into .env - NetRollout " +
 			      "isn't started (it couldn't decrypt the saved credentials). See above.")
 		}
+		if ($monitoring) {
+			# Grafana alone first (not grafana-setup), its password reset, then the rest
+			$r = Compose @("up", "-d", "--wait", "grafana")
+			if ($r.Code -eq 0) { Reset-GrafanaAdmin }
+			else { Show-Output $r.Output; Warn "Grafana didn't start - its admin password wasn't reset (netrollout logs grafana)." }
+		}
 		Start-NetRollout
-		if ($monitoring) { Reset-GrafanaAdmin }
 		Good "Restored $shown. Everyone signs in again."
 	} finally {
 		if ($staged) { Remove-Item -Force -ErrorAction SilentlyContinue $staged }
