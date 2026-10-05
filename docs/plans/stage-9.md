@@ -131,7 +131,10 @@ database / Redis after a move lives in `config/runtime.env`, not here.)
 - **F** — Grafana's setup script and dashboards are baked into the app image.
 - **The merge** — the port request (`desired.env`) and its confirmation
   (`apply-confirm`) move into `config/nginx/site.env`: one file the app writes
-  for both nginx (reads only its two keys) and the port helper. The status
+  for both nginx (reads only its two keys) and the port helper — keys
+  `NETROLLOUT_PORT_REQUEST`, `_REQUEST_ID`, `_REQUESTED_AT`, `_CONFIRMED`,
+  written only by `src/site_env.py` (no web dependencies: the setup core uses
+  it too). The status
   files stay one per writer (nginx's `status.json`, the helper's
   `apply-status.json`).
 

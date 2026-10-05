@@ -20,6 +20,7 @@ WEB_STACK = [
 a = Analysis(
 	["src/cli.py"],
 	pathex=["."],                 # "src" is imported as a package
+	datas=[("VERSION", ".")],     # the version (src/runtime.py reads it)
 	excludes=WEB_STACK,
 	noarchive=False,
 )

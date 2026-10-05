@@ -8,10 +8,22 @@ import os
 import sys
 from pathlib import Path
 
-# The release build sets this from the vX.Y.Z tag (the Dockerfile's VERSION
-# build arg rewrites this line — keep it one line, double quotes); between
-# releases it names the next one
-VERSION = "1.0.0.dev0"
+FALLBACK_VERSION = "0.0.0.dev0"
+
+
+def _read_version() -> str:
+	"""The VERSION file at the repo root — the one source of the version: the
+	image copies it next to src/, the CLI .exe bundles it (sys._MEIPASS).
+	Between releases it names the next one (1.0.1.dev0)."""
+	base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent))
+	try:
+		text = (base / "VERSION").read_text(encoding="utf-8").strip()
+	except OSError:
+		return FALLBACK_VERSION
+	return text.removeprefix("v") or FALLBACK_VERSION
+
+
+VERSION = _read_version()
 SOURCE_REPO = "https://github.com/itamar14-byte/NetRollout"
 
 

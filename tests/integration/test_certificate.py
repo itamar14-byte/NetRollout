@@ -201,3 +201,14 @@ def test_the_page_shows_the_certificate_card(admin, client_for, proxy):
 	certs.selfsigned("nr01.corp.local", [], runtime.certs_dir())
 	page = client_for(admin).get("/admin/server").data
 	assert b'id="certStatus"' in page and b"nr01.corp.local" in page
+
+
+def test_generate_covers_the_servers_ips(admin, app, client_for, proxy, hostname,
+                                         monkeypatch):
+	# an organisation's certificate usually has no IP SANs: the server's
+	# addresses (recorded by the installer) still end up in the new one
+	upload(client_for(admin), *org_pair())
+	monkeypatch.setenv(pc.SERVER_IPS_ENV, "10.9.9.9")
+	assert client_for(admin).post("/admin/server/certificate/selfsigned").status_code == 200
+	_, ips = certs.names_in((runtime.certs_dir() / certs.CERT_FILE).read_bytes())
+	assert [str(i) for i in ips] == ["10.9.9.9"]

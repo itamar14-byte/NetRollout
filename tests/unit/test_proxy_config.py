@@ -122,3 +122,28 @@ def test_waiting_for_a_hostname_ignores_other_reloads(home):
 	assert pc.wait_for_status(now.timestamp(), timeout=0.6, hostname="new.lab")["state"] == "rejected"
 	status("applied", "hostname=(none) https_port=443 app=app:8080")   # cleared
 	assert pc.wait_for_status(now.timestamp(), timeout=0.6, hostname="")["state"] == "applied"
+
+
+# ── Stage 9.1: the installer's hostname, the server's IPs ──
+
+def test_the_installers_hostname_seeds_the_setting(home, monkeypatch):
+	env_name = pc.HOSTNAME_SEED_ENV
+	# setenv (not delenv): monkeypatch then removes what the code sets
+	monkeypatch.setenv(env_name, "")
+	pc.seed_hostname_from_site()                  # no site.env: nothing
+	assert os.environ[env_name] == ""
+	pc.write_site("nr01.corp.local")              # as the installer will
+	pc.seed_hostname_from_site()
+	assert os.environ[env_name] == "nr01.corp.local"
+	monkeypatch.setenv(env_name, "explicit.lab")  # a non-Docker run names one
+	pc.seed_hostname_from_site()
+	assert os.environ[env_name] == "explicit.lab"
+
+
+@pytest.mark.parametrize("value, expected", [
+	("", []), ("10.1.1.5", ["10.1.1.5"]),
+	("10.1.1.5, 192.168.1.2 fe80::1", ["10.1.1.5", "192.168.1.2", "fe80::1"]),
+	("10.1.1.5,not-an-ip,10.1.1.5", ["10.1.1.5"])])
+def test_server_ips(monkeypatch, value, expected):
+	monkeypatch.setenv(pc.SERVER_IPS_ENV, value)
+	assert pc.server_ips() == expected

@@ -37,7 +37,8 @@ The **CLI** (`src/cli.py`) uses the same `RolloutEngine` directly, from a device
 | `SECRET_KEY` | Flask session key. Required in a container (startup refuses without it); in development a missing key becomes a random per-run key with a warning |
 | `PORT` | Internal app port Waitress listens on (default 8080). nginx forwards to it |
 | `NETROLLOUT_ENCRYPTION_KEY` | Fernet key; else `~/.netrollout/encryption.key` (see below) |
-| `ORCHESTRATOR_WORKERS`, `NETROLLOUT_PUBLIC_HOSTNAME`, `NETROLLOUT_HTTPS_PORT` | **Install-time seeds only** for the matching System Settings (§6). They are read when the setting's row doesn't exist yet and ignored after that |
+| `ORCHESTRATOR_WORKERS`, `NETROLLOUT_PUBLIC_HOSTNAME`, `NETROLLOUT_HTTPS_PORT` | **Install-time seeds only** for the matching System Settings (§6), read when the setting's row doesn't exist yet. In Docker installs compose passes only `NETROLLOUT_HTTPS_PORT` (the published port); the hostname comes from `config/nginx/site.env`, written by the installer (stage 9.1) |
+| `NETROLLOUT_SERVER_IPS` | The server's addresses (installer), included in every generated self-signed certificate |
 | `NETROLLOUT_OPEN_BROWSER` | `0` disables opening the browser on a desktop launch |
 | `NETROLLOUT_DEPLOYMENT` | `docker` (set by the image) turns on container behaviour (`src/runtime.py`): secrets required, Restart via the restart policy, no startup proxy probe |
 | `NETROLLOUT_DRAIN_SECONDS` | How long a stop / Restart waits for running rollouts before cancelling them (default 600; compose's `stop_grace_period` must be longer) |
@@ -597,7 +598,7 @@ Optional sidecar services. The Flask app runs independently and is unaffected wh
 
 **Access:** Grafana is served by nginx at `/grafana/` to signed-in NetRollout **admins only**: for every request nginx asks the app (`auth_request` → `/_netrollout/grafana-auth`: 204 + the username / 401 / 403) and passes the username in `X-WEBAUTH-USER`, which Grafana trusts (proxy auth; the browser's own header is replaced). Admins are Grafana Editors; there is no Grafana login form. Not operators: free Grafana lets anyone signed in query every datasource through its API (per-datasource permissions are Enterprise), which would bypass NetRollout's own-jobs-only rule — a separate organization for operators is a post-v1 item.
 
-**Layout** (kept by the `grafana-setup` service, `deploy/grafana/setup.py`, re-applied every 5 min):
+**Layout** (kept by the `grafana-setup` service, `deploy/grafana/setup.py` — baked into the app image with the dashboards — re-applied every 5 min):
 
 ```
 NetRollout          the shipped dashboards — view-only, re-imported on every update

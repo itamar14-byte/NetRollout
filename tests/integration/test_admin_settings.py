@@ -347,33 +347,46 @@ def test_the_audit_says_what_nginx_did(admin, app, client_for, proxy,
 
 import time as _time
 
+from src import site_env as _site
 from src.webapp import port_apply as _pa
 
 
 @pytest.fixture
 def port_files(app):
-	"""The contract files in config/ — what was there comes back; the
-	setting back to 443 afterwards. `helper(...)` writes the helper's
-	status the way the contract says."""
-	folder = _runtime.config_dir()
-	names = (_pa.DESIRED_FILE, _pa.STATUS_FILE, _pa.CONFIRM_FILE)
-	found = {n: (folder / n).read_bytes() for n in names if (folder / n).is_file()}
-	for n in names:
-		(folder / n).unlink(missing_ok=True)
+	"""The contract files — site.env (the request, the confirmation) and the
+	helper's status — what was there comes back; the setting back to 443
+	afterwards. `helper(...)` writes the helper's status the way the contract
+	says."""
+	status_file = _runtime.config_dir() / _pa.STATUS_FILE
+	files = [status_file, _site.path()]
+	found = {f: f.read_bytes() for f in files if f.is_file()}
+	for f in files:
+		f.unlink(missing_ok=True)
 
 	class Files:
-		desired = folder / _pa.DESIRED_FILE
-		confirm = folder / _pa.CONFIRM_FILE
+		@staticmethod
+		def requested():
+			return _site.read().get(_site.PORT_REQUEST)
+
+		@staticmethod
+		def confirmed():
+			return _site.read().get(_site.PORT_CONFIRMED)
+
+		@staticmethod
+		def request_keys():
+			return {k: v for k, v in _site.read().items()
+			        if k.startswith("NETROLLOUT_PORT_")}
 
 		@staticmethod
 		def helper(**status):
-			(folder / _pa.STATUS_FILE).write_text(_json.dumps(status))
+			status_file.write_text(_json.dumps(status))
 	yield Files
 	app.backend.settings.update({"https_port": 443}, None)
-	for n in names:
-		(folder / n).unlink(missing_ok=True)
-	for n, data in found.items():
-		(folder / n).write_bytes(data)
+	for f in files:
+		f.unlink(missing_ok=True)
+	for f, data in found.items():
+		f.parent.mkdir(parents=True, exist_ok=True)
+		f.write_bytes(data)
 
 
 def test_a_new_port_is_requested_and_saved(admin, app, client_for, port_files,
@@ -381,7 +394,7 @@ def test_a_new_port_is_requested_and_saved(admin, app, client_for, port_files,
 	resp = save(client_for(admin), https_port=8443)
 	assert resp.status_code == 200
 	assert app.backend.settings.get("https_port") == 8443
-	assert "NETROLLOUT_HTTPS_PORT=8443\n" in port_files.desired.read_text()
+	assert port_files.requested() == "8443"
 	# no helper here: the page says to run `netrollout apply`
 	assert resp.json["port"] == {"saved": 8443, "serving": 443, "state": "manual"}
 	(detail,) = [d for label, d in audit(session_scope, "settings.update")
@@ -391,7 +404,7 @@ def test_a_new_port_is_requested_and_saved(admin, app, client_for, port_files,
 
 def test_an_invalid_port_requests_nothing(admin, app, client_for, port_files):
 	resp = save(client_for(admin), https_port=70000)
-	assert resp.status_code == 422 and not port_files.desired.exists()
+	assert resp.status_code == 422 and port_files.requested() is None
 
 
 def test_a_request_that_cannot_be_written_saves_nothing(
@@ -399,9 +412,13 @@ def test_a_request_that_cannot_be_written_saves_nothing(
 	_certs.selfsigned("old.lab", ["10.0.0.5"], _runtime.certs_dir())
 	before = proxy.files()
 
-	def no_permission(name, content):
-		raise PermissionError(13, "Permission denied", name)
-	monkeypatch.setattr(_pa, "_write", no_permission)
+	real_update = _site.update
+
+	def no_permission(values):                  # only the port request fails
+		if _site.PORT_REQUEST in values:
+			raise PermissionError(13, "Permission denied", str(_site.path()))
+		return real_update(values)
+	monkeypatch.setattr(_site, "update", no_permission)
 	# a hostname in the same save: its certificate and site.env come back too
 	resp = save(client_for(admin), https_port=8443, public_hostname="new.lab")
 	assert resp.status_code == 422
@@ -414,7 +431,7 @@ def test_a_request_that_cannot_be_written_saves_nothing(
 def test_a_save_that_fails_late_takes_the_request_back(
 		admin, app, client_for, port_files, monkeypatch):
 	_pa.request_port(9443)
-	before = port_files.desired.read_bytes()
+	before = port_files.request_keys()
 	from src.db.settings import SettingsError
 
 	def changed_meanwhile(values, user_id):
@@ -423,7 +440,7 @@ def test_a_save_that_fails_late_takes_the_request_back(
 	monkeypatch.setattr(app.backend.settings, "update", changed_meanwhile)
 	assert save(client_for(admin), https_port=8443).status_code == 422
 	monkeypatch.setattr(app.backend.settings, "update", real)   # port_files cleans up with it
-	assert port_files.desired.read_bytes() == before
+	assert port_files.request_keys() == before
 
 
 def test_resetting_the_port_is_requested_too(admin, app, client_for, port_files):
@@ -431,7 +448,7 @@ def test_resetting_the_port_is_requested_too(admin, app, client_for, port_files)
 	save(client, https_port=8443)
 	resp = client.post("/admin/settings/https_port/reset")
 	assert resp.status_code == 200 and app.backend.settings.get("https_port") == 443
-	assert "NETROLLOUT_HTTPS_PORT=443\n" in port_files.desired.read_text()
+	assert port_files.requested() == "443"
 
 
 def test_the_page_follows_a_trial(admin, app, client_for, port_files):
@@ -453,11 +470,11 @@ def test_confirming_from_the_new_port(admin, app, client_for, port_files, proxy)
 	# through the old port: refused
 	old = client.post("/admin/settings/port/confirm", json={"id": rid},
 	                  base_url="https://localhost")
-	assert old.status_code == 409 and not port_files.confirm.exists()
+	assert old.status_code == 409 and port_files.confirmed() is None
 	new = client.post("/admin/settings/port/confirm", json={"id": rid},
 	                  base_url="https://localhost:8443")
 	assert new.status_code == 200 and new.json["port"]["state"] == "confirming"
-	assert port_files.confirm.read_text() == rid + "\n"
+	assert port_files.confirmed() == rid
 	# redirects follow the confirmed port at once
 	assert "NETROLLOUT_HTTPS_PORT=8443\n" in proxy.site.read_text()
 
@@ -466,7 +483,7 @@ def test_only_admins_confirm(make_user, client_for, port_files):
 	client = client_for(make_user(role="operator"))
 	resp = client.post("/admin/settings/port/confirm", json={"id": "x"},
 	                   base_url="https://localhost:8443")
-	assert resp.status_code in (302, 403) and not port_files.confirm.exists()
+	assert resp.status_code in (302, 403) and port_files.confirmed() is None
 
 
 def test_try_again_is_a_new_request(admin, app, client_for, port_files):

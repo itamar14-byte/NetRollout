@@ -20,7 +20,7 @@ services:
 
   postgres:
     <<: *restart
-    image: itamarweinstein/netrollout-postgres:${NETROLLOUT_VERSION:?NETROLLOUT_VERSION is not set in .env}
+    image: itamarweinstein/netrollout-postgres:${NETROLLOUT_VERSION:?NETROLLOUT_VERSION is not set - start NetRollout with the netrollout script}
     environment:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       NETROLLOUT_DB_PASSWORD: ${NETROLLOUT_DB_PASSWORD}
@@ -60,10 +60,10 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       SECRET_KEY: ${SECRET_KEY}
       NETROLLOUT_ENCRYPTION_KEY: ${NETROLLOUT_ENCRYPTION_KEY}
-      # Seed System Settings at the first start only (then System Settings rule)
-      NETROLLOUT_PUBLIC_HOSTNAME: ${NETROLLOUT_HOSTNAME:-}
+      # The published port (also seeds the System Settings port, first start)
       NETROLLOUT_HTTPS_PORT: ${HTTPS_PORT:-443}
-      ORCHESTRATOR_WORKERS: ${ORCHESTRATOR_WORKERS:-4}
+      # This server's addresses, for a generated self-signed certificate
+      NETROLLOUT_SERVER_IPS: ${NETROLLOUT_SERVER_IPS:-}
       TZ: ${TZ:-UTC}
       NETROLLOUT_MONITORING: ${COMPOSE_PROFILES:-}   # "monitoring" -> the Grafana link
       NETROLLOUT_THREADS: ${NETROLLOUT_THREADS:-32}   # web server threads (live logs hold one each)
@@ -85,9 +85,7 @@ services:
   nginx:
     <<: *restart
     image: itamarweinstein/netrollout-nginx:${NETROLLOUT_VERSION}
-    environment:
-      NETROLLOUT_HOSTNAME: ${NETROLLOUT_HOSTNAME:-}
-      NETROLLOUT_HTTPS_PORT: ${HTTPS_PORT:-443}
+    # The hostname and the port in use come from the app (site.env)
     ports:
       - "${HTTPS_PORT:-443}:443"
     volumes:
@@ -184,19 +182,17 @@ services:
         condition: service_started
 
   # The NetRollout folders (read-only) + Custom (the admins'), the shipped
-  # dashboards imported, then re-applied every 5 min (deploy/grafana/setup.py).
-  # Stays running: `up --wait` counts an exited container as a failure.
-  # Runs on the app image - it only needs Python.
+  # dashboards imported, then re-applied every 5 min. Stays running: `up
+  # --wait` counts an exited container as a failure. Runs on the app image,
+  # which carries the script and the dashboards (deploy/grafana/).
   grafana-setup:
     <<: *restart
     profiles: [monitoring]
     image: itamarweinstein/netrollout:${NETROLLOUT_VERSION}
-    command: ["python", "/setup/setup.py"]
+    command: ["python", "/app/grafana/setup.py"]
     environment:
       GRAFANA_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
-    volumes:
-      - ./deploy/grafana/setup.py:/setup/setup.py:ro
-      - ./deploy/grafana/dashboards:/dashboards:ro
+      DASHBOARDS_DIR: /app/grafana/dashboards
     healthcheck:
       test: ["CMD", "test", "-f", "/tmp/grafana-setup.done"]
       interval: 5s

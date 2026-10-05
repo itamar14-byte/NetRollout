@@ -1,30 +1,29 @@
-"""The app's side of the port helper contract (docs/plans/phase-4.md, stage 9).
+"""The app's side of the port helper contract (docs/plans/stage-9.md).
 
 The HTTPS port is published by Docker, so a new one needs nginx recreated —
 done on the host by the port helper, never by the app (no Docker access
-here). The app only writes requests and reads the helper's answers, all as
-files in config/:
+here). The app only writes requests and reads the helper's answers:
 
-- desired.env        app → helper: the port wanted, with a request id
-- apply-status.json  helper → app: trying / applied / rolled_back / failed
-- apply-confirm      app → helper: the id, once an admin's browser reached
-                     NetRollout through the new port
+- site.env (src/site_env.py)  app → helper: the port wanted, a request id and
+                              its time; the id again once an admin's browser
+                              reached NetRollout through the new port
+- config/apply-status.json    helper → app: trying / applied / rolled_back /
+                              failed
 
 The System Settings value is the *desired* port; anything that shows or
 redirects to an address uses serving_port()."""
 import json
 import os
 import secrets
-import tempfile
 import time
 from pathlib import Path
 
-from src import runtime
+from src import runtime, site_env
 from src.db.settings import SETTINGS
 
-DESIRED_FILE = "desired.env"
 STATUS_FILE = "apply-status.json"
-CONFIRM_FILE = "apply-confirm"
+_REQUEST_KEYS = (site_env.PORT_REQUEST, site_env.PORT_REQUEST_ID,
+                 site_env.PORT_REQUESTED_AT, site_env.PORT_CONFIRMED)
 # compose passes .env's HTTPS_PORT (what Docker published when this
 # container was created) under this name
 PUBLISHED_PORT_ENV = "NETROLLOUT_HTTPS_PORT"
@@ -43,25 +42,6 @@ def _port(value) -> int | None:
 		return None
 
 
-def _write(name: str, content: str) -> None:
-	"""Atomically: the helper sees the old file or the new one."""
-	folder = runtime.config_dir()
-	folder.mkdir(parents=True, exist_ok=True)
-	fd, tmp = tempfile.mkstemp(dir=folder, prefix=f".{name}.")
-	try:
-		with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
-			f.write(content)
-		os.chmod(tmp, 0o644)
-		os.replace(tmp, folder / name)
-	except OSError as e:
-		Path(tmp).unlink(missing_ok=True)
-		# name the file people know, not the temp file
-		raise OSError(e.errno, e.strerror, str(folder / name)) from e
-	except BaseException:
-		Path(tmp).unlink(missing_ok=True)
-		raise
-
-
 def read_status() -> dict | None:
 	"""The helper's last answer; None when no helper reports here (dev,
 	before stage 9, your own reverse proxy). Unreadable → state "unknown"."""
@@ -75,21 +55,25 @@ def read_status() -> dict | None:
 
 
 def read_request() -> dict | None:
-	"""desired.env as {"port", "id", "time"}; None when there is none."""
-	path = _path(DESIRED_FILE)
+	"""The pending request as {"port", "id", "time"}; None when there is
+	none."""
 	try:
-		lines = path.read_text(encoding="utf-8").splitlines()
-		written = path.stat().st_mtime
+		values = site_env.read()
 	except OSError:
 		return None
-	values = dict(line.split("=", 1) for line in lines if "=" in line)
-	return {"port": _port(values.get("NETROLLOUT_HTTPS_PORT")),
-	        "id": values.get("NETROLLOUT_APPLY_ID", ""), "time": written}
+	if not values.get(site_env.PORT_REQUEST_ID):
+		return None
+	try:
+		written = float(values.get(site_env.PORT_REQUESTED_AT, ""))
+	except ValueError:
+		written = 0.0
+	return {"port": _port(values.get(site_env.PORT_REQUEST)),
+	        "id": values[site_env.PORT_REQUEST_ID], "time": written}
 
 
 def _confirmed_id() -> str:
 	try:
-		return _path(CONFIRM_FILE).read_text(encoding="utf-8").strip()
+		return site_env.read().get(site_env.PORT_CONFIRMED, "")
 	except OSError:
 		return ""
 
@@ -112,18 +96,17 @@ def serving_port() -> int:
 def request_port(port: int):
 	"""Ask for `port` (a new request id each time — also for "Try again").
 	Returns undo(), which puts the previous request back. Raises ValueError
-	for an invalid port, OSError when the file can't be written."""
+	for an invalid port, OSError when site.env can't be written."""
 	port = SETTINGS["https_port"].parse(port)
-	path = _path(DESIRED_FILE)
-	previous = path.read_bytes() if path.is_file() else None
-	_write(DESIRED_FILE, f"NETROLLOUT_HTTPS_PORT={port}\n"
-	                     f"NETROLLOUT_APPLY_ID={secrets.token_hex(8)}\n")
+	current = site_env.read()
+	previous = {k: current.get(k) for k in _REQUEST_KEYS}
+	site_env.update({site_env.PORT_REQUEST: str(port),
+	                 site_env.PORT_REQUEST_ID: secrets.token_hex(8),
+	                 site_env.PORT_REQUESTED_AT: str(int(time.time())),
+	                 site_env.PORT_CONFIRMED: None})
 
 	def undo():
-		if previous is None:
-			path.unlink(missing_ok=True)
-		else:
-			_write(DESIRED_FILE, previous.decode("utf-8"))
+		site_env.update(previous)
 	return undo
 
 
@@ -142,7 +125,7 @@ def confirm(apply_id: str, reached_port: int) -> str | None:
 		        f"— this page came through port {reached_port}.")
 	if status.get("deadline") and time.time() > float(status["deadline"]):
 		return "Too late: the trial ended, the previous port is back."
-	_write(CONFIRM_FILE, apply_id + "\n")
+	site_env.update({site_env.PORT_CONFIRMED: apply_id})
 	return None
 
 

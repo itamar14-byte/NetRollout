@@ -25,7 +25,7 @@ from src.encryption import init_encryption, require_key_in_container
 from src.job_store import JobStore
 from src.orchestration import RolloutOrchestrator
 from src.webapp.lifecycle import Shutdown
-from src.webapp.proxy_config import sync_at_start
+from src.webapp.proxy_config import seed_hostname_from_site, sync_at_start
 
 ########Constants###################################################
 
@@ -203,6 +203,9 @@ def launch_app():
 	# Before touching any service: a missing secret must stop the start
 	secret_key = resolve_secret_key()
 	require_key_in_container()
+	# the installer hands the hostname over in site.env (not .env): seed it
+	# before BackendServices seeds the settings
+	seed_hostname_from_site()
 	backend = BackendServices()
 	init_app_encryption(backend)
 	# restart-only settings: what this process runs with (System Settings

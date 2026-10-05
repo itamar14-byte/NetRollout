@@ -8,8 +8,10 @@ keeps serving the last good site — and reports in status.json. The app never
 writes nginx syntax.
 """
 import datetime
+import ipaddress
 import json
 import os
+import re
 import tempfile
 import threading
 import time
@@ -17,13 +19,15 @@ from pathlib import Path
 
 from sqlalchemy.exc import SQLAlchemyError
 
-from src import certs, runtime
+from src import certs, runtime, site_env
 from src.db.settings import SETTINGS
 from src.webapp import port_apply
 
-SITE_FILE = "site.env"
+SITE_FILE = site_env.FILE
 STATUS_FILE = "status.json"
 APPLIED_PORT_ENV = port_apply.PUBLISHED_PORT_ENV
+HOSTNAME_SEED_ENV = SETTINGS["public_hostname"].env
+SERVER_IPS_ENV = "NETROLLOUT_SERVER_IPS"
 # A self-signed certificate reissued for a new hostname keeps the previous
 # names this long, so people still typing one reach the redirect without a
 # name warning — then they're dropped (the deadlines: OLD_NAMES_FILE).
@@ -35,7 +39,7 @@ _cert_lock = threading.Lock()
 
 
 def shared_dir() -> Path:
-	return runtime.config_dir() / "nginx"
+	return site_env.folder()
 
 
 def applied_https_port() -> int:
@@ -46,30 +50,40 @@ def applied_https_port() -> int:
 
 
 def write_site(hostname: str | None) -> bool:
-	"""Write site.env for `hostname` (empty: no canonical name). True if it
-	changed — an unchanged file isn't rewritten, so nginx isn't reloaded for
-	nothing. Raises ValueError for an invalid hostname, OSError when the
-	folder can't be written."""
+	"""Hand nginx `hostname` (empty: no canonical name) and the port in use,
+	in site.env. True if it changed — an unchanged file isn't rewritten, so
+	nginx isn't reloaded for nothing. Raises ValueError for an invalid
+	hostname, OSError when the folder can't be written."""
 	host = SETTINGS["public_hostname"].parse(hostname or "")
-	content = (f"NETROLLOUT_HOSTNAME={host}\n"
-	           f"NETROLLOUT_HTTPS_PORT={applied_https_port()}\n")
-	folder = shared_dir()
-	folder.mkdir(parents=True, exist_ok=True)
-	target = folder / SITE_FILE
-	if target.is_file() and target.read_text(encoding="utf-8") == content:
-		return False
-	# a temp file + rename: the watcher sees the old file or the new one
-	fd, tmp = tempfile.mkstemp(dir=folder, prefix=f".{SITE_FILE}.")
+	return site_env.update({site_env.HOSTNAME: host,
+	                        site_env.HTTPS_PORT: str(applied_https_port())})
+
+
+def seed_hostname_from_site() -> None:
+	"""Before the first start's settings seed: the installer writes the
+	hostname into site.env (not .env), so it becomes the System Settings
+	hostname — unless the environment names one (non-Docker runs). Only a
+	missing setting is ever seeded, so later starts change nothing."""
 	try:
-		with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
-			f.write(content)
-		os.chmod(tmp, 0o644)
-		os.replace(tmp, target)
-	except BaseException:
-		if os.path.exists(tmp):
-			os.remove(tmp)
-		raise
-	return True
+		host = site_env.read().get(site_env.HOSTNAME, "")
+	except OSError:
+		return
+	if host and not os.environ.get(HOSTNAME_SEED_ENV):
+		os.environ[HOSTNAME_SEED_ENV] = host
+
+
+def server_ips() -> list[str]:
+	"""The server's IP addresses, recorded by the installer
+	(NETROLLOUT_SERVER_IPS: comma or space separated); invalid ones skipped."""
+	out = []
+	for value in re.split(r"[,\s]+", os.environ.get(SERVER_IPS_ENV, "")):
+		try:
+			ip = str(ipaddress.ip_address(value.strip()))
+		except ValueError:
+			continue
+		if ip not in out:
+			out.append(ip)
+	return out
 
 
 class ProxyError(Exception):
@@ -235,9 +249,9 @@ def install_certificate(cert_pem: bytes, key_pem: bytes,
 
 def generate_selfsigned(hostname: str | None):
 	"""Replace the certificate with a new self-signed one for `hostname`
-	(else the name the current certificate is for), keeping the IP addresses
-	the current one covers. Returns undo(). Raises ProxyError, having changed
-	nothing."""
+	(else the name the current certificate is for), for the server's IP
+	addresses (server_ips()) and any the current one covers. Returns undo().
+	Raises ProxyError, having changed nothing."""
 	with _cert_lock:
 		cert_dir = runtime.certs_dir()
 		cert = cert_dir / certs.CERT_FILE
@@ -253,7 +267,9 @@ def generate_selfsigned(hostname: str | None):
 			                 "the certificate is made for it.")
 		saved = _snapshot(_cert_files(cert_dir))
 		try:
-			certs.selfsigned(name, [str(ip) for ip in ips], cert_dir)
+			addresses = server_ips()
+			addresses += [str(ip) for ip in ips if str(ip) not in addresses]
+			certs.selfsigned(name, addresses, cert_dir)
 			(cert_dir / OLD_NAMES_FILE).unlink(missing_ok=True)
 		except (OSError, ValueError) as e:
 			_restore(saved)

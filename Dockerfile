@@ -1,13 +1,14 @@
 # NetRollout app image.
 #
-#   docker build -t netrollout .                              (dev: 1.0.0.dev0)
-#   docker build --build-arg VERSION=1.0.0 -t netrollout .    (a release)
+#   docker build -t netrollout .
 #
-# Pass VERSION without the tag's "v" (CI: ${GITHUB_REF_NAME#v}). A leading v
-# is stripped for the app, but the image's version label shows it as given.
+# The version is the VERSION file (copied in; the app reads it). The release
+# job passes the same value as the VERSION build arg for the image label, and
+# the build fails if the two differ.
 #
 # Build context = the repo root, filtered by .dockerignore (a whitelist:
-# src/, templates/, requirements.lock, LICENSE). One stage: every locked
+# src/, templates/, requirements.lock, LICENSE, VERSION, Grafana's setup and
+# dashboards). One stage: every locked
 # package installs as a prebuilt wheel, so there is no compiler to leave behind.
 # Persistent state lives outside the image: the database in Postgres, and
 # /data/{logs,config,certs} mounted by compose.
@@ -30,19 +31,19 @@ WORKDIR /app
 COPY requirements.lock ./
 RUN pip install --root-user-action=ignore -r requirements.lock
 
-COPY LICENSE ./
+COPY LICENSE VERSION ./
 COPY templates/ templates/
 COPY src/ src/
+# Grafana's setup service runs on this image: its script and the shipped
+# dashboards (deploy/grafana/setup.py)
+COPY deploy/grafana/setup.py grafana/setup.py
+COPY deploy/grafana/dashboards/ grafana/dashboards/
 
-# A release stamps its version (tag vX.Y.Z → X.Y.Z) into src/runtime.py — one
-# source for the health endpoint, the footer and its source link; the build
-# fails if the line wasn't found (the pattern ends at the closing quote, so a
-# Windows checkout's CRLF line endings don't matter). Then precompile (the code is read-only at
-# run time) and create the unprivileged user that owns /data.
-RUN if [ -n "$VERSION" ]; then \
-        v="${VERSION#v}"; \
-        sed -i "s/^VERSION = \"[^\"]*\"/VERSION = \"$v\"/" src/runtime.py && \
-        grep -q "^VERSION = \"$v\"" src/runtime.py; \
+# A release's build arg must match the VERSION file (one source); then
+# precompile (the code is read-only at run time) and create the unprivileged
+# user that owns /data.
+RUN if [ -n "$VERSION" ] && [ "${VERSION#v}" != "$(tr -d ' \r\n' < VERSION)" ]; then \
+        echo "VERSION build arg '$VERSION' differs from the VERSION file" >&2; exit 1; \
     fi && \
     python -m compileall -q src && \
     useradd --system --uid 10001 --user-group --no-create-home \

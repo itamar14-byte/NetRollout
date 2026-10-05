@@ -1,11 +1,11 @@
 """src/webapp/port_apply.py: the app's side of the port helper contract.
 No helper here — the tests write its status file the way the contract says."""
 import json
-import os
 import time
 
 import pytest
 
+from src import site_env
 from src.webapp import port_apply as pa
 
 
@@ -43,9 +43,9 @@ def test_the_helper_knows_better_than_the_containers_env(home, monkeypatch):
 def test_a_trial_counts_only_once_confirmed(home):
 	helper(home, state="trying", port=443, trying=8443, id="a1")
 	assert pa.serving_port() == 443
-	(home / pa.CONFIRM_FILE).write_text("other\n")
+	site_env.update({site_env.PORT_CONFIRMED: "other"})
 	assert pa.serving_port() == 443
-	(home / pa.CONFIRM_FILE).write_text("a1\n")
+	site_env.update({site_env.PORT_CONFIRMED: "a1"})
 	assert pa.serving_port() == 8443
 
 
@@ -65,25 +65,25 @@ def test_a_request_carries_the_port_and_a_new_id_each_time(home):
 	assert first["port"] == 8443 and len(first["id"]) == 16
 	pa.request_port(8443)                      # "Try again": same port, new id
 	assert pa.read_request()["id"] != first["id"]
-	assert [p.name for p in home.iterdir()] == [pa.DESIRED_FILE]   # no temp left
+	assert [p.name for p in site_env.folder().iterdir()] == [site_env.FILE]   # no temp left
 
 
 def test_undo_puts_the_previous_request_back(home):
 	undo = pa.request_port(8443)
 	undo()
-	assert not (home / pa.DESIRED_FILE).exists()
+	assert pa.read_request() is None
 	pa.request_port(8443)
-	before = (home / pa.DESIRED_FILE).read_bytes()
+	before = site_env.read()
 	undo = pa.request_port(9443)
 	undo()
-	assert (home / pa.DESIRED_FILE).read_bytes() == before
+	assert site_env.read() == before
 
 
 @pytest.mark.parametrize("bad", [0, 70000, "443; rm", ""])
 def test_an_invalid_port_is_never_requested(home, bad):
 	with pytest.raises(ValueError):
 		pa.request_port(bad)
-	assert not (home / pa.DESIRED_FILE).exists()
+	assert pa.read_request() is None and not site_env.path().exists()
 
 
 # ── what the page shows ──
@@ -102,7 +102,7 @@ def test_waiting_for_the_helper_is_bounded(home):
 	pa.request_port(8443)
 	assert pa.state(8443)["state"] == "waiting"
 	old = time.time() - pa.WAIT_SECONDS - 5
-	os.utime(home / pa.DESIRED_FILE, (old, old))
+	site_env.update({site_env.PORT_REQUESTED_AT: str(int(old))})
 	assert pa.state(8443)["state"] == "no_helper_answer"
 
 
@@ -147,12 +147,33 @@ def test_confirm_refuses_what_is_not_a_live_trial(home):
 	assert "this page came through port 443" in pa.confirm(rid, 443)
 	helper(home, state="trying", port=443, trying=8443, id=rid, deadline=time.time() - 1)
 	assert "Too late" in pa.confirm(rid, 8443)
-	assert not (home / pa.CONFIRM_FILE).exists()
+	assert site_env.PORT_CONFIRMED not in site_env.read()
 
 
 def test_a_failed_write_names_the_request_file(home):
-	(home / pa.DESIRED_FILE).mkdir()                 # can't be replaced
+	site_env.path().mkdir(parents=True)             # can't be replaced
 	with pytest.raises(OSError) as e:
 		pa.request_port(8443)
-	assert e.value.filename == str(home / pa.DESIRED_FILE)
-	assert [p.name for p in home.iterdir()] == [pa.DESIRED_FILE]   # no temp left
+	assert e.value.filename == str(site_env.path())
+	assert [p.name for p in site_env.folder().iterdir()] == [site_env.FILE]   # no temp left
+
+
+# ── one file for nginx and the helper (the merge) ──
+
+def test_the_hostname_and_a_port_request_share_site_env(home):
+	from src.webapp import proxy_config
+	proxy_config.write_site("nr01.lab")
+	pa.request_port(8443)
+	proxy_config.write_site("nr02.lab")              # a later hostname save
+	values = site_env.read()
+	assert values[site_env.HOSTNAME] == "nr02.lab"
+	assert values[site_env.HTTPS_PORT] == "443"      # in use, not the request
+	assert pa.read_request()["port"] == 8443         # the request survived
+
+
+def test_a_new_request_clears_an_old_confirmation(home):
+	# the helper must never see a confirmation that isn't for this request
+	pa.request_port(8443)
+	site_env.update({site_env.PORT_CONFIRMED: pa.read_request()["id"]})
+	pa.request_port(9443)
+	assert site_env.PORT_CONFIRMED not in site_env.read()

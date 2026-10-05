@@ -178,13 +178,22 @@ def test_a_second_stop_request_is_ignored(monkeypatch):
 
 # ── Stage 6.1: version + source link ──
 
-def test_the_version_line_stays_rewritable_by_the_image_build():
-	# The Dockerfile's sed matches exactly this shape; a reformat would make
-	# every release image report the dev version
-	import re
+def test_the_version_is_the_version_file():
 	from src import runtime
-	text = (runtime.REPO_ROOT / "src" / "runtime.py").read_text(encoding="utf-8")
-	assert len(re.findall(r'^VERSION = "[^"]*"$', text, re.MULTILINE)) == 1
+	text = (runtime.REPO_ROOT / "VERSION").read_text(encoding="utf-8").strip()
+	assert runtime.VERSION == text
+
+
+@pytest.mark.parametrize("content, expected", [
+	("1.2.3\n", "1.2.3"), ("v1.2.3\r\n", "1.2.3"), ("  \n", "0.0.0.dev0"),
+	(None, "0.0.0.dev0")])
+def test_reading_the_version_file(tmp_path, monkeypatch, content, expected):
+	# sys._MEIPASS is where the CLI .exe unpacks its bundled files
+	from src import runtime
+	if content is not None:
+		(tmp_path / "VERSION").write_text(content, encoding="utf-8", newline="")
+	monkeypatch.setattr(runtime.sys, "_MEIPASS", str(tmp_path), raising=False)
+	assert runtime._read_version() == expected
 
 
 @pytest.mark.parametrize("version,url", [
@@ -213,3 +222,17 @@ def test_the_server_is_started_with_those_threads():
 	from pathlib import Path
 	main = (Path(runtime.REPO_ROOT) / "src" / "webapp" / "__main__.py").read_text(encoding="utf-8")
 	assert "threads=server_threads()" in main
+
+
+def test_the_running_version_follows_the_file(tmp_path, monkeypatch):
+	# not a copy that happens to match: another file, another version
+	import importlib
+	from src import runtime
+	(tmp_path / "VERSION").write_text("9.9.9\n", encoding="utf-8")
+	monkeypatch.setattr(runtime.sys, "_MEIPASS", str(tmp_path), raising=False)
+	try:
+		assert importlib.reload(runtime).VERSION == "9.9.9"
+	finally:
+		monkeypatch.undo()
+		importlib.reload(runtime)
+	assert runtime.VERSION != "9.9.9"
