@@ -236,6 +236,38 @@ kept), only the keys the scripts own.
   "SignPath Foundation" as publisher) applied for after v1.0 is public with
   its CI pipeline — workplan post-v1.0.
 
+## 9.4b — one install method per OS (decided 2026-10-05)
+
+Supersedes the zip layout and decisions 2–3 above.
+- **Windows: NetRollout Setup only** (one `.exe`, ~2.5 MB; the images come
+  from Docker Hub during the install). No `install.bat`, no console install,
+  no console menu (NetRollout Manager is people's; `bin\netrollout.bat` the
+  admins' command line). Before its first page it refuses Windows Server and
+  virtualization-off; the install-location page has `C:\NetRollout`
+  pre-selected (typing replaces it); Settings is an OVF-style form (Windows'
+  timezone list as a dropdown); a review page lists every choice before
+  anything is done; `.env` is hidden.
+- **The zip is Linux-only**: `bin/install.sh`, `bin/netrollout.sh`, the
+  compose files, `deploy/`, `VERSION`, `LICENSE`, `README.md` — no Windows
+  files.
+- **`bin\` / `bin/`** for the scripts and programs in both packages (the repo
+  keeps `windows/` and `linux/` as sources; packaging maps them).
+
+Installed, Windows:
+```
+C:\NetRollout\
+  bin\  NetRollout Manager.exe  netrollout.ps1  netrollout.bat  netrollout.ico
+  deploy\  compose.yaml  compose.http.yaml  VERSION  LICENSE  unins000.exe/.dat
+  .env (hidden)  config\  certs\  logs\  backups\        (created by the install)
+```
+Installed, Linux:
+```
+/opt/netrollout/
+  bin/install.sh  bin/netrollout.sh  deploy/  compose.yaml  compose.http.yaml
+  VERSION  LICENSE  README.md
+  .env  config/  certs/  logs/  backups/                 (created by the install)
+```
+
 ## Bring your own database / Redis (from the UI)
 
 A move, not a switch: switching live to an empty server would leave the data

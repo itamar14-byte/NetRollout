@@ -2,9 +2,9 @@
 # NetRollout management (Linux, Docker Engine). Run as root (sudo): Docker,
 # the secrets in .env and the folders' owners need it.
 #
-#   sudo ./linux/install.sh                      install in this folder
-#   sudo ./linux/netrollout.sh start | stop | status | open | logs [service] | uninstall | help
-#   sudo ./linux/netrollout.sh                   the menu
+#   sudo ./bin/install.sh                      install in this folder
+#   sudo ./bin/netrollout.sh start | stop | status | open | logs [service] | uninstall | help
+#   sudo ./bin/netrollout.sh                   the menu
 #
 # The install folder is this script's parent folder. The script does what
 # needs this machine (checks, Docker, owners) and leaves the thinking to the
@@ -15,7 +15,8 @@
 main() {
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+BIN="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"   # the scripts (bin/)
+ROOT="$(dirname "$BIN")"
 VERSION="$(tr -d ' \r\n' < "$ROOT/VERSION" 2>/dev/null || true)"
 PROJECT="${NETROLLOUT_PROJECT:-netrollout}"   # another name only for testing
 APP_IMAGE="itamarweinstein/netrollout:$VERSION"
@@ -76,7 +77,7 @@ need_root() {
 }
 
 need_installed() {
-	[ -f "$ENV_FILE" ] || fail "NetRollout isn't installed in $ROOT - run: sudo $ROOT/linux/install.sh"
+	[ -f "$ENV_FILE" ] || fail "NetRollout isn't installed in $ROOT - run: sudo $BIN/install.sh"
 }
 
 need_docker() {
@@ -225,7 +226,7 @@ NOTICE
 	do_start
 	say ""
 	good "Installed. Open $(address) and sign in as admin / admin - you'll set a new password."
-	say  "   Manage it with: sudo $ROOT/linux/netrollout.sh  (status, start, stop, logs, ...)"
+	say  "   Manage it with: sudo $BIN/netrollout.sh  (status, start, stop, logs, ...)"
 	if ! systemctl is-enabled docker >/dev/null 2>&1; then
 		warn "Docker doesn't start at boot - so neither does NetRollout: sudo systemctl enable docker"
 	fi
@@ -244,7 +245,7 @@ do_stop() {
 	fi
 	step "Stopping NetRollout"
 	compose stop >/dev/null 2>&1 || fail "Docker couldn't stop it: $(compose stop 2>&1 | tail -3)"
-	good "Stopped. Start it again with: sudo $ROOT/linux/netrollout.sh start"
+	good "Stopped. Start it again with: sudo $BIN/netrollout.sh start"
 }
 
 do_status() {
@@ -285,14 +286,14 @@ do_uninstall() {
 show_help() {
 	say "NetRollout $VERSION - $ROOT"
 	say ""
-	say "  sudo linux/install.sh                    install NetRollout in this folder"
-	say "  sudo linux/netrollout.sh start           start it"
-	say "  sudo linux/netrollout.sh stop            stop it (running rollouts finish first)"
-	say "  sudo linux/netrollout.sh status          is everything well? what to do if not"
-	say "  sudo linux/netrollout.sh open            its address (and the browser, on a desktop)"
-	say "  sudo linux/netrollout.sh logs [service]  recent log lines (app, nginx, postgres, ...)"
-	say "  sudo linux/netrollout.sh uninstall       remove it (asks whether to delete the data too)"
-	say "  sudo linux/netrollout.sh                 the menu"
+	say "  sudo $BIN/install.sh                    install NetRollout in this folder"
+	say "  sudo $BIN/netrollout.sh start           start it"
+	say "  sudo $BIN/netrollout.sh stop            stop it (running rollouts finish first)"
+	say "  sudo $BIN/netrollout.sh status          is everything well? what to do if not"
+	say "  sudo $BIN/netrollout.sh open            its address (and the browser, on a desktop)"
+	say "  sudo $BIN/netrollout.sh logs [service]  recent log lines (app, nginx, postgres, ...)"
+	say "  sudo $BIN/netrollout.sh uninstall       remove it (asks whether to delete the data too)"
+	say "  sudo $BIN/netrollout.sh                 the menu"
 	say ""
 	say "  --yes   unattended (accepts the licence, defaults); with install also"
 	say "          --hostname --https-port --monitoring y/n --org-certificate y/n --timezone"
@@ -308,7 +309,7 @@ show_menu() {
 			reachable 2>/dev/null && state="running"
 			say " NetRollout $VERSION  -  $(address)   [$state]"
 		else
-			say " NetRollout $VERSION   [not installed - run: sudo $ROOT/linux/install.sh]"
+			say " NetRollout $VERSION   [not installed - run: sudo $BIN/install.sh]"
 		fi
 		say ""
 		say "  1  Open (the address)"

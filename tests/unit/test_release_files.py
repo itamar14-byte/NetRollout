@@ -80,9 +80,21 @@ def test_the_installer_ships_what_the_zip_ships():
 	names = {p.name for p in iss_sources()}
 	for needed in ("compose.yaml", "compose.http.yaml", "VERSION", "LICENSE",
 	               "netrollout.ps1", "netrollout.bat", "netrollout.ico",
-	               "licence-notice.txt", "NetRollout Manager.exe", "prometheus.yml",
+	               "NetRollout Manager.exe", "prometheus.yml",
 	               "loki-config.yml", "config.alloy", "netrollout.yml"):
 		assert needed in names, needed
+
+
+def test_the_installed_layout_is_bin_and_the_licence_page_has_its_text():
+	import re
+	installer = ROOT / "windows" / "installer"
+	text = (installer / "netrollout.iss").read_text(encoding="utf-8")
+	for name in ("NetRollout Manager.exe", "netrollout.ps1", "netrollout.bat", "netrollout.ico"):
+		assert re.search(r'Source: "\.\.\\' + re.escape(name) + r'"; DestDir: "\{app\}\\bin"', text), name
+	licence = re.search(r"^LicenseFile=(.+)$", text, re.M).group(1).strip()
+	assert (installer / licence).exists()
+	# one install method on Windows: the installer (no console install)
+	assert not (ROOT / "windows" / "install.bat").exists()
 
 
 def test_the_linux_scripts_have_unix_line_endings():

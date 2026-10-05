@@ -1,11 +1,11 @@
 // NetRollout Manager — the Windows app for running NetRollout: a window with
 // the status, the address and the actions, and a tray icon. The actions run
-// windows\netrollout.ps1 (hidden) and show its output; the status comes from
+// bin\netrollout.ps1 (hidden) and show its output; the status comes from
 // NetRollout's health endpoint on this computer.
 //
 // C# 5 / .NET Framework 4.8 (built into Windows 10/11): build.ps1 compiles it
 // with Windows' own csc.exe, no SDK needed. Lives next to netrollout.ps1 in
-// the install folder's windows\ folder.
+// the install folder's bin\ folder.
 //
 //   NetRollout Manager.exe              the window (and the tray icon)
 //   NetRollout Manager.exe --tray       only the tray icon (start at sign-in)
@@ -71,13 +71,13 @@ namespace NetRollout
 		}
 	}
 
-	// The install folder: this program sits in its windows\ folder
+	// The install folder: this program sits in its bin\ folder
 	static class Install
 	{
-		public static readonly string WindowsDir =
+		public static readonly string BinDir =
 			Path.GetDirectoryName(Application.ExecutablePath);
-		public static readonly string Root = Path.GetDirectoryName(WindowsDir);
-		public static readonly string Script = Path.Combine(WindowsDir, "netrollout.ps1");
+		public static readonly string Root = Path.GetDirectoryName(BinDir);
+		public static readonly string Script = Path.Combine(BinDir, "netrollout.ps1");
 
 		public static string Version
 		{
@@ -106,7 +106,7 @@ namespace NetRollout
 
 		public static Icon AppIcon(int size)
 		{
-			string path = Path.Combine(WindowsDir, "netrollout.ico");
+			string path = Path.Combine(BinDir, "netrollout.ico");
 			try { return new Icon(path, size, size); }
 			catch (Exception) { return Icon.ExtractAssociatedIcon(Application.ExecutablePath); }
 		}

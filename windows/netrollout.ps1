@@ -1,22 +1,21 @@
 <#
-NetRollout management (Windows). Run through netrollout.bat / install.bat,
-or the "NetRollout Manager" shortcut (no command: a numbered menu).
+NetRollout's engine on Windows: NetRollout Setup, its uninstaller and
+NetRollout Manager run it; admins can too (bin\netrollout.bat):
 
-  netrollout install | start | stop | status | open | logs [service] | help
+  netrollout start | stop | status | open | logs [service] | help
 
-The install folder is this script's parent folder. The script does what needs
-this computer (checks, Docker, the shortcuts) and leaves the thinking to the
-setup core inside the app image (python -m src.setup, docs/plans/stage-9.md).
+Installing is NetRollout Setup's (it runs `install -Yes` with the answers of
+its pages). The install folder is this script's parent folder. The script does
+what needs this computer (checks, Docker) and leaves the thinking to the setup
+core inside the app image (python -m src.setup, docs/plans/stage-9.md).
 PowerShell 5.1 compatible.
 #>
 param(
 	[Parameter(Position = 0)][string]$Command = "",
 	[Parameter(Position = 1)][string]$Service = "",
 	[switch]$NoBrowser,
-	[switch]$Yes,          # unattended: the licence accepted, defaults answered
-	[switch]$NoShortcuts,  # install: no desktop / Start Menu shortcuts (scripted installs)
-	[switch]$PauseAtEnd,   # set by install.bat: keep a double-clicked window open
-	# install's answers, given (the Setup wizard asks them on its own pages)
+	[switch]$Yes,          # run by NetRollout Setup: its pages asked everything
+	# install's answers (the Setup wizard's pages)
 	[string]$Hostname = "",
 	[string]$HttpsPort = "",
 	[string]$Monitoring = "",       # y / n
@@ -80,23 +79,15 @@ function Compose([string[]]$Arguments) {
 	}
 }
 
-# The setup core in the app image, the install folder mounted. -Talk: on
-# this console (questions and answers); -OnNetwork: next to the running app
-# (status asks its health over the compose network, when there is one).
-function Invoke-Setup([string[]]$Arguments, [switch]$Talk, [switch]$OnNetwork) {
+# The setup core in the app image, the install folder mounted. -OnNetwork:
+# next to the running app (status asks its health over the compose network,
+# when there is one).
+function Invoke-Setup([string[]]$Arguments, [switch]$OnNetwork) {
 	$run = @("run", "--rm", "-v", "${Root}:/install", "-e", "NETROLLOUT_HOME=/install")
 	if ($OnNetwork -and (Invoke-Native "docker" @("network", "inspect", "${Project}_default")).Code -eq 0) {
 		$run += @("--network", "${Project}_default")
 	}
 	$all = $run + @($AppImage, "python", "-m", "src.setup") + $Arguments
-	if ($Talk) {
-		# Start-Process: the console is shared, nothing captured (a function's
-		# output would swallow the questions); PowerShell 5.1 doesn't quote
-		$quoted = ($all[0..1] + "-it" + $all[2..($all.Count - 1)]) |
-			ForEach-Object { '"' + ($_ -replace '"', '\"') + '"' }
-		$p = Start-Process -FilePath "docker" -ArgumentList ($quoted -join " ") -NoNewWindow -Wait -PassThru
-		return $p.ExitCode
-	}
 	$r = Invoke-Native "docker" $all
 	if ($r.Output) { Write-Host $r.Output }
 	return $r.Code
@@ -327,58 +318,33 @@ function Restrict([string]$Path) {
 	if ($r.Code -ne 0) { Warn "Couldn't restrict $Path ($($r.Output.Trim()))" }
 }
 
-# The desktop and the Start Menu ("NetRollout" folder): "NetRollout" opens the
-# web app, "NetRollout Manager" the menu; both with NetRollout's icon
-function Get-ShortcutFolders {
-	return @([Environment]::GetFolderPath("Desktop"),
-		(Join-Path ([Environment]::GetFolderPath("Programs")) "NetRollout"))
-}
-
-function New-Shortcuts {
-	$icon = Join-Path $PSScriptRoot "netrollout.ico"
-	$shell = New-Object -ComObject WScript.Shell
-	foreach ($folder in Get-ShortcutFolders) {
-		New-Item -ItemType Directory -Force -Path $folder | Out-Null
-		Set-Content -Encoding ASCII -Path (Join-Path $folder "NetRollout.url") -Value @(
-			"[InternetShortcut]", "URL=$(Get-Address)", "IconFile=$icon", "IconIndex=0")
-		$link = $shell.CreateShortcut((Join-Path $folder "NetRollout Manager.lnk"))
-		$link.TargetPath = Join-Path $PSScriptRoot "netrollout.bat"
-		$link.WorkingDirectory = $Root
-		$link.IconLocation = "$icon,0"
-		$link.Description = "Start, stop and check NetRollout"
-		$link.Save()
-	}
-}
-
-# The licence notice: one text for this script and the Setup wizard's page
-$LicenceNoticeFile = Join-Path $PSScriptRoot "licence-notice.txt"
-
-function Invoke-Install {
-	if (Test-Installed) {
-		Fail "NetRollout is already installed in $Root - see: netrollout status (or netrollout update)." 2
-	}
-	Step "Checking this computer"
+# Why NetRollout can't run on this computer ("" when it can): NetRollout Setup
+# asks before its first page
+function Get-HostProblem {
 	if ((Get-CimInstance Win32_OperatingSystem).ProductType -ne 1) {
-		Fail ("This is Windows Server, which Docker Desktop doesn't support. Use Windows 10/11 " +
-		      "(a VM is fine), or a Linux server with linux/install.sh.")
+		return ("This is Windows Server, which Docker Desktop doesn't support. Install NetRollout " +
+		        "on Windows 10/11 (a virtual machine is fine), or on a Linux server.")
 	}
 	if (-not ((Test-DockerCli) -and (Test-DockerRunning))) {
 		$hypervisor = (Get-CimInstance Win32_ComputerSystem).HypervisorPresent
 		$firmware = @(Get-CimInstance Win32_Processor | Where-Object { $_.VirtualizationFirmwareEnabled }).Count -gt 0
 		if (-not ($hypervisor -or $firmware)) {
-			Fail ("Virtualization is off, and Docker needs it. On a PC: turn on Intel VT-x / AMD-V " +
-			      "in the BIOS/UEFI. On a VM: enable nested virtualization (Hyper-V: " +
-			      "Set-VMProcessor -ExposeVirtualizationExtensions `$true; VMware: 'Virtualize " +
-			      "Intel VT-x/EPT'). Then run install again.")
+			return ("Virtualization is turned off, and Docker needs it. On a PC: turn on Intel VT-x / " +
+			        "AMD-V in the BIOS/UEFI. On a virtual machine: enable nested virtualization (Hyper-V: " +
+			        "Set-VMProcessor -ExposeVirtualizationExtensions `$true; VMware: 'Virtualize Intel " +
+			        "VT-x/EPT'). Then run NetRollout Setup again.")
 		}
 	}
-	if (-not $Yes) {
-		Write-Host ""
-		Write-Host (Get-Content -Raw $LicenceNoticeFile)
-		if ((Read-Host "Type yes to accept and continue") -ne "yes") {
-			Fail "The licence terms weren't accepted - nothing was installed."
-		}
+	return ""
+}
+
+function Invoke-Install {
+	if (-not $Yes) { Fail "Install NetRollout with NetRollout Setup (NetRollout-Setup-<version>.exe)." }
+	if (Test-Installed) {
+		Fail "NetRollout is already installed in $Root - see: netrollout status." 2
 	}
+	$problem = Get-HostProblem
+	if ($problem) { Fail $problem }
 	Confirm-Docker -OfferInstall
 	Step "Getting NetRollout $Version"
 	if ((Invoke-Native "docker" @("image", "inspect", $AppImage)).Code -ne 0) {
@@ -392,25 +358,19 @@ function Invoke-Install {
 	                     @("--timezone", $TimeZone))) {
 		if ($given[1]) { $setup += $given }
 	}
-	if ($Yes) { $setup += "--defaults"; $code = Invoke-Setup $setup }
-	else { $code = Invoke-Setup $setup -Talk }
+	$code = Invoke-Setup ($setup + "--defaults")
 	if ($code -ne 0) { Fail "Setup stopped - nothing was started." $code }
 	Restrict $EnvFile
 	Restrict (Join-Path $Root "backups")
+	# settings live in System Settings: .env is for Docker, not for people
+	(Get-Item -Force $EnvFile).Attributes += "Hidden"
 	Start-NetRollout
-	if (-not $NoShortcuts) { New-Shortcuts }
 	Say ""
 	Good "Installed. Open $(Get-Address) and sign in as admin / admin - you'll set a new password."
-	if (-not $NoShortcuts) {
-		Say "   Desktop: 'NetRollout' opens it, 'NetRollout Manager' starts, stops and checks it."
-	}
-	Say "   NetRollout starts with Docker Desktop when someone signs in to Windows: on a server,"
-	Say "   set up automatic sign-in for the account that runs it (README: 'After a reboot')."
-	Open-Browser
 }
 
 function Invoke-Status {
-	if (-not (Test-Installed)) { Fail "NetRollout isn't installed in $Root - run install." }
+	if (-not (Test-Installed)) { Fail "NetRollout isn't installed in $Root - run NetRollout Setup." }
 	Confirm-Docker
 	$reachable = if (Test-Reachable) { "yes" } else { "no" }
 	$busy = Get-BusyPorts (Get-OurPorts)
@@ -450,8 +410,13 @@ function Write-Defaults {
 	$lines = @("[defaults]", "hostname=$name", "https_port=$port",
 		"timezone=$((Get-TimeZone).Id)", "port80_busy=$(if ($busy.ContainsKey(80)) { $busy[80] } else { '' })",
 		"docker=$(if ((Test-DockerCli) -and (Test-DockerRunning)) { 'running' } elseif (Test-DockerCli) { 'installed' } else { 'missing' })",
+		"problem=$((Get-HostProblem) -replace '[\r\n]', ' ')",
 		"", "[busy]")
 	foreach ($p in ($busy.Keys | Sort-Object)) { $lines += "$p=$(if ($busy[$p]) { $busy[$p] } else { 'another program' })" }
+	# Windows' own timezone list, as Windows shows it: n=Id|(UTC+02:00) Jerusalem
+	$lines += @("", "[timezones]")
+	$i = 0
+	foreach ($tz in Get-TimeZone -ListAvailable) { $lines += "$i=$($tz.Id)|$($tz.DisplayName)"; $i++ }
 	Set-Content -Encoding ASCII -Path $Out -Value $lines
 }
 
@@ -472,13 +437,6 @@ function Invoke-Uninstall {
 	} elseif ($delete) {
 		Warn "Docker isn't running: the database volumes stay (Docker Desktop -> Volumes: netrollout_*)."
 	}
-	foreach ($folder in Get-ShortcutFolders) {
-		foreach ($name in "NetRollout.url", "NetRollout Manager.lnk") {
-			Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $folder $name)
-		}
-	}
-	$menu = (Get-ShortcutFolders)[1]
-	if ((Test-Path $menu) -and -not (Get-ChildItem $menu)) { Remove-Item -Force $menu }
 	if ($delete) {
 		foreach ($name in ".env", "config", "certs", "logs", "backups") {
 			Remove-Item -Recurse -Force -ErrorAction SilentlyContinue (Join-Path $Root $name)
@@ -493,58 +451,22 @@ function Invoke-Uninstall {
 function Show-Help {
 	Say "NetRollout $Version - $Root"
 	Say ""
-	Say "  netrollout install          install NetRollout in this folder"
 	Say "  netrollout start            start it (and open it in the browser)"
 	Say "  netrollout stop             stop it (running rollouts finish first)"
 	Say "  netrollout status           is everything well? what to do if not"
 	Say "  netrollout open             open it in the browser"
 	Say "  netrollout logs [service]   recent log lines (app, nginx, postgres, ...)"
-	Say "  netrollout uninstall        remove it (asks whether to delete the data too)"
-	Say "  netrollout                  the menu"
 	Say ""
-	Say "  -NoBrowser   don't open the browser    -Yes   unattended (accepts the licence, defaults)"
-	Say "  -NoShortcuts install without the desktop / Start Menu shortcuts"
-}
-
-$MenuItems = [ordered]@{
-	"1" = @("Open NetRollout in the browser", "open")
-	"2" = @("Status", "status")
-	"3" = @("Start", "start")
-	"4" = @("Stop", "stop")
-	"5" = @("Logs", "logs")
-	"0" = @("Exit", "")
-}
-
-function Show-Menu {
-	$Host.UI.RawUI.WindowTitle = "NetRollout Manager"
-	while ($true) {
-		Clear-Host
-		$state = "not installed"
-		if (Test-Installed) {
-			$state = if ((Test-DockerCli) -and (Test-DockerRunning) -and (Test-Reachable)) { "running" } else { "not running" }
-			Say " NetRollout $Version  -  $(Get-Address)   [$state]"
-		} else {
-			Say " NetRollout $Version   [$state - run install.bat]"
-		}
-		Say ""
-		foreach ($key in $MenuItems.Keys) { Say "  $key  $($MenuItems[$key][0])" }
-		Say ""
-		$choice = (Read-Host " Choose a number").Trim()
-		if ($choice -eq "0") { return }
-		if (-not $MenuItems.Contains($choice)) { continue }
-		Say ""
-		try { Invoke-NrCommand $MenuItems[$choice][1] | Out-Null }
-		catch [System.OperationCanceledException] { }
-		Say ""
-		Read-Host " Press Enter to return to the menu" | Out-Null
-	}
+	Say "  -NoBrowser   don't open the browser"
+	Say "  Installing and uninstalling: NetRollout Setup / Settings -> Apps."
+	Say "  Day to day: NetRollout Manager (Start Menu, desktop, tray)."
 }
 
 function Invoke-NrCommand([string]$Name) {
 	switch ($Name) {
 		"install" { Invoke-Install; return 0 }
 		"start" {
-			if (-not (Test-Installed)) { Fail "NetRollout isn't installed in $Root - run install." }
+			if (-not (Test-Installed)) { Fail "NetRollout isn't installed in $Root - run NetRollout Setup." }
 			Start-NetRollout; Open-Browser; return 0
 		}
 		"stop" { Invoke-Stop; return 0 }
@@ -569,7 +491,7 @@ function Invoke-NrCommand([string]$Name) {
 if ($MyInvocation.InvocationName -eq ".") { return }
 $exit = 0
 try {
-	if ($Command) { $exit = Invoke-NrCommand $Command } else { Show-Menu }
+	if ($Command) { $exit = Invoke-NrCommand $Command } else { Show-Help }
 } catch [System.OperationCanceledException] {
 	$exit = [int]$_.Exception.Message
 } catch {
@@ -577,5 +499,4 @@ try {
 	Write-Host "Something went wrong: $($_.Exception.Message)" -ForegroundColor Red
 	$exit = 1
 }
-if ($PauseAtEnd) { Write-Host ""; Read-Host "Press Enter to close" | Out-Null }
 exit $exit
