@@ -19,7 +19,7 @@ ldap3==2.9.1
 limits==5.8.0
 Mako==1.4.3
 markdown-it-py==4.2.0
-MarkupSafe==3.0.3
+MarkupSafe==3.0.4
 mdurl==0.1.2
 msgspec==0.22.0
 netmiko==4.6.0
@@ -47,6 +47,8 @@ scp==0.16.1
 SQLAlchemy==2.0.54
 textfsm==2.1.0
 typing_extensions==4.15.0
+tzdata==2026.5
+tzlocal==5.4.4
 waitress==3.0.2
 Werkzeug==3.1.9
 wrapt==2.5.0

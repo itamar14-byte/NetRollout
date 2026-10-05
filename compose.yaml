@@ -1,5 +1,5 @@
 # NetRollout — the whole product. Settings come from .env (written by the
-# installer; every variable is explained in .env.example):
+# installer — python -m src.setup — which explains every line in it):
 #
 #   docker compose up -d        start (or apply a changed .env)
 #   docker compose ps           what runs, and whether it's healthy
