@@ -67,10 +67,17 @@ function Invoke-Native([string]$Exe, [string[]]$Arguments) {
 	}
 }
 
+# From the install folder: compose reads .env's COMPOSE_FILE relative to the
+# folder it runs in, not to --project-directory
 function Compose([string[]]$Arguments) {
 	$env:NETROLLOUT_VERSION = $Version
-	return Invoke-Native "docker" (@("compose", "-p", $Project, "--project-directory", $Root,
-		"--env-file", $EnvFile) + $Arguments)
+	Push-Location $Root
+	try {
+		return Invoke-Native "docker" (@("compose", "-p", $Project, "--project-directory", $Root,
+			"--env-file", $EnvFile) + $Arguments)
+	} finally {
+		Pop-Location
+	}
 }
 
 # The setup core in the app image, the install folder mounted. -Talk: on

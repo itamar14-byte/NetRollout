@@ -83,3 +83,11 @@ def test_the_installer_ships_what_the_zip_ships():
 	               "licence-notice.txt", "NetRollout Manager.exe", "prometheus.yml",
 	               "loki-config.yml", "config.alloy", "netrollout.yml"):
 		assert needed in names, needed
+
+
+def test_the_linux_scripts_have_unix_line_endings():
+	# a carriage return breaks bash ("$'\r': command not found"); .gitattributes
+	# keeps them LF in checkouts, this catches an editor that didn't
+	for script in (ROOT / "linux").glob("*.sh"):
+		assert b"\r" not in script.read_bytes(), script.name
+		assert script.read_bytes().startswith(b"#!/usr/bin/env bash\n"), script.name
