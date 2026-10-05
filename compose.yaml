@@ -20,7 +20,7 @@ services:
 
   postgres:
     <<: *restart
-    image: itamar14/netrollout-postgres:${NETROLLOUT_VERSION:?NETROLLOUT_VERSION is not set in .env}
+    image: itamarweinstein/netrollout-postgres:${NETROLLOUT_VERSION:?NETROLLOUT_VERSION is not set in .env}
     environment:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       NETROLLOUT_DB_PASSWORD: ${NETROLLOUT_DB_PASSWORD}
@@ -54,7 +54,7 @@ services:
 
   app:
     <<: *restart
-    image: itamar14/netrollout:${NETROLLOUT_VERSION}
+    image: itamarweinstein/netrollout:${NETROLLOUT_VERSION}
     environment:
       DATABASE_URL: postgresql+psycopg2://netrollout:${NETROLLOUT_DB_PASSWORD}@postgres:5432/netrollout
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
@@ -84,7 +84,7 @@ services:
 
   nginx:
     <<: *restart
-    image: itamar14/netrollout-nginx:${NETROLLOUT_VERSION}
+    image: itamarweinstein/netrollout-nginx:${NETROLLOUT_VERSION}
     environment:
       NETROLLOUT_HOSTNAME: ${NETROLLOUT_HOSTNAME:-}
       NETROLLOUT_HTTPS_PORT: ${HTTPS_PORT:-443}
@@ -190,7 +190,7 @@ services:
   grafana-setup:
     <<: *restart
     profiles: [monitoring]
-    image: itamar14/netrollout:${NETROLLOUT_VERSION}
+    image: itamarweinstein/netrollout:${NETROLLOUT_VERSION}
     command: ["python", "/setup/setup.py"]
     environment:
       GRAFANA_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}

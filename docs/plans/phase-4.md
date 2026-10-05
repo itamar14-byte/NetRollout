@@ -7,7 +7,7 @@ _Approved 2026-09-30. Branch `phase-4-packaging`. Status: stages 1–7 done (202
 
 ## Vision
 - **Three uses:** (1) engineer's PC, (2) **team server — main case**: a Windows 10/11 VM running Docker Desktop, reached remotely over HTTPS, (3) **headless CLI** as a standalone `netrollout-cli.exe` (no Docker/Python).
-- **Delivery:** public GitHub release zip (v1.0.0, semver) + images on Docker Hub (`itamar14/netrollout`, `-postgres`, `-nginx`). The zip is a compose project: `compose.yaml`, service configs, installer, management + update scripts.
+- **Delivery:** public GitHub release zip (v1.0.0, semver) + images on Docker Hub (`itamarweinstein/netrollout`, `-postgres`, `-nginx`). The zip is a compose project: `compose.yaml`, service configs, installer, management + update scripts.
 - **Stack:** app, Postgres (pg_cron), Redis, nginx; optional monitoring profile (Grafana, Prometheus, Loki, promtail). **Only nginx publishes ports** (443, and 80→443 if free). Grafana through nginx at `/grafana`. `restart: unless-stopped` everywhere.
 
 ## Decisions (planning session 2026-09-30)
