@@ -108,6 +108,18 @@ def test_the_netrollout_command_on_path_is_only_the_bat():
 	assert "App Paths\\netrollout.exe" in text
 
 
+def test_the_installer_ends_honestly():
+	# success: the portal opens on Finish (ticked); failure: Retry unless the
+	# script says retrying can't help (exit 3: the release's image is missing)
+	import re
+	text = (ROOT / "windows" / "installer" / "netrollout.iss").read_text(encoding="utf-8")
+	browser = re.search(r'^Filename: "\{code:Address\}";.*$', text, re.M).group(0)
+	assert "postinstall" in browser and "unchecked" not in browser and "Check: SetUpOk" in browser
+	assert "MB_RETRYCANCEL" in text and "(SetUpCode = 3)" in text
+	script = (ROOT / "windows" / "manage.ps1").read_text(encoding="utf-8")
+	assert re.search(r"isn't published on Docker Hub.*\) 3$", script, re.M | re.S)
+
+
 def test_the_linux_scripts_have_unix_line_endings():
 	# a carriage return breaks bash ("$'\r': command not found"); .gitattributes
 	# keeps them LF in checkouts, this catches an editor that didn't

@@ -105,7 +105,9 @@ Type: dirifempty; Name: "{app}"
 
 [Run]
 Filename: "{code:Address}"; Description: "Open NetRollout in the browser"; Flags: postinstall shellexec nowait skipifsilent; Check: SetUpOk
-Filename: "{app}\bin\NetRollout Manager.exe"; Description: "Open NetRollout Manager"; Flags: postinstall nowait skipifsilent unchecked
+Filename: "{app}\bin\NetRollout Manager.exe"; Description: "Open NetRollout Manager"; Flags: postinstall nowait skipifsilent unchecked; Check: SetUpOk
+; set up but not started: the Manager's Start is the next step, so it's ticked
+Filename: "{app}\bin\NetRollout Manager.exe"; Description: "Open NetRollout Manager (to start NetRollout once it's fixed)"; Flags: postinstall nowait skipifsilent; Check: ManagerCanStart
 
 [Code]
 var
@@ -114,6 +116,7 @@ var
 	HostnameEdit, PortEdit, CertEdit, KeyEdit: TNewEdit;
 	TimezoneBox: TNewComboBox;
 	SetUpFailed: Boolean;
+	SetUpCode: Integer;
 	SetUpLog: String;
 	TimezoneIds: TArrayOfString;
 	MonitoringBox, OrgCertBox: TNewCheckBox;
@@ -295,6 +298,36 @@ begin
 	OrgCertClick(nil);
 end;
 
+{ .env is written by the script's init: with it NetRollout is set up (Start
+  works), without it nothing is yet (Start refuses, Setup has to run again) }
+function HasSettings: Boolean;
+begin
+	Result := FileExists(ExpandConstant('{app}\.env'));
+end;
+
+{ The script's exit code 3: this release can't be set up (retrying won't help) }
+function ReleaseBroken: Boolean;
+begin
+	Result := SetUpFailed and (SetUpCode = 3);
+end;
+
+function ManagerCanStart: Boolean;
+begin
+	Result := SetUpFailed and not ReleaseBroken and HasSettings;
+end;
+
+{ After a failed set-up and Cancel: what to do next }
+function NextStep: String;
+begin
+	if ReleaseBroken then
+		Result := 'This release can''t be set up - please report it: {#Repo}/issues' + #13#10 +
+			'To remove it: Settings -> Apps -> NetRollout -> Uninstall.'
+	else if HasSettings then
+		Result := 'Fix it, then click Start in NetRollout Manager.'
+	else
+		Result := 'Fix it, then run NetRollout Setup again (the same folder) - nothing is set up yet.';
+end;
+
 { The install-location page: the default selected, so typing replaces it }
 procedure CurPageChanged(CurPageID: Integer);
 begin
@@ -305,8 +338,7 @@ begin
 	if (CurPageID = wpFinished) and SetUpFailed then begin
 		WizardForm.FinishedHeadingLabel.Caption := 'NetRollout is installed, but not running';
 		WizardForm.FinishedLabel.Caption := 'Setting it up didn''t finish. The reason is at the end of the log:' + #13#10#13#10 +
-			SetUpLog + #13#10#13#10 +
-			'Fix it, then start NetRollout from NetRollout Manager (Start Menu).';
+			SetUpLog + #13#10#13#10 + NextStep;
 	end;
 end;
 
@@ -468,15 +500,11 @@ begin
 		RegWriteExpandStringValue(HKCU, 'Environment', 'Path', NewPath);
 end;
 
-{ After the files: the script sets NetRollout up and starts it }
-procedure CurStepChanged(CurStep: TSetupStep);
-var Code, I, From: Integer; Args, Log, Tail: String; Lines: TArrayOfString;
+{ One attempt: set NetRollout up (or, once it is, just start it); the exit code }
+function RunSetUp(const Log: String): Integer;
+var Args: String;
 begin
-	if CurStep <> ssPostInstall then exit;
-	if WizardIsTaskSelected('addtopath') then SetOurPath(True);
-	ForceDirectories(ExpandConstant('{app}\logs'));
-	Log := ExpandConstant('{app}\logs\install.log');
-	if Reinstall then
+	if Reinstall or HasSettings then
 		Args := 'start -Yes -NoBrowser'
 	else begin
 		if OrgCertBox.Checked then begin
@@ -493,19 +521,44 @@ begin
 	WizardForm.ProgressGauge.Style := npbstMarquee;
 	Exec(ExpandConstant('{cmd}'), '/C powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' +
 		ExpandConstant('{app}\bin\manage.ps1') + '" ' + Args + ' > "' + Log + '" 2>&1',
-		ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, Code);
+		ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, Result);
 	WizardForm.ProgressGauge.Style := npbstNormal;
-	SetUpFailed := Code <> 0;
+end;
+
+{ The last lines of the log: the script's own explanation and advice }
+function LogTail(const Log: String): String;
+var I, From: Integer; Lines: TArrayOfString;
+begin
+	Result := '';
+	if LoadStringsFromFile(Log, Lines) then begin
+		From := GetArrayLength(Lines) - 12;
+		if From < 0 then From := 0;
+		for I := From to GetArrayLength(Lines) - 1 do Result := Result + Lines[I] + #13#10;
+	end;
+end;
+
+{ After the files: the script sets NetRollout up and starts it. A failure
+  that can be fixed here offers Retry (a silent install cancels) }
+procedure CurStepChanged(CurStep: TSetupStep);
+var Log, Text: String;
+begin
+	if CurStep <> ssPostInstall then exit;
+	if WizardIsTaskSelected('addtopath') then SetOurPath(True);
+	ForceDirectories(ExpandConstant('{app}\logs'));
+	Log := ExpandConstant('{app}\logs\install.log');
 	SetUpLog := Log;
-	if Code <> 0 then begin
-		Tail := '';
-		if LoadStringsFromFile(Log, Lines) then begin
-			From := GetArrayLength(Lines) - 12;
-			if From < 0 then From := 0;
-			for I := From to GetArrayLength(Lines) - 1 do Tail := Tail + Lines[I] + #13#10;
+	while True do begin
+		SetUpCode := RunSetUp(Log);
+		SetUpFailed := SetUpCode <> 0;
+		if not SetUpFailed then break;
+		Text := 'NetRollout was installed, but setting it up didn''t finish:' + #13#10#13#10 +
+			LogTail(Log) + #13#10 + 'The whole log: ' + Log;
+		if ReleaseBroken then begin
+			SuppressibleMsgBox(Text, mbError, MB_OK, IDOK);
+			break;
 		end;
-		SuppressibleMsgBox('NetRollout was installed, but setting it up didn''t finish:' + #13#10#13#10 + Tail + #13#10 +
-			'The whole log: ' + Log + #13#10 + 'Fix it, then use NetRollout Manager -> Start.', mbError, MB_OK, IDOK);
+		if SuppressibleMsgBox(Text + #13#10#13#10 + 'Fix it and click Retry, or Cancel to finish without it.',
+				mbError, MB_RETRYCANCEL, IDCANCEL) <> IDRETRY then break;
 	end;
 end;
 

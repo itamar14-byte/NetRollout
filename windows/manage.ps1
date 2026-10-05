@@ -40,6 +40,7 @@ $AppImage = "itamarweinstein/netrollout:$Version"
 $EnvFile = Join-Path $Root ".env"
 $Interactive = [Environment]::UserInteractive -and -not $Yes
 $DockerDesktopExe = Join-Path $env:ProgramFiles "Docker\Docker\Docker Desktop.exe"
+$IssuesUrl = "https://github.com/itamar14-byte/NetRollout/issues"
 
 # ── output ──────────────────────────────────────────────────────────────────
 
@@ -47,6 +48,8 @@ function Say([string]$Text) { Write-Host $Text }
 function Step([string]$Text) { Write-Host "-> $Text" -ForegroundColor Cyan }
 function Good([string]$Text) { Write-Host "   $Text" -ForegroundColor Green }
 function Warn([string]$Text) { Write-Host "   $Text" -ForegroundColor Yellow }
+# Exit codes: 1 failed (fix the cause, try again), 2 refused (already
+# installed), 3 this release can't be set up anywhere (retrying won't help)
 function Fail([string]$Text, [int]$Code = 1) {
 	Write-Host ""
 	Write-Host $Text -ForegroundColor Red
@@ -352,9 +355,10 @@ function Invoke-Install {
 		if ($r.Code -ne 0) {
 			Write-Host $r.Output
 			if ($r.Output -match "not found|manifest unknown") {
-				Fail "NetRollout $Version isn't published on Docker Hub ($AppImage doesn't exist there)."
+				Fail ("NetRollout $Version isn't published on Docker Hub ($AppImage doesn't exist there). " +
+				      "This release is incomplete - not a problem with this computer. Please report it: $IssuesUrl") 3
 			}
-			Fail "Couldn't download $AppImage - check the internet connection."
+			Fail "Couldn't download $AppImage - check this computer's internet connection (and proxy, if any)."
 		}
 	}
 	Step "Setting up"
