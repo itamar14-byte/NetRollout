@@ -413,3 +413,88 @@ def test_status_shows_the_backups_and_a_failed_scheduled_one(home):
 	assert ("Backups:      1, 0.0 MB in backups, newest 2026-10-05 02:00 - the last "
 	        "scheduled one FAILED") in text
 	assert "The last scheduled backup failed (disk full): see System Settings -> Backups" in text
+
+
+# ── an update ──
+
+@pytest.mark.parametrize("installed, new, kind", [
+	("1.0.0", "1.0.1", "update"),
+	("1.0.0", "1.1.0", "update"),           # versions skipped: migrations run in order
+	("1.0.0.dev0", "1.0.0rc1", "update"),   # dev < release candidate < release
+	("1.0.0rc1", "1.0.0", "update"),
+	("1.0.0", "1.0.1.dev0", "update"),
+	("1.0.0", "1.0.0", "same"),             # the same Setup again: a repair
+])
+def test_an_update_goes_forward(installed, new, kind):
+	assert manage.update_kind(installed, new) == kind
+
+
+@pytest.mark.parametrize("installed, new", [("1.0.1", "1.0.0"), ("1.0.0", "1.0.0rc1"),
+                                            ("1.0.0", "1.0.0.dev0")])
+def test_never_back_to_an_older_version(installed, new):
+	with pytest.raises(ValueError, match=f"NetRollout {installed} is installed - newer than {new}"):
+		manage.update_kind(installed, new)
+
+
+def test_check_update_through_the_cli():
+	assert run(["check-update", "--installed", "1.0.0", "--new", "1.0.1"]) == (0, ["update"])
+	code, out = run(["check-update", "--installed", "1.0.1", "--new", "1.0.0"])
+	assert code == 2 and "newer than 1.0.0" in out[0]
+	assert run(["check-update", "--installed", "1.0.0"])[0] == 1
+
+
+def test_upgrade_adds_what_is_missing_and_keeps_everything_else(home):
+	import datetime
+	installed(home)
+	path = home / ".env"
+	before = path.read_text(encoding="utf-8")
+	# an install from a version without TZ and SERVER_IPS (say)
+	path.write_text("".join(l for l in before.splitlines(True)
+	                        if not l.startswith(("TZ=", "NETROLLOUT_SERVER_IPS="))),
+	                encoding="utf-8")
+	said = manage.upgrade("1.0.1", datetime.datetime(2026, 11, 1, 9, 30))
+	assert said == [".env: added TZ, NETROLLOUT_SERVER_IPS"]
+	after = path.read_text(encoding="utf-8")
+	lines = after.splitlines()
+	assert lines[0] == before.splitlines()[0]                    # the install's header
+	assert lines[1] == "# Updated to NetRollout 1.0.1 on 2026-11-01 09:30."
+	assert after.endswith("# Added by the update to NetRollout 1.0.1\nTZ=UTC\n"
+	                      "NETROLLOUT_SERVER_IPS=\n")
+	env = manage.env_read()
+	for key, value in dotenv(before).items():      # every value kept
+		if key not in ("TZ", "NETROLLOUT_SERVER_IPS"):
+			assert env[key] == value, key
+
+	# the next update: the stamp replaced, nothing added twice
+	assert manage.upgrade("1.0.2", datetime.datetime(2026, 12, 1, 8, 0)) == []
+	again = path.read_text(encoding="utf-8").splitlines()
+	assert again[1] == "# Updated to NetRollout 1.0.2 on 2026-12-01 08:00."
+	assert sum(l.startswith("# Updated to") for l in again) == 1
+	assert sum(l.startswith("TZ=") for l in again) == 1
+
+
+def test_upgrade_never_makes_up_a_secret_the_data_depends_on(home):
+	installed(home)
+	path = home / ".env"
+	damaged = "".join(l for l in path.read_text(encoding="utf-8").splitlines(True)
+	                  if not l.startswith("NETROLLOUT_ENCRYPTION_KEY="))
+	path.write_text(damaged, encoding="utf-8")
+	code, out = run(["upgrade"])
+	assert code == 1 and "missing NETROLLOUT_ENCRYPTION_KEY - the data depends on it" in out[0]
+	assert path.read_text(encoding="utf-8") == damaged            # nothing written
+
+
+def test_every_env_key_has_an_update_rule(home):
+	# a key added to the .env template needs one: what an update does when an
+	# older install lacks it
+	written = set(installed(home))
+	assert written == set(files.UPGRADE_DEFAULTS)
+
+
+def dotenv(text):
+	values = {}
+	for line in text.splitlines():
+		key, sep, value = line.partition("=")
+		if sep and key and not key.startswith("#"):
+			values[key] = value
+	return values

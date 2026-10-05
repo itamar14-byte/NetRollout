@@ -310,6 +310,38 @@ the bundled superuser, the whole `.env` in the zip).
   its health check (a `start_period`) on a slow machine. Also: grafana-setup
   stays "healthy" after a failure (its done-marker is never removed).
 
+## 9.6 — update and uninstall (decided 2026-10-05)
+
+- **Windows updates through NetRollout Setup**: a newer Setup finds the
+  install (the same AppId) and switches to update mode — review page "Update
+  NetRollout X → Y", no questions, files replaced, data and settings kept.
+  An older Setup is refused before anything is replaced (`check-update`,
+  run with the installed version's image); the same version is a repair.
+- **NetRollout Manager → Update**: asks GitHub's latest release (not Docker
+  Hub: the pipeline pushes the images before it publishes the installer, so
+  Docker Hub would announce a version that can't be installed yet), shows
+  the release notes and what happens (running rollouts finish first, about a
+  minute down), **Update now** (the default button) downloads the Setup,
+  checks it against the release's `SHA256SUMS`, runs it silently; the
+  Manager reopens on the new version. Also a daily check with a tray
+  notification, switchable off in the Manager. Never installs without a click.
+- **Every update**: a `before-update` backup; the new images downloaded
+  **before** anything stops (the downtime is the restart only); `upgrade`
+  (`.env` keys a version adds; a missing secret the data depends on stops
+  it); start — the app migrates the database. Linux: `netrollout.sh update
+  [--version X] [--from <zip>] [--check]` — GitHub's release zip checked
+  against `SHA256SUMS`, files replaced, the new script finishes.
+- **A failed update**: no automatic rollback (the database may be upgraded
+  already) — the message names the before-update backup and how to go back
+  (the previous version + restore); a fixable cause is retried with the same
+  Setup. One-click rollback: post-v1.
+- **Uninstall + delete the data** asks separately "Keep the backups?"
+  (default yes); a silent uninstall keeps everything. Linux also asks whether
+  to remove the install folder. The port helper's auto-start (9.7) is removed.
+- Subtasks: 9.6a setup core (`check-update`, `upgrade`) · 9.6b Windows
+  installer as updater · 9.6c the Manager's Update · 9.6d Linux `update` ·
+  9.6e uninstall · 9.6f real runs (dev0 → dev1 on both OSes).
+
 ## Bring your own database / Redis (from the UI)
 
 A move, not a switch: switching live to an empty server would leave the data

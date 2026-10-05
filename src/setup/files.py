@@ -92,6 +92,29 @@ COMPOSE_FILE={files}
 """
 
 
+# Every key an install's .env has, and what an update does when one is
+# missing (manage.upgrade): None = it can't be made up - the data depends on
+# it (a new database password or encryption key would lock the data out);
+# else the value to add. A key a later version adds gets an entry here (a
+# generated secret, or its default) - the tests check every key env_text
+# writes is listed.
+UPGRADE_DEFAULTS = {
+	"POSTGRES_PASSWORD": None,
+	"NETROLLOUT_DB_PASSWORD": None,
+	"GRAFANA_DB_PASSWORD": None,
+	"REDIS_PASSWORD": None,
+	"GRAFANA_ADMIN_PASSWORD": None,
+	"SECRET_KEY": lambda: secrets.token_hex(32),   # only signs sessions
+	"NETROLLOUT_ENCRYPTION_KEY": None,
+	"HTTPS_PORT": lambda: "443",                  # what compose uses without it
+	"TZ": lambda: "UTC",
+	"NETROLLOUT_SERVER_IPS": lambda: "",
+	"COMPOSE_PROFILES": lambda: "",
+	"COMPOSE_PATH_SEPARATOR": lambda: ",",
+	"COMPOSE_FILE": lambda: COMPOSE,
+}
+
+
 def install(answers: Answers, facts: Facts, now: datetime.datetime | None = None,
             version: str | None = None) -> list[str]:
 	"""Write the install; returns what was done (one line each). Raises

@@ -1,6 +1,7 @@
 """What the scripts ask of the setup core after the install: the port-80
-switch and the server's addresses before a start (prepare_start), the
-restored backup's encryption key into .env (restore_key), and the
+switch and the server's addresses before a start (prepare_start), an
+update's direction and .env (update_kind, upgrade), the restored backup's
+encryption key into .env (restore_key), and the
 `netrollout status` report (status). The scripts gather what only the host
 sees (busy ports, the containers' states, whether the address answers from
 this computer) and pass it in; .env is only ever edited here."""
@@ -11,6 +12,7 @@ import urllib.request
 from dataclasses import dataclass, field
 
 from cryptography.fernet import Fernet
+from packaging.version import InvalidVersion, Version
 
 from src import backup, certs, runtime, site_env
 from src.setup import files
@@ -99,6 +101,59 @@ def prepare_start(busy: dict[int, str], server_ips: list[str]) -> list[str]:
 		updates["NETROLLOUT_SERVER_IPS"] = ips
 	if updates:
 		env_set(updates)
+	return said
+
+
+# ── an update ──
+
+def update_kind(installed: str, new: str) -> str:
+	"""What installing `new` over `installed` is: "update", or "same" (a
+	repair: the files again, then a start).
+	:raises ValueError: `new` is older (never go back: the database may be
+	 upgraded already), or a version can't be read"""
+	try:
+		old_v, new_v = Version(installed), Version(new)
+	except InvalidVersion as e:
+		raise ValueError(f"Can't compare the versions ({e}).") from None
+	if new_v < old_v:
+		raise ValueError(f"NetRollout {installed} is installed - newer than {new}. "
+		                 f"Nothing was changed. (To go back to an older version: "
+		                 f"uninstall keeping the data is not enough - restore a "
+		                 f"backup made with that version.)")
+	return "update" if new_v > old_v else "same"
+
+
+def upgrade(version: str = runtime.VERSION,
+            now: datetime.datetime | None = None) -> list[str]:
+	"""After an update's files are in place: .env gets what this version needs
+	(files.UPGRADE_DEFAULTS) - existing values and comments untouched - and a
+	line saying when it was updated. Returns what to say.
+	:raises ValueError: a key the data depends on is missing (nothing written)"""
+	now = now or datetime.datetime.now()
+	path = files.env_path()
+	text = path.read_text(encoding="utf-8")
+	present = set(env_read())
+	missing = [k for k in files.UPGRADE_DEFAULTS if k not in present]
+	lost = [k for k in missing if files.UPGRADE_DEFAULTS[k] is None]
+	if lost:
+		raise ValueError(f"{path} is missing {', '.join(lost)} - the data depends on "
+		                 f"{'it' if len(lost) == 1 else 'them'}, so NetRollout can't be "
+		                 f"updated or started. Put {'it' if len(lost) == 1 else 'them'} "
+		                 f"back (a copy of .env), then update again.")
+	lines = text.splitlines()
+	stamp = f"# Updated to NetRollout {version} on {now:%Y-%m-%d %H:%M}."
+	updated = [i for i, line in enumerate(lines) if line.startswith("# Updated to NetRollout ")]
+	if updated:
+		lines[updated[0]] = stamp
+	else:
+		lines.insert(1 if lines and lines[0].startswith("#") else 0, stamp)
+	said = []
+	if missing:
+		lines += ["", f"# Added by the update to NetRollout {version}"]
+		lines += [f"{k}={files.UPGRADE_DEFAULTS[k]()}" for k in missing]
+		said.append(f".env: added {', '.join(missing)}")
+	with open(path, "w", encoding="utf-8", newline="\n") as f:
+		f.write("\n".join(lines) + "\n")
 	return said
 
 

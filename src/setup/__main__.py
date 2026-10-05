@@ -1,5 +1,5 @@
-"""python -m src.setup init | check | prepare-start | status | restore-key -
-see src/setup/__init__.py."""
+"""python -m src.setup init | check | prepare-start | status | restore-key |
+check-update | upgrade - see src/setup/__init__.py."""
 import argparse
 import sys
 
@@ -14,7 +14,7 @@ ANSWER_FLAGS = ("hostname", "https_port", "monitoring", "org_certificate",
 def parse_args(argv):
 	p = argparse.ArgumentParser(prog="python -m src.setup")
 	p.add_argument("command", choices=("init", "check", "prepare-start", "status",
-	                                   "restore-key"))
+	                                   "restore-key", "check-update", "upgrade"))
 	facts = p.add_argument_group("facts (from the host script)")
 	facts.add_argument("--os", choices=("windows", "linux"), default="linux")
 	facts.add_argument("--computer-name", default="")
@@ -39,6 +39,9 @@ def parse_args(argv):
 	seen.add_argument("--health-url", default=manage.HEALTH_URL)
 	p.add_argument("--defaults", action="store_true",
 	               help="never ask: defaults for what isn't given")
+	update = p.add_argument_group("check-update (run with the installed version's image)")
+	update.add_argument("--installed", help="the installed version")
+	update.add_argument("--new", help="the version about to be installed")
 	p.add_argument("--dev", action="store_true",
 	               help="a developer's .env + config/runtime.env (repo)")
 	return p.parse_args(argv)
@@ -68,7 +71,18 @@ def main(argv=None, read=input, write=print) -> int:
 			return REFUSED
 		return OK
 	facts = facts_from(args)
-	if args.command in ("prepare-start", "status", "restore-key"):
+	if args.command == "check-update":
+		# prints "update" or "same" (a repair); refused: why, exit 2
+		if not (args.installed and args.new):
+			write("check-update needs --installed and --new")
+			return INVALID
+		try:
+			write(manage.update_kind(args.installed, args.new))
+		except ValueError as e:
+			write(str(e))
+			return REFUSED
+		return OK
+	if args.command in ("prepare-start", "status", "restore-key", "upgrade"):
 		if not files.env_path().exists():
 			write(f"NetRollout isn't installed here ({files.env_path()} is missing) "
 			      f"- run the install first.")
@@ -76,6 +90,14 @@ def main(argv=None, read=input, write=print) -> int:
 		if args.command == "prepare-start":
 			for line in manage.prepare_start(facts.busy_ports, facts.server_ips):
 				write(line)
+			return OK
+		if args.command == "upgrade":
+			try:
+				for line in manage.upgrade():
+					write(line)
+			except ValueError as e:
+				write(str(e))
+				return INVALID
 			return OK
 		if args.command == "restore-key":
 			try:
