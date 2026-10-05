@@ -139,6 +139,32 @@ def test_the_licence_page_shows_the_full_licence_from_the_one_file():
 	assert "ExtractTemporaryFile('LICENSE')" in text
 
 
+def test_the_installers_identity_never_changes():
+	# Windows finds the install (Settings -> Apps, updates) by this id: a new
+	# one would orphan every installed NetRollout. Test builds (/DTestBuild)
+	# have their own, so a test can't take over or update a real install.
+	import re
+	text = (ROOT / "windows" / "installer" / "netrollout.iss").read_text(encoding="utf-8")
+	real = re.search(r'#else\s+#define AppGuid "([0-9A-F-]+)"', text).group(1)
+	test = re.search(r'#ifdef TestBuild\s+#define AppGuid "([0-9A-F-]+)"', text).group(1)
+	assert real == "6C1F0E52-9B47-4E1B-A7D3-5E2C8F41B0A9" != test
+	assert "AppId={{{#AppGuid}}" in text and "'{{#AppGuid}}_is1'" in text
+
+
+def test_setup_over_an_install_updates_and_checks_first():
+	# before any file is replaced: the direction and a backup (the copy in
+	# Setup's temporary folder, pointed at the install); after: the update
+	text = (ROOT / "windows" / "installer" / "netrollout.iss").read_text(encoding="utf-8")
+	assert "function PrepareToInstall(" in text
+	assert "prepare-update -Yes -InstallDir" in text and r"{tmp}\manage.ps1" in text
+	assert "Args := 'update -Yes -NoBrowser'" in text
+	script = (ROOT / "windows" / "manage.ps1").read_text(encoding="utf-8")
+	assert '"prepare-update" { Invoke-PrepareUpdate; return 0 }' in script
+	assert '"update" { Invoke-Update; return 0 }' in script
+	assert '"check-update",' in script and '(Invoke-BackupCreate "before-update")' in script
+	assert '(Invoke-Setup @("upgrade"))' in script
+
+
 def test_the_installer_ends_honestly():
 	# success: the portal opens on Finish (ticked); failure: Retry unless the
 	# script says retrying can't help (exit 3: the release's image is missing)

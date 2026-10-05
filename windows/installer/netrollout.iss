@@ -9,14 +9,32 @@
 ; the command line, the icon), deploy\, the compose files, VERSION, LICENSE,
 ; the uninstaller; the install creates .env (hidden), config\, certs\, logs\,
 ; backups\. docs/plans/stage-9.md, 9.3b / 9.4b.
+;
+; Over an install it updates (9.6): only the review page ("Update X -> Y");
+; before any file is replaced the script checks the direction (an older
+; Setup is refused) and backs up; after the files, it downloads the new
+; images while the old version runs, brings .env up to date and restarts.
+; /OPENMANAGER=1 (NetRollout Manager's Update): the Manager opens afterwards.
 
 #define Root AddBackslash(SourcePath) + "..\.."
 #define AppVersion Trim(FileRead(FileOpen(Root + "\VERSION")))
 #define Repo "https://github.com/itamar14-byte/NetRollout"
+; Windows keeps one install record per app identity and user: a test build
+; (iscc /DTestBuild) has its own, so a test install can neither take over nor
+; update the real one
+#ifdef TestBuild
+  #define AppGuid "8E0B3C71-6F2D-4C5A-9B1E-2D7F4A6C8E90"
+  #define AppTitle "NetRollout (test)"
+  #define OutputSuffix "-test"
+#else
+  #define AppGuid "6C1F0E52-9B47-4E1B-A7D3-5E2C8F41B0A9"
+  #define AppTitle "NetRollout"
+  #define OutputSuffix ""
+#endif
 
 [Setup]
-AppId={{6C1F0E52-9B47-4E1B-A7D3-5E2C8F41B0A9}
-AppName=NetRollout
+AppId={{{#AppGuid}}
+AppName={#AppTitle}
 AppVersion={#AppVersion}
 AppVerName=NetRollout {#AppVersion}
 AppPublisher=Itamar Weinstein
@@ -45,10 +63,10 @@ WizardImageFileDynamicDark=wizard.bmp,wizard-200.bmp
 WizardSmallImageFileDynamicDark=wizard-small.png,wizard-small-200.png
 SetupIconFile=..\netrollout.ico
 UninstallDisplayIcon={app}\bin\netrollout.ico
-UninstallDisplayName=NetRollout
+UninstallDisplayName={#AppTitle}
 LicenseFile=licence-notice.txt
 OutputDir={#Root}\dist
-OutputBaseFilename=NetRollout-Setup-{#AppVersion}
+OutputBaseFilename=NetRollout-Setup-{#AppVersion}{#OutputSuffix}
 Compression=lzma2
 SolidCompression=yes
 CloseApplications=yes
@@ -129,6 +147,9 @@ var
 	CertButton, KeyButton: TNewButton;
 	DefaultsFile: String;
 	Reinstall: Boolean;
+	{ over an installed NetRollout (Windows' record of it + its VERSION) }
+	UpdateMode: Boolean;
+	InstalledDir, InstalledVersion: String;
 
 function Ps(const Command, Extra: String): String;
 begin
@@ -152,6 +173,22 @@ begin
 	Result := GetIniString('defaults', Key, Fallback, DefaultsFile);
 end;
 
+{ An installed NetRollout: where (Windows' record of the install) and which
+  version (its VERSION file) }
+procedure FindInstalled;
+var Dir: String; Version: AnsiString;
+begin
+	UpdateMode := False;
+	if not RegQueryStringValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Uninstall\' +
+			'{{#AppGuid}}_is1', 'InstallLocation', Dir) then exit;
+	Dir := RemoveBackslashUnlessRoot(Dir);
+	if not (FileExists(Dir + '\.env') and LoadStringFromFile(Dir + '\VERSION', Version)) then exit;
+	InstalledDir := Dir;
+	InstalledVersion := Trim(String(Version));
+	UpdateMode := True;
+	Reinstall := True;
+end;
+
 { Before the first page: Windows Server, or virtualization off -> say so and stop }
 function InitializeSetup: Boolean;
 var Problem: String;
@@ -160,7 +197,9 @@ begin
 	Problem := GetDefault('problem', '');
 	Result := Problem = '';
 	if not Result then
-		SuppressibleMsgBox('NetRollout can''t run on this computer.' + #13#10#13#10 + Problem, mbCriticalError, MB_OK, IDOK);
+		SuppressibleMsgBox('NetRollout can''t run on this computer.' + #13#10#13#10 + Problem, mbCriticalError, MB_OK, IDOK)
+	else
+		FindInstalled;
 end;
 
 function MakeLabel(Page: TWizardPage; const Caption: String; Top: Integer; Bold: Boolean): TNewStaticText;
@@ -344,6 +383,10 @@ begin
 	if ReleaseBroken then
 		Result := 'This release can''t be set up - please report it: {#Repo}/issues' + #13#10 +
 			'To remove it: Settings -> Apps -> NetRollout -> Uninstall.'
+	else if UpdateMode then
+		Result := 'Fix it, then click Retry - or Start in NetRollout Manager. The backup made before the ' +
+			'update is in the backups folder (...-before-update.zip): to go back to NetRollout ' +
+			InstalledVersion + ', install it and restore that backup.'
 	else if HasSettings then
 		Result := 'Fix it, then click Start in NetRollout Manager.'
 	else
@@ -356,6 +399,18 @@ begin
 	if CurPageID = wpSelectDir then begin
 		WizardForm.ActiveControl := WizardForm.DirEdit;
 		WizardForm.DirEdit.SelectAll;
+	end;
+	if (CurPageID = wpReady) and UpdateMode then begin
+		WizardForm.PageNameLabel.Caption := 'Ready to update';
+		WizardForm.PageDescriptionLabel.Caption := 'NetRollout ' + InstalledVersion + ' → {#AppVersion}';
+		WizardForm.ReadyLabel.Caption := 'Click Update. NetRollout keeps running while the new version ' +
+			'downloads; then it restarts (about a minute).';
+		WizardForm.NextButton.Caption := 'Update';
+	end;
+	if (CurPageID = wpFinished) and UpdateMode and not SetUpFailed then begin
+		WizardForm.FinishedHeadingLabel.Caption := 'NetRollout is updated';
+		WizardForm.FinishedLabel.Caption := 'NetRollout {#AppVersion} is running. Everyone signs in again ' +
+			'(a restart signs everyone out).';
 	end;
 	if (CurPageID = wpFinished) and SetUpFailed then begin
 		WizardForm.FinishedHeadingLabel.Caption := 'NetRollout is installed, but not running';
@@ -428,6 +483,10 @@ end;
 function ShouldSkipPage(PageID: Integer): Boolean;
 begin
 	Result := (PageID = SettingsPage.ID) and Reinstall;
+	{ an update: only the review page (and Docker's, if it isn't running) }
+	if UpdateMode then
+		Result := Result or (PageID = wpWelcome) or (PageID = wpLicense) or (PageID = wpSelectDir) or
+			(PageID = wpSelectTasks) or ((PageID = DockerPage.ID) and (GetDefault('docker', '') = 'running'));
 end;
 
 function YesNo(B: Boolean): String;
@@ -459,6 +518,14 @@ function UpdateReadyMemo(Space, NewLine, MemoUserInfoInfo, MemoDirInfo, MemoType
 	MemoComponentsInfo, MemoGroupInfo, MemoTasksInfo: String): String;
 var Lines, Certificate, Shortcuts: String;
 begin
+	if UpdateMode then begin
+		Result := 'Update:' + NewLine + Space + 'NetRollout ' + InstalledVersion + ' → {#AppVersion}' + NewLine + NewLine +
+			'Folder:' + NewLine + Space + InstalledDir + NewLine + NewLine +
+			'Kept:' + NewLine + Space + 'the data, the settings, the certificate, the backups' + NewLine + NewLine +
+			'First:' + NewLine + Space + 'a backup (before-update), by the installed version' + NewLine + NewLine +
+			'Downtime:' + NewLine + Space + 'about a minute (running rollouts finish first; everyone signs in again)';
+		exit;
+	end;
 	Lines := 'Install folder:' + NewLine + Space + WizardDirValue + NewLine + NewLine;
 	if Reinstall then
 		Lines := Lines + 'Settings:' + NewLine + Space + 'kept from the NetRollout already in this folder' + NewLine + NewLine
@@ -522,10 +589,22 @@ begin
 		RegWriteExpandStringValue(HKCU, 'Environment', 'Path', NewPath);
 end;
 
-{ One attempt: set NetRollout up (or, once it is, just start it); the exit code }
+{ One attempt: set NetRollout up, update it, or (set up already) start it;
+  the exit code }
 function RunSetUp(const Log: String): Integer;
 var Args: String;
 begin
+	if UpdateMode then begin
+		Args := 'update -Yes -NoBrowser';
+		WizardForm.StatusLabel.Caption := 'Updating NetRollout - downloading the new version, then a restart (about a minute)...';
+		WizardForm.ProgressGauge.Style := npbstMarquee;
+		{ appended: the log of the preparation is in the same file }
+		Exec(ExpandConstant('{cmd}'), '/C powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' +
+			ExpandConstant('{app}\bin\manage.ps1') + '" ' + Args + ' >> "' + Log + '" 2>&1',
+			ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, Result);
+		WizardForm.ProgressGauge.Style := npbstNormal;
+		exit;
+	end;
 	if Reinstall or HasSettings then
 		Args := 'start -Yes -NoBrowser'
 	else begin
@@ -559,22 +638,41 @@ begin
 	end;
 end;
 
+{ An update, before any file is replaced: the direction (an older Setup is
+  refused) and a backup by the installed version. Non-empty: why Setup stops. }
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var Code: Integer; Log: String;
+begin
+	Result := '';
+	if not UpdateMode then exit;
+	ForceDirectories(InstalledDir + '\logs');
+	Log := InstalledDir + '\logs\update.log';
+	Exec(ExpandConstant('{cmd}'), '/C powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' +
+		ExpandConstant('{tmp}\manage.ps1') + '" prepare-update -Yes -InstallDir "' + InstalledDir +
+		'" -NewVersion {#AppVersion} > "' + Log + '" 2>&1', InstalledDir, SW_HIDE, ewWaitUntilTerminated, Code);
+	if Code <> 0 then
+		Result := 'Nothing was changed - NetRollout ' + InstalledVersion + ' keeps running.' + #13#10#13#10 +
+			LogTail(Log) + #13#10 + 'The whole log: ' + Log;
+end;
+
 { After the files: the script sets NetRollout up and starts it. A failure
   that can be fixed here offers Retry (a silent install cancels) }
 procedure CurStepChanged(CurStep: TSetupStep);
-var Log, Text: String;
+var Log, Text: String; Code: Integer;
 begin
 	if CurStep <> ssPostInstall then exit;
 	if WizardIsTaskSelected('addtopath') then SetOurPath(True);
 	ForceDirectories(ExpandConstant('{app}\logs'));
-	Log := ExpandConstant('{app}\logs\install.log');
+	if UpdateMode then Log := ExpandConstant('{app}\logs\update.log')
+	else Log := ExpandConstant('{app}\logs\install.log');
 	SetUpLog := Log;
 	while True do begin
 		SetUpCode := RunSetUp(Log);
 		SetUpFailed := SetUpCode <> 0;
 		if not SetUpFailed then break;
-		Text := 'NetRollout was installed, but setting it up didn''t finish:' + #13#10#13#10 +
-			LogTail(Log) + #13#10 + 'The whole log: ' + Log;
+		if UpdateMode then Text := 'NetRollout''s files are updated, but the update didn''t finish:'
+		else Text := 'NetRollout was installed, but setting it up didn''t finish:';
+		Text := Text + #13#10#13#10 + LogTail(Log) + #13#10 + 'The whole log: ' + Log;
 		if ReleaseBroken then begin
 			SuppressibleMsgBox(Text, mbError, MB_OK, IDOK);
 			break;
@@ -582,6 +680,10 @@ begin
 		if SuppressibleMsgBox(Text + #13#10#13#10 + 'Fix it and click Retry, or Cancel to finish without it.',
 				mbError, MB_RETRYCANCEL, IDCANCEL) <> IDRETRY then break;
 	end;
+	{ NetRollout Manager started this update (and Setup closed it): it comes back }
+	if ExpandConstant('{param:OPENMANAGER|0}') = '1' then
+		ShellExec('', ExpandConstant('{app}\bin\NetRollout Manager.exe'), '', ExpandConstant('{app}'),
+			SW_SHOWNORMAL, ewNoWait, Code);
 end;
 
 { Uninstall: the containers go; the data only if asked }

@@ -25,13 +25,17 @@ param(
 	[string]$Out = "",              # defaults: the file to write them to
 	[switch]$DeleteData,            # uninstall: delete the data too (no question)
 	[switch]$KeepData,              # uninstall: keep it (no question)
-	[switch]$NoSafetyBackup         # restore: without backing up the current state
+	[switch]$NoSafetyBackup,        # restore: without backing up the current state
+	# NetRollout Setup, updating: the installed folder (this copy runs from
+	# Setup's temporary folder) and the version it brings
+	[string]$InstallDir = "",
+	[string]$NewVersion = ""
 )
 
 Set-StrictMode -Version 2
 $ErrorActionPreference = "Stop"
 
-$Root = Split-Path -Parent $PSScriptRoot
+$Root = if ($InstallDir) { $InstallDir } else { Split-Path -Parent $PSScriptRoot }
 # (the Setup wizard runs some commands from a temporary copy, before
 # NetRollout's files are in place: no VERSION there)
 $VersionFile = Join-Path $Root "VERSION"
@@ -391,9 +395,7 @@ function Invoke-Status {
 		"--busy-ports", $busy) + (Get-Facts)) -OnNetwork
 }
 
-function Invoke-Stop {
-	if (-not (Test-Installed)) { Fail "NetRollout isn't installed in $Root." }
-	if (-not ((Test-DockerCli) -and (Test-DockerRunning))) { Good "NetRollout isn't running (Docker isn't)."; return }
+function Show-RunningRollouts {
 	try {
 		Enable-LocalTls
 		$port = Read-EnvValue "HTTPS_PORT" "443"
@@ -402,6 +404,12 @@ function Invoke-Stop {
 			Warn "$($h.rollouts.running) rollout(s) running - they finish and are recorded first (up to 10 minutes)."
 		}
 	} catch { }
+}
+
+function Invoke-Stop {
+	if (-not (Test-Installed)) { Fail "NetRollout isn't installed in $Root." }
+	if (-not ((Test-DockerCli) -and (Test-DockerRunning))) { Good "NetRollout isn't running (Docker isn't)."; return }
+	Show-RunningRollouts
 	Step "Stopping NetRollout"
 	$r = Compose @("stop")
 	if ($r.Code -ne 0) { Write-Host $r.Output; Fail "Docker couldn't stop it - see above." }
@@ -542,6 +550,61 @@ function Invoke-Restore {
 	}
 }
 
+# ── updates (NetRollout Setup over an install) ───────────────────────────────
+
+# Before Setup replaces any file - run from Setup's temporary folder with
+# -InstallDir: the direction (the installed version's image decides), then
+# a backup by the installed version. Exit 2: refused, nothing changed.
+function Invoke-PrepareUpdate {
+	if (-not (Test-Installed)) { Fail "NetRollout isn't installed in $Root." }
+	if (-not $NewVersion) { Fail "prepare-update needs -NewVersion" }
+	Confirm-Docker
+	Step "Checking the update: NetRollout $Version -> $NewVersion"
+	$r = Invoke-Native "docker" @("run", "--rm", $AppImage, "python", "-m", "src.setup", "check-update",
+		"--installed", $Version, "--new", $NewVersion)
+	if ($r.Code -eq 2) { Show-Output $r.Output; Fail "Nothing was changed." 2 }
+	if ($r.Code -ne 0) {
+		Warn "Couldn't compare the versions ($AppImage didn't run) - continuing."
+	} elseif (($r.Output -split "`n")[-1].Trim() -eq "same") {
+		Good "The same version: its files again, then a start (a repair)."
+	}
+	Show-RunningRollouts
+	Step "Backing up first"
+	if ((Invoke-BackupCreate "before-update") -ne 0) {
+		Fail "Couldn't back up - nothing was changed. Fix it (above), then run Setup again."
+	}
+}
+
+# After Setup replaced the files (this is the new script): the new images
+# while the old version keeps running, .env brought up to date, the restart.
+function Invoke-Update {
+	if (-not (Test-Installed)) { Fail "NetRollout isn't installed in $Root." }
+	Confirm-Docker
+	Step "Downloading NetRollout $Version (it keeps running meanwhile)"
+	# failures of others' images surface at the start; ours are checked here
+	# (a local build isn't on Docker Hub)
+	Compose @("pull", "--quiet", "--ignore-pull-failures") | Out-Null
+	foreach ($image in "netrollout", "netrollout-postgres", "netrollout-nginx") {
+		if ((Invoke-Native "docker" @("image", "inspect", "itamarweinstein/${image}:$Version")).Code -ne 0) {
+			$r = Invoke-Native "docker" @("pull", "itamarweinstein/${image}:$Version")
+			if ($r.Code -ne 0) {
+				Write-Host $r.Output
+				if ($r.Output -match "not found|manifest unknown") {
+					Fail ("NetRollout $Version isn't published on Docker Hub (itamarweinstein/${image}:$Version doesn't exist there). " +
+					      "This release is incomplete - not a problem with this computer. Please report it: $IssuesUrl") 3
+				}
+				Fail "Couldn't download itamarweinstein/${image}:$Version - check this computer's internet connection (and proxy, if any)."
+			}
+		}
+	}
+	Step "Updating the settings"
+	if ((Invoke-Setup @("upgrade")) -ne 0) { Fail "The update stopped before the restart - see above." }
+	Show-RunningRollouts
+	Step "Restarting on the new version (about a minute; running rollouts finish first)"
+	Start-NetRollout
+	Good "Updated to NetRollout $Version. Everyone signs in again."
+}
+
 # What the Setup wizard pre-fills (an ini file: it reads those natively)
 function Write-Defaults {
 	if (-not $Out) { Fail "defaults needs -Out <file>" }
@@ -621,6 +684,8 @@ function Invoke-NrCommand([string]$Name) {
 		"stop" { Invoke-Stop; return 0 }
 		"backup" { Invoke-Backup; return 0 }
 		"restore" { Invoke-Restore; return 0 }
+		"prepare-update" { Invoke-PrepareUpdate; return 0 }
+		"update" { Invoke-Update; return 0 }
 		"uninstall" { Invoke-Uninstall; return 0 }
 		"ensure-docker" { Confirm-Docker -OfferInstall; Good "Docker is running."; return 0 }
 		"defaults" { Write-Defaults; return 0 }

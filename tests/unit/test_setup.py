@@ -457,7 +457,7 @@ def test_upgrade_adds_what_is_missing_and_keeps_everything_else(home):
 	after = path.read_text(encoding="utf-8")
 	lines = after.splitlines()
 	assert lines[0] == before.splitlines()[0]                    # the install's header
-	assert lines[1] == "# Updated to NetRollout 1.0.1 on 2026-11-01 09:30."
+	assert lines[1] == "# Updated to NetRollout 1.0.1 on 2026-11-01 09:30 UTC."
 	assert after.endswith("# Added by the update to NetRollout 1.0.1\nTZ=UTC\n"
 	                      "NETROLLOUT_SERVER_IPS=\n")
 	env = manage.env_read()
@@ -468,7 +468,7 @@ def test_upgrade_adds_what_is_missing_and_keeps_everything_else(home):
 	# the next update: the stamp replaced, nothing added twice
 	assert manage.upgrade("1.0.2", datetime.datetime(2026, 12, 1, 8, 0)) == []
 	again = path.read_text(encoding="utf-8").splitlines()
-	assert again[1] == "# Updated to NetRollout 1.0.2 on 2026-12-01 08:00."
+	assert again[1] == "# Updated to NetRollout 1.0.2 on 2026-12-01 08:00 UTC."
 	assert sum(l.startswith("# Updated to") for l in again) == 1
 	assert sum(l.startswith("TZ=") for l in again) == 1
 

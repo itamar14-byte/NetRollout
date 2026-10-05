@@ -127,9 +127,10 @@ def upgrade(version: str = runtime.VERSION,
             now: datetime.datetime | None = None) -> list[str]:
 	"""After an update's files are in place: .env gets what this version needs
 	(files.UPGRADE_DEFAULTS) - existing values and comments untouched - and a
-	line saying when it was updated. Returns what to say.
+	line saying when it was updated (UTC: the setup core runs in a container
+	on UTC). Returns what to say.
 	:raises ValueError: a key the data depends on is missing (nothing written)"""
-	now = now or datetime.datetime.now()
+	now = now or datetime.datetime.now(datetime.timezone.utc)
 	path = files.env_path()
 	text = path.read_text(encoding="utf-8")
 	present = set(env_read())
@@ -141,7 +142,7 @@ def upgrade(version: str = runtime.VERSION,
 		                 f"updated or started. Put {'it' if len(lost) == 1 else 'them'} "
 		                 f"back (a copy of .env), then update again.")
 	lines = text.splitlines()
-	stamp = f"# Updated to NetRollout {version} on {now:%Y-%m-%d %H:%M}."
+	stamp = f"# Updated to NetRollout {version} on {now:%Y-%m-%d %H:%M} UTC."
 	updated = [i for i, line in enumerate(lines) if line.startswith("# Updated to NetRollout ")]
 	if updated:
 		lines[updated[0]] = stamp
