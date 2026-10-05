@@ -337,7 +337,8 @@ the bundled superuser, the whole `.env` in the zip).
   Setup. One-click rollback: post-v1.
 - **Uninstall + delete the data** asks separately "Keep the backups?"
   (default yes); a silent uninstall keeps everything. Linux also asks whether
-  to remove the install folder. The port helper's auto-start (9.7) is removed.
+  to remove the install folder. The port helper's auto-start is removed by
+  uninstall — 9.7 adds that step with the helper itself (no placeholder now).
 - Subtasks: 9.6a setup core (`check-update`, `upgrade`) · 9.6b Windows
   installer as updater · 9.6c the Manager's Update · 9.6d Linux `update` ·
   9.6e uninstall · 9.6f real runs (dev0 → dev1 on both OSes).

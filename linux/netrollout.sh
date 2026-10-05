@@ -27,6 +27,7 @@ APP_UID=10001                                  # the app container's user
 # ── options ──────────────────────────────────────────────────────────────────
 COMMAND="${1:-}"; [ $# -gt 0 ] && shift
 SERVICE="" YES="" NO_BROWSER="" DELETE_DATA="" KEEP_DATA="" NO_SAFETY_BACKUP=""
+DELETE_BACKUPS="" REMOVE_FILES=""
 CHECK="" WANTED="" FROM_ZIP="" FEED=""
 ANSWERS=()
 while [ $# -gt 0 ]; do
@@ -35,6 +36,8 @@ while [ $# -gt 0 ]; do
 		--no-browser) NO_BROWSER=1 ;;
 		--delete-data) DELETE_DATA=1 ;;
 		--keep-data) KEEP_DATA=1 ;;
+		--delete-backups) DELETE_BACKUPS=1 ;;
+		--remove-files) REMOVE_FILES=1 ;;
 		--no-safety-backup) NO_SAFETY_BACKUP=1 ;;
 		--check) CHECK=1 ;;
 		--version|--from|--feed)
@@ -475,11 +478,19 @@ do_status() {
 do_uninstall() {
 	need_root
 	if [ ! -f "$ENV_FILE" ]; then good "NetRollout isn't installed in $ROOT - nothing to remove."; return; fi
-	local delete="$DELETE_DATA"
+	local delete="$DELETE_DATA" delete_backups="$DELETE_BACKUPS" remove_files="$REMOVE_FILES"
 	if [ -z "$DELETE_DATA" ] && [ -z "$KEEP_DATA" ] && [ -n "$INTERACTIVE" ]; then
 		local a=""
-		read -r -p "Also delete NetRollout's data - the database, settings, certificates, logs and backups? This can't be undone. [y/N] " a || true
+		read -r -p "Also delete NetRollout's data - the database, settings, certificates and logs? This can't be undone. [y/N] " a || true
 		case "$a" in y|Y|yes) delete=1 ;; esac
+		if [ -n "$delete" ]; then
+			a=""
+			read -r -p "Keep the backups ($ROOT/backups)? They're the last copy of the data. [Y/n] " a || true
+			case "$a" in n|N|no) delete_backups=1 ;; esac
+		fi
+		a=""
+		read -r -p "Remove NetRollout's files in $ROOT too (the scripts, compose files)? [y/N] " a || true
+		case "$a" in y|Y|yes) remove_files=1 ;; esac
 	fi
 	if docker info >/dev/null 2>&1; then
 		step "Removing NetRollout's containers${delete:+ and its data}"
@@ -489,11 +500,25 @@ do_uninstall() {
 		warn "Docker isn't running: the database volumes stay (docker volume ls: ${PROJECT}_*)."
 	fi
 	if [ -n "$delete" ]; then
-		rm -rf "$ENV_FILE" "$ROOT/config" "$ROOT/certs" "$ROOT/logs" "$ROOT/backups"
-		good "NetRollout and its data are removed."
+		rm -rf "$ENV_FILE" "$ROOT/config" "$ROOT/certs" "$ROOT/logs"
+		if [ -n "$delete_backups" ]; then rm -rf "$ROOT/backups"; fi
+		if [ -d "$ROOT/backups" ]; then
+			good "NetRollout and its data are removed - the backups stay in $ROOT/backups"
+			good "(restore one into a new install: netrollout.sh restore <file>)."
+		else
+			good "NetRollout and its data are removed."
+		fi
 	else
 		good "NetRollout is removed. Its data stays (the database volumes, and .env, config, certs,"
 		good "logs, backups in $ROOT): installing again in this folder picks it up."
+	fi
+	if [ -n "$remove_files" ]; then
+		local item
+		for item in bin compose.yaml compose.http.yaml deploy VERSION LICENSE README.md .update; do
+			rm -rf "${ROOT:?}/$item"
+		done
+		if rmdir "$ROOT" 2>/dev/null; then good "$ROOT is removed."
+		else good "NetRollout's files in $ROOT are removed."; fi
 	fi
 }
 
@@ -514,7 +539,9 @@ show_help() {
 	say ""
 	say "  --yes   unattended (accepts the licence, defaults); with install also"
 	say "          --hostname --https-port --monitoring y/n --org-certificate y/n --timezone"
-	say "  --no-browser   --delete-data / --keep-data (uninstall)   --no-safety-backup (restore)"
+	say "  --no-browser   --no-safety-backup (restore)"
+	say "  uninstall: --delete-data / --keep-data, --delete-backups (with --delete-data; else kept),"
+	say "             --remove-files (the scripts and compose files too)"
 	say "  update: --version X (not the latest)  --from <zip> (offline; checked against a SHA256SUMS next to it)"
 	say "          --feed <url|file> (a mirror's release JSON)  --check"
 }

@@ -688,11 +688,18 @@ var Code: Integer; Data: String;
 begin
 	if CurUninstallStep = usPostUninstall then SetOurPath(False);
 	if CurUninstallStep <> usUninstall then exit;
+	{ a silent uninstall keeps everything }
 	Data := '-KeepData';
 	if not UninstallSilent and (MsgBox('Also delete NetRollout''s data - the database, settings, ' +
-		'certificates, logs and backups?' + #13#10#13#10 + 'This can''t be undone. Keep it to install ' +
-		'again later with everything as it was.', mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES) then
+		'certificates and logs?' + #13#10#13#10 + 'This can''t be undone. Keep it to install ' +
+		'again later with everything as it was.', mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES) then begin
 		Data := '-DeleteData';
+		{ the backups are the last copy of the data: kept unless asked }
+		if MsgBox('Keep the backups (the backups folder)?' + #13#10#13#10 + 'They''re the last copy of ' +
+			'NetRollout''s data - a new install can restore one. They hold the key to the saved ' +
+			'credentials, so keep them as safe as the server.', mbConfirmation, MB_YESNO) = IDNO then
+			Data := Data + ' -DeleteBackups';
+	end;
 	Exec('powershell.exe', '-NoProfile -ExecutionPolicy Bypass -File "' +
 		ExpandConstant('{app}\bin\manage.ps1') + '" uninstall -Yes ' + Data,
 		ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, Code);

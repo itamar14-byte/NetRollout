@@ -201,3 +201,15 @@ def test_the_repository_address_is_the_same_everywhere():
 		"Updates.cs": "https://github.com/" + re.search(r'api\.github\.com/repos/([^"]+)/releases/latest', (ROOT / "windows" / "manager" / "Updates.cs").read_text(encoding="utf-8")).group(1),
 	}
 	assert found == {name: repo for name in found}, owner_repo
+
+
+def test_uninstalling_keeps_the_backups_unless_asked():
+	# the backups are the last copy of the data: deleting the data asks about
+	# them separately (kept by default), and only an explicit answer deletes them
+	iss = (ROOT / "windows" / "installer" / "netrollout.iss").read_text(encoding="utf-8")
+	assert "Keep the backups (the backups folder)?" in iss and "Data := Data + ' -DeleteBackups'" in iss
+	ps1 = (ROOT / "windows" / "manage.ps1").read_text(encoding="utf-8")
+	assert '$gone = @(".env", "config", "certs", "logs")' in ps1 and 'if ($deleteBackups) { $gone += "backups" }' in ps1
+	sh = (ROOT / "linux" / "netrollout.sh").read_text(encoding="utf-8")
+	assert 'rm -rf "$ENV_FILE" "$ROOT/config" "$ROOT/certs" "$ROOT/logs"\n' in sh
+	assert 'if [ -n "$delete_backups" ]; then rm -rf "$ROOT/backups"; fi' in sh

@@ -25,6 +25,7 @@ param(
 	[string]$Out = "",              # defaults: the file to write them to
 	[switch]$DeleteData,            # uninstall: delete the data too (no question)
 	[switch]$KeepData,              # uninstall: keep it (no question)
+	[switch]$DeleteBackups,         # uninstall with -DeleteData: the backups too (else kept)
 	[switch]$NoSafetyBackup,        # restore: without backing up the current state
 	# NetRollout Setup, updating: the installed folder (this copy runs from
 	# Setup's temporary folder) and the version it brings
@@ -633,10 +634,15 @@ function Write-Defaults {
 function Invoke-Uninstall {
 	if (-not (Test-Installed)) { Good "NetRollout isn't installed in $Root - nothing to remove." }
 	$delete = [bool]$DeleteData
+	$deleteBackups = [bool]$DeleteBackups
 	if (-not $DeleteData -and -not $KeepData -and $Interactive -and (Test-Installed)) {
-		$a = Read-Host ("Also delete NetRollout's data - the database, settings, certificates, " +
-		                "logs and backups? This can't be undone. [y/N]")
+		$a = Read-Host ("Also delete NetRollout's data - the database, settings, certificates " +
+		                "and logs? This can't be undone. [y/N]")
 		$delete = $a -match "^(y|yes)$"
+		if ($delete) {
+			$a = Read-Host "Keep the backups (the backups folder)? They're the last copy of the data. [Y/n]"
+			$deleteBackups = $a -match "^(n|no)$"
+		}
 	}
 	if ((Test-Installed) -and (Test-DockerCli) -and (Test-DockerRunning)) {
 		Step "Removing NetRollout's containers$(if ($delete) { ' and its data' })"
@@ -648,10 +654,17 @@ function Invoke-Uninstall {
 		Warn "Docker isn't running: the database volumes stay (Docker Desktop -> Volumes: netrollout_*)."
 	}
 	if ($delete) {
-		foreach ($name in ".env", "config", "certs", "logs", "backups") {
+		$gone = @(".env", "config", "certs", "logs")
+		if ($deleteBackups) { $gone += "backups" }
+		foreach ($name in $gone) {
 			Remove-Item -Recurse -Force -ErrorAction SilentlyContinue (Join-Path $Root $name)
 		}
-		Good "NetRollout and its data are removed."
+		if ($deleteBackups -or -not (Test-Path (Join-Path $Root "backups"))) {
+			Good "NetRollout and its data are removed."
+		} else {
+			Good "NetRollout and its data are removed - the backups stay in $(Join-Path $Root 'backups')."
+			Good "Restore one into a new install: NetRollout Manager -> Restore..."
+		}
 	} else {
 		Good "NetRollout is removed. Its data stays (the database volumes, and .env, config, certs,"
 		Good "logs, backups in $Root): installing again in this folder picks it up."
