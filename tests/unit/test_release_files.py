@@ -183,3 +183,21 @@ def test_the_linux_scripts_have_unix_line_endings():
 	for script in (ROOT / "linux").glob("*.sh"):
 		assert b"\r" not in script.read_bytes(), script.name
 		assert script.read_bytes().startswith(b"#!/usr/bin/env bash\n"), script.name
+
+
+def test_the_repository_address_is_the_same_everywhere():
+	# six places in five languages can't share one constant: if the repo
+	# moves, all must follow (the footer's source link, the installer, the
+	# scripts' "report it", the Manager's releases and updates, the image label)
+	import re
+	from src import runtime
+	repo = runtime.SOURCE_REPO
+	owner_repo = repo.removeprefix("https://github.com/")
+	found = {
+		"Dockerfile": re.search(r'image\.source="([^"]+)"', (ROOT / "Dockerfile").read_text(encoding="utf-8")).group(1),
+		"netrollout.iss": re.search(r'#define Repo "([^"]+)"', (ROOT / "windows" / "installer" / "netrollout.iss").read_text(encoding="utf-8")).group(1),
+		"manage.ps1": re.search(r'\$IssuesUrl = "([^"]+)/issues"', (ROOT / "windows" / "manage.ps1").read_text(encoding="utf-8")).group(1),
+		"NetRolloutManager.cs": re.search(r'Releases = "([^"]+)/releases"', (ROOT / "windows" / "manager" / "NetRolloutManager.cs").read_text(encoding="utf-8")).group(1),
+		"Updates.cs": "https://github.com/" + re.search(r'api\.github\.com/repos/([^"]+)/releases/latest', (ROOT / "windows" / "manager" / "Updates.cs").read_text(encoding="utf-8")).group(1),
+	}
+	assert found == {name: repo for name in found}, owner_repo

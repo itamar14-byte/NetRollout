@@ -21,8 +21,8 @@ Set-Content -Encoding UTF8 -Path $info -Value @(
 	"[assembly: System.Reflection.AssemblyInformationalVersion(""$version"")]")
 $out = Join-Path $windows "NetRollout Manager.exe"
 & $csc /nologo /target:winexe /optimize+ "/win32icon:$(Join-Path $windows 'netrollout.ico')" `
-	"/out:$out" /reference:System.Windows.Forms.dll /reference:System.Drawing.dll `
-	(Join-Path $here "NetRolloutManager.cs") $info
+	"/out:$out" /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.Web.Extensions.dll `
+	(Join-Path $here "NetRolloutManager.cs") (Join-Path $here "Updates.cs") $info
 if ($LASTEXITCODE -ne 0) { throw "csc failed ($LASTEXITCODE)" }
 Remove-Item $info
 Write-Host "Built: $out ($version)"

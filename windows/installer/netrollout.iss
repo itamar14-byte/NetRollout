@@ -14,7 +14,7 @@
 ; before any file is replaced the script checks the direction (an older
 ; Setup is refused) and backs up; after the files, it downloads the new
 ; images while the old version runs, brings .env up to date and restarts.
-; /OPENMANAGER=1 (NetRollout Manager's Update): the Manager opens afterwards.
+; NetRollout Manager's Update runs it with /SILENT (and opens again after it).
 
 #define Root AddBackslash(SourcePath) + "..\.."
 #define AppVersion Trim(FileRead(FileOpen(Root + "\VERSION")))
@@ -658,7 +658,7 @@ end;
 { After the files: the script sets NetRollout up and starts it. A failure
   that can be fixed here offers Retry (a silent install cancels) }
 procedure CurStepChanged(CurStep: TSetupStep);
-var Log, Text: String; Code: Integer;
+var Log, Text: String;
 begin
 	if CurStep <> ssPostInstall then exit;
 	if WizardIsTaskSelected('addtopath') then SetOurPath(True);
@@ -680,10 +680,6 @@ begin
 		if SuppressibleMsgBox(Text + #13#10#13#10 + 'Fix it and click Retry, or Cancel to finish without it.',
 				mbError, MB_RETRYCANCEL, IDCANCEL) <> IDRETRY then break;
 	end;
-	{ NetRollout Manager started this update (and Setup closed it): it comes back }
-	if ExpandConstant('{param:OPENMANAGER|0}') = '1' then
-		ShellExec('', ExpandConstant('{app}\bin\NetRollout Manager.exe'), '', ExpandConstant('{app}'),
-			SW_SHOWNORMAL, ewNoWait, Code);
 end;
 
 { Uninstall: the containers go; the data only if asked }
