@@ -220,7 +220,7 @@ def test_the_port_helper_runs_by_itself_on_windows():
 	# server: the headless helper starts at sign-in and with Setup, and goes
 	# with the uninstaller (--exit closes it too)
 	iss = (ROOT / "windows" / "installer" / "netrollout.iss").read_text(encoding="utf-8")
-	assert 'Name: "{userstartup}\NetRollout port helper"; Filename: "{app}\bin\NetRollout Manager.exe"; Parameters: "--helper"' in iss
+	assert r'Name: "{userstartup}\NetRollout port helper"; Filename: "{app}\bin\NetRollout Manager.exe"; Parameters: "--helper"' in iss
 	assert 'Parameters: "--helper"; WorkingDir: "{app}"; Flags: nowait; Check: SetUpOk' in iss
 	cs = (ROOT / "windows" / "manager" / "NetRolloutManager.cs").read_text(encoding="utf-8")
 	assert 'if (args[i] == "--helper") helper = true;' in cs and 'return ExitRunning(name + ".Helper");' in cs
