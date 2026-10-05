@@ -30,13 +30,13 @@ class EncryptionStartupError(StartupError):
 
 def key_source() -> str:
 	"""Where this process reads its key from (for the admin fix-it page).
-	Same precedence as _read_key: the env var wins over the file."""
+	Same precedence as read_key: the env var wins over the file."""
 	if os.environ.get(ENV_VAR):
 		return f"the {ENV_VAR} environment variable"
 	return f"the key file {KEY_FILE}"
 
 
-def _read_key() -> bytes | None:
+def read_key() -> bytes | None:
 	# env var takes precedence over the key file; None when neither exists
 	env_key = os.environ.get(ENV_VAR)
 	if env_key:
@@ -96,7 +96,7 @@ def init_encryption(sample_ciphertext: str | None,
 	"""
 	global _fernet
 	require_key_in_container()
-	raw_key = _read_key()
+	raw_key = read_key()
 	if raw_key is None:
 		if sample_ciphertext is not None:
 			# Generating here would silently orphan every stored secret

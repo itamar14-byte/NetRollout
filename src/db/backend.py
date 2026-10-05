@@ -12,12 +12,12 @@ from src.db.settings import SettingsStore
 from src.db.tables import SecurityProfile, LDAPServer, User
 
 # Every column holding Fernet ciphertext
-_ENCRYPTED_COLUMNS = (SecurityProfile.password_secret,
+ENCRYPTED_COLUMNS = (SecurityProfile.password_secret,
                       SecurityProfile.enable_secret,
                       LDAPServer.bind_password,
                       User.otp_secret)
 # All Fernet tokens start with this (version byte 0x80, base64-encoded)
-_FERNET_PREFIX = "gAAAAA"
+FERNET_PREFIX = "gAAAAA"
 # Hosts of the bundled services: local development, or the compose service
 # names (deploy/compose.yaml must use these names)
 BUNDLED_HOSTS = {"POSTGRES": ("localhost", "127.0.0.1", "postgres"),
@@ -63,9 +63,9 @@ class BackendServices:
 		so a legacy plaintext value can't fail the startup key check.
 		:raises OperationalError: Postgres unreachable"""
 		with self.postgres.get_session() as db_session:
-			for column in _ENCRYPTED_COLUMNS:
+			for column in ENCRYPTED_COLUMNS:
 				value = db_session.query(column).filter(
-					column.like(f"{_FERNET_PREFIX}%")).limit(1).scalar()
+					column.like(f"{FERNET_PREFIX}%")).limit(1).scalar()
 				if value:
 					return value
 		return None

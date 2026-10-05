@@ -268,6 +268,43 @@ Installed, Linux:
   .env  config/  certs/  logs/  backups/                 (created by the install)
 ```
 
+## 9.5 — backup and restore (decided 2026-10-05)
+
+Supersedes the `backup` / `restore` rows of the command table (pg_dump as
+the bundled superuser, the whole `.env` in the zip).
+- **Restore goes straight into whatever database is configured** (bundled or
+  the organisation's), so the engine (`src/backup.py`, in the app image)
+  works through the app's own connection: a read-only snapshot of
+  NetRollout's tables as CSV; the restore in one transaction — NetRollout's
+  migrations down to empty and up to the backup's level (its own tables only),
+  the data, the key checked against a stored credential. No superuser, no
+  Postgres client, any server version, any schema name.
+- **In the zip:** the database, Grafana's `grafana.db` (the Custom
+  dashboards), the certificate, the rollout logs and the **encryption key**
+  only (not `.env`: everything else in it stays this computer's). Not Redis
+  (cleared at every start anyway), not Prometheus / Loki history.
+- **Taken from the backup:** data, key, certificate (a backup without one
+  keeps this install's), logs, Grafana; the hostname (a setting). **Kept from
+  this computer:** `.env`'s passwords, port, timezone, IPs, compose files;
+  the HTTPS port setting is set to the port in use; Grafana's admin password
+  is reset to this computer's after a restore (its setup service signs in
+  with it).
+- **Scheduled backups + retention** (9.5b): System Settings → Backups card —
+  schedule Off / Daily / Weekly (default daily 02:00, before the 03:00
+  clean-up), keep the last N scheduled (default 14; manual and safety
+  backups only deleted by a person), Back up now, the list with Download
+  (admins, audited — the zip holds the key) and Delete, the last scheduled
+  result. The app runs them (it mounts `backups/` and Grafana's volume
+  read-only).
+- **Restore** stays outside the app (it stops it): NetRollout Manager →
+  Restore… / `netrollout restore <zip>` — safety backup, stop (rollouts
+  finish), `python -m src.backup restore` as root in the app image (files
+  get their folder's owner), the key into `.env`, start, Grafana's admin
+  reset, health.
+- Subtasks: 9.5a the engine · 9.5b the app (settings with a choice type,
+  scheduler, card, audit, compose mounts) · 9.5c Windows · 9.5d Linux ·
+  9.5e the release gate (restore onto a fresh install).
+
 ## Bring your own database / Redis (from the UI)
 
 A move, not a switch: switching live to an empty server would leave the data

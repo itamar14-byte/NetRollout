@@ -114,3 +114,13 @@ def runtime_env() -> Path:
 	"""The app-owned config file: written only by Server Management (a
 	database / Redis switch) and loaded over the container environment."""
 	return config_dir() / "runtime.env"
+
+
+def backups_dir() -> Path:
+	return home() / "backups"
+
+
+def grafana_dir() -> Path:
+	"""Grafana's data volume, mounted read-only into the app (the backup copies
+	its database); absent in development and without monitoring."""
+	return home() / "grafana"
