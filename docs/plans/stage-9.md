@@ -304,6 +304,11 @@ the bundled superuser, the whole `.env` in the zip).
 - Subtasks: 9.5a the engine · 9.5b the app (settings with a choice type,
   scheduler, card, audit, compose mounts) · 9.5c Windows · 9.5d Linux ·
   9.5e the release gate (restore onto a fresh install).
+- **Done 2026-10-05** (9.5a–e, verified on Windows and Ubuntu). Open for
+  9.9: once, a fresh install's `up --wait` gave up while another stack was
+  busy (not reproduced in four tries) — check Grafana's first start against
+  its health check (a `start_period`) on a slow machine. Also: grafana-setup
+  stays "healthy" after a failure (its done-marker is never removed).
 
 ## Bring your own database / Redis (from the UI)
 
