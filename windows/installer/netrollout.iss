@@ -4,7 +4,7 @@
 ;   iscc windows\installer\netrollout.iss      (from the repo root; build the
 ;                                               Manager first: windows\manager\build.ps1)
 ;
-; The wizard asks; bin\netrollout.ps1 does the work (install -Yes with the
+; The wizard asks; bin\manage.ps1 does the work (install -Yes with the
 ; answers as parameters). The installed folder: bin\ (the Manager, the engine,
 ; the command line, the icon), deploy\, the compose files, VERSION, LICENSE,
 ; the uninstaller; the install creates .env (hidden), config\, certs\, logs\,
@@ -48,6 +48,8 @@ OutputBaseFilename=NetRollout-Setup-{#AppVersion}
 Compression=lzma2
 SolidCompression=yes
 CloseApplications=yes
+; PATH changes reach new terminals without signing out
+ChangesEnvironment=yes
 
 [Messages]
 WelcomeLabel2=This installs NetRollout {#AppVersion} â€” push configuration to many network devices at once, from your browser.%n%nNetRollout runs on Docker Desktop: if it isn't on this computer yet, Setup installs it.
@@ -58,10 +60,16 @@ FinishedLabel=NetRollout is installed and running.%n%nSign in as admin / admin â
 [Tasks]
 Name: desktopicons; Description: "Desktop shortcuts (NetRollout, NetRollout Manager)"
 Name: trayatsignin; Description: "Start NetRollout Manager in the tray when I sign in (shows whether NetRollout is running)"
+Name: addtopath; Description: "Add the netrollout command to PATH (for terminals: netrollout status, start, stop, logs)"
+
+[Registry]
+; Win+R -> netrollout opens NetRollout Manager (Windows' App Paths, per user)
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\App Paths\netrollout.exe"; ValueType: string; ValueName: ""; ValueData: "{app}\bin\NetRollout Manager.exe"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\App Paths\netrollout.exe"; ValueType: string; ValueName: "Path"; ValueData: "{app}\bin"
 
 [Files]
 Source: "..\NetRollout Manager.exe"; DestDir: "{app}\bin"; Flags: ignoreversion
-Source: "..\netrollout.ps1"; DestDir: "{app}\bin"; Flags: ignoreversion
+Source: "..\manage.ps1"; DestDir: "{app}\bin"; Flags: ignoreversion
 Source: "..\netrollout.bat"; DestDir: "{app}\bin"; Flags: ignoreversion
 Source: "..\netrollout.ico"; DestDir: "{app}\bin"; Flags: ignoreversion
 Source: "{#Root}\compose.yaml"; DestDir: "{app}"; Flags: ignoreversion
@@ -73,7 +81,7 @@ Source: "{#Root}\deploy\loki\loki-config.yml"; DestDir: "{app}\deploy\loki"; Fla
 Source: "{#Root}\deploy\alloy\config.alloy"; DestDir: "{app}\deploy\alloy"; Flags: ignoreversion
 Source: "{#Root}\deploy\grafana\provisioning\datasources\netrollout.yml"; DestDir: "{app}\deploy\grafana\provisioning\datasources"; Flags: ignoreversion
 ; for the wizard, before anything is installed (the checks, the defaults)
-Source: "..\netrollout.ps1"; Flags: dontcopy
+Source: "..\manage.ps1"; Flags: dontcopy
 
 [Icons]
 Name: "{autoprograms}\NetRollout\NetRollout Manager"; Filename: "{app}\bin\NetRollout Manager.exe"; WorkingDir: "{app}"; Comment: "Start, stop and check NetRollout"
@@ -96,7 +104,7 @@ Type: dirifempty; Name: "{app}\bin"
 Type: dirifempty; Name: "{app}"
 
 [Run]
-Filename: "{code:Address}"; Description: "Open NetRollout in the browser"; Flags: postinstall shellexec nowait skipifsilent
+Filename: "{code:Address}"; Description: "Open NetRollout in the browser"; Flags: postinstall shellexec nowait skipifsilent; Check: SetUpOk
 Filename: "{app}\bin\NetRollout Manager.exe"; Description: "Open NetRollout Manager"; Flags: postinstall nowait skipifsilent unchecked
 
 [Code]
@@ -105,6 +113,8 @@ var
 	DockerState, DockerHint, PortHint: TNewStaticText;
 	HostnameEdit, PortEdit, CertEdit, KeyEdit: TNewEdit;
 	TimezoneBox: TNewComboBox;
+	SetUpFailed: Boolean;
+	SetUpLog: String;
 	TimezoneIds: TArrayOfString;
 	MonitoringBox, OrgCertBox: TNewCheckBox;
 	CertButton, KeyButton: TNewButton;
@@ -113,7 +123,7 @@ var
 
 function Ps(const Command, Extra: String): String;
 begin
-	Result := '-NoProfile -ExecutionPolicy Bypass -File "' + ExpandConstant('{tmp}\netrollout.ps1') +
+	Result := '-NoProfile -ExecutionPolicy Bypass -File "' + ExpandConstant('{tmp}\manage.ps1') +
 		'" ' + Command + ' ' + Extra;
 end;
 
@@ -122,7 +132,7 @@ end;
 procedure LoadDefaults;
 var Code: Integer;
 begin
-	ExtractTemporaryFile('netrollout.ps1');
+	ExtractTemporaryFile('manage.ps1');
 	DefaultsFile := ExpandConstant('{tmp}\defaults.ini');
 	Exec('powershell.exe', Ps('defaults', '-Out "' + DefaultsFile + '"'), '', SW_HIDE,
 		ewWaitUntilTerminated, Code);
@@ -141,7 +151,7 @@ begin
 	Problem := GetDefault('problem', '');
 	Result := Problem = '';
 	if not Result then
-		MsgBox('NetRollout can''t run on this computer.' + #13#10#13#10 + Problem, mbCriticalError, MB_OK);
+		SuppressibleMsgBox('NetRollout can''t run on this computer.' + #13#10#13#10 + Problem, mbCriticalError, MB_OK, IDOK);
 end;
 
 function MakeLabel(Page: TWizardPage; const Caption: String; Top: Integer; Bold: Boolean): TNewStaticText;
@@ -264,12 +274,14 @@ begin
 	MonitoringBox.Parent := SettingsPage.Surface;
 	MonitoringBox.Top := ScaleY(140);
 	MonitoringBox.Width := SettingsPage.SurfaceWidth;
+	MonitoringBox.Height := ScaleY(20);
 	MonitoringBox.Caption := 'Monitoring (Prometheus, Loki and Grafana dashboards for admins)';
 	MonitoringBox.Checked := True;
 	OrgCertBox := TNewCheckBox.Create(SettingsPage);
 	OrgCertBox.Parent := SettingsPage.Surface;
 	OrgCertBox.Top := ScaleY(164);
 	OrgCertBox.Width := SettingsPage.SurfaceWidth;
+	OrgCertBox.Height := ScaleY(20);
 	OrgCertBox.Caption := 'Use my organisation''s certificate (otherwise a self-signed one is made)';
 	OrgCertBox.OnClick := @OrgCertClick;
 	MakeLabel(SettingsPage, 'Certificate (yours first, then each issuer):', 188, False);
@@ -290,6 +302,17 @@ begin
 		WizardForm.ActiveControl := WizardForm.DirEdit;
 		WizardForm.DirEdit.SelectAll;
 	end;
+	if (CurPageID = wpFinished) and SetUpFailed then begin
+		WizardForm.FinishedHeadingLabel.Caption := 'NetRollout is installed, but not running';
+		WizardForm.FinishedLabel.Caption := 'Setting it up didn''t finish. The reason is at the end of the log:' + #13#10#13#10 +
+			SetUpLog + #13#10#13#10 +
+			'Fix it, then start NetRollout from NetRollout Manager (Start Menu).';
+	end;
+end;
+
+function SetUpOk: Boolean;
+begin
+	Result := not SetUpFailed;
 end;
 
 function ValidHostname(const S: String): Boolean;
@@ -320,29 +343,29 @@ begin
 			LoadDefaults;
 			ShowDocker;
 			if Code <> 0 then begin
-				MsgBox('Docker Desktop isn''t running yet. If its installer asked to restart Windows, ' +
+				SuppressibleMsgBox('Docker Desktop isn''t running yet. If its installer asked to restart Windows, ' +
 					'restart, then run this Setup again. Otherwise start Docker Desktop and click Next.',
-					mbError, MB_OK);
+					mbError, MB_OK, IDOK);
 				Result := False;
 			end;
 		end;
 	end else if CurPageID = SettingsPage.ID then begin
 		if not ValidHostname(HostnameEdit.Text) then begin
-			MsgBox('The hostname may contain letters, digits, dots and hyphens only (no https://, port or path).', mbError, MB_OK);
+			SuppressibleMsgBox('The hostname may contain letters, digits, dots and hyphens only (no https://, port or path).', mbError, MB_OK, IDOK);
 			Result := False; exit;
 		end;
 		Port := StrToIntDef(PortEdit.Text, -1);
 		if (Port < 1) or (Port > 65535) or (Port = 80) then begin
-			MsgBox('Choose an HTTPS port between 1 and 65535 (not 80, which is for the http -> https redirect).', mbError, MB_OK);
+			SuppressibleMsgBox('Choose an HTTPS port between 1 and 65535 (not 80, which is for the http -> https redirect).', mbError, MB_OK, IDOK);
 			Result := False; exit;
 		end;
 		Who := GetIniString('busy', IntToStr(Port), '', DefaultsFile);
 		if Who <> '' then begin
-			MsgBox('Port ' + IntToStr(Port) + ' is in use on this computer (by ' + Who + '). Choose another, e.g. 8443.', mbError, MB_OK);
+			SuppressibleMsgBox('Port ' + IntToStr(Port) + ' is in use on this computer (by ' + Who + '). Choose another, e.g. 8443.', mbError, MB_OK, IDOK);
 			Result := False; exit;
 		end;
 		if OrgCertBox.Checked and (not FileExists(CertEdit.Text) or not FileExists(KeyEdit.Text)) then begin
-			MsgBox('Choose your certificate and its private key, or untick "Use my organisation''s certificate".', mbError, MB_OK);
+			SuppressibleMsgBox('Choose your certificate and its private key, or untick "Use my organisation''s certificate".', mbError, MB_OK, IDOK);
 			Result := False; exit;
 		end;
 	end;
@@ -396,8 +419,53 @@ begin
 	Shortcuts := 'Start Menu';
 	if WizardIsTaskSelected('desktopicons') then Shortcuts := Shortcuts + ', desktop';
 	if WizardIsTaskSelected('trayatsignin') then Shortcuts := Shortcuts + ', NetRollout Manager in the tray at sign-in';
-	Result := Lines + 'Shortcuts:' + NewLine + Space + Shortcuts + NewLine + NewLine +
-		'Docker Desktop:' + NewLine + Space + 'running';
+	Shortcuts := Shortcuts + ', Win+R -> netrollout';
+	Result := Lines + 'Shortcuts:' + NewLine + Space + Shortcuts + NewLine + NewLine;
+	if WizardIsTaskSelected('addtopath') then
+		Result := Result + 'Command line:' + NewLine + Space + 'netrollout (status, start, stop, logs) in any terminal' + NewLine + NewLine;
+	Result := Result + 'Docker Desktop:' + NewLine + Space + 'running';
+end;
+
+{ The user's PATH: our bin folder added (the task) or removed (uninstall),
+  nothing else touched }
+function PathEntries(const Path: String): TArrayOfString;
+var Rest: String; P, N: Integer;
+begin
+	Rest := Path; N := 0;
+	SetArrayLength(Result, 0);
+	while Rest <> '' do begin
+		P := Pos(';', Rest);
+		if P = 0 then P := Length(Rest) + 1;
+		if Trim(Copy(Rest, 1, P - 1)) <> '' then begin
+			SetArrayLength(Result, N + 1);
+			Result[N] := Copy(Rest, 1, P - 1);
+			N := N + 1;
+		end;
+		Rest := Copy(Rest, P + 1, Length(Rest));
+	end;
+end;
+
+procedure SetOurPath(Add: Boolean);
+var Path, Bin, NewPath: String; Entries: TArrayOfString; I: Integer; Found: Boolean;
+begin
+	Bin := ExpandConstant('{app}\bin');
+	if not RegQueryStringValue(HKCU, 'Environment', 'Path', Path) then Path := '';
+	Entries := PathEntries(Path);
+	NewPath := ''; Found := False;
+	for I := 0 to GetArrayLength(Entries) - 1 do begin
+		if CompareText(RemoveBackslashUnlessRoot(Entries[I]), Bin) = 0 then begin
+			Found := True;
+			if not Add then continue;
+		end;
+		if NewPath <> '' then NewPath := NewPath + ';';
+		NewPath := NewPath + Entries[I];
+	end;
+	if Add and not Found then begin
+		if NewPath <> '' then NewPath := NewPath + ';';
+		NewPath := NewPath + Bin;
+	end;
+	if NewPath <> Path then
+		RegWriteExpandStringValue(HKCU, 'Environment', 'Path', NewPath);
 end;
 
 { After the files: the script sets NetRollout up and starts it }
@@ -405,6 +473,7 @@ procedure CurStepChanged(CurStep: TSetupStep);
 var Code, I, From: Integer; Args, Log, Tail: String; Lines: TArrayOfString;
 begin
 	if CurStep <> ssPostInstall then exit;
+	if WizardIsTaskSelected('addtopath') then SetOurPath(True);
 	ForceDirectories(ExpandConstant('{app}\logs'));
 	Log := ExpandConstant('{app}\logs\install.log');
 	if Reinstall then
@@ -423,9 +492,11 @@ begin
 	WizardForm.StatusLabel.Caption := 'Setting up and starting NetRollout - the first time downloads it (a few minutes)...';
 	WizardForm.ProgressGauge.Style := npbstMarquee;
 	Exec(ExpandConstant('{cmd}'), '/C powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' +
-		ExpandConstant('{app}\bin\netrollout.ps1') + '" ' + Args + ' > "' + Log + '" 2>&1',
+		ExpandConstant('{app}\bin\manage.ps1') + '" ' + Args + ' > "' + Log + '" 2>&1',
 		ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, Code);
 	WizardForm.ProgressGauge.Style := npbstNormal;
+	SetUpFailed := Code <> 0;
+	SetUpLog := Log;
 	if Code <> 0 then begin
 		Tail := '';
 		if LoadStringsFromFile(Log, Lines) then begin
@@ -433,8 +504,8 @@ begin
 			if From < 0 then From := 0;
 			for I := From to GetArrayLength(Lines) - 1 do Tail := Tail + Lines[I] + #13#10;
 		end;
-		MsgBox('NetRollout was installed, but setting it up didn''t finish:' + #13#10#13#10 + Tail + #13#10 +
-			'The whole log: ' + Log + #13#10 + 'Fix it, then use NetRollout Manager -> Start.', mbError, MB_OK);
+		SuppressibleMsgBox('NetRollout was installed, but setting it up didn''t finish:' + #13#10#13#10 + Tail + #13#10 +
+			'The whole log: ' + Log + #13#10 + 'Fix it, then use NetRollout Manager -> Start.', mbError, MB_OK, IDOK);
 	end;
 end;
 
@@ -442,6 +513,7 @@ end;
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var Code: Integer; Data: String;
 begin
+	if CurUninstallStep = usPostUninstall then SetOurPath(False);
 	if CurUninstallStep <> usUninstall then exit;
 	Data := '-KeepData';
 	if not UninstallSilent and (MsgBox('Also delete NetRollout''s data - the database, settings, ' +
@@ -449,6 +521,6 @@ begin
 		'again later with everything as it was.', mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES) then
 		Data := '-DeleteData';
 	Exec('powershell.exe', '-NoProfile -ExecutionPolicy Bypass -File "' +
-		ExpandConstant('{app}\bin\netrollout.ps1') + '" uninstall -Yes ' + Data,
+		ExpandConstant('{app}\bin\manage.ps1') + '" uninstall -Yes ' + Data,
 		ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, Code);
 end;

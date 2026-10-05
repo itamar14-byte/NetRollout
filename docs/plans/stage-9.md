@@ -256,7 +256,7 @@ Supersedes the zip layout and decisions 2–3 above.
 Installed, Windows:
 ```
 C:\NetRollout\
-  bin\  NetRollout Manager.exe  netrollout.ps1  netrollout.bat  netrollout.ico
+  bin\  NetRollout Manager.exe  manage.ps1  netrollout.bat  netrollout.ico
   deploy\  compose.yaml  compose.http.yaml  VERSION  LICENSE  unins000.exe/.dat
   .env (hidden)  config\  certs\  logs\  backups\        (created by the install)
 ```

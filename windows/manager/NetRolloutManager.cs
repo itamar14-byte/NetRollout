@@ -1,10 +1,10 @@
 // NetRollout Manager — the Windows app for running NetRollout: a window with
 // the status, the address and the actions, and a tray icon. The actions run
-// bin\netrollout.ps1 (hidden) and show its output; the status comes from
+// bin\manage.ps1 (hidden) and show its output; the status comes from
 // NetRollout's health endpoint on this computer.
 //
 // C# 5 / .NET Framework 4.8 (built into Windows 10/11): build.ps1 compiles it
-// with Windows' own csc.exe, no SDK needed. Lives next to netrollout.ps1 in
+// with Windows' own csc.exe, no SDK needed. Lives next to manage.ps1 in
 // the install folder's bin\ folder.
 //
 //   NetRollout Manager.exe              the window (and the tray icon)
@@ -77,7 +77,7 @@ namespace NetRollout
 		public static readonly string BinDir =
 			Path.GetDirectoryName(Application.ExecutablePath);
 		public static readonly string Root = Path.GetDirectoryName(BinDir);
-		public static readonly string Script = Path.Combine(BinDir, "netrollout.ps1");
+		public static readonly string Script = Path.Combine(BinDir, "manage.ps1");
 
 		public static string Version
 		{
@@ -360,7 +360,7 @@ namespace NetRollout
 			Run("stop", "Stopping NetRollout...");
 		}
 
-		// netrollout.ps1, hidden; its output in the pane
+		// manage.ps1, hidden; its output in the pane
 		void Run(string command, string heading)
 		{
 			if (running != null) { Say("Busy with the previous action - one moment."); return; }

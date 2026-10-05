@@ -349,7 +349,13 @@ function Invoke-Install {
 	Step "Getting NetRollout $Version"
 	if ((Invoke-Native "docker" @("image", "inspect", $AppImage)).Code -ne 0) {
 		$r = Invoke-Native "docker" @("pull", $AppImage)
-		if ($r.Code -ne 0) { Write-Host $r.Output; Fail "Couldn't download $AppImage - check the internet connection." }
+		if ($r.Code -ne 0) {
+			Write-Host $r.Output
+			if ($r.Output -match "not found|manifest unknown") {
+				Fail "NetRollout $Version isn't published on Docker Hub ($AppImage doesn't exist there)."
+			}
+			Fail "Couldn't download $AppImage - check the internet connection."
+		}
 	}
 	Step "Setting up"
 	$setup = @("init", "--licence-accepted", "--busy-ports", (Get-BusyPorts)) + (Get-Facts)

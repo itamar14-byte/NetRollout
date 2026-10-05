@@ -79,7 +79,7 @@ def test_every_file_the_installer_packs_exists():
 def test_the_installer_ships_what_the_zip_ships():
 	names = {p.name for p in iss_sources()}
 	for needed in ("compose.yaml", "compose.http.yaml", "VERSION", "LICENSE",
-	               "netrollout.ps1", "netrollout.bat", "netrollout.ico",
+	               "manage.ps1", "netrollout.bat", "netrollout.ico",
 	               "NetRollout Manager.exe", "prometheus.yml",
 	               "loki-config.yml", "config.alloy", "netrollout.yml"):
 		assert needed in names, needed
@@ -89,12 +89,23 @@ def test_the_installed_layout_is_bin_and_the_licence_page_has_its_text():
 	import re
 	installer = ROOT / "windows" / "installer"
 	text = (installer / "netrollout.iss").read_text(encoding="utf-8")
-	for name in ("NetRollout Manager.exe", "netrollout.ps1", "netrollout.bat", "netrollout.ico"):
+	for name in ("NetRollout Manager.exe", "manage.ps1", "netrollout.bat", "netrollout.ico"):
 		assert re.search(r'Source: "\.\.\\' + re.escape(name) + r'"; DestDir: "\{app\}\\bin"', text), name
 	licence = re.search(r"^LicenseFile=(.+)$", text, re.M).group(1).strip()
 	assert (installer / licence).exists()
 	# one install method on Windows: the installer (no console install)
 	assert not (ROOT / "windows" / "install.bat").exists()
+
+
+def test_the_netrollout_command_on_path_is_only_the_bat():
+	# bin\ goes on PATH (the addtopath task); PowerShell runs a netrollout.ps1
+	# there before netrollout.bat, and Windows' default policy refuses scripts
+	import re
+	text = (ROOT / "windows" / "installer" / "netrollout.iss").read_text(encoding="utf-8")
+	installed = re.findall(r'^Source: "\.\.\\([^"]+)"; DestDir: "\{app\}\\bin"', text, re.M)
+	assert [n for n in installed if n.lower().startswith("netrollout.")] == ["netrollout.bat", "netrollout.ico"]
+	assert re.search(r"^Name: addtopath;", text, re.M)
+	assert "App Paths\\netrollout.exe" in text
 
 
 def test_the_linux_scripts_have_unix_line_endings():
