@@ -609,6 +609,7 @@ Approved 2026-09-30, branch `phase-4-packaging`. Replaces the earlier Steps 4–
 
 ### Post-v1.0 (deferred)
 - **4.3 Update mechanism** — in-app "check for updates" button (the update *script* ships in v1.0)
+- **Code signing (Windows installer, Manager, CLI .exe)** _(2026-10-05)_ — apply to SignPath Foundation (free for OSI-licensed projects; signs only what CI built from the public repo; Windows shows "SignPath Foundation" as publisher) once v1.0 and its release pipeline are public; prepare a code-signing policy file and two-factor authentication on GitHub / Docker Hub. Own-name alternatives cost money (Azure Trusted Signing ~$10/month, a certificate ~$100–400/year). Even signed, SmartScreen reputation builds with downloads.
 - **macOS hosts** _(discussed 2026-10-05, deferred)_ — Docker Desktop for Mac runs the same stack; needs multi-architecture images (amd64 + arm64, also good for ARM Linux servers; GitHub Actions, no cost), the Linux script made portable (bash 3.2 / BSD tools: `lsof` not `ss`, `ifconfig` not `ip`, `sed -i`, the timezone link), a launchd `WatchPaths` port helper (or `netrollout apply` by hand). Can't be verified in CI (GitHub's macOS runners have no Docker) — README: "should work, untested" until someone confirms. No Apple developer account needed (a script, not a native app).
 - **Offline / isolated networks** — bundle the CDN assets (Bootstrap, jQuery, fonts, icons) into the image + offline image transfer (`docker save` / `load`)
 - **Frontend asset splitting** (see Step 2)

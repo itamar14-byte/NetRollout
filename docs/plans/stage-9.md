@@ -203,6 +203,39 @@ the host's reachability check passed in, and the app's health asked over the
 compose network). Single `.env` lines are edited in place (its permissions
 kept), only the keys the scripts own.
 
+## 9.3b — a Windows app, not a script (decided 2026-10-05)
+
+- **`NetRollout-Setup-<version>.exe`** (Inno Setup — free; compiled in CI on
+  GitHub's Windows runner): the wizard — Welcome → Licence (NetRollout
+  AGPL-3.0 + Docker Desktop's terms; I accept / I don't) → Docker (found /
+  "Install Docker Desktop" → `netrollout ensure-docker`, waits) → Settings
+  (the 5 questions as a form, pre-filled; a busy port flagged on the page) →
+  install location (default `C:\NetRollout`) → progress ("Setting up…
+  Starting…": `netrollout install -Yes` with the answers as parameters, its
+  output in a log the wizard shows on failure) → Finish ("Open NetRollout
+  now"). Settings → Apps entry (icon, version, publisher) with an
+  uninstaller (`netrollout uninstall`: stops and removes the containers;
+  asks whether to delete the data); Start Menu + desktop shortcuts; optional
+  "Start NetRollout Manager at sign-in" (tray). The zip stays for Linux and
+  for admins who prefer scripts; `netrollout.bat` stays the power-user
+  command line.
+- **`NetRollout Manager.exe`** (C# WinForms on .NET Framework 4.8, built into
+  Windows 10/11; compiled with its `csc.exe`, no extra installs — a
+  PowerShell window would flash a console and show as "Windows PowerShell"):
+  the logo, a status light (Running / Stopped / Needs attention + why), the
+  address, buttons (Open, Start, Stop, Status, Logs; Backup / Restore /
+  Update as they land) running `netrollout.ps1` hidden and showing its
+  output; a tray icon (green / red, right-click: the same actions); one
+  instance. Replaces the console menu for people; the menu stays for the
+  command line.
+- The script takes the answers as parameters (`-Hostname -HttpsPort
+  -Monitoring -OrgCertificate -TimeZone`) and gains `ensure-docker` and
+  `uninstall`.
+- Unsigned in v1.0 (SmartScreen: More info → Run anyway, explained in the
+  README); SignPath Foundation (free for open source; Windows then shows
+  "SignPath Foundation" as publisher) applied for after v1.0 is public with
+  its CI pipeline — workplan post-v1.0.
+
 ## Bring your own database / Redis (from the UI)
 
 A move, not a switch: switching live to an empty server would leave the data
