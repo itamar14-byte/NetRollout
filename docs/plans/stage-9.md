@@ -81,8 +81,8 @@ install (date, Windows/Linux account, version, licence terms accepted). Keys:
 `NETROLLOUT_DB_PASSWORD`, `GRAFANA_DB_PASSWORD`, `REDIS_PASSWORD`,
 `GRAFANA_ADMIN_PASSWORD`, `SECRET_KEY`, `NETROLLOUT_ENCRYPTION_KEY`);
 `HTTPS_PORT`; `TZ`; `NETROLLOUT_SERVER_IPS`; the compose switches
-(`COMPOSE_PROFILES`, `COMPOSE_PATH_SEPARATOR`, `COMPOSE_FILE`); and, only
-after a bring-your-own move, the external connection (below).
+(`COMPOSE_PROFILES`, `COMPOSE_PATH_SEPARATOR`, `COMPOSE_FILE`). (An external
+database / Redis after a move lives in `config/runtime.env`, not here.)
 
 - **A** — the hostname leaves `.env` and nginx's environment: the setup core
   writes it into `site.env` (with the app's own `write_site`), the app seeds
@@ -119,46 +119,57 @@ monitoring [Y], organisation certificate [none → self-signed], timezone
 | `status` | Address, health from this computer, each container, running/queued rollouts, nginx's last verdict, the certificate's expiry, a pending port change. Plain words, with the next step when something is wrong. |
 | `open` | Opens the browser at the address. |
 | `logs` | The app's recent log (or a service's: `logs nginx`). |
-| `backup` | `pg_dump -Fc` as the superuser inside the Postgres container, Grafana's volume, `config\`, `certs\`, `.env` → one zip in `backups\` (warning: it holds every secret). |
+| `backup` | `pg_dump -Fc` as the superuser inside the Postgres container (after a move to an external database: that database, through the app's connection — the client's version must be at least the server's, so a newer server is reported, not dumped badly), Grafana's volume, `config\`, `certs\`, `.env` → one zip in `backups\` (warning: it holds every secret). |
 | `restore <zip>` | Onto this install: refuses a backup from a newer version; backs up the current state first; stops, restores, starts; checks the data. |
 | `update` | Backup → downloads the release (GitHub; checksum checked) → replaces the scripts and compose files → `pull` → `up -d --wait`. Reports running rollouts and waits for them. |
 | `apply` | Runs the port helper's step once (a pending HTTPS port change). |
-| `move-database <url>` / `move-redis <url>` | Bring your own (below); `bundled` moves back. |
 | `uninstall` | Stops and removes the containers and the helper's auto-start; asks before deleting the data volumes; asks before deleting the folder. |
 
 Every command can be run twice safely, prints steps in plain words (Docker's
 output only on failure), and exits 0 on success. `--yes --defaults` (+ answers
 as flags) for unattended runs (CI).
 
-## Bring your own database / Redis
+## Bring your own database / Redis (from the UI)
 
-A move, not a switch: switching live to an empty server (today's Server
-Management switch) would leave the data behind. The move is a host command,
-because it stops the app, copies the data and changes what Grafana uses too.
+A move, not a switch: switching live to an empty server would leave the data
+behind. It runs from **Server Management**, in the background, in the app
+(changed 2026-10-05 from a host command — the app can do every step itself).
 
-- **`move-database <url>`** (the target's admin connection, used once, never
-  stored): checks the target (reachable, Postgres version, empty or a
-  NetRollout database) → stops the app (drain) → backup → creates the
-  `netrollout` database and roles (`netrollout`, `grafana_reader`) on the target
-  → `pg_dump` / `pg_restore` → checks the row counts → writes the app's
-  connection (`.env`) and Grafana's datasource (host, port, database) → starts
-  → the bundled Postgres stops (its volume kept until `uninstall`, so `move-database
-  bundled` can go back).
-- **`move-redis <url>`**: nothing to copy (sessions, job state, live logs) —
-  waits until no rollout runs, writes the connection, restarts; everyone signs
-  in again.
+- **Database → Move to another server**: the admin enters the target and its
+  admin credentials (used for the move only, never stored) → **Test**
+  (reachable, Postgres version, empty or a NetRollout database, can create
+  roles) → **Move**, in the background:
+  1. new rollouts refused, running ones drain (the existing drain);
+  2. **maintenance mode**: a banner on every page, only admins in, nothing
+     writes while the data is copied;
+  3. on the target: the `netrollout` database and roles (`netrollout`,
+     `grafana_reader` with its 3-table grant), the schema through the Alembic
+     migrations;
+  4. the rows copied table by table from Python — no `pg_dump`, so no client
+     newer-than-server problem; live progress on the page (background polls);
+  5. row counts compared; then the switch: the connection is written to
+     `config/runtime.env` (app-owned, loaded over the environment — this is what
+     it is for) and the app reconnects live; maintenance ends.
+  Anything failing before step 5 leaves everything as it was, with the reason
+  shown; a restart mid-copy is safe for the same reason (the switch is last).
+  The bundled database is left untouched, so **Move back** is the same flow in
+  reverse (to the bundled Postgres, emptied first). Audited.
+- **Grafana follows the database**: its Postgres datasource is managed by the
+  Grafana setup service (through Grafana's API, re-applied every 5 minutes, at
+  once after a move) from the app's connection (`config/runtime.env`'s host /
+  port / database, read-only mount) and the `grafana_reader` password — no
+  longer a provisioning file with `postgres:5432`.
+- **Redis**: nothing worth copying (sessions, job state, live log history):
+  the existing Server Management switch stays, refused while rollouts run,
+  with "everyone signs in again".
 - **pg_cron**: many managed databases don't offer it, and today retention then
   never runs. The app gets a fallback: when pg_cron isn't available, it runs
   the same retention statements itself, daily at 03:00 (like the log pruning).
-- **Server Management** keeps the connection test (useful before a move) and
-  shows where the database and Redis are; in Docker installs the live switch is
-  replaced by "move it with `netrollout move-database`". `config/runtime.env`
-  stays for development and non-Docker runs.
 - **Grafana BYO stays post-v1** (workplan 4.0b: an external Grafana + an
   operators' organization) — no dependency either way (checked 2026-10-05), but
   two hooks are built now so it slots in without rework: Grafana's Postgres
-  datasource takes its host / port / database from settings (needed by the
-  move anyway), `grafana_reader` with its 3-table grant is created on any
+  datasource is managed by the Grafana setup from the app's connection (needed
+  by the move anyway), `grafana_reader` with its 3-table grant is created on any
   target database, and Server Management shows those connection details; and
   the Grafana setup (folders + dashboards through Grafana's API, in the app
   image after F) takes the Grafana URL and credentials as settings — pointing
@@ -177,5 +188,5 @@ because it stops the app, copies the data and changes what Grafana uses too.
 | 9.5 | `backup` / `restore` |
 | 9.6 | `update` + `uninstall` |
 | 9.7 | The port helper (Windows Task Scheduler, Linux systemd `.path`) + `apply` |
-| 9.8 | Bring your own: `move-database` / `move-redis`, the retention fallback, Server Management |
+| 9.8 | Bring your own from the UI: the background move (maintenance mode, copy, switch, move back), Grafana's datasource from the setup service, the Redis switch kept, the retention fallback |
 | 9.9 | The release zip build (a script stage 10's release job calls) + verification: a full install on the developer's PC into a scratch folder on other ports (the dev stack holds 443/80); Linux in CI (stage 10) |
