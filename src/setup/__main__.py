@@ -1,10 +1,14 @@
 """python -m src.setup init | check | prepare-start | status | restore-key |
-check-update | upgrade - see src/setup/__init__.py."""
+check-update | upgrade | release - see src/setup/__init__.py."""
 import argparse
 import sys
+from pathlib import Path
+
+from packaging.version import Version
 
 from src.setup import answers as A
-from src.setup import files, manage
+from src import runtime
+from src.setup import files, manage, release
 
 OK, INVALID, REFUSED = 0, 1, 2
 ANSWER_FLAGS = ("hostname", "https_port", "monitoring", "org_certificate",
@@ -14,7 +18,7 @@ ANSWER_FLAGS = ("hostname", "https_port", "monitoring", "org_certificate",
 def parse_args(argv):
 	p = argparse.ArgumentParser(prog="python -m src.setup")
 	p.add_argument("command", choices=("init", "check", "prepare-start", "status",
-	                                   "restore-key", "check-update", "upgrade"))
+	                                   "restore-key", "check-update", "upgrade", "release"))
 	facts = p.add_argument_group("facts (from the host script)")
 	facts.add_argument("--os", choices=("windows", "linux"), default="linux")
 	facts.add_argument("--computer-name", default="")
@@ -42,6 +46,12 @@ def parse_args(argv):
 	update = p.add_argument_group("check-update (run with the installed version's image)")
 	update.add_argument("--installed", help="the installed version")
 	update.add_argument("--new", help="the version about to be installed")
+	rel = p.add_argument_group("release (Linux's update; run with the installed version's image)")
+	rel.add_argument("--check", action="store_true", help="only say whether a newer one exists")
+	rel.add_argument("--release-version", help="this version, not the latest")
+	rel.add_argument("--feed", help="a mirror's release JSON (URL or file) instead of GitHub")
+	rel.add_argument("--from-zip", help="a release zip given by hand (offline)")
+	rel.add_argument("--out", default="/install/.update", help="where it's unpacked")
 	p.add_argument("--dev", action="store_true",
 	               help="a developer's .env + config/runtime.env (repo)")
 	return p.parse_args(argv)
@@ -82,6 +92,8 @@ def main(argv=None, read=input, write=print) -> int:
 			write(str(e))
 			return REFUSED
 		return OK
+	if args.command == "release":
+		return _release(args, write)
 	if args.command in ("prepare-start", "status", "restore-key", "upgrade"):
 		if not files.env_path().exists():
 			write(f"NetRollout isn't installed here ({files.env_path()} is missing) "
@@ -149,6 +161,31 @@ def main(argv=None, read=input, write=print) -> int:
 		      f"{e.strerror or e}. Nothing is installed yet - fix it and run "
 		      f"the install again.")
 		return INVALID
+	return OK
+
+
+def _release(args, write) -> int:
+	"""--check: whether a newer one exists; else downloaded (or given), checked
+	and unpacked under --out; prints version=… and folder=… for the script."""
+	out = Path(args.out)
+	try:
+		if args.from_zip:
+			folder, version = release.unpack(Path(args.from_zip), out)
+		else:
+			found = release.find(args.release_version, args.feed)
+			if args.check:
+				if Version(found.version) > Version(runtime.VERSION):
+					write(f"NetRollout {found.version} is available (you have "
+					      f"{runtime.VERSION}): sudo bin/netrollout.sh update")
+				else:
+					write(f"You have the latest version ({runtime.VERSION}).")
+				return OK
+			folder, version = release.unpack(release.download(found, out), out)
+	except release.ReleaseError as e:
+		write(str(e))
+		return INVALID
+	write(f"version={version}")
+	write(f"folder={folder}")
 	return OK
 
 

@@ -4,7 +4,7 @@
 #
 #   sudo ./bin/install.sh                      install in this folder
 #   sudo ./bin/netrollout.sh start | stop | status | open | logs [service] |
-#                            backup | restore <file> | uninstall | help
+#                            backup | restore <file> | update | uninstall | help
 #   sudo ./bin/netrollout.sh                   the menu
 #
 # The install folder is this script's parent folder. The script does what
@@ -27,6 +27,7 @@ APP_UID=10001                                  # the app container's user
 # ── options ──────────────────────────────────────────────────────────────────
 COMMAND="${1:-}"; [ $# -gt 0 ] && shift
 SERVICE="" YES="" NO_BROWSER="" DELETE_DATA="" KEEP_DATA="" NO_SAFETY_BACKUP=""
+CHECK="" WANTED="" FROM_ZIP="" FEED=""
 ANSWERS=()
 while [ $# -gt 0 ]; do
 	case "$1" in
@@ -35,6 +36,11 @@ while [ $# -gt 0 ]; do
 		--delete-data) DELETE_DATA=1 ;;
 		--keep-data) KEEP_DATA=1 ;;
 		--no-safety-backup) NO_SAFETY_BACKUP=1 ;;
+		--check) CHECK=1 ;;
+		--version|--from|--feed)
+			[ $# -ge 2 ] || fail "$1 needs a value"
+			case "$1" in --version) WANTED="$2" ;; --from) FROM_ZIP="$2" ;; --feed) FEED="$2" ;; esac
+			shift ;;
 		--hostname|--https-port|--monitoring|--org-certificate|--timezone)
 			[ $# -ge 2 ] || fail "$1 needs a value"
 			ANSWERS+=("$1" "$2"); shift ;;
@@ -54,6 +60,8 @@ case "$COMMAND" in
 	logs) need_installed; need_docker; compose logs --tail 100 --no-log-prefix "${SERVICE:-app}" ;;
 	backup) do_backup ;;
 	restore) do_restore ;;
+	update) do_update ;;
+	update-finish) do_update_finish ;;     # the new script, run by update
 	uninstall) do_uninstall ;;
 	help|-h|--help) show_help ;;
 	"") show_menu ;;
@@ -240,9 +248,7 @@ NOTICE
 	open_browser
 }
 
-do_stop() {
-	need_installed; need_root
-	if ! docker info >/dev/null 2>&1; then good "NetRollout isn't running (Docker isn't)."; return; fi
+running_rollouts() {
 	local port running
 	port="$(sed -n 's/^HTTPS_PORT=//p' "$ENV_FILE" | tail -1)"
 	running="$( (curl -fsk --max-time 5 "https://127.0.0.1:${port:-443}/_netrollout/health" 2>/dev/null || true) |
@@ -250,6 +256,12 @@ do_stop() {
 	if [ -n "$running" ] && [ "$running" -gt 0 ]; then
 		warn "$running rollout(s) running - they finish and are recorded first (up to 10 minutes)."
 	fi
+}
+
+do_stop() {
+	need_installed; need_root
+	if ! docker info >/dev/null 2>&1; then good "NetRollout isn't running (Docker isn't)."; return; fi
+	running_rollouts
 	step "Stopping NetRollout"
 	compose stop >/dev/null 2>&1 || fail "Docker couldn't stop it: $(compose stop 2>&1 | tail -3)"
 	good "Stopped. Start it again with: sudo $BIN/netrollout.sh start"
@@ -365,6 +377,91 @@ do_restore() {
 	good "Restored $shown. Everyone signs in again."
 }
 
+# ── update (the release: python -m src.setup release, in the app image) ─────
+# a feed file must be where the setup core sees it: inside this folder
+in_container() {
+	case "$1" in
+		*://*) printf '%s' "$1" ;;
+		"$ROOT"/*) printf '/install/%s' "${1#"$ROOT"/}" ;;
+		*) fail "A feed file must be inside $ROOT (or give a URL): $1" ;;
+	esac
+}
+
+do_update() {
+	need_installed; need_root; need_docker
+	local stage="$ROOT/.update" out code=0 new folder item
+	local args=(--out /install/.update)
+	rm -rf "$stage"; mkdir -p "$stage"
+	if [ -n "$FROM_ZIP" ]; then
+		[ -f "$FROM_ZIP" ] || fail "No such file: $FROM_ZIP"
+		cp -f "$FROM_ZIP" "$stage/"
+		if [ -f "$(dirname "$FROM_ZIP")/SHA256SUMS" ]; then cp -f "$(dirname "$FROM_ZIP")/SHA256SUMS" "$stage/"; fi
+		args+=(--from-zip "/install/.update/$(basename "$FROM_ZIP")")
+	fi
+	if [ -n "$WANTED" ]; then args+=(--release-version "$WANTED"); fi
+	if [ -n "$FEED" ]; then args+=(--feed "$(in_container "$FEED")"); fi
+	if [ -n "$CHECK" ]; then
+		setup_core release --check "${args[@]}" | sed 's/^/   /' || true
+		rm -rf "$stage"; return 0
+	fi
+	step "Getting the release"
+	out="$(setup_core release "${args[@]}" 2>&1)" || code=$?
+	if [ "$code" -ne 0 ]; then show "$out"; rm -rf "$stage"; fail "Nothing was changed."; fi
+	new="$(printf '%s\n' "$out" | sed -n 's/^version=//p' | tail -1)"
+	folder="$stage/netrollout"
+	step "Checking the update: NetRollout $VERSION -> $new"
+	code=0; out="$(docker run --rm "$APP_IMAGE" python -m src.setup check-update --installed "$VERSION" --new "$new" 2>&1)" || code=$?
+	if [ "$code" -eq 2 ]; then show "$out"; rm -rf "$stage"; fail "Nothing was changed." 2
+	elif [ "$code" -ne 0 ]; then warn "Couldn't compare the versions ($APP_IMAGE didn't run) - continuing."
+	elif [ "$(printf '%s\n' "$out" | tail -1)" = same ]; then good "The same version: its files again, then a start (a repair)."; fi
+	if [ -n "$INTERACTIVE" ]; then
+		local a=""
+		read -r -p "Update to NetRollout $new? A backup is made first; then about a minute without NetRollout, and everyone signs in again. [y/N] " a || true
+		case "$a" in y|Y|yes) ;; *) rm -rf "$stage"; fail "Nothing was changed." 2 ;; esac
+	fi
+	running_rollouts
+	step "Backing up first"
+	backup_create before-update || { rm -rf "$stage"; fail "Couldn't back up - nothing was changed. Fix it (above), then update again."; }
+	step "Putting NetRollout $new's files in place"
+	for item in bin compose.yaml compose.http.yaml deploy VERSION LICENSE README.md; do
+		[ -e "$folder/$item" ] || continue
+		rm -rf "${ROOT:?}/$item"
+		cp -a "$folder/$item" "$ROOT/"
+	done
+	chmod +x "$ROOT"/bin/*.sh
+	# the new script finishes: its own steps, its own version (this one was
+	# read whole before it ran, so replacing it underneath is safe)
+	exec "$ROOT/bin/netrollout.sh" update-finish --no-browser
+}
+
+# The new version's script, after update put its files in place: the new
+# images while the old version keeps running, .env up to date, the restart.
+do_update_finish() {
+	need_installed; need_root; need_docker
+	local out image back="The backup made before the update is in $ROOT/backups (...-before-update.zip)."
+	step "Downloading NetRollout $VERSION (it keeps running meanwhile)"
+	# failures of others' images surface at the start; ours are checked here
+	compose pull --quiet --ignore-pull-failures >/dev/null 2>&1 || true
+	for image in netrollout netrollout-postgres netrollout-nginx; do
+		docker image inspect "itamarweinstein/$image:$VERSION" >/dev/null 2>&1 && continue
+		if ! out="$(docker pull "itamarweinstein/$image:$VERSION" 2>&1)"; then
+			show "$out"
+			if printf '%s' "$out" | grep -qE 'not found|manifest unknown'; then
+				fail "NetRollout $VERSION isn't published on Docker Hub (itamarweinstein/$image:$VERSION doesn't exist there). This release is incomplete - please report it: https://github.com/itamar14-byte/NetRollout/issues. $back" 3
+			fi
+			fail "Couldn't download itamarweinstein/$image:$VERSION - check the internet connection, then: sudo $BIN/netrollout.sh update-finish. $back"
+		fi
+	done
+	step "Updating the settings"
+	out="$(setup_core upgrade 2>&1)" || { show "$out"; fail "The update stopped before the restart - see above. $back"; }
+	show "$out"
+	running_rollouts
+	step "Restarting on the new version (about a minute; running rollouts finish first)"
+	do_start
+	rm -rf "$ROOT/.update"
+	good "Updated to NetRollout $VERSION. Everyone signs in again."
+}
+
 do_status() {
 	need_installed; need_root; need_docker
 	local states reach=no
@@ -411,12 +508,15 @@ show_help() {
 	say "  sudo $BIN/netrollout.sh logs [service]  recent log lines (app, nginx, postgres, ...)"
 	say "  sudo $BIN/netrollout.sh backup          back up now (into $ROOT/backups)"
 	say "  sudo $BIN/netrollout.sh restore <file>  put NetRollout back to a backup (asks first)"
+	say "  sudo $BIN/netrollout.sh update          update to the latest release (asks first; --check only looks)"
 	say "  sudo $BIN/netrollout.sh uninstall       remove it (asks whether to delete the data too)"
 	say "  sudo $BIN/netrollout.sh                 the menu"
 	say ""
 	say "  --yes   unattended (accepts the licence, defaults); with install also"
 	say "          --hostname --https-port --monitoring y/n --org-certificate y/n --timezone"
 	say "  --no-browser   --delete-data / --keep-data (uninstall)   --no-safety-backup (restore)"
+	say "  update: --version X (not the latest)  --from <zip> (offline; checked against a SHA256SUMS next to it)"
+	say "          --feed <url|file> (a mirror's release JSON)  --check"
 }
 
 show_menu() {
@@ -438,6 +538,7 @@ show_menu() {
 		say "  5  Logs"
 		say "  6  Back up"
 		say "  7  Restore a backup"
+		say "  8  Update"
 		say "  0  Exit"
 		say ""
 		local choice=""
@@ -458,6 +559,7 @@ show_menu() {
 			     read -r -p " File name (or a path; Enter: back to the menu): " SERVICE || exit 0
 			     [ -n "$SERVICE" ] || exit 0
 			     do_restore ) || true ;;
+			8) ( COMMAND=update; do_update ) || true ;;
 			*) continue ;;
 		esac
 		say ""
