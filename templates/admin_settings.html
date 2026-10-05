@@ -39,6 +39,23 @@
   .save-bar { position: sticky; bottom: 0; background: #121212; border-top: 1px solid #222;
               padding: 0.85rem 0; display: flex; gap: 0.75rem; align-items: center; z-index: 5; }
   .save-bar .hint { font-size: 0.8rem; color: var(--nr-text-muted); }
+  .bk-actions { display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center; margin-top: 0.5rem; }
+  .bk-next { font-size: 0.8rem; color: var(--nr-text-muted); }
+  .bk-last { margin: 0.85rem 0 0; }
+  .bk-table { width: 100%; margin-top: 0.85rem; font-size: 0.8rem; border-collapse: collapse; }
+  .bk-table th { font-family: 'JetBrains Mono', monospace; font-size: 0.6875rem; font-weight: 500;
+                 color: var(--nr-text-muted); text-transform: uppercase; letter-spacing: 0.04em;
+                 padding: 0.35rem 0.5rem; border-bottom: 1px solid #242424; text-align: left; }
+  .bk-table td { padding: 0.45rem 0.5rem; border-bottom: 1px solid #1c1c1c; color: #cfcfcf; vertical-align: middle; }
+  .bk-table td.num { font-family: 'JetBrains Mono', monospace; text-align: right; white-space: nowrap; }
+  .bk-table td.acts { text-align: right; white-space: nowrap; }
+  .bk-table td.acts a, .bk-table td.acts button { font-size: 0.76rem; padding: 0.05rem 0.5rem; margin-left: 0.3rem; }
+  .bk-kind { font-family: 'JetBrains Mono', monospace; font-size: 0.6875rem; border-radius: 4px;
+             padding: 0.05rem 0.4rem; border: 1px solid #2a2a2a; color: var(--nr-text-secondary); white-space: nowrap; }
+  .bk-kind.manual { color: #80deea; border-color: rgba(0,188,212,0.35); }
+  .bk-kind.before { color: #ffcc80; border-color: rgba(255,183,77,0.35); }
+  .bk-empty { font-size: 0.8rem; color: var(--nr-text-muted); margin-top: 0.85rem; }
+  .bk-bad { color: #ef9a9a; }
   @media (max-width: 720px) { .set-row { grid-template-columns: 1fr; } }
 {% endblock %}
 
@@ -63,7 +80,7 @@
   <div class="nr-card-accent"></div>
   <div class="nr-card-body">
     <div class="d-flex align-items-center mb-3">
-      <i class="bi {{ {'Retention': 'bi-clock-history', 'Rollouts': 'bi-diagram-3', 'Access': 'bi-globe2', 'Sessions': 'bi-person-lock'}.get(card, 'bi-gear') }}"
+      <i class="bi {{ {'Retention': 'bi-clock-history', 'Rollouts': 'bi-diagram-3', 'Access': 'bi-globe2', 'Sessions': 'bi-person-lock', 'Backups': 'bi-archive'}.get(card, 'bi-gear') }}"
          style="color:#00bcd4; font-size:1.05rem;"></i>
       <span style="font-family:'Inter',sans-serif; font-weight:600; color:#e0e0e0; font-size:0.97rem; margin-left:0.5rem;">{{ card }}</span>
     </div>
@@ -82,7 +99,14 @@
         </div>
       </div>
       <div>
-        {% if s.kind == 'int' %}
+        {% if s.choices %}
+        <select class="form-select form-select-sm set-input" id="set-{{ s.key }}" name="{{ s.key }}"
+                aria-describedby="help-{{ s.key }} err-{{ s.key }}" {% if not s.editable %}disabled{% endif %}>
+          {% for value, label in s.choices %}
+          <option value="{{ value }}" {% if value == s.value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+        {% elif s.kind == 'int' %}
         <input type="number" class="form-control form-control-sm set-input" id="set-{{ s.key }}"
                name="{{ s.key }}" value="{{ s.value }}" step="1"
                {% if s.minimum is not none %}min="{{ s.minimum }}"{% endif %}
@@ -99,6 +123,24 @@
       </div>
     </div>
     {% endfor %}
+
+    {% if card == 'Backups' %}
+    {# the files and the schedule's state - filled by the script (admin_backups.backups_state) #}
+    <div class="bk-actions">
+      <button type="button" id="backupNowBtn" class="btn btn-sm btn-outline-info">
+        <i class="bi bi-archive me-1"></i>Back up now
+      </button>
+      <span class="bk-next" id="backupNext"></span>
+    </div>
+    <div id="backupLast" class="set-alert bk-last" aria-live="polite"></div>
+    <div id="backupList" aria-live="polite"></div>
+    <div class="set-note">
+      <i class="bi bi-info-circle me-1"></i>
+      Restoring stops NetRollout for a moment, so it's done on the server: NetRollout Manager → <b>Restore…</b>,
+      or <code>netrollout restore &lt;file&gt;</code>. A backup holds the key that decrypts the saved device
+      credentials — keep downloaded copies as safe as the server itself.
+    </div>
+    {% endif %}
 
     {% if card == 'Access' %}
     {# where a new HTTPS port stands — filled by the script (port_apply.state) #}
@@ -177,6 +219,11 @@
       return n;
     }
     const v = String(raw ?? '').trim();
+    if (s.choices) {
+      if (!s.choices.some(c => c[0] === v))
+        throw `${s.label} must be one of: ${s.choices.map(c => c[1]).join(', ')}`;
+      return v;
+    }
     if (s.max_length && v.length > s.max_length) throw `${s.label} must be at most ${s.max_length} characters`;
     if (v && s.pattern && !new RegExp('^(?:' + s.pattern + ')$').test(v))
       throw `${s.label} ${s.pattern_hint || 'has an invalid format'}`;
@@ -248,6 +295,7 @@
       setSettingsRestartPending(state.restart_pending);
     if (state.port) renderPort(state.port);
     if (state.access) renderAccess(state.access);
+    if (window.nrSyncBackups) nrSyncBackups(state.restart_pending !== null);
     refreshDirty();
   }
 
@@ -454,6 +502,94 @@
     out.innerHTML = `${esc(data.url)} <span style="color:var(--nr-text-muted)">(${esc(data.source)})</span><br>` +
       line('nginx on this machine', data.local) + '<br>' + line('via the URL', data.public);
   });
+
+  // ── Backups: the list, Back up now, Download, Delete (admin_backups.py) ──
+  const KIND = {manual: 'manual', scheduled: 'scheduled', 'before-restore': 'before restore',
+                'before-update': 'before update'};
+  const size = n => n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB';
+  const when = iso => iso ? new Date(iso).toLocaleString([], {dateStyle: 'medium', timeStyle: 'short'}) : null;
+  const rowOf = key => document.querySelector(`.set-row[data-key="${key}"]`);
+
+  function syncBackupRows() {
+    // the time / day / keep matter only when they're used
+    const schedule = input('backup_schedule').value;
+    rowOf('backup_time').hidden = rowOf('backup_keep').hidden = schedule === 'off';
+    rowOf('backup_weekday').hidden = schedule !== 'weekly';
+  }
+
+  function renderBackups(b) {
+    const next = document.getElementById('backupNext'), last = document.getElementById('backupLast');
+    next.textContent = b.next ? `Next scheduled backup: ${when(b.next)}` : 'Scheduled backups are off.';
+    if (b.last && b.last.ok) {
+      last.className = 'set-alert show success bk-last';
+      last.innerHTML = `<i class="bi bi-check-circle me-1"></i>Last scheduled backup: ${esc(when(b.last.time))} — OK.`;
+    } else if (b.last) {
+      last.className = 'set-alert show error bk-last';
+      last.innerHTML = `<i class="bi bi-exclamation-triangle me-1"></i>The last scheduled backup failed ` +
+        `(${esc(when(b.last.time))}): ${esc(b.last.message)}. It's tried again within the hour.`;
+    } else { last.className = 'set-alert bk-last'; last.textContent = ''; }
+    const list = document.getElementById('backupList');
+    if (!b.backups.length) { list.innerHTML = '<div class="bk-empty">No backups yet.</div>'; return; }
+    const kindClass = k => k === 'manual' ? 'manual' : k.startsWith('before') ? 'before' : '';
+    list.innerHTML = '<table class="bk-table"><thead><tr><th>Made</th><th>Kind</th><th>Version</th>' +
+      '<th style="text-align:right">Size</th><th></th></tr></thead><tbody>' +
+      b.backups.map(x => '<tr><td>' +
+        (x.problem ? `<span class="bk-bad" title="${esc(x.problem)}">damaged</span> ` + esc(x.name)
+                   : esc(when(x.created))) + '</td>' +
+        `<td><span class="bk-kind ${kindClass(x.kind)}">${esc(KIND[x.kind] || x.kind)}</span></td>` +
+        `<td>${esc(x.version || '—')}</td><td class="num">${size(x.size)}</td><td class="acts">` +
+        `<a class="btn btn-sm btn-outline-secondary" href="/admin/backups/${encodeURIComponent(x.name)}" ` +
+        `title="Download ${esc(x.name)}" aria-label="Download ${esc(x.name)}"><i class="bi bi-download"></i></a>` +
+        `<button type="button" class="btn btn-sm btn-outline-danger" data-backup-delete="${esc(x.name)}" ` +
+        `title="Delete ${esc(x.name)}" aria-label="Delete ${esc(x.name)}"><i class="bi bi-trash3"></i></button>` +
+        '</td></tr>').join('') +
+      `</tbody></table><div class="bk-next" style="margin-top:0.4rem">${b.backups.length} ` +
+      `backup${b.backups.length === 1 ? '' : 's'}, ${size(b.total)} in the backups folder.</div>`;
+  }
+
+  async function refreshBackups() {
+    try {
+      const resp = await fetch('/admin/backups', {headers: {'X-Requested-With': 'XMLHttpRequest'}});
+      const data = await resp.json();
+      if (data.status === 'ok') renderBackups(data);
+    } catch (_) {}
+  }
+
+  const backupNowBtn = document.getElementById('backupNowBtn');
+  backupNowBtn.addEventListener('click', async () => {
+    clearAlert();
+    backupNowBtn.disabled = true;
+    backupNowBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Backing up…';
+    const {resp, data} = await post('/admin/backups');
+    backupNowBtn.disabled = false;
+    backupNowBtn.innerHTML = '<i class="bi bi-archive me-1"></i>Back up now';
+    if (resp.ok && data.status === 'ok') {
+      renderBackups(data);
+      showAlert('success', `<i class="bi bi-check-circle me-1"></i>Backed up: <code>${esc(data.created)}</code>.`);
+    } else {
+      showAlert('error', 'Not backed up: ' + esc(data.message || `server error (${resp.status})`));
+    }
+  });
+
+  document.getElementById('backupList').addEventListener('click', async e => {
+    const button = e.target.closest('[data-backup-delete]');
+    if (!button) return;
+    const name = button.dataset.backupDelete;
+    if (!confirm(`Delete the backup ${name}? This can't be undone.`)) return;
+    clearAlert();
+    const {resp, data} = await post(`/admin/backups/${encodeURIComponent(name)}/delete`);
+    if (resp.ok && data.status === 'ok') {
+      renderBackups(data);
+      showAlert('success', `<i class="bi bi-trash3 me-1"></i>Deleted <code>${esc(name)}</code>.`);
+    } else {
+      showAlert('error', 'Not deleted: ' + esc(data.message || `server error (${resp.status})`));
+    }
+  });
+
+  input('backup_schedule').addEventListener('change', syncBackupRows);
+  window.nrSyncBackups = saved => { syncBackupRows(); if (saved) refreshBackups(); };
+  syncBackupRows();
+  renderBackups({{ backups | tojson }});
 
   refreshDirty();
 })();

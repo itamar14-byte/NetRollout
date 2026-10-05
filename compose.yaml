@@ -71,6 +71,12 @@ services:
       - ./logs:/data/logs
       - ./config:/data/config
       - ./certs:/data/certs
+      - ./backups:/data/backups
+      # Grafana's data, read only: the backups copy its database (src/backup.py)
+      - grafana:/data/grafana:ro
+    # Grafana's database is readable by its owner and group 0 only; group 0
+    # is a file group here, not root's powers
+    group_add: ["0"]
     # Python as PID 1 ignores a SIGTERM that comes before its handler exists
     init: true
     # Longer than the drain (NETROLLOUT_DRAIN_SECONDS, 600): running rollouts

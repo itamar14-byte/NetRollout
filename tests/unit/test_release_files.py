@@ -29,6 +29,17 @@ def test_the_app_gets_no_seeds_but_the_published_port_and_the_server_ips():
 	assert app["NETROLLOUT_SERVER_IPS"] == "${NETROLLOUT_SERVER_IPS:-}"
 
 
+def test_the_app_writes_backups_and_reads_grafanas_data_only():
+	# scheduled backups (src/backup.py): into backups/, with Grafana's
+	# database — read only, readable through group 0 (its file is 640 472:0)
+	app = compose()["services"]["app"]
+	assert "./backups:/data/backups" in app["volumes"]
+	assert "grafana:/data/grafana:ro" in app["volumes"]
+	assert app["group_add"] == ["0"]
+	grafana = compose()["services"]["grafana"]["volumes"]
+	assert any(v.startswith("grafana:/var/lib/grafana") for v in grafana)
+
+
 def test_port_80_is_always_80_when_switched_on():
 	assert compose("compose.http.yaml")["services"]["nginx"]["ports"] == ["80:80"]
 

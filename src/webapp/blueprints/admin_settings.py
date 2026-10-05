@@ -14,6 +14,7 @@ from src.db.settings import (SETTINGS, SettingsError, public_url,
                              rules_for_client)
 from src.runtime import in_container
 from src.webapp import port_apply, proxy_config
+from src.webapp.blueprints.admin_backups import backups_state
 from src.webapp.startup import check_proxy, resolve_public_url
 from src.webapp.utils import err, ok, require_admin, with_json
 
@@ -78,7 +79,7 @@ def settings_page():
 	return render_template("admin_settings.html", active_section="settings",
 	                       cards=cards, settings=state["settings"],
 	                       rules=rules_for_client(), port=state["port"],
-	                       access=state["access"],
+	                       access=state["access"], backups=backups_state(),
 	                       app_port=current_app.config.get("APP_PORT"))
 
 

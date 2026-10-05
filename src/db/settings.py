@@ -51,10 +51,19 @@ class Setting:
 	pattern_hint: str = ""
 	placeholder: str = ""
 	max_length: int | None = None
+	# str settings: a fixed list, ((value, what the page shows), ...) — a
+	# dropdown on the page
+	choices: tuple[tuple[str, str], ...] | None = None
 
 	def parse(self, raw):
 		"""Raw input (form string, JSON value, env string) → typed value.
 		Raises ValueError with a message for the page."""
+		if self.choices:
+			value = "" if raw is None else str(raw).strip()
+			if value not in (c[0] for c in self.choices):
+				raise ValueError("must be one of: " +
+				                 ", ".join(label for _, label in self.choices))
+			return value
 		if self.kind is int:
 			if isinstance(raw, bool):
 				raise ValueError("must be a whole number")
@@ -157,6 +166,33 @@ SETTINGS: dict[str, Setting] = {s.key: s for s in [
 	        "logs don't count. However active, signing in is required again "
 	        "after 12 hours.",
 	        "Sessions", 15, minimum=5, maximum=480, applies="within 30 s"),
+	# ── Backups (src/webapp/backup_schedule.py runs them) ──
+	Setting("backup_schedule", "Scheduled backup",
+	        "A backup of the database, Grafana's dashboards, the certificate "
+	        "and the rollout logs, into the backups folder on the server. "
+	        "Copy them off the server too (Download below): a backup on the "
+	        "same disk doesn't survive losing it.",
+	        "Backups", "daily", kind=str, applies="next scheduled time",
+	        choices=(("off", "Off"), ("daily", "Daily"), ("weekly", "Weekly"))),
+	Setting("backup_time", "At",
+	        "The server's local time (24-hour). A time missed while the server "
+	        "was off is caught up when it's back.",
+	        "Backups", "02:00", kind=str, applies="next scheduled time",
+	        pattern=r"([01][0-9]|2[0-3]):[0-5][0-9]",
+	        pattern_hint="must be a time like 02:00 (24-hour)",
+	        placeholder="02:00", max_length=5),
+	Setting("backup_weekday", "On",
+	        "The day of a weekly backup.",
+	        "Backups", "sun", kind=str, applies="next scheduled time",
+	        choices=(("mon", "Monday"), ("tue", "Tuesday"), ("wed", "Wednesday"),
+	                 ("thu", "Thursday"), ("fri", "Friday"),
+	                 ("sat", "Saturday"), ("sun", "Sunday"))),
+	Setting("backup_keep", "Keep",
+	        "How many scheduled backups are kept; older ones are deleted. "
+	        "Backups made by hand, or before a restore or an update, stay "
+	        "until someone deletes them.",
+	        "Backups", 14, minimum=1, maximum=365,
+	        applies="next scheduled backup"),
 	Setting("https_port", "HTTPS port",
 	        "The port people use to reach NetRollout. Saving a new one opens "
 	        "it next to the current one; open NetRollout on the new port to "
@@ -319,6 +355,7 @@ class SettingsStore:
 				"placeholder": s.placeholder, "max_length": s.max_length,
 				"applies": s.applies, "editable": s.editable,
 				"kind": s.kind.__name__,
+				"choices": [list(c) for c in s.choices] if s.choices else None,
 			})
 		return out
 
