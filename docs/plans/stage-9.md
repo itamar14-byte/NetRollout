@@ -154,6 +154,17 @@ because it stops the app, copies the data and changes what Grafana uses too.
   shows where the database and Redis are; in Docker installs the live switch is
   replaced by "move it with `netrollout move-database`". `config/runtime.env`
   stays for development and non-Docker runs.
+- **Grafana BYO stays post-v1** (workplan 4.0b: an external Grafana + an
+  operators' organization) — no dependency either way (checked 2026-10-05), but
+  two hooks are built now so it slots in without rework: Grafana's Postgres
+  datasource takes its host / port / database from settings (needed by the
+  move anyway), `grafana_reader` with its 3-table grant is created on any
+  target database, and Server Management shows those connection details; and
+  the Grafana setup (folders + dashboards through Grafana's API, in the app
+  image after F) takes the Grafana URL and credentials as settings — pointing
+  it at an external Grafana is the heart of Grafana BYO. Its open question for
+  then: an external Grafana can't reach the bundled Postgres (only nginx
+  publishes ports) — a moved database, or publishing Postgres on purpose.
 
 ## Subtasks
 
