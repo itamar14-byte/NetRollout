@@ -1,5 +1,6 @@
 """python -m src.setup init | check | prepare-start | status | restore-key |
-check-update | upgrade | release - see src/setup/__init__.py."""
+check-update | upgrade | release | port-next | port-open | port-trying |
+port-close - see src/setup/__init__.py."""
 import argparse
 import sys
 from pathlib import Path
@@ -8,7 +9,7 @@ from packaging.version import Version
 
 from src.setup import answers as A
 from src import runtime
-from src.setup import files, manage, release
+from src.setup import files, manage, port, release
 
 OK, INVALID, REFUSED = 0, 1, 2
 ANSWER_FLAGS = ("hostname", "https_port", "monitoring", "org_certificate",
@@ -18,7 +19,8 @@ ANSWER_FLAGS = ("hostname", "https_port", "monitoring", "org_certificate",
 def parse_args(argv):
 	p = argparse.ArgumentParser(prog="python -m src.setup")
 	p.add_argument("command", choices=("init", "check", "prepare-start", "status",
-	                                   "restore-key", "check-update", "upgrade", "release"))
+	                                   "restore-key", "check-update", "upgrade", "release",
+	                                   "port-next", "port-open", "port-trying", "port-close"))
 	facts = p.add_argument_group("facts (from the host script)")
 	facts.add_argument("--os", choices=("windows", "linux"), default="linux")
 	facts.add_argument("--computer-name", default="")
@@ -52,6 +54,12 @@ def parse_args(argv):
 	rel.add_argument("--feed", help="a mirror's release JSON (URL or file) instead of GitHub")
 	rel.add_argument("--from-zip", help="a release zip given by hand (offline)")
 	rel.add_argument("--out", default="/install/.update", help="where it's unpacked")
+	ph = p.add_argument_group("port-* (the port helper; src/setup/port.py)")
+	ph.add_argument("--port", type=int, help="port-open / port-trying: the new port")
+	ph.add_argument("--id", default="", help="the request id")
+	ph.add_argument("--outcome", choices=("keep", "rollback", "failed"),
+	                help="port-close: how the trial ends")
+	ph.add_argument("--message", default="", help="port-close: why (rollback, failed)")
 	p.add_argument("--dev", action="store_true",
 	               help="a developer's .env + config/runtime.env (repo)")
 	return p.parse_args(argv)
@@ -94,6 +102,11 @@ def main(argv=None, read=input, write=print) -> int:
 		return OK
 	if args.command == "release":
 		return _release(args, write)
+	if args.command.startswith("port-"):
+		if not files.env_path().exists():
+			write(f"NetRollout isn't installed here ({files.env_path()} is missing).")
+			return INVALID
+		return _port(args, facts, write)
 	if args.command in ("prepare-start", "status", "restore-key", "upgrade"):
 		if not files.env_path().exists():
 			write(f"NetRollout isn't installed here ({files.env_path()} is missing) "
@@ -161,6 +174,26 @@ def main(argv=None, read=input, write=print) -> int:
 		      f"{e.strerror or e}. Nothing is installed yet - fix it and run "
 		      f"the install again.")
 		return INVALID
+	return OK
+
+
+def _port(args, facts, write) -> int:
+	"""port-next prints "<action> <port|-> <id|->" and, when there is one, a
+	second line saying why; the others do their step and print nothing."""
+	if args.command == "port-next":
+		step = port.next_step(facts.busy_ports)
+		write(f"{step.action} {step.port or '-'} {step.id or '-'}")
+		if step.message:
+			write(step.message)
+	elif args.command == "port-open":
+		port.open_trial(args.port)
+	elif args.command == "port-trying":
+		port.trying(args.port, args.id)
+	else:
+		if not args.outcome:
+			write("port-close needs --outcome keep|rollback|failed")
+			return INVALID
+		port.close(args.outcome, args.id, args.message)
 	return OK
 
 

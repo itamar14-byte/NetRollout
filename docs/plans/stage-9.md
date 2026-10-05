@@ -343,6 +343,33 @@ the bundled superuser, the whole `.env` in the zip).
   installer as updater · 9.6c the Manager's Update · 9.6d Linux `update` ·
   9.6e uninstall · 9.6f real runs (dev0 → dev1 on both OSes).
 
+## 9.7 — the port helper (decided 2026-10-05)
+
+- **The decisions in the setup core** (`src/setup/port.py`: `port-next`
+  answers none / wait / try P / keep / rollback; a refused request is
+  recorded `failed` with why; each id handled once), **the scripts only do
+  Docker**: the trial is a compose file `config/port-trial.yaml` adding
+  `P:443` to nginx, **listed in `.env`'s `COMPOSE_FILE`** for the trial's
+  length (so every compose call - Start, status, a reboot - keeps it), nginx
+  recreated (`up -d --no-deps nginx`); keep = `HTTPS_PORT=P` in `.env` (and
+  `site.env`'s port in use, for nginx's redirects), the file gone, nginx on P
+  only; rollback = the file gone, nginx on the old port. Trial 120 s. nginx's
+  config never changes for a port: inside its container it always listens
+  on 443; the port is Docker's mapping.
+- **Windows: automatic** (the developer's decision) - not the tray Manager
+  but `NetRollout Manager.exe --helper`: headless (no window, no tray), its
+  own single-instance lock, watching `config
+ginx\site.env` (change
+  notifications + a 3 s check) and running `manage.ps1 apply`. Started from
+  a Startup entry at every sign-in (always installed - Docker Desktop also
+  needs a signed-in user; a per-user logon task would need admin), by Setup
+  at the end of an install / update, and by `netrollout start` when it isn't
+  running; uninstall stops it (`--exit`) and removes the entry.
+- **Linux**: a systemd path unit on `site.env` -> `netrollout.sh apply`;
+  without systemd the page says to run it by hand.
+- Subtasks: 9.7a the setup core · 9.7b Windows (`apply`, `--helper`) ·
+  9.7c Linux · 9.7d real runs (kept / rolled back / busy port).
+
 ## Bring your own database / Redis (from the UI)
 
 A move, not a switch: switching live to an empty server would leave the data
