@@ -1,0 +1,15 @@
+NetRollout - licence terms
+
+NetRollout is free software under the GNU Affero General Public License v3
+(https://www.gnu.org/licenses/agpl-3.0.html): you may use, change and share
+it; if you offer a changed version to others over a network, you must offer
+them its source too. It comes with no warranty.
+
+NetRollout runs on Docker Desktop. Docker Desktop is free for personal use,
+education, non-commercial open source and small businesses (fewer than 250
+employees and less than 10 million USD in annual revenue); larger
+organisations need a paid Docker subscription (https://www.docker.com/pricing/).
+Complying is your organisation's responsibility. Running Windows 10/11 in a
+virtual machine needs a Windows licence that covers it.
+
+The full licence: LICENSE, in the install folder.

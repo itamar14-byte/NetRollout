@@ -15,14 +15,26 @@ param(
 	[switch]$NoBrowser,
 	[switch]$Yes,          # unattended: the licence accepted, defaults answered
 	[switch]$NoShortcuts,  # install: no desktop / Start Menu shortcuts (scripted installs)
-	[switch]$PauseAtEnd    # set by install.bat: keep a double-clicked window open
+	[switch]$PauseAtEnd,   # set by install.bat: keep a double-clicked window open
+	# install's answers, given (the Setup wizard asks them on its own pages)
+	[string]$Hostname = "",
+	[string]$HttpsPort = "",
+	[string]$Monitoring = "",       # y / n
+	[string]$OrgCertificate = "",   # y / n: fullchain.pem + privkey.pem already in certs\
+	[string]$TimeZone = "",
+	[string]$Out = "",              # defaults: the file to write them to
+	[switch]$DeleteData,            # uninstall: delete the data too (no question)
+	[switch]$KeepData               # uninstall: keep it (no question)
 )
 
 Set-StrictMode -Version 2
 $ErrorActionPreference = "Stop"
 
 $Root = Split-Path -Parent $PSScriptRoot
-$Version = (Get-Content -Raw (Join-Path $Root "VERSION")).Trim()
+# (the Setup wizard runs some commands from a temporary copy, before
+# NetRollout's files are in place: no VERSION there)
+$VersionFile = Join-Path $Root "VERSION"
+$Version = if (Test-Path $VersionFile) { (Get-Content -Raw $VersionFile).Trim() } else { "" }
 # A different project name only for testing next to a running NetRollout
 $Project = if ($env:NETROLLOUT_PROJECT) { $env:NETROLLOUT_PROJECT } else { "netrollout" }
 $AppImage = "itamarweinstein/netrollout:$Version"
@@ -194,7 +206,10 @@ function Wait-Docker([int]$Seconds, [string]$Waiting) {
 function Install-DockerDesktop {
 	Step "Installing Docker Desktop (Docker's official installer - it shows Docker's terms)"
 	if (Get-Command winget -ErrorAction SilentlyContinue) {
-		& winget install --id Docker.DockerDesktop --exact
+		# unattended (the Setup wizard, -Yes): Docker's terms were shown and
+		# accepted on the licence page; winget can't ask in a hidden window
+		$accept = if ($Yes) { @("--accept-package-agreements", "--accept-source-agreements") } else { @() }
+		& winget install --id Docker.DockerDesktop --exact @accept
 		if ($LASTEXITCODE -eq 0) { return }
 		Warn "winget didn't install it - trying Docker's installer directly."
 	}
@@ -328,21 +343,8 @@ function New-Shortcuts {
 	}
 }
 
-$LicenceNotice = @"
-
-NetRollout is free software under the GNU Affero General Public License v3
-(https://www.gnu.org/licenses/agpl-3.0.html): you may use, change and share
-it; if you offer a changed version to others over a network, you must offer
-them its source too. It comes with no warranty.
-
-NetRollout runs on Docker Desktop. Docker Desktop is free for personal use,
-education, non-commercial open source and small businesses (fewer than 250
-employees and less than 10 million USD in annual revenue); larger
-organisations need a paid Docker subscription (https://www.docker.com/pricing/).
-Complying is your organisation's responsibility. Running Windows 10/11 in a
-virtual machine needs a Windows licence that covers it.
-
-"@
+# The licence notice: one text for this script and the Setup wizard's page
+$LicenceNoticeFile = Join-Path $PSScriptRoot "licence-notice.txt"
 
 function Invoke-Install {
 	if (Test-Installed) {
@@ -364,7 +366,8 @@ function Invoke-Install {
 		}
 	}
 	if (-not $Yes) {
-		Write-Host $LicenceNotice
+		Write-Host ""
+		Write-Host (Get-Content -Raw $LicenceNoticeFile)
 		if ((Read-Host "Type yes to accept and continue") -ne "yes") {
 			Fail "The licence terms weren't accepted - nothing was installed."
 		}
@@ -377,6 +380,11 @@ function Invoke-Install {
 	}
 	Step "Setting up"
 	$setup = @("init", "--licence-accepted", "--busy-ports", (Get-BusyPorts)) + (Get-Facts)
+	foreach ($given in @(@("--hostname", $Hostname), @("--https-port", $HttpsPort),
+	                     @("--monitoring", $Monitoring), @("--org-certificate", $OrgCertificate),
+	                     @("--timezone", $TimeZone))) {
+		if ($given[1]) { $setup += $given }
+	}
 	if ($Yes) { $setup += "--defaults"; $code = Invoke-Setup $setup }
 	else { $code = Invoke-Setup $setup -Talk }
 	if ($code -ne 0) { Fail "Setup stopped - nothing was started." $code }
@@ -386,7 +394,9 @@ function Invoke-Install {
 	if (-not $NoShortcuts) { New-Shortcuts }
 	Say ""
 	Good "Installed. Open $(Get-Address) and sign in as admin / admin - you'll set a new password."
-	Say "   Desktop: 'NetRollout' opens it, 'NetRollout Manager' starts, stops and checks it."
+	if (-not $NoShortcuts) {
+		Say "   Desktop: 'NetRollout' opens it, 'NetRollout Manager' starts, stops and checks it."
+	}
 	Say "   NetRollout starts with Docker Desktop when someone signs in to Windows: on a server,"
 	Say "   set up automatic sign-in for the account that runs it (README: 'After a reboot')."
 	Open-Browser
@@ -418,6 +428,61 @@ function Invoke-Stop {
 	Good "Stopped. Start it again with: netrollout start"
 }
 
+# What the Setup wizard pre-fills (an ini file: it reads those natively)
+function Write-Defaults {
+	if (-not $Out) { Fail "defaults needs -Out <file>" }
+	$busy = @{}
+	foreach ($item in ((Get-BusyPorts) -split ",")) {
+		$port, $who = $item -split "=", 2
+		if ($port) { $busy[[int]$port] = $who }
+	}
+	$port = 443
+	foreach ($p in 443, 8443, 9443, 10443, 11443) { if (-not $busy.ContainsKey($p)) { $port = $p; break } }
+	$name = $env:COMPUTERNAME.ToLower()
+	if ($name -notmatch "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$") { $name = "netrollout" }
+	$lines = @("[defaults]", "hostname=$name", "https_port=$port",
+		"timezone=$((Get-TimeZone).Id)", "port80_busy=$(if ($busy.ContainsKey(80)) { $busy[80] } else { '' })",
+		"docker=$(if ((Test-DockerCli) -and (Test-DockerRunning)) { 'running' } elseif (Test-DockerCli) { 'installed' } else { 'missing' })",
+		"", "[busy]")
+	foreach ($p in ($busy.Keys | Sort-Object)) { $lines += "$p=$(if ($busy[$p]) { $busy[$p] } else { 'another program' })" }
+	Set-Content -Encoding ASCII -Path $Out -Value $lines
+}
+
+function Invoke-Uninstall {
+	if (-not (Test-Installed)) { Good "NetRollout isn't installed in $Root - nothing to remove." }
+	$delete = [bool]$DeleteData
+	if (-not $DeleteData -and -not $KeepData -and $Interactive -and (Test-Installed)) {
+		$a = Read-Host ("Also delete NetRollout's data - the database, settings, certificates, " +
+		                "logs and backups? This can't be undone. [y/N]")
+		$delete = $a -match "^(y|yes)$"
+	}
+	if ((Test-Installed) -and (Test-DockerCli) -and (Test-DockerRunning)) {
+		Step "Removing NetRollout's containers$(if ($delete) { ' and its data' })"
+		$down = @("down", "--remove-orphans")
+		if ($delete) { $down += "-v" }
+		$r = Compose $down
+		if ($r.Code -ne 0) { Write-Host $r.Output; Warn "Docker couldn't remove everything - see above." }
+	} elseif ($delete) {
+		Warn "Docker isn't running: the database volumes stay (Docker Desktop -> Volumes: netrollout_*)."
+	}
+	foreach ($folder in Get-ShortcutFolders) {
+		foreach ($name in "NetRollout.url", "NetRollout Manager.lnk") {
+			Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $folder $name)
+		}
+	}
+	$menu = (Get-ShortcutFolders)[1]
+	if ((Test-Path $menu) -and -not (Get-ChildItem $menu)) { Remove-Item -Force $menu }
+	if ($delete) {
+		foreach ($name in ".env", "config", "certs", "logs", "backups") {
+			Remove-Item -Recurse -Force -ErrorAction SilentlyContinue (Join-Path $Root $name)
+		}
+		Good "NetRollout and its data are removed."
+	} else {
+		Good "NetRollout is removed. Its data stays (the database volumes, and .env, config, certs,"
+		Good "logs, backups in $Root): installing again in this folder picks it up."
+	}
+}
+
 function Show-Help {
 	Say "NetRollout $Version - $Root"
 	Say ""
@@ -427,6 +492,7 @@ function Show-Help {
 	Say "  netrollout status           is everything well? what to do if not"
 	Say "  netrollout open             open it in the browser"
 	Say "  netrollout logs [service]   recent log lines (app, nginx, postgres, ...)"
+	Say "  netrollout uninstall        remove it (asks whether to delete the data too)"
 	Say "  netrollout                  the menu"
 	Say ""
 	Say "  -NoBrowser   don't open the browser    -Yes   unattended (accepts the licence, defaults)"
@@ -475,6 +541,9 @@ function Invoke-NrCommand([string]$Name) {
 			Start-NetRollout; Open-Browser; return 0
 		}
 		"stop" { Invoke-Stop; return 0 }
+		"uninstall" { Invoke-Uninstall; return 0 }
+		"ensure-docker" { Confirm-Docker -OfferInstall; Good "Docker is running."; return 0 }
+		"defaults" { Write-Defaults; return 0 }
 		"status" { return (Invoke-Status) }
 		"open" { if (-not (Test-Installed)) { Fail "NetRollout isn't installed in $Root." }; Start-Process (Get-Address) | Out-Null; return 0 }
 		"logs" {

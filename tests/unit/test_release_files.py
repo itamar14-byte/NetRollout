@@ -51,3 +51,35 @@ def test_the_version_file_travels_into_the_image_and_the_exe():
 	assert '("VERSION", ".")' in (ROOT / "netrollout-cli.spec").read_text(encoding="utf-8")
 	# nothing rewrites the code any more
 	assert "sed -i" not in (ROOT / "Dockerfile").read_text(encoding="utf-8")
+
+
+# ── the Windows installer (windows/installer/netrollout.iss) ──
+
+def iss_sources():
+	import re
+	installer = ROOT / "windows" / "installer"
+	text = (installer / "netrollout.iss").read_text(encoding="utf-8")
+	for line in text.splitlines():
+		m = re.match(r'Source: "([^"]+)"', line)
+		if m:
+			source = m.group(1).replace("\\", "/")
+			if source.startswith("{#Root}/"):
+				yield ROOT / source[len("{#Root}/"):]
+			else:
+				yield (installer / source).resolve()
+
+
+def test_every_file_the_installer_packs_exists():
+	# a rename would otherwise surface only when CI compiles the installer
+	missing = [str(p) for p in iss_sources()
+	           if p.name != "NetRollout Manager.exe" and not p.exists()]   # built
+	assert missing == []
+
+
+def test_the_installer_ships_what_the_zip_ships():
+	names = {p.name for p in iss_sources()}
+	for needed in ("compose.yaml", "compose.http.yaml", "VERSION", "LICENSE",
+	               "netrollout.ps1", "netrollout.bat", "netrollout.ico",
+	               "licence-notice.txt", "NetRollout Manager.exe", "prometheus.yml",
+	               "loki-config.yml", "config.alloy", "netrollout.yml"):
+		assert needed in names, needed

@@ -14,3 +14,5 @@ logs/
 backups/
 /config/
 /certs/
+windows/NetRollout Manager.exe
+dist/
