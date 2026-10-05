@@ -485,8 +485,11 @@ def _write_like_folder(target: Path, data: bytes, folder: Path) -> None:
 	uses it."""
 	tmp = target.with_name(f".{target.name}.restoring")
 	tmp.write_bytes(data)
-	if target.name == "privkey.pem" or target.name == GRAFANA_MEMBER:
+	if target.name == "privkey.pem":
 		_private(tmp)
+	elif target.name == GRAFANA_MEMBER:
+		# as Grafana keeps it: its owner, and group 0 reads (the app's backups)
+		os.chmod(tmp, 0o640)
 	if hasattr(os, "geteuid") and os.geteuid() == 0:
 		owner = folder.stat()
 		os.chown(tmp, owner.st_uid, owner.st_gid)

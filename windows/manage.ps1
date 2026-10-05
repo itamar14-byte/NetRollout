@@ -2,7 +2,8 @@
 NetRollout's engine on Windows: NetRollout Setup, its uninstaller and
 NetRollout Manager run it; admins can too (bin\netrollout.bat):
 
-  netrollout start | stop | status | open | logs [service] | help
+  netrollout start | stop | status | open | logs [service] | backup |
+             restore <file> | help
 
 Installing is NetRollout Setup's (it runs `install -Yes` with the answers of
 its pages). The install folder is this script's parent folder. The script does
@@ -23,7 +24,8 @@ param(
 	[string]$TimeZone = "",
 	[string]$Out = "",              # defaults: the file to write them to
 	[switch]$DeleteData,            # uninstall: delete the data too (no question)
-	[switch]$KeepData               # uninstall: keep it (no question)
+	[switch]$KeepData,              # uninstall: keep it (no question)
+	[switch]$NoSafetyBackup         # restore: without backing up the current state
 )
 
 Set-StrictMode -Version 2
@@ -84,9 +86,10 @@ function Compose([string[]]$Arguments) {
 
 # The setup core in the app image, the install folder mounted. -OnNetwork:
 # next to the running app (status asks its health over the compose network,
-# when there is one).
-function Invoke-Setup([string[]]$Arguments, [switch]$OnNetwork) {
+# when there is one). -AsRoot: for a file only root may read (the restored key).
+function Invoke-Setup([string[]]$Arguments, [switch]$OnNetwork, [switch]$AsRoot) {
 	$run = @("run", "--rm", "-v", "${Root}:/install", "-e", "NETROLLOUT_HOME=/install")
+	if ($AsRoot) { $run += @("--user", "0") }
 	if ($OnNetwork -and (Invoke-Native "docker" @("network", "inspect", "${Project}_default")).Code -eq 0) {
 		$run += @("--network", "${Project}_default")
 	}
@@ -405,6 +408,127 @@ function Invoke-Stop {
 	Good "Stopped. Start it again with: netrollout start"
 }
 
+# ── backups (the engine: python -m src.backup, in the app image) ─────────────
+
+# compose run / exec's own progress lines left out of what people read
+function Show-Output([string]$Text) {
+	# (PowerShell 5.1 shows an empty line of a native command's stderr as
+	# "System.Management.Automation.RemoteException")
+	$lines = $Text -split "`n" | Where-Object { $_.Trim() -and $_ -notmatch "^\s*(Container|Network|Volume) " -and
+		$_.Trim() -ne "System.Management.Automation.RemoteException" }
+	if ($lines) { Write-Host (($lines | ForEach-Object { "   $($_.TrimEnd())" }) -join "`n") }
+}
+
+function Test-AppRunning { return (Get-ContainerStates) -match "(^|,)app=running" }
+
+# In the running app; when it isn't running, a one-off app container next to
+# the database (the same settings, folders and Grafana's data)
+function Invoke-BackupCreate([string]$Kind) {
+	if (Test-AppRunning) {
+		$r = Compose @("exec", "-T", "app", "python", "-m", "src.backup", "create", "--kind", $Kind)
+	} else {
+		$up = Compose @("up", "-d", "--wait", "postgres")
+		if ($up.Code -ne 0) { Write-Host $up.Output; Fail "The database didn't start - see above." }
+		$r = Compose @("run", "--rm", "--no-deps", "app", "python", "-m", "src.backup", "create", "--kind", $Kind)
+	}
+	Show-Output $r.Output
+	return $r.Code
+}
+
+function Invoke-Backup {
+	if (-not (Test-Installed)) { Fail "NetRollout isn't installed in $Root." }
+	Confirm-Docker
+	Step "Backing up"
+	if ((Invoke-BackupCreate "manual") -ne 0) { Fail "Not backed up - see above." }
+	Good "In $(Join-Path $Root 'backups'). Keep a copy somewhere else too: it holds the key to the saved credentials."
+}
+
+function Test-Monitoring { return (Read-EnvValue "COMPOSE_PROFILES") -match "monitoring" }
+
+# Grafana's admin password back to this installation's (.env): the restored
+# Grafana database has the backup's, and grafana-setup signs in with ours
+function Reset-GrafanaAdmin {
+	# Not piped from PowerShell: 5.1 adds a byte-order mark and CR LF, and
+	# Grafana takes them as part of the password. Passed through the
+	# environment (never on a command line), printf hands over its exact bytes.
+	$env:NR_GRAFANA_PASSWORD = Read-EnvValue "GRAFANA_ADMIN_PASSWORD"
+	try {
+		$r = Compose @("exec", "-T", "-e", "NR_GRAFANA_PASSWORD", "grafana", "sh", "-c",
+			'printf %s "$NR_GRAFANA_PASSWORD" | grafana cli --homepath /usr/share/grafana admin reset-admin-password --password-from-stdin')
+	} finally {
+		Remove-Item Env:NR_GRAFANA_PASSWORD -ErrorAction SilentlyContinue
+	}
+	if ($r.Code -ne 0) {
+		Show-Output $r.Output
+		Warn "Grafana's admin password couldn't be reset - Grafana's dashboards may not update until it is (netrollout logs grafana-setup)."
+		return
+	}
+	Compose @("restart", "grafana-setup") | Out-Null
+}
+
+function Invoke-Restore {
+	if (-not (Test-Installed)) { Fail "NetRollout isn't installed in $Root." }
+	if (-not $Service) { Fail "Which backup? netrollout restore <file>  (they're in $(Join-Path $Root 'backups'))" }
+	$backups = Join-Path $Root "backups"
+	$file = if (Test-Path -PathType Leaf $Service) { (Resolve-Path $Service).Path }
+	        elseif (Test-Path -PathType Leaf (Join-Path $backups $Service)) { Join-Path $backups $Service }
+	        else { Fail "No such file: $Service" }
+	$name = Split-Path -Leaf $file
+	# the app sees only the backups folder
+	if ((Split-Path -Parent $file) -ne $backups) {
+		if (-not (Test-Path $backups)) { New-Item -ItemType Directory $backups | Out-Null }
+		Copy-Item -Force $file (Join-Path $backups $name)
+	}
+	Confirm-Docker
+	Step "Checking $name"
+	$check = Compose @("run", "--rm", "--no-deps", "app", "python", "-m", "src.backup", "check", $name)
+	Show-Output $check.Output
+	if ($check.Code -ne 0) { Fail "This backup can't be restored - nothing was changed." }
+	if ($Interactive) {
+		$a = Read-Host ("Restore it? Everything in NetRollout since then is replaced, and everyone signs in " +
+		                "again (the current state is backed up first). [y/N]")
+		if ($a -notmatch "^(y|yes)$") { Fail "Nothing was changed." 2 }
+	}
+	if ($NoSafetyBackup) {
+		Warn "Without a backup of the current state (-NoSafetyBackup)."
+	} else {
+		Step "Backing up the current state first"
+		if ((Invoke-BackupCreate "before-restore") -ne 0) {
+			Fail ("Couldn't back up the current state - nothing was changed. To restore anyway " +
+			      "(e.g. the database is damaged): netrollout restore $name -NoSafetyBackup")
+		}
+	}
+	$monitoring = Test-Monitoring
+	Step "Stopping NetRollout (running rollouts finish first)"
+	$stop = @("stop", "app")
+	if ($monitoring) { $stop += @("grafana-setup", "grafana") }
+	$r = Compose $stop
+	if ($r.Code -ne 0) { Write-Host $r.Output; Fail "Docker couldn't stop it - nothing was changed." }
+	$r = Compose @("up", "-d", "--wait", "postgres")
+	if ($r.Code -ne 0) { Write-Host $r.Output; Start-NetRollout; Fail "The database didn't start - nothing was changed." }
+	Step "Restoring $name"
+	# as root: the files get their folder's owner (Grafana's volume is Grafana's)
+	$run = @("run", "--rm", "--no-deps", "--user", "0")
+	if ($monitoring) { $run += @("-v", "${Project}_grafana:/data/grafana-restore") }
+	$run += @("app", "python", "-m", "src.backup", "restore", $name,
+		"--https-port", (Read-EnvValue "HTTPS_PORT" "443"), "--key-out", "/data/backups/.restored-key")
+	if ($monitoring) { $run += @("--grafana-dir", "/data/grafana-restore") }
+	$r = Compose $run
+	Show-Output $r.Output
+	if ($r.Code -ne 0) {
+		Step "Starting NetRollout again, as it was"
+		Start-NetRollout
+		Fail "Not restored - see above. Nothing was changed."
+	}
+	if ((Invoke-Setup @("restore-key") -AsRoot) -ne 0) {
+		Fail ("Restored, but the backup's encryption key couldn't be put into .env - NetRollout " +
+		      "isn't started (it couldn't decrypt the saved credentials). See above.")
+	}
+	Start-NetRollout
+	if ($monitoring) { Reset-GrafanaAdmin }
+	Good "Restored $name. Everyone signs in again."
+}
+
 # What the Setup wizard pre-fills (an ini file: it reads those natively)
 function Write-Defaults {
 	if (-not $Out) { Fail "defaults needs -Out <file>" }
@@ -466,6 +590,8 @@ function Show-Help {
 	Say "  netrollout status           is everything well? what to do if not"
 	Say "  netrollout open             open it in the browser"
 	Say "  netrollout logs [service]   recent log lines (app, nginx, postgres, ...)"
+	Say "  netrollout backup           back up now (into the backups folder)"
+	Say "  netrollout restore <file>   put NetRollout back to a backup (asks first)"
 	Say ""
 	Say "  -NoBrowser   don't open the browser"
 	Say "  Installing and uninstalling: NetRollout Setup / Settings -> Apps."
@@ -480,6 +606,8 @@ function Invoke-NrCommand([string]$Name) {
 			Start-NetRollout; Open-Browser; return 0
 		}
 		"stop" { Invoke-Stop; return 0 }
+		"backup" { Invoke-Backup; return 0 }
+		"restore" { Invoke-Restore; return 0 }
 		"uninstall" { Invoke-Uninstall; return 0 }
 		"ensure-docker" { Confirm-Docker -OfferInstall; Good "Docker is running."; return 0 }
 		"defaults" { Write-Defaults; return 0 }

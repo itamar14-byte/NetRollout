@@ -365,3 +365,51 @@ def test_status_through_the_cli(home, monkeypatch):
 	monkeypatch.setattr(manage, "fetch_health", lambda url: HEALTHY)
 	code, out = run(["status", "--containers", ALL_UP, "--reachable", "yes"])
 	assert code == 0 and out[0].startswith("NetRollout ")
+
+
+# ── after a restore ──
+
+def test_restore_key_puts_the_backups_key_into_env_and_removes_the_handover(home):
+	from cryptography.fernet import Fernet
+	before = installed(home)["NETROLLOUT_ENCRYPTION_KEY"]
+	other = Fernet.generate_key().decode()
+	(home / "backups").mkdir(exist_ok=True)
+	(home / "backups" / manage.RESTORED_KEY).write_text(other + "\n")
+
+	code, out = run(["restore-key"])
+	assert code == 0 and "on another installation" in out[0]
+	assert manage.env_read()["NETROLLOUT_ENCRYPTION_KEY"] == other != before
+	assert not (home / "backups" / manage.RESTORED_KEY).exists()
+
+	(home / "backups" / manage.RESTORED_KEY).write_text(other)
+	assert run(["restore-key"]) == (0, ["The encryption key is unchanged."])
+
+
+def test_restore_key_refuses_without_a_key(home):
+	key = installed(home)["NETROLLOUT_ENCRYPTION_KEY"]
+	code, out = run(["restore-key"])
+	assert code == 1 and "run the restore first" in out[0]
+	(home / "backups").mkdir(exist_ok=True)
+	(home / "backups" / manage.RESTORED_KEY).write_text("not a key")
+	code, out = run(["restore-key"])
+	assert code == 1 and "doesn't hold an encryption key" in out[0]
+	assert manage.env_read()["NETROLLOUT_ENCRYPTION_KEY"] == key
+
+
+def test_status_shows_the_backups_and_a_failed_scheduled_one(home):
+	import json
+	from tests.unit.test_backup import make_zip
+	installed(home)
+	seen = manage.Observed(manage.parse_containers(ALL_UP), reachable=True)
+	assert "Backups:      none yet" in "\n".join(manage.status(seen, HEALTHY)[0])
+
+	(home / "backups").mkdir(exist_ok=True)
+	make_zip(home / "backups", "netrollout-1.0.0-20261005-020000-scheduled.zip")
+	(home / "backups" / ".schedule-status.json").write_text(json.dumps(
+		{"time": "2026-10-06T02:00:00", "ok": False, "message": "disk full", "file": None}))
+	lines, well = manage.status(seen, HEALTHY)
+	text = "\n".join(lines)
+	assert not well
+	assert ("Backups:      1, 0.0 MB in backups, newest 2026-10-05 02:00 - the last "
+	        "scheduled one FAILED") in text
+	assert "The last scheduled backup failed (disk full): see System Settings -> Backups" in text

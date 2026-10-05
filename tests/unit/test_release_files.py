@@ -40,6 +40,17 @@ def test_the_app_writes_backups_and_reads_grafanas_data_only():
 	assert any(v.startswith("grafana:/var/lib/grafana") for v in grafana)
 
 
+def test_the_windows_restore_hands_secrets_over_safely():
+	# the restored key is root's (the restore runs as root): restore-key too;
+	# Grafana's password never piped from PowerShell 5.1 (a byte-order mark
+	# and CR LF become part of it) nor on a command line
+	script = (ROOT / "windows" / "manage.ps1").read_text(encoding="utf-8")
+	assert '(Invoke-Setup @("restore-key") -AsRoot)' in script
+	assert "reset-admin-password --password-from-stdin" in script
+	assert 'printf %s "$NR_GRAFANA_PASSWORD"' in script
+	assert '"-e", "NR_GRAFANA_PASSWORD", "grafana"' in script
+
+
 def test_port_80_is_always_80_when_switched_on():
 	assert compose("compose.http.yaml")["services"]["nginx"]["ports"] == ["80:80"]
 

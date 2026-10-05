@@ -1,5 +1,5 @@
-"""python -m src.setup init | check | prepare-start | status - see
-src/setup/__init__.py."""
+"""python -m src.setup init | check | prepare-start | status | restore-key -
+see src/setup/__init__.py."""
 import argparse
 import sys
 
@@ -13,7 +13,8 @@ ANSWER_FLAGS = ("hostname", "https_port", "monitoring", "org_certificate",
 
 def parse_args(argv):
 	p = argparse.ArgumentParser(prog="python -m src.setup")
-	p.add_argument("command", choices=("init", "check", "prepare-start", "status"))
+	p.add_argument("command", choices=("init", "check", "prepare-start", "status",
+	                                   "restore-key"))
 	facts = p.add_argument_group("facts (from the host script)")
 	facts.add_argument("--os", choices=("windows", "linux"), default="linux")
 	facts.add_argument("--computer-name", default="")
@@ -67,7 +68,7 @@ def main(argv=None, read=input, write=print) -> int:
 			return REFUSED
 		return OK
 	facts = facts_from(args)
-	if args.command in ("prepare-start", "status"):
+	if args.command in ("prepare-start", "status", "restore-key"):
 		if not files.env_path().exists():
 			write(f"NetRollout isn't installed here ({files.env_path()} is missing) "
 			      f"- run the install first.")
@@ -75,6 +76,13 @@ def main(argv=None, read=input, write=print) -> int:
 		if args.command == "prepare-start":
 			for line in manage.prepare_start(facts.busy_ports, facts.server_ips):
 				write(line)
+			return OK
+		if args.command == "restore-key":
+			try:
+				write(manage.restore_key())
+			except ValueError as e:
+				write(str(e))
+				return INVALID
 			return OK
 		seen = manage.Observed(containers=manage.parse_containers(args.containers),
 		                       reachable=None if args.reachable is None

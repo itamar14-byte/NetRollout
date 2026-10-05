@@ -218,8 +218,8 @@ namespace NetRollout
 			startInTray = tray;
 			Text = "NetRollout Manager";
 			Icon = Install.AppIcon(32);
-			ClientSize = new Size(680, 480);
-			MinimumSize = new Size(560, 400);
+			ClientSize = new Size(780, 500);
+			MinimumSize = new Size(600, 420);
 			StartPosition = FormStartPosition.CenterScreen;
 			Font = new Font("Segoe UI", 9.5f);
 			BackColor = Color.White;
@@ -253,13 +253,16 @@ namespace NetRollout
 
 			// actions
 			buttons.Dock = DockStyle.Top;
-			buttons.Height = 50;
+			buttons.AutoSize = true;           // a narrow window: the buttons wrap, all visible
+			buttons.AutoSizeMode = AutoSizeMode.GrowAndShrink;
 			buttons.Padding = new Padding(14, 6, 14, 6);
 			AddButton("Open NetRollout", delegate { OpenNetRollout(); }, true);
 			AddButton("Start", delegate { Run("start", "Starting NetRollout..."); }, false);
 			AddButton("Stop", delegate { StopNetRollout(); }, false);
 			AddButton("Status", delegate { Run("status", "Checking everything..."); }, false);
 			AddButton("Logs", delegate { Run("logs", "Recent log lines of the app:"); }, false);
+			AddButton("Back up", delegate { Run("backup", "Backing up..."); }, false);
+			AddButton("Restore...", delegate { RestoreBackup(); }, false);
 
 			// what the actions say
 			output.Dock = DockStyle.Fill;
@@ -390,6 +393,29 @@ namespace NetRollout
 					"Stop NetRollout", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
 				return;
 			Run("stop", "Stopping NetRollout...");
+		}
+
+		// a backup from the backups folder (or anywhere), confirmed first
+		void RestoreBackup()
+		{
+			string file;
+			using (var pick = new OpenFileDialog
+			{
+				Title = "Restore NetRollout from a backup",
+				Filter = "NetRollout backups (*.zip)|*.zip",
+				InitialDirectory = Path.Combine(Install.Root, "backups")
+			})
+			{
+				if (pick.ShowDialog(this) != DialogResult.OK) return;
+				file = pick.FileName;
+			}
+			if (MessageBox.Show(this, "Restore " + Path.GetFileName(file) + "?\n\n" +
+					"Everything in NetRollout since that backup is replaced, and everyone signs in again. " +
+					"The current state is backed up first. Running rollouts finish before NetRollout stops.",
+					"Restore NetRollout", MessageBoxButtons.YesNo, MessageBoxIcon.Warning,
+					MessageBoxDefaultButton.Button2) != DialogResult.Yes)
+				return;
+			Run("restore \"" + file + "\" -Yes", "Restoring " + Path.GetFileName(file) + "...");
 		}
 
 		// manage.ps1, hidden; its output in the pane

@@ -3,6 +3,7 @@ database — through a role that isn't a superuser, in its own schema, next to
 another application's table (an organisation's database) — an older backup
 migrating forward, a key that doesn't decrypt changing nothing, Grafana's
 database. Two scratch databases on the test Postgres; never the app's."""
+import os
 import sqlite3
 import uuid
 import zipfile
@@ -187,6 +188,9 @@ def test_grafanas_database_is_copied_and_restored(databases, places, tmp_path):
 	db = sqlite3.connect(grafana_target / "grafana.db")
 	assert db.execute("SELECT title FROM dashboard").fetchall() == [("Custom one",)]
 	db.close()
+	if os.name == "posix":
+		# as Grafana keeps it: the app reads it through group 0 for the next backup
+		assert (grafana_target / "grafana.db").stat().st_mode & 0o777 == 0o640
 
 
 def test_a_database_without_netrollout_tables_is_not_backed_up(databases, places):

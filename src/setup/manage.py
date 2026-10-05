@@ -1,5 +1,6 @@
 """What the scripts ask of the setup core after the install: the port-80
-switch and the server's addresses before a start (prepare_start), and the
+switch and the server's addresses before a start (prepare_start), the
+restored backup's encryption key into .env (restore_key), and the
 `netrollout status` report (status). The scripts gather what only the host
 sees (busy ports, the containers' states, whether the address answers from
 this computer) and pass it in; .env is only ever edited here."""
@@ -9,7 +10,9 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 
-from src import certs, runtime, site_env
+from cryptography.fernet import Fernet
+
+from src import backup, certs, runtime, site_env
 from src.setup import files
 
 # The .env keys the scripts may change; never a secret
@@ -19,6 +22,9 @@ CORE_SERVICES = ("app", "nginx", "postgres", "redis")
 MONITORING_SERVICES = ("prometheus", "loki", "alloy", "grafana", "grafana-setup")
 CERT_WARNING_DAYS = 30
 HEALTH_URL = "http://app:8080/_netrollout/health"   # over the compose network
+# A restore (python -m src.backup restore --key-out) leaves the backup's key
+# here for restore_key; the backups folder is closed to everyone else
+RESTORED_KEY = ".restored-key"
 
 
 # ── .env ──
@@ -39,6 +45,10 @@ def env_set(updates: dict[str, str]) -> bool:
 	bad = [k for k in updates if k not in SCRIPT_KEYS]
 	if bad:
 		raise ValueError(f"not a script-owned .env key: {', '.join(bad)}")
+	return _env_write(updates)
+
+
+def _env_write(updates: dict[str, str]) -> bool:
 	path = files.env_path()
 	lines = path.read_text(encoding="utf-8").splitlines()
 	pending, out = dict(updates), []
@@ -90,6 +100,29 @@ def prepare_start(busy: dict[int, str], server_ips: list[str]) -> list[str]:
 	if updates:
 		env_set(updates)
 	return said
+
+
+# ── after a restore ──
+
+def restore_key() -> str:
+	"""The restored backup's encryption key into .env — the saved credentials
+	were encrypted with it — and the hand-over file removed. Returns what to
+	say. :raises ValueError: no key handed over, or not a key"""
+	path = runtime.backups_dir() / RESTORED_KEY
+	try:
+		key = path.read_text(encoding="utf-8").strip()
+	except FileNotFoundError:
+		raise ValueError(f"No restored key in {path} - run the restore first.") from None
+	except OSError as e:
+		raise ValueError(f"Couldn't read {path}: {e.strerror or e}.") from None
+	try:
+		Fernet(key)
+	except ValueError:
+		raise ValueError(f"{path} doesn't hold an encryption key.") from None
+	changed = _env_write({"NETROLLOUT_ENCRYPTION_KEY": key})
+	path.unlink()
+	return ("The backup's encryption key is in .env now (it was made on another "
+	        "installation)." if changed else "The encryption key is unchanged.")
 
 
 # ── netrollout status ──
@@ -203,6 +236,8 @@ def status(seen: Observed, health: dict | None,
 	else:
 		lines.append(f"Port 80:      off{' - in use' + port80_owner(seen.busy) if 80 in seen.busy else ''}")
 
+	lines.append("Backups:      " + _backups(todo))
+
 	request = site_env.read().get(site_env.PORT_REQUEST)
 	if request and request != port:
 		lines.append(f"Port change:  {request} requested, {port} in use - run "
@@ -213,6 +248,20 @@ def status(seen: Observed, health: dict | None,
 		lines.append("What to do:")
 		lines += [f"  - {t}" for t in todo]
 	return lines, not todo
+
+
+def _backups(todo) -> str:
+	entries = backup.list_backups(runtime.backups_dir())
+	text = (f"{len(entries)}, {sum(e.size for e in entries) / 1048576:.1f} MB "
+	        f"in backups" if entries else "none yet")
+	if entries and entries[0].manifest:
+		text += f", newest {entries[0].manifest.created.replace('T', ' ')[:16]}"
+	last = _read_json(runtime.backups_dir() / ".schedule-status.json")
+	if last and not last.get("ok"):
+		text += " - the last scheduled one FAILED"
+		todo.append(f"The last scheduled backup failed ({last.get('message', '')}): "
+		            f"see System Settings -> Backups")
+	return text
 
 
 def _certificate(now, todo) -> str:
