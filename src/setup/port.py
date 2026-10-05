@@ -21,6 +21,13 @@ A pass (`next_step`) answers one of:
             that died: `close("rollback")` - nginx back on the old port
 Each request id is handled once; a rolled-back id is never retried by
 itself (the page's Try again makes a new one).
+
+The trial's 120 s are timed by the script that runs it (its own stopwatch:
+Docker Desktop's VM clock can fall minutes behind Windows' under load, so
+comparing the two misjudges the deadline) - it closes with --timed-out.
+The deadline recorded here (the VM's clock) is for the page's countdown, the
+app's confirm check, and a trial whose helper died (then `next_step` rolls
+it back).
 """
 import datetime
 import json
@@ -111,10 +118,7 @@ def next_step(busy: dict[int, str], now: float | None = None) -> Step:
 		if request.get(site_env.PORT_CONFIRMED) == req_id:
 			return Step("keep", status.get("trying"), req_id)
 		if now > float(status.get("deadline") or 0):
-			return Step("rollback", id=req_id,
-			            message=f"not confirmed within {TRIAL_SECONDS} s - port "
-			                    f"{status.get('trying')} didn't open from a browser "
-			                    f"(a firewall?)")
+			return Step("rollback", id=req_id, message=timed_out(status.get("trying")))
 		return Step("wait", status.get("trying"), req_id)
 
 	if not req_id or status.get("id") == req_id:
@@ -132,6 +136,11 @@ def next_step(busy: dict[int, str], now: float | None = None) -> Step:
 		return Step("try", port, req_id)
 	write_status(req_id, "failed", current, message=message, now=now)
 	return Step("none", port, req_id, message)
+
+
+def timed_out(trial_port) -> str:
+	return (f"not confirmed within {TRIAL_SECONDS} s - port {trial_port} didn't "
+	        f"open from a browser (a firewall?)")
 
 
 def _compose_files() -> list[str]:
@@ -161,12 +170,15 @@ def trying(port: int, id_: str, now: float | None = None) -> dict:
 
 
 def close(outcome: str, id_: str, message: str = "",
-          now: float | None = None) -> dict:
+          now: float | None = None, timed_out_: bool = False) -> dict:
 	"""The trial ends: keep (the new port in .env and site.env), rollback or
 	failed (the current port stays). The trial file goes either way; then
-	the script recreates nginx."""
+	the script recreates nginx. timed_out_: the script's stopwatch ran out
+	(the message says so)."""
 	status = read_status() or {}
 	new = status.get("trying")
+	if timed_out_:
+		message = timed_out(new)
 	if outcome == "keep" and new:
 		manage.env_set({"HTTPS_PORT": str(new)})
 		site_env.update({site_env.HTTPS_PORT: str(new)})   # nginx's redirects

@@ -60,6 +60,8 @@ def parse_args(argv):
 	ph.add_argument("--outcome", choices=("keep", "rollback", "failed"),
 	                help="port-close: how the trial ends")
 	ph.add_argument("--message", default="", help="port-close: why (rollback, failed)")
+	ph.add_argument("--timed-out", action="store_true",
+	                help="port-close: the trial's time ran out (the script's stopwatch)")
 	p.add_argument("--dev", action="store_true",
 	               help="a developer's .env + config/runtime.env (repo)")
 	return p.parse_args(argv)
@@ -193,7 +195,7 @@ def _port(args, facts, write) -> int:
 		if not args.outcome:
 			write("port-close needs --outcome keep|rollback|failed")
 			return INVALID
-		port.close(args.outcome, args.id, args.message)
+		port.close(args.outcome, args.id, args.message, timed_out_=args.timed_out)
 	return OK
 
 

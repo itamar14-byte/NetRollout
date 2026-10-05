@@ -213,3 +213,17 @@ def test_uninstalling_keeps_the_backups_unless_asked():
 	sh = (ROOT / "linux" / "netrollout.sh").read_text(encoding="utf-8")
 	assert 'rm -rf "$ENV_FILE" "$ROOT/config" "$ROOT/certs" "$ROOT/logs"\n' in sh
 	assert 'if [ -n "$delete_backups" ]; then rm -rf "$ROOT/backups"; fi' in sh
+
+
+def test_the_port_helper_runs_by_itself_on_windows():
+	# saving a port in System Settings is applied without anyone at the
+	# server: the headless helper starts at sign-in and with Setup, and goes
+	# with the uninstaller (--exit closes it too)
+	iss = (ROOT / "windows" / "installer" / "netrollout.iss").read_text(encoding="utf-8")
+	assert 'Name: "{userstartup}\NetRollout port helper"; Filename: "{app}\bin\NetRollout Manager.exe"; Parameters: "--helper"' in iss
+	assert 'Parameters: "--helper"; WorkingDir: "{app}"; Flags: nowait; Check: SetUpOk' in iss
+	cs = (ROOT / "windows" / "manager" / "NetRolloutManager.cs").read_text(encoding="utf-8")
+	assert 'if (args[i] == "--helper") helper = true;' in cs and 'return ExitRunning(name + ".Helper");' in cs
+	ps1 = (ROOT / "windows" / "manage.ps1").read_text(encoding="utf-8")
+	assert '"apply" { Invoke-Apply; return 0 }' in ps1 and "Start-NetRollout; Start-PortHelper;" in ps1
+	assert '"port-close", "--outcome", "rollback", "--id", $id, "--timed-out"' in ps1

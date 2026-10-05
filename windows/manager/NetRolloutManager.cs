@@ -11,7 +11,10 @@
 //   NetRollout Manager.exe              the window (and the tray icon)
 //   NetRollout Manager.exe --tray       only the tray icon (start at sign-in)
 //   NetRollout Manager.exe --exit       closes this install's running Manager
-//                                       (the uninstaller, before removing it)
+//                                       and port helper (the uninstaller)
+//   NetRollout Manager.exe --helper     the port helper: headless, applies an
+//                                       HTTPS port saved in System Settings
+//                                       (started at sign-in, by Setup, by start)
 //   NetRollout Manager.exe --snapshot <file.png>   the window as an image
 //                                                  (README screenshots)
 
@@ -42,11 +45,12 @@ namespace NetRollout
 		static int Main(string[] args)
 		{
 			string snapshot = null;
-			bool tray = false, exitRunning = false;
+			bool tray = false, exitRunning = false, helper = false;
 			for (int i = 0; i < args.Length; i++)
 			{
 				if (args[i] == "--tray") tray = true;
 				if (args[i] == "--exit") exitRunning = true;
+				if (args[i] == "--helper") helper = true;
 				if (args[i] == "--snapshot" && i + 1 < args.Length) snapshot = args[++i];
 			}
 			Application.EnableVisualStyles();
@@ -63,7 +67,21 @@ namespace NetRollout
 			bool first;
 			// one Manager per install folder (a second install - a test - has its own)
 			string name = "NetRolloutManager-" + Install.Id;
-			if (exitRunning) return ExitRunning(name);
+			if (exitRunning)
+			{
+				ExitRunning(name);
+				return ExitRunning(name + ".Helper");
+			}
+			if (helper)
+			{
+				using (var helperLock = new Mutex(true, name + ".Helper", out first))
+				using (var exitHelper = new EventWaitHandle(false, EventResetMode.AutoReset, name + ".Helper.Exit"))
+				{
+					if (!first) return 0;     // running already
+					Application.Run(new PortHelper(exitHelper));
+				}
+				return 0;
+			}
 			using (var mutex = new Mutex(true, name, out first))
 			using (var showSignal = new EventWaitHandle(false, EventResetMode.AutoReset, name + ".Show"))
 			using (var exitSignal = new EventWaitHandle(false, EventResetMode.AutoReset, name + ".Exit"))
@@ -109,6 +127,123 @@ namespace NetRollout
 		const int ASFW_ANY = -1;
 		[System.Runtime.InteropServices.DllImport("user32.dll")]
 		static extern bool AllowSetForegroundWindow(int processId);
+	}
+
+	// The port helper (Windows): an HTTPS port saved in System Settings is
+	// applied by itself. Headless - no window, no tray. It watches
+	// config\nginx\site.env (change notifications, and a check every 3 s in
+	// case one is missed) and, when there's a request to act on, runs
+	// manage.ps1 apply hidden (the setup core decides; apply does the Docker
+	// part) - output appended to logs\port-helper.log.
+	class PortHelper : ApplicationContext
+	{
+		const int CheckMs = 3000;
+		const int Pause = 15;      // seconds before an unchanged request is tried again
+		readonly System.Windows.Forms.Timer timer = new System.Windows.Forms.Timer();
+		readonly Control invoker = new Control();
+		readonly string site = Path.Combine(Install.Root, @"config\nginx\site.env");
+		readonly string status = Path.Combine(Install.Root, @"config\apply-status.json");
+		FileSystemWatcher watcher;
+		Process running;
+		DateTime lastEnd = DateTime.MinValue;
+		string lastId = "";        // the request the last apply ran for
+		volatile bool changed = true;
+
+		public PortHelper(EventWaitHandle exit)
+		{
+			invoker.CreateControl();
+			var folder = Path.GetDirectoryName(site);
+			if (Directory.Exists(folder))
+			{
+				watcher = new FileSystemWatcher(folder, "site.env")
+				{
+					NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.Size
+				};
+				FileSystemEventHandler mark = delegate { changed = true; };
+				watcher.Changed += mark;
+				watcher.Created += mark;
+				watcher.Renamed += delegate { changed = true; };   // site.env is replaced whole
+				watcher.EnableRaisingEvents = true;
+			}
+			timer.Interval = 500;
+			int ticks = 0;
+			timer.Tick += delegate
+			{
+				ticks++;
+				if (changed || ticks * timer.Interval >= CheckMs) { ticks = 0; Check(); }
+			};
+			timer.Start();
+			var listener = new Thread(delegate ()
+			{
+				exit.WaitOne();
+				try { invoker.BeginInvoke((MethodInvoker)ExitThread); }
+				catch (InvalidOperationException) { }
+			});
+			listener.IsBackground = true;
+			listener.Start();
+		}
+
+		void Check()
+		{
+			if (running != null && !running.HasExited) return;
+			bool wasChanged = changed;
+			changed = false;
+			if (!Pending()) return;
+			// a request apply left as it was (Docker not running, say): not every
+			// 3 s - a new one at once (notifications may not come: Docker writes
+			// site.env from inside the VM)
+			string id = Value(site, "NETROLLOUT_PORT_REQUEST_ID");
+			if (!wasChanged && id == lastId && (DateTime.Now - lastEnd).TotalSeconds < Pause) return;
+			lastId = id;
+			var log = Path.Combine(Install.Root, @"logs\port-helper.log");
+			var info = new ProcessStartInfo("cmd.exe", "/c powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"" +
+				Install.Script + "\" apply -Yes -NoBrowser >> \"" + log + "\" 2>&1")
+			{
+				UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = Install.Root
+			};
+			try
+			{
+				Directory.CreateDirectory(Path.GetDirectoryName(log));
+				File.AppendAllText(log, Environment.NewLine + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " apply" + Environment.NewLine);
+				running = Process.Start(info);
+				running.EnableRaisingEvents = true;
+				running.Exited += delegate { lastEnd = DateTime.Now; };
+			}
+			catch (Exception) { running = null; lastEnd = DateTime.Now; }
+		}
+
+		// a request the helper hasn't finished with: a new id, or a trial running
+		bool Pending()
+		{
+			string id = Value(site, "NETROLLOUT_PORT_REQUEST_ID");
+			if (string.IsNullOrEmpty(id)) return false;
+			try
+			{
+				var data = new System.Web.Script.Serialization.JavaScriptSerializer()
+					.DeserializeObject(File.ReadAllText(status)) as System.Collections.IDictionary;
+				if (data == null) return true;
+				return (data["id"] as string) != id || (data["state"] as string) == "trying";
+			}
+			catch (Exception) { return true; }    // no answer yet
+		}
+
+		static string Value(string path, string key)
+		{
+			try
+			{
+				foreach (var line in File.ReadAllLines(path))
+					if (line.StartsWith(key + "=")) return line.Substring(key.Length + 1).Trim();
+			}
+			catch (IOException) { }
+			return "";
+		}
+
+		protected override void ExitThreadCore()
+		{
+			timer.Stop();
+			if (watcher != null) watcher.Dispose();
+			base.ExitThreadCore();
+		}
 	}
 
 	// A newer version: what's new, what happens, Update now (Enter) or Not now

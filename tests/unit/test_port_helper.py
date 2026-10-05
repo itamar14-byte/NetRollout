@@ -125,3 +125,16 @@ def test_the_cli_prints_one_line_to_act_on(install):
 	request(9443, "r2")
 	code, out = run(["port-next", "--busy-ports", "9443=IIS"])
 	assert out == ["none 9443 r2", "port 9443 is in use on this computer (by IIS)"]
+
+
+def test_the_scripts_stopwatch_ends_a_trial_whatever_the_clocks_say(install):
+	# Docker Desktop's VM clock can lag Windows' by minutes: the script times
+	# the trial itself and closes it; the recorded deadline isn't consulted
+	request(9443)
+	port.open_trial(9443)
+	port.trying(9443, "r1", now=NOW)
+	assert run(["port-close", "--outcome", "rollback", "--id", "r1", "--timed-out"])[0] == 0
+	recorded = json.loads(port.status_path().read_text())
+	assert (recorded["state"], recorded["message"]) == ("rolled_back", port.timed_out(9443))
+	assert "not confirmed within 120 s - port 9443" in recorded["message"]
+	assert port.TRIAL_ENTRY not in env()["COMPOSE_FILE"] and not port.trial_path().exists()

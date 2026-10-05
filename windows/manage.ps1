@@ -3,7 +3,7 @@ NetRollout's engine on Windows: NetRollout Setup, its uninstaller and
 NetRollout Manager run it; admins can too (bin\netrollout.bat):
 
   netrollout start | stop | status | open | logs [service] | backup |
-             restore <file> | help
+             restore <file> | apply | help
 
 Installing is NetRollout Setup's (it runs `install -Yes` with the answers of
 its pages). The install folder is this script's parent folder. The script does
@@ -102,6 +102,13 @@ function Invoke-Setup([string[]]$Arguments, [switch]$OnNetwork, [switch]$AsRoot)
 	$r = Invoke-Native "docker" $all
 	if ($r.Output) { Write-Host $r.Output }
 	return $r.Code
+}
+
+# The setup core's answer as text, not shown (the port helper acts on it)
+function Get-SetupAnswer([string[]]$Arguments) {
+	$all = @("run", "--rm", "-v", "${Root}:/install", "-e", "NETROLLOUT_HOME=/install",
+		$AppImage, "python", "-m", "src.setup") + $Arguments
+	return Invoke-Native "docker" $all
 }
 
 # ── what this computer knows ──────────────────────────────────────────────────
@@ -607,6 +614,101 @@ function Invoke-Update {
 	Good "Updated to NetRollout $Version. Everyone signs in again."
 }
 
+# ── the port helper (System Settings -> HTTPS port) ──────────────────────────
+# The setup core decides (src/setup/port.py), this does the Docker part: a
+# trial file adds the new port to nginx, nginx is recreated, the trial ends
+# kept or rolled back. Run by the headless NetRollout Manager --helper when
+# site.env changes, or by hand: netrollout apply.
+
+$HelperExe = Join-Path $PSScriptRoot "NetRollout Manager.exe"
+
+# The helper itself (headless; one per install - a second start adds nothing)
+function Start-PortHelper {
+	if (Test-Path $HelperExe) { Start-Process $HelperExe -ArgumentList "--helper" | Out-Null }
+}
+
+function Update-Nginx {
+	$r = Compose @("up", "-d", "--no-deps", "--wait", "--wait-timeout", "120", "nginx")
+	return $r
+}
+
+# A trial runs: its confirmation (site.env) within the trial's 120 s, timed
+# here by a stopwatch - Docker Desktop's VM clock can lag Windows' by
+# minutes, so a deadline written in the VM can't be compared with this
+# computer's time. $true: confirmed; $false: time's up.
+function Wait-PortTrial([string]$Id, [int]$Seconds = 120) {
+	$site = Join-Path $Root "config\nginx\site.env"
+	$clock = [Diagnostics.Stopwatch]::StartNew()
+	while ($clock.Elapsed.TotalSeconds -lt $Seconds) {
+		if (Get-Content $site -ErrorAction SilentlyContinue | Where-Object { $_ -eq "NETROLLOUT_PORT_CONFIRMED=$Id" }) {
+			return $true
+		}
+		Start-Sleep -Seconds 1
+	}
+	return $false
+}
+
+function Invoke-Apply {
+	if (-not (Test-Installed)) { Fail "NetRollout isn't installed in $Root." }
+	if (-not ((Test-DockerCli) -and (Test-DockerRunning))) { Warn "Docker isn't running - nothing applied."; return }
+	# one at a time (the helper, and a hand-run apply)
+	$lockPath = Join-Path $Root "config\.port-helper.lock"
+	try { $lock = [IO.File]::Open($lockPath, "OpenOrCreate", "ReadWrite", "None") }
+	catch { Say "A port change is being applied already."; return }
+	try {
+		while ($true) {
+			$busy = Get-BusyPorts (Get-OurPorts)
+			$r = Get-SetupAnswer @("port-next", "--busy-ports", $busy)
+			if ($r.Code -ne 0) { Write-Host $r.Output; Fail "The port helper couldn't decide - see above." }
+			$lines = @($r.Output -split "`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ -and $_ -notmatch "RemoteException" })
+			$action, $port, $id = ($lines[0] -split " ")
+			$message = if ($lines.Count -gt 1) { $lines[1] } else { "" }
+			$current = Read-EnvValue "HTTPS_PORT" "443"
+			switch ($action) {
+				"none" { if ($message) { Warn "Port $port not applied: $message" } else { Say "No port change to apply." }; return }
+				"wait" {
+					if (-not (Wait-PortTrial $id)) {
+						Get-SetupAnswer @("port-close", "--outcome", "rollback", "--id", $id, "--timed-out") | Out-Null
+						Update-Nginx | Out-Null
+						Warn "Port $port wasn't confirmed within 2 minutes (it didn't open from a browser - a firewall?) - NetRollout stays on port $current."
+						return
+					}
+				}
+				"try" {
+					Step "Opening port $port next to port $current"
+					Get-SetupAnswer @("port-open", "--port", $port) | Out-Null
+					$up = Update-Nginx
+					if ($up.Code -ne 0) {
+						Show-Output $up.Output     # what Docker said (the helper's log)
+						$why = (($up.Output -split "`n" | Where-Object { $_ -match "error|failed|allocated" }) | Select-Object -First 1)
+						if (-not $why) { $why = "nginx didn't start with it" }
+						Get-SetupAnswer @("port-close", "--outcome", "failed", "--id", $id, "--message", "port ${port}: $($why.Trim())") | Out-Null
+						Update-Nginx | Out-Null
+						Warn "Port $port couldn't be opened: $($why.Trim()) - port $current stays."
+						return
+					}
+					Get-SetupAnswer @("port-trying", "--port", $port, "--id", $id) | Out-Null
+					Good "Port $port is open next to port $current. Open NetRollout on port $port within 2 minutes to keep it - else port $current stays."
+				}
+				"keep" {
+					Get-SetupAnswer @("port-close", "--outcome", "keep", "--id", $id) | Out-Null
+					Update-Nginx | Out-Null
+					Good "Port $port kept - NetRollout is at $(Get-Address)."
+					return
+				}
+				"rollback" {
+					Get-SetupAnswer @("port-close", "--outcome", "rollback", "--id", $id, "--message", $message) | Out-Null
+					Update-Nginx | Out-Null
+					Warn "Port change rolled back ($message) - NetRollout stays on port $(Read-EnvValue 'HTTPS_PORT' '443')."
+				}
+				default { Write-Host $r.Output; Fail "Unexpected answer from the port helper: $($lines[0])" }
+			}
+		}
+	} finally {
+		$lock.Dispose()
+	}
+}
+
 # What the Setup wizard pre-fills (an ini file: it reads those natively)
 function Write-Defaults {
 	if (-not $Out) { Fail "defaults needs -Out <file>" }
@@ -682,6 +784,7 @@ function Show-Help {
 	Say "  netrollout logs [service]   recent log lines (app, nginx, postgres, ...)"
 	Say "  netrollout backup           back up now (into the backups folder)"
 	Say "  netrollout restore <file>   put NetRollout back to a backup (asks first)"
+	Say "  netrollout apply            apply an HTTPS port saved in System Settings (the helper does it by itself)"
 	Say ""
 	Say "  -NoBrowser   don't open the browser"
 	Say "  Installing and uninstalling: NetRollout Setup / Settings -> Apps."
@@ -693,13 +796,14 @@ function Invoke-NrCommand([string]$Name) {
 		"install" { Invoke-Install; return 0 }
 		"start" {
 			if (-not (Test-Installed)) { Fail "NetRollout isn't installed in $Root - run NetRollout Setup." }
-			Start-NetRollout; Open-Browser; return 0
+			Start-NetRollout; Start-PortHelper; Open-Browser; return 0
 		}
 		"stop" { Invoke-Stop; return 0 }
 		"backup" { Invoke-Backup; return 0 }
 		"restore" { Invoke-Restore; return 0 }
 		"prepare-update" { Invoke-PrepareUpdate; return 0 }
 		"update" { Invoke-Update; return 0 }
+		"apply" { Invoke-Apply; return 0 }
 		"uninstall" { Invoke-Uninstall; return 0 }
 		"ensure-docker" { Confirm-Docker -OfferInstall; Good "Docker is running."; return 0 }
 		"defaults" { Write-Defaults; return 0 }
