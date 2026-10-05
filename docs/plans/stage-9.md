@@ -87,14 +87,18 @@ After `install` the folder also holds `.env`, `config\`, `certs\`, `logs\`,
 ## Settings after install (thinner: A–F + the merge)
 
 **`.env`** — written by the setup core, never by the app. A header records the
-install (date, Windows/Linux account, version, licence terms accepted). Keys:
-`NETROLLOUT_VERSION`; the 7 secrets (`POSTGRES_PASSWORD`,
+install (date, Windows/Linux account, version, licence terms accepted). Keys
+(13): the 7 secrets (`POSTGRES_PASSWORD`,
 `NETROLLOUT_DB_PASSWORD`, `GRAFANA_DB_PASSWORD`, `REDIS_PASSWORD`,
 `GRAFANA_ADMIN_PASSWORD`, `SECRET_KEY`, `NETROLLOUT_ENCRYPTION_KEY`);
 `HTTPS_PORT`; `TZ`; `NETROLLOUT_SERVER_IPS`; the compose switches
 (`COMPOSE_PROFILES`, `COMPOSE_PATH_SEPARATOR`, `COMPOSE_FILE`). (An external
 database / Redis after a move lives in `config/runtime.env`, not here.)
 
+- **The version** — `NETROLLOUT_VERSION` leaves `.env`: the scripts run
+  compose themselves and pass it from the `VERSION` file on every call (one
+  copy in the install folder; `update` only replaces files). A hand-run
+  `docker compose` stops with compose's own message pointing to the script.
 - **A** — the hostname leaves `.env` and nginx's environment: the setup core
   writes it into `site.env` (with the app's own `write_site`), the app seeds
   System Settings from `site.env` at the first start, nginx reads only
@@ -106,6 +110,13 @@ database / Redis after a move lives in `config/runtime.env`, not here.)
   (default 4; System Settings).
 - **D** — `NETROLLOUT_THREADS` (default in code, still settable — README
   "Advanced") and `HTTP_PORT` (always 80 in `compose.http.yaml`) leave `.env`.
+  Port 80 is an on/off switch (`compose.http.yaml` in `COMPOSE_FILE`): on when
+  host port 80 is free at install. It only matters on the host — inside the
+  Docker network nginx's own port 80 never clashes. **Taken later** (IIS,
+  another web server) would stop the whole stack from starting, so `start`,
+  `update` and `status` check it while the switch is on: taken → say so, turn
+  the switch off, start without the http→https redirect; `start` turns it back
+  on once port 80 is free.
 - **E** — the server's IPs (`NETROLLOUT_SERVER_IPS`, for "Generate
   self-signed", refreshed by `netrollout status`) and the install record go in
   `.env`, not in new files.
