@@ -358,8 +358,7 @@ the bundled superuser, the whole `.env` in the zip).
   on 443; the port is Docker's mapping.
 - **Windows: automatic** (the developer's decision) - not the tray Manager
   but `NetRollout Manager.exe --helper`: headless (no window, no tray), its
-  own single-instance lock, watching `config
-ginx\site.env` (change
+  own single-instance lock, watching `config\nginx\site.env` (change
   notifications + a 3 s check) and running `manage.ps1 apply`. Started from
   a Startup entry at every sign-in (always installed - Docker Desktop also
   needs a signed-in user; a per-user logon task would need admin), by Setup
