@@ -3,7 +3,8 @@
 # the secrets in .env and the folders' owners need it.
 #
 #   sudo ./bin/install.sh                      install in this folder
-#   sudo ./bin/netrollout.sh start | stop | status | open | logs [service] | uninstall | help
+#   sudo ./bin/netrollout.sh start | stop | status | open | logs [service] |
+#                            backup | restore <file> | uninstall | help
 #   sudo ./bin/netrollout.sh                   the menu
 #
 # The install folder is this script's parent folder. The script does what
@@ -25,7 +26,7 @@ APP_UID=10001                                  # the app container's user
 
 # ── options ──────────────────────────────────────────────────────────────────
 COMMAND="${1:-}"; [ $# -gt 0 ] && shift
-SERVICE="" YES="" NO_BROWSER="" DELETE_DATA="" KEEP_DATA=""
+SERVICE="" YES="" NO_BROWSER="" DELETE_DATA="" KEEP_DATA="" NO_SAFETY_BACKUP=""
 ANSWERS=()
 while [ $# -gt 0 ]; do
 	case "$1" in
@@ -33,6 +34,7 @@ while [ $# -gt 0 ]; do
 		--no-browser) NO_BROWSER=1 ;;
 		--delete-data) DELETE_DATA=1 ;;
 		--keep-data) KEEP_DATA=1 ;;
+		--no-safety-backup) NO_SAFETY_BACKUP=1 ;;
 		--hostname|--https-port|--monitoring|--org-certificate|--timezone)
 			[ $# -ge 2 ] || fail "$1 needs a value"
 			ANSWERS+=("$1" "$2"); shift ;;
@@ -50,6 +52,8 @@ case "$COMMAND" in
 	status) do_status ;;
 	open) need_installed; address; echo; open_browser force ;;
 	logs) need_installed; need_docker; compose logs --tail 100 --no-log-prefix "${SERVICE:-app}" ;;
+	backup) do_backup ;;
+	restore) do_restore ;;
 	uninstall) do_uninstall ;;
 	help|-h|--help) show_help ;;
 	"") show_menu ;;
@@ -170,14 +174,17 @@ open_browser() {
 
 # ── NetRollout ───────────────────────────────────────────────────────────────
 set_owners() {
-	# the app container (uid 10001) writes these; the secrets stay root's
-	chown -R "$APP_UID:$APP_UID" "$ROOT/config" "$ROOT/certs" "$ROOT/logs"
-	chown root:root "$ENV_FILE"; chmod 600 "$ENV_FILE"
+	# the app container (uid 10001) writes these (backups: the scheduled ones,
+	# closed to everyone else - they hold the encryption key); .env stays root's
+	mkdir -p "$ROOT/backups"
+	chown -R "$APP_UID:$APP_UID" "$ROOT/config" "$ROOT/certs" "$ROOT/logs" "$ROOT/backups"
 	chmod 700 "$ROOT/backups"
+	chown root:root "$ENV_FILE"; chmod 600 "$ENV_FILE"
 }
 
 do_start() {
 	need_root; need_docker
+	set_owners
 	step "Checking the ports"
 	facts
 	setup_core prepare-start --busy-ports "$(busy_ports)" "${FACTS[@]}" | sed 's/^/   /'
@@ -248,6 +255,111 @@ do_stop() {
 	good "Stopped. Start it again with: sudo $BIN/netrollout.sh start"
 }
 
+# ── backups (the engine: python -m src.backup, in the app image) ─────────────
+# compose run / exec's own progress lines left out of what people read
+show() { printf '%s\n' "$1" | grep -Ev '^[[:space:]]*(Container|Network|Volume) |^[[:space:]]*$' | sed 's/^/   /' || true; }
+
+app_running() { compose ps --status running --services 2>/dev/null | grep -qx app; }
+
+monitoring_on() { grep -Eq '^COMPOSE_PROFILES=.*monitoring' "$ENV_FILE"; }
+
+# In the running app; when it isn't running, a one-off app container next to
+# the database (the same settings, folders and Grafana's data)
+backup_create() {
+	local out code=0
+	if app_running; then
+		out="$(compose exec -T app python -m src.backup create --kind "$1" 2>&1)" || code=$?
+	else
+		out="$(compose up -d --wait postgres 2>&1)" || { show "$out"; fail "The database didn't start - see above."; }
+		out="$(compose run --rm --no-deps app python -m src.backup create --kind "$1" 2>&1)" || code=$?
+	fi
+	show "$out"
+	return "$code"
+}
+
+do_backup() {
+	need_installed; need_root; need_docker
+	step "Backing up"
+	backup_create manual || fail "Not backed up - see above."
+	good "In $ROOT/backups. Keep a copy somewhere else too: it holds the key to the saved credentials."
+}
+
+# Grafana's admin password back to this installation's (.env): the restored
+# Grafana database has the backup's, and grafana-setup signs in with ours
+reset_grafana_admin() {
+	local pw
+	pw="$(sed -n 's/^GRAFANA_ADMIN_PASSWORD=//p' "$ENV_FILE" | tail -1)"
+	if printf '%s' "$pw" | compose exec -T grafana grafana cli --homepath /usr/share/grafana \
+			admin reset-admin-password --password-from-stdin >/dev/null 2>&1; then
+		compose restart grafana-setup >/dev/null 2>&1 || true
+	else
+		warn "Grafana's admin password couldn't be reset - Grafana's dashboards may not update until it is (netrollout.sh logs grafana-setup)."
+	fi
+}
+
+do_restore() {
+	need_installed; need_root
+	[ -n "$SERVICE" ] || fail "Which backup? sudo $0 restore <file>  (they're in $ROOT/backups)"
+	local file name shown out
+	if [ -f "$SERVICE" ]; then file="$(readlink -f "$SERVICE")"
+	elif [ -f "$ROOT/backups/$SERVICE" ]; then file="$ROOT/backups/$SERVICE"
+	else fail "No such file: $SERVICE"; fi
+	shown="$(basename "$file")"
+	name="$shown"
+	need_docker
+	set_owners
+	# the app sees only the backups folder: a file from elsewhere is staged
+	# there under a hidden name and removed afterwards (the original stays)
+	if [ "$(dirname "$file")" != "$(readlink -f "$ROOT/backups")" ]; then
+		name=".restoring-$shown"
+		STAGED="$ROOT/backups/$name"
+		trap 'rm -f "$STAGED"' EXIT
+		cp -f "$file" "$STAGED"
+		chown "$APP_UID:$APP_UID" "$STAGED"; chmod 600 "$STAGED"
+	fi
+	step "Checking $shown"
+	out="$(compose run --rm --no-deps app python -m src.backup check "$name" 2>&1)" ||
+		{ show "$out"; fail "This backup can't be restored - nothing was changed."; }
+	show "$out"
+	if [ -n "$INTERACTIVE" ]; then
+		local a=""
+		read -r -p "Restore it? Everything in NetRollout since then is replaced, and everyone signs in again (the current state is backed up first). [y/N] " a || true
+		case "$a" in y|Y|yes) ;; *) fail "Nothing was changed." 2 ;; esac
+	fi
+	if [ -n "$NO_SAFETY_BACKUP" ]; then
+		warn "Without a backup of the current state (--no-safety-backup)."
+	else
+		step "Backing up the current state first"
+		backup_create before-restore || fail "Couldn't back up the current state - nothing was changed. To restore anyway (e.g. the database is damaged): sudo $0 restore \"$file\" --no-safety-backup"
+	fi
+	local stop=(stop app) grafana=() grafana_dir=()
+	if monitoring_on; then
+		stop+=(grafana-setup grafana)
+		grafana=(-v "${PROJECT}_grafana:/data/grafana-restore")
+		grafana_dir=(--grafana-dir /data/grafana-restore)
+	fi
+	step "Stopping NetRollout (running rollouts finish first)"
+	out="$(compose "${stop[@]}" 2>&1)" || { show "$out"; fail "Docker couldn't stop it - nothing was changed."; }
+	out="$(compose up -d --wait postgres 2>&1)" || { show "$out"; do_start; fail "The database didn't start - nothing was changed."; }
+	step "Restoring $shown"
+	# as root: the files get their folder's owner (Grafana's volume is Grafana's)
+	if ! out="$(compose run --rm --no-deps --user 0 "${grafana[@]}" app python -m src.backup restore "$name" \
+			--https-port "$(sed -n 's/^HTTPS_PORT=//p' "$ENV_FILE" | tail -1)" \
+			--key-out /data/backups/.restored-key "${grafana_dir[@]}" 2>&1)"; then
+		show "$out"
+		step "Starting NetRollout again, as it was"
+		do_start
+		fail "Not restored - see above. Nothing was changed."
+	fi
+	show "$out"
+	out="$(setup_core restore-key 2>&1)" ||
+		{ show "$out"; fail "Restored, but the backup's encryption key couldn't be put into .env - NetRollout isn't started (it couldn't decrypt the saved credentials). See above."; }
+	show "$out"
+	do_start
+	if monitoring_on; then reset_grafana_admin; fi
+	good "Restored $shown. Everyone signs in again."
+}
+
 do_status() {
 	need_installed; need_root; need_docker
 	local states reach=no
@@ -292,12 +404,14 @@ show_help() {
 	say "  sudo $BIN/netrollout.sh status          is everything well? what to do if not"
 	say "  sudo $BIN/netrollout.sh open            its address (and the browser, on a desktop)"
 	say "  sudo $BIN/netrollout.sh logs [service]  recent log lines (app, nginx, postgres, ...)"
+	say "  sudo $BIN/netrollout.sh backup          back up now (into $ROOT/backups)"
+	say "  sudo $BIN/netrollout.sh restore <file>  put NetRollout back to a backup (asks first)"
 	say "  sudo $BIN/netrollout.sh uninstall       remove it (asks whether to delete the data too)"
 	say "  sudo $BIN/netrollout.sh                 the menu"
 	say ""
 	say "  --yes   unattended (accepts the licence, defaults); with install also"
 	say "          --hostname --https-port --monitoring y/n --org-certificate y/n --timezone"
-	say "  --no-browser   --delete-data / --keep-data (uninstall)"
+	say "  --no-browser   --delete-data / --keep-data (uninstall)   --no-safety-backup (restore)"
 }
 
 show_menu() {
@@ -317,6 +431,8 @@ show_menu() {
 		say "  3  Start"
 		say "  4  Stop"
 		say "  5  Logs"
+		say "  6  Back up"
+		say "  7  Restore a backup"
 		say "  0  Exit"
 		say ""
 		local choice=""
@@ -329,6 +445,14 @@ show_menu() {
 			3) ( COMMAND=start; need_installed; do_start ) || true ;;
 			4) ( COMMAND=stop; do_stop ) || true ;;
 			5) ( COMMAND=logs; need_installed; need_docker; compose logs --tail 100 --no-log-prefix app ) || true ;;
+			6) ( COMMAND=backup; do_backup ) || true ;;
+			7) ( COMMAND=restore
+			     need_installed
+			     say " The backups:"
+			     for f in "$ROOT"/backups/netrollout-*.zip; do [ -e "$f" ] && say "   $(basename "$f")"; done
+			     read -r -p " File name (or a path; Enter: back to the menu): " SERVICE || exit 0
+			     [ -n "$SERVICE" ] || exit 0
+			     do_restore ) || true ;;
 			*) continue ;;
 		esac
 		say ""

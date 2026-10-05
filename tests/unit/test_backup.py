@@ -165,3 +165,11 @@ def test_only_rollout_logs_are_restored_and_never_outside_the_folder(tmp_path):
 		"rollout_escape.log", "rollout_x_job.log", "unsaved-results-job.json"]
 	assert not (tmp_path / "rollout_escape.log").exists()
 	assert "logs/install.log" not in written
+
+
+def test_a_staged_copy_is_named_as_the_file_chosen(tmp_path):
+	# the scripts stage a backup from elsewhere as .restoring-<its name>
+	path = make_zip(tmp_path, backup.STAGED_PREFIX + "my copy.zip", version="9.9.9")
+	with pytest.raises(backup.BackupError) as refused:
+		backup.check(path, "1.0.0")
+	assert str(refused.value).startswith("my copy.zip was made by NetRollout 9.9.9")

@@ -63,12 +63,19 @@ GRAFANA_MEMBER = "grafana.db"
 CERT_FILES = ("fullchain.pem", "privkey.pem", ".selfsigned", ".old-names.json")
 LOG_RE = re.compile(r"^(rollout_.+\.log|unsaved-results-.+\.json)$")
 LOCK = ".backup.lock"
+# a backup from elsewhere, staged in the backups folder by the scripts
+STAGED_PREFIX = ".restoring-"
 STALE_LOCK_SECONDS = 2 * 3600
 ALEMBIC_INI = Path(__file__).resolve().parent / "db" / "alembic.ini"
 
 
 class BackupError(Exception):
 	"""What went wrong, in words for the person running it."""
+
+
+def shown(path: Path) -> str:
+	"""The name people chose (a staged copy's, without the prefix)."""
+	return path.name.removeprefix(STAGED_PREFIX)
 
 
 @dataclass
@@ -274,7 +281,7 @@ def read_manifest(path: Path) -> Manifest:
 	except FileNotFoundError:
 		raise BackupError(f"{path} doesn't exist.") from None
 	except (zipfile.BadZipFile, KeyError, ValueError, TypeError) as e:
-		raise BackupError(f"{path.name} isn't a NetRollout backup, or it's "
+		raise BackupError(f"{shown(path)} isn't a NetRollout backup, or it's "
 		                  f"damaged ({e}).") from None
 
 
@@ -291,14 +298,14 @@ def check(path: Path, version: str = runtime.VERSION) -> Manifest:
 	:raises BackupError: why not, in words"""
 	manifest = read_manifest(path)
 	if manifest.format != FORMAT:
-		raise BackupError(f"{path.name} has backup format {manifest.format}; this "
+		raise BackupError(f"{shown(path)} has backup format {manifest.format}; this "
 		                  f"NetRollout reads format {FORMAT}.")
 	try:
 		newer = Version(manifest.version) > Version(version)
 	except InvalidVersion:
 		newer = True
 	if newer:
-		raise BackupError(f"{path.name} was made by NetRollout {manifest.version}, "
+		raise BackupError(f"{shown(path)} was made by NetRollout {manifest.version}, "
 		                  f"newer than this one ({version}). Update NetRollout "
 		                  f"first, then restore.")
 	try:
@@ -307,7 +314,7 @@ def check(path: Path, version: str = runtime.VERSION) -> Manifest:
 	except Exception:
 		known = None
 	if known is None:
-		raise BackupError(f"{path.name} has a database level ({manifest.revision}) "
+		raise BackupError(f"{shown(path)} has a database level ({manifest.revision}) "
 		                  f"this NetRollout doesn't know.")
 	with zipfile.ZipFile(path) as zf:
 		members = set(zf.namelist())
@@ -316,7 +323,7 @@ def check(path: Path, version: str = runtime.VERSION) -> Manifest:
 	if manifest.grafana and GRAFANA_MEMBER not in members:
 		missing.append(GRAFANA_MEMBER)
 	if missing:
-		raise BackupError(f"{path.name} is incomplete (missing {', '.join(missing)}).")
+		raise BackupError(f"{shown(path)} is incomplete (missing {', '.join(missing)}).")
 	return manifest
 
 
@@ -367,8 +374,8 @@ def restore(path: Path, engine: Engine, places: Places | None = None, *,
 		try:
 			cipher = Fernet(key)
 		except ValueError:
-			raise BackupError(f"{path.name} holds a damaged encryption key.") from None
-		_restore_database(engine, zf, manifest, cipher, https_port, path.name)
+			raise BackupError(f"{shown(path)} holds a damaged encryption key.") from None
+		_restore_database(engine, zf, manifest, cipher, https_port, shown(path))
 		files = []
 		files += _restore_files(zf, "certs", places.certs, set(CERT_FILES),
 		                        replace_all=True)
@@ -552,7 +559,7 @@ def main(argv=None) -> int:
 			if args.key_out:
 				args.key_out.write_bytes(done.key + b"\n")
 				_private(args.key_out)
-			print(f"Restored: {_resolve(args.backup).name} "
+			print(f"Restored: {shown(_resolve(args.backup))} "
 			      f"(NetRollout {done.manifest.version}, {done.manifest.created})")
 	except BackupError as e:
 		print(str(e), file=sys.stderr)

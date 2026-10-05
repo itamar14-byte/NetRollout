@@ -473,60 +473,69 @@ function Invoke-Restore {
 	$file = if (Test-Path -PathType Leaf $Service) { (Resolve-Path $Service).Path }
 	        elseif (Test-Path -PathType Leaf (Join-Path $backups $Service)) { Join-Path $backups $Service }
 	        else { Fail "No such file: $Service" }
-	$name = Split-Path -Leaf $file
-	# the app sees only the backups folder
+	$shown = Split-Path -Leaf $file
+	$name = $shown
+	# the app sees only the backups folder: a file from elsewhere is staged
+	# there under a hidden name and removed afterwards (the original stays)
+	$staged = $null
 	if ((Split-Path -Parent $file) -ne $backups) {
 		if (-not (Test-Path $backups)) { New-Item -ItemType Directory $backups | Out-Null }
-		Copy-Item -Force $file (Join-Path $backups $name)
+		$name = ".restoring-$shown"
+		$staged = Join-Path $backups $name
+		Copy-Item -Force $file $staged
 	}
-	Confirm-Docker
-	Step "Checking $name"
-	$check = Compose @("run", "--rm", "--no-deps", "app", "python", "-m", "src.backup", "check", $name)
-	Show-Output $check.Output
-	if ($check.Code -ne 0) { Fail "This backup can't be restored - nothing was changed." }
-	if ($Interactive) {
-		$a = Read-Host ("Restore it? Everything in NetRollout since then is replaced, and everyone signs in " +
-		                "again (the current state is backed up first). [y/N]")
-		if ($a -notmatch "^(y|yes)$") { Fail "Nothing was changed." 2 }
-	}
-	if ($NoSafetyBackup) {
-		Warn "Without a backup of the current state (-NoSafetyBackup)."
-	} else {
-		Step "Backing up the current state first"
-		if ((Invoke-BackupCreate "before-restore") -ne 0) {
-			Fail ("Couldn't back up the current state - nothing was changed. To restore anyway " +
-			      "(e.g. the database is damaged): netrollout restore $name -NoSafetyBackup")
+	try {
+		Confirm-Docker
+		Step "Checking $shown"
+		$check = Compose @("run", "--rm", "--no-deps", "app", "python", "-m", "src.backup", "check", $name)
+		Show-Output $check.Output
+		if ($check.Code -ne 0) { Fail "This backup can't be restored - nothing was changed." }
+		if ($Interactive) {
+			$a = Read-Host ("Restore it? Everything in NetRollout since then is replaced, and everyone signs in " +
+			                "again (the current state is backed up first). [y/N]")
+			if ($a -notmatch "^(y|yes)$") { Fail "Nothing was changed." 2 }
 		}
-	}
-	$monitoring = Test-Monitoring
-	Step "Stopping NetRollout (running rollouts finish first)"
-	$stop = @("stop", "app")
-	if ($monitoring) { $stop += @("grafana-setup", "grafana") }
-	$r = Compose $stop
-	if ($r.Code -ne 0) { Write-Host $r.Output; Fail "Docker couldn't stop it - nothing was changed." }
-	$r = Compose @("up", "-d", "--wait", "postgres")
-	if ($r.Code -ne 0) { Write-Host $r.Output; Start-NetRollout; Fail "The database didn't start - nothing was changed." }
-	Step "Restoring $name"
-	# as root: the files get their folder's owner (Grafana's volume is Grafana's)
-	$run = @("run", "--rm", "--no-deps", "--user", "0")
-	if ($monitoring) { $run += @("-v", "${Project}_grafana:/data/grafana-restore") }
-	$run += @("app", "python", "-m", "src.backup", "restore", $name,
-		"--https-port", (Read-EnvValue "HTTPS_PORT" "443"), "--key-out", "/data/backups/.restored-key")
-	if ($monitoring) { $run += @("--grafana-dir", "/data/grafana-restore") }
-	$r = Compose $run
-	Show-Output $r.Output
-	if ($r.Code -ne 0) {
-		Step "Starting NetRollout again, as it was"
+		if ($NoSafetyBackup) {
+			Warn "Without a backup of the current state (-NoSafetyBackup)."
+		} else {
+			Step "Backing up the current state first"
+			if ((Invoke-BackupCreate "before-restore") -ne 0) {
+				Fail ("Couldn't back up the current state - nothing was changed. To restore anyway " +
+				      "(e.g. the database is damaged): netrollout restore `"$file`" -NoSafetyBackup")
+			}
+		}
+		$monitoring = Test-Monitoring
+		Step "Stopping NetRollout (running rollouts finish first)"
+		$stop = @("stop", "app")
+		if ($monitoring) { $stop += @("grafana-setup", "grafana") }
+		$r = Compose $stop
+		if ($r.Code -ne 0) { Write-Host $r.Output; Fail "Docker couldn't stop it - nothing was changed." }
+		$r = Compose @("up", "-d", "--wait", "postgres")
+		if ($r.Code -ne 0) { Write-Host $r.Output; Start-NetRollout; Fail "The database didn't start - nothing was changed." }
+		Step "Restoring $shown"
+		# as root: the files get their folder's owner (Grafana's volume is Grafana's)
+		$run = @("run", "--rm", "--no-deps", "--user", "0")
+		if ($monitoring) { $run += @("-v", "${Project}_grafana:/data/grafana-restore") }
+		$run += @("app", "python", "-m", "src.backup", "restore", $name,
+			"--https-port", (Read-EnvValue "HTTPS_PORT" "443"), "--key-out", "/data/backups/.restored-key")
+		if ($monitoring) { $run += @("--grafana-dir", "/data/grafana-restore") }
+		$r = Compose $run
+		Show-Output $r.Output
+		if ($r.Code -ne 0) {
+			Step "Starting NetRollout again, as it was"
+			Start-NetRollout
+			Fail "Not restored - see above. Nothing was changed."
+		}
+		if ((Invoke-Setup @("restore-key") -AsRoot) -ne 0) {
+			Fail ("Restored, but the backup's encryption key couldn't be put into .env - NetRollout " +
+			      "isn't started (it couldn't decrypt the saved credentials). See above.")
+		}
 		Start-NetRollout
-		Fail "Not restored - see above. Nothing was changed."
+		if ($monitoring) { Reset-GrafanaAdmin }
+		Good "Restored $shown. Everyone signs in again."
+	} finally {
+		if ($staged) { Remove-Item -Force -ErrorAction SilentlyContinue $staged }
 	}
-	if ((Invoke-Setup @("restore-key") -AsRoot) -ne 0) {
-		Fail ("Restored, but the backup's encryption key couldn't be put into .env - NetRollout " +
-		      "isn't started (it couldn't decrypt the saved credentials). See above.")
-	}
-	Start-NetRollout
-	if ($monitoring) { Reset-GrafanaAdmin }
-	Good "Restored $name. Everyone signs in again."
 }
 
 # What the Setup wizard pre-fills (an ini file: it reads those natively)
