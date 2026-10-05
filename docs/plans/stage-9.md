@@ -61,6 +61,7 @@ netrollout-1.0.0\
     install.bat          double-click: first-time install
     netrollout.bat       command line: netrollout status | backup | …
     netrollout.ps1       every command
+    netrollout.ico       the shortcuts' icon (the logo's N; made once, committed)
   linux\
     install.sh           ./linux/install.sh — the same as netrollout.sh install
     netrollout.sh        every command
@@ -161,6 +162,46 @@ monitoring [Y], organisation certificate [none → self-signed], timezone
 Every command can be run twice safely, prints steps in plain words (Docker's
 output only on failure), and exits 0 on success. `--yes --defaults` (+ answers
 as flags) for unattended runs (CI).
+
+## `install`'s order, Docker, the licence, the menu (decided 2026-10-05)
+
+1. Already installed → refuse (→ `status` / `update`).
+2. Windows Server → refuse; virtualization off → how to turn it on (skipped
+   when Docker already runs).
+3. **The licence notice → type `yes`** — from the script, before anything is
+   installed (Docker Desktop's terms matter at the moment it's installed; the
+   setup core can't show it — it needs Docker): NetRollout AGPL-3.0, Docker
+   Desktop's terms + Windows licensing in a VM (Windows) / Docker Engine
+   (Linux). The setup core only records it (`--licence-accepted`).
+4. **Docker**: not installed → "Install it now? [Y]" → `winget install
+   Docker.DockerDesktop` (Docker's official installer; winget shows Docker's
+   terms), else Docker's installer downloaded from docker.com and run, else
+   Docker's download page opened; then wait (≈15 min, Ctrl+C stops) until it
+   is installed and running, starting Docker Desktop when needed. A restart
+   Docker asks for → "restart Windows, then run install again" (nothing of
+   NetRollout is written yet). Installed but not running → started, waited
+   for (≈3 min).
+5. Busy ports, named (PID 4 → Windows' HTTP service; Docker's own
+   listeners → another container).
+6. The app image (pulled only when missing).
+7. `src.setup init`: the 5 questions, the files.
+8. `up -d --wait`, health from this computer, `.env` and `backups\`
+   restricted (Administrators, SYSTEM, the installing account), the
+   shortcuts, the address + "sign in as admin / admin", the browser,
+   auto-logon advice.
+
+**Two desktop shortcuts**: "NetRollout" (the web app) and "NetRollout
+Manager" — `netrollout` with no command: a numbered menu (Open, Status,
+Start, Stop, Logs, then Backup / Restore / Update / Uninstall as they land;
+0 Exit), "Press Enter to return to the menu" after each.
+
+**Setup-core commands the scripts call** (so the Linux script reuses them and
+`.env` is only written by Python): `prepare-start` (the port-80 switch from
+the busy ports — our own published ports excluded — and the server IPs
+refreshed), `status` (the report: from the files, the containers' states and
+the host's reachability check passed in, and the app's health asked over the
+compose network). Single `.env` lines are edited in place (its permissions
+kept), only the keys the scripts own.
 
 ## Bring your own database / Redis (from the UI)
 

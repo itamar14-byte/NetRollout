@@ -14,24 +14,6 @@ from src.db.settings import SETTINGS
 # Suggested when 443 is taken, in this order
 ALTERNATIVE_PORTS = (8443, 9443, 10443, 11443)
 FALLBACK_HOSTNAME = "netrollout"
-LICENCE = {
-	"common": (
-		"NetRollout is free software under the GNU Affero General Public "
-		"License v3 (https://www.gnu.org/licenses/agpl-3.0.html): you may use, "
-		"change and share it; if you offer a changed version to others over a "
-		"network, you must offer them its source too. It comes with no "
-		"warranty."),
-	"windows": (
-		"NetRollout runs on Docker Desktop. Docker Desktop is free for "
-		"personal use, education, non-commercial open source and small "
-		"businesses (fewer than 250 employees and less than $10 million in "
-		"annual revenue); larger organisations need a paid Docker subscription "
-		"(https://www.docker.com/pricing/). Complying is your organisation's "
-		"responsibility. Running Windows 10/11 in a virtual machine needs a "
-		"Windows licence that covers it."),
-	"linux": (
-		"NetRollout runs on Docker Engine (open source, Apache License 2.0)."),
-}
 
 
 class Invalid(ValueError):
@@ -222,20 +204,3 @@ def collect(facts: Facts, given: dict[str, str], interactive: bool,
 		else:
 			check_org_certificate(answers.hostname)
 	return answers
-
-
-def accept_licence(os_name: str, given: bool, interactive: bool,
-                   read: Read = input, write: Write = print) -> bool:
-	"""The terms shown, then `yes` typed (or --yes)."""
-	if given:
-		return True
-	if not interactive:
-		return False
-	write("")
-	for part in ("common", os_name if os_name in LICENCE else "linux"):
-		write(LICENCE[part])
-		write("")
-	try:
-		return read("Type yes to accept and continue: ").strip().lower() == "yes"
-	except EOFError:
-		return False

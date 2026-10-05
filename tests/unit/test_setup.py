@@ -118,8 +118,8 @@ def test_given_answers_are_checked_all_at_once():
 # ── the install ──
 
 def test_an_install_writes_everything(home):
-	code, out = run(["init", *WINDOWS, "--busy-ports", "80=IIS"],
-	                "yes", "", "", "", "", "")
+	code, out = run(["init", "--licence-accepted", *WINDOWS, "--busy-ports", "80=IIS"],
+	                "", "", "", "", "")
 	assert code == 0
 	assert {p.name for p in home.iterdir()} == {".env", "logs", "config",
 	                                             "certs", "backups"}
@@ -149,42 +149,37 @@ def test_an_install_writes_everything(home):
 
 
 def test_port_80_free_adds_the_redirect(home):
-	assert run(["init", "--yes", "--defaults"])[0] == 0
+	assert run(["init", "--licence-accepted", "--defaults"])[0] == 0
 	assert "COMPOSE_FILE=compose.yaml,compose.http.yaml" in \
 	       (home / ".env").read_text(encoding="utf-8")
 
 
 def test_never_twice(home):
-	assert run(["init", "--yes", "--defaults"])[0] == 0
+	assert run(["init", "--licence-accepted", "--defaults"])[0] == 0
 	before = (home / ".env").read_bytes()
-	code, out = run(["init", "--yes", "--defaults"])
+	code, out = run(["init", "--licence-accepted", "--defaults"])
 	assert code == 2 and "already installed" in out[0]
 	assert (home / ".env").read_bytes() == before
 
 
-def test_the_licence_must_be_accepted(home):
-	code, out = run(["init", *WINDOWS], "no")
-	assert code == 1 and "weren't accepted" in out[-1]
+def test_init_needs_the_scripts_licence_acceptance(home):
+	# the notice is the scripts' (shown before Docker is installed); without
+	# their word that it was accepted nothing is installed
+	code, out = run(["init", *WINDOWS], "", "", "", "", "")
+	assert code == 1 and "licence notice wasn't accepted" in out[-1]
 	assert not (home / ".env").exists()
-	assert run(["init", "--defaults"])[0] == 1             # unattended: --yes
-
-
-def test_the_licence_names_docker_desktop_on_windows_only(home):
-	_, windows = run(["init", "--os", "windows"], "no")
-	_, linux = run(["init", "--os", "linux"], "no")
-	assert any("Docker Desktop" in s for s in windows)
-	assert not any("Docker Desktop" in s for s in linux)
+	assert run(["init", "--defaults"])[0] == 1
 
 
 def test_unattended_with_bad_answers_writes_nothing(home):
-	code, out = run(["init", "--yes", "--defaults", "--https-port", "80",
+	code, out = run(["init", "--licence-accepted", "--defaults", "--https-port", "80",
 	                 "--timezone", "Mars/Olympus"])
 	assert code == 1 and len(out) == 2
 	assert not (home / ".env").exists()
 
 
 def test_an_organisation_certificate_must_be_in_place_and_cover_the_name(home):
-	argv = ["init", "--yes", "--defaults", "--hostname", "nr01.corp.local",
+	argv = ["init", "--licence-accepted", "--defaults", "--hostname", "nr01.corp.local",
 	        "--org-certificate", "y"]
 	code, out = run(argv)
 	assert code == 1 and "Put the certificate" in out[0]
@@ -209,7 +204,7 @@ def test_a_write_failure_leaves_no_env(home, monkeypatch):
 	def denied(*a, **k):
 		raise PermissionError(13, "Permission denied", str(home / "certs"))
 	monkeypatch.setattr(certs, "selfsigned", denied)
-	code, out = run(["init", "--yes", "--defaults"])
+	code, out = run(["init", "--licence-accepted", "--defaults"])
 	assert code == 1 and "Permission denied" in out[-1]
 	assert not (home / ".env").exists()
 
@@ -239,3 +234,134 @@ def test_init_dev(home):
 	assert "NETROLLOUT_ENCRYPTION_KEY" not in app      # the dev key file stays
 	assert certs.names_in((home / "certs" / certs.CERT_FILE).read_bytes())[0] == ["localhost"]
 	assert run(["init", "--dev"])[0] == 2               # never twice
+
+
+# ── prepare-start and status (src/setup/manage.py) ──
+
+from src.setup import manage  # noqa: E402
+
+
+def installed(home, *extra):
+	assert run(["init", "--licence-accepted", "--defaults", "--hostname",
+	            "nr01.corp.local", "--server-ips", "10.0.0.5", *extra])[0] == 0
+	return manage.env_read()
+
+
+def test_env_set_edits_in_place_and_only_script_keys(home):
+	installed(home)
+	before = (home / ".env").read_text(encoding="utf-8")
+	assert manage.env_set({"TZ": "Europe/London"}) is True
+	after = (home / ".env").read_text(encoding="utf-8")
+	assert after == before.replace("TZ=UTC\n", "TZ=Europe/London\n")   # comments kept
+	assert manage.env_set({"TZ": "Europe/London"}) is False
+	with pytest.raises(ValueError):
+		manage.env_set({"SECRET_KEY": "x"})
+
+
+def test_port_80_taken_later_turns_the_redirect_off_and_back_on(home):
+	env = installed(home)
+	assert env["COMPOSE_FILE"] == "compose.yaml,compose.http.yaml"
+	said = manage.prepare_start({80: "Windows' HTTP service"}, ["10.0.0.5"])
+	assert manage.env_read()["COMPOSE_FILE"] == "compose.yaml"
+	assert said == ["Port 80 is in use (by Windows' HTTP service) - starting without "
+	                "the http -> https redirect (it comes back by itself once port 80 "
+	                "is free)."]
+	assert manage.prepare_start({80: "x"}, ["10.0.0.5"]) == []     # already off
+	said = manage.prepare_start({}, ["10.0.0.5"])
+	assert manage.env_read()["COMPOSE_FILE"] == "compose.yaml,compose.http.yaml"
+	assert said == ["Port 80 is free - the http -> https redirect is on."]
+
+
+def test_prepare_start_refreshes_the_server_ips(home):
+	installed(home)
+	manage.prepare_start({}, ["10.0.0.9", "192.168.1.20"])
+	assert manage.env_read()["NETROLLOUT_SERVER_IPS"] == "10.0.0.9,192.168.1.20"
+	manage.prepare_start({}, [])                                   # none found: kept
+	assert manage.env_read()["NETROLLOUT_SERVER_IPS"] == "10.0.0.9,192.168.1.20"
+
+
+HEALTHY = {"status": "ok", "postgres": True, "redis": True, "draining": False,
+           "rollouts": {"running": 0, "queued": 0}, "version": "x"}
+ALL_UP = ",".join(f"{s}=running/healthy" for s in manage.CORE_SERVICES +
+                  manage.MONITORING_SERVICES)
+
+
+def test_status_when_all_is_well(home):
+	installed(home)
+	seen = manage.Observed(manage.parse_containers(ALL_UP), reachable=True)
+	lines, well = manage.status(seen, HEALTHY)
+	assert well
+	text = "\n".join(lines)
+	assert "Address:      https://nr01.corp.local  (also https://10.0.0.5)" in text
+	assert "Containers:   app ok, nginx ok, postgres ok, redis ok, prometheus ok" in text
+	assert "Health:       ok (database, Redis)" in text
+	assert "Rollouts:     none running" in text
+	assert "Certificate:  self-signed, valid until" in text
+	assert "Port 80:      redirects to HTTPS" in text
+	assert "What to do" not in text
+	assert text.isascii()
+
+
+def test_status_says_what_to_do(home):
+	installed(home)
+	seen = manage.Observed(manage.parse_containers("app=running/healthy,"
+	                                               "postgres=running/healthy,redis=running"),
+	                       reachable=False)
+	lines, well = manage.status(seen, {**HEALTHY, "redis": False,
+	                                   "rollouts": {"running": 2, "queued": 1}})
+	text = "\n".join(lines)
+	assert not well
+	assert "nginx NOT RUNNING" in text and "grafana NOT RUNNING" in text
+	assert "Rollouts:     2 running, 1 queued" in text
+	assert "Redis unreachable" in text
+	assert "Start it: netrollout start  (if it stays down: netrollout logs nginx)" in text
+
+
+def test_status_when_the_app_does_not_answer(home):
+	installed(home, "--monitoring", "n")
+	seen = manage.Observed(manage.parse_containers(
+		"app=running/unhealthy,nginx=running,postgres=running/healthy,redis=running"),
+		reachable=True)
+	lines, well = manage.status(seen, None)
+	text = "\n".join(lines)
+	assert not well and "Health:       the app isn't answering" in text
+	assert "app RUNNING/UNHEALTHY" in text and "grafana" not in text   # monitoring off
+
+
+def test_status_reports_a_reachability_problem_only_when_all_runs(home):
+	installed(home)
+	seen = manage.Observed(manage.parse_containers(ALL_UP), reachable=False)
+	lines, well = manage.status(seen, HEALTHY)
+	assert not well
+	assert any("check the name (DNS) and the firewall for port 443" in l for l in lines)
+
+
+def test_status_warns_before_the_certificate_expires(home):
+	installed(home)
+	certs.selfsigned("nr01.corp.local", [], runtime.certs_dir(), days=10)
+	lines, well = manage.status(manage.Observed(manage.parse_containers(ALL_UP)), HEALTHY)
+	assert not well and any("EXPIRES SOON" in l for l in lines)
+
+
+def test_status_shows_nginx_rejecting_and_a_pending_port(home):
+	installed(home)
+	(site_env.folder() / "status.json").write_text(
+		'{"state": "rejected", "message": "nginx: [emerg] bad", "time": "t"}')
+	site_env.update({site_env.PORT_REQUEST: "8443"})
+	lines, well = manage.status(manage.Observed(manage.parse_containers(ALL_UP)), HEALTHY)
+	text = "\n".join(lines)
+	assert not well and "REJECTED the last change (t): nginx: [emerg] bad" in text
+	assert "Port change:  8443 requested, 443 in use - run netrollout apply" in text
+
+
+def test_status_and_prepare_start_need_an_install(home):
+	for command in ("status", "prepare-start"):
+		code, out = run([command])
+		assert code == 1 and "isn't installed here" in out[0]
+
+
+def test_status_through_the_cli(home, monkeypatch):
+	installed(home)
+	monkeypatch.setattr(manage, "fetch_health", lambda url: HEALTHY)
+	code, out = run(["status", "--containers", ALL_UP, "--reachable", "yes"])
+	assert code == 0 and out[0].startswith("NetRollout ")

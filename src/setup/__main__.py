@@ -1,9 +1,10 @@
-"""python -m src.setup init | check - see src/setup/__init__.py."""
+"""python -m src.setup init | check | prepare-start | status - see
+src/setup/__init__.py."""
 import argparse
 import sys
 
 from src.setup import answers as A
-from src.setup import files
+from src.setup import files, manage
 
 OK, INVALID, REFUSED = 0, 1, 2
 ANSWER_FLAGS = ("hostname", "https_port", "monitoring", "org_certificate",
@@ -12,7 +13,7 @@ ANSWER_FLAGS = ("hostname", "https_port", "monitoring", "org_certificate",
 
 def parse_args(argv):
 	p = argparse.ArgumentParser(prog="python -m src.setup")
-	p.add_argument("command", choices=("init", "check"))
+	p.add_argument("command", choices=("init", "check", "prepare-start", "status"))
 	facts = p.add_argument_group("facts (from the host script)")
 	facts.add_argument("--os", choices=("windows", "linux"), default="linux")
 	facts.add_argument("--computer-name", default="")
@@ -28,7 +29,13 @@ def parse_args(argv):
 	given.add_argument("--monitoring", help="y/n")
 	given.add_argument("--org-certificate", help="y/n")
 	given.add_argument("--timezone")
-	p.add_argument("--yes", action="store_true", help="accept the licence terms")
+	p.add_argument("--licence-accepted", action="store_true",
+	               help="the script showed the licence notice and it was accepted")
+	seen = p.add_argument_group("status (from the host script)")
+	seen.add_argument("--containers", default="", help="service=state[/health],…")
+	seen.add_argument("--reachable", choices=("yes", "no"),
+	                  help="the address answered from this computer")
+	seen.add_argument("--health-url", default=manage.HEALTH_URL)
 	p.add_argument("--defaults", action="store_true",
 	               help="never ask: defaults for what isn't given")
 	p.add_argument("--dev", action="store_true",
@@ -60,6 +67,23 @@ def main(argv=None, read=input, write=print) -> int:
 			return REFUSED
 		return OK
 	facts = facts_from(args)
+	if args.command in ("prepare-start", "status"):
+		if not files.env_path().exists():
+			write(f"NetRollout isn't installed here ({files.env_path()} is missing) "
+			      f"- run the install first.")
+			return INVALID
+		if args.command == "prepare-start":
+			for line in manage.prepare_start(facts.busy_ports, facts.server_ips):
+				write(line)
+			return OK
+		seen = manage.Observed(containers=manage.parse_containers(args.containers),
+		                       reachable=None if args.reachable is None
+		                       else args.reachable == "yes",
+		                       busy=facts.busy_ports)
+		lines, well = manage.status(seen, manage.fetch_health(args.health_url))
+		for line in lines:
+			write(line)
+		return OK if well else INVALID
 	given = {k: getattr(args, k) for k in ANSWER_FLAGS
 	         if getattr(args, k) is not None}
 	interactive = args.command == "init" and not args.defaults
@@ -67,9 +91,9 @@ def main(argv=None, read=input, write=print) -> int:
 		write(f"NetRollout is already installed here ({files.env_path()}) - "
 		      f"see `netrollout status`, or `netrollout update`.")
 		return REFUSED
-	if args.command == "init" and not A.accept_licence(
-			args.os, args.yes, interactive, read, write):
-		write("The licence terms weren't accepted - nothing was installed.")
+	if args.command == "init" and not args.licence_accepted:
+		write("The licence notice wasn't accepted - run the install script, "
+		      "which shows it (unattended: its --yes).")
 		return INVALID
 	try:
 		answers = A.collect(facts, given, interactive, read, write)
