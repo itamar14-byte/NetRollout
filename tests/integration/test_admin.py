@@ -12,7 +12,8 @@ import pytest
 from dotenv import dotenv_values
 
 from src.db.tables import AuditLog, LDAPGroup, LDAPServer, User
-from src.encryption import decrypt
+from src.encryption import decrypt, encrypt
+from tests.integration.conftest import TEST_PASSWORD
 
 pytestmark = [pytest.mark.postgres, pytest.mark.redis]
 
@@ -82,8 +83,6 @@ def test_bulk_action(admin, client_for, make_user, session_scope):
 
 
 def test_bulk_reset_2fa(admin, app, client_for, make_user, session_scope):
-	from src.encryption import encrypt
-	from tests.integration.conftest import TEST_PASSWORD
 	a, b = make_user(), make_user()
 	with session_scope() as s:
 		for uid in (a.id, b.id):
@@ -105,7 +104,6 @@ def test_bulk_reset_2fa(admin, app, client_for, make_user, session_scope):
 
 
 def test_reset_2fa_is_admin_only(client_for, make_user, session_scope):
-	from src.encryption import encrypt
 	victim = make_user()
 	with session_scope() as s:
 		s.get(User, victim.id).otp_secret = encrypt("JBSWY3DPEHPK3PXP")

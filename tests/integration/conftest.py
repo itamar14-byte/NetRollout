@@ -23,15 +23,28 @@ import os
 import re
 import subprocess
 import sys
+import time
 import uuid
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 import redis as redis_lib
+from cryptography.fernet import Fernet
 from dotenv import dotenv_values
+from redis.backoff import NoBackoff
+from redis.retry import Retry
 from sqlalchemy import create_engine, text
 from werkzeug.security import generate_password_hash
+
+import src.encryption as enc
+from src.db import backend as backend_mod
+from src.db.postgres_db import PostgresConnection, PostgresConfig
+from src.db.redis_db import RedisConnection, RedisConfig
+from src.db.tables import Base, User, SecurityProfile, Inventory, VariableMapping
+from src.encryption import decrypt, encrypt
+from src.webapp import create_app
+from src.webapp.extensions import conn_limit
 
 ROOT = Path(__file__).resolve().parents[2]
 REDIS_TEST_DB = 15
@@ -156,8 +169,6 @@ UNROUTABLE_REDIS_HOST = "10.255.255.1"
 
 
 def _register_failure_routes(app):
-	from src.db.postgres_db import PostgresConnection, PostgresConfig
-	from src.encryption import decrypt
 
 	def pg_down():
 		PostgresConnection(PostgresConfig(url=DEAD_PG_URL)).test_connection()
@@ -165,8 +176,6 @@ def _register_failure_routes(app):
 	def redis_timeout():
 		# retries off: redis-py retries timeouts with backoff by default,
 		# which turns one 1s timeout into ~20s
-		from redis.backoff import NoBackoff
-		from redis.retry import Retry
 		redis_lib.Redis(host=UNROUTABLE_REDIS_HOST, socket_connect_timeout=1,
 		                socket_timeout=1, retry=Retry(NoBackoff(), 0)).ping()
 
@@ -181,12 +190,7 @@ def _register_failure_routes(app):
 
 @pytest.fixture(scope="session")
 def app(test_db_url, redis_url, tmp_path_factory):
-	from cryptography.fernet import Fernet
 
-	import src.encryption as enc
-	from src.db import backend as backend_mod
-	from src.db.postgres_db import PostgresConnection, PostgresConfig
-	from src.db.redis_db import RedisConnection, RedisConfig
 
 	os.environ[enc.ENV_VAR] = Fernet.generate_key().decode()
 	scratch = tmp_path_factory.mktemp("backend")
@@ -199,7 +203,6 @@ def app(test_db_url, redis_url, tmp_path_factory):
 	original_init = backend_mod.BackendServices.__init__
 	backend_mod.BackendServices.__init__ = _test_backend_init
 	try:
-		from src.webapp import create_app
 		flask_app = create_app()
 	finally:
 		backend_mod.BackendServices.__init__ = original_init
@@ -220,8 +223,6 @@ def _clean_state(request):
 		yield
 		return
 	app = request.getfixturevalue("app")
-	from src.db.tables import Base
-	from src.webapp.extensions import conn_limit
 	tables = ", ".join(f'"{t.name}"' for t in Base.metadata.sorted_tables)
 	with app.backend.postgres.engine.begin() as conn:
 		# a leaked session holding locks fails this test instead of hanging
@@ -285,7 +286,6 @@ def session_scope(app):
 
 @pytest.fixture
 def make_user(app):
-	from src.db.tables import User
 
 	def _make(username=None, role="operator", approved=True, active=True, **kw):
 		username = username or f"u_{uuid.uuid4().hex[:8]}"
@@ -303,8 +303,6 @@ def make_user(app):
 
 @pytest.fixture
 def make_profile(app):
-	from src.db.tables import SecurityProfile
-	from src.encryption import encrypt
 
 	def _make(owner, label="prof", username="netops", password="pw"):
 		with app.backend.postgres.get_session() as s:
@@ -320,7 +318,6 @@ def make_profile(app):
 
 @pytest.fixture
 def make_device(app):
-	from src.db.tables import Inventory
 
 	def _make(owner, ip="10.0.0.1", label=None, profile_id=None,
 	          is_global=False, var_maps=None, device_type="cisco_ios", port=22):
@@ -338,7 +335,6 @@ def make_device(app):
 
 @pytest.fixture
 def make_mapping(app):
-	from src.db.tables import VariableMapping, Inventory
 
 	def _make(owner, token="HOST", prop="hostname", index=None, devices=()):
 		with app.backend.postgres.get_session() as s:
@@ -520,7 +516,6 @@ def ldap_directory():
 	"""Ephemeral OpenLDAP server; yields its host port. Removed afterwards."""
 	if LDAP_DOWN:
 		pytest.skip(LDAP_DOWN)
-	import time
 	_remove_leftover_ldap_containers()
 	run = _docker(
 		"run", "-d", "--rm", "--label", LDAP_LABEL, "-p", "127.0.0.1::389",
@@ -557,7 +552,6 @@ def ldap_directory():
 def ldap_server_config(ldap_directory):
 	"""An LDAPServer-shaped object for the test directory (search-then-bind
 	via the service account). Needs encryption initialised."""
-	from src.encryption import encrypt
 	return SimpleNamespace(
 		host="127.0.0.1", port=ldap_directory, use_ssl=False,
 		base_dn=LDAP_BASE, cn_identifier="uid", bind_type="regular",

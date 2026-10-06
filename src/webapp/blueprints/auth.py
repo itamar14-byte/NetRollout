@@ -1,23 +1,17 @@
-# python utilities
 import base64
 import uuid
 from collections import Counter
 from io import BytesIO
 from urllib.parse import urlparse, urlsplit
+
 import pyotp
 import qrcode
-
-#sevices
-#flask
 from flask import Blueprint, session, redirect, url_for, flash, current_app, \
 	render_template, request
 from flask_login import login_user, current_user, login_required, logout_user
-#sqlalchemy
 from sqlalchemy.exc import IntegrityError
-#werkzug
 from werkzeug.security import check_password_hash, generate_password_hash
 
-#local modules
 from src.db.tables import LDAPServer, LDAPGroup, User
 from src.encryption import decrypt, encrypt
 from src.ldap_auth import (check_group_membership, fetch_user_details,

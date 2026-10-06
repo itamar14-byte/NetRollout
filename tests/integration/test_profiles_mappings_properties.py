@@ -1,11 +1,13 @@
 """Security profiles (encryption at rest, delete guard, connection test),
 variable mappings (validation, uniqueness, eligibility), and user-defined
 properties (system-name shadowing)."""
+import uuid
 from unittest.mock import MagicMock, patch
 
+import netmiko
 import pytest
 
-from src.db.tables import PropertyDefinition, SecurityProfile, VariableMapping
+from src.db.tables import PropertyDefinition, SecurityProfile, VariableMapping, Inventory
 from src.encryption import decrypt
 
 pytestmark = [pytest.mark.postgres, pytest.mark.redis]
@@ -104,7 +106,6 @@ def test_profiles_are_private(client_for, make_user, make_profile, db_get):
 ])
 def test_connection_test(client_for, make_user, make_profile, make_device,
                          tcp_ok, connect_error, expected):
-	import netmiko
 	user = make_user()
 	pid = make_profile(user)
 	dev = make_device(user)
@@ -166,7 +167,6 @@ def test_quick_create_and_edit(client_for, make_user, db_get):
 	mid = resp.json["id"]
 	client.post(f"/mappings/{mid}/edit", data={
 		"token_inner": "vrf2", "property_name": "vrfs", "index": "1"})
-	import uuid
 	m = db_get(VariableMapping, uuid.UUID(mid))
 	assert (m.token, m.index) == ("$$VRF2$$", 1)
 
@@ -187,7 +187,6 @@ def test_bulk_assign_checks_eligibility(client_for, make_user, make_device,
 # ── Properties ───────────────────────────────────────────────────────────────
 
 def test_property_lifecycle(client_for, make_user, db_get):
-	import uuid
 	client = client_for(make_user())
 	resp = client.post("/properties/create", json={
 		"name": "Rack Unit", "label": "Rack Unit", "is_list": False})
@@ -247,7 +246,6 @@ def test_mappings_on_user_defined_properties(client_for, make_user,
 def test_bulk_assign_removes_only_own_bindings(client_for, make_user,
                                                make_device, make_mapping,
                                                session_scope, db_get):
-	from src.db.tables import Inventory
 	admin, a, b = make_user(role="admin"), make_user(), make_user()
 	core = make_device(admin, is_global=True, var_maps={"hostname": "core"})
 	mine = make_device(a, ip="10.0.0.2", var_maps={"hostname": "r2"})

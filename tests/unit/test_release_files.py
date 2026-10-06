@@ -1,6 +1,8 @@
 """The shipped files say what stage 9.1 decided (docs/plans/stage-9.md): the
 hostname reaches nginx only through site.env, .env carries no seeds, the
 version is the VERSION file, Grafana's setup comes from the app image."""
+import re
+
 import yaml
 
 from src import runtime
@@ -81,7 +83,6 @@ def test_the_version_file_travels_into_the_image_and_the_exe():
 # ── the Windows installer (windows/installer/netrollout.iss) ──
 
 def iss_sources():
-	import re
 	installer = ROOT / "windows" / "installer"
 	text = (installer / "netrollout.iss").read_text(encoding="utf-8")
 	for line in text.splitlines():
@@ -111,7 +112,6 @@ def test_the_installer_ships_what_the_zip_ships():
 
 
 def test_the_installed_layout_is_bin_and_the_licence_page_has_its_text():
-	import re
 	installer = ROOT / "windows" / "installer"
 	text = (installer / "netrollout.iss").read_text(encoding="utf-8")
 	for name in ("NetRollout Manager.exe", "manage.ps1", "netrollout.bat", "netrollout.ico"):
@@ -125,7 +125,6 @@ def test_the_installed_layout_is_bin_and_the_licence_page_has_its_text():
 def test_the_netrollout_command_on_path_is_only_the_bat():
 	# bin\ goes on PATH (the addtopath task); PowerShell runs a netrollout.ps1
 	# there before netrollout.bat, and Windows' default policy refuses scripts
-	import re
 	text = (ROOT / "windows" / "installer" / "netrollout.iss").read_text(encoding="utf-8")
 	installed = re.findall(r'^Source: "\.\.\\([^"]+)"; DestDir: "\{app\}\\bin"', text, re.M)
 	assert [n for n in installed if n.lower().startswith("netrollout.")] == ["netrollout.bat", "netrollout.ico"]
@@ -137,7 +136,6 @@ def test_the_netrollout_command_on_path_is_only_the_bat():
 
 def test_the_licence_page_shows_the_full_licence_from_the_one_file():
 	# the notice on top, then the repo's LICENSE (packed for the page, not a copy)
-	import re
 	text = (ROOT / "windows" / "installer" / "netrollout.iss").read_text(encoding="utf-8")
 	assert re.search(r'^Source: "\{#Root\}\\LICENSE"; Flags: dontcopy$', text, re.M)
 	assert re.search(r"^\tShowFullLicence;$", text, re.M)
@@ -148,7 +146,6 @@ def test_the_installers_identity_never_changes():
 	# Windows finds the install (Settings -> Apps, updates) by this id: a new
 	# one would orphan every installed NetRollout. Test builds (/DTestBuild)
 	# have their own, so a test can't take over or update a real install.
-	import re
 	text = (ROOT / "windows" / "installer" / "netrollout.iss").read_text(encoding="utf-8")
 	real = re.search(r'#else\s+#define AppGuid "([0-9A-F-]+)"', text).group(1)
 	test = re.search(r'#ifdef TestBuild\s+#define AppGuid "([0-9A-F-]+)"', text).group(1)
@@ -175,7 +172,6 @@ def test_an_update_closes_the_installs_manager_before_the_files():
 	# closing them a silent update aborts ("unable to automatically close all
 	# applications") - every update failed so. Closed after the checks pass,
 	# started again by [Run].
-	import re
 	text = (ROOT / "windows" / "installer" / "netrollout.iss").read_text(encoding="utf-8")
 	prepare = re.search(r"function PrepareToInstall\(.*?\nend;", text, re.S)[0]
 	checks = prepare.index("prepare-update -Yes")
@@ -187,7 +183,6 @@ def test_an_update_closes_the_installs_manager_before_the_files():
 def test_the_installer_ends_honestly():
 	# success: the portal opens on Finish (ticked); failure: Retry unless the
 	# script says retrying can't help (exit 3: the release's image is missing)
-	import re
 	text = (ROOT / "windows" / "installer" / "netrollout.iss").read_text(encoding="utf-8")
 	browser = re.search(r'^Filename: "\{code:Address\}";.*$', text, re.M).group(0)
 	assert "postinstall" in browser and "unchecked" not in browser and "Check: SetUpOk" in browser
@@ -208,8 +203,6 @@ def test_the_repository_address_is_the_same_everywhere():
 	# six places in five languages can't share one constant: if the repo
 	# moves, all must follow (the footer's source link, the installer, the
 	# scripts' "report it", the Manager's releases and updates, the image label)
-	import re
-	from src import runtime
 	repo = runtime.SOURCE_REPO
 	owner_repo = repo.removeprefix("https://github.com/")
 	found = {
@@ -273,7 +266,6 @@ def test_a_test_build_names_everything_outside_its_folder_its_own_way():
 	# a test uninstall deleted the real install's Start Menu folder, desktop
 	# and Startup shortcuts and Win+R (same names); only the install record
 	# was its own. Every such name now depends on the build.
-	import re
 	text = (ROOT / "windows" / "installer" / "netrollout.iss").read_text(encoding="utf-8")
 	test, real = re.search(r"#ifdef TestBuild(.*?)#else(.*?)#endif", text, re.S).groups()
 	for name in ("AppTitle", "NameSuffix", "RunName"):
@@ -292,7 +284,6 @@ def test_installing_again_over_a_kept_linux_install_starts_it():
 	# it up"; install.sh used to refuse ("already installed", exit 2) - found
 	# by 9.9e. It now starts NetRollout with its own settings, as Setup does
 	# on Windows.
-	import re
 	sh = (ROOT / "linux" / "netrollout.sh").read_text(encoding="utf-8")
 	install = re.search(r"\ndo_install\(\) \{(.*?)\n\}", sh, re.S)[1]
 	kept = install[:install.index("if [ -z \"$YES\" ]")]

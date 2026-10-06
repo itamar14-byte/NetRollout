@@ -2,9 +2,9 @@ import os
 from contextlib import contextmanager
 from dataclasses import dataclass
 
+from sqlalchemy import URL, create_engine, make_url, text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy import URL, create_engine, make_url, text
 
 from src.db.db_install import install
 

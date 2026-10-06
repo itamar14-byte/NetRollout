@@ -46,11 +46,16 @@ from alembic import command as alembic_command
 from alembic.config import Config as AlembicConfig
 from alembic.script import ScriptDirectory
 from cryptography.fernet import Fernet, InvalidToken
+from dotenv import load_dotenv
 from packaging.version import InvalidVersion, Version
 from sqlalchemy import MetaData, inspect, insert, text, update
 from sqlalchemy.engine import Connection, Engine
 
 from src import runtime
+from src.db.backend import ENCRYPTED_COLUMNS, FERNET_PREFIX
+from src.db.postgres_db import PostgresConfig, PostgresConnection
+from src.db.tables import AuditLog, Base, SystemSetting
+from src.encryption import read_key
 
 FORMAT = 1
 KINDS = ("manual", "scheduled", "before-restore", "before-update", "before-move")
@@ -168,7 +173,6 @@ def create(engine: Engine, kind: str = "manual", places: Places | None = None,
 
 
 def _current_key() -> bytes:
-	from src.encryption import read_key
 	key = read_key()
 	if not key:
 		raise BackupError("No encryption key: the saved credentials couldn't be "
@@ -178,7 +182,6 @@ def _current_key() -> bytes:
 
 def _our_tables(conn: Connection) -> list[str]:
 	"""NetRollout's tables in this database (the schema may hold others')."""
-	from src.db.tables import Base
 	existing = set(inspect(conn).get_table_names())
 	return [t.name for t in Base.metadata.sorted_tables if t.name in existing]
 
@@ -428,7 +431,6 @@ def _restore_database(engine, zf, manifest, cipher, https_port, audit, name) -> 
 				                   f"WITH (FORMAT csv)", data)
 		_reset_sequences(conn, meta)
 		_check_key(conn, cipher)
-		from src.db.tables import AuditLog, SystemSetting
 		if https_port is not None:
 			conn.execute(update(SystemSetting.__table__)
 			             .where(SystemSetting.__table__.c.key == "https_port")
@@ -456,7 +458,6 @@ def _reset_sequences(conn: Connection, meta: MetaData) -> None:
 def _check_key(conn: Connection, cipher: Fernet) -> None:
 	"""The backup's key must decrypt the backup's credentials: a mismatch
 	would leave every saved password unusable."""
-	from src.db.backend import ENCRYPTED_COLUMNS, FERNET_PREFIX
 	present = {t: {c["name"] for c in inspect(conn).get_columns(t)}
 	           for t in {col.table.name for col in ENCRYPTED_COLUMNS}
 	           if inspect(conn).has_table(t)}
@@ -529,8 +530,6 @@ def _write_like_folder(target: Path, data: bytes, folder: Path) -> None:
 def _app_engine() -> Engine:
 	"""The database the app uses: config/runtime.env (a move to an
 	organisation's database) over the environment, as the app resolves it."""
-	from dotenv import load_dotenv
-	from src.db.postgres_db import PostgresConfig, PostgresConnection
 	load_dotenv(runtime.runtime_env(), override=True)
 	return PostgresConnection._build_engine(PostgresConfig.unload_env())
 

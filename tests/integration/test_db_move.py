@@ -15,7 +15,6 @@ from src.db.postgres_db import PostgresConfig
 from src.encryption import decrypt
 from src.webapp import db_move
 from src.webapp.db_move import DatabaseMove
-
 from tests.integration.conftest import PG_ADMIN_URL
 
 pytestmark = [pytest.mark.postgres, pytest.mark.redis]

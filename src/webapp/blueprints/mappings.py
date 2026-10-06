@@ -1,19 +1,14 @@
-# python utilities
 import uuid
 
-# services
-# flask
 from flask import Blueprint, render_template, request, current_app, redirect, \
 	flash, url_for, Response
 from flask_login import current_user, login_required
-# sqlalchemy
 from sqlalchemy.exc import IntegrityError
 
-# local modules
+from src import validation
 from src.core import mapping_resolvable
 from src.db.tables import VariableMapping, Inventory, User
 from src.logging_utils import RolloutLogger
-from src import validation
 from src.webapp.utils import (ok, err, with_form, with_json, flash_redirect,
                               visible_devices_clause, query_visible_devices,
                               partition_devices)

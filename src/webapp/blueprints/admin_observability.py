@@ -1,14 +1,10 @@
-# python utilities
 import uuid
 from collections import defaultdict
 from datetime import datetime, timedelta
 
-# services
-# flask
 from flask import Blueprint, render_template, request, current_app, jsonify
 from flask_login import login_required
 
-# local modules
 from src.db.tables import AuditLog, DeviceResult, User, Inventory
 from src.webapp.utils import (ok, err, require_admin, with_json,
                               compile_query_rules)

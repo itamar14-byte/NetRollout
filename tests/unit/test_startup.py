@@ -8,6 +8,10 @@ import ssl
 import threading
 
 import pytest
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.x509.oid import NameOID
 
 from src.webapp import startup
 from src.webapp.startup import (Probe, announcement, probe,
@@ -60,10 +64,6 @@ def serve(handler_body, tls=False, tmp_path=None):
 
 
 def self_signed(tmp_path):
-	from cryptography import x509
-	from cryptography.hazmat.primitives import hashes, serialization
-	from cryptography.hazmat.primitives.asymmetric import ec
-	from cryptography.x509.oid import NameOID
 	key = ec.generate_private_key(ec.SECP256R1())
 	name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "netrollout.test")])
 	now = datetime.datetime.now(datetime.timezone.utc)

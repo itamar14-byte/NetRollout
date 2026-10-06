@@ -6,7 +6,7 @@ import time
 import pytest
 
 from src import site_env
-from src.webapp import port_apply as pa
+from src.webapp import port_apply as pa, proxy_config
 
 
 @pytest.fixture
@@ -161,7 +161,6 @@ def test_a_failed_write_names_the_request_file(home):
 # ── one file for nginx and the helper (the merge) ──
 
 def test_the_hostname_and_a_port_request_share_site_env(home):
-	from src.webapp import proxy_config
 	proxy_config.write_site("nr01.lab")
 	pa.request_port(8443)
 	proxy_config.write_site("nr02.lab")              # a later hostname save

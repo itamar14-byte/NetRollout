@@ -1,11 +1,15 @@
 """Authentication flows: local login + OTP, registration, gates, LDAP
 (server mocked), rate limiting, logout/account."""
+import time as _time
 from unittest.mock import patch
 
 import pyotp
 import pytest
 
+from src.db.settings import SETTINGS
 from src.db.tables import AuditLog, LDAPGroup, LDAPServer, User
+from src.webapp import extensions as _ext
+from src.webapp.blueprints.auth import safe_next
 from tests.integration.conftest import TEST_PASSWORD
 
 pytestmark = [pytest.mark.postgres, pytest.mark.redis]
@@ -224,7 +228,7 @@ def test_account_page(client_for, make_user):
 	("//evil.example/login", False),          # protocol-relative: another site
 	("///evil.example", False),               # no host for Python, one for browsers
 	("https://evil.example/", False),
-	("/\evil.example", False),               # browsers read \ as /
+	("/\\evil.example", False),              # browsers read \ as /
 	("javascript:alert(1)", False),
 	(" /results", False),
 	("/res\nults", False),
@@ -234,7 +238,6 @@ def test_account_page(client_for, make_user):
 	(None, False),
 ])
 def test_only_local_paths_are_returned_to(value, kept):
-	from src.webapp.blueprints.auth import safe_next
 	assert safe_next(value) == (value if kept else None)
 
 
@@ -289,9 +292,7 @@ def test_a_forced_password_change_comes_first_then_the_page(client_for,
 
 # ── Sign-out after inactivity / after 12 hours ──────────────────────────────
 
-import time as _time
 
-from src.webapp import extensions as _ext
 
 
 @pytest.fixture
@@ -404,7 +405,6 @@ def test_signing_in_starts_both_clocks(client_for, make_user):
 @pytest.mark.parametrize("minutes, ok", [(4, False), (5, True), (480, True),
                                          (481, False)])
 def test_the_setting_range(minutes, ok):
-	from src.db.settings import SETTINGS
 	s = SETTINGS["session_idle_minutes"]
 	if ok:
 		assert s.parse(minutes) == minutes

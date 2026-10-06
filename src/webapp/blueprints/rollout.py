@@ -1,18 +1,13 @@
-# python utilities
 import json
 import uuid
 from itertools import groupby
 
-# services
-# flask
 from flask import Blueprint, render_template, current_app, request, flash, \
 	redirect, url_for, Response
 from flask_login import current_user, login_required
 
-
-# local modules
-from src.db.tables import DeviceResult, Inventory
 from src.core import RolloutOptions
+from src.db.tables import DeviceResult, Inventory
 from src.input_parser import InputParser
 from src.orchestration import Draining
 from src.webapp.utils import (ok, err, with_form, with_json,

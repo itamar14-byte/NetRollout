@@ -5,12 +5,13 @@ from alembic import command as alembic_command
 from alembic.config import Config as AlembicConfig
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
+from werkzeug.security import generate_password_hash
+
+from src.db.settings import seed_settings, sql_value
+from src.db.tables import User
 
 if TYPE_CHECKING:
 	from src.db.postgres_db import PostgresConnection
-from werkzeug.security import generate_password_hash
-from src.db.settings import seed_settings, sql_value
-from src.db.tables import User
 
 # ── Retention policy ─────────────────────────────────────────────────────────
 # A job's commands (job_metadata) and its per-device results (device_results)

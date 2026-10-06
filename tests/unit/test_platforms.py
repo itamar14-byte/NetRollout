@@ -3,16 +3,18 @@ command is recognised, and the verify verdicts against the config as each
 platform prints it (fixtures approximate real output; the EVE-NG round is
 the real-device check)."""
 import threading
+import uuid
 from unittest.mock import MagicMock, call, patch
 
+import netmiko
 import pytest
 
+from src import validation
 from src.core import Device, PushResult, RolloutEngine, RolloutOptions
+from src.logging_utils import RolloutLogger
 from src.platforms import (COMMIT_TIMEOUT, NOT_CONFIGURED, PLATFORMS,
                            STILL_CONFIGURED, UNVERIFIABLE, VARIABLE, VERIFIED,
                            rejection, verify_commands)
-from src.logging_utils import RolloutLogger
-from src import validation
 
 OK, MISSING, STILL, NV = VERIFIED, NOT_CONFIGURED, STILL_CONFIGURED, UNVERIFIABLE
 
@@ -496,7 +498,6 @@ def test_junos_failed_commit_rolls_back_and_reports_not_applied():
 
 def fresh_logger():
 	# its own file: a logger without a job id names it by the second
-	import uuid
 	return RolloutLogger(webapp=False, verbose=False, job_id=str(uuid.uuid4()))
 
 
@@ -680,7 +681,6 @@ def test_a_one_word_command_is_still_seen_as_rejected():
 
 
 def test_a_commit_that_outlasts_the_wait_is_reported_honestly():
-	import netmiko
 	conn = connection()
 	conn.commit.side_effect = netmiko.exceptions.ReadTimeout("slow")
 	logger = fresh_logger()
@@ -752,7 +752,6 @@ def test_each_command_is_sent_as_typed_without_reentering_config_mode():
 
 
 def test_junos_private_mode_refused_fails_with_the_likely_reason():
-	import netmiko
 	conn = connection()
 	conn.config_mode.side_effect = netmiko.exceptions.ReadTimeout("pattern not found")
 	logger = fresh_logger()
@@ -812,7 +811,6 @@ def test_gaia_fetch_switches_to_clish_too():
 
 
 def test_a_new_hostname_is_saved_from_a_new_session():
-	import netmiko
 	first, second = connection(), connection()
 	second.__enter__.return_value = second
 	first.send_config_set.side_effect = ["ok", netmiko.exceptions.ReadTimeout("prompt")]
@@ -829,7 +827,6 @@ def test_a_new_hostname_is_saved_from_a_new_session():
 
 
 def test_a_new_hostname_that_cant_be_saved_says_so():
-	import netmiko
 	first = connection()
 	first.send_config_set.side_effect = netmiko.exceptions.ReadTimeout("prompt")
 	logger = fresh_logger()

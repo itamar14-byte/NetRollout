@@ -126,6 +126,7 @@ Design rules, template gotchas and widget notes live in `templates/CLAUDE.md` (l
 - The developer writes the code; Claude reviews, advises, and discusses design
 - Exception, granted per feature: the developer may approve Claude writing backend code for a specific feature — plan first, stick to the approved plan, and verify on a scratch DB (never the live one) before touching real data
 - Always read actual source before suggesting changes
+- **Imports** (the style of `orchestration.py`, `core.py`, `cli.py`): all at the top, after the docstring — `from __future__` first, then three groups separated by a blank line: standard library, third-party, the project (`src` / `tests`); in each, plain `import x` before `from x import …`, sorted by module; no comment headers (`# flask`, `# local modules`). No import inside a function, except two on purpose: `src/input_parser.py`'s DB models ("web app only" — the CLI `.exe` must not load the DB stack) and `src/db/alembic/env.py`'s (after the project root is put on `sys.path`). No cycles: every module imports on its own.
 - Frame architecture feedback in terms of encapsulation, minimal API, abstraction, information hiding
 - Developer has real networking domain knowledge (3+ years, Netmiko/NAPALM fluency) — no need to explain networking basics
 - Distinguish critical issues from design improvements from minor polish when reviewing

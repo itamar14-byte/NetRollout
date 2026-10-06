@@ -2,8 +2,10 @@
 all-or-nothing saves with the rules, reset."""
 import pytest
 
+from src import runtime
 from src.db.settings import SETTINGS, Setting, SettingsError, seed_settings
 from src.db.tables import SystemSetting
+from src.webapp.proxy_config import sync_at_start
 
 pytestmark = [pytest.mark.postgres, pytest.mark.redis]
 
@@ -129,8 +131,6 @@ def test_missing_row_falls_back_to_the_default(app, session_scope):
 
 def test_the_app_hands_nginx_the_saved_hostname_at_start(app):
 	# what the nginx watcher reads (config/nginx/site.env in NETROLLOUT_HOME)
-	from src import runtime
-	from src.webapp.proxy_config import sync_at_start
 	site = runtime.config_dir() / "nginx" / "site.env"
 	assert site.read_text(encoding="utf-8").startswith("NETROLLOUT_HOSTNAME=")
 	app.backend.settings.update({"public_hostname": "nr01.corp.local"}, None)

@@ -9,11 +9,11 @@ from redis.client import PubSub
 
 from src import runtime
 from src.core import RolloutEngine, RolloutOptions, Device, DeviceResultDict
+from src.db.backend import BackendServices
+from src.db.redis_db import REDIS_UNAVAILABLE
 from src.db.tables import DeviceResult, JobMetadata
 from src.job_store import JobStore
 from src.logging_utils import RolloutLogger
-from src.db.backend import BackendServices
-from src.db.redis_db import REDIS_UNAVAILABLE
 
 # Dispatcher retry backoff while Redis is down (seconds)
 _BACKOFF_START, _BACKOFF_MAX = 1, 30

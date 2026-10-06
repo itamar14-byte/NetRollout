@@ -23,6 +23,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from src import backup
 from src.db.db_install import GRAFANA_ROLE
 from src.db.postgres_db import PostgresConfig
+from src.db.tables import Base
 
 MIN_SERVER_VERSION = 130000          # gen_random_uuid() is core from 13
 DEFAULT_DATABASE = "netrollout"
@@ -73,7 +74,6 @@ class Report:
 
 
 def _our_names() -> set[str]:
-	from src.db.tables import Base
 	return {t.name for t in Base.metadata.sorted_tables}
 
 

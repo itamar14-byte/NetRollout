@@ -8,8 +8,7 @@ import zipfile
 import pytest
 
 from src import runtime
-from src.setup import __main__ as cli
-from src.setup import release
+from src.setup import __main__ as cli, release
 
 
 def make_zip(path, version="1.0.1", extra=None, top=release.TOP):

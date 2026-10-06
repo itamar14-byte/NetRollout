@@ -2,6 +2,7 @@
 folder, imported by setup.py) must only reference datasources the
 provisioning defines — a renamed datasource or a newly exported dashboard
 would otherwise leave panels empty with no error anywhere but Grafana."""
+import importlib.util
 import json
 from pathlib import Path
 
@@ -46,7 +47,6 @@ def test_there_are_dashboards_to_check():
 
 def test_every_subfolder_is_one_setup_imports():
 	# a dashboard in a folder setup.py doesn't know would never be imported
-	import importlib.util
 	spec = importlib.util.spec_from_file_location("setup", GRAFANA / "setup.py")
 	setup = importlib.util.module_from_spec(spec)
 	spec.loader.exec_module(setup)
@@ -56,7 +56,6 @@ def test_every_subfolder_is_one_setup_imports():
 def test_every_dashboard_datasource_is_provisioned():
 	# provisioned, or the NetRollout database one, which grafana-setup keeps
 	# through Grafana's API (it follows a database move)
-	import importlib.util
 	spec = importlib.util.spec_from_file_location("setup", GRAFANA / "setup.py")
 	setup = importlib.util.module_from_spec(spec)
 	spec.loader.exec_module(setup)

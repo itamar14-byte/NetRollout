@@ -7,7 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from dotenv import dotenv_values
+from dotenv import dotenv_values, load_dotenv
 from sqlalchemy.engine import make_url
 
 from src import runtime
@@ -76,7 +76,6 @@ def _backend_writing_to(path) -> BackendServices:
 
 
 def test_runtime_env_wins_over_the_container_env(isolated_env, tmp_path):
-	from dotenv import load_dotenv
 	isolated_env.setenv("PG_HOST", "postgres")          # container env
 	isolated_env.setenv("PG_PORT", "5432")
 	runtime = tmp_path / "runtime.env"
@@ -87,7 +86,6 @@ def test_runtime_env_wins_over_the_container_env(isolated_env, tmp_path):
 
 
 def test_container_env_is_used_without_a_runtime_env(isolated_env, tmp_path):
-	from dotenv import load_dotenv
 	isolated_env.setenv("PG_HOST", "postgres")
 	load_dotenv(tmp_path / "missing.env", override=True)
 	assert PostgresConfig.unload_env().host == "postgres"
@@ -96,7 +94,6 @@ def test_container_env_is_used_without_a_runtime_env(isolated_env, tmp_path):
 def test_a_switch_overrides_everything_inherited(isolated_env, tmp_path):
 	# Values from the container env that the new target doesn't use (a URL,
 	# a password, a schema) must not survive the switch and the next restart
-	from dotenv import load_dotenv
 	isolated_env.setenv("DATABASE_URL", "postgresql://u:p@postgres/old")
 	isolated_env.setenv("PG_SCHEMA", "old_schema")
 	isolated_env.setenv("REDIS_URL", "redis://:pw@redis:6379/0")

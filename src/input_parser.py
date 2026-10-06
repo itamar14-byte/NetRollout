@@ -8,12 +8,11 @@ from csv import DictReader
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-
-from src.encryption import decrypt, encrypt
 from src import validation
-from src.validation import Validator
 from src.core import Device
+from src.encryption import decrypt, encrypt
 from src.logging_utils import RolloutLogger
+from src.validation import Validator
 
 if TYPE_CHECKING:
 	# The web app's import uses the DB models; the CLI (.exe) never does, so

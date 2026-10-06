@@ -1,20 +1,15 @@
-#python utilities
 import uuid
 
-#servics
-#flask
 from flask import (Blueprint, current_app, render_template, request, flash,
                    redirect, url_for)
 from flask_login import current_user, login_required
-#netmiko
 from netmiko import ConnectHandler, NetmikoTimeoutException, \
 	NetmikoAuthenticationException
 
-#local modules
+from src import validation
 from src.core import Device
 from src.db.tables import SecurityProfile, User, Inventory
 from src.encryption import encrypt, decrypt
-from src import validation
 from src.webapp.utils import ok, err, with_json, with_form, flash_redirect
 
 bp = Blueprint('security', __name__, url_prefix='/security')

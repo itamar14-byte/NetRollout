@@ -1,31 +1,25 @@
-# services
 import os
 import time
 
-# flask
+import redis as redis_lib
 from flask import Blueprint, render_template, request, current_app, jsonify
 from flask_login import current_user, login_required
 from redis.exceptions import ConnectionError as RedisConnectionError
-# redis
-import redis as redis_lib
-# sqlalchemy
-from sqlalchemy import text, create_engine
+from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 
-# local modules
 from src.db import move
 from src.db.postgres_db import PostgresConfig
-from src.webapp import db_move
-from src.webapp.db_move import describe, same_database
-from src.webapp.maintenance import during_maintenance
-from src.webapp.blueprints.auth import record_redis_session
-from src.webapp.setup import clear_sessions, clear_stale_jobs
 from src.db.redis_db import RedisConfig
 from src.db.tables import LDAPServer, LDAPGroup, User
 from src.encryption import encrypt
 from src.ldap_auth import test_user, test_connection, fetch_base_dn, walk_tree
 from src.runtime import drain_seconds
-from src.webapp import proxy_config
+from src.webapp import db_move, proxy_config
+from src.webapp.blueprints.auth import record_redis_session
+from src.webapp.db_move import describe, same_database
+from src.webapp.maintenance import during_maintenance
+from src.webapp.setup import clear_sessions, clear_stale_jobs
 from src.webapp.utils import ok, err, require_admin, with_json, with_form
 
 bp = Blueprint('admin_servers', __name__, url_prefix='/admin/server')

@@ -1,12 +1,15 @@
 """Headless CLI (src/cli.py): argument parsing, prompts, file input, and the
 hand-off to RolloutEngine. The engine and TCP probe are mocked — no devices,
 no network."""
+import json
+import subprocess
 import sys
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from src import cli
+from src import cli, runtime
 
 CSV_HEADER = "ip,username,password,device_type,secret,port\n"
 GOOD_ROW = "10.0.0.1,admin,pw,cisco_ios,en,22\n"
@@ -268,10 +271,6 @@ WEB_STACK = {"flask", "sqlalchemy", "redis", "psycopg2", "alembic",
 
 def test_the_cli_loads_nothing_from_the_web_stack():
 	# A fresh interpreter: this test session has the web app loaded already
-	import json
-	import subprocess
-	import sys
-	from pathlib import Path
 	probe = ("import json, sys, src.cli; "
 	         "print(json.dumps(sorted({m.split('.')[0] for m in sys.modules})))")
 	out = subprocess.run([sys.executable, "-c", probe], capture_output=True,
@@ -281,8 +280,6 @@ def test_the_cli_loads_nothing_from_the_web_stack():
 
 
 def test_version_flag(capsys, monkeypatch):
-	import sys
-	from src import cli, runtime
 	monkeypatch.setattr(sys, "argv", ["netrollout-cli", "--version"])
 	with pytest.raises(SystemExit) as exit_info:
 		cli.get_args()

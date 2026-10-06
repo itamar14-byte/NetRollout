@@ -11,7 +11,7 @@ import redis as redis_lib
 
 from src.db.tables import DeviceResult
 from src.orchestration import DRAINING_MESSAGE, Draining
-from src.runtime import VERSION
+from src.runtime import VERSION, drain_seconds
 
 pytestmark = [pytest.mark.postgres, pytest.mark.redis]
 
@@ -86,7 +86,6 @@ def test_restart_with_rollouts_asks_first(admin, client_for, begins, busy):
 @pytest.mark.parametrize("mode, drains", [("when_finished", True),
                                           ("now", False)])
 def test_restart_modes(admin, client_for, begins, busy, mode, drains):
-	from src.runtime import drain_seconds
 	busy(running=1)
 	resp = client_for(admin).post("/admin/server/restart", json={"mode": mode})
 	assert resp.status_code == 200

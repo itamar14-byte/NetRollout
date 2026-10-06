@@ -1,6 +1,10 @@
 """The instance route behind the startup reverse-proxy check."""
 import pytest
 
+from src.db.tables import User
+from src.runtime import VERSION, source_url
+from src.webapp.utils import end_user_sessions
+
 pytestmark = [pytest.mark.postgres, pytest.mark.redis]
 
 
@@ -22,7 +26,6 @@ def test_instance_route_returns_this_processes_token(app, client_for):
 def test_every_page_skeleton_shows_the_version_and_its_source(
 		client_for, make_user, path, role):
 	# AGPL-3.0 §13: network users are offered the source of this version
-	from src.runtime import VERSION, source_url
 	user = make_user(role=role) if role else None
 	html = client_for(user).get(path).get_data(as_text=True)
 	assert f"NETROLLOUT V{VERSION.upper()}" in html
@@ -55,7 +58,6 @@ def test_grafana_refuses_an_admin_who_must_change_the_password(client_for,
 
 
 def test_grafana_access_ends_with_the_session(app, client_for, make_user):
-	from src.webapp.utils import end_user_sessions
 	admin = make_user(role="admin")
 	browser = client_for(admin)
 	assert browser.get(GRAFANA_AUTH).status_code == 204
@@ -71,7 +73,6 @@ def test_grafana_access_ends_with_the_session(app, client_for, make_user):
 
 def test_grafana_follows_role_and_status_changes(client_for, make_user,
                                                  session_scope):
-	from src.db.tables import User
 	admin = make_user(role="admin")
 	browser = client_for(admin)
 	assert browser.get(GRAFANA_AUTH).status_code == 204

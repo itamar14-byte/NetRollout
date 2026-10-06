@@ -2,8 +2,8 @@ import os
 from dataclasses import dataclass
 
 import redis
-from redis.connection import parse_url
 from redis.backoff import NoBackoff
+from redis.connection import parse_url
 from redis.retry import Retry
 
 # Client timeouts (seconds): fail fast when Redis is unreachable

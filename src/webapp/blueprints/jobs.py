@@ -1,21 +1,17 @@
-# python utilities
 import glob
 import os
 import uuid
 from datetime import datetime, timedelta
 from itertools import groupby
 
-# services
-# flask
 from flask import (Blueprint, render_template, current_app, request, send_file,
                    Response, url_for)
 from flask_login import current_user, login_required
 
-# local modules
 from src import runtime
-from src.platforms import PLATFORMS, verify_commands
 from src.db.tables import DeviceResult, JobMetadata, User, Inventory
 from src.job_store import JobStore
+from src.platforms import PLATFORMS, verify_commands
 from src.webapp.utils import ok, err, build_kpi, visible_devices_clause
 
 bp = Blueprint('jobs', __name__)

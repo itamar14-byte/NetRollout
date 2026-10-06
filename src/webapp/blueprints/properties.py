@@ -1,12 +1,8 @@
-# python utilities
 import uuid
 
-# services
-# flask
 from flask import Blueprint, render_template, request, current_app
 from flask_login import current_user, login_required
 
-# local modules
 from src.db.tables import PropertyDefinition
 from src.webapp.utils import ok, err, SYSTEM_PROPERTIES
 

@@ -9,7 +9,6 @@ import redis as redis_lib
 from dotenv import dotenv_values
 
 from src.db.backend import BUNDLED_REDIS_KEY
-from src.db.redis_db import RedisConfig
 from src.job_store import JobStore
 
 pytestmark = [pytest.mark.postgres, pytest.mark.redis]

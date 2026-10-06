@@ -7,12 +7,19 @@ import sys
 import uuid
 
 import pytest
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 from cryptography.fernet import Fernet
 from sqlalchemy import create_engine, text
+from sqlalchemy.engine import make_url
+from werkzeug.security import generate_password_hash
 
-from src.db.db_install import (RETENTION_STATEMENTS,
-                                 _grant_grafana_read, GRAFANA_TABLES)
+import src.encryption as enc
+from src.db.db_install import RETENTION_STATEMENTS, _grant_grafana_read, GRAFANA_TABLES, install
+from src.db.postgres_db import PostgresConfig, PostgresConnection
 from src.db.settings import SETTINGS
+from src.db.tables import SecurityProfile
+from src.webapp.setup import init_app_encryption
 from tests.integration.conftest import ROOT
 
 pytestmark = pytest.mark.postgres
@@ -32,7 +39,6 @@ def test_must_change_password_migration_flags_only_a_factory_admin(
 		test_db_url):
 	# An install upgraded from the v1.0.0 baseline: its admin still on
 	# "admin" gets the flag, one that changed it (and anyone else) doesn't
-	from werkzeug.security import generate_password_hash
 	name = f"rollout_mig_{uuid.uuid4().hex[:6]}"
 	admin_url = test_db_url.rsplit("/", 1)[0] + "/postgres"
 	url = test_db_url.rsplit("/", 1)[0] + "/" + name
@@ -126,7 +132,6 @@ def test_baseline_round_trips_and_sets_server_defaults(test_db_url):
 @pytest.fixture
 def scratch_db(test_db_url):
 	"""A throwaway database (no DATABASE_URL pointing at it)."""
-	from sqlalchemy.engine import make_url
 	name = f"rollout_inst_{uuid.uuid4().hex[:6]}"
 	base = make_url(test_db_url)
 	admin = create_engine(base.set(database="postgres"),
@@ -140,23 +145,18 @@ def scratch_db(test_db_url):
 
 
 def _pg_config(url, schema=None):
-	from src.db.postgres_db import PostgresConfig
 	return PostgresConfig(host=url.host, port=str(url.port),
 	                      database=url.database, user=url.username,
 	                      password=url.password, schema=schema)
 
 
 def _head_revision():
-	from alembic.config import Config
-	from alembic.script import ScriptDirectory
 	return ScriptDirectory.from_config(
 		Config(str(ROOT / "src" / "db" / "alembic.ini"))).get_current_head()
 
 
 def test_install_migrates_the_connected_db_not_database_url(
 		scratch_db, monkeypatch):
-	from src.db.db_install import install
-	from src.db.postgres_db import PostgresConnection
 	monkeypatch.delenv("DATABASE_URL", raising=False)  # used to be required
 	conn = PostgresConnection(_pg_config(scratch_db))
 	try:
@@ -174,8 +174,6 @@ def test_install_migrates_the_connected_db_not_database_url(
 
 
 def test_install_honours_pg_schema(scratch_db):
-	from src.db.db_install import install
-	from src.db.postgres_db import PostgresConnection
 	admin = create_engine(scratch_db)
 	with admin.begin() as c:
 		c.execute(text("CREATE SCHEMA nr"))
@@ -378,7 +376,6 @@ def test_grafana_grant_is_skipped_without_the_role(app):
 # ── Encryption canary + health ───────────────────────────────────────────────
 
 def test_encrypted_sample_finds_fernet_values_only(app, make_user):
-	from src.db.tables import SecurityProfile
 	backend = app.backend
 	assert backend.encrypted_sample() is None  # fresh DB
 	owner = make_user()
@@ -395,9 +392,6 @@ def test_encrypted_sample_finds_fernet_values_only(app, make_user):
 
 
 def test_startup_canary_refuses_mismatched_key_against_real_db(app, make_user):
-	import src.encryption as enc
-	from src.db.tables import SecurityProfile
-	from src.webapp.setup import init_app_encryption
 	owner = make_user()
 	foreign = Fernet(Fernet.generate_key()).encrypt(b"pw").decode()
 	with app.backend.postgres.get_session() as s:

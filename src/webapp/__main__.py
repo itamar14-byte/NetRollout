@@ -5,12 +5,12 @@ import sys
 from waitress import serve
 
 from src.db.settings import public_url
-from src.runtime import StartupError, drain_seconds, in_container, server_threads
 from src.logging_utils import start_log_pruning, utf8_console
+from src.runtime import StartupError, drain_seconds, in_container, server_threads
 from src.webapp import create_app
+from src.webapp.backup_schedule import start_backup_schedule
 from src.webapp.port_apply import serving_port
 from src.webapp.proxy_config import start_certificate_upkeep
-from src.webapp.backup_schedule import start_backup_schedule
 from src.webapp.retention import start_retention
 from src.webapp.startup import container_announcement, start_announcer
 

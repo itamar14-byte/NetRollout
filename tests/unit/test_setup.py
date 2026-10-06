@@ -1,13 +1,15 @@
 """src/setup: the install questions, their checks and defaults, what an
 install writes, and the contract with the host scripts (exit codes)."""
 import datetime
+import json
 
 import pytest
+from cryptography.fernet import Fernet
 
 from src import certs, runtime, site_env
-from src.setup import __main__ as cli
-from src.setup import answers as A
-from src.setup import files
+from src.setup import __main__ as cli, answers as A, files
+from src.setup import manage  # noqa: E402
+from tests.unit.test_backup import make_zip
 
 
 @pytest.fixture
@@ -238,7 +240,6 @@ def test_init_dev(home):
 
 # ── prepare-start and status (src/setup/manage.py) ──
 
-from src.setup import manage  # noqa: E402
 
 
 def installed(home, *extra):
@@ -370,7 +371,6 @@ def test_status_through_the_cli(home, monkeypatch):
 # ── after a restore ──
 
 def test_restore_key_puts_the_backups_key_into_env_and_removes_the_handover(home):
-	from cryptography.fernet import Fernet
 	before = installed(home)["NETROLLOUT_ENCRYPTION_KEY"]
 	other = Fernet.generate_key().decode()
 	(home / "backups").mkdir(exist_ok=True)
@@ -397,8 +397,6 @@ def test_restore_key_refuses_without_a_key(home):
 
 
 def test_status_shows_the_backups_and_a_failed_scheduled_one(home):
-	import json
-	from tests.unit.test_backup import make_zip
 	installed(home)
 	seen = manage.Observed(manage.parse_containers(ALL_UP), reachable=True)
 	assert "Backups:      none yet" in "\n".join(manage.status(seen, HEALTHY)[0])
@@ -444,7 +442,6 @@ def test_check_update_through_the_cli():
 
 
 def test_upgrade_adds_what_is_missing_and_keeps_everything_else(home):
-	import datetime
 	installed(home)
 	path = home / ".env"
 	before = path.read_text(encoding="utf-8")

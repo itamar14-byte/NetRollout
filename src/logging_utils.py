@@ -4,14 +4,14 @@ import os
 import sys
 import threading
 import time
-
 from typing import TYPE_CHECKING
+
+from src import runtime
 
 if TYPE_CHECKING:   # the web app passes its client in; the CLI (.exe) has none
 	import redis
 	from redis.client import PubSub
 
-from src import runtime
 
 # Default for the "log_retention_days" System Setting (src/db/settings.py);
 # the CLI, which has no database, uses it directly. Log files are kept longer

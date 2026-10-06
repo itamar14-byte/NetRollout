@@ -1,33 +1,27 @@
-# python utilities
 import os
 import secrets
 
-# services
-# flask
 from flask import Flask
 from flask_session import Session
 from flask_session.redis import RedisSessionInterface
-# prometheus
 from prometheus_client.core import REGISTRY, GaugeMetricFamily
-# sqlalchemy
 from sqlalchemy.exc import OperationalError
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-# local modules
-from src.webapp.startup import new_instance_token
-from src.webapp.extensions import register_extensions, register_handlers, \
-	register_auth
-from src.webapp.utils import WebServices
 from src.db.backend import BackendServices
 from src.db.redis_db import REDIS_UNAVAILABLE
-from src.runtime import VERSION, StartupError, in_container, source_url
 from src.encryption import init_encryption, require_key_in_container
 from src.job_store import JobStore
 from src.orchestration import RolloutOrchestrator
-from src.webapp.maintenance import register_maintenance
+from src.runtime import VERSION, StartupError, in_container, source_url
 from src.webapp.db_move import DatabaseMove
+from src.webapp.extensions import register_extensions, register_handlers, \
+	register_auth
 from src.webapp.lifecycle import Shutdown
+from src.webapp.maintenance import register_maintenance
 from src.webapp.proxy_config import seed_hostname_from_site, sync_at_start
+from src.webapp.startup import new_instance_token
+from src.webapp.utils import WebServices
 
 ########Constants###################################################
 

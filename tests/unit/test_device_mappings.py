@@ -1,14 +1,17 @@
 """Device.from_inventory + substitution: global devices share one mapping
 join table across users, so only the rolling-out user's mappings may apply."""
 import os
+import threading
 import uuid
 from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 import pytest
 from cryptography.fernet import Fernet
 
 import src.encryption as enc
-from src.core import Device, RolloutEngine, RolloutOptions
+from src.core import Device, RolloutEngine, RolloutOptions, mapping_resolvable
+from src.logging_utils import RolloutLogger
 
 USER_A, USER_B, USER_C = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
 
@@ -83,7 +86,6 @@ def test_missing_enable_secret_becomes_empty_string():
 	({"hostname": "r1"}, "hostname", 0, False),           # indexing a string
 ])
 def test_mapping_resolvable(var_maps, prop, index, expected):
-	from src.core import mapping_resolvable
 	assert mapping_resolvable(var_maps, prop, index) is expected
 
 
@@ -91,9 +93,6 @@ def test_unresolvable_device_fails_alone_without_ssh(monkeypatch):
 	"""e.g. an admin removed an attribute from a global device after users
 	bound mappings to it: that device fails with a reason, is never
 	connected to, and the rest of the job proceeds (push + verify)."""
-	import threading
-	from unittest.mock import MagicMock, patch
-	from src.logging_utils import RolloutLogger
 	ok_row = global_row(ip="10.0.0.1", var_mappings=[
 		mapping("$$HOST$$", "hostname", USER_A)])
 	broken_row = global_row(ip="10.0.0.2", var_maps={}, var_mappings=[

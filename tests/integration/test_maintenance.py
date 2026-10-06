@@ -6,7 +6,6 @@ from sqlalchemy import text
 
 from src.orchestration import PAUSED_MESSAGE
 from src.webapp.maintenance import IDLE, LOCKED, WAITING
-
 from tests.integration.test_route_matrix import _routes, _url
 
 pytestmark = [pytest.mark.postgres, pytest.mark.redis]

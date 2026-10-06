@@ -1,6 +1,7 @@
 """Server Management -> Database: the move's routes (the move itself, on real
 databases, is test_db_move.py)."""
 import pytest
+from sqlalchemy import make_url
 
 from src.webapp import db_move
 
@@ -39,7 +40,6 @@ def test_check_needs_every_field(admin, client_for):
 
 
 def test_check_refuses_the_current_database(app, admin, client_for):
-	from sqlalchemy import make_url
 	url = make_url(app.backend.postgres.config.get_url())
 	resp = client_for(admin, xhr=True).post("/admin/server/database/check", json={
 		"host": url.host, "port": str(url.port), "database": url.database,

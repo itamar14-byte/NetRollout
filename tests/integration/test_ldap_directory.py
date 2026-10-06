@@ -10,6 +10,7 @@ from cryptography.fernet import Fernet
 
 import src.encryption as enc
 from src import ldap_auth
+from src.db.tables import LDAPGroup, LDAPServer, User, AuditLog
 from src.ldap_auth import LdapUnavailable
 from tests.integration.conftest import (LDAP_BASE, LDAP_GROUP_DN, LDAP_USERS,
                                         LDAP_SERVICE_DN, LDAP_SERVICE_PW)
@@ -127,7 +128,6 @@ def test_connection_and_user_test_tools(ldap_server_config):
 
 @pytest.fixture
 def directory_in_db(app, ldap_directory):
-	from src.db.tables import LDAPGroup, LDAPServer
 	with app.backend.postgres.get_session() as s:
 		srv = LDAPServer(name="corp", host="127.0.0.1", port=ldap_directory,
 		                 base_dn=LDAP_BASE, cn_identifier="uid",
@@ -150,7 +150,6 @@ def login(client, username, password):
 @pytest.mark.redis
 def test_group_member_first_login_provisions_then_logs_in_again(
 		directory_in_db, client_for, session_scope):
-	from src.db.tables import User
 	assert login(client_for(), "jdoe", JDOE_PW).headers["Location"] == "/dashboard"
 	with session_scope() as s:
 		u = s.query(User).filter_by(username="jdoe").one()
@@ -171,7 +170,6 @@ def test_non_member_cannot_log_in(directory_in_db, client_for):
 @pytest.mark.redis
 def test_directory_outage_shows_unavailable_not_500(directory_in_db,
                                                     client_for, session_scope):
-	from src.db.tables import AuditLog, LDAPServer
 	with session_scope() as s:
 		s.get(LDAPServer, directory_in_db).port = 1  # directory "down"
 	client = client_for()

@@ -1,6 +1,7 @@
 """Rollout routes (captured, never executed), cancel, SSE stream, rollback,
 results / Verify Diff / log download, dashboards, operator analytics."""
 import datetime as dt
+import json
 import os
 import threading
 import uuid
@@ -58,7 +59,6 @@ def test_single_platform_rollout_is_submitted(operator, client_for,
 
 def test_multi_platform_rollout_submits_one_job_per_platform(
 		operator, client_for, captured_submits):
-	import json
 	client_for(operator.user).post("/rollout/start", data={
 		"device_ids": [str(operator.ios), str(operator.eos)],
 		"platform_commands": json.dumps({"cisco_ios": "hostname a",

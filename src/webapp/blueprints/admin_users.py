@@ -1,15 +1,11 @@
-# python utilities
 import uuid
 
-# services
-# flask
 from flask import (Blueprint, render_template, request, current_app, redirect,
                    url_for, flash)
 from flask_login import current_user, login_required
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from werkzeug.security import generate_password_hash
 
-# local modules
 from src.db.tables import User
 from src.passwords import temporary_password
 from src.webapp.accounts import AccountError, new_local_user, pending_requests

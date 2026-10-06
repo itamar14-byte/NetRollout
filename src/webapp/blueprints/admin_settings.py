@@ -3,18 +3,14 @@ live in src/db/settings.py; these routes call it, audit every change, and
 return per-field / rule errors for the page to show."""
 import time
 
-# flask
 from flask import Blueprint, current_app, jsonify, render_template, request
 from flask_login import current_user, login_required
-# sqlalchemy
 from sqlalchemy.exc import SQLAlchemyError
 
-# local modules
 from src.db.settings import (SETTINGS, SettingsError, public_url,
                              rules_for_client)
 from src.runtime import in_container
-from src.webapp import retention
-from src.webapp import port_apply, proxy_config
+from src.webapp import retention, port_apply, proxy_config
 from src.webapp.blueprints.admin_backups import backups_state
 from src.webapp.startup import check_proxy, resolve_public_url
 from src.webapp.utils import err, ok, require_admin, with_json

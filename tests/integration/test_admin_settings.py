@@ -1,11 +1,18 @@
 """System Settings routes and the places that read the settings: saving
 (audited, all-or-nothing), reset, the Access test, restart-pending, and
 device parallelism / reachability cache / worker count wiring."""
+import json as _json
+import time as _time
+
 import pytest
 
-from src.db.settings import seed_settings
+from src import certs as _certs, runtime as _runtime, site_env as _site
+from src.db.settings import seed_settings, SettingsError
 from src.db.tables import AuditLog
+from src.webapp import proxy_config as _pc, port_apply as _pa
+from src.webapp.blueprints import admin_settings
 from src.webapp.startup import Probe
+from tests.unit.test_certs import key_pem, make_cert, pem
 
 pytestmark = [pytest.mark.postgres, pytest.mark.redis]
 
@@ -175,11 +182,7 @@ def test_restart_dot_shows_on_admin_pages_while_pending(admin, app, client_for):
 
 # ── The hostname: applied by nginx at once, all or nothing ──────────────────
 
-import json as _json
 
-from src import certs as _certs
-from src import runtime as _runtime
-from src.webapp import proxy_config as _pc
 
 
 @pytest.fixture
@@ -264,7 +267,6 @@ def test_a_self_signed_certificate_is_reissued_for_the_new_name(
 
 def _org_cert(names):
 	"""An organisation's certificate (no self-signed marker) for `names`."""
-	from tests.unit.test_certs import key_pem, make_cert, pem
 	cert, key = make_cert(names=names)
 	d = _runtime.certs_dir()
 	d.mkdir(parents=True, exist_ok=True)
@@ -345,10 +347,7 @@ def test_the_audit_says_what_nginx_did(admin, app, client_for, proxy,
 
 # ── The HTTPS port: requested from the port helper, all or nothing ──────────
 
-import time as _time
 
-from src import site_env as _site
-from src.webapp import port_apply as _pa
 
 
 @pytest.fixture
@@ -432,7 +431,6 @@ def test_a_save_that_fails_late_takes_the_request_back(
 		admin, app, client_for, port_files, monkeypatch):
 	_pa.request_port(9443)
 	before = port_files.request_keys()
-	from src.db.settings import SettingsError
 
 	def changed_meanwhile(values, user_id):
 		raise SettingsError({"https_port": "changed meanwhile"})
@@ -621,7 +619,6 @@ def test_the_page_and_every_save_carry_the_status(admin, app, client_for, proxy)
 
 def test_in_docker_the_test_button_shows_what_nginx_reported(
 		admin, app, client_for, proxy, monkeypatch):
-	from src.webapp.blueprints import admin_settings
 	monkeypatch.setattr(admin_settings, "in_container", lambda: True)
 	proxy.managed()
 	resp = client_for(admin).post("/admin/settings/test",

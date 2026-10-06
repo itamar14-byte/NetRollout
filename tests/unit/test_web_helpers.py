@@ -1,17 +1,19 @@
 """Pure webapp helpers: query allowlist, device access rules, KPIs, job
 status, snapshot expiry, mapping-field validation. No app, no DB."""
 import datetime as dt
+import sys
 import uuid
 from types import SimpleNamespace
 
 import pytest
 from sqlalchemy.dialects import postgresql
 
-from src.db.settings import SETTINGS
 from src import validation
+from src.db.settings import SETTINGS
 from src.webapp.blueprints.admin_observability import QUERY_AUDIT_LOG_FIELDS
 from src.webapp.blueprints.analytics import QUERY_DEVICE_RESULT_FIELDS
 from src.webapp.blueprints.jobs import config_expired, job_status
+from src.webapp.lifecycle import relaunch_command
 from src.webapp.utils import (build_kpi, can_edit_device, compile_query_rules,
                               partition_devices, visible_devices_clause)
 
@@ -228,8 +230,6 @@ def test_property_name_checked_against_the_users_definitions():
 ])
 def test_restart_relaunches_the_original_invocation(monkeypatch, orig_argv,
                                                     expected_tail):
-	import sys
-	from src.webapp.lifecycle import relaunch_command
 	# under -m, sys.argv[0] is the __main__.py path — relaunching that ran it
 	# as a script, where `src` isn't importable
 	monkeypatch.setattr(sys, "argv", [r"C:\repo\src\webapp\__main__.py"])

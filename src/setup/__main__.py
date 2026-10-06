@@ -7,9 +7,8 @@ from pathlib import Path
 
 from packaging.version import Version
 
-from src.setup import answers as A
 from src import runtime
-from src.setup import files, manage, port, release
+from src.setup import answers as A, files, manage, port, release
 
 OK, INVALID, REFUSED = 0, 1, 2
 ANSWER_FLAGS = ("hostname", "https_port", "monitoring", "org_certificate",

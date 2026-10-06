@@ -5,8 +5,6 @@ migrating forward, a key that doesn't decrypt changing nothing, Grafana's
 database. Two scratch databases on the test Postgres; never the app's."""
 import os
 import sqlite3
-import uuid
-import zipfile
 
 import pytest
 from alembic import command as alembic_command

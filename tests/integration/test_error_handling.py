@@ -5,6 +5,7 @@ import time
 
 import pytest
 
+from src.encryption import decrypt
 from src.logging_utils import RolloutLogger
 
 pytestmark = [pytest.mark.postgres, pytest.mark.redis]
@@ -59,7 +60,6 @@ def test_bad_encryption_key_json_stays_json(client_for):
 
 def test_bad_encryption_key_at_2fa_points_admins_to_the_log(
 		app, client_for, monkeypatch, capsys):
-	from src.encryption import decrypt
 
 	def otp_verify():
 		decrypt("gAAAAA-not-a-real-token")
@@ -73,7 +73,6 @@ def test_bad_encryption_key_at_2fa_points_admins_to_the_log(
 
 def test_bad_encryption_key_after_post_retries_via_referrer(
 		app, client_for, make_user, monkeypatch):
-	from src.encryption import decrypt
 
 	def start():
 		decrypt("gAAAAA-not-a-real-token")

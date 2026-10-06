@@ -1,18 +1,22 @@
 import os
 import tempfile
 import threading
+import time
 import unittest
+import uuid
 from unittest.mock import MagicMock, patch
+
+import netmiko as nm
 
 # Import through the src package only — the app itself imports src.*, and a
 # bare `import core` would load a second copy of every module (patches and
 # isinstance checks would then silently target the wrong one).
 from src import validation
-from src.validation import Validator
-from src.logging_utils import RolloutLogger
 from src.core import PushResult, VerifyResult, Device, RolloutOptions, RolloutEngine
-from src.platforms import FETCH_TIMEOUT
 from src.input_parser import InputParser
+from src.logging_utils import RolloutLogger
+from src.platforms import FETCH_TIMEOUT, PLATFORMS
+from src.validation import Validator
 
 
 # ---------------------------------------------------------------------------
@@ -422,7 +426,6 @@ class TestDeviceFetchConfig(unittest.TestCase):
 
 	@patch("netmiko.ConnectHandler")
 	def test_every_platform_has_a_show_command(self, mock_ch):
-		from src.platforms import PLATFORMS
 		for device_type, platform in PLATFORMS.items():
 			conn = self._connection(mock_ch, output="set x")
 			make_device(device_type=device_type).fetch_config(self.logger)
@@ -535,7 +538,6 @@ class TestParseFiles(unittest.TestCase):
 		self.validator = Validator(self.logger)
 		self.parser = InputParser(self.validator, self.logger)
 		self.db_session = MagicMock()
-		import uuid
 		self.user_id = uuid.uuid4()
 
 	@staticmethod
@@ -649,7 +651,6 @@ class TestRolloutEnginePushConfig(unittest.TestCase):
 
 	@patch("netmiko.ConnectHandler")
 	def test_auth_failure_marks_device_failed(self, mock_ch):
-		import netmiko as nm
 		mock_ch.side_effect = nm.NetMikoAuthenticationException("auth failed")
 		engine = self._make_engine()
 		cancel_signal, push_results = engine._push_config(self.cancel, self.logger)
@@ -669,7 +670,6 @@ class TestRolloutEnginePushConfig(unittest.TestCase):
 		"""A cancel stops devices that haven't connected yet; devices already
         mid-push finish (config applied) and must be recorded as pushed —
         not 'cancelled' — or rollback would skip them."""
-		import time
 		cancel = threading.Event()
 		b_connected = threading.Event()
 

@@ -1,6 +1,8 @@
 """Stage 3 (container runtime) without services: the deployment mode, both
 secret checks, the container startup line and how a deliberate stop exits."""
+import importlib
 import os
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -179,7 +181,6 @@ def test_a_second_stop_request_is_ignored(monkeypatch):
 # ── Stage 6.1: version + source link ──
 
 def test_the_version_is_the_version_file():
-	from src import runtime
 	text = (runtime.REPO_ROOT / "VERSION").read_text(encoding="utf-8").strip()
 	assert runtime.VERSION == text
 
@@ -189,7 +190,6 @@ def test_the_version_is_the_version_file():
 	(None, "0.0.0.dev0")])
 def test_reading_the_version_file(tmp_path, monkeypatch, content, expected):
 	# sys._MEIPASS is where the CLI .exe unpacks its bundled files
-	from src import runtime
 	if content is not None:
 		(tmp_path / "VERSION").write_text(content, encoding="utf-8", newline="")
 	monkeypatch.setattr(runtime.sys, "_MEIPASS", str(tmp_path), raising=False)
@@ -202,7 +202,6 @@ def test_reading_the_version_file(tmp_path, monkeypatch, content, expected):
 	("1.1.0-rc1", "https://github.com/itamar14-byte/NetRollout/tree/v1.1.0-rc1"),
 ])
 def test_source_url_points_at_the_running_version(monkeypatch, version, url):
-	from src import runtime
 	monkeypatch.setattr(runtime, "VERSION", version)
 	assert runtime.source_url() == url
 
@@ -219,15 +218,12 @@ def test_server_threads(monkeypatch, value, expected):
 
 
 def test_the_server_is_started_with_those_threads():
-	from pathlib import Path
 	main = (Path(runtime.REPO_ROOT) / "src" / "webapp" / "__main__.py").read_text(encoding="utf-8")
 	assert "threads=server_threads()" in main
 
 
 def test_the_running_version_follows_the_file(tmp_path, monkeypatch):
 	# not a copy that happens to match: another file, another version
-	import importlib
-	from src import runtime
 	(tmp_path / "VERSION").write_text("9.9.9\n", encoding="utf-8")
 	monkeypatch.setattr(runtime.sys, "_MEIPASS", str(tmp_path), raising=False)
 	try:

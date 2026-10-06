@@ -1,16 +1,11 @@
-# python utilities
 import functools
 from collections import defaultdict
 from datetime import datetime
 
-# services
-#flask
 from flask import current_app, jsonify, request, redirect, url_for, flash
 from flask_login import current_user
-#sqlalchemy
 from sqlalchemy import and_, or_
 
-# local modules
 from src.db.backend import BackendServices
 from src.db.tables import (AuditLog, SecurityProfile, PropertyDefinition,
                            Inventory)
