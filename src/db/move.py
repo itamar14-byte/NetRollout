@@ -209,7 +209,10 @@ def preparation_sql(plan: Plan) -> str:
 		lines.append(f"ALTER SCHEMA public OWNER TO {login};")
 	else:
 		lines.append(f"CREATE SCHEMA {_ident(schema)} AUTHORIZATION {login};")
-	lines += [f"GRANT USAGE ON SCHEMA {_ident(schema)} TO {GRAFANA_ROLE};",
+	lines.append(f"GRANT USAGE ON SCHEMA {_ident(schema)} TO {GRAFANA_ROLE};")
+	if schema != "public":     # the dashboards' queries name tables without a schema
+		lines.append(f"ALTER ROLE {GRAFANA_ROLE} IN DATABASE {db} SET search_path = {_ident(schema)};")
+	lines += [
 	          "-- Optional, where pg_cron is installed in this database:",
 	          f"-- GRANT USAGE ON SCHEMA cron TO {login};"]
 	return "\n".join(lines) + "\n"
@@ -262,6 +265,9 @@ def prepare_with_admin(host: str, port: str, admin_user: str, admin_password: st
 					done.append(f"schema {schema} created")
 				if has_grafana:
 					conn.execute(text(f"GRANT USAGE ON SCHEMA {_ident(schema)} TO {GRAFANA_ROLE}"))
+					if schema != "public":
+						conn.execute(text(f"ALTER ROLE {GRAFANA_ROLE} IN DATABASE "
+						                  f"{_ident(plan.database)} SET search_path = {_ident(schema)}"))
 		finally:
 			inside.dispose()
 	except SQLAlchemyError as e:

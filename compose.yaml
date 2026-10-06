@@ -159,7 +159,6 @@ services:
     image: grafana/grafana:13.0.1
     environment:
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}   # maintenance + grafana-setup
-      GRAFANA_DB_PASSWORD: ${GRAFANA_DB_PASSWORD}   # read by the datasource provisioning
       GF_SERVER_ROOT_URL: "%(protocol)s://%(domain)s:%(http_port)s/grafana/"
       GF_SERVER_SERVE_FROM_SUB_PATH: "true"
       GF_AUTH_PROXY_ENABLED: "true"
@@ -201,7 +200,11 @@ services:
     command: ["python", "/app/grafana/setup.py"]
     environment:
       GRAFANA_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      GRAFANA_DB_PASSWORD: ${GRAFANA_DB_PASSWORD}   # the database data source's login
       DASHBOARDS_DIR: /app/grafana/dashboards
+    volumes:
+      # the app's connection (config/runtime.env): the data source follows a move
+      - ./config:/data/config:ro
     healthcheck:
       test: ["CMD", "test", "-f", "/tmp/grafana-setup.done"]
       interval: 5s

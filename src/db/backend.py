@@ -2,7 +2,8 @@ import os
 from functools import cached_property
 
 from dotenv import dotenv_values, load_dotenv
-from sqlalchemy.exc import OperationalError
+from sqlalchemy import text
+from sqlalchemy.exc import OperationalError, SQLAlchemyError
 
 from src import runtime
 from src.db.db_install import install, install_extras
@@ -27,6 +28,9 @@ BUNDLED_HOSTS = {"POSTGRES": ("localhost", "127.0.0.1", "postgres"),
 BUNDLED_DATABASE_KEY = "NETROLLOUT_BUNDLED_DATABASE_URL"
 # the same for Redis, kept by a switch away from the bundled one
 BUNDLED_REDIS_KEY = "NETROLLOUT_BUNDLED_REDIS_URL"
+# runtime.env: whether Grafana connects with TLS - as the app's own connection
+# does (deploy/grafana/setup.py reads it with the connection)
+GRAFANA_SSLMODE_KEY = "NETROLLOUT_GRAFANA_SSLMODE"
 
 
 class BackendServices:
@@ -141,7 +145,16 @@ class BackendServices:
 			updates.update({k: "" for k in updates}, DATABASE_URL=config.url)
 		if leaving:
 			updates[BUNDLED_DATABASE_KEY] = leaving
+		updates[GRAFANA_SSLMODE_KEY] = "require" if self._uses_tls() else "disable"
 		self._write_config(updates)
+
+	def _uses_tls(self) -> bool:
+		try:
+			with self.postgres.engine.connect() as conn:
+				return bool(conn.execute(text(
+					"SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()")).scalar())
+		except SQLAlchemyError:
+			return False
 
 	def _config_values(self) -> dict:
 		return dict(dotenv_values(self._CONFIG_ENV)) if self._CONFIG_ENV.exists() else {}

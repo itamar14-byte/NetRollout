@@ -57,7 +57,10 @@ def test_port_80_is_always_80_when_switched_on():
 
 def test_grafana_setup_runs_from_the_app_image():
 	setup = compose()["services"]["grafana-setup"]
-	assert "volumes" not in setup
+	# the script and dashboards come from the image; the only mount is the
+	# app's connection, read only (the database data source follows a move)
+	assert setup["volumes"] == ["./config:/data/config:ro"]
+	assert setup["environment"]["GRAFANA_DB_PASSWORD"] == "${GRAFANA_DB_PASSWORD}"
 	assert setup["command"] == ["python", "/app/grafana/setup.py"]
 	assert setup["environment"]["DASHBOARDS_DIR"] == "/app/grafana/dashboards"
 	dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
@@ -227,3 +230,13 @@ def test_the_port_helper_runs_by_itself_on_windows():
 	ps1 = (ROOT / "windows" / "manage.ps1").read_text(encoding="utf-8")
 	assert '"apply" { Invoke-Apply; return 0 }' in ps1 and "Start-NetRollout; Start-PortHelper;" in ps1
 	assert '"port-close", "--outcome", "rollback", "--id", $id, "--timed-out"' in ps1
+
+
+def test_the_database_data_source_is_not_provisioned():
+	# a provisioned data source is read-only: grafana-setup couldn't make it
+	# follow a database move. The earlier versions' one is deleted by name.
+	provisioning = yaml.safe_load((ROOT / "deploy/grafana/provisioning/datasources/netrollout.yml")
+	                              .read_text(encoding="utf-8"))
+	assert {d["type"] for d in provisioning["datasources"]} == {"prometheus", "loki"}
+	assert provisioning["deleteDatasources"] == [{"name": "postgresql", "orgId": 1}]
+	assert "GRAFANA_DB_PASSWORD" not in compose()["services"]["grafana"]["environment"]

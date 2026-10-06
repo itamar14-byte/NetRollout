@@ -18,6 +18,13 @@ anyone signed in query every datasource — is in docs/workplan.md (post-v1).
 
 The files are dashboard v2 resources: one subfolder of the dashboards folder
 per NetRollout subfolder; a dashboard's metadata.name is its stable id.
+
+The NetRollout database data source is kept here too (not provisioned: a
+provisioned one is read-only), from the app's connection - config/runtime.env
+(written by a database move, src/webapp/db_move.py), else the bundled
+database - so the dashboards follow a move. The file is looked at every
+CHECK_SECONDS; a change is applied at once. The dashboards refer to it by its
+uid, which never changes.
 """
 import base64
 import json
@@ -25,6 +32,7 @@ import os
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -35,6 +43,16 @@ DONE_FILE = Path(os.environ.get("DONE_FILE", "/tmp/grafana-setup.done"))
 DASHBOARDS = Path(os.environ.get("DASHBOARDS_DIR", "/dashboards"))
 API_V2 = "/apis/dashboard.grafana.app/v2/namespaces/default/dashboards"
 FOLDER_ANNOTATION = "grafana.app/folder"
+RUNTIME_ENV = Path(os.environ.get("RUNTIME_ENV", "/data/config/runtime.env"))
+CHECK_SECONDS = 5
+
+DATASOURCE_UID = "cfjxoedixn7r4d"           # the dashboards' reference
+DATASOURCE_NAME = "NetRollout database"
+# The bundled database, as the containers see it
+BUNDLED = {"host": "postgres", "port": "5432", "database": "netrollout"}
+# What a host's 127.0.0.1 means to the app running there (development): the
+# bundled database, which containers reach by its service name
+LOOPBACK = ("localhost", "127.0.0.1", "::1")
 
 ROOT = "netrollout"
 CUSTOM = "custom"
@@ -68,6 +86,61 @@ def call(method, path, body=None, ok=(200,)):
 	if status not in ok:
 		raise RuntimeError(f"{method} {path} -> {status}: {raw[:300]!r}")
 	return status, data
+
+
+def read_env(path: Path) -> dict:
+	"""KEY=value lines (what the app writes); missing file -> {}."""
+	try:
+		lines = path.read_text(encoding="utf-8").splitlines()
+	except FileNotFoundError:
+		return {}
+	values = {}
+	for line in lines:
+		key, sep, value = line.partition("=")
+		if sep and not key.lstrip().startswith("#"):
+			values[key.strip()] = value.strip().strip("'\"")
+	return values
+
+
+def database(values: dict) -> dict:
+	"""Where NetRollout's data is, for Grafana: host, port, database, sslmode."""
+	place = dict(BUNDLED)
+	if values.get("DATABASE_URL"):
+		url = urllib.parse.urlsplit(values["DATABASE_URL"])
+		place = {"host": url.hostname, "port": str(url.port or 5432),
+		         "database": url.path.lstrip("/")}
+	elif values.get("PG_HOST"):
+		place = {"host": values["PG_HOST"], "port": values.get("PG_PORT") or "5432",
+		         "database": values.get("PG_NAME") or BUNDLED["database"]}
+	if place["host"] in LOOPBACK:
+		place.update(host=BUNDLED["host"], port=BUNDLED["port"])
+	place["sslmode"] = values.get("NETROLLOUT_GRAFANA_SSLMODE") or "disable"
+	return place
+
+
+def datasource_body(place: dict) -> dict:
+	return {"uid": DATASOURCE_UID, "name": DATASOURCE_NAME,
+	        "type": "grafana-postgresql-datasource", "access": "proxy",
+	        "url": f"{place['host']}:{place['port']}", "user": "grafana_reader",
+	        "jsonData": {"database": place["database"], "sslmode": place["sslmode"],
+	                     "postgresVersion": 1700, "timescaledb": False},
+	        "secureJsonData": {"password": os.environ.get("GRAFANA_DB_PASSWORD", "")}}
+
+
+def ensure_datasource() -> str:
+	"""The data source at NetRollout's database; returns where."""
+	body = datasource_body(database(read_env(RUNTIME_ENV)))
+	status, current = call("GET", f"/api/datasources/uid/{DATASOURCE_UID}", ok=(200, 404))
+	if status == 404:
+		call("POST", "/api/datasources", body)
+	elif current.get("readOnly"):
+		# still the provisioned one (Grafana not restarted since the update
+		# that retired it): it can't be changed until Grafana starts again
+		raise RuntimeError("the database data source is still the provisioned one - "
+		                   "restart Grafana (netrollout start)")
+	else:
+		call("PUT", f"/api/datasources/uid/{DATASOURCE_UID}", body)
+	return f"{body['url']}/{body['jsonData']['database']}"
 
 
 def wait_for_grafana(seconds=180):
@@ -132,6 +205,7 @@ def remove_retired(folder_uids, shipped):
 
 def apply():
 	wait_for_grafana()
+	where = ensure_datasource()
 	ensure_folder(ROOT, "NetRollout")
 	for title, uid in SUBFOLDERS.items():
 		ensure_folder(uid, title, ROOT)
@@ -149,12 +223,21 @@ def apply():
 		set_permissions(uid, VIEW_ONLY)
 	set_permissions(CUSTOM, EDITABLE)
 	if not DONE_FILE.exists():   # say it once, not every REAPPLY_SECONDS
-		log(f"done: {len(shipped)} dashboards in NetRollout; Custom untouched")
+		log(f"done: {len(shipped)} dashboards in NetRollout; Custom untouched; "
+		    f"data from {where}")
+
+
+def _stamp():
+	try:
+		return RUNTIME_ENV.stat().st_mtime_ns
+	except FileNotFoundError:
+		return None
 
 
 def main():
 	once = "--once" in sys.argv
 	while True:
+		stamp = _stamp()
 		try:
 			apply()
 			DONE_FILE.touch()
@@ -164,7 +247,17 @@ def main():
 				sys.exit(1)
 		if once:
 			return
-		time.sleep(REAPPLY_SECONDS)
+		# the full layout every REAPPLY_SECONDS; the data source at once
+		# when the app's connection changes (a database move)
+		deadline = time.monotonic() + REAPPLY_SECONDS
+		while time.monotonic() < deadline:
+			time.sleep(CHECK_SECONDS)
+			if _stamp() != stamp:
+				stamp = _stamp()
+				try:
+					log(f"the app's database changed: data from {ensure_datasource()}")
+				except Exception as e:
+					log(f"FAILED: {e}")
 
 
 if __name__ == "__main__":

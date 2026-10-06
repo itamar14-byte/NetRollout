@@ -54,7 +54,13 @@ def test_every_subfolder_is_one_setup_imports():
 
 
 def test_every_dashboard_datasource_is_provisioned():
-	uids = provisioned_uids()
+	# provisioned, or the NetRollout database one, which grafana-setup keeps
+	# through Grafana's API (it follows a database move)
+	import importlib.util
+	spec = importlib.util.spec_from_file_location("setup", GRAFANA / "setup.py")
+	setup = importlib.util.module_from_spec(spec)
+	spec.loader.exec_module(setup)
+	uids = provisioned_uids() | {setup.DATASOURCE_UID}
 	for path in shipped():
 		refs = referenced(json.loads(path.read_text(encoding="utf-8")), set())
 		missing = refs - uids - BUILT_IN
