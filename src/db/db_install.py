@@ -26,7 +26,7 @@ def _older_than(column: str, setting: str) -> str:
 	return f"{column} < NOW() - make_interval(days => {sql_value(setting)})"
 
 
-_RETENTION_JOBS = {
+RETENTION_STATEMENTS = {
 	"device_result_retention":
 		f"DELETE FROM device_results "
 		f"WHERE {_older_than('completed_at', 'job_retention_days')}",
@@ -48,40 +48,13 @@ _RETENTION_JOBS = {
 }
 
 
-def pg_cron_runs_retention(engine) -> bool:
-	"""Whether pg_cron runs NetRollout's retention in this database - every
-	job scheduled. Not where pg_cron isn't available (many managed / an
-	organisation's databases): the app runs them itself then
-	(src/webapp/retention.py)."""
-	try:
-		with engine.connect() as conn:
-			found = conn.execute(text("SELECT count(*) FROM cron.job WHERE jobname = ANY(:names)"),
-			                     {"names": list(_RETENTION_JOBS)}).scalar()
-		return found == len(_RETENTION_JOBS)
-	except SQLAlchemyError:
-		return False
-
-
 def run_retention(engine) -> dict[str, int]:
-	"""The retention statements, once, in one transaction - what pg_cron runs
-	at 03:00. Returns the rows each touched."""
+	"""The retention statements, once, in one transaction (the app runs them
+	daily: src/webapp/retention.py). Each reads its period from
+	system_settings. Returns the rows each touched."""
 	with engine.begin() as conn:
 		return {name: conn.execute(text(statement)).rowcount
-		        for name, statement in _RETENTION_JOBS.items()}
-
-
-def _schedule_retention(conn, name: str, statement: str):
-	# Idempotent: unschedule-then-schedule, so every startup applies the
-	# current policy to existing installs
-	conn.execute(text(f"""
-        DO $$
-        BEGIN
-            PERFORM cron.unschedule('{name}');
-        EXCEPTION WHEN OTHERS THEN NULL;
-        END;
-        $$;
-        SELECT cron.schedule('{name}', '0 3 * * *', $q${statement}$q$);
-    """))
+		        for name, statement in RETENTION_STATEMENTS.items()}
 
 
 # ── Grafana's read access ────────────────────────────────────────────────────
@@ -145,24 +118,10 @@ def install(postgres: "PostgresConnection"):
 
 
 def install_extras(postgres: "PostgresConnection"):
-	"""What a database holding NetRollout's data needs beyond the data: the
-	pg_cron retention jobs and Grafana's read access - at every start, and
-	after a database move (whose copy brings everything else; nothing is
-	seeded then)."""
-	# 2. Retention jobs (optional). pg_cron exists only where it's installed
-	#    and configured (cron.database_name) — e.g. not on many external /
-	#    managed Postgres servers. Its absence must never block the schema.
-	try:
-		with postgres.engine.connect() as conn:
-			conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_cron;"))
-			for name, statement in _RETENTION_JOBS.items():
-				_schedule_retention(conn, name, statement)
-			conn.commit()
-	except SQLAlchemyError as e:
-		print(f"[NetRollout] Retention jobs not scheduled — pg_cron "
-		      f"unavailable in this database: {str(e).splitlines()[0]}")
-
-	# 3. Grafana's read access (optional): only where its role exists
+	"""What a database holding NetRollout's data needs beyond the data:
+	Grafana's read access - at every start, and after a database move (whose
+	copy brings everything else; nothing is seeded then)."""
+	# Grafana's read access (optional): only where its role exists
 	try:
 		with postgres.engine.connect() as conn:
 			_grant_grafana_read(conn)

@@ -17,9 +17,6 @@ services:
       args:
         VERSION: ${BUILD_VERSION:-}
     pull_policy: build
-  postgres:
-    build: ./deploy/postgres
-    pull_policy: build
   nginx:
     build: ./deploy/nginx
     pull_policy: build

@@ -98,6 +98,7 @@ Source: "{#Root}\compose.yaml"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Root}\compose.http.yaml"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Root}\VERSION"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Root}\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#Root}\deploy\initdb\10-netrollout.sh"; DestDir: "{app}\deploy\initdb"; Flags: ignoreversion
 Source: "{#Root}\deploy\prometheus\prometheus.yml"; DestDir: "{app}\deploy\prometheus"; Flags: ignoreversion
 Source: "{#Root}\deploy\loki\loki-config.yml"; DestDir: "{app}\deploy\loki"; Flags: ignoreversion
 Source: "{#Root}\deploy\alloy\config.alloy"; DestDir: "{app}\deploy\alloy"; Flags: ignoreversion
@@ -656,9 +657,16 @@ begin
 	Exec(ExpandConstant('{cmd}'), '/C powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' +
 		ExpandConstant('{tmp}\manage.ps1') + '" prepare-update -Yes -InstallDir "' + InstalledDir +
 		'" -NewVersion {#AppVersion} > "' + Log + '" 2>&1', InstalledDir, SW_HIDE, ewWaitUntilTerminated, Code);
-	if Code <> 0 then
+	if Code <> 0 then begin
 		Result := 'Nothing was changed - NetRollout ' + InstalledVersion + ' keeps running.' + #13#10#13#10 +
 			LogTail(Log) + #13#10 + 'The whole log: ' + Log;
+		exit;
+	end;
+	{ this install's Manager - the tray and the port helper - holds its .exe:
+	  closed now (as the uninstall does), else no file can be replaced and a
+	  silent update aborts; [Run] starts them again at the end }
+	if FileExists(InstalledDir + '\bin\NetRollout Manager.exe') then
+		Exec(InstalledDir + '\bin\NetRollout Manager.exe', '--exit', '', SW_HIDE, ewWaitUntilTerminated, Code);
 end;
 
 { After the files: the script sets NetRollout up and starts it. A failure

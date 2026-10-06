@@ -125,7 +125,7 @@ def get_active_job(user_id):
 
 def config_expired(row: DeviceResult, snapshot_days: int) -> bool:
 	# A snapshot is stored only when verify found a mismatch; past the
-	# snapshot retention window, such rows have had it cleared by pg_cron
+	# snapshot retention window, such rows have had it cleared by the nightly clean-up
 	verify_mismatch = (row.commands_verified is not None
 	                   and row.commands_verified < row.commands_sent)
 	too_old = row.completed_at < datetime.now() - timedelta(

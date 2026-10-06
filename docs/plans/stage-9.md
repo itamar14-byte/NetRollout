@@ -441,6 +441,16 @@ behind. It runs from **Server Management**, in the background, in the app
 - Subtasks: 9.8a pg_cron fallback · 9.8b maintenance mode · 9.8c the move
   engine · 9.8d Server Management UI · 9.8e Grafana follows · 9.8f real runs.
 
+**9.9a (2026-10-06, the user's decision): pg_cron and the custom Postgres
+image dropped.** The app's clean-up (9.8a) became the only one: one path,
+everywhere, nothing for a DBA to install (pg_cron needs a server restart for
+shared_preload_libraries, administrator rights, the one cron database). The
+bundled database is the official postgres:17-bookworm with
+deploy/initdb/10-netrollout.sh mounted (first start: the two logins);
+deploy/postgres retired; one image less to build and publish. NetRollout
+needs PostgreSQL 13+ and nothing else. System Settings -> Retention shows the
+last clean-up.
+
 **9.8 done (2026-10-06).** 9.8d2 added: Redis stays a plain live switch (no
 copy, no restart - verified), with Switch back to the bundled Redis; every
 switch clears sessions in the Redis switched to. Bugs found by the real runs

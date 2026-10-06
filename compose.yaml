@@ -20,14 +20,21 @@ services:
 
   postgres:
     <<: *restart
-    image: itamarweinstein/netrollout-postgres:${NETROLLOUT_VERSION:?NETROLLOUT_VERSION is not set - start NetRollout with the netrollout script}
+    # The official image (bookworm, as ever: another base could change text
+    # sorting under an existing database's indexes); NetRollout needs no
+    # extension. The first start (empty volume) creates its logins:
+    # deploy/initdb/10-netrollout.sh.
+    image: postgres:17-bookworm
+    command: ["postgres", "-c", "timezone=${TZ:-UTC}", "-c", "log_timezone=${TZ:-UTC}"]
     environment:
+      POSTGRES_DB: netrollout
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       NETROLLOUT_DB_PASSWORD: ${NETROLLOUT_DB_PASSWORD}
       GRAFANA_DB_PASSWORD: ${GRAFANA_DB_PASSWORD}
       TZ: ${TZ:-UTC}
     volumes:
       - postgres:/var/lib/postgresql/data
+      - ./deploy/initdb:/docker-entrypoint-initdb.d:ro
     # Over TCP: the temporary server of the first start (socket only) isn't "ready"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d netrollout"]

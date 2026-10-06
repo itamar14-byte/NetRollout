@@ -10,7 +10,7 @@ import pytest
 from cryptography.fernet import Fernet
 from sqlalchemy import create_engine, text
 
-from src.db.db_install import (_RETENTION_JOBS, _schedule_retention,
+from src.db.db_install import (RETENTION_STATEMENTS,
                                  _grant_grafana_read, GRAFANA_TABLES)
 from src.db.settings import SETTINGS
 from tests.integration.conftest import ROOT
@@ -125,7 +125,7 @@ def test_baseline_round_trips_and_sets_server_defaults(test_db_url):
 
 @pytest.fixture
 def scratch_db(test_db_url):
-	"""A throwaway database (no pg_cron, no DATABASE_URL pointing at it)."""
+	"""A throwaway database (no DATABASE_URL pointing at it)."""
 	from sqlalchemy.engine import make_url
 	name = f"rollout_inst_{uuid.uuid4().hex[:6]}"
 	base = make_url(test_db_url)
@@ -154,7 +154,7 @@ def _head_revision():
 
 
 def test_install_migrates_the_connected_db_not_database_url(
-		scratch_db, monkeypatch, capsys):
+		scratch_db, monkeypatch):
 	from src.db.db_install import install
 	from src.db.postgres_db import PostgresConnection
 	monkeypatch.delenv("DATABASE_URL", raising=False)  # used to be required
@@ -171,8 +171,6 @@ def test_install_migrates_the_connected_db_not_database_url(
 			                      "where username='admin'")).scalar() is True
 	finally:
 		conn.disconnect()
-	# no pg_cron here: warned about, and it didn't block the schema
-	assert "Retention jobs not scheduled" in capsys.readouterr().out
 
 
 def test_install_honours_pg_schema(scratch_db):
@@ -217,7 +215,7 @@ def test_cli_migrates_from_pg_vars_without_database_url(scratch_db):
 	engine.dispose()
 
 
-# ── Retention SQL (the statements pg_cron runs) ──────────────────────────────
+# ── Retention SQL (the statements the nightly clean-up runs) ──────────────────────────────
 
 @pytest.fixture
 def retention_db(app):
@@ -255,7 +253,7 @@ def retention_db(app):
 		with engine.begin() as c:
 			for name in ("device_result_retention", "job_metadata_retention",
 			             "device_result_config_retention"):
-				c.execute(text(_RETENTION_JOBS[name]))
+				c.execute(text(RETENTION_STATEMENTS[name]))
 		with engine.connect() as c:
 			results = dict(c.execute(text(
 				"select job_id, fetched_config from device_results")).all())
@@ -336,7 +334,7 @@ def test_audit_retention_follows_the_setting(app):
 
 	def remaining():
 		with engine.begin() as c:
-			c.execute(text(_RETENTION_JOBS["audit_log_retention"]))
+			c.execute(text(RETENTION_STATEMENTS["audit_log_retention"]))
 			return {r[0] for r in c.execute(text("select action from audit_log"))}
 	assert remaining() == {"age.10"}                   # default 90 days
 	app.backend.settings.update({"audit_retention_days": 7}, None)
@@ -375,29 +373,6 @@ def test_grafana_grant_is_skipped_without_the_role(app):
 	with app.backend.postgres.engine.begin() as c:
 		assert _grant_grafana_read(c, "nr_no_such_role") is False
 
-
-@pytest.mark.pg_cron
-def test_retention_jobs_schedule_in_pg_cron():
-	"""pg_cron only schedules inside its own database (the live one), so this
-	is opt-in: set TEST_PG_CRON_URL. Runs in a transaction that is ROLLED
-	BACK — the live cron.job table is left untouched."""
-	url = os.environ.get("TEST_PG_CRON_URL")
-	if not url:
-		pytest.skip("pg_cron test is opt-in: set TEST_PG_CRON_URL")
-	engine = create_engine(url)
-	conn = engine.connect()
-	trans = conn.begin()
-	try:
-		for name, stmt in _RETENTION_JOBS.items():
-			_schedule_retention(conn, name, stmt)
-		scheduled = dict(conn.execute(text(
-			"select jobname, command from cron.job")).all())
-		for name, stmt in _RETENTION_JOBS.items():
-			assert scheduled.get(name) == stmt
-	finally:
-		trans.rollback()
-		conn.close()
-		engine.dispose()
 
 
 # ── Encryption canary + health ───────────────────────────────────────────────

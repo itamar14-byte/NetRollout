@@ -449,7 +449,7 @@ do_update_finish() {
 	step "Downloading NetRollout $VERSION (it keeps running meanwhile)"
 	# failures of others' images surface at the start; ours are checked here
 	compose pull --quiet --ignore-pull-failures >/dev/null 2>&1 || true
-	for image in netrollout netrollout-postgres netrollout-nginx; do
+	for image in netrollout netrollout-nginx; do
 		docker image inspect "itamarweinstein/$image:$VERSION" >/dev/null 2>&1 && continue
 		if ! out="$(docker pull "itamarweinstein/$image:$VERSION" 2>&1)"; then
 			show "$out"

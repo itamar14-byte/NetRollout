@@ -13,8 +13,6 @@ def test_the_sql_in_public_owns_the_schema_and_lets_grafana_in():
 		'\\connect "netrollout"',
 		'ALTER SCHEMA public OWNER TO "netrollout";',
 		'GRANT USAGE ON SCHEMA "public" TO grafana_reader;',
-		"-- Optional, where pg_cron is installed in this database:",
-		'-- GRANT USAGE ON SCHEMA cron TO "netrollout";',
 	]
 
 

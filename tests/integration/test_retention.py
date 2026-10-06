@@ -1,19 +1,18 @@
-"""The nightly clean-up run by the app where pg_cron doesn't run it - the
-test database has no pg_cron, like many managed / an organisation's ones."""
+"""The nightly clean-up, run by the app (src/webapp/retention.py) on the test
+database: the settings' periods, its outcome recorded for System Settings."""
 import datetime as dt
 import uuid
 
 import pytest
 from sqlalchemy import text
 
-from src.db.db_install import pg_cron_runs_retention
 from src.db.settings import seed_settings
 from src.webapp import retention
 
 pytestmark = [pytest.mark.postgres, pytest.mark.redis]
 
 
-def test_without_pg_cron_the_app_cleans_up_by_the_settings(app, session_scope):
+def test_the_clean_up_follows_the_settings_and_is_recorded(app, session_scope, make_user, client_for):
 	engine = app.backend.postgres.engine
 	with session_scope() as s:
 		seed_settings(s)                 # job records 30 days, audit 90, snapshots 7
@@ -33,8 +32,8 @@ def test_without_pg_cron_the_app_cleans_up_by_the_settings(app, session_scope):
 			               "values (gen_random_uuid(), :t, 'ret', 'auth.login', true)"),
 			          {"t": now - dt.timedelta(days=days)})
 
-	assert pg_cron_runs_retention(engine) is False
-	counts = retention.run_once(engine)
+	status = retention.run_once(engine, now)
+	counts = status["counts"]
 	assert counts["device_result_retention"] == 1 and counts["audit_log_retention"] == 1
 	assert counts["device_result_config_retention"] == 1        # the 10-day-old snapshot
 	with engine.connect() as c:
@@ -43,10 +42,19 @@ def test_without_pg_cron_the_app_cleans_up_by_the_settings(app, session_scope):
 	assert rows == {"10.0.0.2": None, "10.0.0.3": "cfg"}       # 40 days gone, 10 days' config cleared
 	assert audit == 1
 
+	# System Settings -> Retention shows it
+	assert retention.read_status() == status
+	page = client_for(make_user(role="admin")).get("/admin/settings").data.decode()
+	assert "Last clean-up " + now.isoformat(timespec="seconds").replace("T", " ") in page
+	assert "1 device result and" in page and "1 audit entry removed" in page
 
-def test_where_pg_cron_runs_them_the_app_leaves_it(app, monkeypatch):
-	monkeypatch.setattr(retention, "pg_cron_runs_retention", lambda engine: True)
-	called = []
-	monkeypatch.setattr(retention, "run_retention", lambda engine: called.append(1))
-	assert retention.run_once(app.backend.postgres.engine) is None
-	assert called == []
+
+def test_a_failure_is_recorded_and_shown(app, make_user, client_for, monkeypatch):
+	def down(engine):
+		raise RuntimeError("the database is down\nmore detail")
+	monkeypatch.setattr(retention, "run_retention", down)
+	with pytest.raises(RuntimeError):
+		retention.run_once(app.backend.postgres.engine)
+	assert retention.read_status()["ok"] is False
+	page = client_for(make_user(role="admin")).get("/admin/settings").data.decode()
+	assert "failed: the database is down" in page and "more detail" not in page

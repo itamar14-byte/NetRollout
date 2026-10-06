@@ -43,7 +43,7 @@ class Setting:
 	maximum: int | None = None
 	applies: str = "immediately"
 	env: str | None = None      # install-time value: seeds a new row only
-	sql: bool = False           # also read inside Postgres (pg_cron)
+	sql: bool = False           # also read inside Postgres (the retention statements)
 	editable: bool = True
 	# str settings: a regex both sides use (Python here, the input's
 	# `pattern` attribute on the page) and what to say when it doesn't match

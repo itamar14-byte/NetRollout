@@ -124,6 +124,26 @@
     </div>
     {% endfor %}
 
+    {% if card == 'Retention' %}
+    {# the nightly clean-up's last run (src/webapp/retention.py) #}
+    <div class="set-note" id="cleanupLast">
+      {% if not cleanup %}
+        <i class="bi bi-clock me-1"></i>The clean-up runs daily at 03:00 (server time) — it hasn't run yet.
+      {% elif cleanup.ok %}
+        {% set c = cleanup.counts %}
+        <i class="bi bi-check-circle me-1" style="color:#a5d6a7;"></i>Last clean-up {{ cleanup.time | replace('T', ' ') }}:
+        {{ c.device_result_retention }} device result{{ '' if c.device_result_retention == 1 else 's' }} and
+        {{ c.job_metadata_retention }} job record{{ '' if c.job_metadata_retention == 1 else 's' }} removed,
+        {{ c.device_result_config_retention }} config snapshot{{ '' if c.device_result_config_retention == 1 else 's' }} cleared,
+        {{ c.audit_log_retention }} audit entr{{ 'y' if c.audit_log_retention == 1 else 'ies' }} removed.
+        Daily at 03:00 (server time).
+      {% else %}
+        <span style="color:#ffcc80;"><i class="bi bi-exclamation-triangle me-1"></i>The clean-up at
+        {{ cleanup.time | replace('T', ' ') }} failed: {{ cleanup.message }} — it's tried again within the hour.</span>
+      {% endif %}
+    </div>
+    {% endif %}
+
     {% if card == 'Backups' %}
     {# the files and the schedule's state - filled by the script (admin_backups.backups_state) #}
     <div class="bk-actions">

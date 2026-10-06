@@ -87,9 +87,7 @@ def test_checking_a_prepared_target(target):
 	assert report.ok, report.problems
 	assert report.contents == move.EMPTY and report.schema == "nr"
 	assert report.others == ["other_app_stuff"]
-	assert report.pg_cron is False        # pg_cron lives in the bundled netrollout db only
 	assert any("left alone" in n for n in report.notes)
-	assert any("nightly clean-up itself" in n for n in report.notes)
 
 
 def test_a_table_under_one_of_netrollouts_names_refuses_it(target):

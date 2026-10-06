@@ -420,9 +420,9 @@ Runs at every start, and again after a Postgres switch. It is idempotent.
 1. **Migrations:** `alembic upgrade head` on the app's own connection.
 2. **Factory admin:** seeds `admin`/`admin` if missing.
 3. **Settings:** seeds any missing System Setting rows.
-4. **pg_cron:** (re)schedules the retention jobs. This is skipped with a message if pg_cron is unavailable.
+4. **Grafana's read access** (`install_extras`, also after a database move).
 
-pg_cron jobs, daily at 03:00. Each statement reads its period from `system_settings` when it runs, so a change applies at the next run without a restart:
+The nightly clean-up (`src/webapp/retention.py`, in the app — no pg_cron since 9.9a), daily at 03:00 server time; its last outcome is shown on System Settings → Retention. Each statement reads its period from `system_settings` when it runs, so a change applies at the next run without a restart:
 
 | Job | Action | Setting (default) |
 |---|---|---|
@@ -434,7 +434,7 @@ pg_cron jobs, daily at 03:00. Each statement reads its period from `system_setti
 ### System Settings (`src/db/settings.py`)
 Admin-editable runtime settings. The `system_settings` table is the **only runtime source**.
 
-**The registry `SETTINGS`:** each `Setting` has a key, label, help text, card, default, range and kind. It also has an `applies` value, which says when a change takes effect. It can optionally name an install-time env var, and it marks whether pg_cron reads it via SQL.
+**The registry `SETTINGS`:** each `Setting` has a key, label, help text, card, default, range and kind. It also has an `applies` value, which says when a change takes effect. It can optionally name an install-time env var, and it marks whether the retention statements read it via SQL.
 
 | Setting | Card | Default | Range | A change applies |
 |---|---|---|---|---|
@@ -458,7 +458,7 @@ Admin-editable runtime settings. The `system_settings` table is the **only runti
   - `update(values, user_id)` is all-or-nothing, runs range and rule checks, and returns the changes, which are audited;
   - `reset(key)` writes the default;
   - `restart_only_values()` / `restart_pending()` drive the "restart pending" marker.
-- **`sql_value(key)`:** gives pg_cron a `COALESCE((SELECT value …), default)` expression.
+- **`sql_value(key)`:** gives the retention statements a `COALESCE((SELECT value …), default)` expression.
 - **The hostname and HTTPS port reach nginx** (Phase 4 stage 8, `src/webapp/proxy_config.py` / `port_apply.py`): a saved hostname applies live — the app writes values (`config/nginx/site.env`), never nginx syntax; nginx's watcher validates, renders and reloads; a refused change is rolled back. A new HTTPS port goes to the host-side port helper (stage 9) as a confirm-or-roll-back trial; without it, `netrollout apply`.
 
 ---
@@ -631,7 +631,7 @@ Custom              the admins' own (Save as, new dashboards, subfolders) — ne
 | Results schema | One row per device per job, `ip:port` identity | Per-device analytics via SQL; NAT/port-forwarded devices stay distinct |
 | `RolloutOrchestrator` | Singleton at app startup; Redis queue + semaphore | Single owner of concurrency; routes delegate to it |
 | Ephemeral job state | Redis only (`RolloutSession` table dropped) | Faster and naturally ephemeral; Postgres unnecessary for RAM data |
-| Runtime settings | `system_settings` table as the only runtime source; env only seeds it | One truth that admins can change in the UI, which pg_cron can read, and which is never silently overridden by env |
+| Runtime settings | `system_settings` table as the only runtime source; env only seeds it | One truth that admins can change in the UI, which the retention statements read in SQL, and which is never silently overridden by env |
 | Settings rules | Declarative, shared with the page | The same rules enforced on the server and in the browser, with no duplicated logic |
 | Flask extensions | Module-level with `init_app()` | Must be importable by blueprints at definition time, before an app context exists |
 | `app.web` / `app.backend` | Set on the app object in `launch_app()` | Available through `current_app` in any request context; avoids circular imports |

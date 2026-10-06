@@ -594,7 +594,7 @@ function Invoke-Update {
 	# failures of others' images surface at the start; ours are checked here
 	# (a local build isn't on Docker Hub)
 	Compose @("pull", "--quiet", "--ignore-pull-failures") | Out-Null
-	foreach ($image in "netrollout", "netrollout-postgres", "netrollout-nginx") {
+	foreach ($image in "netrollout", "netrollout-nginx") {
 		if ((Invoke-Native "docker" @("image", "inspect", "itamarweinstein/${image}:$Version")).Code -ne 0) {
 			$r = Invoke-Native "docker" @("pull", "itamarweinstein/${image}:$Version")
 			if ($r.Code -ne 0) {

@@ -404,7 +404,7 @@
                 <i class="bi bi-shield-exclamation"></i> Verify Diff
             </button>
             {% elif job.devices | selectattr('config_expired') | list %}
-            {# Config snapshots are cleared by pg_cron after CONFIG_SNAPSHOT_RETENTION_DAYS #}
+            {# Config snapshots are cleared by the nightly clean-up after CONFIG_SNAPSHOT_RETENTION_DAYS #}
             <span class="job-action-btn is-expired"
                   title="Config snapshots are kept {{ config_retention_days }} days — this job's have expired">
                 <i class="bi bi-clock-history"></i> Verify Diff expired

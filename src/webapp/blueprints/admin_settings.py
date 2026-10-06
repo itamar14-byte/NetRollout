@@ -13,6 +13,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from src.db.settings import (SETTINGS, SettingsError, public_url,
                              rules_for_client)
 from src.runtime import in_container
+from src.webapp import retention
 from src.webapp import port_apply, proxy_config
 from src.webapp.blueprints.admin_backups import backups_state
 from src.webapp.startup import check_proxy, resolve_public_url
@@ -80,6 +81,7 @@ def settings_page():
 	                       cards=cards, settings=state["settings"],
 	                       rules=rules_for_client(), port=state["port"],
 	                       access=state["access"], backups=backups_state(),
+	                       cleanup=retention.read_status(),
 	                       app_port=current_app.config.get("APP_PORT"))
 
 

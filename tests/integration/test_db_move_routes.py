@@ -30,7 +30,7 @@ def test_the_sql_comes_with_a_new_password_each_time(admin, client_for, monkeypa
 	assert first["status"] == "ok" and first["password"] != second["password"]
 	assert f"""CREATE ROLE "nr_app" LOGIN PASSWORD '{first["password"]}';""" in first["sql"]
 	assert "CREATE ROLE grafana_reader LOGIN PASSWORD 'gr-secret';" in first["sql"]
-	assert first["grafana_known"] is True and len(first["access"]) == 5
+	assert first["grafana_known"] is True and len(first["access"]) == 4
 
 
 def test_check_needs_every_field(admin, client_for):

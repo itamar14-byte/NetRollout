@@ -129,8 +129,8 @@ class BackendServices:
 
 	def move_postgres(self, config: PostgresConfig) -> None:
 		"""The switch at the end of a database move (src/webapp/db_move.py):
-		the connection replaced live (pg_cron and Grafana's grants on the new
-		one: install_extras), then runtime.env - leaving the bundled database,
+		the connection replaced live (Grafana's grants on the new one:
+		install_extras), then runtime.env - leaving the bundled database,
 		its connection is kept there first, for Move back.
 		:raises RuntimeError: the new server doesn't answer (nothing changed)"""
 		leaving = None

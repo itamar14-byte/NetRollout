@@ -1,18 +1,22 @@
-"""Retention without pg_cron: many managed / an organisation's PostgreSQL
-servers don't offer pg_cron, and then the nightly clean-up (job records,
-config snapshots, the audit log - System Settings -> Retention) never ran.
-The app runs the same statements itself, daily at 03:00 server time, when
-pg_cron doesn't run them in the database it's connected to - checked at each
-run, so a move to such a database is followed by itself."""
+"""The nightly clean-up (System Settings -> Retention: job records, config
+snapshots, the audit log): the app runs the retention statements itself,
+daily at 03:00 server time - on any PostgreSQL, nothing to install there. A
+time missed while NetRollout was off is caught up once when it's back; a
+failure is retried after an hour. The last outcome is kept in
+config/retention-status.json for System Settings."""
+import json
+import os
 import threading
 import time
 from datetime import datetime, time as clock, timedelta
 
-from src.db.db_install import pg_cron_runs_retention, run_retention
+from src import runtime
+from src.db.db_install import run_retention
 
-RUN_AT = clock(3, 0)          # as pg_cron's jobs ("0 3 * * *")
+RUN_AT = clock(3, 0)
 CHECK_SECONDS = 60
 RETRY = timedelta(hours=1)
+STATUS_FILE = "retention-status.json"
 
 
 def due(now: datetime, last_run: datetime | None) -> bool:
@@ -22,33 +26,65 @@ def due(now: datetime, last_run: datetime | None) -> bool:
 	return now >= today and (last_run is None or last_run < today)
 
 
-def run_once(engine) -> dict | None:
-	"""The clean-up now, unless pg_cron does it here; what each statement
-	touched, or None (pg_cron's job)."""
-	if pg_cron_runs_retention(engine):
+def read_status() -> dict | None:
+	"""{time, ok, counts | message} of the last run, or None (never ran)."""
+	try:
+		return json.loads((runtime.config_dir() / STATUS_FILE).read_text(encoding="utf-8"))
+	except (OSError, ValueError):
 		return None
-	counts = run_retention(engine)
-	print(f"[NetRollout] retention run by the app (no pg_cron in this database): "
-	      + ", ".join(f"{name} {n}" for name, n in counts.items()), flush=True)
-	return counts
 
 
-def start_retention_fallback(backend, hold=lambda: False) -> None:
-	"""The daily check, from a daemon thread (the database looked up each
+def _write_status(status: dict) -> None:
+	folder = runtime.config_dir()
+	folder.mkdir(parents=True, exist_ok=True)
+	tmp = folder / (STATUS_FILE + ".tmp")
+	tmp.write_text(json.dumps(status), encoding="utf-8")
+	os.replace(tmp, folder / STATUS_FILE)
+
+
+def run_once(engine, now: datetime | None = None) -> dict:
+	"""The clean-up now; the outcome written for the page and returned.
+	:raises: what the database raised (also written)"""
+	now = now or datetime.now()
+	stamp = now.isoformat(timespec="seconds")
+	try:
+		counts = run_retention(engine)
+	except Exception as e:
+		_write_status({"time": stamp, "ok": False, "message": str(e).splitlines()[0]})
+		raise
+	status = {"time": stamp, "ok": True, "counts": counts}
+	_write_status(status)
+	print("[NetRollout] nightly clean-up: " + ", ".join(f"{name} {n}" for name, n in counts.items()),
+	      flush=True)
+	return status
+
+
+def _last_success() -> datetime | None:
+	status = read_status()
+	if status and status.get("ok"):
+		try:
+			return datetime.fromisoformat(status["time"])
+		except (KeyError, ValueError):
+			return None
+	return None
+
+
+def start_retention(backend, hold=lambda: False) -> None:
+	"""The daily clean-up, from a daemon thread (the database looked up each
 	time: it follows a move). Called by the web app's entry point. Never raises.
 	hold(): True while a database move runs - the clean-up waits for it."""
 	def loop():
-		last_run = retry_at = None
+		last_run, retry_at = _last_success(), None      # a restart doesn't run it again
 		while True:
 			time.sleep(CHECK_SECONDS)
 			now = datetime.now()
 			if (retry_at and now < retry_at) or not due(now, last_run) or hold():
 				continue
 			try:
-				run_once(backend.postgres.engine)
+				run_once(backend.postgres.engine, now)
 				last_run, retry_at = now, None
 			except Exception as e:          # noqa: BLE001 - keep the thread alive
-				print(f"[NetRollout] ACTION NEEDED - the retention clean-up failed: {e} "
+				print(f"[NetRollout] ACTION NEEDED - the nightly clean-up failed: {e} "
 				      f"(tried again in an hour)", flush=True)
 				retry_at = now + RETRY
-	threading.Thread(target=loop, name="retention-fallback", daemon=True).start()
+	threading.Thread(target=loop, name="retention", daemon=True).start()

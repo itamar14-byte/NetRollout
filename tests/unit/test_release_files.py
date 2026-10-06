@@ -168,6 +168,20 @@ def test_setup_over_an_install_updates_and_checks_first():
 	assert '(Invoke-Setup @("upgrade"))' in script
 
 
+def test_an_update_closes_the_installs_manager_before_the_files():
+	# the tray and the port helper (9.7) hold NetRollout Manager.exe: without
+	# closing them a silent update aborts ("unable to automatically close all
+	# applications") - every update failed so. Closed after the checks pass,
+	# started again by [Run].
+	import re
+	text = (ROOT / "windows" / "installer" / "netrollout.iss").read_text(encoding="utf-8")
+	prepare = re.search(r"function PrepareToInstall\(.*?\nend;", text, re.S)[0]
+	checks = prepare.index("prepare-update -Yes")
+	closes = prepare.index("'\\bin\\NetRollout Manager.exe', '--exit'")
+	assert checks < closes
+	assert 'Parameters: "--helper"' in text and 'Parameters: "--tray"' in text
+
+
 def test_the_installer_ends_honestly():
 	# success: the portal opens on Finish (ticked); failure: Retry unless the
 	# script says retrying can't help (exit 3: the release's image is missing)

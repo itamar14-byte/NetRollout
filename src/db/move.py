@@ -59,7 +59,6 @@ class Report:
 	schema: str = ""
 	contents: str = ""             # empty / netrollout / clash
 	others: list[str] = field(default_factory=list)     # other applications' tables
-	pg_cron: bool = False
 	grafana_reader: bool = False
 
 	@property
@@ -70,7 +69,7 @@ class Report:
 		return {"ok": self.ok, "problems": self.problems, "notes": self.notes,
 		        "server_version": self.server_version, "schema": self.schema,
 		        "contents": self.contents, "others": self.others,
-		        "pg_cron": self.pg_cron, "grafana_reader": self.grafana_reader}
+		        "grafana_reader": self.grafana_reader}
 
 
 def _our_names() -> set[str]:
@@ -134,11 +133,6 @@ def check_target(config: PostgresConfig) -> Report:
 			report.others = sorted(tables - _our_names() - {"alembic_version"})
 			if report.others and report.contents != CLASH:
 				report.notes.append(f"Other tables there ({len(report.others)}) are left alone.")
-			report.pg_cron = bool(conn.execute(text(
-				"SELECT 1 FROM pg_extension WHERE extname = 'pg_cron'")).scalar())
-			if not report.pg_cron:
-				report.notes.append("pg_cron isn't installed there: NetRollout runs the nightly "
-				                    "clean-up itself.")
 			report.grafana_reader = bool(conn.execute(text(
 				"SELECT 1 FROM pg_roles WHERE rolname = :r"), {"r": GRAFANA_ROLE}).scalar())
 			if not report.grafana_reader:
@@ -186,8 +180,6 @@ ACCESS_NEEDED = (
 	f"A read-only login for Grafana's dashboards ({GRAFANA_ROLE}); NetRollout "
 	"itself grants it SELECT on exactly three tables (job results, job "
 	"metadata, the audit log) — never users, credentials or settings.",
-	"Optional: pg_cron in that database, with usage granted to NetRollout's "
-	"login, for the nightly clean-up — without it NetRollout runs it itself.",
 	"Network access from this server to the database server's port.",
 )
 
@@ -212,9 +204,6 @@ def preparation_sql(plan: Plan) -> str:
 	lines.append(f"GRANT USAGE ON SCHEMA {_ident(schema)} TO {GRAFANA_ROLE};")
 	if schema != "public":     # the dashboards' queries name tables without a schema
 		lines.append(f"ALTER ROLE {GRAFANA_ROLE} IN DATABASE {db} SET search_path = {_ident(schema)};")
-	lines += [
-	          "-- Optional, where pg_cron is installed in this database:",
-	          f"-- GRANT USAGE ON SCHEMA cron TO {login};"]
 	return "\n".join(lines) + "\n"
 
 
