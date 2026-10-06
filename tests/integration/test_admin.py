@@ -2,7 +2,8 @@
 management and LDAP configuration (directory calls mocked).
 
 Never called here, even as admin: /admin/server/restart (os._exit). The
-postgres/redis *save* routes run with the connection swap stubbed out.
+redis *save* route runs with the connection swap stubbed out; the database
+move routes are in test_db_move_routes.py.
 """
 import uuid
 from unittest.mock import patch
@@ -188,19 +189,6 @@ def test_server_page_renders(admin, client_for):
 	assert client_for(admin).get("/admin/server").status_code == 200
 
 
-def test_postgres_test_endpoint_reports_unreachable_server(admin, client_for):
-	dead = client_for(admin).post("/admin/server/postgres/test", json={
-		"host": "127.0.0.1", "port": "5999", "name": "none", "user": "u",
-		"password": "p"})
-	assert dead.json["status"] == "error"
-
-
-def test_postgres_test_endpoint_validates_fields(admin, client_for):
-	missing = client_for(admin).post("/admin/server/postgres/test",
-	                                 json={"host": "x"})
-	assert missing.json["status"] == "error"
-
-
 def test_redis_test_endpoint(admin, client_for):
 	resp = client_for(admin).post("/admin/server/redis/test", json={
 		"host": "127.0.0.1", "port": "6999"})
@@ -209,9 +197,8 @@ def test_redis_test_endpoint(admin, client_for):
 
 @pytest.fixture
 def switch_writes_only(app, monkeypatch):
-	# A save swaps the shared app's connections; stub only the swap, so the
+	# A save swaps the shared app's connection; stub only the swap, so the
 	# route → backend → config/runtime.env path runs for real
-	monkeypatch.setattr(app.backend.postgres, "reload_db", lambda config: None)
 	monkeypatch.setattr(app.backend.redis, "reload_db", lambda config: None)
 	runtime_env = app.backend._CONFIG_ENV
 	runtime_env.unlink(missing_ok=True)
@@ -221,16 +208,10 @@ def switch_writes_only(app, monkeypatch):
 
 def test_save_routes_write_runtime_env(admin, client_for, switch_writes_only):
 	client = client_for(admin)
-	assert client.post("/admin/server/postgres/save", json={
-		"host": "db.example.org", "port": "5433", "name": "netrollout",
-		"user": "nr", "password": "pg-secret"}).json["status"] == "ok"
 	assert client.post("/admin/server/redis/save", json={
 		"host": "cache.example.org", "port": "6380"}).json["status"] == "ok"
-	# Both switches in one file; unused keys blank so nothing inherited wins
+	# unused keys blank so nothing inherited wins
 	assert dotenv_values(switch_writes_only) == {
-		"PG_HOST": "db.example.org", "PG_PORT": "5433", "PG_NAME": "netrollout",
-		"PG_USER": "nr", "PG_PASSWORD": "pg-secret", "PG_SCHEMA": "",
-		"DATABASE_URL": "",
 		"REDIS_HOST": "cache.example.org", "REDIS_PORT": "6380",
 		"REDIS_DB": "0", "REDIS_PASSWORD": "", "REDIS_URL": ""}
 

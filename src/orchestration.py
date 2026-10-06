@@ -204,6 +204,15 @@ class RolloutOrchestrator:
 			job.cancel()
 			self._store.set_status(job.job_id, "cancelling")
 
+	def jobs(self) -> list[dict]:
+		"""This process's rollouts (a database move lists what it waits for)."""
+		with self._lock:
+			return [{"job_id": j.job_id, "user_id": j.user_id,
+			         "devices": j.get_device_count(),
+			         "state": "running" if j.started_at is not None else "queued",
+			         "started": j.started_at.isoformat(timespec="seconds") if j.started_at else None}
+			        for j in self._jobs.values()]
+
 	def get_job(self, job_id: uuid.UUID) -> RolloutJob | None:
 		with self._lock:
 			job = self._jobs.get(job_id, None)

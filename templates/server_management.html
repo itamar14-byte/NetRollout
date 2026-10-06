@@ -78,58 +78,164 @@
 
     </div>
 
-    <!-- ── PostgreSQL form ── -->
+    <!-- ── PostgreSQL: move to another server / back (src/webapp/db_move.py) ── -->
     <div id="form-postgres" style="display:none;">
-      <div class="nr-warning mb-4">
-        <i class="bi bi-exclamation-triangle-fill me-2" style="color:#ffe082;"></i>
-        Saving will initialize a <strong>fresh schema</strong> on the target database.
-        Existing data will <strong>not</strong> be migrated automatically —
-        perform a manual backup and restore if needed.
+      <style>
+        .mv-now { font-size:0.85rem; color:var(--nr-text-secondary); margin-bottom:1.25rem; }
+        .mv-now code { color:#80deea; }
+        .mv-title { font-family:'Inter',sans-serif; font-weight:600; font-size:0.95rem; color:#e0e0e0; margin:0 0 0.35rem; }
+        .mv-intro { font-size:0.82rem; color:var(--nr-text-secondary); line-height:1.6; margin-bottom:1.25rem; }
+        .mv-step { border:1px solid #1e1e1e; border-radius:8px; padding:1rem 1.15rem; margin-bottom:1rem; background:#0d0d0d; }
+        .mv-step-head { display:flex; align-items:center; gap:0.6rem; margin-bottom:0.85rem; }
+        .mv-num { font-family:'JetBrains Mono',monospace; font-size:0.72rem; color:#00bcd4; border:1px solid rgba(0,188,212,0.35);
+                  border-radius:50%; width:1.5rem; height:1.5rem; display:inline-flex; align-items:center; justify-content:center; flex-shrink:0; }
+        .mv-step-title { font-weight:600; font-size:0.88rem; color:#e0e0e0; }
+        .mv-ways { display:flex; gap:0.75rem; flex-wrap:wrap; margin-bottom:1rem; }
+        .mv-way { flex:1 1 15rem; text-align:left; border:1px solid #2a2a2a; border-radius:8px; background:transparent;
+                  padding:0.7rem 0.9rem; color:var(--nr-text-secondary); font-size:0.8rem; line-height:1.45; cursor:pointer; }
+        .mv-way strong { display:block; color:#e0e0e0; font-size:0.86rem; margin-bottom:0.15rem; }
+        .mv-way[aria-pressed="true"] { border-color:rgba(0,188,212,0.45); background:rgba(0,188,212,0.06); }
+        .mv-ask { font-size:0.82rem; color:var(--nr-text-secondary); line-height:1.55; padding-left:1.2rem; margin:0.4rem 0 1rem; }
+        .mv-ask li { margin-bottom:0.3rem; }
+        .mv-sql { position:relative; margin-top:0.9rem; }
+        .mv-sql pre { background:#080808; border:1px solid #222; border-radius:6px; padding:0.8rem 0.9rem; margin:0;
+                      font-family:'JetBrains Mono',monospace; font-size:0.74rem; color:#c8e6c9; white-space:pre-wrap; word-break:break-all; }
+        .mv-sql .btn { position:absolute; top:0.45rem; right:0.45rem; }
+        .mv-hint { font-size:0.78rem; color:var(--nr-text-muted); line-height:1.5; margin-top:0.6rem; }
+        .mv-report { margin-top:0.9rem; font-size:0.82rem; line-height:1.55; }
+        .mv-report ul { margin:0.3rem 0 0; padding-left:1.2rem; }
+        .mv-progress { border:1px solid rgba(0,188,212,0.3); background:rgba(0,188,212,0.05); border-radius:8px;
+                       padding:1rem 1.15rem; margin-bottom:1.25rem; font-size:0.84rem; color:#e0e0e0; }
+        .mv-progress.failed { border-color:rgba(239,83,80,0.35); background:rgba(239,83,80,0.05); }
+        .mv-progress.done { border-color:rgba(102,187,106,0.35); background:rgba(102,187,106,0.05); }
+        .mv-progress table { width:100%; font-size:0.8rem; margin:0.6rem 0; }
+        .mv-progress td, .mv-progress th { padding:0.3rem 0.4rem; border-bottom:1px solid #1e1e1e; color:var(--nr-text-secondary); }
+        .mv-progress th { font-weight:500; color:var(--nr-text-muted); }
+      </style>
+
+      <p class="mv-now">
+        NetRollout's data is in <code>{{ db_place }}</code> —
+        {{ 'the bundled database' if db_mode == 'bundled' else 'your own server' }}.
+      </p>
+
+      <div id="mvProgress" class="mv-progress" style="display:none;" role="status" aria-live="polite"></div>
+
+      {% if can_move_back %}
+      <div class="mv-step" id="mvBack">
+        <div class="mv-step-head"><i class="bi bi-arrow-return-left" style="color:#00bcd4;"></i>
+          <span class="mv-step-title">Move back to the bundled database</span></div>
+        <p class="mv-intro mb-3">The bundled PostgreSQL kept running, untouched. Moving back copies NetRollout's
+          data from your server into it (replacing what it held) and switches to it — the same steps as a move.</p>
+        <button class="btn btn-outline-primary btn-sm" id="mvBackBtn" type="button">
+          <i class="bi bi-arrow-return-left me-1"></i>Move back to the bundled database</button>
       </div>
-      <div class="row g-3">
-        <div class="col-md-5">
-          <label class="nr-label">Host</label>
-          <input type="text" id="db_host" class="form-control" placeholder="db.example.com"
-                 value="{{ db_host }}">
-        </div>
-        <div class="col-md-2">
-          <label class="nr-label">Port</label>
-          <input type="number" id="db_port" class="form-control" placeholder="5432"
-                 value="{{ db_port }}">
-        </div>
-        <div class="col-md-5">
-          <label class="nr-label">Database Name</label>
-          <input type="text" id="db_name" class="form-control" placeholder="netrollout"
-                 value="{{ db_name }}">
-        </div>
-        <div class="col-md-4">
-          <label class="nr-label">User</label>
-          <input type="text" id="db_user" class="form-control" placeholder="dbadmin"
-                 value="{{ db_user }}">
-        </div>
-        <div class="col-md-4">
-          <label class="nr-label">Password</label>
-          <input type="password" id="db_password" class="form-control" placeholder="••••••••" autocomplete="new-password">
-        </div>
-        <div class="col-md-4">
-          <label class="nr-label">Schema <span style="color:var(--nr-text-muted);">(optional)</span></label>
-          <input type="text" id="db_schema" class="form-control" placeholder="public"
-                 value="{{ postgres_schema or '' }}">
-        </div>
-      </div>
-      <div id="pgTestResult" class="mt-3" style="display:none;"></div>
-      <div class="d-flex gap-2 mt-4 align-items-center">
-        <button class="btn btn-outline-primary btn-sm" id="pgBtnTest" onclick="testPostgres()">
-          <i class="bi bi-plug me-1"></i>Test Connection
-        </button>
-        <button class="btn btn-primary btn-sm" id="pgBtnSave" onclick="savePostgres()" disabled>
-          <i class="bi bi-floppy me-1"></i>Save Configuration
-        </button>
-        <span id="pgSaveSpinner" class="spinner-border spinner-border-sm text-info ms-1" style="display:none;"></span>
-      </div>
-      <div id="pgRestartBanner" class="nr-restart-banner mt-4" style="display:none;">
-        <i class="bi bi-arrow-clockwise me-2"></i>
-        Configuration saved. <strong>Restart the application</strong> to apply changes and initialize the new database.
+      {% endif %}
+
+      <div id="mvWizard">
+        <h3 class="mv-title">Move to another PostgreSQL server</h3>
+        <p class="mv-intro">All of NetRollout's data is copied there, then NetRollout switches to it. New rollouts
+          pause and the running ones finish first (you can cancel them); then NetRollout is unavailable for a few
+          minutes while the data is copied. {% if db_mode == 'bundled' %}The bundled database keeps running,
+          untouched — you can move back to it at any time.{% endif %}</p>
+
+        <!-- Step 1 -->
+        <section class="mv-step" aria-labelledby="mvStep1">
+          <div class="mv-step-head"><span class="mv-num">1</span>
+            <span class="mv-step-title" id="mvStep1">Prepare the database</span></div>
+          <div class="mv-ways" role="group" aria-label="How the database is prepared">
+            <button type="button" class="mv-way" id="mvWayDba" aria-pressed="true">
+              <strong>Your database administrator prepares it <span style="color:#00bcd4;">(recommended)</span></strong>
+              You get the list of what to ask for and the SQL to hand over. NetRollout never needs an administrator password.</button>
+            <button type="button" class="mv-way" id="mvWayAdmin" aria-pressed="false">
+              <strong>I have an administrator login</strong>
+              NetRollout creates everything itself. The login is used once, for this, and never stored.</button>
+          </div>
+
+          <div id="mvDba">
+            <div style="font-size:0.84rem; color:#e0e0e0;">Ask your database administrator for:</div>
+            <ol class="mv-ask" id="mvAccess">
+              {% for item in access_needed %}<li>{{ item }}</li>{% endfor %}
+            </ol>
+            <div class="row g-3">
+              <div class="col-md-4"><label class="nr-label" for="mvSqlDb">Database name</label>
+                <input type="text" id="mvSqlDb" class="form-control" value="netrollout"></div>
+              <div class="col-md-4"><label class="nr-label" for="mvSqlSchema">Schema</label>
+                <input type="text" id="mvSqlSchema" class="form-control" value="public"></div>
+              <div class="col-md-4"><label class="nr-label" for="mvSqlLogin">NetRollout's login</label>
+                <input type="text" id="mvSqlLogin" class="form-control" value="netrollout"></div>
+            </div>
+            <button class="btn btn-outline-primary btn-sm mt-3" type="button" id="mvSqlBtn">
+              <i class="bi bi-file-earmark-code me-1"></i>Show the SQL for your administrator</button>
+            <div id="mvSqlOut" style="display:none;">
+              <div class="mv-sql"><pre id="mvSqlText"></pre>
+                <button class="btn btn-outline-secondary btn-sm" type="button" id="mvSqlCopy"><i class="bi bi-clipboard me-1"></i>Copy</button></div>
+              <p class="mv-hint" id="mvSqlHint"></p>
+            </div>
+          </div>
+
+          <div id="mvAdmin" style="display:none;">
+            <div class="row g-3">
+              <div class="col-md-5"><label class="nr-label" for="mvAdHost">Server</label>
+                <input type="text" id="mvAdHost" class="form-control" placeholder="db.example.com"></div>
+              <div class="col-md-2"><label class="nr-label" for="mvAdPort">Port</label>
+                <input type="number" id="mvAdPort" class="form-control" value="5432"></div>
+              <div class="col-md-5"><label class="nr-label" for="mvAdUser">Administrator login</label>
+                <input type="text" id="mvAdUser" class="form-control" placeholder="postgres" autocomplete="off"></div>
+              <div class="col-md-5"><label class="nr-label" for="mvAdPassword">Administrator password</label>
+                <input type="password" id="mvAdPassword" class="form-control" autocomplete="new-password"></div>
+              <div class="col-md-7"></div>
+              <div class="col-md-4"><label class="nr-label" for="mvAdDb">Database to create</label>
+                <input type="text" id="mvAdDb" class="form-control" value="netrollout"></div>
+              <div class="col-md-4"><label class="nr-label" for="mvAdSchema">Schema</label>
+                <input type="text" id="mvAdSchema" class="form-control" value="public"></div>
+              <div class="col-md-4"><label class="nr-label" for="mvAdLogin">NetRollout's login to create</label>
+                <input type="text" id="mvAdLogin" class="form-control" value="netrollout"></div>
+            </div>
+            <button class="btn btn-outline-primary btn-sm mt-3" type="button" id="mvPrepBtn">
+              <i class="bi bi-magic me-1"></i>Create the database and logins</button>
+            <div id="mvPrepOut" class="mv-report" style="display:none;"></div>
+          </div>
+        </section>
+
+        <!-- Step 2 -->
+        <section class="mv-step" aria-labelledby="mvStep2">
+          <div class="mv-step-head"><span class="mv-num">2</span>
+            <span class="mv-step-title" id="mvStep2">Connect and check</span></div>
+          <p class="mv-hint mt-0 mb-3">The database NetRollout will use, with its own login (not the administrator's).
+            Filled in from step 1 — add the server once your administrator is done.</p>
+          <div class="row g-3">
+            <div class="col-md-5"><label class="nr-label" for="mvHost">Server</label>
+              <input type="text" id="mvHost" class="form-control" placeholder="db.example.com"></div>
+            <div class="col-md-2"><label class="nr-label" for="mvPort">Port</label>
+              <input type="number" id="mvPort" class="form-control" value="5432"></div>
+            <div class="col-md-5"><label class="nr-label" for="mvDb">Database</label>
+              <input type="text" id="mvDb" class="form-control" value="netrollout"></div>
+            <div class="col-md-4"><label class="nr-label" for="mvSchema">Schema</label>
+              <input type="text" id="mvSchema" class="form-control" value="public"></div>
+            <div class="col-md-4"><label class="nr-label" for="mvUser">Login</label>
+              <input type="text" id="mvUser" class="form-control" value="netrollout" autocomplete="off"></div>
+            <div class="col-md-4"><label class="nr-label" for="mvPassword">Password</label>
+              <input type="password" id="mvPassword" class="form-control" autocomplete="new-password"></div>
+          </div>
+          <button class="btn btn-outline-primary btn-sm mt-3" type="button" id="mvCheckBtn">
+            <i class="bi bi-plug me-1"></i>Check</button>
+          <div id="mvReport" class="mv-report" style="display:none;"></div>
+        </section>
+
+        <!-- Step 3 -->
+        <section class="mv-step" aria-labelledby="mvStep3">
+          <div class="mv-step-head"><span class="mv-num">3</span>
+            <span class="mv-step-title" id="mvStep3">Move</span></div>
+          <p class="mv-hint mt-0">A backup is made first (kept in Backups), then the data is copied and the row counts
+            compared. If anything fails, NetRollout stays where it is, unchanged.</p>
+          <div class="form-check mt-2" id="mvReplaceRow" style="display:none;">
+            <input class="form-check-input" type="checkbox" id="mvReplace">
+            <label class="form-check-label" for="mvReplace" style="font-size:0.82rem; color:#ffcc80;">
+              Replace the NetRollout data already there with this server's</label>
+          </div>
+          <button class="btn btn-primary btn-sm mt-3" type="button" id="mvMoveBtn" disabled>
+            <i class="bi bi-box-arrow-right me-1"></i>Move NetRollout's data</button>
+        </section>
       </div>
     </div>
 
@@ -137,8 +243,9 @@
     <div id="form-redis" style="display:none;">
       <div class="nr-warning mb-4" style="border-color:rgba(255,100,80,0.25); background:rgba(255,100,80,0.05);">
         <i class="bi bi-exclamation-triangle-fill me-2" style="color:#ff8a65;"></i>
-        Switching Redis will <strong>log out all active users</strong> and <strong>drop any running jobs</strong> —
-        all session and queue data lives in the current instance. Restart required after saving.
+        Switching Redis <strong>signs everyone out</strong> — sessions live there. It's refused while rollouts
+        run (their live state is there too). Nothing else is lost: NetRollout's data is in PostgreSQL.
+        Restart required after saving.
       </div>
       <div class="row g-3">
         <div class="col-md-5">
@@ -584,17 +691,8 @@
     });
   }
 
-  /* ── PostgreSQL ───────────────────────────────────────────── */
-  let pgTestPassed = false;
 
   document.addEventListener('DOMContentLoaded', () => {
-    ['db_host','db_port','db_name','db_user','db_password','db_schema'].forEach(id => {
-      document.getElementById(id)?.addEventListener('input', () => {
-        pgTestPassed = false;
-        document.getElementById('pgBtnSave').disabled = true;
-        document.getElementById('pgTestResult').style.display = 'none';
-      });
-    });
     ['rd_host','rd_port','rd_db','rd_password'].forEach(id => {
       document.getElementById(id)?.addEventListener('input', () => {
         rdTestPassed = false;
@@ -604,80 +702,194 @@
     });
   });
 
-  function testPostgres() {
-    const btn = document.getElementById('pgBtnTest');
-    const res = document.getElementById('pgTestResult');
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Testing…';
-    res.style.display = 'none';
+  /* ── PostgreSQL: move to another server / back ───────────── */
+  (() => {
+    const $ = id => document.getElementById(id);
+    const val = id => $(id).value.trim();
+    const BASE = '/admin/server/database';
+    let checked = null;          // the last check's report, for the fields as they are
 
-    fetch('{{ url_for("admin_servers.admin_server_postgres_test") }}', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
-      body: JSON.stringify({
-        host:     document.getElementById('db_host').value.trim(),
-        port:     document.getElementById('db_port').value.trim(),
-        name:     document.getElementById('db_name').value.trim(),
-        user:     document.getElementById('db_user').value.trim(),
-        password: document.getElementById('db_password').value.trim(),
-        schema:   document.getElementById('db_schema').value.trim(),
-      })
-    })
-    .then(r => r.json())
-    .then(data => {
-      btn.disabled = false;
-      btn.innerHTML = '<i class="bi bi-plug me-1"></i>Test Connection';
-      res.style.display = 'block';
-      if (data.status === 'ok') {
-        pgTestPassed = true;
-        document.getElementById('pgBtnSave').disabled = false;
-        res.innerHTML = '<span class="res-ok"><i class="bi bi-check-circle me-1"></i>Connection successful</span>';
-      } else {
-        res.innerHTML = `<span class="res-err"><i class="bi bi-x-circle me-1"></i>${data.message}</span>`;
-      }
-    })
-    .catch(() => {
-      btn.disabled = false;
-      btn.innerHTML = '<i class="bi bi-plug me-1"></i>Test Connection';
-      res.style.display = 'block';
-      res.innerHTML = '<span class="res-err"><i class="bi bi-x-circle me-1"></i>Request failed</span>';
+    async function call(url, body, background) {
+      const headers = {'X-CSRFToken': CSRF};
+      if (body !== undefined) headers['Content-Type'] = 'application/json';
+      if (background) headers['X-NR-Background'] = '1';
+      let resp, data = {};
+      try {
+        resp = await fetch(url, {method: body === undefined ? 'GET' : 'POST', headers,
+                                 body: body === undefined ? undefined : JSON.stringify(body)});
+        try { data = await resp.json(); } catch (_) {}
+      } catch (_) { return {status: 'error', message: 'No answer from NetRollout.'}; }
+      if (!data.status) data = {status: 'error', message: `Server error (${resp.status}).`};
+      return data;
+    }
+    const busy = (btn, on, label) => {
+      btn.disabled = on;
+      if (on) { btn.dataset.label = btn.innerHTML; btn.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span>${label}`; }
+      else if (btn.dataset.label) btn.innerHTML = btn.dataset.label;
+    };
+    const error = msg => `<span class="res-err"><i class="bi bi-x-circle me-1"></i>${escHtml(msg)}</span>`;
+
+    // Step 1: the two ways
+    const ways = {dba: [$('mvWayDba'), $('mvDba')], admin: [$('mvWayAdmin'), $('mvAdmin')]};
+    Object.entries(ways).forEach(([name, [btn]]) => btn.addEventListener('click', () => {
+      Object.entries(ways).forEach(([other, [b, panel]]) => {
+        b.setAttribute('aria-pressed', String(other === name));
+        panel.style.display = other === name ? 'block' : 'none';
+      });
+    }));
+
+    function fillStep2(d, host, port) {
+      $('mvDb').value = d.database; $('mvSchema').value = d.schema;
+      $('mvUser').value = d.login; $('mvPassword').value = d.password;
+      if (host) $('mvHost').value = host;
+      if (port) $('mvPort').value = port;
+      forget();
+    }
+
+    $('mvSqlBtn').addEventListener('click', async () => {
+      const btn = $('mvSqlBtn');
+      busy(btn, true, 'Writing…');
+      const d = await call(`${BASE}/sql`, {database: val('mvSqlDb'), schema: val('mvSqlSchema'), login: val('mvSqlLogin')});
+      busy(btn, false);
+      if (d.status !== 'ok') { $('mvSqlOut').style.display = 'block'; $('mvSqlHint').innerHTML = error(d.message); return; }
+      $('mvSqlText').textContent = d.sql;
+      $('mvSqlHint').innerHTML =
+        'This SQL holds a new password for NetRollout\'s login — step 2 below is filled in with it, so keep this ' +
+        'page open until the move (or keep the password). Hand the SQL over securely; showing it again makes a new password.' +
+        (d.grafana_known ? '' : '<br><i class="bi bi-info-circle me-1"></i>Grafana\'s password isn\'t known to this ' +
+         'server, so its line is commented out: without it the dashboards stay empty after the move.');
+      $('mvSqlOut').style.display = 'block';
+      fillStep2(d);
     });
-  }
+    $('mvSqlCopy').addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText($('mvSqlText').textContent); $('mvSqlCopy').innerHTML = '<i class="bi bi-check2 me-1"></i>Copied'; }
+      catch (_) { $('mvSqlCopy').innerHTML = 'Select and copy'; }
+    });
 
-  function savePostgres() {
-    if (!pgTestPassed) return;
-    const btn = document.getElementById('pgBtnSave');
-    const spinner = document.getElementById('pgSaveSpinner');
-    btn.disabled = true;
-    spinner.style.display = 'inline-block';
+    $('mvPrepBtn').addEventListener('click', async () => {
+      const btn = $('mvPrepBtn'), out = $('mvPrepOut');
+      busy(btn, true, 'Creating…');
+      const body = {host: val('mvAdHost'), port: val('mvAdPort'), admin_user: val('mvAdUser'),
+                    admin_password: $('mvAdPassword').value, database: val('mvAdDb'),
+                    schema: val('mvAdSchema'), login: val('mvAdLogin')};
+      const d = await call(`${BASE}/prepare`, body);
+      busy(btn, false);
+      out.style.display = 'block';
+      if (d.status !== 'ok') { out.innerHTML = error(d.message); return; }
+      $('mvAdPassword').value = '';            // not kept, not even in the page
+      out.innerHTML = '<span class="res-ok"><i class="bi bi-check-circle me-1"></i>Ready: ' +
+        d.done.map(escHtml).join('; ') + '. Step 2 is filled in — check it.</span>' +
+        (d.grafana_known ? '' : '<div class="mv-hint">Grafana\'s password isn\'t known to this server: its login wasn\'t created.</div>');
+      fillStep2(d, body.host, body.port);
+    });
 
-    fetch('{{ url_for("admin_servers.admin_server_postgres_save") }}', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
-      body: JSON.stringify({
-        host:     document.getElementById('db_host').value.trim(),
-        port:     document.getElementById('db_port').value.trim(),
-        name:     document.getElementById('db_name').value.trim(),
-        user:     document.getElementById('db_user').value.trim(),
-        password: document.getElementById('db_password').value.trim(),
-        schema:   document.getElementById('db_schema').value.trim(),
-      })
-    })
-    .then(r => r.json())
-    .then(data => {
-      spinner.style.display = 'none';
-      if (data.status === 'ok') {
-        document.getElementById('pgRestartBanner').style.display = 'block';
-        markRestartPending();
+    // Step 2: check
+    const target = () => ({host: val('mvHost'), port: val('mvPort'), database: val('mvDb'),
+                           schema: val('mvSchema'), user: val('mvUser'), password: $('mvPassword').value});
+    function forget() {
+      checked = null; $('mvMoveBtn').disabled = true;
+      $('mvReport').style.display = 'none'; $('mvReplaceRow').style.display = 'none'; $('mvReplace').checked = false;
+    }
+    ['mvHost', 'mvPort', 'mvDb', 'mvSchema', 'mvUser', 'mvPassword'].forEach(id => $(id).addEventListener('input', forget));
+
+    $('mvCheckBtn').addEventListener('click', async () => {
+      const btn = $('mvCheckBtn'), out = $('mvReport');
+      busy(btn, true, 'Checking…');
+      const d = await call(`${BASE}/check`, target());
+      busy(btn, false);
+      out.style.display = 'block';
+      if (d.status !== 'ok') { forget(); out.style.display = 'block'; out.innerHTML = error(d.message); return; }
+      const r = d.report;
+      const list = (items, cls) => items.length ? `<ul class="${cls}">${items.map(i => `<li>${escHtml(i)}</li>`).join('')}</ul>` : '';
+      out.innerHTML = (r.ok
+          ? `<span class="res-ok"><i class="bi bi-check-circle me-1"></i>Ready for the move — PostgreSQL ${escHtml(r.server_version)}, schema ${escHtml(r.schema)}, ${r.contents === 'empty' ? 'empty' : 'holding a NetRollout database'}.</span>`
+          : `<span class="res-err"><i class="bi bi-x-circle me-1"></i>NetRollout can't move there yet:</span>${list(r.problems, 'res-err')}`)
+        + list(r.notes, 'mv-hint');
+      checked = r.ok ? r : null;
+      $('mvReplaceRow').style.display = r.ok && r.contents === 'netrollout' ? 'block' : 'none';
+      updateMove();
+    });
+    const updateMove = () => {
+      $('mvMoveBtn').disabled = !checked || (checked.contents === 'netrollout' && !$('mvReplace').checked);
+    };
+    $('mvReplace').addEventListener('change', updateMove);
+
+    // Step 3 / Move back: start, then follow
+    async function start(url, body, question) {
+      if (!confirm(question)) return;
+      const d = await call(url, body);
+      if (d.status !== 'ok') { showProgress({state: 'failed', message: d.message}); return; }
+      follow(d.move);
+    }
+    $('mvMoveBtn').addEventListener('click', () => start(`${BASE}/move`, target(),
+      'Move NetRollout\'s data now?\n\nNew rollouts pause and running ones finish first; then NetRollout is ' +
+      'unavailable for a few minutes while the data is copied. Everyone stays signed in.'));
+    $('mvBackBtn')?.addEventListener('click', () => start(`${BASE}/move-back`, {},
+      'Move back to the bundled database?\n\nIts current contents are replaced by the data on your server. ' +
+      'New rollouts pause and running ones finish first; then NetRollout is unavailable for a few minutes.'));
+
+    const mmss = s => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+    // live: this page watched the move end (a result from before is only shown)
+    function showProgress(m, live) {
+      const box = $('mvProgress');
+      box.style.display = 'block';
+      box.className = 'mv-progress' + (m.state === 'done' ? ' done' : ['failed', 'cancelled'].includes(m.state) ? ' failed' : '');
+      const moving = ['waiting', 'copying', 'switching'].includes(m.state);
+      $('mvWizard').style.display = moving ? 'none' : 'block';
+      if ($('mvBack')) $('mvBack').style.display = moving ? 'none' : 'block';
+      let html = '';
+      if (m.state === 'waiting') {
+        const rows = (m.rollouts || []).map(j => `<tr><td>${escHtml(j.user)}</td><td>${j.devices}</td>
+            <td>${j.state}</td><td>${j.started ? escHtml(j.started.replace('T', ' ')) : '—'}</td>
+            <td class="text-end"><button class="btn btn-outline-danger btn-sm py-0" data-job="${j.job_id}">Cancel rollout</button></td></tr>`).join('');
+        const n = (m.rollouts || []).length, what = m.what || '';
+        html = `<strong><span class="spinner-border spinner-border-sm text-info me-2"></span>${escHtml(what.charAt(0).toUpperCase() + what.slice(1))}:
+          waiting for ${n === 1 ? 'a rollout' : n ? `${n} rollouts` : 'the last rollout'} to finish</strong>
+          <div class="mv-hint mt-1">New rollouts are paused. The move starts by itself when none is left; it's given up in
+          ${mmss(m.seconds_left || 0)} if they're still running. Cancelling a rollout skips devices it hasn't reached;
+          a device being configured finishes first.</div>
+          ${rows ? `<table><thead><tr><th>By</th><th>Devices</th><th>State</th><th>Started</th><th></th></tr></thead><tbody>${rows}</tbody></table>` : ''}
+          <button class="btn btn-outline-secondary btn-sm mt-1" id="mvCancelMove">Cancel the move</button>`;
+      } else if (m.state === 'copying' || m.state === 'switching') {
+        html = `<strong><span class="spinner-border spinner-border-sm text-info me-2"></span>${escHtml(m.step || 'Working')}…</strong>
+          <div class="mv-hint mt-1">NetRollout is in maintenance for everyone else. ${escHtml(m.source)} → ${escHtml(m.target)}.
+          Keep this page open; it updates by itself.</div>`;
+      } else if (m.state === 'done') {
+        html = `<strong class="res-ok"><i class="bi bi-check-circle me-1"></i>${escHtml(m.message)}</strong>
+          <div class="mv-hint mt-1">Backup made before the move: ${escHtml(m.backup || '—')}.${live ? ' This page reloads in a moment.' : ''}</div>`;
+        if (live) setTimeout(() => location.reload(), 4000);
       } else {
-        btn.disabled = false;
-        document.getElementById('pgTestResult').style.display = 'block';
-        document.getElementById('pgTestResult').innerHTML =
-          `<span class="res-err"><i class="bi bi-x-circle me-1"></i>${data.message}</span>`;
+        html = `<strong class="res-err"><i class="bi bi-x-circle me-1"></i>${m.state === 'cancelled' ? 'The move was cancelled' : 'The move didn\'t happen'}</strong>
+          <div class="mv-hint mt-1">${escHtml(m.message || '')}</div>`;
       }
-    })
-    .catch(() => { spinner.style.display = 'none'; btn.disabled = false; });
-  }
+      box.innerHTML = html;
+      box.querySelectorAll('[data-job]').forEach(b => b.addEventListener('click', async () => {
+        if (!confirm('Cancel this rollout? Devices it has not reached are skipped.')) return;
+        b.disabled = true;
+        const form = new URLSearchParams({job_id: b.dataset.job});
+        await fetch('/rollout/cancel', {method: 'POST', headers: {'X-CSRFToken': CSRF}, body: form});
+      }));
+      $('mvCancelMove')?.addEventListener('click', async () => {
+        $('mvCancelMove').disabled = true;
+        await call(`${BASE}/move/cancel`, {});
+      });
+    }
+
+    let timer = null;
+    function follow(m, live = true) {
+      showProgress(m, live);
+      clearTimeout(timer);
+      if (!['waiting', 'copying', 'switching'].includes(m.state)) return;
+      timer = setTimeout(async () => {
+        const d = await call(`${BASE}/move/status`, undefined, true);
+        follow(d.status === 'ok' ? d.move : m);      // no answer for a moment: ask again
+      }, 2000);
+    }
+
+    // a move under way (or just ended) when the page opens
+    const initial = {{ db_move | tojson }};
+    if (initial.state !== 'idle') { selectService('postgres'); follow(initial, false); }
+  })();
 
   /* ── Redis ────────────────────────────────────────────────── */
   let rdTestPassed = false;

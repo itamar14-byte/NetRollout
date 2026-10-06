@@ -93,8 +93,15 @@ class BackendServices:
 			"REDIS": self.redis.client.connection_pool.connection_kwargs.get(
 				"host"),
 		}
-		return {service: "bundled" if host in BUNDLED_HOSTS[service]
-		        else "external" for service, host in hosts.items()}
+		modes = {service: "bundled" if host in BUNDLED_HOSTS[service]
+		         else "external" for service, host in hosts.items()}
+		# after a move the bundled database's address is known: compare the
+		# whole place (another database on the same host isn't the bundled one)
+		remembered = self._config_values().get(BUNDLED_DATABASE_KEY)
+		if remembered:
+			modes["POSTGRES"] = ("bundled" if PostgresConfig(url=remembered).place()
+			                     == self.postgres.config.place() else "external")
+		return modes
 
 	def reload_postgres(self, config: PostgresConfig):
 		self.postgres.reload_db(config)

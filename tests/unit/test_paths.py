@@ -3,6 +3,7 @@
 import os
 import stat
 import sys
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -128,10 +129,14 @@ def test_a_switch_no_longer_writes_external_flags():
 
 # ── Bundled or external ──────────────────────────────────────────────────────
 
-def _backend_connected_to(pg_url: str, redis_host: str) -> BackendServices:
+def _backend_connected_to(pg_url: str, redis_host: str,
+                          runtime_env: Path | None = None) -> BackendServices:
 	backend = object.__new__(BackendServices)
+	# no runtime.env unless given: nothing remembered by a database move
+	backend._CONFIG_ENV = runtime_env or Path("does-not-exist") / "runtime.env"
 	backend.postgres = SimpleNamespace(
-		engine=SimpleNamespace(url=make_url(pg_url)))
+		engine=SimpleNamespace(url=make_url(pg_url)),
+		config=PostgresConfig(url=pg_url))
 	backend.redis = SimpleNamespace(client=SimpleNamespace(
 		connection_pool=SimpleNamespace(
 			connection_kwargs={"host": redis_host})))
@@ -149,3 +154,17 @@ def test_connection_modes(pg_host, redis_host, expected):
 		f"postgresql+psycopg2://u:p@{pg_host}:5432/db", redis_host)
 	modes = backend.connection_modes()
 	assert (modes["POSTGRES"], modes["REDIS"]) == expected
+
+
+def test_after_a_move_the_bundled_database_is_known_by_its_whole_address(tmp_path):
+	# another database on the bundled one's host (development: 127.0.0.1) is
+	# the organisation's - Move back must be offered
+	runtime_env = tmp_path / "runtime.env"
+	runtime_env.write_text("NETROLLOUT_BUNDLED_DATABASE_URL="
+	                       "postgresql+psycopg2://nr:pw@127.0.0.1:5432/netrollout\n")
+	moved = _backend_connected_to("postgresql+psycopg2://app:x@127.0.0.1:5432/ops_db",
+	                              "127.0.0.1", runtime_env)
+	assert moved.connection_modes()["POSTGRES"] == "external"
+	home = _backend_connected_to("postgresql+psycopg2://nr:pw@127.0.0.1:5432/netrollout",
+	                             "127.0.0.1", runtime_env)
+	assert home.connection_modes()["POSTGRES"] == "bundled"

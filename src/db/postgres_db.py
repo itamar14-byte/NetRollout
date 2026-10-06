@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy import URL, create_engine, text
+from sqlalchemy import URL, create_engine, make_url, text
 
 from src.db.db_install import install
 
@@ -39,6 +39,12 @@ class PostgresConfig:
 		                  password=self.password, host=self.host,
 		                  port=int(self.port), database=self.database
 		                  ).render_as_string(hide_password=False)
+
+	def place(self) -> tuple:
+		"""Where the data is - server, port, database, schema - whatever the
+		login: two configs with the same place are the same database."""
+		url = make_url(self.get_url())
+		return (url.host, url.port or 5432, url.database, self.schema or "public")
 
 	def to_env_dict(self) -> dict:
 		# Every key, blank rather than absent: runtime.env is loaded over the

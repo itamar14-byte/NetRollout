@@ -133,6 +133,8 @@ def test_move_there_and_back(app, target, mover, make_user, make_profile):
 	assert status["state"] == db_move.DONE, status
 	assert app.backend.postgres.config == target
 	assert app.maintenance.state == "idle" and app.orchestrator.refusal() is None
+	# on the same host as the bundled one, yet not it: Move back is offered
+	assert app.backend.connection_modes()["POSTGRES"] == "external"
 	engine = app.backend.postgres.engine
 	assert _rows(engine, "select id, username from users order by id") == source_users
 	(secret,), = _rows(engine, "select password_secret from security_profiles")
@@ -149,6 +151,7 @@ def test_move_there_and_back(app, target, mover, make_user, make_profile):
 	status = _wait(mover)
 	assert status["state"] == db_move.DONE, status
 	assert db_move.same_database(app.backend.postgres.config, home)
+	assert app.backend.connection_modes()["POSTGRES"] == "bundled"
 	assert _rows(app.backend.postgres.engine,
 	             "select id, username from users order by id") == source_users
 	assert len(_rows(app.backend.postgres.engine,

@@ -36,9 +36,7 @@ def describe(config: PostgresConfig) -> str:
 
 
 def same_database(a: PostgresConfig, b: PostgresConfig) -> bool:
-	ua, ub = make_url(a.get_url()), make_url(b.get_url())
-	return ((ua.host, ua.port or 5432, ua.database, a.schema or "public")
-	        == (ub.host, ub.port or 5432, ub.database, b.schema or "public"))
+	return a.place() == b.place()
 
 
 class DatabaseMove:
@@ -53,6 +51,10 @@ class DatabaseMove:
 	def status(self) -> dict:
 		"""For the page: state, step, target, times, outcome."""
 		return dict(self._status)
+
+	def seconds_left(self) -> float:
+		"""Until the wait for rollouts gives up."""
+		return self._status.get("deadline", 0) - time.time()
 
 	@property
 	def running(self) -> bool:

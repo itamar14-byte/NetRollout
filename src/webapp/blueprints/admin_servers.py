@@ -1,9 +1,10 @@
 # services
+import os
 import time
 
 # flask
 from flask import Blueprint, render_template, request, current_app, jsonify
-from flask_login import login_required
+from flask_login import current_user, login_required
 from redis.exceptions import ConnectionError as RedisConnectionError
 # redis
 import redis as redis_lib
@@ -12,7 +13,11 @@ from sqlalchemy import text, create_engine
 from sqlalchemy.exc import OperationalError
 
 # local modules
+from src.db import move
 from src.db.postgres_db import PostgresConfig
+from src.webapp import db_move
+from src.webapp.db_move import describe, same_database
+from src.webapp.maintenance import during_maintenance
 from src.db.redis_db import RedisConfig
 from src.db.tables import LDAPServer, LDAPGroup, User
 from src.encryption import encrypt
@@ -25,28 +30,6 @@ bp = Blueprint('admin_servers', __name__, url_prefix='/admin/server')
 
 
 ##############################Route Helpers#####################################
-def unload_postgres_data(data):
-	host, port, name = (data.get("host", "").strip(),
-	                    data.get("port", "5432").strip(),
-	                    data.get("name", "").strip())
-	user, password, schema = (data.get("user", "").strip(),
-	                          data.get("password", "").strip(),
-	                          data.get("schema", "").strip())
-	if not all([host, port, name, user, password]):
-		return err("All fields except schema are required")
-	if (host == current_app.backend.postgres.engine.url.host and
-			str(port) == str(current_app.backend.postgres.engine.url.port) and
-			name == current_app.backend.postgres.engine.url.database):
-		return err("Target is the same as the current database")
-	return {"host": host,
-	        "port": port,
-	        "name": name,
-	        "user": user,
-	        "password": password,
-	        "schema": schema
-	        }
-
-
 def unload_ldap_data(req):
 	label = req.form.get("label", "").strip()
 	ip = req.form.get("ip", "").strip()
@@ -102,6 +85,11 @@ def admin_server():
 	                       db_user=current_app.backend.postgres.config.user,
 	                       postgres_schema=current_app.backend.postgres
 	                       .config.schema,
+	                       db_place=describe(current_app.backend.postgres.config),
+	                       can_move_back=(connection_modes["POSTGRES"] == "external"
+	                                      and current_app.backend.bundled_postgres() is not None),
+	                       access_needed=move.ACCESS_NEEDED,
+	                       db_move=_status(),
 	                       redis_mode=connection_modes["REDIS"],
 	                       redis_connected=redis_connected,
 	                       redis_host=current_app.backend.redis.config.host,
@@ -111,54 +99,141 @@ def admin_server():
 		                       current_app.backend.settings.get("public_hostname")))
 
 
-@bp.route("/postgres/test", methods=["POST"])
+# ── Database: move to another server / back (src/db/move.py, db_move.py) ────
+
+def _target(data, user_key="user", password_key="password"):
+	"""A PostgresConfig from the form, or an error response."""
+	host, port = data.get("host", "").strip(), str(data.get("port") or "5432").strip()
+	database, schema = data.get("database", "").strip(), data.get("schema", "").strip()
+	user, password = data.get(user_key, "").strip(), data.get(password_key, "")
+	if not all([host, port, database, user, password]):
+		return err("Fill in the server, port, database, login and password.", 422)
+	if not port.isdigit():
+		return err("The port is a number.", 422)
+	return PostgresConfig(host=host, port=port, database=database, user=user,
+	                      password=password, schema=None if schema in ("", "public") else schema)
+
+
+def _plan(data) -> move.Plan:
+	return move.Plan(database=data.get("database", "").strip() or move.DEFAULT_DATABASE,
+	                 schema=data.get("schema", "").strip() or "public",
+	                 login=data.get("login", "").strip() or move.DEFAULT_LOGIN,
+	                 grafana_password=os.environ.get("GRAFANA_DB_PASSWORD") or None)
+
+
+@bp.route("/database/sql", methods=["POST"])
 @login_required
 @require_admin
 @with_json()
-def admin_server_postgres_test(data):
-	server_input = unload_postgres_data(data)
-	# err() returns a (response, status) tuple, not a Response — the
-	# success value is a dict, so anything else is an error to return
-	if not isinstance(server_input, dict):
-		return server_input
-
-	url = (f"postgresql+psycopg2://{server_input["user"]}:"
-	       f"{server_input["password"]}@{server_input["host"]}"
-	       f":{server_input["port"]}/{server_input["name"]}")
-	connect_args = {"options": f"-c search_path={server_input["schema"]}"}\
-		if server_input["schema"] else {}
-
-	try:
-		test_engine = create_engine(url, connect_args=connect_args)
-		with test_engine.connect() as conn:
-			conn.execute(text("SELECT 1"))
-		test_engine.dispose()
-		return ok("Connection successful")
-	except OperationalError as e:
-		return err(str(e))
+def database_sql(data):
+	"""The DBA's way: what to ask for, and the SQL - a new password for the
+	app's login, Grafana's (when this server knows it) filled in."""
+	plan = _plan(data)
+	return ok(sql=move.preparation_sql(plan), access=list(move.ACCESS_NEEDED),
+	          database=plan.database, schema=plan.schema, login=plan.login,
+	          password=plan.password, grafana_known=bool(plan.grafana_password))
 
 
-@bp.route("/postgres/save", methods=["POST"])
+@bp.route("/database/prepare", methods=["POST"])
 @login_required
 @require_admin
 @with_json()
-def admin_server_postgres_save(data):
-	server_input = unload_postgres_data(data)
-	# err() returns a (response, status) tuple, not a Response — the
-	# success value is a dict, so anything else is an error to return
-	if not isinstance(server_input, dict):
-		return server_input
-
-	new_config = PostgresConfig(
-		host=server_input["host"], port=server_input["port"],
-		database=server_input["name"],user=server_input["user"],
-		password=server_input["password"], schema=server_input["schema"] or None
-	)
+def database_prepare(data):
+	"""The administrator-login way: the same created now; the admin login is
+	used for this request only, never stored or logged."""
+	admin = _target({**data, "database": "postgres"}, "admin_user", "admin_password")
+	if not isinstance(admin, PostgresConfig):
+		return admin
+	plan = _plan(data)
+	label = f"{admin.host}:{admin.port}/{plan.database}"
 	try:
-		current_app.backend.reload_postgres(new_config)
-		return ok("Configuration saved")
-	except RuntimeError as e:
+		done = move.prepare_with_admin(admin.host, admin.port, admin.user, admin.password, plan)
+	except move.MoveError as e:
+		current_app.web.audit("database.prepare_failed", object_type="database",
+		                      object_label=label, success=False, detail={"message": str(e)})
 		return err(str(e))
+	current_app.web.audit("database.prepared", object_type="database", object_label=label,
+	                      detail={"login": plan.login, "schema": plan.schema, "done": done})
+	return ok(done=done, database=plan.database, schema=plan.schema, login=plan.login,
+	          password=plan.password, grafana_known=bool(plan.grafana_password))
+
+
+@bp.route("/database/check", methods=["POST"])
+@login_required
+@require_admin
+@with_json()
+def database_check(data):
+	target = _target(data)
+	if not isinstance(target, PostgresConfig):
+		return target
+	if same_database(target, current_app.backend.postgres.config):
+		return err("That is the database NetRollout uses now.")
+	return ok(report=move.check_target(target).as_dict())
+
+
+@bp.route("/database/move", methods=["POST"])
+@login_required
+@require_admin
+@with_json()
+def database_move(data):
+	target = _target(data)
+	if not isinstance(target, PostgresConfig):
+		return target
+	return _start(target, back=False)
+
+
+@bp.route("/database/move-back", methods=["POST"])
+@login_required
+@require_admin
+def database_move_back():
+	bundled = current_app.backend.bundled_postgres()
+	if bundled is None or current_app.backend.connection_modes()["POSTGRES"] == "bundled":
+		return err("There's no bundled database to move back to.", 409)
+	return _start(bundled, back=True)
+
+
+def _start(target: PostgresConfig, back: bool):
+	try:
+		current_app.db_move.start(target, current_user.id, current_user.username, back=back)
+	except move.MoveError as e:
+		return err(str(e), 409)
+	current_app.web.audit("database.move_started", object_type="database",
+	                      object_label=describe(target), detail={"back": back})
+	return ok(move=_status())
+
+
+@bp.route("/database/move/status")
+@during_maintenance            # read only: the moving admin's page follows it
+@login_required
+@require_admin
+def database_move_status():
+	return ok(move=_status())
+
+
+def _status() -> dict:
+	"""The move's state and step; while it waits, the rollouts it waits for."""
+	status = current_app.db_move.status()
+	status.pop("deadline", None)
+	if status["state"] == db_move.WAITING:
+		status["seconds_left"] = max(0, int(current_app.db_move.seconds_left()))
+		jobs = current_app.orchestrator.jobs()
+		names = {}
+		if jobs:
+			with current_app.backend.postgres.get_session() as session:
+				names = dict(session.query(User.id, User.username)
+				             .filter(User.id.in_({j["user_id"] for j in jobs})).all())
+		status["rollouts"] = [{**j, "job_id": str(j["job_id"]), "user_id": str(j["user_id"]),
+		                       "user": names.get(j["user_id"], "?")} for j in jobs]
+	return status
+
+
+@bp.route("/database/move/cancel", methods=["POST"])
+@login_required
+@require_admin
+def database_move_cancel():
+	if not current_app.db_move.cancel():
+		return err("The move can be cancelled only while it waits for rollouts.", 409)
+	return ok("Cancelling")
 
 
 @bp.route("/redis/test", methods=["POST"])
@@ -196,6 +271,9 @@ def admin_server_redis_save(data):
 			str(db or "0") == str(current_app.backend.redis.config.db)):
 		return err("Target is the same as the current Redis instance")
 
+	if any(current_app.orchestrator.counts().values()):
+		return err("Rollouts are running - their live state is in Redis. Switch "
+		           "once they've finished.", 409)
 	new_config = RedisConfig(host=host, port=port, db=db or "0",
 	                         password=password or None)
 	try:

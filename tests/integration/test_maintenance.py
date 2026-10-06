@@ -14,6 +14,7 @@ pytestmark = [pytest.mark.postgres, pytest.mark.redis]
 SERVED_WHILE_LOCKED = {
 	"static", "prometheus_metrics",
 	"system.health", "system.instance", "system.grafana_auth",
+	"admin_servers.database_move_status",      # the moving admin's page follows the move
 }
 WHAT = "moving to another database"
 
