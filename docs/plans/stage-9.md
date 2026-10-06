@@ -451,6 +451,24 @@ deploy/postgres retired; one image less to build and publish. NetRollout
 needs PostgreSQL 13+ and nothing else. System Settings -> Retention shows the
 last clean-up.
 
+**9.9b-d (2026-10-06).** 9.9b the release build script (tools/build_release.py).
+9.9c start periods (Grafana 180 s, nginx 60 s, Prometheus 30 s); grafana-setup
+healthy = its last run; the nginx flake not reproduced in 30 recreates (with
+and without a trial port). 9.9d - the Windows pass on the candidate
+1.0.0.dev2 (test builds, scratch project): 1.0.0.dev1 built from the user's
+install's commit (3fcd672: the custom Postgres image, pg_cron) updated by
+the dev2 Setup run /SILENT as the Manager's Update runs it - every image
+dev2, Postgres the official image on the same data, the Manager's helper
+and tray back, Grafana's data source managed and reading, all 4 dashboards,
+the clean-up recorded, `netrollout status` all ok; backup + restore; the
+HTTPS port moved (both ports, confirmed, kept); a move to a plain
+PostgreSQL and back (restart on the org server included); uninstall
+keeping the data + reinstall (data and port kept); uninstall deleting it
+(backups kept); a fresh install (footer, Startup entry, Grafana, the
+clean-up, the CLI). Found and fixed: a test build named its Start Menu,
+desktop, Startup entries and Win+R like the real install - test uninstalls
+deleted the real install's (restored by its next update).
+
 **9.8 done (2026-10-06).** 9.8d2 added: Redis stays a plain live switch (no
 copy, no restart - verified), with Switch back to the bundled Redis; every
 switch clears sessions in the Redis switched to. Bugs found by the real runs
