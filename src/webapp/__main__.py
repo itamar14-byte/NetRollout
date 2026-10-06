@@ -11,6 +11,7 @@ from src.webapp import create_app
 from src.webapp.port_apply import serving_port
 from src.webapp.proxy_config import start_certificate_upkeep
 from src.webapp.backup_schedule import start_backup_schedule
+from src.webapp.retention import start_retention_fallback
 from src.webapp.startup import container_announcement, start_announcer
 
 utf8_console()
@@ -31,6 +32,7 @@ signal.signal(signal.SIGTERM, lambda signum, frame: app.shutdown.begin(
 start_log_pruning(lambda: app.backend.settings.get("log_retention_days"))
 start_certificate_upkeep()   # previous hostnames leave the self-signed cert
 start_backup_schedule(app.backend)   # System Settings → Backups
+start_retention_fallback(app.backend)   # the nightly clean-up where pg_cron isn't
 # Internal app port: set at install; nginx forwards to it
 port = int(os.getenv("PORT", "8080"))
 app.config["APP_PORT"] = port   # shown read-only in System Settings

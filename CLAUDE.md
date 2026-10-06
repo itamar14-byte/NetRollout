@@ -91,7 +91,7 @@ MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd -W)/requirements.txt:/req/requireme
 
 Full architecture in `docs/architecture.md`; plan and current status in `docs/workplan.md` (status table under "Remaining work"). Phase 4 (packaging v1.0.0) is planned in `docs/plans/phase-4.md`.
 
-Retention (defaults; System Settings): job record (results + metadata) 30 days, config snapshots 7 days, audit log 90 days (pg_cron statements read the setting's row at run time); log files 60 days (app-side, daily).
+Retention (defaults; System Settings): job record (results + metadata) 30 days, config snapshots 7 days, audit log 90 days (pg_cron statements read the setting's row at run time; where pg_cron doesn't run them in the connected database - many managed / an organisation's servers - the app runs the same statements itself daily at 03:00, checked at each run so a move is followed: `src/webapp/retention.py`, `db_install.pg_cron_runs_retention` / `run_retention`); log files 60 days (app-side, daily).
 
 ### Rollout job state
 `src/job_store.py` (`JobStore`) owns the Redis job keys (`job:{id}:meta`, `user_jobs:{uid}`, the queue, the pending/active counters): the orchestrator writes through it, the pages and the Prometheus collector read through it — no other code spells a key. Every start clears leftover job state (`setup.clear_stale_jobs`: jobs live only in their process, so anything there came from a crash). A finished job (`RolloutOrchestrator._finalize`): results to Postgres (retried; still failing → `logs/unsaved-results-<job>.json` + an ACTION NEEDED console line), then the Redis cleanup and the live log's end — each step runs even if another failed.

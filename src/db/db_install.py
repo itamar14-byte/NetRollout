@@ -48,6 +48,28 @@ _RETENTION_JOBS = {
 }
 
 
+def pg_cron_runs_retention(engine) -> bool:
+	"""Whether pg_cron runs NetRollout's retention in this database - every
+	job scheduled. Not where pg_cron isn't available (many managed / an
+	organisation's databases): the app runs them itself then
+	(src/webapp/retention.py)."""
+	try:
+		with engine.connect() as conn:
+			found = conn.execute(text("SELECT count(*) FROM cron.job WHERE jobname = ANY(:names)"),
+			                     {"names": list(_RETENTION_JOBS)}).scalar()
+		return found == len(_RETENTION_JOBS)
+	except SQLAlchemyError:
+		return False
+
+
+def run_retention(engine) -> dict[str, int]:
+	"""The retention statements, once, in one transaction - what pg_cron runs
+	at 03:00. Returns the rows each touched."""
+	with engine.begin() as conn:
+		return {name: conn.execute(text(statement)).rowcount
+		        for name, statement in _RETENTION_JOBS.items()}
+
+
 def _schedule_retention(conn, name: str, statement: str):
 	# Idempotent: unschedule-then-schedule, so every startup applies the
 	# current policy to existing installs

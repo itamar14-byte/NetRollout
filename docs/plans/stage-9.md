@@ -417,6 +417,30 @@ behind. It runs from **Server Management**, in the background, in the app
   then: an external Grafana can't reach the bundled Postgres (only nginx
   publishes ports) — a moved database, or publishing Postgres on purpose.
 
+**Decided 2026-10-06 (9.8):**
+- "Empty or NetRollout's" means the database **and schema** the connection
+  names (`public` unless one is given); other schemas aren't looked at. In
+  that schema: no tables = empty; NetRollout's (its migration record) = "will
+  be replaced"; other applications' tables with other names are fine and
+  never touched (as restore leaves them); only a table clashing with one of
+  NetRollout's names, without being NetRollout's, refuses the move.
+- **Preparing the target, both ways, clearly laid out on the card**: (a) the
+  default - the DBA prepares the database, the app's login and Grafana's
+  read-only login from SQL the page shows, passwords filled in (NetRollout
+  never sees an administrator password); (b) an administrator login given
+  once, for the move only and never stored, and NetRollout creates them.
+- **The copy is the backup engine** (src/backup.py: a consistent snapshot,
+  restored on the target through the migrations, the key checked) - no
+  separate copy code.
+- **A maintenance page** for everyone but the admin running the move; writes
+  blocked from the snapshot to the switch.
+- **The bundled Postgres keeps running, untouched**: while on an
+  organisation's database the Database card offers **Move back to the
+  bundled database** (the same flow in reverse; the bundled one emptied
+  first).
+- Subtasks: 9.8a pg_cron fallback · 9.8b maintenance mode · 9.8c the move
+  engine · 9.8d Server Management UI · 9.8e Grafana follows · 9.8f real runs.
+
 ## Subtasks
 
 | #   | Subtask                                                                                                                                                                                                                                                 |
