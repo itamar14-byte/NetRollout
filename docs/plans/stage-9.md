@@ -469,6 +469,15 @@ clean-up, the CLI). Found and fixed: a test build named its Start Menu,
 desktop, Startup entries and Win+R like the real install - test uninstalls
 deleted the real install's (restored by its next update).
 
+**9.9f (2026-10-06) - stage 9 done.** The developer updated their own install
+(1.0.0.dev1, port 7443) with NetRollout Manager -> Update, pointed by
+UpdateFeed at the candidate's local release-feed.json: the notes shown,
+Setup downloaded and checked against SHA256SUMS, run silently, the Manager
+back by itself - 1.0.0.dev2, every container healthy, Postgres on the
+official image with the data kept, the clean-up recorded, and the Start
+Menu / Startup / Win+R entries the test uninstalls had deleted restored.
+"Absolutely perfect." Next: stage 10 (CI, publishing rc1).
+
 **9.9e (2026-10-06) - the Linux pass on 1.0.0.dev2** (Ubuntu 24.04, Docker
 Engine 29, a recording systemctl): 1.0.0.dev1 from the user's install's
 commit (the custom Postgres image), monitoring on -> `update --from` the dev2
