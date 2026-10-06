@@ -53,7 +53,7 @@ from sqlalchemy.engine import Connection, Engine
 from src import runtime
 
 FORMAT = 1
-KINDS = ("manual", "scheduled", "before-restore", "before-update")
+KINDS = ("manual", "scheduled", "before-restore", "before-update", "before-move")
 NAME_RE = re.compile(r"^netrollout-(?P<version>[0-9A-Za-z.+]+)-"
                      r"(?P<stamp>\d{8}-\d{6})-(?P<kind>[a-z-]+)\.zip$")
 MANIFEST = "manifest.json"
@@ -375,7 +375,10 @@ def restore(path: Path, engine: Engine, places: Places | None = None, *,
 			cipher = Fernet(key)
 		except ValueError:
 			raise BackupError(f"{shown(path)} holds a damaged encryption key.") from None
-		_restore_database(engine, zf, manifest, cipher, https_port, shown(path))
+		_restore_database(engine, zf, manifest, cipher, https_port,
+		                  ("backup.restored", {"version": manifest.version,
+		                                       "created": manifest.created,
+		                                       "kind": manifest.kind}), shown(path))
 		files = []
 		files += _restore_files(zf, "certs", places.certs, set(CERT_FILES),
 		                        replace_all=True)
@@ -385,7 +388,25 @@ def restore(path: Path, engine: Engine, places: Places | None = None, *,
 	return Restored(manifest, key, files)
 
 
-def _restore_database(engine, zf, manifest, cipher, https_port, name) -> None:
+def restore_database(path: Path, engine: Engine, *, audit: tuple[str, dict],
+                     places: Places | None = None, version: str = runtime.VERSION) -> Manifest:
+	"""Only the database part of a backup, into the database `engine`
+	connects to (a database move: the files stay where they are), with the
+	backup's key checked against its credentials. audit: the (action,
+	detail) row recorded in the same transaction.
+	:raises BackupError: refused or failed - the database is unchanged"""
+	places = places or Places.app()
+	manifest = check(path, version)
+	with _lock(places.backups), zipfile.ZipFile(path) as zf:
+		try:
+			cipher = Fernet(zf.read(KEY_MEMBER).strip())
+		except ValueError:
+			raise BackupError(f"{shown(path)} holds a damaged encryption key.") from None
+		_restore_database(engine, zf, manifest, cipher, None, audit, shown(path))
+	return manifest
+
+
+def _restore_database(engine, zf, manifest, cipher, https_port, audit, name) -> None:
 	with engine.begin() as conn:
 		conn.execute(text("SET LOCAL lock_timeout = '15s'"))
 		cfg = _alembic_config(conn)
@@ -412,11 +433,11 @@ def _restore_database(engine, zf, manifest, cipher, https_port, name) -> None:
 			conn.execute(update(SystemSetting.__table__)
 			             .where(SystemSetting.__table__.c.key == "https_port")
 			             .values(value=https_port))
+		action, detail = audit
 		conn.execute(insert(AuditLog.__table__).values(
-			actor_username="netrollout", action="backup.restored",
+			actor_username="netrollout", action=action,
 			object_type="backup", object_label=name, success=True,
-			detail={"version": manifest.version, "created": manifest.created,
-			        "kind": manifest.kind}))
+			detail=detail))
 
 
 def _reset_sequences(conn: Connection, meta: MetaData) -> None:

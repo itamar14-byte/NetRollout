@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy import create_engine, text
+from sqlalchemy import URL, create_engine, text
 
 from src.db.db_install import install
 
@@ -34,8 +34,11 @@ class PostgresConfig:
 	def get_url(self):
 		if self.url:
 			return self.url
-		return (f"postgresql+psycopg2://{self.user}:{self.password}@"
-		        f"{self.host}:{self.port}/{self.database}")
+		# URL.create escapes: a password with @ / : # stays one password
+		return URL.create("postgresql+psycopg2", username=self.user,
+		                  password=self.password, host=self.host,
+		                  port=int(self.port), database=self.database
+		                  ).render_as_string(hide_password=False)
 
 	def to_env_dict(self) -> dict:
 		# Every key, blank rather than absent: runtime.env is loaded over the

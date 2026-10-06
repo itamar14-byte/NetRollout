@@ -140,7 +140,15 @@ def install(postgres: "PostgresConnection"):
 	except SQLAlchemyError as e:
 		print(f"Initialization Error: {e}")
 		return
+	install_extras(postgres)
+	print("DB Initialized")
 
+
+def install_extras(postgres: "PostgresConnection"):
+	"""What a database holding NetRollout's data needs beyond the data: the
+	pg_cron retention jobs and Grafana's read access - at every start, and
+	after a database move (whose copy brings everything else; nothing is
+	seeded then)."""
 	# 2. Retention jobs (optional). pg_cron exists only where it's installed
 	#    and configured (cron.database_name) — e.g. not on many external /
 	#    managed Postgres servers. Its absence must never block the schema.
@@ -162,4 +170,3 @@ def install(postgres: "PostgresConnection"):
 	except SQLAlchemyError as e:
 		print(f"[NetRollout] Grafana's read access not granted: "
 		      f"{str(e).splitlines()[0]}")
-	print("DB Initialized")

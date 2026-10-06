@@ -5,7 +5,7 @@ from dotenv import dotenv_values, load_dotenv
 from sqlalchemy.exc import OperationalError
 
 from src import runtime
-from src.db.db_install import install
+from src.db.db_install import install, install_extras
 from src.db.postgres_db import PostgresConnection, PostgresConfig
 from src.db.redis_db import RedisConnection, RedisConfig, REDIS_UNAVAILABLE
 from src.db.settings import SettingsStore
@@ -22,6 +22,9 @@ FERNET_PREFIX = "gAAAAA"
 # names (deploy/compose.yaml must use these names)
 BUNDLED_HOSTS = {"POSTGRES": ("localhost", "127.0.0.1", "postgres"),
                  "REDIS": ("localhost", "127.0.0.1", "redis")}
+# runtime.env: the bundled database's connection, kept when a move leaves it
+# (the bundled Postgres keeps running, untouched) - Move back goes there
+BUNDLED_DATABASE_KEY = "NETROLLOUT_BUNDLED_DATABASE_URL"
 
 
 class BackendServices:
@@ -96,6 +99,40 @@ class BackendServices:
 	def reload_postgres(self, config: PostgresConfig):
 		self.postgres.reload_db(config)
 		self._write_config(config.to_env_dict())
+
+	def bundled_postgres(self) -> PostgresConfig | None:
+		"""The bundled database's connection: remembered by the move that left
+		it, or the current one while on it; None if unknown (the database was
+		switched by hand before moves existed)."""
+		remembered = self._config_values().get(BUNDLED_DATABASE_KEY)
+		if remembered:
+			return PostgresConfig(url=remembered)
+		if self.connection_modes()["POSTGRES"] == "bundled":
+			return self.postgres.config
+		return None
+
+	def move_postgres(self, config: PostgresConfig) -> None:
+		"""The switch at the end of a database move (src/webapp/db_move.py):
+		the connection replaced live (pg_cron and Grafana's grants on the new
+		one: install_extras), then runtime.env - leaving the bundled database,
+		its connection is kept there first, for Move back.
+		:raises RuntimeError: the new server doesn't answer (nothing changed)"""
+		leaving = None
+		if self.connection_modes()["POSTGRES"] == "bundled":
+			leaving = self.postgres.engine.url.render_as_string(hide_password=False)
+		# not install(): it would seed the factory admin into a copy whose
+		# admins renamed or removed it
+		self.postgres.reload_db(config, install_flag=False)
+		install_extras(self.postgres)
+		updates = config.to_env_dict()
+		if config.url:          # PG_* blank: the URL is the connection
+			updates.update({k: "" for k in updates}, DATABASE_URL=config.url)
+		if leaving:
+			updates[BUNDLED_DATABASE_KEY] = leaving
+		self._write_config(updates)
+
+	def _config_values(self) -> dict:
+		return dict(dotenv_values(self._CONFIG_ENV)) if self._CONFIG_ENV.exists() else {}
 
 	def reload_redis(self, config: RedisConfig):
 		self.redis.reload_db(config)

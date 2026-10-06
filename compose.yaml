@@ -60,6 +60,9 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       SECRET_KEY: ${SECRET_KEY}
       NETROLLOUT_ENCRYPTION_KEY: ${NETROLLOUT_ENCRYPTION_KEY}
+      # Grafana's read-only database login: filled into a database move's SQL /
+      # created on the target, so the dashboards follow the move (src/db/move.py)
+      GRAFANA_DB_PASSWORD: ${GRAFANA_DB_PASSWORD}
       # The published port (also seeds the System Settings port, first start)
       NETROLLOUT_HTTPS_PORT: ${HTTPS_PORT:-443}
       # This server's addresses, for a generated self-signed certificate
