@@ -35,6 +35,12 @@ python -m src.cli -d <devices.csv> -c <commands.txt> [-vf] [-v]
 - Missing paths are prompted for (asked again until the file exists); a prompted run also asks verify and confirms ("About to push N commands to M devices") before the push — full-flag runs never ask. The verify choice is always printed. Exit code: 0 all devices succeeded, 1 mixed, 2 nothing applied (including a stop before the push: missing file, no devices or commands left), 130 Ctrl+C. Every exit but Ctrl+C waits for Enter when run from a terminal, so a double-clicked window stays readable. `--version` prints the version.
 - **Standalone `netrollout-cli.exe`** (no Python needed; same flags): `pyinstaller --clean --noconfirm netrollout-cli.spec` from the repo root in the dev venv → `dist/netrollout-cli.exe` (one file, ~15 MB, ~2 s startup; logs go to `logs/` next to it). The CLI must not import the web stack — `tests/unit/test_cli.py` guards it, and the spec excludes it. The exe is unsigned: Windows Defender / SmartScreen may flag it (code-signing is post-v1.0).
 
+### Build the release files (stage 9.9b; stage 10's release job calls it)
+```bash
+python tools/build_release.py --version <VERSION> [--linux | --windows] [--test-build] [--feed-base URL] [--notes FILE]
+```
+→ `dist/release-<v>/`: `netrollout-<v>-linux.zip` (the update contract in `src/setup/release.py`: under `netrollout/`, Unix entries with modes, LF), `NetRollout-Setup-<v>.exe` + `netrollout-cli-<v>.exe` (Windows only: the Manager's `build.ps1`, Inno Setup — a local ISCC or its container — and PyInstaller), `SHA256SUMS`, and with `--feed-base` a `release-feed.json` as GitHub's API describes the release (a mirror; or a test of the Manager's Update / `update --feed`). The version must equal `VERSION`. `--test-build` → `dist/test-release-<v>/`, Setup with the test AppId under the name the Manager expects (tests only). `SHIPPED` is the one list of files an install gets besides the images — `tests/unit/test_build_release.py` checks the installer ships the same and every file compose mounts is in it. The images are built and pushed by the release job, not here.
+
 ### Build the app image
 ```bash
 docker build -t netrollout .                              # the version is the VERSION file
