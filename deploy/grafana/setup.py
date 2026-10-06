@@ -38,7 +38,7 @@ from pathlib import Path
 
 GRAFANA = os.environ.get("GRAFANA_URL", "http://grafana:3000").rstrip("/")
 REAPPLY_SECONDS = int(os.environ.get("REAPPLY_SECONDS", "300"))
-# The health check: present once a run succeeded
+# The health check: present while the last run succeeded
 DONE_FILE = Path(os.environ.get("DONE_FILE", "/tmp/grafana-setup.done"))
 DASHBOARDS = Path(os.environ.get("DASHBOARDS_DIR", "/dashboards"))
 API_V2 = "/apis/dashboard.grafana.app/v2/namespaces/default/dashboards"
@@ -243,6 +243,7 @@ def main():
 			DONE_FILE.touch()
 		except Exception as e:      # one readable line in `docker compose logs`
 			log(f"FAILED: {e}")
+			DONE_FILE.unlink(missing_ok=True)      # unhealthy until a run succeeds
 			if once:
 				sys.exit(1)
 		if once:
@@ -256,8 +257,10 @@ def main():
 				stamp = _stamp()
 				try:
 					log(f"the app's database changed: data from {ensure_datasource()}")
+					DONE_FILE.touch()
 				except Exception as e:
 					log(f"FAILED: {e}")
+					DONE_FILE.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":

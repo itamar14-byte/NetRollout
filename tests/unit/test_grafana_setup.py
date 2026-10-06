@@ -74,3 +74,19 @@ def test_the_provisioned_one_of_an_earlier_version_is_reported_not_overwritten(s
 	with pytest.raises(RuntimeError, match="restart Grafana"):
 		setup.ensure_datasource()
 	assert [c[0] for c in grafana.calls] == ["GET"]
+
+
+def test_healthy_means_the_last_run_succeeded(setup, monkeypatch, tmp_path):
+	# the health check is the marker: a failure after a success removes it
+	monkeypatch.setattr(setup, "DONE_FILE", tmp_path / "done")
+	monkeypatch.setattr(setup.sys, "argv", ["setup.py", "--once"])
+	monkeypatch.setattr(setup, "apply", lambda: None)
+	setup.main()
+	assert setup.DONE_FILE.exists()
+
+	def broken():
+		raise RuntimeError("Grafana answered 500")
+	monkeypatch.setattr(setup, "apply", broken)
+	with pytest.raises(SystemExit):
+		setup.main()
+	assert not setup.DONE_FILE.exists()

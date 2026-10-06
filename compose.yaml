@@ -114,6 +114,10 @@ services:
       interval: 10s
       timeout: 5s
       retries: 6
+      # it waits for the certificate and the app at boot: failures then don't
+      # count (`up --wait` gave up on a slow first start once); the first
+      # success ends the period, so a fast start isn't slowed
+      start_period: 60s
 
   # ── Monitoring (COMPOSE_PROFILES=monitoring) ─────────────────────────────
 
@@ -133,6 +137,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 6
+      start_period: 30s
 
   loki:
     <<: *restart
@@ -188,6 +193,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 12
+      # its first start migrates its own database - minutes on a slow machine
+      start_period: 180s
     depends_on:
       postgres:
         condition: service_healthy
@@ -212,6 +219,7 @@ services:
     volumes:
       # the app's connection (config/runtime.env): the data source follows a move
       - ./config:/data/config:ro
+    # healthy = its last run succeeded (setup.py removes the marker on a failure)
     healthcheck:
       test: ["CMD", "test", "-f", "/tmp/grafana-setup.done"]
       interval: 5s

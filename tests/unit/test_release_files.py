@@ -254,3 +254,13 @@ def test_the_database_data_source_is_not_provisioned():
 	assert {d["type"] for d in provisioning["datasources"]} == {"prometheus", "loki"}
 	assert provisioning["deleteDatasources"] == [{"name": "postgresql", "orgId": 1}]
 	assert "GRAFANA_DB_PASSWORD" not in compose()["services"]["grafana"]["environment"]
+
+
+def test_slow_first_starts_have_a_start_period():
+	# failures inside it don't count, so `up --wait` doesn't give up on a slow
+	# machine; Grafana migrates its own database on its first start
+	services = compose()["services"]
+	assert services["grafana"]["healthcheck"]["start_period"] == "180s"
+	assert services["nginx"]["healthcheck"]["start_period"] == "60s"
+	assert services["prometheus"]["healthcheck"]["start_period"] == "30s"
+	assert services["postgres"]["healthcheck"]["start_period"] == "30s"
