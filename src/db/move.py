@@ -188,7 +188,7 @@ def preparation_sql(plan: Plan) -> str:
 	"""The SQL a DBA runs as an administrator (psql), passwords filled in."""
 	db, login, schema = _ident(plan.database), _ident(plan.login), plan.schema or "public"
 	lines = [
-		"-- NetRollout: run as a PostgreSQL administrator (for example in psql)",
+		"-- NetRollout - an example to adapt to your conventions; run as a PostgreSQL administrator (e.g. psql)",
 		f"CREATE ROLE {login} LOGIN PASSWORD {_literal(plan.password)};",
 	]
 	if plan.grafana_password:

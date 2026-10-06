@@ -167,6 +167,9 @@
             <button class="btn btn-outline-primary btn-sm mt-3" type="button" id="mvSqlBtn">
               <i class="bi bi-file-earmark-code me-1"></i>Show the SQL for your administrator</button>
             <div id="mvSqlOut" style="display:none;">
+              <p class="mv-hint mb-0"><i class="bi bi-info-circle me-1"></i><strong>An example for a typical setup.</strong>
+                Your administrator may adapt it to their conventions — names, where the database lives, how logins are
+                managed. What NetRollout needs is the list above; if they change a name or the password, enter theirs in step 2.</p>
               <div class="mv-sql"><pre id="mvSqlText"></pre>
                 <button class="btn btn-outline-secondary btn-sm" type="button" id="mvSqlCopy"><i class="bi bi-clipboard me-1"></i>Copy</button></div>
               <p class="mv-hint" id="mvSqlHint"></p>
@@ -755,19 +758,37 @@
       forget();
     }
 
+    // Show / hide the SQL. It's written once and kept (its password may have
+    // been sent already); written again only for other names.
+    const SHOW_SQL = '<i class="bi bi-file-earmark-code me-1"></i>Show the SQL for your administrator';
+    const HIDE_SQL = '<i class="bi bi-eye-slash me-1"></i>Hide the SQL';
+    let sqlFor = null;
+    const sqlNames = () => [val('mvSqlDb'), val('mvSqlSchema'), val('mvSqlLogin')].join('\u0000');
+    function showSql(on) {
+      $('mvSqlOut').style.display = on ? 'block' : 'none';
+      $('mvSqlBtn').innerHTML = on ? HIDE_SQL : SHOW_SQL;
+      $('mvSqlBtn').setAttribute('aria-expanded', String(on));
+    }
+    ['mvSqlDb', 'mvSqlSchema', 'mvSqlLogin'].forEach(id => $(id).addEventListener('input', () => {
+      if (sqlFor !== null && sqlNames() !== sqlFor) showSql(false);     // it no longer matches
+    }));
     $('mvSqlBtn').addEventListener('click', async () => {
       const btn = $('mvSqlBtn');
+      if ($('mvSqlOut').style.display !== 'none') { showSql(false); return; }
+      if (sqlFor === sqlNames()) { showSql(true); return; }
       busy(btn, true, 'Writing…');
       const d = await call(`${BASE}/sql`, {database: val('mvSqlDb'), schema: val('mvSqlSchema'), login: val('mvSqlLogin')});
       busy(btn, false);
-      if (d.status !== 'ok') { $('mvSqlOut').style.display = 'block'; $('mvSqlHint').innerHTML = error(d.message); return; }
+      if (d.status !== 'ok') { $('mvSqlText').textContent = ''; $('mvSqlHint').innerHTML = error(d.message); showSql(true); return; }
+      sqlFor = sqlNames();
       $('mvSqlText').textContent = d.sql;
       $('mvSqlHint').innerHTML =
-        'This SQL holds a new password for NetRollout\'s login — step 2 below is filled in with it, so keep this ' +
-        'page open until the move (or keep the password). Hand the SQL over securely; showing it again makes a new password.' +
+        'It holds a new password for NetRollout\'s login — step 2 below is filled in with it, so keep this ' +
+        'page open until the move (or keep the password). Hand the SQL over securely. Hiding and showing it keeps ' +
+        'the same password; other names above write it again, with a new one.' +
         (d.grafana_known ? '' : '<br><i class="bi bi-info-circle me-1"></i>Grafana\'s password isn\'t known to this ' +
          'server, so its line is commented out: without it the dashboards stay empty after the move.');
-      $('mvSqlOut').style.display = 'block';
+      showSql(true);
       fillStep2(d);
     });
     $('mvSqlCopy').addEventListener('click', async () => {
