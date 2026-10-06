@@ -12,6 +12,7 @@ connection) is the caller's: src/webapp/db_move.py.
 "The target" is the database *and schema* the connection names (`public`
 unless one is given); other schemas aren't looked at."""
 import secrets
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -37,13 +38,14 @@ class MoveError(Exception):
 
 
 def new_password() -> str:
+	""":returns: a random password for a login NetRollout creates (32 URL-safe characters)"""
 	return secrets.token_urlsafe(24)
 
 
 def engine_for(config: PostgresConfig) -> Engine:
 	"""An engine for a target - as the app would connect (its schema first
 	on the search path), failing fast when the server doesn't answer."""
-	connect_args = {"connect_timeout": CONNECT_SECONDS}
+	connect_args: dict[str, object] = {"connect_timeout": CONNECT_SECONDS}
 	if config.schema:
 		connect_args["options"] = f"-c search_path={config.schema}"
 	return create_engine(config.get_url(), connect_args=connect_args, pool_pre_ping=True)
@@ -66,7 +68,8 @@ class Report:
 	def ok(self) -> bool:
 		return not self.problems
 
-	def as_dict(self) -> dict:
+	def as_dict(self) -> dict[str, object]:
+		""":returns: the report for the page (JSON)"""
 		return {"ok": self.ok, "problems": self.problems, "notes": self.notes,
 		        "server_version": self.server_version, "schema": self.schema,
 		        "contents": self.contents, "others": self.others,
@@ -74,24 +77,32 @@ class Report:
 
 
 def _our_names() -> set[str]:
+	""":returns: the names of NetRollout's tables"""
 	return {t.name for t in Base.metadata.sorted_tables}
 
 
 def _known_revisions() -> set[str]:
+	""":returns: every migration revision this version knows (a database at
+	 one of them is NetRollout's)"""
 	script = ScriptDirectory.from_config(backup._alembic_config())
 	return {r.revision for r in script.walk_revisions()}
 
 
 def check_target(config: PostgresConfig) -> Report:
-	"""Reachable with this login, a recent enough server, a schema the login
-	can create tables in, and nothing there that isn't NetRollout's under a
-	NetRollout table's name."""
+	"""Whether NetRollout can move to a database: reachable with this login, a
+	recent enough server, a schema the login can create tables in, and
+	nothing there that isn't NetRollout's under one of its tables' names.
+
+	:param config: the target - NetRollout's own login, not an administrator's
+	:returns: the problems (any: refused), notes worth knowing, and what the
+	 schema holds (empty / NetRollout's / a clash); never raises - a failed
+	 connection is a problem in the report"""
 	report = Report()
 	engine = engine_for(config)
 	try:
 		with engine.connect() as conn:
-			version = int(conn.execute(text("SHOW server_version_num")).scalar())
-			report.server_version = conn.execute(text("SHOW server_version")).scalar().split()[0]
+			version = int(conn.execute(text("SHOW server_version_num")).scalar_one())
+			report.server_version = conn.execute(text("SHOW server_version")).scalar_one().split()[0]
 			if version < MIN_SERVER_VERSION:
 				report.problems.append(f"PostgreSQL {report.server_version} is too old - "
 				                       f"NetRollout needs 13 or newer.")
@@ -146,6 +157,8 @@ def check_target(config: PostgresConfig) -> Report:
 
 
 def _reason(e: Exception) -> str:
+	""":returns: the first line of the database's own message (else the
+	 exception's type), for the page"""
 	text_ = str(getattr(e, "orig", None) or e).strip().splitlines()
 	return text_[0] if text_ else type(e).__name__
 
@@ -153,10 +166,12 @@ def _reason(e: Exception) -> str:
 # ── Preparing a target ───────────────────────────────────────────────────────
 
 def _ident(name: str) -> str:
+	""":returns: `name` quoted as an SQL identifier (a " inside doubled)"""
 	return '"' + name.replace('"', '""') + '"'
 
 
 def _literal(value: str) -> str:
+	""":returns: `value` quoted as an SQL string literal (a ' inside doubled)"""
 	return "'" + value.replace("'", "''") + "'"
 
 
@@ -185,7 +200,11 @@ ACCESS_NEEDED = (
 
 
 def preparation_sql(plan: Plan) -> str:
-	"""The SQL a DBA runs as an administrator (psql), passwords filled in."""
+	"""The SQL a DBA runs as an administrator (psql) - an example to adapt.
+
+	:param plan: the names, NetRollout's new password and Grafana's (its
+	 line commented out when unknown)
+	:returns: the SQL, one statement per line"""
 	db, login, schema = _ident(plan.database), _ident(plan.login), plan.schema or "public"
 	lines = [
 		"-- NetRollout - an example to adapt to your conventions; run as a PostgreSQL administrator (e.g. psql)",
@@ -209,10 +228,17 @@ def preparation_sql(plan: Plan) -> str:
 
 def prepare_with_admin(host: str, port: str, admin_user: str, admin_password: str,
                        plan: Plan) -> list[str]:
-	"""The same as preparation_sql, done with an administrator login given
-	once (never stored). Creates what's missing; refuses to take over what
-	exists and isn't NetRollout's to change. Returns what was done.
-	:raises MoveError"""
+	"""What preparation_sql describes, done with an administrator login given
+	once (never stored). Creates what's missing; refuses to take over a login
+	or database that exists already.
+
+	:param host: the database server
+	:param port: its port
+	:param admin_user: an administrator login, used for this only
+	:param admin_password: its password, never stored or logged
+	:param plan: the names and the new passwords
+	:returns: what was done, in words ("login nr_app created", ...)
+	:raises MoveError: refused or failed - with what was done before"""
 	done = []
 	admin = PostgresConfig(host=host, port=port, database="postgres",
 	                       user=admin_user, password=admin_password)
@@ -271,16 +297,25 @@ def prepare_with_admin(host: str, port: str, admin_user: str, admin_password: st
 
 @dataclass
 class Copied:
-	backup: Path
-	tables: dict                   # table -> rows, as copied
+	"""What a move's copy did."""
+	backup: Path                   # the before-move backup it restored
+	tables: dict[str, int]         # table -> rows, as copied
 
 
-def copy(source: Engine, target: PostgresConfig, *, detail: dict,
-         places: backup.Places | None = None, report=lambda step: None) -> Copied:
+def copy(source: Engine, target: PostgresConfig, *, detail: dict[str, object],
+         places: backup.Places | None = None,
+         report: Callable[[str], None] = lambda step: None) -> Copied:
 	"""A `before-move` backup of the source, restored into the target (one
 	transaction: the target is unchanged on any failure), the row counts
-	compared. Nothing must write to the source meanwhile (maintenance).
-	:raises MoveError"""
+	compared. Nothing may write to the source meanwhile (maintenance).
+
+	:param source: the database NetRollout uses now
+	:param target: where its data goes (prepared and checked)
+	:param detail: what the `database.moved` audit row records (from, to, by)
+	:param places: where the backup is written; the app's folders when None
+	:param report: told each step as it starts, for the page
+	:returns: the backup made and the rows copied, by table
+	:raises MoveError: refused or failed - NetRollout's database unchanged"""
 	report("Backing up this database")
 	try:
 		path = backup.create(source, "before-move", places)
@@ -298,7 +333,7 @@ def copy(source: Engine, target: PostgresConfig, *, detail: dict,
 			raise MoveError(f"Copying failed: {_reason(e)} - nothing was changed.") from None
 		report("Comparing row counts")
 		with engine.connect() as conn:
-			counted = {t: conn.execute(text(f'SELECT count(*) FROM "{t}"')).scalar()
+			counted = {t: conn.execute(text(f'SELECT count(*) FROM "{t}"')).scalar_one()
 			           for t in manifest.tables}
 		expected = dict(manifest.tables)
 		expected["audit_log"] = expected.get("audit_log", 0) + 1     # database.moved

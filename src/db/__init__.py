@@ -1,3 +1,5 @@
+"""NetRollout's database layer: the connections, the tables, the settings,
+the migrations (alembic/) and a database move."""
 from .postgres_db import PostgresConnection
 from .redis_db import RedisConnection
 from .tables import (User, Inventory, SecurityProfile, VariableMapping,

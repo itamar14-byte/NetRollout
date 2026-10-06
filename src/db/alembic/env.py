@@ -4,6 +4,7 @@ from pathlib import Path
 
 from alembic import context
 from dotenv import load_dotenv
+from sqlalchemy.engine import Connection
 
 # make project root importable
 ROOT = Path(__file__).resolve().parents[3]
@@ -50,7 +51,8 @@ def run_migrations_offline() -> None:
 		context.run_migrations()
 
 
-def _migrate(connection) -> None:
+def _migrate(connection: Connection) -> None:
+	"""Run the migrations on `connection`, in one transaction."""
 	context.configure(connection=connection, target_metadata=target_metadata)
 	with context.begin_transaction():
 		context.run_migrations()

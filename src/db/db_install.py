@@ -1,9 +1,13 @@
+"""The database's set-up at every start (install: migrations, the factory
+admin, the settings' rows) and what NetRollout's data needs around it: the
+nightly clean-up's statements, Grafana's read access."""
 import os
 from typing import TYPE_CHECKING
 
 from alembic import command as alembic_command
 from alembic.config import Config as AlembicConfig
 from sqlalchemy import text
+from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.exc import SQLAlchemyError
 from werkzeug.security import generate_password_hash
 
@@ -24,6 +28,8 @@ if TYPE_CHECKING:
 
 
 def _older_than(column: str, setting: str) -> str:
+	"""SQL: `column` is older than the setting's number of days (read from
+	system_settings when the statement runs)."""
 	return f"{column} < NOW() - make_interval(days => {sql_value(setting)})"
 
 
@@ -49,10 +55,14 @@ RETENTION_STATEMENTS = {
 }
 
 
-def run_retention(engine) -> dict[str, int]:
+def run_retention(engine: Engine) -> dict[str, int]:
 	"""The retention statements, once, in one transaction (the app runs them
 	daily: src/webapp/retention.py). Each reads its period from
-	system_settings. Returns the rows each touched."""
+	system_settings.
+
+	:param engine: the database NetRollout uses
+	:returns: the rows each statement touched, by its name
+	:raises sqlalchemy.exc.SQLAlchemyError: the database failed - nothing changed"""
 	with engine.begin() as conn:
 		return {name: conn.execute(text(statement)).rowcount
 		        for name, statement in RETENTION_STATEMENTS.items()}
@@ -66,11 +76,14 @@ GRAFANA_ROLE = "grafana_reader"
 GRAFANA_TABLES = ("device_results", "job_metadata", "audit_log")
 
 
-def _grant_grafana_read(conn, role: str = GRAFANA_ROLE) -> bool:
+def _grant_grafana_read(conn: Connection, role: str = GRAFANA_ROLE) -> bool:
 	"""Exactly GRAFANA_TABLES readable by `role`, in the app's schema —
 	repeated at every start (a table a migration recreates keeps it). Only
-	where the role exists (the bundled Postgres creates it); returns whether
-	it was applied."""
+	where the role exists (the bundled Postgres creates it).
+
+	:param conn: the app's own connection (the tables' owner may grant)
+	:param role: Grafana's read-only login
+	:returns: whether it was applied (False: no such login here)"""
 	if not conn.execute(text("SELECT 1 FROM pg_roles WHERE rolname = :r"),
 	                    {"r": role}).scalar():
 		return False
@@ -82,10 +95,15 @@ def _grant_grafana_read(conn, role: str = GRAFANA_ROLE) -> bool:
 	return True
 
 
-def install(postgres: "PostgresConnection"):
-	# 1. Schema (essential). Migrations run on the app's own connection, so
-	#    they hit the exact database/credentials/schema the app uses — also
-	#    after a Server Management switch, and without DATABASE_URL.
+def install(postgres: "PostgresConnection") -> None:
+	"""Bring the database up to this version, at every start: the migrations,
+	the factory admin when missing, a row for every setting, then
+	install_extras. Idempotent. A database error is printed, not raised - the
+	app starts and its pages say what's down.
+
+	:param postgres: the app's connection - migrations run on it, so they hit
+	 the exact database, login and schema the app uses (after a database move
+	 too, and without DATABASE_URL)"""
 	try:
 		alembic_cfg = AlembicConfig(os.path.join(os.path.dirname(__file__),
 		                                         'alembic.ini'))
@@ -118,7 +136,7 @@ def install(postgres: "PostgresConnection"):
 	print("DB Initialized")
 
 
-def install_extras(postgres: "PostgresConnection"):
+def install_extras(postgres: "PostgresConnection") -> None:
 	"""What a database holding NetRollout's data needs beyond the data:
 	Grafana's read access - at every start, and after a database move (whose
 	copy brings everything else; nothing is seeded then)."""

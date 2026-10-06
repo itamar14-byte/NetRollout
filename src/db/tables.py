@@ -1,3 +1,7 @@
+"""NetRollout's database tables (SQLAlchemy models). The schema itself is
+the migrations' (src/db/alembic/versions) - a change here needs a new
+revision. Each user's devices, profiles, mappings and properties are their
+own; global devices are shared."""
 import uuid
 from datetime import datetime
 
@@ -9,8 +13,9 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship, DeclarativeBase
 
 
 class Base(DeclarativeBase):
-	pass
+	"""Every NetRollout table (Base.metadata: the migrations' target)."""
 
+# which devices a variable mapping applies to (many to many)
 var_mapping_to_devices = Table("var_mapping_to_devices",
                                Base.metadata,
                                Column("mapping_id", Uuid,
@@ -22,6 +27,9 @@ var_mapping_to_devices = Table("var_mapping_to_devices",
 
 
 class User(UserMixin, Base):
+	"""A person who signs in: local (a password, 2FA) or from LDAP (the
+	directory checks the password). Owns their devices, profiles, mappings,
+	properties and rollouts."""
 	__tablename__ = 'users'
 	id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True,
 	                                      default=uuid.uuid4)
@@ -34,14 +42,15 @@ class User(UserMixin, Base):
 	# "admin" or "operator" — the app only ever checks for "admin"
 	role: Mapped[str] = mapped_column(String(40), default='operator',
 	                                  nullable=False)
-	position: Mapped[str] = mapped_column(String(64), nullable=True)
+	position: Mapped[str | None] = mapped_column(String(64), nullable=True)
 	is_active: Mapped[bool] = mapped_column(Boolean, default=False,
 	                                        nullable=False)
 	is_approved: Mapped[bool] = mapped_column(Boolean, default=False,
 	                                          nullable=False)
 	created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now,
 	                                             nullable=False)
-	otp_secret: Mapped[str] = mapped_column(String(255), nullable=True)
+	# encrypted; None until 2FA is enrolled (LDAP users and the factory admin never)
+	otp_secret: Mapped[str | None] = mapped_column(String(255), nullable=True)
 	# The seeded admin and a user after an admin reset: every page redirects
 	# to the change-password page until they pick their own password
 	must_change_password: Mapped[bool] = mapped_column(
@@ -70,6 +79,8 @@ class User(UserMixin, Base):
 
 
 class SecurityProfile(Base):
+	"""Device login credentials, encrypted (password, enable secret), shared
+	by the devices assigned to it."""
 	__tablename__ = 'security_profiles'
 	id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True,
 	                                      default=uuid.uuid4)
@@ -77,7 +88,7 @@ class SecurityProfile(Base):
 	label: Mapped[str | None] = mapped_column(String(64), nullable=True)
 	username: Mapped[str] = mapped_column(String(64), nullable=False)
 	password_secret: Mapped[str] = mapped_column(String(255), nullable=False)
-	enable_secret: Mapped[str] = mapped_column(String(255), nullable=True)
+	enable_secret: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
 	user_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id"),
 	                                           nullable=False)
@@ -88,6 +99,9 @@ class SecurityProfile(Base):
 
 
 class Inventory(Base):
+	"""A device: where it is (ip:port), what it is (Netmiko device type), its
+	login (a security profile) and its attribute values for variable
+	mappings (var_maps)."""
 	__tablename__ = 'inventory'
 	id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True,
 	                                      default=uuid.uuid4)
@@ -105,10 +119,10 @@ class Inventory(Base):
 
 	user_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id"),
 	                                           nullable=False)
-	sec_profile_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey(
+	sec_profile_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey(
 		"security_profiles.id"), nullable=True)
 
-	security_profile: Mapped["SecurityProfile"] = relationship(
+	security_profile: Mapped["SecurityProfile | None"] = relationship(
 		back_populates="inventory")
 	user: Mapped["User"] = relationship(back_populates="inventory")
 	var_mappings: Mapped[list["VariableMapping"]] = \
@@ -116,11 +130,13 @@ class Inventory(Base):
 
 
 class VariableMapping(Base):
+	"""A token in rollout commands ($$token$$) replaced, per device, by one of
+	its attribute values - for the devices it's assigned to."""
 	__tablename__ = 'variable_mappings'
 	__table_args__ = (UniqueConstraint('token', 'user_id'),)
 	id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True,
 	                                      default=uuid.uuid4)
-	label: Mapped[str] = mapped_column(String(64), nullable=True)
+	label: Mapped[str | None] = mapped_column(String(64), nullable=True)
 	# token to replace in _commands, in $$token$$ format
 	token: Mapped[str] = mapped_column(String(64), nullable=False)
 	# device attribute name to substitute
@@ -139,6 +155,8 @@ class VariableMapping(Base):
 
 
 class DeviceResult(Base):
+	"""One device's outcome in one rollout (job_id): status, commands sent and
+	verified, the fetched config, anything a person must do."""
 	__tablename__ = 'device_results'
 	id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True,
 	                                      default=uuid.uuid4)
@@ -167,12 +185,14 @@ class DeviceResult(Base):
 
 
 class JobMetadata(Base):
+	"""A rollout's commands and comment, as submitted (its results are
+	device_results with the same job_id)."""
 	__tablename__ = 'job_metadata'
 	id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True,
 	                                      default=uuid.uuid4)
 	job_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
 	commands: Mapped[list[str]] = mapped_column(JSON, nullable=False)
-	comment: Mapped[str] = mapped_column(String(255), nullable=True)
+	comment: Mapped[str | None] = mapped_column(String(255), nullable=True)
 	created_at: Mapped[datetime] = mapped_column(DateTime,
 	                                             default=datetime.now,
 	                                             nullable=False)
@@ -184,6 +204,8 @@ class JobMetadata(Base):
 
 
 class AuditLog(Base):
+	"""Who did what, when, from where - append-only (the nightly clean-up
+	removes rows past the audit retention)."""
 	__tablename__ = 'audit_log'
 	id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True,
 	                                      default=uuid.uuid4)
@@ -204,6 +226,8 @@ class AuditLog(Base):
 
 
 class PropertyDefinition(Base):
+	"""A device attribute a user defined (name, label, icon; one value or a
+	list) - what variable mappings substitute."""
 	__tablename__ = 'property_definition'
 	__table_args__ = (UniqueConstraint('name', 'user_id'),)
 	id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True,
@@ -221,6 +245,7 @@ class PropertyDefinition(Base):
 
 
 class LDAPServer(Base):
+	"""A directory people sign in through (its bind password encrypted)."""
 	__tablename__ = 'ldap_servers'
 	id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True,
 	                                      default=uuid.uuid4)
@@ -249,6 +274,7 @@ class LDAPServer(Base):
 
 
 class LDAPGroup(Base):
+	"""A directory group whose members may sign in, and the role they get."""
 	__tablename__ = 'ldap_groups'
 	id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True,
 	                                      default=uuid.uuid4)

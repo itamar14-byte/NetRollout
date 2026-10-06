@@ -1,3 +1,6 @@
+"""NetRollout's Redis connection: its settings (from config/runtime.env or the
+environment) and one client the whole app shares - every user looks the
+client up per call, so a Server Management switch takes effect at once."""
 import os
 from dataclasses import dataclass
 
@@ -18,14 +21,17 @@ REDIS_UNAVAILABLE = (redis.exceptions.ConnectionError,
 
 @dataclass(frozen=True)
 class RedisConfig:
+	"""Where Redis is: a URL, or host / port / database number / password."""
 	host: str = "localhost"
 	port: str = "6379"
 	db: str = "0"
 	password: str | None = None
-	url: str | None = None
+	url: str | None = None      # wins over the parts when set
 
 	@classmethod
-	def unload_env(cls):
+	def unload_env(cls) -> "RedisConfig":
+		"""The settings from the environment (REDIS_URL, else REDIS_HOST /
+		_PORT / _DB / _PASSWORD), with the defaults for what's missing."""
 		return cls(
 			os.getenv("REDIS_HOST", "localhost"),
 			os.getenv("REDIS_PORT", "6379"),
@@ -34,22 +40,24 @@ class RedisConfig:
 			os.getenv("REDIS_URL")
 		)
 
-	def get_url(self):
+	def get_url(self) -> str:
+		""":returns: the redis:// URL to connect with (the password in it)"""
 		if self.url:
 			return self.url
 		if self.password:
 			return f"redis://:{self.password}@{self.host}:{self.port}/{self.db}"
 		return f"redis://{self.host}:{self.port}/{self.db}"
 
-	def place(self) -> tuple:
+	def place(self) -> tuple[str | None, int, int]:
 		"""Which Redis: server, port, database number, whatever the password."""
 		parts = parse_url(self.get_url())
 		return (parts.get("host"), int(parts.get("port") or 6379), int(parts.get("db") or 0))
 
-	def to_env_dict(self) -> dict:
-		# Every key, blank rather than absent: runtime.env is loaded over the
-		# container environment, and an inherited REDIS_URL or REDIS_PASSWORD
-		# would otherwise still apply after the switch
+	def to_env_dict(self) -> dict[str, str]:
+		"""The settings as config/runtime.env keys - every key, blank rather
+		than absent: runtime.env is loaded over the container environment, and
+		an inherited REDIS_URL or REDIS_PASSWORD would otherwise still apply
+		after a switch."""
 		return {
 			"REDIS_HOST": self.host,
 			"REDIS_PORT": self.port,
@@ -59,14 +67,18 @@ class RedisConfig:
 		}
 
 
-	
+
 class RedisConnection:
+	"""The app's Redis client, replaceable live (reload_db)."""
+
 	def __init__(self, config: RedisConfig | None = None):
+		""":param config: where Redis is; the environment's settings when None"""
 		self.config = config or RedisConfig.unload_env()
 		self.client = self._build_client(self.config)
-		
+
 	@staticmethod
 	def _build_client(config: RedisConfig) -> redis.Redis:
+		"""A client with short timeouts and one retry, not connected yet."""
 		# Without explicit timeouts an unreachable (silent) host costs the OS
 		# connect timeout on every attempt, times redis-py's default retries
 		# — ~20s per request. SOCKET_TIMEOUT must stay above the
@@ -76,16 +88,23 @@ class RedisConnection:
 							  socket_timeout=SOCKET_TIMEOUT,
 							  retry=Retry(NoBackoff(), 1))
 
-	def test_connection(self):
+	def test_connection(self) -> bool:
+		""":returns: True when Redis answers a PING
+		:raises redis.exceptions.ConnectionError: refused
+		:raises redis.exceptions.TimeoutError: no answer (see REDIS_UNAVAILABLE)"""
 		self.client.ping()
 		return True
 
-	
-	def reload_db(self, config: RedisConfig | None = None):
+	def reload_db(self, config: RedisConfig | None = None) -> None:
+		"""Switch to another Redis live: the new client is checked first, then
+		swapped in and the old one closed.
+
+		:param config: the new Redis; the environment's settings when None
+		:raises RuntimeError: the new server refused the connection - nothing
+		 changed"""
 		new_config = config or RedisConfig.unload_env()
 		new_client = self._build_client(new_config)
 
-		# validate connection before swapping
 		try:
 			new_client.ping()
 		except redis.exceptions.ConnectionError:
@@ -97,6 +116,6 @@ class RedisConnection:
 
 		old_client.close()
 
-	def disconnect(self):
+	def disconnect(self) -> None:
+		"""Close the client's connections (it reconnects when used again)."""
 		self.client.close()
-

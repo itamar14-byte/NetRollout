@@ -1,3 +1,6 @@
+"""BackendServices: the app's PostgreSQL and Redis connections and its
+settings, as one object - plus what Server Management changes about them
+(a database move, a Redis switch) and remembers in config/runtime.env."""
 import os
 from functools import cached_property
 
@@ -34,24 +37,29 @@ GRAFANA_SSLMODE_KEY = "NETROLLOUT_GRAFANA_SSLMODE"
 
 
 class BackendServices:
-	def __init__(self):
-		# config/runtime.env holds only what Server Management wrote (a
-		# database / Redis switch); it wins over the container environment
-		# (the installer's .env), which wins over the code defaults
+	"""PostgreSQL, Redis and the settings, one of each per process."""
+
+	def __init__(self) -> None:
+		"""Connect, bring the database up to this version (install), and
+		connect Redis. The settings come from config/runtime.env (only what
+		Server Management wrote: a database move, a Redis switch), which wins
+		over the environment (the installer's .env), which wins over the code's
+		defaults."""
 		self._CONFIG_ENV = runtime.runtime_env()
 		load_dotenv(self._CONFIG_ENV, override=True)
-		#initialize db instances
 		self.postgres = PostgresConnection()
 		install(self.postgres)
 		self.redis = RedisConnection()
 
 	@cached_property
 	def settings(self) -> SettingsStore:
-		# the connection is looked up per call: follows a Server Management
-		# database switch
+		"""The System Settings - their connection looked up per call, so a
+		database move is followed."""
 		return SettingsStore(lambda: self.postgres)
 
-	def health(self):
+	def health(self) -> dict[str, bool]:
+		""":returns: {"POSTGRES": up, "REDIS": up} - each asked now, a failure
+		 caught (never raises)"""
 		try:
 			postgres_up = self.postgres.test_connection()
 		except OperationalError:
@@ -79,20 +87,26 @@ class BackendServices:
 					return value
 		return None
 
-	def _write_config(self, updates: dict):
+	def _write_config(self, updates: dict[str, str]) -> None:
+		"""Merge `updates` into config/runtime.env - atomically (a crash
+		mid-write can't leave half a file) and owner-only (it holds database
+		and Redis passwords)."""
 		cfg = dict(dotenv_values(self._CONFIG_ENV)) if \
 			self._CONFIG_ENV.exists() else {}
 		cfg.update(updates)
-		# Atomic (a crash mid-write can't leave half a file) and owner-only:
-		# it holds database / Redis passwords
 		self._CONFIG_ENV.parent.mkdir(parents=True, exist_ok=True)
 		tmp = self._CONFIG_ENV.with_name(self._CONFIG_ENV.name + ".tmp")
 		tmp.write_text("\n".join(f"{k}={v}" for k, v in cfg.items()) + "\n")
 		os.chmod(tmp, 0o600)
 		os.replace(tmp, self._CONFIG_ENV)
 
-	def connection_modes(self):
-		# The host of the live connection: with a DATABASE_URL / REDIS_URL,
+	def connection_modes(self) -> dict[str, str]:
+		"""Whether NetRollout uses the bundled services or an organisation's.
+
+		:returns: {"POSTGRES": "bundled" | "external", "REDIS": ...} - by host
+		 (the compose names, localhost), or by the whole address once a move or
+		 switch has remembered the bundled one's"""
+		# the live connection's host: with a DATABASE_URL / REDIS_URL,
 		# config.host is only the default
 		hosts = {
 			"POSTGRES": self.postgres.engine.url.host,
@@ -111,10 +125,6 @@ class BackendServices:
 			modes["REDIS"] = ("bundled" if RedisConfig(url=remembered[BUNDLED_REDIS_KEY]).place()
 			                  == self.redis.config.place() else "external")
 		return modes
-
-	def reload_postgres(self, config: PostgresConfig):
-		self.postgres.reload_db(config)
-		self._write_config(config.to_env_dict())
 
 	def bundled_postgres(self) -> PostgresConfig | None:
 		"""The bundled database's connection: remembered by the move that left
@@ -149,6 +159,8 @@ class BackendServices:
 		self._write_config(updates)
 
 	def _uses_tls(self) -> bool:
+		""":returns: whether the app's own database connection is encrypted
+		 (Grafana's then is too); False when it can't be asked"""
 		try:
 			with self.postgres.engine.connect() as conn:
 				return bool(conn.execute(text(
@@ -156,7 +168,8 @@ class BackendServices:
 		except SQLAlchemyError:
 			return False
 
-	def _config_values(self) -> dict:
+	def _config_values(self) -> dict[str, str | None]:
+		""":returns: config/runtime.env's keys ({} when there's no file)"""
 		return dict(dotenv_values(self._CONFIG_ENV)) if self._CONFIG_ENV.exists() else {}
 
 	def bundled_redis(self) -> RedisConfig | None:
@@ -169,7 +182,7 @@ class BackendServices:
 			return self.redis.config
 		return None
 
-	def reload_redis(self, config: RedisConfig):
+	def reload_redis(self, config: RedisConfig) -> None:
 		"""A live switch (Server Management): the client replaced - every user
 		of it looks the current one up - then runtime.env; leaving the bundled
 		Redis, its address is kept there first, for the way back.

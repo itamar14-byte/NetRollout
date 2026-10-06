@@ -19,7 +19,7 @@ import os
 import re
 import uuid
 from dataclasses import dataclass
-from typing import Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -27,12 +27,21 @@ from sqlalchemy.orm import Session
 from src.db.tables import SystemSetting
 from src.logging_utils import LOG_RETENTION_DAYS
 
+if TYPE_CHECKING:   # annotations only: postgres_db imports this module's users
+	from src.db.postgres_db import PostgresConnection
+
 
 AFTER_RESTART = "after restart"
 
 
+# a setting's value: an int setting's number, a str setting's text
+Value = int | str
+
+
 @dataclass(frozen=True)
 class Setting:
+	"""One System Setting: its type and rules, what the page says about it,
+	when a change applies and what a new install starts with."""
 	key: str
 	label: str
 	help: str
@@ -55,38 +64,47 @@ class Setting:
 	# dropdown on the page
 	choices: tuple[tuple[str, str], ...] | None = None
 
-	def parse(self, raw):
-		"""Raw input (form string, JSON value, env string) → typed value.
-		Raises ValueError with a message for the page."""
+	def parse(self, raw: object) -> Value:
+		"""Raw input made a valid value.
+
+		:param raw: what was typed or stored - a form string, a JSON value, an
+		 environment string
+		:returns: the value, of the setting's kind
+		:raises ValueError: why not, as the page shows it after the label
+		 ("must be at least 1")"""
 		if self.choices:
-			value = "" if raw is None else str(raw).strip()
-			if value not in (c[0] for c in self.choices):
+			choice = "" if raw is None else str(raw).strip()
+			if choice not in (c[0] for c in self.choices):
 				raise ValueError("must be one of: " +
 				                 ", ".join(label for _, label in self.choices))
-			return value
+			return choice
 		if self.kind is int:
-			if isinstance(raw, bool):
+			if isinstance(raw, bool):      # JSON true is an int to Python
 				raise ValueError("must be a whole number")
 			try:
-				value = int(str(raw).strip())
+				number = int(str(raw).strip())
 			except (TypeError, ValueError):
 				raise ValueError("must be a whole number") from None
-			if self.minimum is not None and value < self.minimum:
+			if self.minimum is not None and number < self.minimum:
 				raise ValueError(f"must be at least {self.minimum}")
-			if self.maximum is not None and value > self.maximum:
+			if self.maximum is not None and number > self.maximum:
 				raise ValueError(f"must be at most {self.maximum}")
-			return value
-		value = "" if raw is None else str(raw).strip()
-		if self.max_length is not None and len(value) > self.max_length:
+			return number
+		text = "" if raw is None else str(raw).strip()
+		if self.max_length is not None and len(text) > self.max_length:
 			raise ValueError(f"must be at most {self.max_length} characters")
-		if value and self.pattern and not re.fullmatch(self.pattern, value):
+		if text and self.pattern and not re.fullmatch(self.pattern, text):
 			raise ValueError(self.pattern_hint or "has an invalid format")
-		return value
+		return text
 
-	def coerce(self, stored) -> tuple[object, str | None]:
-		"""A stored value made usable: (value, problem). Out of range → the
-		nearest valid value (e.g. a range tightened in a release); unreadable
-		→ the default. Never raises — reading a setting must not crash."""
+	def coerce(self, stored: object) -> tuple[Value | None, str | None]:
+		"""A stored value made usable. Never raises - reading a setting must
+		not crash.
+
+		:param stored: the row's value
+		:returns: (value, problem): out of range -> the nearest valid value (a
+		 range tightened in a release); unreadable -> the default; problem is
+		 None when the stored value was fine, else what was wrong, for the log"""
 		try:
 			return self.parse(stored), None
 		except ValueError as e:
@@ -100,7 +118,7 @@ class Setting:
 					pass
 			return self.default, f"{stored!r} {e}"
 
-	def seed_value(self):
+	def seed_value(self) -> Value | None:
 		"""Value for a new row: the install-time env value if valid, else the
 		default."""
 		raw = os.environ.get(self.env) if self.env else None
@@ -221,7 +239,9 @@ class Rule:
 	right: str
 	message: str
 
-	def holds(self, values: dict) -> bool:
+	def holds(self, values: dict[str, Any]) -> bool:
+		""":param values: every setting's value, by key (saved merged with new);
+		 a rule's two settings are numbers"""
 		return _OPS[self.op](values[self.left], values[self.right])
 
 
@@ -242,7 +262,7 @@ for _r in RULES:
 	assert _r.op in _OPS and _r.left in SETTINGS and _r.right in SETTINGS
 
 
-def rules_for_client() -> list[dict]:
+def rules_for_client() -> list[dict[str, str]]:
 	"""The rules as data, for the page's browser-side checks."""
 	return [{"left": r.left, "op": r.op, "right": r.right,
 	         "message": r.message} for r in RULES]
@@ -253,14 +273,17 @@ def sql_value(key: str) -> str:
 	Postgres. The row always exists after seeding; the COALESCE is only a
 	safety net if seeding failed."""
 	s = SETTINGS[key]
-	assert s.sql and s.kind is int
+	assert s.sql and s.kind is int and isinstance(s.default, int)
 	return (f"COALESCE((SELECT (value #>> '{{}}')::int FROM system_settings "
-	        f"WHERE key = '{key}'), {int(s.default)})")
+	        f"WHERE key = '{key}'), {s.default})")
 
 
 def seed_settings(db_session: Session) -> list[str]:
 	"""Insert every missing setting (install value or default); never touch
-	existing rows. Returns problems found in existing rows, for the log."""
+	existing rows.
+
+	:param db_session: committed by the caller
+	:returns: problems found in existing rows, for the log"""
 	existing = {r.key: r.value for r in db_session.query(SystemSetting)}
 	for key, s in SETTINGS.items():
 		if key not in existing:
@@ -284,6 +307,7 @@ class SettingsError(ValueError):
 
 @dataclass(frozen=True)
 class Change:
+	"""A setting saved with another value (for the audit and nginx)."""
 	key: str
 	old: object
 	new: object
@@ -294,30 +318,35 @@ class SettingsStore:
 	live connection, looked up per call, so a Server Management database
 	switch is followed."""
 
-	def __init__(self, postgres: Callable):
+	def __init__(self, postgres: Callable[[], "PostgresConnection"]):
+		""":param postgres: returns the connection in use now"""
 		self._postgres = postgres
 
 	# ── reading ──
 	def _rows(self) -> dict[str, SystemSetting]:
+		"""Every row, detached from its session (read after it closes)."""
 		with self._postgres().get_session() as db_session:
 			rows = {r.key: r for r in db_session.query(SystemSetting)}
 			db_session.expunge_all()
 			return rows
 
 	@staticmethod
-	def _value(s: Setting, rows: dict) -> object:
+	def _value(s: Setting, rows: dict[str, SystemSetting]) -> Any:
 		row = rows.get(s.key)
 		# a missing row only happens if seeding failed: use the default
 		return s.coerce(row.value)[0] if row is not None else s.default
 
-	def get(self, key: str):
+	def get(self, key: str) -> Any:
+		""":returns: the setting's value now (one query) - an int setting's
+		 number, a str setting's text (Any: the type depends on the key)"""
 		return self._value(SETTINGS[key], self._rows())
 
-	def values(self) -> dict[str, object]:
+	def values(self) -> dict[str, Any]:
+		""":returns: every setting's value, by key (one query)"""
 		rows = self._rows()
 		return {k: self._value(s, rows) for k, s in SETTINGS.items()}
 
-	def restart_only_values(self) -> dict[str, object]:
+	def restart_only_values(self) -> dict[str, Any]:
 		"""Settings that apply after a restart, as the process starts with
 		them. At startup the DB may be unreachable — the defaults then."""
 		keys = [k for k, s in SETTINGS.items() if s.applies == AFTER_RESTART]
@@ -327,19 +356,19 @@ class SettingsStore:
 			current = {k: SETTINGS[k].default for k in keys}
 		return {k: current[k] for k in keys}
 
-	def restart_pending(self, started_with: dict) -> list[str]:
+	def restart_pending(self, started_with: dict[str, object]) -> list[str]:
 		"""Labels of restart-only settings saved with a different value than
 		the running process uses."""
 		saved = self.values()
 		return [SETTINGS[k].label for k, v in started_with.items()
 		        if saved.get(k) != v]
 
-	def list_for_display(self) -> list[dict]:
+	def list_for_display(self) -> list[dict[str, object]]:
 		"""Every setting in registry order, with what the page shows: value,
 		default, whether it differs from the default and whether that came
 		from the install (seeded from env, never changed by an admin)."""
 		rows = self._rows()
-		out = []
+		out: list[dict[str, object]] = []
 		for s in SETTINGS.values():
 			row = rows.get(s.key)
 			value = self._value(s, rows)
@@ -360,12 +389,18 @@ class SettingsStore:
 		return out
 
 	# ── changing ──
-	def _check_rules(self, merged: dict, touched: set[str]) -> dict:
+	def _check_rules(self, merged: dict[str, object], touched: set[str]) -> dict[str | None, str]:
+		"""The rules that would break, for the settings being changed only.
+
+		:param merged: every setting's value with the new ones applied
+		:param touched: the settings being changed
+		:returns: {None: message} per broken rule (no field to show it under)"""
 		return {None: r.message for r in RULES
 		        if (r.left in touched or r.right in touched)
 		        and not r.holds(merged)}
 
-	def _write(self, values: dict[str, object], user_id) -> None:
+	def _write(self, values: dict[str, object], user_id: uuid.UUID | None) -> None:
+		"""Save values (validated already) and who did it (None: the system)."""
 		with self._postgres().get_session() as db_session:
 			for key, value in values.items():
 				row = db_session.get(SystemSetting, key)
@@ -376,18 +411,27 @@ class SettingsStore:
 					row.value, row.updated_by = value, user_id
 
 	def update(self, raw: dict[str, object], user_id: uuid.UUID | None) -> list[Change]:
-		"""Validate and save several settings at once; returns what changed.
-		All-or-nothing: raises SettingsError without saving on any problem."""
+		"""Validate and save several settings at once, all or nothing.
+
+		:param raw: the new values by key, as typed
+		:param user_id: who saves them (None: the system)
+		:returns: what changed (a value equal to the saved one isn't a change)
+		:raises SettingsError: any problem - nothing is saved"""
 		changes = self.plan(raw)
 		if changes:
 			self._write({c.key: c.new for c in changes}, user_id)
 		return changes
 
 	def plan(self, raw: dict[str, object]) -> list[Change]:
-		"""What update() would change — validated, nothing written. Raises
-		SettingsError. (Lets a caller prepare side effects, e.g. nginx for a
-		new hostname, before anything is saved.)"""
-		errors, parsed = {}, {}
+		"""What update() would change - validated, nothing written. Lets a
+		caller prepare side effects (nginx for a new hostname) before anything
+		is saved.
+
+		:param raw: the new values by key, as typed
+		:returns: what would change
+		:raises SettingsError: any problem, by key"""
+		errors: dict[str | None, str] = {}
+		parsed: dict[str, Value] = {}
 		for key, value in raw.items():
 			s = SETTINGS.get(key)
 			if s is None or not s.editable:
@@ -408,7 +452,9 @@ class SettingsStore:
 
 	def reset(self, key: str, user_id: uuid.UUID | None) -> Change | None:
 		"""Back to the default (written into the row, like any change).
-		Refused (SettingsError) if the result would break a rule."""
+
+		:returns: the change; None when it was the default already
+		:raises SettingsError: the result would break a rule - nothing saved"""
 		s = SETTINGS[key]
 		current = self.values()
 		if current[key] == s.default:
