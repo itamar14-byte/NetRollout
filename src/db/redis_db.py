@@ -100,14 +100,14 @@ class RedisConnection:
 		swapped in and the old one closed.
 
 		:param config: the new Redis; the environment's settings when None
-		:raises RuntimeError: the new server refused the connection - nothing
-		 changed"""
+		:raises RuntimeError: the new server refused or didn't answer -
+		 nothing changed"""
 		new_config = config or RedisConfig.unload_env()
 		new_client = self._build_client(new_config)
 
 		try:
 			new_client.ping()
-		except redis.exceptions.ConnectionError:
+		except REDIS_UNAVAILABLE:      # refused, or no answer (a TimeoutError)
 			raise RuntimeError("New server unavailable")
 
 		old_client = self.client
