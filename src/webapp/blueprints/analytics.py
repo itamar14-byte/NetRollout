@@ -2,10 +2,11 @@ import uuid
 from collections import Counter
 from datetime import datetime, timedelta
 
-from flask import Blueprint, render_template, current_app, request, jsonify
+from flask import Blueprint, render_template, request, jsonify
 from flask_login import current_user, login_required
 
 from src.db.tables import DeviceResult, Inventory, User
+from src.webapp.flask_app import current_app
 from src.webapp.utils import (err, with_json, build_kpi,
                               compile_query_rules)
 

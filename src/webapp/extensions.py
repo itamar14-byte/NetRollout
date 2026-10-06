@@ -3,8 +3,7 @@ import time
 import uuid
 
 import flask_wtf.csrf as csrf_err
-from flask import (request, redirect, url_for, render_template, session,
-                   flash, current_app, Response)
+from flask import request, redirect, url_for, render_template, session, flash, Response
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from flask_login import LoginManager, current_user, logout_user
@@ -18,6 +17,7 @@ from src.db.backend import BackendServices
 from src.db.tables import User
 from src.encryption import ENV_VAR, KEY_FILE, InvalidEncryptionKeyError, \
 	key_source
+from src.webapp.flask_app import current_app
 from src.webapp.utils import err
 
 login_mng = LoginManager()

@@ -16,8 +16,9 @@ outlives a restart): a restart mid-move ends maintenance, and that is safe
 because the switch is the move's last step."""
 import threading
 
-from flask import current_app, render_template, request
+from flask import render_template, request
 
+from src.webapp.flask_app import NetRolloutApp, current_app
 from src.webapp.utils import err
 
 IDLE, WAITING, LOCKED = "idle", "waiting", "locked"
@@ -87,7 +88,7 @@ class Maintenance:
 		        "progress": self._progress, "actor_id": self._actor_id}
 
 
-def register_maintenance(app) -> None:
+def register_maintenance(app: NetRolloutApp) -> None:
 	"""app.maintenance, its gate (registered before every other request hook,
 	so session and sign-in hooks can't write while locked) and the banner."""
 	app.maintenance = Maintenance(app.orchestrator)

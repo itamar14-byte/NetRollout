@@ -2,14 +2,14 @@ import json
 import uuid
 from itertools import groupby
 
-from flask import Blueprint, render_template, current_app, request, flash, \
-	redirect, url_for, Response
+from flask import Blueprint, render_template, request, flash, redirect, url_for, Response
 from flask_login import current_user, login_required
 
 from src.core import RolloutOptions
 from src.db.tables import DeviceResult, Inventory
 from src.input_parser import InputParser
 from src.orchestration import Draining
+from src.webapp.flask_app import current_app
 from src.webapp.utils import (ok, err, with_form, with_json,
                               visible_devices_clause, query_visible_devices,
                               partition_devices)

@@ -1,9 +1,10 @@
 import uuid
 
-from flask import Blueprint, render_template, request, current_app
+from flask import Blueprint, render_template, request
 from flask_login import current_user, login_required
 
 from src.db.tables import PropertyDefinition
+from src.webapp.flask_app import current_app
 from src.webapp.utils import ok, err, SYSTEM_PROPERTIES
 
 bp = Blueprint('properties', __name__, url_prefix='/properties')

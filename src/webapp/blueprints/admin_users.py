@@ -1,7 +1,6 @@
 import uuid
 
-from flask import (Blueprint, render_template, request, current_app, redirect,
-                   url_for, flash)
+from flask import Blueprint, render_template, request, redirect, url_for, flash
 from flask_login import current_user, login_required
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from werkzeug.security import generate_password_hash
@@ -9,6 +8,7 @@ from werkzeug.security import generate_password_hash
 from src.db.tables import User
 from src.passwords import temporary_password
 from src.webapp.accounts import AccountError, new_local_user, pending_requests
+from src.webapp.flask_app import current_app
 from src.webapp.utils import ok, err, require_admin, end_user_sessions, with_json
 
 bp = Blueprint('admin_users', __name__, url_prefix='/admin')

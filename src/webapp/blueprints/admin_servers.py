@@ -2,7 +2,7 @@ import os
 import time
 
 import redis as redis_lib
-from flask import Blueprint, render_template, request, current_app, jsonify
+from flask import Blueprint, render_template, request, jsonify
 from flask_login import current_user, login_required
 from redis.exceptions import ConnectionError as RedisConnectionError
 from sqlalchemy import text
@@ -18,6 +18,7 @@ from src.runtime import drain_seconds
 from src.webapp import db_move, proxy_config
 from src.webapp.blueprints.auth import record_redis_session
 from src.webapp.db_move import describe, same_database
+from src.webapp.flask_app import current_app
 from src.webapp.maintenance import during_maintenance
 from src.webapp.setup import clear_sessions, clear_stale_jobs
 from src.webapp.utils import ok, err, require_admin, with_json, with_form

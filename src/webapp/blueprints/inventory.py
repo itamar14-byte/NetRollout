@@ -2,8 +2,7 @@ import os
 import tempfile
 import uuid
 
-from flask import Blueprint, render_template, request, current_app, redirect, \
-	flash, url_for
+from flask import Blueprint, render_template, request, redirect, flash, url_for
 from flask_login import current_user, login_required
 
 from src import validation
@@ -12,6 +11,7 @@ from src.db.tables import VariableMapping, Inventory, SecurityProfile, User
 from src.input_parser import InputParser
 from src.logging_utils import RolloutLogger
 from src.validation import Validator
+from src.webapp.flask_app import current_app
 from src.webapp.utils import (ok, err, with_form, with_json, flash_redirect,
                               query_visible_devices, partition_devices,
                               can_edit_device, visible_devices_clause,

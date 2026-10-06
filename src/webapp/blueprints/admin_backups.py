@@ -2,11 +2,12 @@
 Delete — admins only, every action audited. The schedule and retention are
 ordinary System Settings; restoring stops the app, so it runs on the server
 (NetRollout Manager → Restore…, `netrollout restore`). Engine: src/backup.py."""
-from flask import Blueprint, current_app, send_file
+from flask import Blueprint, send_file
 from flask_login import login_required
 
 from src import backup, runtime
 from src.webapp.backup_schedule import schedule_state
+from src.webapp.flask_app import current_app
 from src.webapp.utils import err, ok, require_admin
 
 bp = Blueprint("admin_backups", __name__, url_prefix="/admin/backups")

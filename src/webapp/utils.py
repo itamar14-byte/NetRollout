@@ -2,7 +2,7 @@ import functools
 from collections import defaultdict
 from datetime import datetime
 
-from flask import current_app, jsonify, request, redirect, url_for, flash
+from flask import jsonify, request, redirect, url_for, flash
 from flask_login import current_user
 from sqlalchemy import and_, or_
 
@@ -11,6 +11,7 @@ from src.db.tables import (AuditLog, SecurityProfile, PropertyDefinition,
                            Inventory)
 from src.encryption import encrypt
 from src.reachability import ReachabilityChecker
+from src.webapp.flask_app import current_app
 
 ##########################Constants#######################################
 SYSTEM_PROPERTIES = [

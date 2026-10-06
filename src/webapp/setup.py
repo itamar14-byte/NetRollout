@@ -1,7 +1,6 @@
 import os
 import secrets
 
-from flask import Flask
 from flask_session import Session
 from flask_session.redis import RedisSessionInterface
 from prometheus_client.core import REGISTRY, GaugeMetricFamily
@@ -17,6 +16,7 @@ from src.runtime import VERSION, StartupError, in_container, source_url
 from src.webapp.db_move import DatabaseMove
 from src.webapp.extensions import register_extensions, register_handlers, \
 	register_auth
+from src.webapp.flask_app import NetRolloutApp
 from src.webapp.lifecycle import Shutdown
 from src.webapp.maintenance import register_maintenance
 from src.webapp.proxy_config import seed_hostname_from_site, sync_at_start
@@ -210,8 +210,8 @@ def launch_app():
 	orchestrator = RolloutOrchestrator(backend,
 	                                   started_with["orchestrator_workers"])
 	web_services = WebServices(backend)
-	app = Flask(__name__, template_folder='../../templates',
-	            static_folder='../static')
+	app = NetRolloutApp(__name__, template_folder='../../templates',
+	                   static_folder='../static')
 
 	# per-run identity for the startup reverse-proxy check (startup.py)
 	app.config["INSTANCE_TOKEN"] = new_instance_token()

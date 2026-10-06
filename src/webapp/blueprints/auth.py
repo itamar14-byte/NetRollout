@@ -6,8 +6,7 @@ from urllib.parse import urlparse, urlsplit
 
 import pyotp
 import qrcode
-from flask import Blueprint, session, redirect, url_for, flash, current_app, \
-	render_template, request
+from flask import Blueprint, session, redirect, url_for, flash, render_template, request
 from flask_login import login_user, current_user, login_required, logout_user
 from sqlalchemy.exc import IntegrityError
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -20,6 +19,7 @@ from src.passwords import RULE, password_problem
 from src.webapp.accounts import LIMITS, AccountError, new_local_user
 from src.webapp.extensions import (csrf, conn_limit, mark_signed_in,
                                    session_seconds_left, is_background)
+from src.webapp.flask_app import current_app
 from src.webapp.utils import end_user_sessions, ok, with_form
 
 bp = Blueprint("auth", __name__)

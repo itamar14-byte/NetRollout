@@ -1,7 +1,6 @@
 import uuid
 
-from flask import (Blueprint, current_app, render_template, request, flash,
-                   redirect, url_for)
+from flask import Blueprint, render_template, request, flash, redirect, url_for
 from flask_login import current_user, login_required
 from netmiko import ConnectHandler, NetmikoTimeoutException, \
 	NetmikoAuthenticationException
@@ -10,6 +9,7 @@ from src import validation
 from src.core import Device
 from src.db.tables import SecurityProfile, User, Inventory
 from src.encryption import encrypt, decrypt
+from src.webapp.flask_app import current_app
 from src.webapp.utils import ok, err, with_json, with_form, flash_redirect
 
 bp = Blueprint('security', __name__, url_prefix='/security')

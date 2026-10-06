@@ -2,10 +2,11 @@ import uuid
 from collections import defaultdict
 from datetime import datetime, timedelta
 
-from flask import Blueprint, render_template, request, current_app, jsonify
+from flask import Blueprint, render_template, request, jsonify
 from flask_login import login_required
 
 from src.db.tables import AuditLog, DeviceResult, User, Inventory
+from src.webapp.flask_app import current_app
 from src.webapp.utils import (ok, err, require_admin, with_json,
                               compile_query_rules)
 

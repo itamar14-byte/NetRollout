@@ -21,6 +21,7 @@ from sqlalchemy import make_url
 from src.db import move
 from src.db.postgres_db import PostgresConfig
 from src.db.tables import AuditLog
+from src.webapp.flask_app import NetRolloutApp
 
 WAIT_SECONDS = 30 * 60
 POLL_SECONDS = 1.0
@@ -40,7 +41,7 @@ def same_database(a: PostgresConfig, b: PostgresConfig) -> bool:
 
 
 class DatabaseMove:
-	def __init__(self, app, wait_seconds: float = WAIT_SECONDS,
+	def __init__(self, app: NetRolloutApp, wait_seconds: float = WAIT_SECONDS,
 	             poll_seconds: float = POLL_SECONDS):
 		self._app = app
 		self._wait = wait_seconds
