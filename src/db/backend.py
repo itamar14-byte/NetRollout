@@ -25,6 +25,8 @@ BUNDLED_HOSTS = {"POSTGRES": ("localhost", "127.0.0.1", "postgres"),
 # runtime.env: the bundled database's connection, kept when a move leaves it
 # (the bundled Postgres keeps running, untouched) - Move back goes there
 BUNDLED_DATABASE_KEY = "NETROLLOUT_BUNDLED_DATABASE_URL"
+# the same for Redis, kept by a switch away from the bundled one
+BUNDLED_REDIS_KEY = "NETROLLOUT_BUNDLED_REDIS_URL"
 
 
 class BackendServices:
@@ -97,10 +99,13 @@ class BackendServices:
 		         else "external" for service, host in hosts.items()}
 		# after a move the bundled database's address is known: compare the
 		# whole place (another database on the same host isn't the bundled one)
-		remembered = self._config_values().get(BUNDLED_DATABASE_KEY)
-		if remembered:
-			modes["POSTGRES"] = ("bundled" if PostgresConfig(url=remembered).place()
+		remembered = self._config_values()
+		if remembered.get(BUNDLED_DATABASE_KEY):
+			modes["POSTGRES"] = ("bundled" if PostgresConfig(url=remembered[BUNDLED_DATABASE_KEY]).place()
 			                     == self.postgres.config.place() else "external")
+		if remembered.get(BUNDLED_REDIS_KEY):
+			modes["REDIS"] = ("bundled" if RedisConfig(url=remembered[BUNDLED_REDIS_KEY]).place()
+			                  == self.redis.config.place() else "external")
 		return modes
 
 	def reload_postgres(self, config: PostgresConfig):
@@ -141,6 +146,26 @@ class BackendServices:
 	def _config_values(self) -> dict:
 		return dict(dotenv_values(self._CONFIG_ENV)) if self._CONFIG_ENV.exists() else {}
 
+	def bundled_redis(self) -> RedisConfig | None:
+		"""The bundled Redis: remembered by the switch that left it, or the
+		current one while on it; None if unknown."""
+		remembered = self._config_values().get(BUNDLED_REDIS_KEY)
+		if remembered:
+			return RedisConfig(url=remembered)
+		if self.connection_modes()["REDIS"] == "bundled":
+			return self.redis.config
+		return None
+
 	def reload_redis(self, config: RedisConfig):
+		"""A live switch (Server Management): the client replaced - every user
+		of it looks the current one up - then runtime.env; leaving the bundled
+		Redis, its address is kept there first, for the way back.
+		:raises RuntimeError: the new server doesn't answer (nothing changed)"""
+		leaving = self.redis.config.get_url() if self.connection_modes()["REDIS"] == "bundled" else None
 		self.redis.reload_db(config)
-		self._write_config(config.to_env_dict())
+		updates = config.to_env_dict()
+		if config.url:          # REDIS_* blank: the URL is the connection
+			updates.update({k: "" for k in updates}, REDIS_URL=config.url)
+		if leaving:
+			updates[BUNDLED_REDIS_KEY] = leaving
+		self._write_config(updates)

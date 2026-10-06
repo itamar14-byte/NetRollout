@@ -232,6 +232,15 @@ class RolloutOrchestrator:
 				time.sleep(backoff)
 				backoff = min(backoff * 2, _BACKOFF_MAX)
 				continue
+			except Exception as e:   # noqa: BLE001 - this thread must not die
+				# e.g. a Redis switch (Server Management) closes the client this
+				# wait is blocked on: "I/O operation on closed file" - the next
+				# round reads the new client
+				print(f"[NetRollout] dispatcher: reading the queue failed ({e!r}); "
+				      f"retrying in {backoff}s", flush=True)
+				time.sleep(backoff)
+				backoff = min(backoff * 2, _BACKOFF_MAX)
+				continue
 			backoff = _BACKOFF_START
 			if entry is None:
 				continue

@@ -143,6 +143,29 @@ def test_dispatcher_survives_connection_drops(make_orchestrator):
 	assert dispatcher_thread(orch).is_alive()
 
 
+class ClosedUnderneathRedis(FakeRedis):
+	"""A Redis switch closes the client the dispatcher's wait is blocked on -
+	redis-py then raises ValueError, not a connection error (seen on Windows)."""
+	def __init__(self):
+		super().__init__()
+		self.closed_once = False
+
+	def blpop(self, key, timeout=0):
+		if not self.closed_once:
+			self.closed_once = True
+			raise ValueError("I/O operation on closed file.")
+		return super().blpop(key, timeout)
+
+
+def test_dispatcher_survives_its_client_closed_underneath(make_orchestrator):
+	fake = ClosedUnderneathRedis()
+	orch = make_orchestrator(fake)
+	job = FakeJob()
+	enqueue(orch, fake, job)
+	assert job.ran.wait(timeout=5), "the dispatcher died with its closed client"
+	assert dispatcher_thread(orch).is_alive()
+
+
 def test_malformed_queue_entry_is_skipped(make_orchestrator):
 	fake = FakeRedis()
 	orch = make_orchestrator(fake)

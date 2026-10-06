@@ -206,14 +206,17 @@ def switch_writes_only(app, monkeypatch):
 	runtime_env.unlink(missing_ok=True)
 
 
-def test_save_routes_write_runtime_env(admin, client_for, switch_writes_only):
+def test_save_routes_write_runtime_env(app, admin, client_for, switch_writes_only):
+	bundled = app.backend.redis.config.get_url()      # the test Redis counts as bundled
 	client = client_for(admin)
 	assert client.post("/admin/server/redis/save", json={
 		"host": "cache.example.org", "port": "6380"}).json["status"] == "ok"
-	# unused keys blank so nothing inherited wins
+	# unused keys blank so nothing inherited wins; leaving the bundled Redis,
+	# its address is kept for the way back
 	assert dotenv_values(switch_writes_only) == {
 		"REDIS_HOST": "cache.example.org", "REDIS_PORT": "6380",
-		"REDIS_DB": "0", "REDIS_PASSWORD": "", "REDIS_URL": ""}
+		"REDIS_DB": "0", "REDIS_PASSWORD": "", "REDIS_URL": "",
+		"NETROLLOUT_BUNDLED_REDIS_URL": bundled}
 
 
 # ── LDAP configuration ───────────────────────────────────────────────────────

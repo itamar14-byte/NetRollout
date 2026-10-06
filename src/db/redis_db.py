@@ -2,6 +2,7 @@ import os
 from dataclasses import dataclass
 
 import redis
+from redis.connection import parse_url
 from redis.backoff import NoBackoff
 from redis.retry import Retry
 
@@ -39,6 +40,11 @@ class RedisConfig:
 		if self.password:
 			return f"redis://:{self.password}@{self.host}:{self.port}/{self.db}"
 		return f"redis://{self.host}:{self.port}/{self.db}"
+
+	def place(self) -> tuple:
+		"""Which Redis: server, port, database number, whatever the password."""
+		parts = parse_url(self.get_url())
+		return (parts.get("host"), int(parts.get("port") or 6379), int(parts.get("db") or 0))
 
 	def to_env_dict(self) -> dict:
 		# Every key, blank rather than absent: runtime.env is loaded over the

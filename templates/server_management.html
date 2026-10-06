@@ -243,10 +243,22 @@
     <div id="form-redis" style="display:none;">
       <div class="nr-warning mb-4" style="border-color:rgba(255,100,80,0.25); background:rgba(255,100,80,0.05);">
         <i class="bi bi-exclamation-triangle-fill me-2" style="color:#ff8a65;"></i>
-        Switching Redis <strong>signs everyone out</strong> — sessions live there. It's refused while rollouts
-        run (their live state is there too). Nothing else is lost: NetRollout's data is in PostgreSQL.
-        Restart required after saving.
+        Switching Redis <strong>signs everyone else out</strong> — sessions live there; you stay signed in. It's refused
+        while rollouts run (their live state is there too). Nothing else is lost: NetRollout's data is in
+        PostgreSQL. It applies at once, without a restart.
       </div>
+      <p class="mv-now">NetRollout uses Redis at <code>{{ redis_place }}</code> —
+        {{ 'the bundled Redis' if redis_mode == 'bundled' else 'your own server' }}.</p>
+      {% if can_redis_back %}
+      <div class="mv-step">
+        <div class="mv-step-head"><i class="bi bi-arrow-return-left" style="color:#00bcd4;"></i>
+          <span class="mv-step-title">Switch back to the bundled Redis</span></div>
+        <p class="mv-intro mb-3">The bundled Redis kept running. Switching back signs everyone else out, like any switch.</p>
+        <button class="btn btn-outline-primary btn-sm" id="rdBackBtn" type="button">
+          <i class="bi bi-arrow-return-left me-1"></i>Switch back to the bundled Redis</button>
+        <div id="rdBackResult" class="mt-2"></div>
+      </div>
+      {% endif %}
       <div class="row g-3">
         <div class="col-md-5">
           <label class="nr-label">Host</label>
@@ -278,10 +290,7 @@
         </button>
         <span id="rdSaveSpinner" class="spinner-border spinner-border-sm text-info ms-1" style="display:none;"></span>
       </div>
-      <div id="rdRestartBanner" class="nr-restart-banner mt-4" style="display:none;">
-        <i class="bi bi-arrow-clockwise me-2"></i>
-        Configuration saved. <strong>Restart the application</strong> to apply the new Redis connection.
-      </div>
+      <div id="rdRestartBanner" class="nr-restart-banner mt-4" style="display:none;"></div>
     </div>
 
   </div>
@@ -953,17 +962,37 @@
     .then(data => {
       spinner.style.display = 'none';
       if (data.status === 'ok') {
-        document.getElementById('rdRestartBanner').style.display = 'block';
-        markRestartPending();
+        redisSwitched(document.getElementById('rdRestartBanner'), data.message);
       } else {
         btn.disabled = false;
         document.getElementById('rdTestResult').style.display = 'block';
         document.getElementById('rdTestResult').innerHTML =
-          `<span class="res-err"><i class="bi bi-x-circle me-1"></i>${data.message}</span>`;
+          `<span class="res-err"><i class="bi bi-x-circle me-1"></i>${escHtml(data.message || 'Switch failed')}</span>`;
       }
     })
     .catch(() => { spinner.style.display = 'none'; btn.disabled = false; });
   }
+
+  // Applied at once (no restart); this page reloads to show the new state
+  function redisSwitched(box, message) {
+    box.style.display = 'block';
+    box.innerHTML = `<i class="bi bi-check-circle me-2"></i>${escHtml(message)}`;
+    setTimeout(() => location.reload(), 3000);
+  }
+
+  document.getElementById('rdBackBtn')?.addEventListener('click', async () => {
+    if (!confirm('Switch back to the bundled Redis? Everyone else is signed out.')) return;
+    const btn = document.getElementById('rdBackBtn'), out = document.getElementById('rdBackResult');
+    btn.disabled = true;
+    let data = {};
+    try {
+      const r = await fetch('{{ url_for("admin_servers.admin_server_redis_back") }}',
+                            {method: 'POST', headers: {'X-CSRFToken': CSRF}});
+      data = await r.json();
+    } catch (_) { data = {status: 'error', message: 'No answer from NetRollout.'}; }
+    if (data.status === 'ok') { out.className = 'nr-restart-banner mt-2'; redisSwitched(out, data.message); }
+    else { btn.disabled = false; out.innerHTML = `<span class="res-err"><i class="bi bi-x-circle me-1"></i>${escHtml(data.message)}</span>`; }
+  });
 
   /* ── LDAP server management ───────────────────────────────── */
   let ldapServers = {};

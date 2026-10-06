@@ -18,6 +18,8 @@ from src.db.postgres_db import PostgresConfig
 from src.webapp import db_move
 from src.webapp.db_move import describe, same_database
 from src.webapp.maintenance import during_maintenance
+from src.webapp.blueprints.auth import record_redis_session
+from src.webapp.setup import clear_sessions, clear_stale_jobs
 from src.db.redis_db import RedisConfig
 from src.db.tables import LDAPServer, LDAPGroup, User
 from src.encryption import encrypt
@@ -91,6 +93,9 @@ def admin_server():
 	                       access_needed=move.ACCESS_NEEDED,
 	                       db_move=_status(),
 	                       redis_mode=connection_modes["REDIS"],
+	                       redis_place="{}:{}/{}".format(*current_app.backend.redis.config.place()),
+	                       can_redis_back=(connection_modes["REDIS"] == "external"
+	                                       and current_app.backend.bundled_redis() is not None),
 	                       redis_connected=redis_connected,
 	                       redis_host=current_app.backend.redis.config.host,
 	                       redis_port=current_app.backend.redis.config.port,
@@ -271,16 +276,42 @@ def admin_server_redis_save(data):
 			str(db or "0") == str(current_app.backend.redis.config.db)):
 		return err("Target is the same as the current Redis instance")
 
+	new_config = RedisConfig(host=host, port=port, db=db or "0",
+	                         password=password or None)
+	return _switch_redis(new_config, back=False)
+
+
+@bp.route("/redis/back", methods=["POST"])
+@login_required
+@require_admin
+def admin_server_redis_back():
+	bundled = current_app.backend.bundled_redis()
+	if bundled is None or current_app.backend.connection_modes()["REDIS"] == "bundled":
+		return err("There's no bundled Redis to switch back to.", 409)
+	return _switch_redis(bundled, back=True)
+
+
+def _switch_redis(config: RedisConfig, back: bool):
+	"""Live, no restart: everything looks the client up per use. Refused
+	while rollouts run (their live state is in Redis). Sessions and leftover
+	job state are cleared in the Redis switched to - one used before still
+	holds old sessions, terminated ones included - so everyone signs in
+	again; the admin who switches stays signed in (this request saves its
+	session into the new Redis at its end - its index entry goes there now)."""
 	if any(current_app.orchestrator.counts().values()):
 		return err("Rollouts are running - their live state is in Redis. Switch "
 		           "once they've finished.", 409)
-	new_config = RedisConfig(host=host, port=port, db=db or "0",
-	                         password=password or None)
 	try:
-		current_app.backend.reload_redis(new_config)
-		return ok("Configuration saved")
+		current_app.backend.reload_redis(config)
 	except RuntimeError as e:
 		return err(str(e))
+	clear_sessions(current_app.backend.redis)
+	clear_stale_jobs(current_app.backend.redis)
+	record_redis_session(current_user.id)
+	place = "{}:{}/{}".format(*config.place())
+	current_app.web.audit("server.redis_switched", object_type="redis", object_label=place,
+	                      detail={"back": back})
+	return ok(f"NetRollout now uses Redis at {place}. Everyone else signs in again.")
 
 
 @bp.route("/ldap", methods=["GET"])
