@@ -441,6 +441,23 @@ behind. It runs from **Server Management**, in the background, in the app
 - Subtasks: 9.8a pg_cron fallback · 9.8b maintenance mode · 9.8c the move
   engine · 9.8d Server Management UI · 9.8e Grafana follows · 9.8f real runs.
 
+**9.8 done (2026-10-06).** 9.8d2 added: Redis stays a plain live switch (no
+copy, no restart - verified), with Switch back to the bundled Redis; every
+switch clears sessions in the Redis switched to. Bugs found by the real runs
+and fixed: the rollout dispatcher died when a Redis switch closed its client
+(no rollout until a restart); "bundled or your own" by host only (Move back
+refused for a database on the bundled one's host); the page reloading
+forever after a move; a schema hidden from the login reported as missing.
+**9.8f release check** (the test build, scratch project nr98, monitoring on;
+a plain postgres:17 beside it as the organisation's server): signed in as a
+browser does, prepared it with its administrator login (both logins, the
+database, schema nr), checked, moved - the maintenance page during the copy;
+the app's pages, the data on the org server (database.moved audited),
+Grafana's data source followed and a query read the org database, the
+clean-up fallback active there (no pg_cron); the app restarted on the org
+server (runtime.env) and came back on it; Move back offered and done -
+Grafana followed back, pg_cron runs the clean-up again. Uninstalled clean.
+
 ## Subtasks
 
 | #   | Subtask                                                                                                                                                                                                                                                 |
