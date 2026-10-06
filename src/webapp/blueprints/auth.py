@@ -23,6 +23,7 @@ from src.encryption import decrypt, encrypt
 from src.ldap_auth import (check_group_membership, fetch_user_details,
                            user_bind, LdapUnavailable)
 from src.passwords import RULE, password_problem
+from src.webapp.accounts import LIMITS, AccountError, new_local_user
 from src.webapp.extensions import (csrf, conn_limit, mark_signed_in,
                                    session_seconds_left, is_background)
 from src.webapp.utils import end_user_sessions, ok, with_form
@@ -247,43 +248,35 @@ def register_form():
 @bp.route("/register", methods=["POST"])
 @with_form("username", "password", "email", "full_name")
 def register(data):
-	username = data["username"]
-	if problem := password_problem(data["password"], username):
-		flash(problem, "danger")
-		return redirect(url_for("auth.register_form"))
-	pass_hash = generate_password_hash(data["password"])
-	email = data["email"]
-	full_name = data["full_name"]
-	position = data.get("position", None)
-
-	new_user = User(username=username,
-	                password_hash=pass_hash,
-	                email=email,
-	                full_name=full_name,
-	                role="operator",
-	                position=position)
-
+	"""A person's access request: an operator account waiting for an admin's
+	approval (src/webapp/accounts.py - the same checks as an admin's Add user)."""
+	username = data["username"].strip()
 	with current_app.backend.postgres.get_session() as db_session:
 		try:
-			db_session.add(new_user)
-			db_session.flush()
-			current_app.web.audit("auth.register", success=True,
-			                    username=username,
-			      object_type="User", object_label=username)
-			flash("Registration successful -"
-			      " your account is pending admin "
-			      "approval.", "success")
-			return redirect(url_for("auth.home"))
-		except IntegrityError:
-			# The failed flush leaves the session unusable; roll back so
-			# get_session's commit on exit succeeds
+			new_local_user(db_session, username=username, email=data["email"],
+			               full_name=data["full_name"], position=data.get("position"),
+			               password=data["password"])
+		except AccountError as e:
 			db_session.rollback()
+			# what was typed may be longer than the audit's column (that can
+			# be why it's refused)
 			current_app.web.audit("auth.register", success=False,
-			                   username=username,
-			      detail={"reason": "duplicate_username_or_email"})
-			flash("email or username already exists", "danger")
+			                      username=username[:LIMITS["username"]] or "anonymous",
+			                      detail={"reason": str(e)})
+			flash(str(e), "danger")
 			return redirect(url_for("auth.register_form"))
-
+		except IntegrityError:
+			# two requests at once for the same name: the database refuses the
+			# second. The failed flush leaves the session unusable - roll back.
+			db_session.rollback()
+			current_app.web.audit("auth.register", success=False, username=username,
+			                      detail={"reason": "duplicate_username_or_email"})
+			flash("That username or email address is already in use.", "danger")
+			return redirect(url_for("auth.register_form"))
+	current_app.web.audit("auth.register", success=True, username=username,
+	                      object_type="User", object_label=username)
+	flash("Registration successful - your account is pending admin approval.", "success")
+	return redirect(url_for("auth.home"))
 
 @bp.route("/otp_enroll", methods=["GET", "POST"])
 @with_form("code")

@@ -6,14 +6,29 @@ import uuid
 from flask import (Blueprint, render_template, request, current_app, redirect,
                    url_for, flash)
 from flask_login import current_user, login_required
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from werkzeug.security import generate_password_hash
 
 # local modules
 from src.db.tables import User
 from src.passwords import temporary_password
-from src.webapp.utils import ok, err, require_admin, end_user_sessions
+from src.webapp.accounts import AccountError, new_local_user, pending_requests
+from src.webapp.utils import ok, err, require_admin, end_user_sessions, with_json
 
 bp = Blueprint('admin_users', __name__, url_prefix='/admin')
+
+
+@bp.app_context_processor
+def pending_access_requests():
+	"""The admin sidebar's count of access requests waiting (none: no badge)."""
+	if not (request.path.startswith("/admin") and current_user.is_authenticated
+	        and current_user.role == "admin"):
+		return {}
+	try:
+		with current_app.backend.postgres.get_session() as db_session:
+			return {"pending_requests": pending_requests(db_session)}
+	except SQLAlchemyError:
+		return {}
 
 
 ##############################Route Helpers####################################
@@ -117,6 +132,37 @@ def admin_reset_password(user_id):
 	                      object_id=user_id, object_label=username,
 	                      detail={"sessions_ended": ended})
 	return ok(username=username, temporary_password=temporary)
+
+
+@bp.route("/users/new", methods=["POST"])
+@login_required
+@require_admin
+@with_json()
+def admin_add_user(data):
+	"""An admin's Add user: Request access and Approve in one step - an
+	approved, active local account with a temporary password, shown once,
+	which the user must replace at the first sign-in (as after a reset; the
+	admin never knows the password in use). 2FA is enrolled at that sign-in,
+	as for every local user."""
+	username = str(data.get("username", "")).strip()
+	role = str(data.get("role", "operator"))
+	temporary = temporary_password(username)
+	with current_app.backend.postgres.get_session() as db_session:
+		try:
+			user = new_local_user(db_session, username=username, email=str(data.get("email", "")),
+			                      full_name=str(data.get("full_name", "")),
+			                      position=str(data.get("position", "")), password=temporary,
+			                      role=role, approved=True, must_change_password=True)
+		except AccountError as e:
+			db_session.rollback()
+			return err(str(e), 422)
+		except IntegrityError:
+			db_session.rollback()
+			return err("That username or email address is already in use.", 409)
+		user_id, username = user.id, user.username
+	current_app.web.audit("user.created", object_type="User", object_id=user_id,
+	                      object_label=username, detail={"role": role})
+	return ok(username=username, role=role, temporary_password=temporary)
 
 
 @bp.route("/users/bulk/<action>", methods=["POST"])

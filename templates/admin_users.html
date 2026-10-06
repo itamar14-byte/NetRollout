@@ -20,6 +20,12 @@
   <span class="toolbar-label" id="selectionInfo">SELECT USERS TO PERFORM ACTIONS</span>
   <div class="d-flex gap-2 align-items-center flex-wrap">
 
+    <button class="tb-btn approve-tb" id="btnAddUser" type="button">
+      <i class="bi bi-person-plus me-1"></i>Add user
+    </button>
+
+    <div class="tb-divider"></div>
+
     <span class="tip-wrap" id="wrapApprove">
       <button class="tb-btn approve-tb" id="btnApprove" disabled>
         <i class="bi bi-check-circle me-1"></i>Approve
@@ -210,6 +216,70 @@
           <i class="bi bi-key me-1"></i>Reset password
         </button>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- Add user: the form, then the temporary password once (admin_users.admin_add_user) -->
+<div class="modal fade" id="addUserModal" tabindex="-1" aria-hidden="true" aria-labelledby="addUserTitle">
+  <div class="modal-dialog modal-dialog-centered" style="max-width:480px;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="addUserTitle"><i class="bi bi-person-plus me-2" style="color:var(--nr-accent);"></i>Add user</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <form id="addUserForm" novalidate>
+        <div class="modal-body" id="addUserFields">
+          <p style="font-size:0.82rem; color:var(--nr-text-secondary); margin-bottom:1rem;">
+            An approved account, ready to use: you get a temporary password to hand over, and they choose
+            their own at the first sign-in (then set up two-factor sign-in, as every local user does).
+          </p>
+          <div class="mb-2">
+            <label class="nr-label" for="auUsername">Username</label>
+            <input type="text" class="form-control" id="auUsername" maxlength="64" autocomplete="off" required>
+          </div>
+          <div class="mb-2">
+            <label class="nr-label" for="auEmail">Email</label>
+            <input type="email" class="form-control" id="auEmail" maxlength="120" autocomplete="off" required>
+          </div>
+          <div class="mb-2">
+            <label class="nr-label" for="auFullName">Full name</label>
+            <input type="text" class="form-control" id="auFullName" maxlength="120" autocomplete="off" required>
+          </div>
+          <div class="mb-2">
+            <label class="nr-label" for="auPosition">Position <span style="color:var(--nr-text-muted);">(optional)</span></label>
+            <input type="text" class="form-control" id="auPosition" maxlength="64" autocomplete="off">
+          </div>
+          <div class="mb-1">
+            <label class="nr-label" for="auRole">Role</label>
+            <select class="form-select" id="auRole">
+              <option value="operator" selected>Operator</option>
+              <option value="admin">Admin</option>
+            </select>
+          </div>
+          <div id="addUserError" class="mt-2" role="alert" style="display:none; font-size:0.82rem; color:#ef9a9a;"></div>
+        </div>
+        <div class="modal-body" id="addUserResult" style="display:none;">
+          <p style="font-size:0.85rem; color:var(--nr-text-secondary); margin-bottom:0.5rem;">
+            <i class="bi bi-check-circle me-1" style="color:#a5d6a7;"></i><span id="addUserDone"></span>
+            Temporary password:
+          </p>
+          <div class="d-flex gap-2 align-items-center mb-3">
+            <code id="addUserPassword" style="font-size:1.05rem; padding:0.4rem 0.6rem; background:#111; border:1px solid #333; border-radius:4px; user-select:all; flex:1;"></code>
+            <button type="button" class="btn btn-outline-info btn-sm" id="addUserCopy" title="Copy"><i class="bi bi-copy"></i></button>
+          </div>
+          <p style="font-size:0.82rem; color:#ffcc80; margin-bottom:0;">
+            <i class="bi bi-exclamation-triangle me-1"></i>Shown only now — it isn't stored anywhere
+            you can see it again. Hand it over privately; they replace it at their first sign-in.
+          </p>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal" id="addUserClose">Cancel</button>
+          <button type="submit" class="btn btn-primary btn-sm" id="addUserSubmit">
+            <i class="bi bi-person-plus me-1"></i>Add user
+          </button>
+        </div>
+      </form>
     </div>
   </div>
 </div>
@@ -548,6 +618,72 @@
     btn.style.display = "none";
     document.getElementById("resetPwClose").textContent = "Done";
   });
+
+  /* ── Add user ── */
+  (() => {
+    const modal = document.getElementById("addUserModal");
+    const form = document.getElementById("addUserForm");
+    const fields = ["auUsername", "auEmail", "auFullName", "auPosition"].map(id => document.getElementById(id));
+    const error = document.getElementById("addUserError");
+    const submit = document.getElementById("addUserSubmit");
+    let added = false;
+
+    document.getElementById("btnAddUser").addEventListener("click", () => {
+      form.reset(); added = false;
+      error.style.display = "none";
+      document.getElementById("addUserFields").style.display = "";
+      document.getElementById("addUserResult").style.display = "none";
+      submit.style.display = ""; submit.disabled = false;
+      document.getElementById("addUserClose").textContent = "Cancel";
+      bootstrap.Modal.getOrCreateInstance(modal).show();
+    });
+    modal.addEventListener("shown.bs.modal", () => { if (!added) fields[0].focus(); });
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const [username, email, fullName, position] = fields.map(f => f.value.trim());
+      const missing = [[username, "a username"], [email, "an email address"], [fullName, "a full name"]]
+        .filter(([v]) => !v).map(([, what]) => what);
+      if (missing.length) { error.textContent = "Enter " + missing.join(", ") + "."; error.style.display = ""; return; }
+      submit.disabled = true;
+      let resp, data = {};
+      try {
+        resp = await fetch("{{ url_for('admin_users.admin_add_user') }}", {
+          method: "POST",
+          headers: {"Content-Type": "application/json", "X-CSRFToken": "{{ csrf_token() }}",
+                    "X-Requested-With": "XMLHttpRequest"},
+          body: JSON.stringify({username, email, full_name: fullName, position,
+                                role: document.getElementById("auRole").value}),
+        });
+        data = await resp.json();
+      } catch (e) { data = {message: "No answer from NetRollout."}; }
+      if (!resp || !resp.ok) {
+        submit.disabled = false;
+        error.textContent = data.message || `Server error (${resp ? resp.status : "no answer"}).`;
+        error.style.display = "";
+        return;
+      }
+      added = true;
+      document.getElementById("addUserDone").textContent =
+        `${data.username} is added as ${data.role === "admin" ? "an admin" : "an operator"}.`;
+      document.getElementById("addUserPassword").textContent = data.temporary_password;
+      document.getElementById("addUserFields").style.display = "none";
+      document.getElementById("addUserResult").style.display = "";
+      submit.style.display = "none";
+      document.getElementById("addUserClose").textContent = "Done";
+    });
+
+    document.getElementById("addUserCopy").addEventListener("click", () => {
+      navigator.clipboard.writeText(document.getElementById("addUserPassword").textContent)
+        .then(() => { document.querySelector("#addUserCopy i").className = "bi bi-check2"; })
+        .catch(() => {});
+    });
+    modal.addEventListener("hidden.bs.modal", () => {
+      document.getElementById("addUserPassword").textContent = "";   // don't keep it in the page
+      document.querySelector("#addUserCopy i").className = "bi bi-copy";
+      if (added) window.location.reload();                          // the new user in the list
+    });
+  })();
 
   document.getElementById("resetPwCopy").addEventListener("click", () => {
     navigator.clipboard.writeText(document.getElementById("resetPwValue").textContent)

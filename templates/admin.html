@@ -270,6 +270,16 @@
             line-height: 1;
         }
 
+        /* access requests waiting (admin_users.pending_access_requests); none: no badge */
+        .adm-sb-icon-wrap { position: relative; display: inline-flex; flex-shrink: 0; }
+        .adm-sb-count {
+            position: absolute; top: -0.45rem; right: -0.55rem;
+            min-width: 1rem; height: 1rem; padding: 0 0.25rem; border-radius: 0.5rem;
+            background: #ffb74d; color: #1a1a1a;
+            font-family: 'Inter', sans-serif; font-size: 0.625rem; font-weight: 700;
+            line-height: 1rem; text-align: center;
+        }
+
         .adm-sb-label {
             opacity: 0;
             transition: opacity 0.15s ease;
@@ -431,8 +441,12 @@
 
             <a href="{{ url_for('admin_users.admin_users') }}"
                class="adm-sb-link {% if active_section == 'users' %}active{% endif %}"
-               title="User Management">
-                <i class="bi bi-people-fill adm-sb-icon"></i>
+               title="User Management{% if pending_requests %} - {{ pending_requests }} access request{{ 's' if pending_requests != 1 }} waiting{% endif %}">
+                <span class="adm-sb-icon-wrap">
+                    <i class="bi bi-people-fill adm-sb-icon"></i>
+                    {% if pending_requests %}<span class="adm-sb-count" id="pendingRequests"
+                          aria-label="{{ pending_requests }} access request{{ 's' if pending_requests != 1 }} waiting">{{ pending_requests if pending_requests < 100 else '99+' }}</span>{% endif %}
+                </span>
                 <span class="adm-sb-label">User Management</span>
             </a>
 

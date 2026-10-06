@@ -1,0 +1,93 @@
+"""Admin -> Users -> Add user (Request access + Approve in one step), the
+shared checks with Request access, and the sidebar's count of requests."""
+import pytest
+from werkzeug.security import check_password_hash
+
+from src.db.tables import AuditLog, User
+from src.passwords import password_problem
+
+pytestmark = [pytest.mark.postgres, pytest.mark.redis]
+
+FORM = {"username": "dana", "email": "dana@corp.example", "full_name": "Dana Levi",
+        "position": "NOC"}
+
+
+@pytest.fixture
+def admin(make_user):
+	return make_user(role="admin")
+
+
+def add(client, **changes):
+	return client.post("/admin/users/new", json={**FORM, **changes})
+
+
+def test_an_added_user_is_approved_with_a_temporary_password(admin, client_for, session_scope):
+	resp = add(client_for(admin, xhr=True))
+	assert resp.status_code == 200, resp.json
+	assert resp.json["username"] == "dana" and resp.json["role"] == "operator"
+	temporary = resp.json["temporary_password"]
+	assert password_problem(temporary, "dana") is None
+	with session_scope() as s:
+		u = s.query(User).filter_by(username="dana").one()
+		assert (u.role, u.is_approved, u.is_active, u.must_change_password, u.auth_type) == \
+		       ("operator", True, True, True, "local")
+		assert (u.email, u.full_name, u.position) == ("dana@corp.example", "Dana Levi", "NOC")
+		assert check_password_hash(u.password_hash, temporary)
+		audit = s.query(AuditLog).filter_by(action="user.created").one()
+		assert (audit.actor_username, audit.object_label, audit.detail) == \
+		       (admin.username, "dana", {"role": "operator"})
+
+
+def test_an_admin_can_be_added(admin, client_for, session_scope):
+	assert add(client_for(admin, xhr=True), role="admin").json["role"] == "admin"
+	with session_scope() as s:
+		assert s.query(User).filter_by(username="dana").one().role == "admin"
+
+
+@pytest.mark.parametrize("changes, message", [
+	({"username": ""}, "Username is required"),
+	({"email": "  "}, "Email is required"),
+	({"full_name": ""}, "Full name is required"),
+	({"email": "dana.corp.example"}, "isn't valid"),
+	({"username": "d" * 65}, "at most 64"),
+	({"role": "superuser"}, "operator or admin"),
+])
+def test_refused_in_words(admin, client_for, session_scope, changes, message):
+	resp = add(client_for(admin, xhr=True), **changes)
+	assert resp.status_code == 422 and message in resp.json["message"]
+	with session_scope() as s:
+		assert s.query(User).filter(User.email.in_(["dana@corp.example"])).count() == 0
+
+
+def test_a_taken_username_or_email_is_refused(admin, client_for, make_user):
+	taken = make_user(username="dana")
+	c = client_for(admin, xhr=True)
+	assert "username is taken" in add(c).json["message"]
+	assert "already in use" in add(c, username="dana2", email=f"{taken.username}@test.local").json["message"]
+
+
+def test_operators_cant_add_users(make_user, client_for):
+	assert add(client_for(make_user(), xhr=True)).status_code in (302, 403)
+
+
+def test_request_access_uses_the_same_checks(client_for, session_scope, make_user):
+	make_user(username="dana")
+	resp = client_for().post("/register", data={**FORM, "username": "dana", "email": "x@y.io",
+	                                            "password": "Str0ng-pass"}, follow_redirects=True)
+	assert b"That username is taken." in resp.data
+	resp = client_for().post("/register", data={**FORM, "username": "e" * 65, "email": "e@y.io",
+	                                            "password": "Str0ng-pass"}, follow_redirects=True)
+	assert b"at most 64 characters" in resp.data
+	with session_scope() as s:
+		assert s.query(User).filter_by(email="e@y.io").count() == 0
+
+
+def test_the_sidebar_counts_the_requests_waiting(admin, client_for, make_user):
+	page = client_for(admin).get("/admin/users").data.decode()
+	assert 'id="pendingRequests"' not in page                      # none: no badge
+	make_user(approved=False, active=False)
+	make_user(approved=False, active=False)
+	page = client_for(admin).get("/admin/settings").data.decode()   # every admin page
+	assert '<span class="adm-sb-count" id="pendingRequests"' in page
+	assert "2 access requests waiting" in page
+	assert ">2</span>" in page
