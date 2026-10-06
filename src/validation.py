@@ -23,7 +23,7 @@ TCP_RETRY_DELAY = 1
 
 
 def validate_ip(ip: str) -> bool:
-	"""checks that address is a valid ip"""
+	""":returns: whether `ip` is an IPv4 or IPv6 address"""
 	try:
 		ipaddress.ip_address(ip)
 		return True
@@ -32,20 +32,22 @@ def validate_ip(ip: str) -> bool:
 
 
 def validate_port(port: str) -> bool:
-	"""checks that port is a valid port number in the tcp IETF range"""
+	""":returns: whether `port` (as typed) is a TCP port number, 1-65535"""
 	if not port.isnumeric():
 		return False
 	return 1 <= int(port) <= 65535
 
 
 def validate_platform(platform: str) -> bool:
-	"""checks that platform is supported by NetRollout"""
+	""":returns: whether NetRollout supports this Netmiko device type"""
 	return platform in SUPPORTED_PLATFORMS
 
 
 def tcp_reachable(ip: str, port: int = 22) -> bool:
 	"""Can the device be reached on its management (SSH) port? TCP_RETRIES
-	attempts, TCP_RETRY_DELAY apart."""
+	attempts, TCP_RETRY_DELAY seconds apart, TCP_TIMEOUT each.
+
+	:returns: whether one of the attempts connected"""
 	for attempt in range(TCP_RETRIES):
 		# a fresh socket per attempt — reusing a failed one raises WinError
 		# 10056 on Windows
@@ -61,6 +63,9 @@ def tcp_reachable(ip: str, port: int = 22) -> bool:
 
 
 def validate_var_map_inner_token(token: str) -> tuple[bool, str | None]:
+	"""A variable mapping's token, without its $$ marks.
+
+	:returns: (valid, why not - for the page)"""
 	if token.strip():
 		if re.match(r'^[A-Za-z0-9_]+$', token):
 			if len(token) <= 64:
@@ -73,7 +78,8 @@ def validate_var_map_inner_token(token: str) -> tuple[bool, str | None]:
 def validate_var_map_property_name(property_name: str, allowed: set[str]) \
 		-> tuple[bool, str | None]:
 	""":param allowed: the user's property names — system defaults plus
-	 their own definitions (webapp: get_property_defs)"""
+	 their own definitions (webapp: get_property_defs)
+	:returns: (valid, why not - for the page)"""
 	if property_name.strip().lower() not in allowed:
 		return False, f"Property name {property_name} is not valid"
 	return True, None
@@ -82,7 +88,10 @@ def validate_var_map_property_name(property_name: str, allowed: set[str]) \
 def validate_var_index(index: int | None, property_name: str,
                        list_properties: set[str]) -> tuple[bool, str | None]:
 	"""Only list properties (system `vrfs`, or user-defined lists) can be
-	indexed."""
+	indexed.
+
+	:param index: the position in the list; None: the whole value
+	:returns: (valid, why not - for the page)"""
 	if index is None:
 		return True, None
 	if property_name not in list_properties:
@@ -97,6 +106,7 @@ class Validator:
 	the logger (the CLI's console, an import's log)."""
 
 	def __init__(self, logger: RolloutLogger):
+		""":param logger: where problems are reported"""
 		self._logger = logger
 
 	def validate_file_extension(self, path: str, extension: str) -> bool:

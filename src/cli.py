@@ -1,18 +1,27 @@
+"""NetRollout's headless CLI (also the standalone netrollout-cli.exe): one
+rollout from a devices CSV and a commands file - no database, no web app.
+
+  python -m src.cli -d devices.csv -c commands.txt [-vf] [-v]
+
+Missing paths are asked for; a prompted run also asks about Verify and
+confirms before the push. The exit code says how it went (exit_code)."""
+import argparse
 import os
 import sys
 import threading
 from argparse import ArgumentParser
 from csv import DictReader
+from typing import NoReturn
 
 from src import runtime
-from src.core import RolloutOptions, RolloutEngine
+from src.core import DeviceResultDict, RolloutEngine, RolloutOptions
 from src.input_parser import InputParser
 from src.logging_utils import RolloutLogger, prune_logs, utf8_console
 from src.validation import Validator
 
 
-def get_args():
-	"""Creates arguments for the headless CLI tool"""
+def get_args() -> argparse.Namespace:
+	""":returns: the command line's options (--help, --version exit here)"""
 	parser = ArgumentParser(
 		description="NetRollout — push configuration snippets to multiple network devices."
 	)
@@ -31,9 +40,9 @@ def get_args():
 	return parser.parse_args()
 
 
-def main():
-	# Gets the parameters from file paths and boolean flag status. If no input was entered through cli,
-	# user will be prompted to enter the data
+def main() -> NoReturn:
+	"""One rollout, start to finish; exits with exit_code's code (130 on
+	Ctrl+C)."""
 	args = get_args()
 	# Anything asked for means a person is at the keyboard: they also get the
 	# verify question and a last confirmation before the push
@@ -41,9 +50,8 @@ def main():
 	devices_path  = args.devices  or ask_path("Enter device file path: ")
 	commands_path = args.commands or ask_path("Enter commands file path: ")
 
-	# If the verify flag was supplied, we activate verification, and if other
-	# flags were supplied we disable it,
-	# and if no flags were supplied we prompt for verification alongside the other flag prompts
+	# -vf turns Verify on; a run with its paths given and no -vf is a script's:
+	# off, never asked
 	if args.verify:
 		verify = True
 	elif not interactive:
@@ -91,8 +99,7 @@ def main():
 	cancel = threading.Event()
 	engine = RolloutEngine(param=options, devices=devices, commands=commands)
 
-	# Runs the main function that executes the tool.
-	# On Ctrl+C from the user, the cancel event is set and the system exits
+	# Ctrl+C sets the cancel event: devices not reached yet are skipped
 	try:
 		results = engine.run(cancel, logger)
 		pause()
@@ -103,9 +110,11 @@ def main():
 		sys.exit(130)  # shell convention for Ctrl+C (128 + SIGINT)
 
 
-def ask_path(prompt):
+def ask_path(prompt: str) -> str:
 	"""Ask until the file exists: a typo shouldn't end an interactive run.
-	Paths dragged into a Windows terminal arrive wrapped in quotes."""
+	Paths dragged into a Windows terminal arrive wrapped in quotes.
+
+	:returns: an existing file's path"""
 	while True:
 		path = input(prompt).strip().strip('"')
 		if os.path.isfile(path):
@@ -113,7 +122,7 @@ def ask_path(prompt):
 		print(f"File not found: {path or '(nothing entered)'} — try again.")
 
 
-def pause():
+def pause() -> None:
 	"""Keep a double-clicked window open until the user has read it."""
 	try:
 		input("Press Enter to exit...")
@@ -121,18 +130,20 @@ def pause():
 		pass  # no terminal (cron, CI, piped stdin): nothing to wait for
 
 
-def abort(logger, message):
+def abort(logger: RolloutLogger, message: str) -> NoReturn:
 	"""Stop before the push: nothing was applied anywhere, so exit 2."""
 	logger.notify(message, "red")
 	pause()
 	sys.exit(2)
 
 
-def exit_code(results) -> int:
-	"""0 = every device succeeded; 1 = mixed (some devices partial, failed
-	or cancelled); 2 = nothing applied anywhere (every device failed or
-	was cancelled, or the run stopped before the push — abort()) — so
-	scripts and CI can tell."""
+def exit_code(results: list[DeviceResultDict]) -> int:
+	"""How the run went, for scripts and CI.
+
+	:param results: one per device
+	:returns: 0 = every device succeeded; 1 = mixed (some partial, failed or
+	 cancelled); 2 = nothing applied anywhere (every device failed or was
+	 cancelled - or the run stopped before the push: abort())"""
 	statuses = [r["status"] for r in results]
 	if statuses and all(s == "success" for s in statuses):
 		return 0

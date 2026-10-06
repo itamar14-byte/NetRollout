@@ -1,3 +1,7 @@
+"""Reading rollout input: a devices CSV (the CLI's, and the web app's
+inventory import - one format for both) into Devices, a commands file into
+commands. The import's helpers turn attribute columns into a device's
+variables and credential columns into security profiles."""
 from __future__ import annotations   # type hints are never evaluated
 
 import datetime
@@ -6,7 +10,7 @@ import uuid
 from collections import Counter
 from csv import DictReader
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from src import validation
 from src.core import Device
@@ -22,7 +26,11 @@ if TYPE_CHECKING:
 
 
 class InputParser:
+	"""Reads devices and commands for a rollout or an import."""
+
 	def __init__(self, validator: Validator, logger: RolloutLogger):
+		""":param validator: checks the files and each row
+		:param logger: where each problem and the summary are reported"""
 		self.validator = validator
 		self.logger = logger
 
@@ -70,15 +78,16 @@ class InputParser:
 				errors.append(f"{ip}:{port} is not reachable")
 				continue
 
-			core = {k: item.get(k, "") for k in self.CORE_KEYS}
-			core["label"] = core["label"] or ip
-			core["port"] = int(port)
-			extra = {k: v for k, v in item.items()
-			         if k not in self.CORE_KEYS and v}
+			extra: dict[str, str | list[str]] = {
+				k: v for k, v in item.items() if k not in self.CORE_KEYS and v}
 			if "vrfs" in extra:
-				extra["vrfs"] = [vrf.strip() for vrf in extra["vrfs"].split(",")
+				extra["vrfs"] = [vrf.strip() for vrf in item["vrfs"].split(",")
 				                 if vrf.strip()]
-			devices.append(Device(**core, extra=extra))
+			devices.append(Device(
+				ip=ip, label=item.get("label") or ip, port=int(port),
+				device_type=item["device_type"],
+				username=item.get("username", ""), password=item.get("password", ""),
+				secret=item.get("secret", ""), extra=extra))
 			self.logger.notify(
 				f"Device {item['device_type']}: {ip} successfully added", "green")
 		return devices, errors
@@ -86,11 +95,15 @@ class InputParser:
 	@staticmethod
 	def import_from_inventory(raw_devices: list[Inventory],
 	                          user_id: uuid.UUID) -> list[Device]:
+		"""Inventory rows made Devices for a rollout (their profiles decrypted).
+
+		:param user_id: who rolls out - only their own variable mappings apply
+		:raises ValueError: a device without a security profile"""
 		return [Device.from_inventory(row, user_id) for row in raw_devices]
 
 	def csv_to_inventory(self, device_path: str, user_id: uuid.UUID,
-	                     db_session: Session, label: str = None,
-	                     properties: list[dict] | None = None,
+	                     db_session: Session, label: str | None = None,
+	                     properties: list[dict[str, Any]] | None = None,
 	                     create_profiles: bool = False) -> "ImportReport":
 		"""Import a devices CSV into the user's inventory (web app).
 		The same CSV the CLI takes: core columns make the device, attribute
@@ -98,10 +111,14 @@ class InputParser:
 		name or label) become its variable attributes, and credential columns
 		become security profiles when `create_profiles` is set. Other columns
 		are reported, never dropped silently. No reachability check.
+		:param device_path: the uploaded CSV
+		:param user_id: whose inventory it goes into
+		:param db_session: the rows are added to it; the caller commits
 		:param label: applied to every device (form label > row label > IP)
 		:param properties: the user's property definitions
 		 ({name, label, is_list}) — see WebServices.get_property_defs
-		"""
+		:param create_profiles: credential columns become security profiles
+		:returns: what was imported, the rows' errors and notices for the page"""
 		from src.db.tables import Inventory   # web app only
 		report = ImportReport()
 		device_path = device_path.strip('"')
@@ -141,7 +158,7 @@ class InputParser:
 			rows, require_credentials=False, check_reachable=False)
 		profiles = (_ProfileResolver(user_id, db_session)
 		            if create_profiles and columns.credentials else None)
-		half_credentials = []
+		half_credentials: list[str] = []
 		for device in devices:
 			row = Inventory(user_id=user_id, ip=device.ip, port=device.port,
 			                device_type=device.device_type,
@@ -173,6 +190,11 @@ class InputParser:
 		return report
 
 	def parse_commands(self, commands_path: str) -> list[str]:
+		"""The commands of a commands file: UTF-8, one per line, stripped,
+		blank lines dropped.
+
+		:returns: the commands; [] when the file is missing or unreadable (the
+		 reason is logged)"""
 		commands_path = commands_path.strip('"')
 		if self.validator.validate_file_extension(commands_path,"txt"):
 			try:
@@ -181,14 +203,11 @@ class InputParser:
 				# stripped, blank lines dropped
 				with open(commands_path, "r", encoding="utf-8-sig") as file:
 					commands = [line for raw in file if (line := raw.strip())]
-				# logs summary of file processing workflow
 				self.logger.notify(
 					f"Commands file successfully processed\n"
 					f"{len(commands)} commands will be executed",
 					"green")
 				return commands
-				# if an exception is thrown in parsing or validation fails, an error message is printed,
-				# and the function returns an empty list
 
 			except UnicodeDecodeError:
 				self.logger.notify("commands file must be UTF-8 text", "red")
@@ -223,16 +242,18 @@ class ImportReport:
 
 @dataclass
 class _Columns:
-	props: dict[str, dict]   # CSV header → property definition
+	"""An import CSV's columns, sorted by what they become."""
+	props: dict[str, dict[str, Any]]   # CSV header → property definition
 	credentials: list[str]   # credential headers present
 	ignored: list[str]       # headers that are neither
 
 
-def _classify_columns(headers: list[str], properties: list[dict]) -> _Columns:
+def _classify_columns(headers: list[str], properties: list[dict[str, Any]]) -> _Columns:
 	"""Match headers to properties by name or label, case-insensitively,
 	treating spaces and underscores alike ("Loopback IP" → loopback_ip)."""
-	norm = lambda s: s.strip().lower().replace(" ", "_")
-	lookup = {}
+	def norm(name: str) -> str:
+		return name.strip().lower().replace(" ", "_")
+	lookup: dict[str, dict[str, Any]] = {}
 	for prop in properties:
 		lookup.setdefault(norm(prop["name"]), prop)
 		if prop.get("label"):
@@ -251,17 +272,17 @@ def _classify_columns(headers: list[str], properties: list[dict]) -> _Columns:
 	return columns
 
 
-def _var_maps(extra: dict, columns: _Columns) -> dict:
+def _var_maps(extra: dict[str, str | list[str]], columns: _Columns) -> dict[str, str | list[str]]:
 	"""A row's attribute cells → var_maps, with the edit modal's rules:
 	list properties split on commas, empty values skipped."""
-	var_maps = {}
+	var_maps: dict[str, str | list[str]] = {}
 	for header, prop in columns.props.items():
 		value = extra.get(header)
 		if not value:
 			continue
 		if prop.get("is_list"):
-			items = value if isinstance(value, list) else value.split(",")
-			items = [v.strip() for v in items if v.strip()]
+			parts = value if isinstance(value, list) else value.split(",")
+			items = [v.strip() for v in parts if v.strip()]
 			if items:
 				var_maps[prop["name"]] = items
 		else:
@@ -281,18 +302,20 @@ class _ProfileResolver:
 	def __init__(self, user_id: uuid.UUID, db_session: Session):
 		from src.db.tables import SecurityProfile   # web app only
 		self._user_id, self._db = user_id, db_session
-		self._known = []  # [(username, password, secret), profile]
+		self._known: list[tuple[tuple[str, str, str], SecurityProfile]] = []
 		for p in db_session.query(SecurityProfile).filter_by(user_id=user_id):
 			secret = decrypt(p.enable_secret) if p.enable_secret else ""
 			self._known.append(
 				((p.username, decrypt(p.password_secret), secret), p))
 		self._labels = {p.label for _, p in self._known if p.label}
-		self._created = []
-		self._assigned = Counter()
-		self._warnings = []
+		self._created: list[SecurityProfile] = []
+		self._assigned: Counter[SecurityProfile] = Counter()
+		self._warnings: list[str] = []
 
 	def resolve(self, username: str, password: str,
 	            secret: str) -> SecurityProfile:
+		""":returns: the user's profile with exactly these credentials - one
+		 that existed, one this import created, or a new one"""
 		creds = (username, password, secret or "")
 		profile = next((p for known, p in self._known
 		                if _same_credentials(known, creds)), None)
@@ -303,9 +326,11 @@ class _ProfileResolver:
 
 	def created(self) -> list[tuple[uuid.UUID, str]]:
 		"""(id, label) of the profiles this import created — after flush."""
-		return [(p.id, p.label) for p in self._created]
+		return [(p.id, _name(p)) for p in self._created]   # always labelled
 
 	def summary(self) -> list[tuple[str, str]]:
+		""":returns: (category, message) per profile used, then the warnings -
+		 for the page's notices"""
 		lines = []
 		for profile, count in self._assigned.items():
 			devices = f"{count} device{'s' if count != 1 else ''}"
@@ -318,10 +343,13 @@ class _ProfileResolver:
 		return lines + [("warning", w) for w in self._warnings]
 
 	def _create(self, creds: tuple[str, str, str]) -> SecurityProfile:
+		"""A new profile for these credentials (encrypted), with a warning when
+		another of the user's profiles has the same username."""
 		from src.db.tables import SecurityProfile   # web app only
 		username, password, secret = creds
+		label = self._unique_label(username)
 		profile = SecurityProfile(
-			label=self._unique_label(username), username=username,
+			label=label, username=username,
 			password_secret=encrypt(password),
 			enable_secret=encrypt(secret) if secret else None,
 			user_id=self._user_id)
@@ -333,18 +361,19 @@ class _ProfileResolver:
 				what = ("password" if not hmac.compare_digest(
 					other_pw.encode(), password.encode()) else "enable secret")
 				self._warnings.append(
-					f"Created profile '{profile.label}' — your profile "
+					f"Created profile '{label}' — your profile "
 					f"'{_name(other)}' also uses username {username}, with a "
 					f"different {what}. If the CSV has a typo or an old "
 					f"password, fix the row or move the devices to "
 					f"'{_name(other)}'.")
 				break
 		self._known.append((creds, profile))
-		self._labels.add(profile.label)
+		self._labels.add(label)
 		self._created.append(profile)
 		return profile
 
 	def _unique_label(self, username: str) -> str:
+		""":returns: "<username> · CSV import 7 Oct", numbered when taken"""
 		today = datetime.date.today()
 		base = f"{username[:36]} · CSV import {today.day} {today:%b}"
 		label, n = base, 2
@@ -354,10 +383,12 @@ class _ProfileResolver:
 
 
 def _same_credentials(a: tuple[str, str, str], b: tuple[str, str, str]) -> bool:
-	# compare every field (no early exit), in constant time per field
+	"""Equal credentials - every field compared (no early exit), each in
+	constant time: how long it takes says nothing about the secrets."""
 	return all([hmac.compare_digest(x.encode(), y.encode())
 	            for x, y in zip(a, b)])
 
 
 def _name(profile: SecurityProfile) -> str:
+	""":returns: how the page names a profile (its label, else its username)"""
 	return profile.label or profile.username

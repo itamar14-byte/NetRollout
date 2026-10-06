@@ -1,10 +1,15 @@
+"""The web app's rollouts: a job per rollout, queued in Redis and run in this
+process, at most max_concurrent at a time (the System Setting) - their state
+in Redis for the pages (src/job_store.py), their results into Postgres when
+they end. Stop / Restart drain them; a database move pauses them."""
 import datetime
 import json
 import threading
 import time
 import uuid
-from typing import Callable
+from typing import Any, Callable
 
+import redis
 from redis.client import PubSub
 
 from src import runtime
@@ -47,14 +52,20 @@ class Draining(Exception):
 
 class Paused(Draining):
 	"""submit() while rollouts are paused for a database move (pause())."""
-	def __init__(self):
+	def __init__(self) -> None:
 		super().__init__(PAUSED_MESSAGE)
 
 
 class RolloutJob:
+	"""One rollout: its engine, its log, its thread, its results."""
+
 	def __init__(self, job_id: uuid.UUID, user_id: uuid.UUID,
 	             engine: RolloutEngine, options: RolloutOptions,
-	             redis_client=None) -> None:
+	             redis_client: redis.Redis | None = None) -> None:
+		""":param user_id: who started it
+		:param engine: what it runs (devices, commands, options)
+		:param options: how it logs (web page / console, verbose)
+		:param redis_client: where its live log is (the web app's)"""
 		self.job_id = job_id
 		self.user_id = user_id
 		self.started_at: datetime.datetime | None = None
@@ -64,12 +75,16 @@ class RolloutJob:
 		                             job_id=str(job_id), prefix="rollout",
 		                             redis_client=redis_client)
 		self._cancel_flag = threading.Event()
-		self._thread = None
+		self._thread: threading.Thread | None = None
 
 	def start(self, on_complete: Callable[[uuid.UUID], None]) -> None:
+		"""Run the rollout in its own thread.
+
+		:param on_complete: called with the job's id when it ends, however -
+		 it releases the orchestrator's slot"""
 		self.started_at = datetime.datetime.now()
 
-		def _engine_run():
+		def _engine_run() -> None:
 			# on_complete must always fire — it releases the orchestrator slot.
 			# An escaped exception here would leak the slot permanently.
 			try:
@@ -79,10 +94,13 @@ class RolloutJob:
 			finally:
 				on_complete(self.job_id)
 
-		self._thread = threading.Thread(target=_engine_run, daemon=True)
-		self._thread.start()
+		thread = threading.Thread(target=_engine_run, daemon=True)
+		self._thread = thread
+		thread.start()
 
 	def cancel(self) -> None:
+		"""Ask the running rollout to stop: devices not reached yet are
+		skipped, one being configured finishes."""
 		self._cancel_flag.set()
 
 	def cancel_before_start(self, reason: str) -> None:
@@ -93,24 +111,35 @@ class RolloutJob:
 		self.results = self._engine.cancelled_results()
 
 	def is_alive(self) -> bool:
+		""":returns: whether its thread is still running"""
 		return self._thread is not None and self._thread.is_alive()
 
 	def get_log_queue(self) -> PubSub:
+		""":returns: a subscription to its live log (the page's stream)"""
 		return self._logger.subscribe()
 
 	def get_log_history(self) -> list[str]:
+		""":returns: its live log so far"""
 		return self._logger.get_history()
 
 	def log_cleanup(self) -> None:
+		"""End its live log (readers get "done"; the keys go)."""
 		return self._logger.redis_cleanup()
 
 	def get_device_count(self) -> int:
+		""":returns: how many devices it targets"""
 		return self._engine.device_count
 
 
 class RolloutOrchestrator:
+	"""The web app's rollouts: submit, cancel, drain (stop / restart), pause
+	(a database move), and the dispatcher that starts queued ones."""
+
 	def __init__(self, backend_obj: BackendServices, max_concurrent: int = 4)\
 			->	None:
+		""":param backend_obj: Postgres (results, job metadata) and Redis (state,
+		 queue, live logs)
+		:param max_concurrent: rollouts running at the same time; more wait"""
 		self.max_concurrent = max_concurrent
 		self._backend = backend_obj
 		self._store = JobStore(backend_obj.redis)
@@ -163,7 +192,15 @@ class RolloutOrchestrator:
 	def submit(self, devices: list[Device], commands: list[str], params:
 	RolloutOptions, user_id: uuid.UUID,
 	           comment: str | None = None) -> uuid.UUID:
-		""":raises Draining: NetRollout is stopping or restarting
+		"""Queue a rollout; it starts when a slot is free.
+
+		:param devices: the targets, credentials resolved
+		:param commands: what's pushed, in order (variables resolved per device)
+		:param params: verify, verbose, parallelism
+		:param user_id: who starts it
+		:param comment: the job's note (Results, Active Jobs)
+		:returns: the new job's id
+		:raises Draining: NetRollout is stopping or restarting
 		:raises Paused: rollouts are paused for a database move"""
 		self._refuse_if_closed()   # before RolloutJob: it creates the log file
 		engine = RolloutEngine(params, devices, commands)
@@ -192,19 +229,22 @@ class RolloutOrchestrator:
 		return PAUSED_MESSAGE if self._paused else None
 
 	def _refuse_if_closed(self) -> None:
+		""":raises Draining: NetRollout is stopping or restarting
+		:raises Paused: rollouts are paused for a database move"""
 		if self._draining:
 			raise Draining()
 		if self._paused:
 			raise Paused()
 
 	def cancel(self, job_id: uuid.UUID) -> None:
+		"""Cancel a running or queued rollout of this process (unknown: nothing)."""
 		with self._lock:
 			job = self._jobs.get(job_id, None)
 		if job:
 			job.cancel()
 			self._store.set_status(job.job_id, "cancelling")
 
-	def jobs(self) -> list[dict]:
+	def jobs(self) -> list[dict[str, Any]]:
 		"""This process's rollouts (a database move lists what it waits for)."""
 		with self._lock:
 			return [{"job_id": j.job_id, "user_id": j.user_id,
@@ -214,14 +254,15 @@ class RolloutOrchestrator:
 			        for j in self._jobs.values()]
 
 	def get_job(self, job_id: uuid.UUID) -> RolloutJob | None:
+		""":returns: this process's job (None: not here - over, or another's)"""
 		with self._lock:
 			job = self._jobs.get(job_id, None)
 		return job
 
 	def _dispatcher(self) -> None:
-		# Must never die: if this thread exits, no job ever starts again
-		# until the process restarts. Redis outages are waited out with
-		# backoff instead.
+		"""Start queued jobs as slots free up - forever, from its own thread.
+		It must never die: if it exits, no job starts again until the process
+		restarts. Redis outages are waited out with backoff instead."""
 		backoff = _BACKOFF_START
 		while True:
 			try:
@@ -259,10 +300,11 @@ class RolloutOrchestrator:
 			# the lock — a job that ends at once needs it for its cleanup.
 			with self._lock:
 				job = self._jobs.get(job_id)
-				claimed = job is not None and not self._draining
-				if claimed:
+				if job is not None and not self._draining:
 					job.started_at = datetime.datetime.now()
-			if not claimed:
+				else:
+					job = None
+			if job is None:
 				self._slots.release()   # gone, or drain() records it
 				continue
 			job.start(self._cleanup)
@@ -276,18 +318,22 @@ class RolloutOrchestrator:
 				      f"status update failed ({e})", flush=True)
 
 	def _cleanup(self, job_id: uuid.UUID) -> None:
+		"""A job's end (its on_complete): finalize, then free its slot."""
 		try:
 			self._finalize(job_id)
 		finally:
 			self._slots.release()
 
-	def drain(self, deadline: float, report=print) -> None:
+	def drain(self, deadline: float, report: Callable[[str], None] = print) -> None:
 		"""Stop for a restart or shutdown. New rollouts are refused (submit
 		raises Draining); queued ones are recorded as cancelled; running ones
 		may finish for `deadline` seconds and are then cancelled — a cancel
 		stops devices that haven't connected yet, and the job still records
 		its results. Returns when no job is left, or _CANCEL_WAIT after the
-		cancel. report: where progress lines go (the console by default)."""
+		cancel.
+
+		:param deadline: seconds running rollouts may take to finish
+		:param report: where progress lines go (the console by default)"""
 		with self._lock:
 			self._draining = True
 			queued = [j for j in self._jobs.values() if j.started_at is None]
@@ -325,8 +371,9 @@ class RolloutOrchestrator:
 				time.sleep(0.5)
 
 	def _cancel_queued(self, job: RolloutJob) -> None:
-		# Its definition (devices, commands) lives only in this process, so
-		# after a restart it could never run: record it instead of losing it
+		"""Record a queued job as cancelled. Its definition (devices, commands)
+		lives only in this process, so after a restart it could never run:
+		recorded, not lost."""
 		try:
 			job.cancel_before_start(QUEUED_CANCEL_REASON)
 			try:

@@ -96,7 +96,8 @@ NAVIGATION = {"exit", "end", "next", "abort", "quit", "return", "top", "up",
 
 
 def navigates(word: str) -> bool:
-	# also IOS exit-address-family, exit-vrf, …
+	""":returns: whether a command's first word only moves between config
+	 modes (exit, end, quit, … - also IOS exit-address-family, exit-vrf)"""
 	return word in NAVIGATION or word.startswith("exit-")
 
 # Operational commands: they leave no trace in the config to check
@@ -110,9 +111,12 @@ UNVERIFIABLE, VARIABLE = "not verifiable", "variable"
 
 
 def rejection(output: str, command: str) -> str | None:
-	"""The device's complaint about `command`, or None if it was accepted.
-	The echo of the command itself is skipped, so its own words (e.g.
-	"description invalid-vlan") are never mistaken for a complaint."""
+	"""The device's complaint about `command`, if any. The echo of the
+	command itself is skipped, so its own words (e.g. "description
+	invalid-vlan") are never mistaken for a complaint.
+
+	:param output: what the device printed after the command
+	:returns: the complaining line; None when the command was accepted"""
 	for line in output.splitlines():
 		text = line.strip()
 		# On the echo line only the prompt before the command is the device's
@@ -126,14 +130,16 @@ def rejection(output: str, command: str) -> str | None:
 
 
 def normalize(line: str) -> str:
-	# Spacing, case and FortiOS / ProCurve quoting don't change the meaning
+	""":returns: a config line or command as compared - spacing, case and
+	 FortiOS / ProCurve quoting don't change the meaning"""
 	return " ".join(line.replace('"', "").split()).lower()
 
 
 class _Section:
+	"""A config section: its lines (normalized), each with its own children."""
 	__slots__ = ("children",)
 
-	def __init__(self):
+	def __init__(self) -> None:
 		self.children: dict[str, _Section] = {}
 
 
@@ -255,9 +261,15 @@ def _verify_flat(config: str, commands: list[str]) -> list[str]:
 
 def verify_commands(device_type: str, config: str,
                     commands: list[str]) -> list[str]:
-	"""One verdict per command: verified / not configured / still configured
-	(a removal that didn't take) / not verifiable (navigation, operational) /
-	variable (an unresolved $$TOKEN$$ — the rollout log has the real one)."""
+	"""Check each pushed command against the config read back from the device.
+
+	:param device_type: the Netmiko device type (how its config is laid out)
+	:param config: the running config, as the platform prints it (PLATFORMS)
+	:param commands: what was pushed, as typed
+	:returns: one verdict per command, in order: verified / not configured /
+	 still configured (a removal that didn't take) / not verifiable
+	 (navigation, operational) / variable (an unresolved $$TOKEN$$ - the
+	 rollout log has the real one)"""
 	platform = PLATFORMS[device_type]
 	verdicts = _verify_flat(config, commands) if platform.flat else \
 		_verify_sectioned(config, commands, blocks=platform.close_blocks)

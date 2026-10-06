@@ -1,11 +1,18 @@
+"""The rollout engine, shared by the CLI and the web app: push commands to
+many devices over SSH (Netmiko) in parallel, finish each the way its
+platform needs (save / commit / ...), optionally verify against the config
+read back, and classify each device's outcome. Platform knowledge is in
+src/platforms.py; this module does the I/O."""
 import os
 import threading
+import uuid
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, NamedTuple, Optional, TypedDict
+from typing import TYPE_CHECKING, Any, NamedTuple, Optional, TypedDict
 
 import netmiko
+from netmiko import BaseConnection
 
 from src import encryption
 from src.logging_utils import RolloutLogger
@@ -19,15 +26,19 @@ if TYPE_CHECKING:   # type hints only: the CLI (.exe) must not load the DB stack
 
 class SubstitutionError(ValueError):
 	"""A $$TOKEN$$ can't be resolved on a device."""
-	pass
 
 
-def mapping_resolvable(var_maps: dict | None, property_name: str,
+def mapping_resolvable(var_maps: dict[str, Any] | None, property_name: str,
                        index: int | None) -> bool:
-	"""Whether a mapping can substitute on a device: the attribute is set and
-	non-empty, and for indexed mappings (e.g. vrfs[2]) the list is long
-	enough. Shared by the binding routes and the engine, so they can't
-	disagree."""
+	"""Whether a mapping can substitute on a device. Shared by the binding
+	routes and the engine, so they can't disagree.
+
+	:param var_maps: the device's attribute values (a text or a list each)
+	:param property_name: the attribute the mapping reads
+	:param index: a position in a list attribute (e.g. vrfs[2]); None: the
+	 whole value
+	:returns: the attribute is set and non-empty - and long enough, when
+	 indexed"""
 	value = (var_maps or {}).get(property_name)
 	if not value:
 		return False
@@ -37,11 +48,13 @@ def mapping_resolvable(var_maps: dict | None, property_name: str,
 
 
 class PushResult(NamedTuple):
+	"""How the push went on one device."""
 	applied: bool    # the change took effect (connected, finished, committed)
 	rejected: int    # commands the device refused
 
 
 class VerifyResult(NamedTuple):
+	"""How verify went on one device."""
 	verified: int        # commands confirmed in the config
 	checkable: int       # commands that can be checked (not navigation /
 	                     # operational)
@@ -50,18 +63,20 @@ class VerifyResult(NamedTuple):
 
 def classify(push: PushResult | None, verify: VerifyResult | None,
              total: int, configuring: int) -> tuple[str, int, int | None]:
-	"""A device's outcome: (status, commands_sent, commands_verified).
-
-	push: None if the device never started (cancelled first). verify: None
-	when verify was off or the config couldn't be fetched. total: commands
-	sent; configuring: those that configure something (not navigation).
+	"""A device's outcome, by these rules:
 	- not applied (no connection, no commit) → failed, nothing counted
 	- verified: every checkable command confirmed and none refused →
 	  success; none confirmed (of some checkable) → failed; else partial.
 	  Commands that can't be checked count as accounted for.
 	- not verified: what the device said while the commands were sent —
 	  none refused → success; every configuring one refused → failed;
-	  else partial."""
+	  else partial.
+
+	:param push: None if the device never started (cancelled first)
+	:param verify: None when verify was off or the config couldn't be fetched
+	:param total: commands sent
+	:param configuring: those that configure something (not navigation)
+	:returns: (status, commands_sent, commands_verified - None unverified)"""
 	if push is None:
 		return "cancelled", 0, None
 	if not push.applied:
@@ -80,6 +95,7 @@ def classify(push: PushResult | None, verify: VerifyResult | None,
 
 
 class DeviceResultDict(TypedDict):
+	"""One device's outcome - a device_results row's fields."""
 	device_ip: str
 	device_port: int
 	device_type: str
@@ -92,14 +108,17 @@ class DeviceResultDict(TypedDict):
 
 @dataclass(slots=True, kw_only=True)
 class RolloutOptions:
+	"""How a rollout runs."""
 	verify: bool = False
 	verbose: bool = False
-	webapp: bool = False
-	max_workers: int = 10
+	webapp: bool = False      # log for the page (HTML) rather than a console
+	max_workers: int = 10     # devices configured at the same time
 
 
 @dataclass(kw_only=True)
 class Device:
+	"""A rollout target: where it is, how to log in (credentials decrypted),
+	and its variable mappings with the attribute values they read."""
 	ip: str
 	label: str
 	username: str
@@ -107,9 +126,11 @@ class Device:
 	device_type: str
 	secret: str = field(repr=False)
 	port: int
-	var_map_subs: dict[str, tuple[str | list[str], str | None]] = field(
+	# $$TOKEN$$ -> (attribute name, index in a list attribute or None)
+	var_map_subs: dict[str, tuple[str, int | None]] = field(
 		default_factory=dict)
-	extra: dict = field(default_factory=dict)
+	# the attribute values (var_maps): text, or a list of texts
+	extra: dict[str, Any] = field(default_factory=dict)
 
 	@property
 	def endpoint(self) -> str:
@@ -117,8 +138,9 @@ class Device:
 		NAT / port forwarding put several devices behind one address)."""
 		return f"{self.ip}:{self.port}"
 
-	def netmiko_connector(self) -> dict[str, str]:
-		params = {
+	def netmiko_connector(self) -> dict[str, str | int]:
+		""":returns: Netmiko's ConnectHandler arguments for this device"""
+		params: dict[str, str | int] = {
 			"ip": self.ip,
 			"username": self.username,
 			"password": self.password,
@@ -131,7 +153,9 @@ class Device:
 	def fetch_config(self, logger: RolloutLogger) -> Optional[str]:
 		"""The running config, printed in the syntax engineers type (see
 		PLATFORMS), over the same SSH as the push — the device's port and
-		credentials. None if it can't be fetched (reported in the log)."""
+		credentials.
+
+		:returns: the config; None if it can't be fetched (reported in the log)"""
 		platform = PLATFORMS[self.device_type]
 		try:
 			with netmiko.ConnectHandler(**self.netmiko_connector()) as conn:
@@ -150,10 +174,13 @@ class Device:
 			return None
 
 	@classmethod
-	def from_inventory(cls, row: "Inventory", user_id) -> "Device":
+	def from_inventory(cls, row: "Inventory", user_id: uuid.UUID) -> "Device":
+		"""A rollout target from an inventory row, credentials decrypted.
+
+		:param user_id: who rolls out - only their own mappings apply (the
+		 join table is shared across users through global devices)
+		:raises ValueError: the device has no security profile"""
 		profile = row.security_profile
-		# The join table is shared across users (global devices), so only the
-		# rolling-out user's own mappings are applied
 		mappings = [m for m in row.var_mappings if m.user_id == user_id]
 		if not profile:
 			raise ValueError(f"no security profiles assigned to {row.ip}")
@@ -170,9 +197,10 @@ class Device:
 		           extra=row.var_maps or {})
 
 
-def _enter_cli_shell(conn, platform: Platform) -> str | None:
+def _enter_cli_shell(conn: BaseConnection, platform: Platform) -> str | None:
 	"""Leave a wrong login shell (Gaia expert / bash) for the CLI.
-	:return: the problem if the CLI shell couldn't be reached, else None"""
+
+	:returns: the problem if the CLI shell couldn't be reached, else None"""
 	if not platform.wrong_shell:
 		return None
 
@@ -193,11 +221,12 @@ def _enter_cli_shell(conn, platform: Platform) -> str | None:
 	        f"clish")
 
 
-def _fortios_save_if_manual(conn) -> tuple[bool, str | None]:
+def _fortios_save_if_manual(conn: BaseConnection) -> tuple[bool, str | None]:
 	"""FortiOS saves changes automatically unless `cfg-save` is manual (lost
 	at reboot) or revert (undone after a timeout) — then save explicitly.
 	With VDOMs, the setting lives under `config global`.
-	:return: (saved explicitly, the device's complaint if saving failed)"""
+
+	:returns: (saved explicitly, the device's complaint if saving failed)"""
 	vdoms = getattr(conn, "_vdoms", False)
 	if vdoms:
 		conn.send_command_timing("config global")
@@ -213,8 +242,12 @@ def _fortios_save_if_manual(conn) -> tuple[bool, str | None]:
 
 
 class RolloutEngine:
+	"""One rollout: its devices, its commands and how it runs."""
+
 	def __init__(self, param: RolloutOptions, devices: list[Device],
 	             commands: list[str]) -> None:
+		""":param param: verify, the parallelism (and how it logs)
+		:param commands: pushed in order, $$TOKEN$$s resolved per device"""
 		self._devices = devices
 		# endpoint → what only a person can resolve there (Results page,
 		# summary)
@@ -225,6 +258,7 @@ class RolloutEngine:
 
 	@property
 	def device_count(self) -> int:
+		""":returns: how many devices it targets"""
 		return len(self._devices)
 
 	def cancelled_results(self) -> list["DeviceResultDict"]:
@@ -237,7 +271,9 @@ class RolloutEngine:
 		        for d in self._devices]
 
 	def _substitute_commands(self, device: Device) -> list[str]:
-		""":raises SubstitutionError: a mapped attribute is missing on the
+		"""The commands with the device's $$TOKEN$$s replaced by its values.
+
+		:raises SubstitutionError: a mapped attribute is missing on the
 		 device (e.g. removed from a global device after users bound it)"""
 		device_mappings = device.var_map_subs
 		commands_copy = self._commands.copy()
@@ -264,10 +300,10 @@ class RolloutEngine:
 		nothing). Called concurrently by _push_config via ThreadPoolExecutor.
 		A command the device refuses is reported with its reply and the rest
 		are still sent.
-		:return: (ip, PushResult) — applied False when nothing took effect
+		:param cancel_event: set: a device not connected yet is skipped
+		:returns: (ip, PushResult) — applied False when nothing took effect
 		 (no connection, a failed commit) — or (ip, None) if cancelled before
-		 connecting
-		"""
+		 connecting"""
 		if cancel_event and cancel_event.is_set():
 			return device.ip, None
 
@@ -386,9 +422,14 @@ class RolloutEngine:
 			                    f"after the push and saving from a new session "
 			                    f"failed: {e})", logger)
 
-	def _finish(self, conn, platform: Platform, device: Device,
+	def _finish(self, conn: BaseConnection, platform: Platform, device: Device,
 	            logger: RolloutLogger) -> bool:
-		""":return: False if the change didn't take effect (a failed commit)"""
+		"""Finish a pushed device the way its platform needs: close FortiOS
+		blocks (saving when cfg-save isn't automatic), commit, save, or a
+		finishing command.
+
+		:param conn: the push's open session
+		:returns: False if the change didn't take effect (a failed commit)"""
 		if platform.close_blocks:
 			# FortiOS applies a block at "end"; one left open is discarded
 			# (and Netmiko's own cleanup would run inside it)
@@ -453,19 +494,17 @@ class RolloutEngine:
 	def _push_config(self, cancel_event: threading.Event,
 	                 logger: RolloutLogger) -> tuple[
 		str | None, dict[int, "PushResult"]]:
-		"""
-		The function will accept device and command data, as processed by parse_files and push the configuration,
-		using netmiko for SSH connections over the provided ip and port.
-		Devices are pushed concurrently via ThreadPoolExecutor.
+		"""Push every device, max_workers at a time.
 		A cancel stops devices that haven't connected yet; devices already
 		mid-push finish their commands (a half-applied config is worse than
 		either state). Every result is collected — returning at the first
 		cancelled device used to drop the results of devices still in flight,
 		recording them as cancelled although their config was applied.
-		:return: (cancel_signal, push_results) where cancel_signal is "cancel_sent" or None
-		 and push_results maps each device's index in self._devices to its
-		 result; devices that never connected are absent
-		"""
+
+		:param cancel_event: set by a cancel (the page) or Ctrl+C (the CLI)
+		:returns: (cancel_signal, push_results) where cancel_signal is
+		 "cancel_sent" or None and push_results maps each device's index in
+		 self._devices to its result; devices that never connected are absent"""
 		# Keyed by position, not IP: several devices can share an IP (NAT /
 		# port forwarding, overlapping address space) and must not overwrite
 		# each other's result
@@ -491,9 +530,8 @@ class RolloutEngine:
 	                   logger: RolloutLogger) -> "VerifyResult | None":
 		"""Fetches the device's config and checks every command in it
 		(verify_commands). Called concurrently by _verify.
-		:return: the counts, the config kept only when something didn't
-		 verify (for Verify Diff) — or None if the config couldn't be fetched
-		"""
+		:returns: the counts, the config kept only when something didn't
+		 verify (for Verify Diff) — or None if the config couldn't be fetched"""
 		try:
 			expected = self._substitute_commands(device)
 		except SubstitutionError:
@@ -527,8 +565,8 @@ class RolloutEngine:
 	            logger: RolloutLogger) -> dict[int, "VerifyResult | None"]:
 		"""Verifies the devices at `indexes` (those the push applied to)
 		concurrently via ThreadPoolExecutor.
-		:return: {device index: VerifyResult, or None if not fetched}"""
-		result = {}
+		:returns: {device index: VerifyResult, or None if not fetched}"""
+		result: dict[int, VerifyResult | None] = {}
 		with ThreadPoolExecutor(max_workers=self._max_workers) as executor:
 			futures = {executor.submit(self._verify_device, self._devices[idx],
 			                           logger): idx for idx in indexes}
@@ -561,23 +599,26 @@ class RolloutEngine:
 
 	def run(self, cancel_flag: threading.Event, logger: RolloutLogger) -> list[
 		DeviceResultDict]:
+		"""The whole rollout: push, verify what was applied (when on), classify
+		each device, log the summary.
+
+		:param cancel_flag: set to cancel - devices not reached yet are skipped
+		:returns: one result per device, in the devices' order; [] when there
+		 are no devices or no commands"""
 		logger.notify("Starting configuration rollout", important=True)
-		# Runs parse_files to subscribe data from the provided file paths
-		# If parsing was successful and the output of the function was not empty lists, we continue the process
 		if self._devices and self._commands:
-			# Runs the config push procedure
 			cancel_signal, push_results = self._push_config(cancel_flag, logger)
 
 			# Verify only what the push applied to
 			applied = [idx for idx, push in push_results.items() if push.applied]
-			verify_results = {}
+			verify_results: dict[int, VerifyResult | None] = {}
 			if self._verify_flag and cancel_signal != "cancel_sent" and applied:
 				logger.notify(
 					"Configuration rollout finished. Initiating verification process",
 					important=True)
 				verify_results = self._verify(applied, logger)
 
-			results = []
+			results: list[DeviceResultDict] = []
 			total = len(self._commands)
 			# the commands that configure something (not exit / end / next…)
 			configuring = sum(1 for c in self._commands
