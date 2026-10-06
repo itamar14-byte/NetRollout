@@ -427,3 +427,76 @@ def test_results_are_saved_when_redis_is_down_at_the_end(end_of_job):
 	assert [(r.device_ip, r.job_id) for r in postgres.added] == \
 	       [("10.0.0.1", job.job_id)]
 	assert orch._slots._value == 1
+
+
+# ── Paused for a database move (src/webapp/maintenance.py) ───────────────────
+
+def test_pause_refuses_new_rollouts_lets_queued_and_running_ones_finish(
+		make_orchestrator):
+	orch = make_orchestrator(FakeRedis(), max_concurrent=1)
+	options = RolloutOptions(verify=False, verbose=False, webapp=False)
+	release = threading.Event()
+	with patch.object(RolloutEngine, "run", side_effect=_blocking_run(release)):
+		uid = uuid.uuid4()
+		orch.submit([_device()], ["cmd"], options, uid)
+		assert wait_for(lambda: orch.counts()["running"] == 1)
+		orch.submit([_device("10.0.0.2")], ["cmd"], options, uid)   # queued
+		orch.pause()
+		with pytest.raises(orchestration.Paused) as refused:
+			orch.submit([_device("10.0.0.3")], ["cmd"], options, uid)
+		assert str(refused.value) == orchestration.PAUSED_MESSAGE
+		assert orch.refusal() == orchestration.PAUSED_MESSAGE
+		assert not orch.idle()
+		release.set()
+		# nothing cancelled: the queued one runs too, then the pause is idle
+		assert wait_for(orch.idle)
+	assert _rows(orch, "cancelled") == []
+	orch.resume()
+	assert orch.refusal() is None and not orch.paused
+
+
+def test_resume_never_undoes_a_drain(make_orchestrator):
+	orch = make_orchestrator(FakeRedis())
+	orch.pause()
+	orch.drain(0)
+	orch.resume()
+	options = RolloutOptions(verify=False, verbose=False, webapp=False)
+	with pytest.raises(orchestration.Draining) as refused:
+		orch.submit([_device()], ["cmd"], options, uuid.uuid4())
+	assert type(refused.value) is orchestration.Draining     # not Paused
+	assert orch.refusal() == orchestration.DRAINING_MESSAGE
+
+
+class SlowPostgres(FakePostgres):
+	"""Writing the results waits until `go` is set."""
+
+	def __init__(self):
+		super().__init__()
+		self.go = threading.Event()
+		self.writing = threading.Event()
+
+	@contextmanager
+	def get_session(self):
+		self.writing.set()
+		self.go.wait(5)
+		with super().get_session() as session:
+			yield session
+
+
+def test_not_idle_while_a_finished_rollout_still_writes_its_results(
+		monkeypatch, tmp_path):
+	# the job leaves the job table before its results are written: a move
+	# locking then would copy the data without them
+	monkeypatch.setattr(orchestration, "_BACKOFF_START", 0)
+	monkeypatch.setenv("NETROLLOUT_HOME", str(tmp_path))
+	postgres, fake = SlowPostgres(), FakeRedis()
+	orch = RolloutOrchestrator(SimpleNamespace(
+		redis=SimpleNamespace(client=fake), postgres=postgres), max_concurrent=1)
+	job = EndedJob()
+	enqueue(orch, fake, job)
+	assert postgres.writing.wait(5)
+	assert orch.counts() == {"running": 0, "queued": 0}   # gone from the table
+	assert not orch.idle()                                 # but still writing
+	postgres.go.set()
+	assert job.cleaned.wait(5)
+	assert wait_for(orch.idle)

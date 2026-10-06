@@ -293,6 +293,12 @@ class WebServices:
 		commits independently of the calling route transaction."""
 		if username is None:
 			username = current_user.username if current_user.is_authenticated else "anonymous"
+		if current_app.maintenance.writes_blocked:
+			# a database move copies the data: a row now would be lost at
+			# the switch (the gate lets only views that don't write through)
+			print(f"[NetRollout] not audited during maintenance: {action} by "
+			      f"{username}", flush=True)
+			return
 		if actor_id is None:
 			actor_id = current_user.id if current_user.is_authenticated else None
 		with self.backend.postgres.get_session() as db_session:

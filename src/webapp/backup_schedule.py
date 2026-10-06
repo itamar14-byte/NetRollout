@@ -150,13 +150,16 @@ def schedule_state(settings_values: dict, now: datetime | None = None) -> dict:
 	        "last": read_status()}
 
 
-def start_backup_schedule(backend) -> None:
-	"""The scheduler thread. Called by the web app's entry point. Never raises."""
+def start_backup_schedule(backend, hold=lambda: False) -> None:
+	"""The scheduler thread. Called by the web app's entry point. Never raises.
+	hold(): True while a database move runs - a due backup waits (caught up
+	after it; the move itself takes the backup lock)."""
 	def loop():
 		time.sleep(FIRST_CHECK_SECONDS)
 		while True:
 			try:
-				tick(backend)
+				if not hold():
+					tick(backend)
 			except Exception as e:              # noqa: BLE001 — keep the thread alive
 				print(f"[NetRollout] backup schedule check failed: {e}", flush=True)
 			time.sleep(CHECK_SECONDS)

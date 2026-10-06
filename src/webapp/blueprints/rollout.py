@@ -14,7 +14,7 @@ from flask_login import current_user, login_required
 from src.db.tables import DeviceResult, Inventory
 from src.core import RolloutOptions
 from src.input_parser import InputParser
-from src.orchestration import Draining, DRAINING_MESSAGE
+from src.orchestration import Draining
 from src.webapp.utils import (ok, err, with_form, with_json,
                               visible_devices_clause, query_visible_devices,
                               partition_devices)
@@ -197,8 +197,9 @@ def new_rollout():
 @bp.route("/start", methods=["POST"])
 @login_required
 def new_start_rollout():
-	if current_app.orchestrator.draining:   # before the reachability checks
-		flash(DRAINING_MESSAGE, "danger")
+	# before the reachability checks: stopping, or paused for a database move
+	if refused := current_app.orchestrator.refusal():
+		flash(refused, "danger")
 		return redirect(url_for("rollout.new_rollout"))
 	raw_device_ids = request.form.getlist("device_ids")
 	if not raw_device_ids:
@@ -242,8 +243,8 @@ def new_start_rollout():
 	try:
 		job_id = submit_jobs(devices, commands, platform_commands_map,
 		                     is_multi_platform, options, audit_comment)
-	except Draining:
-		flash(DRAINING_MESSAGE, "danger")
+	except Draining as e:   # stopping, or paused for a database move
+		flash(str(e), "danger")
 		return redirect(url_for("rollout.new_rollout"))
 	if isinstance(job_id, Response):
 		return job_id
@@ -342,8 +343,8 @@ def rollback(job_id, data):
 	try:
 		new_job_id = current_app.orchestrator.submit(devices, commands,
 		                                              options, current_user.id)
-	except Draining:
-		return err(DRAINING_MESSAGE, 503)
+	except Draining as e:
+		return err(str(e), 503)
 	current_app.web.audit("rollout.rollback", object_id=job_id,
 	      detail={"new_job_id": str(new_job_id), "device_count": len(devices)})
 	return ok(job_id=str(new_job_id))

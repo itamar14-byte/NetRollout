@@ -31,8 +31,10 @@ signal.signal(signal.SIGTERM, lambda signum, frame: app.shutdown.begin(
 
 start_log_pruning(lambda: app.backend.settings.get("log_retention_days"))
 start_certificate_upkeep()   # previous hostnames leave the self-signed cert
-start_backup_schedule(app.backend)   # System Settings → Backups
-start_retention_fallback(app.backend)   # the nightly clean-up where pg_cron isn't
+# both wait while a database move runs (src/webapp/maintenance.py)
+moving = lambda: app.maintenance.state != "idle"
+start_backup_schedule(app.backend, hold=moving)   # System Settings → Backups
+start_retention_fallback(app.backend, hold=moving)   # the nightly clean-up where pg_cron isn't
 # Internal app port: set at install; nginx forwards to it
 port = int(os.getenv("PORT", "8080"))
 app.config["APP_PORT"] = port   # shown read-only in System Settings

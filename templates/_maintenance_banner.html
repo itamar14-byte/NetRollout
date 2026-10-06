@@ -1,0 +1,13 @@
+{# Shown on every page while a database move waits for rollouts to finish
+   (context: maintenance - src/webapp/maintenance.py, state "waiting"). Once
+   the move copies the data, every page becomes maintenance.html. #}
+{% if maintenance %}
+<div class="alert alert-warning d-flex align-items-start gap-2 mb-2" role="status" id="maintenanceBanner">
+    <i class="bi bi-database-gear mt-1"></i>
+    <div>
+        <strong>{{ maintenance.what | capitalize }}.</strong>
+        New rollouts are paused until it's done; NetRollout will be unavailable
+        for a few minutes once the running ones have finished.
+    </div>
+</div>
+{% endif %}

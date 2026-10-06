@@ -24,6 +24,7 @@ from src.runtime import VERSION, StartupError, in_container, source_url
 from src.encryption import init_encryption, require_key_in_container
 from src.job_store import JobStore
 from src.orchestration import RolloutOrchestrator
+from src.webapp.maintenance import register_maintenance
 from src.webapp.lifecycle import Shutdown
 from src.webapp.proxy_config import seed_hostname_from_site, sync_at_start
 
@@ -227,6 +228,8 @@ def launch_app():
 
 
 	configure_app(app, app.backend.redis, secret_key)
+	# first of the request hooks: while a move copies the data, nothing writes
+	register_maintenance(app)
 	register_extensions(app)
 	register_auth(app)
 	register_metrics(app.backend.redis)

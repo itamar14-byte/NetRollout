@@ -33,15 +33,16 @@ def run_once(engine) -> dict | None:
 	return counts
 
 
-def start_retention_fallback(backend) -> None:
+def start_retention_fallback(backend, hold=lambda: False) -> None:
 	"""The daily check, from a daemon thread (the database looked up each
-	time: it follows a move). Called by the web app's entry point. Never raises."""
+	time: it follows a move). Called by the web app's entry point. Never raises.
+	hold(): True while a database move runs - the clean-up waits for it."""
 	def loop():
 		last_run = retry_at = None
 		while True:
 			time.sleep(CHECK_SECONDS)
 			now = datetime.now()
-			if (retry_at and now < retry_at) or not due(now, last_run):
+			if (retry_at and now < retry_at) or not due(now, last_run) or hold():
 				continue
 			try:
 				run_once(backend.postgres.engine)

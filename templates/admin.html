@@ -514,6 +514,7 @@
         <!-- Flash messages -->
         <div class="px-4 pt-3">
             {% include '_drain_banner.html' %}
+            {% include '_maintenance_banner.html' %}
             {% with messages = get_flashed_messages(with_categories=true) %}
                 {% if messages %}
                     {% for category, message in messages %}

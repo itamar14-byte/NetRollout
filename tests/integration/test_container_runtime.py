@@ -55,7 +55,7 @@ def test_health_is_public_and_reports_services_counts_version(app, busy):
 	assert resp.headers["Cache-Control"] == "no-store"
 	assert resp.json == {"status": "ok", "version": VERSION, "postgres": True,
 	                     "redis": True, "rollouts": {"running": 1, "queued": 2},
-	                     "draining": False}
+	                     "draining": False, "maintenance": None}
 
 
 def test_health_is_503_when_a_service_is_down(app, monkeypatch):

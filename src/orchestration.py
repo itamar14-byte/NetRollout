@@ -34,9 +34,21 @@ DRAINING_MESSAGE = ("NetRollout is stopping or restarting — new rollouts are "
                     "paused. Try again once it's back.")
 
 
+PAUSED_MESSAGE = ("NetRollout is moving to another database — new rollouts "
+                  "are paused. Try again once the move is done.")
+
+
 class Draining(Exception):
-	"""submit() while NetRollout is stopping or restarting."""
-	pass
+	"""submit() while NetRollout is stopping or restarting. Its text is the
+	message for people."""
+	def __init__(self, message: str = DRAINING_MESSAGE):
+		super().__init__(message)
+
+
+class Paused(Draining):
+	"""submit() while rollouts are paused for a database move (pause())."""
+	def __init__(self):
+		super().__init__(PAUSED_MESSAGE)
 
 
 class RolloutJob:
@@ -106,12 +118,39 @@ class RolloutOrchestrator:
 		self._jobs: dict[uuid.UUID, RolloutJob] = {}
 		self._lock = threading.Lock()
 		self._draining = False
+		self._paused = False
+		self._saving = 0     # finished jobs whose results are being written
 		threading.Thread(target=self._dispatcher, daemon=True).start()
 
 	@property
 	def draining(self) -> bool:
 		"""True once a stop / restart began: new rollouts are refused."""
 		return self._draining
+
+	@property
+	def paused(self) -> bool:
+		"""True while pause()d: new rollouts are refused, the queued and running
+		ones go on."""
+		return self._paused
+
+	def pause(self) -> None:
+		"""Refuse new rollouts (Paused) and let the queued and running ones
+		finish - unlike drain(), nothing is cancelled and resume() undoes it.
+		For a database move, which waits until counts() is all zero."""
+		with self._lock:
+			self._paused = True
+
+	def idle(self) -> bool:
+		"""Nothing queued, running, or still writing its results - nothing of
+		the rollouts will write to the database any more (while pause()d)."""
+		with self._lock:
+			return not self._jobs and not self._saving
+
+	def resume(self) -> None:
+		"""New rollouts accepted again - unless a stop / restart began
+		meanwhile: a drain is never undone."""
+		with self._lock:
+			self._paused = False
 
 	def counts(self) -> dict[str, int]:
 		"""Rollouts of this process, from memory (so it works while Redis is
@@ -124,16 +163,15 @@ class RolloutOrchestrator:
 	def submit(self, devices: list[Device], commands: list[str], params:
 	RolloutOptions, user_id: uuid.UUID,
 	           comment: str | None = None) -> uuid.UUID:
-		""":raises Draining: NetRollout is stopping or restarting"""
-		if self._draining:   # before RolloutJob: it creates the log file
-			raise Draining()
+		""":raises Draining: NetRollout is stopping or restarting
+		:raises Paused: rollouts are paused for a database move"""
+		self._refuse_if_closed()   # before RolloutJob: it creates the log file
 		engine = RolloutEngine(params, devices, commands)
 		job = RolloutJob(uuid.uuid4(), user_id, engine, params,
 		                 redis_client=self._backend.redis.client)
 
 		with self._lock:
-			if self._draining:
-				raise Draining()
+			self._refuse_if_closed()
 			self._jobs[job.job_id] = job
 
 		self._store.add(job.job_id, user_id, job.get_device_count())
@@ -146,6 +184,18 @@ class RolloutOrchestrator:
 
 		self._store.enqueue(job.job_id)
 		return job.job_id
+
+	def refusal(self) -> str | None:
+		"""Why a new rollout would be refused now (for people), or None."""
+		if self._draining:
+			return DRAINING_MESSAGE
+		return PAUSED_MESSAGE if self._paused else None
+
+	def _refuse_if_closed(self) -> None:
+		if self._draining:
+			raise Draining()
+		if self._paused:
+			raise Paused()
 
 	def cancel(self, job_id: uuid.UUID) -> None:
 		with self._lock:
@@ -279,11 +329,15 @@ class RolloutOrchestrator:
 		then) nor leave the job "active" forever."""
 		with self._lock:
 			job = self._jobs.pop(job_id, None)
+			if job:
+				self._saving += 1      # idle() waits for the results
 		if not job:
 			return
 		try:
 			self._save_results(job)
 		finally:
+			with self._lock:
+				self._saving -= 1
 			try:
 				self._store.finished(job.job_id, job.user_id, was_running)
 			except REDIS_UNAVAILABLE as e:

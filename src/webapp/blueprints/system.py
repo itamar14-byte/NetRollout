@@ -2,12 +2,14 @@ from flask import Blueprint, Response, current_app, jsonify
 from flask_login import current_user
 
 from src.runtime import VERSION
+from src.webapp.maintenance import during_maintenance
 from src.webapp.startup import GRAFANA_AUTH_PATH, HEALTH_PATH, INSTANCE_PATH
 
 bp = Blueprint("system", __name__)
 
 
 @bp.route(GRAFANA_AUTH_PATH)
+@during_maintenance    # reads only; the dashboards stay
 def grafana_auth():
 	"""nginx asks this before every /grafana/ request (auth_request), with the
 	browser's cookies: Grafana is for signed-in admins only. nginx understands
@@ -25,6 +27,7 @@ def grafana_auth():
 
 
 @bp.route(INSTANCE_PATH)
+@during_maintenance
 def instance():
 	"""This process's random per-run token — lets the startup check prove the
 	reverse proxy forwards to *this* instance. No login, no session write, no
@@ -33,6 +36,7 @@ def instance():
 
 
 @bp.route(HEALTH_PATH)
+@during_maintenance
 def health():
 	"""For Docker's health check, `compose up --wait`, the installer and
 	`netrollout status` — callers without a browser session. Up/down per
@@ -45,7 +49,16 @@ def health():
 	        "postgres": services["POSTGRES"],
 	        "redis": services["REDIS"],
 	        "rollouts": current_app.orchestrator.counts(),
-	        "draining": current_app.orchestrator.draining}
+	        "draining": current_app.orchestrator.draining,
+	        # a database move: still 200 - not down (Docker, the Manager)
+	        "maintenance": _maintenance()}
 	response = jsonify(body)
 	response.headers["Cache-Control"] = "no-store"
 	return response, 200 if up else 503
+
+
+def _maintenance() -> dict | None:
+	info = current_app.maintenance.snapshot()
+	if info["state"] == "idle":
+		return None
+	return {"state": info["state"], "progress": info["progress"]}
