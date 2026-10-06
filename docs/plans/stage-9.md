@@ -469,6 +469,20 @@ clean-up, the CLI). Found and fixed: a test build named its Start Menu,
 desktop, Startup entries and Win+R like the real install - test uninstalls
 deleted the real install's (restored by its next update).
 
+**9.9e (2026-10-06) - the Linux pass on 1.0.0.dev2** (Ubuntu 24.04, Docker
+Engine 29, a recording systemctl): 1.0.0.dev1 from the user's install's
+commit (the custom Postgres image), monitoring on -> `update --from` the dev2
+zip: every image dev2, the official Postgres on the same data, the
+first-start script shipped 755, grafana-setup healthy with its data source,
+the clean-up recorded; backup + restore; the HTTPS port moved (both ports,
+confirmed, kept - with monitoring, right after a restore); uninstall
+keeping the data + install again; uninstall deleting it (the units gone); a
+fresh install (the logins by the mounted script, no extension, the
+clean-up); ShellCheck clean. Found and fixed: install.sh refused to bring
+back a kept install ("already installed") although the uninstall promises
+it. (A first-run port failure was the test's own: its wait matched the
+status file's "trying" key.)
+
 **9.8 done (2026-10-06).** 9.8d2 added: Redis stays a plain live switch (no
 copy, no restart - verified), with Switch back to the bundled Redis; every
 switch clears sessions in the Redis switched to. Bugs found by the real runs
