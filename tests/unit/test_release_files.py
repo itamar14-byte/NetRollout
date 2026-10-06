@@ -130,7 +130,9 @@ def test_the_netrollout_command_on_path_is_only_the_bat():
 	installed = re.findall(r'^Source: "\.\.\\([^"]+)"; DestDir: "\{app\}\\bin"', text, re.M)
 	assert [n for n in installed if n.lower().startswith("netrollout.")] == ["netrollout.bat", "netrollout.ico"]
 	assert re.search(r"^Name: addtopath;", text, re.M)
-	assert "App Paths\\netrollout.exe" in text
+	# the real build's name (a test build has its own: see below)
+	assert "App Paths\\{#RunName}" in text
+	assert '#define RunName "netrollout.exe"' in text.split("#else", 1)[1]
 
 
 def test_the_licence_page_shows_the_full_licence_from_the_one_file():
@@ -237,7 +239,8 @@ def test_the_port_helper_runs_by_itself_on_windows():
 	# server: the headless helper starts at sign-in and with Setup, and goes
 	# with the uninstaller (--exit closes it too)
 	iss = (ROOT / "windows" / "installer" / "netrollout.iss").read_text(encoding="utf-8")
-	assert r'Name: "{userstartup}\NetRollout port helper"; Filename: "{app}\bin\NetRollout Manager.exe"; Parameters: "--helper"' in iss
+	assert r'Name: "{userstartup}\NetRollout port helper{#NameSuffix}"; Filename: "{app}\bin\NetRollout Manager.exe"; Parameters: "--helper"' in iss
+	assert '#define NameSuffix ""' in iss.split("#else", 1)[1]      # the real build: the plain name
 	assert 'Parameters: "--helper"; WorkingDir: "{app}"; Flags: nowait; Check: SetUpOk' in iss
 	cs = (ROOT / "windows" / "manager" / "NetRolloutManager.cs").read_text(encoding="utf-8")
 	assert 'if (args[i] == "--helper") helper = true;' in cs and 'return ExitRunning(name + ".Helper");' in cs
@@ -282,3 +285,17 @@ def test_a_test_build_names_everything_outside_its_folder_its_own_way():
 	assert len(outside) >= 12
 	for line in outside:
 		assert re.search(r"\{#(AppTitle|NameSuffix|RunName)\}", line), line
+
+
+def test_installing_again_over_a_kept_linux_install_starts_it():
+	# `uninstall --keep-data` promises "installing again in this folder picks
+	# it up"; install.sh used to refuse ("already installed", exit 2) - found
+	# by 9.9e. It now starts NetRollout with its own settings, as Setup does
+	# on Windows.
+	import re
+	sh = (ROOT / "linux" / "netrollout.sh").read_text(encoding="utf-8")
+	install = re.search(r"\ndo_install\(\) \{(.*?)\n\}", sh, re.S)[1]
+	kept = install[:install.index("if [ -z \"$YES\" ]")]
+	assert 'if [ -f "$ENV_FILE" ]; then' in kept and "do_start" in kept and "return" in kept
+	assert "already installed" not in kept
+	assert "installing again in this folder picks it up" in sh

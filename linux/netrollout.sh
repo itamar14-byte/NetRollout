@@ -216,7 +216,16 @@ do_start() {
 
 do_install() {
 	need_root
-	[ ! -f "$ENV_FILE" ] || fail "NetRollout is already installed in $ROOT - see: netrollout status (or netrollout update)." 2
+	if [ -f "$ENV_FILE" ]; then
+		# kept by `uninstall --keep-data` (which promises this), or installed
+		# already: bring it back with its own settings - as NetRollout Setup
+		# does on Windows. start is harmless on a running NetRollout.
+		good "NetRollout's settings and data are already in $ROOT - starting it with them."
+		[ ${#ANSWERS[@]} -eq 0 ] ||
+			warn "The answers given aren't applied to an existing install - change them in System Settings."
+		do_start
+		return
+	fi
 	if [ -z "$YES" ]; then
 		cat <<'NOTICE'
 
