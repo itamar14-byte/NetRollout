@@ -21,15 +21,21 @@
 #define Repo "https://github.com/itamar14-byte/NetRollout"
 ; Windows keeps one install record per app identity and user: a test build
 ; (iscc /DTestBuild) has its own, so a test install can neither take over nor
-; update the real one
+; update the real one - and its own name on everything it creates outside its
+; folder (Start Menu, desktop, Startup, Win+R): with the real names, a test
+; uninstall deleted the real install's shortcuts and Win+R
 #ifdef TestBuild
   #define AppGuid "8E0B3C71-6F2D-4C5A-9B1E-2D7F4A6C8E90"
   #define AppTitle "NetRollout (test)"
   #define OutputSuffix "-test"
+  #define NameSuffix " (test)"
+  #define RunName "netrollout-test.exe"
 #else
   #define AppGuid "6C1F0E52-9B47-4E1B-A7D3-5E2C8F41B0A9"
   #define AppTitle "NetRollout"
   #define OutputSuffix ""
+  #define NameSuffix ""
+  #define RunName "netrollout.exe"
 #endif
 
 [Setup]
@@ -86,8 +92,8 @@ Name: addtopath; Description: "Add the netrollout command to PATH (for terminals
 
 [Registry]
 ; Win+R -> netrollout opens NetRollout Manager (Windows' App Paths, per user)
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\App Paths\netrollout.exe"; ValueType: string; ValueName: ""; ValueData: "{app}\bin\NetRollout Manager.exe"; Flags: uninsdeletekey
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\App Paths\netrollout.exe"; ValueType: string; ValueName: "Path"; ValueData: "{app}\bin"
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\App Paths\{#RunName}"; ValueType: string; ValueName: ""; ValueData: "{app}\bin\NetRollout Manager.exe"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\App Paths\{#RunName}"; ValueType: string; ValueName: "Path"; ValueData: "{app}\bin"
 
 [Files]
 Source: "..\NetRollout Manager.exe"; DestDir: "{app}\bin"; Flags: ignoreversion
@@ -109,24 +115,24 @@ Source: "..\manage.ps1"; Flags: dontcopy
 Source: "{#Root}\LICENSE"; Flags: dontcopy
 
 [Icons]
-Name: "{autoprograms}\NetRollout\NetRollout Manager"; Filename: "{app}\bin\NetRollout Manager.exe"; WorkingDir: "{app}"; Comment: "Start, stop and check NetRollout"
-Name: "{autodesktop}\NetRollout Manager"; Filename: "{app}\bin\NetRollout Manager.exe"; WorkingDir: "{app}"; Comment: "Start, stop and check NetRollout"; Tasks: desktopicons
-Name: "{userstartup}\NetRollout Manager"; Filename: "{app}\bin\NetRollout Manager.exe"; Parameters: "--tray"; WorkingDir: "{app}"; Tasks: trayatsignin
+Name: "{autoprograms}\{#AppTitle}\NetRollout Manager"; Filename: "{app}\bin\NetRollout Manager.exe"; WorkingDir: "{app}"; Comment: "Start, stop and check NetRollout"
+Name: "{autodesktop}\NetRollout Manager{#NameSuffix}"; Filename: "{app}\bin\NetRollout Manager.exe"; WorkingDir: "{app}"; Comment: "Start, stop and check NetRollout"; Tasks: desktopicons
+Name: "{userstartup}\NetRollout Manager{#NameSuffix}"; Filename: "{app}\bin\NetRollout Manager.exe"; Parameters: "--tray"; WorkingDir: "{app}"; Tasks: trayatsignin
 ; the port helper (headless): an HTTPS port saved in System Settings is applied by itself
-Name: "{userstartup}\NetRollout port helper"; Filename: "{app}\bin\NetRollout Manager.exe"; Parameters: "--helper"; WorkingDir: "{app}"; Comment: "Applies an HTTPS port saved in NetRollout's System Settings"
+Name: "{userstartup}\NetRollout port helper{#NameSuffix}"; Filename: "{app}\bin\NetRollout Manager.exe"; Parameters: "--helper"; WorkingDir: "{app}"; Comment: "Applies an HTTPS port saved in NetRollout's System Settings"
 
 [INI]
-Filename: "{autoprograms}\NetRollout\NetRollout.url"; Section: "InternetShortcut"; Key: "URL"; String: "{code:Address}"
-Filename: "{autoprograms}\NetRollout\NetRollout.url"; Section: "InternetShortcut"; Key: "IconFile"; String: "{app}\bin\netrollout.ico"
-Filename: "{autoprograms}\NetRollout\NetRollout.url"; Section: "InternetShortcut"; Key: "IconIndex"; String: "0"
-Filename: "{autodesktop}\NetRollout.url"; Section: "InternetShortcut"; Key: "URL"; String: "{code:Address}"; Tasks: desktopicons
-Filename: "{autodesktop}\NetRollout.url"; Section: "InternetShortcut"; Key: "IconFile"; String: "{app}\bin\netrollout.ico"; Tasks: desktopicons
-Filename: "{autodesktop}\NetRollout.url"; Section: "InternetShortcut"; Key: "IconIndex"; String: "0"; Tasks: desktopicons
+Filename: "{autoprograms}\{#AppTitle}\NetRollout.url"; Section: "InternetShortcut"; Key: "URL"; String: "{code:Address}"
+Filename: "{autoprograms}\{#AppTitle}\NetRollout.url"; Section: "InternetShortcut"; Key: "IconFile"; String: "{app}\bin\netrollout.ico"
+Filename: "{autoprograms}\{#AppTitle}\NetRollout.url"; Section: "InternetShortcut"; Key: "IconIndex"; String: "0"
+Filename: "{autodesktop}\{#AppTitle}.url"; Section: "InternetShortcut"; Key: "URL"; String: "{code:Address}"; Tasks: desktopicons
+Filename: "{autodesktop}\{#AppTitle}.url"; Section: "InternetShortcut"; Key: "IconFile"; String: "{app}\bin\netrollout.ico"; Tasks: desktopicons
+Filename: "{autodesktop}\{#AppTitle}.url"; Section: "InternetShortcut"; Key: "IconIndex"; String: "0"; Tasks: desktopicons
 
 [UninstallDelete]
-Type: files; Name: "{autoprograms}\NetRollout\NetRollout.url"
-Type: files; Name: "{autodesktop}\NetRollout.url"
-Type: dirifempty; Name: "{autoprograms}\NetRollout"
+Type: files; Name: "{autoprograms}\{#AppTitle}\NetRollout.url"
+Type: files; Name: "{autodesktop}\{#AppTitle}.url"
+Type: dirifempty; Name: "{autoprograms}\{#AppTitle}"
 Type: dirifempty; Name: "{app}\bin"
 Type: dirifempty; Name: "{app}"
 

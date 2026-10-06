@@ -264,3 +264,21 @@ def test_slow_first_starts_have_a_start_period():
 	assert services["nginx"]["healthcheck"]["start_period"] == "60s"
 	assert services["prometheus"]["healthcheck"]["start_period"] == "30s"
 	assert services["postgres"]["healthcheck"]["start_period"] == "30s"
+
+
+def test_a_test_build_names_everything_outside_its_folder_its_own_way():
+	# a test uninstall deleted the real install's Start Menu folder, desktop
+	# and Startup shortcuts and Win+R (same names); only the install record
+	# was its own. Every such name now depends on the build.
+	import re
+	text = (ROOT / "windows" / "installer" / "netrollout.iss").read_text(encoding="utf-8")
+	test, real = re.search(r"#ifdef TestBuild(.*?)#else(.*?)#endif", text, re.S).groups()
+	for name in ("AppTitle", "NameSuffix", "RunName"):
+		values = [re.search(rf'#define {name} "([^"]*)"', part)[1] for part in (test, real)]
+		assert values[0] != values[1], name
+	outside = [line for line in text.splitlines()
+	           if re.search(r"\{(autoprograms|autodesktop|userstartup)\}|App Paths\\", line)
+	           and not line.lstrip().startswith(";")]
+	assert len(outside) >= 12
+	for line in outside:
+		assert re.search(r"\{#(AppTitle|NameSuffix|RunName)\}", line), line
