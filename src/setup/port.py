@@ -30,15 +30,13 @@ app's confirm check, and a trial whose helper died (then `next_step` rolls
 it back).
 """
 import datetime
-import json
-import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from src import runtime
 from src.access import site_env
-from src.setup.env import COMPOSE, env_read, env_set
+from src.setup.env import compose_files, env_read, env_set
 
 STATUS_FILE = "apply-status.json"          # src/access/port.py reads it
 TRIAL_FILE = "port-trial.yaml"             # in config/, listed in COMPOSE_FILE
@@ -63,12 +61,8 @@ def trial_path() -> Path:
 	return runtime.config_dir() / TRIAL_FILE
 
 
-def read_status() -> dict | None:
-	try:
-		data = json.loads(status_path().read_text(encoding="utf-8"))
-	except (OSError, ValueError):
-		return None
-	return data if isinstance(data, dict) else None
+def read_status() -> dict[str, Any] | None:
+	return runtime.read_json(status_path())
 
 
 def write_status(id_: str, state: str, port: int, trying: int | None = None,
@@ -88,11 +82,7 @@ def write_status(id_: str, state: str, port: int, trying: int | None = None,
 	status = {"id": id_, "state": state, "port": port, "trying": trying,
 	          "deadline": deadline, "message": message,
 	          "time": datetime.datetime.fromtimestamp(now).isoformat(timespec="seconds")}
-	path = status_path()
-	path.parent.mkdir(parents=True, exist_ok=True)
-	tmp = path.with_name(path.name + ".tmp")
-	tmp.write_text(json.dumps(status), encoding="utf-8")
-	os.replace(tmp, path)
+	runtime.write_json(status_path(), status)
 	return status
 
 
@@ -167,11 +157,6 @@ def timed_out(trial_port: int | None) -> str:
 	        f"open from a browser (a firewall?)")
 
 
-def _compose_files() -> list[str]:
-	env = env_read()
-	return [f for f in env.get("COMPOSE_FILE", COMPOSE).split(",") if f]
-
-
 def open_trial(port: int) -> None:
 	"""The trial's compose file (port P next to the current one) and its
 	place in COMPOSE_FILE - every compose call keeps it during the trial."""
@@ -181,7 +166,7 @@ def open_trial(port: int) -> None:
 		"# current one - removed when it's kept or rolled back\n"
 		"services:\n  nginx:\n    ports:\n"
 		f'      - "{port}:443"\n', encoding="utf-8")
-	compose = _compose_files()
+	compose = compose_files(env_read())
 	if TRIAL_ENTRY not in compose:
 		env_set({"COMPOSE_FILE": ",".join(compose + [TRIAL_ENTRY])})
 
@@ -206,7 +191,7 @@ def close(outcome: str, id_: str, message: str = "",
 	if outcome == "keep" and new:
 		env_set({"HTTPS_PORT": str(new)})
 		site_env.update({site_env.HTTPS_PORT: str(new)})   # nginx's redirects
-	compose = _compose_files()
+	compose = compose_files(env_read())
 	if TRIAL_ENTRY in compose:
 		env_set({"COMPOSE_FILE": ",".join(f for f in compose if f != TRIAL_ENTRY)})
 	trial_path().unlink(missing_ok=True)

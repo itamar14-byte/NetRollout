@@ -10,7 +10,6 @@ import json
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 
 from cryptography.fernet import Fernet
@@ -18,7 +17,7 @@ from cryptography.fernet import Fernet
 from src import runtime
 from src.access import certs, site_env
 from src.backup import archive as backup
-from src.setup.env import _env_write, env_read, env_set, COMPOSE, COMPOSE_HTTP
+from src.setup.env import _env_write, env_read, env_set, COMPOSE_HTTP, compose_files
 
 
 CORE_SERVICES = ("app", "nginx", "postgres", "redis")
@@ -28,10 +27,6 @@ HEALTH_URL = "http://app:8080/_netrollout/health"   # over the compose network
 # A restore (python -m src.backup restore --key-out) leaves the backup's key
 # here for restore_key; the backups folder is closed to everyone else
 RESTORED_KEY = ".restored-key"
-
-
-def _compose_files(env: dict[str, str]) -> list[str]:
-	return [f for f in env.get("COMPOSE_FILE", COMPOSE).split(",") if f]
 
 
 def port80_owner(busy: dict[int, str]) -> str:
@@ -46,7 +41,7 @@ def prepare_start(busy: dict[int, str], server_ips: list[str]) -> list[str]:
 	list NetRollout's own published ports); the server's addresses are
 	refreshed. Returns what to tell the admin."""
 	env = env_read()
-	compose = _compose_files(env)
+	compose = compose_files(env)
 	said, updates = [], {}
 	has_http = COMPOSE_HTTP in compose
 	if 80 in busy and has_http:
@@ -182,7 +177,7 @@ def status(seen: Observed, health: dict[str, Any] | None,
 			            "computer: check the name (DNS) and the firewall for port "
 			            f"{port}")
 
-	nginx = _read_json(site_env.folder() / "status.json")
+	nginx = runtime.read_json(site_env.folder() / "status.json")
 	if nginx:
 		state = nginx.get("state", "?")
 		when = nginx.get("time", "")
@@ -196,7 +191,7 @@ def status(seen: Observed, health: dict[str, Any] | None,
 
 	lines.append("Certificate:  " + _certificate(now, todo))
 
-	compose = _compose_files(env)
+	compose = compose_files(env)
 	if COMPOSE_HTTP in compose:
 		lines.append("Port 80:      redirects to HTTPS")
 	else:
@@ -226,7 +221,7 @@ def _backups(todo: list[str]) -> str:
 	        f"in backups" if entries else "none yet")
 	if entries and entries[0].manifest:
 		text += f", newest {entries[0].manifest.created.replace('T', ' ')[:16]}"
-	last = _read_json(runtime.backups_dir() / ".schedule-status.json")
+	last = runtime.read_json(runtime.backups_dir() / ".schedule-status.json")
 	if last and not last.get("ok"):
 		text += " - the last scheduled one FAILED"
 		todo.append(f"The last scheduled backup failed ({last.get('message', '')}): "
@@ -263,11 +258,3 @@ def _certificate(now: datetime.datetime, todo: list[str]) -> str:
 		return text + " - EXPIRES SOON"
 	return text
 
-
-def _read_json(path: Path) -> dict[str, Any] | None:
-	""":returns: the file's JSON object; None when missing or not one"""
-	try:
-		data = json.loads(path.read_text(encoding="utf-8"))
-	except (OSError, ValueError):
-		return None
-	return data if isinstance(data, dict) else None

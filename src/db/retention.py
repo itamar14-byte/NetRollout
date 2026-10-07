@@ -5,7 +5,6 @@ time missed while NetRollout was off is caught up once when it's back; a
 failure is retried after an hour. The last outcome is kept in
 config/retention-status.json for System Settings."""
 import json
-import os
 import threading
 import time
 from collections.abc import Callable
@@ -40,15 +39,6 @@ def read_status() -> dict[str, Any] | None:
 		return None
 
 
-def _write_status(status: dict[str, Any]) -> None:
-	"""Replace the status file (written aside, then renamed)."""
-	folder = runtime.config_dir()
-	folder.mkdir(parents=True, exist_ok=True)
-	tmp = folder / (STATUS_FILE + ".tmp")
-	tmp.write_text(json.dumps(status), encoding="utf-8")
-	os.replace(tmp, folder / STATUS_FILE)
-
-
 def run_once(engine: Engine, now: datetime | None = None) -> dict[str, Any]:
 	"""The clean-up now; the outcome written for the page.
 
@@ -60,10 +50,11 @@ def run_once(engine: Engine, now: datetime | None = None) -> dict[str, Any]:
 	try:
 		counts = run_retention(engine)
 	except Exception as e:
-		_write_status({"time": stamp, "ok": False, "message": str(e).splitlines()[0]})
+		runtime.write_json(runtime.config_dir() / STATUS_FILE,
+		                   {"time": stamp, "ok": False, "message": str(e).splitlines()[0]})
 		raise
 	status = {"time": stamp, "ok": True, "counts": counts}
-	_write_status(status)
+	runtime.write_json(runtime.config_dir() / STATUS_FILE, status)
 	print("[NetRollout] nightly clean-up: " + ", ".join(f"{name} {n}" for name, n in counts.items()),
 	      flush=True)
 	return status

@@ -26,6 +26,12 @@ COMPOSE_HTTP = "compose.http.yaml"
 DEV_COMPOSE = "compose.yaml,compose.http.yaml,compose.build.yaml,compose.dev.yaml"
 
 
+def compose_files(env: dict[str, str]) -> list[str]:
+	""":returns: the compose files .env's COMPOSE_FILE lists (the default when
+	 it has none)"""
+	return [f for f in env.get("COMPOSE_FILE", COMPOSE).split(",") if f]
+
+
 def env_path() -> Path:
 	return runtime.home() / ENV_FILE
 

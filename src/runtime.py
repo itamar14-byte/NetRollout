@@ -1,12 +1,15 @@
 """How and where this NetRollout process runs: its version, whether it's in
-the Docker image, and the folders it keeps its files in.
+the Docker image, the folders it keeps its files in, and its small status
+files (read_json / write_json).
 
 Everything is read at call time, so a test (or the image) only has to set
 the environment variables.
 """
+import json
 import os
 import sys
 from pathlib import Path
+from typing import Any
 
 FALLBACK_VERSION = "0.0.0.dev0"
 
@@ -124,3 +127,21 @@ def grafana_dir() -> Path:
 	"""Grafana's data volume, mounted read-only into the app (the backup copies
 	its database); absent in development and without monitoring."""
 	return home() / "grafana"
+
+
+def read_json(path: Path) -> dict[str, Any] | None:
+	""":returns: the file's JSON object; None when missing, unreadable or not one"""
+	try:
+		data = json.loads(path.read_text(encoding="utf-8"))
+	except (OSError, ValueError):
+		return None
+	return data if isinstance(data, dict) else None
+
+
+def write_json(path: Path, data: dict[str, Any]) -> None:
+	"""Replace a status file: written aside, then renamed - a reader never
+	sees half of it. The folder is made when missing."""
+	path.parent.mkdir(parents=True, exist_ok=True)
+	tmp = path.with_name(path.name + ".tmp")
+	tmp.write_text(json.dumps(data), encoding="utf-8")
+	os.replace(tmp, path)

@@ -10,7 +10,6 @@ last run is kept next to the backups (STATUS_FILE) for the page; a failure
 is audited, printed as ACTION NEEDED and retried after RETRY_SECONDS.
 """
 import json
-import os
 import threading
 import time
 from collections.abc import Callable
@@ -102,14 +101,6 @@ def read_status(folder: Path | None = None) -> dict[str, Any] | None:
 		return None
 
 
-def _write_status(folder: Path, status: dict[str, Any]) -> None:
-	"""Replace the status file (written aside, then renamed)."""
-	folder.mkdir(parents=True, exist_ok=True)
-	tmp = folder / (STATUS_FILE + ".tmp")
-	tmp.write_text(json.dumps(status), encoding="utf-8")
-	os.replace(tmp, folder / STATUS_FILE)
-
-
 def system_audit(backend: BackendServices, action: str, *, label: str | None = None,
                  success: bool = True, detail: dict[str, Any] | None = None) -> None:
 	"""An audit row from the server itself (no request, no user)."""
@@ -148,7 +139,7 @@ def run_scheduled(backend: BackendServices, now: datetime,
 			             detail={"kind": "scheduled", "message": message})
 		except Exception:                   # noqa: BLE001 — e.g. the database is down
 			pass
-	_write_status(places.backups, status)
+	runtime.write_json(places.backups / STATUS_FILE, status)
 	return status
 
 
