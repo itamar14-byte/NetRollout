@@ -122,13 +122,7 @@ def analytics_query(data: dict[str, Any]) -> ResponseReturnValue:
 			200).all()
 		columns = DEVICE_RESULT_COLUMNS
 		rows = [{col: getattr(r, col) for col in columns} for r in rows_raw]
-	parsed_rows = [{col: v.strftime("%Y-%m-%d %H:%M:%S") if isinstance(v,
-	                                                                   datetime)
-	else str(v) if isinstance(v, uuid.UUID)
-	else v
-	                for col, v in row.items()}
-	               for row in rows]
-	return jsonify({"columns": columns, "rows": parsed_rows})
+	return jsonify({"columns": columns, "rows": _json_rows(rows)})
 
 
 QUERY_OPS: dict[str, Callable[[Any, Any], ColumnElement[bool]]] = {
@@ -143,6 +137,16 @@ QUERY_OPS: dict[str, Callable[[Any, Any], ColumnElement[bool]]] = {
 
 
 #######################Query helpers###############################
+def _json_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+	""":returns: the query's rows for JSON - a time as "YYYY-MM-DD HH:MM:SS",
+	 an id as text, the rest as it is"""
+	return [{col: v.strftime("%Y-%m-%d %H:%M:%S") if isinstance(v, datetime)
+	         else str(v) if isinstance(v, uuid.UUID)
+	         else v
+	         for col, v in row.items()}
+	        for row in rows]
+
+
 def compile_query_rules(node: dict[str, Any],
                         allowed_fields: dict[str, tuple[Any, set[str]]]) -> ColumnElement[bool]:
 	"""A jQuery QueryBuilder tree as an SQL filter. Each node is either
@@ -329,13 +333,7 @@ def admin_analytics_query(data: dict[str, Any]) -> ResponseReturnValue:
 			200).all()
 		columns = AUDIT_LOG_COLUMNS
 		rows = [{col: getattr(r, col) for col in columns} for r in rows_raw]
-	parsed_rows = [{col: v.strftime("%Y-%m-%d %H:%M:%S") if isinstance(v,
-	                                                                   datetime)
-	else str(v) if isinstance(v, uuid.UUID)
-	else v
-	                for col, v in row.items()}
-	               for row in rows]
-	return jsonify({"columns": columns, "rows": parsed_rows})
+	return jsonify({"columns": columns, "rows": _json_rows(rows)})
 
 
 @admin_bp.route("/active_job_count")
