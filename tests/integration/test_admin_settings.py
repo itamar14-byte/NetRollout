@@ -363,6 +363,23 @@ def test_nginx_rejecting_it_puts_everything_back(admin, app, client_for, proxy):
 	assert hostname(app) == "old.lab" and proxy.files() == before
 
 
+def test_nginx_rejecting_the_hostname_undoes_the_whole_save(admin, app, client_for,
+                                                            proxy):
+	"""A hostname nginx rejects undoes everything saved with it, as the message
+	says ("nothing was changed"): the other settings keep their old values and
+	no port request is left for the helper."""
+	proxy.managed()
+	proxy.verdict("rejected", "nginx: [emerg] something")
+	resp = save(client_for(admin), public_hostname="new.lab",
+	            job_retention_days=45, https_port=9443)
+	assert resp.status_code == 422
+	assert "nothing was changed" in resp.json["errors"]["public_hostname"]
+	settings = app.backend.settings
+	assert (settings.get("public_hostname"), settings.get("job_retention_days"),
+	        settings.get("https_port")) == ("", 30, 443)
+	assert _site.PORT_REQUEST not in _site.read()
+
+
 def test_an_illegal_hostname_never_reaches_nginx(admin, app, client_for, proxy):
 	"""An illegal hostname is 422 and no site.env is written."""
 	resp = save(client_for(admin), public_hostname="nr01;evil")

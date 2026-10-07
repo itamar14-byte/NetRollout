@@ -146,7 +146,11 @@ def submit_jobs(devices: list[Device], commands: list[str] | None,
                 platform_commands_map: dict[str, str], is_multi_platform: bool,
                 options: RolloutOptions,
                 audit_comment: str | None) -> uuid.UUID | BaseResponse:
-	"""Queue the rollout: one job, or one per platform with its own commands.
+	"""Queue the rollout: one job, or one per platform with its own commands -
+	all of them or none: every platform's commands are checked before the
+	first job is queued, and if NetRollout starts stopping (or pauses for a
+	database move) between two platforms, the jobs already queued are
+	cancelled.
 
 	:returns: the (first) job's id; or the way back to the form, the reason
 	 flashed
@@ -163,7 +167,7 @@ def submit_jobs(devices: list[Device], commands: list[str] | None,
 		return redirect(url_for("rollout.new_rollout"))
 
 	devices.sort(key=lambda d: d.device_type)
-	job_id: uuid.UUID | None = None
+	jobs: list[tuple[list[Device], list[str]]] = []
 	for platform, group in groupby(devices, key=lambda d: d.device_type):
 		curr_commands = [l.strip() for l in
 		                 platform_commands_map.get(platform, "").splitlines()
@@ -171,13 +175,19 @@ def submit_jobs(devices: list[Device], commands: list[str] | None,
 		if not curr_commands:
 			flash(f"No commands provided for {platform}.", "danger")
 			return redirect(url_for("rollout.new_rollout"))
-		first_job = current_app.orchestrator.submit(list(group), curr_commands,
-		                                            options, current_user.id,
-		                                            audit_comment)
-		if job_id is None:
-			job_id = first_job
-	assert job_id is not None   # two platforms or more: the loop ran
-	return job_id
+		jobs.append((list(group), curr_commands))
+
+	queued: list[uuid.UUID] = []
+	try:
+		for group_devices, group_commands in jobs:
+			queued.append(current_app.orchestrator.submit(
+				group_devices, group_commands, options, current_user.id,
+				audit_comment))
+	except Draining:
+		for job_id in queued:
+			current_app.orchestrator.cancel(job_id)
+		raise
+	return queued[0]
 
 
 ##############################Routes#######################################
@@ -365,7 +375,10 @@ def rollback(job_id: uuid.UUID, data: dict[str, Any]) -> ResponseReturnValue:
 		db_session.expunge_all()
 
 	commands = [l.strip() for l in data["commands"].splitlines() if l.strip()]
-	devices = InputParser.import_from_inventory(rows, current_user.id)
+	try:
+		devices = InputParser.import_from_inventory(rows, current_user.id)
+	except ValueError as e:              # a device without a security profile
+		return err(f"Can't roll back: {e}.", 409)
 	if unreachable := unreachable_devices(devices):
 		return err(unreachable_message(unreachable), 409)
 	options = RolloutOptions(

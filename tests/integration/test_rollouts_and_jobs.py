@@ -11,7 +11,8 @@ import pytest
 
 from src import runtime
 from src.db.settings import SETTINGS
-from src.db.tables import DeviceResult, JobMetadata
+from src.db.tables import AuditLog, DeviceResult, JobMetadata
+from src.orchestration import Draining
 
 pytestmark = [pytest.mark.postgres, pytest.mark.redis]
 
@@ -74,6 +75,44 @@ def test_multi_platform_rollout_submits_one_job_per_platform(
 	by_platform = {c.devices[0].device_type: c.commands for c in captured_submits}
 	assert by_platform == {"cisco_ios": ["hostname a"],
 	                       "arista_eos": ["hostname b"]}
+
+
+def test_a_platform_without_commands_starts_nothing(operator, client_for,
+                                                   captured_submits):
+	"""A multi-platform rollout where one platform has no commands is refused
+	as a whole: no job for the other platform either (arista_eos is
+	submitted first - the platforms go in name order)."""
+	resp = client_for(operator.user).post("/rollout/start", data={
+		"device_ids": [str(operator.ios), str(operator.eos)],
+		"platform_commands": json.dumps({"arista_eos": "hostname b",
+		                                 "cisco_ios": "  "})})
+	assert resp.headers["Location"] == "/rollout/new"
+	assert captured_submits == []
+
+
+def test_a_stop_between_two_platforms_leaves_nothing_queued(
+		app, operator, client_for, captured_submits, monkeypatch, session_scope):
+	"""When NetRollout starts stopping between two platforms' jobs, the job
+	already queued is cancelled, the start is refused, and no rollout.start
+	is audited."""
+	queued = []
+
+	def submit(devices, commands, params, user_id, comment=None):
+		if queued:
+			raise Draining()
+		queued.append(uuid.uuid4())
+		return queued[0]
+	cancelled = []
+	monkeypatch.setattr(app.orchestrator, "submit", submit)
+	monkeypatch.setattr(app.orchestrator, "cancel", cancelled.append)
+	resp = client_for(operator.user).post("/rollout/start", data={
+		"device_ids": [str(operator.ios), str(operator.eos)],
+		"platform_commands": json.dumps({"arista_eos": "hostname b",
+		                                 "cisco_ios": "hostname a"})})
+	assert resp.headers["Location"] == "/rollout/new"
+	assert cancelled == queued and len(queued) == 1
+	with session_scope() as s:
+		assert not s.query(AuditLog).filter_by(action="rollout.start").count()
 
 
 @pytest.mark.parametrize("form_fn", [
@@ -223,6 +262,19 @@ def test_rollback_targets_successful_devices_once_per_ip(
 	assert resp.json["status"] == "ok"
 	(call,) = captured_submits
 	assert [d.label for d in call.devices] == ["dev-10.0.0.1"]  # own, once
+
+
+def test_rollback_to_a_device_without_a_profile_is_refused_in_words(
+		operator, client_for, session_scope, captured_submits):
+	"""A rollback whose device has no security profile any more is refused
+	with a reason (409), not a server error; nothing is submitted."""
+	job = uuid.uuid4()
+	add_result(session_scope, operator.user, job, ip="10.0.0.3")   # operator.bare
+	resp = client_for(operator.user).post(f"/rollout/rollback/{job}",
+	                                      json={"commands": "no hostname"})
+	assert resp.status_code == 409
+	assert "no security profile" in resp.json["message"]
+	assert captured_submits == []
 
 
 def test_rollback_matches_on_ip_and_port(operator, client_for, session_scope,

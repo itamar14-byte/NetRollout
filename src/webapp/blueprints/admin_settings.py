@@ -138,9 +138,12 @@ def _save(values: dict[str, Any], action: str) -> ResponseReturnValue:
 	if host:
 		proxy = proxy_config.verdict(managed, started, cast(str, host.new))
 		if proxy["state"] == "rejected":
-			store.update({"public_hostname": host.old}, current_user.id)
+			# the whole save goes back, not only the hostname
+			store.update({c.key: c.old for c in changes}, current_user.id)
 			assert undo is not None   # set above for a new hostname
 			undo()
+			if undo_port:
+				undo_port()
 			return _errors_response(SettingsError({"public_hostname":
 				f"nginx rejected the new hostname: {proxy.get('message')} — "
 				f"nothing was changed, the previous hostname is back."}))
