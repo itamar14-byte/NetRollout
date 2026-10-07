@@ -3,7 +3,7 @@ import socket
 
 import redis
 
-from src.reachability import ReachabilityChecker, probe
+from src.inventory import ReachabilityChecker, probe
 
 
 class FakeRedis:

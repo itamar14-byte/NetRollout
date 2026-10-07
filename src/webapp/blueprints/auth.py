@@ -21,11 +21,11 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from src.db.tables import DeviceResult, LDAPServer, LDAPGroup, User
 from src.encryption import decrypt, encrypt
+from src.jobs import job_status
 from src.ldap_auth import (check_group_membership, fetch_user_details,
                            user_bind, LdapUnavailable)
 from src.passwords import RULE, password_problem
 from src.webapp.accounts import LIMITS, AccountError, new_local_user
-from src.webapp.blueprints.jobs import job_status
 from src.webapp.extensions import (csrf, conn_limit, mark_signed_in,
                                    session_seconds_left, is_background)
 from src.webapp.flask_app import current_app

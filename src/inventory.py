@@ -1,19 +1,27 @@
-"""Is a device reachable from the NetRollout server?
+"""The device inventory's rules (web app): which devices a user sees and may
+edit (their own and the global ones), devices sharing an endpoint, and
+whether a device is reachable from the NetRollout server.
 
-One fast TCP connect to ip:port — the management endpoint a push would use,
-from the server's point of view (the one that matters). Results are cached
-briefly in Redis, so page loads stay cheap and "recent" means at most
-CACHE_TTL seconds old.
-"""
+Reachability: one fast TCP connect to ip:port - the management endpoint a
+push would use, from the server's point of view (the one that matters).
+Results are cached briefly in Redis, so page loads stay cheap and "recent"
+means at most CACHE_TTL seconds old."""
 import json
 import socket
+import uuid
+from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
-from typing import Callable, Iterable, TypedDict, cast
+from typing import Iterable, TypedDict, cast
 
 import redis
+from sqlalchemy import ColumnElement, or_
+from sqlalchemy.orm import Session
 
 from src.db.connections import REDIS_UNAVAILABLE
+from src.db.tables import Inventory, User
+from src.rollout.engine import endpoint
+
 
 PROBE_TIMEOUT = 2.0   # seconds; single attempt — this is a status hint
 CACHE_TTL = 60        # seconds
@@ -118,3 +126,65 @@ class ReachabilityChecker:
 			pipe.execute()
 		except REDIS_UNAVAILABLE:
 			pass
+
+
+#######################Device visibility###############################
+def visible_devices_clause(user_id: uuid.UUID) -> ColumnElement[bool]:
+	"""Devices a user may see and roll out to: their own plus all global ones."""
+	return or_(Inventory.user_id == user_id, Inventory.is_global.is_(True))
+
+
+def query_visible_devices(db_session: Session, user_id: uuid.UUID) -> list[Inventory]:
+	"""Visible devices with the relationships templates and rollout need,
+	preloaded so rows survive expunge."""
+	devices = (db_session.query(Inventory)
+	           .filter(visible_devices_clause(user_id))
+	           .order_by(Inventory.label)
+	           .all())
+	_ = [d.security_profile for d in devices]
+	_ = [d.var_mappings for d in devices]
+	return devices
+
+
+def can_edit_device(device: Inventory, user: User) -> bool:
+	"""Owners edit their own devices; any admin may edit a global device."""
+	return device.user_id == user.id or (
+			device.is_global and user.role == "admin")
+
+
+def same_endpoint_devices(db_session: Session, user_id: uuid.UUID, ip: str,
+                          port: int | str,
+                          exclude_id: uuid.UUID | None = None) -> list[Inventory]:
+	"""Visible devices (own + global) already using this ip:port. Overlap is
+	legitimate (NAT, VRFs, port-forwarded labs), so callers warn, never
+	block; other users' private devices are never considered.
+
+	:param exclude_id: the device being edited (it doesn't clash with itself)"""
+	query = db_session.query(Inventory).filter(
+		visible_devices_clause(user_id),
+		Inventory.ip == ip, Inventory.port == int(port))
+	if exclude_id is not None:
+		query = query.filter(Inventory.id != exclude_id)
+	return query.order_by(Inventory.label).all()
+
+
+def same_endpoint_warning(devices: Sequence[Inventory], ip: str,
+                          port: int | str) -> str | None:
+	"""One warning naming the devices that share ip:port. Build it while the
+	DB session is open (it reads labels); flash it after the success message.
+
+	:returns: the warning; None when no device shares it"""
+	if not devices:
+		return None
+	names = ", ".join(f"{d.label} (global)" if d.is_global else d.label
+	                  for d in devices[:5]) + (", …" if len(devices) > 5 else "")
+	return (f"{endpoint(ip, port)} is already used by {names}. That's fine for NAT, "
+	        f"VRFs or port-forwarded labs, but they can't be in the same "
+	        f"rollout.")
+
+
+def partition_devices(devices: Sequence[Inventory]) -> tuple[list[Inventory], list[Inventory]]:
+	"""Split visible devices into (global_devices, my_devices)."""
+	global_devices = [d for d in devices if d.is_global]
+	my_devices = [d for d in devices if not d.is_global]
+	return global_devices, my_devices

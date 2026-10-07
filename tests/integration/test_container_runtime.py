@@ -10,7 +10,7 @@ import pytest
 import redis as redis_lib
 
 from src.db.tables import DeviceResult
-from src.orchestration import DRAINING_MESSAGE, Draining
+from src.jobs import DRAINING_MESSAGE, Draining
 from src.runtime import VERSION, drain_seconds
 
 pytestmark = [pytest.mark.postgres, pytest.mark.redis]

@@ -10,13 +10,12 @@ from flask_login import current_user, login_required
 from sqlalchemy.exc import IntegrityError
 
 from src.db.tables import VariableMapping, Inventory
+from src.inventory import visible_devices_clause, query_visible_devices, partition_devices
 from src.rollout import inputs as validation
 from src.rollout.engine import mapping_resolvable
 from src.rollout.log import RolloutLogger
 from src.webapp.flask_app import current_app
-from src.webapp.utils import (ok, err, with_form, with_json, flash_redirect,
-                              visible_devices_clause, query_visible_devices,
-                              partition_devices, signed_in_user)
+from src.webapp.utils import ok, err, with_form, with_json, flash_redirect, signed_in_user
 
 bp = Blueprint('mappings', __name__, url_prefix='/mappings')
 

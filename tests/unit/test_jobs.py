@@ -17,9 +17,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 import redis
 
-import src.orchestration as orchestration
-from src.orchestration import RolloutOrchestrator
+import src.jobs as orchestration
+from src.jobs import RolloutOrchestrator
 from src.rollout.engine import RolloutEngine, RolloutOptions
+
 
 QUEUE = "netrollout:job_queue"
 

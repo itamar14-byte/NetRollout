@@ -13,13 +13,12 @@ from flask_login import current_user, login_required
 from werkzeug.wrappers import Response as BaseResponse
 
 from src.db.tables import DeviceResult, Inventory
-from src.orchestration import Draining
+from src.inventory import visible_devices_clause, query_visible_devices, partition_devices
+from src.jobs import Draining
 from src.rollout.engine import Device, RolloutOptions
 from src.rollout.inputs import InputParser
 from src.webapp.flask_app import current_app
-from src.webapp.utils import (ok, err, with_form, with_json,
-                              visible_devices_clause, query_visible_devices,
-                              partition_devices)
+from src.webapp.utils import ok, err, with_form, with_json
 
 bp = Blueprint('rollout', __name__, url_prefix='/rollout')
 

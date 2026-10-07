@@ -308,7 +308,7 @@ Owns the logging I/O for one rollout job. It is constructed as `RolloutLogger(we
 
 Log files are pruned by a daily background task in the web app, using the *Log files* retention (default 60 days).
 
-### `ReachabilityChecker` (`src/reachability.py`)
+### `ReachabilityChecker` (`src/inventory.py`)
 Probes TCP reachability of `ip:port` targets in parallel and caches results in Redis for the *Reachability cache* period (a callable TTL, so a settings change applies immediately). Inventory uses it for the live status dots, and New Rollout uses it to flag unreachable devices.
 
 ### LDAP (`src/ldap_auth.py`)
@@ -322,9 +322,9 @@ Error handling:
 
 ---
 
-## 5. Job Execution Classes (`src/rollout/engine.py`, `src/rollout/platforms.py`, `src/orchestration.py`)
+## 5. Job Execution Classes (`src/rollout/engine.py`, `src/rollout/platforms.py`, `src/jobs.py`)
 
-`src/rollout/platforms.py` holds what NetRollout knows per platform, with no I/O (`PLATFORMS`, `rejection()`, the config parser, `verify_commands()`); `src/rollout/engine.py` holds the engine that does the SSH, and `classify(push, verify)` — the status rules; `src/job_store.py` owns the Redis job keys.
+`src/rollout/platforms.py` holds what NetRollout knows per platform, with no I/O (`PLATFORMS`, `rejection()`, the config parser, `verify_commands()`); `src/rollout/engine.py` holds the engine that does the SSH, and `classify(push, verify)` — the status rules; `src/jobs.py` owns the Redis job keys.
 
 ### `RolloutEngine`
 Pure pipeline object: `RolloutEngine(param: RolloutOptions, devices: list[Device], commands: list[str])`. `run(cancel_flag, logger) -> list[DeviceResultDict]`:

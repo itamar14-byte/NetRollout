@@ -4,7 +4,7 @@ Diff), a finished job's summary, and the rollout log's download."""
 import glob
 import os
 import uuid
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable
 from datetime import datetime, timedelta
 from itertools import groupby
 from typing import Any
@@ -16,28 +16,15 @@ from sqlalchemy.orm import Session
 
 from src import runtime
 from src.db.tables import DeviceResult, JobMetadata, User, Inventory
-from src.job_store import JobStore
-from src.orchestration import RolloutJob
+from src.inventory import visible_devices_clause
+from src.jobs import JobStore, RolloutJob, job_status
 from src.rollout.engine import endpoint
 from src.rollout.platforms import PLATFORMS, verify_commands
 from src.webapp.flask_app import current_app
-from src.webapp.utils import ok, err, build_kpi, signed_in_user, visible_devices_clause
+from src.webapp.utils import ok, err, build_kpi, signed_in_user
+
 
 bp = Blueprint('jobs', __name__)
-
-
-##############################Route Helpers################################
-def job_status(rows: Sequence[DeviceResult]) -> str:
-	""":returns: a job's status from its devices': cancelled if any was; failed
-	 if all failed; partial if any failed or was partial; else success"""
-	statuses = {r.status for r in rows}
-	if "cancelled" in statuses:
-		return "cancelled"
-	if all(r.status == "failed" for r in rows):
-		return "failed"
-	if any(r.status in ("failed", "partial") for r in rows):
-		return "partial"
-	return "success"
 
 
 def visible_label_map(db_session: Session, user_id: uuid.UUID) -> dict[str, str]:

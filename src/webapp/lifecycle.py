@@ -13,7 +13,7 @@ from src.runtime import in_container
 from src.webapp.startup import RELAUNCH_ENV
 
 if TYPE_CHECKING:   # annotations only: the orchestrator loads the database stack
-	from src.orchestration import RolloutOrchestrator
+	from src.jobs import RolloutOrchestrator
 
 # Lets the HTTP response to the Restart request go out before the exit
 _EXIT_DELAY = 1.5

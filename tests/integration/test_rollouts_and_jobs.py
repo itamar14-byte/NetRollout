@@ -12,7 +12,7 @@ import pytest
 from src import runtime
 from src.db.settings import SETTINGS
 from src.db.tables import AuditLog, DeviceResult, JobMetadata
-from src.orchestration import Draining
+from src.jobs import Draining
 
 pytestmark = [pytest.mark.postgres, pytest.mark.redis]
 

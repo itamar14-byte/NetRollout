@@ -25,7 +25,7 @@ from src.webapp.flask_app import NetRolloutApp, current_app
 from src.webapp.utils import err
 
 if TYPE_CHECKING:   # annotations only: the orchestrator loads the database stack
-	from src.orchestration import RolloutOrchestrator
+	from src.jobs import RolloutOrchestrator
 
 IDLE, WAITING, LOCKED = "idle", "waiting", "locked"
 RETRY_AFTER_SECONDS = 10

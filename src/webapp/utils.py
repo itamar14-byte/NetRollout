@@ -16,11 +16,11 @@ from sqlalchemy import ColumnElement, and_, or_
 from sqlalchemy.orm import Session
 
 from src.db.connections import BackendServices
-from src.db.tables import AuditLog, Base, DeviceResult, Inventory, PropertyDefinition, SecurityProfile, User
+from src.db.tables import AuditLog, Base, DeviceResult, PropertyDefinition, SecurityProfile, User
 from src.encryption import encrypt
-from src.reachability import ReachabilityChecker
-from src.rollout.engine import endpoint
+from src.inventory import ReachabilityChecker
 from src.webapp.flask_app import current_app
+
 
 ##########################Constants#######################################
 # A view function, and one that receives the request's data as `data`
@@ -184,67 +184,6 @@ def flash_redirect(msg: str, endpoint: str,
 	""":returns: a redirect to the endpoint, with the message flashed"""
 	flash(msg, category)
 	return redirect(url_for(endpoint))
-
-#######################Device visibility###############################
-def visible_devices_clause(user_id: uuid.UUID) -> ColumnElement[bool]:
-	"""Devices a user may see and roll out to: their own plus all global ones."""
-	return or_(Inventory.user_id == user_id, Inventory.is_global.is_(True))
-
-
-def query_visible_devices(db_session: Session, user_id: uuid.UUID) -> list[Inventory]:
-	"""Visible devices with the relationships templates and rollout need,
-	preloaded so rows survive expunge."""
-	devices = (db_session.query(Inventory)
-	           .filter(visible_devices_clause(user_id))
-	           .order_by(Inventory.label)
-	           .all())
-	_ = [d.security_profile for d in devices]
-	_ = [d.var_mappings for d in devices]
-	return devices
-
-
-def can_edit_device(device: Inventory, user: User) -> bool:
-	"""Owners edit their own devices; any admin may edit a global device."""
-	return device.user_id == user.id or (
-			device.is_global and user.role == "admin")
-
-
-def same_endpoint_devices(db_session: Session, user_id: uuid.UUID, ip: str,
-                          port: int | str,
-                          exclude_id: uuid.UUID | None = None) -> list[Inventory]:
-	"""Visible devices (own + global) already using this ip:port. Overlap is
-	legitimate (NAT, VRFs, port-forwarded labs), so callers warn, never
-	block; other users' private devices are never considered.
-
-	:param exclude_id: the device being edited (it doesn't clash with itself)"""
-	query = db_session.query(Inventory).filter(
-		visible_devices_clause(user_id),
-		Inventory.ip == ip, Inventory.port == int(port))
-	if exclude_id is not None:
-		query = query.filter(Inventory.id != exclude_id)
-	return query.order_by(Inventory.label).all()
-
-
-def same_endpoint_warning(devices: Sequence[Inventory], ip: str,
-                          port: int | str) -> str | None:
-	"""One warning naming the devices that share ip:port. Build it while the
-	DB session is open (it reads labels); flash it after the success message.
-
-	:returns: the warning; None when no device shares it"""
-	if not devices:
-		return None
-	names = ", ".join(f"{d.label} (global)" if d.is_global else d.label
-	                  for d in devices[:5]) + (", …" if len(devices) > 5 else "")
-	return (f"{endpoint(ip, port)} is already used by {names}. That's fine for NAT, "
-	        f"VRFs or port-forwarded labs, but they can't be in the same "
-	        f"rollout.")
-
-
-def partition_devices(devices: Sequence[Inventory]) -> tuple[list[Inventory], list[Inventory]]:
-	"""Split visible devices into (global_devices, my_devices)."""
-	global_devices = [d for d in devices if d.is_global]
-	my_devices = [d for d in devices if not d.is_global]
-	return global_devices, my_devices
 
 
 #######################Query helpers###############################

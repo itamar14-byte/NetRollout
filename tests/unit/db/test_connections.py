@@ -12,7 +12,7 @@ import redis
 from dotenv import dotenv_values, load_dotenv
 from sqlalchemy.engine import make_url
 
-import src.orchestration as orchestration
+import src.jobs as orchestration
 from src.db import connections as redis_db
 from src.db.connections import (RedisConfig, RedisConnection, CONNECT_TIMEOUT, REDIS_UNAVAILABLE,
                                 SOCKET_TIMEOUT, BackendServices, PostgresConfig)

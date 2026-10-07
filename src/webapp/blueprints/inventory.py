@@ -12,16 +12,13 @@ from flask_login import current_user, login_required
 from sqlalchemy.orm import Session
 
 from src.db.tables import VariableMapping, Inventory, SecurityProfile
+from src.inventory import query_visible_devices, partition_devices, can_edit_device, visible_devices_clause, same_endpoint_devices, same_endpoint_warning
 from src.rollout import inputs as validation
 from src.rollout.engine import endpoint, mapping_resolvable
 from src.rollout.inputs import InputParser, Validator
 from src.rollout.log import RolloutLogger
 from src.webapp.flask_app import current_app
-from src.webapp.utils import (ok, err, with_form, with_json, flash_redirect,
-                              query_visible_devices, partition_devices,
-                              can_edit_device, visible_devices_clause,
-                              same_endpoint_devices, same_endpoint_warning,
-                              signed_in_user)
+from src.webapp.utils import ok, err, with_form, with_json, flash_redirect, signed_in_user
 
 bp = Blueprint('inventory', __name__, url_prefix='/inventory')
 
