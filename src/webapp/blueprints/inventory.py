@@ -11,6 +11,7 @@ from flask.typing import ResponseReturnValue
 from flask_login import current_user, login_required
 from sqlalchemy.orm import Session
 
+from src.accounts.users import signed_in_user
 from src.db.tables import VariableMapping, Inventory, SecurityProfile
 from src.inventory import (can_edit_device, import_csv, partition_devices, query_visible_devices,
                            same_endpoint_devices, same_endpoint_warning, visible_devices_clause)
@@ -19,7 +20,7 @@ from src.rollout.engine import endpoint, mapping_resolvable
 from src.rollout.inputs import InputParser, Validator
 from src.rollout.log import RolloutLogger
 from src.webapp.flask_app import current_app
-from src.webapp.utils import ok, err, with_form, with_json, flash_redirect, signed_in_user
+from src.webapp.utils import ok, err, with_form, with_json, flash_redirect
 
 bp = Blueprint('inventory', __name__, url_prefix='/inventory')
 

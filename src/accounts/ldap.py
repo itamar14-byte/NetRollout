@@ -13,6 +13,7 @@ from ldap3.utils.dn import escape_rdn
 from src.db.tables import LDAPServer, LDAPGroup
 from src.encryption import decrypt
 
+
 # Fail fast when the directory is unreachable instead of hanging the login
 # request for the OS connect timeout
 CONNECT_TIMEOUT = 5

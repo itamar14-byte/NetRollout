@@ -312,7 +312,7 @@ Log files are pruned by a daily background task in the web app, using the *Log f
 ### `ReachabilityChecker` (`src/inventory.py`)
 Probes TCP reachability of `ip:port` targets in parallel and caches results in Redis for the *Reachability cache* period (a callable TTL, so a settings change applies immediately). Inventory uses it for the live status dots, and New Rollout uses it to flag unreachable devices.
 
-### LDAP (`src/ldap_auth.py`)
+### LDAP (`src/accounts/ldap.py`)
 Module functions:
 - `authenticate` binds as the user, using a DN constructed from `cn_identifier` or one found by a service-bind search;
 - `check_group_membership`, `fetch_user_details`, `fetch_base_dn` and `walk_tree` (for the explorer UI), `test_connection`, `test_user`.
@@ -488,7 +488,7 @@ The public URL comes from the *Hostname* / *HTTPS port* settings; with no hostna
 4. **Configuration:** sets the instance token, the config, extensions and handlers, and the Prometheus collector.
 5. **Sessions:** clears the old `redis_session:*` sessions, so every restart logs everyone out.
 
-Blueprints are registered in `__init__.py` (`create_app()`), not here.
+Blueprints are registered in `create_app()` (`src/webapp/build.py`).
 
 ```python
 app.backend       →  BackendServices
@@ -577,9 +577,9 @@ complete_login()
 
 Admins can reset a user's 2FA; the user re-enrols at the next login.
 
-**Passwords** (local accounts): one rule, `src/passwords.py` — at least 8 characters with at least 2 of letters / digits / special characters, ASCII only, not containing the username; a change must differ from the current one. Registration, `/account/password` and generated temporary passwords all use it; `templates/_password_rule_script.html` mirrors it in the pages. While `must_change_password` is set, a `before_request` gate (`extensions.py`, allowlist `PASSWORD_CHANGE_ALLOWED`: the change page, logout, static, instance/health) redirects pages to `/account/password` and answers fetch calls with 403. A change (rate-limited like login) clears the flag, rotates the session id, **signs the user out of every other session** and is audited (`auth.password_change`). An admin *Reset password* on another local user (not LDAP, not themselves, not the factory admin) replaces the stored password with a random temporary one shown once, sets the flag and **signs the user out everywhere** (`user.reset_password`; the password is never logged). Admin *Terminate Session* signs out everywhere too.
+**Passwords** (local accounts): one rule, `src/accounts/users.py` — at least 8 characters with at least 2 of letters / digits / special characters, ASCII only, not containing the username; a change must differ from the current one. Registration, `/account/password` and generated temporary passwords all use it; `templates/_password_rule_script.html` mirrors it in the pages. While `must_change_password` is set, a `before_request` gate (`extensions.py`, allowlist `PASSWORD_CHANGE_ALLOWED`: the change page, logout, static, instance/health) redirects pages to `/account/password` and answers fetch calls with 403. A change (rate-limited like login) clears the flag, rotates the session id, **signs the user out of every other session** and is audited (`auth.password_change`). An admin *Reset password* on another local user (not LDAP, not themselves, not the factory admin) replaces the stored password with a random temporary one shown once, sets the flag and **signs the user out everywhere** (`user.reset_password`; the password is never logged). Admin *Terminate Session* signs out everywhere too.
 
-**Signing a user out everywhere** (`utils.end_user_sessions`): `user_session:<id>` points only at the latest sign-in, so every `redis_session:*` is decoded with flask-session's serializer and the user's (`_user_id`) are deleted — complete (sessions from before the change too) and cheap at this scale; a per-user index would be faster but miss existing sessions and need expiry cleanup.
+**Signing a user out everywhere** (`src/accounts/users.py`, `end_user_sessions`): `user_session:<id>` points only at the latest sign-in, so every `redis_session:*` is decoded with flask-session's serializer and the user's (`_user_id`) are deleted — complete (sessions from before the change too) and cheap at this scale; a per-user index would be faster but miss existing sessions and need expiry cleanup.
 
 **Real-time logs:** `/rollout/stream/<job_id>` is Server-Sent Events. It replays `job:<id>:history` (LRANGE), then tails the pub/sub channel `job:<id>:logs`, sending a heartbeat every 0.5 s. The response sets `X-Accel-Buffering: no` so nginx doesn't buffer.
 
@@ -595,7 +595,7 @@ Optional sidecar services. The Flask app runs independently and is unaffected wh
 | Prometheus | Live metrics: active and pending jobs, Flask request rates and latencies (scrapes the app's `/metrics` directly at `app:8080`; nginx answers `/metrics` with 404) |
 | Loki + Grafana Alloy | Log stream: the log files shipped by Alloy (promtail is end-of-life) with labels `prefix` and `job_id` from the file name, each entry at its own timestamp (local time, `TZ`), continuation lines joined to their entry; Loki keeps 60 days. Entries with old timestamps (e.g. files written while Loki was down) become searchable once Loki writes them to storage, not immediately |
 
-**Custom Prometheus collector** (`RolloutSessionCollector`, `src/webapp/setup.py`): reads `netrollout:active_count` and `netrollout:pending_count` from Redis and exposes the `netrollout_active_jobs` and `netrollout_pending_jobs` gauges.
+**Custom Prometheus collector** (`RolloutSessionCollector`, `src/webapp/build.py`): reads `netrollout:active_count` and `netrollout:pending_count` from Redis and exposes the `netrollout_active_jobs` and `netrollout_pending_jobs` gauges.
 
 **Access:** Grafana is served by nginx at `/grafana/` to signed-in NetRollout **admins only**: for every request nginx asks the app (`auth_request` → `/_netrollout/grafana-auth`: 204 + the username / 401 / 403) and passes the username in `X-WEBAUTH-USER`, which Grafana trusts (proxy auth; the browser's own header is replaced). Admins are Grafana Editors; there is no Grafana login form. Not operators: free Grafana lets anyone signed in query every datasource through its API (per-datasource permissions are Enterprise), which would bypass NetRollout's own-jobs-only rule — a separate organization for operators is a post-v1 item.
 

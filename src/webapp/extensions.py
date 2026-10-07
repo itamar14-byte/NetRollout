@@ -5,8 +5,7 @@ and an encryption key that doesn't match."""
 import sys
 import time
 import uuid
-from collections.abc import Mapping
-from typing import Any, cast
+from typing import Any
 
 import flask_wtf.csrf as csrf_err
 from flask import Flask, Response, flash, redirect, render_template, request, session, url_for
@@ -20,14 +19,17 @@ from redis.exceptions import ConnectionError as RedisConnectionError, \
 	TimeoutError as RedisTimeoutError
 from sqlalchemy.exc import OperationalError
 
+from src.accounts.users import ABSOLUTE_SESSION_HOURS, LAST_ACTIVE, SIGNED_IN_AT, _NO_SESSION_PATHS, idle_seconds, is_background, session_seconds_left
 from src.db.connections import BackendServices
 from src.db.tables import User
 from src.encryption import ENV_VAR, KEY_FILE, InvalidEncryptionKeyError, \
 	key_source
 from src.webapp.flask_app import NetRolloutApp, current_app
-from src.webapp.utils import SESSION_PREFIX, err
+from src.webapp.utils import err
+
 
 login_mng = LoginManager()
+
 login_mng.login_view = "auth.home"
 conn_limit = Limiter(get_remote_address, default_limits=[],
                      storage_uri="memory://")
@@ -37,90 +39,6 @@ PASSWORD_CHANGE_ALLOWED = {"auth.change_password", "auth.logout", "static",
                            "system.instance", "system.health",
                            "system.grafana_auth",   # answers 403 itself
                            "auth.session_state"}
-
-
-# ── Session lifetime ──
-# A session ends after `session_idle_minutes` (System Settings) without user
-# activity, and after ABSOLUTE_SESSION_HOURS however active. Activity is what
-# a person does: a page load, a form, a click that calls the server. What a
-# page does by itself doesn't count — requests marked background (header
-# X-NR-Background: 1, or ?_bg=1 on an automatic reload) and the live log
-# stream — but expiry is checked on every request.
-ABSOLUTE_SESSION_HOURS = 12
-SIGNED_IN_AT = "nr_signed_in_at"
-LAST_ACTIVE = "nr_last_active"
-_NO_SESSION_PATHS = ("/static/", "/_netrollout/instance", "/_netrollout/health")
-_PASSIVE_PATHS = ("/rollout/stream/",)
-_IDLE_CACHE: dict[str, Any] = {"at": 0.0, "seconds": None}
-
-
-def idle_seconds() -> int:
-	"""The idle limit, re-read from System Settings at most every 30 s (this
-	runs on every request, Grafana's included)."""
-	now = time.monotonic()
-	if _IDLE_CACHE["seconds"] is None or now - _IDLE_CACHE["at"] > 30:
-		_IDLE_CACHE["seconds"] = \
-			current_app.backend.settings.get("session_idle_minutes") * 60
-		_IDLE_CACHE["at"] = now
-	return _IDLE_CACHE["seconds"]
-
-
-def is_background() -> bool:
-	""":returns: whether the request is the page's own (a poll, an automatic
-	 reload, the live log), not something a person did"""
-	return (request.headers.get("X-NR-Background") == "1"
-	        or request.args.get("_bg") == "1"
-	        or request.path.startswith(_PASSIVE_PATHS))
-
-
-def session_seconds_left(now: float | None = None) -> tuple[float, float]:
-	"""(idle, absolute) seconds left for the current session.
-
-	:param now: the time (epoch seconds); now when None"""
-	return _seconds_left(session, now or time.time())
-
-
-def _seconds_left(data: Mapping[str, Any], now: float) -> tuple[float, float]:
-	""":returns: (idle, absolute) seconds left for a session's data (a session
-	 without its clocks counts from now)"""
-	idle = idle_seconds() - (now - data.get(LAST_ACTIVE, now))
-	absolute = ABSOLUTE_SESSION_HOURS * 3600 - (now - data.get(SIGNED_IN_AT, now))
-	return idle, absolute
-
-
-def signed_in_users(now: float | None = None) -> dict[str, float]:
-	"""Who is signed in now, for Live Sessions and the Users page. Every
-	stored session is read: one that ended by inactivity stays stored until
-	its browser comes back (that's when it's checked), and user_session:<id>
-	knows only the latest sign-in.
-
-	:param now: the time (epoch seconds); now when None
-	:returns: user id → when the newest of their live sessions began"""
-	client = current_app.backend.redis.client
-	serializer = current_app.session_interface.serializer
-	now = now or time.time()
-	users: dict[str, float] = {}
-	for key in client.scan_iter(f"{SESSION_PREFIX}*"):
-		raw = cast(bytes | None, client.get(key))
-		if not raw:
-			continue
-		try:
-			data: dict[str, Any] = serializer.decode(raw)
-		except Exception:   # unreadable: not a session of ours
-			continue
-		user_id = data.get("_user_id")
-		if not user_id:
-			continue
-		idle, absolute = _seconds_left(data, now)
-		if idle > 0 and absolute > 0:
-			users[user_id] = max(users.get(user_id, 0.0), data.get(SIGNED_IN_AT, now))
-	return users
-
-
-def mark_signed_in() -> None:
-	"""A sign-in just completed: both clocks start now."""
-	now = time.time()
-	session[SIGNED_IN_AT] = session[LAST_ACTIVE] = now
 
 
 def register_extensions(app: Flask) -> None:

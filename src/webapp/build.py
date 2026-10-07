@@ -1,7 +1,8 @@
-"""Building the web app at start: the secret and encryption checks, the
-services (backend, orchestrator, web helpers, shutdown, maintenance,
-database move), sessions in Redis, the request hooks, the metrics, and the
-clean start (everyone signed out, leftover rollouts cleared)."""
+"""Building the web app at start: create_app() with every page, the secret
+and encryption checks, the services (backend, orchestrator, web helpers,
+shutdown, maintenance, database move), sessions in Redis, the request hooks,
+the metrics, and the clean start (everyone signed out, leftover rollouts
+cleared)."""
 import os
 import secrets
 from collections.abc import Iterator, Mapping
@@ -15,11 +16,26 @@ from prometheus_client.core import REGISTRY, GaugeMetricFamily
 from sqlalchemy.exc import OperationalError
 from werkzeug.middleware.proxy_fix import ProxyFix
 
+from src.accounts.users import clear_sessions
 from src.db.connections import BackendServices, REDIS_UNAVAILABLE, RedisConnection
 from src.encryption import init_encryption, require_key_in_container
 from src.jobs import JobStore, RolloutOrchestrator, clear_stale_jobs
 from src.rollout.engine import endpoint
 from src.runtime import VERSION, StartupError, in_container, source_url
+from src.webapp.blueprints.admin_backups import bp as admin_backups_bp
+from src.webapp.blueprints.admin_observability import bp as admin_observability_bp
+from src.webapp.blueprints.admin_servers import bp as admin_servers_bp
+from src.webapp.blueprints.admin_settings import bp as admin_settings_bp
+from src.webapp.blueprints.admin_users import bp as admin_users_bp
+from src.webapp.blueprints.analytics import bp as analytics_bp
+from src.webapp.blueprints.auth import bp as auth_bp
+from src.webapp.blueprints.inventory import bp as inventory_bp
+from src.webapp.blueprints.jobs import bp as jobs_bp
+from src.webapp.blueprints.mappings import bp as mappings_bp
+from src.webapp.blueprints.properties import bp as properties_bp
+from src.webapp.blueprints.rollout import bp as rollout_bp
+from src.webapp.blueprints.security import bp as security_bp
+from src.webapp.blueprints.system import bp as system_bp
 from src.webapp.db_move import DatabaseMove
 from src.webapp.extensions import register_extensions, register_handlers, \
 	register_auth
@@ -197,19 +213,6 @@ def init_app_encryption(backend: BackendServices) -> None:
 	init_encryption(sample, db_checked=db_checked)
 
 
-def clear_sessions(redis_conn: RedisConnection) -> None:
-	"""Every start signs everyone out — deliberately (2026-10-04): a privileged
-	network-management console starts clean after a restart, update or
-	reboot, like a firewall's management plane. Rollouts don't depend on
-	sessions (the drain lets them finish). Within a run, sessions end after
-	inactivity (session_idle_minutes) and after 12 hours (extensions.py)."""
-	try:
-		for redis_key in redis_conn.client.scan_iter("redis_session:*"):
-			redis_conn.client.delete(redis_key)
-	except REDIS_UNAVAILABLE:
-		pass
-
-
 ###########App initialization#########################################
 def launch_app() -> NetRolloutApp:
 	"""Build the app with its services, in the order they depend on each
@@ -266,3 +269,27 @@ def launch_app() -> NetRolloutApp:
 	sync_at_start(app.backend.settings)
 
 	return app
+
+
+def create_app() -> NetRolloutApp:
+	"""The app with its services and every blueprint.
+
+	:raises StartupError: NetRollout must not start (a missing secret, a
+	 bad encryption key)"""
+	net_rollout = launch_app()
+	net_rollout.register_blueprint(auth_bp)
+	net_rollout.register_blueprint(rollout_bp)
+	net_rollout.register_blueprint(inventory_bp)
+	net_rollout.register_blueprint(security_bp)
+	net_rollout.register_blueprint(mappings_bp)
+	net_rollout.register_blueprint(properties_bp)
+	net_rollout.register_blueprint(analytics_bp)
+	net_rollout.register_blueprint(admin_users_bp)
+	net_rollout.register_blueprint(admin_servers_bp)
+	net_rollout.register_blueprint(admin_observability_bp)
+
+	net_rollout.register_blueprint(jobs_bp)
+	net_rollout.register_blueprint(system_bp)
+	net_rollout.register_blueprint(admin_settings_bp)
+	net_rollout.register_blueprint(admin_backups_bp)
+	return net_rollout

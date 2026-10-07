@@ -3,8 +3,8 @@ shared checks with Request access, and the sidebar's count of requests."""
 import pytest
 from werkzeug.security import check_password_hash
 
+from src.accounts.users import password_problem
 from src.db.tables import AuditLog, User
-from src.passwords import password_problem
 
 pytestmark = [pytest.mark.postgres, pytest.mark.redis]
 

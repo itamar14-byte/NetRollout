@@ -10,13 +10,13 @@ from netmiko import ConnectHandler, NetmikoTimeoutException, \
 	NetmikoAuthenticationException
 from sqlalchemy.orm import Session
 
+from src.accounts.users import signed_in_user
 from src.db.tables import SecurityProfile, Inventory
 from src.encryption import encrypt, decrypt
 from src.rollout import inputs as validation
 from src.rollout.engine import Device
 from src.webapp.flask_app import current_app
-from src.webapp.utils import (ok, err, with_json, with_form, flash_redirect,
-                              signed_in_user)
+from src.webapp.utils import ok, err, with_json, with_form, flash_redirect
 
 bp = Blueprint('security', __name__, url_prefix='/security')
 

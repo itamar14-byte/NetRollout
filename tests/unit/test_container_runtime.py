@@ -11,7 +11,7 @@ from cryptography.fernet import Fernet
 import src.encryption as enc
 import src.webapp.lifecycle as lifecycle
 from src import runtime
-from src.webapp.setup import resolve_secret_key
+from src.webapp.build import resolve_secret_key
 from src.webapp.startup import container_announcement, should_open_browser
 
 

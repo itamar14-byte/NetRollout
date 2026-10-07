@@ -8,7 +8,7 @@ import pytest
 from cryptography.fernet import Fernet
 
 import src.encryption as enc
-from src import ldap_auth
+from src.accounts import ldap as ldap_auth
 
 
 @pytest.fixture

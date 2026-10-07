@@ -16,7 +16,7 @@ from sqlalchemy import ColumnElement, and_, or_
 from sqlalchemy.orm import Session
 
 from src.db.connections import BackendServices
-from src.db.tables import AuditLog, Base, DeviceResult, PropertyDefinition, SecurityProfile, User
+from src.db.tables import AuditLog, Base, DeviceResult, PropertyDefinition, SecurityProfile
 from src.encryption import encrypt
 from src.inventory import ReachabilityChecker
 from src.webapp.flask_app import current_app
@@ -54,48 +54,6 @@ QUERY_OPS: dict[str, Callable[[Any, Any], ColumnElement[bool]]] = {
 	"begins_with": lambda x, y: x.ilike(f"{y}%"),
 	"ends_with": lambda x, y: x.ilike(f"%{y}")
 }
-
-
-##########################Sessions#############################################
-
-SESSION_PREFIX = "redis_session:"
-
-
-def signed_in_user(db_session: Session) -> User:
-	"""The signed-in user's row in this session (current_user is a detached
-	copy, without its relationships).
-
-	:raises LookupError: the account is gone (deleted while signed in)"""
-	user = db_session.get(User, current_user.id)
-	if user is None:
-		raise LookupError("the signed-in account no longer exists")
-	return user
-
-
-def end_user_sessions(user_id: uuid.UUID | str, keep_sid: str | None = None) -> int:
-	"""Sign a user out everywhere (except `keep_sid`, the caller's own
-	session after a password change). user_session:<id> only points at the
-	latest sign-in, so every stored session is decoded to find the user's —
-	complete (older sessions too) and cheap at this scale.
-
-	:returns: how many sessions were ended"""
-	client = current_app.backend.redis.client
-	serializer = current_app.session_interface.serializer
-	ended = 0
-	for key in client.scan_iter(f"{SESSION_PREFIX}*"):
-		if keep_sid and key.decode() == f"{SESSION_PREFIX}{keep_sid}":
-			continue
-		raw = client.get(key)
-		try:
-			owner = serializer.decode(raw).get("_user_id") if raw else None
-		except Exception:   # unreadable: not ours to judge — leave it
-			continue
-		if owner == str(user_id):
-			client.delete(key)
-			ended += 1
-	if keep_sid is None:
-		client.delete(f"user_session:{user_id}")
-	return ended
 
 
 ##########################Jsonify helpers#######################################

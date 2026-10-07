@@ -14,7 +14,8 @@ WEB_STACK = [
 	"flask", "flask_login", "flask_session", "flask_wtf", "flask_limiter",
 	"werkzeug", "jinja2", "waitress", "sqlalchemy", "alembic", "psycopg2",
 	"redis", "prometheus_client", "prometheus_flask_exporter", "ldap3",
-	"pyotp", "qrcode", "PIL", "src.webapp", "src.db",
+	"pyotp", "qrcode", "PIL", "src.webapp", "src.db", "src.jobs", "src.inventory",
+	"src.accounts",
 ]
 
 a = Analysis(

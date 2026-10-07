@@ -27,7 +27,7 @@ from sqlalchemy.orm import Session
 from src.db.tables import SystemSetting
 from src.rollout.log import LOG_RETENTION_DAYS
 
-if TYPE_CHECKING:   # annotations only: postgres_db imports this module's users
+if TYPE_CHECKING:   # annotations only: connections imports this module
 	from src.db.connections import PostgresConnection
 
 

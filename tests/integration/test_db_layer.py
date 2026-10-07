@@ -19,7 +19,7 @@ from src.db.connections import PostgresConfig, PostgresConnection
 from src.db.install import RETENTION_STATEMENTS, _grant_grafana_read, GRAFANA_TABLES, install
 from src.db.settings import SETTINGS
 from src.db.tables import SecurityProfile
-from src.webapp.setup import init_app_encryption
+from src.webapp.build import init_app_encryption
 from tests.integration.conftest import ROOT
 
 pytestmark = pytest.mark.postgres

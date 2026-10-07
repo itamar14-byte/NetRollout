@@ -1,8 +1,8 @@
-"""The password rule (src/passwords.py) — the server side of it; the pages
+"""The password rule (src/accounts/users.py) — the server side of it; the pages
 mirror it in templates/_password_rule_script.html."""
 import pytest
 
-from src.passwords import password_problem, temporary_password
+from src.accounts.users import password_problem, temporary_password
 
 
 @pytest.mark.parametrize("password", ["Abcdefg1", "network2026", "P4ss word!",

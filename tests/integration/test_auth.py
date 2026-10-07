@@ -9,10 +9,10 @@ from unittest.mock import patch
 import pyotp
 import pytest
 
+from src.accounts import users as _users
 from src.db.settings import SETTINGS
 from src.db.tables import AuditLog, DeviceResult, LDAPGroup, LDAPServer, User
 from src.encryption import encrypt
-from src.webapp import extensions as _ext
 from src.webapp.blueprints.auth import safe_next
 from tests.integration.conftest import TEST_PASSWORD
 
@@ -486,22 +486,22 @@ def test_a_forced_password_change_comes_first_then_the_page(client_for,
 @pytest.fixture
 def fresh_idle_limit():
 	"""Makes the session idle limit re-read from System Settings, before and after."""
-	_ext._IDLE_CACHE.update(at=0.0, seconds=None)     # re-read the setting
+	_users._IDLE_CACHE.update(at=0.0, seconds=None)     # re-read the setting
 	yield
-	_ext._IDLE_CACHE.update(at=0.0, seconds=None)
+	_users._IDLE_CACHE.update(at=0.0, seconds=None)
 
 
 def stamp(client, *, idle_ago=0, signed_in_ago=0):
 	"""Set the session's last activity and sign-in time that many seconds ago."""
 	now = _time.time()
 	with client.session_transaction() as s:
-		s[_ext.LAST_ACTIVE] = now - idle_ago
-		s[_ext.SIGNED_IN_AT] = now - signed_in_ago
+		s[_users.LAST_ACTIVE] = now - idle_ago
+		s[_users.SIGNED_IN_AT] = now - signed_in_ago
 
 
 def last_active(client):
 	with client.session_transaction() as s:
-		return s.get(_ext.LAST_ACTIVE)
+		return s.get(_users.LAST_ACTIVE)
 
 
 def test_inactivity_signs_out_and_remembers_the_page(
@@ -604,8 +604,8 @@ def test_signing_in_starts_both_clocks(client_for, make_user):
 	client = client_for()
 	login(client, "admin")
 	with client.session_transaction() as s:
-		assert _time.time() - s[_ext.SIGNED_IN_AT] < 5
-		assert _time.time() - s[_ext.LAST_ACTIVE] < 5
+		assert _time.time() - s[_users.SIGNED_IN_AT] < 5
+		assert _time.time() - s[_users.LAST_ACTIVE] < 5
 
 
 @pytest.mark.parametrize("minutes, ok", [(4, False), (5, True), (480, True),

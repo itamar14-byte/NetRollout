@@ -4,8 +4,8 @@ with a temporary password."""
 import pytest
 from werkzeug.security import check_password_hash
 
+from src.accounts.users import password_problem
 from src.db.tables import AuditLog, User
-from src.passwords import password_problem
 from tests.integration.conftest import TEST_PASSWORD
 
 pytestmark = [pytest.mark.postgres, pytest.mark.redis]

@@ -9,9 +9,9 @@ import pytest
 from cryptography.fernet import Fernet
 
 import src.encryption as enc
-from src import ldap_auth
+from src.accounts import ldap as ldap_auth
+from src.accounts.ldap import LdapUnavailable
 from src.db.tables import LDAPGroup, LDAPServer, User, AuditLog
-from src.ldap_auth import LdapUnavailable
 from tests.integration.conftest import (LDAP_BASE, LDAP_GROUP_DN, LDAP_USERS,
                                         LDAP_SERVICE_DN, LDAP_SERVICE_PW)
 

@@ -19,17 +19,17 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from werkzeug.security import check_password_hash, generate_password_hash
 
+from src.accounts.ldap import check_group_membership, fetch_user_details, user_bind, LdapUnavailable
+from src.accounts.users import (RULE, password_problem, LIMITS, AccountError, new_local_user,
+                                mark_signed_in, session_seconds_left, is_background,
+                                end_user_sessions, signed_in_user, record_redis_session)
 from src.db.tables import DeviceResult, LDAPServer, LDAPGroup, User
 from src.encryption import decrypt, encrypt
 from src.jobs import job_status
-from src.ldap_auth import (check_group_membership, fetch_user_details,
-                           user_bind, LdapUnavailable)
-from src.passwords import RULE, password_problem
-from src.webapp.accounts import LIMITS, AccountError, new_local_user
-from src.webapp.extensions import (csrf, conn_limit, mark_signed_in,
-                                   session_seconds_left, is_background)
+from src.webapp.extensions import csrf, conn_limit
 from src.webapp.flask_app import current_app
-from src.webapp.utils import end_user_sessions, ok, signed_in_user, with_form
+from src.webapp.utils import ok, with_form
+
 
 bp = Blueprint("auth", __name__)
 
@@ -142,14 +142,6 @@ def start_otp_flow(user: User) -> ResponseReturnValue:
 	flash("To complete enrollment, you are referred to OTP set up portal",
 	      "info")
 	return redirect(url_for("auth.otp_enroll"))
-
-def record_redis_session(user_id: uuid.UUID) -> None:
-	"""Point user_session:<id> at this session (Live Sessions, Kick)."""
-	sid = getattr(session, "sid", None)
-	if sid is None:
-		return
-	current_app.backend.redis.client.set(f"user_session:{user_id}",
-	                              sid, ex=86400)
 
 def login_local(user: User, password: str, db_session: Session) -> ResponseReturnValue:
 	"""A local account's sign-in: the password, then approved, then active;
@@ -282,7 +274,7 @@ def register_form() -> str:
 @with_form("username", "password", "email", "full_name")
 def register(data: Any) -> ResponseReturnValue:
 	"""A person's access request: an operator account waiting for an admin's
-	approval (src/webapp/accounts.py - the same checks as an admin's Add user)."""
+	approval (src/accounts/users.py - the same checks as an admin's Add user)."""
 	username = data["username"].strip()
 	with current_app.backend.postgres.get_session() as db_session:
 		try:

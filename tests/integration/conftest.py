@@ -42,7 +42,7 @@ from src.db import connections as backend_mod
 from src.db.connections import PostgresConnection, PostgresConfig, RedisConnection, RedisConfig
 from src.db.tables import Base, User, SecurityProfile, Inventory, VariableMapping
 from src.encryption import decrypt, encrypt
-from src.webapp import create_app
+from src.webapp.build import create_app
 from src.webapp.extensions import conn_limit
 
 ROOT = Path(__file__).resolve().parents[2]

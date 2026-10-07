@@ -15,13 +15,14 @@ from flask_login import current_user, login_required
 from sqlalchemy.orm import Session
 
 from src import runtime
+from src.accounts.users import signed_in_user
 from src.db.tables import DeviceResult, JobMetadata, User, Inventory
 from src.inventory import visible_devices_clause
 from src.jobs import JobStore, RolloutJob, job_status
 from src.rollout.engine import endpoint
 from src.rollout.platforms import PLATFORMS, verify_commands
 from src.webapp.flask_app import current_app
-from src.webapp.utils import ok, err, build_kpi, signed_in_user
+from src.webapp.utils import ok, err, build_kpi
 
 
 bp = Blueprint('jobs', __name__)

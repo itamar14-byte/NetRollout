@@ -11,8 +11,8 @@ from src.db.retention import start_retention
 from src.db.settings import public_url
 from src.rollout.log import start_log_pruning, utf8_console
 from src.runtime import StartupError, drain_seconds, in_container, server_threads
-from src.webapp import create_app
 from src.webapp.backup_schedule import start_backup_schedule
+from src.webapp.build import create_app
 from src.webapp.port_apply import serving_port
 from src.webapp.proxy_config import start_certificate_upkeep
 from src.webapp.startup import container_announcement, start_announcer
