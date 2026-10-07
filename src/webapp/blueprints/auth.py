@@ -19,12 +19,13 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from src.db.tables import LDAPServer, LDAPGroup, User
+from src.db.tables import DeviceResult, LDAPServer, LDAPGroup, User
 from src.encryption import decrypt, encrypt
 from src.ldap_auth import (check_group_membership, fetch_user_details,
                            user_bind, LdapUnavailable)
 from src.passwords import RULE, password_problem
 from src.webapp.accounts import LIMITS, AccountError, new_local_user
+from src.webapp.blueprints.jobs import job_status
 from src.webapp.extensions import (csrf, conn_limit, mark_signed_in,
                                    session_seconds_left, is_background)
 from src.webapp.flask_app import current_app
@@ -491,13 +492,16 @@ def account() -> str:
 		user_results = user.results
 		db_session.expunge_all()
 
-	total_rollouts = len(set(r.job_id for r in user_results))
+	by_job: dict[uuid.UUID, list[DeviceResult]] = {}
+	for r in user_results:
+		by_job.setdefault(r.job_id, []).append(r)
+	total_rollouts = len(by_job)
 
 	total_devices = len(user_results)
 
 	if total_rollouts > 0:
-		successful = len(
-			set(r.job_id for r in user_results if r.status == 'success'))
+		# a job's status as Results shows it - one failed device spoils it
+		successful = sum(1 for rows in by_job.values() if job_status(rows) == "success")
 		success_rate = round((successful / total_rollouts) * 100)
 	else:
 		success_rate = None

@@ -11,14 +11,13 @@ import redis as redis_lib
 from flask import Blueprint, Request, Response, render_template, request, jsonify
 from flask.typing import ResponseReturnValue
 from flask_login import current_user, login_required
-from redis.exceptions import ConnectionError as RedisConnectionError
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 
 from src import validation
 from src.db import move
 from src.db.postgres_db import PostgresConfig
-from src.db.redis_db import RedisConfig
+from src.db.redis_db import REDIS_UNAVAILABLE, RedisConfig
 from src.db.tables import LDAPServer, LDAPGroup, User
 from src.encryption import encrypt
 from src.ldap_auth import test_user, test_connection, fetch_base_dn, walk_tree
@@ -94,9 +93,8 @@ def admin_server() -> str:
 	try:
 		current_app.backend.redis.client.ping()
 		redis_connected = True
-	except RedisConnectionError:
+	except REDIS_UNAVAILABLE:            # refused, or no answer at all
 		redis_connected = False
-	#TODO check DB optional flags
 	connection_modes = current_app.backend.connection_modes()
 	return render_template('server_management.html',
 	                       active_section="server",

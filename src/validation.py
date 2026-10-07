@@ -124,7 +124,7 @@ class Validator:
 		"""One row of a devices CSV: a valid IP, port and supported platform;
 		the first problem is reported."""
 		if not validate_ip(device["ip"]):
-			self._logger.notify(f"{device['ip']} is not a valid IPv4 address",
+			self._logger.notify(f"{device['ip']} is not a valid IP address",
 			                    "red")
 		elif not validate_port(device["port"]):
 			self._logger.notify(f"{device['port']} is not a valid port number",

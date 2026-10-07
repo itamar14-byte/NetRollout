@@ -14,6 +14,7 @@ from unittest.mock import patch
 
 import pytest
 from dotenv import dotenv_values
+from redis.exceptions import TimeoutError as RedisTimeoutError
 
 from src.db.tables import AuditLog, LDAPGroup, LDAPServer, User
 from src.encryption import decrypt, encrypt
@@ -246,6 +247,20 @@ def test_terminate_session_signs_the_user_out_everywhere(
 
 
 # ── Server management ────────────────────────────────────────────────────────
+
+def test_server_page_shows_an_unreachable_redis_as_disconnected(
+		app, admin, client_for, monkeypatch):
+	"""A Redis host that doesn't answer (a timeout, not a refusal) shows as
+	Disconnected on Server Management - the page itself still opens."""
+	def no_answer():
+		raise RedisTimeoutError("Timeout connecting to server")
+	client = client_for(admin)
+	monkeypatch.setattr(app.backend.redis.client, "ping", no_answer)
+	resp = client.get("/admin/server")
+	assert resp.status_code == 200
+	redis_card = resp.get_data(as_text=True).split(">Redis<", 1)[1]
+	assert "Disconnected" in redis_card.split("mode-badge", 1)[0]
+
 
 def test_server_page_renders(admin, client_for):
 	"""Server Management renders for an admin."""

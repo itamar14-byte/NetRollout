@@ -169,6 +169,16 @@ class TestValidateDeviceData(unittest.TestCase):
 		"""A row with an invalid ip fails validate_device_data."""
 		self.assertFalse(self.validator.validate_device_data(self._device(ip="bad_ip")))
 
+	def test_invalid_ip_is_reported_as_not_an_ip_address(self):
+		"""The report for a bad IP says "not a valid IP address" - not "IPv4":
+		an IPv6 address is accepted."""
+		told = []
+		with patch.object(self.validator._logger, "notify",
+		                  side_effect=lambda msg, *a, **k: told.append(msg)):
+			self.validator.validate_device_data(self._device(ip="bad_ip"))
+		self.assertEqual(told, ["bad_ip is not a valid IP address"])
+		self.assertTrue(self.validator.validate_device_data(self._device(ip="2001:db8::1")))
+
 	def test_invalid_port(self):
 		"""A row with an out-of-range port fails validate_device_data."""
 		self.assertFalse(self.validator.validate_device_data(self._device(port="99999")))

@@ -1,13 +1,16 @@
 """Authentication flows: local login + OTP, registration, gates, LDAP
 (server mocked), rate limiting, logout/account."""
+import datetime as dt
+import re
 import time as _time
+import uuid
 from unittest.mock import patch
 
 import pyotp
 import pytest
 
 from src.db.settings import SETTINGS
-from src.db.tables import AuditLog, LDAPGroup, LDAPServer, User
+from src.db.tables import AuditLog, DeviceResult, LDAPGroup, LDAPServer, User
 from src.encryption import encrypt
 from src.webapp import extensions as _ext
 from src.webapp.blueprints.auth import safe_next
@@ -374,6 +377,25 @@ def test_logout_ends_session(client_for, make_user):
 def test_account_page(client_for, make_user):
 	"""A signed-in user's account page loads (200)."""
 	assert client_for(make_user()).get("/account").status_code == 200
+
+
+def test_account_success_rate_counts_jobs_by_their_status(client_for, make_user,
+                                                          session_scope):
+	"""The Account page's success rate is the share of jobs whose status is
+	success (as Results shows it): a job with a failed device doesn't count,
+	so one clean job of two is 50%."""
+	user = make_user()
+	now = _time.time()
+	when = dt.datetime.fromtimestamp(now)
+	clean, mixed = uuid.uuid4(), uuid.uuid4()
+	with session_scope() as s:
+		for job, status in ((clean, "success"), (mixed, "success"), (mixed, "failed")):
+			s.add(DeviceResult(user_id=user.id, job_id=job, started_at=when,
+			                   completed_at=when, device_ip="10.0.0.1",
+			                   device_port=22, device_type="cisco_ios",
+			                   commands_sent=1, status=status))
+	html = client_for(user).get("/account").get_data(as_text=True)
+	assert re.search(r">\s*50%\s*<", html)
 
 
 # ── Back to the page asked for (?next=) ──────────────────────────────────────
