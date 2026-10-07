@@ -1,10 +1,10 @@
 """What the scripts ask of the setup core after the install: the port-80
-switch and the server's addresses before a start (prepare_start), an
-update's direction and .env (update_kind, upgrade), the restored backup's
-encryption key into .env (restore_key), and the
+switch and the server's addresses before a start (prepare_start), the
+restored backup's encryption key into .env (restore_key), and the
 `netrollout status` report (status). The scripts gather what only the host
 sees (busy ports, the containers' states, whether the address answers from
-this computer) and pass it in; .env is only ever edited here."""
+this computer) and pass it in; .env is only ever edited through env.py.
+An update's direction and .env: update.py."""
 import datetime
 import json
 import urllib.error
@@ -14,16 +14,13 @@ from pathlib import Path
 from typing import Any
 
 from cryptography.fernet import Fernet
-from packaging.version import InvalidVersion, Version
 
 from src import runtime
 from src.access import certs, site_env
 from src.backup import archive as backup
-from src.setup import files
+from src.setup.env import _env_write, env_read, env_set, COMPOSE, COMPOSE_HTTP
 
-# The .env keys the scripts may change; never a secret
-SCRIPT_KEYS = ("COMPOSE_FILE", "NETROLLOUT_SERVER_IPS", "HTTPS_PORT",
-               "COMPOSE_PROFILES", "TZ")
+
 CORE_SERVICES = ("app", "nginx", "postgres", "redis")
 MONITORING_SERVICES = ("prometheus", "loki", "alloy", "grafana", "grafana-setup")
 CERT_WARNING_DAYS = 30
@@ -33,55 +30,8 @@ HEALTH_URL = "http://app:8080/_netrollout/health"   # over the compose network
 RESTORED_KEY = ".restored-key"
 
 
-# ── .env ──
-
-def env_read() -> dict[str, str]:
-	""":returns: .env's keys and values (comments skipped)"""
-	values: dict[str, str] = {}
-	for line in files.env_path().read_text(encoding="utf-8").splitlines():
-		key, sep, value = line.partition("=")
-		if sep and key and not key.startswith("#"):
-			values[key.strip()] = value.strip()
-	return values
-
-
-def env_set(updates: dict[str, str]) -> bool:
-	"""Change script-owned lines of .env in place (its comments, order and
-	permissions kept — the file is rewritten, not replaced).
-
-	:returns: whether it changed
-	:raises ValueError: a key the scripts don't own (nothing written)"""
-	bad = [k for k in updates if k not in SCRIPT_KEYS]
-	if bad:
-		raise ValueError(f"not a script-owned .env key: {', '.join(bad)}")
-	return _env_write(updates)
-
-
-def _env_write(updates: dict[str, str]) -> bool:
-	"""Set the keys in .env: a line already there is changed in place, a new
-	key is added at the end.
-
-	:returns: whether it changed"""
-	path = files.env_path()
-	lines = path.read_text(encoding="utf-8").splitlines()
-	pending, out = dict(updates), []
-	for line in lines:
-		key = line.partition("=")[0].strip()
-		if key in pending and not line.lstrip().startswith("#"):
-			out.append(f"{key}={pending.pop(key)}")
-		else:
-			out.append(line)
-	out += [f"{k}={v}" for k, v in pending.items()]
-	text = "\n".join(out) + "\n"
-	if text == path.read_text(encoding="utf-8"):
-		return False
-	with open(path, "w", encoding="utf-8", newline="\n") as f:
-		f.write(text)
-	return True
-
-
 def _compose_files(env: dict[str, str]) -> list[str]:
-	return [f for f in env.get("COMPOSE_FILE", files.COMPOSE).split(",") if f]
+	return [f for f in env.get("COMPOSE_FILE", COMPOSE).split(",") if f]
 
 
 def port80_owner(busy: dict[int, str]) -> str:
@@ -98,77 +48,20 @@ def prepare_start(busy: dict[int, str], server_ips: list[str]) -> list[str]:
 	env = env_read()
 	compose = _compose_files(env)
 	said, updates = [], {}
-	has_http = files.COMPOSE_HTTP in compose
+	has_http = COMPOSE_HTTP in compose
 	if 80 in busy and has_http:
-		updates["COMPOSE_FILE"] = ",".join(f for f in compose if f != files.COMPOSE_HTTP)
+		updates["COMPOSE_FILE"] = ",".join(f for f in compose if f != COMPOSE_HTTP)
 		said.append(f"Port 80 is in use{port80_owner(busy)} - starting without "
 		            f"the http -> https redirect (it comes back by itself once "
 		            f"port 80 is free).")
 	elif 80 not in busy and not has_http:
-		updates["COMPOSE_FILE"] = ",".join(compose + [files.COMPOSE_HTTP])
+		updates["COMPOSE_FILE"] = ",".join(compose + [COMPOSE_HTTP])
 		said.append("Port 80 is free - the http -> https redirect is on.")
 	ips = ",".join(server_ips)
 	if server_ips and env.get("NETROLLOUT_SERVER_IPS", "") != ips:
 		updates["NETROLLOUT_SERVER_IPS"] = ips
 	if updates:
 		env_set(updates)
-	return said
-
-
-# ── an update ──
-
-def update_kind(installed: str, new: str) -> str:
-	"""What installing `new` over `installed` is: "update", or "same" (a
-	repair: the files again, then a start).
-	:raises ValueError: `new` is older (never go back: the database may be
-	 upgraded already), or a version can't be read"""
-	try:
-		old_v, new_v = Version(installed), Version(new)
-	except InvalidVersion as e:
-		raise ValueError(f"Can't compare the versions ({e}).") from None
-	if new_v < old_v:
-		raise ValueError(f"NetRollout {installed} is installed - newer than {new}. "
-		                 f"Nothing was changed. (To go back to an older version: "
-		                 f"uninstall keeping the data is not enough - restore a "
-		                 f"backup made with that version.)")
-	return "update" if new_v > old_v else "same"
-
-
-def upgrade(version: str = runtime.VERSION,
-            now: datetime.datetime | None = None) -> list[str]:
-	"""After an update's files are in place: .env gets what this version needs
-	(files.UPGRADE_DEFAULTS) - existing values and comments untouched - and a
-	line saying when it was updated (UTC: the setup core runs in a container
-	on UTC). Returns what to say.
-	:raises ValueError: a key the data depends on is missing (nothing written)"""
-	now = now or datetime.datetime.now(datetime.timezone.utc)
-	path = files.env_path()
-	text = path.read_text(encoding="utf-8")
-	present = set(env_read())
-	missing = [k for k in files.UPGRADE_DEFAULTS if k not in present]
-	lost = [k for k in missing if files.UPGRADE_DEFAULTS[k] is None]
-	if lost:
-		raise ValueError(f"{path} is missing {', '.join(lost)} - the data depends on "
-		                 f"{'it' if len(lost) == 1 else 'them'}, so NetRollout can't be "
-		                 f"updated or started. Put {'it' if len(lost) == 1 else 'them'} "
-		                 f"back (a copy of .env), then update again.")
-	lines = text.splitlines()
-	stamp = f"# Updated to NetRollout {version} on {now:%Y-%m-%d %H:%M} UTC."
-	updated = [i for i, line in enumerate(lines) if line.startswith("# Updated to NetRollout ")]
-	if updated:
-		lines[updated[0]] = stamp
-	else:
-		lines.insert(1 if lines and lines[0].startswith("#") else 0, stamp)
-	said = []
-	if missing:
-		lines += ["", f"# Added by the update to NetRollout {version}"]
-		for k in missing:
-			make = files.UPGRADE_DEFAULTS[k]
-			assert make is not None   # those were refused above
-			lines.append(f"{k}={make()}")
-		said.append(f".env: added {', '.join(missing)}")
-	with open(path, "w", encoding="utf-8", newline="\n") as f:
-		f.write("\n".join(lines) + "\n")
 	return said
 
 
@@ -304,7 +197,7 @@ def status(seen: Observed, health: dict[str, Any] | None,
 	lines.append("Certificate:  " + _certificate(now, todo))
 
 	compose = _compose_files(env)
-	if files.COMPOSE_HTTP in compose:
+	if COMPOSE_HTTP in compose:
 		lines.append("Port 80:      redirects to HTTPS")
 	else:
 		lines.append(f"Port 80:      off{' - in use' + port80_owner(seen.busy) if 80 in seen.busy else ''}")

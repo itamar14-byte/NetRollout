@@ -2,14 +2,13 @@
 install writes, and the contract with the host scripts (exit codes)."""
 import datetime
 import json
-
 import pytest
 from cryptography.fernet import Fernet
-
 from src import runtime
 from src.access import certs, site_env
-from src.setup import __main__ as cli, answers as A, files
+from src.setup import __main__ as cli, install as A, update as _update
 from src.setup import manage  # noqa: E402
+from src.setup.env import DEV_COMPOSE, env_read, env_set, env_text, generate_secrets, UPGRADE_DEFAULTS
 from tests.unit.backup.test_archive import make_zip
 
 
@@ -242,8 +241,8 @@ def test_the_env_text_is_stable():
 	"""The .env text starts with the version and time header, names Docker Engine's licence
 	(Linux) and has an empty COMPOSE_PROFILES with monitoring off."""
 	answers = A.Answers("nr01", 8443, False, False, "UTC")
-	keys = {k: "x" for k in files.generate_secrets()}
-	text = files.env_text(answers, A.Facts(os="linux"), keys,
+	keys = {k: "x" for k in generate_secrets()}
+	text = env_text(answers, A.Facts(os="linux"), keys,
 	                      datetime.datetime(2026, 10, 5, 12, 0), "1.0.0", True)
 	assert text.startswith("# NetRollout 1.0.0 — written by the installer "
 	                       "on 2026-10-05 12:00.\n")
@@ -260,7 +259,7 @@ def test_init_dev(home):
 	assert code == 0
 	env = (home / ".env").read_text(encoding="utf-8")
 	assert "NETROLLOUT_VERSION=dev" in env
-	assert f"COMPOSE_FILE={files.DEV_COMPOSE}" in env
+	assert f"COMPOSE_FILE={DEV_COMPOSE}" in env
 	app = (home / "config" / "runtime.env").read_text(encoding="utf-8")
 	db_password = next(line.split("=", 1)[1] for line in env.splitlines()
 	                   if line.startswith("NETROLLOUT_DB_PASSWORD="))
@@ -270,7 +269,7 @@ def test_init_dev(home):
 	assert run(["init", "--dev"])[0] == 2               # never twice
 
 
-# ── prepare-start and status (src/setup/manage.py) ──
+
 
 
 
@@ -278,7 +277,7 @@ def installed(home, *extra):
 	"""An unattended install for nr01.corp.local (IP 10.0.0.5); returns its .env values."""
 	assert run(["init", "--licence-accepted", "--defaults", "--hostname",
 	            "nr01.corp.local", "--server-ips", "10.0.0.5", *extra])[0] == 0
-	return manage.env_read()
+	return env_read()
 
 
 def test_env_set_edits_in_place_and_only_script_keys(home):
@@ -286,12 +285,12 @@ def test_env_set_edits_in_place_and_only_script_keys(home):
 	changes, and refuses a key the scripts don't own (SECRET_KEY)."""
 	installed(home)
 	before = (home / ".env").read_text(encoding="utf-8")
-	assert manage.env_set({"TZ": "Europe/London"}) is True
+	assert env_set({"TZ": "Europe/London"}) is True
 	after = (home / ".env").read_text(encoding="utf-8")
 	assert after == before.replace("TZ=UTC\n", "TZ=Europe/London\n")   # comments kept
-	assert manage.env_set({"TZ": "Europe/London"}) is False
+	assert env_set({"TZ": "Europe/London"}) is False
 	with pytest.raises(ValueError):
-		manage.env_set({"SECRET_KEY": "x"})
+		env_set({"SECRET_KEY": "x"})
 
 
 def test_port_80_taken_later_turns_the_redirect_off_and_back_on(home):
@@ -300,13 +299,13 @@ def test_port_80_taken_later_turns_the_redirect_off_and_back_on(home):
 	env = installed(home)
 	assert env["COMPOSE_FILE"] == "compose.yaml,compose.http.yaml"
 	said = manage.prepare_start({80: "Windows' HTTP service"}, ["10.0.0.5"])
-	assert manage.env_read()["COMPOSE_FILE"] == "compose.yaml"
+	assert env_read()["COMPOSE_FILE"] == "compose.yaml"
 	assert said == ["Port 80 is in use (by Windows' HTTP service) - starting without "
 	                "the http -> https redirect (it comes back by itself once port 80 "
 	                "is free)."]
 	assert manage.prepare_start({80: "x"}, ["10.0.0.5"]) == []     # already off
 	said = manage.prepare_start({}, ["10.0.0.5"])
-	assert manage.env_read()["COMPOSE_FILE"] == "compose.yaml,compose.http.yaml"
+	assert env_read()["COMPOSE_FILE"] == "compose.yaml,compose.http.yaml"
 	assert said == ["Port 80 is free - the http -> https redirect is on."]
 
 
@@ -315,9 +314,9 @@ def test_prepare_start_refreshes_the_server_ips(home):
 	are found."""
 	installed(home)
 	manage.prepare_start({}, ["10.0.0.9", "192.168.1.20"])
-	assert manage.env_read()["NETROLLOUT_SERVER_IPS"] == "10.0.0.9,192.168.1.20"
+	assert env_read()["NETROLLOUT_SERVER_IPS"] == "10.0.0.9,192.168.1.20"
 	manage.prepare_start({}, [])                                   # none found: kept
-	assert manage.env_read()["NETROLLOUT_SERVER_IPS"] == "10.0.0.9,192.168.1.20"
+	assert env_read()["NETROLLOUT_SERVER_IPS"] == "10.0.0.9,192.168.1.20"
 
 
 HEALTHY = {"status": "ok", "postgres": True, "redis": True, "draining": False,
@@ -432,7 +431,7 @@ def test_restore_key_puts_the_backups_key_into_env_and_removes_the_handover(home
 
 	code, out = run(["restore-key"])
 	assert code == 0 and "on another installation" in out[0]
-	assert manage.env_read()["NETROLLOUT_ENCRYPTION_KEY"] == other != before
+	assert env_read()["NETROLLOUT_ENCRYPTION_KEY"] == other != before
 	assert not (home / "backups" / manage.RESTORED_KEY).exists()
 
 	(home / "backups" / manage.RESTORED_KEY).write_text(other)
@@ -449,7 +448,7 @@ def test_restore_key_refuses_without_a_key(home):
 	(home / "backups" / manage.RESTORED_KEY).write_text("not a key")
 	code, out = run(["restore-key"])
 	assert code == 1 and "doesn't hold an encryption key" in out[0]
-	assert manage.env_read()["NETROLLOUT_ENCRYPTION_KEY"] == key
+	assert env_read()["NETROLLOUT_ENCRYPTION_KEY"] == key
 
 
 def test_status_shows_the_backups_and_a_failed_scheduled_one(home):
@@ -484,7 +483,7 @@ def test_status_shows_the_backups_and_a_failed_scheduled_one(home):
 def test_an_update_goes_forward(installed, new, kind):
 	"""A newer version (PEP 440: dev < rc < release; versions may be skipped) is an
 	"update", the same version "same" (a repair)."""
-	assert manage.update_kind(installed, new) == kind
+	assert _update.update_kind(installed, new) == kind
 
 
 @pytest.mark.parametrize("installed, new", [("1.0.1", "1.0.0"), ("1.0.0", "1.0.0rc1"),
@@ -493,7 +492,7 @@ def test_never_back_to_an_older_version(installed, new):
 	"""An older version (a lower patch, an rc or a dev of the installed release) is
 	refused, saying the installed one is newer."""
 	with pytest.raises(ValueError, match=f"NetRollout {installed} is installed - newer than {new}"):
-		manage.update_kind(installed, new)
+		_update.update_kind(installed, new)
 
 
 def test_check_update_through_the_cli():
@@ -516,7 +515,7 @@ def test_upgrade_adds_what_is_missing_and_keeps_everything_else(home):
 	path.write_text("".join(l for l in before.splitlines(True)
 	                        if not l.startswith(("TZ=", "NETROLLOUT_SERVER_IPS="))),
 	                encoding="utf-8")
-	said = manage.upgrade("1.0.1", datetime.datetime(2026, 11, 1, 9, 30))
+	said = _update.upgrade("1.0.1", datetime.datetime(2026, 11, 1, 9, 30))
 	assert said == [".env: added TZ, NETROLLOUT_SERVER_IPS"]
 	after = path.read_text(encoding="utf-8")
 	lines = after.splitlines()
@@ -524,13 +523,13 @@ def test_upgrade_adds_what_is_missing_and_keeps_everything_else(home):
 	assert lines[1] == "# Updated to NetRollout 1.0.1 on 2026-11-01 09:30 UTC."
 	assert after.endswith("# Added by the update to NetRollout 1.0.1\nTZ=UTC\n"
 	                      "NETROLLOUT_SERVER_IPS=\n")
-	env = manage.env_read()
+	env = env_read()
 	for key, value in dotenv(before).items():      # every value kept
 		if key not in ("TZ", "NETROLLOUT_SERVER_IPS"):
 			assert env[key] == value, key
 
 	# the next update: the stamp replaced, nothing added twice
-	assert manage.upgrade("1.0.2", datetime.datetime(2026, 12, 1, 8, 0)) == []
+	assert _update.upgrade("1.0.2", datetime.datetime(2026, 12, 1, 8, 0)) == []
 	again = path.read_text(encoding="utf-8").splitlines()
 	assert again[1] == "# Updated to NetRollout 1.0.2 on 2026-12-01 08:00 UTC."
 	assert sum(l.startswith("# Updated to") for l in again) == 1
@@ -553,7 +552,7 @@ def test_every_env_key_has_an_update_rule(home):
 	"""Every key an install writes is in files.UPGRADE_DEFAULTS, and nothing more: a key
 	added to the .env template needs a rule for an older install that lacks it."""
 	written = set(installed(home))
-	assert written == set(files.UPGRADE_DEFAULTS)
+	assert written == set(UPGRADE_DEFAULTS)
 
 
 def dotenv(text):

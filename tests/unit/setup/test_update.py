@@ -1,14 +1,12 @@
-"""Linux's update source (src/setup/release.py): a release found through a
+"""Linux's update source (src/setup/update.py): a release found through a
 feed in GitHub's JSON, downloaded, checked against SHA256SUMS and unpacked -
 all on local files (file:// links, as a mirror on disk would be)."""
 import hashlib
 import json
 import zipfile
-
 import pytest
-
 from src import runtime
-from src.setup import __main__ as cli, release
+from src.setup import __main__ as cli, update as release
 
 
 def make_zip(path, version="1.0.1", extra=None, top=release.TOP):

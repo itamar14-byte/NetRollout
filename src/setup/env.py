@@ -1,30 +1,29 @@
-"""What installing writes into the install folder: the folders, the
-certificate, site.env (the hostname for nginx and the first start), and
-.env - last, because an existing .env means "installed": nothing is ever
-overwritten."""
+"""The install's .env: what it holds (env_text: every line explained; the
+generated secrets; the compose files it lists) and how it is edited after
+the install - only the keys the scripts may change (SCRIPT_KEYS), the file
+rewritten whole; and what an update adds when a key is missing
+(UPGRADE_DEFAULTS)."""
+from __future__ import annotations   # Answers / Facts: annotations only
+
 import datetime
-import os
 import secrets
 from collections.abc import Callable
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from cryptography.fernet import Fernet
 
 from src import runtime
-from src.access import certs, site_env
-from src.setup.answers import Answers, Facts
+if TYPE_CHECKING:   # install imports this module
+	from src.setup.install import Answers, Facts
+
 
 ENV_FILE = ".env"
-FOLDERS = ("logs", "config", "certs", "backups")
 # The compose files of an install; port 80 → https only when it is free
 COMPOSE = "compose.yaml"
 COMPOSE_HTTP = "compose.http.yaml"
 # A developer's stack: built from the repo, the app on the host
 DEV_COMPOSE = "compose.yaml,compose.http.yaml,compose.build.yaml,compose.dev.yaml"
-
-
-class Refused(Exception):
-	"""Already installed (or set up): nothing was written."""
 
 
 def env_path() -> Path:
@@ -117,83 +116,53 @@ UPGRADE_DEFAULTS: dict[str, Callable[[], str] | None] = {
 }
 
 
-def install(answers: Answers, facts: Facts, now: datetime.datetime | None = None,
-            version: str | None = None) -> list[str]:
-	"""Write the install; returns what was done (one line each). Raises
-	Refused when .env exists, OSError when a file can't be written (.env
-	isn't written then, so the install can be run again)."""
-	if env_path().exists():
-		raise Refused(f"NetRollout is already installed here ({env_path()}).")
-	done = []
-	for name in FOLDERS:
-		(runtime.home() / name).mkdir(parents=True, exist_ok=True)
-	done.append("folders: " + ", ".join(FOLDERS))
-	if answers.org_certificate:
-		done.append("certificate: yours (checked)")
-	else:
-		certs.selfsigned(answers.hostname, facts.server_ips, runtime.certs_dir())
-		done.append(f"certificate: self-signed for {answers.hostname}"
-		            + (f" and {', '.join(facts.server_ips)}" if facts.server_ips else ""))
-	site_env.update({site_env.HOSTNAME: answers.hostname,
-	                 site_env.HTTPS_PORT: str(answers.https_port)})
-	done.append(f"hostname: {answers.hostname}")
-	text = env_text(answers, facts, generate_secrets(),
-	                now or datetime.datetime.now(), version or runtime.VERSION,
-	                port80_free=80 not in facts.busy_ports)
-	_write_new(env_path(), text)
-	done.append(f"settings: {env_path()}")
-	return done
+# The .env keys the scripts may change; never a secret
+SCRIPT_KEYS = ("COMPOSE_FILE", "NETROLLOUT_SERVER_IPS", "HTTPS_PORT",
+               "COMPOSE_PROFILES", "TZ")
 
 
-def install_dev(now: datetime.datetime | None = None) -> list[str]:
-	"""A developer's setup in the repo: .env for the dev stack (built from the
-	repo; the app runs on the host) and config/runtime.env pointing the host
-	app at it, plus a self-signed certificate for localhost if there's none.
-	Refuses when either file exists."""
-	runtime_env = runtime.runtime_env()
-	for path in (env_path(), runtime_env):
-		if path.exists():
-			raise Refused(f"{path} already exists - remove it to set up again.")
-	keys = generate_secrets()
-	done = []
-	cert_dir = runtime.certs_dir()
-	if not (cert_dir / certs.CERT_FILE).exists():
-		certs.selfsigned("localhost", ["127.0.0.1"], cert_dir)
-		done.append("certificate: self-signed for localhost and 127.0.0.1")
-	now = now or datetime.datetime.now()
-	lines = [f"# NetRollout development stack - written by `python -m src.setup "
-	         f"init --dev` on {now:%Y-%m-%d %H:%M}.",
-	         "# The dev stack's services; the app runs from the repo (config/runtime.env).",
-	         "NETROLLOUT_VERSION=dev",
-	         *(f"{k}={v}" for k, v in keys.items()),
-	         "HTTPS_PORT=443", "TZ=UTC",
-	         "COMPOSE_PROFILES=monitoring", "COMPOSE_PATH_SEPARATOR=,",
-	         f"COMPOSE_FILE={DEV_COMPOSE}", ""]
-	_write_new(env_path(), "\n".join(lines))
-	done.append(f"stack settings: {env_path()}")
-	# 127.0.0.1, not localhost: the stack publishes IPv4 only, and Windows
-	# waits ~2 s on every refused ::1 attempt
-	app = ["# The app on this computer -> the dev stack (127.0.0.1: IPv4 only).",
-	       "PG_HOST=127.0.0.1", "PG_PORT=5432", "PG_NAME=netrollout",
-	       "PG_USER=netrollout", f"PG_PASSWORD={keys['NETROLLOUT_DB_PASSWORD']}",
-	       "DATABASE_URL=",
-	       "REDIS_HOST=127.0.0.1", "REDIS_PORT=6379",
-	       f"REDIS_PASSWORD={keys['REDIS_PASSWORD']}", "REDIS_URL=",
-	       "# the app runs on the host, so compose can't pass this (the Grafana link)",
-	       "NETROLLOUT_MONITORING=monitoring", ""]
-	runtime_env.parent.mkdir(parents=True, exist_ok=True)
-	_write_new(runtime_env, "\n".join(app))
-	done.append(f"app settings: {runtime_env}")
-	return done
+# ── .env ──
+
+def env_read() -> dict[str, str]:
+	""":returns: .env's keys and values (comments skipped)"""
+	values: dict[str, str] = {}
+	for line in env_path().read_text(encoding="utf-8").splitlines():
+		key, sep, value = line.partition("=")
+		if sep and key and not key.startswith("#"):
+			values[key.strip()] = value.strip()
+	return values
 
 
-def _write_new(path: Path, text: str) -> None:
-	"""Create `path` (never replace one), readable by its owner only (on
-	Windows the script restricts it)."""
-	path.parent.mkdir(parents=True, exist_ok=True)
-	with open(path, "x", encoding="utf-8", newline="\n") as f:
+def env_set(updates: dict[str, str]) -> bool:
+	"""Change script-owned lines of .env in place (its comments, order and
+	permissions kept — the file is rewritten, not replaced).
+
+	:returns: whether it changed
+	:raises ValueError: a key the scripts don't own (nothing written)"""
+	bad = [k for k in updates if k not in SCRIPT_KEYS]
+	if bad:
+		raise ValueError(f"not a script-owned .env key: {', '.join(bad)}")
+	return _env_write(updates)
+
+
+def _env_write(updates: dict[str, str]) -> bool:
+	"""Set the keys in .env: a line already there is changed in place, a new
+	key is added at the end.
+
+	:returns: whether it changed"""
+	path = env_path()
+	lines = path.read_text(encoding="utf-8").splitlines()
+	pending, out = dict(updates), []
+	for line in lines:
+		key = line.partition("=")[0].strip()
+		if key in pending and not line.lstrip().startswith("#"):
+			out.append(f"{key}={pending.pop(key)}")
+		else:
+			out.append(line)
+	out += [f"{k}={v}" for k, v in pending.items()]
+	text = "\n".join(out) + "\n"
+	if text == path.read_text(encoding="utf-8"):
+		return False
+	with open(path, "w", encoding="utf-8", newline="\n") as f:
 		f.write(text)
-	try:
-		os.chmod(path, 0o600)
-	except OSError:
-		pass
+	return True

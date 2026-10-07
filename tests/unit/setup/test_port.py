@@ -2,12 +2,12 @@
 install in a scratch folder - and that the app's side of the contract
 (src/access/port.py) reads them as meant."""
 import json
-
 import pytest
-
 from src.access import site_env, port as port_apply
-from src.setup import manage, port
-from tests.unit.test_setup import home, installed, run  # noqa: F401 - fixture
+from src.setup import port
+from src.setup.env import env_read
+from tests.unit.setup.test_setup import home, installed, run  # noqa: F401 - fixture
+
 
 NOW = 1_800_000_000.0
 
@@ -20,7 +20,7 @@ def request(port_, id_="r1"):
 
 
 def env():
-	return manage.env_read()
+	return env_read()
 
 
 @pytest.fixture

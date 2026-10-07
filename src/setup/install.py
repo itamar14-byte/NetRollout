@@ -1,16 +1,25 @@
-"""The install questions: what the host knows (Facts), what the admin
-decides (Answers), each answer's check and default, and asking - a question
+"""Installing: the questions - what the host knows (Facts), what the admin
+decides (Answers), each answer's check and default, and asking (a question
 with its default in [square brackets]; Enter accepts it; a wrong answer is
-asked again with the reason."""
+asked again with the reason) - then what installing writes into the install
+folder: the folders, the certificate, site.env (the hostname for nginx and
+the first start), and .env - last, because an existing .env means
+"installed": nothing is ever overwritten."""
+import datetime
+import os
 import zoneinfo
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable, TypeVar, cast
+from pathlib import Path
+from typing import Any, TypeVar, cast
 
 from tzlocal.windows_tz import win_tz
 
 from src import runtime
-from src.access import certs
+from src.access import certs, site_env
 from src.db.settings import SETTINGS
+from src.setup.env import DEV_COMPOSE, env_path, env_text, generate_secrets
+
 
 # Suggested when 443 is taken, in this order
 ALTERNATIVE_PORTS = (8443, 9443, 10443, 11443)
@@ -234,3 +243,92 @@ def collect(facts: Facts, given: dict[str, str], interactive: bool,
 		else:
 			check_org_certificate(answers.hostname)
 	return answers
+
+
+FOLDERS = ("logs", "config", "certs", "backups")
+
+
+class Refused(Exception):
+	"""Already installed (or set up): nothing was written."""
+
+
+def install(answers: Answers, facts: Facts, now: datetime.datetime | None = None,
+            version: str | None = None) -> list[str]:
+	"""Write the install; returns what was done (one line each). Raises
+	Refused when .env exists, OSError when a file can't be written (.env
+	isn't written then, so the install can be run again)."""
+	if env_path().exists():
+		raise Refused(f"NetRollout is already installed here ({env_path()}).")
+	done = []
+	for name in FOLDERS:
+		(runtime.home() / name).mkdir(parents=True, exist_ok=True)
+	done.append("folders: " + ", ".join(FOLDERS))
+	if answers.org_certificate:
+		done.append("certificate: yours (checked)")
+	else:
+		certs.selfsigned(answers.hostname, facts.server_ips, runtime.certs_dir())
+		done.append(f"certificate: self-signed for {answers.hostname}"
+		            + (f" and {', '.join(facts.server_ips)}" if facts.server_ips else ""))
+	site_env.update({site_env.HOSTNAME: answers.hostname,
+	                 site_env.HTTPS_PORT: str(answers.https_port)})
+	done.append(f"hostname: {answers.hostname}")
+	text = env_text(answers, facts, generate_secrets(),
+	                now or datetime.datetime.now(), version or runtime.VERSION,
+	                port80_free=80 not in facts.busy_ports)
+	_write_new(env_path(), text)
+	done.append(f"settings: {env_path()}")
+	return done
+
+
+def install_dev(now: datetime.datetime | None = None) -> list[str]:
+	"""A developer's setup in the repo: .env for the dev stack (built from the
+	repo; the app runs on the host) and config/runtime.env pointing the host
+	app at it, plus a self-signed certificate for localhost if there's none.
+	Refuses when either file exists."""
+	runtime_env = runtime.runtime_env()
+	for path in (env_path(), runtime_env):
+		if path.exists():
+			raise Refused(f"{path} already exists - remove it to set up again.")
+	keys = generate_secrets()
+	done = []
+	cert_dir = runtime.certs_dir()
+	if not (cert_dir / certs.CERT_FILE).exists():
+		certs.selfsigned("localhost", ["127.0.0.1"], cert_dir)
+		done.append("certificate: self-signed for localhost and 127.0.0.1")
+	now = now or datetime.datetime.now()
+	lines = [f"# NetRollout development stack - written by `python -m src.setup "
+	         f"init --dev` on {now:%Y-%m-%d %H:%M}.",
+	         "# The dev stack's services; the app runs from the repo (config/runtime.env).",
+	         "NETROLLOUT_VERSION=dev",
+	         *(f"{k}={v}" for k, v in keys.items()),
+	         "HTTPS_PORT=443", "TZ=UTC",
+	         "COMPOSE_PROFILES=monitoring", "COMPOSE_PATH_SEPARATOR=,",
+	         f"COMPOSE_FILE={DEV_COMPOSE}", ""]
+	_write_new(env_path(), "\n".join(lines))
+	done.append(f"stack settings: {env_path()}")
+	# 127.0.0.1, not localhost: the stack publishes IPv4 only, and Windows
+	# waits ~2 s on every refused ::1 attempt
+	app = ["# The app on this computer -> the dev stack (127.0.0.1: IPv4 only).",
+	       "PG_HOST=127.0.0.1", "PG_PORT=5432", "PG_NAME=netrollout",
+	       "PG_USER=netrollout", f"PG_PASSWORD={keys['NETROLLOUT_DB_PASSWORD']}",
+	       "DATABASE_URL=",
+	       "REDIS_HOST=127.0.0.1", "REDIS_PORT=6379",
+	       f"REDIS_PASSWORD={keys['REDIS_PASSWORD']}", "REDIS_URL=",
+	       "# the app runs on the host, so compose can't pass this (the Grafana link)",
+	       "NETROLLOUT_MONITORING=monitoring", ""]
+	runtime_env.parent.mkdir(parents=True, exist_ok=True)
+	_write_new(runtime_env, "\n".join(app))
+	done.append(f"app settings: {runtime_env}")
+	return done
+
+
+def _write_new(path: Path, text: str) -> None:
+	"""Create `path` (never replace one), readable by its owner only (on
+	Windows the script restricts it)."""
+	path.parent.mkdir(parents=True, exist_ok=True)
+	with open(path, "x", encoding="utf-8", newline="\n") as f:
+		f.write(text)
+	try:
+		os.chmod(path, 0o600)
+	except OSError:
+		pass

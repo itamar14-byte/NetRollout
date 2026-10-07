@@ -12,6 +12,7 @@ The release contract (stage 10's pipeline makes it):
                                    only then, and a first install unzips it
   SHA256SUMS                       "<sha256>  <file name>" per asset
 """
+import datetime
 import hashlib
 import json
 import re
@@ -23,7 +24,11 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from packaging.version import InvalidVersion, Version
+
 from src import runtime
+from src.setup.env import env_read, env_path, UPGRADE_DEFAULTS
+
 
 TOP = "netrollout"
 # what an update replaces in the install folder - never .env, config/,
@@ -178,3 +183,60 @@ def unpack(zip_path: Path, dest: Path) -> tuple[Path, str]:
 	if missing:
 		raise ReleaseError(f"{zip_path.name} is incomplete (no {', '.join(missing)}).")
 	return target, version
+
+
+# ── an update ──
+
+def update_kind(installed: str, new: str) -> str:
+	"""What installing `new` over `installed` is: "update", or "same" (a
+	repair: the files again, then a start).
+	:raises ValueError: `new` is older (never go back: the database may be
+	 upgraded already), or a version can't be read"""
+	try:
+		old_v, new_v = Version(installed), Version(new)
+	except InvalidVersion as e:
+		raise ValueError(f"Can't compare the versions ({e}).") from None
+	if new_v < old_v:
+		raise ValueError(f"NetRollout {installed} is installed - newer than {new}. "
+		                 f"Nothing was changed. (To go back to an older version: "
+		                 f"uninstall keeping the data is not enough - restore a "
+		                 f"backup made with that version.)")
+	return "update" if new_v > old_v else "same"
+
+
+def upgrade(version: str = runtime.VERSION,
+            now: datetime.datetime | None = None) -> list[str]:
+	"""After an update's files are in place: .env gets what this version needs
+	(files.UPGRADE_DEFAULTS) - existing values and comments untouched - and a
+	line saying when it was updated (UTC: the setup core runs in a container
+	on UTC). Returns what to say.
+	:raises ValueError: a key the data depends on is missing (nothing written)"""
+	now = now or datetime.datetime.now(datetime.timezone.utc)
+	path = env_path()
+	text = path.read_text(encoding="utf-8")
+	present = set(env_read())
+	missing = [k for k in UPGRADE_DEFAULTS if k not in present]
+	lost = [k for k in missing if UPGRADE_DEFAULTS[k] is None]
+	if lost:
+		raise ValueError(f"{path} is missing {', '.join(lost)} - the data depends on "
+		                 f"{'it' if len(lost) == 1 else 'them'}, so NetRollout can't be "
+		                 f"updated or started. Put {'it' if len(lost) == 1 else 'them'} "
+		                 f"back (a copy of .env), then update again.")
+	lines = text.splitlines()
+	stamp = f"# Updated to NetRollout {version} on {now:%Y-%m-%d %H:%M} UTC."
+	updated = [i for i, line in enumerate(lines) if line.startswith("# Updated to NetRollout ")]
+	if updated:
+		lines[updated[0]] = stamp
+	else:
+		lines.insert(1 if lines and lines[0].startswith("#") else 0, stamp)
+	said = []
+	if missing:
+		lines += ["", f"# Added by the update to NetRollout {version}"]
+		for k in missing:
+			make = UPGRADE_DEFAULTS[k]
+			assert make is not None   # those were refused above
+			lines.append(f"{k}={make()}")
+		said.append(f".env: added {', '.join(missing)}")
+	with open(path, "w", encoding="utf-8", newline="\n") as f:
+		f.write("\n".join(lines) + "\n")
+	return said

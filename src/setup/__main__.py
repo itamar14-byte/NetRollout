@@ -8,7 +8,9 @@ from pathlib import Path
 from packaging.version import Version
 
 from src import runtime
-from src.setup import answers as A, files, manage, port, release
+from src.setup import (install as A, install as files, manage, port, update as release,
+                       update as _update)
+from src.setup.env import env_path
 
 OK, INVALID, REFUSED = 0, 1, 2
 ANSWER_FLAGS = ("hostname", "https_port", "monitoring", "org_certificate",
@@ -109,7 +111,7 @@ def main(argv: list[str] | None = None, read: A.Read = input,
 			write("check-update needs --installed and --new")
 			return INVALID
 		try:
-			write(manage.update_kind(args.installed, args.new))
+			write(_update.update_kind(args.installed, args.new))
 		except ValueError as e:
 			write(str(e))
 			return REFUSED
@@ -117,13 +119,13 @@ def main(argv: list[str] | None = None, read: A.Read = input,
 	if args.command == "release":
 		return _release(args, write)
 	if args.command.startswith("port-"):
-		if not files.env_path().exists():
-			write(f"NetRollout isn't installed here ({files.env_path()} is missing).")
+		if not env_path().exists():
+			write(f"NetRollout isn't installed here ({env_path()} is missing).")
 			return INVALID
 		return _port(args, facts, write)
 	if args.command in ("prepare-start", "status", "restore-key", "upgrade"):
-		if not files.env_path().exists():
-			write(f"NetRollout isn't installed here ({files.env_path()} is missing) "
+		if not env_path().exists():
+			write(f"NetRollout isn't installed here ({env_path()} is missing) "
 			      f"- run the install first.")
 			return INVALID
 		if args.command == "prepare-start":
@@ -132,7 +134,7 @@ def main(argv: list[str] | None = None, read: A.Read = input,
 			return OK
 		if args.command == "upgrade":
 			try:
-				for line in manage.upgrade():
+				for line in _update.upgrade():
 					write(line)
 			except ValueError as e:
 				write(str(e))
@@ -156,8 +158,8 @@ def main(argv: list[str] | None = None, read: A.Read = input,
 	given = {k: getattr(args, k) for k in ANSWER_FLAGS
 	         if getattr(args, k) is not None}
 	interactive = args.command == "init" and not args.defaults
-	if args.command == "init" and files.env_path().exists():
-		write(f"NetRollout is already installed here ({files.env_path()}) - "
+	if args.command == "init" and env_path().exists():
+		write(f"NetRollout is already installed here ({env_path()}) - "
 		      f"see `netrollout status`, or `netrollout update`.")
 		return REFUSED
 	if args.command == "init" and not args.licence_accepted:

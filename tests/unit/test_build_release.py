@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from src.setup import release
+from src.setup import update as release
 
 ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location("build_release", ROOT / "tools" / "build_release.py")

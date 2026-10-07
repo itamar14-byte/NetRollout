@@ -38,7 +38,7 @@ from typing import Any
 
 from src import runtime
 from src.access import site_env
-from src.setup import files, manage
+from src.setup.env import COMPOSE, env_read, env_set
 
 STATUS_FILE = "apply-status.json"          # src/access/port.py reads it
 TRIAL_FILE = "port-trial.yaml"             # in config/, listed in COMPOSE_FILE
@@ -109,7 +109,7 @@ def ready() -> bool:
 def current_port() -> int:
 	"""The port Docker publishes now (.env's HTTPS_PORT)."""
 	try:
-		return int(manage.env_read().get("HTTPS_PORT", "443"))
+		return int(env_read().get("HTTPS_PORT", "443"))
 	except ValueError:
 		return 443
 
@@ -168,8 +168,8 @@ def timed_out(trial_port: int | None) -> str:
 
 
 def _compose_files() -> list[str]:
-	env = manage.env_read()
-	return [f for f in env.get("COMPOSE_FILE", files.COMPOSE).split(",") if f]
+	env = env_read()
+	return [f for f in env.get("COMPOSE_FILE", COMPOSE).split(",") if f]
 
 
 def open_trial(port: int) -> None:
@@ -183,7 +183,7 @@ def open_trial(port: int) -> None:
 		f'      - "{port}:443"\n', encoding="utf-8")
 	compose = _compose_files()
 	if TRIAL_ENTRY not in compose:
-		manage.env_set({"COMPOSE_FILE": ",".join(compose + [TRIAL_ENTRY])})
+		env_set({"COMPOSE_FILE": ",".join(compose + [TRIAL_ENTRY])})
 
 
 def trying(port: int, id_: str, now: float | None = None) -> dict:
@@ -204,11 +204,11 @@ def close(outcome: str, id_: str, message: str = "",
 	if timed_out_:
 		message = timed_out(new)
 	if outcome == "keep" and new:
-		manage.env_set({"HTTPS_PORT": str(new)})
+		env_set({"HTTPS_PORT": str(new)})
 		site_env.update({site_env.HTTPS_PORT: str(new)})   # nginx's redirects
 	compose = _compose_files()
 	if TRIAL_ENTRY in compose:
-		manage.env_set({"COMPOSE_FILE": ",".join(f for f in compose if f != TRIAL_ENTRY)})
+		env_set({"COMPOSE_FILE": ",".join(f for f in compose if f != TRIAL_ENTRY)})
 	trial_path().unlink(missing_ok=True)
 	state = {"keep": "applied", "rollback": "rolled_back"}.get(outcome, "failed")
 	return write_status(id_, state, current_port(), message=message, now=now)
