@@ -57,6 +57,54 @@ def test_create_edit_delete_own_device(client_for, make_user, session_scope):
 	assert device_by_label(session_scope, "edge-1b") is None
 
 
+BAD_FIELDS = [
+	({"ip": "300.1.1.1"}, "Not a valid IP address: 300.1.1.1."),
+	({"port": "abc"}, "The port is a number from 1 to 65535."),
+	({"port": "70000"}, "The port is a number from 1 to 65535."),
+	({"device_type": "foo_os"}, "Unsupported device type: foo_os."),
+]
+
+
+@pytest.mark.parametrize("bad, message", BAD_FIELDS)
+def test_create_refuses_a_bad_field_in_words(client_for, make_user, session_scope,
+                                             bad, message):
+	"""Add device checks the IP, port and device type on the server: a bad one
+	is refused with the reason (cases: an IP out of range, a port that isn't
+	a number or is too high, an unsupported type) and nothing is saved."""
+	client = client_for(make_user())
+	resp = client.post("/inventory/create", data={**FORM, **bad})
+	assert resp.headers["Location"] == "/inventory"
+	assert flashes(client) == [message]
+	assert device_by_label(session_scope, "edge-1") is None
+
+
+@pytest.mark.parametrize("bad, message", BAD_FIELDS)
+def test_edit_refuses_a_bad_field_in_words(client_for, make_user, session_scope,
+                                           bad, message):
+	"""Edit device checks the same fields: a bad one is refused with the
+	reason and the device stays as it was."""
+	client = client_for(make_user())
+	client.post("/inventory/create", data=FORM)
+	dev = device_by_label(session_scope, "edge-1")
+	with client.session_transaction() as s:     # the create's confirmation
+		s.pop("_flashes", None)
+	resp = client.post(f"/inventory/{dev.id}/edit", data={**FORM, **bad})
+	assert resp.headers["Location"] == "/inventory"
+	assert flashes(client) == [message]
+	same = device_by_label(session_scope, "edge-1")
+	assert (same.ip, same.port, same.device_type) == ("10.1.1.1", 22, "cisco_ios")
+
+
+def test_a_device_without_a_label_is_named_by_its_ip(client_for, make_user,
+                                                     session_scope):
+	"""A device added without a label gets its IP as the label (as the CSV
+	import does), and the confirmation names it."""
+	client = client_for(make_user())
+	client.post("/inventory/create", data={**FORM, "label": "  "})
+	assert device_by_label(session_scope, "10.1.1.1") is not None
+	assert flashes(client) == ["10.1.1.1 added to inventory."]
+
+
 def test_cannot_touch_another_users_device(client_for, make_user, make_device,
                                            db_get):
 	"""Another user's edit and delete of a device change nothing."""

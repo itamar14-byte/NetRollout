@@ -71,6 +71,19 @@ def profile_allowed(profile_id: uuid.UUID | None, db_session: Session,
 		id=profile_id, user_id=current_user.id).first() is not None
 
 
+def device_problem(ip: str, port: str, device_type: str) -> str | None:
+	"""The server's check of a device's fields (the page's can be bypassed).
+
+	:returns: what's wrong, in words; None when they're valid"""
+	if not validation.validate_ip(ip):
+		return f"Not a valid IP address: {ip}."
+	if not validation.validate_port(port):
+		return "The port is a number from 1 to 65535."
+	if not validation.validate_platform(device_type):
+		return f"Unsupported device type: {device_type}."
+	return None
+
+
 def device_not_found() -> ResponseReturnValue:
 	return flash_redirect("Device not found.", "inventory.inventory", "danger")
 
@@ -107,10 +120,12 @@ def inventory_create(data: Any) -> ResponseReturnValue:
 	"""Add a device from the page's form. Only an admin may make it global,
 	and a global one needs a security profile; an ip:port in use already is
 	allowed, with a warning."""
-	label = data.get("label", "").strip()
 	ip = data.get("ip", "").strip()
+	label = data.get("label", "").strip() or ip
 	port = data.get("port", "22").strip()
 	device_type = data.get("device_type", "").strip()
+	if problem := device_problem(ip, port, device_type):
+		return flash_redirect(problem, "inventory.inventory", "danger")
 	sec_profile_id = data.get("sec_profile_id", "").strip()
 	try:
 		parsed_sec_id = uuid.UUID(sec_profile_id) if sec_profile_id else None
@@ -203,6 +218,11 @@ def inventory_edit(device_id: uuid.UUID) -> ResponseReturnValue:
 	def _edit(device: Inventory, db_session: Session) -> ResponseReturnValue:
 		# Validate everything before mutating — get_session commits on a
 		# normal return, so an early error must not leave a half-applied edit.
+		ip = request.form.get("ip", "").strip()
+		port = request.form.get("port", "22").strip()
+		device_type = request.form.get("device_type", "").strip()
+		if problem := device_problem(ip, port, device_type):
+			return flash_redirect(problem, "inventory.inventory", "danger")
 		sec_profile_id = request.form.get("sec_profile_id", "").strip()
 		try:
 			parsed_sec_id = uuid.UUID(sec_profile_id) if sec_profile_id else None
@@ -223,16 +243,16 @@ def inventory_edit(device_id: uuid.UUID) -> ResponseReturnValue:
 			                      "inventory.inventory", "danger")
 
 		old_endpoint = (device.ip, device.port)
-		device.label = request.form.get("label", "").strip()
-		device.ip = request.form.get("ip", "").strip()
-		device.port = int(request.form.get("port", 22))
+		device.label = request.form.get("label", "").strip() or ip
+		device.ip = ip
+		device.port = int(port)
 		# Warn only when the endpoint changed — not on every save
 		duplicate = None
 		if (device.ip, device.port) != old_endpoint:
 			duplicate = same_endpoint_warning(same_endpoint_devices(
 				db_session, current_user.id, device.ip, device.port,
 				exclude_id=device.id), device.ip, device.port)
-		device.device_type = request.form.get("device_type", "").strip()
+		device.device_type = device_type
 		device.sec_profile_id = parsed_sec_id
 		device.is_global = is_global
 		sys_props, user_props = current_app.web.get_property_defs(

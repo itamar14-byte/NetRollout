@@ -48,6 +48,20 @@ def validate_mapping_fields(index: int | None, property_name: str,
 	return None
 
 
+def parse_index(raw: object) -> int | None:
+	"""A mapping's index as typed (form text, or a JSON number).
+
+	:returns: the index; None when blank (the whole value)
+	:raises ValueError: it isn't a whole number - the message is for people"""
+	text = "" if raw is None else str(raw).strip()
+	if not text:
+		return None
+	try:
+		return int(text)
+	except ValueError:
+		raise ValueError("The index is a number.") from None
+
+
 def parse_mapping_input(data: Any) -> ResponseReturnValue | dict[str, Any]:
 	"""The page's mapping form, checked.
 
@@ -56,8 +70,11 @@ def parse_mapping_input(data: Any) -> ResponseReturnValue | dict[str, Any]:
 	label = data.get("label", "").strip() or None
 	inner_token = data["token_inner"].strip().upper()
 	property_name = data["property_name"]
-	index = int(data.get("index", "").strip()) if data.get(
-		"index", "").strip() else None
+	try:
+		index = parse_index(data.get("index"))
+	except ValueError as e:
+		flash(str(e), "danger")
+		return redirect(url_for("mappings.mappings"))
 
 	if invalid := validate_mapping_fields(index, property_name, inner_token):
 		return invalid
@@ -130,8 +147,10 @@ def mappings_quick_create(data: dict[str, Any]) -> ResponseReturnValue:
 	:returns: {"status": "ok", id, token, property_name, index} or an error"""
 	inner_token = str(data.get("token_inner", "") or "").strip().upper()
 	property_name = str(data.get("property_name", "") or "").strip()
-	index_raw = data.get("index")
-	index = int(index_raw) if index_raw is not None else None
+	try:
+		index = parse_index(data.get("index"))
+	except ValueError as e:
+		return err(str(e), 422)
 
 	allowed, list_props = property_rules()
 	for valid, why in (validation.validate_var_map_inner_token(inner_token),
@@ -327,6 +346,5 @@ def mappings_bulk_assign() -> ResponseReturnValue:
 		"green" if not skipped else "yellow", important=True)
 	current_app.web.audit("mapping.bulk_assign", object_type="VariableMapping",
 	                      object_id=parsed_mapping_id,
-	                      detail={"count": len(device_ids),
-	                              "removed": removed})
+	                      detail={"count": assigned, "removed": removed})
 	return ok()

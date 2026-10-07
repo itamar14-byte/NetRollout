@@ -324,6 +324,54 @@ def test_ldap_server_crud_encrypts_bind_password(admin, client_for,
 		assert s.query(LDAPServer).count() == 0
 
 
+@pytest.mark.parametrize("bad, message", [
+	({"port": "abc"}, "The port is a number from 1 to 65535."),
+	({"bind_type": "weird"}, "The bind type is regular or simple."),
+])
+def test_ldap_server_form_refuses_a_bad_field_in_words(admin, client_for,
+                                                       session_scope, bad, message):
+	"""The LDAP server form's port and bind type are checked: a bad one is
+	refused with the reason (422) on add and on save, changing nothing."""
+	c = client_for(admin)
+	resp = c.post("/admin/server/ldap/new", data={**LDAP_FORM, **bad})
+	assert (resp.status_code, resp.json["message"]) == (422, message)
+	with session_scope() as s:
+		assert s.query(LDAPServer).count() == 0
+	c.post("/admin/server/ldap/new", data=LDAP_FORM)
+	srv = only_server(session_scope)
+	resp = c.post(f"/admin/server/ldap/{srv.id}/save", data={**LDAP_FORM, **bad})
+	assert (resp.status_code, resp.json["message"]) == (422, message)
+	same = only_server(session_scope)
+	assert (same.port, same.bind_type) == (srv.port, srv.bind_type)
+
+
+def test_ldap_import_skips_malformed_items(admin, client_for, session_scope):
+	"""An import list with malformed items (no type, not an object) imports the
+	good ones and counts the rest as skipped; a body that isn't a list is
+	refused (422)."""
+	c = client_for(admin)
+	c.post("/admin/server/ldap/new", data=LDAP_FORM)
+	sid = only_server(session_scope).id
+	resp = c.post(f"/admin/server/ldap/{sid}/import", json=[
+		{"type": "user", "username": "jdoe"}, {"username": "no-type"}, "text"])
+	assert (resp.json["users_created"], resp.json["skipped"]) == (1, 2)
+	assert c.post(f"/admin/server/ldap/{sid}/import",
+	              json={"type": "user"}).status_code == 422
+
+
+def test_unknown_user_actions_are_404_and_not_audited(admin, client_for,
+                                                      make_user, session_scope):
+	"""An action that doesn't exist, on one user or in bulk, is 404 and leaves
+	no audit row."""
+	target = make_user()
+	c = client_for(admin)
+	assert c.post(f"/admin/users/{target.id}/explode").status_code == 404
+	assert c.post("/admin/users/bulk/explode",
+	              data={"user_ids": str(target.id)}).status_code == 404
+	with session_scope() as s:
+		assert not s.query(AuditLog).filter(AuditLog.action.like("user.%explode")).count()
+
+
 def test_ldap_directory_calls_are_delegated(admin, client_for, session_scope):
 	"""The LDAP test, test-user, fetch-DN and explore routes hand off to the
 	directory functions; an unknown server is 404."""

@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 import netmiko
 import pytest
 
-from src.db.tables import PropertyDefinition, SecurityProfile, VariableMapping, Inventory
+from src.db.tables import AuditLog, PropertyDefinition, SecurityProfile, VariableMapping, Inventory
 from src.encryption import decrypt
 
 pytestmark = [pytest.mark.postgres, pytest.mark.redis]
@@ -203,6 +203,39 @@ def test_bulk_assign_checks_eligibility(client_for, make_user, make_device,
 	with session_scope() as s:
 		assigned = {d.id for d in s.get(VariableMapping, mid).devices}
 	assert assigned == {ok}
+
+
+def test_bulk_assign_audits_what_was_assigned(client_for, make_user, make_device,
+                                              make_mapping, session_scope):
+	"""The bulk-assign audit counts the devices actually assigned (1 of the 2
+	sent - the other lacks the property), not the ids sent."""
+	user = make_user()
+	ok = make_device(user, ip="10.0.0.1", var_maps={"hostname": "r1"})
+	missing = make_device(user, ip="10.0.0.2", var_maps={})
+	mid = make_mapping(user)
+	client_for(user).post("/mappings/bulk_assign", json={
+		"mapping_id": str(mid), "device_ids": [str(ok), str(missing)]})
+	with session_scope() as s:
+		(row,) = s.query(AuditLog).filter_by(action="mapping.bulk_assign").all()
+		assert (row.detail["count"], row.detail["removed"]) == (1, 0)
+
+
+def test_a_mapping_index_that_isnt_a_number_is_refused_in_words(
+		client_for, make_user, session_scope):
+	"""A mapping whose index isn't a number is refused with the reason - on
+	the page's form (flashed, nothing saved) and in the quick create (422) -
+	instead of a server error."""
+	user = make_user()
+	client = client_for(user)
+	resp = client.post("/mappings/create", data={
+		"token_inner": "vrf", "property_name": "vrfs", "index": "two"})
+	assert resp.headers["Location"] == "/mappings"
+	with client.session_transaction() as s:
+		assert [m for _, m in s["_flashes"]] == ["The index is a number."]
+	quick = client.post("/mappings/quick_create", json={
+		"token_inner": "vrf", "property_name": "vrfs", "index": "two"})
+	assert (quick.status_code, quick.json["message"]) == (422, "The index is a number.")
+	assert mappings_of(session_scope, user) == []
 
 
 # ── Properties ───────────────────────────────────────────────────────────────

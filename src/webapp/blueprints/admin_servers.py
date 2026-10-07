@@ -15,6 +15,7 @@ from redis.exceptions import ConnectionError as RedisConnectionError
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 
+from src import validation
 from src.db import move
 from src.db.postgres_db import PostgresConfig
 from src.db.redis_db import RedisConfig
@@ -31,6 +32,8 @@ from src.webapp.setup import clear_sessions, clear_stale_jobs
 from src.webapp.utils import ok, err, require_admin, with_json, with_form
 
 bp = Blueprint('admin_servers', __name__, url_prefix='/admin/server')
+
+LDAP_BIND_TYPES = ("regular", "simple")   # with a service account / without
 
 
 ##############################Route Helpers#####################################
@@ -58,6 +61,20 @@ def unload_ldap_data(req: Request) -> dict[str, str]:
 	        "is_active": is_active,
 	        "bind_password": bind_password
 	        }
+
+
+def ldap_problem(server_input: dict[str, str], new: bool) -> str | None:
+	"""The LDAP server form's check (the page's can be bypassed).
+
+	:param new: a new server needs a bind type; a save may leave it blank
+	 (the stored one stays)
+	:returns: what's wrong, in words; None when valid"""
+	if not validation.validate_port(server_input["port"]):
+		return "The port is a number from 1 to 65535."
+	if (new or server_input["bind_type"]) and \
+			server_input["bind_type"] not in LDAP_BIND_TYPES:
+		return "The bind type is regular or simple."
+	return None
 
 
 ##############################Routes#######################################
@@ -358,9 +375,11 @@ def admin_server_ldap_get() -> Response:
 @bp.route("/ldap/new", methods=["POST"])
 @login_required
 @require_admin
-def admin_server_ldap_new() -> Response:
+def admin_server_ldap_new() -> ResponseReturnValue:
 	"""Add an LDAP server from the form (the bind password encrypted)."""
 	server_input = unload_ldap_data(request)
+	if problem := ldap_problem(server_input, new=True):
+		return err(problem, 422)
 
 	with current_app.backend.postgres.get_session() as db_session:
 		row = LDAPServer(
@@ -391,6 +410,8 @@ def admin_server_ldap_save(server_id: uuid.UUID) -> ResponseReturnValue:
 	"""Change an LDAP server: a blank field keeps the stored value (the bind
 	password too); the port, SSL and active are always taken from the form."""
 	server_input = unload_ldap_data(request)
+	if problem := ldap_problem(server_input, new=False):
+		return err(problem, 422)
 
 	with current_app.backend.postgres.get_session() as db_session:
 		srv = db_session.query(LDAPServer).filter_by(id=server_id).first()
@@ -486,10 +507,16 @@ def admin_server_ldap_explore(server_id: uuid.UUID) -> ResponseReturnValue:
 def admin_server_ldap_import(server_id: uuid.UUID) -> ResponseReturnValue:
 	"""Users and groups picked in the directory browser: users become LDAP
 	accounts (approved, active), groups become mappable groups; ones that
-	exist are skipped. JSON [{type: user | group, username | dn, label}].
+	exist are skipped, and so are malformed items. JSON [{type: user | group,
+	username | dn, label}].
 
-	:returns: {users_created, groups_created, skipped}"""
-	items = request.json or []
+	:returns: {users_created, groups_created, skipped}; 422 when the body
+	 isn't a list"""
+	items = request.get_json(silent=True)
+	if items is None:
+		items = []
+	if not isinstance(items, list):
+		return err("The import is a list of users and groups.", 422)
 	users_created = 0
 	groups_created = 0
 	skipped = 0
@@ -500,6 +527,11 @@ def admin_server_ldap_import(server_id: uuid.UUID) -> ResponseReturnValue:
 			return err("Server not found", 404)
 
 		for item in items:
+			if not isinstance(item, dict) or not (
+					(item.get("type") == "user" and item.get("username"))
+					or (item.get("type") == "group" and item.get("dn"))):
+				skipped += 1
+				continue
 			if item["type"] == "user":
 				if db_session.query(User).filter_by(
 						username=item["username"]).first():
@@ -522,7 +554,7 @@ def admin_server_ldap_import(server_id: uuid.UUID) -> ResponseReturnValue:
 					continue
 				db_session.add(LDAPGroup(
 					group_dn=item["dn"],
-					label=item["label"],
+					label=item.get("label") or item["dn"],
 					ldap_server_id=server_id
 				))
 				groups_created += 1

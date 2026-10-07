@@ -21,6 +21,10 @@ from src.webapp.utils import ok, err, require_admin, end_user_sessions, with_jso
 
 bp = Blueprint('admin_users', __name__, url_prefix='/admin')
 
+# what user_action_factory does - anything else is 404, and never audited
+USER_ACTIONS = frozenset({"approve", "enable", "disable", "promote", "demote",
+                          "delete", "reset_2fa", "terminate_session"})
+
 
 @bp.app_context_processor
 def pending_access_requests() -> dict[str, Any]:
@@ -39,8 +43,7 @@ def pending_access_requests() -> dict[str, Any]:
 def user_action_factory(user: User, action: str, db_session: Session) -> None:
 	"""Apply one admin action to a user (in the caller's session).
 
-	:param action: approve / enable / disable / promote / demote / delete /
-	 reset_2fa / terminate_session - anything else does nothing"""
+	:param action: one of USER_ACTIONS"""
 	if action == "approve":
 		user.is_approved = True
 		user.is_active = True
@@ -95,6 +98,8 @@ def admin_user_action(user_id: uuid.UUID, action: str) -> ResponseReturnValue:
 	"""One action on one user (user_action_factory), audited as
 	user.<action>. Not on the factory admin; an admin can't disable or
 	delete their own account."""
+	if action not in USER_ACTIONS:
+		return err("Unknown action", 404)
 	if action in ("disable", "delete") and user_id == current_user.id:
 		flash("You cannot perform this action on your own account.", "danger")
 		return redirect(url_for("admin_users.admin_users"))
@@ -180,6 +185,8 @@ def admin_bulk_action(action: str) -> ResponseReturnValue:
 	"""One action on the users ticked (form user_ids, comma separated) - the
 	factory admin and, for disable / delete, the admin's own account
 	skipped. One audit row: user.bulk_<action> with the names."""
+	if action not in USER_ACTIONS:
+		return err("Unknown action", 404)
 	raw = request.form.get("user_ids", "")
 	try:
 		user_ids = [uuid.UUID(uid.strip()) for uid in raw.split(",") if
