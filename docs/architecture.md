@@ -26,7 +26,7 @@ At runtime, `RolloutOrchestrator` is the concurrency manager.
 - **`RolloutJob`:** the lifecycle owner of a single job. It owns the thread, the cancel event, the logger and the engine.
 - **`RolloutEngine`:** execution context flows into it as arguments at call time, so it holds no hanging state.
 
-The **CLI** (`src/cli.py`) uses the same `RolloutEngine` directly, from a devices CSV and a commands file. It has no database, no Redis and no orchestrator — and doesn't even import them: the DB models and Redis are imported for type checking only (`core.py`, `logging_utils.py`) or inside the web-only CSV import (`input_parser.py`), guarded by an import-isolation test. It ships as a standalone `netrollout-cli.exe` (PyInstaller, `netrollout-cli.spec`, the web stack excluded; logs next to the exe via `runtime.logs_dir()`).
+The **CLI** (`src/cli.py`) uses the same `RolloutEngine` directly, from a devices CSV and a commands file. It has no database, no Redis and no orchestrator — and doesn't even import them: the DB models and Redis are imported for type checking only (`src/rollout/`); the web-only CSV import lives in `src/inventory.py`. An import-isolation test guards it. It ships as a standalone `netrollout-cli.exe` (PyInstaller, `netrollout-cli.spec`, the web stack excluded; logs next to the exe via `runtime.logs_dir()`).
 
 **Configuration** comes from env vars. `config/runtime.env` (under the NetRollout home, `src/runtime.py`) is loaded with override by `BackendServices` at startup; it holds only what a Server Management switch wrote, so it wins over the container environment (the installer's `.env`), which wins over the defaults.
 
@@ -290,13 +290,14 @@ One CSV format is shared by the CLI and web import. Required columns are `ip`, `
 
 **Methods:**
 - `prepare_devices(raw_devices)` → `(devices, errors)` — CLI path; credentials required.
-- `csv_to_inventory(path, user_id, …)` → `ImportReport` — web import:
-  - it saves the attribute columns as `var_maps`;
-  - it turns credentials into security profiles (optional, on by default);
-  - it reports unknown columns;
-  - it does no reachability check.
 - `parse_commands(path)`.
 - Static `import_from_inventory(rows, user_id)` → `Device`s.
+
+The web import is `import_csv(parser, path, user_id, …)` → `ImportReport` (`src/inventory.py`; it reads the rows with the parser's `prepare_devices`):
+- it saves the attribute columns as `var_maps`;
+- it turns credentials into security profiles (optional, on by default);
+- it reports unknown columns;
+- it does no reachability check.
 
 `ImportReport` carries `errors` and `notices`.
 

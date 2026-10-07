@@ -3,7 +3,6 @@ file checks, the TCP probe, reading a devices CSV and a commands file."""
 import os
 import tempfile
 import unittest
-import uuid
 from unittest.mock import MagicMock, patch
 
 # Import through the src package only — the app itself imports src.*, and a
@@ -334,7 +333,7 @@ class TestPrepareDevices(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# core.py — parse_files
+# the commands file (parse_commands)
 # ---------------------------------------------------------------------------
 
 class TestParseFiles(unittest.TestCase):
@@ -343,59 +342,11 @@ class TestParseFiles(unittest.TestCase):
 		self.logger = RolloutLogger(webapp=False, verbose=False)
 		self.validator = Validator(self.logger)
 		self.parser = InputParser(self.validator, self.logger)
-		self.db_session = MagicMock()
-		self.user_id = uuid.uuid4()
-
-	@staticmethod
-	def _write_csv(path, rows):
-		"""Write a devices CSV (ip, username, password, device_type, secret,
-		port) with these rows."""
-		with open(path, "w", encoding="utf-8") as f:
-			f.write("ip,username,password,device_type,secret,port\n")
-			for row in rows:
-				f.write(",".join(str(row[k]) for k in
-								 ("ip", "username", "password",
-								  "device_type", "secret", "port")) + "\n")
 
 	@staticmethod
 	def _write_commands(path, commands):
 		with open(path, "w") as f:
 			f.write("\n".join(commands))
-
-	@patch("src.rollout.inputs.tcp_reachable", return_value=True)
-	def test_csv_to_inventory_returns_devices(self, _):
-		"""csv_to_inventory turns a one-row devices CSV into one Device."""
-		with tempfile.TemporaryDirectory() as tmpdir:
-			csv_path = os.path.join(tmpdir, "devices.csv")
-			self._write_csv(csv_path, [
-				{"ip": "10.0.0.1", "username": "admin", "password": "pass",
-				 "device_type": "cisco_ios", "secret": "s", "port": "22"}
-			])
-			devices = self.parser.csv_to_inventory(csv_path, self.user_id, self.db_session).devices
-		self.assertEqual(len(devices), 1)
-		self.assertIsInstance(devices[0], Device)
-
-	def test_csv_to_inventory_nonexistent_file_returns_empty(self):
-		"""csv_to_inventory on a missing file gives no devices."""
-		devices = self.parser.csv_to_inventory("/no/such/file.csv", self.user_id, self.db_session).devices
-		self.assertEqual(devices, [])
-
-	def test_csv_to_inventory_wrong_extension_returns_empty(self):
-		"""csv_to_inventory on a .txt file gives no devices."""
-		with tempfile.TemporaryDirectory() as tmpdir:
-			bad_path = os.path.join(tmpdir, "devices.txt")
-			open(bad_path, "w").close()
-			devices = self.parser.csv_to_inventory(bad_path, self.user_id, self.db_session).devices
-		self.assertEqual(devices, [])
-
-	def test_csv_to_inventory_missing_columns_returns_empty(self):
-		"""csv_to_inventory on a CSV missing required columns gives no devices."""
-		with tempfile.TemporaryDirectory() as tmpdir:
-			csv_path = os.path.join(tmpdir, "devices.csv")
-			with open(csv_path, "w") as f:
-				f.write("ip,username\n10.0.0.1,admin\n")
-			devices = self.parser.csv_to_inventory(csv_path, self.user_id, self.db_session).devices
-		self.assertEqual(devices, [])
 
 	def test_parse_commands_returns_list(self):
 		"""parse_commands reads a one-line .txt file into a one-command list."""

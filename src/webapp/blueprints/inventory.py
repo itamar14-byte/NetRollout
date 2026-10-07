@@ -12,7 +12,8 @@ from flask_login import current_user, login_required
 from sqlalchemy.orm import Session
 
 from src.db.tables import VariableMapping, Inventory, SecurityProfile
-from src.inventory import query_visible_devices, partition_devices, can_edit_device, visible_devices_clause, same_endpoint_devices, same_endpoint_warning
+from src.inventory import (can_edit_device, import_csv, partition_devices, query_visible_devices,
+                           same_endpoint_devices, same_endpoint_warning, visible_devices_clause)
 from src.rollout import inputs as validation
 from src.rollout.engine import endpoint, mapping_resolvable
 from src.rollout.inputs import InputParser, Validator
@@ -374,8 +375,8 @@ def inventory_import_csv() -> ResponseReturnValue:
 			in_use = {(d.ip, d.port) for d in db_session.query(
 				Inventory.ip, Inventory.port).filter(
 				visible_devices_clause(current_user.id))}
-			report = parser.csv_to_inventory(
-				tmp_path, current_user.id, db_session, label=label,
+			report = import_csv(
+				parser, tmp_path, current_user.id, db_session, label=label,
 				properties=sys_props + user_props,
 				create_profiles=create_profiles)
 
