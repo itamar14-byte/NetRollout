@@ -216,7 +216,7 @@ def proxy(app, monkeypatch):
 	"""Clean nginx folder + certs folder; hostname back to empty afterwards.
 	`managed()` makes it look like NetRollout's nginx reports there;
 	`verdict(...)` is what the watcher answers."""
-	site_dir, cert_dir = _pc.shared_dir(), _runtime.certs_dir()
+	site_dir, cert_dir = _site.folder(), _runtime.certs_dir()
 	# what was there (e.g. the site.env the app wrote at startup) comes back
 	found = {p: p.read_bytes() for d in (site_dir, cert_dir) if d.exists()
 	         for p in d.iterdir() if p.is_file()}
@@ -656,7 +656,7 @@ def test_status_shows_nginxs_verdict(admin, app, proxy):
 	message and time."""
 	proxy.managed()
 	assert overview(app)["nginx"]["state"] == "applied"
-	(_pc.shared_dir() / _pc.STATUS_FILE).write_text(_json.dumps(
+	(_site.folder() / _pc.STATUS_FILE).write_text(_json.dumps(
 		{"state": "rejected", "message": "nginx: [emerg] bad", "time": "2026-10-04T10:00:00Z"}))
 	assert overview(app)["nginx"] == {"state": "rejected", "message": "nginx: [emerg] bad",
 	                                  "time": "2026-10-04T10:00:00Z"}

@@ -6,14 +6,14 @@ import os
 
 import pytest
 
-from src.access import nginx as pc
+from src.access import nginx as pc, port
 
 
 @pytest.fixture
 def home(tmp_path, monkeypatch):
 	"""NETROLLOUT_HOME in a temp folder, no applied port in the environment."""
 	monkeypatch.setenv("NETROLLOUT_HOME", str(tmp_path))
-	monkeypatch.delenv(pc.APPLIED_PORT_ENV, raising=False)
+	monkeypatch.delenv(port.PUBLISHED_PORT_ENV, raising=False)
 	return tmp_path
 
 
@@ -24,7 +24,7 @@ def site(home):
 def test_writes_the_hostname_and_the_applied_port(home, monkeypatch):
 	"""write_site writes site.env with exactly the hostname and the applied port
 	(NETROLLOUT_HTTPS_PORT from the environment), and says it changed."""
-	monkeypatch.setenv(pc.APPLIED_PORT_ENV, "8443")
+	monkeypatch.setenv(port.PUBLISHED_PORT_ENV, "8443")
 	assert pc.write_site("nr01.corp.local") is True
 	assert site(home) == ("NETROLLOUT_HOSTNAME=nr01.corp.local\n"
 	                      "NETROLLOUT_HTTPS_PORT=8443\n")
@@ -36,16 +36,6 @@ def test_no_hostname_means_no_canonical_name(home):
 	pc.write_site("")
 	pc.write_site(None)
 	assert site(home) == "NETROLLOUT_HOSTNAME=\nNETROLLOUT_HTTPS_PORT=443\n"
-
-
-def test_the_applied_port_comes_from_the_environment(home, monkeypatch):
-	"""applied_https_port is the published port from the environment (443 when it
-	isn't a number): the System Settings port waits for `netrollout apply`, and
-	redirects must keep the published one meanwhile."""
-	monkeypatch.setenv(pc.APPLIED_PORT_ENV, "nonsense")
-	assert pc.applied_https_port() == 443
-	monkeypatch.setenv(pc.APPLIED_PORT_ENV, "9443")
-	assert pc.applied_https_port() == 9443
 
 
 def test_unchanged_values_are_not_rewritten(home):

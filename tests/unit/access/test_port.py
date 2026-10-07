@@ -34,6 +34,16 @@ def test_serving_port_without_a_helper_is_the_published_one(home, monkeypatch):
 	assert pa.serving_port() == 8443
 
 
+def test_the_applied_port_comes_from_the_environment(home, monkeypatch):
+	"""serving_port is the published port from the environment (443 when it
+	isn't a number): the System Settings port waits for `netrollout apply`, and
+	redirects must keep the published one meanwhile."""
+	monkeypatch.setenv(pa.PUBLISHED_PORT_ENV, "nonsense")
+	assert pa.serving_port() == 443
+	monkeypatch.setenv(pa.PUBLISHED_PORT_ENV, "9443")
+	assert pa.serving_port() == 9443
+
+
 def test_the_helper_knows_better_than_the_containers_env(home, monkeypatch):
 	"""The helper's applied port wins over the published one in the app's env (the
 	helper recreates nginx only: the app's env keeps the old port)."""

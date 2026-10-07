@@ -28,7 +28,6 @@ from src.db.settings import SETTINGS, SettingsStore
 
 SITE_FILE = site_env.FILE
 STATUS_FILE = "status.json"
-APPLIED_PORT_ENV = port_apply.PUBLISHED_PORT_ENV
 HOSTNAME_SEED_ENV = cast(str, SETTINGS["public_hostname"].env)   # it has one
 SERVER_IPS_ENV = "NETROLLOUT_SERVER_IPS"
 # A self-signed certificate reissued for a new hostname keeps the previous
@@ -43,18 +42,6 @@ _cert_lock = threading.Lock()
 Undo = Callable[[], None]   # puts the previous files back
 
 
-def shared_dir() -> Path:
-	""":returns: the folder the app shares with nginx (config/nginx)"""
-	return site_env.folder()
-
-
-def applied_https_port() -> int:
-	"""The port NetRollout is served on — not the System Settings value, which
-	is the port wanted: redirects keep using this one until the port helper
-	applies the new one (port_apply.serving_port)."""
-	return port_apply.serving_port()
-
-
 def write_site(hostname: str | None) -> bool:
 	"""Hand nginx `hostname` (empty: no canonical name) and the port in use,
 	in site.env. An unchanged file isn't rewritten, so nginx isn't reloaded
@@ -65,7 +52,7 @@ def write_site(hostname: str | None) -> bool:
 	:raises OSError: the folder can't be written"""
 	host = cast(str, SETTINGS["public_hostname"].parse(hostname or ""))
 	return site_env.update({site_env.HOSTNAME: host,
-	                        site_env.HTTPS_PORT: str(applied_https_port())})
+	                        site_env.HTTPS_PORT: str(port_apply.serving_port())})
 
 
 def seed_hostname_from_site() -> None:
@@ -135,7 +122,7 @@ def _change_hostname(new: str) -> Undo:
 	"""change_hostname's work, under the certificate lock."""
 	cert_dir = runtime.certs_dir()
 	cert = cert_dir / certs.CERT_FILE
-	saved = _snapshot([shared_dir() / SITE_FILE, *_cert_files(cert_dir)])
+	saved = _snapshot([site_env.folder() / SITE_FILE, *_cert_files(cert_dir)])
 	try:
 		if new and cert.is_file():
 			dns, ips = certs.names_in(cert.read_bytes())
@@ -161,7 +148,7 @@ def _change_hostname(new: str) -> Undo:
 		raise
 	except OSError as e:
 		_restore(saved)
-		raise ProxyError(f"NetRollout couldn't write {e.filename or shared_dir()}: "
+		raise ProxyError(f"NetRollout couldn't write {e.filename or site_env.folder()}: "
 		                 f"{e.strerror or e}. Nothing was changed.") from e
 	except ValueError as e:
 		_restore(saved)
@@ -360,7 +347,7 @@ def read_status() -> dict[str, Any] | None:
 	"message", "time"}. None when no nginx reports here (an external proxy,
 	or dev without the stack) — "not managed"."""
 	try:
-		data = json.loads((shared_dir() / STATUS_FILE).read_text(encoding="utf-8"))
+		data = json.loads((site_env.folder() / STATUS_FILE).read_text(encoding="utf-8"))
 	except FileNotFoundError:
 		return None
 	except (OSError, ValueError):
@@ -408,9 +395,9 @@ def sync_at_start(settings: SettingsStore) -> None:
 	try:
 		changed = write_site(settings.get("public_hostname"))
 	except (ValueError, OSError, SQLAlchemyError) as e:
-		print(f"[NetRollout] nginx site values not written ({shared_dir()}): "
+		print(f"[NetRollout] nginx site values not written ({site_env.folder()}): "
 		      f"{e}", flush=True)
 		return
 	if changed:
-		print(f"[NetRollout] nginx site values written ({shared_dir() / SITE_FILE})",
+		print(f"[NetRollout] nginx site values written ({site_env.folder() / SITE_FILE})",
 		      flush=True)
