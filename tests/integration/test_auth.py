@@ -8,6 +8,7 @@ import pytest
 
 from src.db.settings import SETTINGS
 from src.db.tables import AuditLog, LDAPGroup, LDAPServer, User
+from src.encryption import encrypt
 from src.webapp import extensions as _ext
 from src.webapp.blueprints.auth import safe_next
 from tests.integration.conftest import TEST_PASSWORD
@@ -83,6 +84,129 @@ def test_otp_routes_require_password_step(client_for):
 	assert client.get("/otp_enroll").headers["Location"] == "/"
 	assert client.post("/otp_verify", data={"code": "123456"}) \
 		       .headers["Location"] == "/"
+
+
+def enrolled_user(make_user):
+	"""A local user already enrolled in 2FA, and the authenticator's secret."""
+	secret = pyotp.random_base32()
+	return make_user(otp_secret=encrypt(secret)), secret
+
+
+def test_2fa_verify_is_rate_limited(client_for, make_user):
+	"""After the password, the first 10 code attempts aren't limited; the 11th
+	gets 429 - as the sign-in itself."""
+	user, _ = enrolled_user(make_user)
+	client = client_for()
+	login(client, user.username)
+	codes = [client.post("/otp_verify", data={"code": "000000"}).status_code
+	         for _ in range(11)]
+	assert 429 not in codes[:10]
+	assert codes[10] == 429
+
+
+def test_2fa_enrolment_is_rate_limited(client_for, make_user):
+	"""The enrolment page's code attempts are limited the same way: the 11th
+	gets 429."""
+	user = make_user()
+	client = client_for()
+	login(client, user.username)
+	client.get("/otp_enroll")
+	codes = [client.post("/otp_enroll", data={"code": "000000"}).status_code
+	         for _ in range(11)]
+	assert 429 not in codes[:10]
+	assert codes[10] == 429
+
+
+@pytest.mark.parametrize("route", ["/otp_verify", "/otp_enroll"])
+def test_five_wrong_codes_drop_the_pending_sign_in(client_for, make_user,
+                                                   session_scope, route):
+	"""4 wrong codes keep the pending sign-in; the 5th drops it (back to the
+	sign-in page, audited too_many_wrong_codes), so even the right code then
+	signs nobody in - the password must be given again."""
+	if route == "/otp_verify":
+		user, secret = enrolled_user(make_user)
+		client = client_for()
+		login(client, user.username)
+	else:
+		user = make_user()
+		client = client_for()
+		login(client, user.username)
+		client.get("/otp_enroll")
+		with client.session_transaction() as s:
+			secret = s["pending_totp_secret"]
+	for _ in range(4):
+		assert client.post(route, data={"code": "000000"}).headers["Location"] == route
+	assert pre_auth_user(client) == str(user.id)
+	assert client.post(route, data={"code": "000000"}).headers["Location"] == "/"
+	assert pre_auth_user(client) is None
+	assert client.post(route, data={"code": pyotp.TOTP(secret).now()}) \
+		       .headers["Location"] == "/"
+	assert client.get("/dashboard").status_code == 302      # signed out
+	reasons = [r for a, ok, r in audit_actions(session_scope, user.username)
+	           if a == "auth.login" and not ok]
+	assert reasons == ["wrong_code"] * 4 + ["too_many_wrong_codes"]
+
+
+def test_2fa_sign_in_is_audited_step_by_step(client_for, make_user,
+                                             session_scope):
+	"""The password step is audited as auth.password_ok (not a sign-in), a wrong
+	code as a failed auth.login (wrong_code), and only the right code as a
+	successful auth.login."""
+	user, secret = enrolled_user(make_user)
+	client = client_for()
+	login(client, user.username)
+	assert audit_actions(session_scope, user.username) == [
+		("auth.password_ok", True, None)]
+	client.post("/otp_verify", data={"code": "000000"})
+	client.post("/otp_verify", data={"code": pyotp.TOTP(secret).now()})
+	assert audit_actions(session_scope, user.username) == [
+		("auth.password_ok", True, None), ("auth.login", False, "wrong_code"),
+		("auth.login", True, None)]
+
+
+def test_2fa_enrolment_sign_in_is_audited(client_for, make_user, session_scope):
+	"""Enrolling the authenticator ends in a successful auth.login, after the
+	password step's auth.password_ok."""
+	user = make_user()
+	client = client_for()
+	login(client, user.username)
+	client.get("/otp_enroll")
+	with client.session_transaction() as s:
+		secret = s["pending_totp_secret"]
+	client.post("/otp_enroll", data={"code": pyotp.TOTP(secret).now()})
+	assert audit_actions(session_scope, user.username) == [
+		("auth.password_ok", True, None), ("auth.login", True, None)]
+
+
+def session_id(client):
+	"""The session id the client's cookie carries."""
+	return client.get_cookie("session").value
+
+
+def test_signing_in_renews_the_session_id(app, client_for, make_user):
+	"""The session id from before the sign-in is worthless after it: the
+	cookie carries a new one and the old one is gone from Redis. What the
+	session held (the page asked for) carries over."""
+	make_user(username="admin", role="admin")
+	client = client_for()
+	client.get("/?next=/inventory")
+	before = session_id(client)
+	resp = login(client, "admin")
+	assert resp.headers["Location"] == "/inventory"
+	assert session_id(client) != before
+	assert not app.backend.redis.client.exists(f"redis_session:{before}")
+
+
+def test_completing_2fa_renews_the_session_id(app, client_for, make_user):
+	"""The session id of the half-done sign-in (password given, code not yet)
+	is replaced when the code completes it."""
+	user, secret = enrolled_user(make_user)
+	client = client_for()
+	login(client, user.username)
+	pending = session_id(client)
+	client.post("/otp_verify", data={"code": pyotp.TOTP(secret).now()})
+	assert session_id(client) != pending
+	assert not app.backend.redis.client.exists(f"redis_session:{pending}")
 
 
 def test_factory_admin_skips_otp(client_for, make_user):

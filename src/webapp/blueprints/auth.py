@@ -51,6 +51,16 @@ _LOGIN_FAIL_MESSAGES = {
 # sign-in into a bounce to someone else's page.
 NEXT_KEY = "login_next"
 
+# Sign-in and both 2FA pages, per client address: a password or a 6-digit
+# code can't be guessed at speed
+SIGN_IN_RATE = "10 per minute"
+# Wrong 2FA codes in a row before the half-done sign-in is dropped (the
+# password must be given again - itself rate limited)
+MAX_WRONG_CODES = 5
+WRONG_CODES_KEY = "otp_wrong_codes"
+# What a half-done sign-in keeps in the session until the code completes it
+_PENDING_2FA = ("pre_auth_user_id", "pending_totp_secret", WRONG_CODES_KEY)
+
 
 def safe_next(value: str | None) -> str | None:
 	"""`value` if it's a path on this site worth returning to, else None."""
@@ -96,20 +106,36 @@ def complete_login(user: User, db_session: Session,
 
 	:param audit_detail: added to the audit row (e.g. auth_type)"""
 	db_session.expunge(user)
+	return _sign_in(user, **audit_detail)
+
+
+def _sign_in(user: User, **audit_detail: Any) -> ResponseReturnValue:
+	"""Every sign-in ends here, with or without 2FA: a new session id (one
+	known before the sign-in - planted, or seen on a shared computer - is
+	worthless after it; what the session held carries over), the user signed
+	in and indexed (Live Sessions), audited as auth.login.
+
+	:param user: detached
+	:param audit_detail: added to the audit row"""
+	current_app.session_interface.regenerate(session)
+	for key in _PENDING_2FA:
+		session.pop(key, None)
 	login_user(user)
 	record_redis_session(user.id)
 	current_app.web.audit("auth.login", success=True, username=user.username,
-	           actor_id=user.id, detail=audit_detail or None)
+	                      actor_id=user.id, detail=audit_detail or None)
 	return after_login(user)
 
 
 def start_otp_flow(user: User) -> ResponseReturnValue:
 	"""The password was right: on to the second factor - verification, or
 	enrolment for a user without an authenticator yet. The user id waits in
-	the session (pre_auth_user_id) for otp_verify / otp_enroll."""
+	the session (pre_auth_user_id) for otp_verify / otp_enroll. Audited as
+	auth.password_ok: not a sign-in yet."""
 	session["pre_auth_user_id"] = str(user.id)
-	current_app.web.audit("auth.login", success=True, username=user.username,
-	           actor_id=user.id)
+	session.pop(WRONG_CODES_KEY, None)
+	current_app.web.audit("auth.password_ok", success=True, username=user.username,
+	                      actor_id=user.id)
 	if user.otp_secret:
 		return redirect(url_for("auth.otp_verify"))
 	flash("To complete enrollment, you are referred to OTP set up portal",
@@ -221,7 +247,7 @@ def login_get() -> ResponseReturnValue:
 
 @bp.route("/login", methods=["POST"])
 @csrf.exempt
-@conn_limit.limit("10 per minute")
+@conn_limit.limit(SIGN_IN_RATE)
 @with_form("username", "password")
 def login(data: Any) -> ResponseReturnValue:
 	"""Sign in (rate limited): a local account, a known LDAP user, or an LDAP
@@ -284,30 +310,59 @@ def register(data: Any) -> ResponseReturnValue:
 	flash("Registration successful - your account is pending admin approval.", "success")
 	return redirect(url_for("auth.home"))
 
+def _pending_user() -> User | None:
+	"""The user whose password the half-done sign-in proved (detached); None
+	without one - or when the account is gone."""
+	user_id = session.get("pre_auth_user_id")
+	if not user_id:
+		return None
+	with current_app.backend.postgres.get_session() as db_session:
+		try:
+			user = db_session.get(User, uuid.UUID(user_id))
+		except ValueError:
+			return None
+		if user is not None:
+			db_session.expunge(user)
+		return user
+
+
+def _wrong_code(user: User, retry_endpoint: str) -> ResponseReturnValue:
+	"""A wrong 2FA code: audited (a failed auth.login, wrong_code); the
+	MAX_WRONG_CODES-th in a row drops the half-done sign-in, so the password
+	must be given again.
+
+	:param retry_endpoint: where to try again while tries are left"""
+	wrong = session.get(WRONG_CODES_KEY, 0) + 1
+	if wrong >= MAX_WRONG_CODES:
+		for key in _PENDING_2FA:
+			session.pop(key, None)
+		current_app.web.audit("auth.login", success=False, username=user.username,
+		                      actor_id=user.id, detail={"reason": "too_many_wrong_codes"})
+		flash("Too many wrong codes - sign in again.", "danger")
+		return redirect(url_for("auth.home"))
+	session[WRONG_CODES_KEY] = wrong
+	current_app.web.audit("auth.login", success=False, username=user.username,
+	                      actor_id=user.id, detail={"reason": "wrong_code"})
+	flash("invalid code, please try again", "danger")
+	return redirect(url_for(retry_endpoint))
+
+
 @bp.route("/otp_enroll", methods=["GET", "POST"])
+@conn_limit.limit(SIGN_IN_RATE, methods=["POST"])
 @with_form("code")
 def otp_enroll(data: Any) -> ResponseReturnValue:
 	"""2FA enrolment after the password: GET shows a new authenticator's QR
 	code (its secret waits in the session); POST checks a code from it, then
-	stores the secret (encrypted) and signs in."""
+	stores the secret (encrypted) and signs in. Rate limited; wrong codes
+	count (_wrong_code)."""
+	user = _pending_user()
+	if user is None:
+		return redirect(url_for("auth.home"))
 	if request.method == "GET":
-		user_id = session.get("pre_auth_user_id", None)
-		if not user_id:
-			return redirect(url_for("auth.home"))
-		with current_app.backend.postgres.get_session() as db_session:
-			try:
-				user = db_session.query(User).filter_by(
-					id=uuid.UUID(user_id)).first()
-			except ValueError:
-				return redirect(url_for("auth.home"))
-			if not user:
-				return redirect(url_for("auth.home"))
-			db_session.expunge(user)
-		totp = pyotp.random_base32()
-		secret = session.get("pending_totp_secret", None) or totp
+		secret = session.get("pending_totp_secret") or pyotp.random_base32()
 		session["pending_totp_secret"] = secret
-		uri = pyotp.TOTP(session["pending_totp_secret"]).provisioning_uri(
-			user.username, issuer_name="NetRollout")
+		uri = pyotp.TOTP(secret).provisioning_uri(user.username,
+		                                          issuer_name="NetRollout")
 		img = qrcode.make(uri)
 		buffer = BytesIO()
 		img.save(buffer, format="png")
@@ -315,63 +370,35 @@ def otp_enroll(data: Any) -> ResponseReturnValue:
 		qr_b64 = base64.b64encode(buffer.getvalue()).decode("utf8")
 		return render_template("otp_enroll.html", qr=qr_b64)
 
-	else:
-		user_id = session.get("pre_auth_user_id", None)
-		if not user_id:
-			return redirect(url_for("auth.home"))
-		otp_secret = session.get("pending_totp_secret", None)
-		user_code = data["code"]
-		if pyotp.TOTP(otp_secret).verify(user_code, valid_window=1):
-			with current_app.backend.postgres.get_session() as db_session:
-				try:
-					user = db_session.query(User).filter_by(id=uuid.UUID(
-						user_id)).first()
-				except ValueError:
-					return redirect(url_for("auth.home"))
-				if not user:
-					return redirect(url_for("auth.home"))
-				user.otp_secret = encrypt(otp_secret)
-				db_session.flush()
-				db_session.expunge(user)
-			session.pop("pending_totp_secret")
-			session.pop("pre_auth_user_id")
-			login_user(user)
-			record_redis_session(user.id)
-			return after_login(user)
-		flash("invalid code, please try again", "danger")
+	otp_secret = session.get("pending_totp_secret")
+	if not otp_secret:                      # the QR page wasn't shown first
 		return redirect(url_for("auth.otp_enroll"))
+	if not pyotp.TOTP(otp_secret).verify(data["code"], valid_window=1):
+		return _wrong_code(user, "auth.otp_enroll")
+	with current_app.backend.postgres.get_session() as db_session:
+		stored = db_session.get(User, user.id)
+		if stored is None:
+			return redirect(url_for("auth.home"))
+		stored.otp_secret = encrypt(otp_secret)
+	return _sign_in(user)
 
 
 @bp.route("/otp_verify", methods=["GET", "POST"])
+@conn_limit.limit(SIGN_IN_RATE, methods=["POST"])
 @with_form("code")
 def otp_verify(data: Any) -> ResponseReturnValue:
-	"""2FA after the password: POST checks the code and signs in."""
-	if request.method == "POST":
-		user_id = session.get("pre_auth_user_id", None)
-		if not user_id:
-			return redirect(url_for("auth.home"))
-		user_code = data["code"]
-		with current_app.backend.postgres.get_session() as db_session:
-			try:
-				user = db_session.query(User).filter_by(
-					id=uuid.UUID(user_id)).first()
-			except ValueError:
-				return redirect(url_for("auth.home"))
-			if not user:
-				return redirect(url_for("auth.home"))
-			db_session.expunge(user)
-		if not user.otp_secret:
-			return redirect(url_for("auth.otp_enroll"))
-		if pyotp.TOTP(decrypt(user.otp_secret)).verify(user_code,
-		                                                          valid_window=1):
-			login_user(user)
-			record_redis_session(user.id)
-			session.pop("pre_auth_user_id")
-			return after_login(user)
-		flash("invalid code, please try again", "danger")
-		return redirect(url_for("auth.otp_verify"))
-	else:
+	"""2FA after the password: POST checks the code and signs in. Rate
+	limited; wrong codes count (_wrong_code)."""
+	if request.method == "GET":
 		return render_template("otp_verify.html")
+	user = _pending_user()
+	if user is None:
+		return redirect(url_for("auth.home"))
+	if not user.otp_secret:
+		return redirect(url_for("auth.otp_enroll"))
+	if not pyotp.TOTP(decrypt(user.otp_secret)).verify(data["code"], valid_window=1):
+		return _wrong_code(user, "auth.otp_verify")
+	return _sign_in(user)
 
 
 @bp.route("/logout")
