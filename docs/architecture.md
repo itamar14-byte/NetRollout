@@ -532,12 +532,12 @@ csrf = CSRFProtect()
 - responses and decorators: `ok()`, `err()`, `require_admin`, `with_json`, `with_form`, `flash_redirect`;
 - elsewhere: device visibility and duplicate endpoints (`visible_devices_clause`, `query_visible_devices`, `can_edit_device`, `same_endpoint_devices`, `same_endpoint_warning`, `partition_devices`) in `src/inventory.py`; `compile_query_rules(node, allowed_fields)` (jQuery QueryBuilder → SQLAlchemy expression) with `QUERY_OPS` in the analytics blueprint; `build_kpi(results_30d, label_map)` and `job_status` in `src/jobs.py`.
 
-**Constants:** `SYSTEM_PROPERTIES`. The analytics field and column lists live in their blueprints (`analytics.py`, `admin_observability.py`). `validate_mapping_fields` lives in `mappings.py`, and `user_owns_job` in the jobs blueprint.
+**Constants:** `SYSTEM_PROPERTIES`. The analytics field and column lists live in `analytics.py`. `validate_mapping_fields` lives in `mappings.py`, and `user_owns_job` in the jobs blueprint.
 
 ### `blueprints/`
 Each blueprint owns its routes and route-specific helpers. Blueprints reach `app.web`, `app.backend` and `app.orchestrator` through `current_app` inside routes, never at module level. Every route except the public ones requires login, and every `/admin` route requires the admin role. This is enforced for all routes by `tests/integration/test_route_matrix.py`.
 
-| Blueprint | Prefix | Routes |
+| Blueprint (file) | Prefix | Routes |
 |---|---|---|
 | `auth` | — | `/`, `/login`, `/register`, `/otp_enroll`, `/otp_verify`, `/logout`, `/account`, `/account/password` (forced or voluntary change; local users) |
 | `jobs` | — | `/dashboard`, `/active_jobs`, `/results` (`?job=<id>` opens that job), `/results/summary/<job_id>` (a finished job in a few lines: the completion card), `/results/config_diff/<job_id>/<ip>`, `/results/download_log/<job_id>` |
@@ -545,12 +545,15 @@ Each blueprint owns its routes and route-specific helpers. Blueprints reach `app
 | `inventory` | `/inventory` | list, `/create`, `/test_connection`, `/reachability`, `/<id>/edit`, `/<id>/mappings`, `/<id>/delete`, `/import_csv`, `/bulk_assign` |
 | `security` | `/security` | list, `/create`, `/quick_create`, `/<id>/edit`, `/<id>/delete`, `/<id>/test` |
 | `mappings` | `/mappings` | list, `/create`, `/quick_create`, `/<id>/edit`, `/<id>/delete`, `/bulk_assign` |
-| `properties` | `/properties` | list, `/create` + `/quick_create`, `/<id>/edit`, `/<id>/delete` |
+| `properties` (in `mappings.py`) | `/properties` | list, `/create` + `/quick_create`, `/<id>/edit`, `/<id>/delete` |
 | `analytics` | `/analytics` | KPI page, `/query` (POST, own results) |
 | `admin_users` | `/admin` | admin home, `/users`, `/users/<id>/<action>` (approve, enable, disable, promote, demote, delete, reset_2fa, terminate_session), `/users/<id>/reset_password` (JSON: a temporary password, shown once), `/users/bulk/<action>`, `/sessions`, `/sessions/<id>/kick` |
-| `admin_servers` | `/admin/server` | Server Management page; `/postgres/{test,save}`, `/redis/{test,save}`; 12 LDAP routes (`/ldap`, new, save, delete, test, test_user, fetch_dn, explore, import, groups list/toggle/delete); `/restart` (with rollouts running or queued: 409 unless `mode` is `when_finished` (drain) or `now` (cancel)) |
-| `admin_observability` | `/admin` | `/audit`, `/analytics`, `/analytics/query`, `/active_job_count` |
+| `admin_servers` | `/admin/server` | Server Management page; `/postgres/{test,save}`, `/redis/{test,save}`; `/restart` (with rollouts running or queued: 409 unless `mode` is `when_finished` (drain) or `now` (cancel)) |
+| `admin_ldap` | `/admin/server` | the 12 LDAP routes: `/ldap`, new, save, delete, test, test_user, fetch_dn, explore, import, groups list/toggle/delete |
+| `admin_observability` (in `analytics.py`) | `/admin` | `/analytics`, `/analytics/query` (the audit log's query builder), `/active_job_count` |
+| `admin_audit` | `/admin` | `/audit` (the audit log) |
 | `admin_settings` | `/admin/settings` | page, save (POST), `/<key>/reset`, `/test` (public URL check) |
+| `admin_backups` (in `admin_settings.py`) | `/admin/backups` | list, POST = back up now, `/<name>` download, `/<name>/delete` |
 | `system` | — | `/_netrollout/instance` (public; no session written), `/_netrollout/health` (public; Postgres/Redis up, rollout counts, draining, version; 200 or 503) |
 
 Plus `/metrics` (Prometheus; `404` at nginx, scraped from the app directly).

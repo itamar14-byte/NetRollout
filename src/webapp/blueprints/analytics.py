@@ -1,20 +1,20 @@
 """Analytics: the user's last 30 days in numbers, and the query builder over
 their device results (an admin may look at any user's)."""
 import uuid
-from collections import Counter
+from collections import Counter, defaultdict
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Any
 
-from flask import Blueprint, render_template, request, jsonify
+from flask import Blueprint, render_template, request, jsonify, Response
 from flask.typing import ResponseReturnValue
 from flask_login import current_user, login_required
 from sqlalchemy import ColumnElement, and_, or_
 
-from src.db.tables import DeviceResult, Inventory, User
+from src.db.tables import DeviceResult, Inventory, User, AuditLog
 from src.jobs import build_kpi
 from src.webapp.app import current_app
-from src.webapp.http import err, with_json
+from src.webapp.http import err, with_json, ok, require_admin
 
 
 bp = Blueprint('analytics', __name__, url_prefix='/analytics')
@@ -182,3 +182,169 @@ def compile_query_rules(node: dict[str, Any],
 			value = value.lower() == "true"
 
 	return QUERY_OPS[operator](column, value)
+
+
+# ══ The organisation's analytics, for admins: /admin/analytics ══════════════
+
+admin_bp = Blueprint('admin_observability', __name__, url_prefix='/admin')
+
+
+##############################Constants#####################################
+QUERY_AUDIT_LOG_FIELDS = {
+	"timestamp": (
+		AuditLog.timestamp, {"equal", "less_or_equal", "greater_or_equal"}),
+	"actor_username": (
+		AuditLog.actor_username,
+		{"equal", "not_equal", "contains", "begins_with"}),
+	"action": (
+		AuditLog.action, {"equal", "not_equal", "contains", "begins_with"}),
+	"object_type": (
+		AuditLog.object_type, {"equal", "not_equal"}),
+	"success": (
+		AuditLog.success, {"equal"}),
+	"ip_address": (
+		AuditLog.ip_address, {"equal", "contains", "begins_with"}),
+}
+
+AUDIT_LOG_COLUMNS = ["timestamp", "actor_username", "action",
+                     "object_type",
+                     "object_label", "success", "ip_address"]
+
+
+##############################Routes###########################################
+@admin_bp.route("/analytics")
+@login_required
+@require_admin
+def admin_analytics() -> str:
+	"""The organisation's last 30 days: KPIs, the 10 most active users, the
+	10 devices that failed most."""
+	with current_app.backend.postgres.get_session() as db_session:
+		cutoff = datetime.now() - timedelta(days=30)
+		results_30d = db_session.query(DeviceResult).filter(
+			DeviceResult.started_at >= cutoff
+		).all()
+
+		all_users = db_session.query(User).order_by(User.username).all()
+		total_users = len(all_users)
+		active_user_ids = {r.user_id for r in results_30d}
+		total_ops = len(results_30d)
+		total_jobs = len({r.job_id for r in results_30d})
+		success_count = sum(1 for r in results_30d if r.status == "success")
+
+		org_kpi = {
+			"active_users": len(active_user_ids),
+			"total_users": total_users,
+			"total_jobs": total_jobs,
+			"total_ops": total_ops,
+			"success_rate": round(
+				success_count / total_ops * 100) if total_ops else None,
+		}
+
+		user_stats: defaultdict[uuid.UUID, dict[str, Any]] = defaultdict(
+			lambda: {"job_ids": set(), "devices": 0, "last_job_at": None})
+		for r in results_30d:
+			s = user_stats[r.user_id]
+			s["job_ids"].add(r.job_id)
+			s["devices"] += 1
+			if s["last_job_at"] is None or r.completed_at > s["last_job_at"]:
+				s["last_job_at"] = r.completed_at
+
+		username_map = {u.id: u.username for u in all_users}
+		active_users_rows = sorted(
+			[
+				{
+					"username": username_map.get(uid, str(uid)),
+					"job_count": len(s["job_ids"]),
+					"devices_reached": s["devices"],
+					"last_job_at": s["last_job_at"],
+				}
+				for uid, s in user_stats.items()
+			],
+			key=lambda x: x["job_count"],
+			reverse=True,
+		)[:10]
+
+		fail_counts: defaultdict[str, dict[str, Any]] = defaultdict(
+			lambda: {"device_type": "", "count": 0})
+		for r in results_30d:
+			if r.status == "failed":
+				fail_counts[r.device_ip]["device_type"] = r.device_type
+				fail_counts[r.device_ip]["count"] += 1
+
+		failed_ips = set(fail_counts.keys())
+		inv_rows = (
+			db_session.query(Inventory.ip, Inventory.label)
+			.filter(Inventory.ip.in_(failed_ips))
+			.all()
+			if failed_ips else []
+		)
+		label_map = {row.ip: row.label for row in inv_rows}
+
+		failed_devices_rows = sorted(
+			[
+				{
+					"ip": ip,
+					"label": label_map.get(ip),
+					"device_type": s["device_type"],
+					"fail_count": s["count"],
+				}
+				for ip, s in fail_counts.items()
+			],
+			key=lambda x: x["fail_count"],
+			reverse=True,
+		)[:10]
+
+		db_session.expunge_all()
+
+	return render_template(
+		"admin_analytics.html",
+		org_kpi=org_kpi,
+		active_users=active_users_rows,
+		all_users=[{"id": str(u.id), "username": u.username} for u in
+		           all_users],
+		failed_devices=failed_devices_rows,
+		active_section="analytics",
+	)
+
+
+@admin_bp.route("/analytics/query", methods=["POST"])
+@login_required
+@require_admin
+@with_json()
+def admin_analytics_query(data: dict[str, Any]) -> ResponseReturnValue:
+	"""The query builder's rules → the matching audit rows (200 at most,
+	newest first): JSON {rules}.
+
+	:returns: {columns, rows} or an error (a field or operator not allowed)"""
+	try:
+		rules = data.get("rules", [])
+		filters = compile_query_rules(rules, QUERY_AUDIT_LOG_FIELDS)
+	except (ValueError, KeyError) as e:
+		return err(str(e))
+
+	with current_app.backend.postgres.get_session() as db_session:
+		query = db_session.query(AuditLog).filter(filters)
+
+		rows_raw = query.order_by(AuditLog.timestamp.desc()).limit(
+			200).all()
+		columns = AUDIT_LOG_COLUMNS
+		rows = [{col: getattr(r, col) for col in columns} for r in rows_raw]
+	parsed_rows = [{col: v.strftime("%Y-%m-%d %H:%M:%S") if isinstance(v,
+	                                                                   datetime)
+	else str(v) if isinstance(v, uuid.UUID)
+	else v
+	                for col, v in row.items()}
+	               for row in rows]
+	return jsonify({"columns": columns, "rows": parsed_rows})
+
+
+@admin_bp.route("/active_job_count")
+@login_required
+@require_admin
+def admin_active_job_count() -> Response:
+	"""Rollouts running and queued, from the orchestrator's memory: exact,
+	and works while Redis is down.
+
+	:returns: {count, running, queued}"""
+	counts = current_app.orchestrator.counts()
+	return ok(count=counts["running"] + counts["queued"], **counts)

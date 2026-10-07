@@ -2,22 +2,26 @@
 live in src/db/settings.py; these routes call it, audit every change, and
 return per-field / rule errors for the page to show."""
 import time
+from pathlib import Path
 from typing import Any, cast
 
-from flask import Blueprint, Response, jsonify, render_template, request
+from flask import Blueprint, Response, jsonify, render_template, request, send_file
 from flask.typing import ResponseReturnValue
 from flask_login import current_user, login_required
 from sqlalchemy.exc import SQLAlchemyError
 
+from src import runtime
 from src.access import port as port_apply, nginx as proxy_config
+from src.backup import archive as backup
+from src.backup.schedule import schedule_state
 from src.db import retention
 from src.db.settings import (SETTINGS, Change, SettingsError, public_url,
                              rules_for_client)
 from src.runtime import in_container
 from src.webapp.app import current_app
-from src.webapp.blueprints.admin_backups import backups_state
 from src.webapp.http import err, ok, require_admin, with_json
 from src.webapp.startup import check_proxy, resolve_public_url
+
 
 bp = Blueprint("admin_settings", __name__, url_prefix="/admin/settings")
 
@@ -264,3 +268,88 @@ def settings_test_access(data: dict[str, Any]) -> ResponseReturnValue:
 	return ok(url=url, source=source,
 	          local={"ok": local.ok, "reason": local.reason},
 	          public={"ok": public.ok, "reason": public.reason})
+
+
+# ══ Backups: /admin/backups (System Settings' Backups card) ══════════════════
+
+backups_bp = Blueprint("admin_backups", __name__, url_prefix="/admin/backups")
+
+
+def backups_state() -> dict[str, Any]:
+	"""What the Backups card shows: the files, the next time, the last
+	scheduled outcome."""
+	entries: list[dict[str, Any]] = []
+	for e in backup.list_backups(runtime.backups_dir()):
+		m = e.manifest
+		entries.append({"name": e.name, "size": e.size, "kind": e.kind,
+		                "created": m.created if m else None,
+		                "version": m.version if m else None,
+		                "problem": e.problem})
+	return {"backups": entries, "total": sum(e["size"] for e in entries),
+	        **schedule_state(current_app.backend.settings.values())}
+
+
+def _file(name: str) -> Path | None:
+	"""A backup in the folder by its exact name — never a path elsewhere.
+
+	:returns: its path; None: no such backup"""
+	if not backup.NAME_RE.match(name):
+		return None
+	path = runtime.backups_dir() / name
+	return path if path.is_file() else None
+
+
+def _audit_backup(action: str, name: str, **detail: Any) -> None:
+	current_app.web.audit(action, object_type="backup", object_label=name,
+	                      detail=detail or None)
+
+
+@backups_bp.route("")
+@login_required
+@require_admin
+def backups_list() -> Response:
+	""":returns: the Backups card's state (backups_state)"""
+	return ok(**backups_state())
+
+
+@backups_bp.route("", methods=["POST"])
+@login_required
+@require_admin
+def backups_create() -> ResponseReturnValue:
+	"""Back up now. Runs in this request: seconds for most installations."""
+	try:
+		path = backup.create(current_app.backend.postgres.engine, "manual")
+	except backup.BackupError as e:
+		current_app.web.audit("backup.failed", object_type="backup", success=False,
+		                      detail={"kind": "manual", "message": str(e)})
+		return err(str(e), 409)
+	_audit_backup("backup.created", path.name, kind="manual", size=path.stat().st_size)
+	return ok(created=path.name, **backups_state())
+
+
+@backups_bp.route("/<name>")
+@login_required
+@require_admin
+def backups_download(name: str) -> ResponseReturnValue:
+	"""The zip holds the encryption key: admins only, and recorded."""
+	path = _file(name)
+	if path is None:
+		return err("No such backup", 404)
+	_audit_backup("backup.downloaded", name)
+	return send_file(path, as_attachment=True, download_name=name,
+	                 mimetype="application/zip")
+
+
+@backups_bp.route("/<name>/delete", methods=["POST"])
+@login_required
+@require_admin
+def backups_delete(name: str) -> ResponseReturnValue:
+	"""Delete a backup (audited).
+
+	:returns: the card's new state, or 404"""
+	path = _file(name)
+	if path is None:
+		return err("No such backup", 404)
+	path.unlink(missing_ok=True)
+	_audit_backup("backup.deleted", name)
+	return ok(**backups_state())

@@ -10,13 +10,14 @@ from flask_login import current_user, login_required
 from sqlalchemy.exc import IntegrityError
 
 from src.accounts.users import signed_in_user
-from src.db.tables import VariableMapping, Inventory
+from src.db.tables import VariableMapping, Inventory, PropertyDefinition
 from src.inventory import visible_devices_clause, query_visible_devices, partition_devices
 from src.rollout import inputs as validation
 from src.rollout.engine import mapping_resolvable
 from src.rollout.log import RolloutLogger
 from src.webapp.app import current_app
-from src.webapp.http import ok, err, with_form, with_json, flash_redirect
+from src.webapp.http import ok, err, with_form, with_json, flash_redirect, SYSTEM_PROPERTIES
+
 
 bp = Blueprint('mappings', __name__, url_prefix='/mappings')
 
@@ -348,3 +349,84 @@ def mappings_bulk_assign() -> ResponseReturnValue:
 	                      object_id=parsed_mapping_id,
 	                      detail={"count": assigned, "removed": removed})
 	return ok()
+
+
+# ══ Properties: /properties (what a mapping's variables are named) ══════════
+
+properties_bp = Blueprint('properties', __name__, url_prefix='/properties')
+
+
+##############################Routes#######################################
+@properties_bp.route("")
+@login_required
+def properties() -> str:
+	"""The properties page: the system properties and the user's own."""
+	sys_props, user_props = current_app.web.get_property_defs(current_user.id)
+	return render_template("properties.html", sys_props=sys_props,
+	                       user_props=user_props, active_section="properties")
+
+
+@properties_bp.route("/create", methods=["POST"])
+@properties_bp.route("/quick_create", methods=["POST"])
+@login_required
+def properties_create() -> ResponseReturnValue:
+	"""A new property of the user's: JSON {name, label, icon?, is_list?}. The
+	name is normalised (lower case, _ for spaces); it may not repeat one of
+	theirs or a system property's.
+
+	:returns: {"status": "ok", id, name, label, icon, is_list} or an error"""
+	data = request.get_json(silent=True) or {}
+	name = data.get("name", "").strip().lower().replace(" ", "_")
+	label = data.get("label", "").strip()
+	icon = data.get("icon", "bi-tag").strip() or "bi-tag"
+	is_list = bool(data.get("is_list", False))
+	if not name or not label:
+		return err("Name and label are required.")
+	with current_app.backend.postgres.get_session() as db_session:
+		existing = db_session.query(PropertyDefinition).filter_by(
+			name=name, user_id=current_user.id).first()
+		if existing:
+			return err("Property name already exists.")
+		# Also block shadowing system property names
+		sys_names = {p["name"] for p in SYSTEM_PROPERTIES}
+		if name in sys_names:
+			return err("Cannot shadow a system property.")
+		prop = PropertyDefinition(name=name, label=label, icon=icon,
+		                          is_list=is_list, user_id=current_user.id)
+		db_session.add(prop)
+		db_session.flush()
+		prop_id = str(prop.id)
+	current_app.web.audit("property.create", object_type="PropertyDefinition",
+	                      object_id=uuid.UUID(prop_id), object_label=name)
+	return ok(id=prop_id, name=name, label=label, icon=icon, is_list=is_list)
+
+
+@properties_bp.route("/<uuid:prop_id>/edit", methods=["POST"])
+@login_required
+def properties_edit(prop_id: uuid.UUID) -> ResponseReturnValue:
+	"""Change a property's label, icon or list-ness (not its name): JSON."""
+	data = request.get_json(silent=True) or {}
+	label = data.get("label", "").strip()
+	icon = data.get("icon", "bi-tag").strip() or "bi-tag"
+	is_list = bool(data.get("is_list", False))
+	if not label:
+		return err("Label is required.")
+	return current_app.web.act_on_db_obj(
+		PropertyDefinition, prop_id,
+		current_app.web.update_op({"label": label, "icon": icon, "is_list":
+			is_list},
+		                          "property.edit", label_func=lambda p: p.name),
+		user_id=current_user.id
+	)
+
+
+@properties_bp.route("/<uuid:prop_id>/delete", methods=["POST"])
+@login_required
+def properties_delete(prop_id: uuid.UUID) -> ResponseReturnValue:
+	"""Delete one of the user's properties."""
+	return current_app.web.act_on_db_obj(
+		PropertyDefinition, prop_id,
+		current_app.web.delete_op("property.delete", label_func=lambda p:
+		p.name),
+		user_id=current_user.id
+	)

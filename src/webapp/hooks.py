@@ -195,7 +195,7 @@ def _decrypt_area(endpoint: str | None, blueprint: str | None) -> str:
 	it happened — so the page can say what to re-enter."""
 	if endpoint == "auth.otp_verify":
 		return "2fa"
-	if blueprint in ("auth", "admin_servers"):
+	if blueprint in ("auth", "admin_servers", "admin_ldap"):
 		return "ldap"   # LDAP sign-in / server management bind password
 	if blueprint in ("security", "rollout", "inventory"):
 		return "profile"

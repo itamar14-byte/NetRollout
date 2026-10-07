@@ -24,17 +24,17 @@ from src.jobs import JobStore, RolloutOrchestrator, clear_stale_jobs
 from src.rollout.engine import endpoint
 from src.runtime import VERSION, StartupError, in_container, source_url
 from src.webapp.app import NetRolloutApp
-from src.webapp.blueprints.admin_backups import backups_bp as admin_backups_bp
-from src.webapp.blueprints.admin_observability import admin_bp as admin_observability_bp
+from src.webapp.blueprints.admin_audit import bp as admin_audit_bp
+from src.webapp.blueprints.admin_ldap import bp as admin_ldap_bp
 from src.webapp.blueprints.admin_servers import bp as admin_servers_bp
-from src.webapp.blueprints.admin_settings import bp as admin_settings_bp
+from src.webapp.blueprints.admin_settings import (backups_bp as admin_backups_bp,
+                                                  bp as admin_settings_bp)
 from src.webapp.blueprints.admin_users import bp as admin_users_bp
-from src.webapp.blueprints.analytics import bp as analytics_bp
+from src.webapp.blueprints.analytics import admin_bp as admin_observability_bp, bp as analytics_bp
 from src.webapp.blueprints.auth import bp as auth_bp
 from src.webapp.blueprints.inventory import bp as inventory_bp
 from src.webapp.blueprints.jobs import bp as jobs_bp
-from src.webapp.blueprints.mappings import bp as mappings_bp
-from src.webapp.blueprints.properties import properties_bp
+from src.webapp.blueprints.mappings import bp as mappings_bp, properties_bp
 from src.webapp.blueprints.rollout import bp as rollout_bp
 from src.webapp.blueprints.security import bp as security_bp
 from src.webapp.blueprints.system import bp as system_bp
@@ -284,7 +284,9 @@ def create_app() -> NetRolloutApp:
 	net_rollout.register_blueprint(analytics_bp)
 	net_rollout.register_blueprint(admin_users_bp)
 	net_rollout.register_blueprint(admin_servers_bp)
+	net_rollout.register_blueprint(admin_ldap_bp)
 	net_rollout.register_blueprint(admin_observability_bp)
+	net_rollout.register_blueprint(admin_audit_bp)
 
 	net_rollout.register_blueprint(jobs_bp)
 	net_rollout.register_blueprint(system_bp)
