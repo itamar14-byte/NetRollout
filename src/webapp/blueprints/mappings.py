@@ -1,53 +1,58 @@
+"""Variable mappings: a $$TOKEN$$ in the commands bound to a device
+property (or one item of a list property), resolved per device at rollout -
+create, edit, delete, and assign devices to one."""
 import uuid
+from typing import Any
 
 from flask import Blueprint, render_template, request, redirect, flash, url_for, Response
+from flask.typing import ResponseReturnValue
 from flask_login import current_user, login_required
 from sqlalchemy.exc import IntegrityError
 
 from src import validation
 from src.core import mapping_resolvable
-from src.db.tables import VariableMapping, Inventory, User
+from src.db.tables import VariableMapping, Inventory
 from src.logging_utils import RolloutLogger
 from src.webapp.flask_app import current_app
 from src.webapp.utils import (ok, err, with_form, with_json, flash_redirect,
                               visible_devices_clause, query_visible_devices,
-                              partition_devices)
+                              partition_devices, signed_in_user)
 
 bp = Blueprint('mappings', __name__, url_prefix='/mappings')
 
 
 #######################Route helpers###########################################
 def property_rules() -> tuple[set[str], set[str]]:
-	# (allowed names, list names) from the same definitions the pages show:
-	# system defaults + the user's own properties
+	"""(allowed names, list names), from the same definitions the pages show:
+	the system's and the user's own properties."""
 	sys_props, user_props = current_app.web.get_property_defs(current_user.id)
 	props = sys_props + user_props
 	return ({p["name"] for p in props},
 	        {p["name"] for p in props if p["is_list"]})
 
 
-def validate_mapping_fields(index: int, property_name: str, inner_token: str) \
-		-> Response | None:
-	status, msg = validation.validate_var_map_inner_token(inner_token)
-	if not status:
-		flash(msg, "danger")
-		return redirect(url_for("mappings.mappings"))
+def validate_mapping_fields(index: int | None, property_name: str,
+                            inner_token: str) -> ResponseReturnValue | None:
+	"""Check a mapping from the page's form: the token, the property, the
+	index (only a list property takes one).
 
+	:returns: None when valid; else the way back to the page, the reason
+	 flashed"""
 	allowed, list_props = property_rules()
-	status, msg = validation.validate_var_map_property_name(property_name,
-	                                                       allowed)
-	if not status:
-		flash(msg, "danger")
-		return redirect(url_for("mappings.mappings"))
-
-	status, msg = validation.validate_var_index(index, property_name, list_props)
-	if not status:
-		flash(msg, "danger")
-		return redirect(url_for("mappings.mappings"))
+	for valid, why in (validation.validate_var_map_inner_token(inner_token),
+	                   validation.validate_var_map_property_name(property_name, allowed),
+	                   validation.validate_var_index(index, property_name, list_props)):
+		if not valid:
+			flash(why or "Invalid mapping.", "danger")
+			return redirect(url_for("mappings.mappings"))
 	return None
 
 
-def parse_mapping_input(data) -> Response | dict[str, str | int]:
+def parse_mapping_input(data: Any) -> ResponseReturnValue | dict[str, Any]:
+	"""The page's mapping form, checked.
+
+	:returns: {label, property_name, index, token ($$...$$)}; or, invalid,
+	 the way back to the page"""
 	label = data.get("label", "").strip() or None
 	inner_token = data["token_inner"].strip().upper()
 	property_name = data["property_name"]
@@ -64,9 +69,11 @@ def parse_mapping_input(data) -> Response | dict[str, str | int]:
 ##############################Routes#######################################
 @bp.route("")
 @login_required
-def mappings():
+def mappings() -> str:
+	"""The mappings page: the user's mappings with their devices, and the
+	devices they may assign."""
 	with current_app.backend.postgres.get_session() as db_session:
-		user = db_session.get(User, current_user.id)
+		user = signed_in_user(db_session)
 		var_binds = user.variable_mappings
 		_ = [m.devices for m in var_binds]
 		devices = query_visible_devices(db_session, current_user.id)
@@ -83,9 +90,10 @@ def mappings():
 @bp.route("/create", methods=["POST"])
 @login_required
 @with_form("token_inner", "property_name")
-def mappings_create(data):
+def mappings_create(data: Any) -> ResponseReturnValue:
+	"""A new mapping from the page's form (a token already used is refused)."""
 	parsed_data = parse_mapping_input(data)
-	if isinstance(parsed_data, Response):
+	if not isinstance(parsed_data, dict):
 		return parsed_data
 
 	token = parsed_data["token"]
@@ -115,23 +123,22 @@ def mappings_create(data):
 @bp.route("/quick_create", methods=["POST"])
 @login_required
 @with_json()
-def mappings_quick_create(data):
+def mappings_quick_create(data: dict[str, Any]) -> ResponseReturnValue:
+	"""A new mapping from the rollout page's modal: JSON {token_inner,
+	property_name, index?}.
+
+	:returns: {"status": "ok", id, token, property_name, index} or an error"""
 	inner_token = str(data.get("token_inner", "") or "").strip().upper()
 	property_name = str(data.get("property_name", "") or "").strip()
 	index_raw = data.get("index")
 	index = int(index_raw) if index_raw is not None else None
 
-	status, msg = validation.validate_var_map_inner_token(inner_token)
-	if not status:
-		return err(msg)
 	allowed, list_props = property_rules()
-	status, msg = validation.validate_var_map_property_name(property_name,
-	                                                       allowed)
-	if not status:
-		return err(msg)
-	status, msg = validation.validate_var_index(index, property_name, list_props)
-	if not status:
-		return err(msg)
+	for valid, why in (validation.validate_var_map_inner_token(inner_token),
+	                   validation.validate_var_map_property_name(property_name, allowed),
+	                   validation.validate_var_index(index, property_name, list_props)):
+		if not valid:
+			return err(why or "Invalid mapping.")
 
 	token = f"$${inner_token}$$"
 	row = VariableMapping(token=token, index=index, property_name=property_name,
@@ -155,9 +162,10 @@ def mappings_quick_create(data):
 @bp.route("/<uuid:mapping_id>/edit", methods=["POST"])
 @login_required
 @with_form("token_inner", "property_name")
-def mappings_edit(mapping_id, data):
+def mappings_edit(mapping_id: uuid.UUID, data: Any) -> ResponseReturnValue:
+	"""Change one of the user's mappings from the page's form."""
 	parsed_data = parse_mapping_input(data)
-	if isinstance(parsed_data, Response):
+	if not isinstance(parsed_data, dict):
 		return parsed_data
 	token = parsed_data["token"]
 
@@ -190,7 +198,8 @@ def mappings_edit(mapping_id, data):
 
 @bp.route("/<uuid:mapping_id>/delete", methods=["POST"])
 @login_required
-def mappings_delete(mapping_id):
+def mappings_delete(mapping_id: uuid.UUID) -> ResponseReturnValue:
+	"""Delete one of the user's mappings (its device bindings go with it)."""
 	return current_app.web.act_on_db_obj(
 		VariableMapping, mapping_id,
 		current_app.web.delete_op("mapping.delete",
@@ -205,7 +214,7 @@ def mappings_delete(mapping_id):
 
 @bp.route("/bulk_assign", methods=["POST"])
 @login_required
-def mappings_bulk_assign():
+def mappings_bulk_assign() -> ResponseReturnValue:
 	"""
 	Assigns a list of inventory devices to a variable mapping via the
 	many-to-many join table.
@@ -266,22 +275,22 @@ def mappings_bulk_assign():
 		assigned_ids = {d.id for d in mapping.devices}
 
 		removed = 0
-		remove_set = set()
+		remove_set: set[uuid.UUID] = set()
 		for device_id_str in remove_ids:
 			try:
 				remove_set.add(uuid.UUID(device_id_str))
 			except (ValueError, TypeError):
 				continue
-		for device in [d for d in mapping.devices if d.id in remove_set]:
-			mapping.devices.remove(device)
-			logger.notify(f"{device.label} ({device.ip}): unassigned", "green")
+		for unbound in [d for d in mapping.devices if d.id in remove_set]:
+			mapping.devices.remove(unbound)
+			logger.notify(f"{unbound.label} ({unbound.ip}): unassigned", "green")
 			removed += 1
 
 		assigned, skipped = 0, 0
 		for device_id_str in device_ids:
 			# Parse each device UUID — skip silently if malformed
 			try:
-				device = db_session.query(Inventory).filter(
+				device: Inventory | None = db_session.query(Inventory).filter(
 					Inventory.id == uuid.UUID(device_id_str),
 					visible_devices_clause(current_user.id)).first()
 			except (ValueError, TypeError):

@@ -1,24 +1,34 @@
+"""The dashboard, Active Jobs and Results: what ran, what runs now, each
+job's devices and outcome, a device's config against the commands (Verify
+Diff), a finished job's summary, and the rollout log's download."""
 import glob
 import os
 import uuid
+from collections.abc import Iterable, Sequence
 from datetime import datetime, timedelta
 from itertools import groupby
+from typing import Any
 
 from flask import Blueprint, render_template, request, send_file, Response, url_for
+from flask.typing import ResponseReturnValue
 from flask_login import current_user, login_required
+from sqlalchemy.orm import Session
 
 from src import runtime
 from src.db.tables import DeviceResult, JobMetadata, User, Inventory
 from src.job_store import JobStore
+from src.orchestration import RolloutJob
 from src.platforms import PLATFORMS, verify_commands
 from src.webapp.flask_app import current_app
-from src.webapp.utils import ok, err, build_kpi, visible_devices_clause
+from src.webapp.utils import ok, err, build_kpi, signed_in_user, visible_devices_clause
 
 bp = Blueprint('jobs', __name__)
 
 
 ##############################Route Helpers################################
-def job_status(rows: list[DeviceResult]) -> str:
+def job_status(rows: Sequence[DeviceResult]) -> str:
+	""":returns: a job's status from its devices': cancelled if any was; failed
+	 if all failed; partial if any failed or was partial; else success"""
 	statuses = {r.status for r in rows}
 	if "cancelled" in statuses:
 		return "cancelled"
@@ -29,18 +39,19 @@ def job_status(rows: list[DeviceResult]) -> str:
 	return "success"
 
 
-def visible_label_map(db_session, user_id):
-	# ip -> label over the user's own and global devices. Own rows are applied
-	# last so they win when a local device shares an IP with a global one.
+def visible_label_map(db_session: Session, user_id: uuid.UUID) -> dict[str, str]:
+	"""ip → label over the user's own and global devices; their own win
+	when one shares an IP with a global one."""
 	rows = db_session.query(Inventory.ip, Inventory.label, Inventory.user_id)\
 		.filter(visible_devices_clause(user_id)).all()
 	rows.sort(key=lambda r: r.user_id == user_id)
 	return {r.ip: r.label for r in rows}
 
 
-def visible_endpoint_labels(db_session, user_id):
-	# (ip, port) -> label for per-device display: the IP alone is ambiguous
-	# when several devices share it (NAT / port forwarding). Own rows win.
+def visible_endpoint_labels(db_session: Session,
+                            user_id: uuid.UUID) -> dict[tuple[str, int], str]:
+	"""(ip, port) → label, to name each device: the IP alone is ambiguous
+	when several share it (NAT, port forwarding). Their own win."""
 	rows = db_session.query(Inventory.ip, Inventory.port, Inventory.label,
 	                        Inventory.user_id)\
 		.filter(visible_devices_clause(user_id)).all()
@@ -48,16 +59,25 @@ def visible_endpoint_labels(db_session, user_id):
 	return {(r.ip, r.port): r.label for r in rows}
 
 
-def user_owns_job(job_id, user_id):
+def user_owns_job(job_id: uuid.UUID, user_id: uuid.UUID) -> bool:
+	""":returns: whether the job's results are the user's"""
 	with current_app.backend.postgres.get_session() as db_session:
 		return bool(db_session.query(DeviceResult).filter_by(
 			job_id=job_id, user_id=user_id).first())
 
 
-def load_dashboard_data(user_id, kpi_user_id, is_admin):
+def load_dashboard_data(user_id: uuid.UUID, kpi_user_id: uuid.UUID,
+                        is_admin: bool) -> dict[str, Any]:
+	"""The dashboard's data: the user's own counts and results, and the KPIs'
+	results - of another user when an admin picked one.
+
+	:param kpi_user_id: whose last 30 days the KPIs show
+	:param is_admin: the user list (for that choice) is loaded"""
 	with current_app.backend.postgres.get_session() as db_session:
 		# Current user's dashboard content (always own data)
 		user = db_session.get(User, user_id)
+		if user is None:
+			raise LookupError(f"no user {user_id}")
 		inventory_count = len(user.inventory)
 		profile_count = len(user.security_profiles)
 		mapping_count = len(user.variable_mappings)
@@ -92,11 +112,13 @@ def load_dashboard_data(user_id, kpi_user_id, is_admin):
 	}
 
 
-def build_job_summaries(results):
+def build_job_summaries(results: Iterable[DeviceResult]) -> list[dict[str, Any]]:
+	""":returns: one summary per job (completed_at, device_count,
+	 commands_sent, status, action_needed), newest first"""
 	sorted_results = sorted(results, key=lambda x: x.job_id)
-	summaries = []
-	for job_id, rows in groupby(sorted_results, key=lambda x: x.job_id):
-		rows = list(rows)
+	summaries: list[dict[str, Any]] = []
+	for job_id, group in groupby(sorted_results, key=lambda x: x.job_id):
+		rows = list(group)
 		summaries.append({
 			"job_id": job_id,
 			"completed_at": max(r.completed_at for r in rows),
@@ -109,7 +131,8 @@ def build_job_summaries(results):
 	return summaries
 
 
-def get_active_job(user_id):
+def get_active_job(user_id: uuid.UUID) -> RolloutJob | None:
+	""":returns: one of the user's rollouts running in this process; None: none"""
 	job_ids = JobStore(current_app.backend.redis).job_ids(user_id)
 	return next(
 		(j for jid in job_ids
@@ -120,8 +143,9 @@ def get_active_job(user_id):
 
 
 def config_expired(row: DeviceResult, snapshot_days: int) -> bool:
-	# A snapshot is stored only when verify found a mismatch; past the
-	# snapshot retention window, such rows have had it cleared by the nightly clean-up
+	"""Whether a device's config snapshot was there and is gone: one is kept
+	only when verify found a mismatch, and the nightly clean-up clears it
+	after the snapshot retention."""
 	verify_mismatch = (row.commands_verified is not None
 	                   and row.commands_verified < row.commands_sent)
 	too_old = row.completed_at < datetime.now() - timedelta(
@@ -129,16 +153,25 @@ def config_expired(row: DeviceResult, snapshot_days: int) -> bool:
 	return verify_mismatch and row.fetched_config is None and too_old
 
 
-def build_jobs(result_rows, metadata_by_job, endpoint_labels, snapshot_days,
-               job_owner=None):
+def build_jobs(result_rows: Iterable[DeviceResult],
+               metadata_by_job: dict[uuid.UUID, JobMetadata],
+               endpoint_labels: dict[tuple[str, int], str], snapshot_days: int,
+               job_owner: str | None = None) -> list[dict[str, Any]]:
+	"""The Results page's jobs: each with its times, status, comment,
+	commands and devices (no configs - fetched on demand by config_diff).
+
+	:param endpoint_labels: (ip, port) → the label to show
+	:param snapshot_days: the config snapshot retention (to say a snapshot
+	 expired)
+	:param job_owner: the owner's username, shown on other users' jobs"""
 	sorted_rows = sorted(result_rows, key=lambda x: x.job_id)
-	out = []
-	for job_id, rows in groupby(sorted_rows, key=lambda x: x.job_id):
-		rows = list(rows)
+	out: list[dict[str, Any]] = []
+	for job_id, group in groupby(sorted_rows, key=lambda x: x.job_id):
+		rows = list(group)
 		meta = metadata_by_job.get(job_id)
 		log_matches = glob.glob(
 			os.path.join(runtime.logs_dir(), f"rollout_*_{job_id}.log"))
-		entry = {
+		entry: dict[str, Any] = {
 			"job_id": str(job_id),
 			"has_log": bool(log_matches),
 			"started_at": min(r.started_at for r in rows),
@@ -178,7 +211,11 @@ def build_jobs(result_rows, metadata_by_job, endpoint_labels, snapshot_days,
 	return out
 
 
-def build_job_dict(job_id, usernames):
+def build_job_dict(job_id: str, usernames: dict[str, str]) -> dict[str, Any]:
+	"""An Active Jobs row from the job's Redis state (and the job itself when
+	it runs in this process).
+
+	:param usernames: user id → username, to name the owner"""
 	meta = JobStore(current_app.backend.redis).meta(job_id)
 	job = current_app.orchestrator.get_job(uuid.UUID(job_id))
 	# Not in memory (e.g. after a restart): Redis hash values are strings,
@@ -201,7 +238,9 @@ def build_job_dict(job_id, usernames):
 ##############################Routes################################
 @bp.route("/dashboard")
 @login_required
-def dashboard():
+def dashboard() -> str:
+	"""The dashboard: counts, recent jobs, the user's running rollout, and
+	the 30-day KPIs - an admin's of any user (?user=<id>)."""
 	# ── Admin KPI scope ───────────────────────────────────────────────────────
 	is_admin = current_user.role == "admin"
 	selected_user = "me"
@@ -227,7 +266,7 @@ def dashboard():
 	# ── Active job (always own) ───────────────────────────────────────────────
 	active_job = get_active_job(current_user.id)
 	active_job_data = None
-	if active_job:
+	if active_job and active_job.started_at:
 		active_job_data = {
 			"job_id": str(active_job.job_id),
 			"device_count": active_job.get_device_count(),
@@ -257,7 +296,9 @@ def dashboard():
 
 @bp.route("/active_jobs")
 @login_required
-def active_jobs():
+def active_jobs() -> str:
+	"""Active Jobs: the user's queued and running rollouts - and, for an
+	admin, everyone else's apart."""
 	is_admin = current_user.role == "admin"
 	store = JobStore(current_app.backend.redis)
 	with current_app.backend.postgres.get_session() as db_session:
@@ -290,7 +331,9 @@ def active_jobs():
 
 @bp.route("/results")
 @login_required
-def results():
+def results() -> str:
+	"""Results: the user's jobs - and, for an admin, everyone else's apart,
+	with their owners - newest first."""
 	is_admin = current_user.role == "admin"
 	# System Setting, read once per page (not per row)
 	snapshot_days = current_app.backend.settings.get(
@@ -303,7 +346,7 @@ def results():
 			endpoint_labels = {(row.ip, row.port): (row.label or row.ip)
 			                   for row in db_session.query(Inventory).all()}
 		else:
-			user = db_session.get(User, current_user.id)
+			user = signed_in_user(db_session)
 			raw_results = user.results
 			metadata_rows = user.job_metadata
 			usernames = {}
@@ -319,7 +362,7 @@ def results():
 		jobs = build_jobs(my_raw, metadata_by_job, endpoint_labels,
 		                  snapshot_days)
 		jobs.sort(key=lambda x: x["completed_at"], reverse=True)
-		other_jobs = []
+		other_jobs: list[dict[str, Any]] = []
 		# group other_raw by user_id so each job gets its job_owner username
 		other_raw_sorted = sorted(other_raw, key=lambda x: x.user_id)
 		for user_id, user_rows in groupby(other_raw_sorted,
@@ -345,9 +388,14 @@ def results():
 
 @bp.route("/results/config_diff/<uuid:job_id>/<device_ip>")
 @login_required
-def config_diff(job_id, device_ip):
-	# ?port= disambiguates devices sharing an IP within one job
-	filters = {"job_id": job_id, "device_ip": device_ip}
+def config_diff(job_id: uuid.UUID, device_ip: str) -> ResponseReturnValue:
+	"""Verify Diff: a device's fetched config with each command's verdict,
+	from the engine's own matcher. ?port= picks one of the devices sharing
+	the IP in the job.
+
+	:returns: {config, commands, verdicts: [[command, verdict]]}; 404, 403,
+	 or 410 once the snapshot is gone"""
+	filters: dict[str, Any] = {"job_id": job_id, "device_ip": device_ip}
 	port = request.args.get("port", type=int)
 	if port is not None:
 		filters["device_port"] = port
@@ -376,7 +424,7 @@ def config_diff(job_id, device_ip):
 
 @bp.route("/results/summary/<uuid:job_id>")
 @login_required
-def job_summary(job_id):
+def job_summary(job_id: uuid.UUID) -> ResponseReturnValue:
 	"""A finished job in a few lines, for the completion card on Active Jobs.
 	404 until its results are stored (the log stream can end a moment
 	before) — the card retries."""
@@ -390,12 +438,12 @@ def job_summary(job_id):
 		comment = meta.comment if meta else None
 		db_session.expunge_all()
 
-	def label(r):
+	def label(r: DeviceResult) -> str:
 		return labels.get((r.device_ip, r.device_port),
 		                  r.device_ip if r.device_port == 22
 		                  else f"{r.device_ip}:{r.device_port}")
 
-	counts = {}
+	counts: dict[str, int] = {}
 	for r in rows:
 		counts[r.status] = counts.get(r.status, 0) + 1
 	return ok(job_id=str(job_id), comment=comment,
@@ -407,7 +455,8 @@ def job_summary(job_id):
 
 @bp.route("/results/download_log/<uuid:job_id>")
 @login_required
-def download_log(job_id):
+def download_log(job_id: uuid.UUID) -> ResponseReturnValue:
+	"""The job's rollout log file - its owner's, or any for an admin."""
 	if current_user.role != "admin":
 		owned = user_owns_job(job_id, current_user.id)
 		if not owned:

@@ -1,8 +1,15 @@
+"""Server Management: the database (move to another server and back), Redis
+(a live switch and back), LDAP servers and their groups, the TLS
+certificate, and Restart. Admins only; every change audited."""
 import os
 import time
+import uuid
+from collections.abc import Callable
+from typing import Any
 
 import redis as redis_lib
-from flask import Blueprint, render_template, request, jsonify
+from flask import Blueprint, Request, Response, render_template, request, jsonify
+from flask.typing import ResponseReturnValue
 from flask_login import current_user, login_required
 from redis.exceptions import ConnectionError as RedisConnectionError
 from sqlalchemy import text
@@ -27,7 +34,8 @@ bp = Blueprint('admin_servers', __name__, url_prefix='/admin/server')
 
 
 ##############################Route Helpers#####################################
-def unload_ldap_data(req):
+def unload_ldap_data(req: Request) -> dict[str, str]:
+	""":returns: the LDAP server form's fields, stripped (a missing one "")"""
 	label = req.form.get("label", "").strip()
 	ip = req.form.get("ip", "").strip()
 	port = req.form.get("port", "389").strip()
@@ -57,7 +65,9 @@ def unload_ldap_data(req):
 @bp.route("")
 @login_required
 @require_admin
-def admin_server():
+def admin_server() -> str:
+	"""Server Management: each service's place and state, the move's
+	progress, the certificate."""
 	try:
 		with current_app.backend.postgres.engine.connect() as conn:
 			conn.execute(text("SELECT 1"))
@@ -101,8 +111,13 @@ def admin_server():
 
 # ── Database: move to another server / back (src/db/move.py, db_move.py) ────
 
-def _target(data, user_key="user", password_key="password"):
-	"""A PostgresConfig from the form, or an error response."""
+def _target(data: dict[str, Any], user_key: str = "user",
+            password_key: str = "password") -> PostgresConfig | tuple[Response, int]:
+	"""A PostgresConfig from the form ("public" or no schema: none).
+
+	:param user_key: the form's field for the login (and password_key, its
+	 password) - the app's, or the administrator's
+	:returns: the config; or 422 - something missing, or the port not a number"""
 	host, port = data.get("host", "").strip(), str(data.get("port") or "5432").strip()
 	database, schema = data.get("database", "").strip(), data.get("schema", "").strip()
 	user, password = data.get(user_key, "").strip(), data.get(password_key, "")
@@ -114,7 +129,9 @@ def _target(data, user_key="user", password_key="password"):
 	                      password=password, schema=None if schema in ("", "public") else schema)
 
 
-def _plan(data) -> move.Plan:
+def _plan(data: dict[str, Any]) -> move.Plan:
+	""":returns: what to prepare on the new server - its database, schema and
+	 login (defaults where blank), Grafana's password when this server knows it"""
 	return move.Plan(database=data.get("database", "").strip() or move.DEFAULT_DATABASE,
 	                 schema=data.get("schema", "").strip() or "public",
 	                 login=data.get("login", "").strip() or move.DEFAULT_LOGIN,
@@ -125,7 +142,7 @@ def _plan(data) -> move.Plan:
 @login_required
 @require_admin
 @with_json()
-def database_sql(data):
+def database_sql(data: dict[str, Any]) -> Response:
 	"""The DBA's way: what to ask for, and the SQL - a new password for the
 	app's login, Grafana's (when this server knows it) filled in."""
 	plan = _plan(data)
@@ -138,7 +155,7 @@ def database_sql(data):
 @login_required
 @require_admin
 @with_json()
-def database_prepare(data):
+def database_prepare(data: dict[str, Any]) -> ResponseReturnValue:
 	"""The administrator-login way: the same created now; the admin login is
 	used for this request only, never stored or logged."""
 	admin = _target({**data, "database": "postgres"}, "admin_user", "admin_password")
@@ -162,7 +179,8 @@ def database_prepare(data):
 @login_required
 @require_admin
 @with_json()
-def database_check(data):
+def database_check(data: dict[str, Any]) -> ResponseReturnValue:
+	"""Check a server before a move (move.check_target): the report."""
 	target = _target(data)
 	if not isinstance(target, PostgresConfig):
 		return target
@@ -175,7 +193,8 @@ def database_check(data):
 @login_required
 @require_admin
 @with_json()
-def database_move(data):
+def database_move(data: dict[str, Any]) -> ResponseReturnValue:
+	"""Start a move to the server in the form (checked first)."""
 	target = _target(data)
 	if not isinstance(target, PostgresConfig):
 		return target
@@ -185,14 +204,17 @@ def database_move(data):
 @bp.route("/database/move-back", methods=["POST"])
 @login_required
 @require_admin
-def database_move_back():
+def database_move_back() -> ResponseReturnValue:
+	"""Start a move back to the bundled database (its address remembered by
+	the move away)."""
 	bundled = current_app.backend.bundled_postgres()
 	if bundled is None or current_app.backend.connection_modes()["POSTGRES"] == "bundled":
 		return err("There's no bundled database to move back to.", 409)
 	return _start(bundled, back=True)
 
 
-def _start(target: PostgresConfig, back: bool):
+def _start(target: PostgresConfig, back: bool) -> ResponseReturnValue:
+	""":returns: the move's status once started (audited); 409 when refused"""
 	try:
 		current_app.db_move.start(target, current_user.id, current_user.username, back=back)
 	except move.MoveError as e:
@@ -206,22 +228,24 @@ def _start(target: PostgresConfig, back: bool):
 @during_maintenance            # read only: the moving admin's page follows it
 @login_required
 @require_admin
-def database_move_status():
+def database_move_status() -> Response:
+	"""The move's progress, polled by the page - also while locked."""
 	return ok(move=_status())
 
 
-def _status() -> dict:
+def _status() -> dict[str, Any]:
 	"""The move's state and step; while it waits, the rollouts it waits for."""
 	status = current_app.db_move.status()
 	status.pop("deadline", None)
 	if status["state"] == db_move.WAITING:
 		status["seconds_left"] = max(0, int(current_app.db_move.seconds_left()))
 		jobs = current_app.orchestrator.jobs()
-		names = {}
+		names: dict[uuid.UUID, str] = {}
 		if jobs:
 			with current_app.backend.postgres.get_session() as session:
-				names = dict(session.query(User.id, User.username)
-				             .filter(User.id.in_({j["user_id"] for j in jobs})).all())
+				names = {row.id: row.username for row in
+				         session.query(User.id, User.username)
+				         .filter(User.id.in_({j["user_id"] for j in jobs}))}
 		status["rollouts"] = [{**j, "job_id": str(j["job_id"]), "user_id": str(j["user_id"]),
 		                       "user": names.get(j["user_id"], "?")} for j in jobs]
 	return status
@@ -230,7 +254,8 @@ def _status() -> dict:
 @bp.route("/database/move/cancel", methods=["POST"])
 @login_required
 @require_admin
-def database_move_cancel():
+def database_move_cancel() -> ResponseReturnValue:
+	"""Give the move up - only while it waits for rollouts."""
 	if not current_app.db_move.cancel():
 		return err("The move can be cancelled only while it waits for rollouts.", 409)
 	return ok("Cancelling")
@@ -240,7 +265,8 @@ def database_move_cancel():
 @login_required
 @require_admin
 @with_json("host")
-def admin_server_redis_test(data):
+def admin_server_redis_test(data: dict[str, Any]) -> ResponseReturnValue:
+	"""Can NetRollout reach this Redis (a PING)? JSON {host, port, password, db}."""
 	host = data.get("host", "").strip()
 	port = data.get("port", "6379").strip()
 	password = data.get("password", "").strip()
@@ -261,7 +287,8 @@ def admin_server_redis_test(data):
 @login_required
 @require_admin
 @with_json("host")
-def admin_server_redis_save(data):
+def admin_server_redis_save(data: dict[str, Any]) -> ResponseReturnValue:
+	"""Switch to another Redis (_switch_redis)."""
 	host = data.get("host", "").strip()
 	port = data.get("port", "6379").strip()
 	password = data.get("password", "").strip()
@@ -279,14 +306,15 @@ def admin_server_redis_save(data):
 @bp.route("/redis/back", methods=["POST"])
 @login_required
 @require_admin
-def admin_server_redis_back():
+def admin_server_redis_back() -> ResponseReturnValue:
+	"""Switch back to the bundled Redis."""
 	bundled = current_app.backend.bundled_redis()
 	if bundled is None or current_app.backend.connection_modes()["REDIS"] == "bundled":
 		return err("There's no bundled Redis to switch back to.", 409)
 	return _switch_redis(bundled, back=True)
 
 
-def _switch_redis(config: RedisConfig, back: bool):
+def _switch_redis(config: RedisConfig, back: bool) -> ResponseReturnValue:
 	"""Live, no restart: everything looks the client up per use. Refused
 	while rollouts run (their live state is in Redis). Sessions and leftover
 	job state are cleared in the Redis switched to - one used before still
@@ -312,7 +340,8 @@ def _switch_redis(config: RedisConfig, back: bool):
 @bp.route("/ldap", methods=["GET"])
 @login_required
 @require_admin
-def admin_server_ldap_get():
+def admin_server_ldap_get() -> Response:
+	""":returns: the LDAP servers, every column but the bind password"""
 	with current_app.backend.postgres.get_session() as db_session:
 		servers = db_session.query(LDAPServer).all()
 		result = []
@@ -329,7 +358,8 @@ def admin_server_ldap_get():
 @bp.route("/ldap/new", methods=["POST"])
 @login_required
 @require_admin
-def admin_server_ldap_new():
+def admin_server_ldap_new() -> Response:
+	"""Add an LDAP server from the form (the bind password encrypted)."""
 	server_input = unload_ldap_data(request)
 
 	with current_app.backend.postgres.get_session() as db_session:
@@ -357,7 +387,9 @@ def admin_server_ldap_new():
 @bp.route("/ldap/<uuid:server_id>/save", methods=["POST"])
 @login_required
 @require_admin
-def admin_server_ldap_save(server_id):
+def admin_server_ldap_save(server_id: uuid.UUID) -> ResponseReturnValue:
+	"""Change an LDAP server: a blank field keeps the stored value (the bind
+	password too); the port, SSL and active are always taken from the form."""
 	server_input = unload_ldap_data(request)
 
 	with current_app.backend.postgres.get_session() as db_session:
@@ -388,7 +420,7 @@ def admin_server_ldap_save(server_id):
 @bp.route("/ldap/<uuid:server_id>/delete", methods=["POST"])
 @login_required
 @require_admin
-def admin_server_ldap_delete(server_id):
+def admin_server_ldap_delete(server_id: uuid.UUID) -> ResponseReturnValue:
 	with current_app.backend.postgres.get_session() as db_session:
 		srv = db_session.query(LDAPServer).filter_by(id=server_id).first()
 		if not srv:
@@ -403,7 +435,7 @@ def admin_server_ldap_delete(server_id):
 @bp.route("/ldap/<uuid:server_id>/test", methods=["POST"])
 @login_required
 @require_admin
-def admin_server_ldap_test(server_id):
+def admin_server_ldap_test(server_id: uuid.UUID) -> ResponseReturnValue:
 	with current_app.backend.postgres.get_session() as db_session:
 		srv = db_session.query(LDAPServer).filter_by(id=server_id).first()
 		if not srv:
@@ -415,7 +447,7 @@ def admin_server_ldap_test(server_id):
 @login_required
 @require_admin
 @with_form("username", "password")
-def admin_server_ldap_test_user(server_id, data):
+def admin_server_ldap_test_user(server_id: uuid.UUID, data: Any) -> ResponseReturnValue:
 	username = data.get("username", "").strip()
 	password = data.get("password", "").strip()
 	with current_app.backend.postgres.get_session() as db_session:
@@ -428,7 +460,7 @@ def admin_server_ldap_test_user(server_id, data):
 @bp.route("/ldap/<uuid:server_id>/fetch_dn", methods=["POST"])
 @login_required
 @require_admin
-def admin_server_ldap_fetch_dn(server_id):
+def admin_server_ldap_fetch_dn(server_id: uuid.UUID) -> ResponseReturnValue:
 	with current_app.backend.postgres.get_session() as db_session:
 		srv = db_session.query(LDAPServer).filter_by(id=server_id).first()
 		if not srv:
@@ -439,7 +471,7 @@ def admin_server_ldap_fetch_dn(server_id):
 @bp.route("/ldap/<uuid:server_id>/explore", methods=["POST"])
 @login_required
 @require_admin
-def admin_server_ldap_explore(server_id):
+def admin_server_ldap_explore(server_id: uuid.UUID) -> ResponseReturnValue:
 	dn = request.form.get("dn", "").strip() or None
 	with current_app.backend.postgres.get_session() as db_session:
 		srv = db_session.query(LDAPServer).filter_by(id=server_id).first()
@@ -451,7 +483,12 @@ def admin_server_ldap_explore(server_id):
 @bp.route("/ldap/<uuid:server_id>/import", methods=["POST"])
 @login_required
 @require_admin
-def admin_server_ldap_import(server_id):
+def admin_server_ldap_import(server_id: uuid.UUID) -> ResponseReturnValue:
+	"""Users and groups picked in the directory browser: users become LDAP
+	accounts (approved, active), groups become mappable groups; ones that
+	exist are skipped. JSON [{type: user | group, username | dn, label}].
+
+	:returns: {users_created, groups_created, skipped}"""
 	items = request.json or []
 	users_created = 0
 	groups_created = 0
@@ -464,9 +501,8 @@ def admin_server_ldap_import(server_id):
 
 		for item in items:
 			if item["type"] == "user":
-				exists = db_session.query(User).filter_by(
-					username=item["username"]).first()
-				if exists:
+				if db_session.query(User).filter_by(
+						username=item["username"]).first():
 					skipped += 1
 					continue
 				db_session.add(User(
@@ -480,9 +516,8 @@ def admin_server_ldap_import(server_id):
 				users_created += 1
 
 			elif item["type"] == "group":
-				exists = db_session.query(LDAPGroup).filter_by(
-					group_dn=item["dn"], ldap_server_id=server_id).first()
-				if exists:
+				if db_session.query(LDAPGroup).filter_by(
+						group_dn=item["dn"], ldap_server_id=server_id).first():
 					skipped += 1
 					continue
 				db_session.add(LDAPGroup(
@@ -504,7 +539,7 @@ def admin_server_ldap_import(server_id):
 @bp.route("/ldap/<uuid:server_id>/groups", methods=["GET"])
 @login_required
 @require_admin
-def admin_server_ldap_groups(server_id):
+def admin_server_ldap_groups(server_id: uuid.UUID) -> Response:
 	with current_app.backend.postgres.get_session() as db_session:
 		groups = db_session.query(LDAPGroup).filter_by(
 			ldap_server_id=server_id).all()
@@ -517,7 +552,8 @@ def admin_server_ldap_groups(server_id):
           methods=["POST"])
 @login_required
 @require_admin
-def admin_server_ldap_group_toggle(server_id, group_id):
+def admin_server_ldap_group_toggle(server_id: uuid.UUID,
+                                   group_id: uuid.UUID) -> ResponseReturnValue:
 	with current_app.backend.postgres.get_session() as db_session:
 		g = db_session.query(LDAPGroup).filter_by(
 			id=group_id, ldap_server_id=server_id).first()
@@ -536,7 +572,8 @@ def admin_server_ldap_group_toggle(server_id, group_id):
           methods=["POST"])
 @login_required
 @require_admin
-def admin_server_ldap_group_delete(server_id, group_id):
+def admin_server_ldap_group_delete(server_id: uuid.UUID,
+                                   group_id: uuid.UUID) -> ResponseReturnValue:
 	with current_app.backend.postgres.get_session() as db_session:
 		g = db_session.query(LDAPGroup).filter_by(
 			id=group_id, ldap_server_id=server_id).first()
@@ -552,11 +589,14 @@ def admin_server_ldap_group_delete(server_id, group_id):
 CERT_UPLOAD_MAX_BYTES = 256 * 1024
 
 
-def _certificate_applied(action: str, undo, started: float, managed: bool,
-                         detail: dict):
+def _certificate_applied(action: str, undo: Callable[[], None], started: float,
+                         managed: bool, detail: dict[str, Any]) -> ResponseReturnValue:
 	"""After the files are written: nginx's verdict — rejected → the previous
 	files are put back and the reason returned; otherwise audited and the
-	new status returned."""
+	new status returned.
+
+	:param started: when the files were written (the verdict comes after)
+	:param managed: whether a NetRollout nginx reports here"""
 	settings = current_app.backend.settings
 	proxy = proxy_config.verdict(managed, started)
 	if proxy["state"] == "rejected":
@@ -573,10 +613,10 @@ def _certificate_applied(action: str, undo, started: float, managed: bool,
 @bp.route("/certificate", methods=["POST"])
 @login_required
 @require_admin
-def certificate_upload():
+def certificate_upload() -> ResponseReturnValue:
 	"""An organisation's certificate (+ chain) and key: checked, then used —
 	all or nothing, nginx's verdict included."""
-	files = {}
+	files: dict[str, bytes] = {}
 	for field in ("certificate", "key"):
 		upload = request.files.get(field)
 		if not upload or not upload.filename:
@@ -603,7 +643,7 @@ def certificate_upload():
 @bp.route("/certificate/selfsigned", methods=["POST"])
 @login_required
 @require_admin
-def certificate_selfsigned():
+def certificate_selfsigned() -> ResponseReturnValue:
 	"""A new self-signed certificate for the saved hostname (D2)."""
 	hostname = current_app.backend.settings.get("public_hostname")
 	managed = proxy_config.read_status() is not None
@@ -620,7 +660,7 @@ def certificate_selfsigned():
 @bp.route("/restart", methods=["POST"])
 @login_required
 @require_admin
-def admin_restart():
+def admin_restart() -> ResponseReturnValue:
 	"""Restart NetRollout. With rollouts running or queued the caller must
 	choose (409 otherwise): "when_finished" drains — new rollouts paused,
 	running ones finish (up to the drain deadline) — "now" cancels them.

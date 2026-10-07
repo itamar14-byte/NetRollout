@@ -1,8 +1,12 @@
+"""Admin → Audit log and Analytics: the audit trail (filters, the query
+builder) and the organisation's last 30 days; the running job count."""
 import uuid
 from collections import defaultdict
 from datetime import datetime, timedelta
+from typing import Any
 
-from flask import Blueprint, render_template, request, jsonify
+from flask import Blueprint, Response, render_template, request, jsonify
+from flask.typing import ResponseReturnValue
 from flask_login import login_required
 
 from src.db.tables import AuditLog, DeviceResult, User, Inventory
@@ -38,7 +42,9 @@ AUDIT_LOG_COLUMNS = ["timestamp", "actor_username", "action",
 @bp.route("/audit")
 @login_required
 @require_admin
-def admin_audit():
+def admin_audit() -> str:
+	"""The audit log, newest first (500 at most), filtered by ?actor (part
+	of the name), ?action, ?success."""
 	filter_actor = request.args.get("actor", "").strip()
 	filter_action = request.args.get("action", "").strip()
 	filter_success = request.args.get("success", "")
@@ -71,7 +77,9 @@ def admin_audit():
 @bp.route("/analytics")
 @login_required
 @require_admin
-def admin_analytics():
+def admin_analytics() -> str:
+	"""The organisation's last 30 days: KPIs, the 10 most active users, the
+	10 devices that failed most."""
 	with current_app.backend.postgres.get_session() as db_session:
 		cutoff = datetime.now() - timedelta(days=30)
 		results_30d = db_session.query(DeviceResult).filter(
@@ -94,7 +102,7 @@ def admin_analytics():
 				success_count / total_ops * 100) if total_ops else None,
 		}
 
-		user_stats = defaultdict(
+		user_stats: defaultdict[uuid.UUID, dict[str, Any]] = defaultdict(
 			lambda: {"job_ids": set(), "devices": 0, "last_job_at": None})
 		for r in results_30d:
 			s = user_stats[r.user_id]
@@ -118,7 +126,8 @@ def admin_analytics():
 			reverse=True,
 		)[:10]
 
-		fail_counts = defaultdict(lambda: {"device_type": "", "count": 0})
+		fail_counts: defaultdict[str, dict[str, Any]] = defaultdict(
+			lambda: {"device_type": "", "count": 0})
 		for r in results_30d:
 			if r.status == "failed":
 				fail_counts[r.device_ip]["device_type"] = r.device_type
@@ -164,7 +173,11 @@ def admin_analytics():
 @login_required
 @require_admin
 @with_json()
-def admin_analytics_query(data):
+def admin_analytics_query(data: dict[str, Any]) -> ResponseReturnValue:
+	"""The query builder's rules → the matching audit rows (200 at most,
+	newest first): JSON {rules}.
+
+	:returns: {columns, rows} or an error (a field or operator not allowed)"""
 	try:
 		rules = data.get("rules", [])
 		filters = compile_query_rules(rules, QUERY_AUDIT_LOG_FIELDS)
@@ -190,7 +203,10 @@ def admin_analytics_query(data):
 @bp.route("/active_job_count")
 @login_required
 @require_admin
-def admin_active_job_count():
-	# From the orchestrator's memory: exact, and works while Redis is down
+def admin_active_job_count() -> Response:
+	"""Rollouts running and queued, from the orchestrator's memory: exact,
+	and works while Redis is down.
+
+	:returns: {count, running, queued}"""
 	counts = current_app.orchestrator.counts()
 	return ok(count=counts["running"] + counts["queued"], **counts)

@@ -61,6 +61,17 @@ QUERY_OPS: dict[str, Callable[[Any, Any], ColumnElement[bool]]] = {
 SESSION_PREFIX = "redis_session:"
 
 
+def signed_in_user(db_session: Session) -> User:
+	"""The signed-in user's row in this session (current_user is a detached
+	copy, without its relationships).
+
+	:raises LookupError: the account is gone (deleted while signed in)"""
+	user = db_session.get(User, current_user.id)
+	if user is None:
+		raise LookupError("the signed-in account no longer exists")
+	return user
+
+
 def end_user_sessions(user_id: uuid.UUID | str, keep_sid: str | None = None) -> int:
 	"""Sign a user out everywhere (except `keep_sid`, the caller's own
 	session after a password change). user_session:<id> only points at the
@@ -89,8 +100,9 @@ def end_user_sessions(user_id: uuid.UUID | str, keep_sid: str | None = None) -> 
 
 ##########################Jsonify helpers#######################################
 
-def ok(message: str | None = None, **extra: Any) -> Response:
-	""":returns: {"status": "ok", "message"?, **extra} as JSON"""
+def ok(message: str | None = None, /, **extra: Any) -> Response:
+	""":returns: {"status": "ok", "message"?, **extra} as JSON (the message is
+	 positional, so no extra field can stand in for it)"""
 	body: dict[str, Any] = {"status": "ok"}
 	if message is not None:
 		body["message"] = message
@@ -450,11 +462,12 @@ class WebServices:
 		return func
 
 	###################Route helpers###########################################
-	def build_security_profile(self, label: str, username: str, password: str,
+	def build_security_profile(self, label: str | None, username: str, password: str,
 	                           enable_secret: str | None,
 	                           user_id: uuid.UUID) -> str:
 		"""Save a security profile (its secrets encrypted) and audit it.
 
+		:param label: its name; None: shown by its username
 		:returns: its id"""
 		profile = SecurityProfile(
 			label=label,

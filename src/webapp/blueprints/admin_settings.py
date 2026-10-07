@@ -2,12 +2,14 @@
 live in src/db/settings.py; these routes call it, audit every change, and
 return per-field / rule errors for the page to show."""
 import time
+from typing import Any, cast
 
-from flask import Blueprint, jsonify, render_template, request
+from flask import Blueprint, Response, jsonify, render_template, request
+from flask.typing import ResponseReturnValue
 from flask_login import current_user, login_required
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.db.settings import (SETTINGS, SettingsError, public_url,
+from src.db.settings import (SETTINGS, Change, SettingsError, public_url,
                              rules_for_client)
 from src.runtime import in_container
 from src.webapp import retention, port_apply, proxy_config
@@ -22,13 +24,15 @@ RULES_KEY = "_rules"   # errors not tied to one field (cross-setting rules)
 
 
 ##############################Route Helpers####################################
-def _errors_response(e: SettingsError):
+def _errors_response(e: SettingsError) -> tuple[Response, int]:
+	""":returns: 422 with the errors by field (cross-setting rules under
+	 RULES_KEY), for the page to show under each"""
 	errors = {(k if k is not None else RULES_KEY): v for k, v in e.errors.items()}
 	return jsonify({"status": "error", "message": str(e),
 	                "errors": errors}), 422
 
 
-def _state():
+def _state() -> dict[str, Any]:
 	"""What the page needs after a change: every setting as displayed and
 	which restart-only settings differ from what this process runs with."""
 	settings = current_app.backend.settings
@@ -41,7 +45,12 @@ def _state():
 	}
 
 
-def _audit(action, change, proxy=None, port=None):
+def _audit(action: str, change: Change, proxy: dict[str, Any] | None = None,
+           port: dict[str, Any] | None = None) -> None:
+	"""One audit row per setting changed.
+
+	:param proxy: nginx's verdict on a new hostname
+	:param port: where a new port stands (port_apply.state)"""
 	detail = {"key": change.key, "old": change.old, "new": change.new}
 	if proxy:
 		detail["nginx"] = proxy.get("state")     # applied / not_managed / no_answer
@@ -52,7 +61,7 @@ def _audit(action, change, proxy=None, port=None):
 
 
 @bp.app_context_processor
-def restart_pending_for_admin_pages():
+def restart_pending_for_admin_pages() -> dict[str, Any]:
 	"""Every admin page's Restart button shows the orange dot while a
 	restart-only setting differs from what this process runs with — decided
 	on the server, so it survives page loads."""
@@ -71,7 +80,9 @@ def restart_pending_for_admin_pages():
 @bp.route("")
 @login_required
 @require_admin
-def settings_page():
+def settings_page() -> str:
+	"""System Settings: every card, the rules (checked in the page too), the
+	port and access state, backups and the last clean-up."""
 	state = _state()
 	cards = list(dict.fromkeys(s.card for s in SETTINGS.values()))
 	return render_template("admin_settings.html", active_section="settings",
@@ -82,12 +93,16 @@ def settings_page():
 	                       app_port=current_app.config.get("APP_PORT"))
 
 
-def _save(values: dict, action: str):
+def _save(values: dict[str, Any], action: str) -> ResponseReturnValue:
 	"""Validate, prepare nginx for a new hostname and the port helper for a
 	new port, save, and report nginx's verdict — all or nothing: an invalid
 	value, a certificate that doesn't cover the new name, a file that can't
 	be written, or nginx rejecting the result leaves every setting and file
-	as it was, and says why. (A new port is applied later, by the helper.)"""
+	as it was, and says why. (A new port is applied later, by the helper.)
+
+	:param values: setting key → the value typed
+	:param action: the audit action (settings.update / settings.reset)
+	:returns: the changes and the page's new state; or 422 with the reasons"""
 	store = current_app.backend.settings
 	try:
 		changes = store.plan(values)
@@ -99,14 +114,14 @@ def _save(values: dict, action: str):
 		managed = proxy_config.read_status() is not None
 		started = time.time()
 		try:
-			undo = proxy_config.change_hostname(host.new)
+			undo = proxy_config.change_hostname(cast(str, host.new))
 		except proxy_config.ProxyError as e:
 			return _errors_response(SettingsError({"public_hostname": str(e)}))
 	port = next((c for c in changes if c.key == "https_port"), None)
 	undo_port = None
 	if port:
 		try:
-			undo_port = port_apply.request_port(port.new)
+			undo_port = port_apply.request_port(cast(int, port.new))
 		except OSError as e:
 			if undo:
 				undo()
@@ -121,9 +136,10 @@ def _save(values: dict, action: str):
 				back()
 		return _errors_response(e)
 	if host:
-		proxy = proxy_config.verdict(managed, started, host.new)
+		proxy = proxy_config.verdict(managed, started, cast(str, host.new))
 		if proxy["state"] == "rejected":
 			store.update({"public_hostname": host.old}, current_user.id)
+			assert undo is not None   # set above for a new hostname
 			undo()
 			return _errors_response(SettingsError({"public_hostname":
 				f"nginx rejected the new hostname: {proxy.get('message')} — "
@@ -140,7 +156,7 @@ def _save(values: dict, action: str):
 @login_required
 @require_admin
 @with_json("values")
-def settings_save(data):
+def settings_save(data: dict[str, Any]) -> ResponseReturnValue:
 	"""Save every edited field at once — all or nothing."""
 	values = data["values"]
 	if not isinstance(values, dict):
@@ -151,7 +167,9 @@ def settings_save(data):
 @bp.route("/<key>/reset", methods=["POST"])
 @login_required
 @require_admin
-def settings_reset(key):
+def settings_reset(key: str) -> ResponseReturnValue:
+	"""Back to a setting's default - the hostname and the port through
+	_save, as nginx and the port helper follow them."""
 	if key not in SETTINGS or not SETTINGS[key].editable:
 		return err("Unknown setting", 404)
 	if key in ("public_hostname", "https_port"):   # nginx follows: the full path
@@ -176,7 +194,7 @@ def _reached_port() -> int:
 @bp.route("/port")
 @login_required
 @require_admin
-def port_status():
+def port_status() -> Response:
 	"""Where a port change stands — polled by the page (as a background
 	request: it must not keep a session alive)."""
 	return ok(port=port_apply.state(current_app.backend.settings.get("https_port")))
@@ -186,7 +204,7 @@ def port_status():
 @login_required
 @require_admin
 @with_json("id")
-def port_confirm(data):
+def port_confirm(data: dict[str, Any]) -> ResponseReturnValue:
 	"""Sent by the page served on the new port: this admin reached it, so the
 	helper may drop the old one."""
 	problem = port_apply.confirm(str(data["id"]), _reached_port())
@@ -206,7 +224,7 @@ def port_confirm(data):
 @bp.route("/port/retry", methods=["POST"])
 @login_required
 @require_admin
-def port_retry():
+def port_retry() -> ResponseReturnValue:
 	"""Ask the helper again for the saved port (after a rollback — e.g. the
 	firewall was opened meanwhile)."""
 	try:
@@ -221,13 +239,13 @@ def port_retry():
 @login_required
 @require_admin
 @with_json()
-def settings_test_access(data):
+def settings_test_access(data: dict[str, Any]) -> ResponseReturnValue:
 	"""Run the startup reverse-proxy check against the hostname/port typed on
 	the page (saved or not). Admin-only: it makes the server fetch an address
 	the admin chose — https only, 2 s timeouts."""
 	try:
-		hostname = SETTINGS["public_hostname"].parse(data.get("hostname", ""))
-		port = SETTINGS["https_port"].parse(data.get("port", 443))
+		hostname = cast(str, SETTINGS["public_hostname"].parse(data.get("hostname", "")))
+		port = cast(int, SETTINGS["https_port"].parse(data.get("port", 443)))
 	except ValueError as e:
 		return err(str(e), 422)
 	url, source = resolve_public_url(public_url(hostname, port))

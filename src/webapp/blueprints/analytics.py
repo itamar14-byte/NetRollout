@@ -1,8 +1,12 @@
+"""Analytics: the user's last 30 days in numbers, and the query builder over
+their device results (an admin may look at any user's)."""
 import uuid
 from collections import Counter
 from datetime import datetime, timedelta
+from typing import Any
 
 from flask import Blueprint, render_template, request, jsonify
+from flask.typing import ResponseReturnValue
 from flask_login import current_user, login_required
 
 from src.db.tables import DeviceResult, Inventory, User
@@ -39,7 +43,9 @@ DEVICE_RESULT_COLUMNS = ["job_id", "device_ip", "device_port", "device_type",
 ##############################Routes#######################################
 @bp.route("")
 @login_required
-def analytics():
+def analytics() -> str:
+	"""The analytics page: KPIs and top platforms over 30 days, for the user
+	- or, for an admin, ?user=<id>."""
 	selected_user = "me"
 	scope_user_id = current_user.id
 
@@ -87,7 +93,11 @@ def analytics():
 @bp.route("/query", methods=["POST"])
 @login_required
 @with_json()
-def analytics_query(data):
+def analytics_query(data: dict[str, Any]) -> ResponseReturnValue:
+	"""The query builder's rules → the matching device results (200 at most,
+	newest first): JSON {rules, user?}.
+
+	:returns: {columns, rows} or an error (a field or operator not allowed)"""
 	scope_user_id = current_user.id
 	if current_user.role == "admin":
 		param = data.get("user", "me").strip()

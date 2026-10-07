@@ -1,4 +1,10 @@
+"""What isn't a page: the health check, the instance token (the startup
+proxy check) and Grafana's sign-in check for nginx. No sign-in needed; all
+still answer during maintenance."""
+from typing import Any
+
 from flask import Blueprint, Response, jsonify
+from flask.typing import ResponseReturnValue
 from flask_login import current_user
 
 from src.runtime import VERSION
@@ -11,7 +17,7 @@ bp = Blueprint("system", __name__)
 
 @bp.route(GRAFANA_AUTH_PATH)
 @during_maintenance    # reads only; the dashboards stay
-def grafana_auth():
+def grafana_auth() -> Response:
 	"""nginx asks this before every /grafana/ request (auth_request), with the
 	browser's cookies: Grafana is for signed-in admins only. nginx understands
 	only 2xx / 401 / 403 here — a redirect would be a 500 — so this answers
@@ -29,7 +35,7 @@ def grafana_auth():
 
 @bp.route(INSTANCE_PATH)
 @during_maintenance
-def instance():
+def instance() -> Response:
 	"""This process's random per-run token — lets the startup check prove the
 	reverse proxy forwards to *this* instance. No login, no session write, no
 	DB; the token means nothing outside this process."""
@@ -38,7 +44,7 @@ def instance():
 
 @bp.route(HEALTH_PATH)
 @during_maintenance
-def health():
+def health() -> ResponseReturnValue:
 	"""For Docker's health check, `compose up --wait`, the installer and
 	`netrollout status` — callers without a browser session. Up/down per
 	service, rollout counts and the version; no hostnames, no error text.
@@ -58,7 +64,8 @@ def health():
 	return response, 200 if up else 503
 
 
-def _maintenance() -> dict | None:
+def _maintenance() -> dict[str, Any] | None:
+	""":returns: a database move's {state, progress}; None: none"""
 	info = current_app.maintenance.snapshot()
 	if info["state"] == "idle":
 		return None

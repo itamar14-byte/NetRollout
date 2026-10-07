@@ -1,25 +1,33 @@
+"""Security profiles: the credentials devices are reached with (stored
+encrypted) - create, edit, delete, and test one against a device."""
 import uuid
+from typing import Any
 
 from flask import Blueprint, render_template, request, flash, redirect, url_for
+from flask.typing import ResponseReturnValue
 from flask_login import current_user, login_required
 from netmiko import ConnectHandler, NetmikoTimeoutException, \
 	NetmikoAuthenticationException
+from sqlalchemy.orm import Session
 
 from src import validation
 from src.core import Device
-from src.db.tables import SecurityProfile, User, Inventory
+from src.db.tables import SecurityProfile, Inventory
 from src.encryption import encrypt, decrypt
 from src.webapp.flask_app import current_app
-from src.webapp.utils import ok, err, with_json, with_form, flash_redirect
+from src.webapp.utils import (ok, err, with_json, with_form, flash_redirect,
+                              signed_in_user)
 
 bp = Blueprint('security', __name__, url_prefix='/security')
 
 #######################Routes###############################
 @bp.route("")
 @login_required
-def security():
+def security() -> str:
+	"""The profiles page: the user's profiles, and their devices to test one
+	against."""
 	with current_app.backend.postgres.get_session() as db_session:
-		user = db_session.get(User, current_user.id)
+		user = signed_in_user(db_session)
 		profiles = user.security_profiles
 		_ = [p.inventory for p in profiles]
 		devices = user.inventory
@@ -34,7 +42,8 @@ def security():
 @bp.route("/create", methods=["POST"])
 @login_required
 @with_form("username", "password")
-def security_create(data):
+def security_create(data: Any) -> ResponseReturnValue:
+	"""A new profile from the page's form (username and password required)."""
 	label = data.get("label", "").strip() or None
 	username = data.get("username", "").strip()
 	password = data.get("password", "").strip()
@@ -49,7 +58,10 @@ def security_create(data):
 @bp.route("/quick_create", methods=["POST"])
 @login_required
 @with_json()
-def security_quick_create(data):
+def security_quick_create(data: dict[str, Any]) -> ResponseReturnValue:
+	"""A new profile from a modal elsewhere (inventory): JSON.
+
+	:returns: {"status": "ok", id, label} or 422"""
 	label = str(data.get("label", "") or "").strip() or None
 	username = str(data.get("username", "") or "").strip()
 	password = str(data.get("password", "") or "")
@@ -66,8 +78,10 @@ def security_quick_create(data):
 
 @bp.route("/<uuid:profile_id>/edit", methods=["POST"])
 @login_required
-def security_edit(profile_id):
-	def _edit(profile, _):
+def security_edit(profile_id: uuid.UUID) -> ResponseReturnValue:
+	"""Change a profile: an empty password or secret keeps the stored one;
+	clear_enable_secret removes the secret."""
+	def _edit(profile: SecurityProfile, _: Session) -> ResponseReturnValue:
 		profile.label = request.form.get("label", "").strip() or None
 		profile.username = request.form["username"]
 		new_password = request.form.get("password", "").strip()
@@ -91,14 +105,16 @@ def security_edit(profile_id):
 
 @bp.route("/<uuid:profile_id>/delete", methods=["POST"])
 @login_required
-def security_delete(profile_id):
-	def _guard(p):
+def security_delete(profile_id: uuid.UUID) -> ResponseReturnValue:
+	"""Delete a profile - refused while devices use it."""
+	def _guard(p: SecurityProfile) -> ResponseReturnValue | None:
 		if p.inventory:
 			return flash_redirect(
 				f"Cannot delete '{p.label or p.username}' — "
 				f"{len(p.inventory)} device(s) assigned. "
 				f"Delete or reassign them first.",
 				"security.security", "danger")
+		return None
 
 	return current_app.web.act_on_db_obj(
 		SecurityProfile, profile_id,
@@ -116,7 +132,12 @@ def security_delete(profile_id):
 @bp.route("/<uuid:profile_id>/test", methods=["POST"])
 @login_required
 @with_json()
-def security_test(profile_id, data):
+def security_test(profile_id: uuid.UUID, data: dict[str, Any]) -> ResponseReturnValue:
+	"""Sign in to one of the user's devices with the profile (SSH, then
+	disconnect): JSON {device_id}.
+
+	:returns: ok, or why not - 401 refused, 503 the port unreachable, 504
+	 timed out"""
 	if not data.get("device_id"):
 		return err("No device selected", 404)
 

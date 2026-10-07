@@ -1,14 +1,22 @@
+"""Signing in and out: the sign-in page, local and LDAP accounts (an LDAP
+user in a mapped group is created at the first sign-in), 2FA enrolment and
+verification for local users, access requests, the password change, the
+session's time left and the Account page."""
 import base64
 import uuid
 from collections import Counter
 from io import BytesIO
+from typing import Any, cast
 from urllib.parse import urlparse, urlsplit
 
 import pyotp
 import qrcode
-from flask import Blueprint, session, redirect, url_for, flash, render_template, request
+from flask import Blueprint, Response, session, redirect, url_for, flash, render_template, request
+from flask.typing import ResponseReturnValue
 from flask_login import login_user, current_user, login_required, logout_user
+from flask_session.base import ServerSideSession
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from src.db.tables import LDAPServer, LDAPGroup, User
@@ -20,7 +28,7 @@ from src.webapp.accounts import LIMITS, AccountError, new_local_user
 from src.webapp.extensions import (csrf, conn_limit, mark_signed_in,
                                    session_seconds_left, is_background)
 from src.webapp.flask_app import current_app
-from src.webapp.utils import end_user_sessions, ok, with_form
+from src.webapp.utils import end_user_sessions, ok, signed_in_user, with_form
 
 bp = Blueprint("auth", __name__)
 
@@ -44,7 +52,7 @@ _LOGIN_FAIL_MESSAGES = {
 NEXT_KEY = "login_next"
 
 
-def safe_next(value):
+def safe_next(value: str | None) -> str | None:
 	"""`value` if it's a path on this site worth returning to, else None."""
 	if not value or not value.startswith("/") or value.startswith("//"):
 		return None
@@ -56,7 +64,7 @@ def safe_next(value):
 	return value
 
 
-def after_login(user):
+def after_login(user: User) -> ResponseReturnValue:
 	"""The redirect that ends a successful sign-in: the page asked for, else
 	the Dashboard. A user who must change the password goes through the
 	password gate first; the page waits for the change."""
@@ -66,10 +74,13 @@ def after_login(user):
 	return redirect(session.pop(NEXT_KEY, None) or url_for("jobs.dashboard"))
 
 
-def login_fail(username, reason, actor_id=None):
-	# Single exit point for all failed auth paths — flashes the user-facing
-	# message, writes a failed audit event with the machine reason, then clears
-	# any partial OTP state so a stale pre_auth_user_id can't be replayed.
+def login_fail(username: str, reason: str,
+               actor_id: uuid.UUID | None = None) -> ResponseReturnValue:
+	"""Every failed sign-in ends here: the message for the person, a failed
+	audit row with the reason (a key of _LOGIN_FAIL_MESSAGES), and any
+	half-done 2FA state cleared so a stale pre_auth_user_id can't be replayed.
+
+	:returns: the way back to the sign-in page"""
 	flash(_LOGIN_FAIL_MESSAGES.get(reason, "Login failed"), "danger")
 	current_app.web.audit("auth.login", success=False, username=username,
 	           actor_id=actor_id, detail={"reason": reason})
@@ -77,11 +88,13 @@ def login_fail(username, reason, actor_id=None):
 	return redirect(url_for("auth.home"))
 
 
-def complete_login(user, db_session, **audit_detail):
-	# Expunge before login_user so Flask-Login doesn't hold a live ORM object
-	# across requests.
-	# Redis session is registered immediately so the token is
-	# valid on the very next request.
+def complete_login(user: User, db_session: Session,
+                   **audit_detail: Any) -> ResponseReturnValue:
+	"""Sign the user in (no second factor: the factory admin, LDAP users) and
+	audit it. The user is detached first, so Flask-Login holds no live ORM
+	object across requests; the session is indexed at once (Live Sessions).
+
+	:param audit_detail: added to the audit row (e.g. auth_type)"""
 	db_session.expunge(user)
 	login_user(user)
 	record_redis_session(user.id)
@@ -90,61 +103,57 @@ def complete_login(user, db_session, **audit_detail):
 	return after_login(user)
 
 
-def start_otp_flow(user):
-	# Partial-auth checkpoint: store the user id, so otp_verify can finish the
-	# login after the second factor is confirmed.
+def start_otp_flow(user: User) -> ResponseReturnValue:
+	"""The password was right: on to the second factor - verification, or
+	enrolment for a user without an authenticator yet. The user id waits in
+	the session (pre_auth_user_id) for otp_verify / otp_enroll."""
 	session["pre_auth_user_id"] = str(user.id)
 	current_app.web.audit("auth.login", success=True, username=user.username,
 	           actor_id=user.id)
-	# otp_secret present → user already enrolled, go straight to verify.
-	# No secret → first-time setup, redirect to enroll portal instead.
 	if user.otp_secret:
 		return redirect(url_for("auth.otp_verify"))
 	flash("To complete enrollment, you are referred to OTP set up portal",
 	      "info")
 	return redirect(url_for("auth.otp_enroll"))
 
-def record_redis_session(user_id):
+def record_redis_session(user_id: uuid.UUID) -> None:
+	"""Point user_session:<id> at this session (Live Sessions, Kick)."""
 	sid = getattr(session, "sid", None)
 	if sid is None:
 		return
 	current_app.backend.redis.client.set(f"user_session:{user_id}",
 	                              sid, ex=86400)
 
-def login_local(user, password, db_session):
-	# Checks credentials are correct — bcrypt comparison against stored hash.
+def login_local(user: User, password: str, db_session: Session) -> ResponseReturnValue:
+	"""A local account's sign-in: the password, then approved, then active;
+	then 2FA - except the factory admin, who must stay reachable for
+	recovery."""
+	assert user.password_hash is not None   # every local account has one
 	if not check_password_hash(user.password_hash, password):
 		return login_fail(user.username, "invalid_credentials", user.id)
-	# Checks user was activated — approval first (admin decision), then active
-	# flag (can be toggled independently after approval).
 	if not user.is_approved:
 		return login_fail(user.username, "pending_approval", user.id)
 	if not user.is_active:
 		return login_fail(user.username, "account_disabled", user.id)
-	# admin bypasses OTP — built-in account has no OTP record and must always
-	# be reachable for recovery even if the OTP service is down.
 	if user.username == "admin":
 		return complete_login(user, db_session)
 	return start_otp_flow(user)
 
 
-def login_ldap_existing(user, password, db_session):
-	# User record exists with auth_type="ldap" — verify the bound LDAP server
-	# is still reachable before attempting a bind.
+def login_ldap_existing(user: User, password: str,
+                        db_session: Session) -> ResponseReturnValue:
+	"""A known LDAP user's sign-in: their directory must still be configured
+	and active; a bind with the password; then approved and active."""
 	ldap_server = user.ldap_server
 	if not ldap_server or not ldap_server.is_active:
 		flash("LDAP auth service unavailable", "danger")
 		return redirect(url_for("auth.home"))
-	# Checks credentials are correct — bind attempt against the LDAP server
-	# with the supplied password.
 	try:
 		bound = user_bind(ldap_server, user.username, password)
 	except LdapUnavailable:
 		return login_fail(user.username, "ldap_unavailable", user.id)
 	if not bound:
 		return login_fail(user.username, "ldap_bind_failed", user.id)
-	# Checks user was activated — the same approval/active gate as the local
-	# path.
 	if not user.is_approved:
 		return login_fail(user.username, "pending_approval", user.id)
 	if not user.is_active:
@@ -152,11 +161,11 @@ def login_ldap_existing(user, password, db_session):
 	return complete_login(user, db_session, auth_type="ldap")
 
 
-def login_ldap_group(username, password, db_session):
-	# Unknown username — no local record.
-	# Try LDAP group-based auto-provisioning:
-	# if an active LDAP server is configured and the user belongs to one of its
-	# mapped groups, create a local record on the fly and complete the login.
+def login_ldap_group(username: str, password: str,
+                     db_session: Session) -> ResponseReturnValue:
+	"""An unknown username: if the active directory accepts the password and
+	the user is in one of its mapped groups, the account is created (approved,
+	active, the group's role) and signed in; else invalid credentials."""
 	ldap_server = db_session.query(LDAPServer).filter_by(is_active=True).first()
 	if ldap_server:
 		groups = db_session.query(LDAPGroup).filter_by(
@@ -199,21 +208,24 @@ def login_ldap_group(username, password, db_session):
 
 #######################Routes###############################
 @bp.route("/")
-def home():
+def home() -> str:
+	"""The sign-in page; ?next= (a path on this site) is kept for after it."""
 	target = safe_next(request.args.get("next"))
 	if target:
 		session[NEXT_KEY] = target
 	return render_template("index.html")
 
 @bp.route("/login", methods=["GET"])
-def login_get():
+def login_get() -> ResponseReturnValue:
 	return redirect(url_for("auth.home"))
 
 @bp.route("/login", methods=["POST"])
 @csrf.exempt
 @conn_limit.limit("10 per minute")
 @with_form("username", "password")
-def login(data):
+def login(data: Any) -> ResponseReturnValue:
+	"""Sign in (rate limited): a local account, a known LDAP user, or an LDAP
+	user in a mapped group."""
 	# Origin check replaces CSRF for login — blocks cross-origin POSTs without
 	# depending on redis_session state, so it survives server restarts.
 	# Compare hostnames only: scheme/port vary under reverse proxy.
@@ -235,13 +247,13 @@ def login(data):
 			return login_ldap_group(username, password, db_session)
 
 @bp.route("/register", methods=["GET"])
-def register_form():
+def register_form() -> str:
 	return render_template("register.html")
 
 
 @bp.route("/register", methods=["POST"])
 @with_form("username", "password", "email", "full_name")
-def register(data):
+def register(data: Any) -> ResponseReturnValue:
 	"""A person's access request: an operator account waiting for an admin's
 	approval (src/webapp/accounts.py - the same checks as an admin's Add user)."""
 	username = data["username"].strip()
@@ -274,7 +286,10 @@ def register(data):
 
 @bp.route("/otp_enroll", methods=["GET", "POST"])
 @with_form("code")
-def otp_enroll(data):
+def otp_enroll(data: Any) -> ResponseReturnValue:
+	"""2FA enrolment after the password: GET shows a new authenticator's QR
+	code (its secret waits in the session); POST checks a code from it, then
+	stores the secret (encrypted) and signs in."""
 	if request.method == "GET":
 		user_id = session.get("pre_auth_user_id", None)
 		if not user_id:
@@ -300,7 +315,7 @@ def otp_enroll(data):
 		qr_b64 = base64.b64encode(buffer.getvalue()).decode("utf8")
 		return render_template("otp_enroll.html", qr=qr_b64)
 
-	if request.method == "POST":
+	else:
 		user_id = session.get("pre_auth_user_id", None)
 		if not user_id:
 			return redirect(url_for("auth.home"))
@@ -329,7 +344,8 @@ def otp_enroll(data):
 
 @bp.route("/otp_verify", methods=["GET", "POST"])
 @with_form("code")
-def otp_verify(data):
+def otp_verify(data: Any) -> ResponseReturnValue:
+	"""2FA after the password: POST checks the code and signs in."""
 	if request.method == "POST":
 		user_id = session.get("pre_auth_user_id", None)
 		if not user_id:
@@ -354,12 +370,12 @@ def otp_verify(data):
 			return after_login(user)
 		flash("invalid code, please try again", "danger")
 		return redirect(url_for("auth.otp_verify"))
-	elif request.method == "GET":
+	else:
 		return render_template("otp_verify.html")
 
 
 @bp.route("/logout")
-def logout():
+def logout() -> ResponseReturnValue:
 	# Anonymous requests (stale tab, double click) just land on the login page
 	if current_user.is_authenticated:
 		current_app.web.audit("auth.logout")
@@ -373,7 +389,7 @@ def logout():
 @bp.route("/account/password", methods=["GET", "POST"])
 @login_required
 @conn_limit.limit("10 per minute", methods=["POST"])
-def change_password():
+def change_password() -> ResponseReturnValue:
 	"""Pick a new password: forced (must_change_password — the seeded admin,
 	or after an admin reset; the gate in extensions.py sends every page
 	here) or voluntary, from the Account page. Local accounts only."""
@@ -389,15 +405,18 @@ def change_password():
 	current = request.form.get("current_password", "")
 	new = request.form.get("new_password", "")
 	with current_app.backend.postgres.get_session() as db_session:
-		user = db_session.get(User, current_user.id)
+		user = signed_in_user(db_session)
 		# A forced change follows the sign-in that just proved the password
 		# (the factory admin's, or an admin reset's temporary one): asking for
 		# it again adds nothing. A voluntary change proves it here.
-		if not forced and not check_password_hash(user.password_hash, current):
+		stored = user.password_hash
+		assert stored is not None   # a local account (checked above) has one
+		problem: str | None
+		if not forced and not check_password_hash(stored, current):
 			reason, problem = "wrong_current", "The current password is incorrect."
 		elif new != request.form.get("confirm_password", ""):
 			reason, problem = "mismatch", "The new passwords don't match."
-		elif forced and check_password_hash(user.password_hash, new):
+		elif forced and check_password_hash(stored, new):
 			reason, problem = "rule", "The new password must differ from the current one."
 		else:
 			reason, problem = "rule", password_problem(new, user.username,
@@ -414,7 +433,8 @@ def change_password():
 	# Every other session of this user ends (e.g. a thief's, the reason for
 	# the change); this one stays signed in.
 	current_app.session_interface.regenerate(session)
-	ended = end_user_sessions(current_user.id, keep_sid=session.sid)
+	ended = end_user_sessions(current_user.id,
+	                          keep_sid=cast(ServerSideSession, session).sid)
 	record_redis_session(current_user.id)
 	current_app.web.audit("auth.password_change",
 	                      detail={"forced": forced, "other_sessions_ended": ended})
@@ -425,7 +445,7 @@ def change_password():
 
 @bp.route("/account/session")
 @login_required
-def session_state():
+def session_state() -> Response:
 	"""How long this session has left — for the page's warning. Asked with
 	X-NR-Background it doesn't count as activity; without ("Stay signed in")
 	it does (the session gate extended it before this runs)."""
@@ -437,19 +457,17 @@ def session_state():
 
 @bp.route("/account")
 @login_required
-def account():
+def account() -> str:
+	"""The Account page: the user's details and their rollouts in numbers."""
 	with current_app.backend.postgres.get_session() as db_session:
-		user = db_session.get(User, current_user.id)
+		user = signed_in_user(db_session)
 		user_results = user.results
 		db_session.expunge_all()
 
-	# Total rollouts
 	total_rollouts = len(set(r.job_id for r in user_results))
 
-	# Total devices configured
 	total_devices = len(user_results)
 
-	# Success rate
 	if total_rollouts > 0:
 		successful = len(
 			set(r.job_id for r in user_results if r.status == 'success'))
@@ -457,14 +475,12 @@ def account():
 	else:
 		success_rate = None
 
-	# Most configured device type
 	if user_results:
 		most_common_platform = \
 			Counter(r.device_type for r in user_results).most_common(1)[0][0]
 	else:
 		most_common_platform = None
 
-	# Total commands pushed
 	total_commands = sum(r.commands_sent for r in user_results)
 
 	return render_template("account.html",

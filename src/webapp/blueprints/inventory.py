@@ -1,13 +1,19 @@
+"""Inventory: the devices a user rolls out to (their own, and the global ones
+admins publish) - add, edit, delete, a CSV import, security profiles and
+variable mappings assigned in bulk, and reachability from this server."""
 import os
 import tempfile
 import uuid
+from typing import Any
 
 from flask import Blueprint, render_template, request, redirect, flash, url_for
+from flask.typing import ResponseReturnValue
 from flask_login import current_user, login_required
+from sqlalchemy.orm import Session
 
 from src import validation
 from src.core import mapping_resolvable
-from src.db.tables import VariableMapping, Inventory, SecurityProfile, User
+from src.db.tables import VariableMapping, Inventory, SecurityProfile
 from src.input_parser import InputParser
 from src.logging_utils import RolloutLogger
 from src.validation import Validator
@@ -15,23 +21,26 @@ from src.webapp.flask_app import current_app
 from src.webapp.utils import (ok, err, with_form, with_json, flash_redirect,
                               query_visible_devices, partition_devices,
                               can_edit_device, visible_devices_clause,
-                              same_endpoint_devices, same_endpoint_warning)
+                              same_endpoint_devices, same_endpoint_warning,
+                              signed_in_user)
 
 bp = Blueprint('inventory', __name__, url_prefix='/inventory')
 
 
 ##############################Route Helpers################################
 def parse_mapping_ids(raw_ids: list[str]) -> list[uuid.UUID]:
-	"""Raises ValueError on a malformed id."""
+	""":raises ValueError: a malformed id"""
 	return [uuid.UUID(mid) for mid in raw_ids]
 
 
-def set_user_mappings(device, user_id, mapping_ids, db_session) -> list[str]:
-	# The mapping<->device join table is shared across users, so only the
-	# given user's bindings are replaced — other users' bindings on a global
-	# device are preserved. Mappings the device can't resolve (attribute
-	# missing, list index out of range) aren't bound; their tokens are
-	# returned so the caller can tell the user.
+def set_user_mappings(device: Inventory, user_id: uuid.UUID,
+                      mapping_ids: list[uuid.UUID], db_session: Session) -> list[str]:
+	"""The device's bindings to the user's mappings become `mapping_ids`. The
+	join table is shared across users: only this user's bindings are
+	replaced, others' on a global device stay. A mapping the device can't
+	resolve (attribute missing, list index out of range) isn't bound.
+
+	:returns: the tokens not bound, for the caller to tell the user"""
 	selected = db_session.query(VariableMapping).filter(
 		VariableMapping.id.in_(mapping_ids),
 		VariableMapping.user_id == user_id
@@ -43,36 +52,39 @@ def set_user_mappings(device, user_id, mapping_ids, db_session) -> list[str]:
 	return sorted(m.token for m in selected if m not in eligible)
 
 
-def flash_skipped_mappings(skipped: list[str]):
+def flash_skipped_mappings(skipped: list[str]) -> None:
 	if skipped:
 		flash(f"Not bound — the device has no value for their attribute: "
 		      f"{', '.join(skipped)}", "warning")
 
 
-def profile_allowed(profile_id, db_session, current_profile_id=None):
-	# A device may only carry a profile the current user owns — otherwise a
-	# user could attach another user's (e.g. an admin's global) credentials
-	# to a device they control. Keeping the device's existing profile
-	# unchanged is always allowed (an admin saving another admin's global
-	# device).
+def profile_allowed(profile_id: uuid.UUID | None, db_session: Session,
+                    current_profile_id: uuid.UUID | None = None) -> bool:
+	"""A device may only carry a profile the current user owns — otherwise a
+	user could attach another user's (e.g. an admin's global) credentials to
+	a device they control. Keeping the device's profile unchanged is always
+	allowed (an admin saving another admin's global device); None (no
+	profile) too."""
 	if profile_id is None or profile_id == current_profile_id:
 		return True
 	return db_session.query(SecurityProfile).filter_by(
 		id=profile_id, user_id=current_user.id).first() is not None
 
 
-def device_not_found():
+def device_not_found() -> ResponseReturnValue:
 	return flash_redirect("Device not found.", "inventory.inventory", "danger")
 
 
 ##############################Routes#######################################
 @bp.route("")
 @login_required
-def inventory():
+def inventory() -> str:
+	"""The inventory page: the user's devices and the global ones, with
+	their profiles, mappings and properties."""
 	sys_props, user_props = current_app.web.get_property_defs(current_user.id)
 	with current_app.backend.postgres.get_session() as db_session:
 		devices = query_visible_devices(db_session, current_user.id)
-		user = db_session.get(User, current_user.id)
+		user = signed_in_user(db_session)
 		profiles = user.security_profiles
 		var_mappings = user.variable_mappings
 		db_session.expunge_all()
@@ -91,7 +103,10 @@ def inventory():
 @bp.route("/create", methods=["POST"])
 @login_required
 @with_form("ip", "device_type")
-def inventory_create(data):
+def inventory_create(data: Any) -> ResponseReturnValue:
+	"""Add a device from the page's form. Only an admin may make it global,
+	and a global one needs a security profile; an ip:port in use already is
+	allowed, with a warning."""
 	label = data.get("label", "").strip()
 	ip = data.get("ip", "").strip()
 	port = data.get("port", "22").strip()
@@ -138,7 +153,8 @@ def inventory_create(data):
 @bp.route("/test_connection", methods=["POST"])
 @login_required
 @with_json()
-def inventory_test_connection(data):
+def inventory_test_connection(data: dict[str, Any]) -> ResponseReturnValue:
+	"""Is the TCP port open from this server? JSON {ip, port}."""
 	ip = str(data.get("ip", "")).strip()
 	port = str(data.get("port", "")).strip()
 
@@ -158,7 +174,7 @@ MAX_REACHABILITY_BATCH = 500
 @bp.route("/reachability", methods=["POST"])
 @login_required
 @with_json()
-def inventory_reachability(data):
+def inventory_reachability(data: dict[str, Any]) -> ResponseReturnValue:
 	"""Reachability of visible devices from this server (cached briefly;
 	refresh=true re-probes). {"statuses": {device_id: {reachable,
 	checked_at}}}"""
@@ -180,8 +196,11 @@ def inventory_reachability(data):
 
 @bp.route("/<uuid:device_id>/edit", methods=["POST"])
 @login_required
-def inventory_edit(device_id):
-	def _edit(device, db_session):
+def inventory_edit(device_id: uuid.UUID) -> ResponseReturnValue:
+	"""Save a device from the page's form: its fields, profile, attributes
+	and the user's mapping bindings - by its owner, or an admin for a
+	global one. Making a global device local drops other users' bindings."""
+	def _edit(device: Inventory, db_session: Session) -> ResponseReturnValue:
 		# Validate everything before mutating — get_session commits on a
 		# normal return, so an early error must not leave a half-applied edit.
 		sec_profile_id = request.form.get("sec_profile_id", "").strip()
@@ -219,7 +238,7 @@ def inventory_edit(device_id):
 		sys_props, user_props = current_app.web.get_property_defs(
 			current_user.id)
 		all_props = {p["name"]: p for p in sys_props + user_props}
-		var_maps = {}
+		var_maps: dict[str, str | list[str]] = {}
 		for inv_key, inv_val in request.form.items():
 			if not inv_key.startswith("attr_"):
 				continue
@@ -261,16 +280,16 @@ def inventory_edit(device_id):
 
 @bp.route("/<uuid:device_id>/mappings", methods=["POST"])
 @login_required
-def inventory_mappings(device_id):
-	# Lets a user bind/unbind their own mappings on any visible device —
-	# the only way to do so on a global device they can't edit.
+def inventory_mappings(device_id: uuid.UUID) -> ResponseReturnValue:
+	"""Bind / unbind the user's own mappings on any device they see - the
+	only way to on a global device they can't edit."""
 	try:
 		mapping_ids = parse_mapping_ids(request.form.getlist("mapping_ids"))
 	except ValueError:
 		return flash_redirect("Invalid mapping ID.", "inventory.inventory",
 		                      "danger")
 
-	def _set_mappings(device, db_session):
+	def _set_mappings(device: Inventory, db_session: Session) -> ResponseReturnValue:
 		flash_skipped_mappings(
 			set_user_mappings(device, current_user.id, mapping_ids, db_session))
 		current_app.web.audit("inventory.mappings", object_type="Inventory",
@@ -287,7 +306,8 @@ def inventory_mappings(device_id):
 
 @bp.route("/<uuid:device_id>/delete", methods=["POST"])
 @login_required
-def inventory_delete(device_id):
+def inventory_delete(device_id: uuid.UUID) -> ResponseReturnValue:
+	"""Delete a device - its owner, or an admin for a global one."""
 	return current_app.web.act_on_db_obj(
 		Inventory, device_id,
 		current_app.web.delete_op("inventory.delete",
@@ -301,7 +321,7 @@ def inventory_delete(device_id):
 
 @bp.route("/import_csv", methods=["POST"])
 @login_required
-def inventory_import_csv():
+def inventory_import_csv() -> ResponseReturnValue:
 	"""
 	Bulk-imports devices from an uploaded CSV file into the user's inventory.
 	Saves the upload to a temp file and delegates to
@@ -344,7 +364,8 @@ def inventory_import_csv():
 		devices = report.devices
 		# same ip:port as an existing visible device, or twice in the file:
 		# allowed (NAT, VRFs, labs), but say so
-		seen, shared = set(), []
+		seen: set[tuple[str, int]] = set()
+		shared: list[str] = []
 		for d in devices:
 			endpoint = (d.ip, d.port)
 			if endpoint in in_use or endpoint in seen:
@@ -388,7 +409,10 @@ def inventory_import_csv():
 
 @bp.route("/bulk_assign", methods=["POST"])
 @login_required
-def inventory_bulk_assign():
+def inventory_bulk_assign() -> ResponseReturnValue:
+	"""Assign one of the user's security profiles to their devices, or none
+	(a global device keeps one): JSON {profile_id, device_ids}. Bad or
+	foreign ids are skipped, each one logged."""
 	logger = RolloutLogger(webapp=False, verbose=False,
 	                       prefix="bulk_sec_assign",
 	                       job_id=str(uuid.uuid4())[:8])

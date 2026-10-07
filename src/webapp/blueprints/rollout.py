@@ -1,11 +1,18 @@
+"""New rollout: pick devices, give the commands (one set, or one per
+platform), start; the live log's stream, cancel, and a rollback of a job's
+successful devices."""
 import json
 import uuid
+from collections.abc import Iterator
 from itertools import groupby
+from typing import Any, cast
 
 from flask import Blueprint, render_template, request, flash, redirect, url_for, Response
+from flask.typing import ResponseReturnValue
 from flask_login import current_user, login_required
+from werkzeug.wrappers import Response as BaseResponse
 
-from src.core import RolloutOptions
+from src.core import Device, RolloutOptions
 from src.db.tables import DeviceResult, Inventory
 from src.input_parser import InputParser
 from src.orchestration import Draining
@@ -18,10 +25,13 @@ bp = Blueprint('rollout', __name__, url_prefix='/rollout')
 
 
 ##############################Route Helpers################################
-def parse_commands() -> tuple | Response:
-	# 3) Detect single vs. multi-platform mode early.
-	# The frontend sends a JSON field "platform_commands" when multiple platforms
-	# are selected, and omits it (or sends empty) for single-platform rollouts.
+def parse_commands() -> tuple[list[str] | None, dict[str, str], bool] | BaseResponse:
+	"""The start form's commands. The page sends "platform_commands" (JSON:
+	platform → command text) when the devices are of several platforms;
+	else a commands file or pasted text.
+
+	:returns: (commands - None for several platforms, platform → command
+	 text, several platforms); or the way back to the form, the reason flashed"""
 	raw_platform_commands = request.form.get("platform_commands", "").strip()
 	if raw_platform_commands:
 		# Multi-platform: parse the JSON map of the platform → command text.
@@ -60,9 +70,12 @@ def parse_commands() -> tuple | Response:
 	return commands, {}, False
 
 
-def load_devices(selected_ids: list) -> list | Response:
-	# 6) Load the selected inventory rows visible to the current user
-	# (their own plus global devices).
+def load_devices(selected_ids: list[uuid.UUID]) -> list[Device] | BaseResponse:
+	"""The selected devices the user may see (own and global), as rollout
+	targets with their credentials.
+
+	:returns: the devices; or the way back to the form, the reason flashed
+	 (none found, some missing, one without a security profile)"""
 	with current_app.backend.postgres.get_session() as db_session:
 		selected_rows = (
 			db_session.query(Inventory)
@@ -100,35 +113,46 @@ def load_devices(selected_ids: list) -> list | Response:
 		return redirect(url_for("rollout.new_rollout"))
 
 
-def duplicate_targets(devices) -> dict[str, list[str]]:
-	# Same ip:port selected twice = the same box twice (e.g. an own entry and
-	# a global entry for one router): the config would be pushed twice.
-	# Same IP on different ports is fine — distinct targets behind NAT.
-	by_endpoint = {}
+def duplicate_targets(devices: list[Device]) -> dict[str, list[str]]:
+	"""The same ip:port selected twice is the same box twice (e.g. an own
+	entry and a global entry for one router): the config would be pushed
+	twice. The same IP on different ports is fine — targets behind NAT.
+
+	:returns: ip:port → the labels selected for it, where more than one"""
+	by_endpoint: dict[str, list[str]] = {}
 	for d in devices:
 		by_endpoint.setdefault(d.endpoint, []).append(d.label or d.ip)
 	return {ep: labels for ep, labels in by_endpoint.items() if len(labels) > 1}
 
 
-def unreachable_devices(devices) -> list:
-	# Cached "reachable" results are trusted; cached failures are re-probed,
-	# so a device that just came back isn't blocked by a stale result
+def unreachable_devices(devices: list[Device]) -> list[Device]:
+	"""The devices NetRollout can't reach now. A cached "reachable" is
+	trusted; a cached failure is probed again, so a device that just came
+	back isn't blocked by a stale result."""
 	results = current_app.web.reachability.check(
 		[(d.ip, d.port) for d in devices], recheck_unreachable=True)
 	return [d for d in devices
 	        if not results[(d.ip, int(d.port))]["reachable"]]
 
 
-def unreachable_message(devices) -> str:
+def unreachable_message(devices: list[Device]) -> str:
+	""":returns: the refusal naming the unreachable devices"""
 	names = ", ".join(f"{d.label or d.ip} ({d.endpoint})" for d in devices)
 	return (f"Not reachable from NetRollout — rollout blocked: {names}. "
 	        f"Recheck once they're back online.")
 
 
-def submit_jobs(devices, commands, platform_commands_map, is_multi_platform,
-                options, audit_comment) -> uuid.UUID | Response:
-	# 10) Submit jobs to the orchestrator.
+def submit_jobs(devices: list[Device], commands: list[str] | None,
+                platform_commands_map: dict[str, str], is_multi_platform: bool,
+                options: RolloutOptions,
+                audit_comment: str | None) -> uuid.UUID | BaseResponse:
+	"""Queue the rollout: one job, or one per platform with its own commands.
+
+	:returns: the (first) job's id; or the way back to the form, the reason
+	 flashed
+	:raises Draining: NetRollout is stopping, or paused for a database move"""
 	if not is_multi_platform:
+		assert commands is not None   # parse_commands gives them for one platform
 		return current_app.orchestrator.submit(devices, commands, options,
 		                                       current_user.id, audit_comment)
 
@@ -139,7 +163,7 @@ def submit_jobs(devices, commands, platform_commands_map, is_multi_platform,
 		return redirect(url_for("rollout.new_rollout"))
 
 	devices.sort(key=lambda d: d.device_type)
-	job_id = None
+	job_id: uuid.UUID | None = None
 	for platform, group in groupby(devices, key=lambda d: d.device_type):
 		curr_commands = [l.strip() for l in
 		                 platform_commands_map.get(platform, "").splitlines()
@@ -152,6 +176,7 @@ def submit_jobs(devices, commands, platform_commands_map, is_multi_platform,
 		                                            audit_comment)
 		if job_id is None:
 			job_id = first_job
+	assert job_id is not None   # two platforms or more: the loop ran
 	return job_id
 
 
@@ -159,7 +184,9 @@ def submit_jobs(devices, commands, platform_commands_map, is_multi_platform,
 @bp.route("/cancel", methods=["POST"])
 @login_required
 @with_form("job_id")
-def cancel_rollout(data):
+def cancel_rollout(data: Any) -> ResponseReturnValue:
+	"""Cancel a running or queued rollout - the user's own, or any for an
+	admin."""
 	raw = data.get("job_id", "").strip()
 	try:
 		job_id = uuid.UUID(raw)
@@ -177,7 +204,8 @@ def cancel_rollout(data):
 
 @bp.route("/new")
 @login_required
-def new_rollout():
+def new_rollout() -> str:
+	"""The new rollout page: the devices the user may roll out to."""
 	with current_app.backend.postgres.get_session() as db_session:
 		devices = query_visible_devices(db_session, current_user.id)
 		db_session.expunge_all()
@@ -191,7 +219,12 @@ def new_rollout():
 
 @bp.route("/start", methods=["POST"])
 @login_required
-def new_start_rollout():
+def new_start_rollout() -> ResponseReturnValue:
+	"""Start a rollout from the page's form: the devices (none twice, all
+	reachable), the commands, verify / verbose, a comment. Audited
+	(rollout.start).
+
+	:returns: the way to Active Jobs; or back to the form, the reason flashed"""
 	# before the reachability checks: stopping, or paused for a database move
 	if refused := current_app.orchestrator.refusal():
 		flash(refused, "danger")
@@ -208,12 +241,12 @@ def new_start_rollout():
 		return redirect(url_for("rollout.new_rollout"))
 
 	result = parse_commands()
-	if isinstance(result, Response):
+	if isinstance(result, BaseResponse):
 		return result
 	commands, platform_commands_map, is_multi_platform = result
 
 	devices = load_devices(selected_ids)
-	if isinstance(devices, Response):
+	if isinstance(devices, BaseResponse):
 		return devices
 
 	if duplicates := duplicate_targets(devices):
@@ -241,7 +274,7 @@ def new_start_rollout():
 	except Draining as e:   # stopping, or paused for a database move
 		flash(str(e), "danger")
 		return redirect(url_for("rollout.new_rollout"))
-	if isinstance(job_id, Response):
+	if isinstance(job_id, BaseResponse):
 		return job_id
 
 	current_app.web.audit("rollout.start", object_id=job_id,
@@ -254,24 +287,27 @@ def new_start_rollout():
 
 @bp.route("/stream/<uuid:job_id>")
 @login_required
-def rollout_stream(job_id):
+def rollout_stream(job_id: uuid.UUID) -> Response:
+	"""The live log (Server-Sent Events): what's logged so far, then each new
+	line, a heartbeat every 0.5 s, and "done" at the end. The job's owner or
+	an admin; the job must be running in this process."""
 	job = current_app.orchestrator.get_job(job_id)
 	if not job or (
 			job.user_id != current_user.id and current_user.role != "admin"):
 		return Response(status=403)
 
-	def generate():
-		# Drain queue items already covered by the redis list
+	def generate() -> Iterator[str]:
 		snapshot = job.get_log_history()
-		for msg in snapshot:
-			yield f"data: {msg}\n\n"
+		for line in snapshot:
+			yield f"data: {line}\n\n"
 
 		ps = job.get_log_queue()
 		try:
 			while True:
-				msg = ps.get_message(timeout=0.5)
+				# redis-py: a dict per message (its stubs say otherwise)
+				msg = cast(dict[str, Any] | None, ps.get_message(timeout=0.5))
 				if msg and msg["type"] == "message":
-					data = msg["data"].decode()
+					data = cast(bytes, msg["data"]).decode()
 					if data == "__done__":
 						break
 					yield f"data: {data}\n\n"
@@ -292,10 +328,13 @@ def rollout_stream(job_id):
 @bp.route("/rollback/<uuid:job_id>", methods=["POST"])
 @login_required
 @with_json("commands")
-def rollback(job_id, data):
-	# Fetch compensatory commands
+def rollback(job_id: uuid.UUID, data: dict[str, Any]) -> ResponseReturnValue:
+	"""A new rollout of the given commands (JSON {commands, verify?,
+	verbose?}) to the devices one of the user's jobs configured successfully
+	- matched by ip:port, the user's own entry preferred. Audited
+	(rollout.rollback).
 
-	# Get successful devices
+	:returns: {"status": "ok", job_id} or an error"""
 	with current_app.backend.postgres.get_session() as db_session:
 		result = db_session.query(DeviceResult).filter_by(
 			user_id=current_user.id,
@@ -310,7 +349,7 @@ def rollback(job_id, data):
 		# NAT address differ by port. A user's own entry and a global entry
 		# can still describe the same target: keep one per ip:port,
 		# preferring the user's own, so the box isn't pushed twice.
-		by_target = {}
+		by_target: dict[tuple[str, int], Inventory] = {}
 		for row in candidates:
 			target = (row.ip, row.port)
 			if target not in successful:

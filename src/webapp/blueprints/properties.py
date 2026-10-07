@@ -1,6 +1,9 @@
+"""Properties: the attributes a device can carry (system ones and the
+user's own), which variable mappings read."""
 import uuid
 
 from flask import Blueprint, render_template, request
+from flask.typing import ResponseReturnValue
 from flask_login import current_user, login_required
 
 from src.db.tables import PropertyDefinition
@@ -13,7 +16,8 @@ bp = Blueprint('properties', __name__, url_prefix='/properties')
 ##############################Routes#######################################
 @bp.route("")
 @login_required
-def properties():
+def properties() -> str:
+	"""The properties page: the system properties and the user's own."""
 	sys_props, user_props = current_app.web.get_property_defs(current_user.id)
 	return render_template("properties.html", sys_props=sys_props,
 	                       user_props=user_props, active_section="properties")
@@ -22,7 +26,12 @@ def properties():
 @bp.route("/create", methods=["POST"])
 @bp.route("/quick_create", methods=["POST"])
 @login_required
-def properties_create():
+def properties_create() -> ResponseReturnValue:
+	"""A new property of the user's: JSON {name, label, icon?, is_list?}. The
+	name is normalised (lower case, _ for spaces); it may not repeat one of
+	theirs or a system property's.
+
+	:returns: {"status": "ok", id, name, label, icon, is_list} or an error"""
 	data = request.get_json(silent=True) or {}
 	name = data.get("name", "").strip().lower().replace(" ", "_")
 	label = data.get("label", "").strip()
@@ -51,7 +60,8 @@ def properties_create():
 
 @bp.route("/<uuid:prop_id>/edit", methods=["POST"])
 @login_required
-def properties_edit(prop_id):
+def properties_edit(prop_id: uuid.UUID) -> ResponseReturnValue:
+	"""Change a property's label, icon or list-ness (not its name): JSON."""
 	data = request.get_json(silent=True) or {}
 	label = data.get("label", "").strip()
 	icon = data.get("icon", "bi-tag").strip() or "bi-tag"
@@ -69,7 +79,8 @@ def properties_edit(prop_id):
 
 @bp.route("/<uuid:prop_id>/delete", methods=["POST"])
 @login_required
-def properties_delete(prop_id):
+def properties_delete(prop_id: uuid.UUID) -> ResponseReturnValue:
+	"""Delete one of the user's properties."""
 	return current_app.web.act_on_db_obj(
 		PropertyDefinition, prop_id,
 		current_app.web.delete_op("property.delete", label_func=lambda p:

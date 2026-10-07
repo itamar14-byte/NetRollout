@@ -1,8 +1,14 @@
+"""Admin → Users and Live Sessions: approve, enable / disable, promote /
+demote, delete, reset 2FA or a password, end a user's sessions, add a user;
+the sessions signed in now. Admins only; every action audited."""
 import uuid
+from typing import Any, cast
 
-from flask import Blueprint, render_template, request, redirect, url_for, flash
+from flask import Blueprint, Response, render_template, request, redirect, url_for, flash
+from flask.typing import ResponseReturnValue
 from flask_login import current_user, login_required
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from sqlalchemy.orm import Session
 from werkzeug.security import generate_password_hash
 
 from src.db.tables import User
@@ -15,7 +21,7 @@ bp = Blueprint('admin_users', __name__, url_prefix='/admin')
 
 
 @bp.app_context_processor
-def pending_access_requests():
+def pending_access_requests() -> dict[str, Any]:
 	"""The admin sidebar's count of access requests waiting (none: no badge)."""
 	if not (request.path.startswith("/admin") and current_user.is_authenticated
 	        and current_user.role == "admin"):
@@ -28,7 +34,11 @@ def pending_access_requests():
 
 
 ##############################Route Helpers####################################
-def user_action_factory(user, action, db_session):
+def user_action_factory(user: User, action: str, db_session: Session) -> None:
+	"""Apply one admin action to a user (in the caller's session).
+
+	:param action: approve / enable / disable / promote / demote / delete /
+	 reset_2fa / terminate_session - anything else does nothing"""
 	if action == "approve":
 		user.is_approved = True
 		user.is_active = True
@@ -57,14 +67,16 @@ def user_action_factory(user, action, db_session):
 @bp.route("")
 @login_required
 @require_admin
-def admin_panel():
+def admin_panel() -> ResponseReturnValue:
+	""":returns: the way to the admin panel's first page (Users)"""
 	return redirect(url_for("admin_users.admin_users"))
 
 
 @bp.route("/users")
 @login_required
 @require_admin
-def admin_users():
+def admin_users() -> str:
+	"""The Users page: every account, and who has a session."""
 	with current_app.backend.postgres.get_session() as db_session:
 		users = db_session.query(User).order_by(User.created_at).all()
 		db_session.expunge_all()
@@ -82,7 +94,10 @@ def admin_users():
 @bp.route("/users/<uuid:user_id>/<action>", methods=["POST"])
 @login_required
 @require_admin
-def admin_user_action(user_id, action):
+def admin_user_action(user_id: uuid.UUID, action: str) -> ResponseReturnValue:
+	"""One action on one user (user_action_factory), audited as
+	user.<action>. Not on the factory admin; an admin can't disable or
+	delete their own account."""
 	if action in ("disable", "delete") and user_id == current_user.id:
 		flash("You cannot perform this action on your own account.", "danger")
 		return redirect(url_for("admin_users.admin_users"))
@@ -103,7 +118,7 @@ def admin_user_action(user_id, action):
 @bp.route("/users/<uuid:user_id>/reset_password", methods=["POST"])
 @login_required
 @require_admin
-def admin_reset_password(user_id):
+def admin_reset_password(user_id: uuid.UUID) -> ResponseReturnValue:
 	"""A temporary password for another local user, returned once for the
 	admin to hand over; the user must choose their own at the next sign-in
 	(must_change_password) and every session of theirs ends now. Not for LDAP
@@ -134,7 +149,7 @@ def admin_reset_password(user_id):
 @login_required
 @require_admin
 @with_json()
-def admin_add_user(data):
+def admin_add_user(data: dict[str, Any]) -> ResponseReturnValue:
 	"""An admin's Add user: Request access and Approve in one step - an
 	approved, active local account with a temporary password, shown once,
 	which the user must replace at the first sign-in (as after a reset; the
@@ -164,14 +179,17 @@ def admin_add_user(data):
 @bp.route("/users/bulk/<action>", methods=["POST"])
 @login_required
 @require_admin
-def admin_bulk_action(action):
+def admin_bulk_action(action: str) -> ResponseReturnValue:
+	"""One action on the users ticked (form user_ids, comma separated) - the
+	factory admin and, for disable / delete, the admin's own account
+	skipped. One audit row: user.bulk_<action> with the names."""
 	raw = request.form.get("user_ids", "")
 	try:
 		user_ids = [uuid.UUID(uid.strip()) for uid in raw.split(",") if
 		            uid.strip()]
 	except ValueError:
 		return redirect(url_for("admin_users.admin_users"))
-	affected = []
+	affected: list[str] = []
 	with current_app.backend.postgres.get_session() as db_session:
 		for uid in user_ids:
 			user = db_session.get(User, uid)
@@ -189,8 +207,10 @@ def admin_bulk_action(action):
 @bp.route("/sessions")
 @login_required
 @require_admin
-def admin_sessions():
-	sessions = []
+def admin_sessions() -> str:
+	"""Live Sessions: each user's latest sign-in (user_session:<id>), local
+	and LDAP apart, with how long ago it began."""
+	sessions: list[dict[str, Any]] = []
 	keys = list(current_app.backend.redis.client.scan_iter("user_session:*"))
 	if keys:
 		with current_app.backend.postgres.get_session() as db_session:
@@ -203,7 +223,7 @@ def admin_sessions():
 				user = db_session.query(User).filter_by(id=uid).first()
 				if not user:
 					continue
-				ttl = current_app.backend.redis.client.ttl(k)
+				ttl = cast(int, current_app.backend.redis.client.ttl(k))
 				elapsed = max(0, 86400 - ttl) if ttl > 0 else 0
 				sessions.append({
 					"user_id": user_id_str,
@@ -225,8 +245,11 @@ def admin_sessions():
 @bp.route("/sessions/<uuid:user_id>/kick", methods=["POST"])
 @login_required
 @require_admin
-def admin_sessions_kick(user_id):
-	sid = current_app.backend.redis.client.get(f"user_session:{user_id}")
+def admin_sessions_kick(user_id: uuid.UUID) -> ResponseReturnValue:
+	"""End the user's latest session (the one user_session:<id> points at).
+
+	:returns: ok, or 404 when there's none"""
+	sid = cast(bytes | None, current_app.backend.redis.client.get(f"user_session:{user_id}"))
 	if not sid:
 		return err("Session not found", 404)
 	current_app.backend.redis.client.delete(f"redis_session:{sid.decode()}")
