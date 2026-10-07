@@ -15,7 +15,7 @@ from src.backup.schedule import schedule_state
 from src.webapp.flask_app import current_app
 from src.webapp.utils import err, ok, require_admin
 
-bp = Blueprint("admin_backups", __name__, url_prefix="/admin/backups")
+backups_bp = Blueprint("admin_backups", __name__, url_prefix="/admin/backups")
 
 
 def backups_state() -> dict[str, Any]:
@@ -42,12 +42,12 @@ def _file(name: str) -> Path | None:
 	return path if path.is_file() else None
 
 
-def _audit(action: str, name: str, **detail: Any) -> None:
+def _audit_backup(action: str, name: str, **detail: Any) -> None:
 	current_app.web.audit(action, object_type="backup", object_label=name,
 	                      detail=detail or None)
 
 
-@bp.route("")
+@backups_bp.route("")
 @login_required
 @require_admin
 def backups_list() -> Response:
@@ -55,7 +55,7 @@ def backups_list() -> Response:
 	return ok(**backups_state())
 
 
-@bp.route("", methods=["POST"])
+@backups_bp.route("", methods=["POST"])
 @login_required
 @require_admin
 def backups_create() -> ResponseReturnValue:
@@ -66,11 +66,11 @@ def backups_create() -> ResponseReturnValue:
 		current_app.web.audit("backup.failed", object_type="backup", success=False,
 		                      detail={"kind": "manual", "message": str(e)})
 		return err(str(e), 409)
-	_audit("backup.created", path.name, kind="manual", size=path.stat().st_size)
+	_audit_backup("backup.created", path.name, kind="manual", size=path.stat().st_size)
 	return ok(created=path.name, **backups_state())
 
 
-@bp.route("/<name>")
+@backups_bp.route("/<name>")
 @login_required
 @require_admin
 def backups_download(name: str) -> ResponseReturnValue:
@@ -78,12 +78,12 @@ def backups_download(name: str) -> ResponseReturnValue:
 	path = _file(name)
 	if path is None:
 		return err("No such backup", 404)
-	_audit("backup.downloaded", name)
+	_audit_backup("backup.downloaded", name)
 	return send_file(path, as_attachment=True, download_name=name,
 	                 mimetype="application/zip")
 
 
-@bp.route("/<name>/delete", methods=["POST"])
+@backups_bp.route("/<name>/delete", methods=["POST"])
 @login_required
 @require_admin
 def backups_delete(name: str) -> ResponseReturnValue:
@@ -94,5 +94,5 @@ def backups_delete(name: str) -> ResponseReturnValue:
 	if path is None:
 		return err("No such backup", 404)
 	path.unlink(missing_ok=True)
-	_audit("backup.deleted", name)
+	_audit_backup("backup.deleted", name)
 	return ok(**backups_state())

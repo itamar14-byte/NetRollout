@@ -14,7 +14,7 @@ from src.webapp.flask_app import current_app
 from src.webapp.utils import (ok, err, require_admin, with_json,
                               compile_query_rules)
 
-bp = Blueprint('admin_observability', __name__, url_prefix='/admin')
+admin_bp = Blueprint('admin_observability', __name__, url_prefix='/admin')
 
 
 ##############################Constants#####################################
@@ -39,7 +39,7 @@ AUDIT_LOG_COLUMNS = ["timestamp", "actor_username", "action",
                      "object_label", "success", "ip_address"]
 
 ##############################Routes###########################################
-@bp.route("/audit")
+@admin_bp.route("/audit")
 @login_required
 @require_admin
 def admin_audit() -> str:
@@ -74,7 +74,7 @@ def admin_audit() -> str:
 	                       active_section="audit")
 
 
-@bp.route("/analytics")
+@admin_bp.route("/analytics")
 @login_required
 @require_admin
 def admin_analytics() -> str:
@@ -169,7 +169,7 @@ def admin_analytics() -> str:
 	)
 
 
-@bp.route("/analytics/query", methods=["POST"])
+@admin_bp.route("/analytics/query", methods=["POST"])
 @login_required
 @require_admin
 @with_json()
@@ -200,7 +200,7 @@ def admin_analytics_query(data: dict[str, Any]) -> ResponseReturnValue:
 	return jsonify({"columns": columns, "rows": parsed_rows})
 
 
-@bp.route("/active_job_count")
+@admin_bp.route("/active_job_count")
 @login_required
 @require_admin
 def admin_active_job_count() -> Response:

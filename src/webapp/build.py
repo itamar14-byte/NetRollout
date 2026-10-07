@@ -23,8 +23,8 @@ from src.encryption import init_encryption, require_key_in_container
 from src.jobs import JobStore, RolloutOrchestrator, clear_stale_jobs
 from src.rollout.engine import endpoint
 from src.runtime import VERSION, StartupError, in_container, source_url
-from src.webapp.blueprints.admin_backups import bp as admin_backups_bp
-from src.webapp.blueprints.admin_observability import bp as admin_observability_bp
+from src.webapp.blueprints.admin_backups import backups_bp as admin_backups_bp
+from src.webapp.blueprints.admin_observability import admin_bp as admin_observability_bp
 from src.webapp.blueprints.admin_servers import bp as admin_servers_bp
 from src.webapp.blueprints.admin_settings import bp as admin_settings_bp
 from src.webapp.blueprints.admin_users import bp as admin_users_bp
@@ -33,7 +33,7 @@ from src.webapp.blueprints.auth import bp as auth_bp
 from src.webapp.blueprints.inventory import bp as inventory_bp
 from src.webapp.blueprints.jobs import bp as jobs_bp
 from src.webapp.blueprints.mappings import bp as mappings_bp
-from src.webapp.blueprints.properties import bp as properties_bp
+from src.webapp.blueprints.properties import properties_bp
 from src.webapp.blueprints.rollout import bp as rollout_bp
 from src.webapp.blueprints.security import bp as security_bp
 from src.webapp.blueprints.system import bp as system_bp

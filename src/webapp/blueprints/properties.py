@@ -10,11 +10,11 @@ from src.db.tables import PropertyDefinition
 from src.webapp.flask_app import current_app
 from src.webapp.utils import ok, err, SYSTEM_PROPERTIES
 
-bp = Blueprint('properties', __name__, url_prefix='/properties')
+properties_bp = Blueprint('properties', __name__, url_prefix='/properties')
 
 
 ##############################Routes#######################################
-@bp.route("")
+@properties_bp.route("")
 @login_required
 def properties() -> str:
 	"""The properties page: the system properties and the user's own."""
@@ -23,8 +23,8 @@ def properties() -> str:
 	                       user_props=user_props, active_section="properties")
 
 
-@bp.route("/create", methods=["POST"])
-@bp.route("/quick_create", methods=["POST"])
+@properties_bp.route("/create", methods=["POST"])
+@properties_bp.route("/quick_create", methods=["POST"])
 @login_required
 def properties_create() -> ResponseReturnValue:
 	"""A new property of the user's: JSON {name, label, icon?, is_list?}. The
@@ -58,7 +58,7 @@ def properties_create() -> ResponseReturnValue:
 	return ok(id=prop_id, name=name, label=label, icon=icon, is_list=is_list)
 
 
-@bp.route("/<uuid:prop_id>/edit", methods=["POST"])
+@properties_bp.route("/<uuid:prop_id>/edit", methods=["POST"])
 @login_required
 def properties_edit(prop_id: uuid.UUID) -> ResponseReturnValue:
 	"""Change a property's label, icon or list-ness (not its name): JSON."""
@@ -77,7 +77,7 @@ def properties_edit(prop_id: uuid.UUID) -> ResponseReturnValue:
 	)
 
 
-@bp.route("/<uuid:prop_id>/delete", methods=["POST"])
+@properties_bp.route("/<uuid:prop_id>/delete", methods=["POST"])
 @login_required
 def properties_delete(prop_id: uuid.UUID) -> ResponseReturnValue:
 	"""Delete one of the user's properties."""
