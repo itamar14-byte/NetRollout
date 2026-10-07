@@ -21,7 +21,7 @@ def helper(config, **status):
 	(config / pa.STATUS_FILE).write_text(json.dumps(status))
 
 
-def request_id(config):
+def request_id():
 	return pa.read_request()["id"]
 
 
@@ -128,7 +128,7 @@ def test_a_trial_then_its_confirmation(home):
 	confirming it succeeds and shows "confirming"; the helper's applied status
 	then gives applied on the new port."""
 	pa.request_port(8443)
-	rid = request_id(home)
+	rid = request_id()
 	helper(home, state="trying", port=443, trying=8443, id=rid, deadline=time.time() + 120)
 	s = pa.state(8443)
 	assert s["state"] == "trying" and s["trying"] == 8443 and s["id"] == rid
@@ -143,7 +143,7 @@ def test_a_rollback_shows_the_helpers_reason(home):
 	"""A rollback for this request shows "rolled_back" with the helper's message,
 	still serving the old port; a new request is "waiting" again."""
 	pa.request_port(8443)
-	rid = request_id(home)
+	rid = request_id()
 	helper(home, state="rolled_back", port=443, id=rid, message="not confirmed within 120 s")
 	s = pa.state(8443)
 	assert s["state"] == "rolled_back" and s["message"] == "not confirmed within 120 s"
@@ -165,7 +165,7 @@ def test_confirm_refuses_what_is_not_a_live_trial(home):
 	"""confirm refuses with a message: no trial running, another id, the page reached
 	through the old port, or past the deadline ("Too late"); nothing is confirmed."""
 	pa.request_port(8443)
-	rid = request_id(home)
+	rid = request_id()
 	assert "no port change waiting" in pa.confirm(rid, 8443)
 	helper(home, state="trying", port=443, trying=8443, id=rid, deadline=time.time() + 120)
 	assert "no port change waiting" in pa.confirm("other", 8443)

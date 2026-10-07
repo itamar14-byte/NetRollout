@@ -504,7 +504,7 @@ def last_active(client):
 		return s.get(_ext.LAST_ACTIVE)
 
 
-def test_inactivity_signs_out_and_comes_back_after_signing_in(
+def test_inactivity_signs_out_and_remembers_the_page(
 		client_for, make_user, session_scope, fresh_idle_limit):
 	"""16 minutes idle (default limit 15) ends the session: the page redirects
 	to the sign-in with ?next= set to it, and auth.session_expired is audited

@@ -355,7 +355,8 @@ def test_drain_records_queued_jobs_and_lets_running_ones_finish(
 		release.set()
 		assert done.wait(5), "drain didn't return once the running job ended"
 	assert orch.counts() == {"running": 0, "queued": 0}
-	assert {r.device_ip for r in _rows(orch, "cancelled")} == 	       {"10.0.0.2", "10.0.0.3"}
+	assert {r.device_ip for r in _rows(orch, "cancelled")} == \
+	       {"10.0.0.2", "10.0.0.3"}
 
 
 def test_drain_deadline_cancels_running_jobs(make_orchestrator):

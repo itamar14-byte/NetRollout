@@ -105,10 +105,16 @@ def test_switch_there_and_back_without_a_restart(app, admin, client_for, make_us
 
 
 def test_refused_while_rollouts_run(app, admin, client_for, monkeypatch, other_redis):
-	"""Switch back with a rollout running (on the bundled Redis) answers 409."""
+	"""A switch to another Redis while a rollout runs is refused (409, saying
+	why) and NetRollout stays on its Redis - the rollout's live state is there."""
 	monkeypatch.setattr(app.orchestrator, "counts", lambda: {"running": 1, "queued": 0})
-	resp = client_for(admin, xhr=True).post("/admin/server/redis/back")
-	assert resp.status_code in (409,)
+	parts = app.backend.redis.config.place()
+	resp = client_for(admin, xhr=True).post("/admin/server/redis/save", json={
+		"host": parts[0], "port": str(parts[1]), "db": str(OTHER_DB),
+		"password": app.backend.redis.config.get_url().split(":")[2].split("@")[0]})
+	assert resp.status_code == 409
+	assert resp.json["message"].startswith("Rollouts are running")
+	assert app.backend.redis.config.place() == parts
 
 
 def test_nothing_to_switch_back_to_on_the_bundled_redis(admin, client_for, other_redis):

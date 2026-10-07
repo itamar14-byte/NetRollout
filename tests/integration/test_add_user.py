@@ -60,11 +60,11 @@ def test_an_admin_can_be_added(admin, client_for, session_scope):
 def test_refused_in_words(admin, client_for, session_scope, changes, message):
 	"""A missing username / email / full name, an email without @, a username
 	over 64 characters or an unknown role is refused with 422 and a message
-	saying why; no user with the form's email is created."""
+	saying why; no user is created (the admin is the only one)."""
 	resp = add(client_for(admin, xhr=True), **changes)
 	assert resp.status_code == 422 and message in resp.json["message"]
 	with session_scope() as s:
-		assert s.query(User).filter(User.email.in_(["dana@corp.example"])).count() == 0
+		assert s.query(User).filter(User.id != admin.id).count() == 0
 
 
 def test_a_taken_username_or_email_is_refused(admin, client_for, make_user):

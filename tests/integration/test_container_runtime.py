@@ -75,11 +75,12 @@ def test_health_is_503_when_a_service_is_down(app, monkeypatch):
 # ── Admin Restart ────────────────────────────────────────────────────────────
 
 def test_restart_when_idle_begins_at_once(admin, client_for, begins, busy):
-	"""With no rollouts, an admin's Restart answers 200 and begins one restart."""
+	"""With no rollouts, an admin's Restart answers 200 and begins one restart,
+	with the usual drain deadline (drain_seconds())."""
 	busy()
 	resp = client_for(admin).post("/admin/server/restart", json={})
 	assert resp.status_code == 200
-	assert begins == [(pytest.approx(begins[0][0]), True)]
+	assert begins == [(drain_seconds(), True)]
 
 
 def test_restart_with_rollouts_asks_first(admin, client_for, begins, busy):

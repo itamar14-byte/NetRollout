@@ -73,7 +73,8 @@ def test_admin_cannot_disable_or_delete_self(admin, client_for, session_scope):
 	c = client_for(admin)
 	c.post(f"/admin/users/{admin.id}/disable")
 	c.post(f"/admin/users/{admin.id}/delete")
-	assert get_user(session_scope, admin.id).is_active is True
+	me = get_user(session_scope, admin.id)
+	assert me is not None and me.is_active is True
 
 
 def test_factory_admin_is_untouchable(admin, client_for, make_user,
@@ -83,7 +84,8 @@ def test_factory_admin_is_untouchable(admin, client_for, make_user,
 	factory = make_user(username="admin", role="admin")
 	client_for(admin).post(f"/admin/users/{factory.id}/demote")
 	client_for(admin).post(f"/admin/users/{factory.id}/delete")
-	assert get_user(session_scope, factory.id).role == "admin"
+	kept = get_user(session_scope, factory.id)
+	assert kept is not None and kept.role == "admin"
 
 
 def test_bulk_action(admin, client_for, make_user, session_scope):

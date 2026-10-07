@@ -597,7 +597,7 @@ def test_fortios_saves_only_when_cfg_save_isnt_automatic(vdoms, cfg_save,
 	assert sent == expected
 
 
-def test_gaia_refuses_an_expert_shell():
+def test_gaia_refuses_when_the_expert_shell_stays():
 	"""Gaia whose prompt stays an expert/`#` shell: nothing is sent, the push isn't
 	applied, and the log says the account has the wrong shell."""
 	for prompt in ("[Expert@gw-1:0]#", "gw-1#"):

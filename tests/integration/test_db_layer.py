@@ -207,7 +207,7 @@ def test_install_honours_pg_schema(scratch_db):
 def test_cli_migrates_from_pg_vars_without_database_url(scratch_db):
 	"""The alembic CLI, given only PG_* variables (no DATABASE_URL), migrates that
 	database to head."""
-	# Every PG_* var is set explicitly: config.env is loaded without override,
+	# Every PG_* var is set explicitly: config/runtime.env is loaded without override,
 	# so anything left unset would be filled from the developer's live config
 	env = {k: v for k, v in os.environ.items()
 	       if k != "DATABASE_URL" and not k.startswith("PG_")}

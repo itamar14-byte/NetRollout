@@ -107,7 +107,8 @@ def test_profiles_are_private(client_for, make_user, make_profile, db_get):
 	client_for(other).post(f"/security/{pid}/edit", data={
 		"username": "stolen", "password": "x"})
 	client_for(other).post(f"/security/{pid}/delete")
-	assert db_get(SecurityProfile, pid).username == "netops"
+	kept = db_get(SecurityProfile, pid)
+	assert kept is not None and kept.username == "netops"
 
 
 @pytest.mark.parametrize("tcp_ok,connect_error,expected", [

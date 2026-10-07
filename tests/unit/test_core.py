@@ -93,8 +93,9 @@ class TestValidatePort(unittest.TestCase):
 		self.assertTrue(validation.validate_port("22"))
 
 	def test_min_port(self):
-		"""Port 0 fails validate_port."""
+		"""Port 0 fails validate_port; 1, the lowest, passes."""
 		self.assertFalse(validation.validate_port("0"))
+		self.assertTrue(validation.validate_port("1"))
 
 	def test_max_port(self):
 		"""Port 65535, the highest, passes validate_port."""
@@ -306,6 +307,7 @@ class TestMsg(unittest.TestCase):
 		logger = RolloutLogger(webapp=True, verbose=False)
 		result = logger._msg("ok", "green")
 		self.assertIn("text-success", result)
+		self.assertIn("ok", result)
 
 	def test_webapp_no_color(self):
 		"""In the web app, a message without a colour is returned unchanged."""
@@ -810,7 +812,8 @@ class TestRolloutEnginePushConfig(unittest.TestCase):
 
 	@patch("netmiko.ConnectHandler")
 	def test_multiple_devices_all_attempted(self, mock_ch):
-		"""With three devices, each is connected to once and no cancel is signalled."""
+		"""With three devices, each is connected to once, each has its result
+		(applied), and no cancel is signalled."""
 		mock_conn = MagicMock()
 		mock_conn.send_config_set.return_value = "ok"
 		mock_ch.return_value = mock_conn
@@ -820,6 +823,8 @@ class TestRolloutEnginePushConfig(unittest.TestCase):
 		cancel_signal, push_results = engine._push_config(self.cancel, self.logger)
 		self.assertIsNone(cancel_signal)
 		self.assertEqual(mock_ch.call_count, 3)
+		self.assertEqual(sorted(push_results), [0, 1, 2])
+		self.assertTrue(all(r.applied for r in push_results.values()))
 
 
 # ---------------------------------------------------------------------------
@@ -1148,8 +1153,9 @@ class TestFullRolloutAndVerifyPipeline(unittest.TestCase):
 	@patch("netmiko.ConnectHandler")
 	@patch("src.core.Device.from_inventory")
 	def test_full_pipeline_cancel_mid_rollout(self, mock_from_inv, mock_netmiko_ch):
-		"""A cancel set while the device connects (which then raises) still gives a
-		result list with one entry for the device."""
+		"""A cancel set while the device connects (which then fails) still records
+		the device: one result, failed - it was already being connected to, so
+		it isn't counted as cancelled."""
 		device = self._make_device()
 		mock_from_inv.return_value = device
 
@@ -1171,8 +1177,7 @@ class TestFullRolloutAndVerifyPipeline(unittest.TestCase):
 		)
 		logger = RolloutLogger(webapp=False, verbose=False)
 		result = engine.run(cancel, logger)
-		self.assertIsInstance(result, list)
-		self.assertEqual(len(result), 1)
+		self.assertEqual([r["status"] for r in result], ["failed"])
 
 
 # The live-server rate-limit test that used to live here is replaced by a

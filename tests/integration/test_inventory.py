@@ -164,10 +164,9 @@ def test_csv_import_tolerates_blanks_and_needs_no_credentials(
 	       "10.3.3.2,not_a_platform,22,x\n"
 	       "10.3.3.3,arista_eos,22,edge-3\n")
 	client = client_for(user)
-	with patch("src.validation.tcp_reachable", return_value=True):
-		client.post("/inventory/import_csv", data={
-			"csv_file": (io.BytesIO(csv.encode()), "devices.csv")},
-			content_type="multipart/form-data")
+	client.post("/inventory/import_csv", data={
+		"csv_file": (io.BytesIO(csv.encode()), "devices.csv")},
+		content_type="multipart/form-data")
 	with session_scope() as s:
 		rows = sorted((d.ip, d.label) for d in
 		              s.query(Inventory).filter_by(user_id=user.id))
@@ -319,7 +318,8 @@ def test_csv_import_partial_credentials_get_no_profile(client_for, make_user,
 	                   "10.8.8.1,cisco_ios,22,a,admin,\n")
 	assert devices_of(session_scope, user)["a"].sec_profile_id is None
 	assert profiles_of(session_scope, user) == {}
-	assert "1 device imported without a profile (username and password are " 	       "both needed): a" in flashes(client)
+	assert "1 device imported without a profile (username and password are " \
+	       "both needed): a" in flashes(client)
 
 
 def test_csv_import_does_not_check_reachability(client_for, make_user,

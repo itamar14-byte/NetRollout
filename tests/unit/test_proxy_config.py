@@ -38,7 +38,7 @@ def test_no_hostname_means_no_canonical_name(home):
 	assert site(home) == "NETROLLOUT_HOSTNAME=\nNETROLLOUT_HTTPS_PORT=443\n"
 
 
-def test_the_port_is_the_published_one_not_the_setting(home, monkeypatch):
+def test_the_applied_port_comes_from_the_environment(home, monkeypatch):
 	"""applied_https_port is the published port from the environment (443 when it
 	isn't a number): the System Settings port waits for `netrollout apply`, and
 	redirects must keep the published one meanwhile."""

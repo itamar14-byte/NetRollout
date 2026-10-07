@@ -59,11 +59,14 @@ def test_registration_refuses_a_weak_password(client_for, session_scope,
 
 def test_registration_refuses_the_username_inside_the_password(client_for,
                                                                session_scope):
-	"""An access request whose password contains the username (any case)
-	creates no user."""
-	client_for().post("/register", data={
+	"""An access request whose password contains the username (any case) is
+	refused with the password rule's reason and creates no user."""
+	client = client_for()
+	client.post("/register", data={
 		"username": "carol", "password": "Carol2024x", "email": "c@x.io",
 		"full_name": "Carol"})
+	with client.session_transaction() as s:
+		assert [m for _, m in s["_flashes"]] == [password_problem("Carol2024x", "carol")]
 	with session_scope() as s:
 		assert s.query(User).filter_by(username="carol").count() == 0
 
@@ -210,7 +213,8 @@ def test_a_voluntary_change_needs_the_current_password(make_user, client_for,
 	page, keeps the old password and is audited with reason wrong_current."""
 	user = make_user()
 	client = client_for(user)
-	assert change(client, current="wrong-Pass-1").headers["Location"] == 	       "/account/password"
+	assert change(client, current="wrong-Pass-1").headers["Location"] == \
+	       "/account/password"
 	assert check_password_hash(get_user(session_scope, user.id).password_hash,
 	                           TEST_PASSWORD)
 	((_, success, detail),) = audits(session_scope, "auth.password_change")

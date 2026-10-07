@@ -35,7 +35,8 @@ def test_public_url_precedence():
 
 def serve(handler_body, tls=False, tmp_path=None):
 	"""A local server whose GET returns (status, headers, body) from
-	handler_body(path, host_header). Returns (port, received_hosts, stop)."""
+	handler_body(path); the Host headers it receives are collected. Returns
+	(port, received_hosts, stop)."""
 	hosts = []
 
 	class Handler(http.server.BaseHTTPRequestHandler):
