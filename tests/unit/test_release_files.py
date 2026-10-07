@@ -36,7 +36,7 @@ def test_the_app_gets_no_seeds_but_the_published_port_and_the_server_ips():
 
 
 def test_the_app_writes_backups_and_reads_grafanas_data_only():
-	"""Scheduled backups (src/backup.py): the app mounts backups/ and Grafana's volume
+	"""Scheduled backups (src/backup/archive.py): the app mounts backups/ and Grafana's volume
 	read only, readable through group 0 (its file is 640 472:0); Grafana keeps that
 	volume at /var/lib/grafana."""
 	app = compose()["services"]["app"]

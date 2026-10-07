@@ -4,8 +4,9 @@ from datetime import datetime, timedelta
 
 import pytest
 
+from src.backup.schedule import RETRY_SECONDS, due, last_slot, next_slot
 from src.db.settings import SETTINGS
-from src.webapp.backup_schedule import RETRY_SECONDS, due, last_slot, next_slot
+
 
 # Wednesday
 NOW = datetime(2026, 10, 7, 10, 30)

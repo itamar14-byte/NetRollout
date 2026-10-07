@@ -1,7 +1,7 @@
 """Backups (System Settings → Backups): the list, Back up now, Download,
 Delete — admins only, every action audited. The schedule and retention are
 ordinary System Settings; restoring stops the app, so it runs on the server
-(NetRollout Manager → Restore…, `netrollout restore`). Engine: src/backup.py."""
+(NetRollout Manager → Restore…, `netrollout restore`). Engine: src/backup/archive.py."""
 from pathlib import Path
 from typing import Any
 
@@ -9,8 +9,9 @@ from flask import Blueprint, Response, send_file
 from flask.typing import ResponseReturnValue
 from flask_login import login_required
 
-from src import backup, runtime
-from src.webapp.backup_schedule import schedule_state
+from src import runtime
+from src.backup import archive as backup
+from src.backup.schedule import schedule_state
 from src.webapp.flask_app import current_app
 from src.webapp.utils import err, ok, require_admin
 

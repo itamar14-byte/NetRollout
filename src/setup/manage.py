@@ -16,8 +16,9 @@ from typing import Any
 from cryptography.fernet import Fernet
 from packaging.version import InvalidVersion, Version
 
-from src import backup, runtime
+from src import runtime
 from src.access import certs, site_env
+from src.backup import archive as backup
 from src.setup import files
 
 # The .env keys the scripts may change; never a secret

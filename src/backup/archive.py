@@ -27,7 +27,6 @@ site.env from the restored settings at its start).
   python -m src.backup restore <backup> [--grafana-dir DIR] [--https-port N]
                                         [--key-out FILE]
 """
-import argparse
 import csv
 import io
 import json
@@ -48,15 +47,15 @@ from alembic import command as alembic_command
 from alembic.config import Config as AlembicConfig
 from alembic.script import ScriptDirectory
 from cryptography.fernet import Fernet, InvalidToken
-from dotenv import load_dotenv
 from packaging.version import InvalidVersion, Version
 from sqlalchemy import MetaData, Table, inspect, insert, text, update
 from sqlalchemy.engine import Connection, Engine
 
 from src import runtime
-from src.db.connections import ENCRYPTED_COLUMNS, FERNET_PREFIX, PostgresConfig, PostgresConnection
+from src.db.connections import ENCRYPTED_COLUMNS, FERNET_PREFIX
 from src.db.tables import AuditLog, Base, SystemSetting
 from src.encryption import read_key
+
 
 FORMAT = 1
 KINDS = ("manual", "scheduled", "before-restore", "before-update", "before-move")
@@ -72,7 +71,7 @@ LOCK = ".backup.lock"
 # a backup from elsewhere, staged in the backups folder by the scripts
 STAGED_PREFIX = ".restoring-"
 STALE_LOCK_SECONDS = 2 * 3600
-ALEMBIC_INI = Path(__file__).resolve().parent / "db" / "alembic.ini"
+ALEMBIC_INI = Path(__file__).resolve().parents[1] / "db" / "alembic.ini"
 
 
 class BackupError(Exception):
@@ -613,75 +612,3 @@ def _write_like_folder(target: Path, data: bytes, folder: Path) -> None:
 		owner = folder.stat()
 		os.chown(tmp, owner.st_uid, owner.st_gid)
 	os.replace(tmp, target)
-
-
-# ── Command line ─────────────────────────────────────────────────────────────
-
-def _app_engine() -> Engine:
-	"""The database the app uses: config/runtime.env (a move to an
-	organisation's database) over the environment, as the app resolves it."""
-	load_dotenv(runtime.runtime_env(), override=True)
-	return PostgresConnection._build_engine(PostgresConfig.unload_env())
-
-
-def _resolve(name: str) -> Path:
-	""":returns: the path given, else a file of that name in the backups folder"""
-	path = Path(name)
-	if not path.is_absolute() and not path.exists():
-		path = runtime.backups_dir() / name
-	return path
-
-
-def main(argv: list[str] | None = None) -> int:
-	"""`create`, `check` or `restore` a backup (the scripts call it).
-
-	:param argv: the arguments; sys.argv's when None
-	:returns: the exit code: 0 done, 1 refused or failed (the reason on
-	 stderr)"""
-	parser = argparse.ArgumentParser(prog="python -m src.backup")
-	sub = parser.add_subparsers(dest="command", required=True)
-	make = sub.add_parser("create")
-	make.add_argument("--kind", choices=KINDS, default="manual")
-	look = sub.add_parser("check")
-	look.add_argument("backup")
-	back = sub.add_parser("restore")
-	back.add_argument("backup")
-	back.add_argument("--grafana-dir", type=Path)
-	back.add_argument("--https-port", type=int)
-	back.add_argument("--key-out", type=Path,
-	                  help="write the backup's encryption key here (owner only)")
-	args = parser.parse_args(argv)
-	try:
-		if args.command == "create":
-			engine = _app_engine()
-			try:
-				path = create(engine, args.kind)
-			finally:
-				engine.dispose()
-			print(f"Backed up: {path.name}")
-		elif args.command == "check":
-			m = check(_resolve(args.backup))
-			print(f"NetRollout {m.version}, {m.created} ({m.kind}): "
-			      f"{sum(m.tables.values())} database rows, "
-			      f"{'Grafana, ' if m.grafana else ''}{m.logs} rollout logs")
-		else:
-			engine = _app_engine()
-			try:
-				done = restore(_resolve(args.backup), engine,
-				               https_port=args.https_port,
-				               grafana_target=args.grafana_dir)
-			finally:
-				engine.dispose()
-			if args.key_out:
-				args.key_out.write_bytes(done.key + b"\n")
-				_private(args.key_out)
-			print(f"Restored: {shown(_resolve(args.backup))} "
-			      f"(NetRollout {done.manifest.version}, {done.manifest.created})")
-	except BackupError as e:
-		print(str(e), file=sys.stderr)
-		return 1
-	return 0
-
-
-if __name__ == "__main__":
-	sys.exit(main())

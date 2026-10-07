@@ -9,7 +9,8 @@ from dataclasses import asdict
 
 import pytest
 
-from src import backup
+from src.backup import archive as backup
+
 
 HEAD_KNOWN = "v1_0_0_baseline"
 

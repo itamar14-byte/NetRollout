@@ -6,10 +6,9 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from src import backup
+from src.backup import archive as backup, schedule as backup_schedule
 from src.db.settings import seed_settings
 from src.db.tables import AuditLog
-from src.webapp import backup_schedule
 
 pytestmark = [pytest.mark.postgres, pytest.mark.redis]
 

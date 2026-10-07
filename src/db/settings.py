@@ -184,7 +184,7 @@ SETTINGS: dict[str, Setting] = {s.key: s for s in [
 	        "logs don't count. However active, signing in is required again "
 	        "after 12 hours.",
 	        "Sessions", 15, minimum=5, maximum=480, applies="within 30 s"),
-	# ── Backups (src/webapp/backup_schedule.py runs them) ──
+	# ── Backups (src/backup/schedule.py runs them) ──
 	Setting("backup_schedule", "Scheduled backup",
 	        "A backup of the database, Grafana's dashboards, the certificate "
 	        "and the rollout logs, into the backups folder on the server. "

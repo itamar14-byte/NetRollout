@@ -1,6 +1,6 @@
 """Scheduled backups (System Settings → Backups): the app makes them itself,
 from a daemon thread, so they need nothing on the host. The engine is
-src/backup.py.
+src/backup/archive.py.
 
 Every CHECK_SECONDS the thread asks whether a scheduled time has passed
 since the newest scheduled backup in the folder — a time missed while the
@@ -18,9 +18,11 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from src import backup, runtime
+from src import runtime
+from src.backup import archive as backup
 from src.db.connections import BackendServices
 from src.db.tables import AuditLog
+
 
 CHECK_SECONDS = 30
 FIRST_CHECK_SECONDS = 120     # not during the start itself

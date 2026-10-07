@@ -2,7 +2,7 @@
 database part, without the web app: check a target, prepare it (the SQL a
 DBA runs, or done with an administrator login given once), copy the data.
 
-The copy is the backup engine's (src/backup.py): a `before-move` backup of
+The copy is the backup engine's (src/backup/archive.py): a `before-move` backup of
 the current database (one consistent snapshot - and a way back), restored
 into the target through NetRollout's own migrations in one transaction (only
 NetRollout's tables; anything else in that schema is never touched), the key
@@ -21,7 +21,7 @@ from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
 
-from src import backup
+from src.backup import archive as backup
 from src.db.connections import PostgresConfig
 from src.db.install import GRAFANA_ROLE
 from src.db.tables import Base
