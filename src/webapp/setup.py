@@ -1,6 +1,14 @@
+"""Building the web app at start: the secret and encryption checks, the
+services (backend, orchestrator, web helpers, shutdown, maintenance,
+database move), sessions in Redis, the request hooks, the metrics, and the
+clean start (everyone signed out, leftover rollouts cleared)."""
 import os
 import secrets
+from collections.abc import Iterator, Mapping
+from typing import Any
 
+from flask import Flask, Request, Response
+from flask.sessions import SessionMixin
 from flask_session import Session
 from flask_session.redis import RedisSessionInterface
 from prometheus_client.core import REGISTRY, GaugeMetricFamily
@@ -8,7 +16,7 @@ from sqlalchemy.exc import OperationalError
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from src.db.backend import BackendServices
-from src.db.redis_db import REDIS_UNAVAILABLE
+from src.db.redis_db import REDIS_UNAVAILABLE, RedisConnection
 from src.encryption import init_encryption, require_key_in_container
 from src.job_store import JobStore
 from src.orchestration import RolloutOrchestrator
@@ -45,36 +53,47 @@ VENDOR_LOGOS = {
 ########Class definitions###################################################
 
 class _SafeRedisSessionInterface(RedisSessionInterface):
-	def __init__(self, app, backend: BackendServices, **kwargs):
+	"""flask_session's Redis sessions, kept working when Redis isn't: a
+	request then gets an empty session (signed out) instead of an error, and
+	the live client is used per request (a Redis switch replaces it)."""
+
+	def __init__(self, app: Flask, backend: BackendServices, **kwargs: Any) -> None:
+		""":param kwargs: as RedisSessionInterface's (key_prefix, permanent)"""
 		self._backend = backend
 		super().__init__(app, client=backend.redis.client, **kwargs)
 
 	# The live client, looked up per request: a Server Management Redis switch
 	# closes the old one, and holding it logged everyone out until a restart
 	@property
-	def client(self):
+	def client(self) -> Any:
 		return self._backend.redis.client
 
 	@client.setter
-	def client(self, _value):
+	def client(self, _value: Any) -> None:
 		pass   # set by the parent's __init__; the backend's is always used
 
-	def open_session(self, app, request):
+	def open_session(self, app: Flask, request: Request) -> SessionMixin:
+		""":returns: the request's session; an empty one when Redis is down"""
 		try:
 			return super().open_session(app, request)
 		except REDIS_UNAVAILABLE:
 			return self.session_class()
 
-	def save_session(self, app, session, response):
+	def save_session(self, app: Flask, session: SessionMixin,
+	                 response: Response) -> None:
+		"""Store the session; skipped when Redis is down (signed out next time)."""
 		try:
 			super().save_session(app, session, response)
 		except REDIS_UNAVAILABLE:
 			pass
 
 
-def resolve_secret_key(env=None) -> str:
+def resolve_secret_key(env: Mapping[str, str] | None = None) -> str:
 	"""SECRET_KEY signs the session cookies: a known value would let anyone
 	forge a sign-in, so there is no built-in default.
+
+	:param env: where to read it; the environment when None
+	:returns: the key - a random one per run in development
 	:raises StartupError: missing in a container (the installer generates it)"""
 	key = (env if env is not None else os.environ).get("SECRET_KEY", "").strip()
 	if key:
@@ -90,7 +109,10 @@ def resolve_secret_key(env=None) -> str:
 	return secrets.token_hex(32)
 
 
-def configure_app(app, redis, secret_key: str):
+def configure_app(app: Flask, redis: RedisConnection, secret_key: str) -> None:
+	"""Flask's settings: the secret, sessions in Redis (session cookies,
+	Secure, HttpOnly, SameSite=Lax), the proxy headers nginx sets, and the
+	templates' globals (vendor logos, version, source link, monitoring)."""
 	app.config["SECRET_KEY"] = secret_key
 
 	app.config["SESSION_TYPE"] = "redis"
@@ -104,7 +126,8 @@ def configure_app(app, redis, secret_key: str):
 
 	Session(app)
 
-	app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+	# Flask's documented way to add WSGI middleware (mypy sees a method replaced)
+	app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)  # type: ignore[method-assign]
 	app.jinja_env.globals['VENDOR_LOGOS'] = VENDOR_LOGOS
 	app.jinja_env.globals['NR_VERSION'] = VERSION        # the footer
 	app.jinja_env.globals['NR_SOURCE_URL'] = source_url()
@@ -113,13 +136,15 @@ def configure_app(app, redis, secret_key: str):
 		p.strip() for p in os.environ.get("NETROLLOUT_MONITORING", "").split(",")]
 
 
-# set up prometheus scraping
 class RolloutSessionCollector:
-	def __init__(self, redis_conn):
+	"""Prometheus' rollout gauges, read from Redis at each scrape:
+	netrollout_active_jobs and netrollout_pending_jobs."""
+
+	def __init__(self, redis_conn: RedisConnection) -> None:
 		self.redis = redis_conn
 
-
-	def collect(self):
+	def collect(self) -> Iterator[GaugeMetricFamily]:
+		""":returns: the two gauges - 0 when Redis is down"""
 		try:
 			active, pending = JobStore(self.redis).counts()
 		except REDIS_UNAVAILABLE:
@@ -140,14 +165,16 @@ class RolloutSessionCollector:
 		yield pending_metric
 
 
-def register_metrics(redis_conn):
+def register_metrics(redis_conn: RedisConnection) -> None:
+	"""The rollout gauges join Prometheus' registry (/metrics)."""
 	REGISTRY.register(RolloutSessionCollector(redis_conn))
 
 
-def register_server_state(app):
-	# Every page shows the stop / restart banner while the server drains
+def register_server_state(app: NetRolloutApp) -> None:
+	"""Every page gets the server's state, to show the stop / restart banner
+	while it drains."""
 	@app.context_processor
-	def server_state():
+	def server_state() -> dict[str, Any]:
 		if not app.orchestrator.draining:
 			return {"server_draining": False}
 		return {"server_draining": True,
@@ -155,9 +182,12 @@ def register_server_state(app):
 		        "server_running_rollouts": app.orchestrator.counts()["running"]}
 
 
-def init_app_encryption(backend: BackendServices):
-	# Fail fast: raises EncryptionStartupError if the key is malformed,
-	# missing while encrypted data exists, or doesn't match stored data
+def init_app_encryption(backend: BackendServices) -> None:
+	"""Load the encryption key and check it against a stored credential (an
+	unreachable database: not checked, said so).
+
+	:raises EncryptionStartupError: the key is malformed, missing while
+	 encrypted data exists, or doesn't match the stored data"""
 	try:
 		sample = backend.encrypted_sample()
 		db_checked = True
@@ -166,7 +196,7 @@ def init_app_encryption(backend: BackendServices):
 	init_encryption(sample, db_checked=db_checked)
 
 
-def clear_stale_jobs(redis_conn):
+def clear_stale_jobs(redis_conn: RedisConnection) -> None:
 	"""Rollout jobs live only in the process running them: any job state in
 	Redis at startup is left over from a crash and would show as a job that
 	never ends (and skew the metrics). Never stops the start."""
@@ -181,7 +211,7 @@ def clear_stale_jobs(redis_conn):
 		      f"previous run that didn't stop cleanly", flush=True)
 
 
-def clear_sessions(redis_conn):
+def clear_sessions(redis_conn: RedisConnection) -> None:
 	"""Every start signs everyone out — deliberately (2026-10-04): a privileged
 	network-management console starts clean after a restart, update or
 	reboot, like a firewall's management plane. Rollouts don't depend on
@@ -195,7 +225,12 @@ def clear_sessions(redis_conn):
 
 
 ###########App initialization#########################################
-def launch_app():
+def launch_app() -> NetRolloutApp:
+	"""Build the app with its services, in the order they depend on each
+	other; the caller serves it.
+
+	:raises StartupError: a secret missing in a container, a bad encryption
+	 key - NetRollout must not start"""
 	# Before touching any service: a missing secret must stop the start
 	secret_key = resolve_secret_key()
 	require_key_in_container()

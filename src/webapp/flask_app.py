@@ -8,6 +8,7 @@ the rest are checked like any other attribute.
 from typing import TYPE_CHECKING, cast
 
 from flask import Flask, current_app as flask_current_app
+from flask_session.redis import RedisSessionInterface
 
 if TYPE_CHECKING:   # annotations only: these modules import this one's users
 	from src.db.backend import BackendServices
@@ -26,6 +27,7 @@ class NetRolloutApp(Flask):
 	shutdown: "Shutdown"                  # stop / restart with a drain
 	maintenance: "Maintenance"            # a database move's pause and lock
 	db_move: "DatabaseMove"               # Server Management's database move
+	session_interface: RedisSessionInterface   # sessions live in Redis
 
 
 # The request's app, typed (the same LocalProxy as flask.current_app)

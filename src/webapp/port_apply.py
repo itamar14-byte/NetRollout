@@ -16,7 +16,9 @@ import json
 import os
 import secrets
 import time
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any, cast
 
 from src import runtime, site_env
 from src.db.settings import SETTINGS
@@ -32,17 +34,19 @@ WAIT_SECONDS = 30
 
 
 def _path(name: str) -> Path:
+	""":returns: the file in the config folder"""
 	return runtime.config_dir() / name
 
 
-def _port(value) -> int | None:
+def _port(value: object) -> int | None:
+	""":returns: the value as a valid HTTPS port; None when it isn't one"""
 	try:
-		return SETTINGS["https_port"].parse(value)
+		return cast(int, SETTINGS["https_port"].parse(value))
 	except (ValueError, TypeError):
 		return None
 
 
-def read_status() -> dict | None:
+def read_status() -> dict[str, Any] | None:
 	"""The helper's last answer; None when no helper reports here (dev,
 	before stage 9, your own reverse proxy). Unreadable → state "unknown"."""
 	try:
@@ -54,7 +58,7 @@ def read_status() -> dict | None:
 	return data if isinstance(data, dict) else {"state": "unknown"}
 
 
-def read_request() -> dict | None:
+def read_request() -> dict[str, Any] | None:
 	"""The pending request as {"port", "id", "time"}; None when there is
 	none."""
 	try:
@@ -72,6 +76,7 @@ def read_request() -> dict | None:
 
 
 def _confirmed_id() -> str:
+	""":returns: the request id an admin's browser confirmed ("" none)"""
 	try:
 		return site_env.read().get(site_env.PORT_CONFIRMED, "")
 	except OSError:
@@ -86,18 +91,20 @@ def serving_port() -> int:
 	if status:
 		if (status.get("state") == "trying" and status.get("id")
 				and status.get("id") == _confirmed_id()
-				and _port(status.get("trying"))):
-			return _port(status["trying"])
-		if _port(status.get("port")):
-			return _port(status["port"])
+				and (trial := _port(status.get("trying")))):
+			return trial
+		if port := _port(status.get("port")):
+			return port
 	return _port(os.environ.get(PUBLISHED_PORT_ENV, "443")) or 443
 
 
-def request_port(port: int):
+def request_port(port: int) -> Callable[[], None]:
 	"""Ask for `port` (a new request id each time — also for "Try again").
-	Returns undo(), which puts the previous request back. Raises ValueError
-	for an invalid port, OSError when site.env can't be written."""
-	port = SETTINGS["https_port"].parse(port)
+
+	:returns: undo(), which puts the previous request back
+	:raises ValueError: an invalid port
+	:raises OSError: site.env can't be written"""
+	port = cast(int, SETTINGS["https_port"].parse(port))
 	current = site_env.read()
 	previous = {k: current.get(k) for k in _REQUEST_KEYS}
 	site_env.update({site_env.PORT_REQUEST: str(port),
@@ -105,17 +112,18 @@ def request_port(port: int):
 	                 site_env.PORT_REQUESTED_AT: str(int(time.time())),
 	                 site_env.PORT_CONFIRMED: None})
 
-	def undo():
+	def undo() -> None:
 		site_env.update(previous)
 	return undo
 
 
 def confirm(apply_id: str, reached_port: int) -> str | None:
 	"""An admin's browser reached NetRollout on `reached_port` during the
-	trial `apply_id`: tell the helper to keep the new port. Returns None, or
-	why it can't be confirmed. (`reached_port` comes from the request's Host
-	header — it can only fool the admin sending it, which proves nothing to
-	anyone else anyway.)"""
+	trial `apply_id`: tell the helper to keep the new port. (`reached_port`
+	comes from the request's Host header — it can only fool the admin sending
+	it, which proves nothing to anyone else anyway.)
+
+	:returns: None when confirmed, else why it can't be"""
 	status = read_status() or {}
 	if status.get("state") != "trying" or not apply_id \
 			or status.get("id") != apply_id:
@@ -129,7 +137,7 @@ def confirm(apply_id: str, reached_port: int) -> str | None:
 	return None
 
 
-def state(saved_port: int) -> dict:
+def state(saved_port: int) -> dict[str, Any]:
 	"""What the page shows about the port (the setting holds `saved_port`):
 	{"state", "saved", "serving", ...}. States: applied (nothing pending),
 	manual (no helper: run `netrollout apply`), waiting (the helper hasn't
@@ -138,7 +146,7 @@ def state(saved_port: int) -> dict:
 	helper is dropping the old port), rolled_back / failed (the helper's
 	reason in "message")."""
 	serving = serving_port()
-	out = {"saved": saved_port, "serving": serving}
+	out: dict[str, Any] = {"saved": saved_port, "serving": serving}
 	status = read_status()
 	request = read_request()
 	if status and request and request["id"] and status.get("id") == request["id"]:

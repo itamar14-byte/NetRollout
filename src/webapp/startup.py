@@ -22,6 +22,7 @@ import sys
 import threading
 import time
 import webbrowser
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
@@ -61,6 +62,7 @@ def resolve_public_url(setting: str | None = None) -> tuple[str, str]:
 
 @dataclass
 class Probe:
+	"""One check of an address: did NetRollout - this instance - answer?"""
 	ok: bool
 	reason: str                  # human-readable; "" when ok
 	unreachable: bool = False    # couldn't connect at all (wrong host/port?)
@@ -153,7 +155,8 @@ def announcement(app_port: int, public_url: str | None, source: str,
 		        f"  (reverse proxy verified; Public URL {source})", public_url)
 	if public_url and local and local.ok:
 		return (f"nginx is up and forwarding to this instance, but "
-		        f"{public_url} isn't reachable from this machine ({public.reason}).\n"
+		        f"{public_url} isn't reachable from this machine "
+		        f"({public.reason if public else 'not checked'}).\n"
 		        f"  If other computers can open it, you're fine; otherwise check "
 		        f"DNS / firewall. (Public URL {source})\n{fallback}", direct)
 	if public_url:
@@ -177,7 +180,7 @@ def announcement(app_port: int, public_url: str | None, source: str,
 
 # ── Opening the browser ──────────────────────────────────────────────────────
 
-def should_open_browser(env=os.environ, platform: str = sys.platform,
+def should_open_browser(env: Mapping[str, str] = os.environ, platform: str = sys.platform,
                         container: bool | None = None) -> bool:
 	"""Open on a normal launch at a desktop. Not in a container, not on an
 	admin-restart relaunch, not when opted out, not on a Linux machine with
@@ -210,6 +213,8 @@ def container_announcement(public_url: str | None) -> str:
 # ── Wiring ───────────────────────────────────────────────────────────────────
 
 def _wait_until_serving(port: int, token: str, deadline: float) -> bool:
+	""":returns: whether this instance answered on `port` before `deadline`
+	 (time.monotonic())"""
 	while time.monotonic() < deadline:
 		if probe(f"http://127.0.0.1:{port}", token, timeout=1.0).ok:
 			return True
@@ -217,12 +222,17 @@ def _wait_until_serving(port: int, token: str, deadline: float) -> bool:
 	return False
 
 
-def start_announcer(token: str, app_port: int, public_setting=None,
+def start_announcer(token: str, app_port: int,
+                    public_setting: Callable[[], str | None] | None = None,
                     open_browser: bool | None = None) -> threading.Thread:
 	"""Background thread: wait for Waitress, check the proxy, print where
-	NetRollout is available, maybe open it. public_setting: a callable
-	returning the admin's Public URL setting (or None)."""
-	def run():
+	NetRollout is available, maybe open it.
+
+	:param token: this run's instance token (the probe compares it)
+	:param public_setting: returns the admin's public address (or None)
+	:param open_browser: whether to open it; None: should_open_browser()
+	:returns: the thread, started"""
+	def run() -> None:
 		if not _wait_until_serving(app_port, token,
 		                           time.monotonic() + READY_TIMEOUT):
 			print(f"[NetRollout] The app didn't answer on port {app_port} "

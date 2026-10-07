@@ -15,45 +15,60 @@ The state lives in this process only, never in Redis (which isn't moved and
 outlives a restart): a restart mid-move ends maintenance, and that is safe
 because the switch is the move's last step."""
 import threading
+import uuid
+from typing import TYPE_CHECKING, Any, TypeVar
 
-from flask import render_template, request
+from flask import Response, render_template, request
+from flask.typing import ResponseReturnValue
 
 from src.webapp.flask_app import NetRolloutApp, current_app
 from src.webapp.utils import err
+
+if TYPE_CHECKING:   # annotations only: the orchestrator loads the database stack
+	from src.orchestration import RolloutOrchestrator
 
 IDLE, WAITING, LOCKED = "idle", "waiting", "locked"
 RETRY_AFTER_SECONDS = 10
 # not views of ours: the files the pages need, Prometheus' scrape (Redis only)
 ALWAYS_SERVED = {"static", "prometheus_metrics"}
+V = TypeVar("V")
 
 
-def during_maintenance(view):
+def during_maintenance(view: V) -> V:
 	"""Marks a view as still served while locked - it must not write to the
 	database (the move's progress, health, ...)."""
-	view.during_maintenance = True
+	setattr(view, "during_maintenance", True)
 	return view
 
 
 class Maintenance:
-	def __init__(self, orchestrator):
+	"""This process's maintenance state (app.maintenance): idle → waiting →
+	locked → idle."""
+
+	def __init__(self, orchestrator: "RolloutOrchestrator") -> None:
 		self._orchestrator = orchestrator
 		self._lock = threading.Lock()
 		self._state = IDLE
 		self._what = ""
 		self._progress = ""
-		self._actor_id = None
+		self._actor_id: uuid.UUID | None = None
 
 	@property
 	def state(self) -> str:
+		""":returns: IDLE, WAITING or LOCKED"""
 		return self._state
 
 	@property
 	def writes_blocked(self) -> bool:
+		""":returns: whether nothing may write (locked)"""
 		return self._state == LOCKED
 
-	def begin(self, what: str, actor_id) -> bool:
-		"""Waiting: new rollouts paused. False when something is under way
-		already (one move at a time)."""
+	def begin(self, what: str, actor_id: uuid.UUID | None) -> bool:
+		"""Waiting: new rollouts paused.
+
+		:param what: what's under way, for the banner and the page
+		:param actor_id: the admin who started it
+		:returns: False when something is under way already (one at a time)"""
 		with self._lock:
 			if self._state != IDLE:
 				return False
@@ -83,7 +98,8 @@ class Maintenance:
 			self._state, self._what, self._progress, self._actor_id = IDLE, "", "", None
 			self._orchestrator.resume()
 
-	def snapshot(self) -> dict:
+	def snapshot(self) -> dict[str, Any]:
+		""":returns: {state, what, progress, actor_id} for the pages"""
 		return {"state": self._state, "what": self._what,
 		        "progress": self._progress, "actor_id": self._actor_id}
 
@@ -94,11 +110,17 @@ def register_maintenance(app: NetRolloutApp) -> None:
 	app.maintenance = Maintenance(app.orchestrator)
 
 	@app.before_request
-	def maintenance_gate():
+	def maintenance_gate() -> Response | None:
+		"""While locked: 503 + Retry-After (JSON for a request from a page,
+		else the maintenance page) for every view not marked
+		@during_maintenance.
+
+		:returns: None: go on; else the answer"""
 		maintenance = current_app.maintenance
 		if not maintenance.writes_blocked:
 			return None
-		view = current_app.view_functions.get(request.endpoint)
+		# no endpoint (a 404): no view, so the maintenance page
+		view = current_app.view_functions.get(request.endpoint or "")
 		if request.endpoint in ALWAYS_SERVED or getattr(view, "during_maintenance", False):
 			return None
 		info = maintenance.snapshot()
@@ -106,14 +128,15 @@ def register_maintenance(app: NetRolloutApp) -> None:
 		if request.method != "GET" or request.is_json or \
 				request.headers.get("X-Requested-With") == "XMLHttpRequest" or \
 				request.headers.get("X-NR-Background") == "1" or request.args.get("_bg") == "1":
-			response = err(message, 503, maintenance=True)
+			answer: ResponseReturnValue = err(message, 503, maintenance=True)
 		else:
-			response = render_template("maintenance.html", info=info), 503
-		response = current_app.make_response(response)
+			answer = render_template("maintenance.html", info=info), 503
+		response = current_app.make_response(answer)
 		response.headers["Retry-After"] = str(RETRY_AFTER_SECONDS)
 		return response
 
 	@app.context_processor
-	def maintenance_banner():
+	def maintenance_banner() -> dict[str, Any]:
+		"""The banner's details while waiting (locked: the pages aren't served)."""
 		info = app.maintenance.snapshot()
 		return {"maintenance": info} if info["state"] == WAITING else {}

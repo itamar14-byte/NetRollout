@@ -8,9 +8,14 @@ import json
 import os
 import threading
 import time
+from collections.abc import Callable
 from datetime import datetime, time as clock, timedelta
+from typing import Any
+
+from sqlalchemy.engine import Engine
 
 from src import runtime
+from src.db.backend import BackendServices
 from src.db.db_install import run_retention
 
 RUN_AT = clock(3, 0)
@@ -26,7 +31,7 @@ def due(now: datetime, last_run: datetime | None) -> bool:
 	return now >= today and (last_run is None or last_run < today)
 
 
-def read_status() -> dict | None:
+def read_status() -> dict[str, Any] | None:
 	"""{time, ok, counts | message} of the last run, or None (never ran)."""
 	try:
 		return json.loads((runtime.config_dir() / STATUS_FILE).read_text(encoding="utf-8"))
@@ -34,7 +39,8 @@ def read_status() -> dict | None:
 		return None
 
 
-def _write_status(status: dict) -> None:
+def _write_status(status: dict[str, Any]) -> None:
+	"""Replace the status file (written aside, then renamed)."""
 	folder = runtime.config_dir()
 	folder.mkdir(parents=True, exist_ok=True)
 	tmp = folder / (STATUS_FILE + ".tmp")
@@ -42,9 +48,12 @@ def _write_status(status: dict) -> None:
 	os.replace(tmp, folder / STATUS_FILE)
 
 
-def run_once(engine, now: datetime | None = None) -> dict:
-	"""The clean-up now; the outcome written for the page and returned.
-	:raises: what the database raised (also written)"""
+def run_once(engine: Engine, now: datetime | None = None) -> dict[str, Any]:
+	"""The clean-up now; the outcome written for the page.
+
+	:param now: the run's time (tests); now when None
+	:returns: {time, ok, counts: {what: rows deleted}}
+	:raises Exception: what the database raised (also written)"""
 	now = now or datetime.now()
 	stamp = now.isoformat(timespec="seconds")
 	try:
@@ -60,6 +69,7 @@ def run_once(engine, now: datetime | None = None) -> dict:
 
 
 def _last_success() -> datetime | None:
+	""":returns: when it last succeeded (the status file); None: never"""
 	status = read_status()
 	if status and status.get("ok"):
 		try:
@@ -69,12 +79,14 @@ def _last_success() -> datetime | None:
 	return None
 
 
-def start_retention(backend, hold=lambda: False) -> None:
+def start_retention(backend: BackendServices,
+                    hold: Callable[[], bool] = lambda: False) -> None:
 	"""The daily clean-up, from a daemon thread (the database looked up each
 	time: it follows a move). Called by the web app's entry point. Never raises.
 	hold(): True while a database move runs - the clean-up waits for it."""
-	def loop():
-		last_run, retry_at = _last_success(), None      # a restart doesn't run it again
+	def loop() -> None:
+		last_run = _last_success()      # a restart doesn't run it again
+		retry_at: datetime | None = None
 		while True:
 			time.sleep(CHECK_SECONDS)
 			now = datetime.now()

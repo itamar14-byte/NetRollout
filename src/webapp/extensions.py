@@ -1,9 +1,15 @@
+"""The web app's request-wide machinery: sign-in (Flask-Login), CSRF, rate
+limits and Prometheus metrics; the session lifetime and the forced password
+change, checked before every request; the pages for an unavailable service
+and an encryption key that doesn't match."""
 import sys
 import time
 import uuid
+from typing import Any
 
 import flask_wtf.csrf as csrf_err
-from flask import request, redirect, url_for, render_template, session, flash, Response
+from flask import Flask, Response, flash, redirect, render_template, request, session, url_for
+from flask.typing import ResponseReturnValue
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from flask_login import LoginManager, current_user, logout_user
@@ -17,7 +23,7 @@ from src.db.backend import BackendServices
 from src.db.tables import User
 from src.encryption import ENV_VAR, KEY_FILE, InvalidEncryptionKeyError, \
 	key_source
-from src.webapp.flask_app import current_app
+from src.webapp.flask_app import NetRolloutApp, current_app
 from src.webapp.utils import err
 
 login_mng = LoginManager()
@@ -44,7 +50,7 @@ SIGNED_IN_AT = "nr_signed_in_at"
 LAST_ACTIVE = "nr_last_active"
 _NO_SESSION_PATHS = ("/static/", "/_netrollout/instance", "/_netrollout/health")
 _PASSIVE_PATHS = ("/rollout/stream/",)
-_IDLE_CACHE = {"at": 0.0, "seconds": None}
+_IDLE_CACHE: dict[str, Any] = {"at": 0.0, "seconds": None}
 
 
 def idle_seconds() -> int:
@@ -59,35 +65,43 @@ def idle_seconds() -> int:
 
 
 def is_background() -> bool:
+	""":returns: whether the request is the page's own (a poll, an automatic
+	 reload, the live log), not something a person did"""
 	return (request.headers.get("X-NR-Background") == "1"
 	        or request.args.get("_bg") == "1"
 	        or request.path.startswith(_PASSIVE_PATHS))
 
 
 def session_seconds_left(now: float | None = None) -> tuple[float, float]:
-	"""(idle, absolute) seconds left for the current session."""
+	"""(idle, absolute) seconds left for the current session.
+
+	:param now: the time (epoch seconds); now when None"""
 	now = now or time.time()
 	idle = idle_seconds() - (now - session.get(LAST_ACTIVE, now))
 	absolute = ABSOLUTE_SESSION_HOURS * 3600 - (now - session.get(SIGNED_IN_AT, now))
 	return idle, absolute
 
 
-def mark_signed_in():
+def mark_signed_in() -> None:
 	"""A sign-in just completed: both clocks start now."""
 	now = time.time()
 	session[SIGNED_IN_AT] = session[LAST_ACTIVE] = now
 
 
-def register_extensions(app):
-	app.metrics = PrometheusMetrics(group_by='url_rule', app=app)
+def register_extensions(app: Flask) -> None:
+	"""Flask-Login, the rate limiter, CSRF protection and Prometheus' /metrics."""
+	PrometheusMetrics(group_by='url_rule', app=app)   # adds /metrics and its hooks
 	login_mng.init_app(app)
 	conn_limit.init_app(app)
 	csrf.init_app(app)
 
 
-def register_auth(app):
+def register_auth(app: NetRolloutApp) -> None:
+	"""Who is signed in, and the checks before every request: the session's
+	lifetime, then a pending password change."""
 	@login_mng.user_loader
-	def load_user(user_id):
+	def load_user(user_id: str) -> User | None:
+		""":returns: the session's user, detached; None: unknown (signed out)"""
 		backend = app.backend
 		with backend.postgres.get_session() as db_session:
 			try:
@@ -99,7 +113,13 @@ def register_auth(app):
 			return user
 
 	@app.before_request
-	def enforce_session_lifetime():
+	def enforce_session_lifetime() -> ResponseReturnValue | None:
+		"""End a session past its idle or absolute limit (audited) - then a
+		page gets the sign-in (with ?next=), a request from a page 401 JSON,
+		Grafana's auth check a bare 401. A request a person made counts as
+		activity; a background one doesn't.
+
+		:returns: None: go on; else the answer"""
 		if request.path.startswith(_NO_SESSION_PATHS) \
 				or not current_user.is_authenticated:
 			return None
@@ -129,16 +149,19 @@ def register_auth(app):
 		return redirect(url_for("auth.home", next=request.full_path.rstrip("?")))
 
 	@app.context_processor
-	def session_lifetime_for_pages():
-		# the page's own countdown and warning (_idle_timeout.html)
+	def session_lifetime_for_pages() -> dict[str, Any]:
+		"""The idle limit, for the page's own countdown and warning
+		(_idle_timeout.html)."""
 		if not current_user.is_authenticated:
 			return {}
 		return {"NR_IDLE_SECONDS": idle_seconds()}
 
 	@app.before_request
-	def require_password_change():
-		# The seeded admin, and a user after an admin reset, can do nothing
-		# but pick their own password (or leave)
+	def require_password_change() -> ResponseReturnValue | None:
+		"""The seeded admin, and a user after an admin reset, can do nothing
+		but pick their own password (or leave).
+
+		:returns: None: go on; else the way to the change page"""
 		if not (current_user.is_authenticated
 		        and current_user.must_change_password):
 			return None
@@ -151,10 +174,12 @@ def register_auth(app):
 		return redirect(url_for("auth.change_password"))
 
 
-def register_handlers(app, backend: BackendServices):
+def register_handlers(app: Flask, backend: BackendServices) -> None:
+	"""The answers to a stale form (CSRF), an unavailable Postgres or Redis,
+	and stored data the encryption key can't decrypt."""
 
 	@app.errorhandler(csrf_err.CSRFError)
-	def handle_csrf_error(_):
+	def handle_csrf_error(_: Exception) -> ResponseReturnValue:
 		if request.is_json:
 			return err("Session expired")
 		return redirect(url_for("auth.home"))
@@ -164,7 +189,9 @@ def register_handlers(app, backend: BackendServices):
 	@app.errorhandler(OperationalError)
 	@app.errorhandler(RedisConnectionError)
 	@app.errorhandler(RedisTimeoutError)
-	def handle_service_unavailable(_):
+	def handle_service_unavailable(_: Exception) -> ResponseReturnValue:
+		""":returns: 503 - JSON for a request from a page, else the page that
+		 says which service is down and where it was looked for"""
 		if request.is_json or request.path.startswith('/rollout/stream'):
 			return err("a backend service is unavailable", 503)
 
@@ -182,7 +209,7 @@ def register_handlers(app, backend: BackendServices):
 		                       redis=res["REDIS"]), 503
 
 	@app.errorhandler(InvalidEncryptionKeyError)
-	def handle_invalid_encryption_key(e):
+	def handle_invalid_encryption_key(e: Exception) -> ResponseReturnValue:
 		"""Stored credentials can't be decrypted with the configured key —
 		fail the request cleanly instead of a bare 500. Admins get the fix;
 		everyone else is told to contact one. The server log always gets it

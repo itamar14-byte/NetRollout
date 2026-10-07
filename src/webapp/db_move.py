@@ -14,7 +14,9 @@ until the next move; audited (database.moved in the target, written by the
 copy; database.move_failed here)."""
 import threading
 import time
+import uuid
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import make_url
 
@@ -37,19 +39,25 @@ def describe(config: PostgresConfig) -> str:
 
 
 def same_database(a: PostgresConfig, b: PostgresConfig) -> bool:
+	""":returns: whether both name the same place (host, port, database,
+	 schema)"""
 	return a.place() == b.place()
 
 
 class DatabaseMove:
+	"""This process's database move (app.db_move): at most one at a time."""
+
 	def __init__(self, app: NetRolloutApp, wait_seconds: float = WAIT_SECONDS,
-	             poll_seconds: float = POLL_SECONDS):
+	             poll_seconds: float = POLL_SECONDS) -> None:
+		""":param wait_seconds: how long to wait for rollouts before giving up
+		:param poll_seconds: how often to look whether they're done"""
 		self._app = app
 		self._wait = wait_seconds
 		self._poll = poll_seconds
 		self._cancel = threading.Event()
-		self._status = {"state": IDLE}
+		self._status: dict[str, Any] = {"state": IDLE}
 
-	def status(self) -> dict:
+	def status(self) -> dict[str, Any]:
 		"""For the page: state, step, target, times, outcome."""
 		return dict(self._status)
 
@@ -59,11 +67,15 @@ class DatabaseMove:
 
 	@property
 	def running(self) -> bool:
+		""":returns: whether a move is under way (not idle nor ended)"""
 		return self._status["state"] in (WAITING, COPYING, SWITCHING)
 
-	def start(self, target: PostgresConfig, actor_id, actor: str,
+	def start(self, target: PostgresConfig, actor_id: uuid.UUID | None, actor: str,
 	          back: bool = False) -> None:
 		"""Checks the target, then moves in a thread.
+
+		:param actor_id: the admin moving it (and actor, their username)
+		:param back: a move back to the bundled database (the wording)
 		:raises move.MoveError: refused (the reason in words)"""
 		backend = self._app.backend
 		if same_database(target, backend.postgres.config):
@@ -85,18 +97,24 @@ class DatabaseMove:
 		                 name="database-move", daemon=True).start()
 
 	def cancel(self) -> bool:
-		"""Gives the move up - only while it waits for rollouts."""
+		"""Gives the move up - only while it waits for rollouts.
+
+		:returns: False: too late (or nothing to cancel)"""
 		if self._status["state"] != WAITING:
 			return False
 		self._cancel.set()
 		return True
 
 	def _step(self, state: str, step: str) -> None:
+		"""The step under way: the status, maintenance's progress, the console."""
 		self._status.update(state=state, step=step)
 		self._app.maintenance.report(step)
 		print(f"[NetRollout] database move: {step}", flush=True)
 
-	def _run(self, target: PostgresConfig, actor_id, actor: str) -> None:
+	def _run(self, target: PostgresConfig, actor_id: uuid.UUID | None,
+	         actor: str) -> None:
+		"""The move itself (its thread): wait for the lock, copy, switch.
+		Maintenance ends whatever happens; the outcome stays in the status."""
 		maintenance = self._app.maintenance
 		outcome, message = FAILED, ""
 		try:
@@ -111,7 +129,7 @@ class DatabaseMove:
 					return
 				time.sleep(self._poll)
 			self._step(COPYING, "Copying the data")
-			detail = {"from": self._status["source"], "to": self._status["target"],
+			detail: dict[str, Any] = {"from": self._status["source"], "to": self._status["target"],
 			          "by": actor}
 			copied = move.copy(self._app.backend.postgres.engine, target, detail=detail,
 			                   report=lambda step: self._step(COPYING, step))
@@ -135,7 +153,10 @@ class DatabaseMove:
 			if outcome != DONE:
 				self._audit_failure(outcome, message, actor_id, actor)
 
-	def _audit_failure(self, outcome, message, actor_id, actor) -> None:
+	def _audit_failure(self, outcome: str, message: str,
+	                   actor_id: uuid.UUID | None, actor: str) -> None:
+		"""A move that didn't happen, in the audit log of the database
+		NetRollout stays on (never stops: a failure to audit is printed)."""
 		try:
 			with self._app.backend.postgres.get_session() as session:
 				session.add(AuditLog(
@@ -149,4 +170,5 @@ class DatabaseMove:
 
 
 def _now() -> str:
+	""":returns: the local time, ISO 8601 to the second"""
 	return datetime.now().isoformat(timespec="seconds")

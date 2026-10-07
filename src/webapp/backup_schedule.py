@@ -13,10 +13,13 @@ import json
 import os
 import threading
 import time
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 from src import backup, runtime
+from src.db.backend import BackendServices
 from src.db.tables import AuditLog
 
 CHECK_SECONDS = 30
@@ -30,12 +33,18 @@ ACTOR = "scheduler"
 # ── When ─────────────────────────────────────────────────────────────────────
 
 def _at(now: datetime, at: str) -> datetime:
+	""":returns: `now`'s day at the time `at` ("HH:MM")"""
 	hour, minute = (int(x) for x in at.split(":"))
 	return now.replace(hour=hour, minute=minute, second=0, microsecond=0)
 
 
 def last_slot(now: datetime, schedule: str, at: str, weekday: str) -> datetime | None:
-	"""The latest scheduled time at or before `now` (None: off)."""
+	"""The latest scheduled time at or before `now`.
+
+	:param schedule: off / daily / weekly
+	:param at: the time of day, "HH:MM"
+	:param weekday: weekly's day, one of WEEKDAYS
+	:returns: that time; None when off"""
 	if schedule == "daily":
 		slot = _at(now, at)
 		return slot if slot <= now else slot - timedelta(days=1)
@@ -46,6 +55,7 @@ def last_slot(now: datetime, schedule: str, at: str, weekday: str) -> datetime |
 
 
 def next_slot(now: datetime, schedule: str, at: str, weekday: str) -> datetime | None:
+	""":returns: the next scheduled time after `now` (as last_slot); None: off"""
 	slot = last_slot(now, schedule, at, weekday)
 	if slot is None:
 		return None
@@ -53,9 +63,13 @@ def next_slot(now: datetime, schedule: str, at: str, weekday: str) -> datetime |
 
 
 def due(now: datetime, slot: datetime | None, newest: datetime | None,
-        status: dict | None) -> bool:
+        status: dict[str, Any] | None) -> bool:
 	"""Whether to back up now: a scheduled time passed without a scheduled
-	backup since, and no failure for it within the last RETRY_SECONDS."""
+	backup since, and no failure for it within the last RETRY_SECONDS.
+
+	:param slot: the latest scheduled time (last_slot)
+	:param newest: the newest scheduled backup's time
+	:param status: the last run's outcome"""
 	if slot is None or (newest is not None and newest >= slot):
 		return False
 	if status and not status.get("ok"):
@@ -66,16 +80,19 @@ def due(now: datetime, slot: datetime | None, newest: datetime | None,
 
 
 def newest_scheduled(folder: Path) -> datetime | None:
+	""":returns: when the newest scheduled backup in the folder was made;
+	 None: there's none"""
 	for entry in backup.list_backups(folder):          # newest first
-		match = backup.NAME_RE.match(entry.name)
-		if match["kind"] == "scheduled":
-			return datetime.strptime(match["stamp"], "%Y%m%d-%H%M%S")
+		if entry.kind == "scheduled":
+			return datetime.strptime(entry.stamp, "%Y%m%d-%H%M%S")
 	return None
 
 
 # ── The last outcome ─────────────────────────────────────────────────────────
 
-def read_status(folder: Path | None = None) -> dict | None:
+def read_status(folder: Path | None = None) -> dict[str, Any] | None:
+	""":param folder: the backups folder; the app's when None
+	:returns: the last run's {time, ok, file, message}; None: never ran"""
 	try:
 		return json.loads(((folder or runtime.backups_dir()) / STATUS_FILE)
 		                  .read_text(encoding="utf-8"))
@@ -83,14 +100,16 @@ def read_status(folder: Path | None = None) -> dict | None:
 		return None
 
 
-def _write_status(folder: Path, status: dict) -> None:
+def _write_status(folder: Path, status: dict[str, Any]) -> None:
+	"""Replace the status file (written aside, then renamed)."""
 	folder.mkdir(parents=True, exist_ok=True)
 	tmp = folder / (STATUS_FILE + ".tmp")
 	tmp.write_text(json.dumps(status), encoding="utf-8")
 	os.replace(tmp, folder / STATUS_FILE)
 
 
-def system_audit(backend, action: str, *, label=None, success=True, detail=None):
+def system_audit(backend: BackendServices, action: str, *, label: str | None = None,
+                 success: bool = True, detail: dict[str, Any] | None = None) -> None:
 	"""An audit row from the server itself (no request, no user)."""
 	with backend.postgres.get_session() as db_session:
 		db_session.add(AuditLog(actor_username=ACTOR, action=action,
@@ -100,13 +119,18 @@ def system_audit(backend, action: str, *, label=None, success=True, detail=None)
 
 # ── Running ──────────────────────────────────────────────────────────────────
 
-def run_scheduled(backend, now: datetime, places: backup.Places | None = None) -> dict:
-	"""One scheduled backup, then retention; returns the status written."""
+def run_scheduled(backend: BackendServices, now: datetime,
+                  places: backup.Places | None = None) -> dict[str, Any]:
+	"""One scheduled backup, then retention (backup_keep). A failure is
+	reported (ACTION NEEDED, audited), never raised.
+
+	:param places: the folders; the app's when None
+	:returns: the status written"""
 	places = places or backup.Places.app()
 	try:
 		path = backup.create(backend.postgres.engine, "scheduled", places, now=now)
 		gone = backup.prune(places.backups, int(backend.settings.get("backup_keep")))
-		status = {"time": now.isoformat(timespec="seconds"), "ok": True,
+		status: dict[str, Any] = {"time": now.isoformat(timespec="seconds"), "ok": True,
 		          "file": path.name, "message": ""}
 		system_audit(backend, "backup.created", label=path.name,
 		             detail={"kind": "scheduled", "size": path.stat().st_size,
@@ -126,9 +150,11 @@ def run_scheduled(backend, now: datetime, places: backup.Places | None = None) -
 	return status
 
 
-def tick(backend, now: datetime | None = None,
-         places: backup.Places | None = None) -> dict | None:
-	"""Back up if one is due; returns the new status, or None if not due."""
+def tick(backend: BackendServices, now: datetime | None = None,
+         places: backup.Places | None = None) -> dict[str, Any] | None:
+	"""Back up if one is due.
+
+	:returns: the new status; None if none was due"""
 	now = now or datetime.now()
 	places = places or backup.Places.app()
 	values = backend.settings.values()
@@ -140,8 +166,13 @@ def tick(backend, now: datetime | None = None,
 	return run_scheduled(backend, now, places)
 
 
-def schedule_state(settings_values: dict, now: datetime | None = None) -> dict:
-	"""For the page: the next time and the last outcome."""
+def schedule_state(settings_values: dict[str, Any],
+                   now: datetime | None = None) -> dict[str, Any]:
+	"""For the page: the next time and the last outcome.
+
+	:param settings_values: the System Settings (backup_schedule, _time,
+	 _weekday)
+	:returns: {"next": ISO time or None (off), "last": read_status()}"""
 	now = now or datetime.now()
 	upcoming = next_slot(now, settings_values["backup_schedule"],
 	                     settings_values["backup_time"],
@@ -150,11 +181,12 @@ def schedule_state(settings_values: dict, now: datetime | None = None) -> dict:
 	        "last": read_status()}
 
 
-def start_backup_schedule(backend, hold=lambda: False) -> None:
+def start_backup_schedule(backend: BackendServices,
+                          hold: Callable[[], bool] = lambda: False) -> None:
 	"""The scheduler thread. Called by the web app's entry point. Never raises.
 	hold(): True while a database move runs - a due backup waits (caught up
 	after it; the move itself takes the backup lock)."""
-	def loop():
+	def loop() -> None:
 		time.sleep(FIRST_CHECK_SECONDS)
 		while True:
 			try:

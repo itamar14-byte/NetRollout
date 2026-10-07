@@ -1,3 +1,6 @@
+"""`python -m src.webapp` (and the image's command): build the app, start
+its background jobs (log pruning, certificate upkeep, scheduled backups, the
+nightly clean-up), handle SIGTERM with a drain, and serve it with Waitress."""
 import os
 import signal
 import sys
@@ -31,8 +34,14 @@ signal.signal(signal.SIGTERM, lambda signum, frame: app.shutdown.begin(
 
 start_log_pruning(lambda: app.backend.settings.get("log_retention_days"))
 start_certificate_upkeep()   # previous hostnames leave the self-signed cert
-# both wait while a database move runs (src/webapp/maintenance.py)
-moving = lambda: app.maintenance.state != "idle"
+
+
+def moving() -> bool:
+	"""A database move is running: the backup schedule and the clean-up wait
+	(src/webapp/maintenance.py)."""
+	return app.maintenance.state != "idle"
+
+
 start_backup_schedule(app.backend, hold=moving)   # System Settings → Backups
 start_retention(app.backend, hold=moving)   # the nightly clean-up, 03:00
 # Internal app port: set at install; nginx forwards to it
@@ -41,8 +50,10 @@ app.config["APP_PORT"] = port   # shown read-only in System Settings
 settings = app.backend.settings
 
 
-def configured_public_url():
-	# the port served now — the setting is the one wanted, maybe not applied yet
+def configured_public_url() -> str | None:
+	"""The address people use: the hostname setting with the port served now
+	(the port setting is the one wanted, maybe not applied yet); None
+	without a hostname."""
 	return public_url(settings.get("public_hostname"), serving_port())
 
 

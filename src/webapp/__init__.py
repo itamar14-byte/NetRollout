@@ -1,3 +1,4 @@
+"""The NetRollout web app: create_app() builds it with every page."""
 from src.webapp.blueprints.admin_backups import bp as admin_backups_bp
 from src.webapp.blueprints.admin_observability import bp as admin_observability_bp
 from src.webapp.blueprints.admin_servers import bp as admin_servers_bp
@@ -12,10 +13,15 @@ from src.webapp.blueprints.properties import bp as properties_bp
 from src.webapp.blueprints.rollout import bp as rollout_bp
 from src.webapp.blueprints.security import bp as security_bp
 from src.webapp.blueprints.system import bp as system_bp
+from src.webapp.flask_app import NetRolloutApp
 from src.webapp.setup import launch_app
 
 
-def create_app():
+def create_app() -> NetRolloutApp:
+	"""The app with its services and every blueprint.
+
+	:raises StartupError: NetRollout must not start (a missing secret, a
+	 bad encryption key)"""
 	net_rollout = launch_app()
 	net_rollout.register_blueprint(auth_bp)
 	net_rollout.register_blueprint(rollout_bp)

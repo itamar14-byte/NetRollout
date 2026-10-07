@@ -15,18 +15,20 @@ import re
 import tempfile
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any, cast
 
 from sqlalchemy.exc import SQLAlchemyError
 
 from src import certs, runtime, site_env
-from src.db.settings import SETTINGS
+from src.db.settings import SETTINGS, SettingsStore
 from src.webapp import port_apply
 
 SITE_FILE = site_env.FILE
 STATUS_FILE = "status.json"
 APPLIED_PORT_ENV = port_apply.PUBLISHED_PORT_ENV
-HOSTNAME_SEED_ENV = SETTINGS["public_hostname"].env
+HOSTNAME_SEED_ENV = cast(str, SETTINGS["public_hostname"].env)   # it has one
 SERVER_IPS_ENV = "NETROLLOUT_SERVER_IPS"
 # A self-signed certificate reissued for a new hostname keeps the previous
 # names this long, so people still typing one reach the redirect without a
@@ -37,8 +39,11 @@ UPKEEP_INTERVAL_SECONDS = 3600
 # a hostname save and the upkeep thread never reissue at the same moment
 _cert_lock = threading.Lock()
 
+Undo = Callable[[], None]   # puts the previous files back
+
 
 def shared_dir() -> Path:
+	""":returns: the folder the app shares with nginx (config/nginx)"""
 	return site_env.folder()
 
 
@@ -51,10 +56,13 @@ def applied_https_port() -> int:
 
 def write_site(hostname: str | None) -> bool:
 	"""Hand nginx `hostname` (empty: no canonical name) and the port in use,
-	in site.env. True if it changed — an unchanged file isn't rewritten, so
-	nginx isn't reloaded for nothing. Raises ValueError for an invalid
-	hostname, OSError when the folder can't be written."""
-	host = SETTINGS["public_hostname"].parse(hostname or "")
+	in site.env. An unchanged file isn't rewritten, so nginx isn't reloaded
+	for nothing.
+
+	:returns: whether it changed
+	:raises ValueError: an invalid hostname
+	:raises OSError: the folder can't be written"""
+	host = cast(str, SETTINGS["public_hostname"].parse(hostname or ""))
 	return site_env.update({site_env.HOSTNAME: host,
 	                        site_env.HTTPS_PORT: str(applied_https_port())})
 
@@ -75,7 +83,7 @@ def seed_hostname_from_site() -> None:
 def server_ips() -> list[str]:
 	"""The server's IP addresses, recorded by the installer
 	(NETROLLOUT_SERVER_IPS: comma or space separated); invalid ones skipped."""
-	out = []
+	out: list[str] = []
 	for value in re.split(r"[,\s]+", os.environ.get(SERVER_IPS_ENV, "")):
 		try:
 			ip = str(ipaddress.ip_address(value.strip()))
@@ -92,10 +100,13 @@ class ProxyError(Exception):
 
 
 def _snapshot(paths: list[Path]) -> dict[Path, bytes | None]:
+	""":returns: each file's content (None: it doesn't exist), for _restore"""
 	return {p: (p.read_bytes() if p.is_file() else None) for p in paths}
 
 
 def _restore(saved: dict[Path, bytes | None]) -> None:
+	"""Write each file's content atomically (the key owner-only); None
+	deletes it - a _snapshot put back, or new files written."""
 	for path, data in saved.items():
 		if data is None:
 			path.unlink(missing_ok=True)
@@ -107,17 +118,20 @@ def _restore(saved: dict[Path, bytes | None]) -> None:
 		os.replace(tmp, path)
 
 
-def change_hostname(new: str):
+def change_hostname(new: str) -> Undo:
 	"""Prepare nginx for the hostname `new`: the certificate first — a
 	self-signed one is reissued for the new name (keeping the addresses it
-	covered); an organisation's must already cover it — then site.env.
-	Returns undo(), which puts the previous files back. Raises ProxyError
-	with the reason, having changed nothing."""
+	covered, and its previous names for NAME_TRANSITION_DAYS); an
+	organisation's must already cover it — then site.env.
+
+	:returns: undo(), which puts the previous files back
+	:raises ProxyError: the reason, having changed nothing"""
 	with _cert_lock:
 		return _change_hostname(new)
 
 
-def _change_hostname(new: str):
+def _change_hostname(new: str) -> Undo:
+	"""change_hostname's work, under the certificate lock."""
 	cert_dir = runtime.certs_dir()
 	cert = cert_dir / certs.CERT_FILE
 	saved = _snapshot([shared_dir() / SITE_FILE, *_cert_files(cert_dir)])
@@ -167,6 +181,7 @@ def _read_old_names(cert_dir: Path) -> dict[str, float]:
 
 
 def _write_old_names(cert_dir: Path, names: dict[str, float]) -> None:
+	"""Keep the previous names' deadlines ({name: until}); none: the file goes."""
 	path = cert_dir / OLD_NAMES_FILE
 	if not names:
 		path.unlink(missing_ok=True)
@@ -177,8 +192,10 @@ def _write_old_names(cert_dir: Path, names: dict[str, float]) -> None:
 def drop_expired_names(now: float | None = None) -> list[str]:
 	"""Reissue NetRollout's self-signed certificate without the previous
 	hostnames whose transition period ended (nginx reloads it, no restart).
-	Returns the names dropped. An organisation's certificate is never
-	touched."""
+	An organisation's certificate is never touched.
+
+	:param now: the time (epoch seconds; tests); now when None
+	:returns: the names dropped"""
 	with _cert_lock:
 		cert_dir = runtime.certs_dir()
 		cert = cert_dir / certs.CERT_FILE
@@ -201,7 +218,7 @@ def start_certificate_upkeep() -> None:
 	"""drop_expired_names() now and every hour, from a daemon thread — a
 	server that never restarts still drops them. Called by the web app's
 	entry point. Never raises."""
-	def loop():
+	def loop() -> None:
 		while True:
 			try:
 				dropped = drop_expired_names()
@@ -222,12 +239,14 @@ def _cert_files(cert_dir: Path) -> list[Path]:
 
 
 def install_certificate(cert_pem: bytes, key_pem: bytes,
-                        hostname: str | None):
+                        hostname: str | None) -> tuple[certs.CertCheck, Undo]:
 	"""Use an organisation's certificate + key: checked first (certs.validate,
 	against the saved `hostname`), then written key first (nginx's watcher
 	tests the pair before using it). The self-signed marker goes, so
-	NetRollout never reissues it. Returns (check, undo). Raises ProxyError
-	with every problem found, having changed nothing."""
+	NetRollout never reissues it.
+
+	:returns: (the check - its warnings for the page, undo)
+	:raises ProxyError: every problem found, having changed nothing"""
 	check = certs.validate(cert_pem, key_pem, hostname or None)
 	if not check.ok:
 		raise ProxyError(" ".join(check.problems))
@@ -247,15 +266,19 @@ def install_certificate(cert_pem: bytes, key_pem: bytes,
 	return check, lambda: _restore(saved)
 
 
-def generate_selfsigned(hostname: str | None):
+def generate_selfsigned(hostname: str | None) -> Undo:
 	"""Replace the certificate with a new self-signed one for `hostname`
 	(else the name the current certificate is for), for the server's IP
-	addresses (server_ips()) and any the current one covers. Returns undo().
-	Raises ProxyError, having changed nothing."""
+	addresses (server_ips()) and any the current one covers.
+
+	:returns: undo()
+	:raises ProxyError: no name to make it for, or it couldn't be written -
+	 having changed nothing"""
 	with _cert_lock:
 		cert_dir = runtime.certs_dir()
 		cert = cert_dir / certs.CERT_FILE
-		dns, ips = [], []
+		dns: list[str] = []
+		ips: list[certs.SanIP] = []
 		try:
 			if cert.is_file():
 				dns, ips = certs.names_in(cert.read_bytes())
@@ -280,10 +303,14 @@ def generate_selfsigned(hostname: str | None):
 	return lambda: _restore(saved)
 
 
-def verdict(managed: bool, started: float, hostname: str | None = None) -> dict:
+def verdict(managed: bool, started: float, hostname: str | None = None) -> dict[str, Any]:
 	"""nginx's answer to a change written at `started`: applied / rejected,
 	or why there is none — not_managed (no NetRollout nginx reports here) or
-	no_answer. With `hostname`: the answer for that hostname."""
+	no_answer. With `hostname`: the answer for that hostname.
+
+	:param managed: whether a NetRollout nginx reports here
+	:param started: when the change was written (epoch seconds)
+	:returns: {"state", "message"?}"""
 	if not managed:
 		return {"state": "not_managed"}
 	status = wait_for_status(started, hostname=hostname)
@@ -292,7 +319,7 @@ def verdict(managed: bool, started: float, hostname: str | None = None) -> dict:
 	return {"state": status.get("state"), "message": status.get("message")}
 
 
-def overview(hostname: str | None) -> dict:
+def overview(hostname: str | None) -> dict[str, Any]:
 	"""What the Access card shows, whenever an admin looks — not only right
 	after a save: nginx's last verdict and the certificate in use, checked
 	against `hostname` (the saved one).
@@ -327,7 +354,7 @@ def overview(hostname: str | None) -> dict:
 		"old_names": [{"name": n, "until": old[n]} for n in check.names if n in old]}}
 
 
-def read_status() -> dict | None:
+def read_status() -> dict[str, Any] | None:
 	"""The watcher's last verdict: {"state": "applied" | "rejected",
 	"message", "time"}. None when no nginx reports here (an external proxy,
 	or dev without the stack) — "not managed"."""
@@ -344,7 +371,8 @@ def read_status() -> dict | None:
 	return data
 
 
-def _status_time(status: dict) -> float | None:
+def _status_time(status: dict[str, Any]) -> float | None:
+	""":returns: when the watcher wrote it (epoch seconds); None: unreadable"""
 	try:
 		return datetime.datetime.strptime(status["time"], "%Y-%m-%dT%H:%M:%SZ") \
 			.replace(tzinfo=datetime.timezone.utc).timestamp()
@@ -353,7 +381,7 @@ def _status_time(status: dict) -> float | None:
 
 
 def wait_for_status(after: float, timeout: float = 8.0, poll: float = 0.5,
-                    hostname: str | None = None) -> dict | None:
+                    hostname: str | None = None) -> dict[str, Any] | None:
 	"""The first verdict the watcher writes at or after `after` (epoch
 	seconds; it checks every 3 s), or None if none comes within `timeout`.
 	With `hostname`: only a rejection, or the site applied for that name —
@@ -363,7 +391,7 @@ def wait_for_status(after: float, timeout: float = 8.0, poll: float = 0.5,
 		status = read_status()
 		written = _status_time(status) if status else None
 		# the watcher's clock has whole seconds
-		if written is not None and written >= int(after) and (
+		if status and written is not None and written >= int(after) and (
 				hostname is None or status.get("state") == "rejected"
 				or f"hostname={hostname or '(none)'} " in
 				f"{status.get('message', '')} "):
@@ -373,7 +401,7 @@ def wait_for_status(after: float, timeout: float = 8.0, poll: float = 0.5,
 		time.sleep(poll)
 
 
-def sync_at_start(settings) -> None:
+def sync_at_start(settings: SettingsStore) -> None:
 	"""At every start nginx gets the saved hostname — also after a change made
 	while it was down, or a restore. Never stops the app from starting."""
 	try:
