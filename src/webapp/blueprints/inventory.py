@@ -11,12 +11,11 @@ from flask.typing import ResponseReturnValue
 from flask_login import current_user, login_required
 from sqlalchemy.orm import Session
 
-from src import validation
-from src.core import endpoint, mapping_resolvable
 from src.db.tables import VariableMapping, Inventory, SecurityProfile
-from src.input_parser import InputParser
-from src.logging_utils import RolloutLogger
-from src.validation import Validator
+from src.rollout import inputs as validation
+from src.rollout.engine import endpoint, mapping_resolvable
+from src.rollout.inputs import InputParser, Validator
+from src.rollout.log import RolloutLogger
 from src.webapp.flask_app import current_app
 from src.webapp.utils import (ok, err, with_form, with_json, flash_redirect,
                               query_visible_devices, partition_devices,

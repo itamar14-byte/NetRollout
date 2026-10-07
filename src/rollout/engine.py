@@ -2,7 +2,7 @@
 many devices over SSH (Netmiko) in parallel, finish each the way its
 platform needs (save / commit / ...), optionally verify against the config
 read back, and classify each device's outcome. Platform knowledge is in
-src/platforms.py; this module does the I/O."""
+src/rollout/platforms.py; this module does the I/O."""
 import os
 import threading
 import uuid
@@ -15,11 +15,8 @@ import netmiko
 from netmiko import BaseConnection
 
 from src import encryption
-from src.logging_utils import RolloutLogger
-from src.platforms import (COMMIT_TIMEOUT, FETCH_TIMEOUT, NOT_CONFIGURED,
-                           PLATFORMS, STILL_CONFIGURED, UNVERIFIABLE, VERIFIED,
-                           Platform, navigates, normalize, rejection,
-                           verify_commands)
+from src.rollout.log import RolloutLogger
+from src.rollout.platforms import COMMIT_TIMEOUT, FETCH_TIMEOUT, NOT_CONFIGURED, PLATFORMS, STILL_CONFIGURED, UNVERIFIABLE, VERIFIED, Platform, navigates, normalize, rejection, verify_commands
 if TYPE_CHECKING:   # type hints only: the CLI (.exe) must not load the DB stack
 	from src.db.tables import Inventory
 

@@ -15,12 +15,12 @@ from prometheus_client.core import REGISTRY, GaugeMetricFamily
 from sqlalchemy.exc import OperationalError
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from src.core import endpoint
 from src.db.backend import BackendServices
 from src.db.redis_db import REDIS_UNAVAILABLE, RedisConnection
 from src.encryption import init_encryption, require_key_in_container
 from src.job_store import JobStore
 from src.orchestration import RolloutOrchestrator
+from src.rollout.engine import endpoint
 from src.runtime import VERSION, StartupError, in_container, source_url
 from src.webapp.db_move import DatabaseMove
 from src.webapp.extensions import register_extensions, register_handlers, \

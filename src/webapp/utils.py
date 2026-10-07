@@ -15,12 +15,12 @@ from flask_login import current_user
 from sqlalchemy import ColumnElement, and_, or_
 from sqlalchemy.orm import Session
 
-from src.core import endpoint
 from src.db.backend import BackendServices
 from src.db.tables import (AuditLog, Base, DeviceResult, Inventory,
                            PropertyDefinition, SecurityProfile, User)
 from src.encryption import encrypt
 from src.reachability import ReachabilityChecker
+from src.rollout.engine import endpoint
 from src.webapp.flask_app import current_app
 
 ##########################Constants#######################################

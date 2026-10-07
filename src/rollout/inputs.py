@@ -1,28 +1,166 @@
-"""Reading rollout input: a devices CSV (the CLI's, and the web app's
-inventory import - one format for both) into Devices, a commands file into
-commands. The import's helpers turn attribute columns into a device's
-variables and credential columns into security profiles."""
+"""What a rollout is given, checked: an IP / port / platform's validity,
+an address's standard spelling, whether a device answers on its port, and
+reading a devices CSV (the CLI's, and the web app's inventory import - one
+format for both) and a commands file into Devices. The import's helpers turn
+attribute columns into a device's variables and credential columns into
+security profiles."""
 from __future__ import annotations   # type hints are never evaluated
 
 import datetime
 import hmac
+import ipaddress
+import os
+import re
+import socket
+import time
 import uuid
 from collections import Counter
 from csv import DictReader
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from src import validation
-from src.core import Device, endpoint
 from src.encryption import decrypt, encrypt
-from src.logging_utils import RolloutLogger
-from src.validation import Validator
-
+from src.rollout.engine import Device, endpoint
+from src.rollout.log import RolloutLogger
+from src.rollout.platforms import PLATFORMS
 if TYPE_CHECKING:
 	# The web app's import uses the DB models; the CLI (.exe) never does, so
 	# they're imported where used — loading them pulls in the web stack
 	from sqlalchemy.orm import Session
 	from src.db.tables import Inventory, SecurityProfile
+
+
+# Netmiko device types NetRollout supports: those it knows how to finish a
+# push on (src/rollout/platforms.py)
+SUPPORTED_PLATFORMS = frozenset(PLATFORMS)
+
+TCP_TIMEOUT = 5
+TCP_RETRIES = 3
+TCP_RETRY_DELAY = 1
+
+
+def validate_ip(ip: str) -> bool:
+	""":returns: whether `ip` is an IPv4 or IPv6 address"""
+	try:
+		ipaddress.ip_address(ip)
+		return True
+	except ValueError:
+		return False
+
+
+def normalize_ip(ip: str) -> str:
+	"""An address in its one standard spelling: an IPv6 address has many
+	(2001:DB8:0:0:0:0:0:1, 2001:0db8::0001, ...), and NetRollout compares
+	addresses as text - duplicates, rollback matching, labels, the
+	reachability cache. IPv4 has one already.
+
+	:returns: lower case, zeros compressed (2001:db8::1)
+	:raises ValueError: not an address (validate_ip first)"""
+	return str(ipaddress.ip_address(ip.strip()))
+
+
+def validate_port(port: str) -> bool:
+	""":returns: whether `port` (as typed) is a TCP port number, 1-65535"""
+	if not port.isnumeric():
+		return False
+	return 1 <= int(port) <= 65535
+
+
+def validate_platform(platform: str) -> bool:
+	""":returns: whether NetRollout supports this Netmiko device type"""
+	return platform in SUPPORTED_PLATFORMS
+
+
+def tcp_reachable(ip: str, port: int = 22) -> bool:
+	"""Can the device be reached on its management (SSH) port? TCP_RETRIES
+	attempts, TCP_RETRY_DELAY seconds apart, TCP_TIMEOUT each.
+
+	:returns: whether one of the attempts connected"""
+	for attempt in range(TCP_RETRIES):
+		# a fresh socket per attempt — reusing a failed one raises WinError
+		# 10056 on Windows; create_connection picks IPv4 or IPv6
+		try:
+			with socket.create_connection((ip, port), timeout=TCP_TIMEOUT):
+				return True
+		except OSError:
+			if attempt < TCP_RETRIES - 1:
+				time.sleep(TCP_RETRY_DELAY)
+	return False
+
+
+def validate_var_map_inner_token(token: str) -> tuple[bool, str | None]:
+	"""A variable mapping's token, without its $$ marks.
+
+	:returns: (valid, why not - for the page)"""
+	if token.strip():
+		if re.match(r'^[A-Za-z0-9_]+$', token):
+			if len(token) <= 64:
+				return True, None
+			return False, "Token must be maximum 64 characters long"
+		return False, "Token must contain only letters, numbers and underscores"
+	return False, "Token cannot be empty"
+
+
+def validate_var_map_property_name(property_name: str, allowed: set[str]) \
+		-> tuple[bool, str | None]:
+	""":param allowed: the user's property names — system defaults plus
+	 their own definitions (webapp: get_property_defs)
+	:returns: (valid, why not - for the page)"""
+	if property_name.strip().lower() not in allowed:
+		return False, f"Property name {property_name} is not valid"
+	return True, None
+
+
+def validate_var_index(index: int | None, property_name: str,
+                       list_properties: set[str]) -> tuple[bool, str | None]:
+	"""Only list properties (system `vrfs`, or user-defined lists) can be
+	indexed.
+
+	:param index: the position in the list; None: the whole value
+	:returns: (valid, why not - for the page)"""
+	if index is None:
+		return True, None
+	if property_name not in list_properties:
+		return False, f"Property {property_name} can not be indexed"
+	if index < 0:
+		return False, "Index cannot be negative"
+	return True, None
+
+
+class Validator:
+	"""Checks the files a rollout is read from, reporting each problem to
+	the logger (the CLI's console, an import's log)."""
+
+	def __init__(self, logger: RolloutLogger):
+		""":param logger: where problems are reported"""
+		self._logger = logger
+
+	def validate_file_extension(self, path: str, extension: str) -> bool:
+		"""The path is an existing file with the expected extension (csv for
+		devices, txt for commands)."""
+		if not os.path.isfile(path):
+			self._logger.notify(f"{path} is not a file", "red")
+			return False
+		if not path.lower().endswith(extension):
+			self._logger.notify(f"file must be {extension}", "red")
+			return False
+		return True
+
+	def validate_device_data(self, device: dict[str, str]) -> bool:
+		"""One row of a devices CSV: a valid IP, port and supported platform;
+		the first problem is reported."""
+		if not validate_ip(device["ip"]):
+			self._logger.notify(f"{device['ip']} is not a valid IP address",
+			                    "red")
+		elif not validate_port(device["port"]):
+			self._logger.notify(f"{device['port']} is not a valid port number",
+			                    "red")
+		elif not validate_platform(device["device_type"]):
+			self._logger.notify(f"{device['device_type']} is not supported",
+			                    "red")
+		else:
+			return True
+		return False
 
 
 class InputParser:
@@ -68,13 +206,13 @@ class InputParser:
 				errors.append(f"Row {row_no} ({ip}): invalid ip, port or "
 				              f"device type")
 				continue
-			ip = validation.normalize_ip(ip)
+			ip = normalize_ip(ip)
 			if require_credentials and not (item.get("username") and
 			                                item.get("password")):
 				errors.append(f"Row {row_no} ({ip}): username and password "
 				              f"are required")
 				continue
-			if check_reachable and not validation.tcp_reachable(ip, int(port)):
+			if check_reachable and not tcp_reachable(ip, int(port)):
 				# returned like every other row error: the caller logs them
 				errors.append(f"{endpoint(ip, port)} is not reachable")
 				continue

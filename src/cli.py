@@ -14,10 +14,9 @@ from csv import DictReader
 from typing import NoReturn
 
 from src import runtime
-from src.core import DeviceResultDict, RolloutEngine, RolloutOptions
-from src.input_parser import InputParser
-from src.logging_utils import RolloutLogger, prune_logs, utf8_console
-from src.validation import Validator
+from src.rollout.engine import DeviceResultDict, RolloutEngine, RolloutOptions
+from src.rollout.inputs import InputParser, Validator
+from src.rollout.log import RolloutLogger, prune_logs, utf8_console
 
 
 def get_args() -> argparse.Namespace:

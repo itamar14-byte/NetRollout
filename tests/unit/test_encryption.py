@@ -133,12 +133,12 @@ def test_empty_values_pass_through(no_key):
 
 
 def test_importing_app_modules_has_no_key_side_effect(tmp_path):
-	"""Importing src.core (in a fresh Python, no key set) succeeds and creates no
-	~/.netrollout key folder. Before the fail-fast change, importing src.core
+	"""Importing src.rollout.engine (in a fresh Python, no key set) succeeds and creates no
+	~/.netrollout key folder. Before the fail-fast change, importing src.rollout.engine
 	generated a key file."""
 	env = dict(os.environ, HOME=str(tmp_path), USERPROFILE=str(tmp_path))
 	env.pop(enc.ENV_VAR, None)
-	result = subprocess.run([sys.executable, "-c", "import src.core"],
+	result = subprocess.run([sys.executable, "-c", "import src.rollout.engine"],
 	                        cwd=ROOT, env=env, capture_output=True, text=True)
 	assert result.returncode == 0, result.stderr
 	assert not (tmp_path / ".netrollout").exists()

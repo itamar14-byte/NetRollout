@@ -15,11 +15,11 @@ from flask_login import current_user, login_required
 from sqlalchemy.orm import Session
 
 from src import runtime
-from src.core import endpoint
 from src.db.tables import DeviceResult, JobMetadata, User, Inventory
 from src.job_store import JobStore
 from src.orchestration import RolloutJob
-from src.platforms import PLATFORMS, verify_commands
+from src.rollout.engine import endpoint
+from src.rollout.platforms import PLATFORMS, verify_commands
 from src.webapp.flask_app import current_app
 from src.webapp.utils import ok, err, build_kpi, signed_in_user, visible_devices_clause
 

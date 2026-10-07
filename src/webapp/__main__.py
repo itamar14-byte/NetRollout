@@ -8,7 +8,7 @@ import sys
 from waitress import serve
 
 from src.db.settings import public_url
-from src.logging_utils import start_log_pruning, utf8_console
+from src.rollout.log import start_log_pruning, utf8_console
 from src.runtime import StartupError, drain_seconds, in_container, server_threads
 from src.webapp import create_app
 from src.webapp.backup_schedule import start_backup_schedule

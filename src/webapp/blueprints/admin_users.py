@@ -5,7 +5,7 @@ import time
 import uuid
 from typing import Any
 
-from flask import Blueprint, Response, render_template, request, redirect, url_for, flash
+from flask import Blueprint, render_template, request, redirect, url_for, flash
 from flask.typing import ResponseReturnValue
 from flask_login import current_user, login_required
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError

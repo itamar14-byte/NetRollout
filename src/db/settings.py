@@ -25,7 +25,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from src.db.tables import SystemSetting
-from src.logging_utils import LOG_RETENTION_DAYS
+from src.rollout.log import LOG_RETENTION_DAYS
 
 if TYPE_CHECKING:   # annotations only: postgres_db imports this module's users
 	from src.db.postgres_db import PostgresConnection

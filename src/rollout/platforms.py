@@ -2,7 +2,7 @@
 I/O: how a push finishes (save / commit / a command / nothing) and how the
 config prints (PLATFORMS), what a refused command looks like (rejection),
 and how a typed command is found in — or confirmed gone from — a fetched
-config (verify_commands). The engine (src/core.py) does the SSH; the web
+config (verify_commands). The engine (src/rollout/engine.py) does the SSH; the web
 pages use this directly. Adding a vendor: one PLATFORMS row plus a fixture
 in tests/unit/test_platforms.py."""
 import re

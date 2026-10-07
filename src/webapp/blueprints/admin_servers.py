@@ -14,13 +14,13 @@ from flask_login import current_user, login_required
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 
-from src import validation
 from src.db import move
 from src.db.postgres_db import PostgresConfig
 from src.db.redis_db import REDIS_UNAVAILABLE, RedisConfig
 from src.db.tables import LDAPServer, LDAPGroup, User
 from src.encryption import encrypt
 from src.ldap_auth import test_user, test_connection, fetch_base_dn, walk_tree
+from src.rollout import inputs as validation
 from src.runtime import drain_seconds
 from src.webapp import db_move, proxy_config
 from src.webapp.blueprints.auth import record_redis_session

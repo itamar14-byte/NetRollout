@@ -18,8 +18,8 @@ import pytest
 import redis
 
 import src.orchestration as orchestration
-from src.core import RolloutEngine, RolloutOptions
 from src.orchestration import RolloutOrchestrator
+from src.rollout.engine import RolloutEngine, RolloutOptions
 
 QUEUE = "netrollout:job_queue"
 

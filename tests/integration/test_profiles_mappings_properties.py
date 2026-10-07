@@ -125,7 +125,7 @@ def test_connection_test(client_for, make_user, make_profile, make_device,
 	dev = make_device(user)
 	side_effect = (netmiko.NetMikoAuthenticationException("no")
 	               if connect_error == "auth" else None)
-	with patch("src.validation.tcp_reachable", return_value=tcp_ok), \
+	with patch("src.rollout.inputs.tcp_reachable", return_value=tcp_ok), \
 			patch("src.webapp.blueprints.security.ConnectHandler",
 			      side_effect=side_effect, return_value=MagicMock()):
 		resp = client_for(user).post(f"/security/{pid}/test",

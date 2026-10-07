@@ -11,7 +11,6 @@ import time
 from typing import TYPE_CHECKING, Callable, cast
 
 from src import runtime
-
 if TYPE_CHECKING:   # the web app passes its client in; the CLI (.exe) has none
 	import redis
 	from redis.client import PubSub

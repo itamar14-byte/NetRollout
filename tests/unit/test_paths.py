@@ -14,7 +14,7 @@ from src import runtime
 from src.db.backend import BackendServices
 from src.db.postgres_db import PostgresConfig
 from src.db.redis_db import RedisConfig
-from src.logging_utils import RolloutLogger, prune_logs
+from src.rollout.log import RolloutLogger, prune_logs
 
 
 # ── Folders ──────────────────────────────────────────────────────────────────

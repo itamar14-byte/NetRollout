@@ -12,10 +12,10 @@ from flask.typing import ResponseReturnValue
 from flask_login import current_user, login_required
 from werkzeug.wrappers import Response as BaseResponse
 
-from src.core import Device, RolloutOptions
 from src.db.tables import DeviceResult, Inventory
-from src.input_parser import InputParser
 from src.orchestration import Draining
+from src.rollout.engine import Device, RolloutOptions
+from src.rollout.inputs import InputParser
 from src.webapp.flask_app import current_app
 from src.webapp.utils import (ok, err, with_form, with_json,
                               visible_devices_clause, query_visible_devices,

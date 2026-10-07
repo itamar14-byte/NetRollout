@@ -9,12 +9,11 @@ from unittest.mock import MagicMock, call, patch
 import netmiko
 import pytest
 
-from src import validation
-from src.core import Device, PushResult, RolloutEngine, RolloutOptions
-from src.logging_utils import RolloutLogger
-from src.platforms import (COMMIT_TIMEOUT, NOT_CONFIGURED, PLATFORMS,
-                           STILL_CONFIGURED, UNVERIFIABLE, VARIABLE, VERIFIED,
-                           rejection, verify_commands)
+from src.rollout import inputs as validation
+from src.rollout.engine import Device, PushResult, RolloutEngine, RolloutOptions
+from src.rollout.log import RolloutLogger
+from src.rollout.platforms import COMMIT_TIMEOUT, NOT_CONFIGURED, PLATFORMS, STILL_CONFIGURED, UNVERIFIABLE, VARIABLE, VERIFIED, rejection, verify_commands
+
 
 OK, MISSING, STILL, NV = VERIFIED, NOT_CONFIGURED, STILL_CONFIGURED, UNVERIFIABLE
 

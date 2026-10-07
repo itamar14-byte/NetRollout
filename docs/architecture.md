@@ -55,7 +55,7 @@ The **CLI** (`src/cli.py`) uses the same `RolloutEngine` directly, from a device
 
 ---
 
-## 2. Data Classes (`src/core.py`)
+## 2. Data Classes (`src/rollout/engine.py`)
 
 Data classes are pure Python objects with no SQLAlchemy coupling. They exist at runtime only.
 
@@ -279,13 +279,13 @@ The runtime value of each System Setting (§6). There is one row per registered 
 
 ## 4. Service Classes
 
-### `Validator` (`src/validation.py`)
+### `Validator` (`src/rollout/inputs.py`)
 Wraps input validation. It is logger-injected for user-facing errors, and the pure computation methods are static: IP, port, platform and file extension checks, plus a TCP port test. `SUPPORTED_PLATFORMS` is the list of supported Netmiko device types:
 - `cisco_ios`, `cisco_xe`, `cisco_nxos`, `cisco_xr`;
 - `juniper_junos`, `arista_eos`, `fortinet`, `paloalto_panos`;
 - `aruba_aoscx`, `checkpoint_gaia`, `hp_procurve`, `hp_comware`.
 
-### `InputParser` (`src/input_parser.py`)
+### `InputParser` (`src/rollout/inputs.py`)
 One CSV format is shared by the CLI and web import. Required columns are `ip`, `device_type` and `port`. Optional columns are `label`, the credentials (`username`, `password`, `secret`), and attribute columns named after a property (by name or label).
 
 **Methods:**
@@ -300,7 +300,7 @@ One CSV format is shared by the CLI and web import. Required columns are `ip`, `
 
 `ImportReport` carries `errors` and `notices`.
 
-### `RolloutLogger` (`src/logging_utils.py`)
+### `RolloutLogger` (`src/rollout/log.py`)
 Owns the logging I/O for one rollout job. It is constructed as `RolloutLogger(webapp, verbose, prefix="rollout", job_id=None, redis_client=None)`.
 - **Log file:** it always writes one, `logs/{prefix}_{timestamp}_{job_id}.log`.
 - **With `webapp`:** it also appends each message to the Redis list `job:{id}:history` and publishes it on the channel `job:{id}:logs`.
@@ -322,9 +322,9 @@ Error handling:
 
 ---
 
-## 5. Job Execution Classes (`src/core.py`, `src/platforms.py`, `src/orchestration.py`)
+## 5. Job Execution Classes (`src/rollout/engine.py`, `src/rollout/platforms.py`, `src/orchestration.py`)
 
-`src/platforms.py` holds what NetRollout knows per platform, with no I/O (`PLATFORMS`, `rejection()`, the config parser, `verify_commands()`); `src/core.py` holds the engine that does the SSH, and `classify(push, verify)` — the status rules; `src/job_store.py` owns the Redis job keys.
+`src/rollout/platforms.py` holds what NetRollout knows per platform, with no I/O (`PLATFORMS`, `rejection()`, the config parser, `verify_commands()`); `src/rollout/engine.py` holds the engine that does the SSH, and `classify(push, verify)` — the status rules; `src/job_store.py` owns the Redis job keys.
 
 ### `RolloutEngine`
 Pure pipeline object: `RolloutEngine(param: RolloutOptions, devices: list[Device], commands: list[str])`. `run(cancel_flag, logger) -> list[DeviceResultDict]`:

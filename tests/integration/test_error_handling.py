@@ -6,7 +6,7 @@ import time
 import pytest
 
 from src.encryption import decrypt
-from src.logging_utils import RolloutLogger
+from src.rollout.log import RolloutLogger
 
 pytestmark = [pytest.mark.postgres, pytest.mark.redis]
 
