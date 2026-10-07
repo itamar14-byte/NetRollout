@@ -18,6 +18,7 @@ from pathlib import Path
 
 from src import runtime
 
+
 FILE = "site.env"
 
 HOSTNAME = "NETROLLOUT_HOSTNAME"

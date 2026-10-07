@@ -6,7 +6,8 @@ import json
 import pytest
 from cryptography.fernet import Fernet
 
-from src import certs, runtime, site_env
+from src import runtime
+from src.access import certs, site_env
 from src.setup import __main__ as cli, answers as A, files
 from src.setup import manage  # noqa: E402
 from tests.unit.test_backup import make_zip

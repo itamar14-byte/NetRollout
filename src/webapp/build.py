@@ -16,6 +16,7 @@ from prometheus_client.core import REGISTRY, GaugeMetricFamily
 from sqlalchemy.exc import OperationalError
 from werkzeug.middleware.proxy_fix import ProxyFix
 
+from src.access.nginx import seed_hostname_from_site, sync_at_start
 from src.accounts.users import clear_sessions
 from src.db.connections import BackendServices, REDIS_UNAVAILABLE, RedisConnection
 from src.encryption import init_encryption, require_key_in_container
@@ -42,7 +43,6 @@ from src.webapp.extensions import register_extensions, register_handlers, \
 from src.webapp.flask_app import NetRolloutApp
 from src.webapp.lifecycle import Shutdown
 from src.webapp.maintenance import register_maintenance
-from src.webapp.proxy_config import seed_hostname_from_site, sync_at_start
 from src.webapp.startup import new_instance_token
 from src.webapp.utils import WebServices
 

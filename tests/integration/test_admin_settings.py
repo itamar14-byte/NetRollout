@@ -6,13 +6,13 @@ import time as _time
 
 import pytest
 
-from src import certs as _certs, runtime as _runtime, site_env as _site
+from src import runtime as _runtime
+from src.access import certs as _certs, site_env as _site, nginx as _pc, port as _pa
 from src.db.settings import seed_settings, SettingsError
 from src.db.tables import AuditLog
-from src.webapp import proxy_config as _pc, port_apply as _pa
 from src.webapp.blueprints import admin_settings
 from src.webapp.startup import Probe
-from tests.unit.test_certs import key_pem, make_cert, pem
+from tests.unit.access.test_certs import key_pem, make_cert, pem
 
 pytestmark = [pytest.mark.postgres, pytest.mark.redis]
 

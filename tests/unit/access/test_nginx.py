@@ -1,4 +1,4 @@
-"""src/webapp/proxy_config.py: the values the app hands nginx (site.env) and
+"""src/access/nginx.py: the values the app hands nginx (site.env) and
 the watcher's verdict it reads back (status.json). No nginx here — the files."""
 import datetime
 import json
@@ -6,7 +6,7 @@ import os
 
 import pytest
 
-from src.webapp import proxy_config as pc
+from src.access import nginx as pc
 
 
 @pytest.fixture

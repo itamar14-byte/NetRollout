@@ -1,8 +1,8 @@
 """The port helper's thinking (the HTTPS port changed in System Settings):
 the scripts do what needs Docker, this decides and records. The contract
-with the app is in docs/plans/stage-9.md and src/webapp/port_apply.py:
+with the app is in docs/plans/stage-9.md and src/access/port.py:
 
-  site.env (src/site_env.py)  app -> helper: the port wanted, a request id,
+  site.env (src/access/site_env.py)  app -> helper: the port wanted, a request id,
                               its time; the id again once an admin's browser
                               reached NetRollout through the new port
   config/apply-status.json    helper -> app: {"id", "state", "port",
@@ -36,10 +36,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from src import runtime, site_env
+from src import runtime
+from src.access import site_env
 from src.setup import files, manage
 
-STATUS_FILE = "apply-status.json"          # src/webapp/port_apply.py reads it
+STATUS_FILE = "apply-status.json"          # src/access/port.py reads it
 TRIAL_FILE = "port-trial.yaml"             # in config/, listed in COMPOSE_FILE
 TRIAL_ENTRY = "config/" + TRIAL_FILE       # relative to the install folder
 TRIAL_SECONDS = 120                        # time to click through a certificate warning

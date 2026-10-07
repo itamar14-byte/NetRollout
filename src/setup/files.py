@@ -10,7 +10,8 @@ from pathlib import Path
 
 from cryptography.fernet import Fernet
 
-from src import certs, runtime, site_env
+from src import runtime
+from src.access import certs, site_env
 from src.setup.answers import Answers, Facts
 
 ENV_FILE = ".env"

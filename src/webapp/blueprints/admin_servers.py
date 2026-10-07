@@ -14,6 +14,7 @@ from flask_login import current_user, login_required
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 
+from src.access import nginx as proxy_config
 from src.accounts.ldap import test_user, test_connection, fetch_base_dn, walk_tree
 from src.accounts.users import record_redis_session, clear_sessions
 from src.db import move
@@ -23,7 +24,7 @@ from src.encryption import encrypt
 from src.jobs import clear_stale_jobs
 from src.rollout import inputs as validation
 from src.runtime import drain_seconds
-from src.webapp import db_move, proxy_config
+from src.webapp import db_move
 from src.webapp.db_move import describe, same_database
 from src.webapp.flask_app import current_app
 from src.webapp.maintenance import during_maintenance

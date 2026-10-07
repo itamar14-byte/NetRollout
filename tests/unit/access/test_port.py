@@ -1,12 +1,11 @@
-"""src/webapp/port_apply.py: the app's side of the port helper contract.
+"""src/access/port.py: the app's side of the port helper contract.
 No helper here — the tests write its status file the way the contract says."""
 import json
 import time
 
 import pytest
 
-from src import site_env
-from src.webapp import port_apply as pa, proxy_config
+from src.access import site_env, port as pa, nginx as proxy_config
 
 
 @pytest.fixture

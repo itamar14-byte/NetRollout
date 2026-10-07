@@ -21,9 +21,10 @@ from typing import Any, cast
 
 from sqlalchemy.exc import SQLAlchemyError
 
-from src import certs, runtime, site_env
+from src import runtime
+from src.access import certs, site_env, port as port_apply
 from src.db.settings import SETTINGS, SettingsStore
-from src.webapp import port_apply
+
 
 SITE_FILE = site_env.FILE
 STATUS_FILE = "status.json"

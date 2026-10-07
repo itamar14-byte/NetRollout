@@ -1,13 +1,12 @@
 """The port helper's decisions and records (src/setup/port.py), on an
 install in a scratch folder - and that the app's side of the contract
-(src/webapp/port_apply.py) reads them as meant."""
+(src/access/port.py) reads them as meant."""
 import json
 
 import pytest
 
-from src import site_env
+from src.access import site_env, port as port_apply
 from src.setup import manage, port
-from src.webapp import port_apply
 from tests.unit.test_setup import home, installed, run  # noqa: F401 - fixture
 
 NOW = 1_800_000_000.0

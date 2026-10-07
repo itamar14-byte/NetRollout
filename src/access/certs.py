@@ -1,7 +1,7 @@
 """TLS certificates for nginx: create a self-signed one, check an uploaded one.
 
 Runs inside the app image, so the host needs no OpenSSL. Used by the
-installer (`python -m src.certs selfsigned ...` through the image) and by the
+installer (`python -m src.access.certs selfsigned ...` through the image) and by the
 Server Management certificate upload (`validate`).
 
 The pair nginx serves is `fullchain.pem` + `privkey.pem` in the certs folder;
@@ -26,6 +26,7 @@ from cryptography.hazmat.primitives.asymmetric.types import PrivateKeyTypes
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
 from src import runtime
+
 
 CERT_FILE = "fullchain.pem"
 KEY_FILE = "privkey.pem"
@@ -266,7 +267,7 @@ def main(argv: list[str] | None = None) -> int:
 	:param argv: the arguments; sys.argv's when None
 	:returns: the exit code: 0 done / valid, 1 not"""
 	parser = argparse.ArgumentParser(
-		prog="python -m src.certs",
+		prog="python -m src.access.certs",
 		description="Create or check the TLS certificate nginx serves.")
 	sub = parser.add_subparsers(dest="action", required=True)
 	make = sub.add_parser("selfsigned", help="create a self-signed certificate")
@@ -304,7 +305,6 @@ def main(argv: list[str] | None = None) -> int:
 		print(f"Subject: {result.subject}\nNames:   {', '.join(result.names)}"
 		      f"\nExpires: {result.not_after:%Y-%m-%d}")
 	return 0 if result.ok else 1
-
 
 if __name__ == "__main__":
 	sys.exit(main())

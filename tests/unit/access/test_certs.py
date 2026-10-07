@@ -1,4 +1,4 @@
-"""src/certs.py: the self-signed certificate nginx starts with, and the checks
+"""src/access/certs.py: the self-signed certificate nginx starts with, and the checks
 an uploaded certificate passes before nginx gets it. Certificates are built
 here — no files from outside, no network."""
 import datetime
@@ -12,7 +12,8 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import NameOID
 
-from src import certs
+from src.access import certs
+
 
 UTC = datetime.timezone.utc
 NOW = datetime.datetime.now(UTC)

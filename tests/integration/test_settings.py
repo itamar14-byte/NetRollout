@@ -3,9 +3,9 @@ all-or-nothing saves with the rules, reset."""
 import pytest
 
 from src import runtime
+from src.access.nginx import sync_at_start
 from src.db.settings import SETTINGS, Setting, SettingsError, seed_settings
 from src.db.tables import SystemSetting
-from src.webapp.proxy_config import sync_at_start
 
 pytestmark = [pytest.mark.postgres, pytest.mark.redis]
 

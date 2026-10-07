@@ -4,7 +4,7 @@ The HTTPS port is published by Docker, so a new one needs nginx recreated —
 done on the host by the port helper, never by the app (no Docker access
 here). The app only writes requests and reads the helper's answers:
 
-- site.env (src/site_env.py)  app → helper: the port wanted, a request id and
+- site.env (src/access/site_env.py)  app → helper: the port wanted, a request id and
                               its time; the id again once an admin's browser
                               reached NetRollout through the new port
 - config/apply-status.json    helper → app: trying / applied / rolled_back /
@@ -20,8 +20,10 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, cast
 
-from src import runtime, site_env
+from src import runtime
+from src.access import site_env
 from src.db.settings import SETTINGS
+
 
 STATUS_FILE = "apply-status.json"
 _REQUEST_KEYS = (site_env.PORT_REQUEST, site_env.PORT_REQUEST_ID,

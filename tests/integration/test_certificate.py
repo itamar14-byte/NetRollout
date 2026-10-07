@@ -6,11 +6,11 @@ import json
 
 import pytest
 
-from src import certs, runtime
+from src import runtime
+from src.access import certs, nginx as pc
 from src.db.tables import AuditLog
-from src.webapp import proxy_config as pc
 from tests.integration.test_admin_settings import admin, proxy  # noqa: F401 — fixtures
-from tests.unit.test_certs import key_pem, make_cert, pem
+from tests.unit.access.test_certs import key_pem, make_cert, pem
 
 pytestmark = [pytest.mark.postgres, pytest.mark.redis]
 

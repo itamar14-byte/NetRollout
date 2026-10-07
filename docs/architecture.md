@@ -460,7 +460,7 @@ Admin-editable runtime settings. The `system_settings` table is the **only runti
   - `reset(key)` writes the default;
   - `restart_only_values()` / `restart_pending()` drive the "restart pending" marker.
 - **`sql_value(key)`:** gives the retention statements a `COALESCE((SELECT value …), default)` expression.
-- **The hostname and HTTPS port reach nginx** (Phase 4 stage 8, `src/webapp/proxy_config.py` / `port_apply.py`): a saved hostname applies live — the app writes values (`config/nginx/site.env`), never nginx syntax; nginx's watcher validates, renders and reloads; a refused change is rolled back. A new HTTPS port goes to the host-side port helper (stage 9) as a confirm-or-roll-back trial; without it, `netrollout apply`.
+- **The hostname and HTTPS port reach nginx** (Phase 4 stage 8, `src/access/nginx.py` / `port.py`): a saved hostname applies live — the app writes values (`config/nginx/site.env`), never nginx syntax; nginx's watcher validates, renders and reloads; a refused change is rolled back. A new HTTPS port goes to the host-side port helper (stage 9) as a confirm-or-roll-back trial; without it, `netrollout apply`.
 
 ---
 
