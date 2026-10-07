@@ -4,7 +4,7 @@ and what a person can verify first (stage 9.9). From the repo root:
   python tools/build_release.py --version 1.0.0 [--out DIR] [--linux] [--windows]
                                 [--test-build] [--feed-base URL] [--notes FILE]
 
-  netrollout-<v>-linux.zip      the Linux install / update (src/setup/release.py's contract)
+  netrollout-<v>-linux.zip      the Linux install / update (src/setup/update.py's contract)
   NetRollout-Setup-<v>.exe      the Windows install / update (Windows only: Inno Setup)
   netrollout-cli-<v>.exe        the headless CLI (Windows only: PyInstaller)
   SHA256SUMS                    "<sha256>  <name>" for each
