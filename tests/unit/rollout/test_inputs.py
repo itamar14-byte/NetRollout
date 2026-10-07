@@ -5,6 +5,8 @@ import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 # Import through the src package only — the app itself imports src.*, and a
 # bare `import core` would load a second copy of every module (patches and
 # isinstance checks would then silently target the wrong one).
@@ -369,3 +371,34 @@ class TestParseFiles(unittest.TestCase):
 		"""parse_commands on a missing file gives no commands."""
 		commands = self.parser.parse_commands("/no/such/_commands.txt")
 		self.assertEqual(commands, [])
+
+
+# ── Variable-mapping field validation ────────────────────────────────────────
+
+@pytest.mark.parametrize("token,ok", [
+	("HOSTNAME", True), ("loop_0", True), ("", False), ("   ", False),
+	("has space", False), ("$$X$$", False), ("A" * 65, False)])
+def test_mapping_token_validation(token, ok):
+	"""A mapping token is accepted when it's a plain word (HOSTNAME, loop_0) and
+	refused when empty, blank, holding a space or $$, or longer than 64."""
+	assert validation.validate_var_map_inner_token(token)[0] is ok
+
+
+def test_mapping_index_only_for_list_properties():
+	"""An index is accepted for a list property (system or user-defined) and no
+	index for a plain one; an index on a plain property or a negative index is
+	refused."""
+	lists = {"vrfs", "uplinks"}  # system list + a user-defined list
+	assert validation.validate_var_index(1, "vrfs", lists) == (True, None)
+	assert validation.validate_var_index(0, "uplinks", lists) == (True, None)
+	assert validation.validate_var_index(None, "hostname", lists) == (True, None)
+	assert validation.validate_var_index(0, "hostname", lists)[0] is False
+	assert validation.validate_var_index(-1, "vrfs", lists)[0] is False
+
+
+def test_property_name_checked_against_the_users_definitions():
+	"""A property name is accepted only when it's among the user's allowed ones
+	(a user-defined one included)."""
+	allowed = {"hostname", "rack"}  # includes a user-defined property
+	assert validation.validate_var_map_property_name("rack", allowed)[0] is True
+	assert validation.validate_var_map_property_name("nope", allowed)[0] is False

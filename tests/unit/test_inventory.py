@@ -5,14 +5,17 @@ import socket
 import tempfile
 import unittest
 import uuid
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import redis
 
-from src.inventory import ReachabilityChecker, import_csv, probe
+from src.inventory import (ReachabilityChecker, import_csv, probe, can_edit_device,
+                           partition_devices, visible_devices_clause)
 from src.rollout.engine import Device
 from src.rollout.inputs import InputParser, Validator
 from src.rollout.log import RolloutLogger
+from tests.unit.webapp.test_analytics import sql
 
 
 class FakeRedis:
@@ -181,3 +184,50 @@ class TestImportCsv(unittest.TestCase):
 				f.write("ip,username\n10.0.0.1,admin\n")
 			devices = import_csv(self.parser, csv_path, self.user_id, self.db_session).devices
 		self.assertEqual(devices, [])
+
+
+# ── Global device access rules ───────────────────────────────────────────────
+
+OWNER, OTHER = uuid.uuid4(), uuid.uuid4()
+
+
+def device(user_id, is_global):
+	return SimpleNamespace(user_id=user_id, is_global=is_global)
+
+
+def user(user_id, role="operator"):
+	return SimpleNamespace(id=user_id, role=role)
+
+
+class TestDeviceAccess:
+
+	def test_owner_edits_own_local_device(self):
+		"""The owner may edit their own local device."""
+		assert can_edit_device(device(OWNER, False), user(OWNER))
+
+	def test_other_user_cannot_edit_local_device(self):
+		"""Another operator may not edit someone's local device."""
+		assert not can_edit_device(device(OWNER, False), user(OTHER))
+
+	def test_admin_cannot_edit_someone_elses_local_device(self):
+		"""Being an admin doesn't allow editing another user's local device."""
+		assert not can_edit_device(device(OWNER, False), user(OTHER, "admin"))
+
+	def test_any_admin_edits_global_device(self):
+		"""Any admin, not only its owner, may edit a global device."""
+		assert can_edit_device(device(OWNER, True), user(OTHER, "admin"))
+
+	def test_regular_user_cannot_edit_global_device(self):
+		"""An operator who doesn't own a global device may not edit it."""
+		assert not can_edit_device(device(OWNER, True), user(OTHER))
+
+	def test_partition_splits_global_and_local(self):
+		"""partition_devices returns (global devices, local devices)."""
+		g, m = device(OWNER, True), device(OTHER, False)
+		assert partition_devices([m, g]) == ([g], [m])
+
+	def test_visibility_is_own_or_global(self):
+		"""The visibility filter is the user's own devices OR the global ones."""
+		out = sql(visible_devices_clause(OWNER))
+		assert "inventory.user_id" in out and "inventory.is_global IS true" in out
+		assert " OR " in out
