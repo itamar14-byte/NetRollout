@@ -5,7 +5,8 @@ and an encryption key that doesn't match."""
 import sys
 import time
 import uuid
-from typing import Any
+from collections.abc import Mapping
+from typing import Any, cast
 
 import flask_wtf.csrf as csrf_err
 from flask import Flask, Response, flash, redirect, render_template, request, session, url_for
@@ -24,7 +25,7 @@ from src.db.tables import User
 from src.encryption import ENV_VAR, KEY_FILE, InvalidEncryptionKeyError, \
 	key_source
 from src.webapp.flask_app import NetRolloutApp, current_app
-from src.webapp.utils import err
+from src.webapp.utils import SESSION_PREFIX, err
 
 login_mng = LoginManager()
 login_mng.login_view = "auth.home"
@@ -76,10 +77,44 @@ def session_seconds_left(now: float | None = None) -> tuple[float, float]:
 	"""(idle, absolute) seconds left for the current session.
 
 	:param now: the time (epoch seconds); now when None"""
-	now = now or time.time()
-	idle = idle_seconds() - (now - session.get(LAST_ACTIVE, now))
-	absolute = ABSOLUTE_SESSION_HOURS * 3600 - (now - session.get(SIGNED_IN_AT, now))
+	return _seconds_left(session, now or time.time())
+
+
+def _seconds_left(data: Mapping[str, Any], now: float) -> tuple[float, float]:
+	""":returns: (idle, absolute) seconds left for a session's data (a session
+	 without its clocks counts from now)"""
+	idle = idle_seconds() - (now - data.get(LAST_ACTIVE, now))
+	absolute = ABSOLUTE_SESSION_HOURS * 3600 - (now - data.get(SIGNED_IN_AT, now))
 	return idle, absolute
+
+
+def signed_in_users(now: float | None = None) -> dict[str, float]:
+	"""Who is signed in now, for Live Sessions and the Users page. Every
+	stored session is read: one that ended by inactivity stays stored until
+	its browser comes back (that's when it's checked), and user_session:<id>
+	knows only the latest sign-in.
+
+	:param now: the time (epoch seconds); now when None
+	:returns: user id → when the newest of their live sessions began"""
+	client = current_app.backend.redis.client
+	serializer = current_app.session_interface.serializer
+	now = now or time.time()
+	users: dict[str, float] = {}
+	for key in client.scan_iter(f"{SESSION_PREFIX}*"):
+		raw = cast(bytes | None, client.get(key))
+		if not raw:
+			continue
+		try:
+			data: dict[str, Any] = serializer.decode(raw)
+		except Exception:   # unreadable: not a session of ours
+			continue
+		user_id = data.get("_user_id")
+		if not user_id:
+			continue
+		idle, absolute = _seconds_left(data, now)
+		if idle > 0 and absolute > 0:
+			users[user_id] = max(users.get(user_id, 0.0), data.get(SIGNED_IN_AT, now))
+	return users
 
 
 def mark_signed_in() -> None:

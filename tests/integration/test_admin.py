@@ -5,6 +5,10 @@ Never called here, even as admin: /admin/server/restart (os._exit). The
 redis *save* route runs with the connection swap stubbed out; the database
 move routes are in test_db_move_routes.py.
 """
+import html
+import json
+import re
+import time
 import uuid
 from unittest.mock import patch
 
@@ -126,18 +130,52 @@ def test_reset_2fa_is_admin_only(client_for, make_user, session_scope):
 
 
 def test_live_sessions_list_and_kick(app, admin, client_for, make_user):
-	"""Live Sessions lists a signed-in user; Kick deletes the user's session
-	keys; kicking an unknown user is 404."""
+	"""Live Sessions lists a signed-in user; Kick ends the session (its key
+	gone from Redis); kicking a user without a session is 404."""
 	target = make_user()
-	redis = app.backend.redis.client
-	redis.set(f"user_session:{target.id}", "sid-123", ex=3600)
-	redis.set("redis_session:sid-123", "session-data")
+	browser = client_for(target)
+	browser.get("/dashboard")
+	sid = browser.get_cookie("session").value
 	c = client_for(admin)
 	assert target.username in c.get("/admin/sessions").get_data(as_text=True)
 	assert c.post(f"/admin/sessions/{target.id}/kick").json["status"] == "ok"
-	assert redis.get(f"user_session:{target.id}") is None
-	assert redis.get("redis_session:sid-123") is None
+	assert app.backend.redis.client.get(f"redis_session:{sid}") is None
 	assert c.post(f"/admin/sessions/{uuid.uuid4()}/kick").status_code == 404
+
+
+def test_kick_signs_the_user_out_of_every_browser(admin, client_for, make_user):
+	"""A user signed in on two computers is signed out of both by one Kick:
+	each one's next page goes to the sign-in page, and the open page's
+	background session check gets 401 (so it leaves within 30 s)."""
+	target = make_user()
+	office, laptop = client_for(target), client_for(target)
+	assert office.get("/dashboard").status_code == 200
+	assert laptop.get("/dashboard").status_code == 200
+	assert client_for(admin).post(f"/admin/sessions/{target.id}/kick").status_code == 200
+	for browser in (office, laptop):
+		assert browser.get("/dashboard").status_code == 302
+		assert browser.get("/account/session",
+		                   headers={"X-NR-Background": "1"}).status_code in (302, 401)
+
+
+def test_live_sessions_leave_out_sessions_that_ended(admin, client_for, make_user):
+	"""A session past its idle limit (ended, though its browser hasn't come
+	back to be told) isn't listed on Live Sessions, nor shown as signed in on
+	Users; a live one is."""
+	active, idle = make_user(), make_user()
+	client_for(active).get("/dashboard")
+	gone = client_for(idle)
+	gone.get("/dashboard")
+	with gone.session_transaction() as s:      # last seen 20 minutes ago
+		s["nr_last_active"] = time.time() - 20 * 60
+	c = client_for(admin)
+	page = c.get("/admin/sessions").get_data(as_text=True)
+	assert active.username in page and idle.username not in page
+	rows = [json.loads(html.unescape(raw)) for raw in re.findall(
+		r"data-user='([^']*)'", c.get("/admin/users").get_data(as_text=True))]
+	signed_in = {r["username"]: r["has_session"] for r in rows}
+	assert signed_in[active.username] is True
+	assert signed_in[idle.username] is False
 
 
 # ── Audit + analytics ────────────────────────────────────────────────────────

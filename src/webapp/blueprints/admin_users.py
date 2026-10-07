@@ -1,8 +1,9 @@
 """Admin → Users and Live Sessions: approve, enable / disable, promote /
 demote, delete, reset 2FA or a password, end a user's sessions, add a user;
 the sessions signed in now. Admins only; every action audited."""
+import time
 import uuid
-from typing import Any, cast
+from typing import Any
 
 from flask import Blueprint, Response, render_template, request, redirect, url_for, flash
 from flask.typing import ResponseReturnValue
@@ -14,6 +15,7 @@ from werkzeug.security import generate_password_hash
 from src.db.tables import User
 from src.passwords import temporary_password
 from src.webapp.accounts import AccountError, new_local_user, pending_requests
+from src.webapp.extensions import signed_in_users
 from src.webapp.flask_app import current_app
 from src.webapp.utils import ok, err, require_admin, end_user_sessions, with_json
 
@@ -81,14 +83,9 @@ def admin_users() -> str:
 		users = db_session.query(User).order_by(User.created_at).all()
 		db_session.expunge_all()
 
-	session_user_ids = {
-		redis_key.decode().replace("user_session:", "")
-		for redis_key in
-		current_app.backend.redis.client.scan_iter("user_session:*")
-	}
 	return render_template("admin_users.html", users=users,
 	                       active_section="users",
-	                       session_user_ids=session_user_ids)
+	                       session_user_ids=set(signed_in_users()))
 
 
 @bp.route("/users/<uuid:user_id>/<action>", methods=["POST"])
@@ -208,31 +205,23 @@ def admin_bulk_action(action: str) -> ResponseReturnValue:
 @login_required
 @require_admin
 def admin_sessions() -> str:
-	"""Live Sessions: each user's latest sign-in (user_session:<id>), local
-	and LDAP apart, with how long ago it began."""
+	"""Live Sessions: the users signed in now (a session within its limits),
+	local and LDAP apart, with how long ago their newest sign-in was."""
+	now = time.time()
+	signed_in = signed_in_users(now)
 	sessions: list[dict[str, Any]] = []
-	keys = list(current_app.backend.redis.client.scan_iter("user_session:*"))
-	if keys:
+	if signed_in:
 		with current_app.backend.postgres.get_session() as db_session:
-			for k in keys:
-				user_id_str = k.decode().replace("user_session:", "")
-				try:
-					uid = uuid.UUID(user_id_str)
-				except ValueError:
-					continue
-				user = db_session.query(User).filter_by(id=uid).first()
-				if not user:
-					continue
-				ttl = cast(int, current_app.backend.redis.client.ttl(k))
-				elapsed = max(0, 86400 - ttl) if ttl > 0 else 0
+			users = db_session.query(User).filter(
+				User.id.in_({uuid.UUID(uid) for uid in signed_in})).all()
+			for user in users:
 				sessions.append({
-					"user_id": user_id_str,
+					"user_id": str(user.id),
 					"username": user.username,
 					"auth_type": user.auth_type,
 					"role": user.role,
-					"elapsed_secs": elapsed,
+					"elapsed_secs": max(0, int(now - signed_in[str(user.id)])),
 				})
-			db_session.expunge_all()
 
 	return render_template("live_sessions.html",
 	                       local_sessions=[s for s in sessions if
@@ -246,15 +235,14 @@ def admin_sessions() -> str:
 @login_required
 @require_admin
 def admin_sessions_kick(user_id: uuid.UUID) -> ResponseReturnValue:
-	"""End the user's latest session (the one user_session:<id> points at).
+	"""Sign the user out everywhere - every session of theirs, on every
+	computer (as Terminate Session). An open page notices within 30 s.
 
-	:returns: ok, or 404 when there's none"""
-	sid = cast(bytes | None, current_app.backend.redis.client.get(f"user_session:{user_id}"))
-	if not sid:
+	:returns: ok, or 404 when they have no session"""
+	ended = end_user_sessions(user_id)
+	if not ended:
 		return err("Session not found", 404)
-	current_app.backend.redis.client.delete(f"redis_session:{sid.decode()}")
-	current_app.backend.redis.client.delete(f"user_session:{user_id}")
 	current_app.web.audit("admin.session_kick", object_type="User",
-	                      object_id=user_id,
-	                      success=True)
+	                      object_id=user_id, success=True,
+	                      detail={"sessions_ended": ended})
 	return ok()
