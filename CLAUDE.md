@@ -104,6 +104,17 @@ MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd -W)/requirements.txt:/req/requireme
 
 Full architecture in `docs/architecture.md`; plan and current status in `docs/workplan.md` (status table under "Remaining work"). Phase 4 (packaging v1.0.0) is planned in `docs/plans/phase-4.md`.
 
+### Packages (one module = one whole concern)
+- `src/rollout/` — the engine, shared by the CLI and the web app and free of the web stack: `engine.py` (Device, RolloutEngine, classify), `inputs.py` (checks, the devices CSV / commands file: InputParser, Validator), `platforms.py`, `log.py` (RolloutLogger).
+- `src/jobs.py` — a web rollout's life: the orchestrator, JobStore (its Redis keys), job_status, build_kpi, clear_stale_jobs. `src/inventory.py` — the device inventory's rules: visibility, shared endpoints, reachability, the CSV import (`import_csv`).
+- `src/db/` — `connections.py` (Postgres, Redis, BackendServices), `tables.py`, `install.py` (migrations, grants, seeds, retention SQL), `retention.py` (the nightly run), `settings.py`, `move.py`.
+- `src/accounts/` — `users.py` (local accounts, the password rule, sessions and their lifetime), `ldap.py`.
+- `src/access/` — how NetRollout is reached: `site_env.py` (config/nginx/site.env), `nginx.py` (hostname, certificate, nginx's verdict), `port.py` (the HTTPS port request), `certs.py`.
+- `src/backup/` — `archive.py` (the zip), `schedule.py`, `__main__.py` (`python -m src.backup`).
+- `src/setup/` — the setup core the scripts call (`python -m src.setup`): `install.py`, `env.py` (.env), `update.py` (releases, upgrade), `manage.py`, `port.py`.
+- `src/webapp/` — `build.py` (create_app), `app.py`, `hooks.py`, `http.py`, `lifecycle.py`, `db_move.py` (with maintenance mode), `startup.py`; `blueprints/` one file per page (a merged page keeps its own Blueprint: `admin_settings.py` + backups, `analytics.py` + the admins' analytics, `mappings.py` + properties).
+- `src/runtime.py` (folders, version, read_json / write_json), `src/encryption.py`, `src/cli.py`. Tests mirror it under `tests/unit/`; integration tests go by page.
+
 Retention (defaults; System Settings): job record (results + metadata) 30 days, config snapshots 7 days, audit log 90 days — the **nightly clean-up runs in the app** (`src/db/retention.py`: daily at 03:00 server time on whatever database it's connected to, a missed time caught up once, a failure retried after an hour; `db/install.run_retention` runs `RETENTION_STATEMENTS`, which read the setting's row at run time; the last outcome in `config/retention-status.json`, shown on System Settings → Retention); log files 60 days (app-side, daily).
 
 ### Rollout job state

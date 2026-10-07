@@ -16,6 +16,17 @@ NetRollout is structured around six layers:
 5. **DB layer** — connection management, session lifecycle, hot-reload, install/seed, System Settings
 6. **Webapp layer** — Flask app factory, extensions, blueprints, shared helpers, startup check
 
+**Where the code lives** — (one module = one whole concern)
+- `src/rollout/` — the engine, shared by the CLI and the web app and free of the web stack: `engine.py` (Device, RolloutEngine, classify), `inputs.py` (checks, the devices CSV / commands file: InputParser, Validator), `platforms.py`, `log.py` (RolloutLogger).
+- `src/jobs.py` — a web rollout's life: the orchestrator, JobStore (its Redis keys), job_status, build_kpi, clear_stale_jobs. `src/inventory.py` — the device inventory's rules: visibility, shared endpoints, reachability, the CSV import (`import_csv`).
+- `src/db/` — `connections.py` (Postgres, Redis, BackendServices), `tables.py`, `install.py` (migrations, grants, seeds, retention SQL), `retention.py` (the nightly run), `settings.py`, `move.py`.
+- `src/accounts/` — `users.py` (local accounts, the password rule, sessions and their lifetime), `ldap.py`.
+- `src/access/` — how NetRollout is reached: `site_env.py` (config/nginx/site.env), `nginx.py` (hostname, certificate, nginx's verdict), `port.py` (the HTTPS port request), `certs.py`.
+- `src/backup/` — `archive.py` (the zip), `schedule.py`, `__main__.py` (`python -m src.backup`).
+- `src/setup/` — the setup core the scripts call (`python -m src.setup`): `install.py`, `env.py` (.env), `update.py` (releases, upgrade), `manage.py`, `port.py`.
+- `src/webapp/` — `build.py` (create_app), `app.py`, `hooks.py`, `http.py`, `lifecycle.py`, `db_move.py` (with maintenance mode), `startup.py`; `blueprints/` one file per page (a merged page keeps its own Blueprint: `admin_settings.py` + backups, `analytics.py` + the admins' analytics, `mappings.py` + properties).
+- `src/runtime.py` (folders, version, read_json / write_json), `src/encryption.py`, `src/cli.py`. Tests mirror it under `tests/unit/`; integration tests go by page.
+
 **Ownership.**
 - Per-user data belongs to a `User` through a foreign key: devices, security profiles, variable mappings, property definitions, results and job metadata.
 - Global devices (`Inventory.is_global`) are the exception. All users can see them and roll out to them, but only admins can edit or delete them.
