@@ -25,6 +25,7 @@ OLDER = "device_results_action_needed"    # before role_user_to_operator
 
 
 def _url(db, user="postgres", password=None):
+	"""The test Postgres URL for database `db`, as the superuser or the given login."""
 	base, _ = PG_ADMIN_URL.rsplit("/", 1)
 	if user != "postgres":
 		base = base.split("://")[0] + f"://{user}:{password}@" + base.split("@")[1]
@@ -33,6 +34,9 @@ def _url(db, user="postgres", password=None):
 
 @pytest.fixture
 def databases():
+	"""(source, target) engines on two fresh scratch databases: the source as the
+	superuser, the target through a non-superuser login in its own schema that
+	already holds another application's table; both and the login dropped after."""
 	admin = create_engine(PG_ADMIN_URL, isolation_level="AUTOCOMMIT")
 
 	def drop():
@@ -66,6 +70,7 @@ def databases():
 
 @pytest.fixture
 def places(tmp_path):
+	"""Backup folders under tmp_path (backups, certs, logs, grafana); certs, logs made."""
 	p = backup.Places(tmp_path / "backups", tmp_path / "certs", tmp_path / "logs",
 	                  tmp_path / "grafana")
 	for folder in (p.certs, p.logs):
@@ -84,6 +89,8 @@ def revision_of(engine):
 
 
 def populate(engine, key, role="admin"):
+	"""Add a user, a security profile encrypted with `key`, the https_port setting
+	and an audit row."""
 	cipher = Fernet(key)
 	with Session(engine) as s, s.begin():
 		user = User(username="alice", password_hash="x", email="a@example.com",
@@ -98,6 +105,10 @@ def populate(engine, key, role="admin"):
 
 def test_a_backup_restores_into_another_database_through_a_non_superuser(
 		databases, places):
+	"""A backup restored through a non-superuser into its own schema brings back
+	the rows, the revision and the key (the credential decrypts), sets this
+	install's HTTPS port, audits backup.restored, leaves the other app's table
+	alone, and restores the certificate with its marker and only rollout logs."""
 	source, target = databases
 	key = Fernet.generate_key()
 	migrate(source)
@@ -137,6 +148,9 @@ def test_a_backup_restores_into_another_database_through_a_non_superuser(
 
 
 def test_an_older_backup_restores_and_the_app_migrates_it_forward(databases, places):
+	"""A backup from an older migration level restores at that level into a
+	database already at head; migrating forward then turns role 'user' into
+	'operator'."""
 	source, target = databases
 	key = Fernet.generate_key()
 	migrate(source, OLDER)
@@ -153,6 +167,8 @@ def test_an_older_backup_restores_and_the_app_migrates_it_forward(databases, pla
 
 def test_a_key_that_does_not_decrypt_the_credentials_changes_nothing(
 		databases, places):
+	"""A restore whose key doesn't decrypt the stored credential is refused and the
+	target keeps exactly its own rows."""
 	source, target = databases
 	migrate(source)
 	populate(source, Fernet.generate_key())
@@ -169,6 +185,8 @@ def test_a_key_that_does_not_decrypt_the_credentials_changes_nothing(
 
 
 def test_grafanas_database_is_copied_and_restored(databases, places, tmp_path):
+	"""Grafana's SQLite database is in the backup (the manifest says so) and is
+	restored with its dashboard row; on POSIX with mode 640."""
 	source, target = databases
 	key = Fernet.generate_key()
 	migrate(source)
@@ -192,6 +210,8 @@ def test_grafanas_database_is_copied_and_restored(databases, places, tmp_path):
 
 
 def test_a_database_without_netrollout_tables_is_not_backed_up(databases, places):
+	"""A database with only an alembic_version table is refused ("no NetRollout
+	tables") and no file is left in the backups folder."""
 	source, _ = databases
 	with source.begin() as conn:
 		conn.execute(text("CREATE TABLE alembic_version (version_num varchar(32))"))

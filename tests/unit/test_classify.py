@@ -33,5 +33,7 @@ PUSHED = PushResult(applied=True, rejected=0)
 	(PushResult(True, 5), None, ("failed", 5, None)),
 ])
 def test_status_rules(push, verify, expected):
-	# 5 commands, 4 of them configure something (one is navigation)
+	"""classify gives the expected (status, commands, verified) for each push and
+	verify outcome, with 5 commands of which 4 configure something (one is
+	navigation): not applied, verified, checkable or not, and push-only cases."""
 	assert classify(push, verify, total=5, configuring=4) == expected

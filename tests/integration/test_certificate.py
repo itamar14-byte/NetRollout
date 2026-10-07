@@ -16,6 +16,7 @@ pytestmark = [pytest.mark.postgres, pytest.mark.redis]
 
 
 def upload(client, cert_bytes, key_bytes):
+	"""POSTs a certificate and a key to the upload route as a multipart form."""
 	data = {"certificate": (io.BytesIO(cert_bytes), "fullchain.pem"),
 	        "key": (io.BytesIO(key_bytes), "privkey.pem")}
 	return client.post("/admin/server/certificate", data=data,
@@ -28,11 +29,13 @@ def org_pair(names=("nr01.corp.local",), ips=()):
 
 
 def files():
+	"""The certs folder's files, name to bytes ({} when there is no folder)."""
 	d = runtime.certs_dir()
 	return {p.name: p.read_bytes() for p in d.iterdir()} if d.exists() else {}
 
 
 def audits(session_scope, action):
+	"""The details of the audit rows with this action."""
 	with session_scope() as s:
 		return [a.detail for a in s.query(AuditLog).filter_by(action=action)]
 
@@ -46,6 +49,9 @@ def hostname(app):
 
 def test_an_organisation_certificate_is_used(admin, app, client_for, proxy,
                                              hostname, session_scope):
+	"""Uploading a wildcard certificate over a self-signed one: 200, the folder holds
+	exactly the uploaded pair (marker and old names gone), the page's status and the
+	audit name it, and the audit has only the certificate's details, never the key."""
 	certs.selfsigned("nr01.corp.local", ["10.1.1.5"], runtime.certs_dir())
 	(runtime.certs_dir() / pc.OLD_NAMES_FILE).write_text('{"old.lab": 9999999999}')
 	cert_bytes, key_bytes = org_pair(("*.corp.local",))
@@ -68,6 +74,8 @@ def test_an_organisation_certificate_is_used(admin, app, client_for, proxy,
 ])
 def test_a_certificate_for_another_name_is_refused(admin, app, client_for, proxy,
                                                    hostname, names, expected):
+	"""A certificate that doesn't cover the saved hostname is refused with 422 saying
+	so, and the certificate files stay as they were."""
 	certs.selfsigned("nr01.corp.local", [], runtime.certs_dir())
 	before = files()
 	resp = upload(client_for(admin), *org_pair(names))
@@ -77,6 +85,8 @@ def test_a_certificate_for_another_name_is_refused(admin, app, client_for, proxy
 
 def test_a_key_of_another_certificate_is_refused(admin, app, client_for, proxy,
                                                  hostname):
+	"""A key that isn't the certificate's is refused with 422 ("doesn't belong"), and
+	the certificate files stay as they were."""
 	certs.selfsigned("nr01.corp.local", [], runtime.certs_dir())
 	before = files()
 	cert_bytes, _ = org_pair()
@@ -88,6 +98,7 @@ def test_a_key_of_another_certificate_is_refused(admin, app, client_for, proxy,
 
 def test_a_password_protected_key_is_refused(admin, app, client_for, proxy,
                                              hostname):
+	"""A password-protected key is refused with 422, and nothing is written."""
 	cert, key = make_cert(names=("nr01.corp.local",))
 	resp = upload(client_for(admin), pem(cert), key_pem(key, b"secret"))
 	assert resp.status_code == 422 and "password-protected" in resp.json["message"]
@@ -95,6 +106,8 @@ def test_a_password_protected_key_is_refused(admin, app, client_for, proxy,
 
 
 def test_both_files_are_needed_and_small(admin, client_for, proxy):
+	"""Only a certificate (no key) is 400 "both files"; a 300 KB file is 400 "too
+	big"; nothing is written."""
 	client = client_for(admin)
 	only_cert = client.post("/admin/server/certificate",
 	                        data={"certificate": (io.BytesIO(b"x"), "c.pem")},
@@ -107,6 +120,8 @@ def test_both_files_are_needed_and_small(admin, client_for, proxy):
 
 def test_nginx_rejecting_it_puts_the_previous_one_back(admin, app, client_for,
                                                        proxy, hostname):
+	"""When nginx rejects the uploaded certificate, the answer is 422 with nginx's
+	message and the previous self-signed files (marker included) are back."""
 	certs.selfsigned("nr01.corp.local", ["10.1.1.5"], runtime.certs_dir())
 	before = files()
 	proxy.managed()
@@ -123,6 +138,9 @@ def test_nginx_rejecting_it_puts_the_previous_one_back(admin, app, client_for,
 def test_a_self_signed_one_replaces_the_organisations(admin, app, client_for,
                                                       proxy, hostname,
                                                       session_scope):
+	"""Generate self-signed over an organisation's certificate: 200, a self-signed
+	certificate for the saved hostname keeping the old one's IP, marked self-signed,
+	and audited with its names."""
 	cert_bytes, key_bytes = org_pair(("nr01.corp.local",), ips=("10.1.1.5",))
 	upload(client_for(admin), cert_bytes, key_bytes)
 	resp = client_for(admin).post("/admin/server/certificate/selfsigned")
@@ -137,6 +155,8 @@ def test_a_self_signed_one_replaces_the_organisations(admin, app, client_for,
 
 def test_generating_drops_old_names_in_transition(admin, app, client_for, proxy,
                                                   hostname):
+	"""Generate self-signed names only the saved hostname, dropping an old name in
+	transition, and removes the old-names file."""
 	certs.selfsigned("nr01.corp.local", [], runtime.certs_dir(),
 	                 also_names=["old.lab"])
 	(runtime.certs_dir() / pc.OLD_NAMES_FILE).write_text('{"old.lab": 9999999999}')
@@ -148,6 +168,8 @@ def test_generating_drops_old_names_in_transition(admin, app, client_for, proxy,
 
 def test_without_a_hostname_the_current_name_is_kept(admin, app, client_for,
                                                      proxy):
+	"""With no hostname saved, Generate self-signed keeps the current certificate's
+	name."""
 	certs.selfsigned("box.lab", ["10.1.1.5"], runtime.certs_dir())
 	assert client_for(admin).post("/admin/server/certificate/selfsigned").status_code == 200
 	assert certs.names_in((runtime.certs_dir() / certs.CERT_FILE).read_bytes())[0] \
@@ -155,6 +177,8 @@ def test_without_a_hostname_the_current_name_is_kept(admin, app, client_for,
 
 
 def test_without_any_name_it_asks_for_the_hostname(admin, client_for, proxy):
+	"""With no hostname and no certificate, Generate is 422 "Set the hostname first"
+	and writes nothing."""
 	resp = client_for(admin).post("/admin/server/certificate/selfsigned")
 	assert resp.status_code == 422 and "Set the hostname first" in resp.json["message"]
 	assert files() == {}
@@ -163,6 +187,8 @@ def test_without_any_name_it_asks_for_the_hostname(admin, client_for, proxy):
 def test_a_generate_nginx_rejects_puts_the_previous_one_back(admin, app,
                                                              client_for, proxy,
                                                              hostname):
+	"""When nginx rejects the generated certificate, the answer is 422 and the previous
+	files are back."""
 	upload(client_for(admin), *org_pair())
 	before = files()
 	proxy.managed()
@@ -174,6 +200,8 @@ def test_a_generate_nginx_rejects_puts_the_previous_one_back(admin, app,
 def test_a_generate_that_cannot_write_changes_nothing(admin, app, client_for,
                                                       proxy, hostname,
                                                       monkeypatch):
+	"""A generate that fails half-way (files written, then PermissionError) is 422 with
+	the error, and the previous files are back."""
 	upload(client_for(admin), *org_pair())
 	before = files()
 	real = certs.selfsigned
@@ -191,6 +219,8 @@ def test_a_generate_that_cannot_write_changes_nothing(admin, app, client_for,
 # ── who ──
 
 def test_only_admins_change_the_certificate(make_user, client_for, proxy):
+	"""An operator's upload and generate are both refused (302 or 403), and nothing is
+	written."""
 	client = client_for(make_user(role="operator"))
 	assert upload(client, *org_pair()).status_code in (302, 403)
 	assert client.post("/admin/server/certificate/selfsigned").status_code in (302, 403)
@@ -198,6 +228,8 @@ def test_only_admins_change_the_certificate(make_user, client_for, proxy):
 
 
 def test_the_page_shows_the_certificate_card(admin, client_for, proxy):
+	"""The Server Management page shows the certificate status card with the
+	certificate's name."""
 	certs.selfsigned("nr01.corp.local", [], runtime.certs_dir())
 	page = client_for(admin).get("/admin/server").data
 	assert b'id="certStatus"' in page and b"nr01.corp.local" in page
@@ -205,8 +237,9 @@ def test_the_page_shows_the_certificate_card(admin, client_for, proxy):
 
 def test_generate_covers_the_servers_ips(admin, app, client_for, proxy, hostname,
                                          monkeypatch):
-	# an organisation's certificate usually has no IP SANs: the server's
-	# addresses (recorded by the installer) still end up in the new one
+	"""Generating over an organisation's certificate (usually no IP SANs) puts the
+	server's addresses from NETROLLOUT_SERVER_IPS (recorded by the installer) in
+	the new one."""
 	upload(client_for(admin), *org_pair())
 	monkeypatch.setenv(pc.SERVER_IPS_ENV, "10.9.9.9")
 	assert client_for(admin).post("/admin/server/certificate/selfsigned").status_code == 200

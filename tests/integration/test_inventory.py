@@ -16,11 +16,13 @@ FORM = {"label": "edge-1", "ip": "10.1.1.1", "port": "22",
 
 
 def flashes(client):
+	"""The flash messages waiting in the client's session."""
 	with client.session_transaction() as s:
 		return [m for _, m in s.get("_flashes", [])]
 
 
 def device_by_label(session_scope, label):
+	"""The inventory device with `label` (detached), or None."""
 	with session_scope() as s:
 		d = s.query(Inventory).filter_by(label=label).first()
 		if d:
@@ -29,6 +31,7 @@ def device_by_label(session_scope, label):
 
 
 def mapping_owners(session_scope, device_id):
+	"""The user ids owning the mappings bound to a device, sorted."""
 	with session_scope() as s:
 		return sorted(str(m.user_id) for m in s.get(Inventory, device_id).var_mappings)
 
@@ -36,6 +39,8 @@ def mapping_owners(session_scope, device_id):
 # ── CRUD ─────────────────────────────────────────────────────────────────────
 
 def test_create_edit_delete_own_device(client_for, make_user, session_scope):
+	"""A user creates a private device, edits it (attributes saved as var_maps, a list
+	split on commas) and deletes it."""
 	user = make_user()
 	client = client_for(user)
 	client.post("/inventory/create", data=FORM)
@@ -54,6 +59,7 @@ def test_create_edit_delete_own_device(client_for, make_user, session_scope):
 
 def test_cannot_touch_another_users_device(client_for, make_user, make_device,
                                            db_get):
+	"""Another user's edit and delete of a device change nothing."""
 	owner, other = make_user(), make_user()
 	dev = make_device(owner)
 	client = client_for(other)
@@ -64,6 +70,7 @@ def test_cannot_touch_another_users_device(client_for, make_user, make_device,
 
 def test_invalid_profile_id_is_rejected_without_partial_edit(
 		client_for, make_user, make_device, db_get):
+	"""An edit with a malformed profile id is 422 and applies none of the edit."""
 	user = make_user()
 	dev = make_device(user)
 	resp = client_for(user).post(f"/inventory/{dev}/edit", data={
@@ -73,6 +80,7 @@ def test_invalid_profile_id_is_rejected_without_partial_edit(
 
 
 def test_connection_test_endpoint(client_for, make_user):
+	"""The connection test answers ok for a reachable device and 400 for an invalid IP."""
 	client = client_for(make_user())
 	with patch("src.validation.tcp_reachable", return_value=True):
 		ok = client.post("/inventory/test_connection",
@@ -84,6 +92,7 @@ def test_connection_test_endpoint(client_for, make_user):
 
 
 def test_csv_import(client_for, make_user, session_scope):
+	"""A CSV import saves the valid row and skips the one with an invalid IP."""
 	user = make_user()
 	csv = ("ip,username,password,device_type,secret,port\n"
 	       "10.2.2.1,u,p,cisco_ios,s,22\n"
@@ -99,8 +108,8 @@ def test_csv_import(client_for, make_user, session_scope):
 
 def test_csv_import_tolerates_blanks_and_needs_no_credentials(
 		client_for, make_user, session_scope):
-	# credentials aren't stored in inventory, so the columns are optional;
-	# a blank label falls back to the IP; a bad row doesn't sink the rest
+	"""Credential columns are optional in an import (they aren't stored in inventory);
+	a blank label falls back to the IP; a bad row is reported and doesn't sink the rest."""
 	user = make_user()
 	csv = ("ip,device_type,port,label\n"
 	       "10.3.3.1,cisco_ios,22,\n"
@@ -122,6 +131,7 @@ def test_csv_import_tolerates_blanks_and_needs_no_credentials(
 # ── CSV import: one format for the CLI and the web app ──────────────────────
 
 def import_csv(client, csv, create_profiles=True, label=None):
+	"""Posts `csv` to the CSV import, profile creation on unless told otherwise."""
 	data = {"csv_file": (io.BytesIO(csv.encode()), "devices.csv")}
 	if create_profiles:
 		data["create_profiles"] = "on"
@@ -132,6 +142,7 @@ def import_csv(client, csv, create_profiles=True, label=None):
 
 
 def devices_of(session_scope, user):
+	"""The user's devices by label (detached)."""
 	with session_scope() as s:
 		rows = {d.label: d for d in s.query(Inventory).filter_by(user_id=user.id)}
 		s.expunge_all()
@@ -139,6 +150,7 @@ def devices_of(session_scope, user):
 
 
 def profiles_of(session_scope, user):
+	"""The user's security profiles by id (detached)."""
 	with session_scope() as s:
 		rows = {p.id: p for p in
 		        s.query(SecurityProfile).filter_by(user_id=user.id)}
@@ -148,6 +160,9 @@ def profiles_of(session_scope, user):
 
 def test_csv_import_saves_attribute_columns(client_for, make_user,
                                             session_scope):
+	"""Attribute columns, matched by property name or label in any case, are saved as
+	var_maps (list properties split); empty cells are skipped; an unknown column
+	is reported as ignored."""
 	user = make_user()
 	client = client_for(user)
 	client.post("/properties/create", json={"name": "rack", "label": "Rack"})
@@ -169,6 +184,9 @@ def test_csv_import_saves_attribute_columns(client_for, make_user,
 
 def test_csv_import_turns_credentials_into_profiles(client_for, make_user,
                                                     make_profile, session_scope):
+	"""Import credentials become profiles: an exact match reuses the existing one, new
+	credentials make one new profile shared by their rows (audited like a manual one),
+	no credentials no profile; the flashes count each."""
 	user = make_user()
 	core = make_profile(user, label="core-ro", username="ro", password="ropw")
 	csv = ("ip,device_type,port,label,username,password,secret\n"
@@ -203,6 +221,8 @@ def test_csv_import_turns_credentials_into_profiles(client_for, make_user,
 
 def test_csv_import_warns_on_same_username_other_password(
 		client_for, make_user, make_profile, session_scope):
+	"""Same username with another password makes a new profile with a warning naming the
+	existing one (never changed); a second import that day gets a distinct label."""
 	user = make_user()
 	core = make_profile(user, label="core", username="admin", password="admin")
 	csv = ("ip,device_type,port,label,username,password\n"
@@ -228,6 +248,8 @@ def test_csv_import_warns_on_same_username_other_password(
 
 def test_csv_import_without_profile_creation(client_for, make_user,
                                              session_scope):
+	"""With profile creation off, credentials are not imported (no profile) and a flash
+	says so."""
 	user = make_user()
 	client = client_for(user)
 	import_csv(client, "ip,device_type,port,label,username,password\n"
@@ -241,6 +263,8 @@ def test_csv_import_without_profile_creation(client_for, make_user,
 
 def test_csv_import_partial_credentials_get_no_profile(client_for, make_user,
                                                        session_scope):
+	"""A row with a username but no password is imported without a profile, named in a
+	flash."""
 	user = make_user()
 	client = client_for(user)
 	import_csv(client, "ip,device_type,port,label,username,password\n"
@@ -252,6 +276,7 @@ def test_csv_import_partial_credentials_get_no_profile(client_for, make_user,
 
 def test_csv_import_does_not_check_reachability(client_for, make_user,
                                                 session_scope):
+	"""The import saves an unreachable device and never probes it."""
 	user = make_user()
 	with patch("src.validation.tcp_reachable",
 	           return_value=False) as probe:
@@ -262,6 +287,7 @@ def test_csv_import_does_not_check_reachability(client_for, make_user,
 
 
 def test_csv_import_missing_required_columns(client_for, make_user):
+	"""An import without a required column is refused, naming the missing column."""
 	client = client_for(make_user())
 	import_csv(client, "ip,device_type\n10.1.1.1,cisco_ios\n")
 	assert "Missing required columns: port" in flashes(client)
@@ -270,6 +296,7 @@ def test_csv_import_missing_required_columns(client_for, make_user):
 # ── Same ip:port as another device: warn, never block ───────────────────────
 
 def dup_warnings(client):
+	"""The flashes warning about a shared ip:port."""
 	return [m for m in flashes(client) if "is already used by" in m
 	        or "share an ip:port" in m]
 
@@ -277,6 +304,8 @@ def dup_warnings(client):
 def test_create_warns_on_same_endpoint_as_own_device(client_for, make_user,
                                                      make_device,
                                                      session_scope):
+	"""Creating a device on an ip:port the user already has saves it with a warning
+	naming the other device; the same IP on another port gets no warning."""
 	user = make_user()
 	make_device(user, ip="10.1.1.1", label="core-a")
 	client = client_for(user)
@@ -293,6 +322,8 @@ def test_create_warns_on_same_endpoint_as_own_device(client_for, make_user,
 
 def test_create_warns_on_global_device_but_never_on_private_ones(
 		client_for, make_user, make_device):
+	"""A clash with a global device is warned about (marked global); another user's
+	private device is never mentioned."""
 	admin, user, stranger = (make_user(role="admin"), make_user(),
 	                         make_user())
 	make_device(admin, ip="10.1.1.1", label="core-g", is_global=True)
@@ -310,6 +341,7 @@ def test_create_warns_on_global_device_but_never_on_private_ones(
 
 def test_edit_warns_only_when_the_endpoint_changes(client_for, make_user,
                                                    make_device):
+	"""An edit warns about a shared ip:port only when it changes the endpoint."""
 	user = make_user()
 	make_device(user, ip="10.1.1.1", label="core-a")
 	dev = make_device(user, ip="10.2.2.2", label="edge")
@@ -325,6 +357,8 @@ def test_edit_warns_only_when_the_endpoint_changes(client_for, make_user,
 
 def test_csv_import_warns_on_shared_endpoints(client_for, make_user,
                                               make_device, session_scope):
+	"""An import saves every row and warns once, listing the endpoints shared with an
+	existing device or within the file."""
 	user = make_user()
 	make_device(user, ip="10.1.1.1", label="core-a")
 	client = client_for(user)
@@ -340,6 +374,7 @@ def test_csv_import_warns_on_shared_endpoints(client_for, make_user,
 
 
 def test_json_routes_report_invalid_request_plainly(client_for, make_user):
+	"""A malformed JSON body gets the plain message "Invalid request"."""
 	resp = client_for(make_user()).post("/inventory/bulk_assign", data="x",
 	                                    content_type="application/json")
 	assert resp.json["message"] == "Invalid request"
@@ -348,6 +383,8 @@ def test_json_routes_report_invalid_request_plainly(client_for, make_user):
 def test_unresolvable_mappings_are_not_bound(client_for, make_user,
                                              make_device, make_mapping,
                                              session_scope):
+	"""Mappings the device can't resolve (attribute missing, list index out of range)
+	are not bound and are named in a flash; drag-assign applies the same rule."""
 	user = make_user()
 	dev = make_device(user, var_maps={"vrfs": ["red"]})
 	host = make_mapping(user, token="HOST", prop="hostname")   # attr missing
@@ -370,6 +407,7 @@ def test_unresolvable_mappings_are_not_bound(client_for, make_user,
 
 def test_bulk_profile_assign_only_own_profile_and_devices(
 		client_for, make_user, make_profile, make_device, db_get):
+	"""Bulk assign of another user's profile is 404; the user's own profile is assigned."""
 	user, other = make_user(), make_user()
 	mine, theirs = make_profile(user), make_profile(other)
 	dev = make_device(user)
@@ -385,7 +423,8 @@ def test_bulk_profile_assign_only_own_profile_and_devices(
 
 def test_bulk_unassign_keeps_global_devices_profile(
 		client_for, make_user, make_profile, make_device, db_get):
-	# same rule as create/edit: a global device must keep a profile
+	"""Bulk unassign clears a local device's profile but a global device keeps its own
+	(the same rule as create/edit: a global device must keep a profile)."""
 	admin = make_user(role="admin")
 	prof = make_profile(admin)
 	glob = make_device(admin, ip="10.0.0.1", profile_id=prof, is_global=True)
@@ -400,6 +439,8 @@ def test_bulk_unassign_keeps_global_devices_profile(
 
 @pytest.fixture
 def world(make_user, make_profile, make_device, make_mapping):
+	"""An admin's global device with a profile, user b's local device on the same IP,
+	and a mapping each for b and c (c's bound to the global device)."""
 	admin = make_user(role="admin")
 	user_b, user_c = make_user(), make_user()
 	admin_prof = make_profile(admin, label="core-ro")
@@ -423,6 +464,8 @@ def rendered(client, path):
 
 
 def test_inventory_splits_sections_only_when_both_exist(world, client_for):
+	"""The inventory splits into Global Devices and My Devices only for a user who has
+	both; a user with global devices only gets no section headers."""
 	html_b = rendered(client_for(world.b), "/inventory")
 	assert "Global Devices" in html_b and "My Devices" in html_b
 	html_c = rendered(client_for(world.c), "/inventory")
@@ -430,6 +473,8 @@ def test_inventory_splits_sections_only_when_both_exist(world, client_for):
 
 
 def test_global_card_is_read_only_for_users(world, client_for):
+	"""A user's global device card has no delete button and isn't editable, and the
+	global toggle is admin-only."""
 	html = client_for(world.b).get("/inventory").get_data(as_text=True)
 	card = re.search(r'<div class="inv-card is-global".*?</div>\s*</div>',
 	                 html, re.S).group(0)
@@ -438,12 +483,16 @@ def test_global_card_is_read_only_for_users(world, client_for):
 
 
 def test_admin_profile_id_never_exposed_to_users(world, client_for):
+	"""The admin profile's id of a global device never appears in a user's inventory
+	page."""
 	html = client_for(world.b).get("/inventory").get_data(as_text=True)
 	assert str(world.admin_prof) not in html
 
 
 def test_users_cannot_edit_delete_or_hijack_credentials(world, client_for,
                                                         db_get, session_scope):
+	"""A user can't edit or delete a global device, nor attach the admin's profile to a
+	new or own device."""
 	client = client_for(world.b)
 	client.post(f"/inventory/{world.core}/edit", data={**FORM, "label": "X"})
 	client.post(f"/inventory/{world.core}/delete")
@@ -458,6 +507,7 @@ def test_users_cannot_edit_delete_or_hijack_credentials(world, client_for,
 
 
 def test_users_cannot_create_global_devices(world, client_for, session_scope):
+	"""A user's create with is_global on makes a private device."""
 	client_for(world.b).post("/inventory/create", data={
 		**FORM, "label": "sneaky", "is_global": "on"})
 	assert device_by_label(session_scope, "sneaky").is_global is False
@@ -465,6 +515,8 @@ def test_users_cannot_create_global_devices(world, client_for, session_scope):
 
 def test_users_bind_own_mappings_without_touching_others(world, client_for,
                                                          session_scope):
+	"""A user binds own mappings to a global device beside another user's; another
+	user's mapping can't be bound (the own binding is replaced); drag-assign too."""
 	client = client_for(world.b)
 	client.post(f"/inventory/{world.core}/mappings",
 	            data={"mapping_ids": [str(world.map_b)]})
@@ -483,6 +535,7 @@ def test_users_bind_own_mappings_without_touching_others(world, client_for,
 
 def test_admin_must_attach_profile_to_global_device(world, client_for,
                                                    session_scope):
+	"""An admin's global device without a profile is not created."""
 	client_for(world.admin).post("/inventory/create", data={
 		**FORM, "label": "g-noprof", "is_global": "on"})
 	assert device_by_label(session_scope, "g-noprof") is None
@@ -490,6 +543,8 @@ def test_admin_must_attach_profile_to_global_device(world, client_for,
 
 def test_localizing_drops_foreign_bindings_and_audits(world, client_for,
                                                       db_get, session_scope):
+	"""Making a global device local drops other users' mapping bindings, is audited
+	(`inventory.localize`) and hides the device from other users."""
 	client_for(world.admin).post(f"/inventory/{world.core}/edit", data={
 		**FORM, "label": "CORE-X", "ip": "10.50.0.1",
 		"sec_profile_id": str(world.admin_prof), "attr_hostname": "core-x"})
@@ -504,11 +559,14 @@ def test_localizing_drops_foreign_bindings_and_audits(world, client_for,
 
 
 def test_deleting_a_mapping_keeps_its_devices(world, client_for, db_get):
+	"""Deleting a mapping keeps the devices bound to it (they used to be
+	cascade-deleted)."""
 	client_for(world.c).post(f"/mappings/{world.map_c}/delete")
 	assert db_get(Inventory, world.core) is not None  # was cascade-deleted
 
 
 def test_global_devices_offered_in_rollout_and_mappings(world, client_for):
+	"""Global devices are offered to users on the new rollout and mappings pages."""
 	b = client_for(world.b)
 	rollout = b.get("/rollout/new").get_data(as_text=True)
 	assert "Global Devices" in rollout and str(world.core) in rollout
@@ -520,6 +578,8 @@ def test_global_devices_offered_in_rollout_and_mappings(world, client_for):
 
 def test_reachability_endpoint_reports_visible_devices_only(
 		client_for, make_user, make_device, unreachable_targets):
+	"""The reachability endpoint reports up/down for the user's own devices, omits another
+	user's, and answers 422 for an invalid id."""
 	user, other = make_user(), make_user()
 	up = make_device(user, ip="10.8.0.1")
 	down = make_device(user, ip="10.8.0.2")
@@ -537,6 +597,7 @@ def test_reachability_endpoint_reports_visible_devices_only(
 
 def test_inventory_cards_have_reachability_indicator(client_for, make_user,
                                                      make_device):
+	"""Each inventory card has a reachability indicator and the page a recheck button."""
 	user = make_user()
 	dev = make_device(user)
 	html = client_for(user).get("/inventory").get_data(as_text=True)

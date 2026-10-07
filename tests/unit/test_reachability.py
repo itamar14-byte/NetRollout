@@ -7,6 +7,8 @@ from src.reachability import ReachabilityChecker, probe
 
 
 class FakeRedis:
+	"""An in-memory stand-in for the cache's Redis (mget, pipelined setex); down
+	makes every call raise ConnectionError."""
 	def __init__(self, down=False):
 		self.store, self.down = {}, down
 
@@ -35,6 +37,8 @@ class FakeRedis:
 
 
 class CountingProbe:
+	"""A prober that records every (ip, port) it is asked and answers reachable
+	unless the target is in down."""
 	def __init__(self, down=()):
 		self.down, self.calls = set(down), []
 
@@ -47,12 +51,16 @@ A, B = ("10.0.0.1", 22), ("10.0.0.2", 2002)
 
 
 def checker(fake=None, down=()):
+	"""A ReachabilityChecker on a FakeRedis and a CountingProbe; returns
+	(checker, probe, fake redis)."""
 	fake = fake or FakeRedis()
 	p = CountingProbe(down)
 	return ReachabilityChecker(lambda: fake, prober=p), p, fake
 
 
 def test_results_are_probed_then_cached():
+	"""The first check probes each target (A reachable, B not, with checked_at);
+	a second check is served from the cache, probing nothing more."""
 	c, p, _ = checker(down=[B])
 	first = c.check([A, B])
 	assert (first[A]["reachable"], first[B]["reachable"]) == (True, False)
@@ -62,6 +70,7 @@ def test_results_are_probed_then_cached():
 
 
 def test_refresh_bypasses_the_cache():
+	"""check(refresh=True) probes again even though the result is cached."""
 	c, p, _ = checker()
 	c.check([A])
 	c.check([A], refresh=True)
@@ -69,6 +78,8 @@ def test_refresh_bypasses_the_cache():
 
 
 def test_recheck_unreachable_reprobes_only_cached_failures():
+	"""recheck_unreachable trusts a cached reachable A and re-probes only the
+	cached failure B, which is now reported reachable."""
 	c, p, _ = checker(down=[B])
 	c.check([A, B])
 	p.down.clear()  # B came back
@@ -78,6 +89,8 @@ def test_recheck_unreachable_reprobes_only_cached_failures():
 
 
 def test_redis_outage_falls_back_to_probing():
+	"""With Redis down, check still answers by probing - every time, as nothing
+	is cached."""
 	c, p, _ = checker(fake=FakeRedis(down=True))
 	assert c.check([A])[A]["reachable"] is True
 	c.check([A])
@@ -85,11 +98,14 @@ def test_redis_outage_falls_back_to_probing():
 
 
 def test_ports_are_normalised():
+	"""A port given as text ("22") is keyed as an int in the result."""
 	c, p, _ = checker()
 	assert set(c.check([("10.0.0.1", "22")])) == {A}
 
 
 def test_probe_open_and_closed_local_ports():
+	"""probe is True for a listening local port, False once the listener is gone,
+	and False for an invalid address."""
 	with socket.socket() as server:
 		server.bind(("127.0.0.1", 0))
 		server.listen()

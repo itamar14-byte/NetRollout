@@ -35,6 +35,7 @@ def begins(app, monkeypatch):
 
 @pytest.fixture
 def busy(app, monkeypatch):
+	"""A setter for the orchestrator's running / queued rollout counts."""
 	def _set(running=0, queued=0):
 		monkeypatch.setattr(app.orchestrator, "counts",
 		                    lambda: {"running": running, "queued": queued})
@@ -49,6 +50,9 @@ def draining(app, monkeypatch):
 # ── Health ───────────────────────────────────────────────────────────────────
 
 def test_health_is_public_and_reports_services_counts_version(app, busy):
+	"""/_netrollout/health without signing in: 200, no-store, and exactly status ok,
+	the version, Postgres and Redis up, the rollout counts, not draining, no
+	maintenance."""
 	busy(running=1, queued=2)
 	resp = app.test_client().get("/_netrollout/health")
 	assert resp.status_code == 200
@@ -59,6 +63,8 @@ def test_health_is_public_and_reports_services_counts_version(app, busy):
 
 
 def test_health_is_503_when_a_service_is_down(app, monkeypatch):
+	"""With Redis down the health endpoint answers 503, status "degraded", redis
+	false."""
 	monkeypatch.setattr(app.backend, "health",
 	                    lambda: {"POSTGRES": True, "REDIS": False})
 	resp = app.test_client().get("/_netrollout/health")
@@ -69,6 +75,7 @@ def test_health_is_503_when_a_service_is_down(app, monkeypatch):
 # ── Admin Restart ────────────────────────────────────────────────────────────
 
 def test_restart_when_idle_begins_at_once(admin, client_for, begins, busy):
+	"""With no rollouts, an admin's Restart answers 200 and begins one restart."""
 	busy()
 	resp = client_for(admin).post("/admin/server/restart", json={})
 	assert resp.status_code == 200
@@ -76,6 +83,8 @@ def test_restart_when_idle_begins_at_once(admin, client_for, begins, busy):
 
 
 def test_restart_with_rollouts_asks_first(admin, client_for, begins, busy):
+	"""With rollouts running or queued and no mode chosen, Restart answers 409 with
+	the counts and begins nothing."""
 	busy(running=2, queued=1)
 	resp = client_for(admin).post("/admin/server/restart", json={})
 	assert resp.status_code == 409
@@ -86,6 +95,8 @@ def test_restart_with_rollouts_asks_first(admin, client_for, begins, busy):
 @pytest.mark.parametrize("mode, drains", [("when_finished", True),
                                           ("now", False)])
 def test_restart_modes(admin, client_for, begins, busy, mode, drains):
+	"""With a rollout running, Restart begins one restart: "when_finished" with the
+	drain deadline (drain_seconds()), "now" with 0."""
 	busy(running=1)
 	resp = client_for(admin).post("/admin/server/restart", json={"mode": mode})
 	assert resp.status_code == 200
@@ -96,6 +107,8 @@ def test_restart_modes(admin, client_for, begins, busy, mode, drains):
 
 def test_restart_rejects_unknown_mode_and_a_second_request(
 		admin, client_for, begins, busy):
+	"""An unknown mode is 422; after a Restart has begun, a second one is 409 with a
+	message saying it is already under way."""
 	busy()
 	c = client_for(admin)
 	assert c.post("/admin/server/restart",
@@ -106,6 +119,7 @@ def test_restart_rejects_unknown_mode_and_a_second_request(
 
 
 def test_restart_is_admin_only(make_user, client_for, begins):
+	"""An operator's Restart is refused (302 or 403) and begins nothing."""
 	resp = client_for(make_user(), xhr=True).post("/admin/server/restart",
 	                                               json={})
 	assert resp.status_code in (302, 403)
@@ -122,6 +136,8 @@ def operator_device(make_user, make_profile, make_device):
 
 def test_new_rollouts_are_refused_while_draining(operator_device, client_for,
                                                  captured_submits, draining):
+	"""While draining, starting a rollout shows the draining message and submits
+	nothing."""
 	user, device = operator_device
 	resp = client_for(user).post("/rollout/start", data={
 		"device_ids": [str(device)], "manual_commands": "hostname r1"},
@@ -132,6 +148,8 @@ def test_new_rollouts_are_refused_while_draining(operator_device, client_for,
 
 def test_rollback_is_refused_while_draining(app, operator_device, client_for,
                                             session_scope, monkeypatch):
+	"""A rollback of a finished job, when the orchestrator raises Draining, answers
+	503 with the draining message."""
 	user, _ = operator_device
 	job = uuid.uuid4()
 	now = dt.datetime.now()
@@ -151,6 +169,8 @@ def test_rollback_is_refused_while_draining(app, operator_device, client_for,
 
 def test_banner_shows_on_every_page_while_draining(
 		app, admin, client_for, draining, monkeypatch):
+	"""During a Restart's drain, the dashboard and the Server Management page both
+	show the drain banner saying NetRollout is restarting."""
 	monkeypatch.setattr(app.shutdown, "_restart", True)   # a Restart, not a stop
 	for page in ("/dashboard", "/admin/server"):
 		html = client_for(admin).get(page).data.decode()
@@ -159,6 +179,7 @@ def test_banner_shows_on_every_page_while_draining(
 
 
 def test_no_banner_normally(admin, client_for):
+	"""When not draining, the dashboard has no drain banner."""
 	assert 'id="drainBanner"' not in client_for(admin).get("/dashboard") \
 		.data.decode()
 
@@ -167,8 +188,9 @@ def test_no_banner_normally(admin, client_for):
 
 def test_sessions_use_the_live_redis_client(app, admin, client_for, redis_url,
                                             monkeypatch):
-	# A Server Management switch replaces backend.redis.client; the session
-	# store used to keep the old (closed) client and log everyone out
+	"""After backend.redis.client is replaced (a Server Management switch), the
+	session store uses the new client and a signed-in page still loads (it used
+	to keep the old, closed client and log everyone out)."""
 	new_client = redis_lib.Redis.from_url(redis_url)
 	monkeypatch.setattr(app.backend.redis, "client", new_client)
 	assert app.session_interface.client is new_client

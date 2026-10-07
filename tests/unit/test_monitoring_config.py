@@ -13,6 +13,7 @@ BUILT_IN = {"-- Grafana --", "-- Dashboard --", "-- Mixed --"}
 
 
 def provisioned_uids():
+	"""The uids of the data sources the provisioning file defines."""
 	data = yaml.safe_load((GRAFANA / "provisioning" / "datasources"
 	                       / "netrollout.yml").read_text(encoding="utf-8"))
 	return {d["uid"] for d in data["datasources"]}
@@ -42,11 +43,13 @@ def shipped():
 
 
 def test_there_are_dashboards_to_check():
+	"""Four dashboards are shipped, so the checks below have something to check."""
 	assert len(shipped()) == 4
 
 
 def test_every_subfolder_is_one_setup_imports():
-	# a dashboard in a folder setup.py doesn't know would never be imported
+	"""Every dashboard subfolder is in setup.py's SUBFOLDERS - a dashboard in a folder
+	setup.py doesn't know would never be imported."""
 	spec = importlib.util.spec_from_file_location("setup", GRAFANA / "setup.py")
 	setup = importlib.util.module_from_spec(spec)
 	spec.loader.exec_module(setup)
@@ -54,8 +57,9 @@ def test_every_subfolder_is_one_setup_imports():
 
 
 def test_every_dashboard_datasource_is_provisioned():
-	# provisioned, or the NetRollout database one, which grafana-setup keeps
-	# through Grafana's API (it follows a database move)
+	"""Every data source a shipped dashboard uses is provisioned, built in, or the
+	NetRollout database one, which grafana-setup keeps through Grafana's API (it follows
+	a database move)."""
 	spec = importlib.util.spec_from_file_location("setup", GRAFANA / "setup.py")
 	setup = importlib.util.module_from_spec(spec)
 	spec.loader.exec_module(setup)

@@ -19,6 +19,7 @@ pytestmark = [pytest.mark.postgres, pytest.mark.redis]
 
 @pytest.fixture
 def admin(make_user, session_scope):
+	"""An admin, with every setting seeded first."""
 	with session_scope() as s:       # what install() does at every startup
 		seed_settings(s)
 	return make_user(role="admin")
@@ -29,6 +30,7 @@ def save(client, **values):
 
 
 def audit(session_scope, action):
+	"""(object_label, detail) of every audit row with `action`, oldest first."""
 	with session_scope() as s:
 		return [(a.object_label, a.detail) for a in
 		        s.query(AuditLog).filter_by(action=action).order_by(AuditLog.timestamp)]
@@ -36,6 +38,8 @@ def audit(session_scope, action):
 
 def test_save_writes_rows_and_audits_each_change(admin, app, client_for,
                                                  session_scope):
+	"""Saving writes only the changed settings (a string value parsed) and audits each
+	change with its old and new value; an unchanged value is neither saved nor audited."""
 	resp = save(client_for(admin), job_retention_days="45",
 	            device_parallelism=20, audit_retention_days=90)   # unchanged
 	assert resp.status_code == 200
@@ -51,6 +55,8 @@ def test_save_writes_rows_and_audits_each_change(admin, app, client_for,
 
 def test_invalid_values_are_reported_per_field_and_save_nothing(admin, app,
                                                                 client_for):
+	"""Invalid values are answered 422 with an error per field (a hostname with
+	https:// refused) and nothing is saved, not even the valid value."""
 	resp = save(client_for(admin), job_retention_days=45, audit_retention_days=3,
 	            public_hostname="https://nr.corp")
 	assert resp.status_code == 422
@@ -60,6 +66,8 @@ def test_invalid_values_are_reported_per_field_and_save_nothing(admin, app,
 
 
 def test_rule_violations_are_reported_and_save_nothing(admin, app, client_for):
+	"""A save that breaks a rule (job records longer than logs) is 422 with the rule's
+	message under `_rules` and saves nothing."""
 	resp = save(client_for(admin), job_retention_days=90)   # logs stay 60
 	assert resp.status_code == 422
 	assert "at least as long as job records" in resp.json["errors"]["_rules"]
@@ -67,7 +75,8 @@ def test_rule_violations_are_reported_and_save_nothing(admin, app, client_for):
 
 
 def test_the_server_rejects_what_the_page_would_block(admin, client_for):
-	# a crafted request skipping the page's checks gets the same answers
+	"""A crafted request skipping the page's checks gets the same answers: out-of-range,
+	unknown or illegal values are 422, a malformed body 400."""
 	client = client_for(admin)
 	for values in ({"device_parallelism": 0}, {"https_port": "99999"},
 	               {"no_such_setting": 1}, {"public_hostname": "a b"}):
@@ -76,6 +85,8 @@ def test_the_server_rejects_what_the_page_would_block(admin, client_for):
 
 
 def test_reset(admin, app, client_for, session_scope):
+	"""Reset puts a setting back to its default (saved and audited); a reset that breaks
+	a rule is 422 and an unknown key is 404."""
 	client = client_for(admin)
 	save(client, job_retention_days=90, log_retention_days=120)
 	refused = client.post("/admin/settings/log_retention_days/reset")
@@ -89,6 +100,8 @@ def test_reset(admin, app, client_for, session_scope):
 
 
 def test_access_test_runs_the_proxy_check(admin, app, client_for, monkeypatch):
+	"""The Access test checks the given hostname and port with this instance's token and
+	reports the local and public results; an illegal hostname is 422."""
 	calls = []
 
 	def fake_check(url, token):
@@ -110,6 +123,8 @@ def test_access_test_runs_the_proxy_check(admin, app, client_for, monkeypatch):
 
 
 def test_restart_pending_follows_the_worker_count(admin, app, client_for):
+	"""Changing the concurrent rollout jobs marks a restart pending; setting it back to
+	the value the app started with clears it."""
 	started = app.config["SETTINGS_STARTED_WITH"]["orchestrator_workers"]
 	client = client_for(admin)
 	resp = save(client, orchestrator_workers=started + 2)
@@ -119,6 +134,7 @@ def test_restart_pending_follows_the_worker_count(admin, app, client_for):
 
 
 def test_orchestrator_started_with_the_setting(app):
+	"""The orchestrator runs as many jobs at once as the setting said at start."""
 	assert app.orchestrator.max_concurrent == \
 	       app.config["SETTINGS_STARTED_WITH"]["orchestrator_workers"]
 
@@ -126,6 +142,7 @@ def test_orchestrator_started_with_the_setting(app):
 def test_rollouts_use_the_device_parallelism_setting(admin, app, make_user,
                                                      make_profile, make_device,
                                                      client_for, captured_submits):
+	"""A rollout is submitted with the devices-per-job setting as its max workers."""
 	app.backend.settings.update({"device_parallelism": 3}, admin.id)
 	user = make_user()
 	dev = make_device(user, ip="10.0.0.1", profile_id=make_profile(user))
@@ -136,6 +153,8 @@ def test_rollouts_use_the_device_parallelism_setting(admin, app, make_user,
 
 
 def test_reachability_cache_uses_the_setting(admin, app, monkeypatch):
+	"""A reachability result is cached in Redis for the reachability cache setting's
+	seconds (TTL 20-25 for a setting of 25)."""
 	app.backend.settings.update({"reachability_cache_seconds": 25}, admin.id)
 	checker = app.web.reachability
 	monkeypatch.setattr(checker, "_probe", lambda ip, port: True)  # no network
@@ -145,6 +164,8 @@ def test_reachability_cache_uses_the_setting(admin, app, monkeypatch):
 
 
 def test_non_admins_cant_change_settings(client_for, make_user, app):
+	"""A non-admin's save is refused (redirect or 403) and the setting keeps its
+	default."""
 	client = client_for(make_user())
 	resp = client.post("/admin/settings", json={"values": {"device_parallelism": 1}})
 	assert resp.status_code in (302, 403)
@@ -152,6 +173,8 @@ def test_non_admins_cant_change_settings(client_for, make_user, app):
 
 
 def test_page_renders_every_setting_with_the_shared_rules(admin, client_for):
+	"""The settings page has an input per setting, the ranges as min/max, the rules'
+	messages, the internal app port and the Test button."""
 	html = client_for(admin).get("/admin/settings").get_data(as_text=True)
 	for key in ("job_retention_days", "orchestrator_workers",
 	            "public_hostname", "https_port"):
@@ -162,6 +185,7 @@ def test_page_renders_every_setting_with_the_shared_rules(admin, client_for):
 
 
 def test_the_sessions_card_offers_the_idle_timeout(admin, client_for):
+	"""The Sessions card offers the idle timeout input with its 5-480 range."""
 	html = client_for(admin).get("/admin/settings").get_data(as_text=True)
 	assert ">Sessions<" in html and 'id="set-session_idle_minutes"' in html
 	assert "Sign out after inactivity" in html
@@ -169,6 +193,8 @@ def test_the_sessions_card_offers_the_idle_timeout(admin, client_for):
 
 
 def test_restart_dot_shows_on_admin_pages_while_pending(admin, app, client_for):
+	"""Admin pages hide the restart-pending dot until the worker count changes, then show
+	it with a tooltip naming the changed setting."""
 	client = client_for(admin)
 	started = app.config["SETTINGS_STARTED_WITH"]["orchestrator_workers"]
 	html = client.get("/admin/users").get_data(as_text=True)
@@ -233,10 +259,13 @@ def proxy(app, monkeypatch):
 
 
 def hostname(app):
+	"""The saved public hostname."""
 	return app.backend.settings.get("public_hostname")
 
 
 def test_a_new_hostname_reaches_nginx(admin, app, client_for, proxy):
+	"""A saved hostname is written into site.env; with no nginx reporting it is
+	`not_managed`."""
 	resp = save(client_for(admin), public_hostname="nr01.corp.local")
 	assert resp.status_code == 200
 	assert resp.json["proxy"] == {"state": "not_managed"}       # no nginx here
@@ -244,6 +273,8 @@ def test_a_new_hostname_reaches_nginx(admin, app, client_for, proxy):
 
 
 def test_nginx_applying_it_is_reported(admin, app, client_for, proxy):
+	"""nginx's verdict comes back with the save: `applied`, or `no_answer` when nginx
+	stays silent (the save still succeeds)."""
 	proxy.managed()
 	proxy.verdict("applied", "hostname=nr01.corp.local https_port=443 app=app:8080")
 	resp = save(client_for(admin), public_hostname="nr01.corp.local")
@@ -255,6 +286,8 @@ def test_nginx_applying_it_is_reported(admin, app, client_for, proxy):
 
 def test_a_self_signed_certificate_is_reissued_for_the_new_name(
 		admin, app, client_for, proxy):
+	"""A new hostname reissues the self-signed certificate for it, keeping its IPs and the
+	previous name, whose deadline is the transition period from now."""
 	_certs.selfsigned("old.lab", ["10.0.0.5"], _runtime.certs_dir())
 	assert save(client_for(admin), public_hostname="new.lab").status_code == 200
 	dns, ips = _certs.names_in(proxy.cert.read_bytes())
@@ -276,6 +309,7 @@ def _org_cert(names):
 
 def test_an_organisation_certificate_that_covers_it_stays(admin, app,
                                                           client_for, proxy):
+	"""An organisation's certificate that covers the new hostname is left untouched."""
 	_org_cert(("*.corp.local",))
 	before = proxy.cert.read_bytes()
 	assert save(client_for(admin), public_hostname="nr01.corp.local").status_code == 200
@@ -284,6 +318,8 @@ def test_an_organisation_certificate_that_covers_it_stays(admin, app,
 
 def test_one_that_does_not_cover_it_refuses_and_changes_nothing(
 		admin, app, client_for, proxy):
+	"""An organisation's certificate that doesn't cover the new hostname refuses the save
+	(422, naming both) and changes no setting or file."""
 	_org_cert(("nr01.corp.local",))
 	before = proxy.files()
 	resp = save(client_for(admin), public_hostname="other.example")
@@ -295,6 +331,8 @@ def test_one_that_does_not_cover_it_refuses_and_changes_nothing(
 
 def test_a_file_that_cannot_be_written_changes_nothing(admin, app, client_for,
                                                        proxy, monkeypatch):
+	"""When site.env can't be written the save is 422 with the reason, and the already
+	reissued certificate is put back: no setting or file changed."""
 	_certs.selfsigned("old.lab", ["10.0.0.5"], _runtime.certs_dir())
 	before = proxy.files()
 
@@ -310,6 +348,8 @@ def test_a_file_that_cannot_be_written_changes_nothing(admin, app, client_for,
 
 
 def test_nginx_rejecting_it_puts_everything_back(admin, app, client_for, proxy):
+	"""When nginx rejects the new hostname the save is 422 with nginx's message and the
+	setting, site.env and certificate are the old ones again."""
 	_certs.selfsigned("old.lab", ["10.0.0.5"], _runtime.certs_dir())
 	app.backend.settings.update({"public_hostname": "old.lab"}, None)
 	_pc.write_site("old.lab")
@@ -324,12 +364,14 @@ def test_nginx_rejecting_it_puts_everything_back(admin, app, client_for, proxy):
 
 
 def test_an_illegal_hostname_never_reaches_nginx(admin, app, client_for, proxy):
+	"""An illegal hostname is 422 and no site.env is written."""
 	resp = save(client_for(admin), public_hostname="nr01;evil")
 	assert resp.status_code == 422 and not proxy.site.exists()
 
 
 def test_resetting_the_hostname_goes_through_nginx_too(admin, app, client_for,
                                                        proxy):
+	"""Resetting the hostname empties it in the setting and in site.env."""
 	client = client_for(admin)
 	save(client, public_hostname="nr01.corp.local")
 	resp = client.post("/admin/settings/public_hostname/reset")
@@ -339,6 +381,7 @@ def test_resetting_the_hostname_goes_through_nginx_too(admin, app, client_for,
 
 def test_the_audit_says_what_nginx_did(admin, app, client_for, proxy,
                                        session_scope):
+	"""The hostname's audit entry records nginx's outcome (`not_managed` here)."""
 	save(client_for(admin), public_hostname="nr01.corp.local")
 	(detail,) = [d for label, d in audit(session_scope, "settings.update")
 	             if label == "public_hostname"]
@@ -390,6 +433,8 @@ def port_files(app):
 
 def test_a_new_port_is_requested_and_saved(admin, app, client_for, port_files,
                                             session_scope):
+	"""A new HTTPS port is saved and requested in site.env; with no helper the page state
+	is `manual` (still serving 443) and the audit entry says so."""
 	resp = save(client_for(admin), https_port=8443)
 	assert resp.status_code == 200
 	assert app.backend.settings.get("https_port") == 8443
@@ -402,12 +447,15 @@ def test_a_new_port_is_requested_and_saved(admin, app, client_for, port_files,
 
 
 def test_an_invalid_port_requests_nothing(admin, app, client_for, port_files):
+	"""An out-of-range port is 422 and writes no port request."""
 	resp = save(client_for(admin), https_port=70000)
 	assert resp.status_code == 422 and port_files.requested() is None
 
 
 def test_a_request_that_cannot_be_written_saves_nothing(
 		admin, app, client_for, port_files, proxy, monkeypatch):
+	"""When the port request can't be written the save is 422 with the reason; neither
+	the port nor a hostname in the same save is kept (certificate and site.env back)."""
 	_certs.selfsigned("old.lab", ["10.0.0.5"], _runtime.certs_dir())
 	before = proxy.files()
 
@@ -429,6 +477,8 @@ def test_a_request_that_cannot_be_written_saves_nothing(
 
 def test_a_save_that_fails_late_takes_the_request_back(
 		admin, app, client_for, port_files, monkeypatch):
+	"""When saving the setting fails after the port request was written, the previous
+	request is put back."""
 	_pa.request_port(9443)
 	before = port_files.request_keys()
 
@@ -442,6 +492,7 @@ def test_a_save_that_fails_late_takes_the_request_back(
 
 
 def test_resetting_the_port_is_requested_too(admin, app, client_for, port_files):
+	"""Resetting the port saves 443 and requests it from the helper."""
 	client = client_for(admin)
 	save(client, https_port=8443)
 	resp = client.post("/admin/settings/https_port/reset")
@@ -450,6 +501,8 @@ def test_resetting_the_port_is_requested_too(admin, app, client_for, port_files)
 
 
 def test_the_page_follows_a_trial(admin, app, client_for, port_files):
+	"""While the helper tries the new port, the page's port status reports `trying` with
+	the trial port and the request id."""
 	client = client_for(admin)
 	save(client, https_port=8443)
 	rid = _pa.read_request()["id"]
@@ -460,6 +513,8 @@ def test_the_page_follows_a_trial(admin, app, client_for, port_files):
 
 
 def test_confirming_from_the_new_port(admin, app, client_for, port_files, proxy):
+	"""A trial is confirmed only through the new port (the old one is 409); confirming
+	records it in site.env, sets the state to `confirming` and the port in use to it."""
 	client = client_for(admin)
 	save(client, https_port=8443)
 	rid = _pa.read_request()["id"]
@@ -478,6 +533,7 @@ def test_confirming_from_the_new_port(admin, app, client_for, port_files, proxy)
 
 
 def test_only_admins_confirm(make_user, client_for, port_files):
+	"""An operator can't confirm a port trial (redirect or 403) and nothing is recorded."""
 	client = client_for(make_user(role="operator"))
 	resp = client.post("/admin/settings/port/confirm", json={"id": "x"},
 	                   base_url="https://localhost:8443")
@@ -485,6 +541,7 @@ def test_only_admins_confirm(make_user, client_for, port_files):
 
 
 def test_try_again_is_a_new_request(admin, app, client_for, port_files):
+	"""After a rollback, Try again requests the same port under a new request id."""
 	client = client_for(admin)
 	save(client, https_port=8443)
 	rid = _pa.read_request()["id"]
@@ -497,6 +554,9 @@ def test_try_again_is_a_new_request(admin, app, client_for, port_files):
 
 
 def test_old_names_leave_after_the_transition(admin, app, client_for, proxy):
+	"""Previous hostnames stay in the self-signed certificate until their transition ends,
+	then are dropped: the certificate keeps the current name and its IPs, and the
+	old-names file is removed."""
 	_certs.selfsigned("a.lab", ["10.0.0.5"], _runtime.certs_dir())
 	client = client_for(admin)
 	save(client, public_hostname="b.lab")
@@ -513,6 +573,8 @@ def test_old_names_leave_after_the_transition(admin, app, client_for, proxy):
 
 def test_going_back_to_an_old_name_ends_its_transition(admin, app, client_for,
                                                        proxy):
+	"""Going back to a name in transition makes it the hostname again: it leaves the
+	old-names file, and the name left behind enters it."""
 	_certs.selfsigned("a.lab", [], _runtime.certs_dir())
 	client = client_for(admin)
 	save(client, public_hostname="b.lab")
@@ -523,6 +585,7 @@ def test_going_back_to_an_old_name_ends_its_transition(admin, app, client_for,
 
 
 def test_an_organisation_certificate_is_never_reissued(admin, app, proxy):
+	"""Dropping expired old names never touches an organisation's certificate."""
 	_org_cert(("nr01.corp.local", "old.corp.local"))
 	(_runtime.certs_dir() / _pc.OLD_NAMES_FILE).write_text('{"old.corp.local": 1}')
 	before = proxy.cert.read_bytes()
@@ -531,6 +594,8 @@ def test_an_organisation_certificate_is_never_reissued(admin, app, proxy):
 
 def test_a_refused_save_keeps_the_old_names_file(admin, app, client_for, proxy,
                                                  monkeypatch):
+	"""A hostname save refused because site.env can't be written leaves every file,
+	the old-names file included, as it was."""
 	_certs.selfsigned("a.lab", [], _runtime.certs_dir())
 	client = client_for(admin)
 	save(client, public_hostname="b.lab")
@@ -545,6 +610,8 @@ def test_a_refused_save_keeps_the_old_names_file(admin, app, client_for, proxy,
 
 def test_a_later_change_does_not_extend_an_old_names_deadline(
 		admin, app, client_for, proxy):
+	"""Another hostname change keeps an old name's existing deadline instead of
+	extending it."""
 	_certs.selfsigned("a.lab", [], _runtime.certs_dir())
 	client = client_for(admin)
 	save(client, public_hostname="b.lab")
@@ -558,14 +625,18 @@ def test_a_later_change_does_not_extend_an_old_names_deadline(
 # ── The Access status: nginx's last verdict and the certificate, any time ───
 
 def overview(app):
+	"""The Access status for the saved hostname."""
 	return _pc.overview(app.backend.settings.get("public_hostname"))
 
 
 def test_status_with_nothing_there(admin, app, proxy):
+	"""With no nginx status and no certificate, the Access status has neither."""
 	assert overview(app) == {"nginx": None, "certificate": None}
 
 
 def test_status_shows_nginxs_verdict(admin, app, proxy):
+	"""The Access status shows nginx's last verdict: applied, then rejected with its
+	message and time."""
 	proxy.managed()
 	assert overview(app)["nginx"]["state"] == "applied"
 	(_pc.shared_dir() / _pc.STATUS_FILE).write_text(_json.dumps(
@@ -576,6 +647,8 @@ def test_status_shows_nginxs_verdict(admin, app, proxy):
 
 def test_status_shows_the_certificate_and_its_old_names(admin, app, client_for,
                                                         proxy):
+	"""The Access status shows the self-signed certificate's names, no problems or
+	warnings, and the old name with its future deadline."""
 	_certs.selfsigned("a.lab", ["10.0.0.5"], _runtime.certs_dir())
 	save(client_for(admin), public_hostname="b.lab")
 	cert = overview(app)["certificate"]
@@ -587,6 +660,8 @@ def test_status_shows_the_certificate_and_its_old_names(admin, app, client_for,
 
 def test_status_flags_a_certificate_that_does_not_cover_the_hostname(
 		admin, app, proxy):
+	"""An organisation's certificate that doesn't cover the saved hostname is flagged
+	as a problem."""
 	_org_cert(("nr01.corp.local",))
 	app.backend.settings.update({"public_hostname": "other.corp.local"}, None)
 	cert = overview(app)["certificate"]
@@ -595,6 +670,7 @@ def test_status_flags_a_certificate_that_does_not_cover_the_hostname(
 
 
 def test_status_flags_a_key_that_does_not_match(admin, app, proxy):
+	"""A private key that doesn't belong to the certificate is flagged as a problem."""
 	_certs.selfsigned("a.lab", [], _runtime.certs_dir())
 	key = (_runtime.certs_dir() / _certs.KEY_FILE).read_bytes()
 	_certs.selfsigned("a.lab", [], _runtime.certs_dir())       # a new key
@@ -604,11 +680,13 @@ def test_status_flags_a_key_that_does_not_match(admin, app, proxy):
 
 
 def test_status_warns_before_expiry(admin, app, proxy):
+	"""A certificate expiring in 5 days gets an expiry warning."""
 	_certs.selfsigned("a.lab", [], _runtime.certs_dir(), days=5)
 	assert any("expires on" in w for w in overview(app)["certificate"]["warnings"])
 
 
 def test_the_page_and_every_save_carry_the_status(admin, app, client_for, proxy):
+	"""The settings page shows the Access status and a save's answer carries it."""
 	_certs.selfsigned("a.lab", [], _runtime.certs_dir())
 	client = client_for(admin)
 	assert b'id="accessStatus"' in client.get("/admin/settings").data
@@ -619,6 +697,8 @@ def test_the_page_and_every_save_carry_the_status(admin, app, client_for, proxy)
 
 def test_in_docker_the_test_button_shows_what_nginx_reported(
 		admin, app, client_for, proxy, monkeypatch):
+	"""In a container the Test button answers with what nginx last reported instead of
+	probing."""
 	monkeypatch.setattr(admin_settings, "in_container", lambda: True)
 	proxy.managed()
 	resp = client_for(admin).post("/admin/settings/test",

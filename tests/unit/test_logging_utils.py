@@ -1,3 +1,5 @@
+"""logging_utils: console output that survives a non-UTF-8 stdout
+(utf8_console), and the log-file retention (prune_logs, prune_once)."""
 import io
 import os
 import sys
@@ -15,6 +17,8 @@ def cp1252_stream():
 
 
 def test_non_utf8_console_used_to_fail_notify(monkeypatch):
+	"""Without utf8_console, an important notify with a '→' on a cp1252 stdout
+	raises UnicodeEncodeError (the failure utf8_console fixes)."""
 	monkeypatch.setattr(sys, "stdout", cp1252_stream())
 	logger = RolloutLogger(webapp=False, verbose=False)
 	with pytest.raises(UnicodeEncodeError):
@@ -23,6 +27,8 @@ def test_non_utf8_console_used_to_fail_notify(monkeypatch):
 
 
 def test_utf8_console_makes_notify_safe(monkeypatch):
+	"""After utf8_console, cp1252 stdout and stderr take '→' and '—': both are
+	written as UTF-8."""
 	out, err = cp1252_stream(), cp1252_stream()
 	monkeypatch.setattr(sys, "stdout", out)
 	monkeypatch.setattr(sys, "stderr", err)
@@ -41,6 +47,7 @@ DAY = 86400
 
 
 def log_file(folder, name, age_days, content="x"):
+	"""A file in folder whose modification time is age_days old."""
 	path = folder / name
 	path.write_text(content)
 	stamp = time.time() - age_days * DAY
@@ -49,6 +56,9 @@ def log_file(folder, name, age_days, content="x"):
 
 
 def test_prune_removes_only_old_log_files(tmp_path):
+	"""prune_logs(60) removes the two .log files older than 60 days; an old
+	non-.log file, a fresh log, an old-named log modified today and a directory
+	named .log are kept."""
 	old_web = log_file(tmp_path, "rollout_20260101_000000_ab12.log", 61)
 	old_cli = log_file(tmp_path, "cli_rollout_20260101_000000.log", 61)
 	old_other = log_file(tmp_path, "notes.txt", 61)        # not a .log
@@ -63,6 +73,8 @@ def test_prune_removes_only_old_log_files(tmp_path):
 
 
 def test_prune_skips_files_it_cannot_remove(tmp_path, monkeypatch):
+	"""A log file whose removal raises PermissionError is skipped: the other old
+	log is still removed, and the count is 1."""
 	locked = log_file(tmp_path, "rollout_a.log", 90)
 	other = log_file(tmp_path, "rollout_b.log", 90)
 	real_remove = os.remove
@@ -77,10 +89,13 @@ def test_prune_skips_files_it_cannot_remove(tmp_path, monkeypatch):
 
 
 def test_prune_missing_folder_is_a_no_op(tmp_path):
+	"""prune_logs on a folder that doesn't exist removes nothing (0)."""
 	assert prune_logs(60, str(tmp_path / "nope")) == 0
 
 
 def test_prune_once_uses_the_setting_and_survives_its_failure(tmp_path):
+	"""prune_once uses the retention setting (10 days: a 20-day-old log removed);
+	when reading the setting raises, it prunes with LOG_RETENTION_DAYS instead."""
 	log_file(tmp_path, "rollout_a.log", 20)
 	# the setting (a callable, read on every pass) says 10 days
 	assert prune_once(lambda: 10, str(tmp_path)) == (10, 1)

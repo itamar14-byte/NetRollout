@@ -32,6 +32,7 @@ def scripted(*replies):
 
 
 def run(argv, *replies):
+	"""The setup CLI run with `argv`, answering `replies`: (exit code, the lines it wrote)."""
 	out = []
 	code = cli.main(argv, read=scripted(*replies), write=out.append)
 	return code, out
@@ -48,16 +49,20 @@ WINDOWS = ["--os", "windows", "--computer-name", "NR-SRV01",
 	("NR-SRV01", "nr-srv01"), ("netrollout.corp.local.", "netrollout.corp.local"),
 	("10.0.0.5", "10.0.0.5")])
 def test_hostnames(value, expected):
+	"""A hostname is accepted lower-cased and without a trailing dot; an IP as given."""
 	assert A.check_hostname(value) == expected
 
 
 @pytest.mark.parametrize("bad", ["", "https://nr01", "nr 01", "nr01:8443"])
 def test_bad_hostnames(bad):
+	"""Empty, a URL, a space or a port in the hostname is invalid."""
 	with pytest.raises(A.Invalid):
 		A.check_hostname(bad)
 
 
 def test_a_busy_port_names_who_and_suggests_a_free_one():
+	"""A busy port is refused naming its owner and suggesting a free one (9443); a free
+	port is accepted as a number; 80, 0, 70000 and a non-number are invalid."""
 	busy = {443: "Windows' HTTP service", 8443: ""}
 	with pytest.raises(A.Invalid) as e:
 		A.check_port("443", busy)
@@ -74,15 +79,20 @@ def test_a_busy_port_names_who_and_suggests_a_free_one():
 	("W. Europe Standard Time", "Europe/Berlin"),
 	("Asia/Jerusalem", "Asia/Jerusalem"), ("UTC", "UTC")])
 def test_timezones(value, expected):
+	"""A Windows timezone name becomes its IANA name; an IANA name or UTC stays as it is."""
 	assert A.check_timezone(value) == expected
 
 
 def test_an_unknown_timezone():
+	"""A timezone that is neither Windows' nor IANA's is invalid."""
 	with pytest.raises(A.Invalid):
 		A.check_timezone("Mars/Olympus")
 
 
 def test_defaults_come_from_the_host():
+	"""Unattended, the answers default to the computer name, a free port (8443 when 443 is
+	busy), monitoring on, no organisation certificate and the host's timezone; a computer
+	name that isn't a hostname gives `netrollout`, an unknown timezone UTC."""
 	facts = A.Facts(computer_name="NR-SRV01", timezone="Israel Standard Time",
 	                busy_ports={443: ""})
 	answers = A.collect(facts, {}, interactive=False)
@@ -95,6 +105,8 @@ def test_defaults_come_from_the_host():
 # ── asking ──
 
 def test_enter_accepts_the_default_and_a_wrong_answer_is_asked_again():
+	"""Asked interactively, Enter takes the default shown in brackets; a busy port and a
+	yes/no answer that is neither are explained and asked again."""
 	read, said = scripted("", "443", "8443", "maybe", "n", "", ""), []
 	answers = A.collect(A.Facts(computer_name="box", busy_ports={443: ""}), {},
 	                    True, read, said.append)
@@ -106,11 +118,13 @@ def test_enter_accepts_the_default_and_a_wrong_answer_is_asked_again():
 
 
 def test_input_ending_is_not_an_answer():
+	"""Input that ends (EOF) while asking raises NoAnswer instead of taking a default."""
 	with pytest.raises(A.NoAnswer):
 		A.collect(A.Facts(), {}, True, scripted(), print)
 
 
 def test_given_answers_are_checked_all_at_once():
+	"""Several bad given answers (hostname and port) are reported together, one per line."""
 	with pytest.raises(A.Invalid) as e:
 		A.collect(A.Facts(busy_ports={443: ""}),
 		          {"hostname": "https://x", "https_port": "443"}, False)
@@ -120,6 +134,9 @@ def test_given_answers_are_checked_all_at_once():
 # ── the install ──
 
 def test_an_install_writes_everything(home):
+	"""`init` creates .env (the 13 keys; 7 strong, distinct secrets, alphanumeric passwords;
+	the header names the account), logs/, config/, certs/ and backups/; port 80 busy means
+	no redirect file; site.env gets the hostname and port, the certificate the IPs."""
 	code, out = run(["init", "--licence-accepted", *WINDOWS, "--busy-ports", "80=IIS"],
 	                "", "", "", "", "")
 	assert code == 0
@@ -151,12 +168,15 @@ def test_an_install_writes_everything(home):
 
 
 def test_port_80_free_adds_the_redirect(home):
+	"""With port 80 free, COMPOSE_FILE includes compose.http.yaml (the http -> https
+	redirect)."""
 	assert run(["init", "--licence-accepted", "--defaults"])[0] == 0
 	assert "COMPOSE_FILE=compose.yaml,compose.http.yaml" in \
 	       (home / ".env").read_text(encoding="utf-8")
 
 
 def test_never_twice(home):
+	"""A second `init` exits 2 ("already installed") and leaves .env as it was."""
 	assert run(["init", "--licence-accepted", "--defaults"])[0] == 0
 	before = (home / ".env").read_bytes()
 	code, out = run(["init", "--licence-accepted", "--defaults"])
@@ -165,8 +185,8 @@ def test_never_twice(home):
 
 
 def test_init_needs_the_scripts_licence_acceptance(home):
-	# the notice is the scripts' (shown before Docker is installed); without
-	# their word that it was accepted nothing is installed
+	"""Without --licence-accepted `init` exits 1 and writes no .env, asked or unattended.
+	The notice is the scripts' (shown before Docker is installed)."""
 	code, out = run(["init", *WINDOWS], "", "", "", "", "")
 	assert code == 1 and "licence notice wasn't accepted" in out[-1]
 	assert not (home / ".env").exists()
@@ -174,6 +194,8 @@ def test_init_needs_the_scripts_licence_acceptance(home):
 
 
 def test_unattended_with_bad_answers_writes_nothing(home):
+	"""An unattended `init` with a bad port and timezone exits 1, saying two lines, and
+	writes no .env."""
 	code, out = run(["init", "--licence-accepted", "--defaults", "--https-port", "80",
 	                 "--timezone", "Mars/Olympus"])
 	assert code == 1 and len(out) == 2
@@ -181,6 +203,8 @@ def test_unattended_with_bad_answers_writes_nothing(home):
 
 
 def test_an_organisation_certificate_must_be_in_place_and_cover_the_name(home):
+	"""With --org-certificate y, `init` refuses without a certificate in certs/ and with
+	one that doesn't cover the hostname; with a covering one it installs and keeps it."""
 	argv = ["init", "--licence-accepted", "--defaults", "--hostname", "nr01.corp.local",
 	        "--org-certificate", "y"]
 	code, out = run(argv)
@@ -196,6 +220,7 @@ def test_an_organisation_certificate_must_be_in_place_and_cover_the_name(home):
 
 
 def test_check_writes_nothing(home):
+	"""`check` prints "ok" for good answers and exits 1 for a bad port, writing nothing."""
 	code, out = run(["check", "--hostname", "nr01", "--https-port", "8443"])
 	assert (code, out) == (0, ["ok"])
 	assert list(home.iterdir()) == []
@@ -203,6 +228,7 @@ def test_check_writes_nothing(home):
 
 
 def test_a_write_failure_leaves_no_env(home, monkeypatch):
+	"""A permission error while writing the certificate exits 1 naming it, with no .env left."""
 	def denied(*a, **k):
 		raise PermissionError(13, "Permission denied", str(home / "certs"))
 	monkeypatch.setattr(certs, "selfsigned", denied)
@@ -212,6 +238,8 @@ def test_a_write_failure_leaves_no_env(home, monkeypatch):
 
 
 def test_the_env_text_is_stable():
+	"""The .env text starts with the version and time header, names Docker Engine's licence
+	(Linux) and has an empty COMPOSE_PROFILES with monitoring off."""
 	answers = A.Answers("nr01", 8443, False, False, "UTC")
 	keys = {k: "x" for k in files.generate_secrets()}
 	text = files.env_text(answers, A.Facts(os="linux"), keys,
@@ -224,6 +252,9 @@ def test_the_env_text_is_stable():
 # ── a developer's setup ──
 
 def test_init_dev(home):
+	"""`init --dev` writes the dev stack's .env, a runtime.env pointing the host app at
+	127.0.0.1 with the app's DB password (no encryption key: the dev key file stays) and
+	a localhost certificate; a second run exits 2."""
 	code, out = run(["init", "--dev"])
 	assert code == 0
 	env = (home / ".env").read_text(encoding="utf-8")
@@ -243,12 +274,15 @@ def test_init_dev(home):
 
 
 def installed(home, *extra):
+	"""An unattended install for nr01.corp.local (IP 10.0.0.5); returns its .env values."""
 	assert run(["init", "--licence-accepted", "--defaults", "--hostname",
 	            "nr01.corp.local", "--server-ips", "10.0.0.5", *extra])[0] == 0
 	return manage.env_read()
 
 
 def test_env_set_edits_in_place_and_only_script_keys(home):
+	"""env_set changes only the key's line (comments kept), returns False when nothing
+	changes, and refuses a key the scripts don't own (SECRET_KEY)."""
 	installed(home)
 	before = (home / ".env").read_text(encoding="utf-8")
 	assert manage.env_set({"TZ": "Europe/London"}) is True
@@ -260,6 +294,8 @@ def test_env_set_edits_in_place_and_only_script_keys(home):
 
 
 def test_port_80_taken_later_turns_the_redirect_off_and_back_on(home):
+	"""prepare-start drops compose.http.yaml when port 80 is now busy (saying who has it),
+	says nothing when it is already off, and puts it back once port 80 is free."""
 	env = installed(home)
 	assert env["COMPOSE_FILE"] == "compose.yaml,compose.http.yaml"
 	said = manage.prepare_start({80: "Windows' HTTP service"}, ["10.0.0.5"])
@@ -274,6 +310,8 @@ def test_port_80_taken_later_turns_the_redirect_off_and_back_on(home):
 
 
 def test_prepare_start_refreshes_the_server_ips(home):
+	"""prepare-start writes the server's current IPs, and keeps the old ones when none
+	are found."""
 	installed(home)
 	manage.prepare_start({}, ["10.0.0.9", "192.168.1.20"])
 	assert manage.env_read()["NETROLLOUT_SERVER_IPS"] == "10.0.0.9,192.168.1.20"
@@ -288,6 +326,8 @@ ALL_UP = ",".join(f"{s}=running/healthy" for s in manage.CORE_SERVICES +
 
 
 def test_status_when_all_is_well(home):
+	"""With every container up and a healthy app, status is well and its ASCII lines show
+	the address, containers, health, rollouts, certificate and port 80, no What to do."""
 	installed(home)
 	seen = manage.Observed(manage.parse_containers(ALL_UP), reachable=True)
 	lines, well = manage.status(seen, HEALTHY)
@@ -304,6 +344,8 @@ def test_status_when_all_is_well(home):
 
 
 def test_status_says_what_to_do(home):
+	"""Missing containers are shown NOT RUNNING, the rollouts counted, Redis unreachable,
+	and the next step given (netrollout start, then the nginx logs)."""
 	installed(home)
 	seen = manage.Observed(manage.parse_containers("app=running/healthy,"
 	                                               "postgres=running/healthy,redis=running"),
@@ -319,6 +361,8 @@ def test_status_says_what_to_do(home):
 
 
 def test_status_when_the_app_does_not_answer(home):
+	"""No health answer says the app isn't answering and shows it unhealthy; with
+	monitoring off, Grafana isn't mentioned."""
 	installed(home, "--monitoring", "n")
 	seen = manage.Observed(manage.parse_containers(
 		"app=running/unhealthy,nginx=running,postgres=running/healthy,redis=running"),
@@ -330,6 +374,8 @@ def test_status_when_the_app_does_not_answer(home):
 
 
 def test_status_reports_a_reachability_problem_only_when_all_runs(home):
+	"""With everything running but the address unreachable, status is not well and points
+	at DNS and the firewall for the port."""
 	installed(home)
 	seen = manage.Observed(manage.parse_containers(ALL_UP), reachable=False)
 	lines, well = manage.status(seen, HEALTHY)
@@ -338,6 +384,7 @@ def test_status_reports_a_reachability_problem_only_when_all_runs(home):
 
 
 def test_status_warns_before_the_certificate_expires(home):
+	"""A certificate valid 10 more days makes status not well, with EXPIRES SOON."""
 	installed(home)
 	certs.selfsigned("nr01.corp.local", [], runtime.certs_dir(), days=10)
 	lines, well = manage.status(manage.Observed(manage.parse_containers(ALL_UP)), HEALTHY)
@@ -345,6 +392,8 @@ def test_status_warns_before_the_certificate_expires(home):
 
 
 def test_status_shows_nginx_rejecting_and_a_pending_port(home):
+	"""nginx's rejected verdict is shown with its message and time, and a requested port
+	with the one in use and `netrollout apply`."""
 	installed(home)
 	(site_env.folder() / "status.json").write_text(
 		'{"state": "rejected", "message": "nginx: [emerg] bad", "time": "t"}')
@@ -356,12 +405,14 @@ def test_status_shows_nginx_rejecting_and_a_pending_port(home):
 
 
 def test_status_and_prepare_start_need_an_install(home):
+	"""`status` and `prepare-start` without an install exit 1 saying it isn't installed here."""
 	for command in ("status", "prepare-start"):
 		code, out = run([command])
 		assert code == 1 and "isn't installed here" in out[0]
 
 
 def test_status_through_the_cli(home, monkeypatch):
+	"""`status --containers … --reachable yes` exits 0 and starts with "NetRollout "."""
 	installed(home)
 	monkeypatch.setattr(manage, "fetch_health", lambda url: HEALTHY)
 	code, out = run(["status", "--containers", ALL_UP, "--reachable", "yes"])
@@ -371,6 +422,8 @@ def test_status_through_the_cli(home, monkeypatch):
 # ── after a restore ──
 
 def test_restore_key_puts_the_backups_key_into_env_and_removes_the_handover(home):
+	"""`restore-key` writes the restored key into .env, says it came from another
+	installation and removes the handover file; the same key again is "unchanged"."""
 	before = installed(home)["NETROLLOUT_ENCRYPTION_KEY"]
 	other = Fernet.generate_key().decode()
 	(home / "backups").mkdir(exist_ok=True)
@@ -386,6 +439,8 @@ def test_restore_key_puts_the_backups_key_into_env_and_removes_the_handover(home
 
 
 def test_restore_key_refuses_without_a_key(home):
+	"""`restore-key` exits 1 without a handover file (run the restore first) or with one
+	that holds no key, and .env's key stays."""
 	key = installed(home)["NETROLLOUT_ENCRYPTION_KEY"]
 	code, out = run(["restore-key"])
 	assert code == 1 and "run the restore first" in out[0]
@@ -397,6 +452,8 @@ def test_restore_key_refuses_without_a_key(home):
 
 
 def test_status_shows_the_backups_and_a_failed_scheduled_one(home):
+	"""The Backups line says "none yet", then the count, size and newest; a failed
+	scheduled backup makes status not well, with its reason and where to look."""
 	installed(home)
 	seen = manage.Observed(manage.parse_containers(ALL_UP), reachable=True)
 	assert "Backups:      none yet" in "\n".join(manage.status(seen, HEALTHY)[0])
@@ -424,17 +481,23 @@ def test_status_shows_the_backups_and_a_failed_scheduled_one(home):
 	("1.0.0", "1.0.0", "same"),             # the same Setup again: a repair
 ])
 def test_an_update_goes_forward(installed, new, kind):
+	"""A newer version (PEP 440: dev < rc < release; versions may be skipped) is an
+	"update", the same version "same" (a repair)."""
 	assert manage.update_kind(installed, new) == kind
 
 
 @pytest.mark.parametrize("installed, new", [("1.0.1", "1.0.0"), ("1.0.0", "1.0.0rc1"),
                                             ("1.0.0", "1.0.0.dev0")])
 def test_never_back_to_an_older_version(installed, new):
+	"""An older version (a lower patch, an rc or a dev of the installed release) is
+	refused, saying the installed one is newer."""
 	with pytest.raises(ValueError, match=f"NetRollout {installed} is installed - newer than {new}"):
 		manage.update_kind(installed, new)
 
 
 def test_check_update_through_the_cli():
+	"""`check-update` prints "update" (exit 0), refuses an older one with exit 2, and
+	exits 1 without --new."""
 	assert run(["check-update", "--installed", "1.0.0", "--new", "1.0.1"]) == (0, ["update"])
 	code, out = run(["check-update", "--installed", "1.0.1", "--new", "1.0.0"])
 	assert code == 2 and "newer than 1.0.0" in out[0]
@@ -442,6 +505,9 @@ def test_check_update_through_the_cli():
 
 
 def test_upgrade_adds_what_is_missing_and_keeps_everything_else(home):
+	"""`upgrade` adds the missing keys with their defaults at the end and an "Updated to"
+	line under the header, keeping every other value; the next update replaces that
+	line and adds nothing twice."""
 	installed(home)
 	path = home / ".env"
 	before = path.read_text(encoding="utf-8")
@@ -471,6 +537,7 @@ def test_upgrade_adds_what_is_missing_and_keeps_everything_else(home):
 
 
 def test_upgrade_never_makes_up_a_secret_the_data_depends_on(home):
+	"""A .env without the encryption key makes `upgrade` exit 1 naming it, writing nothing."""
 	installed(home)
 	path = home / ".env"
 	damaged = "".join(l for l in path.read_text(encoding="utf-8").splitlines(True)
@@ -482,13 +549,14 @@ def test_upgrade_never_makes_up_a_secret_the_data_depends_on(home):
 
 
 def test_every_env_key_has_an_update_rule(home):
-	# a key added to the .env template needs one: what an update does when an
-	# older install lacks it
+	"""Every key an install writes is in files.UPGRADE_DEFAULTS, and nothing more: a key
+	added to the .env template needs a rule for an older install that lacks it."""
 	written = set(installed(home))
 	assert written == set(files.UPGRADE_DEFAULTS)
 
 
 def dotenv(text):
+	"""The KEY=value pairs of a .env text, comments skipped."""
 	values = {}
 	for line in text.splitlines():
 		key, sep, value = line.partition("=")

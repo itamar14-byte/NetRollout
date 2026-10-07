@@ -14,6 +14,8 @@ def admin(make_user):
 
 
 def test_the_page_shows_the_dbas_way_first(admin, client_for):
+	"""Server Management shows the DBA's way pressed before the administrator-login
+	way, with what to ask for, and no Move back on the bundled database."""
 	page = client_for(admin).get("/admin/server")
 	assert page.status_code == 200
 	html = page.data.decode()
@@ -24,6 +26,8 @@ def test_the_page_shows_the_dbas_way_first(admin, client_for):
 
 
 def test_the_sql_comes_with_a_new_password_each_time(admin, client_for, monkeypatch):
+	"""Each SQL request gets a new password, written into the SQL, plus Grafana's
+	known password and the four access needs."""
 	monkeypatch.setenv("GRAFANA_DB_PASSWORD", "gr-secret")
 	c = client_for(admin, xhr=True)
 	first = c.post("/admin/server/database/sql", json={"database": "ops", "schema": "nr", "login": "nr_app"}).json
@@ -35,11 +39,13 @@ def test_the_sql_comes_with_a_new_password_each_time(admin, client_for, monkeypa
 
 
 def test_check_needs_every_field(admin, client_for):
+	"""A check with only the host given answers 422."""
 	resp = client_for(admin, xhr=True).post("/admin/server/database/check", json={"host": "db1"})
 	assert resp.status_code == 422
 
 
 def test_check_refuses_the_current_database(app, admin, client_for):
+	"""A check of the database NetRollout uses now is refused as such."""
 	url = make_url(app.backend.postgres.config.get_url())
 	resp = client_for(admin, xhr=True).post("/admin/server/database/check", json={
 		"host": url.host, "port": str(url.port), "database": url.database,
@@ -48,6 +54,7 @@ def test_check_refuses_the_current_database(app, admin, client_for):
 
 
 def test_check_reports_an_unreachable_server(admin, client_for):
+	"""A check of a server nobody listens on reports not ok, "Couldn't connect" first."""
 	resp = client_for(admin, xhr=True).post("/admin/server/database/check", json={
 		"host": "127.0.0.1", "port": "1", "database": "x", "user": "x", "password": "y"})
 	report = resp.json["report"]
@@ -55,11 +62,14 @@ def test_check_reports_an_unreachable_server(admin, client_for):
 
 
 def test_nothing_to_move_back_to_on_the_bundled_database(admin, client_for):
+	"""Move back while on the bundled database answers 409."""
 	resp = client_for(admin, xhr=True).post("/admin/server/database/move-back")
 	assert resp.status_code == 409
 
 
 def test_status_while_waiting_lists_the_rollouts_by_name(app, admin, client_for, monkeypatch):
+	"""While the move waits, its status gives whole seconds left (no raw deadline)
+	and each running rollout with its user's name and device count."""
 	monkeypatch.setattr(app.db_move, "status", lambda: {"state": db_move.WAITING, "deadline": 0})
 	monkeypatch.setattr(app.db_move, "seconds_left", lambda: 90.4)
 	monkeypatch.setattr(app.orchestrator, "jobs", lambda: [
@@ -70,10 +80,12 @@ def test_status_while_waiting_lists_the_rollouts_by_name(app, admin, client_for,
 
 
 def test_cancel_only_while_waiting(admin, client_for):
+	"""Cancel the move with no move waiting answers 409."""
 	assert client_for(admin, xhr=True).post("/admin/server/database/move/cancel").status_code == 409
 
 
 def test_redis_switch_is_refused_while_rollouts_run(app, admin, client_for, monkeypatch):
+	"""A Redis switch with a rollout running answers 409 "Rollouts are running"."""
 	monkeypatch.setattr(app.orchestrator, "counts", lambda: {"running": 1, "queued": 0})
 	resp = client_for(admin, xhr=True).post("/admin/server/redis/save", json={
 		"host": "cache.example.org", "port": "6380"})
@@ -81,6 +93,7 @@ def test_redis_switch_is_refused_while_rollouts_run(app, admin, client_for, monk
 
 
 def test_operators_get_none_of_it(make_user, client_for):
+	"""An operator posting to sql, check, move or move-back gets 302 or 403."""
 	c = client_for(make_user(), xhr=True)
 	for url in ("/admin/server/database/sql", "/admin/server/database/check",
 	            "/admin/server/database/move", "/admin/server/database/move-back"):

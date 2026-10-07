@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 @pytest.fixture
 def no_key():
+	"""No key anywhere: the env var unset, no key file, encryption not initialised."""
 	os.environ.pop(enc.ENV_VAR, None)
 	if enc.KEY_FILE.exists():
 		enc.KEY_FILE.unlink()
@@ -33,18 +34,21 @@ def set_env_key(key: bytes | str):
 
 
 def token(key: bytes, text: str = "stored-secret") -> str:
+	"""`text` encrypted with `key`, as a stored credential would be."""
 	return Fernet(key).encrypt(text.encode()).decode()
 
 
 # ── Startup matrix ───────────────────────────────────────────────────────────
 
 def test_fresh_install_without_key_generates_one(no_key):
+	"""No key and no stored data: a key file is generated and encryption works."""
 	enc.init_encryption(None)
 	assert enc.KEY_FILE.exists()
 	assert enc.decrypt(enc.encrypt("s3cret")) == "s3cret"
 
 
 def test_existing_data_with_matching_key_starts(no_key):
+	"""Stored data and the key it was encrypted with: starts and decrypts."""
 	key = Fernet.generate_key()
 	set_env_key(key)
 	enc.init_encryption(token(key))
@@ -52,6 +56,8 @@ def test_existing_data_with_matching_key_starts(no_key):
 
 
 def test_existing_data_without_key_refuses_and_does_not_generate(no_key):
+	"""Stored data and no key: refused with "No encryption key found", no key
+	file generated, encryption left uninitialised."""
 	with pytest.raises(enc.EncryptionStartupError, match="No encryption key found"):
 		enc.init_encryption(token(Fernet.generate_key()))
 	assert not enc.KEY_FILE.exists()
@@ -59,6 +65,8 @@ def test_existing_data_without_key_refuses_and_does_not_generate(no_key):
 
 
 def test_existing_data_with_wrong_key_refuses(no_key):
+	"""Stored data and another key: refused with "does not match", encryption
+	left uninitialised."""
 	set_env_key(Fernet.generate_key())
 	with pytest.raises(enc.EncryptionStartupError, match="does not match"):
 		enc.init_encryption(token(Fernet.generate_key()))
@@ -66,18 +74,23 @@ def test_existing_data_with_wrong_key_refuses(no_key):
 
 
 def test_malformed_key_refuses(no_key):
+	"""A key that isn't a valid Fernet key is refused with "is invalid"."""
 	set_env_key("not-a-valid-fernet-key")
 	with pytest.raises(enc.EncryptionStartupError, match="is invalid"):
 		enc.init_encryption(None)
 
 
 def test_db_unreachable_without_key_refuses_to_generate(no_key):
+	"""The database not checked and no key: refused ("unreachable"), no key
+	file generated."""
 	with pytest.raises(enc.EncryptionStartupError, match="unreachable"):
 		enc.init_encryption(None, db_checked=False)
 	assert not enc.KEY_FILE.exists()
 
 
 def test_db_unreachable_with_key_starts_unverified(no_key, capsys):
+	"""The database not checked but a key given: starts and prints that the key
+	is "not verified"."""
 	set_env_key(Fernet.generate_key())
 	enc.init_encryption(None, db_checked=False)
 	assert enc._fernet is not None
@@ -85,6 +98,8 @@ def test_db_unreachable_with_key_starts_unverified(no_key, capsys):
 
 
 def test_env_var_takes_precedence_over_key_file(no_key):
+	"""With both a key file and the env var, the env var's key is used (the
+	data matches only it; the file key would raise)."""
 	file_key, env_key = Fernet.generate_key(), Fernet.generate_key()
 	enc.KEY_FILE.parent.mkdir(parents=True, exist_ok=True)
 	enc.KEY_FILE.write_bytes(file_key)
@@ -95,11 +110,14 @@ def test_env_var_takes_precedence_over_key_file(no_key):
 # ── Request-time behaviour ───────────────────────────────────────────────────
 
 def test_use_before_init_is_an_explicit_error(no_key):
+	"""Encrypting before init_encryption raises RuntimeError "not initialized"."""
 	with pytest.raises(RuntimeError, match="not initialized"):
 		enc.encrypt("x")
 
 
 def test_decrypt_with_wrong_key_raises_request_time_error(no_key):
+	"""Decrypting a value encrypted with another key raises
+	InvalidEncryptionKeyError."""
 	set_env_key(Fernet.generate_key())
 	enc.init_encryption(None)
 	with pytest.raises(enc.InvalidEncryptionKeyError):
@@ -107,6 +125,7 @@ def test_decrypt_with_wrong_key_raises_request_time_error(no_key):
 
 
 def test_empty_values_pass_through(no_key):
+	"""An empty string encrypts and decrypts to an empty string."""
 	set_env_key(Fernet.generate_key())
 	enc.init_encryption(None)
 	assert enc.encrypt("") == ""
@@ -114,7 +133,9 @@ def test_empty_values_pass_through(no_key):
 
 
 def test_importing_app_modules_has_no_key_side_effect(tmp_path):
-	# Before the fail-fast change, importing src.core generated a key file
+	"""Importing src.core (in a fresh Python, no key set) succeeds and creates no
+	~/.netrollout key folder. Before the fail-fast change, importing src.core
+	generated a key file."""
 	env = dict(os.environ, HOME=str(tmp_path), USERPROFILE=str(tmp_path))
 	env.pop(enc.ENV_VAR, None)
 	result = subprocess.run([sys.executable, "-c", "import src.core"],

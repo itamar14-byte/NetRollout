@@ -12,6 +12,7 @@ from src.setup import __main__ as cli, release
 
 
 def make_zip(path, version="1.0.1", extra=None, top=release.TOP):
+	"""A minimal release zip under `top/` (scripts 755), plus `extra` entries as named."""
 	with zipfile.ZipFile(path, "w") as zf:
 		files = {"bin/netrollout.sh": "#!/usr/bin/env bash\n", "bin/install.sh": "#!/usr/bin/env bash\n",
 		         "compose.yaml": "services: {}\n", "VERSION": version + "\n", "LICENSE": "AGPL"}
@@ -42,12 +43,16 @@ def publish(folder, version="1.0.1", wrong_sum=False, with_zip=True):
 
 
 def test_the_release_comes_from_github_unless_a_feed_is_given():
+	"""The default source is GitHub's API: releases/latest, or releases/tags/vX for
+	a version."""
 	repo = runtime.SOURCE_REPO.removeprefix("https://github.com/")
 	assert release.api() == f"https://api.github.com/repos/{repo}/releases/latest"
 	assert release.api("1.0.1") == f"https://api.github.com/repos/{repo}/releases/tags/v1.0.1"
 
 
 def test_found_downloaded_checked_and_unpacked(tmp_path):
+	"""A release found through a feed gives its version and notes; downloaded and unpacked,
+	its files land in update/netrollout and the version is the zip's."""
 	found = release.find(feed=str(publish(tmp_path / "mirror")))
 	assert (found.version, found.notes) == ("1.0.1", "notes")
 	folder, version = release.unpack(release.download(found, tmp_path / "update"), tmp_path / "update")
@@ -57,6 +62,7 @@ def test_found_downloaded_checked_and_unpacked(tmp_path):
 
 
 def test_a_download_that_doesnt_match_its_checksum_is_deleted(tmp_path):
+	"""A zip whose SHA256SUMS entry is wrong is refused and nothing is left in the folder."""
 	found = release.find(feed=str(publish(tmp_path / "mirror", wrong_sum=True)))
 	with pytest.raises(release.ReleaseError, match="doesn't match the release's checksum"):
 		release.download(found, tmp_path / "update")
@@ -64,12 +70,15 @@ def test_a_download_that_doesnt_match_its_checksum_is_deleted(tmp_path):
 
 
 def test_a_release_without_its_zip_yet_says_so(tmp_path):
+	"""A release with no assets yet is refused naming the missing Linux zip."""
 	found = release.find(feed=str(publish(tmp_path / "mirror", with_zip=False)))
 	with pytest.raises(release.ReleaseError, match="has no netrollout-1.0.1-linux.zip yet"):
 		release.download(found, tmp_path / "update")
 
 
 def test_unreachable_or_not_a_release(tmp_path):
+	"""An unreachable feed points to `update --from <zip>`; JSON that isn't a release
+	(GitHub's rate-limit message) is refused as such."""
 	with pytest.raises(release.ReleaseError, match="Offline: update --from <zip>"):
 		release.find(feed=str(tmp_path / "missing.json"))
 	(tmp_path / "x.json").write_text('{"message": "rate limited"}')
@@ -78,6 +87,8 @@ def test_unreachable_or_not_a_release(tmp_path):
 
 
 def test_unpack_keeps_inside_its_folder_and_needs_a_release(tmp_path):
+	"""Entries with `..` or an absolute path are skipped (only netrollout/ is written);
+	a zip without netrollout/ isn't a release, and a file that isn't a zip is refused."""
 	z = make_zip(tmp_path / "evil.zip", extra={"../../escape.txt": "x", "/abs.txt": "y"})
 	folder, _ = release.unpack(z, tmp_path / "out")
 	assert not (tmp_path / "escape.txt").exists() and not (tmp_path / "out" / "escape.txt").exists()
@@ -90,6 +101,8 @@ def test_unpack_keeps_inside_its_folder_and_needs_a_release(tmp_path):
 
 
 def test_a_zip_given_by_hand_is_checked_against_sums_next_to_it(tmp_path):
+	"""A `--from` zip is refused when the SHA256SUMS beside it doesn't match, and
+	unpacked as given when there is no SHA256SUMS."""
 	z = make_zip(tmp_path / release.zip_name("1.0.1"))
 	(tmp_path / "SHA256SUMS").write_text(f"{'1' * 64}  {z.name}\n")
 	with pytest.raises(release.ReleaseError, match="doesn't match the SHA256SUMS next to it"):
@@ -99,11 +112,15 @@ def test_a_zip_given_by_hand_is_checked_against_sums_next_to_it(tmp_path):
 
 
 def run(argv):
+	"""The setup CLI run with `argv`: (exit code, the lines it wrote)."""
 	out = []
 	return cli.main(argv, write=out.append), out
 
 
 def test_the_cli_checks_and_fetches(tmp_path, monkeypatch):
+	"""`release --check` says a newer version is available or that this one is the latest;
+	`release` prints version= and folder= of the unpacked release; a bad `--from-zip`
+	exits 1 saying it isn't a zip."""
 	monkeypatch.setattr(runtime, "VERSION", "1.0.0")
 	feed = str(publish(tmp_path / "mirror"))
 	assert run(["release", "--check", "--feed", feed]) == (0, [

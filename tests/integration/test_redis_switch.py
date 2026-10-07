@@ -54,6 +54,11 @@ class StubJob:
 
 
 def test_switch_there_and_back_without_a_restart(app, admin, client_for, make_user, other_redis):
+	"""Switching to db 13 works live: the mode turns external and runtime.env
+	remembers the bundled Redis; the switching admin stays signed in (session and
+	its index moved), an operator is signed out, and the dispatcher takes a job
+	from the new Redis. Switching back restores the place and the bundled mode
+	and clears a session left in the bundled Redis from before."""
 	parts = app.backend.redis.config.place()
 	before = client_for(admin)
 	operator = client_for(make_user())
@@ -100,10 +105,12 @@ def test_switch_there_and_back_without_a_restart(app, admin, client_for, make_us
 
 
 def test_refused_while_rollouts_run(app, admin, client_for, monkeypatch, other_redis):
+	"""Switch back with a rollout running (on the bundled Redis) answers 409."""
 	monkeypatch.setattr(app.orchestrator, "counts", lambda: {"running": 1, "queued": 0})
 	resp = client_for(admin, xhr=True).post("/admin/server/redis/back")
 	assert resp.status_code in (409,)
 
 
 def test_nothing_to_switch_back_to_on_the_bundled_redis(admin, client_for, other_redis):
+	"""Switch back while on the bundled Redis answers 409: nothing to go back to."""
 	assert client_for(admin, xhr=True).post("/admin/server/redis/back").status_code == 409

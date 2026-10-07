@@ -25,6 +25,8 @@ QUEUE = "netrollout:job_queue"
 
 
 class FakeRedis:
+	"""In-memory Redis for the orchestrator: real blocking queues, hashes, a
+	number of BLPOP connection drops and failing hash writes on demand."""
 	def __init__(self, blpop_failures=0):
 		# Queues are created under a lock: a defaultdict's lazy creation isn't
 		# atomic, so the dispatcher thread and the test could each create
@@ -70,6 +72,7 @@ class FakeRedis:
 
 
 class FakePostgres:
+	"""Postgres whose sessions record every added row in `added`."""
 	def __init__(self):
 		self.added = []
 
@@ -100,6 +103,7 @@ class FakeJob:
 
 
 def wait_for(condition, timeout=5.0):
+	"""Poll `condition` until true or `timeout` seconds pass; returns whether it held."""
 	deadline = time.time() + timeout
 	while time.time() < deadline:
 		if condition():
@@ -110,6 +114,8 @@ def wait_for(condition, timeout=5.0):
 
 @pytest.fixture
 def make_orchestrator(monkeypatch):
+	"""Build a RolloutOrchestrator on a given FakeRedis and a FakePostgres,
+	with no backoff sleeps."""
 	# No real backoff sleeps: retries happen immediately
 	monkeypatch.setattr(orchestration, "_BACKOFF_START", 0)
 
@@ -122,12 +128,14 @@ def make_orchestrator(monkeypatch):
 
 
 def enqueue(orch, fake_redis, job):
+	"""Register a job with the orchestrator and push its id onto the queue."""
 	with orch._lock:
 		orch._jobs[job.job_id] = job
 	fake_redis.rpush(QUEUE, str(job.job_id))
 
 
 def dispatcher_thread(orch):
+	"""The orchestrator's running dispatcher thread."""
 	return next(t for t in threading.enumerate()
 	            if getattr(t, "_target", None) == orch._dispatcher)
 
@@ -135,6 +143,8 @@ def dispatcher_thread(orch):
 # ── Dispatcher survives Redis failures ───────────────────────────────────────
 
 def test_dispatcher_survives_connection_drops(make_orchestrator):
+	"""Three Redis connection drops in BLPOP don't stop the dispatcher: the
+	queued job still runs and the thread stays alive."""
 	fake = FakeRedis(blpop_failures=3)
 	orch = make_orchestrator(fake)
 	job = FakeJob()
@@ -158,6 +168,8 @@ class ClosedUnderneathRedis(FakeRedis):
 
 
 def test_dispatcher_survives_its_client_closed_underneath(make_orchestrator):
+	"""A ValueError from BLPOP (the client closed by a Redis switch) doesn't
+	kill the dispatcher: the job runs and the thread stays alive."""
 	fake = ClosedUnderneathRedis()
 	orch = make_orchestrator(fake)
 	job = FakeJob()
@@ -167,6 +179,8 @@ def test_dispatcher_survives_its_client_closed_underneath(make_orchestrator):
 
 
 def test_malformed_queue_entry_is_skipped(make_orchestrator):
+	"""A queue entry that isn't a UUID is skipped: the next job runs and the
+	dispatcher stays alive."""
 	fake = FakeRedis()
 	orch = make_orchestrator(fake)
 	fake.rpush(QUEUE, "not-a-uuid")
@@ -178,6 +192,8 @@ def test_malformed_queue_entry_is_skipped(make_orchestrator):
 
 def test_status_write_failure_after_start_does_not_stop_dispatching(
 		make_orchestrator):
+	"""With every Redis status write failing, the dispatcher still runs the first
+	job and then the second."""
 	fake = FakeRedis()
 	fake.fail_writes = True
 	orch = make_orchestrator(fake)
@@ -189,7 +205,8 @@ def test_status_write_failure_after_start_does_not_stop_dispatching(
 
 
 def test_redis_unavailable_covers_timeouts():
-	# An unreachable host raises TimeoutError, which is not a ConnectionError
+	"""An unreachable host raises TimeoutError, which is not a ConnectionError:
+	REDIS_UNAVAILABLE must include it."""
 	assert not issubclass(redis.exceptions.TimeoutError,
 	                      redis.exceptions.ConnectionError)
 	assert redis.exceptions.TimeoutError in orchestration.REDIS_UNAVAILABLE
@@ -198,6 +215,8 @@ def test_redis_unavailable_covers_timeouts():
 # ── Engine crash releases the concurrency slot ───────────────────────────────
 
 def test_engine_crash_releases_slot_and_next_job_runs(make_orchestrator):
+	"""An engine crash (KeyError) in a job gives its single slot back: the next
+	job runs, both are cleaned up and the slot count is back to 1."""
 	fake = FakeRedis()
 	orch = make_orchestrator(fake, max_concurrent=1)
 	options = RolloutOptions(verify=False, verbose=False, webapp=False)
@@ -212,6 +231,7 @@ def test_engine_crash_releases_slot_and_next_job_runs(make_orchestrator):
 
 
 def test_cancel_marks_job_cancelling(make_orchestrator):
+	"""cancel() sets the job's Redis status to "cancelling"."""
 	fake = FakeRedis()
 	orch = make_orchestrator(fake)
 	job = FakeJob()
@@ -223,6 +243,7 @@ def test_cancel_marks_job_cancelling(make_orchestrator):
 
 
 def test_results_are_persisted_with_port(make_orchestrator):
+	"""A job's results are stored as DeviceResult rows with the device's port."""
 	fake = FakeRedis()
 	orch = make_orchestrator(fake)
 	options = RolloutOptions(verify=False, verbose=False, webapp=False)
@@ -239,6 +260,7 @@ def test_results_are_persisted_with_port(make_orchestrator):
 
 
 def test_the_action_needed_instruction_is_stored(make_orchestrator):
+	"""A result's action_needed instruction is stored on its DeviceResult row."""
 	fake = FakeRedis()
 	orch = make_orchestrator(fake)
 	options = RolloutOptions(verify=False, verbose=False, webapp=False)
@@ -255,6 +277,7 @@ def test_the_action_needed_instruction_is_stored(make_orchestrator):
 
 
 def test_submit_records_job_metadata(make_orchestrator):
+	"""submit() stores one JobMetadata row with the job id and the comment."""
 	fake = FakeRedis()
 	orch = make_orchestrator(fake)
 	options = RolloutOptions(verify=False, verbose=False, webapp=False)
@@ -271,11 +294,13 @@ def test_submit_records_job_metadata(make_orchestrator):
 # ── Drain (stop / restart) ───────────────────────────────────────────────────
 
 def _device(ip="10.0.0.1", port=22):
+	"""A cisco_ios Device at ip:port with dummy credentials."""
 	return orchestration.Device(ip=ip, label=ip, username="u", password="p",
 	                            device_type="cisco_ios", secret="", port=port)
 
 
 def _rows(orch, status=None):
+	"""The DeviceResult rows the orchestrator stored, optionally of one status."""
 	return [o for o in orch._backend.postgres.added
 	        if type(o).__name__ == "DeviceResult"
 	        and (status is None or o.status == status)]
@@ -296,6 +321,7 @@ def _blocking_run(release: threading.Event, stop_on_cancel=False):
 
 
 def test_submit_is_refused_while_draining(make_orchestrator):
+	"""Once draining, submit() raises Draining and nothing is running or queued."""
 	orch = make_orchestrator(FakeRedis())
 	orch.drain(0)
 	options = RolloutOptions(verify=False, verbose=False, webapp=False)
@@ -306,6 +332,9 @@ def test_submit_is_refused_while_draining(make_orchestrator):
 
 def test_drain_records_queued_jobs_and_lets_running_ones_finish(
 		make_orchestrator):
+	"""drain() records the queued job as cancelled at once, device by device,
+	and waits for the running job to finish before returning; nothing is left
+	running or queued."""
 	orch = make_orchestrator(FakeRedis(), max_concurrent=1)
 	options = RolloutOptions(verify=False, verbose=False, webapp=False)
 	release = threading.Event()
@@ -330,6 +359,8 @@ def test_drain_records_queued_jobs_and_lets_running_ones_finish(
 
 
 def test_drain_deadline_cancels_running_jobs(make_orchestrator):
+	"""A running job still going at the drain's deadline is cancelled: recorded
+	as cancelled, nothing running, and the report says "Cancelling 1 running"."""
 	orch = make_orchestrator(FakeRedis())
 	options = RolloutOptions(verify=False, verbose=False, webapp=False)
 	never = threading.Event()
@@ -345,6 +376,8 @@ def test_drain_deadline_cancels_running_jobs(make_orchestrator):
 
 
 def test_dispatcher_does_not_start_a_job_once_draining(make_orchestrator):
+	"""While draining, a job left in the queue isn't started and its slot is
+	given back."""
 	fake = FakeRedis()
 	orch = make_orchestrator(fake)
 	orch._draining = True            # the drain began; a queue entry remains
@@ -393,6 +426,7 @@ class FlakyPostgres(FakePostgres):
 
 
 class EndedJob(FakeJob):
+	"""A FakeJob with one result whose log_cleanup marks the job's very end."""
 	def __init__(self):
 		super().__init__()
 		self.results = [dict(RESULT)]
@@ -404,6 +438,9 @@ class EndedJob(FakeJob):
 
 @pytest.fixture
 def end_of_job(monkeypatch, tmp_path):
+	"""Run one EndedJob through an orchestrator on the given Redis and Postgres
+	(no retry waits, NETROLLOUT_HOME in tmp_path) until it is finalized and its
+	slot free; returns (orchestrator, job)."""
 	monkeypatch.setattr(orchestration, "_BACKOFF_START", 0)
 	monkeypatch.setattr(orchestration, "_SAVE_RETRY_WAIT", 0, raising=False)
 	monkeypatch.setenv("NETROLLOUT_HOME", str(tmp_path))
@@ -423,6 +460,9 @@ def end_of_job(monkeypatch, tmp_path):
 
 def test_results_go_to_a_file_when_postgres_stays_down(end_of_job, tmp_path,
                                                        capsys):
+	"""Postgres down for good: the results go to logs/unsaved-results-<job>.json
+	with an ACTION NEEDED line, and the job's Redis meta is still deleted, its
+	log closed and its slot free."""
 	fake = TrackingRedis()
 	orch, job = end_of_job(fake, FlakyPostgres())
 	saved = tmp_path / "logs" / f"unsaved-results-{job.job_id}.json"
@@ -435,6 +475,8 @@ def test_results_go_to_a_file_when_postgres_stays_down(end_of_job, tmp_path,
 
 
 def test_a_brief_postgres_outage_is_retried(end_of_job, tmp_path):
+	"""A single failed Postgres session is retried: the result is stored and no
+	unsaved-results file is written."""
 	postgres = FlakyPostgres(failures=1)
 	_, job = end_of_job(TrackingRedis(), postgres)
 	assert [r.status for r in postgres.added] == ["success"]
@@ -442,6 +484,8 @@ def test_a_brief_postgres_outage_is_retried(end_of_job, tmp_path):
 
 
 def test_results_are_saved_when_redis_is_down_at_the_end(end_of_job):
+	"""A Redis failure in the end-of-job cleanup doesn't roll back the results:
+	they are stored and the slot is free."""
 	fake = TrackingRedis()
 	fake.fail_cleanup = True
 	postgres = FakePostgres()
@@ -456,6 +500,9 @@ def test_results_are_saved_when_redis_is_down_at_the_end(end_of_job):
 
 def test_pause_refuses_new_rollouts_lets_queued_and_running_ones_finish(
 		make_orchestrator):
+	"""pause() refuses new rollouts with PAUSED_MESSAGE but cancels nothing: the
+	running and the queued job both finish, then it is idle; resume() clears
+	the refusal."""
 	orch = make_orchestrator(FakeRedis(), max_concurrent=1)
 	options = RolloutOptions(verify=False, verbose=False, webapp=False)
 	release = threading.Event()
@@ -479,6 +526,8 @@ def test_pause_refuses_new_rollouts_lets_queued_and_running_ones_finish(
 
 
 def test_resume_never_undoes_a_drain(make_orchestrator):
+	"""resume() after a drain leaves submit() refused with Draining (not Paused)
+	and the drain's message."""
 	orch = make_orchestrator(FakeRedis())
 	orch.pause()
 	orch.drain(0)
@@ -508,8 +557,9 @@ class SlowPostgres(FakePostgres):
 
 def test_not_idle_while_a_finished_rollout_still_writes_its_results(
 		monkeypatch, tmp_path):
-	# the job leaves the job table before its results are written: a move
-	# locking then would copy the data without them
+	"""The job leaves the job table before its results are written: a move
+	locking then would copy the data without them. So idle() stays false until
+	the results are written."""
 	monkeypatch.setattr(orchestration, "_BACKOFF_START", 0)
 	monkeypatch.setenv("NETROLLOUT_HOME", str(tmp_path))
 	postgres, fake = SlowPostgres(), FakeRedis()

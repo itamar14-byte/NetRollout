@@ -12,18 +12,22 @@ UNROUTABLE_HOST = "10.255.255.1"  # silently drops packets: a real timeout
 
 
 def test_client_is_built_with_timeouts():
+	"""The client's connections use CONNECT_TIMEOUT and SOCKET_TIMEOUT."""
 	kwargs = RedisConnection(RedisConfig()).client.connection_pool.connection_kwargs
 	assert kwargs["socket_connect_timeout"] == CONNECT_TIMEOUT
 	assert kwargs["socket_timeout"] == SOCKET_TIMEOUT
 
 
 def test_socket_timeout_exceeds_dispatcher_blpop_wait():
-	# socket_timeout applies to BLPOP too; if it were shorter, every idle
-	# dispatcher wait would raise instead of returning None
+	"""SOCKET_TIMEOUT is longer than the dispatcher's BLPOP wait: the socket
+	timeout applies to BLPOP too, and if it were shorter every idle dispatcher
+	wait would raise instead of returning None."""
 	assert SOCKET_TIMEOUT > orchestration._BLPOP_TIMEOUT
 
 
 def test_unreachable_host_fails_fast():
+	"""A PING to an unroutable host raises a REDIS_UNAVAILABLE error within
+	2 x CONNECT_TIMEOUT + 2 seconds."""
 	client = RedisConnection(RedisConfig(host=UNROUTABLE_HOST)).client
 	start = time.monotonic()
 	with pytest.raises(REDIS_UNAVAILABLE):

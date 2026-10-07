@@ -11,6 +11,7 @@ ROOT = runtime.REPO_ROOT
 
 
 def compose(name="compose.yaml"):
+	"""The parsed compose file `name` from the repo root."""
 	return yaml.safe_load((ROOT / name).read_text(encoding="utf-8"))
 
 
@@ -19,11 +20,14 @@ def env(service):
 
 
 def test_nginx_takes_the_hostname_and_port_only_from_site_env():
+	"""compose.yaml passes nginx neither NETROLLOUT_HOSTNAME nor NETROLLOUT_HTTPS_PORT."""
 	assert "NETROLLOUT_HOSTNAME" not in env("nginx")
 	assert "NETROLLOUT_HTTPS_PORT" not in env("nginx")
 
 
 def test_the_app_gets_no_seeds_but_the_published_port_and_the_server_ips():
+	"""The app gets no hostname or worker seed, but the published HTTPS port (default 443)
+	and NETROLLOUT_SERVER_IPS from .env."""
 	app = env("app")
 	assert "NETROLLOUT_PUBLIC_HOSTNAME" not in app      # site.env seeds it
 	assert "ORCHESTRATOR_WORKERS" not in app            # System Settings
@@ -32,8 +36,9 @@ def test_the_app_gets_no_seeds_but_the_published_port_and_the_server_ips():
 
 
 def test_the_app_writes_backups_and_reads_grafanas_data_only():
-	# scheduled backups (src/backup.py): into backups/, with Grafana's
-	# database — read only, readable through group 0 (its file is 640 472:0)
+	"""Scheduled backups (src/backup.py): the app mounts backups/ and Grafana's volume
+	read only, readable through group 0 (its file is 640 472:0); Grafana keeps that
+	volume at /var/lib/grafana."""
 	app = compose()["services"]["app"]
 	assert "./backups:/data/backups" in app["volumes"]
 	assert "grafana:/data/grafana:ro" in app["volumes"]
@@ -43,9 +48,10 @@ def test_the_app_writes_backups_and_reads_grafanas_data_only():
 
 
 def test_the_windows_restore_hands_secrets_over_safely():
-	# the restored key is root's (the restore runs as root): restore-key too;
-	# Grafana's password never piped from PowerShell 5.1 (a byte-order mark
-	# and CR LF become part of it) nor on a command line
+	"""manage.ps1's restore runs restore-key as root (the restored key is root's), and
+	resets Grafana's password from stdin fed by printf from an env var - never piped
+	from PowerShell 5.1 (a byte-order mark and CR LF become part of it) nor on a
+	command line."""
 	script = (ROOT / "windows" / "manage.ps1").read_text(encoding="utf-8")
 	assert '(Invoke-Setup @("restore-key") -AsRoot)' in script
 	assert "reset-admin-password --password-from-stdin" in script
@@ -54,13 +60,15 @@ def test_the_windows_restore_hands_secrets_over_safely():
 
 
 def test_port_80_is_always_80_when_switched_on():
+	"""compose.http.yaml publishes nginx's port 80 as 80, nothing else."""
 	assert compose("compose.http.yaml")["services"]["nginx"]["ports"] == ["80:80"]
 
 
 def test_grafana_setup_runs_from_the_app_image():
+	"""grafana-setup runs setup.py and the dashboards copied into the app image (the
+	Dockerfile and .dockerignore let them in); its only mount is the app's connection,
+	read only (the database data source follows a move), and it gets GRAFANA_DB_PASSWORD."""
 	setup = compose()["services"]["grafana-setup"]
-	# the script and dashboards come from the image; the only mount is the
-	# app's connection, read only (the database data source follows a move)
 	assert setup["volumes"] == ["./config:/data/config:ro"]
 	assert setup["environment"]["GRAFANA_DB_PASSWORD"] == "${GRAFANA_DB_PASSWORD}"
 	assert setup["command"] == ["python", "/app/grafana/setup.py"]
@@ -73,6 +81,8 @@ def test_grafana_setup_runs_from_the_app_image():
 
 
 def test_the_version_file_travels_into_the_image_and_the_exe():
+	"""VERSION is copied into the image (allowed by .dockerignore) and bundled into the
+	CLI .exe; the Dockerfile no longer rewrites code with sed."""
 	assert "COPY LICENSE VERSION ./" in (ROOT / "Dockerfile").read_text(encoding="utf-8")
 	assert "!VERSION" in (ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
 	assert '("VERSION", ".")' in (ROOT / "netrollout-cli.spec").read_text(encoding="utf-8")
@@ -83,6 +93,8 @@ def test_the_version_file_travels_into_the_image_and_the_exe():
 # ── the Windows installer (windows/installer/netrollout.iss) ──
 
 def iss_sources():
+	"""The path of every `Source:` the installer packs, resolved against the repo or
+	the installer folder."""
 	installer = ROOT / "windows" / "installer"
 	text = (installer / "netrollout.iss").read_text(encoding="utf-8")
 	for line in text.splitlines():
@@ -96,13 +108,16 @@ def iss_sources():
 
 
 def test_every_file_the_installer_packs_exists():
-	# a rename would otherwise surface only when CI compiles the installer
+	"""Every file the installer packs exists (but the built Manager .exe) - a rename would
+	otherwise surface only when CI compiles the installer."""
 	missing = [str(p) for p in iss_sources()
 	           if p.name != "NetRollout Manager.exe" and not p.exists()]   # built
 	assert missing == []
 
 
 def test_the_installer_ships_what_the_zip_ships():
+	"""The installer packs the compose files, VERSION, LICENSE, the bin\\ tools and the
+	monitoring configs, by file name."""
 	names = {p.name for p in iss_sources()}
 	for needed in ("compose.yaml", "compose.http.yaml", "VERSION", "LICENSE",
 	               "manage.ps1", "netrollout.bat", "netrollout.ico",
@@ -112,6 +127,8 @@ def test_the_installer_ships_what_the_zip_ships():
 
 
 def test_the_installed_layout_is_bin_and_the_licence_page_has_its_text():
+	"""The Manager, manage.ps1, netrollout.bat and the icon install to {app}\\bin, the
+	LicenseFile exists, and there is no windows\\install.bat (Setup is the one way)."""
 	installer = ROOT / "windows" / "installer"
 	text = (installer / "netrollout.iss").read_text(encoding="utf-8")
 	for name in ("NetRollout Manager.exe", "manage.ps1", "netrollout.bat", "netrollout.ico"):
@@ -123,8 +140,9 @@ def test_the_installed_layout_is_bin_and_the_licence_page_has_its_text():
 
 
 def test_the_netrollout_command_on_path_is_only_the_bat():
-	# bin\ goes on PATH (the addtopath task); PowerShell runs a netrollout.ps1
-	# there before netrollout.bat, and Windows' default policy refuses scripts
+	"""bin\\ goes on PATH (the addtopath task) holding no netrollout.* but the .bat and the
+	icon - PowerShell would run a netrollout.ps1 there first and Windows' default policy
+	refuses scripts; Win+R's App Paths name is netrollout.exe in the real build."""
 	text = (ROOT / "windows" / "installer" / "netrollout.iss").read_text(encoding="utf-8")
 	installed = re.findall(r'^Source: "\.\.\\([^"]+)"; DestDir: "\{app\}\\bin"', text, re.M)
 	assert [n for n in installed if n.lower().startswith("netrollout.")] == ["netrollout.bat", "netrollout.ico"]
@@ -135,7 +153,8 @@ def test_the_netrollout_command_on_path_is_only_the_bat():
 
 
 def test_the_licence_page_shows_the_full_licence_from_the_one_file():
-	# the notice on top, then the repo's LICENSE (packed for the page, not a copy)
+	"""The licence page shows the notice, then the repo's LICENSE (packed for the page
+	with dontcopy and extracted at run time, not a copy)."""
 	text = (ROOT / "windows" / "installer" / "netrollout.iss").read_text(encoding="utf-8")
 	assert re.search(r'^Source: "\{#Root\}\\LICENSE"; Flags: dontcopy$', text, re.M)
 	assert re.search(r"^\tShowFullLicence;$", text, re.M)
@@ -143,9 +162,10 @@ def test_the_licence_page_shows_the_full_licence_from_the_one_file():
 
 
 def test_the_installers_identity_never_changes():
-	# Windows finds the install (Settings -> Apps, updates) by this id: a new
-	# one would orphan every installed NetRollout. Test builds (/DTestBuild)
-	# have their own, so a test can't take over or update a real install.
+	"""The real build's AppGuid is the fixed one and a test build's differs; AppId and the
+	install record's key use it. Windows finds the install (Settings -> Apps, updates) by
+	this id: a new one would orphan every installed NetRollout, and a test build with the
+	real id could take over or update a real install."""
 	text = (ROOT / "windows" / "installer" / "netrollout.iss").read_text(encoding="utf-8")
 	real = re.search(r'#else\s+#define AppGuid "([0-9A-F-]+)"', text).group(1)
 	test = re.search(r'#ifdef TestBuild\s+#define AppGuid "([0-9A-F-]+)"', text).group(1)
@@ -154,8 +174,9 @@ def test_the_installers_identity_never_changes():
 
 
 def test_setup_over_an_install_updates_and_checks_first():
-	# before any file is replaced: the direction and a backup (the copy in
-	# Setup's temporary folder, pointed at the install); after: the update
+	"""Setup over an install runs, before any file is replaced, the temporary copy's
+	prepare-update (check-update + a before-update backup, pointed at the install), and
+	after the files `update` (which runs `setup upgrade`)."""
 	text = (ROOT / "windows" / "installer" / "netrollout.iss").read_text(encoding="utf-8")
 	assert "function PrepareToInstall(" in text
 	assert "prepare-update -Yes -InstallDir" in text and r"{tmp}\manage.ps1" in text
@@ -168,10 +189,10 @@ def test_setup_over_an_install_updates_and_checks_first():
 
 
 def test_an_update_closes_the_installs_manager_before_the_files():
-	# the tray and the port helper (9.7) hold NetRollout Manager.exe: without
-	# closing them a silent update aborts ("unable to automatically close all
-	# applications") - every update failed so. Closed after the checks pass,
-	# started again by [Run].
+	"""PrepareToInstall closes the install's Manager (`--exit`) after the prepare-update
+	checks, and [Run] starts the helper and the tray again. The tray and the port helper
+	(9.7) hold NetRollout Manager.exe: without closing them a silent update aborts
+	("unable to automatically close all applications") - every update failed so."""
 	text = (ROOT / "windows" / "installer" / "netrollout.iss").read_text(encoding="utf-8")
 	prepare = re.search(r"function PrepareToInstall\(.*?\nend;", text, re.S)[0]
 	checks = prepare.index("prepare-update -Yes")
@@ -181,8 +202,9 @@ def test_an_update_closes_the_installs_manager_before_the_files():
 
 
 def test_the_installer_ends_honestly():
-	# success: the portal opens on Finish (ticked); failure: Retry unless the
-	# script says retrying can't help (exit 3: the release's image is missing)
+	"""On success the portal opens on Finish (ticked, only when set up); on failure Retry
+	is offered unless the script says retrying can't help (exit 3: the release's image
+	isn't published)."""
 	text = (ROOT / "windows" / "installer" / "netrollout.iss").read_text(encoding="utf-8")
 	browser = re.search(r'^Filename: "\{code:Address\}";.*$', text, re.M).group(0)
 	assert "postinstall" in browser and "unchecked" not in browser and "Check: SetUpOk" in browser
@@ -192,17 +214,18 @@ def test_the_installer_ends_honestly():
 
 
 def test_the_linux_scripts_have_unix_line_endings():
-	# a carriage return breaks bash ("$'\r': command not found"); .gitattributes
-	# keeps them LF in checkouts, this catches an editor that didn't
+	"""Every linux/*.sh has no carriage return and starts with the bash shebang. A CR
+	breaks bash ("$'\\r': command not found"); .gitattributes keeps them LF in checkouts,
+	this catches an editor that didn't."""
 	for script in (ROOT / "linux").glob("*.sh"):
 		assert b"\r" not in script.read_bytes(), script.name
 		assert script.read_bytes().startswith(b"#!/usr/bin/env bash\n"), script.name
 
 
 def test_the_repository_address_is_the_same_everywhere():
-	# six places in five languages can't share one constant: if the repo
-	# moves, all must follow (the footer's source link, the installer, the
-	# scripts' "report it", the Manager's releases and updates, the image label)
+	"""The Dockerfile's label, the installer, manage.ps1's issues link and the Manager's
+	releases and updates all name runtime.SOURCE_REPO. Six places in five languages can't
+	share one constant: if the repo moves, all must follow."""
 	repo = runtime.SOURCE_REPO
 	owner_repo = repo.removeprefix("https://github.com/")
 	found = {
@@ -216,8 +239,9 @@ def test_the_repository_address_is_the_same_everywhere():
 
 
 def test_uninstalling_keeps_the_backups_unless_asked():
-	# the backups are the last copy of the data: deleting the data asks about
-	# them separately (kept by default), and only an explicit answer deletes them
+	"""Deleting the data on uninstall (Setup's uninstaller, manage.ps1, netrollout.sh)
+	leaves backups/ unless deleting them was asked for separately - they are the last
+	copy of the data."""
 	iss = (ROOT / "windows" / "installer" / "netrollout.iss").read_text(encoding="utf-8")
 	assert "Keep the backups (the backups folder)?" in iss and "Data := Data + ' -DeleteBackups'" in iss
 	ps1 = (ROOT / "windows" / "manage.ps1").read_text(encoding="utf-8")
@@ -228,9 +252,10 @@ def test_uninstalling_keeps_the_backups_unless_asked():
 
 
 def test_the_port_helper_runs_by_itself_on_windows():
-	# saving a port in System Settings is applied without anyone at the
-	# server: the headless helper starts at sign-in and with Setup, and goes
-	# with the uninstaller (--exit closes it too)
+	"""A port saved in System Settings is applied without anyone at the server: the
+	headless `--helper` starts at sign-in (Startup entry), at Setup's end and with
+	`start`, has its own single-instance lock, and rolls back a timed-out trial
+	(the uninstaller's --exit closes it too)."""
 	iss = (ROOT / "windows" / "installer" / "netrollout.iss").read_text(encoding="utf-8")
 	assert r'Name: "{userstartup}\NetRollout port helper{#NameSuffix}"; Filename: "{app}\bin\NetRollout Manager.exe"; Parameters: "--helper"' in iss
 	assert '#define NameSuffix ""' in iss.split("#else", 1)[1]      # the real build: the plain name
@@ -243,8 +268,9 @@ def test_the_port_helper_runs_by_itself_on_windows():
 
 
 def test_the_database_data_source_is_not_provisioned():
-	# a provisioned data source is read-only: grafana-setup couldn't make it
-	# follow a database move. The earlier versions' one is deleted by name.
+	"""Only Prometheus and Loki are provisioned, the earlier versions' `postgresql` is
+	deleted by name, and Grafana gets no GRAFANA_DB_PASSWORD. A provisioned data source
+	is read-only: grafana-setup couldn't make it follow a database move."""
 	provisioning = yaml.safe_load((ROOT / "deploy/grafana/provisioning/datasources/netrollout.yml")
 	                              .read_text(encoding="utf-8"))
 	assert {d["type"] for d in provisioning["datasources"]} == {"prometheus", "loki"}
@@ -253,8 +279,9 @@ def test_the_database_data_source_is_not_provisioned():
 
 
 def test_slow_first_starts_have_a_start_period():
-	# failures inside it don't count, so `up --wait` doesn't give up on a slow
-	# machine; Grafana migrates its own database on its first start
+	"""Grafana (180 s), nginx (60 s), Prometheus and Postgres (30 s) have a health-check
+	start period: failures inside it don't count, so `up --wait` doesn't give up on a
+	slow machine; Grafana migrates its own database on its first start."""
 	services = compose()["services"]
 	assert services["grafana"]["healthcheck"]["start_period"] == "180s"
 	assert services["nginx"]["healthcheck"]["start_period"] == "60s"
@@ -263,9 +290,10 @@ def test_slow_first_starts_have_a_start_period():
 
 
 def test_a_test_build_names_everything_outside_its_folder_its_own_way():
-	# a test uninstall deleted the real install's Start Menu folder, desktop
-	# and Startup shortcuts and Win+R (same names); only the install record
-	# was its own. Every such name now depends on the build.
+	"""AppTitle, NameSuffix and RunName differ between the test and the real build, and
+	every line creating something outside the folder (Start Menu, desktop, Startup,
+	App Paths; at least 12) uses one of them. A test uninstall once deleted the real
+	install's shortcuts and Win+R (same names)."""
 	text = (ROOT / "windows" / "installer" / "netrollout.iss").read_text(encoding="utf-8")
 	test, real = re.search(r"#ifdef TestBuild(.*?)#else(.*?)#endif", text, re.S).groups()
 	for name in ("AppTitle", "NameSuffix", "RunName"):
@@ -280,10 +308,10 @@ def test_a_test_build_names_everything_outside_its_folder_its_own_way():
 
 
 def test_installing_again_over_a_kept_linux_install_starts_it():
-	# `uninstall --keep-data` promises "installing again in this folder picks
-	# it up"; install.sh used to refuse ("already installed", exit 2) - found
-	# by 9.9e. It now starts NetRollout with its own settings, as Setup does
-	# on Windows.
+	"""do_install, before asking anything, starts an install whose .env was kept and
+	returns, never saying "already installed" - as `uninstall --keep-data` promises
+	("installing again in this folder picks it up"). install.sh used to refuse
+	(exit 2) - found by 9.9e; it now starts as Setup does on Windows."""
 	sh = (ROOT / "linux" / "netrollout.sh").read_text(encoding="utf-8")
 	install = re.search(r"\ndo_install\(\) \{(.*?)\n\}", sh, re.S)[1]
 	kept = install[:install.index("if [ -z \"$YES\" ]")]

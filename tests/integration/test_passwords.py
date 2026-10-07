@@ -14,6 +14,7 @@ NEW_PASSWORD = "Fresh-pass-42"
 
 
 def get_user(session_scope, user_id):
+	"""The user row as stored now, detached from its session."""
 	with session_scope() as s:
 		user = s.get(User, user_id)
 		s.expunge(user)
@@ -21,6 +22,7 @@ def get_user(session_scope, user_id):
 
 
 def audits(session_scope, action):
+	"""The audit entries for `action` in order, as (actor, success, detail)."""
 	with session_scope() as s:
 		return [(a.actor_username, a.success, a.detail)
 		        for a in s.query(AuditLog).filter_by(action=action)
@@ -44,6 +46,9 @@ def flagged(make_user):
                                       "pässword123"])
 def test_registration_refuses_a_weak_password(client_for, session_scope,
                                               password):
+	"""An access request with a password breaking the rule (too short, letters
+	only, digits only, non-ASCII) returns to the register page and creates no
+	user."""
 	resp = client_for().post("/register", data={
 		"username": "weakling", "password": password, "email": "w@x.io",
 		"full_name": "Weak"})
@@ -54,6 +59,8 @@ def test_registration_refuses_a_weak_password(client_for, session_scope,
 
 def test_registration_refuses_the_username_inside_the_password(client_for,
                                                                session_scope):
+	"""An access request whose password contains the username (any case)
+	creates no user."""
 	client_for().post("/register", data={
 		"username": "carol", "password": "Carol2024x", "email": "c@x.io",
 		"full_name": "Carol"})
@@ -66,12 +73,15 @@ def test_registration_refuses_the_username_inside_the_password(client_for,
 @pytest.mark.parametrize("page", ["/dashboard", "/inventory/", "/account",
                                   "/rollout/new"])
 def test_flagged_user_is_sent_to_the_change_page(flagged, client_for, page):
+	"""A user who must change the password is redirected from every page
+	(Dashboard, inventory, account, new rollout) to /account/password."""
 	resp = client_for(flagged).get(page)
 	assert resp.status_code == 302
 	assert resp.headers["Location"] == "/account/password"
 
 
 def test_flagged_user_gets_403_json_from_fetch_calls(flagged, client_for):
+	"""A flagged user's XHR call gets 403 JSON with redirect /account/password."""
 	resp = client_for(flagged, xhr=True).post("/inventory/reachability",
 	                                          json={"device_ids": []})
 	assert resp.status_code == 403
@@ -84,13 +94,17 @@ def test_flagged_user_gets_403_json_from_fetch_calls(flagged, client_for):
                                         ("/static/logo.svg", 200),
                                         ("/logout", 302)])
 def test_what_a_flagged_user_can_still_reach(flagged, client_for, path, code):
+	"""A flagged user still reaches the change page, health, instance, static
+	files and sign-out with their own status, never redirected to the change
+	page."""
 	resp = client_for(flagged).get(path)
 	assert resp.status_code == code
 	assert resp.headers.get("Location") != "/account/password"
 
 
 def test_the_seeded_admin_is_gated_after_signing_in(client_for, make_user):
-	# the factory admin skips 2FA; the dashboard it lands on sends it on
+	"""The factory admin skips 2FA and lands on the Dashboard, which sends it on
+	to the change page saying "The factory password must be changed"."""
 	make_user(username="admin", role="admin", must_change_password=True)
 	client = client_for()
 	assert client.post("/login", data={"username": "admin",
@@ -102,6 +116,7 @@ def test_the_seeded_admin_is_gated_after_signing_in(client_for, make_user):
 
 
 def test_unflagged_user_is_not_gated(make_user, client_for):
+	"""A user without the flag gets the Dashboard (200)."""
 	assert client_for(make_user()).get("/dashboard").status_code == 200
 
 
@@ -109,6 +124,9 @@ def test_unflagged_user_is_not_gated(make_user, client_for):
 
 def test_forced_change_clears_the_flag_and_rotates_the_session(
 		flagged, client_for, session_scope, app):
+	"""A forced change goes to the Dashboard with a new session id (the old one
+	gone from Redis), clears the flag, stores the new password, keeps the user
+	signed in and is audited as forced with no other sessions ended."""
 	client = client_for(flagged)
 	client.get("/account/password")                     # session saved
 	before = client.get_cookie("session").value
@@ -127,6 +145,8 @@ def test_forced_change_clears_the_flag_and_rotates_the_session(
 
 def test_voluntary_change_from_the_account_page(make_user, client_for,
                                                 session_scope):
+	"""The account page links to the change page; a voluntary change stores the
+	new password and is audited as not forced."""
 	user = make_user()
 	client = client_for(user)
 	assert 'href="/account/password"' in client.get("/account").data.decode()
@@ -151,6 +171,8 @@ def sid_of(client):
 
 
 def test_a_change_signs_out_every_other_session(make_user, client_for, app):
+	"""A change deletes the user's other browser session from Redis (it is sent
+	to sign in) and keeps the changing browser signed in."""
 	user = make_user()
 	me, other_browser = signed_in_clients(client_for, user, 2)
 	stolen = sid_of(other_browser)
@@ -170,6 +192,9 @@ def test_a_change_signs_out_every_other_session(make_user, client_for, app):
 ])
 def test_a_refused_change_keeps_everything(flagged, client_for, session_scope,
                                            kwargs, reason):
+	"""A refused forced change (confirmation mismatch, a too-short password,
+	the current one again) returns to the change page, keeps the flag and the
+	old password, and is audited as failed with reason mismatch / rule."""
 	client = client_for(flagged)
 	assert change(client, **kwargs).headers["Location"] == "/account/password"
 	user = get_user(session_scope, flagged.id)
@@ -181,6 +206,8 @@ def test_a_refused_change_keeps_everything(flagged, client_for, session_scope,
 
 def test_a_voluntary_change_needs_the_current_password(make_user, client_for,
                                                        session_scope):
+	"""A voluntary change with a wrong current password returns to the change
+	page, keeps the old password and is audited with reason wrong_current."""
 	user = make_user()
 	client = client_for(user)
 	assert change(client, current="wrong-Pass-1").headers["Location"] == 	       "/account/password"
@@ -192,7 +219,9 @@ def test_a_voluntary_change_needs_the_current_password(make_user, client_for,
 
 def test_a_forced_change_does_not_ask_for_the_current_password(
 		flagged, client_for, session_scope):
-	# the sign-in that just happened proved it (factory admin / reset)
+	"""A forced change page has no current password field, and a change sent
+	without one succeeds: flag cleared, new password stored. The sign-in that
+	just happened proved it (factory admin / reset)."""
 	client = client_for(flagged)
 	page = client.get("/account/password").get_data(as_text=True)
 	assert 'name="current_password"' not in page
@@ -206,6 +235,8 @@ def test_a_forced_change_does_not_ask_for_the_current_password(
 
 def test_a_forced_change_still_refuses_the_current_password(
 		flagged, client_for, session_scope):
+	"""A forced change to the current password is refused (flag kept) and
+	audited with reason rule, not wrong_current."""
 	client = client_for(flagged)
 	resp = client.post("/account/password", data={
 		"new_password": TEST_PASSWORD, "confirm_password": TEST_PASSWORD})
@@ -217,11 +248,14 @@ def test_a_forced_change_still_refuses_the_current_password(
 
 def test_the_voluntary_page_asks_for_the_current_password(make_user,
                                                           client_for):
-	page = client_for(make_user()).get("/account/password").get_data(as_text=True)
+	"""The voluntary change page has a current password field."""
+	page =client_for(make_user()).get("/account/password").get_data(as_text=True)
 	assert 'name="current_password"' in page
 
 
 def test_ldap_users_are_told_to_use_the_directory(make_user, client_for):
+	"""An LDAP user's change page redirects to the account page, which says
+	"Managed by your directory"."""
 	user = make_user(auth_type="ldap")
 	resp = client_for(user).get("/account/password")
 	assert resp.headers["Location"] == "/account"
@@ -242,6 +276,10 @@ def reset(client, user_id):
 
 def test_reset_gives_a_temporary_password_and_forces_a_change(
 		admin, make_user, client_for, session_scope, app):
+	"""An admin reset returns a temporary password that passes the rule and
+	becomes the user's, sets the forced-change flag, ends the user's session
+	(signed out, not sent to the change page) and is audited by the admin
+	without the temporary password."""
 	target = make_user()
 	target_client = client_for(target)
 	target_client.get("/dashboard")                     # has a live session
@@ -269,6 +307,8 @@ def test_reset_gives_a_temporary_password_and_forces_a_change(
 
 def test_reset_signs_the_user_out_everywhere(admin, make_user, client_for,
                                               session_scope, app):
+	"""A reset ends all three of the user's browser sessions, not only the one
+	user_session points at, and audits sessions_ended 3."""
 	target = make_user()
 	browsers = signed_in_clients(client_for, target, 3)
 	sids = [sid_of(b) for b in browsers]
@@ -283,6 +323,7 @@ def test_reset_signs_the_user_out_everywhere(admin, make_user, client_for,
 
 
 def test_reset_leaves_other_users_signed_in(admin, make_user, client_for):
+	"""Resetting one user's password keeps another user signed in."""
 	target, bystander = make_user(), make_user()
 	(bystander_browser,) = signed_in_clients(client_for, bystander, 1)
 	reset(client_for(admin), target.id)
@@ -295,6 +336,8 @@ def test_reset_leaves_other_users_signed_in(admin, make_user, client_for):
 	("ldap", "LDAP"),
 ])
 def test_reset_refusals(admin, make_user, client_for, target_kind, message):
+	"""A reset of the admin's own account, the factory admin or an LDAP user is
+	refused with 400 and a message saying why."""
 	target = {"self": lambda: admin,
 	          "factory": lambda: make_user(username="admin", role="admin"),
 	          "ldap": lambda: make_user(auth_type="ldap")}[target_kind]()
@@ -303,6 +346,8 @@ def test_reset_refusals(admin, make_user, client_for, target_kind, message):
 
 
 def test_reset_is_admin_only(make_user, client_for, session_scope):
+	"""An operator's reset request is refused (302 or 403) and the target's
+	flag stays unset."""
 	target = make_user()
 	resp = reset(client_for(make_user(), xhr=True), target.id)
 	assert resp.status_code in (302, 403)

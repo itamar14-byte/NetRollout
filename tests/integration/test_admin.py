@@ -24,6 +24,7 @@ def admin(make_user):
 
 
 def get_user(session_scope, user_id):
+	"""The user row by id, detached from its session (None when gone)."""
 	with session_scope() as s:
 		u = s.get(User, user_id)
 		if u:
@@ -34,6 +35,7 @@ def get_user(session_scope, user_id):
 # ── User management ──────────────────────────────────────────────────────────
 
 def test_panel_and_users_page(admin, client_for):
+	"""/admin redirects to /admin/users, which renders."""
 	c = client_for(admin)
 	assert c.get("/admin").headers["Location"] == "/admin/users"
 	assert c.get("/admin/users").status_code == 200
@@ -47,6 +49,8 @@ def test_panel_and_users_page(admin, client_for):
 ])
 def test_user_actions(admin, client_for, make_user, session_scope, action,
                       expected):
+	"""Each user action sets its fields and is audited once as user.<action>
+	(cases: approve, disable, promote, demote)."""
 	target = make_user(approved=False, active=False) if action == "approve" \
 		else make_user(role="admin" if action == "demote" else "operator")
 	client_for(admin).post(f"/admin/users/{target.id}/{action}")
@@ -59,6 +63,8 @@ def test_user_actions(admin, client_for, make_user, session_scope, action,
 
 
 def test_admin_cannot_disable_or_delete_self(admin, client_for, session_scope):
+	"""An admin's disable and delete of their own account leave it in place
+	and active."""
 	c = client_for(admin)
 	c.post(f"/admin/users/{admin.id}/disable")
 	c.post(f"/admin/users/{admin.id}/delete")
@@ -67,6 +73,8 @@ def test_admin_cannot_disable_or_delete_self(admin, client_for, session_scope):
 
 def test_factory_admin_is_untouchable(admin, client_for, make_user,
                                       session_scope):
+	"""The factory "admin" account can't be demoted or deleted: it stays an
+	admin."""
 	factory = make_user(username="admin", role="admin")
 	client_for(admin).post(f"/admin/users/{factory.id}/demote")
 	client_for(admin).post(f"/admin/users/{factory.id}/delete")
@@ -74,6 +82,7 @@ def test_factory_admin_is_untouchable(admin, client_for, make_user,
 
 
 def test_bulk_action(admin, client_for, make_user, session_scope):
+	"""A bulk disable disables the selected users but skips the admin doing it."""
 	a, b = make_user(), make_user()
 	client_for(admin).post("/admin/users/bulk/disable",
 	                       data={"user_ids": f"{a.id},{b.id},{admin.id}"})
@@ -83,6 +92,9 @@ def test_bulk_action(admin, client_for, make_user, session_scope):
 
 
 def test_bulk_reset_2fa(admin, app, client_for, make_user, session_scope):
+	"""Bulk Reset 2FA: the Users page offers it and knows who has 2FA; both
+	secrets are cleared, one audit entry names both users, and the next
+	sign-in goes to enrollment."""
 	a, b = make_user(), make_user()
 	with session_scope() as s:
 		for uid in (a.id, b.id):
@@ -104,6 +116,7 @@ def test_bulk_reset_2fa(admin, app, client_for, make_user, session_scope):
 
 
 def test_reset_2fa_is_admin_only(client_for, make_user, session_scope):
+	"""An operator's bulk Reset 2FA leaves the user's 2FA secret in place."""
 	victim = make_user()
 	with session_scope() as s:
 		s.get(User, victim.id).otp_secret = encrypt("JBSWY3DPEHPK3PXP")
@@ -113,6 +126,8 @@ def test_reset_2fa_is_admin_only(client_for, make_user, session_scope):
 
 
 def test_live_sessions_list_and_kick(app, admin, client_for, make_user):
+	"""Live Sessions lists a signed-in user; Kick deletes the user's session
+	keys; kicking an unknown user is 404."""
 	target = make_user()
 	redis = app.backend.redis.client
 	redis.set(f"user_session:{target.id}", "sid-123", ex=3600)
@@ -128,6 +143,7 @@ def test_live_sessions_list_and_kick(app, admin, client_for, make_user):
 # ── Audit + analytics ────────────────────────────────────────────────────────
 
 def test_audit_page_filters(admin, client_for, make_user, session_scope):
+	"""The audit page filters by actor and by success."""
 	with session_scope() as s:
 		s.add_all([AuditLog(actor_username="alice", action="inventory.create"),
 		           AuditLog(actor_username="bob", action="auth.login",
@@ -139,6 +155,8 @@ def test_audit_page_filters(admin, client_for, make_user, session_scope):
 
 
 def test_audit_query_is_allowlisted(admin, client_for, session_scope):
+	"""The admin analytics query filters the audit log on an allowed field; a
+	field outside the allowlist gets 400."""
 	with session_scope() as s:
 		s.add(AuditLog(actor_username="alice", action="auth.login",
 		               success=False))
@@ -153,6 +171,8 @@ def test_audit_query_is_allowlisted(admin, client_for, session_scope):
 
 def test_admin_analytics_page_and_job_count(app, admin, client_for,
                                             monkeypatch):
+	"""The analytics page renders, and the active job count is the
+	orchestrator's running + queued."""
 	c = client_for(admin)
 	assert c.get("/admin/analytics").status_code == 200
 	# The orchestrator's own count (running + queued), not a Redis counter
@@ -164,6 +184,8 @@ def test_admin_analytics_page_and_job_count(app, admin, client_for,
 
 def test_terminate_session_signs_the_user_out_everywhere(
 		admin, make_user, client_for, app):
+	"""Terminate Session removes all the user's sessions (both browsers): the
+	next page and the background session check redirect to the sign-in."""
 	target = make_user()
 	browsers = [client_for(target) for _ in range(2)]
 	for b in browsers:
@@ -184,10 +206,12 @@ def test_terminate_session_signs_the_user_out_everywhere(
 # ── Server management ────────────────────────────────────────────────────────
 
 def test_server_page_renders(admin, client_for):
+	"""Server Management renders for an admin."""
 	assert client_for(admin).get("/admin/server").status_code == 200
 
 
 def test_redis_test_endpoint(admin, client_for):
+	"""Testing a Redis address where nothing listens answers status error."""
 	resp = client_for(admin).post("/admin/server/redis/test", json={
 		"host": "127.0.0.1", "port": "6999"})
 	assert resp.json["status"] == "error"
@@ -195,8 +219,9 @@ def test_redis_test_endpoint(admin, client_for):
 
 @pytest.fixture
 def switch_writes_only(app, monkeypatch):
-	# A save swaps the shared app's connection; stub only the swap, so the
-	# route → backend → config/runtime.env path runs for real
+	"""A save swaps the shared app's connection; stub only the swap, so the
+	route → backend → config/runtime.env path runs for real. Yields the
+	runtime.env path, removed before and after."""
 	monkeypatch.setattr(app.backend.redis, "reload_db", lambda config: None)
 	runtime_env = app.backend._CONFIG_ENV
 	runtime_env.unlink(missing_ok=True)
@@ -205,6 +230,8 @@ def switch_writes_only(app, monkeypatch):
 
 
 def test_save_routes_write_runtime_env(app, admin, client_for, switch_writes_only):
+	"""Saving another Redis writes its keys to config/runtime.env, the unused
+	ones blank, and keeps the bundled Redis's URL for the way back."""
 	bundled = app.backend.redis.config.get_url()      # the test Redis counts as bundled
 	client = client_for(admin)
 	assert client.post("/admin/server/redis/save", json={
@@ -227,6 +254,7 @@ LDAP_FORM = {"label": "corp", "ip": "ldap.test", "port": "389",
 
 
 def only_server(session_scope):
+	"""The one LDAP server row, detached from its session."""
 	with session_scope() as s:
 		srv = s.query(LDAPServer).one()
 		s.expunge(srv)
@@ -235,6 +263,8 @@ def only_server(session_scope):
 
 def test_ldap_server_crud_encrypts_bind_password(admin, client_for,
                                                  session_scope):
+	"""LDAP server create / list / save / delete: the bind password is stored
+	encrypted, never listed, kept when saved blank; delete removes the row."""
 	c = client_for(admin)
 	assert c.post("/admin/server/ldap/new", data=LDAP_FORM).json["status"] == "ok"
 	srv = only_server(session_scope)
@@ -253,6 +283,8 @@ def test_ldap_server_crud_encrypts_bind_password(admin, client_for,
 
 
 def test_ldap_directory_calls_are_delegated(admin, client_for, session_scope):
+	"""The LDAP test, test-user, fetch-DN and explore routes hand off to the
+	directory functions; an unknown server is 404."""
 	c = client_for(admin)
 	c.post("/admin/server/ldap/new", data=LDAP_FORM)
 	sid = only_server(session_scope).id
@@ -271,6 +303,9 @@ def test_ldap_directory_calls_are_delegated(admin, client_for, session_scope):
 
 
 def test_ldap_import_and_group_rules(admin, client_for, session_scope):
+	"""Importing a user and a group creates them once (again: both skipped); a
+	group can be toggled off and deleted; the user is an LDAP account with no
+	password."""
 	c = client_for(admin)
 	c.post("/admin/server/ldap/new", data=LDAP_FORM)
 	sid = only_server(session_scope).id

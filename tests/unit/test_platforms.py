@@ -20,6 +20,7 @@ OK, MISSING, STILL, NV = VERIFIED, NOT_CONFIGURED, STILL_CONFIGURED, UNVERIFIABL
 
 
 def test_every_supported_platform_has_a_row():
+	"""PLATFORMS has a row for exactly the supported platforms, no more, no fewer."""
 	assert set(PLATFORMS) == set(validation.SUPPORTED_PLATFORMS)
 
 
@@ -364,12 +365,15 @@ end
 @pytest.mark.parametrize("device_type, config, expected", CASES,
                          ids=[c[0] for c in CASES])
 def test_verdicts(device_type, config, expected):
+	"""On each platform's printed config, every typed command gets its expected verdict:
+	verified, not configured, still configured, or not checkable (navigation, save)."""
 	commands = [command for command, _ in expected]
 	got = verify_commands(device_type, config, commands)
 	assert list(zip(commands, got)) == expected
 
 
 def test_unresolved_variables_are_not_judged():
+	"""A command still holding a $$VARIABLE$$ gets the VARIABLE verdict, not a judgement."""
 	verdicts = verify_commands("cisco_ios", IOS_CONFIG,
 	                           ["hostname $$HOSTNAME$$", "hostname r1"])
 	assert verdicts == [VARIABLE, OK]
@@ -410,10 +414,13 @@ def test_unresolved_variables_are_not_judged():
 ])
 
 def test_rejections_are_recognised(command, output):
+	"""Each vendor's error reply (IOS, NX-OS, EOS, Aruba, ProCurve, Comware, Junos, PAN-OS,
+	Gaia, FortiOS) is recognised as a rejection of the command."""
 	assert rejection(output, command)
 
 
 def test_a_hostname_like_a_gaia_code_isnt_an_error():
+	"""A prompt that looks like a Gaia error code (FWPROD0001>) isn't a rejection."""
 	assert rejection("FWPROD0001> set hostname x", "set hostname x") is None
 
 
@@ -423,12 +430,15 @@ def test_a_hostname_like_a_gaia_code_isnt_an_error():
 	("hostname r2", "r2(config)#"),
 ])
 def test_an_accepted_command_echo_is_not_a_rejection(command, output):
+	"""A command echoed back with error-like words in its own text (unknown, invalid),
+	or a bare new prompt, isn't a rejection."""
 	assert rejection(output, command) is None
 
 
 # ── How the push finishes, per platform ──────────────────────────────────────
 
 def push(device_type, conn, commands=("hostname x",), logger=None):
+	"""The engine's push of `commands` to one device over the mocked `conn`: its PushResult."""
 	device = Device(ip="10.0.0.1", label="d", username="u", password="p",
 	                device_type=device_type, secret="", port=22)
 	engine = RolloutEngine(RolloutOptions(), [device], list(commands))
@@ -440,6 +450,8 @@ def push(device_type, conn, commands=("hostname x",), logger=None):
 
 
 def connection(prompt="r1#", vdoms=False, cfg_save="automatic"):
+	"""A mocked Netmiko connection: accepts every command, shows `prompt`, FortiOS's
+	VDOM flag and cfg-save mode."""
 	conn = MagicMock()
 	conn.send_config_set.return_value = "ok"
 	conn.find_prompt.return_value = prompt
@@ -450,6 +462,8 @@ def connection(prompt="r1#", vdoms=False, cfg_save="automatic"):
 
 
 def finish_calls(conn):
+	"""The calls that finish the push (commit, save, leaving config mode, sends), minus
+	the pushed command itself."""
 	return [c for c in conn.method_calls
 	        if c[0] in ("commit", "exit_config_mode", "save_config",
 	                    "send_command", "send_config_set", "send_command_timing")
@@ -460,6 +474,8 @@ def finish_calls(conn):
 @pytest.mark.parametrize("device_type", [t for t, p in PLATFORMS.items()
                                          if p.finish == "save"])
 def test_save_platforms_leave_config_mode_then_save(device_type):
+	"""Every "save" platform leaves config mode, then saves (Aruba CX sends `end` first);
+	the push is applied with nothing rejected."""
 	conn = connection()
 	assert push(device_type, conn) == PushResult(applied=True, rejected=0)
 	first = [call.send_command_timing("end")] \
@@ -469,8 +485,9 @@ def test_save_platforms_leave_config_mode_then_save(device_type):
 
 
 def test_aruba_cx_leaves_sub_contexts_before_saving():
-	# Netmiko's AOS-CX driver only recognises "(config)#": from "(config-if)#"
-	# its exit would do nothing and the save would run inside the interface
+	"""From "(config-if)#", Aruba CX sends a command (`end`) before the save. Netmiko's
+	AOS-CX driver only recognises "(config)#": its exit would do nothing and the save
+	would run inside the interface."""
 	conn = connection(prompt="a1(config-if)#")
 	assert push("aruba_aoscx", conn).applied
 	names = [c[0] for c in conn.method_calls]
@@ -480,12 +497,15 @@ def test_aruba_cx_leaves_sub_contexts_before_saving():
 @pytest.mark.parametrize("device_type", ["juniper_junos", "paloalto_panos",
                                          "cisco_xr"])
 def test_commit_platforms_commit_before_leaving_config_mode(device_type):
+	"""Junos, PAN-OS and IOS XR commit (with the commit timeout), then leave config mode."""
 	conn = connection()
 	assert push(device_type, conn).applied
 	assert finish_calls(conn) == [call.commit(read_timeout=COMMIT_TIMEOUT), call.exit_config_mode()]
 
 
 def test_junos_failed_commit_rolls_back_and_reports_not_applied():
+	"""A failed Junos commit is followed by `rollback 0` and leaving config mode; the push
+	is reported not applied."""
 	conn = connection()
 	conn.commit.side_effect = ValueError("Commit failed: error: x")
 	result = push("juniper_junos", conn)
@@ -497,7 +517,7 @@ def test_junos_failed_commit_rolls_back_and_reports_not_applied():
 
 
 def fresh_logger():
-	# its own file: a logger without a job id names it by the second
+	"""A rollout logger with its own file: a logger without a job id names it by the second."""
 	return RolloutLogger(webapp=False, verbose=False, job_id=str(uuid.uuid4()))
 
 
@@ -507,6 +527,8 @@ def log_of(logger):
 
 
 def test_panos_failed_commit_reverts_the_candidate():
+	"""A failed PAN-OS commit sends `revert config`; when that works the log doesn't say
+	the changes may still be in the candidate."""
 	conn = connection()
 	conn.commit.side_effect = ValueError("Commit failed")
 	logger = fresh_logger()
@@ -517,7 +539,8 @@ def test_panos_failed_commit_reverts_the_candidate():
 
 
 def test_panos_falls_back_to_loading_the_running_config():
-	# older releases without "revert config"
+	"""When `revert config` is refused (older releases), PAN-OS loads the running config
+	instead, and the log doesn't ask to discard the changes on the device."""
 	conn = connection()
 	conn.commit.side_effect = ValueError("Commit failed")
 	conn.send_config_set.side_effect = lambda cmds, **kw: (
@@ -530,6 +553,8 @@ def test_panos_falls_back_to_loading_the_running_config():
 
 
 def test_panos_both_discards_refused_says_to_discard_on_the_device():
+	"""When both PAN-OS discards are refused, the push isn't applied and the log says to
+	discard the changes on the device."""
 	conn = connection()
 	conn.commit.side_effect = ValueError("Commit failed")
 	conn.send_config_set.side_effect = lambda cmds, **kw: (
@@ -542,12 +567,14 @@ def test_panos_both_discards_refused_says_to_discard_on_the_device():
 
 
 def test_junos_configures_privately():
+	"""Junos enters config mode with `configure private`."""
 	conn = connection()
 	push("juniper_junos", conn)
 	conn.config_mode.assert_called_once_with(config_command="configure private")
 
 
 def test_other_platforms_use_the_drivers_config_mode():
+	"""Other platforms (here IOS) enter the driver's default config mode, no arguments."""
 	conn = connection()
 	push("cisco_ios", conn)
 	conn.config_mode.assert_called_once_with()
@@ -562,6 +589,8 @@ def test_other_platforms_use_the_drivers_config_mode():
 ])
 def test_fortios_saves_only_when_cfg_save_isnt_automatic(vdoms, cfg_save,
                                                           expected):
+	"""FortiOS checks cfg-save and runs `execute cfg save` only for manual or revert;
+	with VDOMs the check and save are wrapped in `config global` ... `end`."""
 	conn = connection(prompt="fw1 #", vdoms=vdoms, cfg_save=cfg_save)
 	assert push("fortinet", conn).applied
 	sent = [c.args[0] for c in conn.send_command_timing.call_args_list]
@@ -569,6 +598,8 @@ def test_fortios_saves_only_when_cfg_save_isnt_automatic(vdoms, cfg_save,
 
 
 def test_gaia_refuses_an_expert_shell():
+	"""Gaia whose prompt stays an expert/`#` shell: nothing is sent, the push isn't
+	applied, and the log says the account has the wrong shell."""
 	for prompt in ("[Expert@gw-1:0]#", "gw-1#"):
 		conn = connection(prompt=prompt)
 		logger = fresh_logger()
@@ -579,6 +610,7 @@ def test_gaia_refuses_an_expert_shell():
 
 
 def test_gaia_saves_with_its_own_command():
+	"""Gaia leaves config mode, then saves with `save config`."""
 	conn = connection(prompt="gw-1>")
 	assert push("checkpoint_gaia", conn).applied
 	assert finish_calls(conn) == [call.exit_config_mode(),
@@ -586,6 +618,8 @@ def test_gaia_saves_with_its_own_command():
 
 
 def test_fortios_closes_open_blocks_and_saves_nothing():
+	"""FortiOS sends `end` for every open config block (read from the prompt), then
+	checks cfg-save; no save_config, no commit."""
 	conn = connection()
 	conn.find_prompt.side_effect = ["fw1 (ipv6) #", "fw1 (port1) #",
 	                                "fw1 (interface) #", "fw1 #"]
@@ -598,6 +632,7 @@ def test_fortios_closes_open_blocks_and_saves_nothing():
 
 
 def test_rejected_commands_are_counted_and_the_rest_still_sent():
+	"""A rejected command is counted (rejected=1) and the following ones are still sent."""
 	conn = connection()
 	conn.send_config_set.side_effect = ["% Invalid input detected", "ok", "ok"]
 	result = push("cisco_ios", conn, commands=("bad", "good 1", "good 2"))
@@ -608,6 +643,8 @@ def test_rejected_commands_are_counted_and_the_rest_still_sent():
 # ── The device status ────────────────────────────────────────────────────────
 
 def run(conn, commands, verify, config=None):
+	"""A whole rollout to one IOS device over `conn`, the fetch returning `config` (or
+	raising it): the device's result."""
 	device = Device(ip="10.0.0.1", label="d", username="u", password="p",
 	                device_type="cisco_ios", secret="", port=22)
 	conn.__enter__.return_value = conn            # the config fetch
@@ -628,12 +665,16 @@ def run(conn, commands, verify, config=None):
 	(["% Invalid input", "% Invalid input"], "failed"),
 ])
 def test_without_verify_the_device_replies_decide(replies, status):
+	"""Without verify, the replies decide: none rejected is success, some partial,
+	all failed."""
 	conn = connection()
 	conn.send_config_set.side_effect = replies
 	assert run(conn, ["a", "b"], verify=False)["status"] == status
 
 
 def test_operational_commands_dont_make_a_verified_device_partial():
+	"""A command verify can't check (`write memory`) leaves the device a success and is
+	counted among the verified commands."""
 	result = run(connection(), ["hostname r1", "write memory"], verify=True,
 	             config="hostname r1\n")
 	assert result["status"] == "success"
@@ -641,6 +682,8 @@ def test_operational_commands_dont_make_a_verified_device_partial():
 
 
 def test_a_config_that_cant_be_fetched_isnt_a_failure():
+	"""When the config can't be fetched, the status comes from the push (success) and
+	commands_verified is None."""
 	result = run(connection(), ["hostname r1"], verify=True,
 	             config=OSError("fetch timed out"))
 	assert result["status"] == "success"            # from the push
@@ -653,12 +696,16 @@ def test_a_config_that_cant_be_fetched_isnt_a_failure():
 	("hostname other\n", "failed", 0),
 ])
 def test_with_verify_the_config_decides(config, status, verified):
+	"""With verify, the fetched config decides: both commands there is success, one
+	partial, none failed, with the verified count."""
 	result = run(connection(), ["hostname r1", "ntp server 1.1.1.1"],
 	             verify=True, config=config)
 	assert (result["status"], result["commands_verified"]) == (status, verified)
 
 
 def test_failed_devices_are_not_verified():
+	"""A device whose push failed (a failed Junos commit) is failed and its config is
+	never fetched."""
 	conn = connection()
 	conn.commit.side_effect = ValueError("Commit failed")
 	device = Device(ip="10.0.0.1", label="d", username="u", password="p",
@@ -675,12 +722,15 @@ def test_failed_devices_are_not_verified():
 # ── Review fixes ─────────────────────────────────────────────────────────────
 
 def test_a_one_word_command_is_still_seen_as_rejected():
-	# the complaint ends with the command — only its prompt part is the echo
+	"""A complaint ending with a one-word command is a rejection; the same command echoed
+	after a prompt isn't - only its prompt part is the echo."""
 	assert rejection("Invalid input: foo", "foo")
 	assert rejection("r1(config)#foo\nr1(config)#", "foo") is None
 
 
 def test_a_commit_that_outlasts_the_wait_is_reported_honestly():
+	"""A commit that times out is not applied, the log says it didn't finish within the
+	wait, and the session is closed."""
 	conn = connection()
 	conn.commit.side_effect = netmiko.exceptions.ReadTimeout("slow")
 	logger = fresh_logger()
@@ -691,6 +741,7 @@ def test_a_commit_that_outlasts_the_wait_is_reported_honestly():
 
 
 def test_the_session_is_closed_when_the_push_fails_half_way():
+	"""A connection error while sending makes the push not applied and still disconnects."""
 	conn = connection()
 	conn.send_config_set.side_effect = OSError("socket closed")
 	assert not push("cisco_ios", conn).applied
@@ -698,6 +749,8 @@ def test_the_session_is_closed_when_the_push_fails_half_way():
 
 
 def test_all_real_commands_rejected_is_failed_even_with_navigation():
+	"""Every real command rejected is failed, even though a navigation command (`exit`)
+	was accepted."""
 	conn = connection()
 	conn.send_config_set.side_effect = ["% Invalid input", "% Invalid input", "ok"]
 	result = run(conn, ["bad 1", "bad 2", "exit"], verify=False)
@@ -710,7 +763,9 @@ def test_all_real_commands_rejected_is_failed_even_with_navigation():
                          ids=[c[0] for c in CASES])
 def test_the_whole_rollout_on_each_platform(device_type, config, expected):
 	"""push → the platform's finish → fetch with its show command(s) → the
-	verdicts → the device status, with Netmiko mocked end to end."""
+	verdicts → the device status, with Netmiko mocked end to end: the status and
+	verified count follow the verdicts, both sessions use the device's port, the
+	platform's show commands are sent, and it commits or saves as its row says."""
 	commands = [command for command, _ in expected]
 	conn = connection(prompt={"fortinet": "fw1 #",
 	                          "checkpoint_gaia": "gw-1>"}.get(device_type, "r1#"))
@@ -740,9 +795,10 @@ def test_the_whole_rollout_on_each_platform(device_type, config, expected):
 
 
 def test_each_command_is_sent_as_typed_without_reentering_config_mode():
-	# Netmiko's default re-checks config mode per call; Aruba CX's driver only
-	# recognises "(config)#", so inside "(config-if)#" it would try to enter
-	# config mode again and fail on the second command of a section
+	"""Each command is sent on its own with enter/exit_config_mode off. Netmiko's default
+	re-checks config mode per call; Aruba CX's driver only recognises "(config)#", so
+	inside "(config-if)#" it would try to enter config mode again and fail on the
+	second command of a section."""
 	conn = connection(prompt="a1(config-if)#")
 	push("aruba_aoscx", conn, commands=("interface 1/1/1", "description x"))
 	sends = [c for c in conn.send_config_set.call_args_list]
@@ -752,6 +808,8 @@ def test_each_command_is_sent_as_typed_without_reentering_config_mode():
 
 
 def test_junos_private_mode_refused_fails_with_the_likely_reason():
+	"""When `configure private` isn't entered, nothing is sent, the push isn't applied,
+	and the log names uncommitted changes in the shared configuration."""
 	conn = connection()
 	conn.config_mode.side_effect = netmiko.exceptions.ReadTimeout("pattern not found")
 	logger = fresh_logger()
@@ -762,7 +820,8 @@ def test_junos_private_mode_refused_fails_with_the_likely_reason():
 
 
 def test_a_failed_save_is_reported_as_not_saved():
-	# Gaia's config lock: the change is live, but lost at the next reboot
+	"""A save refused by Gaia's config lock leaves the push applied (the change is live,
+	but lost at the next reboot), with an ACTION NEEDED "NOT saved" line."""
 	conn = connection(prompt="gw-1>")
 	conn.send_command.return_value = ("CLINFR0771  Config lock is owned by admin. "
 	                                  "Use the command 'lock database override'")
@@ -772,6 +831,7 @@ def test_a_failed_save_is_reported_as_not_saved():
 
 
 def test_a_successful_save_says_nothing_extra():
+	"""A save answered [OK] logs no "NOT saved"."""
 	conn = connection()
 	conn.save_config.return_value = "Building configuration...\n[OK]"
 	logger = fresh_logger()
@@ -780,6 +840,8 @@ def test_a_successful_save_says_nothing_extra():
 
 
 def test_xr_route_policy_blocks_close_with_end_policy():
+	"""On IOS XR, `end-policy` closes a route-policy block, so the router bgp commands
+	after it are found at the top level."""
 	config = ("route-policy PASS\n  pass\nend-policy\n!\n"
 	          "router bgp 65000\n neighbor 10.0.0.2\n  remote-as 65001\n !\n!\n")
 	verdicts = verify_commands("cisco_xr", config, [
@@ -790,6 +852,7 @@ def test_xr_route_policy_blocks_close_with_end_policy():
 
 
 def test_gaia_switches_an_expert_shell_to_clish():
+	"""From an expert shell, Gaia's push sends `clish` and, once in clish, sends the command."""
 	conn = connection()
 	conn.find_prompt.side_effect = ["[Expert@gw-1:0]#", "gw-1>"]
 	assert push("checkpoint_gaia", conn).applied
@@ -798,6 +861,8 @@ def test_gaia_switches_an_expert_shell_to_clish():
 
 
 def test_gaia_fetch_switches_to_clish_too():
+	"""Fetching Gaia's config from an expert shell sends `clish` first and returns
+	the config."""
 	conn = connection()
 	conn.__enter__.return_value = conn
 	conn.find_prompt.side_effect = ["[Expert@gw-1:0]#", "gw-1>"]
@@ -811,6 +876,8 @@ def test_gaia_fetch_switches_to_clish_too():
 
 
 def test_a_new_hostname_is_saved_from_a_new_session():
+	"""When the prompt changes mid-push (a new hostname), the push counts as applied and
+	the save runs from a second session, as the log says."""
 	first, second = connection(), connection()
 	second.__enter__.return_value = second
 	first.send_config_set.side_effect = ["ok", netmiko.exceptions.ReadTimeout("prompt")]
@@ -827,6 +894,8 @@ def test_a_new_hostname_is_saved_from_a_new_session():
 
 
 def test_a_new_hostname_that_cant_be_saved_says_so():
+	"""When the second session for the save can't connect, the push is still applied and
+	the log says NOT saved."""
 	first = connection()
 	first.send_config_set.side_effect = netmiko.exceptions.ReadTimeout("prompt")
 	logger = fresh_logger()
@@ -868,6 +937,9 @@ def test_a_new_hostname_that_cant_be_saved_says_so():
 	 "NOT saved"),
 ])
 def test_manual_cases_are_flagged_action_needed(device_type, setup, words):
+	"""Each case only a person can resolve (Junos shared edits, PAN-OS discards refused or
+	a slow commit, Gaia stuck in expert or its save locked) logs an ACTION NEEDED line
+	with the instruction, and the summary counts the device."""
 	conn = connection()
 	setup(conn)
 	logger = fresh_logger()
@@ -883,6 +955,7 @@ def test_manual_cases_are_flagged_action_needed(device_type, setup, words):
 
 
 def test_no_action_line_when_nothing_needs_a_person():
+	"""A clean rollout logs no ACTION NEEDED at all."""
 	logger = fresh_logger()
 	device = Device(ip="10.0.0.1", label="d", username="u", password="p",
 	                device_type="cisco_ios", secret="", port=22)
@@ -893,7 +966,8 @@ def test_no_action_line_when_nothing_needs_a_person():
 
 
 def test_the_instruction_travels_in_the_device_result():
-	# what the Results page shows (device_results.action_needed)
+	"""The instruction is in the device result's action_needed (what the Results page
+	shows), and the device is still a success: applied, saving is the issue."""
 	conn = connection(prompt="gw-1>")
 	conn.send_command.return_value = "CLINFR0771  Config lock is owned by admin."
 	device = Device(ip="10.0.0.1", label="d", username="u", password="p",
@@ -906,6 +980,7 @@ def test_the_instruction_travels_in_the_device_result():
 
 
 def test_no_instruction_in_a_clean_result():
+	"""A clean device result has action_needed None."""
 	device = Device(ip="10.0.0.1", label="d", username="u", password="p",
 	                device_type="cisco_ios", secret="", port=22)
 	engine = RolloutEngine(RolloutOptions(), [device], ["hostname r1"])

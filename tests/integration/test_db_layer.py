@@ -28,7 +28,8 @@ pytestmark = pytest.mark.postgres
 # ── Migrations ───────────────────────────────────────────────────────────────
 
 def test_models_match_migrated_schema(test_db_url):
-	# `alembic check` fails if the ORM models and head migration diverge
+	"""`alembic check` passes on the migrated test database: the ORM models and the
+	head migration don't diverge."""
 	result = subprocess.run([sys.executable, "-m", "alembic", "check"],
 	                        cwd=ROOT / "src" / "db", capture_output=True,
 	                        text=True, env=dict(os.environ, DATABASE_URL=test_db_url))
@@ -37,8 +38,9 @@ def test_models_match_migrated_schema(test_db_url):
 
 def test_must_change_password_migration_flags_only_a_factory_admin(
 		test_db_url):
-	# An install upgraded from the v1.0.0 baseline: its admin still on
-	# "admin" gets the flag, one that changed it (and anyone else) doesn't
+	"""An install upgraded from the v1.0.0 baseline: its admin still on "admin" gets
+	must_change_password, one that changed it (and anyone else, even on "admin")
+	doesn't. Run on a database of its own, downgraded between the two cases."""
 	name = f"rollout_mig_{uuid.uuid4().hex[:6]}"
 	admin_url = test_db_url.rsplit("/", 1)[0] + "/postgres"
 	url = test_db_url.rsplit("/", 1)[0] + "/" + name
@@ -78,6 +80,9 @@ def test_must_change_password_migration_flags_only_a_factory_admin(
 
 
 def test_baseline_round_trips_and_sets_server_defaults(test_db_url):
+	"""At head, rows inserted without is_global / device_port get the server
+	defaults (false, 22); downgrading to base leaves no app table and upgrading
+	again rebuilds them."""
 	# Own throwaway DB: downgrade must not disturb the shared test DB
 	name = f"rollout_mig_{uuid.uuid4().hex[:6]}"
 	admin_url = test_db_url.rsplit("/", 1)[0] + "/postgres"
@@ -151,12 +156,15 @@ def _pg_config(url, schema=None):
 
 
 def _head_revision():
+	"""The head revision of the project's Alembic scripts."""
 	return ScriptDirectory.from_config(
 		Config(str(ROOT / "src" / "db" / "alembic.ini"))).get_current_head()
 
 
 def test_install_migrates_the_connected_db_not_database_url(
 		scratch_db, monkeypatch):
+	"""install() migrates the database it is connected to (no DATABASE_URL) to head
+	and seeds one admin who must change the password."""
 	monkeypatch.delenv("DATABASE_URL", raising=False)  # used to be required
 	conn = PostgresConnection(_pg_config(scratch_db))
 	try:
@@ -174,6 +182,8 @@ def test_install_migrates_the_connected_db_not_database_url(
 
 
 def test_install_honours_pg_schema(scratch_db):
+	"""With a schema configured, install() creates the tables (alembic_version
+	included) in that schema and none in public."""
 	admin = create_engine(scratch_db)
 	with admin.begin() as c:
 		c.execute(text("CREATE SCHEMA nr"))
@@ -195,6 +205,8 @@ def test_install_honours_pg_schema(scratch_db):
 
 
 def test_cli_migrates_from_pg_vars_without_database_url(scratch_db):
+	"""The alembic CLI, given only PG_* variables (no DATABASE_URL), migrates that
+	database to head."""
 	# Every PG_* var is set explicitly: config.env is loaded without override,
 	# so anything left unset would be filled from the developer's live config
 	env = {k: v for k, v in os.environ.items()
@@ -217,6 +229,10 @@ def test_cli_migrates_from_pg_vars_without_database_url(scratch_db):
 
 @pytest.fixture
 def retention_db(app):
+	"""Helpers on the test database for one user: result(key, days) and
+	metadata(key, days) add a job's rows that old, run_policy() runs the three
+	job retention statements and returns {job_id: fetched_config} and the job ids
+	with metadata left."""
 	engine = app.backend.postgres.engine
 	user = uuid.uuid4()
 	now = dt.datetime.now()
@@ -275,6 +291,8 @@ SNAP_OLD = CONFIG_SNAPSHOT_RETENTION_DAYS + 3
 
 
 def test_results_older_than_window_are_deleted(retention_db):
+	"""Results completed past the job retention window are deleted; one a day
+	inside it stays."""
 	retention_db.result("old", OLD)
 	retention_db.result("edge", EDGE)
 	results, _ = retention_db.run_policy()
@@ -283,6 +301,9 @@ def test_results_older_than_window_are_deleted(retention_db):
 
 
 def test_metadata_expires_together_with_its_results(retention_db):
+	"""Job metadata goes with its expired results, stays while its results are
+	inside the window (even if submitted past it), and an old job without results
+	is deleted."""
 	retention_db.result("gone", OLD)
 	retention_db.metadata("gone", OLD)
 	# submitted just past the window, but its results completed inside it
@@ -296,6 +317,8 @@ def test_metadata_expires_together_with_its_results(retention_db):
 
 
 def test_config_snapshot_cleared_early_row_kept(retention_db):
+	"""Past the config snapshot window the fetched config is cleared but the result
+	row stays; a fresh one keeps its config."""
 	retention_db.result("stale", SNAP_OLD, config="big-config")
 	retention_db.result("fresh", 1, config="big-config")
 	results, _ = retention_db.run_policy()
@@ -305,7 +328,9 @@ def test_config_snapshot_cleared_early_row_kept(retention_db):
 
 
 def test_retention_follows_the_system_setting(app, retention_db):
-	# the statements read the setting when they run: no restart needed
+	"""The statements read the System Settings when they run (no restart needed):
+	shorter windows delete a 15-day result and clear a 5-day snapshot; back to the
+	defaults, a 15-day result survives again."""
 	app.backend.settings.update({"job_retention_days": 10,
 	                             "config_snapshot_retention_days": 2}, None)
 	retention_db.result("fifteen", 15)                 # kept by the default (30)
@@ -322,6 +347,8 @@ def test_retention_follows_the_system_setting(app, retention_db):
 
 
 def test_audit_retention_follows_the_setting(app):
+	"""Audit retention keeps a 10-day row and deletes a 100-day one by default (90
+	days); with the setting at 7 days the 10-day row goes too."""
 	engine = app.backend.postgres.engine
 	with engine.begin() as c:
 		for days in (10, 100):
@@ -340,6 +367,9 @@ def test_audit_retention_follows_the_setting(app):
 
 
 def test_grafana_reads_exactly_the_dashboard_tables(app):
+	"""The Grafana grant (run twice: idempotent) lets the role read every dashboard
+	table and none of users, security_profiles, inventory, ldap_servers,
+	system_settings - an earlier wider grant is taken back."""
 	# Roles are cluster-wide: a throwaway role, dropped afterwards
 	engine = app.backend.postgres.engine
 	role = f"nr_test_reader_{uuid.uuid4().hex[:8]}"
@@ -367,7 +397,8 @@ def test_grafana_reads_exactly_the_dashboard_tables(app):
 
 
 def test_grafana_grant_is_skipped_without_the_role(app):
-	# dev databases and external Postgres servers have no grafana_reader
+	"""Without the role (dev databases and external Postgres servers have no
+	grafana_reader) the grant is skipped and returns False."""
 	with app.backend.postgres.engine.begin() as c:
 		assert _grant_grafana_read(c, "nr_no_such_role") is False
 
@@ -376,6 +407,8 @@ def test_grafana_grant_is_skipped_without_the_role(app):
 # ── Encryption canary + health ───────────────────────────────────────────────
 
 def test_encrypted_sample_finds_fernet_values_only(app, make_user):
+	"""encrypted_sample() is None on a fresh database and with only a plaintext
+	legacy secret, and returns the Fernet token once one is stored."""
 	backend = app.backend
 	assert backend.encrypted_sample() is None  # fresh DB
 	owner = make_user()
@@ -392,6 +425,8 @@ def test_encrypted_sample_finds_fernet_values_only(app, make_user):
 
 
 def test_startup_canary_refuses_mismatched_key_against_real_db(app, make_user):
+	"""A stored secret encrypted with another key makes the encryption start-up
+	refuse ("does not match")."""
 	owner = make_user()
 	foreign = Fernet(Fernet.generate_key()).encrypt(b"pw").decode()
 	with app.backend.postgres.get_session() as s:
@@ -403,12 +438,13 @@ def test_startup_canary_refuses_mismatched_key_against_real_db(app, make_user):
 
 @pytest.mark.redis
 def test_health_reports_each_service(app):
+	"""health() reports Postgres and Redis both up."""
 	assert app.backend.health() == {"POSTGRES": True, "REDIS": True}
 
 
 def test_role_migration_renames_user_to_operator(test_db_url):
-	# An install from before the rename: its operators (and LDAP group rules)
-	# stored as "user" become "operator"; admins stay; downgrade reverses it
+	"""An install from before the rename: its operators (and LDAP group rules)
+	stored as "user" become "operator"; admins stay; downgrade reverses it."""
 	name = f"rollout_mig_{uuid.uuid4().hex[:6]}"
 	admin_url = test_db_url.rsplit("/", 1)[0] + "/postgres"
 	url = test_db_url.rsplit("/", 1)[0] + "/" + name

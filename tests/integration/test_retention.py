@@ -13,6 +13,8 @@ pytestmark = [pytest.mark.postgres, pytest.mark.redis]
 
 
 def test_the_clean_up_follows_the_settings_and_is_recorded(app, session_scope, make_user, client_for):
+	"""The clean-up removes job records and audit entries older than their periods and
+	clears older config snapshots, counts each, and System Settings shows the outcome."""
 	engine = app.backend.postgres.engine
 	with session_scope() as s:
 		seed_settings(s)                 # job records 30 days, audit 90, snapshots 7
@@ -50,6 +52,8 @@ def test_the_clean_up_follows_the_settings_and_is_recorded(app, session_scope, m
 
 
 def test_a_failure_is_recorded_and_shown(app, make_user, client_for, monkeypatch):
+	"""A failed clean-up raises, is recorded as not ok, and System Settings shows the
+	error's first line only."""
 	def down(engine):
 		raise RuntimeError("the database is down\nmore detail")
 	monkeypatch.setattr(retention, "run_retention", down)

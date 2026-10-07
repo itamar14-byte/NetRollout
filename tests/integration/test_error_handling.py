@@ -15,6 +15,8 @@ JSON = {"Content-Type": "application/json"}
 
 @pytest.mark.parametrize("trigger", ["pg_down", "redis_timeout"])
 def test_backend_outage_renders_db_error_page(client_for, trigger):
+	"""A Postgres or Redis outage on a page gives the 503 error page, which
+	shows the app's own services as running (cases: pg_down, redis_timeout)."""
 	resp = client_for().get(f"/_test/{trigger}")
 	assert resp.status_code == 503
 	body = resp.get_data(as_text=True)
@@ -23,6 +25,8 @@ def test_backend_outage_renders_db_error_page(client_for, trigger):
 
 @pytest.mark.parametrize("trigger", ["pg_down", "redis_timeout"])
 def test_backend_outage_json_and_sse_get_json_503(client_for, trigger):
+	"""A Postgres or Redis outage on a JSON request and on the live log stream
+	answers 503 JSON (cases: pg_down, redis_timeout)."""
 	c = client_for()
 	resp = c.get(f"/_test/{trigger}", headers=JSON, data="{}")
 	assert resp.status_code == 503 and resp.json["status"] == "error"
@@ -31,6 +35,9 @@ def test_backend_outage_json_and_sse_get_json_503(client_for, trigger):
 
 
 def test_bad_encryption_key_admin_gets_the_fix(client_for, make_user):
+	"""A decryption failure shows an admin a 500 page with the fix (where the
+	key is read from, restore it, don't generate a new one) and the raw error,
+	with no scripts."""
 	page = client_for(make_user(role="admin")).get("/_test/bad_key")
 	assert page.status_code == 500
 	body = page.get_data(as_text=True)
@@ -45,6 +52,8 @@ def test_bad_encryption_key_admin_gets_the_fix(client_for, make_user):
 @pytest.mark.parametrize("role", [None, "operator"])
 def test_bad_encryption_key_others_are_told_to_ask_an_admin(client_for,
                                                             make_user, role):
+	"""Signed out or an operator, a decryption failure says to ask the
+	administrator and shows none of the internals."""
 	client = client_for(make_user(role=role) if role else None)
 	body = client.get("/_test/bad_key").get_data(as_text=True)
 	assert "Ask your NetRollout administrator" in body
@@ -54,12 +63,17 @@ def test_bad_encryption_key_others_are_told_to_ask_an_admin(client_for,
 
 
 def test_bad_encryption_key_json_stays_json(client_for):
+	"""A decryption failure on a JSON request answers 500 JSON naming the
+	encryption key."""
 	api = client_for().get("/_test/bad_key", headers=JSON, data="{}")
 	assert api.status_code == 500 and "Encryption key" in api.json["message"]
 
 
 def test_bad_encryption_key_at_2fa_points_admins_to_the_log(
 		app, client_for, monkeypatch, capsys):
+	"""A decryption failure at the 2FA step names the two-factor secret and
+	the way out (an account without 2FA); the log says "Decryption failed (2fa)"
+	and points to Reset 2FA."""
 
 	def otp_verify():
 		decrypt("gAAAAA-not-a-real-token")
@@ -73,6 +87,9 @@ def test_bad_encryption_key_at_2fa_points_admins_to_the_log(
 
 def test_bad_encryption_key_after_post_retries_via_referrer(
 		app, client_for, make_user, monkeypatch):
+	"""A decryption failure after a POST (starting a rollout) names the
+	security profile's password (escaped) and offers Retry to the referring
+	page."""
 
 	def start():
 		decrypt("gAAAAA-not-a-real-token")
@@ -86,6 +103,8 @@ def test_bad_encryption_key_after_post_retries_via_referrer(
 
 def test_csrf_failure_redirects_home_or_returns_json(app, client_for,
                                                      make_user):
+	"""With CSRF on, a form post without a token redirects to /, a JSON post
+	gets "Session expired"."""
 	app.config["WTF_CSRF_ENABLED"] = True  # restored after the test
 	c = client_for(make_user())
 	form = c.post("/inventory/create", data={"label": "x"})
@@ -97,6 +116,9 @@ def test_csrf_failure_redirects_home_or_returns_json(app, client_for,
 # ── Rollout logger over real Redis pub/sub ───────────────────────────────────
 
 def test_logger_publishes_history_and_live_messages(app):
+	"""RolloutLogger over real Redis: important messages and errors (escaped,
+	in red) go to the history and to pub/sub in the same order, others don't;
+	redis_cleanup removes the history."""
 	client = app.backend.redis.client
 	logger = RolloutLogger(webapp=True, verbose=False, job_id="job-int",
 	                       redis_client=client)

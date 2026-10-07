@@ -20,6 +20,8 @@ from src.logging_utils import RolloutLogger, prune_logs
 # ── Folders ──────────────────────────────────────────────────────────────────
 
 def test_netrollout_home_wins(monkeypatch, tmp_path):
+	"""NETROLLOUT_HOME wins even in a frozen exe: logs/, config/, certs/ and
+	config/runtime.env all sit under it."""
 	monkeypatch.setenv(runtime.HOME_ENV, str(tmp_path))
 	monkeypatch.setattr(sys, "frozen", True, raising=False)
 	assert runtime.home() == tmp_path
@@ -30,6 +32,7 @@ def test_netrollout_home_wins(monkeypatch, tmp_path):
 
 
 def test_frozen_exe_uses_its_own_folder(monkeypatch, tmp_path):
+	"""Without NETROLLOUT_HOME, a frozen exe keeps its logs/ next to the exe."""
 	monkeypatch.delenv(runtime.HOME_ENV)
 	monkeypatch.setattr(sys, "frozen", True, raising=False)
 	monkeypatch.setattr(sys, "executable", str(tmp_path / "netrollout-cli.exe"))
@@ -37,6 +40,8 @@ def test_frozen_exe_uses_its_own_folder(monkeypatch, tmp_path):
 
 
 def test_development_uses_the_repo_root(monkeypatch):
+	"""Without NETROLLOUT_HOME and not frozen, the home is the repo root (the
+	folder holding src/runtime.py)."""
 	monkeypatch.delenv(runtime.HOME_ENV)
 	assert not getattr(sys, "frozen", False)
 	assert runtime.home() == runtime.REPO_ROOT
@@ -44,7 +49,8 @@ def test_development_uses_the_repo_root(monkeypatch):
 
 
 def test_folders_follow_a_home_change_after_import(monkeypatch, tmp_path):
-	# Resolved per call: the rollout logger and pruning follow NETROLLOUT_HOME
+	"""Folders are resolved per call: a NETROLLOUT_HOME set after import moves the
+	rollout logger's file and log pruning (an old log there is pruned) with it."""
 	monkeypatch.setenv(runtime.HOME_ENV, str(tmp_path))
 	logger = RolloutLogger(webapp=False, verbose=False, job_id="abc")
 	assert os.path.dirname(logger.logfile) == str(tmp_path / "logs")
@@ -58,7 +64,8 @@ def test_folders_follow_a_home_change_after_import(monkeypatch, tmp_path):
 
 @pytest.fixture
 def isolated_env(monkeypatch):
-	# load_dotenv writes os.environ directly: restore all of it afterwards
+	"""The monkeypatch with every Postgres / Redis connection variable unset; the
+	whole os.environ is restored afterwards, as load_dotenv writes it directly."""
 	saved = dict(os.environ)
 	for key in ("DATABASE_URL", "PG_HOST", "PG_PORT", "PG_NAME", "PG_USER",
 	            "PG_PASSWORD", "PG_SCHEMA", "REDIS_URL", "REDIS_HOST",
@@ -76,6 +83,8 @@ def _backend_writing_to(path) -> BackendServices:
 
 
 def test_runtime_env_wins_over_the_container_env(isolated_env, tmp_path):
+	"""A host in runtime.env overrides the container env's; a key runtime.env
+	doesn't set (the port) still comes from the container env."""
 	isolated_env.setenv("PG_HOST", "postgres")          # container env
 	isolated_env.setenv("PG_PORT", "5432")
 	runtime = tmp_path / "runtime.env"
@@ -86,14 +95,16 @@ def test_runtime_env_wins_over_the_container_env(isolated_env, tmp_path):
 
 
 def test_container_env_is_used_without_a_runtime_env(isolated_env, tmp_path):
+	"""With no runtime.env file, the Postgres host comes from the container env."""
 	isolated_env.setenv("PG_HOST", "postgres")
 	load_dotenv(tmp_path / "missing.env", override=True)
 	assert PostgresConfig.unload_env().host == "postgres"
 
 
 def test_a_switch_overrides_everything_inherited(isolated_env, tmp_path):
-	# Values from the container env that the new target doesn't use (a URL,
-	# a password, a schema) must not survive the switch and the next restart
+	"""Values from the container env that the new target doesn't use (a URL, a
+	password, a schema) don't survive a switch written to runtime.env: the new
+	host is used, with no schema and a Redis URL without a password."""
 	isolated_env.setenv("DATABASE_URL", "postgresql://u:p@postgres/old")
 	isolated_env.setenv("PG_SCHEMA", "old_schema")
 	isolated_env.setenv("REDIS_URL", "redis://:pw@redis:6379/0")
@@ -109,6 +120,8 @@ def test_a_switch_overrides_everything_inherited(isolated_env, tmp_path):
 
 
 def test_write_config_is_atomic_merged_and_owner_only(tmp_path):
+	"""_write_config merges into runtime.env (a Postgres switch keeps the Redis
+	key), leaves no temporary file behind, and the file is 600 on POSIX."""
 	backend = _backend_writing_to(tmp_path / "config" / "runtime.env")
 	backend._write_config({"PG_HOST": "a", "REDIS_HOST": "r"})
 	backend._write_config({"PG_HOST": "b"})    # a Postgres switch keeps Redis
@@ -120,6 +133,7 @@ def test_write_config_is_atomic_merged_and_owner_only(tmp_path):
 
 
 def test_a_switch_no_longer_writes_external_flags():
+	"""Neither the Postgres nor the Redis config writes a *_EXTERNAL key."""
 	for config in (PostgresConfig(host="10.0.0.5"), RedisConfig(host="10.0.0.5")):
 		assert not [k for k in config.to_env_dict() if k.endswith("_EXTERNAL")]
 
@@ -128,6 +142,7 @@ def test_a_switch_no_longer_writes_external_flags():
 
 def _backend_connected_to(pg_url: str, redis_host: str,
                           runtime_env: Path | None = None) -> BackendServices:
+	"""A BackendServices with no real connection that looks connected to these."""
 	backend = object.__new__(BackendServices)
 	# no runtime.env unless given: nothing remembered by a database move
 	backend._CONFIG_ENV = runtime_env or Path("does-not-exist") / "runtime.env"
@@ -147,6 +162,8 @@ def _backend_connected_to(pg_url: str, redis_host: str,
 	("redis", "postgres", ("external", "external")),        # names swapped
 ])
 def test_connection_modes(pg_host, redis_host, expected):
+	"""Each service is bundled on localhost / its own compose service name and
+	external elsewhere (another host, or the two service names swapped)."""
 	backend = _backend_connected_to(
 		f"postgresql+psycopg2://u:p@{pg_host}:5432/db", redis_host)
 	modes = backend.connection_modes()
@@ -154,8 +171,9 @@ def test_connection_modes(pg_host, redis_host, expected):
 
 
 def test_after_a_move_the_bundled_database_is_known_by_its_whole_address(tmp_path):
-	# another database on the bundled one's host (development: 127.0.0.1) is
-	# the organisation's - Move back must be offered
+	"""Once runtime.env remembers the bundled database's URL, another database on
+	the same host (development: 127.0.0.1) is external - Move back must be
+	offered - and the remembered one itself is bundled."""
 	runtime_env = tmp_path / "runtime.env"
 	runtime_env.write_text("NETROLLOUT_BUNDLED_DATABASE_URL="
 	                       "postgresql+psycopg2://nr:pw@127.0.0.1:5432/netrollout\n")

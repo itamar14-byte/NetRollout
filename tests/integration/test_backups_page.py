@@ -22,12 +22,15 @@ def home(tmp_path, monkeypatch):
 
 @pytest.fixture
 def admin(make_user, session_scope):
+	"""An admin, with every setting seeded first."""
 	with session_scope() as s:
 		seed_settings(s)
 	return make_user(role="admin")
 
 
 def actions(session_scope, prefix="backup."):
+	"""(action, actor, success, label) of the audit entries starting with `prefix`,
+	oldest first."""
 	with session_scope() as s:
 		return [(a.action, a.actor_username, a.success, a.object_label)
 		        for a in s.query(AuditLog).order_by(AuditLog.timestamp)
@@ -36,6 +39,8 @@ def actions(session_scope, prefix="backup."):
 
 def test_back_up_now_list_download_delete(admin, home, client_for, session_scope,
                                           make_profile):
+	"""Back up now makes a manual backup holding the database, lists it, downloads it as
+	a zip and deletes it, each step audited."""
 	make_profile(admin)
 	client = client_for(admin, xhr=True)
 
@@ -60,6 +65,8 @@ def test_back_up_now_list_download_delete(admin, home, client_for, session_scope
 
 
 def test_only_a_backup_in_the_folder_by_its_exact_name(admin, home, client_for):
+	"""Download and delete are 404 for a path outside the folder, a name that isn't a
+	backup's and a backup that doesn't exist; the outside file stays."""
 	client = client_for(admin, xhr=True)
 	(home / "secret.txt").write_text("not a backup")
 	for name in ("..%2Fsecret.txt", "secret.txt",
@@ -70,6 +77,7 @@ def test_only_a_backup_in_the_folder_by_its_exact_name(admin, home, client_for):
 
 
 def test_operators_get_nothing(make_user, home, client_for):
+	"""An operator gets 403 for the list and Back up now, and no backup is made."""
 	client = client_for(make_user(role="operator"), xhr=True)
 	assert client.get("/admin/backups").status_code == 403
 	assert client.post("/admin/backups").status_code == 403
@@ -78,6 +86,8 @@ def test_operators_get_nothing(make_user, home, client_for):
 
 def test_a_backup_while_another_runs_is_refused_and_audited(admin, home, client_for,
                                                             session_scope):
+	"""Back up now while another backup or restore holds the lock is 409 and audited
+	as failed."""
 	(home / "backups").mkdir()
 	(home / "backups" / backup.LOCK).write_text("")
 	resp = client_for(admin, xhr=True).post("/admin/backups")
@@ -88,6 +98,8 @@ def test_a_backup_while_another_runs_is_refused_and_audited(admin, home, client_
 
 def test_the_scheduler_backs_up_once_per_time_and_keeps_the_newest(
 		admin, app, home, session_scope):
+	"""The scheduler backs up once per scheduled time (not again a minute later), keeps
+	the newest `backup_keep`, records the last file and audits as `scheduler`."""
 	app.backend.settings.update({"backup_keep": 2}, None)
 	places = backup.Places.app()
 	start = datetime(2026, 10, 5, 2, 0, 30)
@@ -103,6 +115,7 @@ def test_the_scheduler_backs_up_once_per_time_and_keeps_the_newest(
 
 
 def test_scheduled_backups_off_make_none(admin, app, home):
+	"""With the schedule off the scheduler makes no backup."""
 	app.backend.settings.update({"backup_schedule": "off"}, None)
 	assert backup_schedule.tick(app.backend, datetime(2026, 10, 5, 3, 0)) is None
 	assert not backup.list_backups()
@@ -110,6 +123,8 @@ def test_scheduled_backups_off_make_none(admin, app, home):
 
 def test_a_failed_scheduled_backup_is_reported_audited_and_retried(
 		admin, app, home, session_scope, monkeypatch, capsys):
+	"""A failed scheduled backup is recorded, printed as ACTION NEEDED and audited; it
+	isn't retried at the next check, only after an hour."""
 	def broken(*a, **kw):
 		raise backup.BackupError("disk full")
 	monkeypatch.setattr(backup, "create", broken)
@@ -126,6 +141,8 @@ def test_a_failed_scheduled_backup_is_reported_audited_and_retried(
 
 
 def test_the_settings_page_shows_the_backups_card(admin, home, client_for):
+	"""System Settings shows the Backups card: Back up now and the schedule dropdown
+	(Daily selected)."""
 	page = client_for(admin).get("/admin/settings").get_data(as_text=True)
 	assert 'id="backupNowBtn"' in page
 	assert '<select class="form-select form-select-sm set-input" id="set-backup_schedule"' in page

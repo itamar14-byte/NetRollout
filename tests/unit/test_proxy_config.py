@@ -11,6 +11,7 @@ from src.webapp import proxy_config as pc
 
 @pytest.fixture
 def home(tmp_path, monkeypatch):
+	"""NETROLLOUT_HOME in a temp folder, no applied port in the environment."""
 	monkeypatch.setenv("NETROLLOUT_HOME", str(tmp_path))
 	monkeypatch.delenv(pc.APPLIED_PORT_ENV, raising=False)
 	return tmp_path
@@ -21,6 +22,8 @@ def site(home):
 
 
 def test_writes_the_hostname_and_the_applied_port(home, monkeypatch):
+	"""write_site writes site.env with exactly the hostname and the applied port
+	(NETROLLOUT_HTTPS_PORT from the environment), and says it changed."""
 	monkeypatch.setenv(pc.APPLIED_PORT_ENV, "8443")
 	assert pc.write_site("nr01.corp.local") is True
 	assert site(home) == ("NETROLLOUT_HOSTNAME=nr01.corp.local\n"
@@ -28,14 +31,17 @@ def test_writes_the_hostname_and_the_applied_port(home, monkeypatch):
 
 
 def test_no_hostname_means_no_canonical_name(home):
+	"""An empty or None hostname writes an empty NETROLLOUT_HOSTNAME, with the default
+	port 443."""
 	pc.write_site("")
 	pc.write_site(None)
 	assert site(home) == "NETROLLOUT_HOSTNAME=\nNETROLLOUT_HTTPS_PORT=443\n"
 
 
 def test_the_port_is_the_published_one_not_the_setting(home, monkeypatch):
-	# the System Settings port waits for `netrollout apply`; redirects must
-	# keep the published one meanwhile
+	"""applied_https_port is the published port from the environment (443 when it
+	isn't a number): the System Settings port waits for `netrollout apply`, and
+	redirects must keep the published one meanwhile."""
 	monkeypatch.setenv(pc.APPLIED_PORT_ENV, "nonsense")
 	assert pc.applied_https_port() == 443
 	monkeypatch.setenv(pc.APPLIED_PORT_ENV, "9443")
@@ -43,6 +49,8 @@ def test_the_port_is_the_published_one_not_the_setting(home, monkeypatch):
 
 
 def test_unchanged_values_are_not_rewritten(home):
+	"""Writing the same hostname again returns False and leaves the file untouched
+	(its mtime kept); another hostname is written."""
 	assert pc.write_site("nr01") is True
 	path = home / "config" / "nginx" / "site.env"
 	before = path.stat().st_mtime_ns
@@ -53,6 +61,8 @@ def test_unchanged_values_are_not_rewritten(home):
 
 
 def test_the_file_is_replaced_whole(home):
+	"""After two writes the folder holds only site.env (no temp file left), with the
+	latest hostname."""
 	pc.write_site("nr01")
 	pc.write_site("nr02")
 	folder = home / "config" / "nginx"
@@ -63,12 +73,16 @@ def test_the_file_is_replaced_whole(home):
 @pytest.mark.parametrize("bad", ["nr 01", "nr01;", "https://nr01", "nr01:8443",
                                   "nr01/x", "a" * 300])
 def test_invalid_hostnames_are_never_written(home, bad):
+	"""A hostname that isn't one (spaces, ';', a URL, a port, a path, 300 characters)
+	raises ValueError and no site.env is written."""
 	with pytest.raises(ValueError):
 		pc.write_site(bad)
 	assert not (home / "config" / "nginx" / "site.env").exists()
 
 
 def test_status_not_managed_valid_and_unreadable(home):
+	"""read_status: no status.json is None (no nginx reports); a valid one gives its
+	state; broken JSON or a non-object gives state "unknown"."""
 	assert pc.read_status() is None                       # no nginx reports
 	folder = home / "config" / "nginx"
 	folder.mkdir(parents=True)
@@ -82,6 +96,8 @@ def test_status_not_managed_valid_and_unreadable(home):
 
 
 def test_wait_for_a_verdict_newer_than_the_write(home):
+	"""wait_for_status ignores a verdict older than the write (None after the
+	timeout) and returns one at least as new (here "rejected")."""
 	folder = home / "config" / "nginx"
 	folder.mkdir(parents=True)
 	now = datetime.datetime.now(datetime.timezone.utc)
@@ -96,6 +112,8 @@ def test_wait_for_a_verdict_newer_than_the_write(home):
 
 
 def test_start_never_fails_because_of_nginx(home, capsys):
+	"""sync_at_start with an invalid saved hostname raises nothing and prints that the
+	nginx site values were not written."""
 	class Settings:
 		def get(self, key):
 			return "not a hostname!"
@@ -104,8 +122,10 @@ def test_start_never_fails_because_of_nginx(home, capsys):
 
 
 def test_waiting_for_a_hostname_ignores_other_reloads(home):
-	# a reissued certificate alone reloads nginx a moment before the new
-	# hostname does: that earlier verdict isn't the answer
+	"""Waiting for a hostname, an "applied" verdict for another hostname is not the
+	answer (a reissued certificate alone reloads nginx a moment before the new
+	hostname does); one naming it is, a rejection always counts, and "" waits
+	for "hostname=(none)"."""
 	folder = home / "config" / "nginx"
 	folder.mkdir(parents=True)
 	now = datetime.datetime.now(datetime.timezone.utc)
@@ -127,6 +147,8 @@ def test_waiting_for_a_hostname_ignores_other_reloads(home):
 # ── Stage 9.1: the installer's hostname, the server's IPs ──
 
 def test_the_installers_hostname_seeds_the_setting(home, monkeypatch):
+	"""seed_hostname_from_site: without site.env the seed stays empty; with it, the
+	seed becomes site.env's hostname; a seed already set is kept."""
 	env_name = pc.HOSTNAME_SEED_ENV
 	# setenv (not delenv): monkeypatch then removes what the code sets
 	monkeypatch.setenv(env_name, "")
@@ -145,5 +167,7 @@ def test_the_installers_hostname_seeds_the_setting(home, monkeypatch):
 	("10.1.1.5, 192.168.1.2 fe80::1", ["10.1.1.5", "192.168.1.2", "fe80::1"]),
 	("10.1.1.5,not-an-ip,10.1.1.5", ["10.1.1.5"])])
 def test_server_ips(monkeypatch, value, expected):
+	"""NETROLLOUT_SERVER_IPS is split on commas and spaces into IPs, keeping order,
+	dropping what isn't an IP and duplicates."""
 	monkeypatch.setenv(pc.SERVER_IPS_ENV, value)
 	assert pc.server_ips() == expected

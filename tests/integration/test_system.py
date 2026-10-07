@@ -9,6 +9,8 @@ pytestmark = [pytest.mark.postgres, pytest.mark.redis]
 
 
 def test_instance_route_returns_this_processes_token(app, client_for):
+	"""/_netrollout/instance answers anyone with this process's 32-character
+	instance token, and writes no session cookie."""
 	client = client_for()   # anonymous: nginx fetches it without a session
 	resp = client.get("/_netrollout/instance")
 	assert resp.status_code == 200
@@ -25,7 +27,9 @@ def test_instance_route_returns_this_processes_token(app, client_for):
 ])
 def test_every_page_skeleton_shows_the_version_and_its_source(
 		client_for, make_user, path, role):
-	# AGPL-3.0 §13: network users are offered the source of this version
+	"""AGPL-3.0 §13: network users are offered the source of this version.
+	Each page skeleton (base, operator_base, admin) shows the version, links
+	source_url() and the licence line."""
 	user = make_user(role=role) if role else None
 	html = client_for(user).get(path).get_data(as_text=True)
 	assert f"NETROLLOUT V{VERSION.upper()}" in html
@@ -40,6 +44,8 @@ GRAFANA_AUTH = "/_netrollout/grafana-auth"
 
 
 def test_grafana_is_for_signed_in_admins(client_for, make_user):
+	"""Grafana's auth check: an admin gets 204 with X-NetRollout-User = the
+	username, signed out 401, an operator 403 without the user header."""
 	admin = make_user(role="admin")
 	resp = client_for(admin).get(GRAFANA_AUTH)
 	assert resp.status_code == 204
@@ -52,12 +58,15 @@ def test_grafana_is_for_signed_in_admins(client_for, make_user):
 
 def test_grafana_refuses_an_admin_who_must_change_the_password(client_for,
                                                                 make_user):
-	# the password gate would redirect (a 500 for nginx): 403 instead
+	"""An admin who must change the password gets 403 (the password gate would
+	redirect, a 500 for nginx)."""
 	admin = make_user(role="admin", must_change_password=True)
 	assert client_for(admin).get(GRAFANA_AUTH).status_code == 403
 
 
 def test_grafana_access_ends_with_the_session(app, client_for, make_user):
+	"""Grafana's auth check turns 401 once the session ends: after signing
+	out, and after end_user_sessions (Terminate Session / a reset)."""
 	admin = make_user(role="admin")
 	browser = client_for(admin)
 	assert browser.get(GRAFANA_AUTH).status_code == 204
@@ -73,6 +82,8 @@ def test_grafana_access_ends_with_the_session(app, client_for, make_user):
 
 def test_grafana_follows_role_and_status_changes(client_for, make_user,
                                                  session_scope):
+	"""An open session follows the database: a demoted admin gets 403, a
+	deactivated one 401."""
 	admin = make_user(role="admin")
 	browser = client_for(admin)
 	assert browser.get(GRAFANA_AUTH).status_code == 204

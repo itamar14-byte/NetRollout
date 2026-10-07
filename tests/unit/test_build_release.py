@@ -20,6 +20,9 @@ VERSION = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
 
 
 def test_the_linux_zip_keeps_the_contract(tmp_path):
+	"""The Linux zip has the release's name, everything under netrollout/, all that an
+	update replaces, exactly SHIPPED + the Linux scripts + VERSION + README.md, Unix
+	entries (755 for .sh, 644 else) and LF line ends."""
 	path = build.build_linux_zip(VERSION, tmp_path)
 	assert path.name == release.zip_name(VERSION)
 	with zipfile.ZipFile(path) as zf:
@@ -39,6 +42,8 @@ def test_the_linux_zip_keeps_the_contract(tmp_path):
 
 
 def test_installers_ship_the_same_files():
+	"""The Windows installer's {#Root} files go to the same relative folders and are
+	exactly SHIPPED (plus VERSION)."""
 	iss = (ROOT / "windows" / "installer" / "netrollout.iss").read_text(encoding="utf-8")
 	from_root = set()
 	for source, dest in re.findall(r'^Source: "\{#Root\}\\([^"]+)"; DestDir: "\{app\}([^"]*)"', iss, re.M):
@@ -50,6 +55,8 @@ def test_installers_ship_the_same_files():
 
 
 def test_every_file_compose_mounts_is_shipped():
+	"""Every file under ./deploy/ that compose.yaml mounts is in SHIPPED (and there
+	are some)."""
 	compose = yaml.safe_load((ROOT / "compose.yaml").read_text(encoding="utf-8"))
 	mounted = set()
 	for service in compose["services"].values():
@@ -63,11 +70,14 @@ def test_every_file_compose_mounts_is_shipped():
 
 
 def test_the_version_must_be_the_version_files():
+	"""A --version other than the VERSION file's stops the build, naming VERSION."""
 	with pytest.raises(SystemExit, match="VERSION"):
 		build.main(["--version", "9.9.9", "--linux"])
 
 
 def test_sums_and_a_feed_the_update_code_reads(tmp_path):
+	"""The written SHA256SUMS gives the zip's sum as the update code reads it, and the
+	written feed is found as the release: version, notes, zip and sums links."""
 	zip_path = build.build_linux_zip(VERSION, tmp_path)
 	sums = build.write_sums([zip_path], tmp_path)
 	line = sums.read_text(encoding="ascii")

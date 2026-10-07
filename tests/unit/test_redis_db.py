@@ -26,6 +26,8 @@ class FakeClient:
 	redis.exceptions.TimeoutError("no answer"),      # a silent host: not a ConnectionError
 ])
 def test_an_unreachable_server_is_refused_in_words_and_nothing_changes(monkeypatch, failure):
+	"""A new server whose PING fails (refused, or a timeout) makes reload_db raise
+	"New server unavailable"; the current client stays, open, with its config."""
 	current = FakeClient()
 	monkeypatch.setattr(RedisConnection, "_build_client", staticmethod(lambda config: current))
 	conn = RedisConnection(RedisConfig(host="redis"))
@@ -38,6 +40,8 @@ def test_an_unreachable_server_is_refused_in_words_and_nothing_changes(monkeypat
 
 
 def test_a_reachable_server_replaces_the_client(monkeypatch):
+	"""A reachable new server replaces the client and config; the old client is
+	closed."""
 	old, new = FakeClient(), FakeClient()
 	monkeypatch.setattr(RedisConnection, "_build_client", staticmethod(lambda config: old))
 	conn = RedisConnection(RedisConfig(host="redis"))
@@ -47,5 +51,6 @@ def test_a_reachable_server_replaces_the_client(monkeypatch):
 
 
 def test_both_failures_count_as_unavailable():
+	"""REDIS_UNAVAILABLE includes both TimeoutError and ConnectionError."""
 	assert redis.exceptions.TimeoutError in redis_db.REDIS_UNAVAILABLE
 	assert redis.exceptions.ConnectionError in redis_db.REDIS_UNAVAILABLE

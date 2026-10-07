@@ -14,6 +14,8 @@ NOW = 1_800_000_000.0
 
 
 def request(port_, id_="r1"):
+	"""Writes a port request into site.env as the app does (id, time NOW, no
+	confirmation)."""
 	site_env.update({site_env.PORT_REQUEST: str(port_), site_env.PORT_REQUEST_ID: id_,
 	                 site_env.PORT_REQUESTED_AT: str(int(NOW)), site_env.PORT_CONFIRMED: None})
 
@@ -29,15 +31,21 @@ def install(home):
 
 
 def test_the_app_and_the_helper_name_the_same_status_file():
+	"""The helper and the app use the same status file name."""
 	assert port.STATUS_FILE == port_apply.STATUS_FILE
 
 
 def test_nothing_to_do_without_a_request(install):
+	"""Without a request, next_step is "none" and no status file is written."""
 	assert port.next_step({}, NOW).action == "none"
 	assert not port.status_path().exists()
 
 
 def test_a_trial_confirmed_from_the_new_port_is_kept(install):
+	"""The whole kept path: next_step says try; the trial file publishes 9443:443 and
+	is last in COMPOSE_FILE; while trying it waits; once confirmed from the new
+	port it says keep; closing keeps it (.env HTTPS_PORT, site.env's port, the
+	trial removed, the page applied on 9443), and the request is handled once."""
 	request(9443)
 	step = port.next_step({}, NOW)
 	assert (step.action, step.port, step.id) == ("try", 9443, "r1")
@@ -62,6 +70,9 @@ def test_a_trial_confirmed_from_the_new_port_is_kept(install):
 
 
 def test_an_unconfirmed_trial_rolls_back_and_isnt_retried(install):
+	"""A trial not confirmed within TRIAL_SECONDS gives rollback; closing it keeps the
+	old port and removes the trial, the page shows rolled_back with the reason
+	(mentioning a firewall), and the request isn't tried again."""
 	request(9443)
 	port.open_trial(9443)
 	port.trying(9443, "r1", now=NOW)
@@ -75,6 +86,8 @@ def test_an_unconfirmed_trial_rolls_back_and_isnt_retried(install):
 
 
 def test_a_new_request_replaces_a_running_trial(install):
+	"""A new request during a trial rolls the running one back ("replaced by a newer
+	request"), then the new one is tried."""
 	request(9443, "r1")
 	port.open_trial(9443)
 	port.trying(9443, "r1", now=NOW)
@@ -91,6 +104,9 @@ def test_a_new_request_replaces_a_running_trial(install):
 	(70000, {}, "'70000' isn't a usable HTTPS port"),
 ])
 def test_a_request_that_cant_be_tried_fails_with_why(install, wanted, busy, says):
+	"""A request for a busy port (named with its owner), 80 or 70000 is not tried:
+	next_step is "none" with the reason, the status records failed with the
+	request id, the port in use and the reason, and .env's port stays."""
 	request(wanted)
 	step = port.next_step(busy, NOW)
 	assert step.action == "none" and step.message == says
@@ -101,13 +117,16 @@ def test_a_request_that_cant_be_tried_fails_with_why(install, wanted, busy, says
 
 
 def test_the_port_in_use_already_is_applied_at_once(install):
+	"""A request for the port already in use needs no trial: "none", recorded as
+	applied."""
 	request(8443)
 	assert port.next_step({}, NOW).action == "none"
 	assert json.loads(port.status_path().read_text())["state"] == "applied"
 
 
 def test_a_trial_whose_helper_died_rolls_back_later(install):
-	# opened, nginx up, then nothing ran until long after the deadline
+	"""A trial opened (nginx up) and then left until long after its deadline (the
+	helper died) is rolled back when next looked at."""
 	request(9443)
 	port.open_trial(9443)
 	port.trying(9443, "r1", now=NOW)
@@ -115,6 +134,9 @@ def test_a_trial_whose_helper_died_rolls_back_later(install):
 
 
 def test_the_cli_prints_one_line_to_act_on(install):
+	"""The setup core's port commands: port-next prints one line "<action> <port>
+	<id>" (try, wait, then "none - -" after a close), a failure adds the reason
+	on a second line; port-open, port-trying and port-close exit 0."""
 	request(9443)
 	assert run(["port-next"]) == (0, ["try 9443 r1"])
 	assert run(["port-open", "--port", "9443"])[0] == 0
@@ -128,8 +150,10 @@ def test_the_cli_prints_one_line_to_act_on(install):
 
 
 def test_the_scripts_stopwatch_ends_a_trial_whatever_the_clocks_say(install):
-	# Docker Desktop's VM clock can lag Windows' by minutes: the script times
-	# the trial itself and closes it; the recorded deadline isn't consulted
+	"""port-close --timed-out rolls a trial back without consulting its recorded
+	deadline (Docker Desktop's VM clock can lag Windows' by minutes, so the
+	script times the trial itself): rolled_back with the timed-out message, the
+	trial removed."""
 	request(9443)
 	port.open_trial(9443)
 	port.trying(9443, "r1", now=NOW)
@@ -141,8 +165,9 @@ def test_the_scripts_stopwatch_ends_a_trial_whatever_the_clocks_say(install):
 
 
 def test_a_helper_announces_itself_before_the_first_change(install):
-	# without a status the page says "run netrollout apply"; where a helper
-	# runs, the page must wait for it instead
+	"""port-ready turns the page from "manual" (run netrollout apply) into "waiting"
+	by writing a first applied status for the port in use; ready() never writes
+	over a real status, and the request still goes through."""
 	request(9443)
 	assert port_apply.state(9443)["state"] == "manual"
 	assert run(["port-ready"])[0] == 0

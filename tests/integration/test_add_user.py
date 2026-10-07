@@ -22,6 +22,10 @@ def add(client, **changes):
 
 
 def test_an_added_user_is_approved_with_a_temporary_password(admin, client_for, session_scope):
+	"""Add user creates an approved, active local operator with the form's
+	details and a temporary password that passes the rule (returned once and
+	stored hashed), must_change_password set, audited user.created by the
+	admin with role operator."""
 	resp = add(client_for(admin, xhr=True))
 	assert resp.status_code == 200, resp.json
 	assert resp.json["username"] == "dana" and resp.json["role"] == "operator"
@@ -39,6 +43,7 @@ def test_an_added_user_is_approved_with_a_temporary_password(admin, client_for, 
 
 
 def test_an_admin_can_be_added(admin, client_for, session_scope):
+	"""Add user with role admin creates an admin."""
 	assert add(client_for(admin, xhr=True), role="admin").json["role"] == "admin"
 	with session_scope() as s:
 		assert s.query(User).filter_by(username="dana").one().role == "admin"
@@ -53,6 +58,9 @@ def test_an_admin_can_be_added(admin, client_for, session_scope):
 	({"role": "superuser"}, "operator or admin"),
 ])
 def test_refused_in_words(admin, client_for, session_scope, changes, message):
+	"""A missing username / email / full name, an email without @, a username
+	over 64 characters or an unknown role is refused with 422 and a message
+	saying why; no user with the form's email is created."""
 	resp = add(client_for(admin, xhr=True), **changes)
 	assert resp.status_code == 422 and message in resp.json["message"]
 	with session_scope() as s:
@@ -60,6 +68,8 @@ def test_refused_in_words(admin, client_for, session_scope, changes, message):
 
 
 def test_a_taken_username_or_email_is_refused(admin, client_for, make_user):
+	"""Add user refuses a username already taken ("username is taken") and an
+	email already in use ("already in use")."""
 	taken = make_user(username="dana")
 	c = client_for(admin, xhr=True)
 	assert "username is taken" in add(c).json["message"]
@@ -67,10 +77,13 @@ def test_a_taken_username_or_email_is_refused(admin, client_for, make_user):
 
 
 def test_operators_cant_add_users(make_user, client_for):
+	"""An operator's Add user request is refused (302 or 403)."""
 	assert add(client_for(make_user(), xhr=True)).status_code in (302, 403)
 
 
 def test_request_access_uses_the_same_checks(client_for, session_scope, make_user):
+	"""Request access shows the same messages as Add user: a taken username and
+	a username over 64 characters (that request creating no user)."""
 	make_user(username="dana")
 	resp = client_for().post("/register", data={**FORM, "username": "dana", "email": "x@y.io",
 	                                            "password": "Str0ng-pass"}, follow_redirects=True)
@@ -83,6 +96,8 @@ def test_request_access_uses_the_same_checks(client_for, session_scope, make_use
 
 
 def test_the_sidebar_counts_the_requests_waiting(admin, client_for, make_user):
+	"""With no access requests the admin sidebar has no badge; with two waiting,
+	every admin page shows the badge with 2 and "2 access requests waiting"."""
 	page = client_for(admin).get("/admin/users").data.decode()
 	assert 'id="pendingRequests"' not in page                      # none: no badge
 	make_user(approved=False, active=False)

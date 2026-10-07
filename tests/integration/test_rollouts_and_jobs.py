@@ -20,6 +20,8 @@ CONFIG_SNAPSHOT_RETENTION_DAYS = SETTINGS["config_snapshot_retention_days"].defa
 
 @pytest.fixture
 def operator(make_user, make_profile, make_device):
+	"""An operator with one security profile and three devices: a cisco_ios
+	(with a hostname variable), an arista_eos, and one without a profile."""
 	user = make_user()
 	prof = make_profile(user)
 	ios = make_device(user, ip="10.0.0.1", profile_id=prof,
@@ -32,6 +34,8 @@ def operator(make_user, make_profile, make_device):
 
 def add_result(session_scope, user, job_id, ip="10.0.0.1", status="success",
                verified=None, config=None, age_days=0, commands=None, port=22):
+	"""Store a device result for a job (and its job metadata when commands are
+	given), dated age_days ago."""
 	when = dt.datetime.now() - dt.timedelta(days=age_days)
 	with session_scope() as s:
 		s.add(DeviceResult(user_id=user.id, job_id=job_id, started_at=when,
@@ -47,6 +51,8 @@ def add_result(session_scope, user, job_id, ip="10.0.0.1", status="success",
 
 def test_single_platform_rollout_is_submitted(operator, client_for,
                                               captured_submits):
+	"""A rollout to one platform is submitted once (redirect to Active Jobs) with
+	the commands minus blank lines, verify on, the comment and the device."""
 	resp = client_for(operator.user).post("/rollout/start", data={
 		"device_ids": [str(operator.ios)], "manual_commands": "hostname $$H$$\n\n",
 		"_verify": "on", "comment": "chg-1"})
@@ -59,6 +65,8 @@ def test_single_platform_rollout_is_submitted(operator, client_for,
 
 def test_multi_platform_rollout_submits_one_job_per_platform(
 		operator, client_for, captured_submits):
+	"""A rollout over two platforms submits one job per platform, each with its
+	own commands."""
 	client_for(operator.user).post("/rollout/start", data={
 		"device_ids": [str(operator.ios), str(operator.eos)],
 		"platform_commands": json.dumps({"cisco_ios": "hostname a",
@@ -76,6 +84,8 @@ def test_multi_platform_rollout_submits_one_job_per_platform(
 ])
 def test_invalid_rollouts_are_refused(operator, client_for, captured_submits,
                                       form_fn):
+	"""An invalid rollout goes back to /rollout/new and submits nothing (cases:
+	no devices, no commands, a device without a security profile, a bad id)."""
 	resp = client_for(operator.user).post("/rollout/start",
 	                                      data=form_fn(operator))
 	assert resp.headers["Location"] == "/rollout/new"
@@ -85,7 +95,8 @@ def test_invalid_rollouts_are_refused(operator, client_for, captured_submits,
 def test_same_target_selected_twice_is_refused(operator, client_for,
                                                make_user, make_profile,
                                                make_device, captured_submits):
-	# the operator's own entry and a global entry for the same box
+	"""The operator's own entry and a global entry for the same box are refused
+	together: nothing submitted, the flash names the ip:port and the label."""
 	admin = make_user(role="admin")
 	shared = make_device(admin, ip="10.0.0.1", label="CORE-GLOBAL",
 	                     is_global=True, profile_id=make_profile(admin))
@@ -103,7 +114,8 @@ def test_same_target_selected_twice_is_refused(operator, client_for,
 def test_same_ip_on_different_ports_is_allowed(operator, client_for,
                                                make_profile, make_device,
                                                captured_submits):
-	# port-forwarded lab nodes: same host IP, different SSH ports
+	"""Port-forwarded lab nodes (same host IP, different SSH ports) go in one
+	job as two devices."""
 	prof = make_profile(operator.user, label="lab")
 	node_a = make_device(operator.user, ip="10.9.9.9", port=2001,
 	                     label="node-a", profile_id=prof)
@@ -118,6 +130,8 @@ def test_same_ip_on_different_ports_is_allowed(operator, client_for,
 
 def test_cannot_roll_out_to_another_users_device(operator, client_for,
                                                  make_user, captured_submits):
+	"""Another user's device id is refused: back to /rollout/new, nothing
+	submitted."""
 	resp = client_for(make_user()).post("/rollout/start", data={
 		"device_ids": [str(operator.ios)], "manual_commands": "x"})
 	assert resp.headers["Location"] == "/rollout/new"
@@ -127,6 +141,8 @@ def test_cannot_roll_out_to_another_users_device(operator, client_for,
 # ── Cancel, stream, rollback ─────────────────────────────────────────────────
 
 class FakeRunningJob:
+	"""A stand-in for a running job in the orchestrator: cancel sets an event,
+	the log history is one line, the live queue yields the given messages."""
 	def __init__(self, user_id, messages=()):
 		self.job_id = uuid.uuid4()
 		self.user_id = user_id
@@ -149,6 +165,8 @@ class FakeRunningJob:
 
 
 def test_owner_cancels_running_job(app, operator, client_for, monkeypatch):
+	"""The job's owner cancels it: ok, the job's cancel is called and its Redis
+	status is "cancelling"."""
 	job = FakeRunningJob(operator.user.id)
 	monkeypatch.setitem(app.orchestrator._jobs, job.job_id, job)
 	resp = client_for(operator.user).post("/rollout/cancel",
@@ -160,6 +178,7 @@ def test_owner_cancels_running_job(app, operator, client_for, monkeypatch):
 
 def test_other_user_cannot_cancel(app, operator, client_for, make_user,
                                   monkeypatch):
+	"""Another user's cancel gets 403 and the job isn't cancelled."""
 	job = FakeRunningJob(operator.user.id)
 	monkeypatch.setitem(app.orchestrator._jobs, job.job_id, job)
 	resp = client_for(make_user()).post("/rollout/cancel",
@@ -169,6 +188,8 @@ def test_other_user_cannot_cancel(app, operator, client_for, make_user,
 
 def test_stream_replays_history_then_tails_live(app, operator, client_for,
                                                 monkeypatch):
+	"""The live log stream sends the history before the live messages and ends
+	with the done event."""
 	job = FakeRunningJob(operator.user.id, messages=["live-line", "__done__"])
 	monkeypatch.setitem(app.orchestrator._jobs, job.job_id, job)
 	body = client_for(operator.user).get(
@@ -179,6 +200,7 @@ def test_stream_replays_history_then_tails_live(app, operator, client_for,
 
 def test_stream_of_another_users_job_forbidden(app, operator, client_for,
                                                make_user, monkeypatch):
+	"""Another user's live log stream gets 403."""
 	job = FakeRunningJob(operator.user.id)
 	monkeypatch.setitem(app.orchestrator._jobs, job.job_id, job)
 	resp = client_for(make_user()).get(f"/rollout/stream/{job.job_id}")
@@ -188,7 +210,8 @@ def test_stream_of_another_users_job_forbidden(app, operator, client_for,
 def test_rollback_targets_successful_devices_once_per_ip(
 		operator, client_for, session_scope, make_user, make_profile,
 		make_device, captured_submits):
-	# a global device sharing an IP with the operator's own device
+	"""A rollback is submitted for the job's successful devices only, each once:
+	the operator's own device, not a global device sharing its IP."""
 	admin = make_user(role="admin")
 	make_device(admin, ip="10.0.0.1", label="GLOBAL-SAME-IP", is_global=True,
 	            profile_id=make_profile(admin))
@@ -205,6 +228,8 @@ def test_rollback_targets_successful_devices_once_per_ip(
 def test_rollback_matches_on_ip_and_port(operator, client_for, session_scope,
                                          make_profile, make_device,
                                          captured_submits):
+	"""A rollback picks devices by ip and port: of two nodes on one IP only the
+	successful one (port 2001) is targeted."""
 	prof = make_profile(operator.user, label="lab")
 	make_device(operator.user, ip="10.9.9.9", port=2001, label="node-a",
 	            profile_id=prof)
@@ -225,6 +250,8 @@ def test_rollback_matches_on_ip_and_port(operator, client_for, session_scope,
 def test_results_distinguish_devices_sharing_an_ip(operator, client_for,
                                                    session_scope, make_profile,
                                                    make_device):
+	"""Results tell apart devices on one IP: a label by its own ip:port, an
+	unlabelled one as ip:port, and Verify Diff serves each port's config."""
 	prof = make_profile(operator.user, label="lab")
 	make_device(operator.user, ip="10.9.9.9", port=2001, label="node-a",
 	            profile_id=prof)
@@ -243,6 +270,8 @@ def test_results_distinguish_devices_sharing_an_ip(operator, client_for,
 
 def test_results_show_verify_diff_and_expired_states(operator, client_for,
                                                      session_scope):
+	"""A job with a stored config gets Verify Diff; one older than the snapshot
+	retention shows "Verify Diff expired" once; no config is in the page."""
 	live, stale = uuid.uuid4(), uuid.uuid4()
 	add_result(session_scope, operator.user, live, status="partial", verified=1,
 	           config="cfg-live", commands=["a", "b"])
@@ -256,6 +285,8 @@ def test_results_show_verify_diff_and_expired_states(operator, client_for,
 
 
 def test_config_diff_endpoint(operator, client_for, session_scope, make_user):
+	"""Verify Diff's endpoint returns the config and commands to the owner, 410
+	when the config is gone, 403 to another user."""
 	job, cleared = uuid.uuid4(), uuid.uuid4()
 	add_result(session_scope, operator.user, job, status="partial", verified=1,
 	           config="running-cfg", commands=["a", "b"])
@@ -271,8 +302,8 @@ def test_config_diff_endpoint(operator, client_for, session_scope, make_user):
 
 def test_config_diff_returns_the_engines_verdicts(operator, client_for,
                                                   session_scope):
-	# The page shows the server's matcher (sections, removals, variables),
-	# not a text search of its own
+	"""The page shows the server's matcher (sections, removals, variables), not
+	a text search of its own: each command comes back with its verdict."""
 	job = uuid.uuid4()
 	config = ("interface GigabitEthernet1\n description core\n!\n"
 	          "interface GigabitEthernet2\n shutdown\n!\n")
@@ -293,8 +324,9 @@ def test_config_diff_returns_the_engines_verdicts(operator, client_for,
 
 def test_results_page_shows_what_needs_a_person(operator, client_for,
                                                 session_scope):
-	# Visible without reading the log: a badge on the job, the instruction
-	# per device in the expanded job, a marker on the device row
+	"""A device needing a person shows on Results without reading the log: one
+	action-needed badge (on that job only), "Action needed on" and the
+	device's instruction."""
 	job, clean = uuid.uuid4(), uuid.uuid4()
 	now = dt.datetime.now()
 	with session_scope() as s:
@@ -313,6 +345,9 @@ def test_results_page_shows_what_needs_a_person(operator, client_for,
 
 def test_job_summary_for_the_completion_card(operator, client_for,
                                             session_scope, make_user):
+	"""The completion card's summary: device count, counts per status, action
+	needed by inventory label, job id, comment and results link; 404 when not
+	stored yet or for another user, 200 for an admin."""
 	job = uuid.uuid4()
 	now = dt.datetime.now()
 	with session_scope() as s:
@@ -346,6 +381,7 @@ def test_job_summary_for_the_completion_card(operator, client_for,
 
 def test_dashboard_marks_recent_jobs_that_need_a_person(operator, client_for,
                                                          session_scope):
+	"""The dashboard links a recent job with an action needed to its results."""
 	job = uuid.uuid4()
 	now = dt.datetime.now()
 	with session_scope() as s:
@@ -359,6 +395,7 @@ def test_dashboard_marks_recent_jobs_that_need_a_person(operator, client_for,
 
 def test_log_download_is_owner_only(operator, client_for, session_scope,
                                     make_user):
+	"""The rollout log downloads for its owner; another user gets 404."""
 	job = uuid.uuid4()
 	add_result(session_scope, operator.user, job)
 	os.makedirs(runtime.logs_dir(), exist_ok=True)
@@ -372,6 +409,7 @@ def test_log_download_is_owner_only(operator, client_for, session_scope,
 
 
 def _register_job_meta(app, user, job_id):
+	"""Register a job as active for the user in Redis, as the orchestrator does."""
 	client = app.backend.redis.client
 	client.hset(f"job:{job_id}:meta", mapping={
 		"user_id": str(user.id), "status": "active", "device_count": 1,
@@ -380,10 +418,12 @@ def _register_job_meta(app, user, job_id):
 
 
 def test_dashboard_renders(operator, client_for):
+	"""The dashboard renders for an operator."""
 	assert client_for(operator.user).get("/dashboard").status_code == 200
 
 
 def test_active_jobs_lists_running_job(app, operator, client_for, monkeypatch):
+	"""Active Jobs lists a running job of the user."""
 	job = FakeRunningJob(operator.user.id)
 	job.started_at = dt.datetime.now()
 	job.get_device_count = lambda: 2
@@ -394,6 +434,7 @@ def test_active_jobs_lists_running_job(app, operator, client_for, monkeypatch):
 
 
 def test_active_jobs_survives_orphaned_job_meta(app, operator, client_for):
+	"""Active Jobs still renders with Redis meta for a job not in memory."""
 	_register_job_meta(app, operator.user, uuid.uuid4())  # not in memory
 	assert client_for(operator.user).get("/active_jobs").status_code == 200
 
@@ -402,6 +443,8 @@ def test_active_jobs_survives_orphaned_job_meta(app, operator, client_for):
 
 def test_analytics_query_is_scoped_and_allowlisted(operator, client_for,
                                                    session_scope, make_user):
+	"""An operator's analytics query sees only their own results (a user param
+	is ignored), a field outside the allowlist gets 400, the page renders."""
 	other = make_user()
 	add_result(session_scope, operator.user, uuid.uuid4(), status="failed")
 	add_result(session_scope, other, uuid.uuid4(), status="failed")
@@ -422,6 +465,8 @@ def test_analytics_query_is_scoped_and_allowlisted(operator, client_for,
 def test_rollout_to_unreachable_device_is_blocked(operator, client_for,
                                                   captured_submits,
                                                   unreachable_targets):
+	"""A rollout to an unreachable device is blocked: back to /rollout/new,
+	nothing submitted, the flash names the device."""
 	unreachable_targets.add(("10.0.0.1", 22))
 	client = client_for(operator.user)
 	resp = client.post("/rollout/start", data={
@@ -435,6 +480,8 @@ def test_rollout_to_unreachable_device_is_blocked(operator, client_for,
 
 def test_device_back_online_is_not_blocked_by_stale_cache(
 		operator, client_for, captured_submits, unreachable_targets):
+	"""A device cached as down but back online is re-probed at submit and the
+	rollout goes through."""
 	client = client_for(operator.user)
 	unreachable_targets.add(("10.0.0.1", 22))
 	client.post("/inventory/reachability", json={"device_ids": [str(operator.ios)]})
@@ -448,6 +495,8 @@ def test_rollback_to_unreachable_device_is_blocked(operator, client_for,
                                                    session_scope,
                                                    captured_submits,
                                                    unreachable_targets):
+	"""A rollback to an unreachable device answers 409 "rollout blocked" and
+	submits nothing."""
 	job = uuid.uuid4()
 	add_result(session_scope, operator.user, job, ip="10.0.0.1")
 	unreachable_targets.add(("10.0.0.1", 22))
@@ -458,6 +507,8 @@ def test_rollback_to_unreachable_device_is_blocked(operator, client_for,
 
 
 def test_new_rollout_page_has_reachability_ui(operator, client_for):
+	"""The new rollout page has the recheck button, the unreachable warning and
+	a device id per row."""
 	html = client_for(operator.user).get("/rollout/new").get_data(as_text=True)
 	assert 'id="reachRecheck"' in html and 'id="unreachWarning"' in html
 	assert f'data-device-id="{operator.ios}"' in html

@@ -68,6 +68,7 @@ TEST_PASSWORD = "Test-pass-1"
 
 
 def _redis_url() -> str:
+	"""TEST_REDIS_URL, else the app's Redis from config/runtime.env - always on db 15."""
 	url = os.environ.get("TEST_REDIS_URL")
 	if not url:
 		# Same server the app uses (credentials from the developer's
@@ -90,6 +91,7 @@ REDIS_URL = _redis_url()
 # ── Health probes (once, at collection) ──────────────────────────────────────
 
 def _probe_postgres() -> str | None:
+	"""None when the admin login connects, else why PostgreSQL is unreachable."""
 	try:
 		engine = create_engine(PG_ADMIN_URL, connect_args={"connect_timeout": 3})
 		with engine.connect() as conn:
@@ -102,6 +104,7 @@ def _probe_postgres() -> str | None:
 
 
 def _probe_redis() -> str | None:
+	"""None when the test Redis answers a ping, else why it is unreachable."""
 	try:
 		client = redis_lib.from_url(REDIS_URL, socket_connect_timeout=2,
 		                            socket_timeout=2)
@@ -118,6 +121,8 @@ REDIS_DOWN = _probe_redis()
 
 
 def pytest_collection_modifyitems(config, items):
+	"""Skip tests marked postgres / redis / ldap, with the probe's reason, when
+	that service is down."""
 	for item in items:
 		if item.get_closest_marker("postgres") and PG_DOWN:
 			item.add_marker(pytest.mark.skip(reason=PG_DOWN))
@@ -131,6 +136,8 @@ def pytest_collection_modifyitems(config, items):
 
 @pytest.fixture(scope="session")
 def test_db_url():
+	"""The scratch database's URL: rollout_test dropped and created fresh once per
+	session, migrated to head, and dropped at the end."""
 	if PG_DOWN:
 		pytest.skip(PG_DOWN)
 	admin = create_engine(PG_ADMIN_URL, isolation_level="AUTOCOMMIT")
@@ -153,6 +160,8 @@ def test_db_url():
 
 @pytest.fixture(scope="session")
 def redis_url():
+	"""The test Redis URL (asserted to be db 15), flushed at the session's start
+	and end."""
 	if REDIS_DOWN:
 		pytest.skip(REDIS_DOWN)
 	client = redis_lib.from_url(REDIS_URL)
@@ -169,6 +178,8 @@ UNROUTABLE_REDIS_HOST = "10.255.255.1"
 
 
 def _register_failure_routes(app):
+	"""Add /_test/<name> and /rollout/stream/_test/<name> routes that raise a real
+	Postgres-down, Redis-timeout or bad-key error."""
 
 	def pg_down():
 		PostgresConnection(PostgresConfig(url=DEAD_PG_URL)).test_connection()
@@ -190,6 +201,9 @@ def _register_failure_routes(app):
 
 @pytest.fixture(scope="session")
 def app(test_db_url, redis_url, tmp_path_factory):
+	"""The Flask app, created once per session on the scratch database and Redis
+	db 15, with a throwaway encryption key and runtime.env, testing mode, no
+	CSRF and the failure routes; its engine is disposed at the end."""
 
 
 	os.environ[enc.ENV_VAR] = Fernet.generate_key().decode()
@@ -219,6 +233,8 @@ def app(test_db_url, redis_url, tmp_path_factory):
 
 @pytest.fixture(autouse=True)
 def _clean_state(request):
+	"""For tests using the app: every table truncated, Redis flushed and the
+	connection limiter reset before the test; the app config put back after."""
 	if "app" not in request.fixturenames:
 		yield
 		return
@@ -238,7 +254,8 @@ def _clean_state(request):
 
 @pytest.fixture(autouse=True)
 def _no_real_rollouts(request, monkeypatch):
-	# Route tests must never reach netmiko through the real orchestrator
+	"""Route tests must never reach netmiko through the real orchestrator: its
+	submit fails the test (use captured_submits)."""
 	if "app" not in request.fixturenames:
 		return
 	app = request.getfixturevalue("app")
@@ -264,6 +281,8 @@ def unreachable_targets(request, monkeypatch):
 
 @pytest.fixture
 def captured_submits(app, monkeypatch):
+	"""The list of rollouts submitted during the test (one namespace each, with a
+	new job id); nothing runs."""
 	calls = []
 
 	def _capture(devices, commands, params, user_id, comment=None):
@@ -281,11 +300,14 @@ def captured_submits(app, monkeypatch):
 
 @pytest.fixture
 def session_scope(app):
+	"""The app's get_session: a database session context on the scratch database."""
 	return app.backend.postgres.get_session
 
 
 @pytest.fixture
 def make_user(app):
+	"""make_user(...) adds a user (approved, active operator with TEST_PASSWORD by
+	default) and returns its id, username and role."""
 
 	def _make(username=None, role="operator", approved=True, active=True, **kw):
 		username = username or f"u_{uuid.uuid4().hex[:8]}"
@@ -303,6 +325,8 @@ def make_user(app):
 
 @pytest.fixture
 def make_profile(app):
+	"""make_profile(owner, ...) adds a security profile (password encrypted) and
+	returns its id."""
 
 	def _make(owner, label="prof", username="netops", password="pw"):
 		with app.backend.postgres.get_session() as s:
@@ -318,6 +342,8 @@ def make_profile(app):
 
 @pytest.fixture
 def make_device(app):
+	"""make_device(owner, ...) adds an inventory device (cisco_ios on port 22 by
+	default) and returns its id."""
 
 	def _make(owner, ip="10.0.0.1", label=None, profile_id=None,
 	          is_global=False, var_maps=None, device_type="cisco_ios", port=22):
@@ -335,6 +361,8 @@ def make_device(app):
 
 @pytest.fixture
 def make_mapping(app):
+	"""make_mapping(owner, token, prop, ...) adds a variable mapping ($$token$$ ->
+	property) on the given devices and returns its id."""
 
 	def _make(owner, token="HOST", prop="hostname", index=None, devices=()):
 		with app.backend.postgres.get_session() as s:
@@ -350,6 +378,8 @@ def make_mapping(app):
 
 @pytest.fixture
 def client_for(app):
+	"""client_for(user=None, xhr=False): an HTTPS test client, signed in as `user`
+	when given, sending the XHR header when asked."""
 	def _client(user=None, xhr=False):
 		client = app.test_client()
 		client.environ_base["wsgi.url_scheme"] = "https"  # secure cookie
@@ -491,6 +521,7 @@ def _docker(*args, **kw):
 
 
 def _probe_ldap() -> str | None:
+	"""None when Docker runs and the LDAP image is present locally, else why not."""
 	try:
 		if _docker("info", "--format", "{{.ServerVersion}}",
 		           timeout=10).returncode != 0:

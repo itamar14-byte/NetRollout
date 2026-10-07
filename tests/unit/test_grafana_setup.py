@@ -10,6 +10,8 @@ ROOT = Path(__file__).resolve().parents[2]
 
 @pytest.fixture
 def setup(monkeypatch, tmp_path):
+	"""deploy/grafana/setup.py loaded fresh, its runtime.env in tmp_path,
+	GRAFANA_DB_PASSWORD set."""
 	spec = importlib.util.spec_from_file_location("grafana_setup", ROOT / "deploy/grafana/setup.py")
 	module = importlib.util.module_from_spec(spec)
 	spec.loader.exec_module(module)
@@ -29,16 +31,21 @@ def setup(monkeypatch, tmp_path):
 	("# a comment\nPG_HOST='db2'\n", ("db2", "5432", "netrollout", "disable")),
 ])
 def test_where_the_data_is(setup, env, expected):
+	"""runtime.env gives the data source's host, port, database and sslmode: bundled when
+	empty, a moved-to server's PG_* and sslmode, a URL back to the bundled one, the dev
+	host's 127.0.0.1 as `postgres`, comments skipped and quotes removed."""
 	setup.RUNTIME_ENV.write_text(env, encoding="utf-8")
 	place = setup.database(setup.read_env(setup.RUNTIME_ENV))
 	assert (place["host"], place["port"], place["database"], place["sslmode"]) == expected
 
 
 def test_no_runtime_env_is_the_bundled_database(setup):
+	"""Without a runtime.env the data source points at the bundled `postgres`."""
 	assert setup.database(setup.read_env(setup.RUNTIME_ENV))["host"] == "postgres"
 
 
 class FakeGrafana:
+	"""Grafana's API stand-in: records each call; GET answers `existing` (404 when None)."""
 	def __init__(self, existing=None):
 		self.existing, self.calls = existing, []
 
@@ -50,6 +57,8 @@ class FakeGrafana:
 
 
 def test_created_when_missing_with_the_dashboards_uid(setup, monkeypatch):
+	"""A missing data source is POSTed with the dashboards' uid, grafana_reader and its
+	password, and runtime.env's database; the place is returned as host:port/database."""
 	grafana = FakeGrafana()
 	monkeypatch.setattr(setup, "call", grafana)
 	setup.RUNTIME_ENV.write_text("PG_HOST=db.corp\nPG_NAME=ops\n", encoding="utf-8")
@@ -62,6 +71,7 @@ def test_created_when_missing_with_the_dashboards_uid(setup, monkeypatch):
 
 
 def test_updated_in_place_after_a_move(setup, monkeypatch):
+	"""An existing, editable data source is updated with a PUT on its uid."""
 	grafana = FakeGrafana(existing={"uid": "cfjxoedixn7r4d", "readOnly": False})
 	monkeypatch.setattr(setup, "call", grafana)
 	setup.ensure_datasource()
@@ -69,6 +79,7 @@ def test_updated_in_place_after_a_move(setup, monkeypatch):
 
 
 def test_the_provisioned_one_of_an_earlier_version_is_reported_not_overwritten(setup, monkeypatch):
+	"""A read-only (provisioned) data source raises "restart Grafana" after the GET alone."""
 	grafana = FakeGrafana(existing={"uid": "cfjxoedixn7r4d", "readOnly": True})
 	monkeypatch.setattr(setup, "call", grafana)
 	with pytest.raises(RuntimeError, match="restart Grafana"):
@@ -77,7 +88,8 @@ def test_the_provisioned_one_of_an_earlier_version_is_reported_not_overwritten(s
 
 
 def test_healthy_means_the_last_run_succeeded(setup, monkeypatch, tmp_path):
-	# the health check is the marker: a failure after a success removes it
+	"""The health check is the done marker: a successful `--once` run writes it, and a
+	failure after a success exits and removes it."""
 	monkeypatch.setattr(setup, "DONE_FILE", tmp_path / "done")
 	monkeypatch.setattr(setup.sys, "argv", ["setup.py", "--once"])
 	monkeypatch.setattr(setup, "apply", lambda: None)

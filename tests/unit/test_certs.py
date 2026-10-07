@@ -43,10 +43,12 @@ def make_cert(names=("nr.corp.local",), ips=(), issuer=None, ca=False,
 
 
 def pem(cert):
+	"""The certificate in PEM."""
 	return cert.public_bytes(serialization.Encoding.PEM)
 
 
 def key_pem(key, password=None):
+	"""The key in PKCS8 PEM, encrypted with `password` when given."""
 	enc = (serialization.BestAvailableEncryption(password) if password
 	       else serialization.NoEncryption())
 	return key.private_bytes(serialization.Encoding.PEM,
@@ -56,6 +58,9 @@ def key_pem(key, password=None):
 # ── Self-signed ──────────────────────────────────────────────────────────────
 
 def test_selfsigned_covers_the_hostname_and_its_ips(tmp_path):
+	"""A self-signed certificate for "NR01.corp.local." and two IPs validates clean for the
+	hostname (lower-cased, no trailing dot) and for each IP; it lists exactly those
+	names, lasts SELFSIGNED_DAYS and has an EC key."""
 	certs.selfsigned("NR01.corp.local.", ["10.1.1.5", "fe80::1"], tmp_path)
 	cert_pem = (tmp_path / certs.CERT_FILE).read_bytes()
 	check = certs.validate(cert_pem, (tmp_path / certs.KEY_FILE).read_bytes(),
@@ -72,6 +77,8 @@ def test_selfsigned_covers_the_hostname_and_its_ips(tmp_path):
 
 
 def test_selfsigned_writes_the_marker_and_nothing_else(tmp_path):
+	"""selfsigned writes the certificate, the key and the self-signed marker, and no
+	other file."""
 	certs.selfsigned("nr01", out_dir=tmp_path)
 	assert certs.is_selfsigned(tmp_path)
 	assert sorted(p.name for p in tmp_path.iterdir()) == \
@@ -80,11 +87,14 @@ def test_selfsigned_writes_the_marker_and_nothing_else(tmp_path):
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX permissions")
 def test_selfsigned_key_is_private(tmp_path):
+	"""The self-signed key file is 600 (POSIX only)."""
 	certs.selfsigned("nr01", out_dir=tmp_path)
 	assert (os.stat(tmp_path / certs.KEY_FILE).st_mode & 0o777) == 0o600
 
 
 def test_selfsigned_replaces_its_own_pair(tmp_path):
+	"""A second selfsigned replaces the first pair: the certificate names only the
+	new hostname and matches the new key."""
 	certs.selfsigned("old-name", out_dir=tmp_path)
 	certs.selfsigned("new-name", out_dir=tmp_path)
 	check = certs.validate((tmp_path / certs.CERT_FILE).read_bytes(),
@@ -93,6 +103,7 @@ def test_selfsigned_replaces_its_own_pair(tmp_path):
 
 
 def test_selfsigned_defaults_to_the_certs_folder(tmp_path, monkeypatch):
+	"""Without out_dir, selfsigned writes to NETROLLOUT_HOME's certs folder."""
 	monkeypatch.setenv("NETROLLOUT_HOME", str(tmp_path))
 	certs.selfsigned("nr01")
 	assert certs.is_selfsigned()
@@ -100,11 +111,13 @@ def test_selfsigned_defaults_to_the_certs_folder(tmp_path, monkeypatch):
 
 
 def test_selfsigned_needs_a_hostname(tmp_path):
+	"""A blank hostname raises ValueError."""
 	with pytest.raises(ValueError):
 		certs.selfsigned("  ", out_dir=tmp_path)
 
 
 def test_an_organisation_certificate_has_no_marker(tmp_path):
+	"""A certificate written without the marker is not self-signed."""
 	cert, key = make_cert()
 	(tmp_path / certs.CERT_FILE).write_bytes(pem(cert))
 	assert not certs.is_selfsigned(tmp_path)
@@ -113,6 +126,8 @@ def test_an_organisation_certificate_has_no_marker(tmp_path):
 # ── Validation ───────────────────────────────────────────────────────────────
 
 def test_an_organisation_chain_is_accepted():
+	"""A leaf + its CA, with the leaf's key, validates clean for its hostname, with
+	the leaf's subject and expiry reported."""
 	ca, ca_key = make_cert(names=(), ca=True)
 	leaf, key = make_cert(names=("nr.corp.local",), issuer=(ca, ca_key))
 	check = certs.validate(pem(leaf) + pem(ca), key_pem(key), "nr.corp.local")
@@ -122,6 +137,9 @@ def test_an_organisation_chain_is_accepted():
 
 
 def test_a_chain_out_of_order_is_a_warning_or_a_key_mismatch():
+	"""The issuer first makes the key not belong to the first certificate (a
+	problem); an unrelated certificate after the server's is accepted with an
+	"isn't in order" warning."""
 	ca, ca_key = make_cert(names=(), ca=True)
 	leaf, key = make_cert(issuer=(ca, ca_key))
 	# the issuer first: the key no longer matches the first certificate
@@ -134,6 +152,7 @@ def test_a_chain_out_of_order_is_a_warning_or_a_key_mismatch():
 
 
 def test_a_key_from_another_certificate_is_rejected():
+	"""A key that isn't the certificate's is refused ("doesn't belong")."""
 	cert, _ = make_cert()
 	_, other_key = make_cert()
 	check = certs.validate(pem(cert), key_pem(other_key))
@@ -141,12 +160,15 @@ def test_a_key_from_another_certificate_is_rejected():
 
 
 def test_a_password_protected_key_is_rejected():
+	"""A password-protected key is refused."""
 	cert, key = make_cert()
 	check = certs.validate(pem(cert), key_pem(key, password=b"secret"))
 	assert not check.ok and "password-protected" in check.problems[0]
 
 
 def test_files_that_are_not_pem_are_rejected():
+	"""Non-PEM certificate and key give two problems: not a PEM certificate, not a
+	PEM private key."""
 	check = certs.validate(b"not a certificate", b"not a key")
 	assert len(check.problems) == 2
 	assert "isn't a PEM certificate" in check.problems[0]
@@ -154,6 +176,8 @@ def test_files_that_are_not_pem_are_rejected():
 
 
 def test_expired_and_not_yet_valid_are_rejected():
+	"""An expired certificate and one not valid yet are both refused, each with its
+	own problem."""
 	old, key = make_cert(not_before=NOW - datetime.timedelta(days=400),
 	                     not_after=NOW - datetime.timedelta(days=1))
 	check = certs.validate(pem(old), key_pem(key))
@@ -164,18 +188,22 @@ def test_expired_and_not_yet_valid_are_rejected():
 
 
 def test_expiring_soon_is_only_a_warning():
+	"""A certificate expiring in 10 days is accepted with an "expires on" warning."""
 	cert, key = make_cert(not_after=NOW + datetime.timedelta(days=10))
 	check = certs.validate(pem(cert), key_pem(key))
 	assert check.ok and "expires on" in check.warnings[0]
 
 
 def test_a_certificate_without_alternative_names_is_rejected():
+	"""A certificate without subject alternative names is refused."""
 	cert, key = make_cert(names=())
 	check = certs.validate(pem(cert), key_pem(key), "x")
 	assert not check.ok and "no subject alternative names" in check.problems[0]
 
 
 def test_a_hostname_it_does_not_cover_is_rejected():
+	"""A hostname the certificate doesn't cover is refused with a problem naming the
+	hostname and the names it does cover."""
 	cert, key = make_cert(names=("nr.corp.local",))
 	check = certs.validate(pem(cert), key_pem(key), "netrollout.corp.local")
 	assert not check.ok
@@ -194,17 +222,23 @@ def test_a_hostname_it_does_not_cover_is_rejected():
 	("10.0.0.6", False),
 ])
 def test_host_matching_follows_browser_rules(host, expected):
+	"""Against *.corp.local and the IP 10.0.0.5, host_matches follows browser rules:
+	case and a trailing dot ignored, a wildcard covers exactly one label, an IP
+	only when listed as an IP."""
 	assert certs.host_matches(host, ["*.corp.local"],
 	                          [ipaddress.ip_address("10.0.0.5")]) is expected
 
 
 def test_an_ip_written_as_a_dns_name_does_not_cover_the_ip():
+	"""An IP listed as a DNS name does not cover that IP."""
 	assert not certs.host_matches("10.0.0.5", ["10.0.0.5"], [])
 
 
 # ── Command line ─────────────────────────────────────────────────────────────
 
 def test_cli_selfsigned_then_validate(tmp_path, capsys):
+	"""`selfsigned --host --ip --out` then `validate` against the IP both exit 0, and
+	validate prints the names."""
 	assert certs.main(["selfsigned", "--host", "nr01", "--ip", "10.1.1.5",
 	                   "--out", str(tmp_path)]) == 0
 	assert certs.main(["validate", "--cert", str(tmp_path / certs.CERT_FILE),
@@ -215,6 +249,8 @@ def test_cli_selfsigned_then_validate(tmp_path, capsys):
 
 
 def test_cli_reports_problems_and_fails(tmp_path, capsys):
+	"""`validate` for a hostname not covered exits 1 and prints the PROBLEM line; a
+	missing certificate file also exits 1."""
 	cert, key = make_cert(names=("nr.corp.local",))
 	(tmp_path / "c.pem").write_bytes(pem(cert))
 	(tmp_path / "k.pem").write_bytes(key_pem(key))
@@ -227,12 +263,15 @@ def test_cli_reports_problems_and_fails(tmp_path, capsys):
 
 
 def test_cli_rejects_a_bad_ip(tmp_path):
+	"""`selfsigned` with an --ip that isn't an IP exits 1 and writes nothing."""
 	assert certs.main(["selfsigned", "--host", "nr01", "--ip", "nr02",
 	                   "--out", str(tmp_path)]) == 1
 	assert not any(tmp_path.iterdir())
 
 
 def test_extra_names_follow_the_hostname(tmp_path):
+	"""also_names are added after the hostname in the certificate's DNS names, the IPs
+	kept."""
 	certs.selfsigned("new.lab", ["10.1.1.5"], tmp_path, also_names=["old.lab"])
 	dns, ips = certs.names_in((tmp_path / certs.CERT_FILE).read_bytes())
 	assert dns == ["new.lab", "old.lab"] and [str(i) for i in ips] == ["10.1.1.5"]

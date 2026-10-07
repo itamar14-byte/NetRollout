@@ -14,6 +14,7 @@ pytestmark = [pytest.mark.postgres, pytest.mark.redis]
 
 
 def profiles_of(session_scope, user):
+	"""The user's security profiles, detached from the session."""
 	with session_scope() as s:
 		rows = s.query(SecurityProfile).filter_by(user_id=user.id).all()
 		s.expunge_all()
@@ -24,6 +25,8 @@ def profiles_of(session_scope, user):
 
 def test_profile_secrets_are_encrypted_at_rest(client_for, make_user,
                                                session_scope):
+	"""A new profile's password and enable secret are stored encrypted (Fernet)
+	and decrypt back to what was typed."""
 	user = make_user()
 	client_for(user).post("/security/create", data={
 		"label": "core", "username": "netops", "password": "Sup3r-secret",
@@ -36,6 +39,7 @@ def test_profile_secrets_are_encrypted_at_rest(client_for, make_user,
 
 
 def test_quick_create_returns_id(client_for, make_user):
+	"""Quick create returns ok with the new id; without a password it is 422."""
 	resp = client_for(make_user()).post("/security/quick_create", json={
 		"label": "core", "username": "u", "password": "p"})
 	assert resp.json["status"] == "ok" and resp.json["id"]
@@ -46,6 +50,9 @@ def test_quick_create_returns_id(client_for, make_user):
 
 def test_profile_without_label_can_be_created(client_for, make_user,
                                               session_scope):
+	"""A profile can be created without a label, by quick create (which answers
+	the username as its label) and by the form; the list page shows the
+	username instead."""
 	user = make_user()
 	client = client_for(user)
 	resp = client.post("/security/quick_create", json={
@@ -60,6 +67,7 @@ def test_profile_without_label_can_be_created(client_for, make_user,
 
 
 def test_clearing_a_label_on_edit(client_for, make_user, make_profile, db_get):
+	"""Saving a profile with an empty label clears the label."""
 	user = make_user()
 	pid = make_profile(user, label="core")
 	client_for(user).post(f"/security/{pid}/edit",
@@ -69,6 +77,7 @@ def test_clearing_a_label_on_edit(client_for, make_user, make_profile, db_get):
 
 def test_edit_keeps_password_when_left_blank(client_for, make_user,
                                              make_profile, db_get):
+	"""Editing a profile with the password blank keeps the stored password."""
 	user = make_user()
 	pid = make_profile(user, password="original")
 	client_for(user).post(f"/security/{pid}/edit", data={
@@ -80,6 +89,7 @@ def test_edit_keeps_password_when_left_blank(client_for, make_user,
 def test_delete_blocked_while_devices_assigned(client_for, make_user,
                                                make_profile, make_device,
                                                db_get):
+	"""A profile with a device assigned isn't deleted; one without is."""
 	user = make_user()
 	pid = make_profile(user)
 	make_device(user, profile_id=pid)
@@ -91,6 +101,7 @@ def test_delete_blocked_while_devices_assigned(client_for, make_user,
 
 
 def test_profiles_are_private(client_for, make_user, make_profile, db_get):
+	"""Another user can't edit or delete someone's profile."""
 	owner, other = make_user(), make_user()
 	pid = make_profile(owner)
 	client_for(other).post(f"/security/{pid}/edit", data={
@@ -106,6 +117,8 @@ def test_profiles_are_private(client_for, make_user, make_profile, db_get):
 ])
 def test_connection_test(client_for, make_user, make_profile, make_device,
                          tcp_ok, connect_error, expected):
+	"""The profile's connection test answers 503 for an unreachable device, 200
+	when the connection works, 401 when authentication fails."""
 	user = make_user()
 	pid = make_profile(user)
 	dev = make_device(user)
@@ -122,6 +135,7 @@ def test_connection_test(client_for, make_user, make_profile, make_device,
 # ── Variable mappings ────────────────────────────────────────────────────────
 
 def mappings_of(session_scope, user):
+	"""The user's variable mappings, detached from the session."""
 	with session_scope() as s:
 		rows = s.query(VariableMapping).filter_by(user_id=user.id).all()
 		s.expunge_all()
@@ -129,6 +143,7 @@ def mappings_of(session_scope, user):
 
 
 def test_mapping_create_normalises_token(client_for, make_user, session_scope):
+	"""A mapping's token is stored as $$UPPERCASE$$, with no index."""
 	user = make_user()
 	client_for(user).post("/mappings/create", data={
 		"token_inner": "hostname", "property_name": "hostname"})
@@ -142,6 +157,8 @@ def test_mapping_create_normalises_token(client_for, make_user, session_scope):
 	{"token_inner": "X", "property_name": "hostname", "index": "1"},
 ])
 def test_invalid_mappings_rejected(client_for, make_user, session_scope, form):
+	"""An invalid mapping isn't saved (cases: a token with a space, an unknown
+	property, an index on a property that isn't a list)."""
 	user = make_user()
 	client_for(user).post("/mappings/create", data=form)
 	assert mappings_of(session_scope, user) == []
@@ -149,6 +166,7 @@ def test_invalid_mappings_rejected(client_for, make_user, session_scope, form):
 
 def test_duplicate_token_rejected_per_user(client_for, make_user,
                                            session_scope):
+	"""A user can't create the same token twice; another user can have it."""
 	a, b = make_user(), make_user()
 	form = {"token_inner": "SITE", "property_name": "site"}
 	client_for(a).post("/mappings/create", data=form)
@@ -159,6 +177,8 @@ def test_duplicate_token_rejected_per_user(client_for, make_user,
 
 
 def test_quick_create_and_edit(client_for, make_user, db_get):
+	"""Quick create returns the token; an edit renames it and changes the
+	index."""
 	user = make_user()
 	client = client_for(user)
 	resp = client.post("/mappings/quick_create", json={
@@ -173,6 +193,7 @@ def test_quick_create_and_edit(client_for, make_user, db_get):
 
 def test_bulk_assign_checks_eligibility(client_for, make_user, make_device,
                                         make_mapping, session_scope):
+	"""Bulk assign binds the mapping only to devices that have its property."""
 	user = make_user()
 	ok = make_device(user, ip="10.0.0.1", var_maps={"hostname": "r1"})
 	missing = make_device(user, ip="10.0.0.2", var_maps={})
@@ -187,6 +208,8 @@ def test_bulk_assign_checks_eligibility(client_for, make_user, make_device,
 # ── Properties ───────────────────────────────────────────────────────────────
 
 def test_property_lifecycle(client_for, make_user, db_get):
+	"""A property is created (name normalised to rack_unit), edited (label,
+	list) and deleted."""
 	client = client_for(make_user())
 	resp = client.post("/properties/create", json={
 		"name": "Rack Unit", "label": "Rack Unit", "is_list": False})
@@ -200,6 +223,8 @@ def test_property_lifecycle(client_for, make_user, db_get):
 
 
 def test_property_cannot_shadow_system_or_duplicate(client_for, make_user):
+	"""A property can't take a built-in name (hostname) or an existing one's
+	name, by create or quick create."""
 	client = client_for(make_user())
 	assert client.post("/properties/create", json={
 		"name": "hostname", "label": "Host"}).json["status"] == "error"
@@ -209,6 +234,7 @@ def test_property_cannot_shadow_system_or_duplicate(client_for, make_user):
 
 
 def test_pages_render(client_for, make_user):
+	"""The security profiles, mappings and properties pages render."""
 	client = client_for(make_user())
 	for path in ("/security", "/mappings", "/properties"):
 		assert client.get(path).status_code == 200, path
@@ -216,8 +242,9 @@ def test_pages_render(client_for, make_user):
 
 def test_mappings_on_user_defined_properties(client_for, make_user,
                                              make_device, session_scope):
-	# custom properties used to be rejected: the validator only knew the
-	# nine built-in names
+	"""Custom properties used to be rejected (the validator only knew the nine
+	built-in names): mappings on user-defined properties are accepted, an
+	index only on a list one, and they bind through drag-assign like built-ins."""
 	user = make_user()
 	client = client_for(user)
 	client.post("/properties/create", json={"name": "rack", "label": "Rack"})
@@ -246,6 +273,10 @@ def test_mappings_on_user_defined_properties(client_for, make_user,
 def test_bulk_assign_removes_only_own_bindings(client_for, make_user,
                                                make_device, make_mapping,
                                                session_scope, db_get):
+	"""Bulk assign's remove_ids unbinds only from the user's own mapping (another
+	user's binding on the same global device stays), never deletes a device,
+	can add and remove in one call; another user can't unbind it, and a call
+	with neither list is refused."""
 	admin, a, b = make_user(role="admin"), make_user(), make_user()
 	core = make_device(admin, is_global=True, var_maps={"hostname": "core"})
 	mine = make_device(a, ip="10.0.0.2", var_maps={"hostname": "r2"})

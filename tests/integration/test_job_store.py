@@ -19,6 +19,9 @@ def store(app):
 
 
 def test_a_jobs_life(store):
+	"""A job's keys through add → started → finished: pending and counted as
+	queued, listed for its user and overall, then active, then gone with the
+	counters back at (0, 0)."""
 	job, user = uuid.uuid4(), uuid.uuid4()
 	store.add(job, user, device_count=3)
 	assert store.meta(job)["status"] == "pending" and store.counts() == (0, 1)
@@ -33,6 +36,8 @@ def test_a_jobs_life(store):
 
 
 def test_a_crash_leaves_nothing_after_the_next_start(app, store, capsys):
+	"""Two started jobs left by a killed process are cleared by the startup
+	reset (clear_stale_jobs), which says so; no job ids or counts remain."""
 	user = uuid.uuid4()
 	for _ in range(2):               # what a killed process leaves behind
 		job = uuid.uuid4()

@@ -29,6 +29,7 @@ SKIP_PREFIXES = ("/_test/", "/rollout/stream/_test/", "/static/")
 
 
 def _url(rule) -> str:
+	"""A concrete URL for a rule: a fresh UUID for uuid converters, "x" for the rest."""
 	def fill(m):
 		converter = m.group(1) or "default"
 		return str(uuid.uuid4()) if converter == "uuid" else "x"
@@ -36,6 +37,8 @@ def _url(rule) -> str:
 
 
 def _routes(app):
+	"""Every (rule, method) of the app but the test-only and static routes;
+	HEAD/OPTIONS left out."""
 	for rule in app.url_map.iter_rules():
 		if rule.rule.startswith(SKIP_PREFIXES):
 			continue
@@ -44,14 +47,16 @@ def _routes(app):
 
 
 def test_route_inventory_is_complete(app):
-	# Guard for the matrix itself: all blueprint routes are discovered.
-	# 74 @bp.route rules -> 73 endpoints (properties create/quick_create share
-	# one). A floor, so adding routes never breaks this.
+	"""Guard for the matrix itself: all blueprint routes are discovered.
+	74 @bp.route rules -> 73 endpoints (properties create/quick_create share
+	one). A floor, so adding routes never breaks this."""
 	endpoints = {r.endpoint for r, _ in _routes(app)}
 	assert len({e for e in endpoints if "." in e}) >= 73, sorted(endpoints)
 
 
 def test_unauthenticated_requests_are_refused(app, client_for):
+	"""Signed out, every non-public route redirects to the sign-in (/?next=);
+	the status-only ones (Grafana's auth check) answer their bare status (401)."""
 	client = client_for()
 	failures = []
 	for rule, method in _routes(app):
@@ -69,6 +74,8 @@ def test_unauthenticated_requests_are_refused(app, client_for):
 
 
 def test_non_admins_are_refused_on_admin_routes(app, client_for, make_user):
+	"""Every /admin route refuses an operator: a page request is redirected to
+	/dashboard, an XHR gets 403."""
 	user = make_user(role="operator")
 	page, xhr = client_for(user), client_for(user, xhr=True)
 	failures = []
@@ -86,11 +93,13 @@ def test_non_admins_are_refused_on_admin_routes(app, client_for, make_user):
 
 
 def test_public_pages_render(client_for):
+	"""The sign-in page (/) and /register render (200) when signed out."""
 	client = client_for()
 	for path in ("/", "/register"):
 		assert client.get(path).status_code == 200, path
 
 
 def test_logout_when_not_logged_in_redirects_home(client_for):
+	"""/logout without a session redirects to /."""
 	resp = client_for().get("/logout")
 	assert resp.status_code == 302 and resp.headers["Location"] == "/"

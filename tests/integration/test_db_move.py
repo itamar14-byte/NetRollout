@@ -54,6 +54,8 @@ def target():
 
 @pytest.fixture
 def mover(app, monkeypatch):
+	"""A DatabaseMove polling every 50 ms (the restart stubbed out); afterwards the
+	maintenance ended, the app back on the test database and runtime.env restored."""
 	home = app.backend.postgres.config
 	monkeypatch.setattr(app.shutdown, "begin", lambda *a, **k: True)
 	runtime_env = app.backend._CONFIG_ENV
@@ -69,6 +71,7 @@ def mover(app, monkeypatch):
 
 
 def _wait(mover, timeout=60):
+	"""Wait until the move has ended (asserted) and return its status."""
 	end = time.time() + timeout
 	while mover.running and time.time() < end:
 		time.sleep(0.05)
@@ -82,6 +85,8 @@ def _rows(engine, sql):
 
 
 def test_checking_a_prepared_target(target):
+	"""A prepared target passes the check: empty, schema nr, the other app's table
+	listed and noted as left alone."""
 	report = move.check_target(target)
 	assert report.ok, report.problems
 	assert report.contents == move.EMPTY and report.schema == "nr"
@@ -90,6 +95,7 @@ def test_checking_a_prepared_target(target):
 
 
 def test_a_table_under_one_of_netrollouts_names_refuses_it(target):
+	"""Another table named users in the target schema is a clash: refused, naming it."""
 	owner = create_engine(target.get_url())
 	with owner.begin() as c:
 		c.execute(text("CREATE TABLE nr.users (id int)"))
@@ -100,6 +106,7 @@ def test_a_table_under_one_of_netrollouts_names_refuses_it(target):
 
 
 def test_a_login_without_rights_on_the_schema_is_refused(target):
+	"""A login with no rights on the target schema is refused: it can't create tables."""
 	with _admin_engine().connect() as c:
 		c.execute(text(f'DROP ROLE IF EXISTS nr_move_nobody'))
 		c.execute(text("CREATE ROLE nr_move_nobody LOGIN PASSWORD 'x-pass-1'"))
@@ -114,12 +121,18 @@ def test_a_login_without_rights_on_the_schema_is_refused(target):
 
 
 def test_an_unreachable_server_is_refused():
+	"""A server nobody listens on is refused, "Couldn't connect" first."""
 	report = move.check_target(PostgresConfig(host="127.0.0.1", port="1", database="x",
 	                                          user="x", password="x"))
 	assert not report.ok and report.problems[0].startswith("Couldn't connect")
 
 
 def test_move_there_and_back(app, target, mover, make_user, make_profile):
+	"""A move ends done on the target with maintenance over: same users, the
+	credential decrypts, the other app's table untouched, database.moved audited,
+	the bundled address remembered in runtime.env, a before-move backup made.
+	Moving back returns to the bundled database with the same users and a
+	second database.moved row."""
 	admin = make_user(role="admin")
 	make_profile(admin, password="device-secret")
 	home = app.backend.postgres.config
@@ -156,6 +169,8 @@ def test_move_there_and_back(app, target, mover, make_user, make_profile):
 
 
 def test_the_same_database_or_a_refused_target_never_starts(app, target, mover):
+	"""A move to the database in use, or to a target with a clashing table, is
+	refused at start and maintenance never begins."""
 	with pytest.raises(move.MoveError, match="uses now"):
 		mover.start(app.backend.postgres.config, None, "admin")
 	owner = create_engine(target.get_url())
@@ -168,6 +183,9 @@ def test_the_same_database_or_a_refused_target_never_starts(app, target, mover):
 
 
 def test_cancelled_while_waiting_for_rollouts(app, target, mover, monkeypatch):
+	"""A move waiting for a running rollout refuses new rollouts; cancelled, it ends
+	cancelled, maintenance over, rollouts accepted again, database.move_cancelled
+	audited."""
 	monkeypatch.setattr(app.orchestrator, "idle", lambda: False)    # a rollout runs
 	mover.start(target, None, "admin")
 	assert app.orchestrator.refusal() is not None
@@ -182,6 +200,8 @@ def test_cancelled_while_waiting_for_rollouts(app, target, mover, monkeypatch):
 
 
 def test_rollouts_still_running_after_the_wait_give_the_move_up(app, target, monkeypatch, mover):
+	"""Rollouts still running when the wait runs out fail the move ("Cancel the
+	stuck rollouts") and maintenance ends."""
 	monkeypatch.setattr(app.orchestrator, "idle", lambda: False)
 	short = DatabaseMove(app, wait_seconds=0.3, poll_seconds=0.05)
 	short.start(target, None, "admin")
@@ -191,6 +211,8 @@ def test_rollouts_still_running_after_the_wait_give_the_move_up(app, target, mon
 
 
 def test_a_failed_copy_leaves_everything_as_it_was(app, target, mover, monkeypatch):
+	"""A copy that fails ends the move failed with its message, the app still on
+	its database, maintenance over and database.move_failed audited."""
 	home = app.backend.postgres.config
 
 	def broken(*a, **k):

@@ -71,6 +71,8 @@ def results(*statuses):
 # ── Arguments ────────────────────────────────────────────────────────────────
 
 def test_get_args_parses_short_and_long_flags(monkeypatch):
+	"""-d, --commands, -vf and --verbose are parsed into devices, commands,
+	verify and verbose."""
 	monkeypatch.setattr(sys, "argv", ["cli.py", "-d", "d.csv", "--commands",
 	                                  "c.txt", "-vf", "--verbose"])
 	args = cli.get_args()
@@ -79,6 +81,7 @@ def test_get_args_parses_short_and_long_flags(monkeypatch):
 
 
 def test_get_args_defaults(monkeypatch):
+	"""With no flags: no paths, verify and verbose off."""
 	monkeypatch.setattr(sys, "argv", ["cli.py"])
 	args = cli.get_args()
 	assert (args.devices, args.commands, args.verify, args.verbose) == \
@@ -88,6 +91,8 @@ def test_get_args_defaults(monkeypatch):
 # ── Happy path ───────────────────────────────────────────────────────────────
 
 def test_rollout_runs_with_parsed_devices_and_commands(files, run_cli):
+	"""A full-flag run hands the engine the parsed device and commands, verify
+	off and not webapp, asks nothing but the closing pause, exits 0."""
 	devices, commands = files()
 	code, engine, prompts = run_cli(["-d", devices, "-c", commands])
 	assert code == 0
@@ -104,6 +109,7 @@ def test_rollout_runs_with_parsed_devices_and_commands(files, run_cli):
 
 
 def test_verify_and_verbose_flags_reach_the_engine(files, run_cli):
+	"""-vf and -v reach the engine as verify and verbose on."""
 	devices, commands = files()
 	_, engine, _ = run_cli(["-d", devices, "-c", commands, "-vf", "-v"])
 	param = engine_args(engine)["param"]
@@ -115,6 +121,8 @@ def test_verify_and_verbose_flags_reach_the_engine(files, run_cli):
 @pytest.mark.parametrize("answer,expected", [("y", True), ("Y", True),
                                              ("n", False), ("", False)])
 def test_prompts_for_missing_paths_and_verify(files, run_cli, answer, expected):
+	"""Without flags it asks for both paths (quotes stripped), verify and the
+	confirmation; y/Y turn verify on, n or nothing leave it off."""
 	devices, commands = files()
 	# paths dragged into a Windows terminal arrive wrapped in quotes
 	code, engine, prompts = run_cli(
@@ -128,6 +136,7 @@ def test_prompts_for_missing_paths_and_verify(files, run_cli, answer, expected):
 
 
 def test_only_devices_given_prompts_for_commands_and_verify(files, run_cli):
+	"""With only -d it asks for the commands path and verify; "y" turns verify on."""
 	devices, commands = files()
 	_, engine, prompts = run_cli(["-d", devices], answers=[commands, "y", "y"])
 	assert prompts[:2] == ["Enter commands file path: ",
@@ -138,6 +147,7 @@ def test_only_devices_given_prompts_for_commands_and_verify(files, run_cli):
 # ── Input errors: abort before any rollout ───────────────────────────────────
 
 def test_missing_devices_file_exits_2(files, run_cli, tmp_path):
+	"""A devices file that doesn't exist exits 2 without a rollout."""
 	_, commands = files()
 	code, engine, _ = run_cli(["-d", str(tmp_path / "nope.csv"),
 	                           "-c", commands])
@@ -145,12 +155,15 @@ def test_missing_devices_file_exits_2(files, run_cli, tmp_path):
 
 
 def test_wrong_commands_extension_exits_2(files, run_cli):
+	"""A commands file that isn't .txt exits 2 without a rollout."""
 	devices, commands = files(commands_name="commands.cfg")
 	code, engine, _ = run_cli(["-d", devices, "-c", commands])
 	assert code == 2 and not engine.called
 
 
 def test_bad_rows_are_skipped_and_good_rows_still_run(files, run_cli):
+	"""Rows with a bad IP, an unknown platform or no credentials are skipped; the
+	good row runs, its device type lowercased, and the run exits 0."""
 	rows = ("999.0.0.1,admin,pw,cisco_ios,,22\n"       # bad ip
 	        "10.0.0.2,admin,pw,not_a_platform,,22\n"    # bad platform
 	        "10.0.0.3,,,cisco_ios,,22\n"                # no credentials
@@ -164,12 +177,15 @@ def test_bad_rows_are_skipped_and_good_rows_still_run(files, run_cli):
 
 
 def test_no_valid_devices_exits_2(files, run_cli):
+	"""No valid device row exits 2 without a rollout."""
 	devices, commands = files(rows="999.0.0.1,admin,pw,cisco_ios,,22\n")
 	code, engine, _ = run_cli(["-d", devices, "-c", commands])
 	assert code == 2 and not engine.called
 
 
 def test_unreachable_devices_are_dropped(files, run_cli):
+	"""Unreachable devices are dropped; none left exits 2 without a rollout,
+	ending with the "Press Enter to exit" pause."""
 	devices, commands = files()
 	code, engine, prompts = run_cli(["-d", devices, "-c", commands],
 	                                reachable=False)
@@ -179,6 +195,7 @@ def test_unreachable_devices_are_dropped(files, run_cli):
 
 
 def test_empty_commands_file_exits_2(files, run_cli):
+	"""An empty commands file exits 2 without a rollout."""
 	devices, commands = files(commands="")
 	code, engine, _ = run_cli(["-d", devices, "-c", commands])
 	assert code == 2 and not engine.called
@@ -197,6 +214,9 @@ def test_empty_commands_file_exits_2(files, run_cli):
 ])
 def test_exit_code_reflects_device_outcomes(files, run_cli, statuses,
                                             expected):
+	"""The exit code follows the devices' outcomes: 0 all succeeded, 1 mixed
+	(success with failed or cancelled; partial with failed), 2 nothing
+	applied (only failed / cancelled, or no results)."""
 	devices, commands = files()
 	code, _, _ = run_cli(["-d", devices, "-c", commands], statuses=statuses)
 	assert code == expected
@@ -205,6 +225,8 @@ def test_exit_code_reflects_device_outcomes(files, run_cli, statuses,
 # ── Ctrl+C ───────────────────────────────────────────────────────────────────
 
 def test_ctrl_c_sets_cancel_and_exits_130(files, run_cli):
+	"""Ctrl+C during the push sets the engine's cancel flag and exits 130
+	without the closing pause."""
 	devices, commands = files()
 	seen = {}
 
@@ -221,6 +243,7 @@ def test_ctrl_c_sets_cancel_and_exits_130(files, run_cli):
 # ── Commands file: same rules as the web path ───────────────────────────────
 
 def test_blank_command_lines_are_ignored(files, run_cli):
+	"""Empty and whitespace-only lines in the commands file are dropped."""
 	devices, commands = files(commands="hostname r1\n\n   \nntp server 1.1.1.1\n")
 	_, engine, _ = run_cli(["-d", devices, "-c", commands])
 	assert engine_args(engine)["commands"] == ["hostname r1",
@@ -228,7 +251,8 @@ def test_blank_command_lines_are_ignored(files, run_cli):
 
 
 def test_utf8_bom_commands_file(files, run_cli):
-	# Notepad's "UTF-8 with BOM" used to glue U+FEFF to the first command
+	"""Notepad's "UTF-8 with BOM" used to glue U+FEFF to the first command: the
+	first command is read without it."""
 	devices, commands = files(
 		commands_bytes="hostname r1\nntp server 1.1.1.1\n".encode("utf-8-sig"))
 	_, engine, _ = run_cli(["-d", devices, "-c", commands])
@@ -236,6 +260,7 @@ def test_utf8_bom_commands_file(files, run_cli):
 
 
 def test_non_utf8_commands_file_exits_2(files, run_cli):
+	"""A commands file that isn't UTF-8 (cp1252) exits 2 without a rollout."""
 	devices, commands = files(commands_bytes="description café\n".encode("cp1252"))
 	code, engine, _ = run_cli(["-d", devices, "-c", commands])
 	assert code == 2 and not engine.called
@@ -244,7 +269,8 @@ def test_non_utf8_commands_file_exits_2(files, run_cli):
 # ── Non-interactive use ──────────────────────────────────────────────────────
 
 def test_non_interactive_run_exits_cleanly(files, monkeypatch):
-	# the final "Press Enter" prompt used to raise EOFError without a tty
+	"""The final "Press Enter" prompt used to raise EOFError without a tty: with
+	no stdin the run still pushes once and exits 0."""
 	devices, commands = files()
 	monkeypatch.setattr(sys, "argv", ["cli.py", "-d", devices, "-c", commands])
 
@@ -270,6 +296,8 @@ WEB_STACK = {"flask", "sqlalchemy", "redis", "psycopg2", "alembic",
 
 
 def test_the_cli_loads_nothing_from_the_web_stack():
+	"""Importing src.cli in a fresh interpreter loads no module of the web stack
+	(WEB_STACK)."""
 	# A fresh interpreter: this test session has the web app loaded already
 	probe = ("import json, sys, src.cli; "
 	         "print(json.dumps(sorted({m.split('.')[0] for m in sys.modules})))")
@@ -280,6 +308,7 @@ def test_the_cli_loads_nothing_from_the_web_stack():
 
 
 def test_version_flag(capsys, monkeypatch):
+	"""--version prints "NetRollout CLI <version>" and exits 0."""
 	monkeypatch.setattr(sys, "argv", ["netrollout-cli", "--version"])
 	with pytest.raises(SystemExit) as exit_info:
 		cli.get_args()
@@ -290,6 +319,8 @@ def test_version_flag(capsys, monkeypatch):
 # ── Interactive safety: retry a typo, confirm before the push ──
 
 def test_a_mistyped_path_is_asked_again(files, run_cli, tmp_path):
+	"""A path that doesn't exist, or nothing, is asked for again until a file
+	is given; the run then goes ahead."""
 	devices, commands = files()
 	code, engine, prompts = run_cli(
 		[], answers=[str(tmp_path / "typo.csv"), "", devices, commands, "n", "y"])
@@ -298,6 +329,7 @@ def test_a_mistyped_path_is_asked_again(files, run_cli, tmp_path):
 
 
 def test_declining_the_confirmation_pushes_nothing(files, run_cli):
+	"""Answering "n" to "About to push…" exits 2 without a rollout."""
 	devices, commands = files()
 	code, engine, prompts = run_cli([], answers=[devices, commands, "n", "n"])
 	assert code == 2 and not engine.called
@@ -305,7 +337,7 @@ def test_declining_the_confirmation_pushes_nothing(files, run_cli):
 
 
 def test_full_flag_runs_never_ask(files, run_cli):
-	# scripts: no confirmation; only the closing pause (skipped without a tty)
+	"""Scripts: no confirmation; only the closing pause (skipped without a tty)."""
 	devices, commands = files()
 	_, engine, prompts = run_cli(["-d", devices, "-c", commands])
 	assert engine.called and prompts == ["Press Enter to exit..."]
@@ -317,6 +349,7 @@ def test_full_flag_runs_never_ask(files, run_cli):
 ])
 def test_the_verify_choice_is_always_shown(files, run_cli, capsys, argv,
                                            expected):
+	"""The verify choice is always printed: off (with the hint to add -vf) or on."""
 	devices, commands = files()
 	run_cli(["-d", devices, "-c", commands, *argv])
 	assert expected in capsys.readouterr().out

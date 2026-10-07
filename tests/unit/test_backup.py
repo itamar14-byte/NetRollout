@@ -17,6 +17,7 @@ HEAD_KNOWN = "v1_0_0_baseline"
 def make_zip(folder, name="netrollout-1.0.0-20261005-020000-scheduled.zip", *,
              version="1.0.0", revision=HEAD_KNOWN, tables=None, members=None,
              grafana=False):
+	"""Write a backup zip (manifest + a CSV per table + the key, or `members`)."""
 	tables = {"users": 1} if tables is None else tables
 	manifest = backup.Manifest(backup.FORMAT, version, "2026-10-05T02:00:00",
 	                           name.rsplit("-", 1)[1].removesuffix(".zip"),
@@ -34,11 +35,14 @@ def make_zip(folder, name="netrollout-1.0.0-20261005-020000-scheduled.zip", *,
 # ── check: refused before anything is touched ────────────────────────────────
 
 def test_a_backup_from_this_or_an_older_version_is_accepted(tmp_path):
+	"""check accepts a 1.0.0 backup on 1.0.1 and on 1.0.0, returning its manifest."""
 	assert backup.check(make_zip(tmp_path, version="1.0.0"), "1.0.1").version == "1.0.0"
 	assert backup.check(make_zip(tmp_path, version="1.0.0"), "1.0.0")
 
 
 def test_a_backup_from_a_newer_version_is_refused(tmp_path):
+	"""check refuses a backup from a newer version, including a release's backup
+	on that release's own development build (1.0.0 on 1.0.0.dev0)."""
 	with pytest.raises(backup.BackupError, match="newer than this one"):
 		backup.check(make_zip(tmp_path, version="1.1.0"), "1.0.0")
 	# a release is newer than its own development build
@@ -47,11 +51,14 @@ def test_a_backup_from_a_newer_version_is_refused(tmp_path):
 
 
 def test_a_database_level_this_version_doesnt_know_is_refused(tmp_path):
+	"""A migration revision this code doesn't know is refused, whatever the version."""
 	with pytest.raises(backup.BackupError, match="doesn't know"):
 		backup.check(make_zip(tmp_path, revision="from_the_future"), "9.9.9")
 
 
 def test_an_incomplete_backup_is_refused(tmp_path):
+	"""A zip missing a table's CSV or the key is refused naming what's missing; so
+	is one whose manifest lists Grafana without a grafana.db."""
 	path = make_zip(tmp_path, tables={"users": 1, "audit_log": 3},
 	                members={"db/users.csv": "id\n"})
 	with pytest.raises(backup.BackupError, match="missing db/audit_log.csv, encryption.key"):
@@ -62,6 +69,7 @@ def test_an_incomplete_backup_is_refused(tmp_path):
 
 
 def test_a_file_that_isnt_a_backup_is_refused(tmp_path):
+	"""A file that isn't a zip is refused as not a backup; a missing file as not existing."""
 	path = tmp_path / "netrollout-1.0.0-20261005-020000-manual.zip"
 	path.write_text("not a zip")
 	with pytest.raises(backup.BackupError, match="isn't a NetRollout backup"):
@@ -73,6 +81,8 @@ def test_a_file_that_isnt_a_backup_is_refused(tmp_path):
 # ── the list and retention ───────────────────────────────────────────────────
 
 def test_the_list_is_newest_first_and_only_netrollout_backups(tmp_path):
+	"""list_backups lists backup-named zips newest first, a broken one with its
+	problem and no manifest, and leaves out other files and partial ones."""
 	make_zip(tmp_path, "netrollout-1.0.0-20261003-020000-scheduled.zip")
 	make_zip(tmp_path, "netrollout-1.0.0-20261005-091500-manual.zip")
 	(tmp_path / "netrollout-1.0.0-20261004-020000-scheduled.zip").write_text("bad")
@@ -87,6 +97,8 @@ def test_the_list_is_newest_first_and_only_netrollout_backups(tmp_path):
 
 
 def test_retention_deletes_only_the_oldest_scheduled_backups(tmp_path):
+	"""prune(keep=2) deletes the two oldest of four scheduled backups and keeps
+	the older manual and before-restore ones."""
 	for day in ("01", "02", "03", "04"):
 		make_zip(tmp_path, f"netrollout-1.0.0-202610{day}-020000-scheduled.zip")
 	make_zip(tmp_path, "netrollout-1.0.0-20260930-120000-manual.zip")
@@ -104,6 +116,9 @@ def test_retention_deletes_only_the_oldest_scheduled_backups(tmp_path):
 # ── one at a time ────────────────────────────────────────────────────────────
 
 def test_a_second_backup_waits_its_turn_and_a_crashed_ones_lock_expires(tmp_path):
+	"""A second lock while one is held is refused ("Another backup or restore"),
+	the lock file is gone after release, and a lock file older than the stale
+	limit is taken over."""
 	with backup._lock(tmp_path):
 		with pytest.raises(backup.BackupError, match="Another backup or restore"):
 			with backup._lock(tmp_path):
@@ -128,6 +143,9 @@ def zip_with(tmp_path, files):
 
 
 def test_the_certificate_comes_with_its_markers_and_nothing_else(tmp_path):
+	"""Restoring an organisation's certificate replaces it, drops this install's
+	self-signed marker, skips files that aren't certificate files and leaves
+	other files in the folder alone."""
 	certs = tmp_path / "certs"
 	certs.mkdir()
 	(certs / "fullchain.pem").write_text("self-signed")
@@ -145,6 +163,7 @@ def test_the_certificate_comes_with_its_markers_and_nothing_else(tmp_path):
 
 
 def test_a_backup_without_a_certificate_keeps_this_installs(tmp_path):
+	"""A backup with no certs/ writes nothing and this install's certificate stays."""
 	certs = tmp_path / "certs"
 	certs.mkdir()
 	(certs / "fullchain.pem").write_text("current")
@@ -155,6 +174,8 @@ def test_a_backup_without_a_certificate_keeps_this_installs(tmp_path):
 
 
 def test_only_rollout_logs_are_restored_and_never_outside_the_folder(tmp_path):
+	"""Only rollout logs and unsaved-results files are restored (not install.log),
+	and a ../ path lands inside logs/, never outside it."""
 	logs = tmp_path / "logs"
 	with zip_with(tmp_path, {"logs/rollout_x_job.log": "a",
 	                         "logs/unsaved-results-job.json": "{}",
@@ -168,7 +189,8 @@ def test_only_rollout_logs_are_restored_and_never_outside_the_folder(tmp_path):
 
 
 def test_a_staged_copy_is_named_as_the_file_chosen(tmp_path):
-	# the scripts stage a backup from elsewhere as .restoring-<its name>
+	"""The scripts stage a backup from elsewhere as .restoring-<its name>: a refusal
+	names the file chosen, without the staging prefix."""
 	path = make_zip(tmp_path, backup.STAGED_PREFIX + "my copy.zip", version="9.9.9")
 	with pytest.raises(backup.BackupError) as refused:
 		backup.check(path, "1.0.0")

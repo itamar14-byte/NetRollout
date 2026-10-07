@@ -33,6 +33,7 @@ def maintenance(app, monkeypatch):
 
 @pytest.fixture
 def locked(maintenance, admin):
+	"""Maintenance begun by the admin and locked at once (no rollouts run here)."""
 	assert maintenance.begin(WHAT, admin.id)
 	assert maintenance.lock()          # the test app runs no rollouts
 	return maintenance
@@ -45,6 +46,8 @@ def _audit_rows(app):
 
 def test_every_route_but_the_read_only_ones_is_refused_while_locked(
 		app, admin, client_for, locked):
+	"""Locked: every route but SERVED_WHILE_LOCKED answers 503 with Retry-After,
+	to a page and to an XHR alike, and nothing is written to the audit log."""
 	before = _audit_rows(app)
 	page, xhr = client_for(admin), client_for(admin, xhr=True)
 	failures = []
@@ -60,12 +63,16 @@ def test_every_route_but_the_read_only_ones_is_refused_while_locked(
 
 
 def test_signed_out_people_get_it_too(app, client_for, locked):
+	"""Locked: the sign-in page and a sign-in attempt get 503 ("under
+	maintenance") too."""
 	resp = client_for().get("/")
 	assert resp.status_code == 503 and b"under maintenance" in resp.data
 	assert client_for().post("/login", data={"username": "admin", "password": "x"}).status_code == 503
 
 
 def test_pages_get_the_maintenance_page_and_requests_json(admin, client_for, locked):
+	"""Locked: a page gets the maintenance page with the progress text, a
+	request gets 503 JSON with maintenance true and what is going on."""
 	locked.report("Copying the data - audit_log")
 	page = client_for(admin).get("/dashboard")
 	assert page.status_code == 503
@@ -76,6 +83,8 @@ def test_pages_get_the_maintenance_page_and_requests_json(admin, client_for, loc
 
 
 def test_health_stays_200_and_says_so(app, locked):
+	"""Locked: health still answers 200, with the maintenance state and
+	progress."""
 	locked.report("Switching")
 	resp = app.test_client().get("/_netrollout/health")
 	assert resp.status_code == 200
@@ -83,6 +92,7 @@ def test_health_stays_200_and_says_so(app, locked):
 
 
 def test_nothing_is_audited_while_locked(app, admin, locked):
+	"""Locked: web.audit writes no audit row."""
 	before = _audit_rows(app)
 	with app.test_request_context("/"):
 		app.web.audit("auth.login", username="someone")
@@ -91,6 +101,9 @@ def test_nothing_is_audited_while_locked(app, admin, locked):
 
 def test_waiting_pauses_rollouts_shows_a_banner_and_writes_as_usual(
 		app, admin, client_for, maintenance):
+	"""Waiting: only one maintenance at a time, rollouts are refused with
+	PAUSED_MESSAGE, pages show the banner, health says waiting, and audit
+	rows are still written."""
 	assert maintenance.begin(WHAT, admin.id)
 	assert maintenance.begin(WHAT, admin.id) is False          # one at a time
 	assert app.orchestrator.refusal() == PAUSED_MESSAGE
@@ -104,6 +117,8 @@ def test_waiting_pauses_rollouts_shows_a_banner_and_writes_as_usual(
 
 
 def test_locking_waits_for_the_rollouts(app, admin, maintenance, monkeypatch):
+	"""lock() refuses (state stays waiting) while the orchestrator isn't idle,
+	and locks once it is."""
 	assert maintenance.begin(WHAT, admin.id)
 	monkeypatch.setattr(app.orchestrator, "idle", lambda: False)
 	assert maintenance.lock() is False and maintenance.state == WAITING
@@ -112,6 +127,8 @@ def test_locking_waits_for_the_rollouts(app, admin, maintenance, monkeypatch):
 
 
 def test_the_end_resumes_rollouts_and_the_site(app, admin, client_for, locked):
+	"""end() goes back to idle: rollouts are accepted, pages served, health
+	shows no maintenance."""
 	locked.end()
 	assert locked.state == IDLE and app.orchestrator.refusal() is None
 	assert client_for(admin).get("/dashboard").status_code == 200

@@ -22,6 +22,8 @@ TOKEN = "a" * 32
 
 def test_public_url_precedence():
 	# no hostname set: https://localhost
+	"""Without a hostname the public URL is https://localhost (the default source);
+	a URL from System Settings wins, its trailing slash dropped."""
 	assert resolve_public_url() == ("https://localhost", startup.DEFAULT_SOURCE)
 	assert resolve_public_url(None) == ("https://localhost", startup.DEFAULT_SOURCE)
 	# the URL built from System Settings wins
@@ -64,6 +66,8 @@ def serve(handler_body, tls=False, tmp_path=None):
 
 
 def self_signed(tmp_path):
+	"""Writes a one-day self-signed certificate for netrollout.test and its key;
+	returns their paths."""
 	key = ec.generate_private_key(ec.SECP256R1())
 	name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "netrollout.test")])
 	now = datetime.datetime.now(datetime.timezone.utc)
@@ -80,11 +84,15 @@ def self_signed(tmp_path):
 
 
 def json_body(token):
+	"""An instance answer carrying this token."""
 	return 200, {"Content-Type": "application/json"}, json.dumps(
 		{"instance": token}).encode()
 
 
 def test_probe_matches_our_token_over_self_signed_tls(tmp_path):
+	"""Over self-signed TLS, connecting to 127.0.0.1 while presenting another
+	hostname, the probe matches our token and the server sees that hostname and
+	port in Host."""
 	port, hosts, stop = serve(lambda _: json_body(TOKEN), tls=True,
 	                          tmp_path=tmp_path)
 	try:
@@ -105,6 +113,8 @@ def test_probe_matches_our_token_over_self_signed_tls(tmp_path):
 	((301, {"Location": "https://x/"}, b""), "301 redirect to https://x/ — use that address as the Public URL"),
 ])
 def test_probe_reports_why(response, reason):
+	"""A probe that doesn't find our token says why: another instance's token, an HTTP
+	error, a non-JSON page, a 502 from nginx, or a redirect (with its target)."""
 	port, _, stop = serve(lambda _: response)
 	try:
 		result = probe(f"http://127.0.0.1:{port}", TOKEN)
@@ -114,6 +124,8 @@ def test_probe_reports_why(response, reason):
 
 
 def test_probe_tls_against_plain_http_and_nothing_listening():
+	"""HTTPS against a plain HTTP server is a TLS handshake failure; a closed port is
+	unreachable and named; a non-URL is "not a valid URL"."""
 	port, _, stop = serve(lambda _: json_body(TOKEN))
 	try:
 		assert probe(f"https://127.0.0.1:{port}", TOKEN).reason.startswith(
@@ -132,6 +144,8 @@ OK, FAIL = Probe(True, ""), Probe(False, "HTTP 404 — something else")
 
 
 def test_message_when_verified():
+	"""A verified public URL gives "Available at" it and opens it, even when the local
+	probe failed (nginx on another machine)."""
 	msg, target = announcement(8080, "https://nr.corp", "System Settings", OK, OK)
 	assert msg.startswith("Available at https://nr.corp")
 	assert target == "https://nr.corp"
@@ -142,6 +156,9 @@ def test_message_when_verified():
 
 
 def test_message_when_only_this_machine_cant_reach_the_public_url():
+	"""Local probe ok but public one failing: the message says nginx forwards to this
+	instance but the URL isn't reachable from here, and the target is the app's
+	direct address."""
 	msg, target = announcement(8080, "https://nr.corp", "NETROLLOUT_PUBLIC_URL",
 	                           OK, Probe(False, "timed out connecting to nr.corp:443"))
 	assert "nginx is up and forwarding to this instance" in msg
@@ -150,6 +167,10 @@ def test_message_when_only_this_machine_cant_reach_the_public_url():
 
 
 def test_message_when_not_verified():
+	"""Neither probe ok: "Reverse proxy not verified", the local fallback (this
+	machine only), the remote warning and, when nothing listened, the hostname and
+	HTTPS port hint; target the direct address. No URL: "No reverse proxy
+	configured". nginx answering wrongly: no port hint."""
 	msg, target = announcement(9090, "https://localhost", startup.DEFAULT_SOURCE,
 	                           Probe(False, "nothing listening on 127.0.0.1:443", True),
 	                           Probe(False, "nothing listening on localhost:443", True))
@@ -178,12 +199,18 @@ def test_message_when_not_verified():
 	({"NETROLLOUT_OPEN_BROWSER": "off"}, "darwin", False, False),
 ])
 def test_should_open_browser(env, platform, container, expected):
+	"""The browser opens on Windows, or Linux with a DISPLAY; never on a headless
+	Linux, in a container, after an admin restart (NETROLLOUT_RELAUNCH), or with
+	NETROLLOUT_OPEN_BROWSER 0 / off."""
 	assert should_open_browser(env, platform, container) is expected
 
 
 # ── End to end: the announcer thread ────────────────────────────────────────
 
 def test_announcer_prints_the_verified_url(capsys, monkeypatch):
+	"""End to end: the announcer thread, with one local server as app and proxy,
+	prints "Available at" the URL as its first line (no blank line, name once) and
+	opens that URL."""
 	port, _, stop = serve(lambda _: json_body(TOKEN))
 	opened = []
 	monkeypatch.setattr(startup.webbrowser, "open", opened.append)

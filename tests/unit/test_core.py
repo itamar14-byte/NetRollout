@@ -1,3 +1,6 @@
+"""The rollout engine and its inputs: the pure input checks (validation), the
+rollout logger, Device, InputParser's device and command files, and
+RolloutEngine's push, verify and run - with Netmiko mocked."""
 import os
 import tempfile
 import threading
@@ -24,6 +27,7 @@ from src.validation import Validator
 # ---------------------------------------------------------------------------
 
 def make_device(**kwargs) -> Device:
+	"""A cisco_ios Device on 192.168.1.1:22 with credentials; kwargs override."""
 	defaults = dict(
 		ip="192.168.1.1",
 		username="admin",
@@ -50,71 +54,91 @@ def make_options(**kwargs) -> RolloutOptions:
 class TestValidateIp(unittest.TestCase):
 
 	def test_valid_ipv4(self):
+		"""A plain IPv4 address passes validate_ip."""
 		self.assertTrue(validation.validate_ip("192.168.1.1"))
 
 	def test_valid_ipv4_edge_zeros(self):
+		"""0.0.0.0 passes validate_ip."""
 		self.assertTrue(validation.validate_ip("0.0.0.0"))
 
 	def test_valid_ipv4_broadcast(self):
+		"""255.255.255.255 passes validate_ip."""
 		self.assertTrue(validation.validate_ip("255.255.255.255"))
 
 	def test_invalid_octet_out_of_range(self):
+		"""An octet above 255 fails validate_ip."""
 		self.assertFalse(validation.validate_ip("999.1.1.1"))
 
 	def test_invalid_missing_octet(self):
+		"""An address with only three octets fails validate_ip."""
 		self.assertFalse(validation.validate_ip("192.168.1"))
 
 	def test_invalid_empty_string(self):
+		"""An empty string fails validate_ip."""
 		self.assertFalse(validation.validate_ip(""))
 
 	def test_invalid_hostname(self):
+		"""A hostname fails validate_ip: only addresses are accepted."""
 		self.assertFalse(validation.validate_ip("router.local"))
 
 	def test_invalid_with_port(self):
+		"""An address with a :port suffix fails validate_ip."""
 		self.assertFalse(validation.validate_ip("192.168.1.1:22"))
 
 
 class TestValidatePort(unittest.TestCase):
 
 	def test_standard_ssh(self):
+		"""Port 22 passes validate_port."""
 		self.assertTrue(validation.validate_port("22"))
 
 	def test_min_port(self):
+		"""Port 0 fails validate_port."""
 		self.assertFalse(validation.validate_port("0"))
 
 	def test_max_port(self):
+		"""Port 65535, the highest, passes validate_port."""
 		self.assertTrue(validation.validate_port("65535"))
 
 	def test_above_max(self):
+		"""Port 65536 fails validate_port."""
 		self.assertFalse(validation.validate_port("65536"))
 
 	def test_negative(self):
+		"""A negative port fails validate_port."""
 		self.assertFalse(validation.validate_port("-1"))
 
 	def test_non_numeric(self):
+		"""A non-numeric port ("ssh") fails validate_port."""
 		self.assertFalse(validation.validate_port("ssh"))
 
 	def test_float_string(self):
+		"""A decimal port ("22.0") fails validate_port."""
 		self.assertFalse(validation.validate_port("22.0"))
 
 	def test_empty_string(self):
+		"""An empty string fails validate_port."""
 		self.assertFalse(validation.validate_port(""))
 
 
 class TestValidatePlatform(unittest.TestCase):
 
 	def test_all_supported_platforms(self):
+		"""Every platform in SUPPORTED_PLATFORMS passes validate_platform."""
 		for platform in validation.SUPPORTED_PLATFORMS:
 			with self.subTest(platform=platform):
 				self.assertTrue(validation.validate_platform(platform))
 
 	def test_unsupported_platform(self):
+		"""A device type not in the supported list fails validate_platform."""
 		self.assertFalse(validation.validate_platform("cisco_cat9k"))
 
 	def test_empty_string(self):
+		"""An empty string fails validate_platform."""
 		self.assertFalse(validation.validate_platform(""))
 
 	def test_case_sensitive(self):
+		"""validate_platform is case-sensitive: "Cisco_IOS" fails."""
 		self.assertFalse(validation.validate_platform("Cisco_IOS"))
 
 
@@ -125,6 +149,7 @@ class TestValidateDeviceData(unittest.TestCase):
 
 	@staticmethod
 	def _device(**overrides):
+		"""A valid device row (cisco_ios, 10.0.0.1:22, credentials); overrides win."""
 		base = {
 			"ip": "10.0.0.1",
 			"port": "22",
@@ -137,18 +162,23 @@ class TestValidateDeviceData(unittest.TestCase):
 		return base
 
 	def test_valid_device(self):
+		"""A complete, valid device row passes validate_device_data."""
 		self.assertTrue(self.validator.validate_device_data(self._device()))
 
 	def test_invalid_ip(self):
+		"""A row with an invalid ip fails validate_device_data."""
 		self.assertFalse(self.validator.validate_device_data(self._device(ip="bad_ip")))
 
 	def test_invalid_port(self):
+		"""A row with an out-of-range port fails validate_device_data."""
 		self.assertFalse(self.validator.validate_device_data(self._device(port="99999")))
 
 	def test_invalid_platform(self):
+		"""A row with an unknown device_type fails validate_device_data."""
 		self.assertFalse(self.validator.validate_device_data(self._device(device_type="unknown")))
 
 	def test_webapp_flag_does_not_affect_result(self):
+		"""A web app logger gives the same verdicts: valid passes, a bad ip fails."""
 		validator_web = Validator(RolloutLogger(webapp=True, verbose=False))
 		self.assertTrue(validator_web.validate_device_data(self._device()))
 		self.assertFalse(validator_web.validate_device_data(self._device(ip="x")))
@@ -160,6 +190,7 @@ class TestValidateFileExtension(unittest.TestCase):
 		self.validator = Validator(RolloutLogger(webapp=False, verbose=False))
 
 	def test_valid_csv(self):
+		"""An existing .csv file passes validate_file_extension for "csv"."""
 		with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as f:
 			path = f.name
 		try:
@@ -168,6 +199,7 @@ class TestValidateFileExtension(unittest.TestCase):
 			os.unlink(path)
 
 	def test_valid_txt(self):
+		"""An existing .txt file passes validate_file_extension for "txt"."""
 		with tempfile.NamedTemporaryFile(suffix=".txt", delete=False) as f:
 			path = f.name
 		try:
@@ -176,6 +208,7 @@ class TestValidateFileExtension(unittest.TestCase):
 			os.unlink(path)
 
 	def test_wrong_extension(self):
+		"""An existing .csv file fails validate_file_extension for "txt"."""
 		with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as f:
 			path = f.name
 		try:
@@ -184,9 +217,11 @@ class TestValidateFileExtension(unittest.TestCase):
 			os.unlink(path)
 
 	def test_file_not_found(self):
+		"""A path that doesn't exist fails validate_file_extension."""
 		self.assertFalse(self.validator.validate_file_extension("/nonexistent/path/file.csv", "csv"))
 
 	def test_case_insensitive_extension(self):
+		"""The extension check ignores case: a .CSV file passes for "csv"."""
 		with tempfile.NamedTemporaryFile(suffix=".CSV", delete=False) as f:
 			path = f.name
 		try:
@@ -199,6 +234,7 @@ class TestTcpPort(unittest.TestCase):
 
 	@patch("src.validation.socket.socket")
 	def test_reachable_on_first_attempt(self, mock_socket_cls):
+		"""tcp_reachable is True when the first connect succeeds."""
 		mock_sock = MagicMock()
 		mock_socket_cls.return_value.__enter__.return_value = mock_sock
 		mock_sock.connect.return_value = None
@@ -206,6 +242,7 @@ class TestTcpPort(unittest.TestCase):
 
 	@patch("src.validation.socket.socket")
 	def test_unreachable_after_all_retries(self, mock_socket_cls):
+		"""tcp_reachable is False when every connect attempt is refused."""
 		mock_sock = MagicMock()
 		mock_socket_cls.return_value.__enter__.return_value = mock_sock
 		mock_sock.connect.side_effect = OSError("refused")
@@ -214,6 +251,7 @@ class TestTcpPort(unittest.TestCase):
 
 	@patch("src.validation.socket.socket")
 	def test_succeeds_on_second_attempt(self, mock_socket_cls):
+		"""tcp_reachable retries: refused once, then connected, is True."""
 		mock_sock = MagicMock()
 		mock_socket_cls.return_value.__enter__.return_value = mock_sock
 		mock_sock.connect.side_effect = [OSError("refused"), None]
@@ -228,37 +266,44 @@ class TestTcpPort(unittest.TestCase):
 class TestMsg(unittest.TestCase):
 
 	def test_no_color_terminal(self):
+		"""On the console, a message without a colour is returned unchanged."""
 		logger = RolloutLogger(webapp=False, verbose=False)
 		self.assertEqual(logger._msg("hello"), "hello")
 
 	def test_red_terminal(self):
+		"""On the console, red wraps the message in ANSI escape codes."""
 		logger = RolloutLogger(webapp=False, verbose=False)
 		result = logger._msg("error", "red")
 		self.assertIn("error", result)
 		self.assertIn("\033[", result)
 
 	def test_green_terminal(self):
+		"""On the console, green wraps the message in ANSI escape codes."""
 		logger = RolloutLogger(webapp=False, verbose=False)
 		result = logger._msg("ok", "green")
 		self.assertIn("ok", result)
 		self.assertIn("\033[", result)
 
 	def test_webapp_red(self):
+		"""In the web app, red wraps the message in the text-danger class."""
 		logger = RolloutLogger(webapp=True, verbose=False)
 		result = logger._msg("error", "red")
 		self.assertIn("text-danger", result)
 		self.assertIn("error", result)
 
 	def test_webapp_green(self):
+		"""In the web app, green wraps the message in the text-success class."""
 		logger = RolloutLogger(webapp=True, verbose=False)
 		result = logger._msg("ok", "green")
 		self.assertIn("text-success", result)
 
 	def test_webapp_no_color(self):
+		"""In the web app, a message without a colour is returned unchanged."""
 		logger = RolloutLogger(webapp=True, verbose=False)
 		self.assertEqual(logger._msg("plain"), "plain")
 
 	def test_unknown_color_returns_plain(self):
+		"""An unknown colour name ("purple") leaves the message plain."""
 		logger = RolloutLogger(webapp=False, verbose=False)
 		self.assertEqual(logger._msg("hello", "purple"), "hello")
 
@@ -266,6 +311,7 @@ class TestMsg(unittest.TestCase):
 class TestLog(unittest.TestCase):
 
 	def test_writes_message_to_file(self):
+		"""_log writes the message into the logger's log file."""
 		with tempfile.NamedTemporaryFile(mode="r", suffix=".log", delete=False) as f:
 			path = f.name
 		try:
@@ -279,6 +325,7 @@ class TestLog(unittest.TestCase):
 			os.unlink(path)
 
 	def test_includes_timestamp(self):
+		"""Each _log line carries a YYYY-MM-DD HH:MM:SS timestamp."""
 		with tempfile.NamedTemporaryFile(mode="r", suffix=".log", delete=False) as f:
 			path = f.name
 		try:
@@ -292,6 +339,7 @@ class TestLog(unittest.TestCase):
 			os.unlink(path)
 
 	def test_appends_multiple_entries(self):
+		"""Two _log calls append two lines to the file."""
 		with tempfile.NamedTemporaryFile(mode="r", suffix=".log", delete=False) as f:
 			path = f.name
 		try:
@@ -317,6 +365,7 @@ class TestBaseNotify(unittest.TestCase):
 		os.unlink(self.logfile)
 
 	def test_verbose_terminal_prints(self):
+		"""On the console in verbose mode, notify prints the message once."""
 		logger = RolloutLogger(webapp=False, verbose=True)
 		logger.logfile = self.logfile
 		with patch("builtins.print") as mock_print:
@@ -324,6 +373,7 @@ class TestBaseNotify(unittest.TestCase):
 			mock_print.assert_called_once()
 
 	def test_non_verbose_terminal_does_not_print(self):
+		"""On the console without verbose, a plain green message isn't printed."""
 		logger = RolloutLogger(webapp=False, verbose=False)
 		logger.logfile = self.logfile
 		with patch("builtins.print") as mock_print:
@@ -331,7 +381,8 @@ class TestBaseNotify(unittest.TestCase):
 			mock_print.assert_not_called()
 
 	def _webapp_logger(self, verbose):
-		# Webapp mode streams to Redis (history list + pub/sub channel)
+		"""A web app logger for job-1 that streams to a mock Redis (history list +
+		pub/sub channel); returns (logger, redis client)."""
 		redis_client = MagicMock()
 		logger = RolloutLogger(webapp=True, verbose=verbose, job_id="job-1",
 							   redis_client=redis_client)
@@ -339,6 +390,8 @@ class TestBaseNotify(unittest.TestCase):
 		return logger, redis_client
 
 	def test_verbose_webapp_publishes(self):
+		"""A verbose web app logger pushes the message to the job's history and
+		publishes it once on job:job-1:logs."""
 		logger, redis_client = self._webapp_logger(verbose=True)
 		logger.notify("hello", "green")
 		redis_client.publish.assert_called_once()
@@ -346,18 +399,21 @@ class TestBaseNotify(unittest.TestCase):
 		self.assertEqual(redis_client.publish.call_args[0][0], "job:job-1:logs")
 
 	def test_non_verbose_webapp_does_not_publish(self):
+		"""A non-verbose web app logger keeps a plain green message out of Redis."""
 		logger, redis_client = self._webapp_logger(verbose=False)
 		logger.notify("hello", "green")
 		redis_client.publish.assert_not_called()
 		redis_client.rpush.assert_not_called()
 
 	def test_non_verbose_webapp_publishes_errors_and_important(self):
+		"""Without verbose, a red message and an important one are still published."""
 		logger, redis_client = self._webapp_logger(verbose=False)
 		logger.notify("boom", "red")
 		logger.notify("milestone", important=True)
 		self.assertEqual(redis_client.publish.call_count, 2)
 
 	def test_webapp_without_job_id_never_touches_redis(self):
+		"""A web app logger without a job id publishes nothing, even when important."""
 		redis_client = MagicMock()
 		logger = RolloutLogger(webapp=True, verbose=True,
 							   redis_client=redis_client)
@@ -366,6 +422,7 @@ class TestBaseNotify(unittest.TestCase):
 		redis_client.publish.assert_not_called()
 
 	def test_always_logs_to_file(self):
+		"""notify writes the message to the log file even when it isn't shown."""
 		logger = RolloutLogger(webapp=False, verbose=False)
 		logger.logfile = self.logfile
 		logger.notify("logged")
@@ -381,6 +438,8 @@ class TestBaseNotify(unittest.TestCase):
 class TestDeviceNetmikoConnector(unittest.TestCase):
 
 	def test_returns_dict_with_all_fields(self):
+		"""netmiko_connector returns a dict with ip, username, password,
+		device_type, port and secret."""
 		device = make_device()
 		params = device.netmiko_connector()
 		self.assertIsInstance(params, dict)
@@ -388,6 +447,7 @@ class TestDeviceNetmikoConnector(unittest.TestCase):
 			self.assertIn(key, params)
 
 	def test_values_match_device_fields(self):
+		"""netmiko_connector carries the device's own ip and port."""
 		device = make_device(ip="10.1.1.1", port=2222)
 		params = device.netmiko_connector()
 		self.assertEqual(params["ip"], "10.1.1.1")
@@ -403,6 +463,8 @@ class TestDeviceFetchConfig(unittest.TestCase):
 
 	@staticmethod
 	def _connection(mock_ch, output="interface GigabitEthernet0/0"):
+		"""A mock Netmiko connection at a CLI prompt whose show commands return
+		output, installed as mock_ch's return value."""
 		conn = MagicMock()
 		conn.__enter__.return_value = conn
 		conn.find_prompt.return_value = "dev>"      # a CLI prompt, not a shell
@@ -412,6 +474,8 @@ class TestDeviceFetchConfig(unittest.TestCase):
 
 	@patch("netmiko.ConnectHandler")
 	def test_returns_config_string_on_success(self, mock_ch):
+		"""fetch_config on cisco_ios sends "show running-config" once with
+		FETCH_TIMEOUT and returns its output."""
 		conn = self._connection(mock_ch)
 		result = make_device(device_type="cisco_ios").fetch_config(self.logger)
 		self.assertEqual(result, "interface GigabitEthernet0/0")
@@ -420,12 +484,15 @@ class TestDeviceFetchConfig(unittest.TestCase):
 
 	@patch("netmiko.ConnectHandler")
 	def test_uses_the_device_port(self, mock_ch):
+		"""fetch_config connects on the device's own port (2201), not 22."""
 		self._connection(mock_ch)
 		make_device(port=2201).fetch_config(self.logger)   # port-forwarded
 		self.assertEqual(mock_ch.call_args.kwargs["port"], 2201)
 
 	@patch("netmiko.ConnectHandler")
 	def test_every_platform_has_a_show_command(self, mock_ch):
+		"""For every platform in PLATFORMS, fetch_config sends exactly that
+		platform's show_config commands, in order."""
 		for device_type, platform in PLATFORMS.items():
 			conn = self._connection(mock_ch, output="set x")
 			make_device(device_type=device_type).fetch_config(self.logger)
@@ -434,6 +501,7 @@ class TestDeviceFetchConfig(unittest.TestCase):
 
 	@patch("netmiko.ConnectHandler")
 	def test_returns_none_on_connection_exception(self, mock_ch):
+		"""fetch_config returns None when the connection raises."""
 		mock_ch.side_effect = Exception("timeout")
 		self.assertIsNone(make_device().fetch_config(self.logger))
 
@@ -451,6 +519,7 @@ class TestPrepareDevices(unittest.TestCase):
 
 	@staticmethod
 	def _raw(**overrides):
+		"""A valid raw CSV row (cisco_ios, 10.0.0.1:22, credentials); overrides win."""
 		base = {
 			"ip": "10.0.0.1",
 			"username": "admin",
@@ -464,6 +533,7 @@ class TestPrepareDevices(unittest.TestCase):
 
 	@patch("src.validation.tcp_reachable", return_value=True)
 	def test_valid_device_is_added(self, _):
+		"""A valid, reachable row becomes one Device with no errors."""
 		devices, errors = self.parser.prepare_devices([self._raw()])
 		self.assertEqual(len(devices), 1)
 		self.assertEqual(errors, [])
@@ -471,22 +541,28 @@ class TestPrepareDevices(unittest.TestCase):
 
 	@patch("src.validation.tcp_reachable", return_value=False)
 	def test_unreachable_device_excluded(self, _):
+		"""An unreachable device is left out, with the error
+		"10.0.0.1:22 is not reachable"."""
 		devices, errors = self.parser.prepare_devices([self._raw()])
 		self.assertEqual(len(devices), 0)
 		self.assertEqual(errors, ["10.0.0.1:22 is not reachable"])
 
 	@patch("src.validation.tcp_reachable", return_value=True)
 	def test_invalid_ip_excluded(self, _):
+		"""A row with an invalid ip gives no device."""
 		devices, _ = self.parser.prepare_devices([self._raw(ip="bad")])
 		self.assertEqual(len(devices), 0)
 
 	@patch("src.validation.tcp_reachable", return_value=True)
 	def test_device_type_lowercased(self, _):
+		"""The device type is lowercased: CISCO_IOS becomes cisco_ios."""
 		devices, _ = self.parser.prepare_devices([self._raw(device_type="CISCO_IOS")])
 		self.assertEqual(devices[0].device_type, "cisco_ios")
 
 	@patch("src.validation.tcp_reachable", return_value=True)
 	def test_blank_cells_are_empty_values_not_missing_columns(self, _):
+		"""Blank secret and label cells are accepted: the secret stays "" and the
+		label falls back to the ip, with no errors."""
 		devices, errors = self.parser.prepare_devices(
 			[self._raw(secret="", label="")])
 		self.assertEqual(errors, [])
@@ -494,7 +570,8 @@ class TestPrepareDevices(unittest.TestCase):
 
 	@patch("src.validation.tcp_reachable", return_value=True)
 	def test_short_rows_from_csv_reader_are_tolerated(self, _):
-		# DictReader gives None for missing trailing cells
+		"""A None cell (DictReader gives None for missing trailing cells) still
+		gives one device and no errors."""
 		row = self._raw()
 		row["secret"] = None
 		devices, errors = self.parser.prepare_devices([row])
@@ -502,6 +579,8 @@ class TestPrepareDevices(unittest.TestCase):
 
 	@patch("src.validation.tcp_reachable", return_value=True)
 	def test_bad_row_is_reported_and_does_not_abort_the_rest(self, _):
+		"""Of four rows, the bad-ip row 2 and the empty ip/port row 3 are reported
+		by row number; rows 1 and 4 still become devices."""
 		rows = [self._raw(ip="10.0.0.1"), self._raw(ip="bad"),
 				self._raw(ip="", port=""), self._raw(ip="10.0.0.4")]
 		devices, errors = self.parser.prepare_devices(rows)
@@ -512,6 +591,8 @@ class TestPrepareDevices(unittest.TestCase):
 
 	@patch("src.validation.tcp_reachable", return_value=True)
 	def test_credentials_required_only_when_asked(self, _):
+		"""A row without credentials is refused ("username and password") by
+		default, and accepted with require_credentials=False."""
 		row = {"ip": "10.0.0.1", "device_type": "cisco_ios", "port": "22"}
 		devices, errors = self.parser.prepare_devices([dict(row)])
 		self.assertEqual(devices, [])
@@ -522,6 +603,7 @@ class TestPrepareDevices(unittest.TestCase):
 
 	@patch("src.validation.tcp_reachable", return_value=True)
 	def test_multiple_devices(self, _):
+		"""Three valid rows give three devices."""
 		raw = [self._raw(ip=f"10.0.0.{i}") for i in range(1, 4)]
 		devices, _ = self.parser.prepare_devices(raw)
 		self.assertEqual(len(devices), 3)
@@ -542,6 +624,8 @@ class TestParseFiles(unittest.TestCase):
 
 	@staticmethod
 	def _write_csv(path, rows):
+		"""Write a devices CSV (ip, username, password, device_type, secret,
+		port) with these rows."""
 		with open(path, "w", encoding="utf-8") as f:
 			f.write("ip,username,password,device_type,secret,port\n")
 			for row in rows:
@@ -556,6 +640,7 @@ class TestParseFiles(unittest.TestCase):
 
 	@patch("src.validation.tcp_reachable", return_value=True)
 	def test_csv_to_inventory_returns_devices(self, _):
+		"""csv_to_inventory turns a one-row devices CSV into one Device."""
 		with tempfile.TemporaryDirectory() as tmpdir:
 			csv_path = os.path.join(tmpdir, "devices.csv")
 			self._write_csv(csv_path, [
@@ -567,10 +652,12 @@ class TestParseFiles(unittest.TestCase):
 		self.assertIsInstance(devices[0], Device)
 
 	def test_csv_to_inventory_nonexistent_file_returns_empty(self):
+		"""csv_to_inventory on a missing file gives no devices."""
 		devices = self.parser.csv_to_inventory("/no/such/file.csv", self.user_id, self.db_session).devices
 		self.assertEqual(devices, [])
 
 	def test_csv_to_inventory_wrong_extension_returns_empty(self):
+		"""csv_to_inventory on a .txt file gives no devices."""
 		with tempfile.TemporaryDirectory() as tmpdir:
 			bad_path = os.path.join(tmpdir, "devices.txt")
 			open(bad_path, "w").close()
@@ -578,6 +665,7 @@ class TestParseFiles(unittest.TestCase):
 		self.assertEqual(devices, [])
 
 	def test_csv_to_inventory_missing_columns_returns_empty(self):
+		"""csv_to_inventory on a CSV missing required columns gives no devices."""
 		with tempfile.TemporaryDirectory() as tmpdir:
 			csv_path = os.path.join(tmpdir, "devices.csv")
 			with open(csv_path, "w") as f:
@@ -586,6 +674,7 @@ class TestParseFiles(unittest.TestCase):
 		self.assertEqual(devices, [])
 
 	def test_parse_commands_returns_list(self):
+		"""parse_commands reads a one-line .txt file into a one-command list."""
 		with tempfile.TemporaryDirectory() as tmpdir:
 			txt_path = os.path.join(tmpdir, "_commands.txt")
 			self._write_commands(txt_path, ["ip route 0.0.0.0 0.0.0.0 10.0.0.254"])
@@ -594,6 +683,7 @@ class TestParseFiles(unittest.TestCase):
 		self.assertIn("ip route", commands[0])
 
 	def test_parse_commands_wrong_extension_returns_empty(self):
+		"""parse_commands on a .csv file gives no commands."""
 		with tempfile.TemporaryDirectory() as tmpdir:
 			bad_path = os.path.join(tmpdir, "_commands.csv")
 			open(bad_path, "w").close()
@@ -601,6 +691,7 @@ class TestParseFiles(unittest.TestCase):
 		self.assertEqual(commands, [])
 
 	def test_parse_commands_nonexistent_file_returns_empty(self):
+		"""parse_commands on a missing file gives no commands."""
 		commands = self.parser.parse_commands("/no/such/_commands.txt")
 		self.assertEqual(commands, [])
 
@@ -613,6 +704,8 @@ class TestRolloutEnginePushConfig(unittest.TestCase):
 
 	@staticmethod
 	def _make_engine(devices=None, commands=None, **opt_kwargs):
+		"""An engine for these devices and commands (one cisco_ios device and an
+		ip route by default); opt_kwargs go to the options."""
 		return RolloutEngine(
 			param=make_options(**opt_kwargs),
 			devices=devices or [make_device()],
@@ -625,6 +718,8 @@ class TestRolloutEnginePushConfig(unittest.TestCase):
 
 	@patch("netmiko.ConnectHandler")
 	def test_successful_push_no_cancel_signal(self, mock_ch):
+		"""A clean push gives no cancel signal and PushResult(applied, 0 rejected);
+		the config is saved and the connection closed once."""
 		mock_conn = MagicMock()
 		mock_conn.send_config_set.return_value = "ok"
 		mock_ch.return_value = mock_conn
@@ -638,6 +733,8 @@ class TestRolloutEnginePushConfig(unittest.TestCase):
 
 	@patch("netmiko.ConnectHandler")
 	def test_command_error_in_output_continues(self, mock_ch):
+		"""A device answering "Invalid command" doesn't stop the push: both
+		commands are sent and both counted as rejected (applied, 2 rejected)."""
 		mock_conn = MagicMock()
 		mock_conn.send_config_set.return_value = "Invalid command"
 		mock_ch.return_value = mock_conn
@@ -651,6 +748,8 @@ class TestRolloutEnginePushConfig(unittest.TestCase):
 
 	@patch("netmiko.ConnectHandler")
 	def test_auth_failure_marks_device_failed(self, mock_ch):
+		"""An authentication failure marks the device not applied, without a
+		cancel signal."""
 		mock_ch.side_effect = nm.NetMikoAuthenticationException("auth failed")
 		engine = self._make_engine()
 		cancel_signal, push_results = engine._push_config(self.cancel, self.logger)
@@ -659,6 +758,8 @@ class TestRolloutEnginePushConfig(unittest.TestCase):
 
 	@patch("netmiko.ConnectHandler")
 	def test_cancel_event_stops_rollout(self, mock_ch):
+		"""With the cancel event already set, the push returns "cancel_sent" and
+		never connects to a device."""
 		cancel = threading.Event()
 		cancel.set()
 		engine = self._make_engine()
@@ -668,8 +769,8 @@ class TestRolloutEnginePushConfig(unittest.TestCase):
 
 	def test_devices_finishing_after_cancel_are_still_recorded(self):
 		"""A cancel stops devices that haven't connected yet; devices already
-        mid-push finish (config applied) and must be recorded as pushed —
-        not 'cancelled' — or rollback would skip them."""
+		mid-push finish (config applied) and must be recorded as pushed —
+		not 'cancelled' — or rollback would skip them."""
 		cancel = threading.Event()
 		b_connected = threading.Event()
 
@@ -699,6 +800,7 @@ class TestRolloutEnginePushConfig(unittest.TestCase):
 
 	@patch("netmiko.ConnectHandler")
 	def test_multiple_devices_all_attempted(self, mock_ch):
+		"""With three devices, each is connected to once and no cancel is signalled."""
 		mock_conn = MagicMock()
 		mock_conn.send_config_set.return_value = "ok"
 		mock_ch.return_value = mock_conn
@@ -718,6 +820,8 @@ class TestRolloutEngineVerify(unittest.TestCase):
 
 	@staticmethod
 	def _make_engine(devices=None, commands=None):
+		"""A verify-on engine for these devices and commands (one cisco_ios device
+		and an ip route by default)."""
 		return RolloutEngine(
 			param=make_options(verify=True),
 			devices=devices or [make_device()],
@@ -728,6 +832,8 @@ class TestRolloutEngineVerify(unittest.TestCase):
 		self.logger = RolloutLogger(webapp=False, verbose=False)
 
 	def test_command_found_in_config(self):
+		"""A command present in the fetched config verifies (1 of 1), and no
+		config snapshot is kept."""
 		device = make_device()
 		engine = self._make_engine(
 			devices=[device],
@@ -741,6 +847,7 @@ class TestRolloutEngineVerify(unittest.TestCase):
 												 config=None))
 
 	def test_command_not_in_config(self):
+		"""A command missing from the fetched config verifies 0 of 1."""
 		device = make_device()
 		engine = self._make_engine(
 			devices=[device],
@@ -751,7 +858,9 @@ class TestRolloutEngineVerify(unittest.TestCase):
 		self.assertEqual((result[0].verified, result[0].checkable), (0, 1))
 
 	def test_config_not_fetched_is_not_a_failure(self):
-		# couldn't verify ≠ not configured: the status then comes from the push
+		"""A config that can't be fetched gives no verify result (couldn't verify ≠
+		not configured: the status then comes from the push), and the device is
+		flagged "applied but NOT verified" for a person."""
 		device = make_device()
 		engine = self._make_engine(devices=[device])
 		with patch.object(device, "fetch_config", return_value=None):
@@ -762,6 +871,8 @@ class TestRolloutEngineVerify(unittest.TestCase):
 		self.assertIn("applied but NOT verified", what)
 
 	def test_partial_commands_matched(self):
+		"""One of two commands found verifies 1 of 2, and the fetched config is
+		kept for Verify Diff."""
 		device = make_device()
 		commands = ["ip route 0.0.0.0 0.0.0.0 1.1.1.1", "hostname ROUTER"]
 		config = "ip route 0.0.0.0 0.0.0.0 1.1.1.1\nno relevant line"
@@ -784,6 +895,7 @@ class TestRolloutEngineRun(unittest.TestCase):
 		self.cancel = threading.Event()
 
 	def test_empty_devices_returns_empty_list(self):
+		"""run with no devices returns an empty result list."""
 		engine = RolloutEngine(
 			param=make_options(),
 			devices=[],
@@ -792,6 +904,7 @@ class TestRolloutEngineRun(unittest.TestCase):
 		self.assertEqual(engine.run(self.cancel, self.logger), [])
 
 	def test_empty_commands_returns_empty_list(self):
+		"""run with no commands returns an empty result list."""
 		engine = RolloutEngine(
 			param=make_options(),
 			devices=[make_device()],
@@ -801,6 +914,8 @@ class TestRolloutEngineRun(unittest.TestCase):
 
 	@patch("netmiko.ConnectHandler")
 	def test_successful_run_without_verify(self, mock_ch):
+		"""A clean push without verify gives one "success" result with
+		commands_verified None."""
 		mock_conn = MagicMock()
 		mock_conn.send_config_set.return_value = "ok"
 		mock_ch.return_value = mock_conn
@@ -816,7 +931,9 @@ class TestRolloutEngineRun(unittest.TestCase):
 		self.assertIsNone(result[0]["commands_verified"])
 
 	def test_same_ip_different_ports_get_separate_results(self):
-		# e.g. lab nodes port-forwarded behind one host IP
+		"""Two devices on one IP with different ports (e.g. lab nodes
+		port-forwarded behind one host IP) get their own results: 2001 success,
+		2002 failed."""
 		def connect(**params):
 			if params["port"] == 2002:
 				raise Exception("connection refused")
@@ -835,6 +952,7 @@ class TestRolloutEngineRun(unittest.TestCase):
 
 	@patch("netmiko.ConnectHandler")
 	def test_failed_push_marked_in_result(self, mock_ch):
+		"""A device whose connection raises gets one "failed" result."""
 		mock_ch.side_effect = Exception("connection refused")
 
 		engine = RolloutEngine(
@@ -847,7 +965,9 @@ class TestRolloutEngineRun(unittest.TestCase):
 		self.assertEqual(result[0]["status"], "failed")
 
 	def test_summary_counts_real_outcomes(self):
-		# it used to say "2 devices configured" whatever happened
+		"""The summary line counts the real outcomes, once and in yellow:
+		"1 success, 1 failed (of 2 devices)" (it used to say "2 devices
+		configured" whatever happened)."""
 		def connect(**params):
 			if params["port"] == 2002:
 				raise Exception("connection refused")
@@ -890,6 +1010,7 @@ class TestFullRolloutAndVerifyPipeline(unittest.TestCase):
 		return MagicMock()
 
 	def _make_device(self):
+		"""The cisco_ios device 10.0.0.1:22 (test-router) with credentials."""
 		return make_device(
 			ip="10.0.0.1",
 			username="admin",
@@ -903,6 +1024,8 @@ class TestFullRolloutAndVerifyPipeline(unittest.TestCase):
 	@patch("netmiko.ConnectHandler")
 	@patch("src.core.Device.from_inventory")
 	def test_full_pipeline_all_commands_verified(self, mock_from_inv, mock_netmiko_ch):
+		"""Push, then a fetched config holding the command: one "success" result
+		with 1 command verified."""
 		device = self._make_device()
 		mock_from_inv.return_value = device
 
@@ -931,7 +1054,9 @@ class TestFullRolloutAndVerifyPipeline(unittest.TestCase):
 	@patch("netmiko.ConnectHandler")
 	@patch("src.core.Device.from_inventory")
 	def test_full_pipeline_config_unreadable_is_action_needed(self, mock_from_inv, mock_netmiko_ch):
-		# The push works; the verify's config fetch can't log in
+		"""The push works but the verify's config fetch can't log in: the result is
+		"success" from the push, commands_verified None, action_needed "applied but
+		NOT verified", and the log gives the reason and an ACTION NEEDED line."""
 		device = self._make_device()
 		mock_from_inv.return_value = device
 		mock_conn = MagicMock()
@@ -957,6 +1082,7 @@ class TestFullRolloutAndVerifyPipeline(unittest.TestCase):
 	@patch("netmiko.ConnectHandler")
 	@patch("src.core.Device.from_inventory")
 	def test_full_pipeline_push_only_no_verify(self, mock_from_inv, mock_netmiko_ch):
+		"""Push without verify: one "success" result with commands_verified None."""
 		device = self._make_device()
 		mock_from_inv.return_value = device
 
@@ -982,6 +1108,8 @@ class TestFullRolloutAndVerifyPipeline(unittest.TestCase):
 	@patch("netmiko.ConnectHandler")
 	@patch("src.core.Device.from_inventory")
 	def test_full_pipeline_verify_fails_command_not_in_config(self, mock_from_inv, mock_netmiko_ch):
+		"""Push, then a fetched config without the command: one "failed" result
+		with 0 commands verified."""
 		device = self._make_device()
 		mock_from_inv.return_value = device
 
@@ -1010,6 +1138,8 @@ class TestFullRolloutAndVerifyPipeline(unittest.TestCase):
 	@patch("netmiko.ConnectHandler")
 	@patch("src.core.Device.from_inventory")
 	def test_full_pipeline_cancel_mid_rollout(self, mock_from_inv, mock_netmiko_ch):
+		"""A cancel set while the device connects (which then raises) still gives a
+		result list with one entry for the device."""
 		device = self._make_device()
 		mock_from_inv.return_value = device
 
