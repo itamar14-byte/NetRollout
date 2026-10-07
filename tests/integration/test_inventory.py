@@ -109,6 +109,28 @@ def test_an_ipv6_device_is_added_and_its_endpoint_written_in_brackets(
 	assert msg.startswith("[2001:db8::5]:22 is already used by core-v6.")
 
 
+def test_an_ipv6_address_is_stored_in_its_standard_form(client_for, make_user,
+                                                        session_scope):
+	"""Add and Edit store an IPv6 address in its one standard spelling, so the
+	same address typed another way is recognised as the same endpoint (the
+	duplicate warning)."""
+	client = client_for(make_user())
+	client.post("/inventory/create", data={**FORM, "label": "v6-a",
+	                                       "ip": "2001:DB8:0:0:0:0:0:1"})
+	assert device_by_label(session_scope, "v6-a").ip == "2001:db8::1"
+	with client.session_transaction() as s:
+		s.pop("_flashes", None)
+	client.post("/inventory/create", data={**FORM, "label": "v6-b",
+	                                       "ip": "2001:0db8::0001"})
+	assert device_by_label(session_scope, "v6-b").ip == "2001:db8::1"
+	(msg,) = dup_warnings(client)
+	assert msg.startswith("[2001:db8::1]:22 is already used by v6-a.")
+	dev = device_by_label(session_scope, "v6-b")
+	client.post(f"/inventory/{dev.id}/edit", data={**FORM, "label": "v6-b",
+	                                               "ip": "2001:DB8::2"})
+	assert device_by_label(session_scope, "v6-b").ip == "2001:db8::2"
+
+
 def test_a_device_without_a_label_is_named_by_its_ip(client_for, make_user,
                                                      session_scope):
 	"""A device added without a label gets its IP as the label (as the CSV

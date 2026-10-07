@@ -68,6 +68,7 @@ class InputParser:
 				errors.append(f"Row {row_no} ({ip}): invalid ip, port or "
 				              f"device type")
 				continue
+			ip = validation.normalize_ip(ip)
 			if require_credentials and not (item.get("username") and
 			                                item.get("password")):
 				errors.append(f"Row {row_no} ({ip}): username and password "

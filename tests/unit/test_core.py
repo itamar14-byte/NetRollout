@@ -63,6 +63,20 @@ class TestIPv6(unittest.TestCase):
 		self.assertEqual(endpoint("2001:db8::1", 2222), "[2001:db8::1]:2222")
 		self.assertEqual(make_device(ip="2001:db8::1").endpoint, "[2001:db8::1]:22")
 
+	def test_an_address_is_kept_in_its_standard_form(self):
+		"""normalize_ip writes an IPv6 address the one standard way (lower
+		case, zeros compressed), so one device has one spelling; IPv4 is
+		unchanged. The CSV rows (CLI and import) come out normalised too."""
+		for typed in ("2001:DB8:0:0:0:0:0:1", "2001:0db8::0001", " 2001:db8::1 "):
+			self.assertEqual(validation.normalize_ip(typed), "2001:db8::1")
+		self.assertEqual(validation.normalize_ip("10.0.0.1"), "10.0.0.1")
+		parser = InputParser(Validator(RolloutLogger(webapp=False, verbose=False)),
+		                     RolloutLogger(webapp=False, verbose=False))
+		(device,), errors = parser.prepare_devices(
+			[{"ip": "2001:DB8:0::1", "port": "22", "device_type": "cisco_ios"}],
+			require_credentials=False, check_reachable=False)
+		self.assertEqual((device.ip, device.label, errors), ("2001:db8::1", "2001:db8::1", []))
+
 	def test_tcp_reachable_reaches_an_ipv6_device(self):
 		"""The TCP probe (the CLI's reachability check, Test connection)
 		connects to a device listening on an IPv6 address."""

@@ -31,6 +31,17 @@ def validate_ip(ip: str) -> bool:
 		return False
 
 
+def normalize_ip(ip: str) -> str:
+	"""An address in its one standard spelling: an IPv6 address has many
+	(2001:DB8:0:0:0:0:0:1, 2001:0db8::0001, ...), and NetRollout compares
+	addresses as text - duplicates, rollback matching, labels, the
+	reachability cache. IPv4 has one already.
+
+	:returns: lower case, zeros compressed (2001:db8::1)
+	:raises ValueError: not an address (validate_ip first)"""
+	return str(ipaddress.ip_address(ip.strip()))
+
+
 def validate_port(port: str) -> bool:
 	""":returns: whether `port` (as typed) is a TCP port number, 1-65535"""
 	if not port.isnumeric():

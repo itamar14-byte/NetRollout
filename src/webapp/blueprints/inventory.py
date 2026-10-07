@@ -121,11 +121,12 @@ def inventory_create(data: Any) -> ResponseReturnValue:
 	and a global one needs a security profile; an ip:port in use already is
 	allowed, with a warning."""
 	ip = data.get("ip", "").strip()
-	label = data.get("label", "").strip() or ip
 	port = data.get("port", "22").strip()
 	device_type = data.get("device_type", "").strip()
 	if problem := device_problem(ip, port, device_type):
 		return flash_redirect(problem, "inventory.inventory", "danger")
+	ip = validation.normalize_ip(ip)
+	label = data.get("label", "").strip() or ip
 	sec_profile_id = data.get("sec_profile_id", "").strip()
 	try:
 		parsed_sec_id = uuid.UUID(sec_profile_id) if sec_profile_id else None
@@ -223,6 +224,7 @@ def inventory_edit(device_id: uuid.UUID) -> ResponseReturnValue:
 		device_type = request.form.get("device_type", "").strip()
 		if problem := device_problem(ip, port, device_type):
 			return flash_redirect(problem, "inventory.inventory", "danger")
+		ip = validation.normalize_ip(ip)
 		sec_profile_id = request.form.get("sec_profile_id", "").strip()
 		try:
 			parsed_sec_id = uuid.UUID(sec_profile_id) if sec_profile_id else None
