@@ -1,11 +1,11 @@
-"""Maintenance mode (a database move, src/webapp/maintenance.py): while the
+"""Maintenance mode (a database move, src/webapp/db_move.py): while the
 data is copied nothing may write - every route is refused but the few that
 don't write, derived from the live url_map so a route added later is covered."""
 import pytest
 from sqlalchemy import text
 
 from src.jobs import PAUSED_MESSAGE
-from src.webapp.maintenance import IDLE, LOCKED, WAITING
+from src.webapp.db_move import IDLE, LOCKED, WAITING
 from tests.integration.test_route_matrix import _routes, _url
 
 pytestmark = [pytest.mark.postgres, pytest.mark.redis]

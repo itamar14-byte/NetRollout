@@ -2,17 +2,20 @@
 their device results (an admin may look at any user's)."""
 import uuid
 from collections import Counter
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Any
 
 from flask import Blueprint, render_template, request, jsonify
 from flask.typing import ResponseReturnValue
 from flask_login import current_user, login_required
+from sqlalchemy import ColumnElement, and_, or_
 
 from src.db.tables import DeviceResult, Inventory, User
-from src.webapp.flask_app import current_app
-from src.webapp.utils import (err, with_json, build_kpi,
-                              compile_query_rules)
+from src.jobs import build_kpi
+from src.webapp.app import current_app
+from src.webapp.http import err, with_json
+
 
 bp = Blueprint('analytics', __name__, url_prefix='/analytics')
 
@@ -126,3 +129,56 @@ def analytics_query(data: dict[str, Any]) -> ResponseReturnValue:
 	                for col, v in row.items()}
 	               for row in rows]
 	return jsonify({"columns": columns, "rows": parsed_rows})
+
+
+QUERY_OPS: dict[str, Callable[[Any, Any], ColumnElement[bool]]] = {
+	"equal": lambda x, y: x == y,
+	"not_equal": lambda x, y: x != y,
+	"greater_or_equal": lambda x, y: x >= y,
+	"less_or_equal": lambda x, y: x <= y,
+	"contains": lambda x, y: x.ilike(f"%{y}%"),
+	"begins_with": lambda x, y: x.ilike(f"{y}%"),
+	"ends_with": lambda x, y: x.ilike(f"%{y}")
+}
+
+
+#######################Query helpers###############################
+def compile_query_rules(node: dict[str, Any],
+                        allowed_fields: dict[str, tuple[Any, set[str]]]) -> ColumnElement[bool]:
+	"""A jQuery QueryBuilder tree as an SQL filter. Each node is either
+	 - a GROUP: {"condition": "AND"/"OR", "rules": [...child nodes...]}
+	 - a LEAF: {"field": "status", "operator": "equal", "value": "success"}
+
+	:param allowed_fields: the fields that may be filtered on → (their
+	 column, the operators allowed on it) - the only columns that reach SQL
+	:raises ValueError: a field or operator not allowed, or a bad date
+	:raises KeyError: a node without its keys"""
+	if "condition" in node:
+		combinator = and_ if node["condition"] == "AND" else or_
+		return combinator(*[compile_query_rules(r, allowed_fields) for r in
+		                    node["rules"]])
+	field_name = node["field"]
+	operator = node["operator"]
+	value = node["value"]
+
+	if field_name not in allowed_fields:
+		raise ValueError(f"Field not allowed: {field_name}")
+
+	column, allowed_ops = allowed_fields[field_name]
+	if operator not in allowed_ops:
+		raise ValueError(
+			f"Operator {operator} not allowed for field {field_name}")
+
+	# DateTime columns need a Python datetime object, not a raw string
+	if hasattr(column, "type") and column.type.__class__.__name__ == 'DateTime':
+		try:
+			value = datetime.strptime(value, "%Y-%m-%d")
+		except (ValueError, TypeError):
+			raise ValueError(f"Invalid date: {value}")
+
+	# Boolean columns: QueryBuilder sends string keys ("true"/"false")
+	if hasattr(column, "type") and column.type.__class__.__name__ == 'Boolean':
+		if isinstance(value, str):
+			value = value.lower() == "true"
+
+	return QUERY_OPS[operator](column, value)

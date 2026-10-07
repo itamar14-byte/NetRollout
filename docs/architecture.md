@@ -137,7 +137,7 @@ The factory account `admin`/`admin` is seeded at startup if missing (`src/db/ins
 | `port` | `int` | SSH port |
 | `label` | `str(64)` | Friendly name, required |
 | `is_global` | `bool` | Visible to and rollout-able by all users; only admins edit or delete it |
-| `var_maps` | `JSON` | Per-device attribute values, keyed by property name: the system properties (`SYSTEM_PROPERTIES` in `src/webapp/utils.py` — hostname, loopback_ip, asn, mgmt_vrf, mgmt_interface, site, domain, timezone, vrfs) plus the owner's user-defined `PropertyDefinition`s. List properties hold lists |
+| `var_maps` | `JSON` | Per-device attribute values, keyed by property name: the system properties (`SYSTEM_PROPERTIES` in `src/webapp/http.py` — hostname, loopback_ip, asn, mgmt_vrf, mgmt_interface, site, domain, timezone, vrfs) plus the owner's user-defined `PropertyDefinition`s. List properties hold lists |
 
 **Relationships:** `var_mappings` (many-to-many via `var_mapping_to_devices`), `security_profile`, `user`
 
@@ -503,7 +503,7 @@ app.shutdown      →  lifecycle.Shutdown (drain, then exit; relaunch in dev)
 - **Drain banner:** a context processor gives every template `server_draining`; `_drain_banner.html` (in both base templates) says new rollouts are paused and reloads the page when a new instance answers. The Restart modal and script are shared includes too (`_restart_modal.html`, `_restart_script.html`).
 - **Vendor logos:** `VENDOR_LOGOS` (device_type → Simple Icons CDN URL) is a Jinja global.
 
-### `extensions.py` — module-level Flask extensions
+### `hooks.py` — module-level Flask extensions and the request hooks
 Extensions are created at module level so blueprints can import them at definition time.
 
 ```python
@@ -513,13 +513,13 @@ csrf = CSRFProtect()
 ```
 
 - **`register_extensions(app)`:** calls `init_app()` on each and initializes `PrometheusMetrics` (`/metrics`).
-- **`register_auth(app)`:** registers the user loader.
+- **`register_auth(app)`:** registers the user loader and the session checks (the session's lifetime: `src/accounts/users.py`).
 - **`register_handlers(app, backend)`:**
   - CSRF error handler;
   - service-unavailable (503) handler for Postgres `OperationalError` and Redis connection/timeout errors, which renders a page saying which service is down;
   - invalid-encryption-key handler, which renders `key_error.html` explaining what to do.
 
-### `utils.py` — shared helpers
+### `http.py` — shared web helpers
 **`WebServices(backend)`**, attached to `app.web`. It has helpers used by two or more blueprints:
 - `audit(action, *, object_type, object_id, object_label, success, detail)` — writes one `AuditLog` row in its own session
 - `act_on_db_obj(model, obj_id, func, user_id, many, …)` — generic load-check-act dispatcher, with the ownership check
@@ -530,12 +530,9 @@ csrf = CSRFProtect()
 
 **Module functions:**
 - responses and decorators: `ok()`, `err()`, `require_admin`, `with_json`, `with_form`, `flash_redirect`;
-- device visibility (own and global): `visible_devices_clause`, `query_visible_devices`, `can_edit_device`;
-- duplicate endpoints: `same_endpoint_devices`, `same_endpoint_warning`;
-- `partition_devices`;
-- query and KPI builders: `compile_query_rules(node, allowed_fields)` (jQuery QueryBuilder → SQLAlchemy expression) and `build_kpi(results_30d, label_map)`.
+- elsewhere: device visibility and duplicate endpoints (`visible_devices_clause`, `query_visible_devices`, `can_edit_device`, `same_endpoint_devices`, `same_endpoint_warning`, `partition_devices`) in `src/inventory.py`; `compile_query_rules(node, allowed_fields)` (jQuery QueryBuilder → SQLAlchemy expression) with `QUERY_OPS` in the analytics blueprint; `build_kpi(results_30d, label_map)` and `job_status` in `src/jobs.py`.
 
-**Constants:** `SYSTEM_PROPERTIES`, `QUERY_OPS`. The analytics field and column lists live in their blueprints (`analytics.py`, `admin_observability.py`). `validate_mapping_fields` lives in `mappings.py`, and `job_status` / `user_owns_job` in `jobs.py`.
+**Constants:** `SYSTEM_PROPERTIES`. The analytics field and column lists live in their blueprints (`analytics.py`, `admin_observability.py`). `validate_mapping_fields` lives in `mappings.py`, and `user_owns_job` in the jobs blueprint.
 
 ### `blueprints/`
 Each blueprint owns its routes and route-specific helpers. Blueprints reach `app.web`, `app.backend` and `app.orchestrator` through `current_app` inside routes, never at module level. Every route except the public ones requires login, and every `/admin` route requires the admin role. This is enforced for all routes by `tests/integration/test_route_matrix.py`.
@@ -577,7 +574,7 @@ complete_login()
 
 Admins can reset a user's 2FA; the user re-enrols at the next login.
 
-**Passwords** (local accounts): one rule, `src/accounts/users.py` — at least 8 characters with at least 2 of letters / digits / special characters, ASCII only, not containing the username; a change must differ from the current one. Registration, `/account/password` and generated temporary passwords all use it; `templates/_password_rule_script.html` mirrors it in the pages. While `must_change_password` is set, a `before_request` gate (`extensions.py`, allowlist `PASSWORD_CHANGE_ALLOWED`: the change page, logout, static, instance/health) redirects pages to `/account/password` and answers fetch calls with 403. A change (rate-limited like login) clears the flag, rotates the session id, **signs the user out of every other session** and is audited (`auth.password_change`). An admin *Reset password* on another local user (not LDAP, not themselves, not the factory admin) replaces the stored password with a random temporary one shown once, sets the flag and **signs the user out everywhere** (`user.reset_password`; the password is never logged). Admin *Terminate Session* signs out everywhere too.
+**Passwords** (local accounts): one rule, `src/accounts/users.py` — at least 8 characters with at least 2 of letters / digits / special characters, ASCII only, not containing the username; a change must differ from the current one. Registration, `/account/password` and generated temporary passwords all use it; `templates/_password_rule_script.html` mirrors it in the pages. While `must_change_password` is set, a `before_request` gate (`hooks.py`, allowlist `PASSWORD_CHANGE_ALLOWED`: the change page, logout, static, instance/health) redirects pages to `/account/password` and answers fetch calls with 403. A change (rate-limited like login) clears the flag, rotates the session id, **signs the user out of every other session** and is audited (`auth.password_change`). An admin *Reset password* on another local user (not LDAP, not themselves, not the factory admin) replaces the stored password with a random temporary one shown once, sets the flag and **signs the user out everywhere** (`user.reset_password`; the password is never logged). Admin *Terminate Session* signs out everywhere too.
 
 **Signing a user out everywhere** (`src/accounts/users.py`, `end_user_sessions`): `user_session:<id>` points only at the latest sign-in, so every `redis_session:*` is decoded with flask-session's serializer and the user's (`_user_id`) are deleted — complete (sessions from before the change too) and cheap at this scale; a per-user index would be faster but miss existing sessions and need expiry cleanup.
 

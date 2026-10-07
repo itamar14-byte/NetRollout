@@ -18,11 +18,11 @@ from src import runtime
 from src.accounts.users import signed_in_user
 from src.db.tables import DeviceResult, JobMetadata, User, Inventory
 from src.inventory import visible_devices_clause
-from src.jobs import JobStore, RolloutJob, job_status
+from src.jobs import JobStore, RolloutJob, job_status, build_kpi
 from src.rollout.engine import endpoint
 from src.rollout.platforms import PLATFORMS, verify_commands
-from src.webapp.flask_app import current_app
-from src.webapp.utils import ok, err, build_kpi
+from src.webapp.app import current_app
+from src.webapp.http import ok, err
 
 
 bp = Blueprint('jobs', __name__)

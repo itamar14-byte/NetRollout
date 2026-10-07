@@ -2,8 +2,10 @@
 install writes, and the contract with the host scripts (exit codes)."""
 import datetime
 import json
+
 import pytest
 from cryptography.fernet import Fernet
+
 from src import runtime
 from src.access import certs, site_env
 from src.setup import __main__ as cli, install as A, update as _update

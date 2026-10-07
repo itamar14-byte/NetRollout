@@ -4,7 +4,9 @@ all on local files (file:// links, as a mirror on disk would be)."""
 import hashlib
 import json
 import zipfile
+
 import pytest
+
 from src import runtime
 from src.setup import __main__ as cli, update as release
 

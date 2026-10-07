@@ -17,8 +17,8 @@ from src.inventory import visible_devices_clause, query_visible_devices, partiti
 from src.jobs import Draining
 from src.rollout.engine import Device, RolloutOptions
 from src.rollout.inputs import InputParser
-from src.webapp.flask_app import current_app
-from src.webapp.utils import ok, err, with_form, with_json
+from src.webapp.app import current_app
+from src.webapp.http import ok, err, with_form, with_json
 
 bp = Blueprint('rollout', __name__, url_prefix='/rollout')
 

@@ -38,7 +38,7 @@ start_certificate_upkeep()   # previous hostnames leave the self-signed cert
 
 def moving() -> bool:
 	"""A database move is running: the backup schedule and the clean-up wait
-	(src/webapp/maintenance.py)."""
+	(src/webapp/db_move.py)."""
 	return app.maintenance.state != "idle"
 
 

@@ -4,22 +4,19 @@ dashboard's KPIs, signing a user out everywhere - and WebServices
 (current_app.web): the audit log and the generic load-check-act on a row."""
 import functools
 import uuid
-from collections import defaultdict
-from collections.abc import Callable, Sequence
-from datetime import datetime
+from collections.abc import Callable
 from typing import Any
 
 from flask import Response, flash, jsonify, redirect, request, url_for
 from flask.typing import ResponseReturnValue
 from flask_login import current_user
-from sqlalchemy import ColumnElement, and_, or_
 from sqlalchemy.orm import Session
 
 from src.db.connections import BackendServices
-from src.db.tables import AuditLog, Base, DeviceResult, PropertyDefinition, SecurityProfile
+from src.db.tables import AuditLog, Base, PropertyDefinition, SecurityProfile
 from src.encryption import encrypt
 from src.inventory import ReachabilityChecker
-from src.webapp.flask_app import current_app
+from src.webapp.app import current_app
 
 
 ##########################Constants#######################################
@@ -43,17 +40,6 @@ SYSTEM_PROPERTIES: list[dict[str, Any]] = [
 	 "is_list": False},
 	{"name": "vrfs", "label": "VRFs", "icon": "bi-layers", "is_list": True},
 ]
-
-
-QUERY_OPS: dict[str, Callable[[Any, Any], ColumnElement[bool]]] = {
-	"equal": lambda x, y: x == y,
-	"not_equal": lambda x, y: x != y,
-	"greater_or_equal": lambda x, y: x >= y,
-	"less_or_equal": lambda x, y: x <= y,
-	"contains": lambda x, y: x.ilike(f"%{y}%"),
-	"begins_with": lambda x, y: x.ilike(f"{y}%"),
-	"ends_with": lambda x, y: x.ilike(f"%{y}")
-}
 
 
 ##########################Jsonify helpers#######################################
@@ -142,80 +128,6 @@ def flash_redirect(msg: str, endpoint: str,
 	""":returns: a redirect to the endpoint, with the message flashed"""
 	flash(msg, category)
 	return redirect(url_for(endpoint))
-
-
-#######################Query helpers###############################
-def compile_query_rules(node: dict[str, Any],
-                        allowed_fields: dict[str, tuple[Any, set[str]]]) -> ColumnElement[bool]:
-	"""A jQuery QueryBuilder tree as an SQL filter. Each node is either
-	 - a GROUP: {"condition": "AND"/"OR", "rules": [...child nodes...]}
-	 - a LEAF: {"field": "status", "operator": "equal", "value": "success"}
-
-	:param allowed_fields: the fields that may be filtered on → (their
-	 column, the operators allowed on it) - the only columns that reach SQL
-	:raises ValueError: a field or operator not allowed, or a bad date
-	:raises KeyError: a node without its keys"""
-	if "condition" in node:
-		combinator = and_ if node["condition"] == "AND" else or_
-		return combinator(*[compile_query_rules(r, allowed_fields) for r in
-		                    node["rules"]])
-	field_name = node["field"]
-	operator = node["operator"]
-	value = node["value"]
-
-	if field_name not in allowed_fields:
-		raise ValueError(f"Field not allowed: {field_name}")
-
-	column, allowed_ops = allowed_fields[field_name]
-	if operator not in allowed_ops:
-		raise ValueError(
-			f"Operator {operator} not allowed for field {field_name}")
-
-	# DateTime columns need a Python datetime object, not a raw string
-	if hasattr(column, "type") and column.type.__class__.__name__ == 'DateTime':
-		try:
-			value = datetime.strptime(value, "%Y-%m-%d")
-		except (ValueError, TypeError):
-			raise ValueError(f"Invalid date: {value}")
-
-	# Boolean columns: QueryBuilder sends string keys ("true"/"false")
-	if hasattr(column, "type") and column.type.__class__.__name__ == 'Boolean':
-		if isinstance(value, str):
-			value = value.lower() == "true"
-
-	return QUERY_OPS[operator](column, value)
-
-
-def build_kpi(results_30d: Sequence[DeviceResult],
-              label_map: dict[str, str]) -> dict[str, Any]:
-	"""The dashboard's tiles from the last 30 days' device results.
-
-	:param label_map: device IP → its label, to name the most-failed device
-	:returns: success_rate (%, None without results), jobs_30d,
-	 devices_reached, commands_pushed, top_failed ({ip, label, fail_count} or
-	 None)"""
-	total_ops = len(results_30d)
-	jobs_30d = len({r.job_id for r in results_30d})
-	success_count = sum(1 for r in results_30d if r.status == "success")
-
-	fail_counts_ip: dict[str, int] = defaultdict(int)
-	for r in results_30d:
-		if r.status == "failed":
-			fail_counts_ip[r.device_ip] += 1
-	top_failed = None
-	if fail_counts_ip:
-		top_ip = max(fail_counts_ip, key=lambda ip: fail_counts_ip[ip])
-		top_failed = {"ip": top_ip, "label": label_map.get(top_ip),
-		              "fail_count": fail_counts_ip[top_ip]}
-
-	return {
-		"success_rate": round(
-			success_count / total_ops * 100) if total_ops else None,
-		"jobs_30d": jobs_30d,
-		"devices_reached": total_ops,
-		"commands_pushed": sum(r.commands_sent for r in results_30d),
-		"top_failed": top_failed
-	}
 
 ##################Backend facing helpers#######################################
 class WebServices:

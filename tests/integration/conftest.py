@@ -43,7 +43,7 @@ from src.db.connections import PostgresConnection, PostgresConfig, RedisConnecti
 from src.db.tables import Base, User, SecurityProfile, Inventory, VariableMapping
 from src.encryption import decrypt, encrypt
 from src.webapp.build import create_app
-from src.webapp.extensions import conn_limit
+from src.webapp.hooks import conn_limit
 
 ROOT = Path(__file__).resolve().parents[2]
 REDIS_TEST_DB = 15

@@ -26,9 +26,9 @@ from src.accounts.users import (RULE, password_problem, LIMITS, AccountError, ne
 from src.db.tables import DeviceResult, LDAPServer, LDAPGroup, User
 from src.encryption import decrypt, encrypt
 from src.jobs import job_status
-from src.webapp.extensions import csrf, conn_limit
-from src.webapp.flask_app import current_app
-from src.webapp.utils import ok, with_form
+from src.webapp.app import current_app
+from src.webapp.hooks import csrf, conn_limit
+from src.webapp.http import ok, with_form
 
 
 bp = Blueprint("auth", __name__)

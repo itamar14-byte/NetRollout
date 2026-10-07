@@ -15,8 +15,8 @@ from src.inventory import visible_devices_clause, query_visible_devices, partiti
 from src.rollout import inputs as validation
 from src.rollout.engine import mapping_resolvable
 from src.rollout.log import RolloutLogger
-from src.webapp.flask_app import current_app
-from src.webapp.utils import ok, err, with_form, with_json, flash_redirect
+from src.webapp.app import current_app
+from src.webapp.http import ok, err, with_form, with_json, flash_redirect
 
 bp = Blueprint('mappings', __name__, url_prefix='/mappings')
 

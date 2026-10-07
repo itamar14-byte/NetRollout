@@ -23,6 +23,7 @@ from src.encryption import init_encryption, require_key_in_container
 from src.jobs import JobStore, RolloutOrchestrator, clear_stale_jobs
 from src.rollout.engine import endpoint
 from src.runtime import VERSION, StartupError, in_container, source_url
+from src.webapp.app import NetRolloutApp
 from src.webapp.blueprints.admin_backups import backups_bp as admin_backups_bp
 from src.webapp.blueprints.admin_observability import admin_bp as admin_observability_bp
 from src.webapp.blueprints.admin_servers import bp as admin_servers_bp
@@ -37,14 +38,11 @@ from src.webapp.blueprints.properties import properties_bp
 from src.webapp.blueprints.rollout import bp as rollout_bp
 from src.webapp.blueprints.security import bp as security_bp
 from src.webapp.blueprints.system import bp as system_bp
-from src.webapp.db_move import DatabaseMove
-from src.webapp.extensions import register_extensions, register_handlers, \
-	register_auth
-from src.webapp.flask_app import NetRolloutApp
+from src.webapp.db_move import DatabaseMove, register_maintenance
+from src.webapp.hooks import register_extensions, register_handlers, register_auth
+from src.webapp.http import WebServices
 from src.webapp.lifecycle import Shutdown
-from src.webapp.maintenance import register_maintenance
 from src.webapp.startup import new_instance_token
-from src.webapp.utils import WebServices
 
 
 ########Constants###################################################

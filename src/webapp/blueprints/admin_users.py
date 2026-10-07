@@ -15,8 +15,8 @@ from werkzeug.security import generate_password_hash
 from src.accounts.users import (temporary_password, AccountError, new_local_user, pending_requests,
                                 signed_in_users, end_user_sessions)
 from src.db.tables import User
-from src.webapp.flask_app import current_app
-from src.webapp.utils import ok, err, require_admin, with_json
+from src.webapp.app import current_app
+from src.webapp.http import ok, err, require_admin, with_json
 
 bp = Blueprint('admin_users', __name__, url_prefix='/admin')
 

@@ -21,6 +21,7 @@ import json
 import threading
 import time
 import uuid
+from collections import defaultdict
 from collections.abc import Sequence
 from typing import Any, cast, Callable
 
@@ -600,3 +601,35 @@ def clear_stale_jobs(redis_conn: RedisConnection) -> None:
 	if cleared:
 		print(f"[NetRollout] Cleared {cleared} rollout(s) left over from a "
 		      f"previous run that didn't stop cleanly", flush=True)
+
+
+def build_kpi(results_30d: Sequence[DeviceResult],
+              label_map: dict[str, str]) -> dict[str, Any]:
+	"""The dashboard's tiles from the last 30 days' device results.
+
+	:param label_map: device IP → its label, to name the most-failed device
+	:returns: success_rate (%, None without results), jobs_30d,
+	 devices_reached, commands_pushed, top_failed ({ip, label, fail_count} or
+	 None)"""
+	total_ops = len(results_30d)
+	jobs_30d = len({r.job_id for r in results_30d})
+	success_count = sum(1 for r in results_30d if r.status == "success")
+
+	fail_counts_ip: dict[str, int] = defaultdict(int)
+	for r in results_30d:
+		if r.status == "failed":
+			fail_counts_ip[r.device_ip] += 1
+	top_failed = None
+	if fail_counts_ip:
+		top_ip = max(fail_counts_ip, key=lambda ip: fail_counts_ip[ip])
+		top_failed = {"ip": top_ip, "label": label_map.get(top_ip),
+		              "fail_count": fail_counts_ip[top_ip]}
+
+	return {
+		"success_rate": round(
+			success_count / total_ops * 100) if total_ops else None,
+		"jobs_30d": jobs_30d,
+		"devices_reached": total_ops,
+		"commands_pushed": sum(r.commands_sent for r in results_30d),
+		"top_failed": top_failed
+	}

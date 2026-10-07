@@ -8,8 +8,8 @@ from flask.typing import ResponseReturnValue
 from flask_login import current_user
 
 from src.runtime import VERSION
-from src.webapp.flask_app import current_app
-from src.webapp.maintenance import during_maintenance
+from src.webapp.app import current_app
+from src.webapp.db_move import during_maintenance
 from src.webapp.startup import GRAFANA_AUTH_PATH, HEALTH_PATH, INSTANCE_PATH
 
 bp = Blueprint("system", __name__)

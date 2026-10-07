@@ -7,8 +7,8 @@ from flask.typing import ResponseReturnValue
 from flask_login import current_user, login_required
 
 from src.db.tables import PropertyDefinition
-from src.webapp.flask_app import current_app
-from src.webapp.utils import ok, err, SYSTEM_PROPERTIES
+from src.webapp.app import current_app
+from src.webapp.http import ok, err, SYSTEM_PROPERTIES
 
 properties_bp = Blueprint('properties', __name__, url_prefix='/properties')
 

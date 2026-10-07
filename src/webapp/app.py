@@ -9,14 +9,13 @@ from typing import TYPE_CHECKING, cast
 
 from flask import Flask, current_app as flask_current_app
 from flask_session.redis import RedisSessionInterface
-
 if TYPE_CHECKING:   # annotations only: these modules import this one's users
 	from src.db.connections import BackendServices
 	from src.jobs import RolloutOrchestrator
 	from src.webapp.db_move import DatabaseMove
 	from src.webapp.lifecycle import Shutdown
-	from src.webapp.maintenance import Maintenance
-	from src.webapp.utils import WebServices
+	from src.webapp.db_move import Maintenance
+	from src.webapp.http import WebServices
 
 
 class NetRolloutApp(Flask):

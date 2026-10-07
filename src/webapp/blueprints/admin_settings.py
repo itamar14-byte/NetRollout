@@ -14,10 +14,10 @@ from src.db import retention
 from src.db.settings import (SETTINGS, Change, SettingsError, public_url,
                              rules_for_client)
 from src.runtime import in_container
+from src.webapp.app import current_app
 from src.webapp.blueprints.admin_backups import backups_state
-from src.webapp.flask_app import current_app
+from src.webapp.http import err, ok, require_admin, with_json
 from src.webapp.startup import check_proxy, resolve_public_url
-from src.webapp.utils import err, ok, require_admin, with_json
 
 bp = Blueprint("admin_settings", __name__, url_prefix="/admin/settings")
 

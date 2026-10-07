@@ -10,9 +10,9 @@ from flask.typing import ResponseReturnValue
 from flask_login import login_required
 
 from src.db.tables import AuditLog, DeviceResult, User, Inventory
-from src.webapp.flask_app import current_app
-from src.webapp.utils import (ok, err, require_admin, with_json,
-                              compile_query_rules)
+from src.webapp.app import current_app
+from src.webapp.blueprints.analytics import compile_query_rules
+from src.webapp.http import ok, err, require_admin, with_json
 
 admin_bp = Blueprint('admin_observability', __name__, url_prefix='/admin')
 

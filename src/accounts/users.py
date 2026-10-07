@@ -18,7 +18,7 @@ from werkzeug.security import generate_password_hash
 
 from src.db.connections import REDIS_UNAVAILABLE, RedisConnection
 from src.db.tables import User
-from src.webapp.flask_app import current_app
+from src.webapp.app import current_app
 
 
 MIN_LENGTH = 8

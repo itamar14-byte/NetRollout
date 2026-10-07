@@ -24,8 +24,8 @@ from src.db.connections import BackendServices
 from src.db.tables import User
 from src.encryption import ENV_VAR, KEY_FILE, InvalidEncryptionKeyError, \
 	key_source
-from src.webapp.flask_app import NetRolloutApp, current_app
-from src.webapp.utils import err
+from src.webapp.app import NetRolloutApp, current_app
+from src.webapp.http import err
 
 
 login_mng = LoginManager()

@@ -10,13 +10,12 @@ from sqlalchemy.dialects import postgresql
 
 from src.db.settings import SETTINGS
 from src.inventory import can_edit_device, partition_devices, visible_devices_clause
-from src.jobs import job_status
+from src.jobs import job_status, build_kpi
 from src.rollout import inputs as validation
 from src.webapp.blueprints.admin_observability import QUERY_AUDIT_LOG_FIELDS
-from src.webapp.blueprints.analytics import QUERY_DEVICE_RESULT_FIELDS
+from src.webapp.blueprints.analytics import QUERY_DEVICE_RESULT_FIELDS, compile_query_rules
 from src.webapp.blueprints.jobs import config_expired
 from src.webapp.lifecycle import relaunch_command
-from src.webapp.utils import build_kpi, compile_query_rules
 
 
 def sql(expr) -> str:

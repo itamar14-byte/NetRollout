@@ -498,7 +498,7 @@ def test_results_are_saved_when_redis_is_down_at_the_end(end_of_job):
 	assert orch._slots._value == 1
 
 
-# ── Paused for a database move (src/webapp/maintenance.py) ───────────────────
+# ── Paused for a database move (src/webapp/db_move.py) ───────────────────
 
 def test_pause_refuses_new_rollouts_lets_queued_and_running_ones_finish(
 		make_orchestrator):

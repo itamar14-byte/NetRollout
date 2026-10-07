@@ -19,8 +19,8 @@ from src.rollout import inputs as validation
 from src.rollout.engine import endpoint, mapping_resolvable
 from src.rollout.inputs import InputParser, Validator
 from src.rollout.log import RolloutLogger
-from src.webapp.flask_app import current_app
-from src.webapp.utils import ok, err, with_form, with_json, flash_redirect
+from src.webapp.app import current_app
+from src.webapp.http import ok, err, with_form, with_json, flash_redirect
 
 bp = Blueprint('inventory', __name__, url_prefix='/inventory')
 

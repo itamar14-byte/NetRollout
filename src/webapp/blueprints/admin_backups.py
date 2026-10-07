@@ -12,8 +12,8 @@ from flask_login import login_required
 from src import runtime
 from src.backup import archive as backup
 from src.backup.schedule import schedule_state
-from src.webapp.flask_app import current_app
-from src.webapp.utils import err, ok, require_admin
+from src.webapp.app import current_app
+from src.webapp.http import err, ok, require_admin
 
 backups_bp = Blueprint("admin_backups", __name__, url_prefix="/admin/backups")
 
