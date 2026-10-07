@@ -28,7 +28,7 @@ from src.db.tables import SystemSetting
 from src.rollout.log import LOG_RETENTION_DAYS
 
 if TYPE_CHECKING:   # annotations only: postgres_db imports this module's users
-	from src.db.postgres_db import PostgresConnection
+	from src.db.connections import PostgresConnection
 
 
 AFTER_RESTART = "after restart"

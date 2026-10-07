@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from src import backup, runtime
-from src.db.backend import BackendServices
+from src.db.connections import BackendServices
 from src.db.tables import AuditLog
 
 CHECK_SECONDS = 30

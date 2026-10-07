@@ -15,8 +15,8 @@ from sqlalchemy.engine import make_url
 from werkzeug.security import generate_password_hash
 
 import src.encryption as enc
-from src.db.db_install import RETENTION_STATEMENTS, _grant_grafana_read, GRAFANA_TABLES, install
-from src.db.postgres_db import PostgresConfig, PostgresConnection
+from src.db.connections import PostgresConfig, PostgresConnection
+from src.db.install import RETENTION_STATEMENTS, _grant_grafana_read, GRAFANA_TABLES, install
 from src.db.settings import SETTINGS
 from src.db.tables import SecurityProfile
 from src.webapp.setup import init_app_encryption

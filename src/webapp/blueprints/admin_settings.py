@@ -9,10 +9,11 @@ from flask.typing import ResponseReturnValue
 from flask_login import current_user, login_required
 from sqlalchemy.exc import SQLAlchemyError
 
+from src.db import retention
 from src.db.settings import (SETTINGS, Change, SettingsError, public_url,
                              rules_for_client)
 from src.runtime import in_container
-from src.webapp import retention, port_apply, proxy_config
+from src.webapp import port_apply, proxy_config
 from src.webapp.blueprints.admin_backups import backups_state
 from src.webapp.flask_app import current_app
 from src.webapp.startup import check_proxy, resolve_public_url

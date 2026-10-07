@@ -123,7 +123,7 @@ All models use UUID primary keys except `SystemSetting`, whose key is the settin
 
 **Relationships:** `inventory`, `security_profiles`, `variable_mappings`, `property_definitions`, `results`, `job_metadata` (all cascade-delete with the user), `ldap_server`
 
-The factory account `admin`/`admin` is seeded at startup if missing (`db_install.py`), with `must_change_password` set: its first sign-in forces a new password.
+The factory account `admin`/`admin` is seeded at startup if missing (`src/db/install.py`), with `must_change_password` set: its first sign-in forces a new password.
 
 ### `Inventory`
 
@@ -394,7 +394,7 @@ Wraps a SQLAlchemy engine.
 ### `RedisConnection`
 Wraps a `redis.Redis` client, with the same `reload_db(config)` pattern. `REDIS_UNAVAILABLE` (connection errors plus timeouts) is the exception tuple that callers catch. There is no module singleton: the client is always reached through `app.backend.redis.client`, so a hot swap is picked up.
 
-### `BackendServices` (`src/db/backend.py`)
+### `BackendServices` (`src/db/connections.py`)
 The composition root for infrastructure. It is constructed once in `launch_app()` and attached to `app.backend`.
 
 ```python
@@ -415,14 +415,14 @@ BackendServices()        # no arguments:
 
 **`encrypted_sample()`:** returns one stored Fernet token, for the startup key check.
 
-### `install()` (`src/db/db_install.py`)
+### `install()` (`src/db/install.py`)
 Runs at every start, and again after a Postgres switch. It is idempotent.
 1. **Migrations:** `alembic upgrade head` on the app's own connection.
 2. **Factory admin:** seeds `admin`/`admin` if missing.
 3. **Settings:** seeds any missing System Setting rows.
 4. **Grafana's read access** (`install_extras`, also after a database move).
 
-The nightly clean-up (`src/webapp/retention.py`, in the app — no pg_cron since 9.9a), daily at 03:00 server time; its last outcome is shown on System Settings → Retention. Each statement reads its period from `system_settings` when it runs, so a change applies at the next run without a restart:
+The nightly clean-up (`src/db/retention.py`, in the app — no pg_cron since 9.9a), daily at 03:00 server time; its last outcome is shown on System Settings → Retention. Each statement reads its period from `system_settings` when it runs, so a change applies at the next run without a restart:
 
 | Job | Action | Setting (default) |
 |---|---|---|

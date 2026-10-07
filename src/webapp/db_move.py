@@ -21,7 +21,7 @@ from typing import Any
 from sqlalchemy import make_url
 
 from src.db import move
-from src.db.postgres_db import PostgresConfig
+from src.db.connections import PostgresConfig
 from src.db.tables import AuditLog
 from src.webapp.flask_app import NetRolloutApp
 

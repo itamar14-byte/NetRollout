@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any, cast
 import redis
 
 if TYPE_CHECKING:   # annotations only: the db package imports the web stack's models
-	from src.db.redis_db import RedisConnection
+	from src.db.connections import RedisConnection
 
 QUEUE = "netrollout:job_queue"
 PENDING = "netrollout:pending_count"

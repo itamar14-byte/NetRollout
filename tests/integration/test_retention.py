@@ -1,4 +1,4 @@
-"""The nightly clean-up, run by the app (src/webapp/retention.py) on the test
+"""The nightly clean-up, run by the app (src/db/retention.py) on the test
 database: the settings' periods, its outcome recorded for System Settings."""
 import datetime as dt
 import uuid
@@ -6,8 +6,8 @@ import uuid
 import pytest
 from sqlalchemy import text
 
+from src.db import retention
 from src.db.settings import seed_settings
-from src.webapp import retention
 
 pytestmark = [pytest.mark.postgres, pytest.mark.redis]
 

@@ -20,7 +20,7 @@ from redis.exceptions import ConnectionError as RedisConnectionError, \
 	TimeoutError as RedisTimeoutError
 from sqlalchemy.exc import OperationalError
 
-from src.db.backend import BackendServices
+from src.db.connections import BackendServices
 from src.db.tables import User
 from src.encryption import ENV_VAR, KEY_FILE, InvalidEncryptionKeyError, \
 	key_source

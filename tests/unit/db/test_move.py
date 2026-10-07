@@ -1,6 +1,6 @@
 """The database move's pure parts: the SQL a DBA runs, places compared."""
+from src.db.connections import PostgresConfig
 from src.db.move import Plan, preparation_sql
-from src.db.postgres_db import PostgresConfig
 from src.webapp.db_move import describe, same_database
 
 

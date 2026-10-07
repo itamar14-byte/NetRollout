@@ -15,8 +15,9 @@ from typing import Any
 from sqlalchemy.engine import Engine
 
 from src import runtime
-from src.db.backend import BackendServices
-from src.db.db_install import run_retention
+from src.db.connections import BackendServices
+from src.db.install import run_retention
+
 
 RUN_AT = clock(3, 0)
 CHECK_SECONDS = 60

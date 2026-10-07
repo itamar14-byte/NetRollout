@@ -13,18 +13,8 @@ from werkzeug.security import generate_password_hash
 
 from src.db.settings import seed_settings, sql_value
 from src.db.tables import User
-
 if TYPE_CHECKING:
-	from src.db.postgres_db import PostgresConnection
-
-# ── Retention policy ─────────────────────────────────────────────────────────
-# A job's commands (job_metadata) and its per-device results (device_results)
-# are one logical record and expire together. The heavy per-device running
-# config snapshot (device_results.fetched_config) is cleared much earlier —
-# it only matters while investigating a failed verify.
-# The periods are System Settings (src/db/settings.py): each statement reads
-# the setting's row when it runs, so a change applies at the next nightly
-# run, without a restart.
+	from src.db.connections import PostgresConnection
 
 
 def _older_than(column: str, setting: str) -> str:
@@ -57,7 +47,7 @@ RETENTION_STATEMENTS = {
 
 def run_retention(engine: Engine) -> dict[str, int]:
 	"""The retention statements, once, in one transaction (the app runs them
-	daily: src/webapp/retention.py). Each reads its period from
+	daily: src/db/retention.py). Each reads its period from
 	system_settings.
 
 	:param engine: the database NetRollout uses

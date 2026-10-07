@@ -13,7 +13,7 @@ from typing import Callable, Iterable, TypedDict, cast
 
 import redis
 
-from src.db.redis_db import REDIS_UNAVAILABLE
+from src.db.connections import REDIS_UNAVAILABLE
 
 PROBE_TIMEOUT = 2.0   # seconds; single attempt — this is a status hint
 CACHE_TTL = 60        # seconds

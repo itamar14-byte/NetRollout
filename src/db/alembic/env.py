@@ -11,13 +11,13 @@ ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
 from src import runtime
 from src.db.tables import Base
-from src.db.postgres_db import PostgresConfig, PostgresConnection
+from src.db.connections import PostgresConfig, PostgresConnection
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
 
-# When migrations run from the app (db_install.install), the app hands over
+# When migrations run from the app (db/install.install), the app hands over
 # its live connection: the exact database, credentials and schema it uses —
 # including after a Server Management switch. The alembic CLI gets none and
 # builds its own below.

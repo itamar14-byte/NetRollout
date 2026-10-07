@@ -1,4 +1,4 @@
-"""The nightly clean-up's schedule (src/webapp/retention.py): 03:00, once a
+"""The nightly clean-up's schedule (src/db/retention.py): 03:00, once a
 day, a missed time caught up once, a restart not running it again."""
 import json
 from datetime import datetime
@@ -6,8 +6,8 @@ from datetime import datetime
 import pytest
 
 from src import runtime
-from src.webapp import retention
-from src.webapp.retention import due
+from src.db import retention
+from src.db.retention import due
 
 
 @pytest.mark.parametrize("now, last_run, expected", [

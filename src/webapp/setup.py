@@ -15,8 +15,7 @@ from prometheus_client.core import REGISTRY, GaugeMetricFamily
 from sqlalchemy.exc import OperationalError
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from src.db.backend import BackendServices
-from src.db.redis_db import REDIS_UNAVAILABLE, RedisConnection
+from src.db.connections import BackendServices, REDIS_UNAVAILABLE, RedisConnection
 from src.encryption import init_encryption, require_key_in_container
 from src.job_store import JobStore
 from src.orchestration import RolloutOrchestrator

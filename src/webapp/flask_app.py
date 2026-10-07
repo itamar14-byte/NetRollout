@@ -11,7 +11,7 @@ from flask import Flask, current_app as flask_current_app
 from flask_session.redis import RedisSessionInterface
 
 if TYPE_CHECKING:   # annotations only: these modules import this one's users
-	from src.db.backend import BackendServices
+	from src.db.connections import BackendServices
 	from src.orchestration import RolloutOrchestrator
 	from src.webapp.db_move import DatabaseMove
 	from src.webapp.lifecycle import Shutdown

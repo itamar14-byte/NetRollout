@@ -38,9 +38,8 @@ from sqlalchemy import create_engine, text
 from werkzeug.security import generate_password_hash
 
 import src.encryption as enc
-from src.db import backend as backend_mod
-from src.db.postgres_db import PostgresConnection, PostgresConfig
-from src.db.redis_db import RedisConnection, RedisConfig
+from src.db import connections as backend_mod
+from src.db.connections import PostgresConnection, PostgresConfig, RedisConnection, RedisConfig
 from src.db.tables import Base, User, SecurityProfile, Inventory, VariableMapping
 from src.encryption import decrypt, encrypt
 from src.webapp import create_app

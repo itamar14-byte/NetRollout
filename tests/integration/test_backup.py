@@ -13,7 +13,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
 
 from src import backup
-from src.db.postgres_db import PostgresConfig, PostgresConnection
+from src.db.connections import PostgresConfig, PostgresConnection
 from src.db.tables import AuditLog, SecurityProfile, SystemSetting, User
 from tests.integration.conftest import PG_ADMIN_URL
 

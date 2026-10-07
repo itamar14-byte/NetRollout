@@ -13,8 +13,7 @@ import redis
 from redis.client import PubSub
 
 from src import runtime
-from src.db.backend import BackendServices
-from src.db.redis_db import REDIS_UNAVAILABLE
+from src.db.connections import BackendServices, REDIS_UNAVAILABLE
 from src.db.tables import DeviceResult, JobMetadata
 from src.job_store import JobStore
 from src.rollout.engine import RolloutEngine, RolloutOptions, Device, DeviceResultDict

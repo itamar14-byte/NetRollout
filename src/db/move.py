@@ -22,8 +22,8 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
 
 from src import backup
-from src.db.db_install import GRAFANA_ROLE
-from src.db.postgres_db import PostgresConfig
+from src.db.connections import PostgresConfig
+from src.db.install import GRAFANA_ROLE
 from src.db.tables import Base
 
 MIN_SERVER_VERSION = 130000          # gen_random_uuid() is core from 13

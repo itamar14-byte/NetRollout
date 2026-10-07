@@ -10,8 +10,7 @@ import pytest
 from sqlalchemy import create_engine, make_url, text
 
 from src.db import move
-from src.db.backend import BUNDLED_DATABASE_KEY
-from src.db.postgres_db import PostgresConfig
+from src.db.connections import BUNDLED_DATABASE_KEY, PostgresConfig
 from src.encryption import decrypt
 from src.webapp import db_move
 from src.webapp.db_move import DatabaseMove

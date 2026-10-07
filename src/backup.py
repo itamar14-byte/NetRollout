@@ -54,8 +54,7 @@ from sqlalchemy import MetaData, Table, inspect, insert, text, update
 from sqlalchemy.engine import Connection, Engine
 
 from src import runtime
-from src.db.backend import ENCRYPTED_COLUMNS, FERNET_PREFIX
-from src.db.postgres_db import PostgresConfig, PostgresConnection
+from src.db.connections import ENCRYPTED_COLUMNS, FERNET_PREFIX, PostgresConfig, PostgresConnection
 from src.db.tables import AuditLog, Base, SystemSetting
 from src.encryption import read_key
 
