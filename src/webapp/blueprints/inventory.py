@@ -15,7 +15,7 @@ from src.accounts.users import signed_in_user
 from src.db.tables import VariableMapping, Inventory, SecurityProfile
 from src.inventory import (can_edit_device, import_csv, partition_devices, query_visible_devices,
                            same_endpoint_devices, same_endpoint_warning, visible_devices_clause)
-from src.rollout import inputs as validation
+from src.rollout import inputs
 from src.rollout.engine import endpoint, mapping_resolvable
 from src.rollout.inputs import InputParser, Validator
 from src.rollout.log import RolloutLogger
@@ -73,11 +73,11 @@ def device_problem(ip: str, port: str, device_type: str) -> str | None:
 	"""The server's check of a device's fields (the page's can be bypassed).
 
 	:returns: what's wrong, in words; None when they're valid"""
-	if not validation.validate_ip(ip):
+	if not inputs.validate_ip(ip):
 		return f"Not a valid IP address: {ip}."
-	if not validation.validate_port(port):
+	if not inputs.validate_port(port):
 		return "The port is a number from 1 to 65535."
-	if not validation.validate_platform(device_type):
+	if not inputs.validate_platform(device_type):
 		return f"Unsupported device type: {device_type}."
 	return None
 
@@ -123,7 +123,7 @@ def inventory_create(data: Any) -> ResponseReturnValue:
 	device_type = data.get("device_type", "").strip()
 	if problem := device_problem(ip, port, device_type):
 		return flash_redirect(problem, "inventory.inventory", "danger")
-	ip = validation.normalize_ip(ip)
+	ip = inputs.normalize_ip(ip)
 	label = data.get("label", "").strip() or ip
 	sec_profile_id = data.get("sec_profile_id", "").strip()
 	try:
@@ -172,12 +172,12 @@ def inventory_test_connection(data: dict[str, Any]) -> ResponseReturnValue:
 	ip = str(data.get("ip", "")).strip()
 	port = str(data.get("port", "")).strip()
 
-	if not validation.validate_ip(ip):
+	if not inputs.validate_ip(ip):
 		return err("Invalid IP address")
-	if not validation.validate_port(port):
+	if not inputs.validate_port(port):
 		return err("Port must be between 1 and 65535")
 
-	if validation.tcp_reachable(ip, int(port)):
+	if inputs.tcp_reachable(ip, int(port)):
 		return ok(f"TCP port {port} reachable on {ip}")
 	return err(f"TCP port {port} unreachable on {ip}")
 
@@ -222,7 +222,7 @@ def inventory_edit(device_id: uuid.UUID) -> ResponseReturnValue:
 		device_type = request.form.get("device_type", "").strip()
 		if problem := device_problem(ip, port, device_type):
 			return flash_redirect(problem, "inventory.inventory", "danger")
-		ip = validation.normalize_ip(ip)
+		ip = inputs.normalize_ip(ip)
 		sec_profile_id = request.form.get("sec_profile_id", "").strip()
 		try:
 			parsed_sec_id = uuid.UUID(sec_profile_id) if sec_profile_id else None

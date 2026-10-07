@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from src.setup import update as release
+from src.setup import update
 
 ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location("build_release", ROOT / "tools" / "build_release.py")
@@ -24,13 +24,13 @@ def test_the_linux_zip_keeps_the_contract(tmp_path):
 	update replaces, exactly SHIPPED + the Linux scripts + VERSION + README.md, Unix
 	entries (755 for .sh, 644 else) and LF line ends."""
 	path = build.build_linux_zip(VERSION, tmp_path)
-	assert path.name == release.zip_name(VERSION)
+	assert path.name == update.zip_name(VERSION)
 	with zipfile.ZipFile(path) as zf:
 		infos = {i.filename: i for i in zf.infolist()}
 		names = {n.removeprefix("netrollout/") for n in infos}
 		assert all(n.startswith("netrollout/") for n in infos)
 		# what an update replaces (release.REPLACED) is all there
-		for top in release.REPLACED:
+		for top in update.REPLACED:
 			assert any(n == top or n.startswith(top + "/") for n in names), top
 		assert names == {*build.SHIPPED, *build.LINUX_BIN, "VERSION", "README.md"}
 		assert zf.read("netrollout/VERSION").decode() == VERSION + "\n"
@@ -81,9 +81,9 @@ def test_sums_and_a_feed_the_update_code_reads(tmp_path):
 	zip_path = build.build_linux_zip(VERSION, tmp_path)
 	sums = build.write_sums([zip_path], tmp_path)
 	line = sums.read_text(encoding="ascii")
-	assert release.expected_sum(line, zip_path.name) == build.sha256(zip_path)
+	assert update.expected_sum(line, zip_path.name) == build.sha256(zip_path)
 	feed = build.write_feed(VERSION, [zip_path, sums], tmp_path.as_uri(), "notes", tmp_path)
-	found = release.find(feed=str(feed))
+	found = update.find(feed=str(feed))
 	assert (found.version, found.notes) == (VERSION, "notes")
 	assert found.zip_url == f"{tmp_path.as_uri()}/{zip_path.name}"
 	assert found.sums_url == f"{tmp_path.as_uri()}/SHA256SUMS"

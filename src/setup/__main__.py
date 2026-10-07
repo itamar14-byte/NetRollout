@@ -8,8 +8,7 @@ from pathlib import Path
 from packaging.version import Version
 
 from src import runtime
-from src.setup import (install as A, install as files, manage, port, update as release,
-                       update as _update)
+from src.setup import install, manage, port, update
 from src.setup.env import env_path
 
 OK, INVALID, REFUSED = 0, 1, 2
@@ -49,9 +48,9 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 	seen.add_argument("--health-url", default=manage.HEALTH_URL)
 	p.add_argument("--defaults", action="store_true",
 	               help="never ask: defaults for what isn't given")
-	update = p.add_argument_group("check-update (run with the installed version's image)")
-	update.add_argument("--installed", help="the installed version")
-	update.add_argument("--new", help="the version about to be installed")
+	check_update = p.add_argument_group("check-update (run with the installed version's image)")
+	check_update.add_argument("--installed", help="the installed version")
+	check_update.add_argument("--new", help="the version about to be installed")
 	rel = p.add_argument_group("release (Linux's update; run with the installed version's image)")
 	rel.add_argument("--check", action="store_true", help="only say whether a newer one exists")
 	rel.add_argument("--release-version", help="this version, not the latest")
@@ -71,7 +70,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 	return p.parse_args(argv)
 
 
-def facts_from(args: argparse.Namespace) -> A.Facts:
+def facts_from(args: argparse.Namespace) -> install.Facts:
 	""":returns: what the host script told about the computer"""
 	busy: dict[int, str] = {}
 	listed: str = args.busy_ports
@@ -79,15 +78,15 @@ def facts_from(args: argparse.Namespace) -> A.Facts:
 		port, _, who = item.partition("=")
 		if port.isdigit():
 			busy[int(port)] = who.strip()
-	return A.Facts(os=args.os, computer_name=args.computer_name,
+	return install.Facts(os=args.os, computer_name=args.computer_name,
 	               timezone=args.host_timezone,
 	               server_ips=[ip.strip() for ip in args.server_ips.split(",")
 	                           if ip.strip()],
 	               busy_ports=busy, account=args.account)
 
 
-def main(argv: list[str] | None = None, read: A.Read = input,
-         write: A.Write = print) -> int:
+def main(argv: list[str] | None = None, read: install.Read = input,
+         write: install.Write = print) -> int:
 	"""Run one setup command.
 
 	:param argv: the arguments; sys.argv's when None
@@ -98,9 +97,9 @@ def main(argv: list[str] | None = None, read: A.Read = input,
 	args = parse_args(sys.argv[1:] if argv is None else argv)
 	if args.dev:
 		try:
-			for line in files.install_dev():
+			for line in install.install_dev():
 				write(line)
-		except files.Refused as e:
+		except install.Refused as e:
 			write(str(e))
 			return REFUSED
 		return OK
@@ -111,7 +110,7 @@ def main(argv: list[str] | None = None, read: A.Read = input,
 			write("check-update needs --installed and --new")
 			return INVALID
 		try:
-			write(_update.update_kind(args.installed, args.new))
+			write(update.update_kind(args.installed, args.new))
 		except ValueError as e:
 			write(str(e))
 			return REFUSED
@@ -134,7 +133,7 @@ def main(argv: list[str] | None = None, read: A.Read = input,
 			return OK
 		if args.command == "upgrade":
 			try:
-				for line in _update.upgrade():
+				for line in update.upgrade():
 					write(line)
 			except ValueError as e:
 				write(str(e))
@@ -167,12 +166,12 @@ def main(argv: list[str] | None = None, read: A.Read = input,
 		      "which shows it (unattended: its --yes).")
 		return INVALID
 	try:
-		answers = A.collect(facts, given, interactive, read, write)
-	except A.Invalid as e:
+		answers = install.collect(facts, given, interactive, read, write)
+	except install.Invalid as e:
 		for line in str(e).splitlines():
 			write(line)
 		return INVALID
-	except A.NoAnswer as e:
+	except install.NoAnswer as e:
 		write(f"No answer for '{e}' (input ended) - run it in a terminal, or "
 		      f"give the answers as flags with --defaults.")
 		return INVALID
@@ -180,9 +179,9 @@ def main(argv: list[str] | None = None, read: A.Read = input,
 		write("ok")
 		return OK
 	try:
-		for line in files.install(answers, facts):
+		for line in install.install(answers, facts):
 			write(line)
-	except files.Refused as e:
+	except install.Refused as e:
 		write(str(e))
 		return REFUSED
 	except OSError as e:
@@ -193,7 +192,7 @@ def main(argv: list[str] | None = None, read: A.Read = input,
 	return OK
 
 
-def _port(args: argparse.Namespace, facts: A.Facts, write: A.Write) -> int:
+def _port(args: argparse.Namespace, facts: install.Facts, write: install.Write) -> int:
 	"""port-next prints "<action> <port|-> <id|->" and, when there is one, a
 	second line saying why; the others do their step and print nothing.
 
@@ -217,7 +216,7 @@ def _port(args: argparse.Namespace, facts: A.Facts, write: A.Write) -> int:
 	return OK
 
 
-def _release(args: argparse.Namespace, write: A.Write) -> int:
+def _release(args: argparse.Namespace, write: install.Write) -> int:
 	"""--check: whether a newer one exists; else downloaded (or given), checked
 	and unpacked under --out; prints version=… and folder=… for the script.
 
@@ -225,9 +224,9 @@ def _release(args: argparse.Namespace, write: A.Write) -> int:
 	out = Path(args.out)
 	try:
 		if args.from_zip:
-			folder, version = release.unpack(Path(args.from_zip), out)
+			folder, version = update.unpack(Path(args.from_zip), out)
 		else:
-			found = release.find(args.release_version, args.feed)
+			found = update.find(args.release_version, args.feed)
 			if args.check:
 				if Version(found.version) > Version(runtime.VERSION):
 					write(f"NetRollout {found.version} is available (you have "
@@ -235,8 +234,8 @@ def _release(args: argparse.Namespace, write: A.Write) -> int:
 				else:
 					write(f"You have the latest version ({runtime.VERSION}).")
 				return OK
-			folder, version = release.unpack(release.download(found, out), out)
-	except release.ReleaseError as e:
+			folder, version = update.unpack(update.download(found, out), out)
+	except update.ReleaseError as e:
 		write(str(e))
 		return INVALID
 	write(f"version={version}")

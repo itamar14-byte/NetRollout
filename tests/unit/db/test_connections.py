@@ -12,8 +12,8 @@ import redis
 from dotenv import dotenv_values, load_dotenv
 from sqlalchemy.engine import make_url
 
-import src.jobs as orchestration
-from src.db import connections as redis_db
+from src import jobs
+from src.db import connections
 from src.db.connections import (RedisConfig, RedisConnection, CONNECT_TIMEOUT, REDIS_UNAVAILABLE,
                                 SOCKET_TIMEOUT, BackendServices, PostgresConfig)
 
@@ -63,8 +63,8 @@ def test_a_reachable_server_replaces_the_client(monkeypatch):
 
 def test_both_failures_count_as_unavailable():
 	"""REDIS_UNAVAILABLE includes both TimeoutError and ConnectionError."""
-	assert redis.exceptions.TimeoutError in redis_db.REDIS_UNAVAILABLE
-	assert redis.exceptions.ConnectionError in redis_db.REDIS_UNAVAILABLE
+	assert redis.exceptions.TimeoutError in connections.REDIS_UNAVAILABLE
+	assert redis.exceptions.ConnectionError in connections.REDIS_UNAVAILABLE
 
 
 UNROUTABLE_HOST = "10.255.255.1"  # silently drops packets: a real timeout
@@ -81,7 +81,7 @@ def test_socket_timeout_exceeds_dispatcher_blpop_wait():
 	"""SOCKET_TIMEOUT is longer than the dispatcher's BLPOP wait: the socket
 	timeout applies to BLPOP too, and if it were shorter every idle dispatcher
 	wait would raise instead of returning None."""
-	assert SOCKET_TIMEOUT > orchestration._BLPOP_TIMEOUT
+	assert SOCKET_TIMEOUT > jobs._BLPOP_TIMEOUT
 
 
 def test_unreachable_host_fails_fast():

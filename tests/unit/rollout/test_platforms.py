@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, call, patch
 import netmiko
 import pytest
 
-from src.rollout import inputs as validation
+from src.rollout import inputs
 from src.rollout.engine import Device, PushResult, RolloutEngine, RolloutOptions
 from src.rollout.log import RolloutLogger
 from src.rollout.platforms import COMMIT_TIMEOUT, NOT_CONFIGURED, PLATFORMS, STILL_CONFIGURED, UNVERIFIABLE, VARIABLE, VERIFIED, rejection, verify_commands
@@ -20,7 +20,7 @@ OK, MISSING, STILL, NV = VERIFIED, NOT_CONFIGURED, STILL_CONFIGURED, UNVERIFIABL
 
 def test_every_supported_platform_has_a_row():
 	"""PLATFORMS has a row for exactly the supported platforms, no more, no fewer."""
-	assert set(PLATFORMS) == set(validation.SUPPORTED_PLATFORMS)
+	assert set(PLATFORMS) == set(inputs.SUPPORTED_PLATFORMS)
 
 
 # ── Verify verdicts, per platform ────────────────────────────────────────────

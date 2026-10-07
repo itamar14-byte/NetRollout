@@ -18,7 +18,7 @@ import src.encryption as enc
 # Import through the src package only — the app itself imports src.*, and a
 # bare `import core` would load a second copy of every module (patches and
 # isinstance checks would then silently target the wrong one).
-from src.rollout import inputs as validation
+from src.rollout import inputs
 from src.rollout.engine import (PushResult, VerifyResult, Device, RolloutOptions, RolloutEngine,
                                 endpoint, classify, mapping_resolvable)
 from src.rollout.inputs import InputParser, Validator
@@ -71,8 +71,8 @@ class TestIPv6(unittest.TestCase):
 		case, zeros compressed), so one device has one spelling; IPv4 is
 		unchanged. The CSV rows (CLI and import) come out normalised too."""
 		for typed in ("2001:DB8:0:0:0:0:0:1", "2001:0db8::0001", " 2001:db8::1 "):
-			self.assertEqual(validation.normalize_ip(typed), "2001:db8::1")
-		self.assertEqual(validation.normalize_ip("10.0.0.1"), "10.0.0.1")
+			self.assertEqual(inputs.normalize_ip(typed), "2001:db8::1")
+		self.assertEqual(inputs.normalize_ip("10.0.0.1"), "10.0.0.1")
 		parser = InputParser(Validator(RolloutLogger(webapp=False, verbose=False)),
 		                     RolloutLogger(webapp=False, verbose=False))
 		(device,), errors = parser.prepare_devices(
@@ -86,7 +86,7 @@ class TestIPv6(unittest.TestCase):
 		with socket.socket(socket.AF_INET6, socket.SOCK_STREAM) as server:
 			server.bind(("::1", 0))
 			server.listen(1)
-			self.assertTrue(validation.tcp_reachable("::1", server.getsockname()[1]))
+			self.assertTrue(inputs.tcp_reachable("::1", server.getsockname()[1]))
 
 
 # ---------------------------------------------------------------------------

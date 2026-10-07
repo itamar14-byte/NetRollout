@@ -16,7 +16,7 @@ from cryptography.fernet import Fernet
 
 from src import runtime
 from src.access import certs, site_env
-from src.backup import archive as backup
+from src.backup import archive
 from src.setup.env import _env_write, env_read, env_set, COMPOSE_HTTP, compose_files
 
 
@@ -216,7 +216,7 @@ def _backups(todo: list[str]) -> str:
 	failed scheduled one.
 
 	:param todo: what to do; a failed scheduled backup adds to it"""
-	entries = backup.list_backups(runtime.backups_dir())
+	entries = archive.list_backups(runtime.backups_dir())
 	text = (f"{len(entries)}, {sum(e.size for e in entries) / 1048576:.1f} MB "
 	        f"in backups" if entries else "none yet")
 	if entries and entries[0].manifest:

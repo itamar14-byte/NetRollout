@@ -12,7 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from src.accounts.users import signed_in_user
 from src.db.tables import VariableMapping, Inventory, PropertyDefinition
 from src.inventory import visible_devices_clause, query_visible_devices, partition_devices
-from src.rollout import inputs as validation
+from src.rollout import inputs
 from src.rollout.engine import mapping_resolvable
 from src.rollout.log import RolloutLogger
 from src.webapp.app import current_app
@@ -40,9 +40,9 @@ def validate_mapping_fields(index: int | None, property_name: str,
 	:returns: None when valid; else the way back to the page, the reason
 	 flashed"""
 	allowed, list_props = property_rules()
-	for valid, why in (validation.validate_var_map_inner_token(inner_token),
-	                   validation.validate_var_map_property_name(property_name, allowed),
-	                   validation.validate_var_index(index, property_name, list_props)):
+	for valid, why in (inputs.validate_var_map_inner_token(inner_token),
+	                   inputs.validate_var_map_property_name(property_name, allowed),
+	                   inputs.validate_var_index(index, property_name, list_props)):
 		if not valid:
 			flash(why or "Invalid mapping.", "danger")
 			return redirect(url_for("mappings.mappings"))
@@ -154,9 +154,9 @@ def mappings_quick_create(data: dict[str, Any]) -> ResponseReturnValue:
 		return err(str(e), 422)
 
 	allowed, list_props = property_rules()
-	for valid, why in (validation.validate_var_map_inner_token(inner_token),
-	                   validation.validate_var_map_property_name(property_name, allowed),
-	                   validation.validate_var_index(index, property_name, list_props)):
+	for valid, why in (inputs.validate_var_map_inner_token(inner_token),
+	                   inputs.validate_var_map_property_name(property_name, allowed),
+	                   inputs.validate_var_index(index, property_name, list_props)):
 		if not valid:
 			return err(why or "Invalid mapping.")
 

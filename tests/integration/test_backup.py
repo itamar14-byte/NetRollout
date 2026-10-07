@@ -12,7 +12,7 @@ from cryptography.fernet import Fernet
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
 
-from src.backup import archive as backup
+from src.backup import archive
 from src.db.connections import PostgresConfig, PostgresConnection
 from src.db.tables import AuditLog, SecurityProfile, SystemSetting, User
 from tests.integration.conftest import PG_ADMIN_URL
@@ -71,7 +71,7 @@ def databases():
 @pytest.fixture
 def places(tmp_path):
 	"""Backup folders under tmp_path (backups, certs, logs, grafana); certs, logs made."""
-	p = backup.Places(tmp_path / "backups", tmp_path / "certs", tmp_path / "logs",
+	p = archive.Places(tmp_path / "backups", tmp_path / "certs", tmp_path / "logs",
 	                  tmp_path / "grafana")
 	for folder in (p.certs, p.logs):
 		folder.mkdir()
@@ -80,7 +80,7 @@ def places(tmp_path):
 
 def migrate(engine, revision="head"):
 	with engine.begin() as conn:
-		alembic_command.upgrade(backup._alembic_config(conn), revision)
+		alembic_command.upgrade(archive._alembic_config(conn), revision)
 
 
 def revision_of(engine):
@@ -119,17 +119,17 @@ def test_a_backup_restores_into_another_database_through_a_non_superuser(
 	(places.logs / "rollout_20261005_job1.log").write_text("pushed")
 	(places.logs / "install.log").write_text("not a rollout log")
 
-	path = backup.create(source, "manual", places, key=key)
-	manifest = backup.check(path)
+	path = archive.create(source, "manual", places, key=key)
+	manifest = archive.check(path)
 	assert manifest.revision == revision_of(source)
 	assert manifest.tables["users"] == 1 and manifest.tables["security_profiles"] == 1
 
 	# restoring into an install with its own (organisation's) certificate
-	restored_places = backup.Places(places.backups, places.certs.parent / "c2",
+	restored_places = archive.Places(places.backups, places.certs.parent / "c2",
 	                                places.logs.parent / "l2")
 	restored_places.certs.mkdir()
 	(restored_places.certs / "fullchain.pem").write_text("OTHER")
-	done = backup.restore(path, target, restored_places, https_port=8443)
+	done = archive.restore(path, target, restored_places, https_port=8443)
 
 	assert done.key == key
 	assert revision_of(target) == manifest.revision
@@ -155,10 +155,10 @@ def test_an_older_backup_restores_and_the_app_migrates_it_forward(databases, pla
 	key = Fernet.generate_key()
 	migrate(source, OLDER)
 	populate(source, key, role="user")        # 'user' became 'operator' later
-	path = backup.create(source, "manual", places, key=key)
+	path = archive.create(source, "manual", places, key=key)
 	migrate(target)                           # the target is already at head
 
-	backup.restore(path, target, places)
+	archive.restore(path, target, places)
 	assert revision_of(target) == OLDER
 	migrate(target)                           # what the app does at its start
 	with Session(target) as s:
@@ -172,14 +172,14 @@ def test_a_key_that_does_not_decrypt_the_credentials_changes_nothing(
 	source, target = databases
 	migrate(source)
 	populate(source, Fernet.generate_key())
-	path = backup.create(source, "manual", places, key=Fernet.generate_key())
+	path = archive.create(source, "manual", places, key=Fernet.generate_key())
 	migrate(target)
 	with Session(target) as s, s.begin():
 		s.add(User(username="bob", password_hash="x", email="b@example.com",
 		           full_name="Bob", role="admin", is_active=True, is_approved=True))
 
-	with pytest.raises(backup.BackupError, match="doesn't decrypt"):
-		backup.restore(path, target, places)
+	with pytest.raises(archive.BackupError, match="doesn't decrypt"):
+		archive.restore(path, target, places)
 	with Session(target) as s:
 		assert [u.username for u in s.query(User)] == ["bob"]
 
@@ -197,10 +197,10 @@ def test_grafanas_database_is_copied_and_restored(databases, places, tmp_path):
 		db.execute("INSERT INTO dashboard VALUES ('Custom one')")
 	db.close()
 
-	path = backup.create(source, "scheduled", places, key=key)
-	assert backup.read_manifest(path).grafana
+	path = archive.create(source, "scheduled", places, key=key)
+	assert archive.read_manifest(path).grafana
 	grafana_target = tmp_path / "grafana-volume"
-	backup.restore(path, target, places, grafana_target=grafana_target)
+	archive.restore(path, target, places, grafana_target=grafana_target)
 	db = sqlite3.connect(grafana_target / "grafana.db")
 	assert db.execute("SELECT title FROM dashboard").fetchall() == [("Custom one",)]
 	db.close()
@@ -215,6 +215,6 @@ def test_a_database_without_netrollout_tables_is_not_backed_up(databases, places
 	source, _ = databases
 	with source.begin() as conn:
 		conn.execute(text("CREATE TABLE alembic_version (version_num varchar(32))"))
-	with pytest.raises(backup.BackupError, match="no NetRollout tables"):
-		backup.create(source, "manual", places, key=Fernet.generate_key())
+	with pytest.raises(archive.BackupError, match="no NetRollout tables"):
+		archive.create(source, "manual", places, key=Fernet.generate_key())
 	assert not any(places.backups.iterdir())

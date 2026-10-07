@@ -22,7 +22,7 @@ from typing import Any, cast
 from sqlalchemy.exc import SQLAlchemyError
 
 from src import runtime
-from src.access import certs, site_env, port as port_apply
+from src.access import certs, site_env, port
 from src.db.settings import SETTINGS, SettingsStore
 
 
@@ -52,7 +52,7 @@ def write_site(hostname: str | None) -> bool:
 	:raises OSError: the folder can't be written"""
 	host = cast(str, SETTINGS["public_hostname"].parse(hostname or ""))
 	return site_env.update({site_env.HOSTNAME: host,
-	                        site_env.HTTPS_PORT: str(port_apply.serving_port())})
+	                        site_env.HTTPS_PORT: str(port.serving_port())})
 
 
 def seed_hostname_from_site() -> None:

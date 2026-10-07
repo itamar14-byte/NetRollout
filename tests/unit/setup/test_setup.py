@@ -8,7 +8,7 @@ from cryptography.fernet import Fernet
 
 from src import runtime
 from src.access import certs, site_env
-from src.setup import __main__ as cli, install as A, update as _update
+from src.setup import __main__ as cli, install, update as _update
 from src.setup import manage  # noqa: E402
 from src.setup.env import DEV_COMPOSE, env_read, env_set, env_text, generate_secrets, UPGRADE_DEFAULTS
 from tests.unit.backup.test_archive import make_zip
@@ -52,28 +52,28 @@ WINDOWS = ["--os", "windows", "--computer-name", "NR-SRV01",
 	("10.0.0.5", "10.0.0.5")])
 def test_hostnames(value, expected):
 	"""A hostname is accepted lower-cased and without a trailing dot; an IP as given."""
-	assert A.check_hostname(value) == expected
+	assert install.check_hostname(value) == expected
 
 
 @pytest.mark.parametrize("bad", ["", "https://nr01", "nr 01", "nr01:8443"])
 def test_bad_hostnames(bad):
 	"""Empty, a URL, a space or a port in the hostname is invalid."""
-	with pytest.raises(A.Invalid):
-		A.check_hostname(bad)
+	with pytest.raises(install.Invalid):
+		install.check_hostname(bad)
 
 
 def test_a_busy_port_names_who_and_suggests_a_free_one():
 	"""A busy port is refused naming its owner and suggesting a free one (9443); a free
 	port is accepted as a number; 80, 0, 70000 and a non-number are invalid."""
 	busy = {443: "Windows' HTTP service", 8443: ""}
-	with pytest.raises(A.Invalid) as e:
-		A.check_port("443", busy)
+	with pytest.raises(install.Invalid) as e:
+		install.check_port("443", busy)
 	assert "in use on this computer (by Windows' HTTP service)" in str(e.value)
 	assert "e.g. 9443" in str(e.value)
-	assert A.check_port("9443", busy) == 9443
+	assert install.check_port("9443", busy) == 9443
 	for bad in ("80", "0", "70000", "https"):
-		with pytest.raises(A.Invalid):
-			A.check_port(bad, {})
+		with pytest.raises(install.Invalid):
+			install.check_port(bad, {})
 
 
 @pytest.mark.parametrize("value, expected", [
@@ -82,25 +82,25 @@ def test_a_busy_port_names_who_and_suggests_a_free_one():
 	("Asia/Jerusalem", "Asia/Jerusalem"), ("UTC", "UTC")])
 def test_timezones(value, expected):
 	"""A Windows timezone name becomes its IANA name; an IANA name or UTC stays as it is."""
-	assert A.check_timezone(value) == expected
+	assert install.check_timezone(value) == expected
 
 
 def test_an_unknown_timezone():
 	"""A timezone that is neither Windows' nor IANA's is invalid."""
-	with pytest.raises(A.Invalid):
-		A.check_timezone("Mars/Olympus")
+	with pytest.raises(install.Invalid):
+		install.check_timezone("Mars/Olympus")
 
 
 def test_defaults_come_from_the_host():
 	"""Unattended, the answers default to the computer name, a free port (8443 when 443 is
 	busy), monitoring on, no organisation certificate and the host's timezone; a computer
 	name that isn't a hostname gives `netrollout`, an unknown timezone UTC."""
-	facts = A.Facts(computer_name="NR-SRV01", timezone="Israel Standard Time",
+	facts = install.Facts(computer_name="NR-SRV01", timezone="Israel Standard Time",
 	                busy_ports={443: ""})
-	answers = A.collect(facts, {}, interactive=False)
-	assert answers == A.Answers("nr-srv01", 8443, True, False, "Asia/Jerusalem")
+	answers = install.collect(facts, {}, interactive=False)
+	assert answers == install.Answers("nr-srv01", 8443, True, False, "Asia/Jerusalem")
 	# a computer name that isn't a hostname, an unknown timezone
-	plain = A.collect(A.Facts(computer_name="My PC!", timezone="?"), {}, False)
+	plain = install.collect(install.Facts(computer_name="My PC!", timezone="?"), {}, False)
 	assert (plain.hostname, plain.timezone) == ("netrollout", "UTC")
 
 
@@ -110,25 +110,25 @@ def test_enter_accepts_the_default_and_a_wrong_answer_is_asked_again():
 	"""Asked interactively, Enter takes the default shown in brackets; a busy port and a
 	yes/no answer that is neither are explained and asked again."""
 	read, said = scripted("", "443", "8443", "maybe", "n", "", ""), []
-	answers = A.collect(A.Facts(computer_name="box", busy_ports={443: ""}), {},
+	answers = install.collect(install.Facts(computer_name="box", busy_ports={443: ""}), {},
 	                    True, read, said.append)
 	assert read.asked[0] == "Hostname people will use [box]: "
 	assert read.asked[1] == "HTTPS port [8443]: "            # 443 taken
-	assert answers == A.Answers("box", 8443, False, False, "UTC")
+	assert answers == install.Answers("box", 8443, False, False, "UTC")
 	assert any("Port 443 is in use" in s for s in said)
 	assert "  Answer y or n." in said
 
 
 def test_input_ending_is_not_an_answer():
 	"""Input that ends (EOF) while asking raises NoAnswer instead of taking a default."""
-	with pytest.raises(A.NoAnswer):
-		A.collect(A.Facts(), {}, True, scripted(), print)
+	with pytest.raises(install.NoAnswer):
+		install.collect(install.Facts(), {}, True, scripted(), print)
 
 
 def test_given_answers_are_checked_all_at_once():
 	"""Several bad given answers (hostname and port) are reported together, one per line."""
-	with pytest.raises(A.Invalid) as e:
-		A.collect(A.Facts(busy_ports={443: ""}),
+	with pytest.raises(install.Invalid) as e:
+		install.collect(install.Facts(busy_ports={443: ""}),
 		          {"hostname": "https://x", "https_port": "443"}, False)
 	assert str(e.value).count("\n") == 1                  # both reported
 
@@ -242,9 +242,9 @@ def test_a_write_failure_leaves_no_env(home, monkeypatch):
 def test_the_env_text_is_stable():
 	"""The .env text starts with the version and time header, names Docker Engine's licence
 	(Linux) and has an empty COMPOSE_PROFILES with monitoring off."""
-	answers = A.Answers("nr01", 8443, False, False, "UTC")
+	answers = install.Answers("nr01", 8443, False, False, "UTC")
 	keys = {k: "x" for k in generate_secrets()}
-	text = env_text(answers, A.Facts(os="linux"), keys,
+	text = env_text(answers, install.Facts(os="linux"), keys,
 	                      datetime.datetime(2026, 10, 5, 12, 0), "1.0.0", True)
 	assert text.startswith("# NetRollout 1.0.0 — written by the installer "
 	                       "on 2026-10-05 12:00.\n")

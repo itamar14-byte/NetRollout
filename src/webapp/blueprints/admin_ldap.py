@@ -10,7 +10,7 @@ from flask_login import login_required
 from src.accounts.ldap import test_user, test_connection, fetch_base_dn, walk_tree
 from src.db.tables import LDAPServer, LDAPGroup, User
 from src.encryption import encrypt
-from src.rollout import inputs as validation
+from src.rollout import inputs
 from src.webapp.app import current_app
 from src.webapp.http import ok, err, require_admin, with_form
 
@@ -54,7 +54,7 @@ def ldap_problem(server_input: dict[str, str], new: bool) -> str | None:
 	:param new: a new server needs a bind type; a save may leave it blank
 	 (the stored one stays)
 	:returns: what's wrong, in words; None when valid"""
-	if not validation.validate_port(server_input["port"]):
+	if not inputs.validate_port(server_input["port"]):
 		return "The port is a number from 1 to 65535."
 	if (new or server_input["bind_type"]) and \
 			server_input["bind_type"] not in LDAP_BIND_TYPES:

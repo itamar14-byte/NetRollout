@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from src import runtime
-from src.backup import archive as backup
+from src.backup import archive
 from src.db.connections import BackendServices
 from src.db.tables import AuditLog
 
@@ -83,7 +83,7 @@ def due(now: datetime, slot: datetime | None, newest: datetime | None,
 def newest_scheduled(folder: Path) -> datetime | None:
 	""":returns: when the newest scheduled backup in the folder was made;
 	 None: there's none"""
-	for entry in backup.list_backups(folder):          # newest first
+	for entry in archive.list_backups(folder):          # newest first
 		if entry.kind == "scheduled":
 			return datetime.strptime(entry.stamp, "%Y%m%d-%H%M%S")
 	return None
@@ -113,16 +113,16 @@ def system_audit(backend: BackendServices, action: str, *, label: str | None = N
 # ── Running ──────────────────────────────────────────────────────────────────
 
 def run_scheduled(backend: BackendServices, now: datetime,
-                  places: backup.Places | None = None) -> dict[str, Any]:
+                  places: archive.Places | None = None) -> dict[str, Any]:
 	"""One scheduled backup, then retention (backup_keep). A failure is
 	reported (ACTION NEEDED, audited), never raised.
 
 	:param places: the folders; the app's when None
 	:returns: the status written"""
-	places = places or backup.Places.app()
+	places = places or archive.Places.app()
 	try:
-		path = backup.create(backend.postgres.engine, "scheduled", places, now=now)
-		gone = backup.prune(places.backups, int(backend.settings.get("backup_keep")))
+		path = archive.create(backend.postgres.engine, "scheduled", places, now=now)
+		gone = archive.prune(places.backups, int(backend.settings.get("backup_keep")))
 		status: dict[str, Any] = {"time": now.isoformat(timespec="seconds"), "ok": True,
 		          "file": path.name, "message": ""}
 		system_audit(backend, "backup.created", label=path.name,
@@ -144,12 +144,12 @@ def run_scheduled(backend: BackendServices, now: datetime,
 
 
 def tick(backend: BackendServices, now: datetime | None = None,
-         places: backup.Places | None = None) -> dict[str, Any] | None:
+         places: archive.Places | None = None) -> dict[str, Any] | None:
 	"""Back up if one is due.
 
 	:returns: the new status; None if none was due"""
 	now = now or datetime.now()
-	places = places or backup.Places.app()
+	places = places or archive.Places.app()
 	values = backend.settings.values()
 	slot = last_slot(now, values["backup_schedule"], values["backup_time"],
 	                 values["backup_weekday"])

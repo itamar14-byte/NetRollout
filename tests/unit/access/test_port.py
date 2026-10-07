@@ -5,7 +5,7 @@ import time
 
 import pytest
 
-from src.access import site_env, port as pa, nginx as proxy_config
+from src.access import site_env, port as pa, nginx
 
 
 @pytest.fixture
@@ -199,9 +199,9 @@ def test_a_failed_write_names_the_request_file(home):
 def test_the_hostname_and_a_port_request_share_site_env(home):
 	"""A hostname save after a port request keeps the request in site.env; the
 	hostname is the new one and the port in use stays 443."""
-	proxy_config.write_site("nr01.lab")
+	nginx.write_site("nr01.lab")
 	pa.request_port(8443)
-	proxy_config.write_site("nr02.lab")              # a later hostname save
+	nginx.write_site("nr02.lab")              # a later hostname save
 	values = site_env.read()
 	assert values[site_env.HOSTNAME] == "nr02.lab"
 	assert values[site_env.HTTPS_PORT] == "443"      # in use, not the request

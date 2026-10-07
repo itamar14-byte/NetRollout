@@ -9,7 +9,7 @@ import pytest
 from cryptography.fernet import Fernet
 
 import src.encryption as enc
-from src.accounts import ldap as ldap_auth
+from src.accounts import ldap
 from src.accounts.ldap import LdapUnavailable
 from src.db.tables import LDAPGroup, LDAPServer, User, AuditLog
 from tests.integration.conftest import (LDAP_BASE, LDAP_GROUP_DN, LDAP_USERS,
@@ -42,7 +42,7 @@ def with_(cfg, **changes):
 
 def test_nested_user_resolves_to_real_dn(ldap_server_config):
 	"""A user in a nested OU signs in and resolves to the real DN found by search."""
-	assert ldap_auth.authenticate(ldap_server_config, "jdoe", JDOE_PW) == JDOE_DN
+	assert ldap.authenticate(ldap_server_config, "jdoe", JDOE_PW) == JDOE_DN
 
 
 def test_constructed_dn_cannot_reach_nested_users(ldap_server_config):
@@ -50,8 +50,8 @@ def test_constructed_dn_cannot_reach_nested_users(ldap_server_config):
 	uid=jdoe,<base_dn>, which isn't where jdoe lives, so the sign-in fails
 	(None)."""
 	no_service = with_(ldap_server_config, bind_type="simple")
-	assert ldap_auth.constructed_dn(no_service, "jdoe") == f"uid=jdoe,{LDAP_BASE}"
-	assert ldap_auth.authenticate(no_service, "jdoe", JDOE_PW) is None
+	assert ldap.constructed_dn(no_service, "jdoe") == f"uid=jdoe,{LDAP_BASE}"
+	assert ldap.authenticate(no_service, "jdoe", JDOE_PW) is None
 
 
 @pytest.mark.parametrize("username,password", [
@@ -67,13 +67,13 @@ def test_rejected_logins_return_none_not_errors(ldap_server_config, username,
 	"""A wrong password, unknown user, empty password, wildcard or injected
 	filter as username, or a uid shared by two entries returns None, never
 	raises."""
-	assert ldap_auth.authenticate(ldap_server_config, username, password) is None
+	assert ldap.authenticate(ldap_server_config, username, password) is None
 
 
 def test_user_bind_wrapper(ldap_server_config):
 	"""user_bind is True for the right password and False for a wrong one."""
-	assert ldap_auth.user_bind(ldap_server_config, "alice", ALICE_PW) is True
-	assert ldap_auth.user_bind(ldap_server_config, "alice", "nope") is False
+	assert ldap.user_bind(ldap_server_config, "alice", ALICE_PW) is True
+	assert ldap.user_bind(ldap_server_config, "alice", "nope") is False
 
 
 # ── Availability errors are distinct from bad credentials ────────────────────
@@ -84,7 +84,7 @@ def test_wrong_service_account_password_is_unavailable(ldap_server_config):
 	broken = with_(ldap_server_config,
 	               bind_password=enc.encrypt("not-the-svc-password"))
 	with pytest.raises(LdapUnavailable):
-		ldap_auth.authenticate(broken, "jdoe", JDOE_PW)
+		ldap.authenticate(broken, "jdoe", JDOE_PW)
 
 
 def test_directory_down_is_unavailable_and_fast(ldap_server_config):
@@ -93,31 +93,31 @@ def test_directory_down_is_unavailable_and_fast(ldap_server_config):
 	down = with_(ldap_server_config, port=1)  # nothing listens here
 	start = time.monotonic()
 	with pytest.raises(LdapUnavailable):
-		ldap_auth.authenticate(down, "jdoe", JDOE_PW)
-	assert time.monotonic() - start < ldap_auth.CONNECT_TIMEOUT + 3
+		ldap.authenticate(down, "jdoe", JDOE_PW)
+	assert time.monotonic() - start < ldap.CONNECT_TIMEOUT + 3
 
 
 # ── Group membership ─────────────────────────────────────────────────────────
 
 def test_group_member_matches(ldap_server_config):
 	"""A member of the mapped group matches it, with the group's role."""
-	assert ldap_auth.check_group_membership(
+	assert ldap.check_group_membership(
 		ldap_server_config, "jdoe", JDOE_PW, GROUPS) == (LDAP_GROUP_DN, "operator")
 
 
 def test_member_dn_with_comma_matches(ldap_server_config):
 	"""A member whose DN holds an escaped comma ("cn=Smith\\, Bob") matches: it
 	must be escaped inside the (member=...) filter."""
-	assert ldap_auth.check_group_membership(
+	assert ldap.check_group_membership(
 		ldap_server_config, "bsmith", BOB_PW, GROUPS) == (LDAP_GROUP_DN, "operator")
 
 
 def test_non_member_and_bad_password_do_not_match(ldap_server_config):
 	"""A user outside the group, and a member with a wrong password, match no
 	group (None)."""
-	assert ldap_auth.check_group_membership(
+	assert ldap.check_group_membership(
 		ldap_server_config, "alice", ALICE_PW, GROUPS) is None
-	assert ldap_auth.check_group_membership(
+	assert ldap.check_group_membership(
 		ldap_server_config, "jdoe", "wrong", GROUPS) is None
 
 
@@ -126,10 +126,10 @@ def test_non_member_and_bad_password_do_not_match(ldap_server_config):
 def test_user_details_and_tree(ldap_server_config):
 	"""fetch_user_details returns jdoe's email and full name and None for `*`;
 	walk_tree under ou=Groups lists the one netops group."""
-	details = ldap_auth.fetch_user_details(ldap_server_config, "jdoe")
+	details = ldap.fetch_user_details(ldap_server_config, "jdoe")
 	assert details == {"email": "jdoe@corp.test", "full_name": "John Doe"}
-	assert ldap_auth.fetch_user_details(ldap_server_config, "*") is None
-	tree = ldap_auth.walk_tree(ldap_server_config, f"ou=Groups,{LDAP_BASE}")
+	assert ldap.fetch_user_details(ldap_server_config, "*") is None
+	tree = ldap.walk_tree(ldap_server_config, f"ou=Groups,{LDAP_BASE}")
 	assert tree["entries"] == [{"type": "group", "dn": LDAP_GROUP_DN,
 	                            "label": "netops", "username": None}]
 
@@ -137,11 +137,11 @@ def test_user_details_and_tree(ldap_server_config):
 def test_connection_and_user_test_tools(ldap_server_config):
 	"""The admin's connection and user tests report ok against the directory
 	and error when it's down."""
-	assert ldap_auth.test_connection(ldap_server_config)["status"] == "ok"
-	assert ldap_auth.test_user(ldap_server_config, "jdoe", JDOE_PW)["status"] == "ok"
+	assert ldap.test_connection(ldap_server_config)["status"] == "ok"
+	assert ldap.test_user(ldap_server_config, "jdoe", JDOE_PW)["status"] == "ok"
 	down = with_(ldap_server_config, port=1)
-	assert ldap_auth.test_connection(down)["status"] == "error"
-	assert ldap_auth.test_user(down, "jdoe", JDOE_PW)["status"] == "error"
+	assert ldap.test_connection(down)["status"] == "error"
+	assert ldap.test_user(down, "jdoe", JDOE_PW)["status"] == "error"
 
 
 # ── Login end to end (also needs Postgres + Redis) ───────────────────────────

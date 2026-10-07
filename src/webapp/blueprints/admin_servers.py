@@ -14,7 +14,7 @@ from flask_login import current_user, login_required
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 
-from src.access import nginx as proxy_config
+from src.access import nginx
 from src.accounts.users import record_redis_session, clear_sessions
 from src.db import move
 from src.db.connections import PostgresConfig, REDIS_UNAVAILABLE, RedisConfig
@@ -74,7 +74,7 @@ def admin_server() -> str:
 	                       redis_host=current_app.backend.redis.config.host,
 	                       redis_port=current_app.backend.redis.config.port,
 	                       redis_db=current_app.backend.redis.config.db,
-	                       access=proxy_config.overview(
+	                       access=nginx.overview(
 		                       current_app.backend.settings.get("public_hostname")))
 
 
@@ -318,7 +318,7 @@ def _certificate_applied(action: str, undo: Callable[[], None], started: float,
 	:param started: when the files were written (the verdict comes after)
 	:param managed: whether a NetRollout nginx reports here"""
 	settings = current_app.backend.settings
-	proxy = proxy_config.verdict(managed, started)
+	proxy = nginx.verdict(managed, started)
 	if proxy["state"] == "rejected":
 		undo()
 		return err(f"nginx rejected the certificate: {proxy.get('message')} — "
@@ -327,7 +327,7 @@ def _certificate_applied(action: str, undo: Callable[[], None], started: float,
 	                      object_label=", ".join(detail.get("names", [])[:3]),
 	                      detail={**detail, "nginx": proxy["state"]})
 	return ok(proxy=proxy,
-	          access=proxy_config.overview(settings.get("public_hostname")))
+	          access=nginx.overview(settings.get("public_hostname")))
 
 
 @bp.route("/certificate", methods=["POST"])
@@ -346,12 +346,12 @@ def certificate_upload() -> ResponseReturnValue:
 			return err(f"The {field} file is too big for a PEM {field}.")
 		files[field] = data
 	hostname = current_app.backend.settings.get("public_hostname")
-	managed = proxy_config.read_status() is not None
+	managed = nginx.read_status() is not None
 	started = time.time()
 	try:
-		check, undo = proxy_config.install_certificate(
+		check, undo = nginx.install_certificate(
 			files["certificate"], files["key"], hostname)
-	except proxy_config.ProxyError as e:
+	except nginx.ProxyError as e:
 		return err(f"Not used: {e}", 422)
 	return _certificate_applied(
 		"server.certificate_uploaded", undo, started, managed,
@@ -366,13 +366,13 @@ def certificate_upload() -> ResponseReturnValue:
 def certificate_selfsigned() -> ResponseReturnValue:
 	"""A new self-signed certificate for the saved hostname (D2)."""
 	hostname = current_app.backend.settings.get("public_hostname")
-	managed = proxy_config.read_status() is not None
+	managed = nginx.read_status() is not None
 	started = time.time()
 	try:
-		undo = proxy_config.generate_selfsigned(hostname)
-	except proxy_config.ProxyError as e:
+		undo = nginx.generate_selfsigned(hostname)
+	except nginx.ProxyError as e:
 		return err(str(e), 422)
-	names = (proxy_config.overview(hostname)["certificate"] or {}).get("names", [])
+	names = (nginx.overview(hostname)["certificate"] or {}).get("names", [])
 	return _certificate_applied("server.certificate_generated", undo, started,
 	                            managed, {"names": names})
 

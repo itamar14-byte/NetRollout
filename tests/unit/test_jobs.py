@@ -18,7 +18,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import redis
 
-import src.jobs as orchestration
+from src import jobs
 from src.db.settings import SETTINGS
 from src.jobs import RolloutOrchestrator, job_status, build_kpi
 from src.rollout.engine import RolloutEngine, RolloutOptions
@@ -121,7 +121,7 @@ def make_orchestrator(monkeypatch):
 	"""Build a RolloutOrchestrator on a given FakeRedis and a FakePostgres,
 	with no backoff sleeps."""
 	# No real backoff sleeps: retries happen immediately
-	monkeypatch.setattr(orchestration, "_BACKOFF_START", 0)
+	monkeypatch.setattr(jobs, "_BACKOFF_START", 0)
 
 	def _make(fake_redis, max_concurrent=2):
 		backend = SimpleNamespace(redis=SimpleNamespace(client=fake_redis),
@@ -213,7 +213,7 @@ def test_redis_unavailable_covers_timeouts():
 	REDIS_UNAVAILABLE must include it."""
 	assert not issubclass(redis.exceptions.TimeoutError,
 	                      redis.exceptions.ConnectionError)
-	assert redis.exceptions.TimeoutError in orchestration.REDIS_UNAVAILABLE
+	assert redis.exceptions.TimeoutError in jobs.REDIS_UNAVAILABLE
 
 
 # ── Engine crash releases the concurrency slot ───────────────────────────────
@@ -299,7 +299,7 @@ def test_submit_records_job_metadata(make_orchestrator):
 
 def _device(ip="10.0.0.1", port=22):
 	"""A cisco_ios Device at ip:port with dummy credentials."""
-	return orchestration.Device(ip=ip, label=ip, username="u", password="p",
+	return jobs.Device(ip=ip, label=ip, username="u", password="p",
 	                            device_type="cisco_ios", secret="", port=port)
 
 
@@ -329,7 +329,7 @@ def test_submit_is_refused_while_draining(make_orchestrator):
 	orch = make_orchestrator(FakeRedis())
 	orch.drain(0)
 	options = RolloutOptions(verify=False, verbose=False, webapp=False)
-	with pytest.raises(orchestration.Draining):
+	with pytest.raises(jobs.Draining):
 		orch.submit([_device()], ["cmd"], options, uuid.uuid4())
 	assert orch.counts() == {"running": 0, "queued": 0}
 
@@ -446,8 +446,8 @@ def end_of_job(monkeypatch, tmp_path):
 	"""Run one EndedJob through an orchestrator on the given Redis and Postgres
 	(no retry waits, NETROLLOUT_HOME in tmp_path) until it is finalized and its
 	slot free; returns (orchestrator, job)."""
-	monkeypatch.setattr(orchestration, "_BACKOFF_START", 0)
-	monkeypatch.setattr(orchestration, "_SAVE_RETRY_WAIT", 0, raising=False)
+	monkeypatch.setattr(jobs, "_BACKOFF_START", 0)
+	monkeypatch.setattr(jobs, "_SAVE_RETRY_WAIT", 0, raising=False)
 	monkeypatch.setenv("NETROLLOUT_HOME", str(tmp_path))
 
 	def run(fake_redis, postgres):
@@ -517,10 +517,10 @@ def test_pause_refuses_new_rollouts_lets_queued_and_running_ones_finish(
 		assert wait_for(lambda: orch.counts()["running"] == 1)
 		orch.submit([_device("10.0.0.2")], ["cmd"], options, uid)   # queued
 		orch.pause()
-		with pytest.raises(orchestration.Paused) as refused:
+		with pytest.raises(jobs.Paused) as refused:
 			orch.submit([_device("10.0.0.3")], ["cmd"], options, uid)
-		assert str(refused.value) == orchestration.PAUSED_MESSAGE
-		assert orch.refusal() == orchestration.PAUSED_MESSAGE
+		assert str(refused.value) == jobs.PAUSED_MESSAGE
+		assert orch.refusal() == jobs.PAUSED_MESSAGE
 		assert not orch.idle()
 		release.set()
 		# nothing cancelled: the queued one runs too, then the pause is idle
@@ -538,10 +538,10 @@ def test_resume_never_undoes_a_drain(make_orchestrator):
 	orch.drain(0)
 	orch.resume()
 	options = RolloutOptions(verify=False, verbose=False, webapp=False)
-	with pytest.raises(orchestration.Draining) as refused:
+	with pytest.raises(jobs.Draining) as refused:
 		orch.submit([_device()], ["cmd"], options, uuid.uuid4())
-	assert type(refused.value) is orchestration.Draining     # not Paused
-	assert orch.refusal() == orchestration.DRAINING_MESSAGE
+	assert type(refused.value) is jobs.Draining     # not Paused
+	assert orch.refusal() == jobs.DRAINING_MESSAGE
 
 
 class SlowPostgres(FakePostgres):
@@ -565,7 +565,7 @@ def test_not_idle_while_a_finished_rollout_still_writes_its_results(
 	"""The job leaves the job table before its results are written: a move
 	locking then would copy the data without them. So idle() stays false until
 	the results are written."""
-	monkeypatch.setattr(orchestration, "_BACKOFF_START", 0)
+	monkeypatch.setattr(jobs, "_BACKOFF_START", 0)
 	monkeypatch.setenv("NETROLLOUT_HOME", str(tmp_path))
 	postgres, fake = SlowPostgres(), FakeRedis()
 	orch = RolloutOrchestrator(SimpleNamespace(

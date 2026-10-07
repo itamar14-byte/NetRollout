@@ -10,7 +10,7 @@ import pytest
 # Import through the src package only — the app itself imports src.*, and a
 # bare `import core` would load a second copy of every module (patches and
 # isinstance checks would then silently target the wrong one).
-from src.rollout import inputs as validation
+from src.rollout import inputs
 from src.rollout.engine import Device
 from src.rollout.inputs import InputParser, Validator
 from src.rollout.log import RolloutLogger
@@ -20,92 +20,92 @@ class TestValidateIp(unittest.TestCase):
 
 	def test_valid_ipv4(self):
 		"""A plain IPv4 address passes validate_ip."""
-		self.assertTrue(validation.validate_ip("192.168.1.1"))
+		self.assertTrue(inputs.validate_ip("192.168.1.1"))
 
 	def test_valid_ipv4_edge_zeros(self):
 		"""0.0.0.0 passes validate_ip."""
-		self.assertTrue(validation.validate_ip("0.0.0.0"))
+		self.assertTrue(inputs.validate_ip("0.0.0.0"))
 
 	def test_valid_ipv4_broadcast(self):
 		"""255.255.255.255 passes validate_ip."""
-		self.assertTrue(validation.validate_ip("255.255.255.255"))
+		self.assertTrue(inputs.validate_ip("255.255.255.255"))
 
 	def test_invalid_octet_out_of_range(self):
 		"""An octet above 255 fails validate_ip."""
-		self.assertFalse(validation.validate_ip("999.1.1.1"))
+		self.assertFalse(inputs.validate_ip("999.1.1.1"))
 
 	def test_invalid_missing_octet(self):
 		"""An address with only three octets fails validate_ip."""
-		self.assertFalse(validation.validate_ip("192.168.1"))
+		self.assertFalse(inputs.validate_ip("192.168.1"))
 
 	def test_invalid_empty_string(self):
 		"""An empty string fails validate_ip."""
-		self.assertFalse(validation.validate_ip(""))
+		self.assertFalse(inputs.validate_ip(""))
 
 	def test_invalid_hostname(self):
 		"""A hostname fails validate_ip: only addresses are accepted."""
-		self.assertFalse(validation.validate_ip("router.local"))
+		self.assertFalse(inputs.validate_ip("router.local"))
 
 	def test_invalid_with_port(self):
 		"""An address with a :port suffix fails validate_ip."""
-		self.assertFalse(validation.validate_ip("192.168.1.1:22"))
+		self.assertFalse(inputs.validate_ip("192.168.1.1:22"))
 
 
 class TestValidatePort(unittest.TestCase):
 
 	def test_standard_ssh(self):
 		"""Port 22 passes validate_port."""
-		self.assertTrue(validation.validate_port("22"))
+		self.assertTrue(inputs.validate_port("22"))
 
 	def test_min_port(self):
 		"""Port 0 fails validate_port; 1, the lowest, passes."""
-		self.assertFalse(validation.validate_port("0"))
-		self.assertTrue(validation.validate_port("1"))
+		self.assertFalse(inputs.validate_port("0"))
+		self.assertTrue(inputs.validate_port("1"))
 
 	def test_max_port(self):
 		"""Port 65535, the highest, passes validate_port."""
-		self.assertTrue(validation.validate_port("65535"))
+		self.assertTrue(inputs.validate_port("65535"))
 
 	def test_above_max(self):
 		"""Port 65536 fails validate_port."""
-		self.assertFalse(validation.validate_port("65536"))
+		self.assertFalse(inputs.validate_port("65536"))
 
 	def test_negative(self):
 		"""A negative port fails validate_port."""
-		self.assertFalse(validation.validate_port("-1"))
+		self.assertFalse(inputs.validate_port("-1"))
 
 	def test_non_numeric(self):
 		"""A non-numeric port ("ssh") fails validate_port."""
-		self.assertFalse(validation.validate_port("ssh"))
+		self.assertFalse(inputs.validate_port("ssh"))
 
 	def test_float_string(self):
 		"""A decimal port ("22.0") fails validate_port."""
-		self.assertFalse(validation.validate_port("22.0"))
+		self.assertFalse(inputs.validate_port("22.0"))
 
 	def test_empty_string(self):
 		"""An empty string fails validate_port."""
-		self.assertFalse(validation.validate_port(""))
+		self.assertFalse(inputs.validate_port(""))
 
 
 class TestValidatePlatform(unittest.TestCase):
 
 	def test_all_supported_platforms(self):
 		"""Every platform in SUPPORTED_PLATFORMS passes validate_platform."""
-		for platform in validation.SUPPORTED_PLATFORMS:
+		for platform in inputs.SUPPORTED_PLATFORMS:
 			with self.subTest(platform=platform):
-				self.assertTrue(validation.validate_platform(platform))
+				self.assertTrue(inputs.validate_platform(platform))
 
 	def test_unsupported_platform(self):
 		"""A device type not in the supported list fails validate_platform."""
-		self.assertFalse(validation.validate_platform("cisco_cat9k"))
+		self.assertFalse(inputs.validate_platform("cisco_cat9k"))
 
 	def test_empty_string(self):
 		"""An empty string fails validate_platform."""
-		self.assertFalse(validation.validate_platform(""))
+		self.assertFalse(inputs.validate_platform(""))
 
 	def test_case_sensitive(self):
 		"""validate_platform is case-sensitive: "Cisco_IOS" fails."""
-		self.assertFalse(validation.validate_platform("Cisco_IOS"))
+		self.assertFalse(inputs.validate_platform("Cisco_IOS"))
 
 
 class TestValidateDeviceData(unittest.TestCase):
@@ -212,7 +212,7 @@ class TestTcpPort(unittest.TestCase):
 	def test_reachable_on_first_attempt(self, mock_connect):
 		"""tcp_reachable is True when the first connect succeeds."""
 		mock_connect.return_value = MagicMock()
-		self.assertTrue(validation.tcp_reachable("10.0.0.1", 22))
+		self.assertTrue(inputs.tcp_reachable("10.0.0.1", 22))
 		self.assertEqual(mock_connect.call_count, 1)
 
 	@patch("src.rollout.inputs.socket.create_connection")
@@ -220,15 +220,15 @@ class TestTcpPort(unittest.TestCase):
 		"""tcp_reachable is False when every connect attempt is refused."""
 		mock_connect.side_effect = OSError("refused")
 		with patch("src.rollout.inputs.time.sleep"):
-			self.assertFalse(validation.tcp_reachable("10.0.0.1", 22))
-		self.assertEqual(mock_connect.call_count, validation.TCP_RETRIES)
+			self.assertFalse(inputs.tcp_reachable("10.0.0.1", 22))
+		self.assertEqual(mock_connect.call_count, inputs.TCP_RETRIES)
 
 	@patch("src.rollout.inputs.socket.create_connection")
 	def test_succeeds_on_second_attempt(self, mock_connect):
 		"""tcp_reachable retries: refused once, then connected, is True."""
 		mock_connect.side_effect = [OSError("refused"), MagicMock()]
 		with patch("src.rollout.inputs.time.sleep"):
-			self.assertTrue(validation.tcp_reachable("10.0.0.1", 22))
+			self.assertTrue(inputs.tcp_reachable("10.0.0.1", 22))
 
 
 # ---------------------------------------------------------------------------
@@ -381,7 +381,7 @@ class TestParseFiles(unittest.TestCase):
 def test_mapping_token_validation(token, ok):
 	"""A mapping token is accepted when it's a plain word (HOSTNAME, loop_0) and
 	refused when empty, blank, holding a space or $$, or longer than 64."""
-	assert validation.validate_var_map_inner_token(token)[0] is ok
+	assert inputs.validate_var_map_inner_token(token)[0] is ok
 
 
 def test_mapping_index_only_for_list_properties():
@@ -389,16 +389,16 @@ def test_mapping_index_only_for_list_properties():
 	index for a plain one; an index on a plain property or a negative index is
 	refused."""
 	lists = {"vrfs", "uplinks"}  # system list + a user-defined list
-	assert validation.validate_var_index(1, "vrfs", lists) == (True, None)
-	assert validation.validate_var_index(0, "uplinks", lists) == (True, None)
-	assert validation.validate_var_index(None, "hostname", lists) == (True, None)
-	assert validation.validate_var_index(0, "hostname", lists)[0] is False
-	assert validation.validate_var_index(-1, "vrfs", lists)[0] is False
+	assert inputs.validate_var_index(1, "vrfs", lists) == (True, None)
+	assert inputs.validate_var_index(0, "uplinks", lists) == (True, None)
+	assert inputs.validate_var_index(None, "hostname", lists) == (True, None)
+	assert inputs.validate_var_index(0, "hostname", lists)[0] is False
+	assert inputs.validate_var_index(-1, "vrfs", lists)[0] is False
 
 
 def test_property_name_checked_against_the_users_definitions():
 	"""A property name is accepted only when it's among the user's allowed ones
 	(a user-defined one included)."""
 	allowed = {"hostname", "rack"}  # includes a user-defined property
-	assert validation.validate_var_map_property_name("rack", allowed)[0] is True
-	assert validation.validate_var_map_property_name("nope", allowed)[0] is False
+	assert inputs.validate_var_map_property_name("rack", allowed)[0] is True
+	assert inputs.validate_var_map_property_name("nope", allowed)[0] is False

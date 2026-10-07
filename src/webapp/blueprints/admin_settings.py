@@ -11,8 +11,8 @@ from flask_login import current_user, login_required
 from sqlalchemy.exc import SQLAlchemyError
 
 from src import runtime
-from src.access import port as port_apply, nginx as proxy_config
-from src.backup import archive as backup
+from src.access import port as port_apply, nginx
+from src.backup import archive
 from src.backup.schedule import schedule_state
 from src.db import retention
 from src.db.settings import (SETTINGS, Change, SettingsError, public_url,
@@ -46,7 +46,7 @@ def _state() -> dict[str, Any]:
 		"restart_pending": settings.restart_pending(
 			current_app.config.get("SETTINGS_STARTED_WITH", {})),
 		"port": port_apply.state(settings.get("https_port")),
-		"access": proxy_config.overview(settings.get("public_hostname")),
+		"access": nginx.overview(settings.get("public_hostname")),
 	}
 
 
@@ -116,11 +116,11 @@ def _save(values: dict[str, Any], action: str) -> ResponseReturnValue:
 	host = next((c for c in changes if c.key == "public_hostname"), None)
 	undo, proxy = None, None
 	if host:
-		managed = proxy_config.read_status() is not None
+		managed = nginx.read_status() is not None
 		started = time.time()
 		try:
-			undo = proxy_config.change_hostname(cast(str, host.new))
-		except proxy_config.ProxyError as e:
+			undo = nginx.change_hostname(cast(str, host.new))
+		except nginx.ProxyError as e:
 			return _errors_response(SettingsError({"public_hostname": str(e)}))
 	port = next((c for c in changes if c.key == "https_port"), None)
 	undo_port = None
@@ -141,7 +141,7 @@ def _save(values: dict[str, Any], action: str) -> ResponseReturnValue:
 				back()
 		return _errors_response(e)
 	if host:
-		proxy = proxy_config.verdict(managed, started, cast(str, host.new))
+		proxy = nginx.verdict(managed, started, cast(str, host.new))
 		if proxy["state"] == "rejected":
 			# the whole save goes back, not only the hostname
 			store.update({c.key: c.old for c in changes}, current_user.id)
@@ -220,7 +220,7 @@ def port_confirm(data: dict[str, Any]) -> ResponseReturnValue:
 		return err(problem, 409)
 	try:
 		# redirects follow the confirmed port now, not after the helper's next step
-		proxy_config.write_site(current_app.backend.settings.get("public_hostname"))
+		nginx.write_site(current_app.backend.settings.get("public_hostname"))
 	except (ValueError, OSError):
 		pass                              # nginx keeps the previous values
 	current_app.web.audit("settings.port_confirmed", object_type="SystemSetting",
@@ -262,7 +262,7 @@ def settings_test_access(data: dict[str, Any]) -> ResponseReturnValue:
 		# reachable: a probe here would report working setups as broken —
 		# what nginx itself last reported is shown instead
 		return ok(url=url, source=source, container=True,
-		          access=proxy_config.overview(
+		          access=nginx.overview(
 		              current_app.backend.settings.get("public_hostname")))
 	local, public = check_proxy(url, current_app.config["INSTANCE_TOKEN"])
 	return ok(url=url, source=source,
@@ -279,7 +279,7 @@ def backups_state() -> dict[str, Any]:
 	"""What the Backups card shows: the files, the next time, the last
 	scheduled outcome."""
 	entries: list[dict[str, Any]] = []
-	for e in backup.list_backups(runtime.backups_dir()):
+	for e in archive.list_backups(runtime.backups_dir()):
 		m = e.manifest
 		entries.append({"name": e.name, "size": e.size, "kind": e.kind,
 		                "created": m.created if m else None,
@@ -293,7 +293,7 @@ def _file(name: str) -> Path | None:
 	"""A backup in the folder by its exact name — never a path elsewhere.
 
 	:returns: its path; None: no such backup"""
-	if not backup.NAME_RE.match(name):
+	if not archive.NAME_RE.match(name):
 		return None
 	path = runtime.backups_dir() / name
 	return path if path.is_file() else None
@@ -318,8 +318,8 @@ def backups_list() -> Response:
 def backups_create() -> ResponseReturnValue:
 	"""Back up now. Runs in this request: seconds for most installations."""
 	try:
-		path = backup.create(current_app.backend.postgres.engine, "manual")
-	except backup.BackupError as e:
+		path = archive.create(current_app.backend.postgres.engine, "manual")
+	except archive.BackupError as e:
 		current_app.web.audit("backup.failed", object_type="backup", success=False,
 		                      detail={"kind": "manual", "message": str(e)})
 		return err(str(e), 409)

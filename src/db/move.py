@@ -21,7 +21,7 @@ from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.backup import archive as backup
+from src.backup import archive
 from src.db.connections import PostgresConfig
 from src.db.install import GRAFANA_ROLE
 from src.db.tables import Base
@@ -84,7 +84,7 @@ def _our_names() -> set[str]:
 def _known_revisions() -> set[str]:
 	""":returns: every migration revision this version knows (a database at
 	 one of them is NetRollout's)"""
-	script = ScriptDirectory.from_config(backup._alembic_config())
+	script = ScriptDirectory.from_config(archive._alembic_config())
 	return {r.revision for r in script.walk_revisions()}
 
 
@@ -303,7 +303,7 @@ class Copied:
 
 
 def copy(source: Engine, target: PostgresConfig, *, detail: dict[str, object],
-         places: backup.Places | None = None,
+         places: archive.Places | None = None,
          report: Callable[[str], None] = lambda step: None) -> Copied:
 	"""A `before-move` backup of the source, restored into the target (one
 	transaction: the target is unchanged on any failure), the row counts
@@ -318,16 +318,16 @@ def copy(source: Engine, target: PostgresConfig, *, detail: dict[str, object],
 	:raises MoveError: refused or failed - NetRollout's database unchanged"""
 	report("Backing up this database")
 	try:
-		path = backup.create(source, "before-move", places)
-	except backup.BackupError as e:
+		path = archive.create(source, "before-move", places)
+	except archive.BackupError as e:
 		raise MoveError(f"The backup before the move failed: {e}") from None
-	manifest = backup.read_manifest(path)
+	manifest = archive.read_manifest(path)
 	engine = engine_for(target)
 	try:
 		report(f"Copying {sum(manifest.tables.values())} rows to {target.host}")
 		try:
-			backup.restore_database(path, engine, audit=("database.moved", detail))
-		except backup.BackupError as e:
+			archive.restore_database(path, engine, audit=("database.moved", detail))
+		except archive.BackupError as e:
 			raise MoveError(str(e)) from None
 		except SQLAlchemyError as e:
 			raise MoveError(f"Copying failed: {_reason(e)} - nothing was changed.") from None

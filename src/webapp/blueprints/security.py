@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from src.accounts.users import signed_in_user
 from src.db.tables import SecurityProfile, Inventory
 from src.encryption import encrypt, decrypt
-from src.rollout import inputs as validation
+from src.rollout import inputs
 from src.rollout.engine import Device
 from src.webapp.app import current_app
 from src.webapp.http import ok, err, with_json, with_form, flash_redirect
@@ -153,7 +153,7 @@ def security_test(profile_id: uuid.UUID, data: dict[str, Any]) -> ResponseReturn
 			id=device_id, user_id=current_user.id).first()
 		if not profile or not device:
 			return err("Profile or device not found", 404)
-		if not validation.tcp_reachable(device.ip, device.port):
+		if not inputs.tcp_reachable(device.ip, device.port):
 			return err(f"TCP port {device.port} unreachable on {device.ip}",
 			           503)
 		db_session.expunge_all()

@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from src.backup import archive as backup, schedule as backup_schedule
+from src.backup import archive, schedule as backup_schedule
 from src.db.settings import seed_settings
 from src.db.tables import AuditLog
 
@@ -88,7 +88,7 @@ def test_a_backup_while_another_runs_is_refused_and_audited(admin, home, client_
 	"""Back up now while another backup or restore holds the lock is 409 and audited
 	as failed."""
 	(home / "backups").mkdir()
-	(home / "backups" / backup.LOCK).write_text("")
+	(home / "backups" / archive.LOCK).write_text("")
 	resp = client_for(admin, xhr=True).post("/admin/backups")
 	assert resp.status_code == 409
 	assert "Another backup or restore is running" in resp.json["message"]
@@ -100,14 +100,14 @@ def test_the_scheduler_backs_up_once_per_time_and_keeps_the_newest(
 	"""The scheduler backs up once per scheduled time (not again a minute later), keeps
 	the newest `backup_keep`, records the last file and audits as `scheduler`."""
 	app.backend.settings.update({"backup_keep": 2}, None)
-	places = backup.Places.app()
+	places = archive.Places.app()
 	start = datetime(2026, 10, 5, 2, 0, 30)
 	for day in range(3):
 		now = start + timedelta(days=day)
 		assert backup_schedule.tick(app.backend, now, places)["ok"]
 		assert backup_schedule.tick(app.backend, now + timedelta(minutes=1), places) is None
-	names = sorted(e.name for e in backup.list_backups(places.backups))
-	assert [backup.NAME_RE.match(n)["stamp"][:8] for n in names] == ["20261006", "20261007"]
+	names = sorted(e.name for e in archive.list_backups(places.backups))
+	assert [archive.NAME_RE.match(n)["stamp"][:8] for n in names] == ["20261006", "20261007"]
 	assert backup_schedule.read_status(places.backups)["file"] == names[-1]
 	created = [a for a in actions(session_scope) if a[0] == "backup.created"]
 	assert len(created) == 3 and {a[1] for a in created} == {"scheduler"}
@@ -117,7 +117,7 @@ def test_scheduled_backups_off_make_none(admin, app, home):
 	"""With the schedule off the scheduler makes no backup."""
 	app.backend.settings.update({"backup_schedule": "off"}, None)
 	assert backup_schedule.tick(app.backend, datetime(2026, 10, 5, 3, 0)) is None
-	assert not backup.list_backups()
+	assert not archive.list_backups()
 
 
 def test_a_failed_scheduled_backup_is_reported_audited_and_retried(
@@ -125,8 +125,8 @@ def test_a_failed_scheduled_backup_is_reported_audited_and_retried(
 	"""A failed scheduled backup is recorded, printed as ACTION NEEDED and audited; it
 	isn't retried at the next check, only after an hour."""
 	def broken(*a, **kw):
-		raise backup.BackupError("disk full")
-	monkeypatch.setattr(backup, "create", broken)
+		raise archive.BackupError("disk full")
+	monkeypatch.setattr(archive, "create", broken)
 	now = datetime(2026, 10, 5, 2, 1)
 	status = backup_schedule.tick(app.backend, now)
 	assert status == {"time": "2026-10-05T02:01:00", "ok": False, "file": None,

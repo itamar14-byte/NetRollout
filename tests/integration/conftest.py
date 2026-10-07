@@ -38,7 +38,7 @@ from sqlalchemy import create_engine, text
 from werkzeug.security import generate_password_hash
 
 import src.encryption as enc
-from src.db import connections as backend_mod
+from src.db import connections
 from src.db.connections import PostgresConnection, PostgresConfig, RedisConnection, RedisConfig
 from src.db.tables import Base, User, SecurityProfile, Inventory, VariableMapping
 from src.encryption import decrypt, encrypt
@@ -213,12 +213,12 @@ def app(test_db_url, redis_url, tmp_path_factory):
 		self.postgres = PostgresConnection(PostgresConfig(url=test_db_url))
 		self.redis = RedisConnection(RedisConfig(url=redis_url))
 
-	original_init = backend_mod.BackendServices.__init__
-	backend_mod.BackendServices.__init__ = _test_backend_init
+	original_init = connections.BackendServices.__init__
+	connections.BackendServices.__init__ = _test_backend_init
 	try:
 		flask_app = create_app()
 	finally:
-		backend_mod.BackendServices.__init__ = original_init
+		connections.BackendServices.__init__ = original_init
 
 	assert flask_app.backend.redis.client.connection_pool \
 		       .connection_kwargs["db"] == REDIS_TEST_DB
