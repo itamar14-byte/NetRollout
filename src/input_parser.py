@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from src import validation
-from src.core import Device
+from src.core import Device, endpoint
 from src.encryption import decrypt, encrypt
 from src.logging_utils import RolloutLogger
 from src.validation import Validator
@@ -75,7 +75,7 @@ class InputParser:
 				continue
 			if check_reachable and not validation.tcp_reachable(ip, int(port)):
 				# returned like every other row error: the caller logs them
-				errors.append(f"{ip}:{port} is not reachable")
+				errors.append(f"{endpoint(ip, port)} is not reachable")
 				continue
 
 			extra: dict[str, str | list[str]] = {

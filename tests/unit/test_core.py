@@ -2,6 +2,7 @@
 rollout logger, Device, InputParser's device and command files, and
 RolloutEngine's push, verify and run - with Netmiko mocked."""
 import os
+import socket
 import tempfile
 import threading
 import time
@@ -15,7 +16,7 @@ import netmiko as nm
 # bare `import core` would load a second copy of every module (patches and
 # isinstance checks would then silently target the wrong one).
 from src import validation
-from src.core import PushResult, VerifyResult, Device, RolloutOptions, RolloutEngine
+from src.core import PushResult, VerifyResult, Device, RolloutOptions, RolloutEngine, endpoint
 from src.input_parser import InputParser
 from src.logging_utils import RolloutLogger
 from src.platforms import FETCH_TIMEOUT, PLATFORMS
@@ -50,6 +51,26 @@ def make_options(**kwargs) -> RolloutOptions:
 # ---------------------------------------------------------------------------
 # validation.py
 # ---------------------------------------------------------------------------
+
+class TestIPv6(unittest.TestCase):
+	"""IPv6 devices: how an endpoint is written, and the TCP probe."""
+
+	def test_an_endpoint_puts_an_ipv6_address_in_brackets(self):
+		"""endpoint() writes ip:port for IPv4 and [ip]:port for IPv6 (as a URL
+		does - the port can't be told from the address otherwise), and a
+		Device's endpoint is the same."""
+		self.assertEqual(endpoint("10.0.0.1", 22), "10.0.0.1:22")
+		self.assertEqual(endpoint("2001:db8::1", 2222), "[2001:db8::1]:2222")
+		self.assertEqual(make_device(ip="2001:db8::1").endpoint, "[2001:db8::1]:22")
+
+	def test_tcp_reachable_reaches_an_ipv6_device(self):
+		"""The TCP probe (the CLI's reachability check, Test connection)
+		connects to a device listening on an IPv6 address."""
+		with socket.socket(socket.AF_INET6, socket.SOCK_STREAM) as server:
+			server.bind(("::1", 0))
+			server.listen(1)
+			self.assertTrue(validation.tcp_reachable("::1", server.getsockname()[1]))
+
 
 class TestValidateIp(unittest.TestCase):
 
@@ -243,29 +264,25 @@ class TestValidateFileExtension(unittest.TestCase):
 
 class TestTcpPort(unittest.TestCase):
 
-	@patch("src.validation.socket.socket")
-	def test_reachable_on_first_attempt(self, mock_socket_cls):
+	@patch("src.validation.socket.create_connection")
+	def test_reachable_on_first_attempt(self, mock_connect):
 		"""tcp_reachable is True when the first connect succeeds."""
-		mock_sock = MagicMock()
-		mock_socket_cls.return_value.__enter__.return_value = mock_sock
-		mock_sock.connect.return_value = None
+		mock_connect.return_value = MagicMock()
 		self.assertTrue(validation.tcp_reachable("10.0.0.1", 22))
+		self.assertEqual(mock_connect.call_count, 1)
 
-	@patch("src.validation.socket.socket")
-	def test_unreachable_after_all_retries(self, mock_socket_cls):
+	@patch("src.validation.socket.create_connection")
+	def test_unreachable_after_all_retries(self, mock_connect):
 		"""tcp_reachable is False when every connect attempt is refused."""
-		mock_sock = MagicMock()
-		mock_socket_cls.return_value.__enter__.return_value = mock_sock
-		mock_sock.connect.side_effect = OSError("refused")
+		mock_connect.side_effect = OSError("refused")
 		with patch("src.validation.time.sleep"):
 			self.assertFalse(validation.tcp_reachable("10.0.0.1", 22))
+		self.assertEqual(mock_connect.call_count, validation.TCP_RETRIES)
 
-	@patch("src.validation.socket.socket")
-	def test_succeeds_on_second_attempt(self, mock_socket_cls):
+	@patch("src.validation.socket.create_connection")
+	def test_succeeds_on_second_attempt(self, mock_connect):
 		"""tcp_reachable retries: refused once, then connected, is True."""
-		mock_sock = MagicMock()
-		mock_socket_cls.return_value.__enter__.return_value = mock_sock
-		mock_sock.connect.side_effect = [OSError("refused"), None]
+		mock_connect.side_effect = [OSError("refused"), MagicMock()]
 		with patch("src.validation.time.sleep"):
 			self.assertTrue(validation.tcp_reachable("10.0.0.1", 22))
 

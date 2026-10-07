@@ -531,10 +531,9 @@
                         <div class="col-8">
                             <label class="nr-label" for="addDevIp">IP ADDRESS</label>
                             <input type="text" class="form-control" id="addDevIp" name="ip"
-                                   placeholder="192.168.1.1" required autocomplete="off"
-                                   pattern="^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$"
-                                   title="Enter a valid IPv4 address">
-                            <div class="field-error">Enter a valid IPv4 address.</div>
+                                   placeholder="192.168.1.1 or 2001:db8::1" required autocomplete="off"
+                                   title="An IPv4 or IPv6 address">
+                            <div class="field-error">Enter a valid IPv4 or IPv6 address.</div>
                         </div>
                         <div class="col-4">
                             <label class="nr-label" for="addDevPort">PORT</label>
@@ -679,9 +678,8 @@
                         <div class="col-8">
                             <label class="nr-label" for="editDevIp">IP ADDRESS</label>
                             <input type="text" class="form-control" id="editDevIp" name="ip" required
-                                   pattern="^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$"
-                                   title="Enter a valid IPv4 address">
-                            <div class="field-error">Enter a valid IPv4 address.</div>
+                                   title="An IPv4 or IPv6 address">
+                            <div class="field-error">Enter a valid IPv4 or IPv6 address.</div>
                         </div>
                         <div class="col-4">
                             <label class="nr-label" for="editDevPort">PORT</label>
@@ -1391,6 +1389,26 @@ function initPlatformSelect(containerId, hiddenId, errorId) {
     };
 }
 
+// An IPv4 or IPv6 address (the server checks it too). IPv6 through the
+// browser's own URL parser: [address] is a valid host only for a valid one.
+function isIpAddress(v) {
+    if (/^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/.test(v)) return true;
+    if (!v.includes(':') || /[\[\]/%]/.test(v)) return false;
+    try { new URL('http://[' + v + ']/'); return true; } catch (e) { return false; }
+}
+// The IP fields take part in the forms' own validation (form.checkValidity):
+// checked as typed, and again just before a submit (the edit form is filled
+// in by script)
+['addDevIp', 'editDevIp'].forEach(id => {
+    const field = document.getElementById(id);
+    if (!field) return;
+    const check = () => field.setCustomValidity(
+        isIpAddress(field.value.trim()) ? '' : 'Enter a valid IPv4 or IPv6 address.');
+    field.addEventListener('input', check);
+    field.form.addEventListener('submit', check, true);
+    check();
+});
+
 const addPlatformSel  = initPlatformSelect('addPlatformSelect',  'addDevTypeHidden',  'addPlatformError');
 let   editPlatformSel = initPlatformSelect('editPlatformSelect', 'editDevTypeHidden', 'editPlatformError');
 
@@ -1428,8 +1446,7 @@ async function testAddConnection() {
     const status = document.getElementById('addTestStatus');
 
     // Client-side validation before sending
-    const ipRe = /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/;
-    if (!ipRe.test(ip)) {
+    if (!isIpAddress(ip)) {
         ipEl.classList.add('is-invalid');
         return;
     }
@@ -1504,8 +1521,7 @@ async function testEditConnection() {
     const btn    = document.getElementById('editTestBtn');
     const status = document.getElementById('editTestStatus');
 
-    const ipRe = /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/;
-    if (!ipRe.test(ip)) { ipEl.classList.add('is-invalid'); return; }
+    if (!isIpAddress(ip)) { ipEl.classList.add('is-invalid'); return; }
     const portNum = parseInt(port, 10);
     if (!port || isNaN(portNum) || portNum < 1 || portNum > 65535) {
         portEl.classList.add('is-invalid'); return;

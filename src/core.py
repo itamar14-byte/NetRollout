@@ -28,6 +28,12 @@ class SubstitutionError(ValueError):
 	"""A $$TOKEN$$ can't be resolved on a device."""
 
 
+def endpoint(ip: str, port: int | str) -> str:
+	"""How a target is written: ip:port, an IPv6 address in brackets
+	([2001:db8::1]:22, as in a URL - its own colons would hide the port)."""
+	return f"[{ip}]:{port}" if ":" in ip else f"{ip}:{port}"
+
+
 def mapping_resolvable(var_maps: dict[str, Any] | None, property_name: str,
                        index: int | None) -> bool:
 	"""Whether a mapping can substitute on a device. Shared by the binding
@@ -136,7 +142,7 @@ class Device:
 	def endpoint(self) -> str:
 		"""ip:port — what identifies a reachable target (the IP alone doesn't:
 		NAT / port forwarding put several devices behind one address)."""
-		return f"{self.ip}:{self.port}"
+		return endpoint(self.ip, self.port)
 
 	def netmiko_connector(self) -> dict[str, str | int]:
 		""":returns: Netmiko's ConnectHandler arguments for this device"""
@@ -316,7 +322,7 @@ class RolloutEngine:
 			return device.ip, PushResult(applied=False, rejected=0)
 
 		platform = PLATFORMS[device.device_type]
-		logger.notify(f"connecting to {device.ip}:{device.port}", "yellow")
+		logger.notify(f"connecting to {device.endpoint}", "yellow")
 		commands_sent = False
 		try:
 			net_connect = netmiko.ConnectHandler(**(device.netmiko_connector()))

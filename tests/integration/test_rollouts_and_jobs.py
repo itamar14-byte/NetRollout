@@ -320,6 +320,18 @@ def test_results_distinguish_devices_sharing_an_ip(operator, client_for,
 	b = client.get(f"/results/config_diff/{job}/10.9.9.9?port=2002")
 	assert (a.json["config"], b.json["config"]) == ("cfg-a", "cfg-b")
 
+def test_results_write_an_ipv6_device_in_brackets(operator, client_for, session_scope):
+	"""An unlabelled IPv6 device shows as [address]:port on Results, and Verify
+	Diff serves its config with the address in the URL."""
+	job = uuid.uuid4()
+	add_result(session_scope, operator.user, job, ip="2001:db8::7", port=2222,
+	           status="partial", verified=1, config="cfg-v6", commands=["a", "b"])
+	client = client_for(operator.user)
+	assert "[2001:db8::7]:2222" in client.get("/results").get_data(as_text=True)
+	diff = client.get(f"/results/config_diff/{job}/2001:db8::7?port=2222")
+	assert diff.json["config"] == "cfg-v6"
+
+
 def test_results_show_verify_diff_and_expired_states(operator, client_for,
                                                      session_scope):
 	"""A job with a stored config gets Verify Diff; one older than the snapshot

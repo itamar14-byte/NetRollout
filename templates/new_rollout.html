@@ -440,7 +440,7 @@
                                    data-no-profile="{{ '0' if device.security_profile else '1' }}"
                                    data-label="{{ (device.label or device.ip)|lower }}"
                                    data-ip="{{ device.ip|lower }}"
-                                   data-endpoint="{{ device.ip }}:{{ device.port }}"
+                                   data-endpoint="{{ device.ip | endpoint(device.port) }}"
                                    title="{% if not device.security_profile %}No security profile assigned — go to Inventory to assign one{% endif %}">
                                 <input type="checkbox"
                                        class="device-check device-cb"
@@ -467,7 +467,7 @@
 
                                 <div class="device-info">
                                     <div class="device-label">{{ device.label or device.ip }}</div>
-                                    <div class="device-ip">{{ device.ip }}:{{ device.port }}</div>
+                                    <div class="device-ip">{{ device.ip | endpoint(device.port) }}</div>
                                 </div>
 
                                 {% if device.is_global %}

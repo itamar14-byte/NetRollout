@@ -15,6 +15,7 @@ from flask_login import current_user
 from sqlalchemy import ColumnElement, and_, or_
 from sqlalchemy.orm import Session
 
+from src.core import endpoint
 from src.db.backend import BackendServices
 from src.db.tables import (AuditLog, Base, DeviceResult, Inventory,
                            PropertyDefinition, SecurityProfile, User)
@@ -235,7 +236,7 @@ def same_endpoint_warning(devices: Sequence[Inventory], ip: str,
 		return None
 	names = ", ".join(f"{d.label} (global)" if d.is_global else d.label
 	                  for d in devices[:5]) + (", …" if len(devices) > 5 else "")
-	return (f"{ip}:{port} is already used by {names}. That's fine for NAT, "
+	return (f"{endpoint(ip, port)} is already used by {names}. That's fine for NAT, "
 	        f"VRFs or port-forwarded labs, but they can't be in the same "
 	        f"rollout.")
 

@@ -174,6 +174,6 @@ def security_test(profile_id: uuid.UUID, data: dict[str, Any]) -> ResponseReturn
 	except NetmikoAuthenticationException:
 		return err("Authentication failed — check username and password", 401)
 	except NetmikoTimeoutException:
-		return err(f"Connection timed out on {device.ip}:{device.port}", 504)
+		return err(f"Connection timed out on {device_obj.endpoint}", 504)
 	except Exception as e:
 		return err(str(e), 500)

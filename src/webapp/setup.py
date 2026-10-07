@@ -15,6 +15,7 @@ from prometheus_client.core import REGISTRY, GaugeMetricFamily
 from sqlalchemy.exc import OperationalError
 from werkzeug.middleware.proxy_fix import ProxyFix
 
+from src.core import endpoint
 from src.db.backend import BackendServices
 from src.db.redis_db import REDIS_UNAVAILABLE, RedisConnection
 from src.encryption import init_encryption, require_key_in_container
@@ -129,6 +130,7 @@ def configure_app(app: Flask, redis: RedisConnection, secret_key: str) -> None:
 	# Flask's documented way to add WSGI middleware (mypy sees a method replaced)
 	app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)  # type: ignore[method-assign]
 	app.jinja_env.globals['VENDOR_LOGOS'] = VENDOR_LOGOS
+	app.jinja_env.filters['endpoint'] = endpoint     # {{ ip | endpoint(port) }}
 	app.jinja_env.globals['NR_VERSION'] = VERSION        # the footer
 	app.jinja_env.globals['NR_SOURCE_URL'] = source_url()
 	# compose passes COMPOSE_PROFILES: Grafana runs (at /grafana/) with "monitoring"

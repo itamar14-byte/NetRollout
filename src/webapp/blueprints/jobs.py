@@ -15,6 +15,7 @@ from flask_login import current_user, login_required
 from sqlalchemy.orm import Session
 
 from src import runtime
+from src.core import endpoint
 from src.db.tables import DeviceResult, JobMetadata, User, Inventory
 from src.job_store import JobStore
 from src.orchestration import RolloutJob
@@ -191,7 +192,7 @@ def build_jobs(result_rows: Iterable[DeviceResult],
 						# unlabelled: show the port unless it's plain SSH, so
 						# devices sharing an IP stay distinguishable
 						r.device_ip if r.device_port == 22
-						else f"{r.device_ip}:{r.device_port}"),
+						else endpoint(r.device_ip, r.device_port)),
 					"device_type": r.device_type,
 					"status": r.status,
 					"action_needed": r.action_needed,
@@ -441,7 +442,7 @@ def job_summary(job_id: uuid.UUID) -> ResponseReturnValue:
 	def label(r: DeviceResult) -> str:
 		return labels.get((r.device_ip, r.device_port),
 		                  r.device_ip if r.device_port == 22
-		                  else f"{r.device_ip}:{r.device_port}")
+		                  else endpoint(r.device_ip, r.device_port))
 
 	counts: dict[str, int] = {}
 	for r in rows:

@@ -95,6 +95,20 @@ def test_edit_refuses_a_bad_field_in_words(client_for, make_user, session_scope,
 	assert (same.ip, same.port, same.device_type) == ("10.1.1.1", 22, "cisco_ios")
 
 
+def test_an_ipv6_device_is_added_and_its_endpoint_written_in_brackets(
+		client_for, make_user, make_device, session_scope):
+	"""Add device accepts an IPv6 address, and the warning about a shared
+	endpoint writes it as [address]:port."""
+	user = make_user()
+	make_device(user, ip="2001:db8::5", label="core-v6")
+	client = client_for(user)
+	client.post("/inventory/create", data={**FORM, "label": "edge-v6",
+	                                       "ip": "2001:db8::5"})
+	assert device_by_label(session_scope, "edge-v6").ip == "2001:db8::5"
+	(msg,) = dup_warnings(client)
+	assert msg.startswith("[2001:db8::5]:22 is already used by core-v6.")
+
+
 def test_a_device_without_a_label_is_named_by_its_ip(client_for, make_user,
                                                      session_scope):
 	"""A device added without a label gets its IP as the label (as the CSV

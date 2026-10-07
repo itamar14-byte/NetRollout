@@ -12,7 +12,7 @@ from flask_login import current_user, login_required
 from sqlalchemy.orm import Session
 
 from src import validation
-from src.core import mapping_resolvable
+from src.core import endpoint, mapping_resolvable
 from src.db.tables import VariableMapping, Inventory, SecurityProfile
 from src.input_parser import InputParser
 from src.logging_utils import RolloutLogger
@@ -387,10 +387,10 @@ def inventory_import_csv() -> ResponseReturnValue:
 		seen: set[tuple[str, int]] = set()
 		shared: list[str] = []
 		for d in devices:
-			endpoint = (d.ip, d.port)
-			if endpoint in in_use or endpoint in seen:
-				shared.append(f"{d.ip}:{d.port}")
-			seen.add(endpoint)
+			target = (d.ip, d.port)
+			if target in in_use or target in seen:
+				shared.append(endpoint(d.ip, d.port))
+			seen.add(target)
 		if shared:
 			unique = list(dict.fromkeys(shared))
 			report.notices.append(("warning",

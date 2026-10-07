@@ -50,11 +50,9 @@ def tcp_reachable(ip: str, port: int = 22) -> bool:
 	:returns: whether one of the attempts connected"""
 	for attempt in range(TCP_RETRIES):
 		# a fresh socket per attempt — reusing a failed one raises WinError
-		# 10056 on Windows
+		# 10056 on Windows; create_connection picks IPv4 or IPv6
 		try:
-			with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as conn:
-				conn.settimeout(TCP_TIMEOUT)
-				conn.connect((ip, port))
+			with socket.create_connection((ip, port), timeout=TCP_TIMEOUT):
 				return True
 		except OSError:
 			if attempt < TCP_RETRIES - 1:
