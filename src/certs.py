@@ -14,6 +14,7 @@ import ipaddress
 import os
 import sys
 import tempfile
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -21,6 +22,7 @@ from cryptography import x509
 from cryptography.exceptions import UnsupportedAlgorithm
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.asymmetric.types import PrivateKeyTypes
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
 from src import runtime
@@ -33,15 +35,25 @@ SELFSIGNED_MARKER = ".selfsigned"
 SELFSIGNED_DAYS = 825
 EXPIRY_WARNING_DAYS = 30
 
+IPAddress = ipaddress.IPv4Address | ipaddress.IPv6Address
+# a SAN's IP entry as cryptography types it (a network only in name constraints)
+SanIP = IPAddress | ipaddress.IPv4Network | ipaddress.IPv6Network
+
 
 # ── Self-signed ──────────────────────────────────────────────────────────────
 
-def selfsigned(hostname: str, ips=(), out_dir=None,
-               days: int = SELFSIGNED_DAYS, also_names=()) -> Path:
-	"""Write a self-signed certificate for `hostname` (and each address in
-	`ips`, so https://<ip> works too, and each name in `also_names`) into
-	`out_dir` (default: the certs folder), plus the marker. Returns the
-	folder."""
+def selfsigned(hostname: str, ips: Iterable[str] = (),
+               out_dir: str | Path | None = None, days: int = SELFSIGNED_DAYS,
+               also_names: Iterable[str] = ()) -> Path:
+	"""Write a self-signed certificate (ECDSA P-256) and its key, plus the
+	marker that says NetRollout made it.
+
+	:param hostname: its name (the common name, and the first SAN)
+	:param ips: addresses it's reached by, so https://<ip> works too
+	:param out_dir: where; the certs folder when None
+	:param also_names: more names it covers (a renamed server's old ones)
+	:returns: the folder
+	:raises ValueError: no hostname"""
 	out = Path(out_dir) if out_dir else runtime.certs_dir()
 	out.mkdir(parents=True, exist_ok=True)
 	host = hostname.strip().rstrip(".").lower()
@@ -87,16 +99,16 @@ def selfsigned(hostname: str, ips=(), out_dir=None,
 	return out
 
 
-def is_selfsigned(cert_dir=None) -> bool:
+def is_selfsigned(cert_dir: str | Path | None = None) -> bool:
 	"""Did NetRollout make the certificate in `cert_dir` (so it may replace
-	it)?"""
+	it)? The certs folder when None."""
 	return ((Path(cert_dir) if cert_dir else runtime.certs_dir())
 	        / SELFSIGNED_MARKER).is_file()
 
 
-def _write_atomic(path: Path, data: bytes, mode: int):
-	# A temp file in the same folder + rename: readers see the old file or
-	# the new one, never half of one
+def _write_atomic(path: Path, data: bytes, mode: int) -> None:
+	"""Write through a temp file in the same folder + rename: readers see the
+	old file or the new one, never half of one."""
 	fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
 	try:
 		with os.fdopen(fd, "wb") as f:
@@ -123,13 +135,19 @@ class CertCheck:
 
 	@property
 	def ok(self) -> bool:
+		""":returns: whether it may be used (no problems)"""
 		return not self.problems
 
 
 def validate(cert_pem: bytes, key_pem: bytes, hostname: str | None = None,
              now: datetime.datetime | None = None) -> CertCheck:
-	"""Check a certificate (the server's first, then any intermediates) and
-	its private key before nginx is given them."""
+	"""Check a certificate and its private key before nginx is given them:
+	the key matches and isn't password-protected, the dates, the names (and
+	that they cover `hostname`), the chain's order.
+
+	:param cert_pem: the server's certificate first, then any intermediates
+	:param hostname: the name it must cover; None: not checked
+	:param now: the time to check the dates against (tests); now when None"""
 	check = CertCheck()
 	now = now or datetime.datetime.now(datetime.timezone.utc)
 
@@ -187,13 +205,14 @@ def validate(cert_pem: bytes, key_pem: bytes, hostname: str | None = None,
 	return check
 
 
-def names_in(cert_pem: bytes) -> tuple[list[str], list]:
+def names_in(cert_pem: bytes) -> tuple[list[str], list[SanIP]]:
 	"""(DNS names, IP addresses) the server certificate (the first in the
 	file) covers."""
 	return _san(x509.load_pem_x509_certificates(cert_pem)[0])
 
 
-def host_matches(hostname: str, dns_names, ips) -> bool:
+def host_matches(hostname: str, dns_names: Iterable[str],
+                 ips: Sequence[SanIP]) -> bool:
 	"""Browser rules: an IP must be listed as an IP; a wildcard covers
 	exactly one label, and only as the whole left-most label."""
 	host = hostname.strip().rstrip(".").lower()
@@ -211,7 +230,8 @@ def host_matches(hostname: str, dns_names, ips) -> bool:
 	return False
 
 
-def _san(cert) -> tuple[list[str], list]:
+def _san(cert: x509.Certificate) -> tuple[list[str], list[SanIP]]:
+	""":returns: (DNS names, IP addresses) of its subject alternative names"""
 	try:
 		san = cert.extensions.get_extension_for_class(
 			x509.SubjectAlternativeName).value
@@ -221,14 +241,16 @@ def _san(cert) -> tuple[list[str], list]:
 	        san.get_values_for_type(x509.IPAddress))
 
 
-def _same_key(cert, key) -> bool:
+def _same_key(cert: x509.Certificate, key: PrivateKeyTypes) -> bool:
+	""":returns: whether the key is the certificate's (same public key)"""
 	spki = (serialization.Encoding.DER,
 	        serialization.PublicFormat.SubjectPublicKeyInfo)
 	return (cert.public_key().public_bytes(*spki)
 	        == key.public_key().public_bytes(*spki))
 
 
-def _ip(value: str):
+def _ip(value: str) -> IPAddress | None:
+	""":returns: the address; None when it isn't one (a hostname)"""
 	try:
 		return ipaddress.ip_address(value.strip())
 	except ValueError:
@@ -237,7 +259,12 @@ def _ip(value: str):
 
 # ── Command line (the installer runs it through the image) ───────────────────
 
-def main(argv=None) -> int:
+def main(argv: list[str] | None = None) -> int:
+	"""`selfsigned` writes a certificate; `validate` prints its problems and
+	warnings.
+
+	:param argv: the arguments; sys.argv's when None
+	:returns: the exit code: 0 done / valid, 1 not"""
 	parser = argparse.ArgumentParser(
 		prog="python -m src.certs",
 		description="Create or check the TLS certificate nginx serves.")

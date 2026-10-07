@@ -35,6 +35,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
+from typing import Any
 
 GRAFANA = os.environ.get("GRAFANA_URL", "http://grafana:3000").rstrip("/")
 REAPPLY_SECONDS = int(os.environ.get("REAPPLY_SECONDS", "300"))
@@ -64,12 +65,19 @@ VIEW_ONLY = [{"role": "Editor", "permission": 1}, {"role": "Viewer", "permission
 EDITABLE = [{"role": "Editor", "permission": 2}, {"role": "Viewer", "permission": 1}]
 
 
-def log(message):
+def log(message: str) -> None:
 	print(f"[grafana-setup] {message}", flush=True)
 
 
-def call(method, path, body=None, ok=(200,)):
-	"""One Grafana API call as its admin; returns (status, parsed body)."""
+def call(method: str, path: str, body: Any = None,
+         ok: tuple[int, ...] = (200,)) -> tuple[int, Any]:
+	"""One Grafana API call as its admin.
+
+	:param path: under Grafana's address, e.g. /api/folders
+	:param body: sent as JSON; None: no body
+	:param ok: the statuses that aren't a failure
+	:returns: (status, the parsed body - None when empty)
+	:raises RuntimeError: another status"""
 	auth = base64.b64encode(
 		f"admin:{os.environ['GRAFANA_ADMIN_PASSWORD']}".encode()).decode()
 	request = urllib.request.Request(
@@ -88,13 +96,13 @@ def call(method, path, body=None, ok=(200,)):
 	return status, data
 
 
-def read_env(path: Path) -> dict:
+def read_env(path: Path) -> dict[str, str]:
 	"""KEY=value lines (what the app writes); missing file -> {}."""
 	try:
 		lines = path.read_text(encoding="utf-8").splitlines()
 	except FileNotFoundError:
 		return {}
-	values = {}
+	values: dict[str, str] = {}
 	for line in lines:
 		key, sep, value = line.partition("=")
 		if sep and not key.lstrip().startswith("#"):
@@ -102,12 +110,14 @@ def read_env(path: Path) -> dict:
 	return values
 
 
-def database(values: dict) -> dict:
-	"""Where NetRollout's data is, for Grafana: host, port, database, sslmode."""
+def database(values: dict[str, str]) -> dict[str, str]:
+	"""Where NetRollout's data is, for Grafana: host, port, database, sslmode.
+
+	:param values: the app's connection settings (config/runtime.env)"""
 	place = dict(BUNDLED)
 	if values.get("DATABASE_URL"):
 		url = urllib.parse.urlsplit(values["DATABASE_URL"])
-		place = {"host": url.hostname, "port": str(url.port or 5432),
+		place = {"host": url.hostname or "", "port": str(url.port or 5432),
 		         "database": url.path.lstrip("/")}
 	elif values.get("PG_HOST"):
 		place = {"host": values["PG_HOST"], "port": values.get("PG_PORT") or "5432",
@@ -118,7 +128,9 @@ def database(values: dict) -> dict:
 	return place
 
 
-def datasource_body(place: dict) -> dict:
+def datasource_body(place: dict[str, str]) -> dict[str, Any]:
+	""":returns: Grafana's data source definition for that database, as the
+	 read-only grafana_reader"""
 	return {"uid": DATASOURCE_UID, "name": DATASOURCE_NAME,
 	        "type": "grafana-postgresql-datasource", "access": "proxy",
 	        "url": f"{place['host']}:{place['port']}", "user": "grafana_reader",
@@ -128,7 +140,10 @@ def datasource_body(place: dict) -> dict:
 
 
 def ensure_datasource() -> str:
-	"""The data source at NetRollout's database; returns where."""
+	"""The data source at NetRollout's database.
+
+	:returns: where (host:port/database), for the log
+	:raises RuntimeError: Grafana refused, or it's still the provisioned one"""
 	body = datasource_body(database(read_env(RUNTIME_ENV)))
 	status, current = call("GET", f"/api/datasources/uid/{DATASOURCE_UID}", ok=(200, 404))
 	if status == 404:
@@ -143,7 +158,8 @@ def ensure_datasource() -> str:
 	return f"{body['url']}/{body['jsonData']['database']}"
 
 
-def wait_for_grafana(seconds=180):
+def wait_for_grafana(seconds: float = 180) -> None:
+	""":raises RuntimeError: Grafana's database wasn't ready in time"""
 	deadline = time.monotonic() + seconds
 	while time.monotonic() < deadline:
 		try:
@@ -156,10 +172,14 @@ def wait_for_grafana(seconds=180):
 	raise RuntimeError("Grafana didn't become ready")
 
 
-def ensure_folder(uid, title, parent=None):
+def ensure_folder(uid: str, title: str, parent: str | None = None) -> None:
+	"""The folder exists with this title under this parent - created, or put
+	back when moved or renamed by hand.
+
+	:param parent: the parent folder's uid; None: at the top"""
 	status, folder = call("GET", f"/api/folders/{uid}", ok=(200, 404))
 	if status == 404:
-		body = {"uid": uid, "title": title}
+		body: dict[str, str] = {"uid": uid, "title": title}
 		if parent:
 			body["parentUid"] = parent
 		call("POST", "/api/folders", body)
@@ -172,12 +192,16 @@ def ensure_folder(uid, title, parent=None):
 		     {"title": title, "version": folder.get("version"), "overwrite": True})
 
 
-def set_permissions(uid, items):
+def set_permissions(uid: str, items: list[dict[str, Any]]) -> None:
+	"""The folder's permissions become exactly `items` (VIEW_ONLY / EDITABLE)."""
 	call("POST", f"/api/folders/{uid}/permissions", {"items": items})
 
 
-def import_dashboard(path, folder_uid):
-	"""Create or overwrite one shipped dashboard in its folder."""
+def import_dashboard(path: Path, folder_uid: str) -> str:
+	"""Create or overwrite one shipped dashboard in its folder.
+
+	:param path: its dashboard v2 file
+	:returns: its uid"""
 	resource = json.loads(path.read_text(encoding="utf-8"))
 	name = resource["metadata"]["name"]
 	body = {"apiVersion": resource["apiVersion"], "kind": "Dashboard",
@@ -193,8 +217,11 @@ def import_dashboard(path, folder_uid):
 	return name
 
 
-def remove_retired(folder_uids, shipped):
-	"""A dashboard a release no longer ships leaves the NetRollout folders."""
+def remove_retired(folder_uids: set[str], shipped: set[str]) -> None:
+	"""A dashboard a release no longer ships leaves the NetRollout folders.
+
+	:param folder_uids: the shipped folders (Custom is never looked at)
+	:param shipped: the uids this release ships"""
 	_, found = call("GET", "/api/search?type=dash-db&limit=5000")
 	for dashboard in found:
 		if dashboard.get("folderUid") in folder_uids and \
@@ -203,7 +230,11 @@ def remove_retired(folder_uids, shipped):
 			log(f"retired: {dashboard['title']}")
 
 
-def apply():
+def apply() -> None:
+	"""The whole layout: the data source, the folders, the shipped dashboards
+	(retired ones removed), the permissions.
+
+	:raises RuntimeError: Grafana not ready, or a call refused"""
 	wait_for_grafana()
 	where = ensure_datasource()
 	ensure_folder(ROOT, "NetRollout")
@@ -211,7 +242,7 @@ def apply():
 		ensure_folder(uid, title, ROOT)
 	ensure_folder(CUSTOM, "Custom")
 
-	shipped = set()
+	shipped: set[str] = set()
 	for title, uid in SUBFOLDERS.items():
 		for path in sorted((DASHBOARDS / title).glob("*.json")):
 			shipped.add(import_dashboard(path, uid))
@@ -227,14 +258,19 @@ def apply():
 		    f"data from {where}")
 
 
-def _stamp():
+def _stamp() -> int | None:
+	""":returns: when the app's connection settings last changed; None: none"""
 	try:
 		return RUNTIME_ENV.stat().st_mtime_ns
 	except FileNotFoundError:
 		return None
 
 
-def main():
+def main() -> None:
+	"""Apply the layout, then again every REAPPLY_SECONDS - and the data
+	source at once when the app's database changes. --once: a single run
+	(exit 1 when it fails). DONE_FILE (the health check) says the last run
+	succeeded."""
 	once = "--once" in sys.argv
 	while True:
 		stamp = _stamp()

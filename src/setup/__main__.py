@@ -15,7 +15,9 @@ ANSWER_FLAGS = ("hostname", "https_port", "monitoring", "org_certificate",
                 "timezone")
 
 
-def parse_args(argv):
+def parse_args(argv: list[str]) -> argparse.Namespace:
+	""":returns: the command and its flags
+	:raises SystemExit: bad arguments (argparse says why)"""
 	p = argparse.ArgumentParser(prog="python -m src.setup")
 	p.add_argument("command", choices=("init", "check", "prepare-start", "status",
 	                                   "restore-key", "check-update", "upgrade", "release",
@@ -67,9 +69,11 @@ def parse_args(argv):
 	return p.parse_args(argv)
 
 
-def facts_from(args) -> A.Facts:
-	busy = {}
-	for item in filter(None, (x.strip() for x in args.busy_ports.split(","))):
+def facts_from(args: argparse.Namespace) -> A.Facts:
+	""":returns: what the host script told about the computer"""
+	busy: dict[int, str] = {}
+	listed: str = args.busy_ports
+	for item in filter(None, (x.strip() for x in listed.split(","))):
 		port, _, who = item.partition("=")
 		if port.isdigit():
 			busy[int(port)] = who.strip()
@@ -80,7 +84,15 @@ def facts_from(args) -> A.Facts:
 	               busy_ports=busy, account=args.account)
 
 
-def main(argv=None, read=input, write=print) -> int:
+def main(argv: list[str] | None = None, read: A.Read = input,
+         write: A.Write = print) -> int:
+	"""Run one setup command.
+
+	:param argv: the arguments; sys.argv's when None
+	:param read: how a question is asked (tests answer)
+	:param write: where every line goes (tests read it)
+	:returns: the exit code - OK, INVALID (bad input, not installed), or
+	 REFUSED (already installed, an older version)"""
 	args = parse_args(sys.argv[1:] if argv is None else argv)
 	if args.dev:
 		try:
@@ -179,9 +191,11 @@ def main(argv=None, read=input, write=print) -> int:
 	return OK
 
 
-def _port(args, facts, write) -> int:
+def _port(args: argparse.Namespace, facts: A.Facts, write: A.Write) -> int:
 	"""port-next prints "<action> <port|-> <id|->" and, when there is one, a
-	second line saying why; the others do their step and print nothing."""
+	second line saying why; the others do their step and print nothing.
+
+	:returns: the exit code"""
 	if args.command == "port-ready":
 		port.ready()
 	elif args.command == "port-next":
@@ -201,9 +215,11 @@ def _port(args, facts, write) -> int:
 	return OK
 
 
-def _release(args, write) -> int:
+def _release(args: argparse.Namespace, write: A.Write) -> int:
 	"""--check: whether a newer one exists; else downloaded (or given), checked
-	and unpacked under --out; prints version=… and folder=… for the script."""
+	and unpacked under --out; prints version=… and folder=… for the script.
+
+	:returns: the exit code"""
 	out = Path(args.out)
 	try:
 		if args.from_zip:

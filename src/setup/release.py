@@ -21,6 +21,7 @@ import urllib.request
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
+from typing import Any
 
 from src import runtime
 
@@ -38,6 +39,7 @@ class ReleaseError(Exception):
 
 @dataclass
 class Release:
+	"""A published release, as its feed describes it."""
 	version: str
 	notes: str
 	zip_url: str | None
@@ -45,16 +47,20 @@ class Release:
 
 
 def zip_name(version: str) -> str:
+	""":returns: the Linux release zip's file name"""
 	return f"netrollout-{version}-linux.zip"
 
 
 def api(version: str | None = None) -> str:
+	""":returns: GitHub's API address for that release (None: the latest)"""
 	repo = runtime.SOURCE_REPO.removeprefix("https://github.com/")
 	base = f"https://api.github.com/repos/{repo}/releases"
 	return f"{base}/tags/v{version}" if version else f"{base}/latest"
 
 
-def _open(url: str):
+def _open(url: str) -> Any:
+	""":returns: the open response (a context manager), GitHub's headers sent
+	:raises OSError: no answer, or an HTTP error"""
 	request = urllib.request.Request(url, headers={
 		"User-Agent": f"NetRollout/{runtime.VERSION}",      # GitHub requires one
 		"Accept": "application/vnd.github+json"})

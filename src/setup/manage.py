@@ -10,6 +10,8 @@ import json
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
 
 from cryptography.fernet import Fernet
 from packaging.version import InvalidVersion, Version
@@ -32,7 +34,8 @@ RESTORED_KEY = ".restored-key"
 # ── .env ──
 
 def env_read() -> dict[str, str]:
-	values = {}
+	""":returns: .env's keys and values (comments skipped)"""
+	values: dict[str, str] = {}
 	for line in files.env_path().read_text(encoding="utf-8").splitlines():
 		key, sep, value = line.partition("=")
 		if sep and key and not key.startswith("#"):
@@ -42,8 +45,10 @@ def env_read() -> dict[str, str]:
 
 def env_set(updates: dict[str, str]) -> bool:
 	"""Change script-owned lines of .env in place (its comments, order and
-	permissions kept — the file is rewritten, not replaced). True if it
-	changed."""
+	permissions kept — the file is rewritten, not replaced).
+
+	:returns: whether it changed
+	:raises ValueError: a key the scripts don't own (nothing written)"""
 	bad = [k for k in updates if k not in SCRIPT_KEYS]
 	if bad:
 		raise ValueError(f"not a script-owned .env key: {', '.join(bad)}")
@@ -51,6 +56,10 @@ def env_set(updates: dict[str, str]) -> bool:
 
 
 def _env_write(updates: dict[str, str]) -> bool:
+	"""Set the keys in .env: a line already there is changed in place, a new
+	key is added at the end.
+
+	:returns: whether it changed"""
 	path = files.env_path()
 	lines = path.read_text(encoding="utf-8").splitlines()
 	pending, out = dict(updates), []
@@ -151,7 +160,10 @@ def upgrade(version: str = runtime.VERSION,
 	said = []
 	if missing:
 		lines += ["", f"# Added by the update to NetRollout {version}"]
-		lines += [f"{k}={files.UPGRADE_DEFAULTS[k]()}" for k in missing]
+		for k in missing:
+			make = files.UPGRADE_DEFAULTS[k]
+			assert make is not None   # those were refused above
+			lines.append(f"{k}={make()}")
 		said.append(f".env: added {', '.join(missing)}")
 	with open(path, "w", encoding="utf-8", newline="\n") as f:
 		f.write("\n".join(lines) + "\n")
@@ -192,15 +204,18 @@ class Observed:
 
 
 def parse_containers(text: str) -> dict[str, str]:
-	""""app=running/healthy,nginx=running,…" """
-	out = {}
+	""""app=running/healthy,nginx=running,…" → {service: state}"""
+	out: dict[str, str] = {}
 	for item in filter(None, (x.strip() for x in text.split(","))):
 		name, _, state = item.partition("=")
 		out[name.strip()] = state.strip().lower()
 	return out
 
 
-def fetch_health(url: str = HEALTH_URL, timeout: float = 4.0) -> dict | None:
+def fetch_health(url: str = HEALTH_URL,
+                 timeout: float = 4.0) -> dict[str, Any] | None:
+	""":returns: the app's health report - also a 503's, which says what's
+	 down; None when there's no answer"""
 	try:
 		with urllib.request.urlopen(url, timeout=timeout) as r:
 			return json.loads(r.read().decode())
@@ -219,7 +234,7 @@ def address(env: dict[str, str]) -> str:
 	return f"https://{host}" + ("" if port == "443" else f":{port}")
 
 
-def status(seen: Observed, health: dict | None,
+def status(seen: Observed, health: dict[str, Any] | None,
            now: datetime.datetime | None = None) -> tuple[list[str], bool]:
 	"""The report, one line per subject, then what to do; and whether all
 	is well."""
@@ -306,7 +321,11 @@ def status(seen: Observed, health: dict | None,
 	return lines, not todo
 
 
-def _backups(todo) -> str:
+def _backups(todo: list[str]) -> str:
+	"""The status' Backups line: how many, their size, the newest - and a
+	failed scheduled one.
+
+	:param todo: what to do; a failed scheduled backup adds to it"""
 	entries = backup.list_backups(runtime.backups_dir())
 	text = (f"{len(entries)}, {sum(e.size for e in entries) / 1048576:.1f} MB "
 	        f"in backups" if entries else "none yet")
@@ -320,7 +339,11 @@ def _backups(todo) -> str:
 	return text
 
 
-def _certificate(now, todo) -> str:
+def _certificate(now: datetime.datetime, todo: list[str]) -> str:
+	"""The status' Certificate line: whose, valid until when, any problem.
+
+	:param todo: what to do; missing, unreadable, a problem or expiring soon
+	 add to it"""
 	folder = runtime.certs_dir()
 	try:
 		cert = (folder / certs.CERT_FILE).read_bytes()
@@ -346,7 +369,8 @@ def _certificate(now, todo) -> str:
 	return text
 
 
-def _read_json(path) -> dict | None:
+def _read_json(path: Path) -> dict[str, Any] | None:
+	""":returns: the file's JSON object; None when missing or not one"""
 	try:
 		data = json.loads(path.read_text(encoding="utf-8"))
 	except (OSError, ValueError):

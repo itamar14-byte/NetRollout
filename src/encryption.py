@@ -1,3 +1,8 @@
+"""Encryption of the stored credentials (device logins, the LDAP bind password,
+2FA secrets) with one Fernet key - from NETROLLOUT_ENCRYPTION_KEY, else (in
+development only) ~/.netrollout/encryption.key. Checked at startup against
+the stored data: a wrong or missing key stops the app instead of losing
+credentials."""
 import binascii
 import os
 from pathlib import Path
@@ -18,14 +23,12 @@ _fernet: Fernet | None = None
 class InvalidEncryptionKeyError(Exception):
 	"""Raised at request time when stored data can't be decrypted with the
 	configured key."""
-	pass
 
 
 class EncryptionStartupError(StartupError):
 	"""Raised by init_encryption() when the app must refuse to start: the key
 	is malformed, missing while encrypted data exists, or doesn't match the
 	stored data."""
-	pass
 
 
 def key_source() -> str:
@@ -37,7 +40,8 @@ def key_source() -> str:
 
 
 def read_key() -> bytes | None:
-	# env var takes precedence over the key file; None when neither exists
+	""":returns: the key - the environment variable's, else the key file's;
+	 None when neither exists"""
 	env_key = os.environ.get(ENV_VAR)
 	if env_key:
 		return env_key.encode()
@@ -47,6 +51,10 @@ def read_key() -> bytes | None:
 
 
 def _generate_key() -> bytes:
+	"""A new key, written to the key file (owner-only) - a fresh development
+	install only (init_encryption decides).
+
+	:returns: the key"""
 	new_key = Fernet.generate_key()
 	KEY_DIR.mkdir(parents=True, exist_ok=True)
 	with open(KEY_FILE, "wb") as key_file:
@@ -58,7 +66,9 @@ def _generate_key() -> bytes:
 
 
 def _build_cipher(raw_key: bytes) -> Fernet:
-	# Validate the key format before using it
+	""":returns: the cipher for this key
+	:raises EncryptionStartupError: it isn't a Fernet key (32 URL-safe base64
+	 bytes) - the message shows only its first and last 4 characters"""
 	try:
 		return Fernet(raw_key)
 	except (binascii.Error, ValueError) as e:
@@ -77,7 +87,9 @@ def require_key_in_container() -> None:
 	"""In a container the key must come from the environment: a key file
 	written inside it would vanish with it at the next update, and every
 	stored credential with it. Needs no database, so the app checks it before
-	touching one. :raises EncryptionStartupError: missing in a container"""
+	touching one.
+
+	:raises EncryptionStartupError: missing in a container"""
 	if in_container() and not os.environ.get(ENV_VAR):
 		raise EncryptionStartupError(
 			f"{ENV_VAR} is not set. In Docker the encryption key comes from the "
@@ -129,6 +141,8 @@ def init_encryption(sample_ciphertext: str | None,
 
 
 def _cipher() -> Fernet:
+	""":returns: the cipher loaded at startup
+	:raises RuntimeError: init_encryption hasn't run"""
 	if _fernet is None:
 		raise RuntimeError("Encryption not initialized — init_encryption() must "
 		                   "run at startup")
@@ -136,14 +150,18 @@ def _cipher() -> Fernet:
 
 
 def encrypt(plaintext: str) -> str:
+	""":returns: the ciphertext as stored (text); "" for an empty value"""
 	return _cipher().encrypt(plaintext.encode()).decode() if plaintext else ""
 
 
-def decrypt(ciphertext: str) -> str:
+def decrypt(ciphertext: str | None) -> str:
+	"""The stored value in clear.
+
+	:param ciphertext: as stored; None or "" (nothing stored) give ""
+	:raises InvalidEncryptionKeyError: the key doesn't decrypt it"""
 	if not ciphertext:
 		return ""
 	try:
-		# Convert the stored ciphertext string back to bytes and decrypt it
 		decrypted_bytes = _cipher().decrypt(ciphertext.encode())
 		return decrypted_bytes.decode("utf-8")
 	except InvalidToken:

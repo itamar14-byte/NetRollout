@@ -1,3 +1,9 @@
+"""Sign-in through a directory (LDAP / Active Directory): a user's password
+checked by binding as them (search-then-bind with a service account), group
+membership for who may sign in and with which role, and the admin page's
+tools (test, base DN, browsing the tree). ldap3 does the protocol."""
+from typing import Any
+
 from ldap3 import Server, Connection, ALL, SIMPLE, SUBTREE, LEVEL, BASE
 from ldap3.core.exceptions import (LDAPException, LDAPBindError,
                                    LDAPInvalidCredentialsResult)
@@ -20,20 +26,23 @@ _BAD_CREDENTIALS = (LDAPBindError, LDAPInvalidCredentialsResult)
 class LdapUnavailable(Exception):
 	"""The directory couldn't be reached or used — distinct from a user
 	entering wrong credentials, so login can say which one happened."""
-	pass
 
 
 def make_server(server: LDAPServer) -> Server:
+	""":returns: ldap3's description of the directory (not connected yet)"""
 	return Server(host=server.host, port=server.port, use_ssl=server.use_ssl,
 	              get_info=ALL, connect_timeout=CONNECT_TIMEOUT)
 
 
-def _connection(ldap_server: Server, **kwargs) -> Connection:
+def _connection(ldap_server: Server, **kwargs: Any) -> Connection:
+	""":returns: a connection with NetRollout's timeouts that raises on errors
+	 (not connected yet); kwargs as ldap3.Connection's"""
 	return Connection(ldap_server, receive_timeout=RECEIVE_TIMEOUT,
 	                  raise_exceptions=True, **kwargs)
 
 
 def _close(conn: Connection | None) -> None:
+	"""Unbind, ignoring errors (None: nothing to close)."""
 	if conn is not None:
 		try:
 			conn.unbind()
@@ -42,8 +51,11 @@ def _close(conn: Connection | None) -> None:
 
 
 def service_bind(server: LDAPServer) -> Connection | None:
-	"""Bound service-account connection, or None when the server has no
-	service account. Raises LDAPException on failure; callers close it."""
+	"""A connection bound as the service account (callers close it).
+
+	:returns: the connection; None when the server has no service account
+	:raises LDAPException: the bind failed - also when no password is
+	 stored (ldap3 never sends an empty one in a simple bind)"""
 	if server.bind_type != "regular":
 		return None
 	conn = _connection(make_server(server), user=server.bind_dn,
@@ -54,20 +66,23 @@ def service_bind(server: LDAPServer) -> Connection | None:
 
 
 def constructed_dn(server: LDAPServer, username: str) -> str:
-	# Only valid for flat directories (users directly under base_dn, named by
-	# cn_identifier). Escaped so the username can't add RDNs to the DN.
+	"""The DN a flat directory gives the user (directly under base_dn, named
+	by cn_identifier) - escaped, so the username can't add RDNs to it."""
 	return f"{server.cn_identifier}={escape_rdn(username)},{server.base_dn}"
 
 
 def user_filter(server: LDAPServer, username: str) -> str:
+	""":returns: the search filter for the user (the username escaped)"""
 	return f"({server.cn_identifier}={escape_filter_chars(username)})"
 
 
 def find_user_dn(server: LDAPServer, username: str) -> str | None:
 	"""Search-then-bind: resolve the user's real DN with the service account
 	(users can live anywhere under base_dn, e.g. nested AD OUs). Without a
-	service account, fall back to the constructed DN. None if the user
-	doesn't exist or the name is ambiguous. Raises LDAPException."""
+	service account, fall back to the constructed DN.
+
+	:returns: the DN; None if the user doesn't exist or the name is ambiguous
+	:raises LDAPException: the directory couldn't be used"""
 	conn = service_bind(server)
 	if conn is None:
 		return constructed_dn(server, username)
@@ -83,7 +98,10 @@ def find_user_dn(server: LDAPServer, username: str) -> str | None:
 
 
 def authenticate(server: LDAPServer, username: str, password: str) -> str | None:
-	"""The user's DN if username/password are valid, None if they aren't.
+	"""Check a user's password by binding as them.
+
+	:returns: the user's DN when username and password are valid; None when
+	 they aren't (an empty one never is)
 	:raises LdapUnavailable: the directory couldn't be reached or used"""
 	# Some servers treat a DN with an empty password as a *successful*
 	# unauthenticated bind — never send one
@@ -107,11 +125,16 @@ def authenticate(server: LDAPServer, username: str, password: str) -> str | None
 
 
 def user_bind(server: LDAPServer, username: str, password: str) -> bool:
-	""":raises LdapUnavailable: the directory couldn't be reached or used"""
+	""":returns: whether the username and password are valid
+	:raises LdapUnavailable: the directory couldn't be reached or used"""
 	return authenticate(server, username, password) is not None
 
 
 def test_connection(server: LDAPServer) -> dict[str, str]:
+	"""The admin page's Test: can NetRollout reach the directory (and bind as
+	its service account, when it has one)?
+
+	:returns: {"status": "ok" | "error", "message": ...} for the page"""
 	conn = None
 	try:
 		if server.bind_type not in ("regular", "simple"):
@@ -128,7 +151,10 @@ def test_connection(server: LDAPServer) -> dict[str, str]:
 		_close(conn)
 
 
-def test_user(server, username, password) -> dict[str, bool | str]:
+def test_user(server: LDAPServer, username: str, password: str) -> dict[str, str]:
+	"""The admin page's Test user: do these credentials sign in?
+
+	:returns: {"status": "ok" | "error", "message": ...} for the page"""
 	if server.bind_type not in ("regular", "simple"):
 		return {"status": "error", "message": "Invalid bind type"}
 	try:
@@ -140,9 +166,13 @@ def test_user(server, username, password) -> dict[str, bool | str]:
 
 
 def check_group_membership(server: LDAPServer, username: str, password: str,
-                           groups: list[LDAPGroup]) -> tuple | None:
-	"""(group_dn, role) of the first mapped group the authenticated user is a
-	direct member of, else None.
+                           groups: list[LDAPGroup]) -> tuple[str, str] | None:
+	"""Which of the mapped groups lets this user in (a service account is
+	needed to look: without one, None).
+
+	:param groups: the groups mapped to roles, in order
+	:returns: (group DN, role) of the first group the authenticated user is
+	 a direct member of; None when not a member, or not authenticated
 	:raises LdapUnavailable: the directory couldn't be reached or used"""
 	if server.bind_type != "regular":
 		return None
@@ -152,6 +182,7 @@ def check_group_membership(server: LDAPServer, username: str, password: str,
 	conn = None
 	try:
 		conn = service_bind(server)
+		assert conn is not None   # a "regular" bind type always has the account
 		for g in groups:
 			# The member value is a DN — it may contain filter metacharacters
 			# (e.g. "cn=Smith\, Bob"), so it's escaped like any other value
@@ -167,8 +198,11 @@ def check_group_membership(server: LDAPServer, username: str, password: str,
 		_close(conn)
 
 
-def fetch_user_details(server: LDAPServer, username: str) -> dict | None:
-	# Display attributes only — failure is tolerated by the caller
+def fetch_user_details(server: LDAPServer, username: str) -> dict[str, str | None] | None:
+	"""A new directory user's display details, for their account.
+
+	:returns: {"email", "full_name"}; None when they can't be read (no service
+	 account, not found, the directory failing - the caller goes on without)"""
 	conn = None
 	try:
 		conn = service_bind(server)
@@ -192,6 +226,10 @@ def fetch_user_details(server: LDAPServer, username: str) -> dict | None:
 
 
 def fetch_base_dn(server: LDAPServer) -> dict[str, str]:
+	"""The admin page's Fetch: the directory's base DN, from its root entry
+	(AD's defaultNamingContext, else the first naming context).
+
+	:returns: {"status": "ok", "base_dn": ...} or {"status": "error", "message": ...}"""
 	conn = None
 	try:
 		ldap_server = make_server(server)
@@ -209,8 +247,13 @@ def fetch_base_dn(server: LDAPServer) -> dict[str, str]:
 		_close(conn)
 
 
-def walk_tree(server: LDAPServer, dn: str = None) -> list[dict[str,
-str | None]] | dict[str, str]:
+def walk_tree(server: LDAPServer, dn: str | None = None) -> dict[str, Any]:
+	"""One level of the directory, for the admin page's browser (it needs the
+	service account).
+
+	:param dn: where to look; the base DN when None
+	:returns: {"status": "ok", "entries": [{type: ou / group / user, dn,
+	 label, username}]} or {"status": "error", "message": ...}"""
 	conn = None
 	try:
 		scope = dn or server.base_dn
@@ -225,7 +268,7 @@ str | None]] | dict[str, str]:
 			attributes=['objectClass', 'cn', server.cn_identifier]
 		)
 
-		results = []
+		results: list[dict[str, str | None]] = []
 
 		for entry in conn.entries:
 			classes = [str(c).lower() for c in entry.objectClass]

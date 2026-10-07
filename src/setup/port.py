@@ -34,6 +34,7 @@ import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from src import runtime, site_env
 from src.setup import files, manage
@@ -46,6 +47,7 @@ TRIAL_SECONDS = 120                        # time to click through a certificate
 
 @dataclass
 class Step:
+	"""What the port helper does next (port-next prints it)."""
 	action: str               # none / wait / try / keep / rollback
 	port: int | None = None   # try: the new port
 	id: str = ""
@@ -70,7 +72,17 @@ def read_status() -> dict | None:
 
 def write_status(id_: str, state: str, port: int, trying: int | None = None,
                  deadline: float | None = None, message: str = "",
-                 now: float | None = None) -> dict:
+                 now: float | None = None) -> dict[str, Any]:
+	"""Write apply-status.json - what the page shows and waits on.
+
+	:param id_: the request it's about
+	:param state: e.g. waiting / trying / applied / rolled-back / failed
+	:param port: the port in use
+	:param trying: the trial's new port
+	:param deadline: when the trial ends (epoch seconds)
+	:param message: why (a rollback, a failure)
+	:param now: the time it's stamped with (tests); now when None
+	:returns: what was written"""
 	now = now if now is not None else datetime.datetime.now().timestamp()
 	status = {"id": id_, "state": state, "port": port, "trying": trying,
 	          "deadline": deadline, "message": message,
@@ -148,7 +160,8 @@ def next_step(busy: dict[int, str], now: float | None = None) -> Step:
 	return Step("none", port, req_id, message)
 
 
-def timed_out(trial_port) -> str:
+def timed_out(trial_port: int | None) -> str:
+	""":returns: why a trial was rolled back when its time ran out"""
 	return (f"not confirmed within {TRIAL_SECONDS} s - port {trial_port} didn't "
 	        f"open from a browser (a firewall?)")
 

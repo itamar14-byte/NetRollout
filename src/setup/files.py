@@ -5,6 +5,7 @@ overwritten."""
 import datetime
 import os
 import secrets
+from collections.abc import Callable
 from pathlib import Path
 
 from cryptography.fernet import Fernet
@@ -31,7 +32,7 @@ def env_path() -> Path:
 
 def generate_secrets() -> dict[str, str]:
 	"""Letters and digits only: the passwords go into connection URLs."""
-	def password():
+	def password() -> str:
 		return secrets.token_hex(24)
 	return {
 		"POSTGRES_PASSWORD": password(),
@@ -98,7 +99,7 @@ COMPOSE_FILE={files}
 # else the value to add. A key a later version adds gets an entry here (a
 # generated secret, or its default) - the tests check every key env_text
 # writes is listed.
-UPGRADE_DEFAULTS = {
+UPGRADE_DEFAULTS: dict[str, Callable[[], str] | None] = {
 	"POSTGRES_PASSWORD": None,
 	"NETROLLOUT_DB_PASSWORD": None,
 	"GRAFANA_DB_PASSWORD": None,

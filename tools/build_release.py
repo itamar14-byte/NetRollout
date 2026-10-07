@@ -31,6 +31,7 @@ import subprocess
 import sys
 import zipfile
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 REPO_URL = "https://github.com/itamar14-byte/NetRollout"
@@ -63,8 +64,12 @@ def cli_name(version: str) -> str:
 
 
 def build_linux_zip(version: str, out: Path) -> Path:
-	"""Everything under netrollout/, entries made on Unix with their modes
-	(unzip applies them only then): scripts 755, the rest 644."""
+	"""The Linux release zip: everything under netrollout/, entries made on
+	Unix with their modes (unzip applies them only then): scripts 755, the
+	rest 644; text with LF line ends.
+
+	:param out: the folder it's written to
+	:returns: its path"""
 	path = out / linux_zip_name(version)
 	readme = ROOT / "README.md"
 	members = {**{k: (ROOT / v).read_bytes() for k, v in {**SHIPPED, **LINUX_BIN}.items()},
@@ -82,13 +87,19 @@ def build_linux_zip(version: str, out: Path) -> Path:
 	return path
 
 
-def _run(*args, **kw):
+def _run(*args: str | Path, **kw: Any) -> None:
+	"""Run a command from the repo root, printed first.
+
+	:raises subprocess.CalledProcessError: it failed"""
 	print("  $ " + " ".join(str(a) for a in args), flush=True)
 	subprocess.run([str(a) for a in args], check=True, cwd=ROOT, **kw)
 
 
-def _iscc(test_build: bool):
-	"""Inno Setup: a local ISCC.exe (CI's Windows runner), else its container."""
+def _iscc(test_build: bool) -> None:
+	"""Compile NetRollout Setup with Inno Setup: a local ISCC.exe (CI's
+	Windows runner), else its container.
+
+	:param test_build: a test build (its own AppId and names)"""
 	defines = ["/DTestBuild"] if test_build else []
 	for candidate in (shutil.which("iscc"), r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe"):
 		if candidate and Path(candidate).exists():
@@ -100,6 +111,11 @@ def _iscc(test_build: bool):
 
 
 def build_windows(version: str, out: Path, test_build: bool) -> list[Path]:
+	"""NetRollout Manager, NetRollout Setup and the CLI .exe, into `out`.
+
+	:param test_build: Setup as a test build (its own AppId and names)
+	:returns: Setup's path and the CLI's
+	:raises SystemExit: not on Windows"""
 	if sys.platform != "win32":
 		raise SystemExit("The Windows files are built on Windows (the Manager uses Windows' C# compiler).")
 	_run("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
@@ -115,6 +131,7 @@ def build_windows(version: str, out: Path, test_build: bool) -> list[Path]:
 
 
 def sha256(path: Path) -> str:
+	""":returns: the file's SHA-256, in hex"""
 	h = hashlib.sha256()
 	with path.open("rb") as f:
 		for chunk in iter(lambda: f.read(1 << 20), b""):
@@ -123,6 +140,9 @@ def sha256(path: Path) -> str:
 
 
 def write_sums(files: list[Path], out: Path) -> Path:
+	"""SHA256SUMS for the files, as `sha256sum` writes it.
+
+	:returns: its path"""
 	path = out / "SHA256SUMS"
 	path.write_text("".join(f"{sha256(f)}  {f.name}\n" for f in sorted(files)),
 	                encoding="ascii", newline="\n")
@@ -130,7 +150,12 @@ def write_sums(files: list[Path], out: Path) -> Path:
 
 
 def write_feed(version: str, files: list[Path], base: str, notes: str, out: Path) -> Path:
-	"""As GitHub's releases API answers (what the Manager and `update` read)."""
+	"""A release feed, as GitHub's releases API answers (what the Manager and
+	`update` read) - for a mirror or a test.
+
+	:param base: the address the files are served from
+	:param notes: the release notes
+	:returns: its path"""
 	base = base.rstrip("/")
 	feed = {"tag_name": f"v{version}", "name": f"NetRollout {version}", "body": notes,
 	        "html_url": f"{REPO_URL}/releases/tag/v{version}",
@@ -141,7 +166,12 @@ def write_feed(version: str, files: list[Path], base: str, notes: str, out: Path
 	return path
 
 
-def main(argv=None) -> int:
+def main(argv: list[str] | None = None) -> int:
+	"""Build the release files, their checksums and (with --feed-base) a feed.
+
+	:param argv: the arguments; sys.argv's when None
+	:returns: 0
+	:raises SystemExit: --version isn't the VERSION file's, or a build failed"""
 	parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
 	parser.add_argument("--version", required=True)
 	parser.add_argument("--out", type=Path)
@@ -159,7 +189,7 @@ def main(argv=None) -> int:
 	both = not (args.linux or args.windows)
 	out = args.out or ROOT / "dist" / f"{'test-' if args.test_build else ''}release-{args.version}"
 	out.mkdir(parents=True, exist_ok=True)
-	files = []
+	files: list[Path] = []
 	if args.linux or both:
 		print("-> the Linux zip", flush=True)
 		files.append(build_linux_zip(args.version, out))
