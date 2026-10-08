@@ -31,7 +31,10 @@ param(
 	# NetRollout Setup, updating: the installed folder (this copy runs from
 	# Setup's temporary folder) and the version it brings
 	[string]$InstallDir = "",
-	[string]$NewVersion = ""
+	[string]$NewVersion = "",
+	# update over data an uninstall kept: back it up first (prepare-update
+	# couldn't - the folder had no compose file yet)
+	[switch]$BackupFirst
 )
 
 Set-StrictMode -Version 2
@@ -45,6 +48,8 @@ $Version = if (Test-Path $VersionFile) { (Get-Content -Raw $VersionFile).Trim() 
 # A different project name only for testing next to a running NetRollout
 $Project = "netrollout"
 $AppImage = "itamarweinstein/netrollout:$Version"
+# compose's images of another version (a kept install's backup); "" = $Version
+$ImageVersion = ""
 $EnvFile = Join-Path $Root ".env"
 $Interactive = [Environment]::UserInteractive -and -not $Yes
 $DockerDesktopExe = Join-Path $env:ProgramFiles "Docker\Docker\Docker Desktop.exe"
@@ -80,7 +85,7 @@ function Invoke-Native([string]$Exe, [string[]]$Arguments) {
 # From the install folder: compose reads .env's COMPOSE_FILE relative to the
 # folder it runs in, not to --project-directory
 function Compose([string[]]$Arguments) {
-	$env:NETROLLOUT_VERSION = $Version
+	$env:NETROLLOUT_VERSION = if ($script:ImageVersion) { $script:ImageVersion } else { $Version }
 	Push-Location $Root
 	try {
 		return Invoke-Native "docker" (@("compose", "-p", $Project, "--project-directory", $Root,
@@ -129,6 +134,12 @@ function Get-OurImage([string]$Image) {
 	}
 }
 
+# An image on this computer, pulled when it isn't: $true when it's there now
+function Test-Image([string]$Image) {
+	if ((Invoke-Native "docker" @("image", "inspect", $Image)).Code -eq 0) { return $true }
+	return (Invoke-Native "docker" @("pull", $Image)).Code -eq 0
+}
+
 # ── what this computer knows ──────────────────────────────────────────────────
 
 function Get-BusyPorts([int[]]$Ours = @()) {
@@ -175,6 +186,19 @@ function Read-EnvValue([string]$Key, [string]$Default = "") {
 		if ($line -match "^$Key=(.*)$") { return $Matches[1].Trim() }
 	}
 	return $Default
+}
+
+# The version .env was last set up by: its "# Updated to NetRollout X on ..."
+# line (setup upgrade), else the installer's "# NetRollout X - written by the
+# installer" header; "" when it has neither (an early install)
+function Get-KeptVersion {
+	$lines = @(Get-Content $EnvFile)
+	foreach ($pattern in "^# Updated to NetRollout (\S+) ", "^# NetRollout (\S+) .*written by the installer") {
+		$found = ""
+		foreach ($line in $lines) { if ($line -match $pattern) { $found = $Matches[1] } }
+		if ($found) { return $found }
+	}
+	return ""
 }
 
 function Get-Address {
@@ -397,7 +421,7 @@ function Invoke-Install {
 	if ($problem) { Fail $problem }
 	Confirm-Docker -OfferInstall
 	Step "Getting NetRollout $Version"
-	Get-OurImage $AppImage
+	foreach ($image in "netrollout", "netrollout-nginx") { Get-OurImage "itamarweinstein/${image}:$Version" }
 	Step "Setting up"
 	$setup = @("init", "--licence-accepted", "--busy-ports", (Get-BusyPorts)) + (Get-Facts)
 	foreach ($given in @(@("--hostname", $Hostname), @("--https-port", $HttpsPort),
@@ -665,6 +689,7 @@ function Invoke-PrepareUpdate {
 		Assert-Installed
 		if (-not $NewVersion) { Fail "prepare-update needs -NewVersion" }
 		Confirm-Docker
+		if (-not (Test-Path $VersionFile)) { Invoke-PrepareKept; return }
 		Step "Checking the update: NetRollout $Version -> $NewVersion"
 		$r = Invoke-Native "docker" @("run", "--rm", $AppImage, "python", "-m", "src.setup", "check-update",
 			"--installed", $Version, "--new", $NewVersion)
@@ -680,6 +705,64 @@ function Invoke-PrepareUpdate {
 	}
 }
 
+# prepare-update over data an uninstall kept (.env, config\, the volumes - no
+# NetRollout files, so no VERSION): the version .env was last set up by
+# decides, by its own image (gone: the new one - versions compare the same
+# way). A newer one is refused (exit 2); an older one needs its image for the
+# backup, made by Invoke-Update -BackupFirst once the files are in place
+# (there's no compose file here yet). No version line: an older one.
+function Invoke-PrepareKept {
+	$kept = Get-KeptVersion
+	if (-not $kept) {
+		Warn ("$EnvFile doesn't say which version set it up (an early install): taken as an older version and " +
+		      "updated. The backup before the update is made by NetRollout $NewVersion - it restores into " +
+		      "$NewVersion, not into the earlier version.")
+		Say "   The backup is made once NetRollout $NewVersion's files are in place, before anything starts."
+		return
+	}
+	$old = "itamarweinstein/netrollout:$kept"
+	$haveOld = Test-Image $old
+	$judge = if ($haveOld) { $old } else { "itamarweinstein/netrollout:$NewVersion" }
+	Step "Checking the update: NetRollout $kept (its settings and data, kept in $Root) -> $NewVersion"
+	$r = Invoke-Native "docker" @("run", "--rm", $judge, "python", "-m", "src.setup", "check-update",
+		"--installed", $kept, "--new", $NewVersion)
+	if ($r.Code -eq 2 -and $r.Output -match "the same version") {
+		Good "The same version - its settings and data are used as they are."
+		return
+	}
+	if ($r.Code -eq 2) { Show-Output $r.Output; Fail "Nothing was changed." 2 }
+	if ($r.Code -ne 0) { Show-Output $r.Output; Fail "Couldn't compare the versions ($judge didn't run) - nothing was changed." }
+	if (-not $haveOld) {
+		Fail ("NetRollout $kept's image ($old) isn't on this computer and couldn't be downloaded - it makes the " +
+		      "backup before the update (one NetRollout $kept can restore). Nothing was changed. Check this " +
+		      "computer's internet connection, then run Setup again.")
+	}
+	Say "   The backup (by NetRollout $kept) is made once NetRollout $NewVersion's files are in place, before anything starts."
+}
+
+# Invoke-Update -BackupFirst: the backup prepare-update couldn't make for
+# kept data - by the version that wrote it (no version line: this one)
+function Backup-KeptData {
+	$kept = Get-KeptVersion
+	if ($kept) {
+		$old = "itamarweinstein/netrollout:$kept"
+		if (-not (Test-Image $old)) {
+			Fail ("NetRollout $kept's image ($old) isn't on this computer and couldn't be downloaded - it makes " +
+			      "the backup before the update. NetRollout wasn't started; its data is as NetRollout $kept left it. " +
+			      "Check this computer's internet connection, then Retry (or run Setup again).")
+		}
+	} else {
+		Warn "No version line in .env: the backup is made by NetRollout $Version (it restores into $Version, not into the earlier version)."
+	}
+	Step "Backing up first (the data NetRollout $(if ($kept) { $kept } else { 'had' }) left here)"
+	$script:ImageVersion = $kept
+	try { $code = Invoke-BackupCreate "before-update" } finally { $script:ImageVersion = "" }
+	if ($code -ne 0) {
+		Fail ("Couldn't back up - NetRollout wasn't started and its data wasn't changed. Fix it (above), " +
+		      "then Retry (or run Setup again).")
+	}
+}
+
 # After Setup replaced the files (this is the new script): the new images
 # while the old version keeps running, .env brought up to date, the restart.
 function Invoke-Update {
@@ -691,6 +774,7 @@ function Invoke-Update {
 		# (a local build isn't on Docker Hub)
 		Compose @("pull", "--quiet", "--ignore-pull-failures") | Out-Null
 		foreach ($image in "netrollout", "netrollout-nginx") { Get-OurImage "itamarweinstein/${image}:$Version" }
+		if ($BackupFirst) { Backup-KeptData }
 		Step "Updating the settings"
 		if ((Invoke-Setup @("upgrade")) -ne 0) { Fail "The update stopped before the restart - see above." }
 		Confirm-Rollouts "update" | Out-Null      # the files are in place: shown, never refused
@@ -720,6 +804,13 @@ function Start-PortHelper {
 function Update-Nginx {
 	$r = Compose @("up", "-d", "--no-deps", "--wait", "--wait-timeout", "120", "nginx")
 	return $r
+}
+
+# One port-* step of the setup core; when it fails, what it said and then
+# $Why - the state it leaves (the helper's log; the person's terminal)
+function Invoke-PortStep([string]$Why, [string[]]$Arguments) {
+	$r = Get-SetupAnswer $Arguments
+	if ($r.Code -ne 0) { Show-Output $r.Output; Fail $Why }
 }
 
 # A trial runs: its confirmation (site.env) within the trial's 120 s, timed
@@ -766,7 +857,9 @@ function Invoke-Apply {
 				"none" { if ($message) { Warn "Port $port not applied: $message" } else { Say "No port change to apply." }; return }
 				"wait" {
 					if (-not (Wait-PortTrial $id)) {
-						Get-SetupAnswer @("port-close", "--outcome", "rollback", "--id", $id, "--timed-out") | Out-Null
+						Invoke-PortStep ("Port $port wasn't confirmed within 2 minutes, and ending its trial failed (above) - " +
+						                 "nginx wasn't changed: it still answers on port $port too. Run: netrollout apply") `
+							@("port-close", "--outcome", "rollback", "--id", $id, "--timed-out")
 						Update-Nginx | Out-Null
 						Warn "Port $port wasn't confirmed within 2 minutes (it didn't open from a browser - a firewall?) - NetRollout stays on port $current."
 						return
@@ -774,27 +867,51 @@ function Invoke-Apply {
 				}
 				"try" {
 					Step "Opening port $port next to port $current"
-					Get-SetupAnswer @("port-open", "--port", $port) | Out-Null
+					$open = Get-SetupAnswer @("port-open", "--port", $port)
+					if ($open.Code -ne 0) {
+						Show-Output $open.Output
+						# recorded as failed (the page shows it; not retried by itself)
+						$closed = Get-SetupAnswer @("port-close", "--outcome", "failed", "--id", $id, "--message",
+							"port ${port}: its trial couldn't be prepared (see the port helper's log)")
+						if ($closed.Code -ne 0) { Warn "Recording that failed too - the page may still be waiting." }
+						Fail "Port $port wasn't opened: preparing its trial failed (above). nginx wasn't changed - NetRollout stays on port $current."
+					}
 					$up = Update-Nginx
 					if ($up.Code -ne 0) {
 						Show-Output $up.Output     # what Docker said (the helper's log)
 						$why = (($up.Output -split "`n" | Where-Object { $_ -match "error|failed|allocated" }) | Select-Object -First 1)
 						if (-not $why) { $why = "nginx didn't start with it" }
-						Get-SetupAnswer @("port-close", "--outcome", "failed", "--id", $id, "--message", "port ${port}: $($why.Trim())") | Out-Null
+						Invoke-PortStep ("Port $port couldn't be opened ($($why.Trim())), and ending its trial failed (above) - " +
+						                 "nginx may still be set up with port $port. Run: netrollout apply") `
+							@("port-close", "--outcome", "failed", "--id", $id, "--message", "port ${port}: $($why.Trim())")
 						Update-Nginx | Out-Null
 						Warn "Port $port couldn't be opened: $($why.Trim()) - port $current stays."
 						return
 					}
-					Get-SetupAnswer @("port-trying", "--port", $port, "--id", $id) | Out-Null
+					$trying = Get-SetupAnswer @("port-trying", "--port", $port, "--id", $id)
+					if ($trying.Code -ne 0) {
+						Show-Output $trying.Output
+						# nginx answers on both ports, but no trial is running: closed again
+						Invoke-PortStep ("Port $port opened, but its trial couldn't be started (above), nor ended - nginx " +
+						                 "still answers on port $port too. Run: netrollout apply") `
+							@("port-close", "--outcome", "failed", "--id", $id, "--message",
+							  "port ${port}: its trial couldn't be started (see the port helper's log)")
+						Update-Nginx | Out-Null
+						Fail "Port $port opened, but its trial couldn't be started (above) - closed again: NetRollout stays on port $current."
+					}
 					Good "Port $port is open next to port $current. Open NetRollout on port $port within 2 minutes to keep it - else port $current stays."
 				}
 				"keep" {
-					Get-SetupAnswer @("port-close", "--outcome", "keep", "--id", $id) | Out-Null
+					Invoke-PortStep ("Port $port was confirmed, but keeping it failed (above) - nginx wasn't changed: it " +
+					                 "answers on ports $current and $port. Run: netrollout apply") `
+						@("port-close", "--outcome", "keep", "--id", $id)
 					Update-Nginx | Out-Null
 					Good "Port $port kept - NetRollout is at $(Get-Address)."   # then: anything newer?
 				}
 				"rollback" {
-					Get-SetupAnswer @("port-close", "--outcome", "rollback", "--id", $id, "--message", $message) | Out-Null
+					Invoke-PortStep ("Rolling the port change back failed (above) - nginx wasn't changed: it may still " +
+					                 "answer on the trial's port too. Run: netrollout apply") `
+						@("port-close", "--outcome", "rollback", "--id", $id, "--message", $message)
 					Update-Nginx | Out-Null
 					Warn "Port change rolled back ($message) - NetRollout stays on port $(Read-EnvValue 'HTTPS_PORT' '443')."
 				}
