@@ -1,6 +1,9 @@
 """Maintenance mode (a database move, src/webapp/db_move.py): while the
 data is copied nothing may write - every route is refused but the few that
 don't write, derived from the live url_map so a route added later is covered."""
+import threading
+import uuid
+
 import pytest
 from sqlalchemy import text
 
@@ -124,6 +127,75 @@ def test_locking_waits_for_the_rollouts(app, admin, maintenance, monkeypatch):
 	assert maintenance.lock() is False and maintenance.state == WAITING
 	monkeypatch.setattr(app.orchestrator, "idle", lambda: True)
 	assert maintenance.lock() and maintenance.state == LOCKED
+
+
+def _held_in(app, monkeypatch, endpoint, fail=False):
+	"""The view of `endpoint` replaced by one that waits (until released) and then
+	answers - or raises, with fail. :returns: (entered, release) events"""
+	entered, release = threading.Event(), threading.Event()
+
+	def held(*args, **kwargs):
+		entered.set()
+		assert release.wait(10)
+		if fail:
+			raise RuntimeError("the view failed")
+		return "done"
+	monkeypatch.setitem(app.view_functions, endpoint, held)
+	return entered, release
+
+
+def _in_thread(call):
+	thread = threading.Thread(target=lambda: _quietly(call), daemon=True)
+	thread.start()
+	return thread
+
+
+def _quietly(call):
+	try:
+		call()
+	except RuntimeError:
+		pass        # the failing view (testing mode raises it in the client)
+
+
+@pytest.mark.parametrize("fail", [False, True])
+def test_the_lock_waits_for_a_request_under_way(app, admin, client_for, maintenance,
+                                                monkeypatch, fail):
+	"""A request under way (begun before maintenance) keeps the lock from coming:
+	lock() refuses, waiting, until it has ended - answered or failed - and locks
+	then."""
+	entered, release = _held_in(app, monkeypatch, "jobs.dashboard", fail)
+	client = client_for(admin)
+	thread = _in_thread(lambda: client.get("/dashboard"))
+	assert entered.wait(10)
+	assert maintenance.begin(WHAT, admin.id)
+	assert maintenance.lock() is False and maintenance.state == WAITING
+	release.set()
+	thread.join(10)
+	assert maintenance.lock() and maintenance.state == LOCKED
+
+
+def test_a_live_log_open_doesnt_hold_the_lock(app, admin, client_for, maintenance, monkeypatch):
+	"""The live log's stream (open for a whole rollout, and it doesn't write) isn't
+	waited for: maintenance locks while one is open."""
+	entered, release = _held_in(app, monkeypatch, "rollout.rollout_stream")
+	client = client_for(admin)
+	thread = _in_thread(lambda: client.get(f"/rollout/stream/{uuid.uuid4()}"))
+	assert entered.wait(10)
+	try:
+		assert maintenance.begin(WHAT, admin.id)
+		assert maintenance.lock() and maintenance.state == LOCKED
+	finally:
+		release.set()
+		thread.join(10)
+
+
+def test_a_refused_request_isnt_waited_for(app, admin, client_for, locked):
+	"""A request refused while locked (503) isn't counted as under way: after the
+	maintenance ends, the next one locks at once."""
+	assert client_for(admin).get("/dashboard").status_code == 503
+	locked.end()
+	assert locked.begin(WHAT, admin.id)
+	assert locked.lock()
 
 
 def test_the_end_resumes_rollouts_and_the_site(app, admin, client_for, locked):

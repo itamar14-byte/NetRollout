@@ -15,7 +15,8 @@ backup reads NetRollout's tables in one read-only snapshot; the restore, in
 one transaction, undoes NetRollout's migrations (its own tables only, nothing
 else in that database), migrates to the backup's level, loads the data and
 checks the key decrypts it — any failure leaves the database as it was. The
-app migrates to its own level at its next start, so an older backup restores
+files come after the database's commit: one failing then is reported
+(FilesIncomplete), the database and its key stay restored. The app migrates to its own level at its next start, so an older backup restores
 onto a newer NetRollout; a newer one is refused.
 
 What stays this computer's: the passwords and settings in .env, the port (the
@@ -28,13 +29,16 @@ site.env from the restored settings at its start).
                                         [--key-out FILE]
 """
 import csv
+import functools
 import io
 import json
 import os
 import re
+import secrets
 import sqlite3
 import sys
 import tempfile
+import threading
 import time
 import zipfile
 from collections.abc import Callable
@@ -50,6 +54,7 @@ from cryptography.fernet import Fernet, InvalidToken
 from packaging.version import InvalidVersion, Version
 from sqlalchemy import MetaData, Table, inspect, insert, text, update
 from sqlalchemy.engine import Connection, Engine
+from sqlalchemy.exc import SQLAlchemyError
 
 from src import runtime
 from src.db.connections import ENCRYPTED_COLUMNS, FERNET_PREFIX
@@ -70,12 +75,23 @@ LOG_RE = re.compile(r"^(rollout_.+\.log|unsaved-results-.+\.json)$")
 LOCK = ".backup.lock"
 # a backup from elsewhere, staged in the backups folder by the scripts
 STAGED_PREFIX = ".restoring-"
-STALE_LOCK_SECONDS = 2 * 3600
+# the lock's holder refreshes its time every LOCK_HEARTBEAT_SECONDS; one not
+# refreshed for STALE_LOCK_SECONDS was left by a killed holder
+LOCK_HEARTBEAT_SECONDS = 60
+STALE_LOCK_SECONDS = 5 * 60
+# a backup being written (.<name>.partial); one older than this was killed
+PARTIAL_GLOB = ".*.partial"
+STALE_PARTIAL_SECONDS = 3600
 ALEMBIC_INI = Path(__file__).resolve().parents[1] / "db" / "alembic.ini"
 
 
 class BackupError(Exception):
 	"""What went wrong, in words for the person running it."""
+
+
+class FilesIncomplete(BackupError):
+	"""A restore whose database was restored (and its key handed over) but not
+	every file: what failed, in words."""
 
 
 def shown(path: Path) -> str:
@@ -171,35 +187,51 @@ def create(engine: Engine, kind: str = "manual", places: Places | None = None,
 	:returns: its path
 	:raises ValueError: an unknown kind
 	:raises BackupError: another backup running, no encryption key, Grafana's
-	 database unreadable, a database error"""
+	 database unreadable, a database or disk error (no file is left)"""
 	if kind not in KINDS:
 		raise ValueError(f"unknown kind {kind!r}")
 	places = places or Places.app()
 	key = key if key is not None else _current_key()
 	now = now or datetime.now()
 	name = f"netrollout-{runtime.VERSION}-{now:%Y%m%d-%H%M%S}-{kind}.zip"
-	places.backups.mkdir(parents=True, exist_ok=True)
 	final = places.backups / name
 	partial = places.backups / f".{name}.partial"
-	with _lock(places.backups):
-		try:
-			with zipfile.ZipFile(partial, "w", zipfile.ZIP_DEFLATED) as zf:
-				revision, tables = _dump_database(engine, zf)
-				grafana = _add_grafana(zf, places.grafana)
-				certs = _add_files(zf, places.certs, "certs",
-				                   lambda n: n in CERT_FILES)
-				logs = _add_files(zf, places.logs, "logs", LOG_RE.match)
-				zf.writestr(KEY_MEMBER, key)
-				manifest = Manifest(FORMAT, runtime.VERSION,
-				                    now.isoformat(timespec="seconds"), kind,
-				                    revision, tables, grafana, certs, len(logs))
-				zf.writestr(MANIFEST, json.dumps(asdict(manifest), indent=2))
-			owner_only(partial)
-			os.replace(partial, final)
-		except BaseException:
-			partial.unlink(missing_ok=True)
-			raise
+	try:
+		places.backups.mkdir(parents=True, exist_ok=True)
+		with _lock(places.backups):
+			try:
+				with zipfile.ZipFile(partial, "w", zipfile.ZIP_DEFLATED) as zf:
+					revision, tables = _dump_database(engine, zf)
+					grafana = _add_grafana(zf, places.grafana)
+					certs = _add_files(zf, places.certs, "certs",
+					                   lambda n: n in CERT_FILES)
+					logs = _add_files(zf, places.logs, "logs", LOG_RE.match)
+					zf.writestr(KEY_MEMBER, key)
+					manifest = Manifest(FORMAT, runtime.VERSION,
+					                    now.isoformat(timespec="seconds"), kind,
+					                    revision, tables, grafana, certs, len(logs))
+					zf.writestr(MANIFEST, json.dumps(asdict(manifest), indent=2))
+				owner_only(partial)
+				os.replace(partial, final)
+			except BaseException:
+				partial.unlink(missing_ok=True)
+				raise
+	# the COPY runs on the driver's own cursor: its errors aren't SQLAlchemy's
+	except (OSError, SQLAlchemyError, _driver_error(engine)) as e:
+		raise BackupError(f"The backup failed: {_first_line(e)}") from None
 	return final
+
+
+def _driver_error(engine: Engine) -> type[Exception]:
+	""":returns: the database driver's base error class (psycopg2.Error)"""
+	return cast(type[Exception], engine.dialect.loaded_dbapi.Error)
+
+
+def _first_line(e: BaseException) -> str:
+	""":returns: the error's first line - the database's own message (a
+	 SQLAlchemy error's driver error), else the exception's"""
+	lines = str(getattr(e, "orig", None) or e).strip().splitlines()
+	return lines[0] if lines else type(e).__name__
 
 
 def _current_key() -> bytes:
@@ -306,28 +338,103 @@ def owner_only(path: Path) -> None:
 
 class _lock:
 	"""One backup or restore at a time per backups folder (a scheduled one
-	and a manual one can meet). A lock left by a crash expires."""
+	and a manual one can meet - or the scripts' one-off container and the
+	app). The file holds the holder's token and since when; the holder
+	refreshes its time while it works (a heartbeat), so a lock not refreshed
+	for STALE_LOCK_SECONDS was left by a killed holder and is taken over -
+	and a holder removes the file only while it is still its own."""
 
 	def __init__(self, folder: Path) -> None:
 		self.path = folder / LOCK
+		self.token = secrets.token_hex(16)
+		self._done = threading.Event()
+		self._heartbeat: threading.Thread | None = None
 
 	def __enter__(self) -> "_lock":
 		""":raises BackupError: another backup or restore holds it"""
 		self.path.parent.mkdir(parents=True, exist_ok=True)
+		self._take_over_stale()
 		try:
-			if time.time() - self.path.stat().st_mtime > STALE_LOCK_SECONDS:
-				self.path.unlink(missing_ok=True)
-		except FileNotFoundError:
-			pass
-		try:
-			os.close(os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+			fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
 		except FileExistsError:
-			raise BackupError("Another backup or restore is running - try again "
-			                  "when it's done.") from None
+			raise BackupError(self._busy()) from None
+		with os.fdopen(fd, "w", encoding="utf-8") as f:
+			json.dump({"token": self.token, "since": time.time()}, f)
+		self._heartbeat = threading.Thread(target=self._beat, name="backup-lock",
+		                                   daemon=True)
+		self._heartbeat.start()
 		return self
 
 	def __exit__(self, *exc: object) -> None:
-		self.path.unlink(missing_ok=True)
+		self._done.set()
+		if self._heartbeat is not None:
+			self._heartbeat.join()
+		if self._ours():
+			self.path.unlink(missing_ok=True)
+
+	def _beat(self) -> None:
+		"""The heartbeat (its thread): the lock's time refreshed while held."""
+		while not self._done.wait(LOCK_HEARTBEAT_SECONDS):
+			if not self._ours():
+				return
+			try:
+				os.utime(self.path)
+			except OSError:
+				return
+
+	def _held(self) -> dict[str, Any]:
+		""":returns: the lock file's content ({} when unreadable: written by
+		 an older version, or its holder died before writing it)"""
+		try:
+			held = json.loads(self.path.read_text(encoding="utf-8"))
+		except (OSError, ValueError):
+			return {}
+		return held if isinstance(held, dict) else {}
+
+	def _ours(self) -> bool:
+		return self._held().get("token") == self.token
+
+	def _take_over_stale(self) -> None:
+		"""A lock whose holder stopped refreshing it is removed, with the
+		.partial file a killed backup left."""
+		try:
+			before = self.path.stat()
+			if time.time() - before.st_mtime <= STALE_LOCK_SECONDS:
+				return
+			content = self.path.read_bytes()
+			# still the same stale lock (no one refreshed or replaced it since)
+			if self.path.stat().st_mtime == before.st_mtime and \
+					self.path.read_bytes() == content:
+				self.path.unlink()
+		except FileNotFoundError:
+			return
+		_remove_leftover_partials(self.path.parent)
+
+	def _busy(self) -> str:
+		""":returns: the refusal, with the lock's age and what to do"""
+		try:
+			since = float(self._held().get("since") or self.path.stat().st_mtime)
+			age = f" (started {max(0, int((time.time() - since) // 60))} minutes ago)"
+		except (OSError, TypeError, ValueError):
+			age = ""
+		return (f"Another backup or restore is running{age} - try again when "
+		        f"it's done. If nothing is running, delete backups/{LOCK}.")
+
+
+def _remove_leftover_partials(folder: Path) -> list[Path]:
+	"""The .partial files killed backups left (older than
+	STALE_PARTIAL_SECONDS: a backup being written is never one of them).
+
+	:returns: the deleted files"""
+	gone = []
+	for path in folder.glob(PARTIAL_GLOB):
+		try:
+			if time.time() - path.stat().st_mtime > STALE_PARTIAL_SECONDS:
+				path.unlink()
+				gone.append(path)
+		except FileNotFoundError:
+			pass
+	return gone
 
 
 # ── Read / check ─────────────────────────────────────────────────────────────
@@ -408,13 +515,16 @@ def list_backups(folder: Path | None = None) -> list[Entry]:
 
 def prune(folder: Path, keep: int) -> list[Path]:
 	"""Scheduled backups beyond the newest `keep` are deleted; the others
-	(manual, before a restore or update) only by a person.
+	(manual, before a restore or update) only by a person. The .partial
+	files killed backups left go too.
 
-	:returns: the deleted files"""
+	:returns: the deleted backups"""
 	scheduled = [e.path for e in list_backups(folder) if e.kind == "scheduled"]
 	gone = scheduled[max(keep, 0):]
 	for path in gone:
 		path.unlink(missing_ok=True)
+	if folder.is_dir():
+		_remove_leftover_partials(folder)
 	return gone
 
 
@@ -422,17 +532,27 @@ def prune(folder: Path, keep: int) -> list[Path]:
 
 def restore(path: Path, engine: Engine, places: Places | None = None, *,
             https_port: int | None = None, grafana_target: Path | None = None,
-            version: str = runtime.VERSION) -> Restored:
+            key_out: Path | None = None, version: str = runtime.VERSION) -> Restored:
 	"""Restore the backup into the database `engine` connects to, then its
 	files. NetRollout must be stopped (the scripts do it).
+
+	The database is restored first, in one transaction; its key is handed
+	over (key_out) before that commit, so a restored database always comes
+	with its key. Then the files - the certificate, the rollout logs,
+	Grafana's database - each tried even if another failed.
 
 	:param places: the folders; the app's when None
 	:param https_port: the port this install serves on (the setting follows)
 	:param grafana_target: Grafana's data folder (Grafana stopped), if any
+	:param key_out: where to write the backup's encryption key (owner
+	 only), for the scripts to put into .env; removed again when the
+	 database isn't restored
 	:param version: this NetRollout's (a newer backup is refused)
-	:returns: what was restored, with the backup's encryption key - the
-	 caller puts it where the app reads it
-	:raises BackupError: refused or failed — the database is unchanged"""
+	:returns: what was restored, with the backup's encryption key
+	:raises FilesIncomplete: the database was restored (and the key handed
+	 over) but not every file - which, and why
+	:raises BackupError: refused or failed before the database's commit -
+	 nothing was changed"""
 	places = places or Places.app()
 	manifest = check(path, version)
 	with _lock(places.backups), zipfile.ZipFile(path) as zf:
@@ -441,16 +561,43 @@ def restore(path: Path, engine: Engine, places: Places | None = None, *,
 			cipher = Fernet(key)
 		except ValueError:
 			raise BackupError(f"{shown(path)} holds a damaged encryption key.") from None
-		_restore_database(engine, zf, manifest, cipher, https_port,
-		                  ("backup.restored", {"version": manifest.version,
-		                                       "created": manifest.created,
-		                                       "kind": manifest.kind}), shown(path))
+		try:
+			if key_out is not None:
+				key_out.write_bytes(key + b"\n")
+				owner_only(key_out)
+			_restore_database(engine, zf, manifest, cipher, https_port,
+			                  ("backup.restored", {"version": manifest.version,
+			                                       "created": manifest.created,
+			                                       "kind": manifest.kind}), shown(path))
+		except BaseException as e:
+			if key_out is not None:
+				key_out.unlink(missing_ok=True)
+			if isinstance(e, BackupError):
+				raise
+			if isinstance(e, (OSError, SQLAlchemyError, _driver_error(engine))):
+				raise BackupError(f"Not restored: {_first_line(e)}. Nothing was "
+				                  f"changed.") from None
+			raise
 		files: list[str] = []
-		files += _restore_files(zf, "certs", places.certs, set(CERT_FILES),
-		                        replace_all=True)
-		files += _restore_files(zf, "logs", places.logs, None)
+		failed: list[str] = []
+		steps: list[tuple[str, Callable[[], list[str]]]] = [
+			("the certificate", functools.partial(
+				_restore_files, zf, "certs", places.certs, set(CERT_FILES), replace_all=True)),
+			("the rollout logs", functools.partial(
+				_restore_files, zf, "logs", places.logs, None)),
+		]
 		if manifest.grafana and grafana_target is not None:
-			files += _restore_grafana(zf, grafana_target)
+			steps.append(("Grafana's database",
+			              functools.partial(_restore_grafana, zf, grafana_target)))
+		for what, step in steps:
+			try:
+				files += step()
+			except Exception as e:                    # noqa: BLE001 - reported
+				failed.append(f"{what} ({_first_line(e)})")
+		if failed:
+			raise FilesIncomplete(
+				f"The database was restored, but not every file - not restored: "
+				f"{'; '.join(failed)}.")
 	return Restored(manifest, key, files)
 
 

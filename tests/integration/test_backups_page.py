@@ -96,6 +96,20 @@ def test_a_backup_while_another_runs_is_refused_and_audited(admin, home, client_
 	assert actions(session_scope) == [("backup.failed", admin.username, False, None)]
 
 
+def test_a_backup_failing_on_the_disk_is_refused_in_words_and_audited(
+		admin, home, client_for, session_scope, monkeypatch):
+	"""Back up now failing on the disk (no space left while writing) is 409 with the
+	reason, audited as failed, and leaves no file in the folder."""
+	def disk_full(*args, **kwargs):
+		raise OSError(28, "No space left on device")
+	monkeypatch.setattr(archive, "_add_files", disk_full)
+	resp = client_for(admin, xhr=True).post("/admin/backups")
+	assert resp.status_code == 409
+	assert resp.json["message"] == "The backup failed: [Errno 28] No space left on device"
+	assert actions(session_scope) == [("backup.failed", admin.username, False, None)]
+	assert list((home / "backups").iterdir()) == []
+
+
 def test_the_scheduler_backs_up_once_per_time_and_keeps_the_newest(
 		admin, app, home, session_scope):
 	"""The scheduler backs up once per scheduled time (not again a minute later), keeps

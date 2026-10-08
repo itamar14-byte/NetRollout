@@ -7,8 +7,10 @@ import time
 import uuid
 
 import pytest
+from alembic import command as alembic_command
 from sqlalchemy import create_engine, make_url, text
 
+from src.backup import archive
 from src.db import move
 from src.db.connections import BUNDLED_DATABASE_KEY, PostgresConfig
 from src.encryption import decrypt
@@ -156,7 +158,8 @@ def test_move_there_and_back(app, target, mover, make_user, make_profile):
 	assert BUNDLED_DATABASE_KEY in app.backend._CONFIG_ENV.read_text()
 	assert status["backup"].endswith("-before-move.zip")
 
-	mover.start(app.backend.bundled_postgres(), admin.id, admin.username, back=True)
+	mover.start(app.backend.bundled_postgres(), admin.id, admin.username, back=True,
+	            replace=True)
 	status = _wait(mover)
 	assert status["state"] == db_move.DONE, status
 	assert db_move.same_database(app.backend.postgres.config, home)
@@ -179,6 +182,29 @@ def test_the_same_database_or_a_refused_target_never_starts(app, target, mover):
 	with pytest.raises(move.MoveError, match="another application"):
 		mover.start(target, None, "admin")
 	assert app.maintenance.state == "idle"
+
+
+def holding_netrollout(target):
+	"""The target with a NetRollout database in it (migrated to head)."""
+	engine = move.engine_for(target)
+	with engine.begin() as conn:
+		alembic_command.upgrade(archive._alembic_config(conn), "head")
+	engine.dispose()
+	assert move.check_target(target).contents == move.NETROLLOUT
+	return target
+
+
+def test_a_netrollout_database_there_is_replaced_only_when_asked(app, target, mover):
+	"""A target holding a NetRollout database is refused unless replace is asked
+	("tick 'replace'"), maintenance never beginning; asked, the move replaces it
+	and ends done."""
+	holding_netrollout(target)
+	with pytest.raises(move.MoveError, match="tick 'replace' to overwrite it"):
+		mover.start(target, None, "admin")
+	assert app.maintenance.state == "idle"
+	mover.start(target, None, "admin", replace=True)
+	assert _wait(mover)["state"] == db_move.DONE
+	assert app.backend.postgres.config == target
 
 
 def test_cancelled_while_waiting_for_rollouts(app, target, mover, monkeypatch):
@@ -207,6 +233,30 @@ def test_rollouts_still_running_after_the_wait_give_the_move_up(app, target, mon
 	status = _wait(short)
 	assert status["state"] == db_move.FAILED and "Cancel the stuck rollouts" in status["message"]
 	assert app.maintenance.state == "idle"
+
+
+def test_a_switch_failing_after_the_reconnect_goes_back_to_the_database(
+		app, target, mover, monkeypatch):
+	"""runtime.env failing to be written (after the live reconnect) ends the move
+	failed, saying NetRollout stays on its database - and it does: the app's
+	connection is back on it, runtime.env unchanged, database.move_failed audited
+	there."""
+	home = app.backend.postgres.config
+	runtime_env = app.backend._CONFIG_ENV
+	before = runtime_env.read_text() if runtime_env.exists() else None
+
+	def read_only(updates):
+		raise PermissionError(13, "Permission denied", str(runtime_env))
+	monkeypatch.setattr(app.backend, "_write_config", read_only)
+	mover.start(target, None, "admin")
+	status = _wait(mover)
+	assert status["state"] == db_move.FAILED, status
+	assert "Permission denied" in status["message"]
+	assert "stays on its database" in status["message"]
+	assert app.backend.postgres.config == home and app.maintenance.state == "idle"
+	assert (runtime_env.read_text() if runtime_env.exists() else None) == before
+	assert _rows(app.backend.postgres.engine,
+	             "select 1 from audit_log where action = 'database.move_failed'")
 
 
 def test_a_failed_copy_leaves_everything_as_it_was(app, target, mover, monkeypatch):

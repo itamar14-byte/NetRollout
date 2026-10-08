@@ -187,7 +187,27 @@ def test_a_switch_overrides_everything_inherited(isolated_env, tmp_path):
 	assert rd.get_url() == "redis://cache.example.org:6379/0"   # no password
 
 
-AWKWARD_PASSWORDS = ["p'a ss #x", "a${HOME}b", 'q"uote', "back\\slash\\", " padded ", "=eq"]
+@pytest.mark.parametrize("schema", ["Ops", "net rollout", "nr;drop", "nr,public", "1nr",
+                                    "x" * 64])
+def test_a_schema_name_netrollout_cant_use_is_refused_in_words(isolated_env, schema):
+	"""A PG_SCHEMA that isn't a plain lowercase name (capitals, a space, ; or ,, a
+	leading digit, over 63 characters) is refused when it's loaded, naming
+	PG_SCHEMA and the rule - not passed on to the connection."""
+	isolated_env.setenv("PG_SCHEMA", schema)
+	with pytest.raises(ValueError, match="PG_SCHEMA.*lowercase letters, digits and _"):
+		PostgresConfig.unload_env()
+
+
+@pytest.mark.parametrize("schema, expected", [("nrapp", "nrapp"), ("_nr_2", "_nr_2"),
+                                              ("x" * 63, "x" * 63), ("", "")])
+def test_a_plain_schema_name_or_none_is_used(isolated_env, schema, expected):
+	"""A plain lowercase schema name is used as it is; a blank one (every switch
+	writes PG_SCHEMA='' when there's none) means no schema."""
+	isolated_env.setenv("PG_SCHEMA", schema)
+	assert PostgresConfig.unload_env().schema == expected
+
+
+AWKWARD_PASSWORDS =["p'a ss #x", "a${HOME}b", 'q"uote', "back\\slash\\", " padded ", "=eq"]
 
 
 @pytest.mark.parametrize("password", AWKWARD_PASSWORDS)

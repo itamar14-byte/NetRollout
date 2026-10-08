@@ -19,7 +19,9 @@ between - a row written after the snapshot would be lost at the switch.
 - **waiting**: new rollouts are refused (the orchestrator's pause), the queued
   and running ones finish (or are cancelled by the admin); the site works,
   with a banner;
-- **locked**: nothing runs any more; every request but the few marked
+- **locked** once nothing runs any more - no rollout, and no request being
+  answered that may write (every one but those below and the live log's
+  stream is counted while it runs); every request but the few marked
   `@during_maintenance` (the move's progress, health, Grafana's read-only
   auth check, ...) gets the maintenance page (503), the moving admin's
   included; audit rows and the background jobs that write wait.
@@ -32,7 +34,7 @@ import uuid
 from datetime import datetime
 from typing import Any, TYPE_CHECKING, TypeVar
 
-from flask import Response, render_template, request
+from flask import Response, g, render_template, request
 from flask.typing import ResponseReturnValue
 from sqlalchemy import make_url
 
@@ -91,7 +93,7 @@ class DatabaseMove:
 		return self._status["state"] in (WAITING, COPYING, SWITCHING)
 
 	def start(self, target: PostgresConfig, actor_id: uuid.UUID | None, actor: str,
-	          back: bool = False) -> None:
+	          back: bool = False, replace: bool = False) -> None:
 		"""Checks the target, then moves in a thread - audited as
 		database.move_started first: once the thread runs, maintenance may lock
 		at once, and a row written then would be lost (the row is copied with
@@ -99,6 +101,8 @@ class DatabaseMove:
 
 		:param actor_id: the admin moving it (and actor, their username)
 		:param back: a move back to the bundled database (the wording)
+		:param replace: a NetRollout database there may be overwritten (the
+		 page's "replace" box; a move back always replaces)
 		:raises move.MoveError: refused (the reason in words)"""
 		backend = self._app.backend
 		if same_database(target, backend.postgres.config):
@@ -106,6 +110,9 @@ class DatabaseMove:
 		report = move.check_target(target)
 		if not report.ok:
 			raise move.MoveError(" ".join(report.problems))
+		if report.contents == move.NETROLLOUT and not replace:
+			raise move.MoveError("It holds a NetRollout database - tick 'replace' to "
+			                     "overwrite it.")
 		what = ("moving back to the bundled database" if back
 		        else "moving to another database")
 		if not self._app.maintenance.begin(what, actor_id):
@@ -209,6 +216,9 @@ LOCKED = "locked"        # maintenance: IDLE -> WAITING -> LOCKED (IDLE, WAITING
 RETRY_AFTER_SECONDS = 10
 # not views of ours: the files the pages need, Prometheus' scrape (Redis only)
 ALWAYS_SERVED = {"static", "prometheus_metrics"}
+# refused while locked, but not waited for by the lock: the live log's stream
+# is open for a whole rollout (the lock waits for the rollout) and doesn't write
+NOT_WAITED_FOR = {"rollout.rollout_stream"}
 V = TypeVar("V")
 
 
@@ -230,6 +240,7 @@ class Maintenance:
 		self._what = ""
 		self._progress = ""
 		self._actor_id: uuid.UUID | None = None
+		self._under_way = 0       # requests that may write, being answered
 
 	@property
 	def state(self) -> str:
@@ -256,15 +267,31 @@ class Maintenance:
 			return True
 
 	def lock(self) -> bool:
-		"""Locked, once no rollout is queued or running; else False (still
-		waiting)."""
+		"""Locked, once no rollout is queued or running and no request that
+		may write is being answered; else False (still waiting)."""
 		with self._lock:
 			if self._state != WAITING:
 				return False
-			if not self._orchestrator.idle():
+			if self._under_way or not self._orchestrator.idle():
 				return False
 			self._state = LOCKED
 			return True
+
+	def enter(self) -> bool:
+		"""A request that may write arrives (the gate): counted while it is
+		answered - lock() waits for it - unless locked.
+
+		:returns: False: locked - refused, not counted"""
+		with self._lock:
+			if self._state == LOCKED:
+				return False
+			self._under_way += 1
+			return True
+
+	def leave(self) -> None:
+		"""A request enter() counted has ended (answered or failed)."""
+		with self._lock:
+			self._under_way -= 1
 
 	def report(self, progress: str) -> None:
 		"""The step under way, for the pages (the move's)."""
@@ -291,15 +318,20 @@ def register_maintenance(app: NetRolloutApp) -> None:
 	def maintenance_gate() -> Response | None:
 		"""While locked: 503 + Retry-After (JSON for a request from a page,
 		else the maintenance page) for every view not marked
-		@during_maintenance.
+		@during_maintenance. Otherwise each request that may write is counted
+		while it is answered (Maintenance.enter): the lock waits for it.
 
 		:returns: None: go on; else the answer"""
 		maintenance = current_app.maintenance
-		if not maintenance.writes_blocked:
-			return None
 		# no endpoint (a 404): no view, so the maintenance page
 		view = current_app.view_functions.get(request.endpoint or "")
 		if request.endpoint in ALWAYS_SERVED or getattr(view, "during_maintenance", False):
+			return None
+		if request.endpoint in NOT_WAITED_FOR:
+			if not maintenance.writes_blocked:
+				return None
+		elif maintenance.enter():
+			g.maintenance_counted = True
 			return None
 		info = maintenance.snapshot()
 		message = f"NetRollout is under maintenance - {info['what']}. Try again in a few minutes."
@@ -312,6 +344,12 @@ def register_maintenance(app: NetRolloutApp) -> None:
 		response = current_app.make_response(answer)
 		response.headers["Retry-After"] = str(RETRY_AFTER_SECONDS)
 		return response
+
+	@app.teardown_request
+	def maintenance_request_ended(_error: BaseException | None) -> None:
+		"""A request the gate counted has ended - answered or failed."""
+		if g.pop("maintenance_counted", False):
+			current_app.maintenance.leave()
 
 	@app.context_processor
 	def maintenance_banner() -> dict[str, Any]:
