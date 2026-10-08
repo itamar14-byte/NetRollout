@@ -2,6 +2,7 @@
 where Postgres / Redis settings come from (runtime.env over the environment),
 switch writes, connection modes and the bundled database's address."""
 import os
+import socket
 import stat
 import time
 from pathlib import Path
@@ -67,9 +68,6 @@ def test_both_failures_count_as_unavailable():
 	assert redis.exceptions.ConnectionError in connections.REDIS_UNAVAILABLE
 
 
-UNROUTABLE_HOST = "10.255.255.1"  # silently drops packets: a real timeout
-
-
 def test_client_is_built_with_timeouts():
 	"""The client's connections use CONNECT_TIMEOUT and SOCKET_TIMEOUT."""
 	kwargs = RedisConnection(RedisConfig()).client.connection_pool.connection_kwargs
@@ -84,15 +82,49 @@ def test_socket_timeout_exceeds_dispatcher_blpop_wait():
 	assert SOCKET_TIMEOUT > jobs._BLPOP_TIMEOUT
 
 
-def test_unreachable_host_fails_fast():
-	"""A PING to an unroutable host raises a REDIS_UNAVAILABLE error within
-	2 x CONNECT_TIMEOUT + 2 seconds."""
-	client = RedisConnection(RedisConfig(host=UNROUTABLE_HOST)).client
+class SilentHostSocket:
+	"""Stands in for socket.socket towards a host that drops every packet: each
+	connect "waits" the timeout set on it (counted, not slept) and times out."""
+	connects: list[float] = []
+
+	def __init__(self, *args):
+		self.timeout = None
+
+	def setsockopt(self, *args):
+		pass
+
+	def settimeout(self, timeout):
+		self.timeout = timeout
+
+	def connect(self, address):
+		SilentHostSocket.connects.append(self.timeout)
+		raise socket.timeout("timed out")
+
+	def shutdown(self, how):
+		pass
+
+	def close(self):
+		pass
+
+
+def test_unreachable_host_fails_fast(monkeypatch):
+	"""A PING to a host that never answers raises a REDIS_UNAVAILABLE error after at
+	most two connect attempts (one retry), each bounded by CONNECT_TIMEOUT: within
+	2 x CONNECT_TIMEOUT, never the ~20 s it used to take. No network: the socket is
+	a stand-in that times out, and the address is numeric (no DNS)."""
+	SilentHostSocket.connects = []
+	fake_socket = SimpleNamespace(**{name: getattr(socket, name) for name in dir(socket)
+	                                 if not name.startswith("__")})
+	fake_socket.socket = SilentHostSocket
+	monkeypatch.setattr(redis.connection, "socket", fake_socket)
+	client = RedisConnection(RedisConfig(host="192.0.2.1")).client    # TEST-NET-1
 	start = time.monotonic()
 	with pytest.raises(REDIS_UNAVAILABLE):
 		client.ping()
-	# one connect attempt + one retry, never the ~20s it used to take
-	assert time.monotonic() - start < 2 * CONNECT_TIMEOUT + 2
+	assert time.monotonic() - start < 1                       # nothing really waited
+	attempts = SilentHostSocket.connects
+	assert 1 <= len(attempts) <= 2 and set(attempts) == {CONNECT_TIMEOUT}
+	assert sum(attempts) <= 2 * CONNECT_TIMEOUT
 
 
 # ── Config precedence ────────────────────────────────────────────────────────
