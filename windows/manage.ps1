@@ -643,9 +643,10 @@ function Invoke-Restore {
 		}
 		Start-NetRollout
 		if ($partial) {
-			Warn ("Restored $shown's database, but not all of its files - see above for which. NetRollout " +
+			# exit 3: a script calling this can tell it from a full restore
+			Fail ("Restored $shown's database, but not all of its files - see above for which. NetRollout " +
 			      "runs on the restored data (everyone signs in again); put the missing files back by hand, " +
-			      "or fix the cause and restore again.")
+			      "or fix the cause and restore again.") 3
 		} else {
 			Good "Restored $shown. Everyone signs in again."
 		}

@@ -61,7 +61,11 @@ class PostgresConfig:
 
 		:raises ValueError: PG_SCHEMA isn't a name NetRollout can use (blank:
 		 no schema)"""
+		# lower-cased as Postgres folds an unquoted name: an install whose
+		# PG_SCHEMA=MySchema always used the schema myschema
 		schema = os.getenv("PG_SCHEMA")
+		if schema:
+			schema = schema.lower()
 		if schema and (problem := schema_problem(schema)):
 			raise ValueError(f"PG_SCHEMA: {problem}")
 		return cls (

@@ -273,3 +273,20 @@ def test_a_failed_copy_leaves_everything_as_it_was(app, target, mover, monkeypat
 	assert app.backend.postgres.config == home and app.maintenance.state == "idle"
 	assert _rows(app.backend.postgres.engine,
 	             "select 1 from audit_log where action = 'database.move_failed'")
+
+
+
+def test_the_copy_takes_the_backup_lock_where_its_backup_is(app, target, tmp_path,
+                                                            monkeypatch):
+	"""The copy's backup and its restore into the target take the backup lock in the same
+	folder (the places given) - the restore took it in the app's own backups folder."""
+	places = archive.Places(tmp_path / "backups", tmp_path / "certs", tmp_path / "logs")
+	taken = []
+	real = archive._lock
+
+	def recording(folder):
+		taken.append(folder)
+		return real(folder)
+	monkeypatch.setattr(archive, "_lock", recording)
+	move.copy(app.backend.postgres.engine, target, detail={}, places=places)
+	assert taken and set(taken) == {places.backups}

@@ -440,7 +440,8 @@ do_restore() {
 	fi
 	do_start
 	if [ "$code" -eq 3 ]; then
-		warn "Restored $shown's database, but not all of its files - see above for which. NetRollout runs on the restored data (everyone signs in again); put the missing files back by hand, or fix the cause and restore again."
+		# exit 3: a script calling this can tell it from a full restore
+		fail "Restored $shown's database, but not all of its files - see above for which. NetRollout runs on the restored data (everyone signs in again); put the missing files back by hand, or fix the cause and restore again." 3
 	else
 		good "Restored $shown. Everyone signs in again."
 	fi

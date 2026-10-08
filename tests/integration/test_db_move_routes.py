@@ -250,19 +250,9 @@ def test_a_netrollout_database_there_needs_replace_ticked(app, admin, client_for
 def test_the_move_started_audit_row_survives_the_move(app, admin, client_for, target, mover,
                                                      monkeypatch):
 	"""database.move_started (written by the route once the move has begun) is in the
-	database NetRollout ends up on, naming the target, back False - also when the
-	move's thread locks maintenance before the route writes the row (forced here so
-	the order is certain; with no rollout running it is the usual order)."""
+	database NetRollout ends up on, naming the target, back False. (Maintenance can't lock
+	before the route has written it: the lock waits for the route's own request.)"""
 	monkeypatch.setattr(app, "db_move", mover)
-	start = mover.start
-
-	def start_then_locked(*args, **kwargs):
-		start(*args, **kwargs)
-		end = time.time() + 10
-		while not app.maintenance.writes_blocked and mover.running and time.time() < end:
-			time.sleep(0.01)
-	monkeypatch.setattr(mover, "start", start_then_locked)
-
 	resp = client_for(admin, xhr=True).post("/admin/server/database/move", json=_form(target))
 	assert resp.status_code == 200, resp.json
 	assert _wait(mover)["state"] == db_move.DONE

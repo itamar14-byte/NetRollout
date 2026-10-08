@@ -326,7 +326,8 @@ def copy(source: Engine, target: PostgresConfig, *, detail: dict[str, object],
 	try:
 		report(f"Copying {sum(manifest.tables.values())} rows to {target.host}")
 		try:
-			archive.restore_database(path, engine, audit=("database.moved", detail))
+			archive.restore_database(path, engine, audit=("database.moved", detail),
+			                         places=places)
 		except archive.BackupError as e:
 			raise MoveError(str(e)) from None
 		except SQLAlchemyError as e:
