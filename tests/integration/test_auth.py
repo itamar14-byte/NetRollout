@@ -12,7 +12,7 @@ import pytest
 from src.accounts import users as _users
 from src.db.settings import SETTINGS
 from src.db.tables import AuditLog, DeviceResult, LDAPGroup, LDAPServer, User
-from src.encryption import encrypt
+from src.encryption import decrypt, encrypt
 from src.webapp.blueprints.auth import safe_next
 from tests.integration.conftest import TEST_PASSWORD
 
@@ -93,6 +93,30 @@ def enrolled_user(make_user):
 	"""A local user already enrolled in 2FA, and the authenticator's secret."""
 	secret = pyotp.random_base32()
 	return make_user(otp_secret=encrypt(secret)), secret
+
+
+def test_an_enrolled_user_cant_enrol_again(client_for, make_user, db_get):
+	"""Someone with only the password of a user who already has 2FA can't go to
+	the enrolment page instead of the code page: GET and POST /otp_enroll send
+	them to /otp_verify, the stored authenticator is unchanged and nobody is
+	signed in (else the password alone would replace the victim's 2FA)."""
+	user, secret = enrolled_user(make_user)
+	client = client_for()
+	assert login(client, user.username).headers["Location"] == "/otp_verify"
+	resp = client.get("/otp_enroll")
+	assert resp.status_code == 302 and resp.headers["Location"] == "/otp_verify"
+	with client.session_transaction() as s:
+		assert "pending_totp_secret" not in s
+		s["pending_totp_secret"] = attacker = pyotp.random_base32()   # forced in
+	resp = client.post("/otp_enroll", data={"code": pyotp.TOTP(attacker).now()})
+	assert resp.status_code == 302 and resp.headers["Location"] == "/otp_verify"
+	assert decrypt(db_get(User, user.id).otp_secret) == secret
+	with client.session_transaction() as s:
+		assert "pending_totp_secret" not in s
+	assert client.get("/dashboard").status_code == 302                # not signed in
+	# the real owner still signs in with their own authenticator
+	resp = client.post("/otp_verify", data={"code": pyotp.TOTP(secret).now()})
+	assert resp.headers["Location"] == "/dashboard"
 
 
 def test_2fa_verify_is_rate_limited(client_for, make_user):

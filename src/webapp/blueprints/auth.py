@@ -345,10 +345,15 @@ def otp_enroll(data: Any) -> ResponseReturnValue:
 	"""2FA enrolment after the password: GET shows a new authenticator's QR
 	code (its secret waits in the session); POST checks a code from it, then
 	stores the secret (encrypted) and signs in. Rate limited; wrong codes
-	count (_wrong_code)."""
+	count (_wrong_code). A user who has 2FA already goes to the code page -
+	only an admin's 2FA reset allows a new enrolment (else the password
+	alone would replace the user's authenticator)."""
 	user = _pending_user()
 	if user is None:
 		return redirect(url_for("auth.home"))
+	if user.otp_secret:
+		session.pop("pending_totp_secret", None)
+		return redirect(url_for("auth.otp_verify"))
 	if request.method == "GET":
 		secret = session.get("pending_totp_secret") or pyotp.random_base32()
 		session["pending_totp_secret"] = secret
