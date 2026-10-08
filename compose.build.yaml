@@ -1,21 +1,21 @@
-# Build the three NetRollout images from this repository instead of pulling
+# Build NetRollout's images (the app's, which grafana-setup runs too, and
+# nginx's) from this repository instead of pulling
 # them — before they're published, in CI, and for the dev stack:
 #
 #   docker compose -f compose.yaml -f compose.build.yaml build
 #
 # BUILD_VERSION (optional) stamps a release version into the app image.
+x-app-build: &app-build
+  context: .
+  args:
+    VERSION: ${BUILD_VERSION:-}
+
 services:
   app:
-    build:
-      context: .
-      args:
-        VERSION: ${BUILD_VERSION:-}
+    build: *app-build
     pull_policy: build
   grafana-setup:            # the app image too (it only needs Python)
-    build:
-      context: .
-      args:
-        VERSION: ${BUILD_VERSION:-}
+    build: *app-build
     pull_policy: build
   nginx:
     build: ./deploy/nginx
