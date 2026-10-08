@@ -906,7 +906,7 @@
         doSubmit();
     });
 
-    function doSubmit() {
+    async function doSubmit() {
         const platforms = getSelectedPlatforms();
         const keys = Object.keys(platforms);
         const isMulti = keys.length > 1;
@@ -931,25 +931,27 @@
                     }
                     platformCommands[platform] = text;
                 } else {
-                    /* File mode for multi-platform: read synchronously isn't possible,
-                       so we fall back to paste validation */
+                    /* File mode: the file's text joins the JSON like pasted commands */
                     const fi = block.querySelector(`input[type="file"]`);
                     if (!fi.files[0]) {
                         alert(`No command file selected for ${platform}.`);
                         valid = false;
                         break;
                     }
-                    /* Read file content via FileReader, then submit */
-                    const reader = new FileReader();
-                    reader.onload = ev => {
-                        platformCommands[platform] = ev.target.result.trim();
-                        if (Object.keys(platformCommands).length === keys.length) {
-                            pcInput.value = JSON.stringify(platformCommands);
-                            form.submit();
-                        }
-                    };
-                    reader.readAsText(fi.files[0]);
-                    return; /* async path — will call form.submit() from reader.onload */
+                    let text = "";
+                    try {
+                        text = (await fi.files[0].text()).trim();
+                    } catch (err) {
+                        alert(`The command file for ${platform} could not be read.`);
+                        valid = false;
+                        break;
+                    }
+                    if (!text) {
+                        alert(`No commands provided for ${platform}.`);
+                        valid = false;
+                        break;
+                    }
+                    platformCommands[platform] = text;
                 }
             }
 

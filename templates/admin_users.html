@@ -160,7 +160,7 @@
   </table>
 </div>
 
-<!-- Status data_filter buttons -->
+<!-- Status filter buttons -->
 <div class="d-flex gap-2 mt-3 align-items-center">
   <span style="font-family:'Inter',sans-serif; font-size: 0.6875rem; color:var(--nr-text-muted); letter-spacing:1px; text-transform:uppercase; font-weight:600;">Filter</span>
   <button class="filter-btn active-filter" data-filter="all">All</button>
@@ -735,25 +735,26 @@
     document.getElementById("bulkForm").submit();
   });
 
-  // ── Search ──
-  document.getElementById("userSearch").addEventListener("input", function() {
-    const q = this.value.toLowerCase();
+  // ── Search + status filter: a row shows when it passes both ──
+  let statusFilter = "all";
+  function applyUserFilters() {
+    const q = document.getElementById("userSearch").value.toLowerCase();
     document.querySelectorAll("#userTable tbody tr").forEach(row => {
-      row.style.display = row.textContent.toLowerCase().includes(q) ? "" : "none";
+      const statusOk = statusFilter === "all" || row.dataset.status === statusFilter;
+      const searchOk = row.textContent.toLowerCase().includes(q);
+      row.style.display = statusOk && searchOk ? "" : "none";
     });
     updateToolbar();
-  });
+  }
 
-  // ── Status data_filter ──
-  document.querySelectorAll(".data_filter-btn").forEach(btn => {
+  document.getElementById("userSearch").addEventListener("input", applyUserFilters);
+
+  document.querySelectorAll(".filter-btn").forEach(btn => {
     btn.addEventListener("click", function() {
-      document.querySelectorAll(".data_filter-btn").forEach(b => b.classList.remove("active-data_filter"));
-      this.classList.add("active-data_filter");
-      const filter = this.dataset.filter;
-      document.querySelectorAll("#userTable tbody tr").forEach(row => {
-        row.style.display = (filter === "all" || row.dataset.status === filter) ? "" : "none";
-      });
-      updateToolbar();
+      document.querySelectorAll(".filter-btn").forEach(b => b.classList.remove("active-filter"));
+      this.classList.add("active-filter");
+      statusFilter = this.dataset.filter;
+      applyUserFilters();
     });
   });
 

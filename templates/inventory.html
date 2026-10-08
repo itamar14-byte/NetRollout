@@ -1645,7 +1645,7 @@ function openEdit(device) {
     new bootstrap.Modal(document.getElementById('editDeviceModal')).show();
 }
 
-// Mapping search data_filter
+// Mapping search filter
 const mappingSearch = document.getElementById('editMappingSearch');
 if (mappingSearch) {
     mappingSearch.addEventListener('input', function() {
@@ -1868,10 +1868,10 @@ function openQuickCreateProperty() {
 }
 
 async function submitQuickCreateProperty() {
-    const name    = document.getElementById('qcPropName').value.trim();
-    const label   = document.getElementById('qcPropLabel').value.trim();
-    const icon    = document.getElementById('qcPropIcon').value.trim() || 'bi-tag';
-    const is_list = document.getElementById('qcPropIsList').checked;
+    let name    = document.getElementById('qcPropName').value.trim();
+    let label   = document.getElementById('qcPropLabel').value.trim();
+    let icon    = document.getElementById('qcPropIcon').value.trim() || 'bi-tag';
+    let is_list = document.getElementById('qcPropIsList').checked;
     const errEl   = document.getElementById('qcPropError');
     errEl.style.display = 'none';
 
@@ -1886,6 +1886,8 @@ async function submitQuickCreateProperty() {
         errEl.style.display = '';
         return;
     }
+    // what the server saved: it normalises the name (lower case, _ for spaces)
+    ({name, label, icon, is_list} = data);
 
     // Inject new field into the custom section of varAttrBody
     let grid = document.getElementById('customPropGrid');

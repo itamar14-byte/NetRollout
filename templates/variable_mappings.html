@@ -582,11 +582,18 @@ function initAttrSelect(containerId, hiddenId, indexWrapId) {
         }
     }
 
+    // the index only for a list property; hidden, it's emptied (else it's posted)
+    function showIndex(show) {
+        if (!indexWrap) return;
+        indexWrap.classList.toggle('visible', show);
+        if (!show) indexWrap.querySelectorAll('input').forEach(i => { i.value = ''; });
+    }
+
     function selectOption(value, icon) {
         hidden.value = value;
         renderDisplay(value, icon);
         options().forEach(o => o.classList.toggle('selected', o.dataset.value === value));
-        if (indexWrap) indexWrap.classList.toggle('visible', LIST_PROPS.has(value));
+        showIndex(LIST_PROPS.has(value));
         shell.close();
     }
 
@@ -614,7 +621,7 @@ function initAttrSelect(containerId, hiddenId, indexWrapId) {
             hidden.value = '';
             renderDisplay('', '');
             options().forEach(o => o.classList.remove('selected'));
-            if (indexWrap) indexWrap.classList.remove('visible');
+            showIndex(false);
         },
         // a property made by the quick create: listed (before the "New property…"
         // footer) and clickable like the others
@@ -837,10 +844,10 @@ function openMappingQuickProp() {
 }
 
 async function submitMappingQuickProp() {
-    const name    = document.getElementById('mqpName').value.trim();
-    const label   = document.getElementById('mqpLabel').value.trim();
-    const icon    = document.getElementById('mqpIcon').value.trim() || 'bi-tag';
-    const is_list = document.getElementById('mqpIsList').checked;
+    let name    = document.getElementById('mqpName').value.trim();
+    let label   = document.getElementById('mqpLabel').value.trim();
+    let icon    = document.getElementById('mqpIcon').value.trim() || 'bi-tag';
+    let is_list = document.getElementById('mqpIsList').checked;
     const errEl   = document.getElementById('mqpError');
     errEl.style.display = 'none';
 
@@ -855,6 +862,8 @@ async function submitMappingQuickProp() {
         errEl.style.display = '';
         return;
     }
+    // what the server saved: it normalises the name (lower case, _ for spaces)
+    ({name, label, icon, is_list} = data);
 
     if (is_list) LIST_PROPS.add(name);
     ATTR_ICONS[name] = icon;
