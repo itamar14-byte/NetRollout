@@ -19,28 +19,13 @@
 #define Root AddBackslash(SourcePath) + "..\.."
 #define AppVersion Trim(FileRead(FileOpen(Root + "\VERSION")))
 #define Repo "https://github.com/itamar14-byte/NetRollout"
-; Windows keeps one install record per app identity and user: a test build
-; (iscc /DTestBuild) has its own, so a test install can neither take over nor
-; update the real one - and its own name on everything it creates outside its
-; folder (Start Menu, desktop, Startup, Win+R): with the real names, a test
-; uninstall deleted the real install's shortcuts and Win+R
-#ifdef TestBuild
-  #define AppGuid "8E0B3C71-6F2D-4C5A-9B1E-2D7F4A6C8E90"
-  #define AppTitle "NetRollout (test)"
-  #define OutputSuffix "-test"
-  #define NameSuffix " (test)"
-  #define RunName "netrollout-test.exe"
-#else
-  #define AppGuid "6C1F0E52-9B47-4E1B-A7D3-5E2C8F41B0A9"
-  #define AppTitle "NetRollout"
-  #define OutputSuffix ""
-  #define NameSuffix ""
-  #define RunName "netrollout.exe"
-#endif
+; The install's identity: Windows finds it by this id (Settings -> Apps, the
+; install record Setup reads for an update) - never change it
+#define AppGuid "6C1F0E52-9B47-4E1B-A7D3-5E2C8F41B0A9"
 
 [Setup]
 AppId={{{#AppGuid}}
-AppName={#AppTitle}
+AppName=NetRollout
 AppVersion={#AppVersion}
 AppVerName=NetRollout {#AppVersion}
 AppPublisher=Itamar Weinstein
@@ -69,10 +54,10 @@ WizardImageFileDynamicDark=wizard.bmp,wizard-200.bmp
 WizardSmallImageFileDynamicDark=wizard-small.png,wizard-small-200.png
 SetupIconFile=..\netrollout.ico
 UninstallDisplayIcon={app}\bin\netrollout.ico
-UninstallDisplayName={#AppTitle}
+UninstallDisplayName=NetRollout
 LicenseFile=licence-notice.txt
 OutputDir={#Root}\dist
-OutputBaseFilename=NetRollout-Setup-{#AppVersion}{#OutputSuffix}
+OutputBaseFilename=NetRollout-Setup-{#AppVersion}
 Compression=lzma2
 SolidCompression=yes
 CloseApplications=yes
@@ -92,8 +77,8 @@ Name: addtopath; Description: "Add the netrollout command to PATH (for terminals
 
 [Registry]
 ; Win+R -> netrollout opens NetRollout Manager (Windows' App Paths, per user)
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\App Paths\{#RunName}"; ValueType: string; ValueName: ""; ValueData: "{app}\bin\NetRollout Manager.exe"; Flags: uninsdeletekey
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\App Paths\{#RunName}"; ValueType: string; ValueName: "Path"; ValueData: "{app}\bin"
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\App Paths\netrollout.exe"; ValueType: string; ValueName: ""; ValueData: "{app}\bin\NetRollout Manager.exe"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\App Paths\netrollout.exe"; ValueType: string; ValueName: "Path"; ValueData: "{app}\bin"
 
 [Files]
 Source: "..\NetRollout Manager.exe"; DestDir: "{app}\bin"; Flags: ignoreversion
@@ -115,24 +100,24 @@ Source: "..\manage.ps1"; Flags: dontcopy
 Source: "{#Root}\LICENSE"; Flags: dontcopy
 
 [Icons]
-Name: "{autoprograms}\{#AppTitle}\NetRollout Manager"; Filename: "{app}\bin\NetRollout Manager.exe"; WorkingDir: "{app}"; Comment: "Start, stop and check NetRollout"
-Name: "{autodesktop}\NetRollout Manager{#NameSuffix}"; Filename: "{app}\bin\NetRollout Manager.exe"; WorkingDir: "{app}"; Comment: "Start, stop and check NetRollout"; Tasks: desktopicons
-Name: "{userstartup}\NetRollout Manager{#NameSuffix}"; Filename: "{app}\bin\NetRollout Manager.exe"; Parameters: "--tray"; WorkingDir: "{app}"; Tasks: trayatsignin
+Name: "{autoprograms}\NetRollout\NetRollout Manager"; Filename: "{app}\bin\NetRollout Manager.exe"; WorkingDir: "{app}"; Comment: "Start, stop and check NetRollout"
+Name: "{autodesktop}\NetRollout Manager"; Filename: "{app}\bin\NetRollout Manager.exe"; WorkingDir: "{app}"; Comment: "Start, stop and check NetRollout"; Tasks: desktopicons
+Name: "{userstartup}\NetRollout Manager"; Filename: "{app}\bin\NetRollout Manager.exe"; Parameters: "--tray"; WorkingDir: "{app}"; Tasks: trayatsignin
 ; the port helper (headless): an HTTPS port saved in System Settings is applied by itself
-Name: "{userstartup}\NetRollout port helper{#NameSuffix}"; Filename: "{app}\bin\NetRollout Manager.exe"; Parameters: "--helper"; WorkingDir: "{app}"; Comment: "Applies an HTTPS port saved in NetRollout's System Settings"
+Name: "{userstartup}\NetRollout port helper"; Filename: "{app}\bin\NetRollout Manager.exe"; Parameters: "--helper"; WorkingDir: "{app}"; Comment: "Applies an HTTPS port saved in NetRollout's System Settings"
 
 [INI]
-Filename: "{autoprograms}\{#AppTitle}\NetRollout.url"; Section: "InternetShortcut"; Key: "URL"; String: "{code:Address}"
-Filename: "{autoprograms}\{#AppTitle}\NetRollout.url"; Section: "InternetShortcut"; Key: "IconFile"; String: "{app}\bin\netrollout.ico"
-Filename: "{autoprograms}\{#AppTitle}\NetRollout.url"; Section: "InternetShortcut"; Key: "IconIndex"; String: "0"
-Filename: "{autodesktop}\{#AppTitle}.url"; Section: "InternetShortcut"; Key: "URL"; String: "{code:Address}"; Tasks: desktopicons
-Filename: "{autodesktop}\{#AppTitle}.url"; Section: "InternetShortcut"; Key: "IconFile"; String: "{app}\bin\netrollout.ico"; Tasks: desktopicons
-Filename: "{autodesktop}\{#AppTitle}.url"; Section: "InternetShortcut"; Key: "IconIndex"; String: "0"; Tasks: desktopicons
+Filename: "{autoprograms}\NetRollout\NetRollout.url"; Section: "InternetShortcut"; Key: "URL"; String: "{code:Address}"
+Filename: "{autoprograms}\NetRollout\NetRollout.url"; Section: "InternetShortcut"; Key: "IconFile"; String: "{app}\bin\netrollout.ico"
+Filename: "{autoprograms}\NetRollout\NetRollout.url"; Section: "InternetShortcut"; Key: "IconIndex"; String: "0"
+Filename: "{autodesktop}\NetRollout.url"; Section: "InternetShortcut"; Key: "URL"; String: "{code:Address}"; Tasks: desktopicons
+Filename: "{autodesktop}\NetRollout.url"; Section: "InternetShortcut"; Key: "IconFile"; String: "{app}\bin\netrollout.ico"; Tasks: desktopicons
+Filename: "{autodesktop}\NetRollout.url"; Section: "InternetShortcut"; Key: "IconIndex"; String: "0"; Tasks: desktopicons
 
 [UninstallDelete]
-Type: files; Name: "{autoprograms}\{#AppTitle}\NetRollout.url"
-Type: files; Name: "{autodesktop}\{#AppTitle}.url"
-Type: dirifempty; Name: "{autoprograms}\{#AppTitle}"
+Type: files; Name: "{autoprograms}\NetRollout\NetRollout.url"
+Type: files; Name: "{autodesktop}\NetRollout.url"
+Type: dirifempty; Name: "{autoprograms}\NetRollout"
 Type: dirifempty; Name: "{app}\bin"
 Type: dirifempty; Name: "{app}"
 
@@ -207,7 +192,71 @@ begin
 	Reinstall := True;
 end;
 
-{ Before the first page: Windows Server, or virtualization off -> say so and stop }
+{ The digits at the start of S, as N (removed from S); False: none }
+function TakeNumber(var S: String; var N: Integer): Boolean;
+var I: Integer;
+begin
+	I := 1;
+	while (I <= Length(S)) and (S[I] >= '0') and (S[I] <= '9') do I := I + 1;
+	Result := I > 1;
+	if Result then begin
+		N := StrToInt(Copy(S, 1, I - 1));
+		Delete(S, 1, I - 1);
+	end;
+end;
+
+{ A version as a key that sorts like the versions do (PEP 440, as the setup
+  core and the Manager order them: 1.0.0.dev2 < 1.0.0rc1 < 1.0.0 < 1.0.1);
+  '' when it isn't one of ours (then the setup core decides, later) }
+function VersionKey(const Version: String): String;
+var S: String; A, B, C, Stage, N: Integer;
+begin
+	Result := '';
+	S := Lowercase(Trim(Version));
+	if Copy(S, 1, 1) = 'v' then Delete(S, 1, 1);
+	if not TakeNumber(S, A) or (Copy(S, 1, 1) <> '.') then exit;
+	Delete(S, 1, 1);
+	if not TakeNumber(S, B) or (Copy(S, 1, 1) <> '.') then exit;
+	Delete(S, 1, 1);
+	if not TakeNumber(S, C) then exit;
+	Stage := 4; N := 0;             { a release }
+	if S <> '' then begin
+		if Copy(S, 1, 1) = '.' then Delete(S, 1, 1);
+		if Copy(S, 1, 3) = 'dev' then begin Stage := 0; Delete(S, 1, 3); end
+		else if Copy(S, 1, 2) = 'rc' then begin Stage := 3; Delete(S, 1, 2); end
+		else if Copy(S, 1, 1) = 'a' then begin Stage := 1; Delete(S, 1, 1); end
+		else if Copy(S, 1, 1) = 'b' then begin Stage := 2; Delete(S, 1, 1); end
+		else exit;
+		if not TakeNumber(S, N) or (S <> '') then exit;
+	end;
+	Result := Format('%.6d.%.6d.%.6d.%d.%.6d', [A, B, C, Stage, N]);
+end;
+
+{ Over an installed NetRollout only a newer Setup goes on (the update): the
+  same version or an older one says so before the first page. False: stop. }
+function NewerThanInstalled: Boolean;
+var Installed, This: String;
+begin
+	Result := True;
+	Installed := VersionKey(InstalledVersion);
+	This := VersionKey('{#AppVersion}');
+	if (Installed = '') or (This = '') then exit;
+	if This = Installed then begin
+		SuppressibleMsgBox('NetRollout ' + InstalledVersion + ' is already installed - this Setup is the same ' +
+			'version. Nothing to update.', mbInformation, MB_OK, IDOK);
+		Result := False;
+	end else if This < Installed then begin
+		SuppressibleMsgBox('NetRollout ' + InstalledVersion + ' is installed - newer than this Setup ' +
+			'({#AppVersion}). Downgrades aren''t supported.' + #13#10#13#10 +
+			'To run an earlier version: uninstall NetRollout, then run that version''s Setup - with your ' +
+			'data from a backup made by that version (the current data may already be upgraded).',
+			mbError, MB_OK, IDOK);
+		Result := False;
+	end;
+end;
+
+{ Before the first page: Windows Server, or virtualization off -> say so and
+  stop; over an install, only a newer Setup goes on }
 function InitializeSetup: Boolean;
 var Problem: String;
 begin
@@ -216,8 +265,10 @@ begin
 	Result := Problem = '';
 	if not Result then
 		SuppressibleMsgBox('NetRollout can''t run on this computer.' + #13#10#13#10 + Problem, mbCriticalError, MB_OK, IDOK)
-	else
+	else begin
 		FindInstalled;
+		if UpdateMode then Result := NewerThanInstalled;
+	end;
 end;
 
 function MakeLabel(Page: TWizardPage; const Caption: String; Top: Integer; Bold: Boolean): TNewStaticText;

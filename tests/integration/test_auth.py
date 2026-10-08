@@ -12,7 +12,7 @@ import pytest
 from src.accounts import users as _users
 from src.db.settings import SETTINGS
 from src.db.tables import AuditLog, DeviceResult, LDAPGroup, LDAPServer, User
-from src.encryption import encrypt
+from src.encryption import decrypt, encrypt
 from src.webapp.blueprints.auth import safe_next
 from tests.integration.conftest import TEST_PASSWORD
 
@@ -93,6 +93,30 @@ def enrolled_user(make_user):
 	"""A local user already enrolled in 2FA, and the authenticator's secret."""
 	secret = pyotp.random_base32()
 	return make_user(otp_secret=encrypt(secret)), secret
+
+
+def test_an_enrolled_user_cant_enrol_again(client_for, make_user, db_get):
+	"""Someone with only the password of a user who already has 2FA can't go to
+	the enrolment page instead of the code page: GET and POST /otp_enroll send
+	them to /otp_verify, the stored authenticator is unchanged and nobody is
+	signed in (else the password alone would replace the victim's 2FA)."""
+	user, secret = enrolled_user(make_user)
+	client = client_for()
+	assert login(client, user.username).headers["Location"] == "/otp_verify"
+	resp = client.get("/otp_enroll")
+	assert resp.status_code == 302 and resp.headers["Location"] == "/otp_verify"
+	with client.session_transaction() as s:
+		assert "pending_totp_secret" not in s
+		s["pending_totp_secret"] = attacker = pyotp.random_base32()   # forced in
+	resp = client.post("/otp_enroll", data={"code": pyotp.TOTP(attacker).now()})
+	assert resp.status_code == 302 and resp.headers["Location"] == "/otp_verify"
+	assert decrypt(db_get(User, user.id).otp_secret) == secret
+	with client.session_transaction() as s:
+		assert "pending_totp_secret" not in s
+	assert client.get("/dashboard").status_code == 302                # not signed in
+	# the real owner still signs in with their own authenticator
+	resp = client.post("/otp_verify", data={"code": pyotp.TOTP(secret).now()})
+	assert resp.headers["Location"] == "/dashboard"
 
 
 def test_2fa_verify_is_rate_limited(client_for, make_user):
@@ -361,6 +385,76 @@ def test_unknown_user_without_group_match_is_rejected(client_for, ldap_server):
 	           return_value=None):
 		resp = login(client_for(), "stranger", "x")
 	assert resp.headers["Location"] == "/"
+
+
+@pytest.mark.parametrize("typed", ["Alice", "ALICE", "aLiCe"])
+def test_an_ldap_user_typed_in_other_capitals_is_the_same_account(
+		client_for, make_user, ldap_server, session_scope, typed):
+	"""Directories match names regardless of case: "Alice" is the LDAP account
+	"alice" - disabled stays refused, and no second account is created from a
+	mapped group (else a disabled or demoted user got back in by changing the
+	capitals)."""
+	user = make_user(username="alice")
+	with session_scope() as s:
+		u = s.get(User, user.id)
+		u.auth_type, u.ldap_server_id, u.password_hash = "ldap", ldap_server, None
+		u.is_active = False
+		s.add(LDAPGroup(group_dn="cn=admins,dc=corp", label="admins",
+		                role="admin", ldap_server_id=ldap_server))
+	with patch("src.webapp.blueprints.auth.user_bind", return_value=True), 			patch("src.webapp.blueprints.auth.check_group_membership",
+			      return_value=("cn=admins,dc=corp", "admin")), 			patch("src.webapp.blueprints.auth.fetch_user_details", return_value={}):
+		resp = login(client_for(), typed, "directory-pass")
+	assert resp.headers["Location"] == "/"
+	with session_scope() as s:
+		assert [u.username for u in s.query(User).all()] == ["alice"]
+		(row,) = s.query(AuditLog).filter_by(action="auth.login").all()
+		assert row.detail == {"reason": "account_disabled"}
+
+
+def test_an_ldap_user_in_other_capitals_keeps_their_role(client_for, make_user,
+                                                         ldap_server, session_scope):
+	"""A demoted LDAP user (operator) signing in as "BOB" is the account "bob",
+	still an operator - not a new admin from a mapped group."""
+	user = make_user(username="bob")
+	with session_scope() as s:
+		u = s.get(User, user.id)
+		u.auth_type, u.ldap_server_id, u.password_hash = "ldap", ldap_server, None
+		s.add(LDAPGroup(group_dn="cn=admins,dc=corp", label="admins",
+		                role="admin", ldap_server_id=ldap_server))
+	with patch("src.webapp.blueprints.auth.user_bind", return_value=True), 			patch("src.webapp.blueprints.auth.check_group_membership",
+			      return_value=("cn=admins,dc=corp", "admin")), 			patch("src.webapp.blueprints.auth.fetch_user_details", return_value={}):
+		client = client_for()
+		resp = login(client, "BOB", "directory-pass")
+	assert resp.headers["Location"] == "/dashboard"
+	with session_scope() as s:
+		assert [(u.username, u.role) for u in s.query(User).all()] == [("bob", "operator")]
+
+
+def test_a_local_name_in_other_capitals_creates_no_ldap_account(client_for, make_user,
+                                                               ldap_server, session_scope):
+	"""A local account "carol": signing in as "Carol" through a mapped LDAP group
+	is refused as invalid credentials - no second, near-identical account."""
+	make_user(username="carol")
+	with session_scope() as s:
+		s.add(LDAPGroup(group_dn="cn=netops,dc=corp", label="netops",
+		                role="operator", ldap_server_id=ldap_server))
+	with patch("src.webapp.blueprints.auth.check_group_membership",
+	           return_value=("cn=netops,dc=corp", "operator")), 			patch("src.webapp.blueprints.auth.fetch_user_details", return_value={}):
+		resp = login(client_for(), "Carol", "directory-pass")
+	assert resp.headers["Location"] == "/"
+	with session_scope() as s:
+		assert [u.username for u in s.query(User).all()] == ["carol"]
+
+
+def test_a_failed_sign_in_with_a_long_name_is_still_audited(client_for, session_scope):
+	"""A failed sign-in under a name longer than the audit column (64) is refused
+	and audited with the name cut to 64 characters - not a server error that
+	leaves no trace."""
+	resp = login(client_for(), "x" * 200, "whatever")
+	assert resp.status_code == 302 and resp.headers["Location"] == "/"
+	with session_scope() as s:
+		(row,) = s.query(AuditLog).filter_by(action="auth.login").all()
+		assert row.actor_username == "x" * 64 and row.success is False
 
 
 # ── Session lifecycle ────────────────────────────────────────────────────────

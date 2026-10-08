@@ -262,8 +262,6 @@
     alertBox.innerHTML = html;
   }
   function clearAlert() { alertBox.className = 'set-alert'; alertBox.textContent = ''; }
-  const esc = t => String(t).replace(/[&<>"']/g, c =>
-    ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
 
   // ── Edited fields, validated; returns {values, errors, ruleErrors} ──
   function collect() {
@@ -350,7 +348,7 @@
       const url = onPort(p.trying) + '/admin/settings?confirm_port=' + encodeURIComponent(p.id);
       const left = p.deadline ? Math.max(0, Math.round(p.deadline - Date.now() / 1000)) : null;
       icon = 'bi-signpost-split';
-      html = `Port ${p.trying} is open next to port ${p.serving}. <a href="${esc(url)}">Open NetRollout on port ${p.trying}</a> ` +
+      html = `Port ${p.trying} is open next to port ${p.serving}. <a href="${nrEscape(url)}">Open NetRollout on port ${p.trying}</a> ` +
              `to keep it${left !== null ? ` (${left} s left)` : ''} — if it doesn't open (e.g. a firewall blocks it), ` +
              `port ${p.serving} stays.`;
       // reachable from this browser → go there; the page there confirms
@@ -363,11 +361,11 @@
       html = `Keeping port ${p.saved}…`;
     } else if (s === 'rolled_back' || s === 'failed') {
       kind = 'error'; icon = 'bi-x-circle';
-      html = `Port ${p.saved} wasn't applied: ${esc(p.message || 'no reason given')}. ` +
+      html = `Port ${p.saved} wasn't applied: ${nrEscape(p.message || 'no reason given')}. ` +
              `NetRollout stays on port ${p.serving}. ` +
              '<button type="button" class="btn btn-sm btn-outline-warning" data-port-retry>Try again</button>';
     } else {
-      html = `Port change: unknown state (${esc(s)}) — check <code>netrollout status</code> on the server.`;
+      html = `Port change: unknown state (${nrEscape(s)}) — check <code>netrollout status</code> on the server.`;
     }
     portBox.className = 'set-alert show port-state ' + kind;
     portBox.innerHTML = `<i class="bi ${icon} me-1"></i>` + html;
@@ -389,7 +387,7 @@
     if (!e.target.closest('[data-port-retry]')) return;
     const {resp, data} = await post('/admin/settings/port/retry');
     if (resp.ok && data.status === 'ok') renderPort(data.port);
-    else showAlert('error', 'Not retried: ' + esc(data.message || `server error (${resp.status})`));
+    else showAlert('error', 'Not retried: ' + nrEscape(data.message || `server error (${resp.status})`));
   });
 
   function showServerErrors(data) {
@@ -399,7 +397,7 @@
     }
     const general = errors[RULES_KEY] ? [errors[RULES_KEY]] : [];
     showAlert('error', '<i class="bi bi-x-circle me-1"></i>Not saved. ' +
-      (general.length ? esc(general.join(' ')) : 'Fix the highlighted fields.'));
+      (general.length ? nrEscape(general.join(' ')) : 'Fix the highlighted fields.'));
   }
 
   async function post(url, body) {
@@ -429,7 +427,7 @@
     for (const s of SETTINGS) if (s.editable) showFieldError(s.key, errors[s.key] || '');
     if (Object.keys(errors).length || ruleErrors.length) {
       showAlert('error', '<i class="bi bi-x-circle me-1"></i>Not saved. ' +
-        (ruleErrors.length ? esc(ruleErrors.join(' ')) : 'Fix the highlighted fields.'));
+        (ruleErrors.length ? nrEscape(ruleErrors.join(' ')) : 'Fix the highlighted fields.'));
       return;                                   // nothing sent
     }
     if (!Object.keys(values).length) { refreshDirty(); return; }
@@ -440,11 +438,11 @@
       const n = data.changed.length;
       let msg = `<i class="bi bi-check-circle me-1"></i>Saved ${n} setting${n === 1 ? '' : 's'}.`;
       if ((data.restart_pending || []).length)
-        msg += ' ' + esc(data.restart_pending.join(', ')) + ' applies after a restart (Restart, bottom left).';
+        msg += ' ' + nrEscape(data.restart_pending.join(', ')) + ' applies after a restart (Restart, bottom left).';
       // what nginx did with a new hostname
       const proxy = data.proxy, proxyWarn = proxy && proxy.state === 'no_answer';
       if (proxy) msg += ' ' + {
-        applied: 'nginx applied it' + (proxy.message ? ' (' + esc(proxy.message) + ')' : '') + '.',
+        applied: 'nginx applied it' + (proxy.message ? ' (' + nrEscape(proxy.message) + ')' : '') + '.',
         not_managed: 'Your own reverse proxy serves NetRollout — update it for the new hostname.',
         no_answer: "nginx didn't confirm within a few seconds — check <code>netrollout status</code> on the server.",
       }[proxy.state] || '';
@@ -453,7 +451,7 @@
       showServerErrors(data);
       refreshDirty();
     } else {
-      showAlert('error', 'Not saved: ' + esc(data.message || `server error (${resp.status})`));
+      showAlert('error', 'Not saved: ' + nrEscape(data.message || `server error (${resp.status})`));
       refreshDirty();
     }
   });
@@ -467,11 +465,11 @@
     history.replaceState(null, '', location.pathname);
     post('/admin/settings/port/confirm', {id: confirmId}).then(({resp, data}) => {
       if (resp.ok && data.status === 'ok') {
-        showAlert('success', `<i class="bi bi-check-circle me-1"></i>Port ${esc(location.port || 443)} kept — ` +
-          `NetRollout is now at <code>${esc(location.origin)}</code>.`);
+        showAlert('success', `<i class="bi bi-check-circle me-1"></i>Port ${nrEscape(location.port || 443)} kept — ` +
+          `NetRollout is now at <code>${nrEscape(location.origin)}</code>.`);
         renderPort(data.port);
       } else {
-        showAlert('error', 'Port not confirmed: ' + esc(data.message || `server error (${resp.status})`));
+        showAlert('error', 'Port not confirmed: ' + nrEscape(data.message || `server error (${resp.status})`));
       }
     });
   } else {
@@ -486,11 +484,11 @@
     const {resp, data} = await post(`/admin/settings/${encodeURIComponent(key)}/reset`);
     if (resp.ok && data.status === 'ok') {
       applyState(data);
-      showAlert('success', `<i class="bi bi-arrow-counterclockwise me-1"></i>${esc(byKey()[key].label)} reset to its default.`);
+      showAlert('success', `<i class="bi bi-arrow-counterclockwise me-1"></i>${nrEscape(byKey()[key].label)} reset to its default.`);
     } else if (resp.status === 422) {
       showServerErrors(data);
     } else {
-      showAlert('error', 'Not reset: ' + esc(data.message || `server error (${resp.status})`));
+      showAlert('error', 'Not reset: ' + nrEscape(data.message || `server error (${resp.status})`));
     }
   });
 
@@ -502,23 +500,23 @@
     try {
       parseField(byKey().public_hostname, hostname);
       parseField(byKey().https_port, port);
-    } catch (msg) { out.innerHTML = `<span class="fail">✗ ${esc(msg)}</span>`; return; }
+    } catch (msg) { out.innerHTML = `<span class="fail">✗ ${nrEscape(msg)}</span>`; return; }
     testBtn.disabled = true;
     out.textContent = 'Checking…';
     const {resp, data} = await post('/admin/settings/test', {hostname, port});
     testBtn.disabled = false;
-    if (!resp.ok) { out.innerHTML = `<span class="fail">✗ ${esc(data.message || 'check failed')}</span>`; return; }
+    if (!resp.ok) { out.innerHTML = `<span class="fail">✗ ${nrEscape(data.message || 'check failed')}</span>`; return; }
     if (data.container) {
       // from inside the container the published port can't be probed: what
       // nginx itself last reported (the status below, refreshed)
       if (data.access) renderAccess(data.access);
-      out.innerHTML = (data.url ? `${esc(data.url)}<br>` : '') + 'nginx: ' + nrNginxLine(data.access && data.access.nginx);
+      out.innerHTML = (data.url ? `${nrEscape(data.url)}<br>` : '') + 'nginx: ' + nrNginxLine(data.access && data.access.nginx);
       return;
     }
     const line = (name, r) => r.ok
       ? `<span class="ok">✓ ${name}: forwards to this NetRollout</span>`
-      : `<span class="fail">✗ ${name}: ${esc(r.reason)}</span>`;
-    out.innerHTML = `${esc(data.url)} <span style="color:var(--nr-text-muted)">(${esc(data.source)})</span><br>` +
+      : `<span class="fail">✗ ${name}: ${nrEscape(r.reason)}</span>`;
+    out.innerHTML = `${nrEscape(data.url)} <span style="color:var(--nr-text-muted)">(${nrEscape(data.source)})</span><br>` +
       line('nginx on this machine', data.local) + '<br>' + line('via the URL', data.public);
   });
 
@@ -541,11 +539,11 @@
     next.textContent = b.next ? `Next scheduled backup: ${when(b.next)}` : 'Scheduled backups are off.';
     if (b.last && b.last.ok) {
       last.className = 'set-alert show success bk-last';
-      last.innerHTML = `<i class="bi bi-check-circle me-1"></i>Last scheduled backup: ${esc(when(b.last.time))} — OK.`;
+      last.innerHTML = `<i class="bi bi-check-circle me-1"></i>Last scheduled backup: ${nrEscape(when(b.last.time))} — OK.`;
     } else if (b.last) {
       last.className = 'set-alert show error bk-last';
       last.innerHTML = `<i class="bi bi-exclamation-triangle me-1"></i>The last scheduled backup failed ` +
-        `(${esc(when(b.last.time))}): ${esc(b.last.message)}. It's tried again within the hour.`;
+        `(${nrEscape(when(b.last.time))}): ${nrEscape(b.last.message)}. It's tried again within the hour.`;
     } else { last.className = 'set-alert bk-last'; last.textContent = ''; }
     const list = document.getElementById('backupList');
     if (!b.backups.length) { list.innerHTML = '<div class="bk-empty">No backups yet.</div>'; return; }
@@ -553,14 +551,14 @@
     list.innerHTML = '<table class="bk-table"><thead><tr><th>Made</th><th>Kind</th><th>Version</th>' +
       '<th style="text-align:right">Size</th><th></th></tr></thead><tbody>' +
       b.backups.map(x => '<tr><td>' +
-        (x.problem ? `<span class="bk-bad" title="${esc(x.problem)}">damaged</span> ` + esc(x.name)
-                   : esc(when(x.created))) + '</td>' +
-        `<td><span class="bk-kind ${kindClass(x.kind)}">${esc(KIND[x.kind] || x.kind)}</span></td>` +
-        `<td>${esc(x.version || '—')}</td><td class="num">${size(x.size)}</td><td class="acts">` +
+        (x.problem ? `<span class="bk-bad" title="${nrEscape(x.problem)}">damaged</span> ` + nrEscape(x.name)
+                   : nrEscape(when(x.created))) + '</td>' +
+        `<td><span class="bk-kind ${kindClass(x.kind)}">${nrEscape(KIND[x.kind] || x.kind)}</span></td>` +
+        `<td>${nrEscape(x.version || '—')}</td><td class="num">${size(x.size)}</td><td class="acts">` +
         `<a class="btn btn-sm btn-outline-secondary" href="/admin/backups/${encodeURIComponent(x.name)}" ` +
-        `title="Download ${esc(x.name)}" aria-label="Download ${esc(x.name)}"><i class="bi bi-download"></i></a>` +
-        `<button type="button" class="btn btn-sm btn-outline-danger" data-backup-delete="${esc(x.name)}" ` +
-        `title="Delete ${esc(x.name)}" aria-label="Delete ${esc(x.name)}"><i class="bi bi-trash3"></i></button>` +
+        `title="Download ${nrEscape(x.name)}" aria-label="Download ${nrEscape(x.name)}"><i class="bi bi-download"></i></a>` +
+        `<button type="button" class="btn btn-sm btn-outline-danger" data-backup-delete="${nrEscape(x.name)}" ` +
+        `title="Delete ${nrEscape(x.name)}" aria-label="Delete ${nrEscape(x.name)}"><i class="bi bi-trash3"></i></button>` +
         '</td></tr>').join('') +
       `</tbody></table><div class="bk-next" style="margin-top:0.4rem">${b.backups.length} ` +
       `backup${b.backups.length === 1 ? '' : 's'}, ${size(b.total)} in the backups folder.</div>`;
@@ -584,9 +582,9 @@
     backupNowBtn.innerHTML = '<i class="bi bi-archive me-1"></i>Back up now';
     if (resp.ok && data.status === 'ok') {
       renderBackups(data);
-      showAlert('success', `<i class="bi bi-check-circle me-1"></i>Backed up: <code>${esc(data.created)}</code>.`);
+      showAlert('success', `<i class="bi bi-check-circle me-1"></i>Backed up: <code>${nrEscape(data.created)}</code>.`);
     } else {
-      showAlert('error', 'Not backed up: ' + esc(data.message || `server error (${resp.status})`));
+      showAlert('error', 'Not backed up: ' + nrEscape(data.message || `server error (${resp.status})`));
     }
   });
 
@@ -599,9 +597,9 @@
     const {resp, data} = await post(`/admin/backups/${encodeURIComponent(name)}/delete`);
     if (resp.ok && data.status === 'ok') {
       renderBackups(data);
-      showAlert('success', `<i class="bi bi-trash3 me-1"></i>Deleted <code>${esc(name)}</code>.`);
+      showAlert('success', `<i class="bi bi-trash3 me-1"></i>Deleted <code>${nrEscape(name)}</code>.`);
     } else {
-      showAlert('error', 'Not deleted: ' + esc(data.message || `server error (${resp.status})`));
+      showAlert('error', 'Not deleted: ' + nrEscape(data.message || `server error (${resp.status})`));
     }
   });
 

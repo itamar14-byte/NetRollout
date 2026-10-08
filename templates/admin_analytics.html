@@ -245,7 +245,7 @@
 let lastResults = [];
 let lastColumns = [];
 
-const USERNAMES = [{% for u in all_users %}"{{ u.username }}"{% if not loop.last %},{% endif %}{% endfor %}];
+const USERNAMES = {{ all_users | map(attribute='username') | list | tojson }};
 
 const FIELD_ICONS = {
   timestamp:      'bi-clock',
@@ -283,7 +283,7 @@ $(function() {
         id: 'actor_username', label: 'Actor', type: 'string',
         operators: ['equal','not_equal','contains','begins_with'],
         input: function(rule, name) {
-          const opts = USERNAMES.map(u => `<option value="${u}">${u}</option>`).join('');
+          const opts = USERNAMES.map(u => `<option value="${nrEscape(u)}">${nrEscape(u)}</option>`).join('');
           return `
             <select class="actor-select" name="${name}" style="display:none;">
               <option value="">— pick user —</option>${opts}
@@ -418,7 +418,7 @@ async function runQuery() {
   document.getElementById('queryResultsHead').innerHTML =
     '<tr>' + data.columns.map(c =>
       `<th style="color:var(--nr-text-muted); font-size: 0.6875rem; letter-spacing:1px; font-weight:600;
-                  text-transform:uppercase; border-color:#1a1a1a; white-space:nowrap;">${c}</th>`
+                  text-transform:uppercase; border-color:#1a1a1a; white-space:nowrap;">${nrEscape(c)}</th>`
     ).join('') + '</tr>';
 
   document.getElementById('queryResultsBody').innerHTML = data.rows.map(row =>
@@ -426,7 +426,7 @@ async function runQuery() {
     data.columns.map(c => {
       const val = row[c];
       let display = val === null || val === undefined
-        ? '<span style="color:var(--nr-text-muted);">—</span>' : String(val);
+        ? '<span style="color:var(--nr-text-muted);">—</span>' : nrEscape(val);
       if (c === 'success') {
         const ok = val === true || val === 'true';
         display = ok

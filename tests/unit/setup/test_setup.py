@@ -495,29 +495,44 @@ def test_status_shows_the_backups_and_a_failed_scheduled_one(home):
 	("1.0.0.dev0", "1.0.0rc1", "update"),   # dev < release candidate < release
 	("1.0.0rc1", "1.0.0", "update"),
 	("1.0.0", "1.0.1.dev0", "update"),
-	("1.0.0", "1.0.0", "same"),             # the same Setup again: a repair
 ])
 def test_an_update_goes_forward(installed, new, kind):
 	"""A newer version (PEP 440: dev < rc < release; versions may be skipped) is an
-	"update", the same version "same" (a repair)."""
+	"update"."""
 	assert _update.update_kind(installed, new) == kind
+
+
+@pytest.mark.parametrize("installed, new", [("1.0.0", "1.0.0"), ("1.0.0.dev2", "1.0.0.dev2"),
+                                            ("1.0.0", "v1.0.0")])
+def test_the_same_version_has_nothing_to_update(installed, new):
+	"""The same version again (Setup run twice, `update` to the installed release) is
+	refused - nothing to update - not offered as an update to itself."""
+	with pytest.raises(ValueError, match=f"NetRollout {installed} is already installed - the same "
+	                                     f"version. Nothing to update."):
+		_update.update_kind(installed, new)
 
 
 @pytest.mark.parametrize("installed, new", [("1.0.1", "1.0.0"), ("1.0.0", "1.0.0rc1"),
                                             ("1.0.0", "1.0.0.dev0")])
 def test_never_back_to_an_older_version(installed, new):
 	"""An older version (a lower patch, an rc or a dev of the installed release) is
-	refused, saying the installed one is newer."""
-	with pytest.raises(ValueError, match=f"NetRollout {installed} is installed - newer than {new}"):
+	refused, saying the installed one is newer, that downgrades aren't supported,
+	and how to run an earlier version (uninstall, that version, its backup)."""
+	with pytest.raises(ValueError, match=f"NetRollout {installed} is installed - newer than {new}. "
+	                                     f"Downgrades aren't supported.") as refused:
 		_update.update_kind(installed, new)
+	assert "uninstall NetRollout, then install that version" in str(refused.value)
+	assert "a backup made by that version" in str(refused.value)
 
 
 def test_check_update_through_the_cli():
-	"""`check-update` prints "update" (exit 0), refuses an older one with exit 2, and
-	exits 1 without --new."""
+	"""`check-update` prints "update" (exit 0), refuses an older one and the same one
+	with exit 2 (the scripts stop: nothing changed), and exits 1 without --new."""
 	assert run(["check-update", "--installed", "1.0.0", "--new", "1.0.1"]) == (0, ["update"])
 	code, out = run(["check-update", "--installed", "1.0.1", "--new", "1.0.0"])
 	assert code == 2 and "newer than 1.0.0" in out[0]
+	code, out = run(["check-update", "--installed", "1.0.0", "--new", "1.0.0"])
+	assert code == 2 and "already installed - the same version" in out[0]
 	assert run(["check-update", "--installed", "1.0.0"])[0] == 1
 
 

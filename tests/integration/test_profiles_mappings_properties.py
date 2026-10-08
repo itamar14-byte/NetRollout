@@ -267,6 +267,41 @@ def test_property_cannot_shadow_system_or_duplicate(client_for, make_user):
 		"name": "rack", "label": "Rack"}).json["status"] == "error"
 
 
+@pytest.mark.parametrize("route", ["/properties/create", "/properties/quick_create"])
+@pytest.mark.parametrize("changes, message", [
+	({"name": "<b>x</b>"}, "letters, digits and _"),
+	({"name": "rack-unit"}, "letters, digits and _"),
+	({"name": "9rack"}, "letters, digits and _"),
+	({"icon": "bi-tag\" onmouseover=\"x"}, "Bootstrap Icons class"),
+	({"icon": "fa-rack"}, "Bootstrap Icons class"),
+	({"label": "L" * 65}, "at most 64"),
+	({"name": "r" * 65}, "at most 64"),
+])
+def test_a_property_must_be_a_safe_key_and_icon(client_for, make_user, session_scope,
+                                                route, changes, message):
+	"""A property's name (the $$TOKEN$$ dict key) is letters, digits and _ starting
+	with a letter (after the usual normalisation), its icon a Bootstrap Icons class
+	(bi-...), name and label at most 64 characters - else refused with the reason,
+	nothing stored."""
+	client = client_for(make_user())
+	resp = client.post(route, json={"name": "rack", "label": "Rack", "icon": "bi-hdd", **changes})
+	assert resp.json["status"] == "error" and message in resp.json["message"], resp.json
+	with session_scope() as s:
+		assert s.query(PropertyDefinition).count() == 0
+
+
+def test_a_property_icon_edit_is_checked_too(client_for, make_user, db_get):
+	"""Editing a property can't set an icon that isn't a Bootstrap Icons class;
+	a good one is saved."""
+	client = client_for(make_user())
+	pid = uuid.UUID(client.post("/properties/create", json={"name": "rack", "label": "Rack"}).json["id"])
+	resp = client.post(f"/properties/{pid}/edit", json={"label": "Rack", "icon": "x onclick=y"})
+	assert resp.json["status"] == "error" and "Bootstrap Icons class" in resp.json["message"]
+	assert db_get(PropertyDefinition, pid).icon == "bi-tag"
+	client.post(f"/properties/{pid}/edit", json={"label": "Rack", "icon": "bi-hdd-rack"})
+	assert db_get(PropertyDefinition, pid).icon == "bi-hdd-rack"
+
+
 def test_pages_render(client_for, make_user):
 	"""The security profiles, mappings and properties pages render."""
 	client = client_for(make_user())

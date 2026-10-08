@@ -188,20 +188,27 @@ def unpack(zip_path: Path, dest: Path) -> tuple[Path, str]:
 # ── an update ──
 
 def update_kind(installed: str, new: str) -> str:
-	"""What installing `new` over `installed` is: "update", or "same" (a
-	repair: the files again, then a start).
-	:raises ValueError: `new` is older (never go back: the database may be
-	 upgraded already), or a version can't be read"""
+	"""Whether `new` may be installed over `installed`: only a newer version
+	(the same one has nothing to update; an older one is a downgrade - never:
+	the database may be upgraded already).
+
+	:returns: "update"
+	:raises ValueError: the same version, an older one, or a version that
+	 can't be read - the reason, for the person"""
 	try:
 		old_v, new_v = Version(installed), Version(new)
 	except InvalidVersion as e:
 		raise ValueError(f"Can't compare the versions ({e}).") from None
+	if new_v == old_v:
+		raise ValueError(f"NetRollout {installed} is already installed - the same version. "
+		                 f"Nothing to update.")
 	if new_v < old_v:
 		raise ValueError(f"NetRollout {installed} is installed - newer than {new}. "
-		                 f"Nothing was changed. (To go back to an older version: "
-		                 f"uninstall keeping the data is not enough - restore a "
-		                 f"backup made with that version.)")
-	return "update" if new_v > old_v else "same"
+		                 f"Downgrades aren't supported. Nothing was changed. To run an "
+		                 f"earlier version: uninstall NetRollout, then install that version - "
+		                 f"with your data from a backup made by that version (the current "
+		                 f"data may already be upgraded).")
+	return "update"
 
 
 def upgrade(version: str = runtime.VERSION,

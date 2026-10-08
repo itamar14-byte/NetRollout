@@ -1,0 +1,12 @@
+{# nrEscape(v): a value made safe to put into HTML a script builds - as text
+   or as an attribute value in double or single quotes. null / undefined give
+   '', anything else its String() (0 gives '0'). In the <head> of
+   operator_base.html and admin.html, so every page script and shared partial
+   can call it. #}
+<script>
+function nrEscape(v) {
+    if (v === null || v === undefined) return '';
+    return String(v).replace(/[&<>"']/g, c =>
+        ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+}
+</script>

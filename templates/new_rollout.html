@@ -704,7 +704,7 @@
 
         const logoUrl = VENDOR_LOGOS[platform];
         const logoHtml = logoUrl
-            ? `<img src="${logoUrl}/ffffff" alt="${platform}"
+            ? `<img src="${nrEscape(logoUrl)}/ffffff" alt="${nrEscape(platform)}"
                     style="width:16px;height:16px;object-fit:contain;
                            filter:brightness(0) invert(1);opacity:0.5;
                            margin-right:0.45rem;"
@@ -717,13 +717,13 @@
         wrap.innerHTML = `
             <div class="cmd-section-header">
                 <span class="cmd-platform-label" style="display:flex;align-items:center;">
-                    ${logoHtml}${isOnly ? "Commands" : platform}
+                    ${logoHtml}${isOnly ? "Commands" : nrEscape(platform)}
                 </span>
                 <div class="cmd-toggle">
                     <button type="button" class="cmd-toggle-btn ${mode==="paste"?"active":""}"
-                            data-mode="paste" data-platform="${platform}">Paste</button>
+                            data-mode="paste" data-platform="${nrEscape(platform)}">Paste</button>
                     <button type="button" class="cmd-toggle-btn ${mode==="file"?"active":""}"
-                            data-mode="file" data-platform="${platform}">File</button>
+                            data-mode="file" data-platform="${nrEscape(platform)}">File</button>
                 </div>
             </div>
             <div style="${mode==="file"?"display:none;":""}">
@@ -810,7 +810,7 @@
 
         const platforms = [...new Set(checked.map(cb => cb.dataset.platform))];
         platformSumEl.innerHTML = platforms
-            .map(p => `<span class="platform-pill">${p}</span>`)
+            .map(p => `<span class="platform-pill">${nrEscape(p)}</span>`)
             .join("");
 
         const duplicates = markDuplicateTargets(checked);

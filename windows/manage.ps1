@@ -42,7 +42,7 @@ $Root = if ($InstallDir) { $InstallDir } else { Split-Path -Parent $PSScriptRoot
 $VersionFile = Join-Path $Root "VERSION"
 $Version = if (Test-Path $VersionFile) { (Get-Content -Raw $VersionFile).Trim() } else { "" }
 # A different project name only for testing next to a running NetRollout
-$Project = if ($env:NETROLLOUT_PROJECT) { $env:NETROLLOUT_PROJECT } else { "netrollout" }
+$Project = "netrollout"
 $AppImage = "itamarweinstein/netrollout:$Version"
 $EnvFile = Join-Path $Root ".env"
 $Interactive = [Environment]::UserInteractive -and -not $Yes
@@ -339,6 +339,9 @@ function Open-Browser {
 
 function Start-NetRollout {
 	Confirm-Docker
+	# every start: an install from before this rule (or a folder whose
+	# permissions were changed) is put right
+	Restrict $Root
 	Step "Checking the ports"
 	$busy = Get-BusyPorts (Get-OurPorts)
 	Invoke-Setup (@("prepare-start", "--busy-ports", $busy) + (Get-Facts)) | Out-Null
@@ -403,6 +406,10 @@ function Invoke-Install {
 	}
 	$code = Invoke-Setup ($setup + "--defaults")
 	if ($code -ne 0) { Fail "Setup stopped - nothing was started." $code }
+	# the folder holds the TLS key, the scripts NetRollout runs, and (after a
+	# database move) runtime.env's passwords: no other account of this
+	# computer may read or change it - inherited by everything in it
+	Restrict $Root
 	Restrict $EnvFile
 	Restrict (Join-Path $Root "backups")
 	# settings live in System Settings: .env is for Docker, not for people
@@ -591,8 +598,6 @@ function Invoke-PrepareUpdate {
 	if ($r.Code -eq 2) { Show-Output $r.Output; Fail "Nothing was changed." 2 }
 	if ($r.Code -ne 0) {
 		Warn "Couldn't compare the versions ($AppImage didn't run) - continuing."
-	} elseif (($r.Output -split "`n")[-1].Trim() -eq "same") {
-		Good "The same version: its files again, then a start (a repair)."
 	}
 	Show-RunningRollouts
 	Step "Backing up first"
