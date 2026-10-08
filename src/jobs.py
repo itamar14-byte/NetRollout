@@ -39,6 +39,9 @@ from src.rollout.log import RolloutLogger
 QUEUE = "netrollout:job_queue"
 PENDING = "netrollout:pending_count"
 ACTIVE = "netrollout:active_count"
+# set from outside the app (netrollout stop / update, the Manager): the stop
+# under way cancels the running rollouts now instead of waiting for them
+STOP_NOW = "netrollout:stop_now"
 
 
 def _meta(job_id: uuid.UUID | str) -> str:
@@ -121,9 +124,22 @@ class JobStore:
 		client = self._client
 		metas = list(client.scan_iter(_meta("*")))
 		for key in (*metas, *client.scan_iter(_user_jobs("*")),
-		            QUEUE, PENDING, ACTIVE):
+		            QUEUE, PENDING, ACTIVE, STOP_NOW):
 			client.delete(key)
 		return len(metas)
+
+	def request_stop_now(self) -> None:
+		"""Ask the stop / restart under way to cancel the running rollouts now
+		(netrollout stop / update, the Manager); expires after an hour, and
+		the next start clears it."""
+		self._client.set(STOP_NOW, "1", ex=3600)
+
+	def stop_now_requested(self) -> bool:
+		""":returns: whether a stop now was asked for (False when Redis can't say)"""
+		try:
+			return bool(self._client.exists(STOP_NOW))
+		except REDIS_UNAVAILABLE:
+			return False
 
 	# ── read by the pages and the metrics ──
 
@@ -160,6 +176,8 @@ _CANCEL_WAIT = 60
 _DRAIN_REPORT_EVERY = 30
 # Saving a finished job's results: tries, and the wait before each retry
 _SAVE_TRIES, _SAVE_RETRY_WAIT = 3, 2
+# A stop waits this long at most for results still being saved
+_SAVE_WAIT = 60
 QUEUED_CANCEL_REASON = ("Cancelled: NetRollout restarted before this rollout "
                         "started. Nothing was sent to the devices.")
 
@@ -458,8 +476,11 @@ class RolloutOrchestrator:
 		raises Draining); queued ones are recorded as cancelled; running ones
 		may finish for `deadline` seconds and are then cancelled — a cancel
 		stops devices that haven't connected yet, and the job still records
-		its results. Returns when no job is left, or _CANCEL_WAIT after the
-		cancel.
+		its results; a stop-now request (JobStore.request_stop_now: netrollout
+		stop / update, the Manager) cancels them at once. Returns when no job
+		is left (or _CANCEL_WAIT after the cancel) and no finished job is still
+		writing its results (at most _SAVE_WAIT more): the exit that follows
+		must not cut a save.
 
 		:param deadline: seconds running rollouts may take to finish
 		:param report: where progress lines go (the console by default)"""
@@ -475,7 +496,7 @@ class RolloutOrchestrator:
 		end = time.monotonic() + deadline
 		next_report = time.monotonic()
 		while (running := self.counts()["running"]) and \
-				time.monotonic() < end:
+				time.monotonic() < end and not self._store.stop_now_requested():
 			if time.monotonic() >= next_report:
 				report(f"[NetRollout] Waiting for {running} running rollout(s) "
 				       f"to finish before stopping (at most "
@@ -498,6 +519,20 @@ class RolloutOrchestrator:
 			end = time.monotonic() + _CANCEL_WAIT
 			while self.counts()["running"] and time.monotonic() < end:
 				time.sleep(0.5)
+
+		# A job that just ended has left the job table but may still be
+		# writing its results: the exit after the drain would cut that off
+		end = time.monotonic() + _SAVE_WAIT
+		while self._saving_now() and time.monotonic() < end:
+			time.sleep(0.2)
+		if self._saving_now():
+			report(f"[NetRollout] A rollout's results are still being saved after "
+			       f"{_SAVE_WAIT}s - stopping anyway: they may be lost")
+
+	def _saving_now(self) -> bool:
+		""":returns: whether a finished job is still writing its results"""
+		with self._lock:
+			return self._saving > 0
 
 	def _cancel_queued(self, job: RolloutJob) -> None:
 		"""Record a queued job as cancelled. Its definition (devices, commands)

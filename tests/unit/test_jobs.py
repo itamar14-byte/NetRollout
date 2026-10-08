@@ -20,7 +20,7 @@ import redis
 
 from src import jobs
 from src.db.settings import SETTINGS
-from src.jobs import (JOB_STATUSES, RolloutOrchestrator, job_status,
+from src.jobs import (JOB_STATUSES, JobStore, RolloutOrchestrator, job_status,
                       job_status_condition, build_kpi)
 from src.rollout.engine import RolloutEngine, RolloutOptions
 from src.webapp.blueprints.jobs import config_expired
@@ -42,6 +42,7 @@ class FakeRedis:
 		self.blpop_failures = blpop_failures
 		self.fail_writes = False
 		self.hashes = defaultdict(dict)
+		self.values = {}
 
 	def _queue(self, key) -> queue.Queue:
 		with self._queues_lock:
@@ -71,7 +72,19 @@ class FakeRedis:
 	def decr(self, *_): pass
 	def sadd(self, *_): pass
 	def srem(self, *_): pass
-	def delete(self, *_): pass
+	def delete(self, *keys):
+		for key in keys:
+			self.values.pop(key, None)
+
+	def set(self, name, value, ex=None):
+		self.values[name] = value
+
+	def exists(self, *names):
+		return sum(name in self.values for name in names)
+
+	def scan_iter(self, pattern):
+		return iter(())
+
 	def lrem(self, *_): pass
 	def publish(self, *_): pass
 
@@ -579,6 +592,54 @@ def test_not_idle_while_a_finished_rollout_still_writes_its_results(
 	postgres.go.set()
 	assert job.cleaned.wait(5)
 	assert wait_for(orch.idle)
+
+
+def test_a_stop_waits_for_the_results_being_written(monkeypatch, tmp_path):
+	"""A stop / restart drains: a job that just ended has left the job table but
+	is still writing its results - the drain waits for them (else the exit cut
+	the save and the results were lost), then returns."""
+	monkeypatch.setattr(jobs, "_BACKOFF_START", 0)
+	monkeypatch.setenv("NETROLLOUT_HOME", str(tmp_path))
+	postgres, fake = SlowPostgres(), FakeRedis()
+	orch = RolloutOrchestrator(SimpleNamespace(
+		redis=SimpleNamespace(client=fake), postgres=postgres), max_concurrent=1)
+	job = EndedJob()
+	enqueue(orch, fake, job)
+	assert postgres.writing.wait(5)
+	assert orch.counts() == {"running": 0, "queued": 0}
+	drained = threading.Event()
+	threading.Thread(target=lambda: (orch.drain(30, report=lambda _: None), drained.set()),
+	                 daemon=True).start()
+	assert not drained.wait(0.5)            # still writing: the drain waits
+	postgres.go.set()
+	assert drained.wait(5)
+	assert postgres.added                   # the results were written
+
+
+def test_a_stop_now_request_cancels_the_running_rollouts_at_once(make_orchestrator):
+	"""`netrollout stop` / the Manager can ask for a stop now (JobStore's stop-now
+	mark): a drain then doesn't wait out its deadline - running rollouts are
+	cancelled at once (and recorded); a new start clears the mark."""
+	fake = FakeRedis()
+	orch = make_orchestrator(fake)
+	options = RolloutOptions(verify=False, verbose=False, webapp=False)
+	never = threading.Event()
+	with patch.object(RolloutEngine, "run",
+	                  side_effect=_blocking_run(never, stop_on_cancel=True)):
+		orch.submit([_device()], ["cmd"], options, uuid.uuid4())
+		assert wait_for(lambda: orch.counts()["running"] == 1)
+		store = JobStore(SimpleNamespace(client=fake))
+		assert not store.stop_now_requested()
+		store.request_stop_now()
+		assert store.stop_now_requested()
+		started = time.monotonic()
+		lines = []
+		orch.drain(600, report=lines.append)
+	assert time.monotonic() - started < 30
+	assert orch.counts()["running"] == 0
+	assert any("Cancelling 1 running" in line for line in lines)
+	store.reset_stale()
+	assert not store.stop_now_requested()
 
 
 # ── KPIs, job status, snapshot expiry ────────────────────────────────────────
