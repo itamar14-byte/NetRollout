@@ -277,6 +277,22 @@ def test_cancel_goes_back_to_the_page_not_its_query_nor_another_site(
 	assert resp.status_code == 302 and resp.headers["Location"] == back
 
 
+def test_cancelling_a_queued_job_from_a_page_says_it_never_started(
+		app, operator, client_for, monkeypatch):
+	"""A queued job cancelled from a page's form: the flash says it never started - not
+	"devices it has not reached are skipped" (it reached none)."""
+	job = FakeRunningJob(operator.user.id)
+	job.started_at = None                       # still queued
+	monkeypatch.setitem(app.orchestrator._jobs, job.job_id, job)
+	cancelled = []
+	monkeypatch.setattr(app.orchestrator, "cancel", cancelled.append)
+	client = client_for(operator.user)
+	client.post("/rollout/cancel", data={"job_id": str(job.job_id)})
+	assert cancelled == [job.job_id]
+	page = client.get("/active_jobs").get_data(as_text=True)
+	assert "Queued rollout cancelled - it never started." in page
+
+
 def test_cancel_refused_from_a_page_form_flashes_the_reason(
 		app, operator, client_for, make_user, monkeypatch):
 	"""A refused Cancel from a page's form (another user's job; a job that

@@ -239,12 +239,13 @@ def cancel_rollout(data: Any) -> ResponseReturnValue:
 		return refused("job not found", 404)
 	if job.user_id != current_user.id and current_user.role != "admin":
 		return refused("job not assigned to user", 403)
+	queued = job.started_at is None        # it ends at once, nothing pushed
 	current_app.orchestrator.cancel(job_id)
 	current_app.web.audit("rollout.cancel", object_id=job_id)
 	if scripted:
 		return ok("canceled")
-	flash("Rollout cancelled - devices it has not reached are skipped.",
-	      "success")
+	flash("Queued rollout cancelled - it never started." if queued else
+	      "Rollout cancelled - devices it has not reached are skipped.", "success")
 	return redirect(_back())
 
 
