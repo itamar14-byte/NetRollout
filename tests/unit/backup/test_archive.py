@@ -7,7 +7,9 @@ import time
 import zipfile
 from dataclasses import asdict
 
+import psycopg2
 import pytest
+from sqlalchemy import create_engine
 
 from src.backup import archive
 
@@ -196,3 +198,100 @@ def test_a_staged_copy_is_named_as_the_file_chosen(tmp_path):
 	with pytest.raises(archive.BackupError) as refused:
 		archive.check(path, "1.0.0")
 	assert str(refused.value).startswith("my copy.zip was made by NetRollout 9.9.9")
+
+
+# ── the lock: who holds it, a heartbeat, a crashed holder ────────────────────
+
+def test_a_lock_taken_over_by_another_holder_is_not_removed_by_the_first(tmp_path):
+	"""A holder whose lock was taken over (the file now holds another holder's
+	token) leaves that lock in place when it ends."""
+	with archive._lock(tmp_path):
+		(tmp_path / archive.LOCK).write_text('{"token": "someone else", "since": 0}')
+	assert (tmp_path / archive.LOCK).read_text() == '{"token": "someone else", "since": 0}'
+
+
+def test_a_held_lock_is_kept_fresh_and_a_quiet_one_is_stale_after_minutes(tmp_path, monkeypatch):
+	"""While held, the lock's time is refreshed (the heartbeat), so it never looks
+	stale; a lock not refreshed for longer than the stale limit (minutes, not
+	hours: ten minutes is stale) is taken over."""
+	monkeypatch.setattr(archive, "LOCK_HEARTBEAT_SECONDS", 0.05, raising=False)
+	lock = tmp_path / archive.LOCK
+	with archive._lock(tmp_path):
+		old = time.time() - 3600
+		os.utime(lock, (old, old))
+		time.sleep(0.5)
+		assert time.time() - lock.stat().st_mtime < 60
+	lock.write_text("")
+	old = time.time() - 10 * 60
+	os.utime(lock, (old, old))
+	with archive._lock(tmp_path):
+		pass
+	assert not lock.exists()
+
+
+def test_the_refusal_says_how_old_the_lock_is_and_what_to_do(tmp_path):
+	"""Refused while another holds it: the message gives the lock's age in minutes
+	and says to delete backups/.backup.lock if nothing is running."""
+	lock = tmp_path / archive.LOCK
+	lock.write_text(json.dumps({"token": "other", "since": time.time() - 3 * 60}))
+	with pytest.raises(archive.BackupError) as refused:
+		with archive._lock(tmp_path):
+			pass
+	assert "3 minutes ago" in str(refused.value)
+	assert "delete backups/.backup.lock" in str(refused.value)
+
+
+def test_a_killed_backups_partial_file_is_cleaned_up(tmp_path):
+	"""prune and taking over a stale lock delete .partial files older than an hour
+	(a killed backup's) and keep a recent one (a backup being written)."""
+	old = tmp_path / ".netrollout-1.0.0-20261001-020000-manual.zip.partial"
+	new = tmp_path / ".netrollout-1.0.0-20261008-020000-manual.zip.partial"
+	for path in (old, new):
+		path.write_text("half")
+	hours_ago = time.time() - 2 * 3600
+	os.utime(old, (hours_ago, hours_ago))
+	archive.prune(tmp_path, keep=2)
+	assert not old.exists() and new.exists()
+
+	old.write_text("half")
+	os.utime(old, (hours_ago, hours_ago))
+	(tmp_path / archive.LOCK).write_text("")
+	os.utime(tmp_path / archive.LOCK, (hours_ago, hours_ago))
+	with archive._lock(tmp_path):
+		pass
+	assert not old.exists() and new.exists()
+
+
+# ── a backup that fails: in words, no file left ──────────────────────────────
+
+def _failing(error):
+	def fail(*args, **kwargs):
+		raise error
+	return fail
+
+
+@pytest.mark.parametrize("error", [
+	OSError(28, "No space left on device"),
+	psycopg2.OperationalError("server closed the connection unexpectedly"),
+])
+def test_a_backup_failing_midway_is_a_backup_error_and_leaves_nothing(tmp_path, monkeypatch, error):
+	"""A disk error or the driver's own error (a COPY goes through the driver's
+	cursor) while writing the backup is a BackupError ("The backup failed: ...")
+	and no file is left in the folder."""
+	monkeypatch.setattr(archive, "_dump_database", _failing(error))
+	places = archive.Places(tmp_path / "backups", tmp_path / "certs", tmp_path / "logs")
+	engine = create_engine("postgresql+psycopg2://x:y@127.0.0.1:1/x")
+	with pytest.raises(archive.BackupError, match="The backup failed: "):
+		archive.create(engine, "manual", places, key=b"k")
+	assert list(places.backups.iterdir()) == []
+
+
+def test_a_database_that_doesnt_answer_is_a_backup_error(tmp_path):
+	"""A backup of a database nobody listens on fails as a BackupError, not a
+	connection traceback, and no file is left in the folder."""
+	places = archive.Places(tmp_path / "backups", tmp_path / "certs", tmp_path / "logs")
+	engine = create_engine("postgresql+psycopg2://x:y@127.0.0.1:1/x",
+	                       connect_args={"connect_timeout": 3})
+	with pytest.raises(archive.BackupError, match="The backup failed: "):
+		archive.create(engine, "manual", places, key=b"k")
+	assert list(places.backups.iterdir()) == []

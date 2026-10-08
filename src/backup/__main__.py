@@ -7,7 +7,8 @@ from pathlib import Path
 from sqlalchemy.engine import Engine
 
 from src import runtime
-from src.backup.archive import KINDS, BackupError, owner_only, check, create, restore, shown
+from src.backup.archive import (KINDS, BackupError, FilesIncomplete, check, create, restore,
+                                shown)
 from src.db.connections import PostgresConfig, PostgresConnection, load_config
 
 
@@ -32,8 +33,9 @@ def main(argv: list[str] | None = None) -> int:
 	"""`create`, `check` or `restore` a backup (the scripts call it).
 
 	:param argv: the arguments; sys.argv's when None
-	:returns: the exit code: 0 done, 1 refused or failed (the reason on
-	 stderr)"""
+	:returns: the exit code: 0 done, 1 refused or failed - nothing changed
+	 (the reason on stderr), 3 (restore) the database restored and its key
+	 handed over (--key-out), but not every file (which, on stderr)"""
 	parser = argparse.ArgumentParser(prog="python -m src.backup")
 	sub = parser.add_subparsers(dest="command", required=True)
 	make = sub.add_parser("create")
@@ -65,14 +67,14 @@ def main(argv: list[str] | None = None) -> int:
 			try:
 				done = restore(_resolve(args.backup), engine,
 				               https_port=args.https_port,
-				               grafana_target=args.grafana_dir)
+				               grafana_target=args.grafana_dir, key_out=args.key_out)
 			finally:
 				engine.dispose()
-			if args.key_out:
-				args.key_out.write_bytes(done.key + b"\n")
-				owner_only(args.key_out)
 			print(f"Restored: {shown(_resolve(args.backup))} "
 			      f"(NetRollout {done.manifest.version}, {done.manifest.created})")
+	except FilesIncomplete as e:
+		print(str(e), file=sys.stderr)
+		return 3
 	except BackupError as e:
 		print(str(e), file=sys.stderr)
 		return 1
