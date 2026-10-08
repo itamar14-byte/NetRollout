@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 from sqlalchemy.engine import Engine
 
 from src import runtime
-from src.backup.archive import KINDS, BackupError, _private, check, create, restore, shown
+from src.backup.archive import KINDS, BackupError, owner_only, check, create, restore, shown
 from src.db.connections import PostgresConfig, PostgresConnection
 
 
@@ -71,7 +71,7 @@ def main(argv: list[str] | None = None) -> int:
 				engine.dispose()
 			if args.key_out:
 				args.key_out.write_bytes(done.key + b"\n")
-				_private(args.key_out)
+				owner_only(args.key_out)
 			print(f"Restored: {shown(_resolve(args.backup))} "
 			      f"(NetRollout {done.manifest.version}, {done.manifest.created})")
 	except BackupError as e:

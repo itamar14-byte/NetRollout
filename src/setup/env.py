@@ -148,12 +148,14 @@ def env_set(updates: dict[str, str]) -> bool:
 	bad = [k for k in updates if k not in SCRIPT_KEYS]
 	if bad:
 		raise ValueError(f"not a script-owned .env key: {', '.join(bad)}")
-	return _env_write(updates)
+	return env_write(updates)
 
 
-def _env_write(updates: dict[str, str]) -> bool:
+def env_write(updates: dict[str, str]) -> bool:
 	"""Set the keys in .env: a line already there is changed in place, a new
-	key is added at the end.
+	key is added at the end. Any key - env_set is the guarded way (the
+	scripts' keys only); manage.restore_key writes the restored encryption
+	key through this.
 
 	:returns: whether it changed"""
 	path = env_path()

@@ -17,7 +17,7 @@ from cryptography.fernet import Fernet
 from src import runtime
 from src.access import certs, site_env
 from src.backup import archive
-from src.setup.env import _env_write, env_read, env_set, COMPOSE_HTTP, compose_files
+from src.setup.env import env_write, env_read, env_set, COMPOSE_HTTP, compose_files
 
 
 CORE_SERVICES = ("app", "nginx", "postgres", "redis")
@@ -77,7 +77,7 @@ def restore_key() -> str:
 		Fernet(key)
 	except ValueError:
 		raise ValueError(f"{path} doesn't hold an encryption key.") from None
-	changed = _env_write({"NETROLLOUT_ENCRYPTION_KEY": key})
+	changed = env_write({"NETROLLOUT_ENCRYPTION_KEY": key})
 	path.unlink()
 	return ("The backup's encryption key is in .env now (it was made on another "
 	        "installation)." if changed else "The encryption key is unchanged.")

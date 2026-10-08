@@ -194,7 +194,7 @@ def create(engine: Engine, kind: str = "manual", places: Places | None = None,
 				                    now.isoformat(timespec="seconds"), kind,
 				                    revision, tables, grafana, certs, len(logs))
 				zf.writestr(MANIFEST, json.dumps(asdict(manifest), indent=2))
-			_private(partial)
+			owner_only(partial)
 			os.replace(partial, final)
 		except BaseException:
 			partial.unlink(missing_ok=True)
@@ -294,9 +294,10 @@ def _add_files(zf: zipfile.ZipFile, folder: Path, prefix: str,
 	return names
 
 
-def _private(path: Path) -> None:
-	"""Owner only - it holds the encryption key. No effect on Windows, where
-	the backups folder's permissions do it."""
+def owner_only(path: Path) -> None:
+	"""Make a file owner only: it holds the encryption key (a backup, and the
+	key file `python -m src.backup restore --key-out` writes). No effect on
+	Windows, where the backups folder's permissions do it."""
 	try:
 		os.chmod(path, 0o600)
 	except OSError:
@@ -604,7 +605,7 @@ def _write_like_folder(target: Path, data: bytes, folder: Path) -> None:
 	tmp = target.with_name(f".{target.name}.restoring")
 	tmp.write_bytes(data)
 	if target.name == "privkey.pem":
-		_private(tmp)
+		owner_only(tmp)
 	elif target.name == GRAFANA_MEMBER:
 		# as Grafana keeps it: its owner, and group 0 reads (the app's backups)
 		os.chmod(tmp, 0o640)

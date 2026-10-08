@@ -175,7 +175,8 @@ def end_user_sessions(user_id: uuid.UUID | str, keep_sid: str | None = None) -> 
 ABSOLUTE_SESSION_HOURS = 12
 SIGNED_IN_AT = "nr_signed_in_at"
 LAST_ACTIVE = "nr_last_active"
-_NO_SESSION_PATHS = ("/static/", "/_netrollout/instance", "/_netrollout/health")
+# no session is checked or written for these (the request hook in hooks.py)
+NO_SESSION_PATHS = ("/static/", "/_netrollout/instance", "/_netrollout/health")
 _PASSIVE_PATHS = ("/rollout/stream/",)
 _IDLE_CACHE: dict[str, Any] = {"at": 0.0, "seconds": None}
 

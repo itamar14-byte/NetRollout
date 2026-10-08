@@ -19,7 +19,7 @@ from redis.exceptions import ConnectionError as RedisConnectionError, \
 	TimeoutError as RedisTimeoutError
 from sqlalchemy.exc import OperationalError
 
-from src.accounts.users import ABSOLUTE_SESSION_HOURS, LAST_ACTIVE, SIGNED_IN_AT, _NO_SESSION_PATHS, idle_seconds, is_background, session_seconds_left
+from src.accounts.users import ABSOLUTE_SESSION_HOURS, LAST_ACTIVE, SIGNED_IN_AT, NO_SESSION_PATHS, idle_seconds, is_background, session_seconds_left
 from src.db.connections import BackendServices
 from src.db.tables import User
 from src.encryption import ENV_VAR, KEY_FILE, InvalidEncryptionKeyError, \
@@ -73,7 +73,7 @@ def register_auth(app: NetRolloutApp) -> None:
 		activity; a background one doesn't.
 
 		:returns: None: go on; else the answer"""
-		if request.path.startswith(_NO_SESSION_PATHS) \
+		if request.path.startswith(NO_SESSION_PATHS) \
 				or not current_user.is_authenticated:
 			return None
 		now = time.time()
