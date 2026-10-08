@@ -32,13 +32,13 @@ from collections.abc import Sequence
 from typing import Any, cast, Callable
 
 import redis
-from dotenv import load_dotenv
 from redis.client import PubSub
 from sqlalchemy import ColumnElement, and_, func, not_
 from sqlalchemy.exc import SQLAlchemyError
 
 from src import runtime
-from src.db.connections import BackendServices, PostgresConnection, REDIS_UNAVAILABLE, RedisConnection
+from src.db.connections import (BackendServices, PostgresConnection, REDIS_UNAVAILABLE, RedisConnection,
+                                load_config)
 from src.db.tables import DeviceResult, JobMetadata, User
 from src.rollout.engine import RolloutEngine, RolloutOptions, Device, DeviceResultDict
 from src.rollout.log import RolloutLogger
@@ -743,7 +743,7 @@ def main(argv: list[str] | None = None) -> int:
 	sub.add_parser("stop-now", help="the stop under way cancels the running "
 	                                "rollouts at once")
 	args = parser.parse_args(argv)
-	load_dotenv(runtime.runtime_env(), override=True)
+	load_config(runtime.runtime_env())
 	redis_conn = RedisConnection()
 	try:
 		store = JobStore(redis_conn)
