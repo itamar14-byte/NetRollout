@@ -93,7 +93,7 @@ Represents a single network device at runtime. The web app builds it from an `In
 | `secret` | `str` | Enable secret (decrypted, hidden from `repr`) |
 | `port` | `int` | SSH port |
 | `var_map_subs` | `dict` | `$$TOKEN$$` → `(property_name, index)` — only the rolling-out user's mappings |
-| `extra` | `dict` | Per-device attribute values for substitution, from `Inventory.var_maps` |
+| `extra` | `dict` | Per-device attribute values for substitution, as the rolling-out user sees them (`src/inventory.attributes`) |
 
 `endpoint` (property) — `ip:port`. This is what identifies a target: with NAT or port forwarding, several devices share one IP.
 
@@ -148,9 +148,11 @@ The factory account `admin`/`admin` is seeded at startup if missing (`src/db/ins
 | `port` | `int` | SSH port |
 | `label` | `str(64)` | Friendly name, required |
 | `is_global` | `bool` | Visible to and rollout-able by all users; only admins edit or delete it |
-| `var_maps` | `JSON` | Per-device attribute values, keyed by property name: the system properties (`SYSTEM_PROPERTIES` in `src/webapp/http.py` — hostname, loopback_ip, asn, mgmt_vrf, mgmt_interface, site, domain, timezone, vrfs) plus the owner's user-defined `PropertyDefinition`s. List properties hold lists |
+| `var_maps` | `JSON` | The device's system property values, keyed by property name (`SYSTEM_PROPERTIES` in `src/inventory.py` — hostname, loopback_ip, asn, mgmt_vrf, mgmt_interface, site, domain, timezone, vrfs), shared by everyone who sees the device and set by who may edit it. List properties hold lists. Custom values are `DeviceAttribute` rows |
 
-**Relationships:** `var_mappings` (many-to-many via `var_mapping_to_devices`), `security_profile`, `user`
+**Relationships:** `var_mappings` (many-to-many via `var_mapping_to_devices`), `security_profile`, `user`, `custom_attributes`
+
+What a user's mappings and rollouts substitute is `src/inventory.attributes(session, devices, user_id)`: the system values plus that user's own custom values.
 
 Several devices may share an `ip:port` (e.g. entries by different users). Inventory and New Rollout show a warning; nothing is blocked.
 
@@ -181,7 +183,7 @@ The routes block deleting a profile while any `Inventory` row references it. CSV
 **Relationships:** `devices` — many-to-many via `var_mapping_to_devices`. The join table is shared across users because of global devices, so `Device.from_inventory` applies only the rolling-out user's mappings. A mapping whose device lacks the property fails that device with a clear message (`SubstitutionError`).
 
 ### `PropertyDefinition`
-User-managed device attribute definitions that extend the keys available in `var_maps`. Unique `(name, user_id)`.
+A user's own device attribute definitions (custom properties); their values are that user's `DeviceAttribute` rows. Unique `(name, user_id)`; deleting one deletes the user's values of it.
 
 | Name | Type | Description |
 |---|---|---|
@@ -191,6 +193,17 @@ User-managed device attribute definitions that extend the keys available in `var
 | `label` | `str(64)` | Display label |
 | `icon` | `str(64)` | Bootstrap Icons class |
 | `is_list` | `bool` | Whether the value is a list (enables index-based substitution) |
+
+### `DeviceAttribute`
+One user's value of one of their custom properties on a device (`device_attributes`). Unique `(device_id, user_id, name)`; both foreign keys `ON DELETE CASCADE` (a device's or a user's deletion removes the rows). Anyone who sees a device sets their own (an operator on a global device: `POST /inventory/<id>/attributes`); nobody else's values are read or written.
+
+| Name | Type | Description |
+|---|---|---|
+| `id` | `UUID` | Primary key |
+| `device_id` | `UUID` | FK → `Inventory` |
+| `user_id` | `UUID` | FK → `User` |
+| `name` | `str(64)` | The property's name |
+| `value` | `JSON` | A text, or a list of texts |
 
 ### `DeviceResult`
 Result archive, with one row per device per job. `job_id` is a soft reference: there is no job table.
@@ -302,10 +315,10 @@ One CSV format is shared by the CLI and web import. Required columns are `ip`, `
 **Methods:**
 - `prepare_devices(raw_devices)` → `(devices, errors)` — CLI path; credentials required.
 - `parse_commands(path)`.
-- Static `import_from_inventory(rows, user_id)` → `Device`s.
+- Static `import_from_inventory(rows, user_id, attributes)` → `Device`s (`attributes`: each device's values as that user sees them).
 
 The web import is `import_csv(parser, path, user_id, …)` → `ImportReport` (`src/inventory.py`; it reads the rows with the parser's `prepare_devices`):
-- it saves the attribute columns as `var_maps`;
+- it saves the attribute columns: system properties in `var_maps`, custom ones as the importer's `DeviceAttribute` rows;
 - it turns credentials into security profiles (optional, on by default);
 - it reports unknown columns;
 - it does no reachability check.

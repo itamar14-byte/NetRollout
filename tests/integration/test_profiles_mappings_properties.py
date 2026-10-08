@@ -330,7 +330,8 @@ def test_mappings_on_user_defined_properties(client_for, make_user,
 	tokens = {m.token for m in mappings_of(session_scope, user)}
 	assert tokens == {"$$RACK$$", "$$UP1$$"}
 	# and they bind through drag-assign like built-ins
-	dev = make_device(user, var_maps={"rack": "R12"})
+	dev = make_device(user)   # a custom value is the user's own, not var_maps
+	client.post(f"/inventory/{dev}/attributes", data={"attr_rack": "R12"})
 	rack = next(m for m in mappings_of(session_scope, user)
 	            if m.token == "$$RACK$$")
 	client.post("/mappings/bulk_assign", json={"mapping_id": str(rack.id),

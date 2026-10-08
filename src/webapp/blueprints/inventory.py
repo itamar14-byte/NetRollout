@@ -13,8 +13,10 @@ from sqlalchemy.orm import Session
 
 from src.accounts.users import signed_in_user
 from src.db.tables import VariableMapping, Inventory, SecurityProfile
-from src.inventory import (can_edit_device, import_csv, partition_devices, query_visible_devices,
-                           same_endpoint_devices, same_endpoint_warning, visible_devices_clause)
+from src.inventory import (attributes, attributes_of, can_edit_device, form_values, import_csv,
+                           partition_devices, query_visible_devices, same_endpoint_devices,
+                           same_endpoint_warning, set_custom_values, set_system_values,
+                           visible_devices_clause)
 from src.rollout import inputs
 from src.rollout.engine import endpoint, mapping_resolvable
 from src.rollout.inputs import InputParser, Validator
@@ -35,15 +37,17 @@ def set_user_mappings(device: Inventory, user_id: uuid.UUID,
 	"""The device's bindings to the user's mappings become `mapping_ids`. The
 	join table is shared across users: only this user's bindings are
 	replaced, others' on a global device stay. A mapping the device can't
-	resolve (attribute missing, list index out of range) isn't bound.
+	resolve with the user's values (attribute missing, list index out of
+	range) isn't bound.
 
 	:returns: the tokens not bound, for the caller to tell the user"""
 	selected = db_session.query(VariableMapping).filter(
 		VariableMapping.id.in_(mapping_ids),
 		VariableMapping.user_id == user_id
 	).all() if mapping_ids else []
+	values = attributes_of(db_session, device, user_id) if selected else {}
 	eligible = [m for m in selected if mapping_resolvable(
-		device.var_maps, m.property_name, m.index)]
+		values, m.property_name, m.index)]
 	device.var_mappings = [m for m in device.var_mappings
 	                       if m.user_id != user_id] + eligible
 	return sorted(m.token for m in selected if m not in eligible)
@@ -89,10 +93,12 @@ def device_not_found() -> ResponseReturnValue:
 @login_required
 def inventory() -> str:
 	"""The inventory page: the user's devices and the global ones, with
-	their profiles, mappings and properties."""
+	their profiles, mappings, properties and the attribute values the user
+	sees."""
 	sys_props, user_props = current_app.web.get_property_defs(current_user.id)
 	with current_app.backend.postgres.get_session() as db_session:
 		devices = query_visible_devices(db_session, current_user.id)
+		values = attributes(db_session, devices, current_user.id)
 		user = signed_in_user(db_session)
 		profiles = user.security_profiles
 		var_mappings = user.variable_mappings
@@ -106,6 +112,7 @@ def inventory() -> str:
 	                       mappings=var_mappings,
 	                       sys_props=sys_props,
 	                       user_props=user_props,
+	                       attributes=values,
 	                       active_section="inventory")
 
 
@@ -209,9 +216,11 @@ def inventory_reachability(data: dict[str, Any]) -> ResponseReturnValue:
 @bp.route("/<uuid:device_id>/edit", methods=["POST"])
 @login_required
 def inventory_edit(device_id: uuid.UUID) -> ResponseReturnValue:
-	"""Save a device from the page's form: its fields, profile, attributes
-	and the user's mapping bindings - by its owner, or an admin for a
-	global one. Making a global device local drops other users' bindings."""
+	"""Save a device from the page's form: its fields, profile, system
+	attribute values, and the editor's own custom values and mapping
+	bindings (other users' are never touched) - by its owner, or an admin
+	for a global one. Making a global device local drops other users'
+	bindings."""
 	def _edit(device: Inventory, db_session: Session) -> ResponseReturnValue:
 		# Validate everything before mutating — get_session commits on a
 		# normal return, so an early error must not leave a half-applied edit.
@@ -255,21 +264,10 @@ def inventory_edit(device_id: uuid.UUID) -> ResponseReturnValue:
 		device.is_global = is_global
 		sys_props, user_props = current_app.web.get_property_defs(
 			current_user.id)
-		all_props = {p["name"]: p for p in sys_props + user_props}
-		var_maps: dict[str, str | list[str]] = {}
-		for inv_key, inv_val in request.form.items():
-			if not inv_key.startswith("attr_"):
-				continue
-			prop_name = inv_key[5:]
-			inv_val = inv_val.strip()
-			if not inv_val:
-				continue
-			if all_props.get(prop_name, {}).get("is_list"):
-				var_maps[prop_name] = [v.strip() for v in inv_val.split(",") if
-				                       v.strip()]
-			else:
-				var_maps[prop_name] = inv_val
-		device.var_maps = var_maps or None
+		values = form_values(request.form, sys_props + user_props)
+		set_system_values(device, values)
+		set_custom_values(db_session, device, current_user.id, values,
+		                  [p["name"] for p in user_props])
 		flash_skipped_mappings(
 			set_user_mappings(device, current_user.id, mapping_ids, db_session))
 		if was_global and not is_global:
@@ -320,6 +318,39 @@ def inventory_mappings(device_id: uuid.UUID) -> ResponseReturnValue:
 		Inventory, device_id, _set_mappings,
 		can_access=lambda d: d.user_id == current_user.id or d.is_global,
 		on_missing=device_not_found)
+
+
+@bp.route("/<uuid:device_id>/attributes", methods=["POST"])
+@login_required
+def inventory_attributes(device_id: uuid.UUID) -> ResponseReturnValue:
+	"""What anyone who sees a device sets on it for themselves - the page's
+	form for a device they can't edit: their own custom values (attr_<name>
+	fields for their own properties; a blank one removes the value, any
+	other field is ignored - the device itself never changes), then their
+	mapping bindings, checked against those values. A device the user
+	can't see: 404."""
+	try:
+		mapping_ids = parse_mapping_ids(request.form.getlist("mapping_ids"))
+	except ValueError:
+		return flash_redirect("Invalid mapping ID.", "inventory.inventory",
+		                      "danger")
+	_, user_props = current_app.web.get_property_defs(current_user.id)
+
+	def _set_mine(device: Inventory, db_session: Session) -> ResponseReturnValue:
+		set_custom_values(db_session, device, current_user.id,
+		                  form_values(request.form, user_props),
+		                  [p["name"] for p in user_props])
+		flash_skipped_mappings(
+			set_user_mappings(device, current_user.id, mapping_ids, db_session))
+		current_app.web.audit("inventory.attributes", object_type="Inventory",
+		                      object_id=device_id, object_label=device.label,
+		                      detail={"mapping_count": len(mapping_ids)})
+		return flash_redirect(f"Your attributes and mappings saved for "
+		                      f"{device.label}.", "inventory.inventory")
+
+	return current_app.web.act_on_db_obj(
+		Inventory, device_id, _set_mine,
+		can_access=lambda d: d.user_id == current_user.id or d.is_global)
 
 
 @bp.route("/<uuid:device_id>/delete", methods=["POST"])

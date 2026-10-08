@@ -1,6 +1,13 @@
 """The device inventory's rules (web app): which devices a user sees and may
-edit (their own and the global ones), devices sharing an endpoint, and
-whether a device is reachable from the NetRollout server.
+edit (their own and the global ones), devices sharing an endpoint, a
+device's attribute values, and whether a device is reachable from the
+NetRollout server.
+
+Attributes: the system properties' values are the device's own (var_maps),
+shared by everyone who sees it and set by who may edit it; a custom
+property is one user's, and so are its values (DeviceAttribute rows) - any
+user who sees a device sets their own. attributes() is the one way to read
+them: what a user's mappings and rollouts substitute.
 
 Reachability: one fast TCP connect to ip:port - the management endpoint a
 push would use, from the server's point of view (the one that matters).
@@ -13,7 +20,7 @@ import json
 import socket
 import uuid
 from collections import Counter
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from csv import DictReader
 from dataclasses import dataclass, field
@@ -25,7 +32,7 @@ from sqlalchemy import ColumnElement, or_
 from sqlalchemy.orm import Session
 
 from src.db.connections import REDIS_UNAVAILABLE
-from src.db.tables import Inventory, SecurityProfile, User
+from src.db.tables import DeviceAttribute, Inventory, SecurityProfile, User
 from src.encryption import decrypt, encrypt
 from src.rollout.engine import endpoint, Device
 from src.rollout.inputs import InputParser
@@ -36,6 +43,28 @@ CACHE_TTL = 60        # seconds
 MAX_PARALLEL = 32
 
 Target = tuple[str, int]      # (ip, port)
+
+# The properties every device has (their values: the device's var_maps)
+SYSTEM_PROPERTIES: list[dict[str, Any]] = [
+	{"name": "hostname", "label": "Hostname", "icon": "bi-type-h1",
+	 "is_list": False},
+	{"name": "loopback_ip", "label": "Loopback IP", "icon": "bi-hdd-network",
+	 "is_list": False},
+	{"name": "asn", "label": "ASN", "icon": "bi-diagram-3", "is_list": False},
+	{"name": "mgmt_vrf", "label": "Management VRF", "icon": "bi-box",
+	 "is_list": False},
+	{"name": "mgmt_interface", "label": "Management Interface",
+	 "icon": "bi-ethernet", "is_list": False},
+	{"name": "site", "label": "Site", "icon": "bi-geo-alt", "is_list": False},
+	{"name": "domain", "label": "Domain", "icon": "bi-globe2",
+	 "is_list": False},
+	{"name": "timezone", "label": "Timezone", "icon": "bi-clock",
+	 "is_list": False},
+	{"name": "vrfs", "label": "VRFs", "icon": "bi-layers", "is_list": True},
+]
+SYSTEM_NAMES = frozenset(p["name"] for p in SYSTEM_PROPERTIES)
+
+AttrValue = str | list[str]
 
 
 class Reach(TypedDict):
@@ -197,6 +226,127 @@ def partition_devices(devices: Sequence[Inventory]) -> tuple[list[Inventory], li
 	return global_devices, my_devices
 
 
+# ── attribute values ────────────────────────────────────────────────────────
+
+def system_values(device: Inventory) -> dict[str, AttrValue]:
+	""":returns: the device's system property values (its var_maps)"""
+	return {k: v for k, v in (device.var_maps or {}).items()
+	        if k in SYSTEM_NAMES}
+
+
+def attributes(db_session: Session, devices: Iterable[Inventory],
+               user_id: uuid.UUID) -> dict[uuid.UUID, dict[str, AttrValue]]:
+	"""Each device's attribute values as one user sees them: the device's
+	system values and the user's own custom values (never another user's) -
+	what their mappings and rollouts substitute. One query, however many
+	devices.
+
+	:param devices: saved rows (they have ids)
+	:returns: {device id: {property name: a text or a list of texts}}"""
+	values = {d.id: system_values(d) for d in devices}
+	if values:
+		rows = db_session.query(DeviceAttribute.device_id, DeviceAttribute.name,
+		                        DeviceAttribute.value).filter(
+			DeviceAttribute.user_id == user_id,
+			DeviceAttribute.device_id.in_(list(values)))
+		for device_id, name, value in rows:
+			values[device_id][name] = value
+	return values
+
+
+def attributes_of(db_session: Session, device: Inventory,
+                  user_id: uuid.UUID) -> dict[str, AttrValue]:
+	""":returns: one device's attribute values as the user sees them (see
+	 attributes())"""
+	return attributes(db_session, [device], user_id)[device.id]
+
+
+def parse_value(raw: str | list[str], is_list: bool) -> AttrValue | None:
+	"""A value as typed in the edit form or a CSV cell: a list property's
+	split on commas, its items stripped.
+
+	:returns: the value; None when blank (no value)"""
+	if is_list:
+		parts = raw if isinstance(raw, list) else raw.split(",")
+		items = [v.strip() for v in parts if v.strip()]
+		return items or None
+	text = raw if isinstance(raw, str) else ", ".join(raw)
+	return text.strip() or None
+
+
+def form_values(form: Mapping[str, str],
+                properties: Iterable[dict[str, Any]]) -> dict[str, AttrValue | None]:
+	"""The attr_<name> fields a form sent, for these properties: a field
+	naming no such property is ignored, a field not sent isn't in the answer
+	(its value stays as it is).
+
+	:param properties: {name, is_list} each
+	:returns: {property name: its value, None for a blank field}"""
+	by_name = {p["name"]: p for p in properties}
+	values: dict[str, AttrValue | None] = {}
+	for key, raw in form.items():
+		prop = by_name.get(key[5:]) if key.startswith("attr_") else None
+		if prop is not None:
+			values[prop["name"]] = parse_value(raw, prop["is_list"])
+	return values
+
+
+def set_system_values(device: Inventory,
+                      values: Mapping[str, AttrValue | None]) -> None:
+	"""Set the device's own (system) values - for who may edit it. Names
+	that aren't system properties are ignored.
+
+	:param values: {name: value}; None removes the value"""
+	var_maps = system_values(device)
+	for name, value in values.items():
+		if name not in SYSTEM_NAMES:
+			continue
+		if value:
+			var_maps[name] = value
+		else:
+			var_maps.pop(name, None)
+	device.var_maps = var_maps or None
+
+
+def set_custom_values(db_session: Session, device: Inventory,
+                      user_id: uuid.UUID, values: Mapping[str, AttrValue | None],
+                      own: Iterable[str]) -> None:
+	"""Set one user's custom values on a device; other users' are never
+	touched.
+
+	:param device: a saved row, or one just added to the session
+	:param values: {name: value}; None removes the user's value
+	:param own: the names of the user's own properties - any other name is
+	 ignored"""
+	own_names = set(own)
+	wanted = {n: v for n, v in values.items() if n in own_names}
+	if not wanted:
+		return
+	existing = {a.name: a for a in db_session.query(DeviceAttribute).filter(
+		DeviceAttribute.device_id == device.id,
+		DeviceAttribute.user_id == user_id,
+		DeviceAttribute.name.in_(list(wanted)))} if device.id else {}
+	for name, value in wanted.items():
+		row = existing.get(name)
+		if not value:
+			if row is not None:
+				db_session.delete(row)
+		elif row is not None:
+			row.value = value
+		else:
+			db_session.add(DeviceAttribute(device=device, user_id=user_id,
+			                               name=name, value=value))
+
+
+def delete_property_values(db_session: Session, user_id: uuid.UUID,
+                           name: str) -> None:
+	"""Remove a user's values of one of their properties, on every device
+	(the property is being deleted)."""
+	db_session.query(DeviceAttribute).filter(
+		DeviceAttribute.user_id == user_id,
+		DeviceAttribute.name == name).delete(synchronize_session=False)
+
+
 # ── the CSV import ──────────────────────────────────────────────────────────
 
 @dataclass
@@ -241,23 +391,16 @@ def _classify_columns(headers: list[str], properties: list[dict[str, Any]]) -> _
 	return columns
 
 
-def _var_maps(extra: dict[str, str | list[str]], columns: _Columns) -> dict[str, str | list[str]]:
-	"""A row's attribute cells → var_maps, with the edit modal's rules:
-	list properties split on commas, empty values skipped."""
-	var_maps: dict[str, str | list[str]] = {}
+def _cell_values(extra: dict[str, str | list[str]],
+                 columns: _Columns) -> dict[str, AttrValue]:
+	"""A row's attribute cells by property name, with the edit modal's
+	rules: list properties split on commas, empty values skipped."""
+	values: dict[str, AttrValue] = {}
 	for header, prop in columns.props.items():
-		value = extra.get(header)
-		if not value:
-			continue
-		if prop.get("is_list"):
-			parts = value if isinstance(value, list) else value.split(",")
-			items = [v.strip() for v in parts if v.strip()]
-			if items:
-				var_maps[prop["name"]] = items
-		else:
-			var_maps[prop["name"]] = value if isinstance(value, str) \
-				else ", ".join(value)
-	return var_maps
+		value = parse_value(extra.get(header) or "", bool(prop.get("is_list")))
+		if value:
+			values[prop["name"]] = value
+	return values
 
 
 class _ProfileResolver:
@@ -368,7 +511,8 @@ def import_csv(parser: InputParser, device_path: str, user_id: uuid.UUID,
 	"""Import a devices CSV into the user's inventory (web app).
 	The same CSV the CLI takes: core columns make the device, attribute
 	columns that name one of the user's properties (system or custom, by
-	name or label) become its variable attributes, and credential columns
+	name or label) become its attribute values (a custom property's: the
+	importing user's own), and credential columns
 	become security profiles when `create_profiles` is set. Other columns
 	are reported, never dropped silently. No reachability check.
 	:param device_path: the uploaded CSV
@@ -418,11 +562,14 @@ def import_csv(parser: InputParser, device_path: str, user_id: uuid.UUID,
 	profiles = (_ProfileResolver(user_id, db_session)
 	            if create_profiles and columns.credentials else None)
 	half_credentials: list[str] = []
+	own = [p["name"] for p in properties or [] if p["name"] not in SYSTEM_NAMES]
 	for device in devices:
 		row = Inventory(user_id=user_id, ip=device.ip, port=device.port,
 		                device_type=device.device_type,
-		                label=label or device.label,  # form > row > IP
-		                var_maps=_var_maps(device.extra, columns) or None)
+		                label=label or device.label)  # form > row > IP
+		values = _cell_values(device.extra, columns)
+		set_system_values(row, values)
+		set_custom_values(db_session, row, user_id, values, own)
 		if profiles:
 			if device.username and device.password:
 				row.security_profile = profiles.resolve(

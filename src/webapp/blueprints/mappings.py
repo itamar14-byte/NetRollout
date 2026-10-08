@@ -9,15 +9,17 @@ from flask import Blueprint, render_template, request, redirect, flash, url_for
 from flask.typing import ResponseReturnValue
 from flask_login import current_user, login_required
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
 from src.accounts.users import signed_in_user
 from src.db.tables import VariableMapping, Inventory, PropertyDefinition
-from src.inventory import visible_devices_clause, query_visible_devices, partition_devices
+from src.inventory import (SYSTEM_PROPERTIES, attributes, attributes_of, delete_property_values,
+                           partition_devices, query_visible_devices, visible_devices_clause)
 from src.rollout import inputs
 from src.rollout.engine import mapping_resolvable
 from src.rollout.log import RolloutLogger
 from src.webapp.app import current_app
-from src.webapp.http import ok, err, with_form, with_json, flash_redirect, SYSTEM_PROPERTIES
+from src.webapp.http import ok, err, with_form, with_json, flash_redirect
 
 
 bp = Blueprint('mappings', __name__, url_prefix='/mappings')
@@ -88,12 +90,14 @@ def parse_mapping_input(data: Any) -> ResponseReturnValue | dict[str, Any]:
 @login_required
 def mappings() -> str:
 	"""The mappings page: the user's mappings with their devices, and the
-	devices they may assign."""
+	devices they may assign, with the attribute values the user sees."""
 	with current_app.backend.postgres.get_session() as db_session:
 		user = signed_in_user(db_session)
 		var_binds = user.variable_mappings
 		_ = [m.devices for m in var_binds]
 		devices = query_visible_devices(db_session, current_user.id)
+		# a mapping's devices are visible ones (binding checks it)
+		values = attributes(db_session, devices, current_user.id)
 		db_session.expunge_all()
 	global_devices, my_devices = partition_devices(devices)
 
@@ -101,7 +105,8 @@ def mappings() -> str:
 	return render_template("variable_mappings.html", mappings=var_binds,
 	                       global_devices=global_devices,
 	                       my_devices=my_devices, sys_props=sys_props,
-	                       user_props=user_props, active_section="mappings")
+	                       user_props=user_props, attributes=values,
+	                       active_section="mappings")
 
 
 @bp.route("/create", methods=["POST"])
@@ -244,7 +249,8 @@ def mappings_bulk_assign() -> ResponseReturnValue:
 	and no visibility or eligibility check applies.
 	For each device to assign, three checks are enforced before appending:
 	  1. Visibility — the device must belong to current_user or be global
-	  2. Eligibility — device.var_maps must contain mapping.property_name
+	  2. Eligibility — the device's values as the user sees them
+	     (inventory.attributes) must contain mapping.property_name
 	  3. Duplicate — the device must not already be assigned to this mapping
 	Invalid or ineligible device IDs are silently skipped.
 	The mapping ownership check is done once before the loop.
@@ -323,8 +329,9 @@ def mappings_bulk_assign() -> ResponseReturnValue:
 			# Eligibility check — device must have the mapped attribute set,
 			# and the value must be truthy (empty string/list would produce
 			# garbage substitution at rollout time)
-			if not mapping_resolvable(device.var_maps, mapping.property_name,
-			                          mapping.index):
+			if not mapping_resolvable(
+					attributes_of(db_session, device, current_user.id),
+					mapping.property_name, mapping.index):
 				logger.notify(
 					f"{device.label} ({device.ip}): ineligible — missing attribute '{mapping.property_name}'",
 					"yellow")
@@ -448,10 +455,14 @@ def properties_edit(prop_id: uuid.UUID) -> ResponseReturnValue:
 @properties_bp.route("/<uuid:prop_id>/delete", methods=["POST"])
 @login_required
 def properties_delete(prop_id: uuid.UUID) -> ResponseReturnValue:
-	"""Delete one of the user's properties."""
+	"""Delete one of the user's properties, and their values of it on every
+	device."""
+	delete = current_app.web.delete_op("property.delete",
+	                                   label_func=lambda p: p.name)
+
+	def _delete(prop: PropertyDefinition, db_session: Session) -> ResponseReturnValue:
+		delete_property_values(db_session, prop.user_id, prop.name)
+		return delete(prop, db_session)
+
 	return current_app.web.act_on_db_obj(
-		PropertyDefinition, prop_id,
-		current_app.web.delete_op("property.delete", label_func=lambda p:
-		p.name),
-		user_id=current_user.id
-	)
+		PropertyDefinition, prop_id, _delete, user_id=current_user.id)

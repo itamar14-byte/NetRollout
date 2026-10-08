@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from src.db.tables import AuditLog, Inventory, SecurityProfile
+from src.db.tables import AuditLog, DeviceAttribute, Inventory, SecurityProfile
 from src.encryption import decrypt
 
 pytestmark = [pytest.mark.postgres, pytest.mark.redis]
@@ -243,9 +243,10 @@ def profiles_of(session_scope, user):
 
 def test_csv_import_saves_attribute_columns(client_for, make_user,
                                             session_scope):
-	"""Attribute columns, matched by property name or label in any case, are saved as
-	var_maps (list properties split); empty cells are skipped; an unknown column
-	is reported as ignored."""
+	"""Attribute columns, matched by property name or label in any case, are saved
+	(list properties split) - system ones as the device's var_maps, custom ones as
+	the importing user's own values; empty cells are skipped; an unknown column is
+	reported as ignored."""
 	user = make_user()
 	client = client_for(user)
 	client.post("/properties/create", json={"name": "rack", "label": "Rack"})
@@ -258,8 +259,12 @@ def test_csv_import_saves_attribute_columns(client_for, make_user,
 	import_csv(client, csv)
 	devs = devices_of(session_scope, user)
 	assert devs["r1"].var_maps == {
-		"hostname": "r1.lab", "loopback_ip": "1.1.1.1", "vrfs": ["red", "blue"],
-		"rack": "R12", "uplinks": ["Gi0/1", "Gi0/2"]}
+		"hostname": "r1.lab", "loopback_ip": "1.1.1.1", "vrfs": ["red", "blue"]}
+	with session_scope() as s:
+		custom = {(a.device_id, a.user_id, a.name): a.value
+		          for a in s.query(DeviceAttribute)}
+	assert custom == {(devs["r1"].id, user.id, "rack"): "R12",
+	                  (devs["r1"].id, user.id, "uplinks"): ["Gi0/1", "Gi0/2"]}
 	assert devs["r2"].var_maps is None  # empty cells are skipped
 	msgs = flashes(client)
 	assert any(m.startswith("Ignored columns: rack_no") for m in msgs)
