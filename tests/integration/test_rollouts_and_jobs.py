@@ -815,6 +815,21 @@ def test_job_summary_for_the_completion_card(operator, client_for,
 		f"/results/summary/{job}").status_code == 200
 
 
+def test_job_summary_names_devices_for_an_admin_as_results_does(make_user, make_device,
+                                                                client_for, session_scope):
+	"""An admin's completion card for another user's job names its device by
+	that user's inventory label - as Results does - not the bare address."""
+	admin, other = make_user(role="admin"), make_user()
+	make_device(other, ip="10.8.8.8", port=2001, label="their-edge")
+	job = uuid.uuid4()
+	add_result(session_scope, other, job, ip="10.8.8.8", port=2001, status="failed")
+	with session_scope() as s:
+		row = s.query(DeviceResult).filter_by(job_id=job).one()
+		row.action_needed = "check the device"
+	body = client_for(admin).get(f"/results/summary/{job}").json
+	assert body["action_needed"] == [{"device": "their-edge", "text": "check the device"}]
+
+
 def test_dashboard_marks_recent_jobs_that_need_a_person(operator, client_for,
                                                          session_scope):
 	"""The dashboard links a recent job with an action needed to its results."""
