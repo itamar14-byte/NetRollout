@@ -565,7 +565,8 @@ function initAttrSelect(containerId, hiddenId, indexWrapId) {
     const container = document.getElementById(containerId);
     const hidden    = document.getElementById(hiddenId);
     const indexWrap = indexWrapId ? document.getElementById(indexWrapId) : null;
-    const options   = container.querySelectorAll('.nr-select-option');
+    const list      = container.querySelector('.nr-select-list');
+    const options   = () => container.querySelectorAll('.nr-select-option');   // live: a quick create adds one
     const display   = container.querySelector('.nr-select-display');
     const shell     = nrSelectShell(container, filterOptions, null);
 
@@ -584,32 +585,42 @@ function initAttrSelect(containerId, hiddenId, indexWrapId) {
     function selectOption(value, icon) {
         hidden.value = value;
         renderDisplay(value, icon);
-        options.forEach(o => o.classList.toggle('selected', o.dataset.value === value));
+        options().forEach(o => o.classList.toggle('selected', o.dataset.value === value));
         if (indexWrap) indexWrap.classList.toggle('visible', LIST_PROPS.has(value));
         shell.close();
     }
 
     function filterOptions(q) {
         const lq = q.toLowerCase();
-        options.forEach(o => {
+        options().forEach(o => {
             o.style.display = !q || o.dataset.value.includes(lq) ? '' : 'none';
         });
     }
 
-    options.forEach(opt => shell.wire(opt, o => selectOption(o.dataset.value, o.dataset.icon)));
+    function wireOption(opt) {
+        shell.wire(opt, o => selectOption(o.dataset.value, o.dataset.icon));
+    }
+
+    options().forEach(wireOption);
     shell.listen();
 
     return {
         getValue: ()      => hidden.value,
         setValue: (value) => {
-            const opt = Array.from(options).find(o => o.dataset.value === value);
+            const opt = Array.from(options()).find(o => o.dataset.value === value);
             if (opt) selectOption(value, opt.dataset.icon);
         },
         reset: () => {
             hidden.value = '';
             renderDisplay('', '');
-            options.forEach(o => o.classList.remove('selected'));
+            options().forEach(o => o.classList.remove('selected'));
             if (indexWrap) indexWrap.classList.remove('visible');
+        },
+        // a property made by the quick create: listed (before the "New property…"
+        // footer) and clickable like the others
+        add: (option) => {
+            list.insertBefore(option, list.querySelector('div[style*="border-top"]'));
+            wireOption(option);
         }
     };
 }
@@ -845,29 +856,39 @@ async function submitMappingQuickProp() {
         return;
     }
 
-    // Inject new option into both pickers
-    const optHTML =
-        `<div class="nr-select-option" data-value="${name}" data-icon="${icon}" data-is-list="${is_list}">` +
-        `<i class="bi ${icon}" style="color:#00bcd4; font-size:0.82rem; width:16px; text-align:center; flex-shrink:0;"></i>` +
-        `<span class="opt-label">${name}</span>` +
-        (is_list ? `<span class="opt-sub">list</span>` : '') +
-        `<i class="bi bi-check2 opt-check"></i></div>`;
-
-    ['addAttrSelect', 'editAttrSelect'].forEach(id => {
-        const list = document.querySelector(`#${id} .nr-select-list`);
-        if (!list) return;
-        // Insert before the "New property…" footer div
-        const footer = list.querySelector('div[style*="border-top"]');
-        const tmp = document.createElement('div');
-        tmp.innerHTML = optHTML;
-        list.insertBefore(tmp.firstChild, footer);
-    });
-
-    // Update LIST_PROPS if needed
     if (is_list) LIST_PROPS.add(name);
     ATTR_ICONS[name] = icon;
+    // the new property in both pickers, and chosen in the mapping it was made for
+    [addAttrSel, editAttrSel].forEach(sel => sel.add(attrOption(name, icon, is_list)));
+    for (const [modalId, sel] of [['addModal', addAttrSel], ['editModal', editAttrSel]]) {
+        if (document.getElementById(modalId).classList.contains('show')) sel.setValue(name);
+    }
 
     bootstrap.Modal.getOrCreateInstance(document.getElementById('mappingQuickPropModal')).hide();
+}
+
+// An attribute picker's option, as the page renders them (text set, not parsed)
+function attrOption(name, icon, isList) {
+    const opt = document.createElement('div');
+    opt.className = 'nr-select-option';
+    Object.assign(opt.dataset, {value: name, icon: icon, isList: String(isList)});
+    const glyph = document.createElement('i');
+    glyph.className = 'bi ' + icon;
+    glyph.style.cssText = 'color:#00bcd4; font-size:0.82rem; width:16px; text-align:center; flex-shrink:0;';
+    const label = document.createElement('span');
+    label.className = 'opt-label';
+    label.textContent = name;
+    opt.append(glyph, label);
+    if (isList) {
+        const sub = document.createElement('span');
+        sub.className = 'opt-sub';
+        sub.textContent = 'list';
+        opt.append(sub);
+    }
+    const check = document.createElement('i');
+    check.className = 'bi bi-check2 opt-check';
+    opt.append(check);
+    return opt;
 }
 </script>
 {% endblock %}
