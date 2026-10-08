@@ -1,4 +1,5 @@
-"""The app's side of the port helper contract (docs/plans/stage-9.md).
+"""The app's side of the port helper contract (src/setup/port.py has the
+helper's; overview: docs/architecture.md §9).
 
 The HTTPS port is published by Docker, so a new one needs nginx recreated —
 done on the host by the port helper, never by the app (no Docker access

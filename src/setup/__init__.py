@@ -1,5 +1,5 @@
 """The setup core: what installing NetRollout decides and writes, once for
-Windows and Linux (docs/plans/stage-9.md).
+Windows and Linux (docs/architecture.md §9).
 
 The host scripts (windows/manage.ps1, linux/netrollout.sh) do only what
 needs the host — checks, Docker, auto-start — and run this inside the app

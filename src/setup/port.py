@@ -1,6 +1,6 @@
 """The port helper's thinking (the HTTPS port changed in System Settings):
 the scripts do what needs Docker, this decides and records. The contract
-with the app is in docs/plans/stage-9.md and src/access/port.py:
+with the app is here and in src/access/port.py (overview: docs/architecture.md §9):
 
   site.env (src/access/site_env.py)  app -> helper: the port wanted, a request id,
                               its time; the id again once an admin's browser

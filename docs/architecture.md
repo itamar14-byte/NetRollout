@@ -1,7 +1,7 @@
 # NetRollout — Architecture Document
 _Written: 2026-04-07 — Updated: 2026-10-02 (Phase 4 stages 3–4b: container runtime, drain, health; passwords; per-platform push + verify)_
 
-Deployment and packaging (Docker images, compose, installer, platform profiles) are planned in `docs/plans/phase-4.md`. Where that plan will change something described here, the section says so.
+Deployment and packaging (Docker images, compose, the installers, releases) are described in §8–9 and CLAUDE.md; what's still ahead (stage 10, CI and the release) is planned in `docs/plans/phase-4.md`.
 
 ---
 
@@ -631,7 +631,29 @@ Custom              the admins' own (Save as, new dashboards, subfolders) — ne
 
 ---
 
-## 9. Key Design Decisions
+## 9. Installation, the setup core and the port helper
+
+**One decision-maker, two thin host scripts.** What installing and running NetRollout decides and writes lives once, in the **setup core** (`src/setup/`, run inside the app image with the install folder mounted: `python -m src.setup <command>`); the host scripts — `windows/manage.ps1` and `linux/netrollout.sh` — only do what needs the host (checks, Docker, owners and permissions, auto-start, shortcuts) and call it. The setup core's commands (`src/setup/__main__.py`, `COMMANDS`):
+
+| Command | What it decides |
+|---|---|
+| `init` / `check` | the install's answers (hostname, HTTPS port, monitoring, the organisation's certificate, timezone) → `.env`, `config/nginx/site.env`, the folders; `check` validates only |
+| `prepare-start`, `status` | before a start (busy ports, the server's IPs) / the `netrollout status` report |
+| `restore-key` | after a restore: the backup's encryption key into `.env` |
+| `check-update`, `upgrade`, `release` | an update's direction (newer / same = repair / older = refused, run with the *installed* image), `.env`'s new keys after it, Linux's release download and unpack |
+| `port-ready`, `port-next`, `port-open`, `port-trying`, `port-close` | the port helper's steps (below) |
+
+**Windows** installs only through **NetRollout Setup** (`windows/installer/netrollout.iss`, Inno Setup): the wizard collects the answers, runs `manage.ps1 install`, updates in place over an existing install (`prepare-update` before any file is replaced, `update` after), and puts NetRollout Manager (`windows/manager/`, C#) in `bin\` — the people's front end: status, start / stop, backup / restore, updates from GitHub's releases. **Linux**: `linux/install.sh` + `netrollout.sh` (the same commands, a numbered menu, `update` from a release zip). The details — every command, Setup's pages, the update flow — are in CLAUDE.md (Install / manage).
+
+**A release** (`tools/build_release.py`, stage 10's job runs it): `netrollout-<v>-linux.zip` (the install folder under `netrollout/`: `bin/`, the compose files, `deploy/`, `VERSION`, `LICENSE`, a README — the update contract is in `src/setup/update.py`), `NetRollout-Setup-<v>.exe`, `netrollout-cli-<v>.exe`, `SHA256SUMS`. `SHIPPED` in `build_release.py` is the one list of the files an install gets; the images come from Docker Hub.
+
+**The port helper** (a new HTTPS port, System Settings): the port is Docker's mapping — nginx always listens on 443 inside — so a change needs nginx recreated, on the host, never by the app. The app writes the request into `config/nginx/site.env` (`src/access/port.py`, `site_env.py`) and reads the helper's answers from `config/apply-status.json`; the helper (`src/setup/port.py` decides, the scripts' `apply` does the Docker part) opens the new port next to the old one as a trial (`config/port-trial.yaml`, listed in `.env`'s `COMPOSE_FILE` while it lasts), keeps it once a browser confirms it from the new port, or rolls back after 120 s. It runs automatically — Windows: `NetRollout Manager.exe --helper` (headless, started at sign-in); Linux: a systemd path unit on `site.env` — else by hand (`netrollout apply`). The contract, step by step, is in those two modules' docstrings.
+
+**Bring your own database / Redis** (Server Management): the database *move* (`src/db/move.py`, `src/webapp/db_move.py`, maintenance mode) and the Redis switch — see §6 and CLAUDE.md (Database move).
+
+---
+
+## 10. Key Design Decisions
 
 | Decision | Choice | Rationale |
 |---|---|---|
