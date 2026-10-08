@@ -540,6 +540,68 @@ def test_results_admin_pages_other_users_apart(make_user, client_for,
 	assert html.count('id="perPage-page-all"') == 1
 
 
+def test_results_admin_job_link_lands_on_another_users_job(make_user,
+                                                           client_for,
+                                                           session_scope):
+	"""An admin's /results?job=<id> of another user's job opens the all-users
+	view on that job's page of the other users' list; an explicit
+	?other_page= wins; a job in neither list: page 1, the flat view."""
+	admin, other = make_user(role="admin"), make_user()
+	add_jobs(session_scope, admin, 3)
+	theirs = add_jobs(session_scope, other, 30)
+	client = client_for(admin)
+	html = client.get(f"/results?per_page=25&job={theirs[27]}")\
+		.get_data(as_text=True)
+	assert "toggleAllUsers();" in html  # opens on the all-users view
+	assert "Page 2 of 2" in html
+	assert f'data-job-id="{theirs[27]}"' in html
+	assert f'data-job-id="{theirs[0]}"' not in html
+	html = client.get(f"/results?per_page=25&job={theirs[27]}&other_page=1")\
+		.get_data(as_text=True)
+	assert "Page 1 of 2" in html
+	assert f'data-job-id="{theirs[27]}"' not in html
+	html = client.get(f"/results?per_page=25&job={uuid.uuid4()}")\
+		.get_data(as_text=True)
+	assert "toggleAllUsers();" not in html
+	assert "Page 1 of 2" in html and "Page 2 of 2" not in html
+	assert f'data-job-id="{theirs[27]}"' not in html
+
+
+def test_results_admin_labels_load_only_the_pages_devices(make_user,
+                                                          make_device,
+                                                          client_for,
+                                                          session_scope, app):
+	"""An admin's device labels come from any user's inventory by ip:port, but
+	only the shown devices' rows are read - never the whole inventory."""
+	admin, other = make_user(role="admin"), make_user()
+	make_device(other, ip="10.9.9.9", port=2001, label="their-node")
+	make_device(other, ip="10.9.9.8", port=22, label="unshown-node")
+	make_device(admin, ip="10.9.9.7", port=22, label="my-node")
+	shown = dict(status="partial", verified=1, config="cfg")  # Verify Diff: labels
+	add_result(session_scope, admin, uuid.uuid4(), ip="10.9.9.9", port=2001,
+	           **shown)
+	add_result(session_scope, other, uuid.uuid4(), ip="10.9.9.7", **shown)
+	add_result(session_scope, other, uuid.uuid4(), ip="10.9.9.6", port=2222,
+	           **shown)
+	statements = []
+
+	def capture(conn, cursor, statement, params, context, executemany):
+		statements.append(statement)
+
+	engine = app.backend.postgres.engine
+	event.listen(engine, "before_cursor_execute", capture)
+	try:
+		html = client_for(admin).get("/results?view=all").get_data(as_text=True)
+	finally:
+		event.remove(engine, "before_cursor_execute", capture)
+	assert "their-node" in html        # another user's device, own job
+	assert "my-node" in html           # own device, another user's job
+	assert "10.9.9.6:2222" in html     # unlabelled: falls back to ip:port
+	assert "unshown-node" not in html
+	reads = [s for s in statements if "FROM inventory" in s]
+	assert reads and all("IN (" in s for s in reads), reads
+
+
 def test_results_page_the_jobs_in_the_database(operator, client_for,
                                                session_scope, app):
 	"""The jobs are paged by the query (LIMIT/OFFSET), and only the page's
@@ -635,7 +697,7 @@ def test_results_status_filter_before_paging(operator, client_for,
 	client = client_for(operator.user)
 	html = client.get("/results?per_page=25&status=failed")\
 		.get_data(as_text=True)
-	assert ">30 jobs</span>" in html
+	assert ">30 failed jobs</span>" in html
 	assert "Page 1 of 2" in html
 	assert shown_jobs(html) == {str(job) for job in failed[:25]}
 	page2 = client.get("/results?per_page=25&status=failed&page=2")\
@@ -643,9 +705,29 @@ def test_results_status_filter_before_paging(operator, client_for,
 	assert shown_jobs(page2) == {str(job) for job in failed[25:]}
 	html = client.get("/results?status=cancelled").get_data(as_text=True)
 	assert html.count('class="job-row"') == 0
-	assert ">0 jobs</span>" in html
+	assert ">0 cancelled jobs</span>" in html
 	assert "No cancelled jobs." in html
 	assert "No completed jobs yet" not in html  # the filter bar stays
+
+
+def test_results_count_says_it_is_filtered(make_user, client_for,
+                                           session_scope):
+	"""The header's job count names the filter ("1 failed job"), and gives it
+	to the all-users view's count (written by the page's script); no filter:
+	"N jobs" as ever."""
+	admin, other = make_user(role="admin"), make_user()
+	add_status_jobs(session_scope, admin, ["failed"])
+	add_jobs(session_scope, admin, 2)
+	add_status_jobs(session_scope, other, ["failed"], 3)
+	client = client_for(admin)
+	html = client.get("/results").get_data(as_text=True)
+	assert ">3 jobs</span>" in html
+	assert 'data-filter=""' in html
+	html = client.get("/results?status=failed").get_data(as_text=True)
+	assert ">1 failed job</span>" in html
+	assert 'data-mine-total="1" data-all-total="4" data-filter="failed"' in html
+	html = client.get("/results?status=cancelled").get_data(as_text=True)
+	assert ">0 cancelled jobs</span>" in html
 
 
 def test_results_status_filter_links(operator, client_for, session_scope):

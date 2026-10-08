@@ -303,7 +303,7 @@
     <div class="nr-badge">RESULTS</div>
     <h4 class="mb-0" style="font-weight:600;">Job History</h4>
     <span style="color:var(--nr-text-muted); font-size:0.85rem;" id="jobCountLabel"
-          data-mine-total="{{ mine.total }}" data-all-total="{{ mine.total + others.total }}">{{ mine.total }} job{{ 's' if mine.total != 1 }}</span>
+          data-mine-total="{{ mine.total }}" data-all-total="{{ mine.total + others.total }}" data-filter="{{ status_filter or '' }}">{{ mine.total }} {{ status_filter ~ ' ' if status_filter }}job{{ 's' if mine.total != 1 }}</span>
     {% if is_admin %}
     <div class="ms-auto">
         <button id="allUsersToggle" class="job-action-btn" onclick="toggleAllUsers()"
@@ -318,7 +318,6 @@
 {% macro job_rows(job_list, show_owner=false) %}
 {% for job in job_list %}
 <div class="job-row"
-     data-status="{{ job.status }}"
      data-job-id="{{ job.job_id }}"
      data-commands="{{ job.commands | tojson | forceescape }}"
      data-started-at="{{ job.started_at.isoformat() }}"
@@ -940,12 +939,14 @@ function toggleAllUsers() {
     btn.style.borderColor = on ? 'rgba(0,188,212,0.35)' : '';
     btn.style.color       = on ? '#00bcd4'               : '';
     btn.style.background  = on ? 'rgba(0,188,212,0.06)'  : '';
+    // the count names the status filter, as the server writes it
+    const filter = label.dataset.filter ? label.dataset.filter + ' ' : '';
     if (on) {
         const total = parseInt(label.dataset.allTotal);
-        label.textContent = total + ' job' + (total !== 1 ? 's' : '') + ' (all users)';
+        label.textContent = total + ' ' + filter + 'job' + (total !== 1 ? 's' : '') + ' (all users)';
     } else {
         const mine = parseInt(label.dataset.mineTotal);
-        label.textContent = mine + ' job' + (mine !== 1 ? 's' : '');
+        label.textContent = mine + ' ' + filter + 'job' + (mine !== 1 ? 's' : '');
     }
     // the view stays on a reload; its pages are its own
     const url = new URL(window.location.href);
@@ -975,12 +976,13 @@ function showCommands(commands) {
 }
 
 // ── /results?job=<id> (the completion card's link): open that job ─────────────
-// (the server shows the page it is on)
+// (the server shows the page it is on, and the all-users view for another
+// user's job; an own job is in both views - the one shown is opened)
 (() => {
     const id = new URLSearchParams(window.location.search).get('job');
     if (!id) return;
-    const row = [...document.querySelectorAll('#job-list .job-row')]
-        .find(r => r.dataset.jobId === id);
+    const row = [...document.querySelectorAll('.job-row')]
+        .find(r => r.dataset.jobId === id && r.offsetParent !== null);
     if (!row) return;
     row.classList.add('expanded');
     row.scrollIntoView({block: 'center'});
