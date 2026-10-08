@@ -724,11 +724,10 @@ function initTestDevSelect() {
     const container = document.getElementById('testDevSelect');
     if (!container) return;
 
-    const trigger  = container.querySelector('.nr-select-trigger');
-    const search   = container.querySelector('.nr-select-search');
     const options  = container.querySelectorAll('.nr-select-option');
     const hidden   = document.getElementById('testDeviceHidden');
     const display  = container.querySelector('.nr-select-display');
+    const shell    = nrSelectShell(container, filterOptions, document.getElementById('testModal'));
 
     function renderDisplay(label, ip, deviceType) {
         if (!label) {
@@ -751,7 +750,7 @@ function initTestDevSelect() {
         hidden.value = value;
         renderDisplay(label, ip, deviceType);
         options.forEach(o => o.classList.toggle('selected', o.dataset.value === value));
-        close();
+        shell.close();
     }
 
     function filterOptions(q) {
@@ -764,23 +763,8 @@ function initTestDevSelect() {
         });
     }
 
-    function open()  { container.classList.add('open'); search.focus(); }
-    function close() { container.classList.remove('open'); search.value = ''; filterOptions(''); }
-
-    trigger.addEventListener('click', e => {
-        e.stopPropagation();
-        container.classList.contains('open') ? close() : open();
-    });
-    search.addEventListener('input',  () => filterOptions(search.value));
-    search.addEventListener('click',  e => e.stopPropagation());
-    options.forEach(opt => {
-        opt.addEventListener('click', e => {
-            e.stopPropagation();
-            selectOption(opt.dataset.value, opt.dataset.label, opt.dataset.ip, opt.dataset.type);
-        });
-    });
-    document.addEventListener('click', close);
-    document.getElementById('testModal').addEventListener('hidden.bs.modal', close);
+    options.forEach(opt => shell.wire(opt, o => selectOption(o.dataset.value, o.dataset.label, o.dataset.ip, o.dataset.type)));
+    shell.listen();
 
     testDevSelect = {
         getValue: () => hidden.value,

@@ -638,10 +638,9 @@ function initAttrSelect(containerId, hiddenId, indexWrapId) {
     const container = document.getElementById(containerId);
     const hidden    = document.getElementById(hiddenId);
     const indexWrap = indexWrapId ? document.getElementById(indexWrapId) : null;
-    const trigger   = container.querySelector('.nr-select-trigger');
-    const search    = container.querySelector('.nr-select-search');
     const options   = container.querySelectorAll('.nr-select-option');
     const display   = container.querySelector('.nr-select-display');
+    const shell     = nrSelectShell(container, filterOptions, null);
 
     function renderDisplay(value, icon) {
         if (!value) {
@@ -660,7 +659,7 @@ function initAttrSelect(containerId, hiddenId, indexWrapId) {
         renderDisplay(value, icon);
         options.forEach(o => o.classList.toggle('selected', o.dataset.value === value));
         if (indexWrap) indexWrap.classList.toggle('visible', LIST_PROPS.has(value));
-        close();
+        shell.close();
     }
 
     function filterOptions(q) {
@@ -670,22 +669,8 @@ function initAttrSelect(containerId, hiddenId, indexWrapId) {
         });
     }
 
-    function open()  { container.classList.add('open'); search.focus(); }
-    function close() { container.classList.remove('open'); search.value = ''; filterOptions(''); }
-
-    trigger.addEventListener('click', e => {
-        e.stopPropagation();
-        container.classList.contains('open') ? close() : open();
-    });
-    search.addEventListener('input',  () => filterOptions(search.value));
-    search.addEventListener('click',  e => e.stopPropagation());
-    options.forEach(opt => {
-        opt.addEventListener('click', e => {
-            e.stopPropagation();
-            selectOption(opt.dataset.value, opt.dataset.icon);
-        });
-    });
-    document.addEventListener('click', () => close());
+    options.forEach(opt => shell.wire(opt, o => selectOption(o.dataset.value, o.dataset.icon)));
+    shell.listen();
 
     return {
         getValue: ()      => hidden.value,

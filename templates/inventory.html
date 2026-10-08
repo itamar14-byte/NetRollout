@@ -1212,11 +1212,10 @@ function initNrSelect(containerId) {
     const container = document.getElementById(containerId);
     if (!container) return null;
 
-    const trigger = container.querySelector('.nr-select-trigger');
-    const search  = container.querySelector('.nr-select-search');
     const hidden  = container.querySelector('input[type="hidden"]');
     const display = container.querySelector('.nr-select-display');
     const list    = container.querySelector('.nr-select-list');
+    const shell   = nrSelectShell(container, filterOptions, container.closest('.modal'));
 
     function liveOptions() { return container.querySelectorAll('.nr-select-option'); }
 
@@ -1236,7 +1235,7 @@ function initNrSelect(containerId) {
         hidden.value = value;
         renderDisplay(label || '');
         liveOptions().forEach(o => o.classList.toggle('selected', o.dataset.value === value));
-        close();
+        shell.close();
     }
 
     function filterOptions(q) {
@@ -1249,38 +1248,12 @@ function initNrSelect(containerId) {
         });
     }
 
-    function open() {
-        container.classList.add('open');
-        search.focus();
-    }
-
-    function close() {
-        container.classList.remove('open');
-        search.value = '';
-        filterOptions('');
-    }
-
     function wireOption(opt) {
-        opt.addEventListener('click', e => {
-            e.stopPropagation();
-            selectOption(opt.dataset.value, opt.dataset.label);
-        });
+        shell.wire(opt, o => selectOption(o.dataset.value, o.dataset.label));
     }
-
-    trigger.addEventListener('click', e => {
-        e.stopPropagation();
-        container.classList.contains('open') ? close() : open();
-    });
-
-    search.addEventListener('input', () => filterOptions(search.value));
-    search.addEventListener('click', e => e.stopPropagation());
 
     liveOptions().forEach(wireOption);
-
-    document.addEventListener('click', close);
-
-    const modal = container.closest('.modal');
-    if (modal) modal.addEventListener('hidden.bs.modal', close);
+    shell.listen();
 
     return {
         getValue: () => hidden.value,
@@ -1320,9 +1293,9 @@ function initPlatformSelect(containerId, hiddenId, errorId) {
     if (!container || !hidden) return null;
 
     const trigger = container.querySelector('.nr-select-trigger');
-    const search  = container.querySelector('.nr-select-search');
     const options = container.querySelectorAll('.nr-select-option');
     const display = container.querySelector('.nr-select-display');
+    const shell   = nrSelectShell(container, filterOptions, container.closest('.modal'));
 
     function renderDisplay(value, label) {
         if (!value) {
@@ -1346,7 +1319,7 @@ function initPlatformSelect(containerId, hiddenId, errorId) {
         options.forEach(o => o.classList.toggle('selected', o.dataset.value === value));
         container.classList.remove('nr-platform-error');
         if (errorEl) errorEl.style.display = 'none';
-        close();
+        shell.close();
     }
 
     function filterOptions(q) {
@@ -1356,24 +1329,8 @@ function initPlatformSelect(containerId, hiddenId, errorId) {
         });
     }
 
-    function open()  { container.classList.add('open'); search.focus(); }
-    function close() { container.classList.remove('open'); search.value = ''; filterOptions(''); }
-
-    trigger.addEventListener('click', e => {
-        e.stopPropagation();
-        container.classList.contains('open') ? close() : open();
-    });
-    search.addEventListener('input', () => filterOptions(search.value));
-    search.addEventListener('click', e => e.stopPropagation());
-    options.forEach(opt => {
-        opt.addEventListener('click', e => {
-            e.stopPropagation();
-            selectOption(opt.dataset.value, opt.dataset.label);
-        });
-    });
-    document.addEventListener('click', close);
-    const modal = container.closest('.modal');
-    if (modal) modal.addEventListener('hidden.bs.modal', close);
+    options.forEach(opt => shell.wire(opt, o => selectOption(o.dataset.value, o.dataset.label)));
+    shell.listen();
 
     return {
         getValue: ()            => hidden.value,

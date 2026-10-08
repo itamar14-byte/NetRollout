@@ -53,6 +53,39 @@ function nrReachChecking(el) {
     el.title = 'Checking reachability…';
 }
 
+// ── NrSelect (the searchable dropdowns): open / close and the search ─────
+// What every NrSelect does alike: the trigger opens and closes it, typing in
+// its search filters (filter(q), the caller's), a click outside closes it,
+// and so does its modal hiding (modal: that element; none - stays open).
+// Returns {open, close, wire(option, pick)}: wire makes a click on an
+// option call pick(option).
+function nrSelectShell(container, filter, modal) {
+    const trigger = container.querySelector('.nr-select-trigger');
+    const search  = container.querySelector('.nr-select-search');
+
+    function open()  { container.classList.add('open'); search.focus(); }
+    function close() { container.classList.remove('open'); search.value = ''; filter(''); }
+
+    trigger.addEventListener('click', e => {
+        e.stopPropagation();
+        container.classList.contains('open') ? close() : open();
+    });
+    search.addEventListener('input', () => filter(search.value));
+    search.addEventListener('click', e => e.stopPropagation());
+    return {
+        open, close,
+        wire(option, pick) {
+            option.addEventListener('click', e => { e.stopPropagation(); pick(option); });
+        },
+        // the outside-click / modal listeners, after the options are wired
+        // (the order the controllers had)
+        listen() {
+            document.addEventListener('click', close);
+            if (modal) modal.addEventListener('hidden.bs.modal', close);
+        },
+    };
+}
+
 // ── Assign board ──
 // Two columns inside a device-assignment modal: data-col="in" (assigned) and
 // data-col="out" (available). Moves are staged locally; the caller reads
