@@ -44,7 +44,7 @@
                color:#e0e0e0; margin:0 0 0.2rem;">Performance Analytics</h4>
     <div style="font-family:'JetBrains Mono',monospace; font-size:0.7rem; color:var(--nr-text-muted);">
       {% if current_user.role == 'admin' and selected_user != 'me' %}
-        Viewing: <span style="color:#00bcd4;">{{ selected_username }}</span>
+        Viewing: <span class="nr-accent">{{ selected_username }}</span>
         &nbsp;·&nbsp;<a href="{{ url_for('analytics.analytics') }}" style="color:var(--nr-text-muted); text-decoration:none;"
                          onmouseenter="this.style.color='#00bcd4'" onmouseleave="this.style.color='var(--nr-text-muted)'">back to my data</a>
       {% else %}
@@ -81,7 +81,7 @@
         {% elif kpi.success_rate >= 50 %}rgba(255,193,7,0.5)
         {% else %}rgba(239,83,80,0.6){% endif %},transparent);"></div>
     <div class="nr-card-body" style="padding:1.1rem 1.25rem;">
-      <div class="nr-label" style="margin-bottom:0.4rem;">SUCCESS RATE <span style="color:var(--nr-text-muted); text-transform:none; letter-spacing:0;">30d</span></div>
+      <div class="nr-label" style="margin-bottom:0.4rem;">SUCCESS RATE <span class="nr-label-hint">30d</span></div>
       <div style="font-family:'JetBrains Mono',monospace; font-size:1.8rem; font-weight:700; line-height:1;
           color:{% if kpi.success_rate is none %}#333
                 {% elif kpi.success_rate >= 80 %}#a5d6a7
@@ -89,7 +89,7 @@
                 {% else %}#ef9a9a{% endif %};">
         {% if kpi.success_rate is none %}—{% else %}{{ kpi.success_rate }}%{% endif %}
       </div>
-      <div style="font-size: 0.75rem; color:var(--nr-text-muted); margin-top:0.3rem;">
+      <div class="nr-help">
         {{ kpi.jobs_30d }} job{{ 's' if kpi.jobs_30d != 1 }}
       </div>
     </div>
@@ -99,11 +99,11 @@
   <div class="nr-card kpi-animate" style="height:100%;">
     <div class="nr-card-accent"></div>
     <div class="nr-card-body" style="padding:1.1rem 1.25rem;">
-      <div class="nr-label" style="margin-bottom:0.4rem;">DEVICES REACHED <span style="color:var(--nr-text-muted); text-transform:none; letter-spacing:0;">30d</span></div>
+      <div class="nr-label" style="margin-bottom:0.4rem;">DEVICES REACHED <span class="nr-label-hint">30d</span></div>
       <div style="font-family:'JetBrains Mono',monospace; font-size:1.8rem; font-weight:700; line-height:1; color:#e0e0e0;">
         {{ kpi.devices_reached }}
       </div>
-      <div style="font-size: 0.75rem; color:var(--nr-text-muted); margin-top:0.3rem;">device push operations</div>
+      <div class="nr-help">device push operations</div>
     </div>
   </div>
 
@@ -111,40 +111,40 @@
   <div class="nr-card kpi-animate" style="height:100%;">
     <div class="nr-card-accent"></div>
     <div class="nr-card-body" style="padding:1.1rem 1.25rem;">
-      <div class="nr-label" style="margin-bottom:0.4rem;">COMMANDS PUSHED <span style="color:var(--nr-text-muted); text-transform:none; letter-spacing:0;">30d</span></div>
+      <div class="nr-label" style="margin-bottom:0.4rem;">COMMANDS PUSHED <span class="nr-label-hint">30d</span></div>
       <div style="font-family:'JetBrains Mono',monospace; font-size:1.8rem; font-weight:700; line-height:1; color:#e0e0e0;">
         {{ kpi.commands_pushed }}
       </div>
-      <div style="font-size: 0.75rem; color:var(--nr-text-muted); margin-top:0.3rem;">total lines sent</div>
+      <div class="nr-help">total lines sent</div>
     </div>
   </div>
 
   <!-- Top Failing Device -->
   <div class="nr-card kpi-animate" style="height:100%;">
-    <div class="nr-card-accent" style="background:linear-gradient(90deg,rgba(239,83,80,0.25),transparent);"></div>
+    <div class="nr-card-accent nr-accent-danger"></div>
     <div class="nr-card-body" style="padding:1.1rem 1.25rem;">
-      <div class="nr-label" style="margin-bottom:0.4rem;">MOST FAILURES <span style="color:var(--nr-text-muted); text-transform:none; letter-spacing:0;">30d</span></div>
+      <div class="nr-label" style="margin-bottom:0.4rem;">MOST FAILURES <span class="nr-label-hint">30d</span></div>
       {% if kpi.top_failed %}
       <div style="font-family:'JetBrains Mono',monospace; font-size:0.85rem; font-weight:700;
                   color:#ef9a9a; line-height:1.3; word-break:break-all;">
         {{ kpi.top_failed.label or kpi.top_failed.ip }}
       </div>
-      <div style="font-size: 0.75rem; color:var(--nr-text-muted); margin-top:0.3rem;">
+      <div class="nr-help">
         {{ kpi.top_failed.fail_count }} failure{{ 's' if kpi.top_failed.fail_count != 1 }}
-        {% if kpi.top_failed.label %}<br><span style="color:var(--nr-text-muted);">{{ kpi.top_failed.ip }}</span>{% endif %}
+        {% if kpi.top_failed.label %}<br><span class="nr-muted">{{ kpi.top_failed.ip }}</span>{% endif %}
       </div>
       {% else %}
       <div style="font-family:'JetBrains Mono',monospace; font-size:1.8rem; font-weight:700; line-height:1; color:var(--nr-text-muted);">—</div>
-      <div style="font-size: 0.75rem; color:var(--nr-text-muted); margin-top:0.3rem;">no failures</div>
+      <div class="nr-help">no failures</div>
       {% endif %}
     </div>
   </div>
 
   <!-- Top Platforms -->
   <div class="nr-card kpi-animate" style="height:100%;">
-    <div class="nr-card-accent" style="background:linear-gradient(90deg,rgba(0,188,212,0.2),transparent);"></div>
+    <div class="nr-card-accent nr-accent-soft-line"></div>
     <div class="nr-card-body" style="padding:1.1rem 1.25rem;">
-      <div class="nr-label" style="margin-bottom:0.6rem;">TOP PLATFORMS <span style="color:var(--nr-text-muted); text-transform:none; letter-spacing:0;">30d</span></div>
+      <div class="nr-label" style="margin-bottom:0.6rem;">TOP PLATFORMS <span class="nr-label-hint">30d</span></div>
       {% if kpi.top_platforms %}
         {% for platform, count in kpi.top_platforms %}
         <div class="platform-row">
@@ -159,7 +159,7 @@
         {% endfor %}
       {% else %}
       <div style="font-family:'JetBrains Mono',monospace; font-size:1.8rem; font-weight:700; line-height:1; color:var(--nr-text-muted);">—</div>
-      <div style="font-size: 0.75rem; color:var(--nr-text-muted); margin-top:0.3rem;">no data</div>
+      <div class="nr-help">no data</div>
       {% endif %}
     </div>
   </div>
@@ -170,7 +170,7 @@
      DEVICE RESULTS QUERY ENGINE
 ══════════════════════════════════════ -->
 <div class="nr-card">
-  <div class="nr-card-accent" style="background:linear-gradient(90deg,rgba(0,188,212,0.2),transparent);"></div>
+  <div class="nr-card-accent nr-accent-soft-line"></div>
   <div class="nr-card-body" style="padding:1.5rem;">
 
     <!-- Header -->
@@ -178,11 +178,11 @@
       <div style="width:40px; height:40px; border-radius:10px; background:rgba(0,188,212,0.08);
                   border:1px solid rgba(0,188,212,0.15); display:flex; align-items:center;
                   justify-content:center; flex-shrink:0;">
-        <i class="bi bi-database-check" style="color:#00bcd4; font-size:1.1rem;"></i>
+        <i class="bi bi-database-check nr-accent-icon"></i>
       </div>
       <div>
         <div class="nr-badge" style="margin-bottom:0.2rem;">ROLLOUT RESULTS QUERY</div>
-        <div style="font-size:0.88rem; font-weight:600; color:#e0e0e0;">Device Results Explorer</div>
+        <div class="nr-section-title-tight">Device Results Explorer</div>
         <div style="font-size:0.7rem; color:var(--nr-text-muted); font-family:'JetBrains Mono',monospace; margin-top:0.1rem;">
           your rollout history · filter · export
         </div>

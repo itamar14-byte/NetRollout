@@ -6,7 +6,7 @@
 <div class="d-flex justify-content-between align-items-start mb-3">
   <div>
     <div class="nr-badge" style="margin-bottom:0.35rem;">USER MANAGEMENT</div>
-    <h4 class="mb-0" style="font-family:'Inter',sans-serif; font-weight:600; font-size:1.15rem; color:#e0e0e0;">
+    <h4 class="mb-0 nr-page-title">
       All Users
     </h4>
   </div>
@@ -191,7 +191,7 @@
           Reset the password of
           <span id="resetPwUser" style="font-family:'JetBrains Mono',monospace; color:var(--nr-accent); font-weight:700;"></span>?
         </p>
-        <p style="font-size:0.82rem; color:var(--nr-text-muted); margin-bottom:0;">
+        <p class="nr-note-tight">
           Their current password stops working and they're signed out. You get a temporary
           password to hand over; at their next sign-in they must choose their own.
           Only reset when you've confirmed the request is genuine.
@@ -205,7 +205,7 @@
           <code id="resetPwValue" style="font-size:1.05rem; padding:0.4rem 0.6rem; background:#111; border:1px solid #333; border-radius:4px; user-select:all; flex:1;"></code>
           <button type="button" class="btn btn-outline-info btn-sm" id="resetPwCopy" title="Copy"><i class="bi bi-copy"></i></button>
         </div>
-        <p style="font-size:0.82rem; color:#ffcc80; margin-bottom:0;">
+        <p class="nr-warning-note">
           <i class="bi bi-exclamation-triangle me-1"></i>Shown only now — it isn't stored anywhere
           you can see it again. Hand it over privately.
         </p>
@@ -247,7 +247,7 @@
             <input type="text" class="form-control" id="auFullName" maxlength="120" autocomplete="off" required>
           </div>
           <div class="mb-2">
-            <label class="nr-label" for="auPosition">Position <span style="color:var(--nr-text-muted);">(optional)</span></label>
+            <label class="nr-label" for="auPosition">Position <span class="nr-muted">(optional)</span></label>
             <input type="text" class="form-control" id="auPosition" maxlength="64" autocomplete="off">
           </div>
           <div class="mb-1">
@@ -268,7 +268,7 @@
             <code id="addUserPassword" style="font-size:1.05rem; padding:0.4rem 0.6rem; background:#111; border:1px solid #333; border-radius:4px; user-select:all; flex:1;"></code>
             <button type="button" class="btn btn-outline-info btn-sm" id="addUserCopy" title="Copy"><i class="bi bi-copy"></i></button>
           </div>
-          <p style="font-size:0.82rem; color:#ffcc80; margin-bottom:0;">
+          <p class="nr-warning-note">
             <i class="bi bi-exclamation-triangle me-1"></i>Shown only now — it isn't stored anywhere
             you can see it again. Hand it over privately; they replace it at their first sign-in.
           </p>
@@ -305,7 +305,7 @@
           Their current authenticator stops working. At their next sign-in they set up a new one
           with a QR code.
         </p>
-        <p style="font-size:0.82rem; color:#ffcc80; margin-bottom:0;">
+        <p class="nr-warning-note">
           <i class="bi bi-exclamation-triangle me-1"></i>Until then, their password alone gets them
           to the setup step. Only reset when you've confirmed the request is genuine.
         </p>
@@ -326,8 +326,8 @@
     <div class="modal-content">
       <div class="modal-header">
         <div>
-          <div class="nr-badge" style="margin-bottom:0.3rem; border-color:rgba(239,83,80,0.4); color:#ef9a9a;">IRREVERSIBLE ACTION</div>
-          <h5 class="modal-title" style="color:#ef9a9a;">Delete Users</h5>
+          <div class="nr-badge nr-badge-danger">IRREVERSIBLE ACTION</div>
+          <h5 class="modal-title nr-danger-soft">Delete Users</h5>
         </div>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>

@@ -5,7 +5,7 @@
 <div class="d-flex justify-content-between align-items-start mb-4">
   <div>
     <div class="nr-badge" style="margin-bottom:0.35rem;">SERVER MANAGEMENT</div>
-    <h4 class="mb-0" style="font-family:'Inter',sans-serif; font-weight:600; font-size:1.15rem; color:#e0e0e0;">
+    <h4 class="mb-0 nr-page-title">
       Infrastructure Configuration
     </h4>
   </div>
@@ -17,7 +17,7 @@
   <div class="nr-card-body">
 
     <div class="d-flex align-items-center mb-4">
-      <i class="bi bi-hdd-stack" style="color:#00bcd4; font-size:1.1rem;"></i>
+      <i class="bi bi-hdd-stack nr-accent-icon"></i>
       <span style="font-family:'Inter',sans-serif; font-weight:600; color:#e0e0e0; font-size:0.97rem; margin-left:0.5rem;">
         Database Services
       </span>
@@ -144,7 +144,7 @@
             <span class="mv-step-title" id="mvStep1">Prepare the database</span></div>
           <div class="mv-ways" role="group" aria-label="How the database is prepared">
             <button type="button" class="mv-way" id="mvWayDba" aria-pressed="true">
-              <strong>Your database administrator prepares it <span style="color:#00bcd4;">(recommended)</span></strong>
+              <strong>Your database administrator prepares it <span class="nr-accent">(recommended)</span></strong>
               You get the list of what to ask for and the SQL to hand over. NetRollout never needs an administrator password.</button>
             <button type="button" class="mv-way" id="mvWayAdmin" aria-pressed="false">
               <strong>I have an administrator login</strong>
@@ -274,12 +274,12 @@
                  value="{{ redis_port }}">
         </div>
         <div class="col-md-2">
-          <label class="nr-label">DB <span style="color:var(--nr-text-muted);">(0–15)</span></label>
+          <label class="nr-label">DB <span class="nr-muted">(0–15)</span></label>
           <input type="number" id="rd_db" class="form-control" placeholder="0" min="0" max="15"
                  value="{{ redis_db }}">
         </div>
         <div class="col-md-3">
-          <label class="nr-label">Password <span style="color:var(--nr-text-muted);">(optional)</span></label>
+          <label class="nr-label">Password <span class="nr-muted">(optional)</span></label>
           <input type="password" id="rd_password" class="form-control" placeholder="••••••••" autocomplete="new-password">
         </div>
       </div>
@@ -304,7 +304,7 @@
   <div class="nr-card-accent"></div>
   <div class="nr-card-body">
     <div class="d-flex align-items-center mb-2">
-      <i class="bi bi-shield-lock" style="color:#00bcd4; font-size:1.1rem;"></i>
+      <i class="bi bi-shield-lock nr-accent-icon"></i>
       <span style="font-family:'Inter',sans-serif; font-weight:600; color:#e0e0e0; font-size:0.97rem; margin-left:0.5rem;">
         TLS Certificate
       </span>
@@ -349,7 +349,7 @@
 
     <div class="d-flex align-items-center justify-content-between mb-3">
       <div class="d-flex align-items-center gap-2">
-        <i class="bi bi-people" style="color:#00bcd4; font-size:1.1rem;"></i>
+        <i class="bi bi-people nr-accent-icon"></i>
         <span style="font-family:'Inter',sans-serif; font-weight:600; color:#e0e0e0; font-size:0.97rem;">
           LDAP / Active Directory
         </span>

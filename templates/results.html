@@ -457,7 +457,7 @@
             <tbody>
                 {% for d in job.devices %}
                 <tr>
-                    <td style="font-family:'JetBrains Mono',monospace; font-size:0.8rem;">{{ d.ip }}{% if d.port != 22 %}<span style="color:var(--nr-text-muted);">:{{ d.port }}</span>{% endif %}</td>
+                    <td style="font-family:'JetBrains Mono',monospace; font-size:0.8rem;">{{ d.ip }}{% if d.port != 22 %}<span class="nr-muted">:{{ d.port }}</span>{% endif %}</td>
                     <td>
                         {% if VENDOR_LOGOS.get(d.device_type) %}
                         <img alt="" src="{{ VENDOR_LOGOS[d.device_type] }}" width="14" height="14"
@@ -467,7 +467,7 @@
                     </td>
                     <td style="font-family:'JetBrains Mono',monospace;">{{ d.commands_sent }}</td>
                     <td style="font-family:'JetBrains Mono',monospace;">
-                        {% if d.commands_verified is not none %}{{ d.commands_verified }}{% else %}<span style="color:var(--nr-text-muted);">—</span>{% endif %}
+                        {% if d.commands_verified is not none %}{{ d.commands_verified }}{% else %}<span class="nr-muted">—</span>{% endif %}
                     </td>
                     <td><span class="status-pill pill-{{ d.status }}">{{ d.status }}</span>{% if d.action_needed %}
                         <i class="bi bi-exclamation-triangle-fill ms-1" style="color:#ffb74d;"
@@ -672,7 +672,7 @@
                         <div style="font-size: 0.6875rem; color:var(--nr-text-muted); text-transform:uppercase; letter-spacing:1px;">Older</div>
                         <span id="diffLeftLabel" style="font-family:'JetBrains Mono',monospace; font-size:0.78rem; color:#ef9a9a;"></span>
                     </div>
-                    <div style="color:var(--nr-text-muted);">→</div>
+                    <div class="nr-muted">→</div>
                     <div>
                         <div style="font-size: 0.6875rem; color:var(--nr-text-muted); text-transform:uppercase; letter-spacing:1px;">Newer</div>
                         <span id="diffRightLabel" style="font-family:'JetBrains Mono',monospace; font-size:0.78rem; color:#a5d6a7;"></span>
@@ -725,7 +725,7 @@
                         <strong style="color:#aaa;">How this is checked.</strong>
                         Each command is looked up in the section it was typed in: it must be in the device's config,
                         and a removal (<code>no</code> / <code>undo</code> / <code>delete</code> / <code>unset</code>) must be gone.
-                        It can mark a command <span style="color:#ef9a9a;">not configured</span> although it is
+                        It can mark a command <span class="nr-danger-soft">not configured</span> although it is
                         (abbreviations, values the device rewrites or hides as defaults), or verified because it was already there.
                         Commands with variables are shown as typed — the rollout log has their result per device.
                     </span>

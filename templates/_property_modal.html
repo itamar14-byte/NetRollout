@@ -24,13 +24,13 @@
                            oninput="autoSlug('{{ prefix }}Label','{{ prefix }}Name')">
                 </div>
                 <div class="mb-3">
-                    <label class="nr-label">NAME <span style="color:var(--nr-text-muted); text-transform:none; letter-spacing:0;">(auto-generated · immutable after creation)</span></label>
+                    <label class="nr-label">NAME <span class="nr-label-hint">(auto-generated · immutable after creation)</span></label>
                     <input type="text" class="form-control form-control-sm" id="{{ prefix }}Name"
                            placeholder="bgp_peer_ip" autocomplete="off">
                     <div style="font-size: 0.75rem; color:var(--nr-text-muted); margin-top:3px;">Dict key used for $$TOKEN$$ substitution. Edit if the auto-generated value isn't right.</div>
                 </div>
                 <div class="mb-3">
-                    <label class="nr-label">ICON <span style="color:var(--nr-text-muted); text-transform:none; letter-spacing:0;">(Bootstrap Icons class)</span></label>
+                    <label class="nr-label">ICON <span class="nr-label-hint">(Bootstrap Icons class)</span></label>
                     <div class="input-group input-group-sm">
                         <span class="input-group-text" style="background:#111; border-color:#2a2a2a;">
                             <i id="{{ prefix }}IconPreview" class="bi bi-tag" style="color:var(--nr-text-faint);"></i>

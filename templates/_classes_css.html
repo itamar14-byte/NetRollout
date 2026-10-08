@@ -1,0 +1,27 @@
+{# Named styles for what pages wrote inline again and again (help lines,
+   label hints, table headers, KPI numbers...). Included last in each
+   skeleton's <style>, before the page's own. #}
+        .nr-label-hint { color:var(--nr-text-muted); text-transform:none; letter-spacing:0; }   /* a hint inside a field's label, e.g. (optional) */
+        .nr-help { font-size: 0.75rem; color:var(--nr-text-muted); margin-top:0.3rem; }   /* the help line under a field */
+        .nr-help-spaced { font-size: 0.75rem; color:var(--nr-text-muted); margin-top:0.4rem; }   /* the help line under a field, a little lower */
+        .nr-help-text { font-size: 0.75rem; color:var(--nr-text-muted); }   /* help text, no spacing */
+        .nr-badge-danger { margin-bottom:0.3rem; border-color:rgba(239,83,80,0.4); color:#ef9a9a; }   /* with nr-badge: the IRREVERSIBLE ACTION badge */
+        .nr-kpi-value { font-family:'JetBrains Mono',monospace; font-size:1.9rem; font-weight:700; color:#e0e0e0; letter-spacing:-0.5px; margin-bottom:0.4rem; }   /* a KPI card's number */
+        .nr-section-title { font-size:0.88rem; font-weight:600; color:#e0e0e0; margin-bottom:1rem; }   /* a card section's title */
+        .nr-section-title-tight { font-size:0.88rem; font-weight:600; color:#e0e0e0; }   /* a card section's title, no space below */
+        .nr-mono-caption { font-family:'JetBrains Mono',monospace; font-size: 0.6875rem; color:var(--nr-text-muted); }   /* small monospace caption */
+        .nr-mono { font-family:'JetBrains Mono',monospace; color:var(--nr-text-secondary); }   /* monospace value (IPs, ids) */
+        .nr-page-title { font-family:'Inter',sans-serif; font-weight:600; font-size:1.15rem; color:#e0e0e0; }   /* a page's title line */
+        .nr-page-subtitle { font-size:0.85rem; color:var(--nr-text-muted); font-weight:300; }   /* the line under a page title */
+        .nr-note { font-size:0.82rem; color:var(--nr-text-muted); }   /* a muted note */
+        .nr-note-tight { font-size:0.82rem; color:var(--nr-text-muted); margin-bottom:0; }   /* a muted note, no space below */
+        .nr-warning-note { font-size:0.82rem; color:#ffcc80; margin-bottom:0; }   /* an amber warning note */
+        .nr-accent-danger { background:linear-gradient(90deg,rgba(239,83,80,0.25),transparent); }   /* with nr-card-accent: the red top line */
+        .nr-accent-soft-line { background:linear-gradient(90deg,rgba(0,188,212,0.2),transparent); }   /* with nr-card-accent: a faint cyan top line */
+        .nr-muted { color:var(--nr-text-muted); }   /* muted text */
+        .nr-faint { color:var(--nr-text-faint); }   /* a decorative icon's colour */
+        .nr-accent { color:#00bcd4; }   /* accent (cyan) text / icon */
+        .nr-danger { color:#ef5350; }   /* error text / icon */
+        .nr-danger-soft { color:#ef9a9a; }   /* soft red text */
+        .nr-accent-icon { color:#00bcd4; font-size:1.1rem; }   /* a cyan heading icon */
+        .nr-strong { color:#e0e0e0; font-size:0.95rem; }   /* a bright value */
