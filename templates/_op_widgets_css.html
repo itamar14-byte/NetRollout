@@ -1,0 +1,305 @@
+{# The operator pages' shared widgets - their styles: the toggle switch, the
+   global-device badge, NrSelect, the icon picker, the reachability
+   indicator, the assign board. Included in operator_base.html's <style>,
+   before the pages' own (extra_style). #}
+        /* ── Toggle switch (shared) ── */
+        .nr-toggle {
+            position: relative;
+            display: inline-block;
+            width: 34px;
+            height: 18px;
+            flex-shrink: 0;
+        }
+        .nr-toggle input { display: none; }
+        .nr-toggle-slider {
+            position: absolute;
+            inset: 0;
+            background: #1e1e1e;
+            border: 1px solid #333;
+            border-radius: 18px;
+            cursor: pointer;
+            transition: background 0.2s, border-color 0.2s;
+        }
+        .nr-toggle-slider::before {
+            content: '';
+            position: absolute;
+            width: 12px;
+            height: 12px;
+            left: 2px;
+            top: 2px;
+            background: #444;
+            border-radius: 50%;
+            transition: transform 0.2s, background 0.2s;
+        }
+        .nr-toggle input:checked + .nr-toggle-slider {
+            background: rgba(0,188,212,0.15);
+            border-color: #00bcd4;
+        }
+        .nr-toggle input:checked + .nr-toggle-slider::before {
+            transform: translateX(16px);
+            background: #00bcd4;
+        }
+
+        /* ── Global device badge + device section headers (shared) ── */
+        .nr-global-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+            padding: 0.05rem 0.4rem;
+            border-radius: 4px;
+            background: rgba(0,188,212,0.08);
+            border: 1px solid rgba(0,188,212,0.3);
+            color: #00bcd4;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.6875rem;
+            font-weight: 600;
+            letter-spacing: 0.06em;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+        .nr-global-badge i { font-size: 0.6875rem; }
+        .nr-section-head {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin: 0.25rem 0 0.6rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.6875rem;
+            font-weight: 600;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: var(--nr-text-muted);
+        }
+        .nr-section-head i { color: #00bcd4; font-size: 0.8rem; }
+        .nr-section-head .nr-section-count {
+            color: var(--nr-text-muted);
+            font-weight: 500;
+        }
+        .nr-section-head::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: #1e1e1e;
+        }
+
+        /* ── NrSelect custom dropdown ── */
+        .nr-select { position: relative; width: 100%; }
+        .nr-select-trigger {
+            display: flex; align-items: center; justify-content: space-between;
+            background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 6px;
+            padding: 0.42rem 0.75rem; cursor: pointer;
+            transition: border-color 0.15s; min-height: 38px;
+        }
+        .nr-select-trigger:hover,
+        .nr-select.open .nr-select-trigger { border-color: rgba(0,188,212,0.38); }
+        .nr-select-arrow { font-size: 0.75rem; color: var(--nr-text-muted); transition: transform 0.15s; flex-shrink: 0; }
+        .nr-select.open .nr-select-arrow { transform: rotate(180deg); }
+        .nr-select-display { display: flex; align-items: center; gap: 0.5rem; flex: 1; overflow: hidden; }
+        .nr-select-display-label {
+            font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; color: #bbb;
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+        .nr-select-placeholder { font-family: 'Inter', sans-serif; font-size: 0.8rem; color: var(--nr-text-muted); }
+        .nr-select-panel {
+            display: none; position: absolute; top: calc(100% + 4px); left: 0; right: 0;
+            z-index: 1060; background: #111; border: 1px solid #1e1e1e;
+            border-radius: 6px; box-shadow: 0 10px 36px rgba(0,0,0,0.55); overflow: hidden;
+        }
+        .nr-select.open .nr-select-panel { display: block; }
+        .nr-select-search-wrap { padding: 0.5rem 0.55rem; border-bottom: 1px solid #191919; }
+        .nr-select-search {
+            background: #1a1a1a; border: 1px solid #242424; border-radius: 5px;
+            padding: 0.3rem 0.6rem; width: 100%; color: #ccc;
+            font-family: 'Inter', sans-serif; font-size: 0.79rem; outline: none;
+        }
+        .nr-select-search:focus { border-color: rgba(0,188,212,0.35); }
+        .nr-select-search::placeholder { color: var(--nr-text-muted); }
+        .nr-select-list { max-height: 190px; overflow-y: auto; padding: 0.2rem 0; }
+        .nr-select-list::-webkit-scrollbar { width: 4px; }
+        .nr-select-list::-webkit-scrollbar-track { background: transparent; }
+        .nr-select-list::-webkit-scrollbar-thumb { background: #1e1e1e; border-radius: 2px; }
+        .nr-select-option {
+            display: flex; align-items: center; gap: 0.55rem;
+            padding: 0.42rem 0.75rem; cursor: pointer; transition: background 0.1s;
+        }
+        .nr-select-option:hover { background: rgba(255,255,255,0.04); }
+        .nr-select-option.selected { background: rgba(0,188,212,0.07); }
+        .opt-check { font-size: 0.75rem; color: #00bcd4; margin-left: auto; flex-shrink: 0; opacity: 0; }
+        .nr-select-option.selected .opt-check { opacity: 1; }
+        .opt-label {
+            font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; color: #bbb;
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1;
+        }
+        .opt-sub { font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; color: var(--nr-text-muted); flex-shrink: 0; }
+        .nr-select-option.none-opt .opt-label { color: var(--nr-text-muted); font-style: italic; }
+        .opt-shield { font-size: 0.78rem; color: #00bcd4; flex-shrink: 0; }
+
+        /* ── Icon Picker ── */
+        .icon-picker-panel {
+            display: none;
+            position: absolute;
+            top: calc(100% + 4px);
+            left: 0;
+            z-index: 1100;
+            background: #111;
+            border: 1px solid #2a2a2a;
+            border-radius: 8px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+            width: 280px;
+            padding: 8px;
+        }
+        .icon-picker-panel.open { display: block; }
+        .icon-picker-search {
+            width: 100%;
+            background: #1a1a1a;
+            border: 1px solid #2a2a2a;
+            border-radius: 6px;
+            color: #ccc;
+            font-size: 0.78rem;
+            padding: 5px 8px;
+            margin-bottom: 8px;
+            outline: none;
+        }
+        .icon-picker-grid {
+            display: grid;
+            grid-template-columns: repeat(8, 1fr);
+            gap: 2px;
+            max-height: 180px;
+            overflow-y: auto;
+        }
+        .icon-picker-opt {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 30px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 1rem;
+            color: var(--nr-text-faint);
+            transition: background 0.1s, color 0.1s;
+        }
+        .icon-picker-opt:hover { background: #1e1e1e; color: #00bcd4; }
+        .icon-picker-opt.selected { background: rgba(0,188,212,0.12); color: #00bcd4; }
+
+        /* ── Reachability indicator (shared) ──────────────────────────────
+           State is carried by shape AND colour (and an aria-label), never
+           colour alone: spinner = checking, filled dot = reachable,
+           crossed circle = unreachable, question = unknown */
+        .reach { display: inline-flex; align-items: center; flex-shrink: 0;
+                 font-size: 0.75rem; line-height: 1; }
+        .reach--checking { color: var(--nr-text-faint); }
+        .reach--checking i { animation: spin 1s linear infinite; }
+        .reach--up      { color: #66bb6a; }
+        .reach--down    { color: #ef5350; }
+        .reach--unknown { color: var(--nr-text-faint); }
+        .reach-recheck {
+            background: none; border: 1px solid #2a2a2a; border-radius: 5px;
+            color: var(--nr-text-muted); font-size: 0.75rem; padding: 2px 8px;
+            display: inline-flex; align-items: center; gap: 0.3rem; cursor: pointer;
+            transition: color 0.15s, border-color 0.15s;
+        }
+        .reach-recheck:hover { color: var(--nr-accent); border-color: rgba(0,188,212,0.4); }
+        .reach-recheck:disabled { opacity: 0.6; cursor: default; }
+        /* ── Assign board (shared): Assigned | Available columns in the
+              device-assignment modals. See nrAssignBoard(). ── */
+        .nr-board { display: grid; grid-template-columns: 1fr 1fr; }
+        .nr-board-col {
+            padding: 1rem 1.25rem; min-width: 0;
+            display: flex; flex-direction: column;
+            transition: background 0.15s, box-shadow 0.15s;
+        }
+        .nr-board-col + .nr-board-col { border-left: 1px solid #1a1a1a; }
+        .nr-board-col.drag-over {
+            background: rgba(0,188,212,0.04);
+            box-shadow: inset 0 0 0 1px rgba(0,188,212,0.35);
+        }
+        .nr-board-head {
+            display: flex; align-items: center; justify-content: space-between;
+            font-size: 0.6875rem; color: var(--nr-text-muted);
+            letter-spacing: 0.1em; text-transform: uppercase;
+            margin-bottom: 0.65rem; padding-bottom: 0.45rem;
+            border-bottom: 1px solid #191919;
+        }
+        .nr-board-count { font-family: 'JetBrains Mono', monospace; color: var(--nr-text-secondary); }
+        .nr-board-delta { font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; }
+        .nr-board-list { overflow-y: auto; min-height: 150px; max-height: 320px; flex: 1; }
+        .nr-board-list::-webkit-scrollbar { width: 3px; }
+        .nr-board-list::-webkit-scrollbar-thumb { background: #1e1e1e; border-radius: 2px; }
+        .nr-board-empty {
+            font-size: 0.8rem; color: var(--nr-text-muted); font-style: italic;
+            margin: 0; padding: 0.5rem 0;
+        }
+        .nr-board-card {
+            background: #141414; border: 1px solid #1e1e1e;
+            border-left: 2px solid #1e1e1e; border-radius: 7px;
+            padding: 0.45rem 0.6rem; margin-bottom: 0.3rem;
+            display: flex; align-items: center; gap: 0.55rem;
+            cursor: grab; user-select: none;
+            transition: border-color 0.18s, box-shadow 0.18s, opacity 0.18s;
+        }
+        .nr-board-card:hover { border-color: rgba(0,188,212,0.25); box-shadow: 0 2px 10px rgba(0,0,0,0.3); }
+        .nr-board-card.is-dragging { opacity: 0.3; cursor: grabbing; }
+        .nr-board-card.is-locked { cursor: not-allowed; }
+        .nr-board-card.is-locked:hover { border-color: #1e1e1e; box-shadow: none; }
+        .nr-board-lock { color: var(--nr-text-muted); font-size: 0.75rem; flex-shrink: 0; }
+        .nr-board-card.is-added   { border-left-color: var(--nr-accent); }
+        .nr-board-card.is-removed { border-left-color: #ef5350; }
+        .nr-board-card.is-landing { animation: nrCardLand 0.2s ease; }
+        @keyframes nrCardLand {
+            from { opacity: 0; transform: translateY(-5px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+        .nr-board-vendor {
+            width: 24px; height: 24px; min-width: 24px; border-radius: 5px;
+            background: #111; border: 1px solid #1e1e1e;
+            display: flex; align-items: center; justify-content: center; overflow: hidden;
+        }
+        .nr-board-vendor img { width: 15px; height: 15px; object-fit: contain; }
+        .nr-board-vendor i { font-size: 0.75rem; color: var(--nr-text-faint); }
+        .nr-board-name { flex: 1; min-width: 0; line-height: 1.25; }
+        .nr-board-label, .nr-board-ip {
+            display: block; font-family: 'JetBrains Mono', monospace;
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+        .nr-board-label { font-size: 0.78rem; color: var(--nr-text); }
+        .nr-board-ip    { font-size: 0.6875rem; color: var(--nr-text-muted); }
+        .nr-board-meta {
+            font-family: 'JetBrains Mono', monospace; font-size: 0.6875rem;
+            color: var(--nr-accent-soft); flex-shrink: 0; max-width: 120px;
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+        .nr-board-warn { color: #ffb74d; font-size: 0.8rem; flex-shrink: 0; }
+        .nr-board-move {
+            color: var(--nr-text-faint); font-size: 0.8rem; flex-shrink: 0;
+            opacity: 0; transition: opacity 0.15s, color 0.15s;
+        }
+        .nr-board-card:hover .nr-board-move,
+        .nr-board-card:focus-visible .nr-board-move { opacity: 1; color: var(--nr-accent); }
+        .nr-board-hint {
+            display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;
+            padding: 0.6rem 1.25rem; border-top: 1px solid #1a1a1a;
+            font-size: 0.78rem; color: var(--nr-text-muted);
+        }
+        /* Pending-change key for the card edges (bars, like the edges —
+           not dots, so it doesn't read as reachability) */
+        .nr-board-legend {
+            margin-left: auto; display: inline-flex; gap: 0.8rem;
+            font-size: 0.72rem; color: var(--nr-text-muted); white-space: nowrap;
+        }
+        .nr-board-legend:empty { display: none; }
+        .nr-board-swatch {
+            display: inline-block; width: 3px; height: 0.8rem; border-radius: 1px;
+            margin-right: 0.35rem; vertical-align: -2px;
+        }
+        .nr-board-swatch--added   { background: var(--nr-accent); }
+        .nr-board-swatch--removed { background: #ef5350; }
+        .nr-board-alert {
+            margin: 0 1.25rem 0.9rem; padding: 0.55rem 0.75rem; border-radius: 6px;
+            font-size: 0.8rem; display: flex; gap: 0.5rem; align-items: flex-start;
+        }
+        .nr-board-alert--warn  { background: rgba(255,183,77,0.07); border: 1px solid rgba(255,183,77,0.3); color: #ffcc80; }
+        .nr-board-alert--error { background: rgba(239,83,80,0.07); border: 1px solid rgba(239,83,80,0.3); color: #ef9a9a; }
+        @media (max-width: 640px) {
+            .nr-board { grid-template-columns: 1fr; }
+            .nr-board-col + .nr-board-col { border-left: none; border-top: 1px solid #1a1a1a; }
+        }

@@ -3,6 +3,8 @@
 // bin\manage.ps1 (hidden) and show its output; the status comes from
 // NetRollout's health endpoint on this computer. Update: a newer release
 // (Updates.cs), its Setup downloaded, checked and run - it updates the install.
+// The port helper (--helper) is PortHelper.cs; the window's update part,
+// ManagerForm.Updates.cs; the update dialog, with the release, Updates.cs.
 //
 // C# 5 / .NET Framework 4.8 (built into Windows 10/11): build.ps1 compiles it
 // with Windows' own csc.exe, no SDK needed. Lives next to manage.ps1 in
@@ -129,162 +131,6 @@ namespace NetRollout
 		static extern bool AllowSetForegroundWindow(int processId);
 	}
 
-	// The port helper (Windows): an HTTPS port saved in System Settings is
-	// applied by itself. Headless - no window, no tray. It watches
-	// config\nginx\site.env (change notifications, and a check every 3 s in
-	// case one is missed) and, when there's a request to act on, runs
-	// manage.ps1 apply hidden (the setup core decides; apply does the Docker
-	// part) - output appended to logs\port-helper.log.
-	class PortHelper : ApplicationContext
-	{
-		const int CheckMs = 3000;
-		const int Pause = 15;      // seconds before an unchanged request is tried again
-		readonly System.Windows.Forms.Timer timer = new System.Windows.Forms.Timer();
-		readonly Control invoker = new Control();
-		readonly string site = Path.Combine(Install.Root, @"config\nginx\site.env");
-		readonly string status = Path.Combine(Install.Root, @"config\apply-status.json");
-		FileSystemWatcher watcher;
-		Process running;
-		DateTime lastEnd = DateTime.MinValue;
-		string lastId = "";        // the request the last apply ran for
-		volatile bool changed = true;
-
-		public PortHelper(EventWaitHandle exit)
-		{
-			invoker.CreateControl();
-			var folder = Path.GetDirectoryName(site);
-			if (Directory.Exists(folder))
-			{
-				watcher = new FileSystemWatcher(folder, "site.env")
-				{
-					NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.Size
-				};
-				FileSystemEventHandler mark = delegate { changed = true; };
-				watcher.Changed += mark;
-				watcher.Created += mark;
-				watcher.Renamed += delegate { changed = true; };   // site.env is replaced whole
-				watcher.EnableRaisingEvents = true;
-			}
-			timer.Interval = 500;
-			int ticks = 0;
-			timer.Tick += delegate
-			{
-				ticks++;
-				if (changed || ticks * timer.Interval >= CheckMs) { ticks = 0; Check(); }
-			};
-			timer.Start();
-			var listener = new Thread(delegate ()
-			{
-				exit.WaitOne();
-				try { invoker.BeginInvoke((MethodInvoker)ExitThread); }
-				catch (InvalidOperationException) { }
-			});
-			listener.IsBackground = true;
-			listener.Start();
-		}
-
-		void Check()
-		{
-			if (running != null && !running.HasExited) return;
-			bool wasChanged = changed;
-			changed = false;
-			if (!Pending()) return;
-			// a request apply left as it was (Docker not running, say): not every
-			// 3 s - a new one at once (notifications may not come: Docker writes
-			// site.env from inside the VM)
-			string id = Value(site, "NETROLLOUT_PORT_REQUEST_ID");
-			if (!wasChanged && id == lastId && (DateTime.Now - lastEnd).TotalSeconds < Pause) return;
-			lastId = id;
-			var log = Path.Combine(Install.Root, @"logs\port-helper.log");
-			var info = new ProcessStartInfo("cmd.exe", "/c powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"" +
-				Install.Script + "\" apply -Yes -NoBrowser >> \"" + log + "\" 2>&1")
-			{
-				UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = Install.Root
-			};
-			try
-			{
-				Directory.CreateDirectory(Path.GetDirectoryName(log));
-				File.AppendAllText(log, Environment.NewLine + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " apply" + Environment.NewLine);
-				running = Process.Start(info);
-				running.EnableRaisingEvents = true;
-				running.Exited += delegate { lastEnd = DateTime.Now; };
-			}
-			catch (Exception) { running = null; lastEnd = DateTime.Now; }
-		}
-
-		// a request the helper hasn't finished with: a new id, or a trial running
-		bool Pending()
-		{
-			string id = Value(site, "NETROLLOUT_PORT_REQUEST_ID");
-			if (string.IsNullOrEmpty(id)) return false;
-			try
-			{
-				var data = new System.Web.Script.Serialization.JavaScriptSerializer()
-					.DeserializeObject(File.ReadAllText(status)) as System.Collections.IDictionary;
-				if (data == null) return true;
-				return (data["id"] as string) != id || (data["state"] as string) == "trying";
-			}
-			catch (Exception) { return true; }    // no answer yet
-		}
-
-		static string Value(string path, string key)
-		{
-			try
-			{
-				foreach (var line in File.ReadAllLines(path))
-					if (line.StartsWith(key + "=")) return line.Substring(key.Length + 1).Trim();
-			}
-			catch (IOException) { }
-			return "";
-		}
-
-		protected override void ExitThreadCore()
-		{
-			timer.Stop();
-			if (watcher != null) watcher.Dispose();
-			base.ExitThreadCore();
-		}
-	}
-
-	// A newer version: what's new, what happens, Update now (Enter) or Not now
-	class UpdateDialog : Form
-	{
-		public UpdateDialog(Release release, string running)
-		{
-			Text = "Update NetRollout";
-			Icon = Install.AppIcon(32);
-			Font = new Font("Segoe UI", 9.5f);
-			ClientSize = new Size(560, 420);
-			MinimumSize = new Size(460, 360);
-			StartPosition = FormStartPosition.CenterParent;
-			ShowInTaskbar = false;
-			MinimizeBox = MaximizeBox = false;
-			var title = new Label { Text = "NetRollout " + release.Version + " is available", AutoSize = true,
-				Font = new Font("Segoe UI Semibold", 13f), Location = new Point(16, 14) };
-			var current = new Label { Text = "You have " + Install.Version + ".", AutoSize = true,
-				ForeColor = Color.DimGray, Location = new Point(18, 44) };
-			var notes = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical,
-				Text = string.IsNullOrEmpty(release.Notes) ? "(no release notes)" : release.Notes.Replace("\r\n", "\n").Replace("\n", "\r\n"),
-				Location = new Point(18, 72), Size = new Size(524, 196), BackColor = Color.FromArgb(248, 249, 250),
-				Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom };
-			var what = new Label { AutoSize = false, Location = new Point(18, 278), Size = new Size(524, 60),
-				Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom,
-				Text = running + "A backup is made first. NetRollout keeps running while the new version downloads, " +
-				       "then restarts - about a minute without it, and everyone signs in again." };
-			var daily = new CheckBox { Text = "Check for updates daily", Checked = Updates.Daily, AutoSize = true,
-				Location = new Point(18, 346), Anchor = AnchorStyles.Left | AnchorStyles.Bottom };
-			daily.CheckedChanged += delegate { Updates.Daily = daily.Checked; };
-			var update = new Button { Text = "Update now", DialogResult = DialogResult.OK, Size = new Size(120, 32),
-				Location = new Point(290, 376), Anchor = AnchorStyles.Right | AnchorStyles.Bottom, FlatStyle = FlatStyle.System };
-			var later = new Button { Text = "Not now", DialogResult = DialogResult.Cancel, Size = new Size(120, 32),
-				Location = new Point(422, 376), Anchor = AnchorStyles.Right | AnchorStyles.Bottom, FlatStyle = FlatStyle.System };
-			Controls.AddRange(new Control[] { title, current, notes, what, daily, update, later });
-			AcceptButton = update;     // Enter updates
-			CancelButton = later;
-			Shown += delegate { update.Focus(); };
-		}
-	}
-
 	// The install folder: this program sits in its bin\ folder
 	static class Install
 	{
@@ -292,6 +138,12 @@ namespace NetRollout
 			Path.GetDirectoryName(Application.ExecutablePath);
 		public static readonly string Root = Path.GetDirectoryName(BinDir);
 		public static readonly string Script = Path.Combine(BinDir, "manage.ps1");
+
+		// powershell.exe's arguments: run manage.ps1 with this command line
+		public static string PsArgs(string commandLine)
+		{
+			return "-NoProfile -ExecutionPolicy Bypass -File \"" + Script + "\" " + commandLine;
+		}
 		public const string Releases = "https://github.com/itamar14-byte/NetRollout/releases";
 
 		// this install, for names shared across the machine: the folder, hashed
@@ -408,7 +260,7 @@ namespace NetRollout
 		}
 	}
 
-	class ManagerForm : Form
+	partial class ManagerForm : Form
 	{
 		static readonly Color Dark = Color.FromArgb(18, 18, 18);
 		static readonly Color Accent = Color.FromArgb(0, 188, 212);
@@ -632,9 +484,15 @@ namespace NetRollout
 			catch (Exception e) { Say("Couldn't open the browser: " + e.Message); }
 		}
 
+		// the status line says rollouts are running (the health's count)
+		bool RolloutsRunning
+		{
+			get { return state == State.Running && detailLabel.Text.Contains("running"); }
+		}
+
 		void StopNetRollout()
 		{
-			if (state == State.Running && detailLabel.Text.Contains("running") &&
+			if (RolloutsRunning &&
 				MessageBox.Show(this, detailLabel.Text + ". They finish and are recorded before NetRollout stops (up to 10 minutes). Stop now?",
 					"Stop NetRollout", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
 				return;
@@ -664,119 +522,13 @@ namespace NetRollout
 			Run("restore \"" + file + "\" -Yes", "Restoring " + Path.GetFileName(file) + "...");
 		}
 
-		// ── updates ─────────────────────────────────────────────────────────
-		// asked (the button, the tray menu): says what it found in the pane;
-		// the daily check: only a newer version, in the tray
-		void CheckForUpdates(bool asked)
-		{
-			if (updating) return;
-			if (asked) { output.Clear(); Say("Checking for updates..."); }
-			ThreadPool.QueueUserWorkItem(delegate
-			{
-				Release release = null;
-				string problem = null;
-				try { release = Updates.Latest(); }
-				catch (Exception e) { problem = e.Message; }
-				if (!IsHandleCreated) return;
-				BeginInvoke((Action)delegate
-				{
-					if (problem != null)
-					{
-						if (asked) Say("Couldn't check for updates (" + problem + "). Is this computer online? " +
-							"Releases: " + Install.Releases);
-						return;
-					}
-					if (!Updates.IsNewer(release.Version, Install.Version))
-					{
-						if (asked) Say("You have the latest version (" + Install.Version + ").");
-						return;
-					}
-					if (asked) { OfferUpdate(release); return; }
-					var today = release.Version + "|" + DateTime.Now.ToString("yyyy-MM-dd");
-					if (Updates.Announced == today) return;
-					Updates.Announced = today;
-					announced = release;
-					trayIcon.ShowBalloonTip(10000, "NetRollout " + release.Version + " is available",
-						"You have " + Install.Version + ". Click to see what's new and update.", ToolTipIcon.Info);
-				});
-			});
-		}
-
-		// opened again after an update (Update now): how it went, from its log
-		void SayRecentUpdate()
-		{
-			var log = Path.Combine(Install.Root, @"logs\update.log");
-			try
-			{
-				if (!File.Exists(log) || (DateTime.Now - File.GetLastWriteTime(log)).TotalMinutes > 10) return;
-				var lines = File.ReadAllLines(log);
-				for (int i = lines.Length - 1; i >= 0; i--)
-					if (lines[i].Trim().Length > 0) { Say(lines[i].Trim() + "  (" + log + ")"); return; }
-			}
-			catch (IOException) { }
-		}
-
-		void OfferUpdate(Release release)
-		{
-			Say("NetRollout " + release.Version + " is available (you have " + Install.Version + ").");
-			var running = state == State.Running && detailLabel.Text.Contains("running") ? detailLabel.Text + " - they finish first. " : "";
-			using (var dialog = new UpdateDialog(release, running))
-			{
-				if (dialog.ShowDialog(this) != DialogResult.OK) return;
-			}
-			if (dailyItem != null) dailyItem.Checked = Updates.Daily;
-			InstallUpdate(release);
-		}
-
-		void InstallUpdate(Release release)
-		{
-			updating = true;
-			SetBusy(true);
-			Say("Downloading " + release.SetupName + "...");
-			ThreadPool.QueueUserWorkItem(delegate
-			{
-				string setup = null, problem = null;
-				try { setup = Updates.Download(release, p => SayLater("   " + p + "%")); }
-				catch (Exception e) { problem = e.Message; }
-				BeginInvoke((Action)delegate
-				{
-					if (problem != null)
-					{
-						updating = false;
-						SetBusy(false);
-						Say("Not updated: " + problem + ".");
-						return;
-					}
-					Say("Checked. Starting the update - NetRollout Manager closes now and opens again when it's done.");
-					// Setup closes the Manager to replace it; whatever the outcome,
-					// the Manager (the new one, if it's updated) opens afterwards
-					var start = new ProcessStartInfo("cmd.exe", "/c \"\"" + setup + "\" /SILENT & start \"\" \"" +
-						Path.Combine(Install.BinDir, "NetRollout Manager.exe") + "\"\"")
-					{
-						UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = Path.GetTempPath()
-					};
-					try { Process.Start(start); }
-					catch (Exception e)
-					{
-						updating = false;
-						SetBusy(false);
-						Say("Couldn't start " + setup + ": " + e.Message);
-						return;
-					}
-					exiting = true;
-					Close();
-				});
-			});
-		}
-
 		// manage.ps1, hidden; its output in the pane
 		void Run(string command, string heading)
 		{
 			if (running != null) { Say("Busy with the previous action - one moment."); return; }
 			output.Clear();
 			Say(heading);
-			var info = new ProcessStartInfo("powershell.exe",
-				"-NoProfile -ExecutionPolicy Bypass -File \"" + Install.Script + "\" " + command + " -NoBrowser")
+			var info = new ProcessStartInfo("powershell.exe", Install.PsArgs(command + " -NoBrowser"))
 			{
 				UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = Install.Root,
 				RedirectStandardOutput = true, RedirectStandardError = true

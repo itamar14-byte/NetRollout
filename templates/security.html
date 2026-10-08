@@ -403,37 +403,9 @@
 <!-- ══════════════════════════════════════
      DELETE PROFILE MODAL
 ══════════════════════════════════════ -->
-<div class="modal fade" id="deleteModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered" style="max-width:420px;">
-        <div class="modal-content">
-            <div class="modal-header">
-                <div>
-                    <div class="nr-badge" style="margin-bottom:0.3rem; border-color:rgba(239,83,80,0.4); color:#ef9a9a;">IRREVERSIBLE ACTION</div>
-                    <h5 class="modal-title" style="color:#ef9a9a;">Delete Profile</h5>
-                </div>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <p style="font-size:0.88rem; color:#ccc; margin-bottom:0.4rem;">
-                    Delete credential profile
-                    <span id="deleteProfileName" style="font-family:'JetBrains Mono',monospace; color:#ef9a9a; font-weight:700;"></span>?
-                </p>
-                <p style="font-size:0.82rem; color:var(--nr-text-muted); margin-bottom:0;">
-                    This cannot be undone. Devices assigned to this profile will need to be reassigned before deletion is allowed.
-                </p>
-            </div>
-            <div class="modal-footer">
-                <form method="POST" id="deleteForm" action="">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-danger btn-sm">
-                        <i class="bi bi-trash3 me-1"></i>Delete
-                    </button>
-                </form>
-            </div>
-        </div>
-    </div>
-</div>
+{% from "_delete_modal.html" import delete_modal %}
+{{ delete_modal("Delete Profile", "Delete credential profile", "deleteProfileName", "#ef9a9a",
+                 "This cannot be undone. Devices assigned to this profile will need to be reassigned before deletion is allowed.") }}
 
 
 <!-- ══════════════════════════════════════
@@ -560,7 +532,6 @@
 
 {% block extra_script %}
 <script>
-const CSRF_TOKEN = "{{ csrf_token() }}";
 let activeProfileId = null;
 
 // All inventory devices — used for the split assign view
@@ -724,11 +695,10 @@ function initTestDevSelect() {
     const container = document.getElementById('testDevSelect');
     if (!container) return;
 
-    const trigger  = container.querySelector('.nr-select-trigger');
-    const search   = container.querySelector('.nr-select-search');
     const options  = container.querySelectorAll('.nr-select-option');
     const hidden   = document.getElementById('testDeviceHidden');
     const display  = container.querySelector('.nr-select-display');
+    const shell    = nrSelectShell(container, filterOptions, document.getElementById('testModal'));
 
     function renderDisplay(label, ip, deviceType) {
         if (!label) {
@@ -751,7 +721,7 @@ function initTestDevSelect() {
         hidden.value = value;
         renderDisplay(label, ip, deviceType);
         options.forEach(o => o.classList.toggle('selected', o.dataset.value === value));
-        close();
+        shell.close();
     }
 
     function filterOptions(q) {
@@ -764,23 +734,8 @@ function initTestDevSelect() {
         });
     }
 
-    function open()  { container.classList.add('open'); search.focus(); }
-    function close() { container.classList.remove('open'); search.value = ''; filterOptions(''); }
-
-    trigger.addEventListener('click', e => {
-        e.stopPropagation();
-        container.classList.contains('open') ? close() : open();
-    });
-    search.addEventListener('input',  () => filterOptions(search.value));
-    search.addEventListener('click',  e => e.stopPropagation());
-    options.forEach(opt => {
-        opt.addEventListener('click', e => {
-            e.stopPropagation();
-            selectOption(opt.dataset.value, opt.dataset.label, opt.dataset.ip, opt.dataset.type);
-        });
-    });
-    document.addEventListener('click', close);
-    document.getElementById('testModal').addEventListener('hidden.bs.modal', close);
+    options.forEach(opt => shell.wire(opt, o => selectOption(o.dataset.value, o.dataset.label, o.dataset.ip, o.dataset.type)));
+    shell.listen();
 
     testDevSelect = {
         getValue: () => hidden.value,

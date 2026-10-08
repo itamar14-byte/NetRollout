@@ -197,15 +197,13 @@
 </style>
 
 <script>
-  const SESS_CSRF = '{{ csrf_token() }}';
-
   function kick(userId) {
     const row = document.getElementById(`row-${userId}`);
     row.classList.add('kicking');
 
     fetch(`/admin/sessions/${userId}/kick`, {
       method: 'POST',
-      headers: { 'X-CSRFToken': SESS_CSRF }
+      headers: { 'X-CSRFToken': CSRF_TOKEN }
     })
     .then(r => r.json())
     .then(data => {

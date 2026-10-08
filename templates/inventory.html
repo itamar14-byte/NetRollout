@@ -1133,53 +1133,18 @@
 <!-- ══════════════════════════════════════
      QUICK CREATE — PROPERTY
 ══════════════════════════════════════ -->
-<div class="modal fade" id="quickCreatePropertyModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
-    <div class="modal-dialog modal-dialog-centered" style="max-width:380px;">
-        <div class="modal-content">
-            <div class="modal-header">
-                <div>
-                    <div class="nr-badge" style="margin-bottom:0.3rem;">QUICK CREATE</div>
-                    <h5 class="modal-title">New Property</h5>
-                </div>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <div class="mb-3">
-                    <label class="nr-label">LABEL</label>
-                    <input type="text" class="form-control form-control-sm" id="qcPropLabel"
-                           placeholder="e.g. BGP Peer IP" autocomplete="off"
-                           oninput="autoSlug('qcPropLabel','qcPropName')">
-                </div>
-                <div class="mb-3">
-                    <label class="nr-label">NAME <span style="color:var(--nr-text-muted); text-transform:none; letter-spacing:0;">(auto-generated · immutable)</span></label>
-                    <input type="text" class="form-control form-control-sm" id="qcPropName"
-                           placeholder="bgp_peer_ip" autocomplete="off">
-                    <div style="font-size: 0.75rem; color:var(--nr-text-muted); margin-top:3px;">Dict key for $$TOKEN$$ substitution. Edit if needed.</div>
-                </div>
-                <div class="mb-3">
-                    <label class="nr-label">ICON <span style="color:var(--nr-text-muted); text-transform:none; letter-spacing:0;">(Bootstrap Icons class)</span></label>
-                    <div class="input-group input-group-sm">
-                        <span class="input-group-text" style="background:#111; border-color:#2a2a2a;">
-                            <i id="qcPropIconPreview" class="bi bi-tag" style="color:var(--nr-text-faint);"></i>
-                        </span>
-                        <input type="text" class="form-control form-control-sm" id="qcPropIcon"
-                               value="bi-tag" autocomplete="off"
-                               oninput="document.getElementById('qcPropIconPreview').className='bi ' + this.value">
-                    </div>
-                    <a href="https://icons.getbootstrap.com" target="_blank" rel="noopener"
-                       style="font-size: 0.75rem; color:var(--nr-text-muted); text-decoration:none;"
-                       onmouseenter="this.style.color='#00bcd4'"
-                       onmouseleave="this.style.color='var(--nr-text-muted)'">
-                        Browse Bootstrap Icons ↗
-                    </a>
-                </div>
-                <div class="form-check">
-                    <input type="checkbox" class="form-check-input" id="qcPropIsList">
-                    <label class="form-check-label" for="qcPropIsList"
-                           style="font-size:0.8rem; color:#888;">List property (comma-separated)</label>
-                </div>
-                <div id="qcPropError" style="display:none; font-size:0.78rem; color:#ef5350; margin-top:8px;"></div>
-            </div>
+{% from "_property_modal.html" import property_modal %}
+{% call property_modal(modal_id="quickCreatePropertyModal",
+                       prefix="qcProp",
+                       max_width="380px",
+                       esc_closes=false,
+                       badge="QUICK CREATE",
+                       title="New Property",
+                       name_hint="auto-generated · immutable",
+                       name_help="Dict key for $$TOKEN$$ substitution. Edit if needed.",
+                       icon_hint="Bootstrap Icons class",
+                       icon_placeholder=false,
+                       list_label="List property (comma-separated)") %}
             <div class="modal-footer" style="justify-content:space-between; align-items:center;">
                 <div id="qcPropError2" style="display:none; font-size:0.78rem; color:#ef5350;"></div>
                 <div class="d-flex gap-2 ms-auto">
@@ -1191,16 +1156,14 @@
                     </button>
                 </div>
             </div>
-        </div>
-    </div>
-</div>
+{% endcall %}
 
 {% endblock %}
 
 
 {% block extra_script %}
 <script>
-const CSRF_TOKEN     = "{{ csrf_token() }}";
+const VENDOR_LOGOS   = {{ VENDOR_LOGOS | tojson }};   // the platform picker's selected logo
 const PROP_DEFS      = {{ (sys_props + user_props) | tojson }};
 const QCM_LIST_PROPS = new Set({{ (sys_props + user_props) | selectattr('is_list') | map(attribute='name') | list | tojson }});
 
@@ -1211,11 +1174,10 @@ function initNrSelect(containerId) {
     const container = document.getElementById(containerId);
     if (!container) return null;
 
-    const trigger = container.querySelector('.nr-select-trigger');
-    const search  = container.querySelector('.nr-select-search');
     const hidden  = container.querySelector('input[type="hidden"]');
     const display = container.querySelector('.nr-select-display');
     const list    = container.querySelector('.nr-select-list');
+    const shell   = nrSelectShell(container, filterOptions, container.closest('.modal'));
 
     function liveOptions() { return container.querySelectorAll('.nr-select-option'); }
 
@@ -1235,7 +1197,7 @@ function initNrSelect(containerId) {
         hidden.value = value;
         renderDisplay(label || '');
         liveOptions().forEach(o => o.classList.toggle('selected', o.dataset.value === value));
-        close();
+        shell.close();
     }
 
     function filterOptions(q) {
@@ -1248,38 +1210,12 @@ function initNrSelect(containerId) {
         });
     }
 
-    function open() {
-        container.classList.add('open');
-        search.focus();
-    }
-
-    function close() {
-        container.classList.remove('open');
-        search.value = '';
-        filterOptions('');
-    }
-
     function wireOption(opt) {
-        opt.addEventListener('click', e => {
-            e.stopPropagation();
-            selectOption(opt.dataset.value, opt.dataset.label);
-        });
+        shell.wire(opt, o => selectOption(o.dataset.value, o.dataset.label));
     }
-
-    trigger.addEventListener('click', e => {
-        e.stopPropagation();
-        container.classList.contains('open') ? close() : open();
-    });
-
-    search.addEventListener('input', () => filterOptions(search.value));
-    search.addEventListener('click', e => e.stopPropagation());
 
     liveOptions().forEach(wireOption);
-
-    document.addEventListener('click', close);
-
-    const modal = container.closest('.modal');
-    if (modal) modal.addEventListener('hidden.bs.modal', close);
+    shell.listen();
 
     return {
         getValue: () => hidden.value,
@@ -1319,9 +1255,9 @@ function initPlatformSelect(containerId, hiddenId, errorId) {
     if (!container || !hidden) return null;
 
     const trigger = container.querySelector('.nr-select-trigger');
-    const search  = container.querySelector('.nr-select-search');
     const options = container.querySelectorAll('.nr-select-option');
     const display = container.querySelector('.nr-select-display');
+    const shell   = nrSelectShell(container, filterOptions, container.closest('.modal'));
 
     function renderDisplay(value, label) {
         if (!value) {
@@ -1345,7 +1281,7 @@ function initPlatformSelect(containerId, hiddenId, errorId) {
         options.forEach(o => o.classList.toggle('selected', o.dataset.value === value));
         container.classList.remove('nr-platform-error');
         if (errorEl) errorEl.style.display = 'none';
-        close();
+        shell.close();
     }
 
     function filterOptions(q) {
@@ -1355,24 +1291,8 @@ function initPlatformSelect(containerId, hiddenId, errorId) {
         });
     }
 
-    function open()  { container.classList.add('open'); search.focus(); }
-    function close() { container.classList.remove('open'); search.value = ''; filterOptions(''); }
-
-    trigger.addEventListener('click', e => {
-        e.stopPropagation();
-        container.classList.contains('open') ? close() : open();
-    });
-    search.addEventListener('input', () => filterOptions(search.value));
-    search.addEventListener('click', e => e.stopPropagation());
-    options.forEach(opt => {
-        opt.addEventListener('click', e => {
-            e.stopPropagation();
-            selectOption(opt.dataset.value, opt.dataset.label);
-        });
-    });
-    document.addEventListener('click', close);
-    const modal = container.closest('.modal');
-    if (modal) modal.addEventListener('hidden.bs.modal', close);
+    options.forEach(opt => shell.wire(opt, o => selectOption(o.dataset.value, o.dataset.label)));
+    shell.listen();
 
     return {
         getValue: ()            => hidden.value,

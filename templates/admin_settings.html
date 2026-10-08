@@ -212,7 +212,6 @@
 {% include '_access_status.html' %}
 <script>
 (() => {
-  const CSRF = '{{ csrf_token() }}';
   // The registry and rules as the server enforces them — the page checks the
   // same things before sending; the server checks again (authoritative).
   let SETTINGS = {{ settings | tojson }};
@@ -405,7 +404,7 @@
 
   async function post(url, body) {
     const resp = await fetch(url, {method: 'POST',
-      headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
+      headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN},
       body: JSON.stringify(body || {})});
     let data = {};
     try { data = await resp.json(); } catch (_) {}

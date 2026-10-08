@@ -164,10 +164,15 @@ var
 	UpdateMode: Boolean;
 	InstalledDir, InstalledVersion: String;
 
+{ powershell.exe's arguments: run Script with CommandLine }
+function PsArgs(const Script, CommandLine: String): String;
+begin
+	Result := '-NoProfile -ExecutionPolicy Bypass -File "' + Script + '" ' + CommandLine;
+end;
+
 function Ps(const Command, Extra: String): String;
 begin
-	Result := '-NoProfile -ExecutionPolicy Bypass -File "' + ExpandConstant('{tmp}\manage.ps1') +
-		'" ' + Command + ' ' + Extra;
+	Result := PsArgs(ExpandConstant('{tmp}\manage.ps1'), Command + ' ' + Extra);
 end;
 
 { The script's facts about this computer: defaults, busy ports, Docker, the
@@ -234,6 +239,16 @@ begin
 	Result.Text := Text;
 	Result.Top := ScaleY(Top);
 	Result.Width := Width;
+end;
+
+function MakeCheck(Page: TWizardPage; const Caption: String; Top: Integer): TNewCheckBox;
+begin
+	Result := TNewCheckBox.Create(Page);
+	Result.Parent := Page.Surface;
+	Result.Top := ScaleY(Top);
+	Result.Width := Page.SurfaceWidth;
+	Result.Height := ScaleY(20);
+	Result.Caption := Caption;
 end;
 
 function MakeBrowse(Page: TWizardPage; Top: Integer): TNewButton;
@@ -347,19 +362,9 @@ begin
 	TimezoneBox.Top := ScaleY(108);
 	TimezoneBox.Width := SettingsPage.SurfaceWidth;
 	FillTimezones;
-	MonitoringBox := TNewCheckBox.Create(SettingsPage);
-	MonitoringBox.Parent := SettingsPage.Surface;
-	MonitoringBox.Top := ScaleY(140);
-	MonitoringBox.Width := SettingsPage.SurfaceWidth;
-	MonitoringBox.Height := ScaleY(20);
-	MonitoringBox.Caption := 'Monitoring (Prometheus, Loki and Grafana dashboards for admins)';
+	MonitoringBox := MakeCheck(SettingsPage, 'Monitoring (Prometheus, Loki and Grafana dashboards for admins)', 140);
 	MonitoringBox.Checked := True;
-	OrgCertBox := TNewCheckBox.Create(SettingsPage);
-	OrgCertBox.Parent := SettingsPage.Surface;
-	OrgCertBox.Top := ScaleY(164);
-	OrgCertBox.Width := SettingsPage.SurfaceWidth;
-	OrgCertBox.Height := ScaleY(20);
-	OrgCertBox.Caption := 'Use my organisation''s certificate (otherwise a self-signed one is made)';
+	OrgCertBox := MakeCheck(SettingsPage, 'Use my organisation''s certificate (otherwise a self-signed one is made)', 164);
 	OrgCertBox.OnClick := @OrgCertClick;
 	MakeLabel(SettingsPage, 'Certificate (yours first, then each issuer):', 188, False);
 	CertEdit := MakeEdit(SettingsPage, '', 204, SettingsPage.SurfaceWidth - ScaleX(88));
@@ -512,16 +517,21 @@ begin
 	if B then Result := 'on' else Result := 'off';
 end;
 
-function Address(Param: String): String;
-var Lines: TArrayOfString; I: Integer; Host, Port: String;
+{ The last value of Key= in a file; Default when there's none (or no file) }
+function FileValue(const FileName, Key, Default: String): String;
+var Lines: TArrayOfString; I: Integer;
 begin
-	Host := HostnameEdit.Text; Port := PortEdit.Text;
-	if LoadStringsFromFile(ExpandConstant('{app}\config\nginx\site.env'), Lines) then
+	Result := Default;
+	if LoadStringsFromFile(FileName, Lines) then
 		for I := 0 to GetArrayLength(Lines) - 1 do
-			if Pos('NETROLLOUT_HOSTNAME=', Lines[I]) = 1 then Host := Copy(Lines[I], 21, Length(Lines[I]));
-	if LoadStringsFromFile(ExpandConstant('{app}\.env'), Lines) then
-		for I := 0 to GetArrayLength(Lines) - 1 do
-			if Pos('HTTPS_PORT=', Lines[I]) = 1 then Port := Copy(Lines[I], 12, Length(Lines[I]));
+			if Pos(Key + '=', Lines[I]) = 1 then Result := Copy(Lines[I], Length(Key) + 2, Length(Lines[I]));
+end;
+
+function Address(Param: String): String;
+var Host, Port: String;
+begin
+	Host := FileValue(ExpandConstant('{app}\config\nginx\site.env'), 'NETROLLOUT_HOSTNAME', HostnameEdit.Text);
+	Port := FileValue(ExpandConstant('{app}\.env'), 'HTTPS_PORT', PortEdit.Text);
 	Result := 'https://' + Lowercase(Host);
 	if Port <> '443' then Result := Result + ':' + Port;
 end;
@@ -612,8 +622,8 @@ begin
 		WizardForm.StatusLabel.Caption := 'Updating NetRollout - downloading the new version, then a restart (about a minute)...';
 		WizardForm.ProgressGauge.Style := npbstMarquee;
 		{ appended: the log of the preparation is in the same file }
-		Exec(ExpandConstant('{cmd}'), '/C powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' +
-			ExpandConstant('{app}\bin\manage.ps1') + '" ' + Args + ' >> "' + Log + '" 2>&1',
+		Exec(ExpandConstant('{cmd}'), '/C powershell.exe ' +
+			PsArgs(ExpandConstant('{app}\bin\manage.ps1'), Args) + ' >> "' + Log + '" 2>&1',
 			ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, Result);
 		WizardForm.ProgressGauge.Style := npbstNormal;
 		exit;
@@ -633,8 +643,8 @@ begin
 	end;
 	WizardForm.StatusLabel.Caption := 'Setting up and starting NetRollout - the first time downloads it (a few minutes)...';
 	WizardForm.ProgressGauge.Style := npbstMarquee;
-	Exec(ExpandConstant('{cmd}'), '/C powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' +
-		ExpandConstant('{app}\bin\manage.ps1') + '" ' + Args + ' > "' + Log + '" 2>&1',
+	Exec(ExpandConstant('{cmd}'), '/C powershell.exe ' +
+		PsArgs(ExpandConstant('{app}\bin\manage.ps1'), Args) + ' > "' + Log + '" 2>&1',
 		ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, Result);
 	WizardForm.ProgressGauge.Style := npbstNormal;
 end;
@@ -660,9 +670,9 @@ begin
 	if not UpdateMode then exit;
 	ForceDirectories(InstalledDir + '\logs');
 	Log := InstalledDir + '\logs\update.log';
-	Exec(ExpandConstant('{cmd}'), '/C powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' +
-		ExpandConstant('{tmp}\manage.ps1') + '" prepare-update -Yes -InstallDir "' + InstalledDir +
-		'" -NewVersion {#AppVersion} > "' + Log + '" 2>&1', InstalledDir, SW_HIDE, ewWaitUntilTerminated, Code);
+	Exec(ExpandConstant('{cmd}'), '/C powershell.exe ' +
+		PsArgs(ExpandConstant('{tmp}\manage.ps1'), 'prepare-update -Yes -InstallDir "' + InstalledDir +
+		'" -NewVersion {#AppVersion}') + ' > "' + Log + '" 2>&1', InstalledDir, SW_HIDE, ewWaitUntilTerminated, Code);
 	if Code <> 0 then begin
 		Result := 'Nothing was changed - NetRollout ' + InstalledVersion + ' keeps running.' + #13#10#13#10 +
 			LogTail(Log) + #13#10 + 'The whole log: ' + Log;
@@ -723,7 +733,6 @@ begin
 			'credentials, so keep them as safe as the server.', mbConfirmation, MB_YESNO) = IDNO then
 			Data := Data + ' -DeleteBackups';
 	end;
-	Exec('powershell.exe', '-NoProfile -ExecutionPolicy Bypass -File "' +
-		ExpandConstant('{app}\bin\manage.ps1') + '" uninstall -Yes ' + Data,
+	Exec('powershell.exe', PsArgs(ExpandConstant('{app}\bin\manage.ps1'), 'uninstall -Yes ' + Data),
 		ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, Code);
 end;

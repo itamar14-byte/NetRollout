@@ -93,22 +93,39 @@ function Compose([string[]]$Arguments) {
 # next to the running app (status asks its health over the compose network,
 # when there is one). -AsRoot: for a file only root may read (the restored key).
 function Invoke-Setup([string[]]$Arguments, [switch]$OnNetwork, [switch]$AsRoot) {
-	$run = @("run", "--rm", "-v", "${Root}:/install", "-e", "NETROLLOUT_HOME=/install")
-	if ($AsRoot) { $run += @("--user", "0") }
-	if ($OnNetwork -and (Invoke-Native "docker" @("network", "inspect", "${Project}_default")).Code -eq 0) {
-		$run += @("--network", "${Project}_default")
-	}
-	$all = $run + @($AppImage, "python", "-m", "src.setup") + $Arguments
-	$r = Invoke-Native "docker" $all
+	$r = Invoke-Native "docker" (Get-SetupCommand $Arguments -OnNetwork:$OnNetwork -AsRoot:$AsRoot)
 	if ($r.Output) { Write-Host $r.Output }
 	return $r.Code
 }
 
 # The setup core's answer as text, not shown (the port helper acts on it)
 function Get-SetupAnswer([string[]]$Arguments) {
-	$all = @("run", "--rm", "-v", "${Root}:/install", "-e", "NETROLLOUT_HOME=/install",
-		$AppImage, "python", "-m", "src.setup") + $Arguments
-	return Invoke-Native "docker" $all
+	return Invoke-Native "docker" (Get-SetupCommand $Arguments)
+}
+
+# docker's arguments for the setup core (Invoke-Setup's switches)
+function Get-SetupCommand([string[]]$Arguments, [switch]$OnNetwork, [switch]$AsRoot) {
+	$run = @("run", "--rm", "-v", "${Root}:/install", "-e", "NETROLLOUT_HOME=/install")
+	if ($AsRoot) { $run += @("--user", "0") }
+	if ($OnNetwork -and (Invoke-Native "docker" @("network", "inspect", "${Project}_default")).Code -eq 0) {
+		$run += @("--network", "${Project}_default")
+	}
+	return $run + @($AppImage, "python", "-m", "src.setup") + $Arguments
+}
+
+# One of our images, pulled when this computer doesn't have it; a release
+# whose image isn't on Docker Hub is incomplete - exit 3, "report it"
+function Get-OurImage([string]$Image) {
+	if ((Invoke-Native "docker" @("image", "inspect", $Image)).Code -eq 0) { return }
+	$r = Invoke-Native "docker" @("pull", $Image)
+	if ($r.Code -ne 0) {
+		Write-Host $r.Output
+		if ($r.Output -match "not found|manifest unknown") {
+			Fail ("NetRollout $Version isn't published on Docker Hub ($Image doesn't exist there). " +
+			      "This release is incomplete - not a problem with this computer. Please report it: $IssuesUrl") 3
+		}
+		Fail "Couldn't download $Image - check this computer's internet connection (and proxy, if any)."
+	}
 }
 
 # ── what this computer knows ──────────────────────────────────────────────────
@@ -199,12 +216,13 @@ function Get-ContainerStates {
 
 function Test-DockerCli { return [bool](Get-Command docker -ErrorAction SilentlyContinue) }
 function Test-DockerRunning { return (Invoke-Native "docker" @("info")).Code -eq 0 }
+function Test-DockerReady { return (Test-DockerCli) -and (Test-DockerRunning) }
 
 function Wait-Docker([int]$Seconds, [string]$Waiting) {
 	Write-Host "   $Waiting" -NoNewline
 	$end = (Get-Date).AddSeconds($Seconds)
 	while ((Get-Date) -lt $end) {
-		if ((Test-DockerCli) -and (Test-DockerRunning)) { Write-Host ""; return $true }
+		if (Test-DockerReady) { Write-Host ""; return $true }
 		if ((Test-DockerCli) -and (Test-Path $DockerDesktopExe) -and
 		    -not (Get-Process "Docker Desktop" -ErrorAction SilentlyContinue)) {
 			Start-Process $DockerDesktopExe | Out-Null
@@ -243,7 +261,7 @@ function Install-DockerDesktop {
 }
 
 function Confirm-Docker([switch]$OfferInstall) {
-	if ((Test-DockerCli) -and (Test-DockerRunning)) { return }
+	if (Test-DockerReady) { return }
 	if (-not (Test-DockerCli)) {
 		if (-not $OfferInstall) { Fail "Docker Desktop isn't installed - run install first." }
 		if ($Interactive) {
@@ -266,6 +284,13 @@ function Confirm-Docker([switch]$OfferInstall) {
 # ── NetRollout ────────────────────────────────────────────────────────────────
 
 function Test-Installed { return Test-Path $EnvFile }
+
+# Stop unless NetRollout is installed here (-Setup: say how to install it)
+function Assert-Installed([switch]$Setup) {
+	if (Test-Installed) { return }
+	if ($Setup) { Fail "NetRollout isn't installed in $Root - run NetRollout Setup." }
+	Fail "NetRollout isn't installed in $Root."
+}
 
 # NetRollout on this computer (https://127.0.0.1) usually has a self-signed
 # certificate: accepted for 127.0.0.1 only, every other address is verified
@@ -294,11 +319,13 @@ public static class NrLocalTls {
 	[NrLocalTls]::Install()
 }
 
-function Test-Reachable([string]$Url) {
+# NetRollout's health on this computer (the port in use)
+function Get-HealthUrl { return "https://127.0.0.1:$(Read-EnvValue 'HTTPS_PORT' '443')/_netrollout/health" }
+
+function Test-Reachable {
 	Enable-LocalTls
-	$port = Read-EnvValue "HTTPS_PORT" "443"
 	try {
-		$r = Invoke-WebRequest -UseBasicParsing -TimeoutSec 5 "https://127.0.0.1:$port/_netrollout/health"
+		$r = Invoke-WebRequest -UseBasicParsing -TimeoutSec 5 (Get-HealthUrl)
 		return $r.StatusCode -eq 200
 	} catch {
 		return $false
@@ -344,7 +371,7 @@ function Get-HostProblem {
 		return ("This is Windows Server, which Docker Desktop doesn't support. Install NetRollout " +
 		        "on Windows 10/11 (a virtual machine is fine), or on a Linux server.")
 	}
-	if (-not ((Test-DockerCli) -and (Test-DockerRunning))) {
+	if (-not (Test-DockerReady)) {
 		$hypervisor = (Get-CimInstance Win32_ComputerSystem).HypervisorPresent
 		$firmware = @(Get-CimInstance Win32_Processor | Where-Object { $_.VirtualizationFirmwareEnabled }).Count -gt 0
 		if (-not ($hypervisor -or $firmware)) {
@@ -366,17 +393,7 @@ function Invoke-Install {
 	if ($problem) { Fail $problem }
 	Confirm-Docker -OfferInstall
 	Step "Getting NetRollout $Version"
-	if ((Invoke-Native "docker" @("image", "inspect", $AppImage)).Code -ne 0) {
-		$r = Invoke-Native "docker" @("pull", $AppImage)
-		if ($r.Code -ne 0) {
-			Write-Host $r.Output
-			if ($r.Output -match "not found|manifest unknown") {
-				Fail ("NetRollout $Version isn't published on Docker Hub ($AppImage doesn't exist there). " +
-				      "This release is incomplete - not a problem with this computer. Please report it: $IssuesUrl") 3
-			}
-			Fail "Couldn't download $AppImage - check this computer's internet connection (and proxy, if any)."
-		}
-	}
+	Get-OurImage $AppImage
 	Step "Setting up"
 	$setup = @("init", "--licence-accepted", "--busy-ports", (Get-BusyPorts)) + (Get-Facts)
 	foreach ($given in @(@("--hostname", $Hostname), @("--https-port", $HttpsPort),
@@ -397,7 +414,7 @@ function Invoke-Install {
 }
 
 function Invoke-Status {
-	if (-not (Test-Installed)) { Fail "NetRollout isn't installed in $Root - run NetRollout Setup." }
+	Assert-Installed -Setup
 	Confirm-Docker
 	$reachable = if (Test-Reachable) { "yes" } else { "no" }
 	$busy = Get-BusyPorts (Get-OurPorts)
@@ -408,8 +425,7 @@ function Invoke-Status {
 function Show-RunningRollouts {
 	try {
 		Enable-LocalTls
-		$port = Read-EnvValue "HTTPS_PORT" "443"
-		$h = Invoke-RestMethod -TimeoutSec 5 "https://127.0.0.1:$port/_netrollout/health"
+		$h = Invoke-RestMethod -TimeoutSec 5 (Get-HealthUrl)
 		if ($h.rollouts.running -gt 0) {
 			Warn "$($h.rollouts.running) rollout(s) running - they finish and are recorded first (up to 10 minutes)."
 		}
@@ -417,8 +433,8 @@ function Show-RunningRollouts {
 }
 
 function Invoke-Stop {
-	if (-not (Test-Installed)) { Fail "NetRollout isn't installed in $Root." }
-	if (-not ((Test-DockerCli) -and (Test-DockerRunning))) { Good "NetRollout isn't running (Docker isn't)."; return }
+	Assert-Installed
+	if (-not (Test-DockerReady)) { Good "NetRollout isn't running (Docker isn't)."; return }
 	Show-RunningRollouts
 	Step "Stopping NetRollout"
 	$r = Compose @("stop")
@@ -454,7 +470,7 @@ function Invoke-BackupCreate([string]$Kind) {
 }
 
 function Invoke-Backup {
-	if (-not (Test-Installed)) { Fail "NetRollout isn't installed in $Root." }
+	Assert-Installed
 	Confirm-Docker
 	Step "Backing up"
 	if ((Invoke-BackupCreate "manual") -ne 0) { Fail "Not backed up - see above." }
@@ -484,7 +500,7 @@ function Reset-GrafanaAdmin {
 }
 
 function Invoke-Restore {
-	if (-not (Test-Installed)) { Fail "NetRollout isn't installed in $Root." }
+	Assert-Installed
 	if (-not $Service) { Fail "Which backup? netrollout restore <file>  (they're in $(Join-Path $Root 'backups'))" }
 	$backups = Join-Path $Root "backups"
 	$file = if (Test-Path -PathType Leaf $Service) { (Resolve-Path $Service).Path }
@@ -566,7 +582,7 @@ function Invoke-Restore {
 # -InstallDir: the direction (the installed version's image decides), then
 # a backup by the installed version. Exit 2: refused, nothing changed.
 function Invoke-PrepareUpdate {
-	if (-not (Test-Installed)) { Fail "NetRollout isn't installed in $Root." }
+	Assert-Installed
 	if (-not $NewVersion) { Fail "prepare-update needs -NewVersion" }
 	Confirm-Docker
 	Step "Checking the update: NetRollout $Version -> $NewVersion"
@@ -588,25 +604,13 @@ function Invoke-PrepareUpdate {
 # After Setup replaced the files (this is the new script): the new images
 # while the old version keeps running, .env brought up to date, the restart.
 function Invoke-Update {
-	if (-not (Test-Installed)) { Fail "NetRollout isn't installed in $Root." }
+	Assert-Installed
 	Confirm-Docker
 	Step "Downloading NetRollout $Version (it keeps running meanwhile)"
 	# failures of others' images surface at the start; ours are checked here
 	# (a local build isn't on Docker Hub)
 	Compose @("pull", "--quiet", "--ignore-pull-failures") | Out-Null
-	foreach ($image in "netrollout", "netrollout-nginx") {
-		if ((Invoke-Native "docker" @("image", "inspect", "itamarweinstein/${image}:$Version")).Code -ne 0) {
-			$r = Invoke-Native "docker" @("pull", "itamarweinstein/${image}:$Version")
-			if ($r.Code -ne 0) {
-				Write-Host $r.Output
-				if ($r.Output -match "not found|manifest unknown") {
-					Fail ("NetRollout $Version isn't published on Docker Hub (itamarweinstein/${image}:$Version doesn't exist there). " +
-					      "This release is incomplete - not a problem with this computer. Please report it: $IssuesUrl") 3
-				}
-				Fail "Couldn't download itamarweinstein/${image}:$Version - check this computer's internet connection (and proxy, if any)."
-			}
-		}
-	}
+	foreach ($image in "netrollout", "netrollout-nginx") { Get-OurImage "itamarweinstein/${image}:$Version" }
 	Step "Updating the settings"
 	if ((Invoke-Setup @("upgrade")) -ne 0) { Fail "The update stopped before the restart - see above." }
 	Show-RunningRollouts
@@ -654,8 +658,8 @@ function Wait-PortTrial([string]$Id, [int]$Seconds = 120) {
 }
 
 function Invoke-Apply {
-	if (-not (Test-Installed)) { Fail "NetRollout isn't installed in $Root." }
-	if (-not ((Test-DockerCli) -and (Test-DockerRunning))) { Warn "Docker isn't running - nothing applied."; return }
+	Assert-Installed
+	if (-not (Test-DockerReady)) { Warn "Docker isn't running - nothing applied."; return }
 	# one at a time (the helper, and a hand-run apply): a second one waits its
 	# turn, then handles what's still pending
 	$lockPath = Join-Path $Root "config\.port-helper.lock"
@@ -735,7 +739,7 @@ function Write-Defaults {
 	if ($name -notmatch "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$") { $name = "netrollout" }
 	$lines = @("[defaults]", "hostname=$name", "https_port=$port",
 		"timezone=$((Get-TimeZone).Id)", "port80_busy=$(if ($busy.ContainsKey(80)) { $busy[80] } else { '' })",
-		"docker=$(if ((Test-DockerCli) -and (Test-DockerRunning)) { 'running' } elseif (Test-DockerCli) { 'installed' } else { 'missing' })",
+		"docker=$(if (Test-DockerReady) { 'running' } elseif (Test-DockerCli) { 'installed' } else { 'missing' })",
 		"problem=$((Get-HostProblem) -replace '[\r\n]', ' ')",
 		"", "[busy]")
 	foreach ($p in ($busy.Keys | Sort-Object)) { $lines += "$p=$(if ($busy[$p]) { $busy[$p] } else { 'another program' })" }
@@ -759,7 +763,7 @@ function Invoke-Uninstall {
 			$deleteBackups = $a -match "^(n|no)$"
 		}
 	}
-	if ((Test-Installed) -and (Test-DockerCli) -and (Test-DockerRunning)) {
+	if ((Test-Installed) -and (Test-DockerReady)) {
 		Step "Removing NetRollout's containers$(if ($delete) { ' and its data' })"
 		$down = @("down", "--remove-orphans")
 		if ($delete) { $down += "-v" }
@@ -807,7 +811,7 @@ function Invoke-NrCommand([string]$Name) {
 	switch ($Name) {
 		"install" { Invoke-Install; return 0 }
 		"start" {
-			if (-not (Test-Installed)) { Fail "NetRollout isn't installed in $Root - run NetRollout Setup." }
+			Assert-Installed -Setup
 			Start-NetRollout; Start-PortHelper; Open-Browser; return 0
 		}
 		"stop" { Invoke-Stop; return 0 }
@@ -820,9 +824,9 @@ function Invoke-NrCommand([string]$Name) {
 		"ensure-docker" { Confirm-Docker -OfferInstall; Good "Docker is running."; return 0 }
 		"defaults" { Write-Defaults; return 0 }
 		"status" { return (Invoke-Status) }
-		"open" { if (-not (Test-Installed)) { Fail "NetRollout isn't installed in $Root." }; Start-Process (Get-Address) | Out-Null; return 0 }
+		"open" { Assert-Installed; Start-Process (Get-Address) | Out-Null; return 0 }
 		"logs" {
-			if (-not (Test-Installed)) { Fail "NetRollout isn't installed in $Root." }
+			Assert-Installed
 			Confirm-Docker
 			$name = if ($Service) { $Service } else { "app" }
 			Write-Host (Compose @("logs", "--tail", "100", "--no-log-prefix", $name)).Output
