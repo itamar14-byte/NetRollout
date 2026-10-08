@@ -54,7 +54,7 @@
 
         /* ── Typography ── */
         h1, h2, h3, h4, h5 { color: #e0e0e0; font-family: 'Inter', sans-serif; }
-        p, .text-muted { color: #999 !important; }
+        p { color: #999 !important; }
         .lead { color: #bbb !important; }
 
         /* ══════════════════════════════════════
@@ -309,15 +309,6 @@
            SHARED COMPONENT STYLES (from base.html)
         ══════════════════════════════════════ */
 
-        /* Cards */
-        .card {
-            background-color: #1a1a1a !important;
-            border: 1px solid #222 !important;
-            border-radius: 12px !important;
-            box-shadow: 0 0 0 1px rgba(0,188,212,0.06), 0 16px 48px rgba(0,0,0,0.4) !important;
-        }
-        .card-body { background-color: #1a1a1a !important; color: #e0e0e0 !important; }
-        .card-title { color: #e0e0e0 !important; }
 
         .nr-card {
             position: relative;
@@ -516,7 +507,6 @@
             padding-bottom: 0.75rem;
         }
         .table td { border-color: #1a1a1a !important; }
-        .table-striped > tbody > tr:nth-of-type(odd) > * { background-color: rgba(255,255,255,0.01) !important; }
 
         /* Alerts */
         .alert {
@@ -549,23 +539,6 @@
         .badge.bg-success   { background-color: rgba(27,94,32,0.2)   !important; color: #a5d6a7 !important; }
         .badge.bg-warning   { background-color: rgba(245,127,23,0.2) !important; color: #ffe082 !important; }
 
-        /* Accordion */
-        .accordion-item { background-color: #1a1a1a !important; border-color: #222 !important; }
-        .accordion-button {
-            background-color: #1a1a1a !important;
-            color: #ccc !important;
-            font-family: 'Inter', sans-serif;
-            font-size: 0.88rem;
-            font-weight: 500;
-        }
-        .accordion-button:not(.collapsed) {
-            background-color: rgba(0,188,212,0.05) !important;
-            color: #00bcd4 !important;
-            box-shadow: inset 0 -1px 0 rgba(0,188,212,0.08) !important;
-        }
-        .accordion-button::after { filter: invert(0.7); }
-        .accordion-button:not(.collapsed)::after { filter: invert(0.4) sepia(1) saturate(8) hue-rotate(160deg); }
-        .accordion-body { background-color: #1a1a1a !important; color: #bbb !important; }
 
         /* Bootstrap Select */
         .bootstrap-select .dropdown-toggle {
@@ -755,7 +728,6 @@
         .opt-shield { font-size: 0.78rem; color: #00bcd4; flex-shrink: 0; }
 
         /* ── Icon Picker ── */
-        .icon-picker-wrap { position: relative; }
         .icon-picker-panel {
             display: none;
             position: absolute;
@@ -1324,7 +1296,6 @@ function nrBoardSaveLabel(btn, board) {
 <script>
     // ── Sidebar toggle ──
     const sidebar  = document.getElementById("opSidebar");
-    const mainArea = document.getElementById("opMain");
     const toggle   = document.getElementById("sbToggle");
 
     function expandSidebar()  { sidebar.classList.add("expanded"); }

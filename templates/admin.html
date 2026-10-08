@@ -320,11 +320,8 @@
 
         /* ── Shared component styles ── */
         h1, h2, h3, h4, h5 { color: #e0e0e0; font-family: 'Inter', sans-serif; }
-        p, .text-muted { color: #999 !important; }
+        p { color: #999 !important; }
 
-        .card { background-color: #1a1a1a !important; border: 1px solid #222 !important; border-radius: 12px !important; box-shadow: 0 0 0 1px rgba(0,188,212,0.06), 0 16px 48px rgba(0,0,0,0.4) !important; }
-        .card-body { background-color: #1a1a1a !important; color: #e0e0e0 !important; }
-        .card-title { color: #e0e0e0 !important; }
 
         .nr-card { position: relative; background: #1a1a1a; border: 1px solid #222; border-radius: 12px; overflow: hidden; box-shadow: 0 0 0 1px rgba(0,188,212,0.1), 0 20px 60px rgba(0,0,0,0.5); transition: box-shadow 0.3s; }
         .nr-card-accent { height: 3px; background: linear-gradient(90deg, #00bcd4, #00e5ff, transparent); }
@@ -594,10 +591,6 @@
 }
 </style>
 <script>
-function markRestartPending() {
-  document.getElementById('restartPendingDot').style.display = 'inline-block';
-  document.getElementById('admRestartBtn').title = 'Restart required — config saved';
-}
 // System Settings: labels of restart-only settings saved with a new value
 function setSettingsRestartPending(labels) {
   const dot = document.getElementById('restartPendingDot');
