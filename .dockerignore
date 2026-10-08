@@ -3,7 +3,7 @@
 # licence (the published image is a distribution under AGPL-3.0), the VERSION
 # file and Grafana's setup + dashboards (the grafana-setup service runs here). Anything
 # not listed stays out (docs/credentials, config.env, certs, logs, .venv, .git).
-# The nginx and postgres images build from their own folders under deploy/.
+# The nginx image builds from its own folder, deploy/nginx/.
 *
 !src/
 !templates/
