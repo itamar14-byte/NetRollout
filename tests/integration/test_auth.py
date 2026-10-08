@@ -624,3 +624,26 @@ def test_get_login_goes_to_the_sign_in_page(client_for):
 	"""GET /login (a bookmark, a typed address) redirects to the sign-in page."""
 	resp = client_for().get("/login")
 	assert resp.status_code == 302 and resp.headers["Location"] == "/"
+
+
+def test_get_login_shows_the_form_and_spends_no_sign_in_attempt(client_for, make_user,
+                                                                session_scope):
+	"""GET /login followed lands on the sign-in form (posting username and password to
+	/login); it signs nobody in and audits nothing, and twelve of them leave the sign-in
+	rate limit (10 a minute, POSTs only) untouched: the right password still reaches
+	the 2FA step."""
+	user = make_user()
+	client = client_for()
+	page = client.get("/login", follow_redirects=True)
+	assert page.status_code == 200 and page.request.path == "/"
+	html = page.get_data(as_text=True)
+	assert '<form method="POST" action="/login"' in html
+	assert 'name="username"' in html and 'name="password"' in html
+	for _ in range(11):
+		assert client.get("/login").status_code == 302
+	assert pre_auth_user(client) is None
+	with session_scope() as s:
+		assert s.query(AuditLog).count() == 0
+	resp = login(client, user.username)
+	assert resp.status_code == 302 and resp.headers["Location"] == "/otp_enroll"
+	assert pre_auth_user(client) == str(user.id)

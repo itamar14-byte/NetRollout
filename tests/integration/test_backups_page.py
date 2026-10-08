@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 
 import pytest
 
+from src import runtime
 from src.backup import archive, schedule as backup_schedule
 from src.db.settings import seed_settings
 from src.db.tables import AuditLog
@@ -155,3 +156,35 @@ def test_the_list_names_the_backups(admin, home, client_for):
 	name = client.post("/admin/backups").json["created"]
 	listed = client.get("/admin/backups").json["backups"]
 	assert [(b["name"], b["kind"]) for b in listed] == [(name, "manual")]
+
+
+def test_the_list_says_everything_the_card_shows(admin, app, home, client_for, session_scope):
+	"""GET /admin/backups lists the backups newest first with their real sizes and
+	the total; a backup's version and time come from its manifest, a damaged one is
+	listed with its problem (no version, no time); a file that isn't a backup's isn't
+	listed; the next scheduled time and the last scheduled outcome are the scheduler's;
+	looking audits nothing."""
+	client = client_for(admin, xhr=True)
+	made = client.post("/admin/backups").json["created"]
+	folder = home / "backups"
+	damaged = "netrollout-0.9.0-20200101-020000-scheduled.zip"
+	(folder / damaged).write_bytes(b"not a zip at all")
+	(folder / "notes.txt").write_text("not a backup")
+	last = {"time": "2026-10-05T02:00:00", "ok": False, "file": None, "message": "disk full"}
+	runtime.write_json(folder / backup_schedule.STATUS_FILE, last)
+
+	state = client.get("/admin/backups").json
+	listed = state["backups"]
+	assert [b["name"] for b in listed] == [made, damaged]
+	sizes = {b["name"]: b["size"] for b in listed}
+	assert sizes == {made: (folder / made).stat().st_size, damaged: len(b"not a zip at all")}
+	assert state["total"] == sum(sizes.values())
+	newest, broken = listed
+	assert newest["kind"] == "manual" and newest["version"] == runtime.VERSION
+	assert newest["created"] and newest["problem"] is None
+	assert broken["kind"] == "scheduled" and broken["version"] is None and broken["created"] is None
+	assert "isn't a NetRollout backup" in broken["problem"]
+	expected = backup_schedule.schedule_state(app.backend.settings.values())
+	assert state["next"] == expected["next"] is not None
+	assert state["last"] == last
+	assert [a[0] for a in actions(session_scope)] == ["backup.created"]
