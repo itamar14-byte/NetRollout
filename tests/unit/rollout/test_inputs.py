@@ -381,7 +381,7 @@ class TestParseFiles(unittest.TestCase):
 def test_mapping_token_validation(token, ok):
 	"""A mapping token is accepted when it's a plain word (HOSTNAME, loop_0) and
 	refused when empty, blank, holding a space or $$, or longer than 64."""
-	assert inputs.validate_var_map_inner_token(token)[0] is ok
+	assert (inputs.token_problem(token) is None) is ok
 
 
 def test_mapping_index_only_for_list_properties():
@@ -389,16 +389,16 @@ def test_mapping_index_only_for_list_properties():
 	index for a plain one; an index on a plain property or a negative index is
 	refused."""
 	lists = {"vrfs", "uplinks"}  # system list + a user-defined list
-	assert inputs.validate_var_index(1, "vrfs", lists) == (True, None)
-	assert inputs.validate_var_index(0, "uplinks", lists) == (True, None)
-	assert inputs.validate_var_index(None, "hostname", lists) == (True, None)
-	assert inputs.validate_var_index(0, "hostname", lists)[0] is False
-	assert inputs.validate_var_index(-1, "vrfs", lists)[0] is False
+	assert inputs.index_problem(1, "vrfs", lists) is None
+	assert inputs.index_problem(0, "uplinks", lists) is None
+	assert inputs.index_problem(None, "hostname", lists) is None
+	assert inputs.index_problem(0, "hostname", lists) == "Property hostname can not be indexed"
+	assert inputs.index_problem(-1, "vrfs", lists) == "Index cannot be negative"
 
 
 def test_property_name_checked_against_the_users_definitions():
 	"""A property name is accepted only when it's among the user's allowed ones
 	(a user-defined one included)."""
 	allowed = {"hostname", "rack"}  # includes a user-defined property
-	assert inputs.validate_var_map_property_name("rack", allowed)[0] is True
-	assert inputs.validate_var_map_property_name("nope", allowed)[0] is False
+	assert inputs.property_name_problem("rack", allowed) is None
+	assert inputs.property_name_problem("nope", allowed) == "Property name nope is not valid"

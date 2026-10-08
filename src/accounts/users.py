@@ -139,9 +139,8 @@ def signed_in_user(db_session: Session) -> User:
 
 def end_user_sessions(user_id: uuid.UUID | str, keep_sid: str | None = None) -> int:
 	"""Sign a user out everywhere (except `keep_sid`, the caller's own
-	session after a password change). user_session:<id> only points at the
-	latest sign-in, so every stored session is decoded to find the user's —
-	complete (older sessions too) and cheap at this scale.
+	session after a password change): every stored session is decoded to
+	find the user's — complete and cheap at this scale.
 
 	:returns: how many sessions were ended"""
 	client = current_app.backend.redis.client
@@ -158,8 +157,6 @@ def end_user_sessions(user_id: uuid.UUID | str, keep_sid: str | None = None) -> 
 		if owner == str(user_id):
 			client.delete(key)
 			ended += 1
-	if keep_sid is None:
-		client.delete(f"user_session:{user_id}")
 	return ended
 
 
@@ -216,8 +213,7 @@ def _seconds_left(data: Mapping[str, Any], now: float) -> tuple[float, float]:
 def signed_in_users(now: float | None = None) -> dict[str, float]:
 	"""Who is signed in now, for Live Sessions and the Users page. Every
 	stored session is read: one that ended by inactivity stays stored until
-	its browser comes back (that's when it's checked), and user_session:<id>
-	knows only the latest sign-in.
+	its browser comes back (that's when it's checked).
 
 	:param now: the time (epoch seconds); now when None
 	:returns: user id → when the newest of their live sessions began"""
@@ -246,15 +242,6 @@ def mark_signed_in() -> None:
 	"""A sign-in just completed: both clocks start now."""
 	now = time.time()
 	session[SIGNED_IN_AT] = session[LAST_ACTIVE] = now
-
-
-def record_redis_session(user_id: uuid.UUID) -> None:
-	"""Point user_session:<id> at this session (Live Sessions, Kick)."""
-	sid = getattr(session, "sid", None)
-	if sid is None:
-		return
-	current_app.backend.redis.client.set(f"user_session:{user_id}",
-	                              sid, ex=86400)
 
 
 def clear_sessions(redis_conn: RedisConnection) -> None:

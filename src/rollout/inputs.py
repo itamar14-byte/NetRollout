@@ -78,43 +78,42 @@ def tcp_reachable(ip: str, port: int = 22) -> bool:
 	return False
 
 
-def validate_var_map_inner_token(token: str) -> tuple[bool, str | None]:
+def token_problem(token: str) -> str | None:
 	"""A variable mapping's token, without its $$ marks.
 
-	:returns: (valid, why not - for the page)"""
+	:returns: what's wrong with it (for the page), None when it's valid"""
 	if token.strip():
 		if re.match(r'^[A-Za-z0-9_]+$', token):
 			if len(token) <= 64:
-				return True, None
-			return False, "Token must be maximum 64 characters long"
-		return False, "Token must contain only letters, numbers and underscores"
-	return False, "Token cannot be empty"
+				return None
+			return "Token must be maximum 64 characters long"
+		return "Token must contain only letters, numbers and underscores"
+	return "Token cannot be empty"
 
 
-def validate_var_map_property_name(property_name: str, allowed: set[str]) \
-		-> tuple[bool, str | None]:
+def property_name_problem(property_name: str, allowed: set[str]) -> str | None:
 	""":param allowed: the user's property names — system defaults plus
 	 their own definitions (webapp: get_property_defs)
-	:returns: (valid, why not - for the page)"""
+	:returns: what's wrong with it (for the page), None when it's valid"""
 	if property_name.strip().lower() not in allowed:
-		return False, f"Property name {property_name} is not valid"
-	return True, None
+		return f"Property name {property_name} is not valid"
+	return None
 
 
-def validate_var_index(index: int | None, property_name: str,
-                       list_properties: set[str]) -> tuple[bool, str | None]:
+def index_problem(index: int | None, property_name: str,
+                  list_properties: set[str]) -> str | None:
 	"""Only list properties (system `vrfs`, or user-defined lists) can be
 	indexed.
 
 	:param index: the position in the list; None: the whole value
-	:returns: (valid, why not - for the page)"""
+	:returns: what's wrong with it (for the page), None when it's valid"""
 	if index is None:
-		return True, None
+		return None
 	if property_name not in list_properties:
-		return False, f"Property {property_name} can not be indexed"
+		return f"Property {property_name} can not be indexed"
 	if index < 0:
-		return False, "Index cannot be negative"
-	return True, None
+		return "Index cannot be negative"
+	return None
 
 
 class Validator:

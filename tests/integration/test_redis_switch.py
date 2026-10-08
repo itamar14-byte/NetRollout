@@ -70,11 +70,10 @@ def test_switch_there_and_back_without_a_restart(app, admin, client_for, make_us
 	assert app.backend.connection_modes()["REDIS"] == "external"     # same host, not the bundled one
 	assert BUNDLED_REDIS_KEY in dotenv_values(app.backend._CONFIG_ENV)
 
-	# the admin who switched stays signed in - the session went along, and
-	# its index entry (Live Sessions, Terminate Session) too
+	# the admin who switched stays signed in - the session went along
 	assert before.get("/admin/server").status_code == 200
-	sid = other_redis.get(f"user_session:{admin.id}")
-	assert sid and other_redis.get(f"redis_session:{sid.decode()}")
+	sid = before.get_cookie("session").value
+	assert other_redis.get(f"redis_session:{sid}")
 	# anyone else's session stayed in the Redis left behind: signed out
 	assert operator.get("/dashboard").status_code == 302
 	after = before

@@ -15,7 +15,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 
 from src.access import nginx
-from src.accounts.users import record_redis_session, clear_sessions
+from src.accounts.users import clear_sessions
 from src.db import move
 from src.db.connections import PostgresConfig, REDIS_UNAVAILABLE, RedisConfig
 from src.db.tables import User
@@ -297,7 +297,6 @@ def _switch_redis(config: RedisConfig, back: bool) -> ResponseReturnValue:
 		return err(str(e))
 	clear_sessions(current_app.backend.redis)
 	clear_stale_jobs(current_app.backend.redis)
-	record_redis_session(current_user.id)
 	place = "{}:{}/{}".format(*config.place())
 	current_app.web.audit("server.redis_switched", object_type="redis", object_label=place,
 	                      detail={"back": back})

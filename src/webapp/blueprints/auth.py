@@ -22,7 +22,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from src.accounts.ldap import check_group_membership, fetch_user_details, user_bind, LdapUnavailable
 from src.accounts.users import (RULE, password_problem, LIMITS, AccountError, new_local_user,
                                 mark_signed_in, session_seconds_left, is_background,
-                                end_user_sessions, signed_in_user, record_redis_session)
+                                end_user_sessions, signed_in_user)
 from src.db.tables import DeviceResult, LDAPServer, LDAPGroup, User
 from src.encryption import decrypt, encrypt
 from src.jobs import job_status
@@ -112,7 +112,7 @@ def _sign_in(user: User, **audit_detail: Any) -> ResponseReturnValue:
 	"""Every sign-in ends here, with or without 2FA: a new session id (one
 	known before the sign-in - planted, or seen on a shared computer - is
 	worthless after it; what the session held carries over), the user signed
-	in and indexed (Live Sessions), audited as auth.login.
+	in, audited as auth.login.
 
 	:param user: detached
 	:param audit_detail: added to the audit row"""
@@ -120,7 +120,6 @@ def _sign_in(user: User, **audit_detail: Any) -> ResponseReturnValue:
 	for key in _PENDING_2FA:
 		session.pop(key, None)
 	login_user(user)
-	record_redis_session(user.id)
 	current_app.web.audit("auth.login", success=True, username=user.username,
 	                      actor_id=user.id, detail=audit_detail or None)
 	return after_login(user)
@@ -395,8 +394,6 @@ def logout() -> ResponseReturnValue:
 	# Anonymous requests (stale tab, double click) just land on the login page
 	if current_user.is_authenticated:
 		current_app.web.audit("auth.logout")
-		current_app.backend.redis.client.delete(
-			f"user_session:{current_user.id}")
 	logout_user()
 	session.clear()
 	return redirect(url_for("auth.home"))
@@ -451,7 +448,6 @@ def change_password() -> ResponseReturnValue:
 	current_app.session_interface.regenerate(session)
 	ended = end_user_sessions(current_user.id,
 	                          keep_sid=cast(ServerSideSession, session).sid)
-	record_redis_session(current_user.id)
 	current_app.web.audit("auth.password_change",
 	                      detail={"forced": forced, "other_sessions_ended": ended})
 	flash("Password changed.", "success")

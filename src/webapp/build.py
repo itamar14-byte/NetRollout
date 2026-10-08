@@ -10,7 +10,6 @@ from typing import Any
 
 from flask import Flask, Request, Response
 from flask.sessions import SessionMixin
-from flask_session import Session
 from flask_session.redis import RedisSessionInterface
 from prometheus_client.core import REGISTRY, GaugeMetricFamily
 from sqlalchemy.exc import OperationalError
@@ -124,22 +123,16 @@ def resolve_secret_key(env: Mapping[str, str] | None = None) -> str:
 	return secrets.token_hex(32)
 
 
-def configure_app(app: Flask, redis: RedisConnection, secret_key: str) -> None:
-	"""Flask's settings: the secret, sessions in Redis (session cookies,
-	Secure, HttpOnly, SameSite=Lax), the proxy headers nginx sets, and the
-	templates' globals (vendor logos, version, source link, monitoring)."""
+def configure_app(app: Flask, secret_key: str) -> None:
+	"""Flask's settings: the secret, the session cookie (Secure, HttpOnly,
+	SameSite=Lax - the sessions live in Redis: launch_app's interface), the
+	proxy headers nginx sets, and the templates' globals (vendor logos,
+	version, source link, monitoring)."""
 	app.config["SECRET_KEY"] = secret_key
-
-	app.config["SESSION_TYPE"] = "redis"
-	app.config["SESSION_REDIS"] = redis.client
-	app.config["SESSION_KEY_PREFIX"] = SESSION_PREFIX
-	app.config["SESSION_PERMANENT"] = False
 
 	app.config["SESSION_COOKIE_SECURE"] = True
 	app.config["SESSION_COOKIE_HTTPONLY"] = True
 	app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
-
-	Session(app)
 
 	# Flask's documented way to add WSGI middleware (mypy sees a method replaced)
 	app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)  # type: ignore[method-assign]
@@ -244,7 +237,7 @@ def launch_app() -> NetRolloutApp:
 	app.web = web_services
 
 
-	configure_app(app, app.backend.redis, secret_key)
+	configure_app(app, secret_key)
 	# first of the request hooks: while a move copies the data, nothing writes
 	register_maintenance(app)
 	app.db_move = DatabaseMove(app)   # Server Management → Database → Move
