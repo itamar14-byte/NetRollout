@@ -7,7 +7,7 @@ from datetime import datetime
 
 from flask_login import UserMixin
 from sqlalchemy import (DateTime, String, Boolean, Integer, Uuid, Text,
-                        ForeignKey, JSON, Table, Column, UniqueConstraint,
+                        ForeignKey, Index, JSON, Table, Column, UniqueConstraint,
                         false)
 from sqlalchemy.orm import Mapped, mapped_column, relationship, DeclarativeBase
 
@@ -158,6 +158,10 @@ class DeviceResult(Base):
 	"""One device's outcome in one rollout (job_id): status, commands sent and
 	verified, the fetched config, anything a person must do."""
 	__tablename__ = 'device_results'
+	# Results pages a user's jobs (user_id, grouped by job_id); a job's page
+	# reads its devices by job_id alone
+	__table_args__ = (Index('ix_device_results_user_id_job_id', 'user_id', 'job_id'),
+	                  Index('ix_device_results_job_id', 'job_id'))
 	id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True,
 	                                      default=uuid.uuid4)
 	job_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)

@@ -10,7 +10,7 @@ import pytest
 from alembic.config import Config
 from alembic.script import ScriptDirectory
 from cryptography.fernet import Fernet
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import make_url
 from werkzeug.security import generate_password_hash
 
@@ -34,6 +34,15 @@ def test_models_match_migrated_schema(test_db_url):
 	                        cwd=ROOT / "src" / "db", capture_output=True,
 	                        text=True, env=dict(os.environ, DATABASE_URL=test_db_url))
 	assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_device_results_are_indexed_for_results_and_a_job(test_db_url):
+	"""The migrated device_results has an index on (user_id, job_id) - Results
+	pages a user's jobs - and one on job_id - a job's page reads its devices."""
+	indexes = {ix["name"]: ix["column_names"]
+	           for ix in inspect(create_engine(test_db_url)).get_indexes("device_results")}
+	assert indexes.get("ix_device_results_user_id_job_id") == ["user_id", "job_id"]
+	assert indexes.get("ix_device_results_job_id") == ["job_id"]
 
 
 def test_must_change_password_migration_flags_only_a_factory_admin(
