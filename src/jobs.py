@@ -636,8 +636,9 @@ def build_kpi(results_30d: Sequence[DeviceResult],
 
 	:param label_map: device IP → its label, to name the most-failed device
 	:returns: success_rate (%, None without results), jobs_30d,
-	 devices_reached, commands_pushed, top_failed ({ip, label, fail_count} or
-	 None)"""
+	 device_pushes (device results: a device pushed to in a rollout, failed
+	 ones too - not distinct devices), commands_pushed, top_failed ({ip,
+	 label, fail_count} or None)"""
 	total_ops = len(results_30d)
 	jobs_30d = len({r.job_id for r in results_30d})
 	success_count = sum(1 for r in results_30d if r.status == "success")
@@ -656,7 +657,7 @@ def build_kpi(results_30d: Sequence[DeviceResult],
 		"success_rate": round(
 			success_count / total_ops * 100) if total_ops else None,
 		"jobs_30d": jobs_30d,
-		"devices_reached": total_ops,
+		"device_pushes": total_ops,
 		"commands_pushed": sum(r.commands_sent for r in results_30d),
 		"top_failed": top_failed
 	}

@@ -626,6 +626,18 @@ def test_get_login_goes_to_the_sign_in_page(client_for):
 	assert resp.status_code == 302 and resp.headers["Location"] == "/"
 
 
+def test_get_login_keeps_a_safe_next(client_for):
+	"""GET /login?next=<a path here> passes it on to the sign-in page (where the
+	sign-in keeps it for after); a next pointing elsewhere is dropped."""
+	resp = client_for().get("/login?next=/results")
+	assert resp.status_code == 302 and resp.headers["Location"] == "/?next=/results"
+	followed = client_for().get("/login?next=/results", follow_redirects=True)
+	assert followed.request.path == "/" and followed.request.args.get("next") == "/results"
+	for unsafe in ("https://evil.example/", "//evil.example/x"):
+		resp = client_for().get("/login", query_string={"next": unsafe})
+		assert resp.headers["Location"] == "/", unsafe
+
+
 def test_get_login_shows_the_form_and_spends_no_sign_in_attempt(client_for, make_user,
                                                                 session_scope):
 	"""GET /login followed lands on the sign-in form (posting username and password to

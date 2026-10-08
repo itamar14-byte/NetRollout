@@ -596,7 +596,7 @@ def result(status, ip="10.0.0.1", job_id=None, sent=2, verified=None,
 def test_build_kpi():
 	"""Four results (1 success) for two devices over three jobs: success rate 25 %,
 	3 jobs, 8 commands pushed, the device that failed twice named by its label as the
-	top failed - and "devices_reached" 4: it counts device results (pushes, failed
+	top failed - and "device_pushes" 4: it counts device results (pushes, failed
 	ones included), not distinct devices, so each device counts once per rollout
 	(the Analytics tile says "device push operations")."""
 	job = uuid.uuid4()
@@ -606,7 +606,7 @@ def test_build_kpi():
 	kpi = build_kpi(rows, {"10.0.0.9": "edge-9"})
 	assert kpi["success_rate"] == 25
 	assert kpi["jobs_30d"] == 3
-	assert kpi["devices_reached"] == len(rows) == 4
+	assert kpi["device_pushes"] == len(rows) == 4
 	assert kpi["commands_pushed"] == 8
 	assert kpi["top_failed"] == {"ip": "10.0.0.9", "label": "edge-9",
 	                             "fail_count": 2}

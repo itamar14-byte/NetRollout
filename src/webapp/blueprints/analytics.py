@@ -255,7 +255,7 @@ def admin_analytics() -> str:
 				{
 					"username": username_map.get(uid, str(uid)),
 					"job_count": len(s["job_ids"]),
-					"devices_reached": s["devices"],
+					"device_pushes": s["devices"],
 					"last_job_at": s["last_job_at"],
 				}
 				for uid, s in user_stats.items()

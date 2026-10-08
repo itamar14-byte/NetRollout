@@ -212,11 +212,6 @@ def test_a_move_through_the_page_and_back(app, admin, client_for, target, mover,
 	assert db_move.same_database(app.backend.postgres.config, home)
 
 
-@pytest.mark.xfail(strict=True, reason=(
-	"Known bug: admin_servers._start audits database.move_started after db_move.start() "
-	"has started the move's thread; with no rollout running the thread locks maintenance "
-	"at once, so web.audit prints the row instead of writing it - the move is never "
-	"audited as started (seen on every unforced move through the page too)."))
 def test_the_move_started_audit_row_survives_the_move(app, admin, client_for, target, mover,
                                                      monkeypatch):
 	"""database.move_started (written by the route once the move has begun) is in the

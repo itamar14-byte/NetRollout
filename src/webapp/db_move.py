@@ -92,7 +92,10 @@ class DatabaseMove:
 
 	def start(self, target: PostgresConfig, actor_id: uuid.UUID | None, actor: str,
 	          back: bool = False) -> None:
-		"""Checks the target, then moves in a thread.
+		"""Checks the target, then moves in a thread - audited as
+		database.move_started first: once the thread runs, maintenance may lock
+		at once, and a row written then would be lost (the row is copied with
+		the database).
 
 		:param actor_id: the admin moving it (and actor, their username)
 		:param back: a move back to the bundled database (the wording)
@@ -113,6 +116,14 @@ class DatabaseMove:
 		                "source": describe(backend.postgres.config),
 		                "target": describe(target), "actor": actor,
 		                "started": _now(), "deadline": time.time() + self._wait}
+		try:   # never stops the move (maintenance has begun): a failure is printed
+			with backend.postgres.get_session() as session:
+				session.add(AuditLog(
+					actor_id=actor_id, actor_username=actor, action="database.move_started",
+					object_type="database", object_label=describe(target),
+					detail={"back": back}))
+		except Exception as e:                    # noqa: BLE001
+			print(f"[NetRollout] database move: start not audited ({e})", flush=True)
 		threading.Thread(target=self._run, args=(target, actor_id, actor),
 		                 name="database-move", daemon=True).start()
 

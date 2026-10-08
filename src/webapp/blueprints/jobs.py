@@ -138,6 +138,20 @@ def visible_endpoint_labels(db_session: Session,
 	return {(r.ip, r.port): r.label for r in rows}
 
 
+def shown_endpoint_labels(db_session: Session, results: Iterable[DeviceResult]) 		-> dict[tuple[str, int], str]:
+	"""(ip, port) → label (else the IP) for these device results' devices, from
+	anyone's inventory - what an admin sees (Results, the completion card);
+	only those devices are read.
+
+	:param results: the device results being shown"""
+	shown = {(r.device_ip, r.device_port) for r in results}
+	if not shown:
+		return {}
+	return {(row.ip, row.port): (row.label or row.ip)
+	        for row in db_session.query(Inventory.ip, Inventory.port, Inventory.label)
+	        .filter(tuple_(Inventory.ip, Inventory.port).in_(shown))}
+
+
 def user_owns_job(job_id: uuid.UUID, user_id: uuid.UUID) -> bool:
 	""":returns: whether the job's results are the user's"""
 	with current_app.backend.postgres.get_session() as db_session:
@@ -449,15 +463,8 @@ def results() -> str:
 			owner_ids = {r.user_id for r in others.results}
 			usernames = {u.id: u.username for u in db_session.query(User)
 			             .filter(User.id.in_(owner_ids))} if owner_ids else {}
-			# only the shown devices' labels, from anyone's inventory
-			shown = {(r.device_ip, r.device_port)
-			         for r in mine.results + others.results}
-			endpoint_labels = {
-				(row.ip, row.port): (row.label or row.ip)
-				for row in db_session.query(Inventory.ip, Inventory.port,
-				                            Inventory.label)
-				.filter(tuple_(Inventory.ip, Inventory.port).in_(shown))
-			} if shown else {}
+			endpoint_labels = shown_endpoint_labels(db_session,
+			                                        mine.results + others.results)
 		else:
 			others = JobPage(results=[], total=0, page=1, pages=1)
 			focus_in_others = False
@@ -556,7 +563,8 @@ def job_summary(job_id: uuid.UUID) -> ResponseReturnValue:
 		if not rows or (current_user.role != "admin"
 		                and rows[0].user_id != current_user.id):
 			return err("Not found", 404)
-		labels = visible_endpoint_labels(db_session, current_user.id)
+		# an admin names devices as on Results (anyone's inventory)
+		labels = shown_endpoint_labels(db_session, rows) 			if current_user.role == "admin" 			else visible_endpoint_labels(db_session, current_user.id)
 		meta = db_session.query(JobMetadata).filter_by(job_id=job_id).first()
 		comment = meta.comment if meta else None
 		db_session.expunge_all()
