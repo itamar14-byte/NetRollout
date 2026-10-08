@@ -63,19 +63,48 @@ def update(values: dict[str, str | None]) -> bool:
 	nothing. Raises OSError when the folder can't be written (the message
 	names site.env, not the temporary file)."""
 	with _lock:
+		return _update(values)
+
+
+def put_back(previous: dict[str, str], written: dict[str, str],
+             existed: bool, guard: str) -> list[str]:
+	"""Undo a change, only while its `guard` key still holds the value it
+	wrote (else nothing is put back): each key in `written` that still holds
+	the value written gets its `previous` value back (missing there:
+	removed); a key changed again since is left. Every other key is kept.
+	When the file didn't exist before (`existed`) and nothing is left, it
+	goes.
+
+	:param previous: every key before the change (read())
+	:param written: the keys the change set, with their values
+	:returns: the keys left as they are now (changed again since)
+	:raises OSError: as update()"""
+	with _lock:
 		current = read()
-		new = dict(current)
-		for key, value in values.items():
-			if value is None:
-				new.pop(key, None)
-			else:
-				new[key] = str(value)
-		if new == current and path().is_file():
-			return False
-		keys = [k for k in _ORDER if k in new] + \
-		       sorted(k for k in new if k not in _ORDER)
-		_write("".join(f"{k}={new[k]}\n" for k in keys))
-		return True
+		if current.get(guard) != written[guard]:
+			return list(written)
+		left = [k for k, v in written.items() if current.get(k) != v]
+		_update({k: previous.get(k) for k in written if k not in left})
+		if not existed and not read():
+			path().unlink(missing_ok=True)
+		return left
+
+
+def _update(values: dict[str, str | None]) -> bool:
+	"""update(), under _lock."""
+	current = read()
+	new = dict(current)
+	for key, value in values.items():
+		if value is None:
+			new.pop(key, None)
+		else:
+			new[key] = str(value)
+	if new == current and path().is_file():
+		return False
+	keys = [k for k in _ORDER if k in new] + \
+	       sorted(k for k in new if k not in _ORDER)
+	_write("".join(f"{k}={new[k]}\n" for k in keys))
+	return True
 
 
 def _write(content: str) -> None:

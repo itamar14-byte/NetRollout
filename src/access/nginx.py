@@ -50,9 +50,14 @@ def write_site(hostname: str | None) -> bool:
 	:returns: whether it changed
 	:raises ValueError: an invalid hostname
 	:raises OSError: the folder can't be written"""
+	return site_env.update(_site_values(hostname))
+
+
+def _site_values(hostname: str | None) -> dict[str, str]:
+	""":returns: what write_site writes into site.env
+	:raises ValueError: an invalid hostname"""
 	host = cast(str, SETTINGS["public_hostname"].parse(hostname or ""))
-	return site_env.update({site_env.HOSTNAME: host,
-	                        site_env.HTTPS_PORT: str(port.serving_port())})
+	return {site_env.HOSTNAME: host, site_env.HTTPS_PORT: str(port.serving_port())}
 
 
 def seed_hostname_from_site() -> None:
@@ -106,13 +111,40 @@ def _restore(saved: dict[Path, bytes | None]) -> None:
 		os.replace(tmp, path)
 
 
+def _put_back(saved: dict[Path, bytes | None],
+              written: dict[Path, bytes | None], what: str) -> None:
+	"""An undo's certificate files, under _cert_lock: `saved` is put back only
+	while the files are still the ones the change wrote (`written`) - a
+	change made since (another upload, a reissue) is left in place, and the
+	log says so."""
+	if _snapshot(list(written)) != written:
+		print(f"[NetRollout] {what}: the certificate files weren't put back - "
+		      f"they were changed again since; the newer ones stay", flush=True)
+		return
+	_restore(saved)
+
+
+def _cert_undo(saved: dict[Path, bytes | None], what: str) -> Undo:
+	"""undo() for a certificate change that has just written its files (call
+	it under _cert_lock, right after): see _put_back."""
+	written = _snapshot(list(saved))
+
+	def undo() -> None:
+		with _cert_lock:
+			_put_back(saved, written, what)
+	return undo
+
+
 def change_hostname(new: str) -> Undo:
 	"""Prepare nginx for the hostname `new`: the certificate first — a
 	self-signed one is reissued for the new name (keeping the addresses it
 	covered, and its previous names for NAME_TRANSITION_DAYS); an
 	organisation's must already cover it — then site.env.
 
-	:returns: undo(), which puts the previous files back
+	:returns: undo(), which puts the previous certificate files and hostname
+	 back - only the hostname key of site.env (a port request or the port
+	 helper's keys written meanwhile stay), and only what no other change has
+	 replaced since
 	:raises ProxyError: the reason, having changed nothing"""
 	with _cert_lock:
 		return _change_hostname(new)
@@ -122,8 +154,9 @@ def _change_hostname(new: str) -> Undo:
 	"""change_hostname's work, under the certificate lock."""
 	cert_dir = runtime.certs_dir()
 	cert = cert_dir / certs.CERT_FILE
-	saved = _snapshot([site_env.folder() / SITE_FILE, *_cert_files(cert_dir)])
+	saved = _snapshot(_cert_files(cert_dir))
 	try:
+		previous, existed = site_env.read(), site_env.path().is_file()
 		if new and cert.is_file():
 			dns, ips = certs.names_in(cert.read_bytes())
 			if certs.is_selfsigned(cert_dir):
@@ -142,7 +175,8 @@ def _change_hostname(new: str) -> Undo:
 					f"The certificate in use covers {covers} — not {new}. Upload "
 					f"a certificate for {new} first (Server Management → "
 					f"Certificate), then change the hostname.")
-		write_site(new)
+		values = _site_values(new)    # what write_site writes, for the undo
+		write_site(new)     # the last step: when it raises, site.env is as it was
 	except ProxyError:
 		_restore(saved)
 		raise
@@ -153,7 +187,18 @@ def _change_hostname(new: str) -> Undo:
 	except ValueError as e:
 		_restore(saved)
 		raise ProxyError(f"{e}. Nothing was changed.") from e
-	return lambda: _restore(saved)
+	written = _snapshot(list(saved))
+
+	def undo() -> None:
+		with _cert_lock:
+			_put_back(saved, written, f"undoing the hostname {new}")
+			# only the keys this change wrote, while the hostname is still its
+			left = site_env.put_back(previous, values, existed, guard=site_env.HOSTNAME)
+			if left:
+				print(f"[NetRollout] undoing the hostname {new}: site.env's "
+				      f"{', '.join(left)} changed again since; left as it is",
+				      flush=True)
+	return undo
 
 
 def _read_old_names(cert_dir: Path) -> dict[str, float]:
@@ -254,7 +299,7 @@ def install_certificate(cert_pem: bytes, key_pem: bytes,
 			_restore(saved)
 			raise ProxyError(f"NetRollout couldn't write {e.filename or cert_dir}: "
 			                 f"{e.strerror or e}. Nothing was changed.") from e
-	return check, lambda: _restore(saved)
+		return check, _cert_undo(saved, "undoing the certificate upload")
 
 
 def generate_selfsigned(hostname: str | None) -> Undo:
@@ -291,7 +336,7 @@ def generate_selfsigned(hostname: str | None) -> Undo:
 			raise ProxyError(f"NetRollout couldn't write {where}: "
 			                 f"{getattr(e, 'strerror', None) or e}. Nothing was "
 			                 f"changed.") from e
-	return lambda: _restore(saved)
+		return _cert_undo(saved, "undoing the self-signed certificate")
 
 
 def verdict(managed: bool, started: float, hostname: str | None = None) -> dict[str, Any]:

@@ -3,10 +3,11 @@ the watcher's verdict it reads back (status.json). No nginx here — the files."
 import datetime
 import json
 import os
+import threading
 
 import pytest
 
-from src.access import nginx as pc, port
+from src.access import certs, nginx as pc, port, site_env
 
 
 @pytest.fixture
@@ -161,3 +162,81 @@ def test_server_ips(monkeypatch, value, expected):
 	dropping what isn't an IP and duplicates."""
 	monkeypatch.setenv(pc.SERVER_IPS_ENV, value)
 	assert pc.server_ips() == expected
+
+
+# ── Undo: only what this change wrote, under the certificate lock ────────────
+
+def certificate_for(home):
+	"""The name the certificate in the certs folder was issued to."""
+	return certs.common_name((home / "certs" / certs.CERT_FILE).read_bytes())
+
+
+def test_a_hostname_undo_puts_back_only_the_hostname(home):
+	"""Undoing a hostname change puts the previous hostname back in site.env and
+	keeps the keys written meanwhile (a port request, its confirmation) - it
+	used to put the whole file back, dropping them."""
+	pc.write_site("a.lab")
+	undo = pc.change_hostname("b.lab")
+	site_env.update({site_env.PORT_REQUEST: "8443", site_env.PORT_REQUEST_ID: "r1",
+	                 site_env.PORT_CONFIRMED: "r1"})
+	undo()
+	values = site_env.read()
+	assert values[site_env.HOSTNAME] == "a.lab"
+	assert (values[site_env.PORT_REQUEST], values[site_env.PORT_REQUEST_ID],
+	        values[site_env.PORT_CONFIRMED]) == ("8443", "r1", "r1")
+
+
+def test_a_hostname_undo_keeps_a_port_kept_since(home):
+	"""The port in use written by the helper after a hostname change (a kept
+	port) survives the hostname's undo; the hostname goes back."""
+	pc.write_site("a.lab")
+	undo = pc.change_hostname("b.lab")
+	site_env.update({site_env.HTTPS_PORT: "8443"})
+	undo()
+	values = site_env.read()
+	assert (values[site_env.HOSTNAME], values[site_env.HTTPS_PORT]) == ("a.lab", "8443")
+
+
+def test_an_undo_leaves_what_a_later_change_wrote(home):
+	"""Change A, then change B, then A's undo: B's certificate and hostname stay
+	(A's undo used to put A's whole snapshot back over them); B's own undo still
+	works."""
+	certs.selfsigned("a.lab", ["10.0.0.5"], home / "certs")
+	pc.write_site("a.lab")
+	undo_a = pc.change_hostname("b.lab")
+	undo_b = pc.change_hostname("c.lab")
+	undo_a()
+	assert certificate_for(home) == "c.lab"
+	assert site_env.read()[site_env.HOSTNAME] == "c.lab"
+	undo_b()
+	assert certificate_for(home) == "b.lab"
+	assert site_env.read()[site_env.HOSTNAME] == "b.lab"
+
+
+def test_a_certificate_undo_leaves_a_later_certificate(home):
+	"""Generate a self-signed certificate (A), then another (B), then A's undo:
+	B's stays; B's undo puts A's back."""
+	certs.selfsigned("old.lab", [], home / "certs")
+	undo_a = pc.generate_selfsigned("a.lab")
+	undo_b = pc.generate_selfsigned("b.lab")
+	undo_a()
+	assert certificate_for(home) == "b.lab"
+	undo_b()
+	assert certificate_for(home) == "a.lab"
+
+
+@pytest.mark.parametrize("change", ["hostname", "generate"])
+def test_an_undo_waits_for_the_certificate_lock(home, change):
+	"""An undo runs under the certificate lock: while another change (or the
+	upkeep) holds it, the undo waits."""
+	certs.selfsigned("a.lab", [], home / "certs")
+	undo = pc.change_hostname("b.lab") if change == "hostname" \
+		else pc.generate_selfsigned("b.lab")
+	with pc._cert_lock:
+		worker = threading.Thread(target=undo)
+		worker.start()
+		worker.join(timeout=0.5)
+		assert worker.is_alive()          # waiting for the lock
+		assert certificate_for(home) == "b.lab"
+	worker.join(timeout=10)
+	assert not worker.is_alive() and certificate_for(home) == "a.lab"
