@@ -15,6 +15,8 @@ using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using System.Web.Script.Serialization;
 using Microsoft.Win32;
+using System.Drawing;
+using System.Windows.Forms;
 
 namespace NetRollout
 {
@@ -177,6 +179,45 @@ namespace NetRollout
 					"damaged or was altered; it was deleted");
 			}
 			return path;
+		}
+	}
+
+	// A newer version: what's new, what happens, Update now (Enter) or Not now
+	class UpdateDialog : Form
+	{
+		public UpdateDialog(Release release, string running)
+		{
+			Text = "Update NetRollout";
+			Icon = Install.AppIcon(32);
+			Font = new Font("Segoe UI", 9.5f);
+			ClientSize = new Size(560, 420);
+			MinimumSize = new Size(460, 360);
+			StartPosition = FormStartPosition.CenterParent;
+			ShowInTaskbar = false;
+			MinimizeBox = MaximizeBox = false;
+			var title = new Label { Text = "NetRollout " + release.Version + " is available", AutoSize = true,
+				Font = new Font("Segoe UI Semibold", 13f), Location = new Point(16, 14) };
+			var current = new Label { Text = "You have " + Install.Version + ".", AutoSize = true,
+				ForeColor = Color.DimGray, Location = new Point(18, 44) };
+			var notes = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical,
+				Text = string.IsNullOrEmpty(release.Notes) ? "(no release notes)" : release.Notes.Replace("\r\n", "\n").Replace("\n", "\r\n"),
+				Location = new Point(18, 72), Size = new Size(524, 196), BackColor = Color.FromArgb(248, 249, 250),
+				Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom };
+			var what = new Label { AutoSize = false, Location = new Point(18, 278), Size = new Size(524, 60),
+				Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom,
+				Text = running + "A backup is made first. NetRollout keeps running while the new version downloads, " +
+				       "then restarts - about a minute without it, and everyone signs in again." };
+			var daily = new CheckBox { Text = "Check for updates daily", Checked = Updates.Daily, AutoSize = true,
+				Location = new Point(18, 346), Anchor = AnchorStyles.Left | AnchorStyles.Bottom };
+			daily.CheckedChanged += delegate { Updates.Daily = daily.Checked; };
+			var update = new Button { Text = "Update now", DialogResult = DialogResult.OK, Size = new Size(120, 32),
+				Location = new Point(290, 376), Anchor = AnchorStyles.Right | AnchorStyles.Bottom, FlatStyle = FlatStyle.System };
+			var later = new Button { Text = "Not now", DialogResult = DialogResult.Cancel, Size = new Size(120, 32),
+				Location = new Point(422, 376), Anchor = AnchorStyles.Right | AnchorStyles.Bottom, FlatStyle = FlatStyle.System };
+			Controls.AddRange(new Control[] { title, current, notes, what, daily, update, later });
+			AcceptButton = update;     // Enter updates
+			CancelButton = later;
+			Shown += delegate { update.Focus(); };
 		}
 	}
 }
