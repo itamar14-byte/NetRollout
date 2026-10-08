@@ -103,7 +103,7 @@
         <thead><tr>
           <th style="color:var(--nr-text-muted); font-size: 0.6875rem; letter-spacing:1px; font-weight:600; text-transform:uppercase; border-color:#1a1a1a;">User</th>
           <th class="text-center" style="color:var(--nr-text-muted); font-size: 0.6875rem; letter-spacing:1px; font-weight:600; text-transform:uppercase; border-color:#1a1a1a;">Jobs</th>
-          <th class="text-center" style="color:var(--nr-text-muted); font-size: 0.6875rem; letter-spacing:1px; font-weight:600; text-transform:uppercase; border-color:#1a1a1a;">Devices</th>
+          <th class="text-center" style="color:var(--nr-text-muted); font-size: 0.6875rem; letter-spacing:1px; font-weight:600; text-transform:uppercase; border-color:#1a1a1a;">Device pushes</th>
           <th style="color:var(--nr-text-muted); font-size: 0.6875rem; letter-spacing:1px; font-weight:600; text-transform:uppercase; border-color:#1a1a1a;">Last Job</th>
         </tr></thead>
         <tbody>
@@ -111,7 +111,7 @@
         <tr style="border-color:#1a1a1a;">
           <td><span style="font-family:'JetBrains Mono',monospace; font-size:0.8rem; color:#ccc;">{{ u.username }}</span></td>
           <td class="text-center"><span style="font-family:'JetBrains Mono',monospace; color:#e0e0e0;">{{ u.job_count }}</span></td>
-          <td class="text-center"><span style="font-family:'JetBrains Mono',monospace; color:#e0e0e0;">{{ u.devices_reached }}</span></td>
+          <td class="text-center"><span style="font-family:'JetBrains Mono',monospace; color:#e0e0e0;">{{ u.device_pushes }}</span></td>
           <td><span class="nr-help-text">{{ u.last_job_at.strftime("%b %d, %H:%M") if u.last_job_at else '—' }}</span></td>
         </tr>
         {% endfor %}
