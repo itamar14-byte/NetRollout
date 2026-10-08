@@ -22,6 +22,7 @@ VERSION="$(tr -d ' \r\n' < "$ROOT/VERSION" 2>/dev/null || true)"
 PROJECT=netrollout
 UNIT="netrollout-port-$PROJECT"               # the port helper's systemd units
 APP_IMAGE="itamarweinstein/netrollout:$VERSION"
+IMAGE_VERSION=""      # compose's images of another version (a kept install's backup)
 ENV_FILE="$ROOT/.env"
 APP_UID=10001                                  # the app container's user
 # what a release brings: an update replaces these, an uninstall removes them
@@ -95,7 +96,7 @@ fail() {
 # From the install folder: compose reads .env's COMPOSE_FILE relative to the
 # folder it runs in, not to --project-directory
 compose() {
-	(cd "$ROOT" && NETROLLOUT_VERSION="$VERSION" docker compose -p "$PROJECT" \
+	(cd "$ROOT" && NETROLLOUT_VERSION="${IMAGE_VERSION:-$VERSION}" docker compose -p "$PROJECT" \
 		--project-directory "$ROOT" --env-file "$ENV_FILE" "$@")
 }
 
@@ -177,6 +178,33 @@ setup_core() {
 # A key's value in .env (its last line wins, as for compose)
 env_value() { sed -n "s/^$1=//p" "$ENV_FILE" | tail -1; }
 
+# The version .env was last set up by: its "# Updated to NetRollout X on ..."
+# line (setup upgrade), else the installer's "# NetRollout X — written by the
+# installer"; empty when it has neither (an early install)
+kept_version() {
+	local v
+	v="$(sed -n 's/^# Updated to NetRollout \([^ ]*\) .*/\1/p' "$ENV_FILE" | tail -1)"
+	[ -n "$v" ] || v="$(sed -n 's/^# NetRollout \([^ ]*\) .*written by the installer.*/\1/p' "$ENV_FILE" | tail -1)"
+	printf '%s' "$v"
+}
+
+# Our two images of this version, pulled when this machine doesn't have them;
+# a release whose image isn't on Docker Hub is incomplete - exit 3, "report it".
+#   our_images [what to do after fixing the connection] [a last sentence]
+our_images() {
+	local image out
+	for image in netrollout netrollout-nginx; do
+		docker image inspect "itamarweinstein/$image:$VERSION" >/dev/null 2>&1 && continue
+		if ! out="$(docker pull "itamarweinstein/$image:$VERSION" 2>&1)"; then
+			show "$out"
+			if printf '%s' "$out" | grep -qE 'not found|manifest unknown'; then
+				fail "NetRollout $VERSION isn't published on Docker Hub (itamarweinstein/$image:$VERSION doesn't exist there). This release is incomplete - please report it: https://github.com/itamar14-byte/NetRollout/issues.${2:+ $2}" 3
+			fi
+			fail "Couldn't download itamarweinstein/$image:$VERSION - check the internet connection${1:-}.${2:+ $2}"
+		fi
+	done
+}
+
 # NetRollout's health on this computer (the port in use)
 health_url() {
 	local port; port="$(env_value HTTPS_PORT)"
@@ -235,13 +263,7 @@ do_start() {
 do_install() {
 	need_root
 	if [ -f "$ENV_FILE" ]; then
-		# kept by `uninstall --keep-data` (which promises this), or installed
-		# already: bring it back with its own settings - as NetRollout Setup
-		# does on Windows. start is harmless on a running NetRollout.
-		good "NetRollout's settings and data are already in $ROOT - starting it with them."
-		[ ${#ANSWERS[@]} -eq 0 ] ||
-			warn "The answers given aren't applied to an existing install - change them in System Settings."
-		do_start
+		install_over_kept
 		return
 	fi
 	if [ -z "$YES" ]; then
@@ -261,9 +283,7 @@ NOTICE
 	fi
 	need_docker
 	step "Getting NetRollout $VERSION"
-	if ! docker image inspect "$APP_IMAGE" >/dev/null 2>&1; then
-		docker pull -q "$APP_IMAGE" >/dev/null || fail "Couldn't download $APP_IMAGE - check the internet connection."
-	fi
+	our_images
 	step "Setting up"
 	facts
 	local args=(init --licence-accepted --busy-ports "$(busy_ports)" "${FACTS[@]}" "${ANSWERS[@]}")
@@ -280,6 +300,51 @@ NOTICE
 		warn "Docker doesn't start at boot - so neither does NetRollout: sudo systemctl enable docker"
 	fi
 	open_browser
+}
+
+# .env already here - kept by `uninstall --keep-data` (which promises this),
+# or installed already: brought back with its own settings, on this release.
+# The version .env was last set up by decides: the same one starts as it was;
+# an older one is updated (checked by its image, a backup by it, then the
+# update's own steps); a newer one is refused - no downgrades, nothing changed.
+install_over_kept() {
+	local kept old judge code=0 out have_old=""
+	need_docker
+	kept="$(kept_version)"
+	[ ${#ANSWERS[@]} -eq 0 ] ||
+		warn "The answers given aren't applied to an existing install - change them in System Settings."
+	if [ "$kept" = "$VERSION" ]; then
+		good "NetRollout's settings and data are already in $ROOT - starting it with them."
+		do_start
+		return
+	fi
+	step "Getting NetRollout $VERSION"
+	our_images
+	if [ -n "$kept" ]; then
+		old="itamarweinstein/netrollout:$kept"
+		if docker image inspect "$old" >/dev/null 2>&1 || docker pull -q "$old" >/dev/null 2>&1; then have_old=1; fi
+		# the kept version decides, as an update's installed version does (its
+		# image gone: this one - the versions compare the same way)
+		judge="$APP_IMAGE"; [ -z "$have_old" ] || judge="$old"
+		step "Checking the update: NetRollout $kept (its settings and data, kept in $ROOT) -> $VERSION"
+		out="$(docker run --rm "$judge" python -m src.setup check-update --installed "$kept" --new "$VERSION" 2>&1)" || code=$?
+		if [ "$code" -eq 2 ] && printf '%s' "$out" | grep -q 'the same version'; then
+			good "NetRollout's settings and data are already in $ROOT - starting it with them."
+			do_start
+			return
+		fi
+		[ "$code" -ne 2 ] || { show "$out"; fail "Nothing was changed." 2; }
+		[ "$code" -eq 0 ] || { show "$out"; fail "Couldn't compare the versions ($judge didn't run) - nothing was changed."; }
+		[ -n "$have_old" ] || fail "NetRollout $kept's image ($old) isn't on this machine and couldn't be downloaded - it makes the backup before the update (one NetRollout $kept can restore). Nothing was changed. Check the internet connection, then run the install again."
+	else
+		warn "$ENV_FILE doesn't say which version set it up (an early install): taken as an older version and updated. The backup before the update is made by NetRollout $VERSION - it restores into $VERSION, not into the earlier version."
+	fi
+	set_owners
+	step "Backing up first"
+	IMAGE_VERSION="$kept"     # by the version that wrote the data (none known: this one)
+	backup_create before-update || fail "Couldn't back up - nothing was changed. Fix it (above), then run the install again."
+	IMAGE_VERSION=""
+	do_update_finish
 }
 
 running_rollouts() {
@@ -507,20 +572,11 @@ do_update() {
 # images while the old version keeps running, .env up to date, the restart.
 do_update_finish() {
 	need_installed; need_root; need_docker; CLEAR_STOP_NOW=1
-	local out image back="The backup made before the update is in $ROOT/backups (...-before-update.zip)."
+	local out back="The backup made before the update is in $ROOT/backups (...-before-update.zip)."
 	step "Downloading NetRollout $VERSION (it keeps running meanwhile)"
 	# failures of others' images surface at the start; ours are checked here
 	compose pull --quiet --ignore-pull-failures >/dev/null 2>&1 || true
-	for image in netrollout netrollout-nginx; do
-		docker image inspect "itamarweinstein/$image:$VERSION" >/dev/null 2>&1 && continue
-		if ! out="$(docker pull "itamarweinstein/$image:$VERSION" 2>&1)"; then
-			show "$out"
-			if printf '%s' "$out" | grep -qE 'not found|manifest unknown'; then
-				fail "NetRollout $VERSION isn't published on Docker Hub (itamarweinstein/$image:$VERSION doesn't exist there). This release is incomplete - please report it: https://github.com/itamar14-byte/NetRollout/issues. $back" 3
-			fi
-			fail "Couldn't download itamarweinstein/$image:$VERSION - check the internet connection, then: sudo $BIN/netrollout.sh update-finish. $back"
-		fi
-	done
+	our_images ", then: sudo $BIN/netrollout.sh update-finish" "$back"
 	step "Updating the settings"
 	out="$(setup_core upgrade 2>&1)" || { show "$out"; fail "The update stopped before the restart - see above. $back"; }
 	show "$out"
@@ -541,19 +597,22 @@ has_systemd() { [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>
 # the path unit watching site.env (no systemd: the page says to run apply)
 port_helper_on() {
 	has_systemd || return 0
+	# the folder as systemd reads it: % starts a specifier (%% is one %), and
+	# the command is quoted - a path with spaces is one argument
+	local root="${ROOT//%/%%}"
 	cat > "/etc/systemd/system/$UNIT.service" <<UNITEOF
 [Unit]
-Description=NetRollout port helper ($ROOT): applies an HTTPS port saved in System Settings
+Description=NetRollout port helper ($root): applies an HTTPS port saved in System Settings
 [Service]
 Type=oneshot
-ExecStart=$ROOT/bin/netrollout.sh apply --yes
+ExecStart="$root/bin/netrollout.sh" apply --yes
 TimeoutStartSec=600
 UNITEOF
 	cat > "/etc/systemd/system/$UNIT.path" <<UNITEOF
 [Unit]
-Description=NetRollout port helper ($ROOT): watches its site.env
+Description=NetRollout port helper ($root): watches its site.env
 [Path]
-PathModified=$ROOT/config/nginx/site.env
+PathModified=$root/config/nginx/site.env
 [Install]
 WantedBy=multi-user.target
 UNITEOF
@@ -573,6 +632,15 @@ port_helper_off() {
 }
 
 update_nginx() { compose up -d --no-deps --wait --wait-timeout 120 nginx; }
+
+# One port-* step of the setup core; when it fails, what it said and then $1 -
+# the state it leaves (the unit's journal; the person's terminal)
+#   port_step "<why it stopped>" port-close --outcome ...
+port_step() {
+	local why="$1" out
+	shift
+	out="$(setup_core "$@" 2>&1)" || { show "$out"; fail "$why"; }
+}
 
 # the trial's confirmation within its 120 s, timed here (never compared with
 # a deadline written elsewhere); 0 = confirmed
@@ -603,31 +671,48 @@ do_apply() {
 				return 0 ;;
 			wait)
 				if ! wait_port_trial "$id"; then
-					setup_core port-close --outcome rollback --id "$id" --timed-out >/dev/null 2>&1
+					port_step "Port $port wasn't confirmed within 2 minutes, and ending its trial failed (above) - nginx wasn't changed: it still answers on port $port too. Run: sudo $BIN/netrollout.sh apply" \
+						port-close --outcome rollback --id "$id" --timed-out
 					update_nginx >/dev/null 2>&1 || true
 					warn "Port $port wasn't confirmed within 2 minutes (it didn't open from a browser - a firewall?) - NetRollout stays on port $current."
 					return 0
 				fi ;;
 			try)
 				step "Opening port $port next to port $current"
-				setup_core port-open --port "$port" >/dev/null 2>&1
+				if ! out="$(setup_core port-open --port "$port" 2>&1)"; then
+					show "$out"
+					# recorded as failed (the page shows it; not retried by itself)
+					setup_core port-close --outcome failed --id "$id" --message "port $port: its trial couldn't be prepared (see the port helper's log)" >/dev/null 2>&1 ||
+						warn "Recording that failed too - the page may still be waiting."
+					fail "Port $port wasn't opened: preparing its trial failed (above). nginx wasn't changed - NetRollout stays on port $current."
+				fi
 				if ! out="$(update_nginx 2>&1)"; then
 					show "$out"     # what Docker said (the unit's journal)
 					why="$(printf '%s\n' "$out" | grep -iE 'error|failed|allocated' | head -1)"
 					[ -n "$why" ] || why="nginx did not start with it"
-					setup_core port-close --outcome failed --id "$id" --message "port $port: $why" >/dev/null 2>&1
+					port_step "Port $port couldn't be opened ($why), and ending its trial failed (above) - nginx may still be set up with port $port. Run: sudo $BIN/netrollout.sh apply" \
+						port-close --outcome failed --id "$id" --message "port $port: $why"
 					update_nginx >/dev/null 2>&1 || true
 					warn "Port $port couldn't be opened: $why - port $current stays."
 					return 0
 				fi
-				setup_core port-trying --port "$port" --id "$id" >/dev/null 2>&1
+				if ! out="$(setup_core port-trying --port "$port" --id "$id" 2>&1)"; then
+					show "$out"
+					# nginx answers on both ports, but no trial is running: closed again
+					port_step "Port $port opened, but its trial couldn't be started (above), nor ended - nginx still answers on port $port too. Run: sudo $BIN/netrollout.sh apply" \
+						port-close --outcome failed --id "$id" --message "port $port: its trial couldn't be started (see the port helper's log)"
+					update_nginx >/dev/null 2>&1 || true
+					fail "Port $port opened, but its trial couldn't be started (above) - closed again: NetRollout stays on port $current."
+				fi
 				good "Port $port is open next to port $current. Open NetRollout on port $port within 2 minutes to keep it - else port $current stays." ;;
 			keep)
-				setup_core port-close --outcome keep --id "$id" >/dev/null 2>&1
+				port_step "Port $port was confirmed, but keeping it failed (above) - nginx wasn't changed: it answers on ports $current and $port. Run: sudo $BIN/netrollout.sh apply" \
+					port-close --outcome keep --id "$id"
 				update_nginx >/dev/null 2>&1 || true
 				good "Port $port kept - NetRollout is at $(address)." ;;   # then: anything newer?
 			rollback)
-				setup_core port-close --outcome rollback --id "$id" --message "$message" >/dev/null 2>&1
+				port_step "Rolling the port change back failed (above) - nginx wasn't changed: it may still answer on the trial's port too. Run: sudo $BIN/netrollout.sh apply" \
+					port-close --outcome rollback --id "$id" --message "$message"
 				update_nginx >/dev/null 2>&1 || true
 				warn "Port change rolled back ($message) - NetRollout stays on port $current." ;;
 			*)
