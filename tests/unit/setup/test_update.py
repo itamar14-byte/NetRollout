@@ -195,6 +195,23 @@ def test_a_zip_given_by_hand_is_checked_against_sums_next_to_it(tmp_path):
 	assert update.unpack(z, tmp_path / "out")[1] == "1.0.1"
 
 
+def test_a_renamed_zip_next_to_sums_is_refused_naming_its_release_name(tmp_path):
+	"""A `--from` zip renamed (e.g. by a browser: "(1)") next to a SHA256SUMS that
+	doesn't list its name is refused - not unpacked unchecked - saying to rename it
+	back to the name the sums list."""
+	z = make_zip(tmp_path / update.zip_name("1.0.1"))
+	digest = hashlib.sha256(z.read_bytes()).hexdigest()
+	(tmp_path / "SHA256SUMS").write_text(f"{'2' * 64}  NetRollout-Setup-1.0.1.exe\n"
+	                                     f"{digest}  {z.name}\n")
+	renamed = z.rename(tmp_path / "netrollout-1.0.1-linux (1).zip")
+	with pytest.raises(update.ReleaseError) as refused:
+		update.unpack(renamed, tmp_path / "out")
+	assert str(refused.value) == (
+		"netrollout-1.0.1-linux (1).zip isn't listed in the SHA256SUMS next to it, so it "
+		"can't be checked - if it was renamed, rename it back to netrollout-1.0.1-linux.zip.")
+	assert not (tmp_path / "out").exists()
+
+
 def run(argv):
 	"""The setup CLI run with `argv`: (exit code, the lines it wrote)."""
 	out = []
