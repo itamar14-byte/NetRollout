@@ -42,6 +42,22 @@ def test_where_the_data_is(setup, env, expected):
 	assert (place["host"], place["port"], place["database"], place["sslmode"]) == expected
 
 
+@pytest.mark.parametrize("env, url", [
+	("PG_HOST=db.corp\nPG_PORT=6432\n", "db.corp:6432"),
+	("PG_HOST=10.1.2.3\n", "10.1.2.3:5432"),
+	("PG_HOST=fd00::5\nPG_PORT=6432\n", "[fd00::5]:6432"),
+	("PG_HOST=[fd00::5]\n", "[fd00::5]:5432"),
+	("DATABASE_URL=postgresql+psycopg2://nr:p@[fd00::7]:6543/ops\n", "[fd00::7]:6543"),
+])
+def test_the_data_source_url_brackets_an_ipv6_host(setup, env, url):
+	"""The data source's url is host:port, an IPv6 host in brackets (Grafana's
+	PostgreSQL data source splits it as Go's net.SplitHostPort does) - given
+	bare, bracketed, or in a DATABASE_URL."""
+	setup.RUNTIME_ENV.write_text(env, encoding="utf-8")
+	body = setup.datasource_body(setup.database(setup.read_env(setup.RUNTIME_ENV)))
+	assert body["url"] == url
+
+
 def test_no_runtime_env_is_the_bundled_database(setup):
 	"""Without a runtime.env the data source points at the bundled `postgres`."""
 	assert setup.database(setup.read_env(setup.RUNTIME_ENV))["host"] == "postgres"

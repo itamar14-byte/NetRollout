@@ -135,9 +135,12 @@ def database(values: dict[str, str]) -> dict[str, str]:
 def datasource_body(place: dict[str, str]) -> dict[str, Any]:
 	""":returns: Grafana's data source definition for that database, as the
 	 read-only grafana_reader"""
+	host = place["host"]
+	if ":" in host and not host.startswith("["):
+		host = f"[{host}]"      # an IPv6 address: Grafana splits host:port as Go does
 	return {"uid": DATASOURCE_UID, "name": DATASOURCE_NAME,
 	        "type": "grafana-postgresql-datasource", "access": "proxy",
-	        "url": f"{place['host']}:{place['port']}", "user": "grafana_reader",
+	        "url": f"{host}:{place['port']}", "user": "grafana_reader",
 	        "jsonData": {"database": place["database"], "sslmode": place["sslmode"],
 	                     "postgresVersion": 1700, "timescaledb": False},
 	        "secureJsonData": {"password": os.environ.get("GRAFANA_DB_PASSWORD", "")}}
