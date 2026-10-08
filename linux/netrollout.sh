@@ -434,8 +434,7 @@ do_update() {
 	step "Checking the update: NetRollout $VERSION -> $new"
 	code=0; out="$(docker run --rm "$APP_IMAGE" python -m src.setup check-update --installed "$VERSION" --new "$new" 2>&1)" || code=$?
 	if [ "$code" -eq 2 ]; then show "$out"; rm -rf "$stage"; fail "Nothing was changed." 2
-	elif [ "$code" -ne 0 ]; then warn "Couldn't compare the versions ($APP_IMAGE didn't run) - continuing."
-	elif [ "$(printf '%s\n' "$out" | tail -1)" = same ]; then good "The same version: its files again, then a start (a repair)."; fi
+	elif [ "$code" -ne 0 ]; then warn "Couldn't compare the versions ($APP_IMAGE didn't run) - continuing."; fi
 	if [ -n "$INTERACTIVE" ]; then
 		local a=""
 		read -r -p "Update to NetRollout $new? A backup is made first; then about a minute without NetRollout, and everyone signs in again. [y/N] " a || true

@@ -591,8 +591,6 @@ function Invoke-PrepareUpdate {
 	if ($r.Code -eq 2) { Show-Output $r.Output; Fail "Nothing was changed." 2 }
 	if ($r.Code -ne 0) {
 		Warn "Couldn't compare the versions ($AppImage didn't run) - continuing."
-	} elseif (($r.Output -split "`n")[-1].Trim() -eq "same") {
-		Good "The same version: its files again, then a start (a repair)."
 	}
 	Show-RunningRollouts
 	Step "Backing up first"

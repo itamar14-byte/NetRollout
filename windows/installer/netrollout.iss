@@ -207,7 +207,71 @@ begin
 	Reinstall := True;
 end;
 
-{ Before the first page: Windows Server, or virtualization off -> say so and stop }
+{ The digits at the start of S, as N (removed from S); False: none }
+function TakeNumber(var S: String; var N: Integer): Boolean;
+var I: Integer;
+begin
+	I := 1;
+	while (I <= Length(S)) and (S[I] >= '0') and (S[I] <= '9') do I := I + 1;
+	Result := I > 1;
+	if Result then begin
+		N := StrToInt(Copy(S, 1, I - 1));
+		Delete(S, 1, I - 1);
+	end;
+end;
+
+{ A version as a key that sorts like the versions do (PEP 440, as the setup
+  core and the Manager order them: 1.0.0.dev2 < 1.0.0rc1 < 1.0.0 < 1.0.1);
+  '' when it isn't one of ours (then the setup core decides, later) }
+function VersionKey(const Version: String): String;
+var S: String; A, B, C, Stage, N: Integer;
+begin
+	Result := '';
+	S := Lowercase(Trim(Version));
+	if Copy(S, 1, 1) = 'v' then Delete(S, 1, 1);
+	if not TakeNumber(S, A) or (Copy(S, 1, 1) <> '.') then exit;
+	Delete(S, 1, 1);
+	if not TakeNumber(S, B) or (Copy(S, 1, 1) <> '.') then exit;
+	Delete(S, 1, 1);
+	if not TakeNumber(S, C) then exit;
+	Stage := 4; N := 0;             { a release }
+	if S <> '' then begin
+		if Copy(S, 1, 1) = '.' then Delete(S, 1, 1);
+		if Copy(S, 1, 3) = 'dev' then begin Stage := 0; Delete(S, 1, 3); end
+		else if Copy(S, 1, 2) = 'rc' then begin Stage := 3; Delete(S, 1, 2); end
+		else if Copy(S, 1, 1) = 'a' then begin Stage := 1; Delete(S, 1, 1); end
+		else if Copy(S, 1, 1) = 'b' then begin Stage := 2; Delete(S, 1, 1); end
+		else exit;
+		if not TakeNumber(S, N) or (S <> '') then exit;
+	end;
+	Result := Format('%.6d.%.6d.%.6d.%d.%.6d', [A, B, C, Stage, N]);
+end;
+
+{ Over an installed NetRollout only a newer Setup goes on (the update): the
+  same version or an older one says so before the first page. False: stop. }
+function NewerThanInstalled: Boolean;
+var Installed, This: String;
+begin
+	Result := True;
+	Installed := VersionKey(InstalledVersion);
+	This := VersionKey('{#AppVersion}');
+	if (Installed = '') or (This = '') then exit;
+	if This = Installed then begin
+		SuppressibleMsgBox('NetRollout ' + InstalledVersion + ' is already installed - this Setup is the same ' +
+			'version. Nothing to update.', mbInformation, MB_OK, IDOK);
+		Result := False;
+	end else if This < Installed then begin
+		SuppressibleMsgBox('NetRollout ' + InstalledVersion + ' is installed - newer than this Setup ' +
+			'({#AppVersion}). Downgrades aren''t supported.' + #13#10#13#10 +
+			'To run an earlier version: uninstall NetRollout, then run that version''s Setup - with your ' +
+			'data from a backup made by that version (the current data may already be upgraded).',
+			mbError, MB_OK, IDOK);
+		Result := False;
+	end;
+end;
+
+{ Before the first page: Windows Server, or virtualization off -> say so and
+  stop; over an install, only a newer Setup goes on }
 function InitializeSetup: Boolean;
 var Problem: String;
 begin
@@ -216,8 +280,10 @@ begin
 	Result := Problem = '';
 	if not Result then
 		SuppressibleMsgBox('NetRollout can''t run on this computer.' + #13#10#13#10 + Problem, mbCriticalError, MB_OK, IDOK)
-	else
+	else begin
 		FindInstalled;
+		if UpdateMode then Result := NewerThanInstalled;
+	end;
 end;
 
 function MakeLabel(Page: TWizardPage; const Caption: String; Top: Integer; Bold: Boolean): TNewStaticText;
