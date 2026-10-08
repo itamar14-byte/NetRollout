@@ -879,11 +879,11 @@
         const toggleClass = g.is_active ? 'active' : 'inactive';
         const toggleLabel = g.is_active ? 'ACTIVE' : 'INACTIVE';
         html += `<tr id="gr-row-${g.id}">
-          <td style="font-weight:500; color:#e0e0e0;">${escGr(g.label)}</td>
-          <td><span class="gr-dn" title="${escGr(g.group_dn)}">${escGr(g.group_dn)}</span></td>
+          <td style="font-weight:500; color:#e0e0e0;">${nrEscape(g.label)}</td>
+          <td><span class="gr-dn" title="${nrEscape(g.group_dn)}">${nrEscape(g.group_dn)}</span></td>
           <td>${roleBadge}</td>
           <td style="font-family:'JetBrains Mono',monospace; font-size:0.72rem; color:var(--nr-text-muted);">
-            ${escGr(server.name)}
+            ${nrEscape(server.name)}
           </td>
           <td>
             <span class="gr-toggle ${toggleClass}" id="gr-toggle-${g.id}"
@@ -932,11 +932,6 @@
         if (row) row.remove();
       }
     });
-  }
-
-  function escGr(str) {
-    if (!str) return '';
-    return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
 </script>
 {% endblock %}

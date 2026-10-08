@@ -99,8 +99,6 @@ function nrSelectShell(container, filter, modal) {
 //       legend (element: key for the card edges, filled while changes are staged),
 //       onChange(board)
 function nrAssignBoard(root, opts) {
-    const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;')
-        .replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
     const byId    = new Map(opts.devices.map(d => [d.id, d]));
     const initial = new Set(opts.assigned.filter(id => byId.has(id)));
     const current = new Set(initial);
@@ -113,7 +111,7 @@ function nrAssignBoard(root, opts) {
                     : !isIn && initial.has(d.id) ? ' is-removed' : '';
         const logo  = (opts.logos || {})[d.device_type];
         const icon  = logo
-            ? `<img alt="" src="${esc(logo)}" onerror="this.replaceWith(Object.assign(document.createElement('i'),{className:'bi bi-router'}))">`
+            ? `<img alt="" src="${nrEscape(logo)}" onerror="this.replaceWith(Object.assign(document.createElement('i'),{className:'bi bi-router'}))">`
             : '<i class="bi bi-router"></i>';
         const meta  = opts.meta ? opts.meta(d) : '';
         const warn  = opts.warn ? opts.warn(d, isIn) : null;
@@ -121,18 +119,18 @@ function nrAssignBoard(root, opts) {
         const verb  = isIn ? 'Unassign' : 'Assign';
         return `
         <div class="nr-board-card${state}${lock ? ' is-locked' : ''}${d.id === landed ? ' is-landing' : ''}"
-             draggable="${lock ? 'false' : 'true'}" tabindex="0" role="button" data-id="${esc(d.id)}"
+             draggable="${lock ? 'false' : 'true'}" tabindex="0" role="button" data-id="${nrEscape(d.id)}"
              ${lock ? 'aria-disabled="true"' : ''}
-             aria-label="${lock ? esc(d.label) + ': ' + esc(lock) : verb + ' ' + esc(d.label) + ' (' + esc(d.ip) + ')'}"
-             title="${lock ? esc(lock) : verb + ': drag or click'}">
+             aria-label="${lock ? nrEscape(d.label) + ': ' + nrEscape(lock) : verb + ' ' + nrEscape(d.label) + ' (' + nrEscape(d.ip) + ')'}"
+             title="${lock ? nrEscape(lock) : verb + ': drag or click'}">
             <div class="nr-board-vendor">${icon}</div>
             <div class="nr-board-name">
-                <span class="nr-board-label">${esc(d.label)}</span>
-                <span class="nr-board-ip">${esc(d.ip)}</span>
+                <span class="nr-board-label">${nrEscape(d.label)}</span>
+                <span class="nr-board-ip">${nrEscape(d.ip)}</span>
             </div>
             ${d.is_global ? '<span class="nr-global-badge" title="Global device — shared by an administrator"><i class="bi bi-globe2"></i>GLOBAL</span>' : ''}
-            ${warn ? `<i class="bi bi-exclamation-triangle-fill nr-board-warn" title="${esc(warn)}"></i>` : ''}
-            ${meta ? `<span class="nr-board-meta" title="${esc(meta)}">${esc(meta)}</span>` : ''}
+            ${warn ? `<i class="bi bi-exclamation-triangle-fill nr-board-warn" title="${nrEscape(warn)}"></i>` : ''}
+            ${meta ? `<span class="nr-board-meta" title="${nrEscape(meta)}">${nrEscape(meta)}</span>` : ''}
             ${lock ? '<i class="bi bi-lock-fill nr-board-lock"></i>'
                    : `<i class="bi ${isIn ? 'bi-arrow-right' : 'bi-arrow-left'} nr-board-move"></i>`}
         </div>`;
@@ -147,7 +145,7 @@ function nrAssignBoard(root, opts) {
         col.querySelector('.nr-board-count').textContent = devs.length;
         if (!devs.length) {
             const text = key === 'in' ? opts.emptyIn : opts.emptyOut();
-            list.innerHTML = `<p class="nr-board-empty">${esc(text)}</p>`;
+            list.innerHTML = `<p class="nr-board-empty">${nrEscape(text)}</p>`;
             return;
         }
         // Split into Global / My Devices only when both groups are non-empty

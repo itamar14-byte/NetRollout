@@ -279,17 +279,21 @@
 
     document.getElementById('detailModalTitle').textContent = 'Entry — ' + ts;
 
-    // Build metadata rows from table cells
+    // Build metadata rows from table cells (their text, set as text)
     const cells = _activeRow.querySelectorAll('td');
     const fields = ['Timestamp','Actor','Action','Object','Status','IP'];
-    let html = '';
-    for (let i = 0; i < fields.length; i++) {
-      html += `<tr>
-        <th style="width:110px;color:var(--nr-text-muted);font-weight:500;">${fields[i]}</th>
-        <td style="color:#ccc;">${cells[i].innerText.trim()}</td>
-      </tr>`;
-    }
-    document.getElementById('detailMetaRows').innerHTML = html;
+    const rows = fields.map((field, i) => {
+      const tr = document.createElement('tr');
+      const th = document.createElement('th');
+      th.style.cssText = 'width:110px;color:var(--nr-text-muted);font-weight:500;';
+      th.textContent = field;
+      const td = document.createElement('td');
+      td.style.color = '#ccc';
+      td.textContent = cells[i].innerText.trim();
+      tr.append(th, td);
+      return tr;
+    });
+    document.getElementById('detailMetaRows').replaceChildren(...rows);
 
     const jsonEl = document.getElementById('detailJson');
     if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {

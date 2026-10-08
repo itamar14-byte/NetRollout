@@ -826,9 +826,16 @@ async function showConfigDiff(btn) {
                     'padding:5px 8px; font-size:0.78rem; cursor:pointer; color:#888;' +
                     'font-family:\'JetBrains Mono\',monospace; white-space:nowrap;' +
                     'transition:background 0.1s, color 0.1s;';
-                opt.innerHTML =
-                    '<span style="color:#ccc;">' + label + '</span>' +
-                    (label !== ip ? ' <span style="color:var(--nr-text-muted); font-size: 0.75rem;">(' + ip + ')</span>' : '');
+                const labelEl = document.createElement('span');
+                labelEl.style.color = '#ccc';
+                labelEl.textContent = label;
+                opt.append(labelEl);
+                if (label !== ip) {
+                    const ipEl = document.createElement('span');
+                    ipEl.style.cssText = 'color:var(--nr-text-muted); font-size: 0.75rem;';
+                    ipEl.textContent = '(' + ip + ')';
+                    opt.append(' ', ipEl);
+                }
                 opt.onmouseenter = () => { opt.style.background = '#1e1e1e'; opt.style.color = '#ccc'; };
                 opt.onmouseleave = () => { opt.style.background = 'none'; };
                 opt.onclick = () => {
@@ -872,7 +879,7 @@ async function _renderVerifyDiff(device, activeTab) {
             const resp = await fetch(`/results/config_diff/${_verifyDiffJobId}/${device.ip}?port=${device.port}`);
             const data = await resp.json();
             if (data.status === 'error') {
-                list.innerHTML = '<div style="padding:1rem; color:#ef5350; font-size:0.82rem;">' + data.message + '</div>';
+                list.innerHTML = '<div style="padding:1rem; color:#ef5350; font-size:0.82rem;">' + nrEscape(data.message) + '</div>';
                 return;
             }
             FETCHED_CONFIGS[cacheKey] = data.config || '';
@@ -898,7 +905,6 @@ async function _renderVerifyDiff(device, activeTab) {
         'not verifiable':   {icon: 'bi-dash-circle',  color: 'var(--nr-text-faint)', text: 'var(--nr-text-muted)', bg: 'transparent', note: 'not verifiable'},
         'variable':         {icon: 'bi-question-circle', color: 'var(--nr-text-faint)', text: 'var(--nr-text-muted)', bg: 'transparent', note: 'variable — see the rollout log'},
     };
-    const esc = t => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     verdicts.forEach(([cmd, verdict]) => {
         const look = LOOK[verdict] || LOOK['not verifiable'];
         const row  = document.createElement('div');
@@ -906,7 +912,7 @@ async function _renderVerifyDiff(device, activeTab) {
         row.innerHTML =
             '<i class="bi ' + look.icon + '" style="font-size:0.95rem; flex-shrink:0; color:' + look.color + ';"></i>' +
             '<span style="font-family:\'JetBrains Mono\',monospace; font-size:0.78rem; color:' + look.text + ';">' +
-            esc(cmd) + '</span>' +
+            nrEscape(cmd) + '</span>' +
             (look.note ? '<span style="margin-left:auto; font-size:0.7rem; color:var(--nr-text-muted); white-space:nowrap;">' +
                          look.note + '</span>' : '');
         list.appendChild(row);
@@ -1090,10 +1096,6 @@ function mergeDiff(ops) {
     return out;
 }
 
-function esc(s) {
-    return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-}
-
 // ── Run & render diff ─────────────────────────────────────────────────────────
 function runDiff() {
     if (selectedJobs.length !== 2) return;
@@ -1119,14 +1121,14 @@ function runDiff() {
         if (op.type === 'equal') {
             tr.innerHTML =
                 `<td class="diff-num">${ln++}</td>` +
-                `<td class="diff-cell">${esc(op.left)}</td>` +
+                `<td class="diff-cell">${nrEscape(op.left)}</td>` +
                 `<td class="diff-sep"></td>` +
                 `<td class="diff-num">${rn++}</td>` +
-                `<td class="diff-cell">${esc(op.right)}</td>`;
+                `<td class="diff-cell">${nrEscape(op.right)}</td>`;
         } else if (op.type === 'delete') {
             tr.innerHTML =
                 `<td class="diff-num diff-del-num">${ln++}</td>` +
-                `<td class="diff-cell diff-del"><span class="diff-sign">−</span>${esc(op.left)}</td>` +
+                `<td class="diff-cell diff-del"><span class="diff-sign">−</span>${nrEscape(op.left)}</td>` +
                 `<td class="diff-sep"></td>` +
                 `<td class="diff-num"></td>` +
                 `<td class="diff-cell diff-del" style="opacity:0.2;"></td>`;
@@ -1136,14 +1138,14 @@ function runDiff() {
                 `<td class="diff-cell diff-ins" style="opacity:0.2;"></td>` +
                 `<td class="diff-sep"></td>` +
                 `<td class="diff-num diff-ins-num">${rn++}</td>` +
-                `<td class="diff-cell diff-ins"><span class="diff-sign">+</span>${esc(op.right)}</td>`;
+                `<td class="diff-cell diff-ins"><span class="diff-sign">+</span>${nrEscape(op.right)}</td>`;
         } else {
             tr.innerHTML =
                 `<td class="diff-num diff-chg-num">${ln++}</td>` +
-                `<td class="diff-cell diff-chg"><span class="diff-sign">~</span>${esc(op.left)}</td>` +
+                `<td class="diff-cell diff-chg"><span class="diff-sign">~</span>${nrEscape(op.left)}</td>` +
                 `<td class="diff-sep"></td>` +
                 `<td class="diff-num diff-chg-num">${rn++}</td>` +
-                `<td class="diff-cell diff-chg"><span class="diff-sign">~</span>${esc(op.right)}</td>`;
+                `<td class="diff-cell diff-chg"><span class="diff-sign">~</span>${nrEscape(op.right)}</td>`;
         }
         tbody.appendChild(tr);
     });
