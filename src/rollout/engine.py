@@ -4,6 +4,7 @@ platform needs (save / commit / ...), optionally verify against the config
 read back, and classify each device's outcome. Platform knowledge is in
 src/rollout/platforms.py; this module does the I/O."""
 import os
+import re
 import threading
 import uuid
 from collections import Counter
@@ -49,6 +50,38 @@ def mapping_resolvable(var_maps: dict[str, Any] | None, property_name: str,
 	if index is None:
 		return True
 	return isinstance(value, list) and 0 <= index < len(value)
+
+
+# a $$TOKEN$$ in a command (a mapping's token shape: inputs.token_problem); a
+# lone $$ isn't one
+TOKEN_IN_COMMAND = re.compile(r"\$\$[A-Za-z0-9_]{1,64}\$\$")
+
+
+def unresolved(device: "Device", commands: list[str]) -> list[str]:
+	"""Why the commands can't be filled in for this device - checked by the
+	launch and rollback routes before a rollout is queued, and again at the
+	push (a value can go while a job waits).
+
+	:param device: its mappings (var_map_subs) and values (extra)
+	:param commands: the commands it would get
+	:returns: one line per token the commands use that has no mapping on the
+	 device, or whose value is missing (an index past the end); in order,
+	 each once; [] when every token resolves"""
+	problems: list[str] = []
+	seen: set[str] = set()
+	for command in commands:
+		for token in TOKEN_IN_COMMAND.findall(command):
+			if token in seen:
+				continue
+			seen.add(token)
+			if token not in device.var_map_subs:
+				problems.append(f"{token}: no mapping on this device")
+				continue
+			property_name, index = device.var_map_subs[token]
+			if not mapping_resolvable(device.extra, property_name, index):
+				where = property_name if index is None else f"{property_name}[{index}]"
+				problems.append(f"{token}: no value for '{where}'")
+	return problems
 
 
 class PushResult(NamedTuple):
@@ -291,16 +324,15 @@ class RolloutEngine:
 	def _substitute_commands(self, device: Device) -> list[str]:
 		"""The commands with the device's $$TOKEN$$s replaced by its values.
 
-		:raises SubstitutionError: a mapped attribute is missing on the
-		 device (e.g. removed from a global device after users bound it)"""
-		device_mappings = device.var_map_subs
+		:raises SubstitutionError: a token the commands use can't be filled in
+		 (unresolved: no mapping on the device, or its value gone - e.g.
+		 removed from a global device while the job was queued)"""
+		if problems := unresolved(device, self._commands):
+			raise SubstitutionError("; ".join(problems))
 		commands_copy = self._commands.copy()
-		for token, (property_name, index) in device_mappings.items():
-			if not mapping_resolvable(device.extra, property_name, index):
-				where = property_name if index is None else \
-					f"{property_name}[{index}]"
-				raise SubstitutionError(
-					f"{token}: device has no value for '{where}'")
+		for token, (property_name, index) in device.var_map_subs.items():
+			if not any(token in command for command in commands_copy):
+				continue      # bound, but not used by these commands
 			property_value = device.extra[property_name]
 			if index is not None:
 				property_value = property_value[index]

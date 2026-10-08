@@ -20,7 +20,7 @@ import src.rollout.engine as engine_module
 # bare `import core` would load a second copy of every module (patches and
 # isinstance checks would then silently target the wrong one).
 from src.rollout import inputs
-from src.rollout.engine import (PushResult, VerifyResult, Device, RolloutOptions, RolloutEngine,
+from src.rollout.engine import (SubstitutionError, unresolved, PushResult, VerifyResult, Device, RolloutOptions, RolloutEngine,
                                 endpoint, classify, mapping_resolvable)
 from src.rollout.inputs import InputParser, Validator
 from src.rollout.log import RolloutLogger
@@ -756,16 +756,52 @@ def test_only_rolling_out_users_mappings_are_applied():
 
 def test_substitution_uses_each_users_own_binding():
 	"""The same command substitutes per user: "hostname core-x" for USER_A,
-	"hostname blue" for USER_B, and the token untouched for USER_C."""
+	"hostname blue" for USER_B; USER_C has no binding - refused, never the token
+	pushed literally."""
 	row = global_row()
 	engine = RolloutEngine(RolloutOptions(), [], ["hostname $$HOST$$"])
 	assert engine._substitute_commands(Device.from_inventory(row, USER_A)) == \
 	       ["hostname core-x"]
 	assert engine._substitute_commands(Device.from_inventory(row, USER_B)) == \
 	       ["hostname blue"]
-	# a user with no binding pushes the token untouched
-	assert engine._substitute_commands(Device.from_inventory(row, USER_C)) == \
-	       ["hostname $$HOST$$"]
+	with pytest.raises(SubstitutionError, match=r"\$\$HOST\$\$: no mapping on this device"):
+		engine._substitute_commands(Device.from_inventory(row, USER_C))
+
+
+@pytest.mark.parametrize("commands, subs, extra, problems", [
+	# a bound token whose value was cleared
+	(["ip address $$LO$$ 255.255.255.255"], {"$$LO$$": ("loopback_ip", None)}, {},
+	 ["$$LO$$: no value for 'loopback_ip'"]),
+	# an index past the end of the list
+	(["vrf $$VRF$$"], {"$$VRF$$": ("vrfs", 2)}, {"vrfs": ["red", "blue"]},
+	 ["$$VRF$$: no value for 'vrfs[2]'"]),
+	# a typo, and the wrong case (matching is exact)
+	(["hostname $$HOSTNMAE$$", "snmp location $$site$$"], {"$$HOSTNAME$$": ("hostname", None)},
+	 {"hostname": "r1"}, ["$$HOSTNMAE$$: no mapping on this device",
+	                      "$$site$$: no mapping on this device"]),
+	# a bound token the commands don't use isn't a problem (it failed the device)
+	(["hostname r1"], {"$$LO$$": ("loopback_ip", None)}, {}, []),
+	# a lone $$ isn't a token
+	(["banner motd $$ hi $$"], {}, {}, []),
+	(["hostname $$HOST$$"], {"$$HOST$$": ("hostname", None)}, {"hostname": "r1"}, []),
+])
+def test_unresolved_names_every_token_that_cant_be_filled(commands, subs, extra, problems):
+	"""unresolved() lists, per device, each token in the commands with no value (or an
+	index past the end) and each with no mapping on the device - in order, once each."""
+	device = make_device(var_map_subs=subs, extra=extra)
+	assert unresolved(device, commands) == problems
+
+
+def test_a_device_with_a_leftover_token_is_skipped_at_push():
+	"""At push time (a value gone while the job was queued, or the CLI) a device whose
+	commands keep a token is skipped and failed without connecting - not sent
+	"hostname $$HOSTNMAE$$"."""
+	engine = RolloutEngine(RolloutOptions(), [make_device()], ["hostname $$HOSTNMAE$$"])
+	logger = RolloutLogger(webapp=False, verbose=False)
+	with patch("netmiko.ConnectHandler") as connect:
+		_, results = engine._push_config(threading.Event(), logger)
+	connect.assert_not_called()
+	assert results[0] == PushResult(applied=False, rejected=0)
 
 
 def test_credentials_are_decrypted_from_assigned_profile():

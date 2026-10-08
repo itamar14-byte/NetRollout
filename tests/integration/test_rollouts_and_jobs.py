@@ -58,11 +58,11 @@ def test_single_platform_rollout_is_submitted(operator, client_for,
 	"""A rollout to one platform is submitted once (redirect to Active Jobs) with
 	the commands minus blank lines, verify on, the comment and the device."""
 	resp = client_for(operator.user).post("/rollout/start", data={
-		"device_ids": [str(operator.ios)], "manual_commands": "hostname $$H$$\n\n",
+		"device_ids": [str(operator.ios)], "manual_commands": "hostname r9\n\n",
 		"_verify": "on", "comment": "chg-1"})
 	assert resp.status_code == 302 and "/active_jobs?new=" in resp.headers["Location"]
 	(call,) = captured_submits
-	assert call.commands == ["hostname $$H$$"]
+	assert call.commands == ["hostname r9"]
 	assert call.params.verify is True and call.comment == "chg-1"
 	assert [d.ip for d in call.devices] == ["10.0.0.1"]
 
@@ -1199,3 +1199,76 @@ def test_new_rollout_page_has_reachability_ui(operator, client_for):
 	html = client_for(operator.user).get("/rollout/new").get_data(as_text=True)
 	assert 'id="reachRecheck"' in html and 'id="unreachWarning"' in html
 	assert f'data-device-id="{operator.ios}"' in html
+
+
+# ── Tokens that can't be filled in block rollouts ─────────────────────────────
+
+def _flashed(client):
+	""":returns: the newest message flashed to this client"""
+	with client.session_transaction() as s:
+		return s["_flashes"][-1][1]
+
+
+def test_a_launch_with_a_token_typo_is_blocked(operator, client_for, captured_submits):
+	"""A token no mapping on the device has (a typo) blocks the launch before anything is
+	queued - it was sent to the device literally: back to the form, the flash names the
+	device and the token."""
+	client = client_for(operator.user)
+	resp = client.post("/rollout/start", data={
+		"device_ids": [str(operator.ios)], "manual_commands": "hostname $$HOSTNMAE$$"})
+	assert resp.headers["Location"] == "/rollout/new" and captured_submits == []
+	message = _flashed(client)
+	assert "rollout blocked" in message and "10.0.0.1:22" in message
+	assert "$$HOSTNMAE$$: no mapping on this device" in message
+
+
+def test_a_launch_with_a_token_without_a_value_is_blocked(operator, client_for, make_mapping,
+                                                           captured_submits):
+	"""A bound token whose value is gone (the arista device has no hostname) blocks the
+	launch, naming the property."""
+	make_mapping(operator.user, token="HOST", prop="hostname", devices=[operator.eos])
+	client = client_for(operator.user)
+	client.post("/rollout/start", data={
+		"device_ids": [str(operator.eos)], "manual_commands": "hostname $$HOST$$"})
+	assert captured_submits == []
+	assert "$$HOST$$: no value for 'hostname'" in _flashed(client)
+
+
+def test_a_launch_whose_tokens_resolve_goes_through(operator, client_for, make_mapping,
+                                                     captured_submits):
+	"""Tokens bound and valued on every device: the rollout is queued as before."""
+	make_mapping(operator.user, token="HOST", prop="hostname", devices=[operator.ios])
+	client_for(operator.user).post("/rollout/start", data={
+		"device_ids": [str(operator.ios)], "manual_commands": "hostname $$HOST$$"})
+	(call,) = captured_submits
+	assert call.commands == ["hostname $$HOST$$"]
+
+
+def test_a_multi_platform_launch_checks_each_platforms_own_commands(
+		operator, client_for, make_mapping, captured_submits):
+	"""Each device is checked against its own platform's commands: a token only in the
+	cisco commands (resolving there) doesn't block the arista device; one in the arista
+	commands that doesn't resolve blocks the whole launch."""
+	make_mapping(operator.user, token="HOST", prop="hostname", devices=[operator.ios])
+	client = client_for(operator.user)
+	data = {"device_ids": [str(operator.ios), str(operator.eos)]}
+	client.post("/rollout/start", data={**data, "platform_commands": json.dumps(
+		{"cisco_ios": "hostname $$HOST$$", "arista_eos": "hostname b"})})
+	assert len(captured_submits) == 2
+	captured_submits.clear()
+	client.post("/rollout/start", data={**data, "platform_commands": json.dumps(
+		{"cisco_ios": "hostname a", "arista_eos": "hostname $$HOST$$"})})
+	assert captured_submits == []
+	assert "10.0.0.2:22" in _flashed(client)
+
+
+def test_a_rollback_with_a_token_that_cant_be_filled_is_refused(
+		operator, client_for, session_scope, captured_submits):
+	"""A rollback's commands are checked the same way: 409 naming the token, nothing
+	submitted."""
+	job = uuid.uuid4()
+	add_result(session_scope, operator.user, job, ip="10.0.0.1")
+	resp = client_for(operator.user).post(f"/rollout/rollback/{job}",
+	                                      json={"commands": "no ntp server $$NTP$$"})
+	assert resp.status_code == 409 and captured_submits == []
+	assert "$$NTP$$: no mapping on this device" in resp.json["message"]

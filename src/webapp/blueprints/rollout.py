@@ -3,7 +3,7 @@ platform), start; the live log's stream, cancel, and a rollback of a job's
 successful devices."""
 import json
 import uuid
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from itertools import groupby
 from typing import Any, cast
 from urllib.parse import urlsplit
@@ -16,7 +16,7 @@ from werkzeug.wrappers import Response as BaseResponse
 from src.db.tables import DeviceResult, Inventory, User
 from src.inventory import attributes, visible_devices_clause, query_visible_devices, partition_devices
 from src.jobs import Draining
-from src.rollout.engine import Device, RolloutOptions
+from src.rollout.engine import Device, RolloutOptions, unresolved
 from src.rollout.inputs import InputParser
 from src.webapp.app import current_app
 from src.webapp.http import ok, err, with_form, with_json
@@ -143,6 +143,28 @@ def unreachable_message(devices: list[Device]) -> str:
 	        f"Recheck once they're back online.")
 
 
+def unresolved_message(devices: list[Device], commands_of: Callable[[Device], list[str]]) -> str | None:
+	"""The refusal naming every device whose commands keep a token that can't
+	be filled in (engine.unresolved: no mapping on the device, or no value) -
+	checked before a rollout is queued, as reachability is.
+
+	:param commands_of: the commands a device would get (its platform's)
+	:returns: the message; None when every token resolves"""
+	blocked = [(d, problems) for d in devices if (problems := unresolved(d, commands_of(d)))]
+	if not blocked:
+		return None
+	names = "; ".join(f"{d.label or d.ip} ({d.endpoint}): {', '.join(problems)}"
+	                  for d, problems in blocked)
+	return (f"Tokens that can't be filled in — rollout blocked: {names}. Fix the "
+	        f"commands or the devices' attributes and mappings, or leave those "
+	        f"devices out.")
+
+
+def platform_lines(text: str) -> list[str]:
+	""":returns: a platform's command text as the commands it runs (blank lines out)"""
+	return [line.strip() for line in text.splitlines() if line.strip()]
+
+
 def submit_jobs(devices: list[Device], commands: list[str] | None,
                 platform_commands_map: dict[str, str], is_multi_platform: bool,
                 options: RolloutOptions,
@@ -170,9 +192,7 @@ def submit_jobs(devices: list[Device], commands: list[str] | None,
 	devices.sort(key=lambda d: d.device_type)
 	jobs: list[tuple[list[Device], list[str]]] = []
 	for platform, group in groupby(devices, key=lambda d: d.device_type):
-		curr_commands = [l.strip() for l in
-		                 platform_commands_map.get(platform, "").splitlines()
-		                 if l.strip()]
+		curr_commands = platform_lines(platform_commands_map.get(platform, ""))
 		if not curr_commands:
 			flash(f"No commands provided for {platform}.", "danger")
 			return redirect(url_for("rollout.new_rollout"))
@@ -294,6 +314,12 @@ def new_start_rollout() -> ResponseReturnValue:
 
 	if unreachable := unreachable_devices(devices):
 		flash(unreachable_message(unreachable), "danger")
+		return redirect(url_for("rollout.new_rollout"))
+
+	if blocked := unresolved_message(devices, lambda d: platform_lines(
+			platform_commands_map.get(d.device_type, "")) if is_multi_platform
+			else commands or []):
+		flash(blocked, "danger")
 		return redirect(url_for("rollout.new_rollout"))
 
 	options = RolloutOptions(
@@ -420,6 +446,8 @@ def rollback(job_id: uuid.UUID, data: dict[str, Any]) -> ResponseReturnValue:
 		return err(f"Can't roll back: {e}.", 409)
 	if unreachable := unreachable_devices(devices):
 		return err(unreachable_message(unreachable), 409)
+	if blocked := unresolved_message(devices, lambda d: commands):
+		return err(blocked, 409)
 	options = RolloutOptions(
 		verify=bool(data.get("verify", False)),
 		verbose=bool(data.get("verbose", False)),
