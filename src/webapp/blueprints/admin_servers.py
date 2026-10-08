@@ -181,13 +181,12 @@ def database_move_back() -> ResponseReturnValue:
 
 
 def _start(target: PostgresConfig, back: bool) -> ResponseReturnValue:
-	""":returns: the move's status once started (audited); 409 when refused"""
+	""":returns: the move's status once started (db_move audits it); 409 when
+	 refused"""
 	try:
 		current_app.db_move.start(target, current_user.id, current_user.username, back=back)
 	except move.MoveError as e:
 		return err(str(e), 409)
-	current_app.web.audit("database.move_started", object_type="database",
-	                      object_label=describe(target), detail={"back": back})
 	return ok(move=_status())
 
 
