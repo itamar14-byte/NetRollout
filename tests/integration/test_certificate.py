@@ -69,17 +69,38 @@ def test_an_organisation_certificate_is_used(admin, app, client_for, proxy,
 	assert "PRIVATE KEY" not in json.dumps(detail)
 
 
-@pytest.mark.parametrize("names, expected", [
-	(("other.corp.local",), "doesn't cover nr01.corp.local"),
+@pytest.mark.parametrize("names, ips", [
+	(("other.corp.local",), ()),             # another name
+	(("*.local",), ()),                      # a wildcard covers one label only
+	(("*.other.local",), ()),                # a wildcard of another domain
+	(("nr01.corp.local.other",), ()),        # the name as a prefix only
+	((), ("10.1.1.5",)),                     # the server's IP, not its name
 ])
 def test_a_certificate_for_another_name_is_refused(admin, app, client_for, proxy,
-                                                   hostname, names, expected):
-	"""A certificate that doesn't cover the saved hostname is refused with 422 saying
-	so, and the certificate files stay as they were."""
+                                                   hostname, names, ips):
+	"""A certificate that doesn't cover the saved hostname (by browsers' rules) is
+	refused with 422 saying so and naming what it covers, and the certificate files
+	stay as they were."""
 	certs.selfsigned("nr01.corp.local", [], runtime.certs_dir())
 	before = files()
-	resp = upload(client_for(admin), *org_pair(names))
-	assert resp.status_code == 422 and expected in resp.json["message"]
+	resp = upload(client_for(admin), *org_pair(names, ips))
+	covers = ", ".join([*names, *ips])
+	assert resp.status_code == 422
+	assert f"doesn't cover nr01.corp.local (it covers: {covers})" in resp.json["message"]
+	assert files() == before
+
+
+def test_a_certificate_without_alternative_names_is_refused(admin, app, client_for, proxy,
+                                                            hostname):
+	"""A certificate with no subject alternative names (only a common name, which
+	browsers ignore) is refused with 422 saying so, and the certificate files stay as
+	they were."""
+	certs.selfsigned("nr01.corp.local", [], runtime.certs_dir())
+	before = files()
+	cert, key = make_cert(names=())
+	resp = upload(client_for(admin), pem(cert), key_pem(key))
+	assert resp.status_code == 422
+	assert "has no subject alternative names" in resp.json["message"]
 	assert files() == before
 
 

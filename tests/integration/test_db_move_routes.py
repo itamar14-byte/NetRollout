@@ -1,11 +1,17 @@
 """Server Management -> Database: the move's routes (the move itself, on real
 databases, is test_db_move.py)."""
+import time
+import uuid
+
 import pytest
-from sqlalchemy import make_url
+from sqlalchemy import create_engine, make_url, text
 
-from src.db.tables import AuditLog
-
+from src.db import move
+from src.db.connections import PostgresConfig
+from src.db.tables import AuditLog, User
 from src.webapp import db_move
+from tests.integration.conftest import PG_ADMIN_URL
+from tests.integration.test_db_move import _wait, mover, target  # noqa: F401 - fixtures
 
 pytestmark = [pytest.mark.postgres, pytest.mark.redis]
 
@@ -131,3 +137,106 @@ def test_a_move_to_an_unreachable_server_is_refused(admin, client_for):
 		"host": "127.0.0.1", "port": "1", "database": "x", "user": "x", "password": "y"})
 	assert resp.status_code == 409
 	assert c.get("/admin/server/database/move/status").json["move"]["state"] == "idle"
+
+
+# ── the success paths, on real scratch databases (test_db_move.py's fixtures) ──
+
+def _form(config):
+	"""The move form for a PostgresConfig, as the page posts it."""
+	return {"host": config.host, "port": str(config.port), "database": config.database,
+	        "user": config.user, "password": config.password, "schema": config.schema or ""}
+
+
+def test_prepare_creates_what_the_move_needs_and_is_audited(admin, client_for, session_scope,
+                                                            monkeypatch):
+	"""The administrator-login way creates the login, the database and its schema: 200
+	with the plan and a password for the new login that works (the target then passes
+	the check, empty); database.prepared is audited with the login, schema and what was
+	done - never the administrator's password."""
+	monkeypatch.delenv("GRAFANA_DB_PASSWORD", raising=False)
+	server = make_url(PG_ADMIN_URL)
+	port = str(server.port or 5432)
+	suffix = uuid.uuid4().hex[:8]
+	database, login = f"rollout_prep_{suffix}", f"nr_prep_{suffix}"
+	try:
+		resp = client_for(admin, xhr=True).post("/admin/server/database/prepare", json={
+			"host": server.host, "port": port,
+			"admin_user": server.username, "admin_password": server.password,
+			"database": database, "schema": "nr", "login": login})
+		assert resp.status_code == 200, resp.json
+		body = resp.json
+		assert (body["database"], body["schema"], body["login"]) == (database, "nr", login)
+		assert body["grafana_known"] is False and body["password"]
+		assert body["done"][0] == f"login {login} created"
+		assert f"database {database} created" in body["done"] and "schema nr created" in body["done"]
+		report = move.check_target(PostgresConfig(host=server.host, port=port, database=database,
+		                                          user=login, password=body["password"],
+		                                          schema="nr"))
+		assert report.ok, report.problems
+		assert report.contents == move.EMPTY
+		with session_scope() as s:
+			(row,) = s.query(AuditLog).filter_by(action="database.prepared").all()
+			assert row.success is True
+			assert row.object_label == f"{server.host}:{port}/{database}"
+			assert row.detail == {"login": login, "schema": "nr", "done": body["done"]}
+			assert server.password not in str(row.detail)
+	finally:
+		with create_engine(PG_ADMIN_URL, isolation_level="AUTOCOMMIT").connect() as c:
+			c.execute(text(f'DROP DATABASE IF EXISTS "{database}" WITH (FORCE)'))
+			c.execute(text(f'DROP ROLE IF EXISTS "{login}"'))
+
+
+def test_a_move_through_the_page_and_back(app, admin, client_for, target, mover, monkeypatch):
+	"""Move (the form) answers 200 with the move under way to the target; it ends done
+	on the target, the admin's account there. Move back answers 200 with the move back
+	to the bundled database under way, and it ends there."""
+	monkeypatch.setattr(app, "db_move", mover)
+	home = app.backend.postgres.config
+	c = client_for(admin, xhr=True)
+
+	resp = c.post("/admin/server/database/move", json=_form(target))
+	assert resp.status_code == 200, resp.json
+	started = resp.json["move"]
+	assert started["target"] == db_move.describe(target) and started["back"] is False
+	assert started["state"] in (db_move.WAITING, db_move.COPYING, db_move.SWITCHING, db_move.DONE)
+	assert _wait(mover)["state"] == db_move.DONE
+	assert app.backend.postgres.config == target
+	with app.backend.postgres.get_session() as s:
+		assert s.query(User).filter_by(id=admin.id).one().username == admin.username
+
+	resp = c.post("/admin/server/database/move-back")
+	assert resp.status_code == 200, (resp.headers.get("Location"), resp.json)
+	assert resp.json["move"]["back"] is True
+	assert resp.json["move"]["target"] == db_move.describe(app.backend.bundled_postgres())
+	assert _wait(mover)["state"] == db_move.DONE
+	assert db_move.same_database(app.backend.postgres.config, home)
+
+
+@pytest.mark.xfail(strict=True, reason=(
+	"Known bug: admin_servers._start audits database.move_started after db_move.start() "
+	"has started the move's thread; with no rollout running the thread locks maintenance "
+	"at once, so web.audit prints the row instead of writing it - the move is never "
+	"audited as started (seen on every unforced move through the page too)."))
+def test_the_move_started_audit_row_survives_the_move(app, admin, client_for, target, mover,
+                                                     monkeypatch):
+	"""database.move_started (written by the route once the move has begun) is in the
+	database NetRollout ends up on, naming the target, back False - also when the
+	move's thread locks maintenance before the route writes the row (forced here so
+	the order is certain; with no rollout running it is the usual order)."""
+	monkeypatch.setattr(app, "db_move", mover)
+	start = mover.start
+
+	def start_then_locked(*args, **kwargs):
+		start(*args, **kwargs)
+		end = time.time() + 10
+		while not app.maintenance.writes_blocked and mover.running and time.time() < end:
+			time.sleep(0.01)
+	monkeypatch.setattr(mover, "start", start_then_locked)
+
+	resp = client_for(admin, xhr=True).post("/admin/server/database/move", json=_form(target))
+	assert resp.status_code == 200, resp.json
+	assert _wait(mover)["state"] == db_move.DONE
+	with app.backend.postgres.get_session() as s:
+		rows = [(r.object_label, r.detail) for r in
+		        s.query(AuditLog).filter_by(action="database.move_started")]
+	assert rows == [(db_move.describe(target), {"back": False})]

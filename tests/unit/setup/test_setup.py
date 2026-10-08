@@ -414,11 +414,26 @@ def test_status_and_prepare_start_need_an_install(home):
 
 
 def test_status_through_the_cli(home, monkeypatch):
-	"""`status --containers … --reachable yes` exits 0 and starts with "NetRollout "."""
+	"""`status --containers … --reachable yes --health-url U` asks U for the app's health
+	and prints exactly manage.status's report for what it was given, exiting 0 when all
+	is well; with the address not answering (`--reachable no`) and nginx down it exits 1,
+	its report saying both."""
 	installed(home)
-	monkeypatch.setattr(manage, "fetch_health", lambda url: HEALTHY)
-	code, out = run(["status", "--containers", ALL_UP, "--reachable", "yes"])
-	assert code == 0 and out[0].startswith("NetRollout ")
+	asked = []
+	monkeypatch.setattr(manage, "fetch_health",
+	                    lambda url=manage.HEALTH_URL, timeout=4.0: asked.append(url) or HEALTHY)
+	url = "https://127.0.0.1:9443/_netrollout/health"
+	code, out = run(["status", "--containers", ALL_UP, "--reachable", "yes", "--health-url", url])
+	assert asked == [url]
+	lines, well = manage.status(manage.Observed(manage.parse_containers(ALL_UP), reachable=True),
+	                            HEALTHY)
+	assert well and code == 0 and out == lines
+
+	nginx_down = ALL_UP.replace("nginx=running/healthy", "nginx=exited")
+	code, out = run(["status", "--containers", nginx_down, "--reachable", "no"])
+	text = "\n".join(out)
+	assert code == 1
+	assert "nginx EXITED" in text and "does NOT answer" in text
 
 
 # ── after a restore ──

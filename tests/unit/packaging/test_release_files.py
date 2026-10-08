@@ -116,15 +116,13 @@ def test_every_file_the_installer_packs_exists():
 	assert missing == []
 
 
-def test_the_installer_ships_what_the_zip_ships():
-	"""The installer packs the compose files, VERSION, LICENSE, the bin\\ tools and the
-	monitoring configs, by file name."""
-	names = {p.name for p in iss_sources()}
-	for needed in ("compose.yaml", "compose.http.yaml", "VERSION", "LICENSE",
-	               "manage.ps1", "netrollout.bat", "netrollout.ico",
-	               "NetRollout Manager.exe", "prometheus.yml",
-	               "loki-config.yml", "config.alloy", "netrollout.yml"):
-		assert needed in names, needed
+def test_the_installer_installs_the_version_file():
+	"""The installer copies VERSION into the install folder (the scripts, `check-update`
+	and the Manager read it there). Every other file it ships is SHIPPED, checked
+	against tools/build_release.py by tests/unit/packaging/test_build_release.py, which
+	leaves VERSION out of its comparison; the bin\\ tools are checked below."""
+	text = (ROOT / "windows" / "installer" / "netrollout.iss").read_text(encoding="utf-8")
+	assert re.search(r'^Source: "\{#Root\}\\VERSION"; DestDir: "\{app\}";', text, re.M)
 
 
 def test_the_installed_layout_is_bin_and_the_licence_page_has_its_text():
