@@ -225,14 +225,12 @@ def build_job_summaries(results: Iterable[DeviceResult]) -> list[dict[str, Any]]
 
 
 def get_active_job(user_id: uuid.UUID) -> RolloutJob | None:
-	""":returns: one of the user's rollouts running in this process; None: none"""
+	""":returns: one of the user's rollouts of this process not over yet - a
+	 running one first, else a queued one; None: none"""
 	job_ids = JobStore(current_app.backend.redis).job_ids(user_id)
-	return next(
-		(j for jid in job_ids
-		 if (j := current_app.orchestrator.get_job(
-			uuid.UUID(jid))) and j.is_alive()),
-		None
-	)
+	jobs = [j for jid in job_ids
+	        if (j := current_app.orchestrator.get_job(uuid.UUID(jid))) and not j.is_over()]
+	return next((j for j in jobs if j.started_at is not None), next(iter(jobs), None))
 
 
 def config_expired(row: DeviceResult, snapshot_days: int) -> bool:
@@ -359,12 +357,14 @@ def dashboard() -> str:
 	# ── Active job (always own) ───────────────────────────────────────────────
 	active_job = get_active_job(current_user.id)
 	active_job_data = None
-	if active_job and active_job.started_at:
+	if active_job:
+		started = active_job.started_at
 		active_job_data = {
 			"job_id": str(active_job.job_id),
 			"device_count": active_job.get_device_count(),
-			"started_at": active_job.started_at.strftime("%H:%M:%S"),
-			"started_at_iso": active_job.started_at.isoformat(),
+			"queued": started is None,
+			"started_at": started.strftime("%H:%M:%S") if started else "—",
+			"started_at_iso": started.isoformat() if started else "",
 		}
 
 	users = data["users"]

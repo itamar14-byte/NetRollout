@@ -183,27 +183,42 @@ def test_cannot_roll_out_to_another_users_device(operator, client_for,
 # ── Cancel, stream, rollback ─────────────────────────────────────────────────
 
 class FakeRunningJob:
-	"""A stand-in for a running job in the orchestrator: cancel sets an event,
-	the log history is one line, the live queue yields the given messages."""
-	def __init__(self, user_id, messages=()):
+	"""A stand-in for a running job in the orchestrator: cancel sets an event;
+	its live log (follow_log) is one history line, then the given messages
+	("__done__" ends it), then a heartbeat (None) while `over` says no -
+	`heartbeats` at most, then the job leaves the orchestrator (`on_end`)."""
+	def __init__(self, user_id, messages=(), heartbeats=0, on_end=None):
 		self.job_id = uuid.uuid4()
 		self.user_id = user_id
+		self.started_at = dt.datetime.now()
 		self.cancelled = threading.Event()
 		self._messages = list(messages)
+		self._heartbeats = heartbeats
+		self._on_end = on_end
 
 	def cancel(self):
 		self.cancelled.set()
 
-	def is_alive(self):
-		return True
+	def is_over(self):
+		return False
 
-	def get_log_history(self):
-		return ["history-line"]
+	def get_device_count(self):
+		return 1
 
-	def get_log_queue(self):
-		msgs = [{"type": "message", "data": m.encode()} for m in self._messages]
-		return SimpleNamespace(get_message=lambda timeout: msgs.pop(0) if msgs
-		                       else None, close=lambda: None)
+	def follow_log(self, over):
+		yield "history-line"
+		for message in self._messages:
+			if message == "__done__":
+				return
+			yield message
+		while not over():
+			if self._heartbeats == 0:
+				if not self._on_end:
+					return
+				self._on_end()
+				continue
+			self._heartbeats -= 1
+			yield None
 
 
 def test_owner_cancels_running_job(app, operator, client_for, monkeypatch):
@@ -211,6 +226,7 @@ def test_owner_cancels_running_job(app, operator, client_for, monkeypatch):
 	status is "cancelling"."""
 	job = FakeRunningJob(operator.user.id)
 	monkeypatch.setitem(app.orchestrator._jobs, job.job_id, job)
+	_register_job_meta(app, operator.user, job.job_id)   # a running job's hash
 	resp = client_for(operator.user, xhr=True).post(
 		"/rollout/cancel", data={"job_id": str(job.job_id)})
 	assert resp.json["status"] == "ok" and job.cancelled.is_set()
@@ -307,6 +323,86 @@ def test_stream_of_another_users_job_forbidden(app, operator, client_for,
 	monkeypatch.setitem(app.orchestrator._jobs, job.job_id, job)
 	resp = client_for(make_user()).get(f"/rollout/stream/{job.job_id}")
 	assert resp.status_code == 403
+
+
+def test_stream_of_a_queued_job_waits_for_it(app, operator, client_for, monkeypatch):
+	"""A queued job's live log says it's queued (once, first), then waits with
+	heartbeat comments instead of ending at once; it ends with "done" when the
+	job leaves the orchestrator."""
+	job = FakeRunningJob(operator.user.id, heartbeats=3,
+	                     on_end=lambda: app.orchestrator._jobs.pop(job.job_id, None))
+	job.started_at = None                       # queued: no thread yet
+	monkeypatch.setitem(app.orchestrator._jobs, job.job_id, job)
+	body = client_for(operator.user).get(
+		f"/rollout/stream/{job.job_id}").get_data(as_text=True)
+	assert body.startswith("data: Queued — waiting for a free slot\n\n")
+	assert body.count("Queued — waiting") == 1
+	assert body.count(": hb\n\n") == 3
+	assert body.endswith("event: done\ndata: \n\n")
+
+
+def test_stream_sends_a_multi_line_message_whole(app, operator, client_for, monkeypatch):
+	"""A message with newlines (a device's error output, \\r\\n too) is one SSE
+	message: a data line per line, none cut off."""
+	job = FakeRunningJob(operator.user.id,
+	                     messages=["Error:\r\n% Invalid input\nat line 2", "__done__"])
+	monkeypatch.setitem(app.orchestrator._jobs, job.job_id, job)
+	body = client_for(operator.user).get(
+		f"/rollout/stream/{job.job_id}").get_data(as_text=True)
+	assert "data: Error:\ndata: % Invalid input\ndata: at line 2\n\n" in body
+
+
+def test_stream_heartbeat_is_a_comment(app, operator, client_for, monkeypatch):
+	"""The heartbeat is an SSE comment, not an empty message."""
+	job = FakeRunningJob(operator.user.id, heartbeats=2,
+	                     on_end=lambda: app.orchestrator._jobs.pop(job.job_id, None))
+	monkeypatch.setitem(app.orchestrator._jobs, job.job_id, job)
+	body = client_for(operator.user).get(
+		f"/rollout/stream/{job.job_id}").get_data(as_text=True)
+	assert body == ("data: history-line\n\n: hb\n\n: hb\n\n"
+	                "event: done\ndata: \n\n")
+
+
+def test_stream_of_a_job_that_has_ended(app, operator, client_for, make_user,
+                                        session_scope):
+	"""A job no longer running here (it just finished): its owner and an admin
+	get a stream with only the done event (the page shows the outcome);
+	another user 403; a job nobody knows 404."""
+	job_id = uuid.uuid4()
+	with session_scope() as s:
+		s.add(JobMetadata(job_id=job_id, user_id=operator.user.id, commands=["x"]))
+	for user in (operator.user, make_user(role="admin")):
+		resp = client_for(user).get(f"/rollout/stream/{job_id}")
+		assert resp.status_code == 200 and resp.mimetype == "text/event-stream"
+		assert resp.get_data(as_text=True) == "event: done\ndata: \n\n"
+	assert client_for(make_user()).get(f"/rollout/stream/{job_id}").status_code == 403
+	assert client_for(operator.user).get(
+		f"/rollout/stream/{uuid.uuid4()}").status_code == 404
+
+
+def test_a_multi_platform_start_failing_on_its_second_platform_cancels_the_first(
+		app, operator, client_for, monkeypatch, session_scope):
+	"""Queuing the second platform's job fails (a service error, not a stop):
+	the first platform's job is cancelled - none or all - and no rollout.start
+	is audited."""
+	queued = []
+
+	def submit(devices, commands, params, user_id, comment=None):
+		if queued:
+			raise RuntimeError("simulated: Redis went away")
+		queued.append(uuid.uuid4())
+		return queued[0]
+	cancelled = []
+	monkeypatch.setattr(app.orchestrator, "submit", submit)
+	monkeypatch.setattr(app.orchestrator, "cancel", cancelled.append)
+	with pytest.raises(RuntimeError, match="simulated"):   # the test app propagates it
+		client_for(operator.user).post("/rollout/start", data={
+			"device_ids": [str(operator.ios), str(operator.eos)],
+			"platform_commands": json.dumps({"arista_eos": "hostname b",
+			                                 "cisco_ios": "hostname a"})})
+	assert cancelled == queued and len(queued) == 1
+	with session_scope() as s:
+		assert not s.query(AuditLog).filter_by(action="rollout.start").count()
 
 
 def test_rollback_targets_successful_devices_once_per_ip(
@@ -1075,6 +1171,26 @@ def test_active_jobs_lists_running_job(app, operator, client_for, monkeypatch):
 	_register_job_meta(app, operator.user, job.job_id)
 	resp = client_for(operator.user).get("/active_jobs")
 	assert resp.status_code == 200 and str(job.job_id) in resp.get_data(as_text=True)
+
+
+def test_the_jobs_screens_say_a_queued_job_is_queued(app, operator, client_for,
+                                                     monkeypatch):
+	"""A queued job reads "Queued — waiting for a free slot" on Active Jobs and on
+	the dashboard's rollout card (no elapsed timer), not a bare "pending"."""
+	job = FakeRunningJob(operator.user.id)
+	job.started_at = None
+	monkeypatch.setitem(app.orchestrator._jobs, job.job_id, job)
+	_register_job_meta(app, operator.user, job.job_id)
+	app.backend.redis.client.hset(f"job:{job.job_id}:meta", "status", "pending")
+	client = client_for(operator.user)
+	jobs_page = client.get("/active_jobs").get_data(as_text=True)
+	assert ('<span class="status-pill pending queued">Queued — waiting for a free slot</span>'
+	        in jobs_page)
+	assert '<span class="status-pill pending">pending</span>' not in jobs_page
+	dashboard = client.get("/dashboard").get_data(as_text=True)
+	assert "QUEUED ROLLOUT" in dashboard and "Queued — waiting for a free slot" in dashboard
+	assert f'<input type="hidden" name="job_id" value="{job.job_id}">' in dashboard
+	assert "const jobStart" not in dashboard
 
 
 def test_active_jobs_rollback_waits_for_the_job_to_finish(

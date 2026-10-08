@@ -2,11 +2,13 @@
 startup reset of what a crash leaves behind."""
 import json
 import uuid
+from pathlib import Path
 
 import pytest
 
 from src import jobs
 from src.jobs import JobStore, clear_stale_jobs
+from src.rollout.log import RolloutLogger
 
 pytestmark = pytest.mark.redis
 
@@ -48,6 +50,32 @@ def test_a_crash_leaves_nothing_after_the_next_start(app, store, capsys):
 	assert "Cleared 2 rollout(s) left over" in capsys.readouterr().out
 	assert store.job_ids() == [] and store.job_ids(user) == []
 	assert store.counts() == (0, 0)
+
+
+def test_the_startup_reset_clears_leftover_live_logs(app, store):
+	"""A live log history left by a crash (or Redis down at the job's end) is
+	cleared by the startup reset - the logger's own key for it."""
+	client = app.backend.redis.client
+	job_id = str(uuid.uuid4())
+	logger = RolloutLogger(webapp=True, verbose=False, job_id=job_id, redis_client=client)
+	logger.notify("left over", important=True)
+	assert client.exists(f"job:{job_id}:history")
+	clear_stale_jobs(app.backend.redis)
+	assert not client.exists(f"job:{job_id}:history")
+	for path in Path(logger.logfile).parent.glob(f"*{job_id}.log"):
+		path.unlink()
+
+
+def test_a_status_is_written_only_while_the_job_is_here(store):
+	"""set_status updates a job's status, and writes nothing for a job that has
+	ended (a cancel racing the job's end would make a phantom row)."""
+	job, user = uuid.uuid4(), uuid.uuid4()
+	store.add(job, user, device_count=1)
+	store.set_status(job, "cancelling")
+	assert store.meta(job)["status"] == "cancelling"
+	store.finished(job, user, was_running=False)
+	store.set_status(job, "cancelling")
+	assert store.meta(job) == {} and store.job_ids() == []
 
 
 # ── The host's view: JobStore.rollouts, with_owners, python -m src.jobs ─────

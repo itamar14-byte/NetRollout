@@ -136,7 +136,8 @@ def test_logger_publishes_history_and_live_messages(app):
 		msg = pubsub.get_message(timeout=0.5)
 		if msg and msg["type"] == "message":
 			live.append(msg["data"].decode())
-	assert live == history
+	# each published with its place in the history ("<n>\t<line>")
+	assert live == [f"{n}\t{line}" for n, line in enumerate(history, 1)]
 	logger.redis_cleanup()
 	assert client.exists("job:job-int:history") == 0
 	pubsub.close()

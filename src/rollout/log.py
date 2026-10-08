@@ -8,7 +8,8 @@ import os
 import sys
 import threading
 import time
-from typing import TYPE_CHECKING, Callable, cast
+from collections.abc import Iterator
+from typing import TYPE_CHECKING, Any, Callable, cast
 
 from src import runtime
 if TYPE_CHECKING:   # the web app passes its client in; the CLI (.exe) has none
@@ -114,6 +115,31 @@ COLORS = {
 
 ANSI_TO_HTML = {"RED": WEBAPP_RED, "GREEN": WEBAPP_GREEN, "YELLOW": WEBAPP_YELLOW}
 
+# The live log's end, published on its channel (unnumbered)
+DONE = "__done__"
+# How long subscribe() waits for Redis to confirm the subscription
+_SUBSCRIBE_WAIT = 2.0
+
+
+def live_log_keys(job_id: str) -> tuple[str, str]:
+	"""The one spelling of a job's live log keys (JobStore clears leftovers
+	with "*").
+
+	:returns: (its history list, its pub/sub channel)"""
+	return f"job:{job_id}:history", f"job:{job_id}:logs"
+
+
+def _numbered(data: str) -> tuple[int | None, str]:
+	"""A live message as published: "<n>\\t<line>", n the history's length
+	once the line was added.
+
+	:returns: (n - None when the message carries none, the line)"""
+	head, tab, line = data.partition("\t")
+	if tab and head.isdigit():
+		return int(head), line
+	return None, data
+
+
 class RolloutLogger:
 	"""Writes a rollout's messages to its log file; a web job's notable ones
 	also go to its live log (what the page streams)."""
@@ -139,8 +165,7 @@ class RolloutLogger:
 		if job_id:
 			self.logfile = os.path.join(logs_dir,
 										f"{prefix}_{ts}_{job_id}.log")
-			self._channel_key = f"job:{job_id}:logs"
-			self._history_key = f"job:{job_id}:history"
+			self._history_key, self._channel_key = live_log_keys(job_id)
 
 		else:
 			self.logfile = os.path.join(logs_dir,
@@ -187,15 +212,22 @@ class RolloutLogger:
 		errors (red), important ones, or all in verbose mode - are also shown:
 		a web job's in its live log, the CLI's on the console.
 
+		The file comes first; the live log is best-effort - a Redis outage
+		must not fail the rollout (and lose its results) over a log line.
+
 		:param color: "red" (an error) / "green" / "yellow"; "" for none
 		:param important: shown even when not verbose"""
 		if self._webapp:
+			self._log(message)
 			if (important or self._verbose or color == "red") and self._channel_key:
 				client, history, channel = self._live_log()
 				content = self._msg(message, color)
-				client.rpush(history, content)
-				client.publish(channel, content)
-			self._log(message)
+				try:
+					# numbered: a reader that has read the history skips what it holds
+					length = cast(int, client.rpush(history, content))
+					client.publish(channel, f"{length}\t{content}")
+				except Exception:   # noqa: BLE001 - redis isn't imported here (the CLI .exe)
+					pass
 			return None
 		else:
 			if important or self._verbose or color == "red":
@@ -210,16 +242,59 @@ class RolloutLogger:
 		return [m.decode() for m in lines]
 
 	def subscribe(self) -> "PubSub":
-		""":returns: a subscription to the live log's new messages"""
+		"""A subscription to the live log's new messages, in effect once this
+		returns: Redis has confirmed it (or _SUBSCRIBE_WAIT passed), so a
+		history read after it misses nothing.
+
+		:returns: the subscription; its messages are "<n>\\t<line>" or DONE"""
 		client, _, channel = self._live_log()
 		ps = client.pubsub()
 		ps.subscribe(channel)
+		deadline = time.monotonic() + _SUBSCRIBE_WAIT
+		while (left := deadline - time.monotonic()) > 0:
+			# redis-py: a dict per message (its stubs say otherwise)
+			msg = cast(dict[str, Any] | None, ps.get_message(timeout=left))
+			if msg and msg.get("type") == "subscribe":
+				break
 		return ps
 
+	def follow(self, over: Callable[[], bool], wait: float = 0.5) -> Iterator[str | None]:
+		"""The live log for a reader: the lines so far, then each new one -
+		none lost or repeated between the two (subscribed first, then the
+		history read; a live message the history already held is skipped by
+		its number).
+
+		:param over: whether the job has ended - asked when nothing came for
+		 `wait` seconds (its end is normally the DONE message)
+		:returns: the lines; None after `wait` seconds without one (a heartbeat)"""
+		ps = self.subscribe()
+		try:
+			history = self.get_history()
+			yield from history
+			seen = len(history)
+			while True:
+				msg = cast(dict[str, Any] | None, ps.get_message(timeout=wait))
+				if msg and msg["type"] == "message":
+					data = cast(bytes, msg["data"]).decode()
+					if data == DONE:
+						return
+					number, line = _numbered(data)
+					if number is not None:
+						if number <= seen:
+							continue          # already sent with the history
+						seen = number
+					yield line
+				elif over():
+					return
+				else:
+					yield None
+		finally:
+			ps.close()
+
 	def redis_cleanup(self) -> None:
-		"""The job is over: tell the live log's readers ("__done__") and
-		remove its keys."""
+		"""The job is over: tell the live log's readers (DONE) and remove its
+		keys."""
 		client, history, channel = self._live_log()
-		client.publish(channel, "__done__")
+		client.publish(channel, DONE)
 		client.delete(history)
 		client.delete(channel)

@@ -116,6 +116,42 @@ def test_refused_while_rollouts_run(app, admin, client_for, monkeypatch, other_r
 	assert app.backend.redis.config.place() == parts
 
 
+def _switch_with(app, admin, client_for, monkeypatch, other_redis, reload):
+	"""Post a switch to OTHER_DB with reload_redis replaced by `reload`."""
+	monkeypatch.setattr(app.backend, "reload_redis", reload)
+	parts = app.backend.redis.config.place()
+	return client_for(admin, xhr=True).post("/admin/server/redis/save", json={
+		"host": parts[0], "port": str(parts[1]), "db": str(OTHER_DB),
+		"password": app.backend.redis.config.get_url().split(":")[2].split("@")[0]})
+
+
+def test_no_rollout_starts_during_a_switch(app, admin, client_for, monkeypatch, other_redis):
+	"""From the "no rollouts" check to the end of the switch new rollouts are
+	refused - one starting in between would keep its live state in the Redis
+	left behind; after it they're accepted again, also when the switch fails."""
+	refusals = []
+
+	def reload(config):
+		refusals.append(app.orchestrator.refusal())
+		raise RuntimeError("simulated: unreachable")
+	resp = _switch_with(app, admin, client_for, monkeypatch, other_redis, reload)
+	assert resp.json["status"] == "error"
+	assert refusals[0] is not None
+	assert app.orchestrator.refusal() is None and not app.orchestrator.paused
+
+
+def test_a_switch_leaves_a_database_moves_pause_on(app, admin, client_for, monkeypatch,
+                                                   other_redis):
+	"""Rollouts already paused (a database move) stay paused after a switch."""
+	app.orchestrator.pause()
+	try:
+		_switch_with(app, admin, client_for, monkeypatch, other_redis,
+		             lambda config: (_ for _ in ()).throw(RuntimeError("simulated")))
+		assert app.orchestrator.paused
+	finally:
+		app.orchestrator.resume()
+
+
 def test_nothing_to_switch_back_to_on_the_bundled_redis(admin, client_for, other_redis):
 	"""Switch back while on the bundled Redis answers 409: nothing to go back to."""
 	assert client_for(admin, xhr=True).post("/admin/server/redis/back").status_code == 409

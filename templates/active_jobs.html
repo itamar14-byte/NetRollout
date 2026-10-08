@@ -60,6 +60,8 @@
 }
 .status-pill.active  { background:rgba(76,175,80,0.1);  color:#a5d6a7; border:1px solid rgba(76,175,80,0.2); }
 .status-pill.pending { background:rgba(0,188,212,0.08); color:#00bcd4; border:1px solid rgba(0,188,212,0.2); }
+/* a queued job says why it waits: a sentence, not a one-word state */
+.status-pill.queued  { text-transform:none; letter-spacing:0.3px; white-space:nowrap; }
 
 /* ── Term text ── */
 .term {
@@ -343,7 +345,11 @@
         <td>
             <div class="d-flex align-items-center gap-2">
                 <span class="status-dot {{ job.status }}" aria-hidden="true"></span>
+                {% if job.status == 'pending' %}
+                <span class="status-pill pending queued">Queued — waiting for a free slot</span>
+                {% else %}
                 <span class="status-pill {{ job.status }}">{{ job.status }}</span>
+                {% endif %}
             </div>
         </td>
 
