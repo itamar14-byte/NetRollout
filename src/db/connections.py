@@ -3,6 +3,7 @@ Redis (RedisConfig / RedisConnection), and BackendServices - both, the
 settings store, reconnecting and switching (a database move, a Redis switch).
 Where they point is resolved from config/runtime.env over the environment."""
 import os
+import re
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -26,6 +27,20 @@ from src.db.settings import SettingsStore
 from src.db.tables import SecurityProfile, LDAPServer, User
 
 
+# The schema names NetRollout uses: plain lowercase identifiers, which need no
+# quoting (the schema goes unquoted into the connection's search_path)
+SCHEMA_RE = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
+SCHEMA_RULE = ("lowercase letters, digits and _ only, starting with a letter or _, "
+               "at most 63 characters")
+
+
+def schema_problem(schema: str) -> str | None:
+	""":returns: why NetRollout can't use this schema name (in words), else None"""
+	if SCHEMA_RE.match(schema):
+		return None
+	return f'The schema name "{schema}" can\'t be used: {SCHEMA_RULE}.'
+
+
 @dataclass(frozen=True)
 class PostgresConfig:
 	"""Where the database is: a URL, or host / port / database / login, and
@@ -42,14 +57,20 @@ class PostgresConfig:
 	def unload_env(cls) -> "PostgresConfig":
 		"""The settings from the environment (DATABASE_URL, else PG_HOST /
 		_PORT / _NAME / _USER / _PASSWORD / _SCHEMA), with the defaults for
-		what's missing."""
+		what's missing.
+
+		:raises ValueError: PG_SCHEMA isn't a name NetRollout can use (blank:
+		 no schema)"""
+		schema = os.getenv("PG_SCHEMA")
+		if schema and (problem := schema_problem(schema)):
+			raise ValueError(f"PG_SCHEMA: {problem}")
 		return cls (
 			os.getenv("PG_HOST", "localhost"),
 			os.getenv("PG_PORT", "5432"),
 			os.getenv("PG_NAME", "rollout_db"),
 			os.getenv("PG_USER", "dbadmin"),
 			os.getenv("PG_PASSWORD", "Pass123"),
-			os.getenv("PG_SCHEMA"),
+			schema,
 			os.getenv("DATABASE_URL")
 		)
 

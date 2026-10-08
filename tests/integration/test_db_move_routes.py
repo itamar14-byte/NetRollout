@@ -52,6 +52,21 @@ def test_check_needs_every_field(admin, client_for):
 	assert resp.status_code == 422
 
 
+@pytest.mark.parametrize("url", ["/admin/server/database/sql", "/admin/server/database/prepare",
+                                 "/admin/server/database/check", "/admin/server/database/move"])
+def test_a_schema_name_netrollout_cant_use_is_refused_by_every_step(admin, client_for, url):
+	"""The SQL, prepare, check and move each answer 422 for a schema name that isn't a
+	plain lowercase name (here with a space and a capital), saying the rule."""
+	resp = client_for(admin, xhr=True).post(url, json={
+		"host": "127.0.0.1", "port": "1", "database": "ops", "schema": "Net Rollout",
+		"user": "x", "password": "y", "admin_user": "postgres", "admin_password": "z",
+		"login": "nr_app"})
+	assert resp.status_code == 422, resp.json
+	assert resp.json["message"] == ('The schema name "Net Rollout" can\'t be used: lowercase '
+	                                'letters, digits and _ only, starting with a letter or _, '
+	                                'at most 63 characters.')
+
+
 def test_check_refuses_the_current_database(app, admin, client_for):
 	"""A check of the database NetRollout uses now is refused as such."""
 	url = make_url(app.backend.postgres.config.get_url())
