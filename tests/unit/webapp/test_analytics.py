@@ -1,7 +1,10 @@
 """The analytics query builder (compile_query_rules): the QueryBuilder rules
  -> SQL, only the allowed fields and operators. No app, no DB."""
+import warnings
+
 import pytest
 from sqlalchemy.dialects import postgresql
+from sqlalchemy.exc import SADeprecationWarning
 
 from src.webapp.blueprints.analytics import (QUERY_AUDIT_LOG_FIELDS, QUERY_DEVICE_RESULT_FIELDS,
                                              compile_query_rules)
@@ -20,6 +23,25 @@ def leaf(field, operator, value):
 # ── compile_query_rules: the QueryBuilder -> SQL allowlist ───────────────────
 
 class TestCompileQueryRules:
+
+	@pytest.mark.parametrize("condition, expected", [("AND", "true"), ("OR", "false")])
+	def test_an_empty_group_needs_no_deprecated_call(self, condition, expected):
+		"""Every rule deleted: an empty AND group matches every row, an empty OR group
+		none - without SQLAlchemy's empty and_() / or_(), deprecated (a later release
+		drops it, which would turn the approved "all rows" into an error)."""
+		with warnings.catch_warnings():
+			warnings.simplefilter("error", SADeprecationWarning)
+			expr = compile_query_rules({"condition": condition, "rules": []},
+			                           QUERY_DEVICE_RESULT_FIELDS)
+		assert sql(expr) == expected
+
+	def test_a_group_with_rules_compiles_as_before(self):
+		"""The always-true start of an AND group leaves no trace in the SQL."""
+		expr = compile_query_rules({"condition": "AND", "rules": [
+			leaf("status", "equal", "failed"), leaf("status", "equal", "partial")]},
+			QUERY_DEVICE_RESULT_FIELDS)
+		assert sql(expr) == ("device_results.status = 'failed' AND "
+		                     "device_results.status = 'partial'")
 
 	def test_allowed_leaf_compiles(self):
 		"""An allowed field and operator compile to `device_results.status = 'failed'`."""

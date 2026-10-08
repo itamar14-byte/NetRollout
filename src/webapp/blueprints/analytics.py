@@ -9,7 +9,7 @@ from typing import Any
 from flask import Blueprint, render_template, request, jsonify, Response
 from flask.typing import ResponseReturnValue
 from flask_login import current_user, login_required
-from sqlalchemy import ColumnElement, and_, or_
+from sqlalchemy import ColumnElement, and_, false, or_, true
 
 from src.db.tables import DeviceResult, Inventory, User, AuditLog
 from src.jobs import build_kpi
@@ -160,9 +160,12 @@ def compile_query_rules(node: dict[str, Any],
 	:raises ValueError: a field or operator not allowed, or a bad date
 	:raises KeyError: a node without its keys"""
 	if "condition" in node:
-		combinator = and_ if node["condition"] == "AND" else or_
-		return combinator(*[compile_query_rules(r, allowed_fields) for r in
-		                    node["rules"]])
+		children = [compile_query_rules(r, allowed_fields) for r in node["rules"]]
+		# started from true / false: an empty group (every rule deleted) is
+		# all rows / none, without the deprecated empty and_() / or_()
+		if node["condition"] == "AND":
+			return and_(true(), *children)
+		return or_(false(), *children)
 	field_name = node["field"]
 	operator = node["operator"]
 	value = node["value"]
