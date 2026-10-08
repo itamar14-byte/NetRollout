@@ -293,3 +293,20 @@ def test_installing_again_over_a_kept_linux_install_starts_it():
 	assert 'if [ -f "$ENV_FILE" ]; then' in kept and "do_start" in kept and "return" in kept
 	assert "already installed" not in kept
 	assert "installing again in this folder picks it up" in sh
+
+
+def test_the_windows_install_folder_is_the_installing_accounts_only():
+	"""The whole install folder (the TLS key, the scripts NetRollout runs, compose,
+	runtime.env after a database move) is restricted to Administrators, SYSTEM and the
+	installing account - at install and at every start, so an older install heals;
+	not only .env and backups (other local accounts could read the key and change the
+	scripts)."""
+	ps1 = (ROOT / "windows" / "manage.ps1").read_text(encoding="utf-8")
+	start = ps1[ps1.index("function Start-NetRollout {"):ps1.index("function Restrict(")]
+	install = ps1[ps1.index("function Invoke-Install {"):]
+	install = install[:install.index("\nfunction ", 1)]
+	assert "Restrict $Root" in start
+	assert "Restrict $Root" in install and "Restrict $EnvFile" in install
+	# Restrict: inheritance off, then Administrators, SYSTEM and the installing account
+	assert re.search(r'"/inheritance:r", "/grant:r", "\*S-1-5-32-544:\$f",\s*"\*S-1-5-18:\$f", '
+	                 r'"\$\{env:USERDOMAIN\}\\\$\{env:USERNAME\}:\$f"', ps1)

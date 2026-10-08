@@ -339,6 +339,9 @@ function Open-Browser {
 
 function Start-NetRollout {
 	Confirm-Docker
+	# every start: an install from before this rule (or a folder whose
+	# permissions were changed) is put right
+	Restrict $Root
 	Step "Checking the ports"
 	$busy = Get-BusyPorts (Get-OurPorts)
 	Invoke-Setup (@("prepare-start", "--busy-ports", $busy) + (Get-Facts)) | Out-Null
@@ -403,6 +406,10 @@ function Invoke-Install {
 	}
 	$code = Invoke-Setup ($setup + "--defaults")
 	if ($code -ne 0) { Fail "Setup stopped - nothing was started." $code }
+	# the folder holds the TLS key, the scripts NetRollout runs, and (after a
+	# database move) runtime.env's passwords: no other account of this
+	# computer may read or change it - inherited by everything in it
+	Restrict $Root
 	Restrict $EnvFile
 	Restrict (Join-Path $Root "backups")
 	# settings live in System Settings: .env is for Docker, not for people
