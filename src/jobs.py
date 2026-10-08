@@ -13,7 +13,7 @@ Keys: job:{id}:meta (hash: user_id, status, device_count, created_at,
 started_at), user_jobs:{user_id} (set of job ids), the job queue (list), and
 the pending / active counters (the Prometheus gauges).
 
-`python -m src.jobs rollouts | stop-now` (main()): the same keys read from
+`python -m src.jobs rollouts | stop-now [--clear]` (main()): the same keys read from
 outside the app's process - netrollout stop / update and NetRollout Manager
 list the rollouts before a stop and may have it cancel them at once.
 
@@ -50,6 +50,7 @@ ACTIVE = "netrollout:active_count"
 # set from outside the app (netrollout stop / update, the Manager): the stop
 # under way cancels the running rollouts now instead of waiting for them
 STOP_NOW = "netrollout:stop_now"
+STOP_NOW_SECONDS = 15 * 60   # an update's download, backup and restart fit in it
 
 
 def _meta(job_id: uuid.UUID | str) -> str:
@@ -138,9 +139,16 @@ class JobStore:
 
 	def request_stop_now(self) -> None:
 		"""Ask the stop / restart under way to cancel the running rollouts now
-		(netrollout stop / update, the Manager); expires after an hour, and
-		the next start clears it."""
-		self._client.set(STOP_NOW, "1", ex=3600)
+		(netrollout stop / update, the Manager); the next start clears it, the
+		scripts clear it when their stop or update doesn't happen
+		(clear_stop_now), and it expires after STOP_NOW_SECONDS - else a later
+		stop that chose to wait would cancel at once."""
+		self._client.set(STOP_NOW, "1", ex=STOP_NOW_SECONDS)
+
+	def clear_stop_now(self) -> None:
+		"""The stop or update that asked for a stop now isn't happening: a
+		later stop waits for the rollouts again."""
+		self._client.delete(STOP_NOW)
 
 	def stop_now_requested(self) -> bool:
 		""":returns: whether a stop now was asked for (False when Redis can't say)"""
@@ -724,7 +732,7 @@ def rollouts_text(rollouts: Sequence[dict[str, Any]]) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
-	"""python -m src.jobs rollouts [--json] | stop-now - run in the app's
+	"""python -m src.jobs rollouts [--json] | stop-now [--clear] - run in the app's
 	container (docker compose exec app) by netrollout stop / update and
 	NetRollout Manager: the running app's rollouts, read from Redis (its
 	JobStore keys, not the orchestrator, which lives in the app's process),
@@ -740,13 +748,19 @@ def main(argv: list[str] | None = None) -> int:
 	                                          "(nothing printed when none)")
 	listing.add_argument("--json", action="store_true",
 	                     help='one line: {"rollouts": [...]}')
-	sub.add_parser("stop-now", help="the stop under way cancels the running "
-	                                "rollouts at once")
+	stop_now = sub.add_parser("stop-now", help="the stop under way cancels the "
+	                                           "running rollouts at once")
+	stop_now.add_argument("--clear", action="store_true",
+	                      help="it isn't happening: a later stop waits for them")
 	args = parser.parse_args(argv)
 	load_config(runtime.runtime_env())
 	redis_conn = RedisConnection()
 	try:
 		store = JobStore(redis_conn)
+		if args.command == "stop-now" and args.clear:
+			store.clear_stop_now()
+			print("A later stop lets the running rollouts finish first.")
+			return 0
 		if args.command == "stop-now":
 			store.request_stop_now()
 			print("The running rollouts are cancelled as NetRollout stops - "

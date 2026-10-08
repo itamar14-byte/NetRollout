@@ -81,7 +81,15 @@ say()  { printf '%s\n' "$*"; }
 step() { printf '\033[36m-> %s\033[0m\n' "$*"; }
 good() { printf '\033[32m   %s\033[0m\n' "$*"; }
 warn() { printf '\033[33m   %s\033[0m\n' "$*"; }
-fail() { printf '\n\033[31m%s\033[0m\n' "$1" >&2; exit "${2:-1}"; }
+fail() {
+	printf '\n\033[31m%s\033[0m\n' "$1" >&2
+	# a stop or update that may have asked for a stop now isn't happening: a
+	# later stop waits for the rollouts again (nothing asked: nothing changes)
+	if [ -n "${CLEAR_STOP_NOW:-}" ]; then
+		compose exec -T app python -m src.jobs stop-now --clear >/dev/null 2>&1 || true
+	fi
+	exit "${2:-1}"
+}
 
 # ── this machine ─────────────────────────────────────────────────────────────
 # From the install folder: compose reads .env's COMPOSE_FILE relative to the
@@ -317,7 +325,7 @@ confirm_rollouts() {
 }
 
 do_stop() {
-	need_installed; need_root
+	need_installed; need_root; CLEAR_STOP_NOW=1
 	if ! docker info >/dev/null 2>&1; then good "NetRollout isn't running (Docker isn't)."; return; fi
 	confirm_rollouts stop || { good "Not stopped - NetRollout keeps running."; return 0; }
 	step "Stopping NetRollout"
@@ -443,7 +451,7 @@ in_container() {
 }
 
 do_update() {
-	need_installed; need_root; need_docker
+	need_installed; need_root; need_docker; CLEAR_STOP_NOW=1
 	local stage="$ROOT/.update" out code=0 new folder item
 	local args=(--out /install/.update)
 	rm -rf "$stage"; mkdir -p "$stage"
@@ -491,7 +499,7 @@ do_update() {
 # The new version's script, after update put its files in place: the new
 # images while the old version keeps running, .env up to date, the restart.
 do_update_finish() {
-	need_installed; need_root; need_docker
+	need_installed; need_root; need_docker; CLEAR_STOP_NOW=1
 	local out image back="The backup made before the update is in $ROOT/backups (...-before-update.zip)."
 	step "Downloading NetRollout $VERSION (it keeps running meanwhile)"
 	# failures of others' images surface at the start; ours are checked here

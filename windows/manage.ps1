@@ -467,6 +467,18 @@ function Request-StopNow {
 	return $false
 }
 
+# The stop or update that may have asked for a stop now isn't happening: a
+# later stop waits for the rollouts again (nothing asked: nothing changes)
+function Clear-StopNow {
+	try { Compose @("exec", "-T", "app", "python", "-m", "src.jobs", "stop-now", "--clear") | Out-Null } catch { }
+}
+
+# Run a stop / update; when it fails, the stop now asked for (here, by the
+# Manager, or by prepare-update before Setup ran this) is cleared first
+function Invoke-ClearingStopNow([scriptblock]$Body) {
+	try { & $Body } catch { Clear-StopNow; throw }
+}
+
 # Before a stop or an update's restart: the rollouts running or queued, and -
 # asked here, not with -Yes - wait for them (up to the drain deadline),
 # cancel them all now, or don't. $false: don't stop.
@@ -856,7 +868,7 @@ function Show-Help {
 	Say "  netrollout restore <file>   put NetRollout back to a backup (asks first)"
 	Say "  netrollout apply            apply an HTTPS port saved in System Settings (the helper does it by itself)"
 	Say "  netrollout rollouts         the rollouts running or queued (-Json: as JSON)"
-	Say "  netrollout stop-now         a stop under way (or the next) cancels them at once"
+	Say "  netrollout stop-now         a stop under way (or one within 15 minutes) cancels them at once"
 	Say ""
 	Say "  -NoBrowser   don't open the browser"
 	Say "  Installing and uninstalling: NetRollout Setup / Settings -> Apps."
@@ -870,11 +882,11 @@ function Invoke-NrCommand([string]$Name) {
 			Assert-Installed -Setup
 			Start-NetRollout; Start-PortHelper; Open-Browser; return 0
 		}
-		"stop" { Invoke-Stop; return 0 }
+		"stop" { Invoke-ClearingStopNow { Invoke-Stop }; return 0 }
 		"backup" { Invoke-Backup; return 0 }
 		"restore" { Invoke-Restore; return 0 }
-		"prepare-update" { Invoke-PrepareUpdate; return 0 }
-		"update" { Invoke-Update; return 0 }
+		"prepare-update" { Invoke-ClearingStopNow { Invoke-PrepareUpdate }; return 0 }
+		"update" { Invoke-ClearingStopNow { Invoke-Update }; return 0 }
 		"apply" { Invoke-Apply; return 0 }
 		"rollouts" {
 			Assert-Installed

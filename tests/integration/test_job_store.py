@@ -134,3 +134,15 @@ def test_the_command_asks_the_stop_to_cancel_now(store, as_the_container, capsys
 	assert jobs.main(["stop-now"]) == 0
 	assert store.stop_now_requested()
 	assert "cancelled" in capsys.readouterr().out
+
+
+def test_the_mark_is_short_lived_and_cleared_when_nothing_stops(store, as_the_container,
+                                                                 capsys):
+	"""The mark expires within 15 minutes (it outlived a refused update by an hour: a later
+	"wait for them" stop cancelled at once), and `stop-now --clear` - the scripts', when
+	the stop or update doesn't happen - removes it; exit 0."""
+	assert jobs.main(["stop-now"]) == 0
+	assert 0 < store._client.ttl(jobs.STOP_NOW) <= 15 * 60
+	assert jobs.main(["stop-now", "--clear"]) == 0
+	assert not store.stop_now_requested()
+	assert "finish first" in capsys.readouterr().out
