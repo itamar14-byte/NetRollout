@@ -24,6 +24,8 @@ UNIT="netrollout-port-$PROJECT"               # the port helper's systemd units
 APP_IMAGE="itamarweinstein/netrollout:$VERSION"
 ENV_FILE="$ROOT/.env"
 APP_UID=10001                                  # the app container's user
+# what a release brings: an update replaces these, an uninstall removes them
+RELEASE_ITEMS=(bin compose.yaml compose.http.yaml deploy VERSION LICENSE README.md)
 
 # ── options ──────────────────────────────────────────────────────────────────
 COMMAND="${1:-}"; [ $# -gt 0 ] && shift
@@ -164,17 +166,25 @@ setup_core() {
 		-e NETROLLOUT_HOME=/install "$APP_IMAGE" python -m src.setup "$@"
 }
 
+# A key's value in .env (its last line wins, as for compose)
+env_value() { sed -n "s/^$1=//p" "$ENV_FILE" | tail -1; }
+
+# NetRollout's health on this computer (the port in use)
+health_url() {
+	local port; port="$(env_value HTTPS_PORT)"
+	printf 'https://127.0.0.1:%s/_netrollout/health' "${port:-443}"
+}
+
 address() {
 	local host port
 	host="$(sed -n 's/^NETROLLOUT_HOSTNAME=//p' "$ROOT/config/nginx/site.env" 2>/dev/null | tail -1)"
-	port="$(sed -n 's/^HTTPS_PORT=//p' "$ENV_FILE" 2>/dev/null | tail -1)"
+	port="$(env_value HTTPS_PORT 2>/dev/null)"
 	host="${host:-localhost}"; port="${port:-443}"
 	if [ "$port" = 443 ]; then printf 'https://%s' "$host"; else printf 'https://%s:%s' "$host" "$port"; fi
 }
 
 reachable() {
-	local port; port="$(sed -n 's/^HTTPS_PORT=//p' "$ENV_FILE" | tail -1)"
-	curl -fsk --max-time 5 -o /dev/null "https://127.0.0.1:${port:-443}/_netrollout/health"
+	curl -fsk --max-time 5 -o /dev/null "$(health_url)"
 }
 
 open_browser() {
@@ -265,9 +275,8 @@ NOTICE
 }
 
 running_rollouts() {
-	local port running
-	port="$(sed -n 's/^HTTPS_PORT=//p' "$ENV_FILE" | tail -1)"
-	running="$( (curl -fsk --max-time 5 "https://127.0.0.1:${port:-443}/_netrollout/health" 2>/dev/null || true) |
+	local running
+	running="$( (curl -fsk --max-time 5 "$(health_url)" 2>/dev/null || true) |
 		sed -n 's/.*"running": *\([0-9]*\).*/\1/p')"
 	if [ -n "$running" ] && [ "$running" -gt 0 ]; then
 		warn "$running rollout(s) running - they finish and are recorded first (up to 10 minutes)."
@@ -317,13 +326,10 @@ do_backup() {
 # Grafana must run, grafana-setup not yet (it would sign in with the wrong one).
 reset_grafana_admin() {
 	local pw
-	pw="$(sed -n 's/^GRAFANA_ADMIN_PASSWORD=//p' "$ENV_FILE" | tail -1)"
-	if printf '%s' "$pw" | compose exec -T grafana grafana cli --homepath /usr/share/grafana \
-			admin reset-admin-password --password-from-stdin >/dev/null 2>&1; then
-		return 0
-	else
+	pw="$(env_value GRAFANA_ADMIN_PASSWORD)"
+	printf '%s' "$pw" | compose exec -T grafana grafana cli --homepath /usr/share/grafana \
+			admin reset-admin-password --password-from-stdin >/dev/null 2>&1 ||
 		warn "Grafana's admin password couldn't be reset - Grafana's dashboards may not update until it is (netrollout.sh logs grafana-setup)."
-	fi
 }
 
 do_restore() {
@@ -373,7 +379,7 @@ do_restore() {
 	step "Restoring $shown"
 	# as root: the files get their folder's owner (Grafana's volume is Grafana's)
 	if ! out="$(compose run --rm --no-deps --user 0 "${grafana[@]}" app python -m src.backup restore "$name" \
-			--https-port "$(sed -n 's/^HTTPS_PORT=//p' "$ENV_FILE" | tail -1)" \
+			--https-port "$(env_value HTTPS_PORT)" \
 			--key-out /data/backups/.restored-key "${grafana_dir[@]}" 2>&1)"; then
 		show "$out"
 		step "Starting NetRollout again, as it was"
@@ -439,7 +445,7 @@ do_update() {
 	step "Backing up first"
 	backup_create before-update || { rm -rf "$stage"; fail "Couldn't back up - nothing was changed. Fix it (above), then update again."; }
 	step "Putting NetRollout $new's files in place"
-	for item in bin compose.yaml compose.http.yaml deploy VERSION LICENSE README.md; do
+	for item in "${RELEASE_ITEMS[@]}"; do
 		[ -e "$folder/$item" ] || continue
 		rm -rf "${ROOT:?}/$item"
 		cp -a "$folder/$item" "$ROOT/"
@@ -546,7 +552,7 @@ do_apply() {
 		out="$(setup_core port-next --busy-ports "$(busy_ports)" 2>&1)" || { show "$out"; fail "The port helper couldn't decide - see above."; }
 		read -r action port id <<< "$(printf '%s\n' "$out" | head -1)"
 		message="$(printf '%s\n' "$out" | sed -n 2p)"
-		current="$(sed -n 's/^HTTPS_PORT=//p' "$ENV_FILE" | tail -1)"
+		current="$(env_value HTTPS_PORT)"
 		case "$action" in
 			none)
 				if [ -n "$message" ]; then warn "Port $port not applied: $message"; else say "No port change to apply."; fi
@@ -616,8 +622,7 @@ do_uninstall() {
 	port_helper_off
 	if docker info >/dev/null 2>&1; then
 		step "Removing NetRollout's containers${delete:+ and its data}"
-		if [ -n "$delete" ]; then compose down --remove-orphans -v >/dev/null 2>&1 || warn "Docker couldn't remove everything."
-		else compose down --remove-orphans >/dev/null 2>&1 || warn "Docker couldn't remove everything."; fi
+		compose down --remove-orphans ${delete:+-v} >/dev/null 2>&1 || warn "Docker couldn't remove everything."
 	elif [ -n "$delete" ]; then
 		warn "Docker isn't running: the database volumes stay (docker volume ls: ${PROJECT}_*)."
 	fi
@@ -636,7 +641,7 @@ do_uninstall() {
 	fi
 	if [ -n "$remove_files" ]; then
 		local item
-		for item in bin compose.yaml compose.http.yaml deploy VERSION LICENSE README.md .update; do
+		for item in "${RELEASE_ITEMS[@]}" .update; do
 			rm -rf "${ROOT:?}/$item"
 		done
 		if rmdir "$ROOT" 2>/dev/null; then good "$ROOT is removed."
