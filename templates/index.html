@@ -7,16 +7,7 @@
 <div class="login-bg-grid" aria-hidden="true"></div>
 
 <!-- Flash messages -->
-{% with messages = get_flashed_messages(with_categories=true) %}
-  {% if messages %}
-    {% for category, message in messages %}
-      <div class="alert alert-{{ category }} alert-dismissible fade show mx-auto" style="max-width:480px;" role="alert">
-        {{ message }}
-        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-      </div>
-    {% endfor %}
-  {% endif %}
-{% endwith %}
+{% with flash_class='mx-auto', flash_width=480 %}{% include '_flash.html' %}{% endwith %}
 
 <!-- Hero -->
 <div class="login-hero mb-4">

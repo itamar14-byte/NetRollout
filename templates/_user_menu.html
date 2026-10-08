@@ -1,0 +1,23 @@
+{# The signed-in user's menu, top right: My Account, the Admin Panel for an
+   admin (admin_icon: its icon - none on the admin pages themselves, which
+   leave it out), Logout. #}
+<div class="dropdown">
+    <button class="btn nr-user-btn dropdown-toggle" type="button"
+            data-bs-toggle="dropdown" aria-expanded="false">
+        {{ current_user.username }}
+    </button>
+    <ul class="dropdown-menu dropdown-menu-end">
+        <li><a class="dropdown-item" href="{{ url_for('auth.account') }}">
+            <i class="bi bi-person me-2" style="color:var(--nr-text-faint);"></i>My Account
+        </a></li>
+        {% if admin_icon and current_user.role == "admin" %}
+        <li><a class="dropdown-item" href="{{ url_for('admin_users.admin_panel') }}">
+            <i class="bi {{ admin_icon }} me-2" style="color:var(--nr-text-faint);"></i>Admin Panel
+        </a></li>
+        {% endif %}
+        <li><hr class="dropdown-divider"></li>
+        <li><a class="dropdown-item" href="{{ url_for('auth.logout') }}">
+            <i class="bi bi-box-arrow-right me-2" style="color:var(--nr-text-faint);"></i>Logout
+        </a></li>
+    </ul>
+</div>

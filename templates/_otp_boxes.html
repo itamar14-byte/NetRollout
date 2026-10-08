@@ -70,7 +70,7 @@
   }
 
   // --- Flash shake on page load if there was an error ---
-  {% if flash_messages %}
+  {% if get_flashed_messages() %}
   document.addEventListener("DOMContentLoaded", () => {
     otpBoxes.classList.add("shake");
     otpBoxes.addEventListener("animationend", () => otpBoxes.classList.remove("shake"), { once: true });

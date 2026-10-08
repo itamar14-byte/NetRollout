@@ -2,17 +2,9 @@
 {% block title %}Two-Factor Authentication — NetRollout{% endblock %}
 
 {% block content %}
-{% set flash_messages = get_flashed_messages(with_categories=true) %}
 
 <!-- Flash messages -->
-{% if flash_messages %}
-  {% for category, message in flash_messages %}
-    <div class="alert alert-{{ category }} alert-dismissible fade show mx-auto mb-3" style="max-width:400px;" role="alert">
-      {{ message }}
-      <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-    </div>
-  {% endfor %}
-{% endif %}
+{% with flash_class='mx-auto mb-3', flash_width=400 %}{% include '_flash.html' %}{% endwith %}
 
 <!-- Hero -->
 <div class="mb-4">
