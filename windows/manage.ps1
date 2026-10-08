@@ -8,7 +8,7 @@ NetRollout Manager run it; admins can too (bin\netrollout.bat):
 Installing is NetRollout Setup's (it runs `install -Yes` with the answers of
 its pages). The install folder is this script's parent folder. The script does
 what needs this computer (checks, Docker) and leaves the thinking to the setup
-core inside the app image (python -m src.setup, docs/plans/stage-9.md).
+core inside the app image (python -m src.setup, docs/architecture.md §9).
 PowerShell 5.1 compatible.
 #>
 param(

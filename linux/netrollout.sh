@@ -9,7 +9,7 @@
 #
 # The install folder is this script's parent folder. The script does what
 # needs this machine (checks, Docker, owners) and leaves the thinking to the
-# setup core inside the app image (python -m src.setup, docs/plans/stage-9.md).
+# setup core inside the app image (python -m src.setup, docs/architecture.md §9).
 # The whole body is one function, read before it runs, so `update` can
 # replace this file safely.
 

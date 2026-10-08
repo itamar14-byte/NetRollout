@@ -8,7 +8,7 @@
 ; answers as parameters). The installed folder: bin\ (the Manager, the engine,
 ; the command line, the icon), deploy\, the compose files, VERSION, LICENSE,
 ; the uninstaller; the install creates .env (hidden), config\, certs\, logs\,
-; backups\. docs/plans/stage-9.md, 9.3b / 9.4b.
+; backups\. Overview: docs/architecture.md §9.
 ;
 ; Over an install it updates (9.6): only the review page ("Update X -> Y");
 ; before any file is replaced the script checks the direction (an older

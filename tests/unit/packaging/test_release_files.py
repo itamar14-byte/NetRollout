@@ -1,4 +1,4 @@
-"""The shipped files say what stage 9.1 decided (docs/plans/stage-9.md): the
+"""The shipped files say what stage 9.1 decided (docs/architecture.md §9): the
 hostname reaches nginx only through site.env, .env carries no seeds, the
 version is the VERSION file, Grafana's setup comes from the app image."""
 import re

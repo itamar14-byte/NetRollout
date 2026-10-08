@@ -16,3 +16,5 @@ backups/
 /certs/
 windows/NetRollout Manager.exe
 dist/
+# the developer's Obsidian settings (docs/plans opened as a vault)
+docs/plans/.obsidian/
