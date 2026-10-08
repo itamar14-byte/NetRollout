@@ -9,10 +9,11 @@ from dotenv import dotenv_values
 
 from src.db.connections import BUNDLED_REDIS_KEY
 from src.jobs import JobStore
+from tests.integration.conftest import REDIS_OTHER_DB
 
 pytestmark = [pytest.mark.postgres, pytest.mark.redis]
 
-OTHER_DB = 13
+OTHER_DB = REDIS_OTHER_DB     # the test db minus 2 (13 by default)
 
 
 @pytest.fixture
@@ -22,7 +23,7 @@ def admin(make_user):
 
 @pytest.fixture
 def other_redis(app):
-	"""Redis database 13 on the same server, emptied; the app always put back
+	"""Redis database OTHER_DB on the same server, emptied; the app always put back
 	on the test database and runtime.env restored."""
 	home = app.backend.redis.config
 	url = home.get_url().rsplit("/", 1)[0] + f"/{OTHER_DB}"

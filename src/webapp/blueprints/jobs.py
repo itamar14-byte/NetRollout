@@ -13,7 +13,7 @@ from typing import Any
 from flask import Blueprint, render_template, request, send_file, Response, url_for
 from flask.typing import ResponseReturnValue
 from flask_login import current_user, login_required
-from sqlalchemy import ColumnElement, and_, distinct, func, or_
+from sqlalchemy import ColumnElement, and_, distinct, func, or_, tuple_
 from sqlalchemy.orm import Session
 
 from src import runtime
@@ -417,7 +417,8 @@ def results() -> str:
 	(an admin's other users' jobs), ?view=all (an admin's all-users view),
 	?status= (one of JOB_STATUSES: only those jobs, in both of an admin's
 	lists; else every job); ?job=<id> without ?page= lands on that job's
-	page."""
+	page - for an admin, another user's job without ?other_page= on its page
+	of the all-users view."""
 	is_admin = current_user.role == "admin"
 	per_page = per_page_arg(request.args.get("per_page"))
 	status = status_arg(request.args.get("status"))
@@ -435,17 +436,31 @@ def results() -> str:
 		                     page_arg(request.args.get("page")), per_page,
 		                     focus, status)
 		if is_admin:
+			# ?job= of another user's job (no ?other_page=): its page
+			other_focus = focus if ("other_page" not in request.args and focus
+			                        not in {r.job_id for r in mine.results}) \
+				else None
 			others = load_job_page(
 				db_session, DeviceResult.user_id != current_user.id,
 				page_arg(request.args.get("other_page")), per_page,
-				status=status)
+				other_focus, status)
+			focus_in_others = other_focus is not None and other_focus in {
+				r.job_id for r in others.results}
 			owner_ids = {r.user_id for r in others.results}
 			usernames = {u.id: u.username for u in db_session.query(User)
 			             .filter(User.id.in_(owner_ids))} if owner_ids else {}
-			endpoint_labels = {(row.ip, row.port): (row.label or row.ip)
-			                   for row in db_session.query(Inventory).all()}
+			# only the shown devices' labels, from anyone's inventory
+			shown = {(r.device_ip, r.device_port)
+			         for r in mine.results + others.results}
+			endpoint_labels = {
+				(row.ip, row.port): (row.label or row.ip)
+				for row in db_session.query(Inventory.ip, Inventory.port,
+				                            Inventory.label)
+				.filter(tuple_(Inventory.ip, Inventory.port).in_(shown))
+			} if shown else {}
 		else:
 			others = JobPage(results=[], total=0, page=1, pages=1)
+			focus_in_others = False
 			usernames = {}
 			endpoint_labels = visible_endpoint_labels(db_session,
 			                                          current_user.id)
@@ -488,7 +503,8 @@ def results() -> str:
 	                       status_filter=status,
 	                       job_statuses=JOB_STATUSES,
 	                       split_view=is_admin
-	                       and request.args.get("view") == "all",
+	                       and (request.args.get("view") == "all"
+	                            or focus_in_others),
 	                       is_admin=is_admin,
 	                       config_retention_days=snapshot_days)
 

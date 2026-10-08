@@ -2,7 +2,9 @@
 feed in GitHub's JSON, downloaded, checked against SHA256SUMS and unpacked -
 all on local files (file:// links, as a mirror on disk would be)."""
 import hashlib
+import io
 import json
+import urllib.error
 import zipfile
 
 import pytest
@@ -48,6 +50,88 @@ def test_the_release_comes_from_github_unless_a_feed_is_given():
 	repo = runtime.SOURCE_REPO.removeprefix("https://github.com/")
 	assert update.api() == f"https://api.github.com/repos/{repo}/releases/latest"
 	assert update.api("1.0.1") == f"https://api.github.com/repos/{repo}/releases/tags/v1.0.1"
+
+
+class FakeGitHub:
+	"""Stands in for urllib's urlopen: answers each URL with the JSON (or the HTTP
+	error code) it was given, and records every request."""
+	def __init__(self, answers):
+		self.answers, self.requests = answers, []
+
+	def __call__(self, request, timeout):
+		self.requests.append((request, timeout))
+		answer = self.answers[request.full_url]
+		if isinstance(answer, int):
+			raise urllib.error.HTTPError(request.full_url, answer, "error", {}, io.BytesIO(b"{}"))
+		return io.BytesIO(json.dumps(answer).encode())
+
+
+def test_github_is_asked_as_it_requires_and_the_version_by_its_tag(monkeypatch):
+	"""find() asks GitHub's API with a NetRollout User-Agent (GitHub requires one) and
+	its JSON media type, within update.TIMEOUT; a version is looked up by its tag
+	(releases/tags/vX), and the release found is that tag's, its zip and SHA256SUMS links
+	taken by their names."""
+	monkeypatch.setattr(runtime, "VERSION", "1.0.0")
+	fake = FakeGitHub({update.api("1.0.1"): {"tag_name": "v1.0.1", "body": "the notes", "assets": [
+		{"name": "NetRollout-Setup-1.0.1.exe", "browser_download_url": "https://x/setup.exe"},
+		{"name": update.zip_name("1.0.1"), "browser_download_url": "https://x/linux.zip"},
+		{"name": "SHA256SUMS", "browser_download_url": "https://x/SHA256SUMS"}]}})
+	monkeypatch.setattr(update.urllib.request, "urlopen", fake)
+	found = update.find("1.0.1")
+	assert found == update.Release("1.0.1", "the notes", "https://x/linux.zip", "https://x/SHA256SUMS")
+	((request, timeout),) = fake.requests
+	assert request.full_url == update.api("1.0.1") and timeout == update.TIMEOUT
+	assert request.get_header("User-agent") == "NetRollout/1.0.0"
+	assert request.get_header("Accept") == "application/vnd.github+json"
+
+
+def test_what_github_answers_instead_of_a_release_is_said_in_words(monkeypatch):
+	"""A 404 is "no release" - naming the version when one was asked for, the address
+	either way; another HTTP error gives its code."""
+	latest, tagged = update.api(), update.api("9.9.9")
+	monkeypatch.setattr(update.urllib.request, "urlopen",
+	                    FakeGitHub({latest: 404, tagged: 404, update.api("1.0.2"): 500}))
+	with pytest.raises(update.ReleaseError) as e:
+		update.find()
+	assert str(e.value) == f"No release at {latest}."
+	with pytest.raises(update.ReleaseError) as e:
+		update.find("9.9.9")
+	assert str(e.value) == f"No release v9.9.9 at {tagged}."
+	with pytest.raises(update.ReleaseError) as e:
+		update.find("1.0.2")
+	assert str(e.value) == f"{update.api('1.0.2')} answered 500."
+
+
+def test_a_release_with_odd_assets_or_no_notes(monkeypatch):
+	"""Assets that aren't objects are passed over, a release without a body has empty
+	notes, and one whose assets don't include the Linux zip has no zip link (its
+	download then says so)."""
+	monkeypatch.setattr(update.urllib.request, "urlopen", FakeGitHub({update.api(): {
+		"tag_name": "v1.0.1", "body": None,
+		"assets": ["junk", None, {"name": "SHA256SUMS", "browser_download_url": "https://x/S"}]}}))
+	found = update.find()
+	assert found == update.Release("1.0.1", "", None, "https://x/S")
+
+
+def test_sums_that_dont_list_the_zip_are_refused(tmp_path):
+	"""A SHA256SUMS without a line for the release's zip refuses the download and
+	writes nothing."""
+	feed = publish(tmp_path / "mirror")
+	(tmp_path / "mirror" / "SHA256SUMS").write_text(f"{'a' * 64}  something-else.zip\n")
+	found = update.find(feed=str(feed))
+	with pytest.raises(update.ReleaseError, match=f"SHA256SUMS doesn't list {update.zip_name('1.0.1')}"):
+		update.download(found, tmp_path / "update")
+	assert not (tmp_path / "update").exists()
+
+
+def test_a_sums_line_is_read_as_sha256sum_writes_it():
+	"""expected_sum finds the file's line in text or binary mode ("*name"), lower-cases
+	the digest, skips lines that aren't sums, and gives None for a file not listed."""
+	digest = "AB" * 32
+	sums = f"not a sum line\n{'c' * 64}  other.zip\n{digest} *netrollout-1.0.1-linux.zip\n"
+	assert update.expected_sum(sums, "netrollout-1.0.1-linux.zip") == digest.lower()
+	assert update.expected_sum(sums, "other.zip") == "c" * 64
+	assert update.expected_sum(sums, "missing.zip") is None
 
 
 def test_found_downloaded_checked_and_unpacked(tmp_path):
