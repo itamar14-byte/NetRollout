@@ -419,15 +419,17 @@ do_restore() {
 	out="$(compose up -d --wait postgres 2>&1)" || { show "$out"; do_start; fail "The database didn't start - nothing was changed."; }
 	step "Restoring $shown"
 	# as root: the files get their folder's owner (Grafana's volume is Grafana's)
-	if ! out="$(compose run --rm --no-deps --user 0 "${grafana[@]}" app python -m src.backup restore "$name" \
+	local code=0
+	out="$(compose run --rm --no-deps --user 0 "${grafana[@]}" app python -m src.backup restore "$name" \
 			--https-port "$(env_value HTTPS_PORT)" \
-			--key-out /data/backups/.restored-key "${grafana_dir[@]}" 2>&1)"; then
-		show "$out"
+			--key-out /data/backups/.restored-key "${grafana_dir[@]}" 2>&1)" || code=$?
+	show "$out"
+	# 3: the database restored (its key handed over), not every file
+	if [ "$code" -ne 0 ] && [ "$code" -ne 3 ]; then
 		step "Starting NetRollout again, as it was"
 		do_start
 		fail "Not restored - see above. Nothing was changed."
 	fi
-	show "$out"
 	out="$(setup_core restore-key 2>&1)" ||
 		{ show "$out"; fail "Restored, but the backup's encryption key couldn't be put into .env - NetRollout isn't started (it couldn't decrypt the saved credentials). See above."; }
 	show "$out"
@@ -437,7 +439,11 @@ do_restore() {
 		else show "$out"; warn "Grafana didn't start - its admin password wasn't reset (netrollout.sh logs grafana)."; fi
 	fi
 	do_start
-	good "Restored $shown. Everyone signs in again."
+	if [ "$code" -eq 3 ]; then
+		warn "Restored $shown's database, but not all of its files - see above for which. NetRollout runs on the restored data (everyone signs in again); put the missing files back by hand, or fix the cause and restore again."
+	else
+		good "Restored $shown. Everyone signs in again."
+	fi
 }
 
 # ── update (the release: python -m src.setup release, in the app image) ─────

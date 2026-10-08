@@ -624,7 +624,9 @@ function Invoke-Restore {
 		if ($monitoring) { $run += @("--grafana-dir", "/data/grafana-restore") }
 		$r = Compose $run
 		Show-Output $r.Output
-		if ($r.Code -ne 0) {
+		# 3: the database restored (its key handed over), not every file
+		$partial = $r.Code -eq 3
+		if ($r.Code -ne 0 -and -not $partial) {
 			Step "Starting NetRollout again, as it was"
 			Start-NetRollout
 			Fail "Not restored - see above. Nothing was changed."
@@ -640,7 +642,13 @@ function Invoke-Restore {
 			else { Show-Output $r.Output; Warn "Grafana didn't start - its admin password wasn't reset (netrollout logs grafana)." }
 		}
 		Start-NetRollout
-		Good "Restored $shown. Everyone signs in again."
+		if ($partial) {
+			Warn ("Restored $shown's database, but not all of its files - see above for which. NetRollout " +
+			      "runs on the restored data (everyone signs in again); put the missing files back by hand, " +
+			      "or fix the cause and restore again.")
+		} else {
+			Good "Restored $shown. Everyone signs in again."
+		}
 	} finally {
 		if ($staged) { Remove-Item -Force -ErrorAction SilentlyContinue $staged }
 	}
