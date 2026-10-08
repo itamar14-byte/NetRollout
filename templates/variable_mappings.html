@@ -517,15 +517,8 @@
 {% from "_property_modal.html" import property_modal %}
 {% call property_modal(modal_id="mappingQuickPropModal",
                        prefix="mqp",
-                       max_width="360px",
-                       esc_closes=true,
                        badge="QUICK CREATE",
-                       title="New Property",
-                       name_hint="auto-generated · immutable",
-                       name_help="Dict key for $$TOKEN$$ substitution. Edit if needed.",
-                       icon_hint="",
-                       icon_placeholder=false,
-                       list_label="List property") %}
+                       title="New Property") %}
             <div class="modal-footer d-flex justify-content-end gap-2">
                 <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
                 <button type="button" class="btn btn-primary btn-sm" onclick="submitMappingQuickProp()">
