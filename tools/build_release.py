@@ -2,7 +2,7 @@
 and what a person can verify first (stage 9.9). From the repo root:
 
   python tools/build_release.py --version 1.0.0 [--out DIR] [--linux] [--windows]
-                                [--test-build] [--feed-base URL] [--notes FILE]
+                                [--feed-base URL] [--notes FILE]
 
   netrollout-<v>-linux.zip      the Linux install / update (src/setup/update.py's contract)
   NetRollout-Setup-<v>.exe      the Windows install / update (Windows only: Inno Setup)
@@ -13,10 +13,7 @@ and what a person can verify first (stage 9.9). From the repo root:
                                 NetRollout Manager -> Update (UpdateFeed) and `netrollout update --feed`
 
 The version must be the VERSION file's: the images, Setup and the footer all
-take it from there. --test-build makes Setup with its own AppId ("NetRollout
-(test)", never over a real install) under the name the Manager expects, so a
-test install can update from the folder; such a folder is for tests only.
-The Docker images aren't built here: the release job builds and pushes them
+take it from there. The Docker images aren't built here: the release job builds and pushes them
 (docker build --build-arg VERSION=...).
 
 SHIPPED is the one list of the files an install gets besides the images;
@@ -95,33 +92,29 @@ def _run(*args: str | Path, **kw: Any) -> None:
 	subprocess.run([str(a) for a in args], check=True, cwd=ROOT, **kw)
 
 
-def _iscc(test_build: bool) -> None:
+def _iscc() -> None:
 	"""Compile NetRollout Setup with Inno Setup: a local ISCC.exe (CI's
-	Windows runner), else its container.
-
-	:param test_build: a test build (its own AppId and names)"""
-	defines = ["/DTestBuild"] if test_build else []
+	Windows runner), else its container."""
 	for candidate in (shutil.which("iscc"), r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe"):
 		if candidate and Path(candidate).exists():
-			_run(candidate, *defines, ROOT / "windows" / "installer" / "netrollout.iss")
+			_run(candidate, ROOT / "windows" / "installer" / "netrollout.iss")
 			return
 	repo = subprocess.run(["cmd", "/c", "cd"], capture_output=True, text=True, cwd=ROOT).stdout.strip()
-	_run("docker", "run", "--rm", "-v", f"{repo}:/work", "amake/innosetup", *defines,
+	_run("docker", "run", "--rm", "-v", f"{repo}:/work", "amake/innosetup",
 	     "windows/installer/netrollout.iss")
 
 
-def build_windows(version: str, out: Path, test_build: bool) -> list[Path]:
+def build_windows(version: str, out: Path) -> list[Path]:
 	"""NetRollout Manager, NetRollout Setup and the CLI .exe, into `out`.
 
-	:param test_build: Setup as a test build (its own AppId and names)
 	:returns: Setup's path and the CLI's
 	:raises SystemExit: not on Windows"""
 	if sys.platform != "win32":
 		raise SystemExit("The Windows files are built on Windows (the Manager uses Windows' C# compiler).")
 	_run("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
 	     ROOT / "windows" / "manager" / "build.ps1")
-	_iscc(test_build)
-	built = ROOT / "dist" / f"NetRollout-Setup-{version}{'-test' if test_build else ''}.exe"
+	_iscc()
+	built = ROOT / "dist" / f"NetRollout-Setup-{version}.exe"
 	setup = out / setup_name(version)
 	shutil.move(built, setup)
 	_run(sys.executable, "-m", "PyInstaller", "--clean", "--noconfirm", "netrollout-cli.spec")
@@ -177,7 +170,6 @@ def main(argv: list[str] | None = None) -> int:
 	parser.add_argument("--out", type=Path)
 	parser.add_argument("--linux", action="store_true", help="only the Linux zip")
 	parser.add_argument("--windows", action="store_true", help="only the Windows files")
-	parser.add_argument("--test-build", action="store_true")
 	parser.add_argument("--feed-base")
 	parser.add_argument("--notes", type=Path)
 	args = parser.parse_args(argv)
@@ -187,15 +179,15 @@ def main(argv: list[str] | None = None) -> int:
 		raise SystemExit(f"--version {args.version} isn't the VERSION file's {in_repo}: "
 		                 f"set VERSION first (the images and Setup take it from there).")
 	both = not (args.linux or args.windows)
-	out = args.out or ROOT / "dist" / f"{'test-' if args.test_build else ''}release-{args.version}"
+	out = args.out or ROOT / "dist" / f"release-{args.version}"
 	out.mkdir(parents=True, exist_ok=True)
 	files: list[Path] = []
 	if args.linux or both:
 		print("-> the Linux zip", flush=True)
 		files.append(build_linux_zip(args.version, out))
 	if args.windows or both:
-		print("-> the Windows files" + (" (test build: its own AppId)" if args.test_build else ""), flush=True)
-		files += build_windows(args.version, out, args.test_build)
+		print("-> the Windows files", flush=True)
+		files += build_windows(args.version, out)
 	files = sorted({*files, *(f for f in out.iterdir() if f.name in (
 		linux_zip_name(args.version), setup_name(args.version), cli_name(args.version)))})
 	write_sums(files, out)

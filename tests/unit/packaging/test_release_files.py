@@ -141,14 +141,12 @@ def test_the_installed_layout_is_bin_and_the_licence_page_has_its_text():
 def test_the_netrollout_command_on_path_is_only_the_bat():
 	"""bin\\ goes on PATH (the addtopath task) holding no netrollout.* but the .bat and the
 	icon - PowerShell would run a netrollout.ps1 there first and Windows' default policy
-	refuses scripts; Win+R's App Paths name is netrollout.exe in the real build."""
+	refuses scripts; Win+R's App Paths name is netrollout.exe."""
 	text = (ROOT / "windows" / "installer" / "netrollout.iss").read_text(encoding="utf-8")
 	installed = re.findall(r'^Source: "\.\.\\([^"]+)"; DestDir: "\{app\}\\bin"', text, re.M)
 	assert [n for n in installed if n.lower().startswith("netrollout.")] == ["netrollout.bat", "netrollout.ico"]
 	assert re.search(r"^Name: addtopath;", text, re.M)
-	# the real build's name (a test build has its own: see below)
-	assert "App Paths\\{#RunName}" in text
-	assert '#define RunName "netrollout.exe"' in text.split("#else", 1)[1]
+	assert "App Paths\\netrollout.exe" in text
 
 
 def test_the_licence_page_shows_the_full_licence_from_the_one_file():
@@ -161,14 +159,11 @@ def test_the_licence_page_shows_the_full_licence_from_the_one_file():
 
 
 def test_the_installers_identity_never_changes():
-	"""The real build's AppGuid is the fixed one and a test build's differs; AppId and the
-	install record's key use it. Windows finds the install (Settings -> Apps, updates) by
-	this id: a new one would orphan every installed NetRollout, and a test build with the
-	real id could take over or update a real install."""
+	"""The AppGuid is the fixed one; AppId and the install record's key use it. Windows
+	finds the install (Settings -> Apps, updates) by this id: a new one would orphan every
+	installed NetRollout."""
 	text = (ROOT / "windows" / "installer" / "netrollout.iss").read_text(encoding="utf-8")
-	real = re.search(r'#else\s+#define AppGuid "([0-9A-F-]+)"', text).group(1)
-	test = re.search(r'#ifdef TestBuild\s+#define AppGuid "([0-9A-F-]+)"', text).group(1)
-	assert real == "6C1F0E52-9B47-4E1B-A7D3-5E2C8F41B0A9" != test
+	assert re.findall(r'#define AppGuid "([0-9A-F-]+)"', text) == ["6C1F0E52-9B47-4E1B-A7D3-5E2C8F41B0A9"]
 	assert "AppId={{{#AppGuid}}" in text and "'{{#AppGuid}}_is1'" in text
 
 
@@ -256,8 +251,7 @@ def test_the_port_helper_runs_by_itself_on_windows():
 	`start`, has its own single-instance lock, and rolls back a timed-out trial
 	(the uninstaller's --exit closes it too)."""
 	iss = (ROOT / "windows" / "installer" / "netrollout.iss").read_text(encoding="utf-8")
-	assert r'Name: "{userstartup}\NetRollout port helper{#NameSuffix}"; Filename: "{app}\bin\NetRollout Manager.exe"; Parameters: "--helper"' in iss
-	assert '#define NameSuffix ""' in iss.split("#else", 1)[1]      # the real build: the plain name
+	assert r'Name: "{userstartup}\NetRollout port helper"; Filename: "{app}\bin\NetRollout Manager.exe"; Parameters: "--helper"' in iss
 	assert 'Parameters: "--helper"; WorkingDir: "{app}"; Flags: nowait; Check: SetUpOk' in iss
 	cs = (ROOT / "windows" / "manager" / "NetRolloutManager.cs").read_text(encoding="utf-8")
 	assert 'if (args[i] == "--helper") helper = true;' in cs and 'return ExitRunning(name + ".Helper");' in cs
@@ -288,24 +282,6 @@ def test_slow_first_starts_have_a_start_period():
 	assert services["postgres"]["healthcheck"]["start_period"] == "30s"
 
 
-def test_a_test_build_names_everything_outside_its_folder_its_own_way():
-	"""AppTitle, NameSuffix and RunName differ between the test and the real build, and
-	every line creating something outside the folder (Start Menu, desktop, Startup,
-	App Paths; at least 12) uses one of them. A test uninstall once deleted the real
-	install's shortcuts and Win+R (same names)."""
-	text = (ROOT / "windows" / "installer" / "netrollout.iss").read_text(encoding="utf-8")
-	test, real = re.search(r"#ifdef TestBuild(.*?)#else(.*?)#endif", text, re.S).groups()
-	for name in ("AppTitle", "NameSuffix", "RunName"):
-		values = [re.search(rf'#define {name} "([^"]*)"', part)[1] for part in (test, real)]
-		assert values[0] != values[1], name
-	outside = [line for line in text.splitlines()
-	           if re.search(r"\{(autoprograms|autodesktop|userstartup)\}|App Paths\\", line)
-	           and not line.lstrip().startswith(";")]
-	assert len(outside) >= 12
-	for line in outside:
-		assert re.search(r"\{#(AppTitle|NameSuffix|RunName)\}", line), line
-
-
 def test_installing_again_over_a_kept_linux_install_starts_it():
 	"""do_install, before asking anything, starts an install whose .env was kept and
 	returns, never saying "already installed" - as `uninstall --keep-data` promises
@@ -317,3 +293,20 @@ def test_installing_again_over_a_kept_linux_install_starts_it():
 	assert 'if [ -f "$ENV_FILE" ]; then' in kept and "do_start" in kept and "return" in kept
 	assert "already installed" not in kept
 	assert "installing again in this folder picks it up" in sh
+
+
+def test_the_windows_install_folder_is_the_installing_accounts_only():
+	"""The whole install folder (the TLS key, the scripts NetRollout runs, compose,
+	runtime.env after a database move) is restricted to Administrators, SYSTEM and the
+	installing account - at install and at every start, so an older install heals;
+	not only .env and backups (other local accounts could read the key and change the
+	scripts)."""
+	ps1 = (ROOT / "windows" / "manage.ps1").read_text(encoding="utf-8")
+	start = ps1[ps1.index("function Start-NetRollout {"):ps1.index("function Restrict(")]
+	install = ps1[ps1.index("function Invoke-Install {"):]
+	install = install[:install.index("\nfunction ", 1)]
+	assert "Restrict $Root" in start
+	assert "Restrict $Root" in install and "Restrict $EnvFile" in install
+	# Restrict: inheritance off, then Administrators, SYSTEM and the installing account
+	assert re.search(r'"/inheritance:r", "/grant:r", "\*S-1-5-32-544:\$f",\s*"\*S-1-5-18:\$f", '
+	                 r'"\$\{env:USERDOMAIN\}\\\$\{env:USERNAME\}:\$f"', ps1)

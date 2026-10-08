@@ -640,7 +640,7 @@ Custom              the admins' own (Save as, new dashboards, subfolders) — ne
 | `init` / `check` | the install's answers (hostname, HTTPS port, monitoring, the organisation's certificate, timezone) → `.env`, `config/nginx/site.env`, the folders; `check` validates only |
 | `prepare-start`, `status` | before a start (busy ports, the server's IPs) / the `netrollout status` report |
 | `restore-key` | after a restore: the backup's encryption key into `.env` |
-| `check-update`, `upgrade`, `release` | an update's direction (newer / same = repair / older = refused, run with the *installed* image), `.env`'s new keys after it, Linux's release download and unpack |
+| `check-update`, `upgrade`, `release` | an update's direction (only newer: the same version or an older one refused, run with the *installed* image; Setup checks it before its first page too), `.env`'s new keys after it, Linux's release download and unpack |
 | `port-ready`, `port-next`, `port-open`, `port-trying`, `port-close` | the port helper's steps (below) |
 
 **Windows** installs only through **NetRollout Setup** (`windows/installer/netrollout.iss`, Inno Setup): the wizard collects the answers, runs `manage.ps1 install`, updates in place over an existing install (`prepare-update` before any file is replaced, `update` after), and puts NetRollout Manager (`windows/manager/`, C#) in `bin\` — the people's front end: status, start / stop, backup / restore, updates from GitHub's releases. **Linux**: `linux/install.sh` + `netrollout.sh` (the same commands, a numbered menu, `update` from a release zip). The details — every command, Setup's pages, the update flow — are in CLAUDE.md (Install / manage).

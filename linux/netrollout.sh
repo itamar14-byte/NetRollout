@@ -19,7 +19,7 @@ set -euo pipefail
 BIN="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"   # the scripts (bin/)
 ROOT="$(dirname "$BIN")"
 VERSION="$(tr -d ' \r\n' < "$ROOT/VERSION" 2>/dev/null || true)"
-PROJECT="${NETROLLOUT_PROJECT:-netrollout}"   # another name only for testing
+PROJECT=netrollout
 UNIT="netrollout-port-$PROJECT"               # the port helper's systemd units
 APP_IMAGE="itamarweinstein/netrollout:$VERSION"
 ENV_FILE="$ROOT/.env"
@@ -434,8 +434,7 @@ do_update() {
 	step "Checking the update: NetRollout $VERSION -> $new"
 	code=0; out="$(docker run --rm "$APP_IMAGE" python -m src.setup check-update --installed "$VERSION" --new "$new" 2>&1)" || code=$?
 	if [ "$code" -eq 2 ]; then show "$out"; rm -rf "$stage"; fail "Nothing was changed." 2
-	elif [ "$code" -ne 0 ]; then warn "Couldn't compare the versions ($APP_IMAGE didn't run) - continuing."
-	elif [ "$(printf '%s\n' "$out" | tail -1)" = same ]; then good "The same version: its files again, then a start (a repair)."; fi
+	elif [ "$code" -ne 0 ]; then warn "Couldn't compare the versions ($APP_IMAGE didn't run) - continuing."; fi
 	if [ -n "$INTERACTIVE" ]; then
 		local a=""
 		read -r -p "Update to NetRollout $new? A backup is made first; then about a minute without NetRollout, and everyone signs in again. [y/N] " a || true
@@ -494,14 +493,11 @@ has_systemd() { [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>
 # the path unit watching site.env (no systemd: the page says to run apply)
 port_helper_on() {
 	has_systemd || return 0
-	local project_env=""
-	if [ "$PROJECT" != netrollout ]; then project_env="Environment=NETROLLOUT_PROJECT=$PROJECT"; fi
 	cat > "/etc/systemd/system/$UNIT.service" <<UNITEOF
 [Unit]
 Description=NetRollout port helper ($ROOT): applies an HTTPS port saved in System Settings
 [Service]
 Type=oneshot
-$project_env
 ExecStart=$ROOT/bin/netrollout.sh apply --yes
 TimeoutStartSec=600
 UNITEOF
