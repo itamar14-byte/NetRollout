@@ -239,7 +239,7 @@
 <!-- ══════════════════════════════════════
      ADD MAPPING MODAL
 ══════════════════════════════════════ -->
-<div class="modal fade" id="addModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
+<div class="modal fade" id="addModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
     <div class="modal-dialog modal-dialog-centered" style="max-width:460px;">
         <div class="modal-content">
             <div class="modal-header">
@@ -352,7 +352,7 @@
 <!-- ══════════════════════════════════════
      EDIT MAPPING MODAL
 ══════════════════════════════════════ -->
-<div class="modal fade" id="editModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
+<div class="modal fade" id="editModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
     <div class="modal-dialog modal-dialog-centered" style="max-width:460px;">
         <div class="modal-content">
             <div class="modal-header">
@@ -793,6 +793,28 @@ document.querySelectorAll('form[novalidate]').forEach(form => {
 
 // ── Quick Create Property ─────────────────────────────────────────────────────
 initIconPicker('mqpIconPreview', 'mqpIcon');
+
+// Escape closes the top modal: the quick create first, else Add / Edit Mapping
+// (as on Inventory). Document-level so focus location doesn't matter: Bootstrap
+// doesn't stack modals - opening the quick create left focus in Add / Edit
+// Mapping (Esc closed that one, behind it) and closing it leaves focus on
+// <body> (Esc did nothing). Add / Edit Mapping have data-bs-keyboard="false" -
+// only this closes them; the quick create closes on Bootstrap's own Escape too,
+// and then this finds it already closed.
+let _mappingQuickPropActive = false;
+const _mappingQuickPropModal = document.getElementById('mappingQuickPropModal');
+_mappingQuickPropModal.addEventListener('show.bs.modal',   () => { _mappingQuickPropActive = true;  });
+_mappingQuickPropModal.addEventListener('hidden.bs.modal', () => { _mappingQuickPropActive = false; });
+
+document.addEventListener('keydown', function(e) {
+    if (e.key !== 'Escape') return;
+    const ids = _mappingQuickPropActive ? ['mappingQuickPropModal'] : ['addModal', 'editModal'];
+    ids.forEach(id => {
+        const el = document.getElementById(id);
+        if (el.classList.contains('show'))
+            bootstrap.Modal.getOrCreateInstance(el).hide();
+    });
+});
 
 function openMappingQuickProp() {
     ['mqpName','mqpLabel'].forEach(id => document.getElementById(id).value = '');
