@@ -209,6 +209,30 @@ def test_rollouts_still_running_after_the_wait_give_the_move_up(app, target, mon
 	assert app.maintenance.state == "idle"
 
 
+def test_a_switch_failing_after_the_reconnect_goes_back_to_the_database(
+		app, target, mover, monkeypatch):
+	"""runtime.env failing to be written (after the live reconnect) ends the move
+	failed, saying NetRollout stays on its database - and it does: the app's
+	connection is back on it, runtime.env unchanged, database.move_failed audited
+	there."""
+	home = app.backend.postgres.config
+	runtime_env = app.backend._CONFIG_ENV
+	before = runtime_env.read_text() if runtime_env.exists() else None
+
+	def read_only(updates):
+		raise PermissionError(13, "Permission denied", str(runtime_env))
+	monkeypatch.setattr(app.backend, "_write_config", read_only)
+	mover.start(target, None, "admin")
+	status = _wait(mover)
+	assert status["state"] == db_move.FAILED, status
+	assert "Permission denied" in status["message"]
+	assert "stays on its database" in status["message"]
+	assert app.backend.postgres.config == home and app.maintenance.state == "idle"
+	assert (runtime_env.read_text() if runtime_env.exists() else None) == before
+	assert _rows(app.backend.postgres.engine,
+	             "select 1 from audit_log where action = 'database.move_failed'")
+
+
 def test_a_failed_copy_leaves_everything_as_it_was(app, target, mover, monkeypatch):
 	"""A copy that fails ends the move failed with its message, the app still on
 	its database, maintenance over and database.move_failed audited."""

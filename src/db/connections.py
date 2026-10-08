@@ -434,22 +434,35 @@ class BackendServices:
 		"""The switch at the end of a database move (src/webapp/db_move.py):
 		the connection replaced live (Grafana's grants on the new one:
 		install_extras), then runtime.env - leaving the bundled database,
-		its connection is kept there first, for Move back.
-		:raises RuntimeError: the new server doesn't answer (nothing changed)"""
+		its connection is kept there first, for Move back. Anything failing
+		after the reconnect puts the connection back on the old database.
+		:raises RuntimeError: the new server doesn't answer, or a step after
+		 it failed - either way NetRollout is on its old database, runtime.env
+		 unchanged"""
+		old = self.postgres.config
 		leaving = None
 		if self.connection_modes()["POSTGRES"] == "bundled":
 			leaving = self.postgres.engine.url.render_as_string(hide_password=False)
 		# not install(): it would seed the factory admin into a copy whose
 		# admins renamed or removed it
 		self.postgres.reload_db(config, install_flag=False)
-		install_extras(self.postgres)
-		updates = config.to_env_dict()
-		if config.url:          # PG_* blank: the URL is the connection
-			updates.update({k: "" for k in updates}, DATABASE_URL=config.url)
-		if leaving:
-			updates[BUNDLED_DATABASE_KEY] = leaving
-		updates[GRAFANA_SSLMODE_KEY] = "require" if self._uses_tls() else "disable"
-		self._write_config(updates)
+		try:
+			install_extras(self.postgres)
+			updates = config.to_env_dict()
+			if config.url:          # PG_* blank: the URL is the connection
+				updates.update({k: "" for k in updates}, DATABASE_URL=config.url)
+			if leaving:
+				updates[BUNDLED_DATABASE_KEY] = leaving
+			updates[GRAFANA_SSLMODE_KEY] = "require" if self._uses_tls() else "disable"
+			self._write_config(updates)
+		except Exception as e:
+			try:
+				self.postgres.reload_db(old, install_flag=False)
+			except RuntimeError:
+				raise RuntimeError(f"{e}; the old database didn't answer when switching "
+				                   f"back either - restart NetRollout (runtime.env still "
+				                   f"names the old one)") from e
+			raise RuntimeError(str(e)) from e
 
 	def _uses_tls(self) -> bool:
 		""":returns: whether the app's own database connection is encrypted
