@@ -4,6 +4,7 @@ admin reset's temporary password; the pages mirror it in
 templates/_password_rule_script.html), and who is signed in and for how
 long - the sessions in Redis, their idle and absolute limits, signing a user
 out everywhere, and the clean start (everyone signed out)."""
+import re
 import secrets
 import string
 import time
@@ -13,6 +14,7 @@ from typing import Any, cast
 
 from flask import request, session
 from flask_login import current_user
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from werkzeug.security import generate_password_hash
 
@@ -63,6 +65,8 @@ ROLES = ("operator", "admin")
 # the columns' sizes (src/db/tables.py) - longer input is refused in words,
 # not by a database error
 LIMITS = {"username": 64, "email": 120, "full_name": 120, "position": 64}
+# a local account's name: shown and logged everywhere, so plain characters only
+USERNAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 
 
 class AccountError(ValueError):
@@ -71,9 +75,10 @@ class AccountError(ValueError):
 
 def check_new_user(db_session: Session, username: str, email: str, full_name: str,
                    position: str | None, password: str | None) -> None:
-	""":raises AccountError: a missing or too long field, an email without
-	@, the password rule (when a password is given), a username or email
-	in use"""
+	""":raises AccountError: a missing or too long field, a username with
+	other characters than letters, digits, . _ -, an email without @, the
+	password rule (when a password is given), a username (in any case) or
+	email in use"""
 	fields = {"username": username, "email": email, "full_name": full_name}
 	labels = {"username": "Username", "email": "Email", "full_name": "Full name",
 	          "position": "Position"}
@@ -83,11 +88,16 @@ def check_new_user(db_session: Session, username: str, email: str, full_name: st
 	for key, value in {**fields, "position": position or ""}.items():
 		if len(value) > LIMITS[key]:
 			raise AccountError(f"{labels[key]} is too long (at most {LIMITS[key]} characters).")
+	if not USERNAME_RE.fullmatch(username):
+		raise AccountError("A username may contain letters, digits, . _ and - "
+		                   "(starting with a letter or digit).")
 	if "@" not in email:
 		raise AccountError("That email address isn't valid.")
 	if password is not None and (problem := password_problem(password, username)):
 		raise AccountError(problem)
-	if db_session.query(User.id).filter(User.username == username).first():
+	# "Dana" next to "dana" would be two accounts for one name
+	if db_session.query(User.id).filter(
+			func.lower(User.username) == username.lower()).first():
 		raise AccountError("That username is taken.")
 	if db_session.query(User.id).filter(User.email == email).first():
 		raise AccountError("That email address is already in use.")

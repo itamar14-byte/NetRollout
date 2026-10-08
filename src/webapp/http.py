@@ -149,6 +149,8 @@ class WebServices:
 		:param actor_id: their id; the signed-in user's when None"""
 		if username is None:
 			username = current_user.username if current_user.is_authenticated else "anonymous"
+		# a failed sign-in records the name as typed - at most the column's length
+		username = username[:64]
 		if current_app.maintenance.writes_blocked:
 			# a database move copies the data: a row now would be lost at
 			# the switch (the gate lets only views that don't write through)

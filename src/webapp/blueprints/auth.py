@@ -15,6 +15,7 @@ from flask import Blueprint, Response, session, redirect, url_for, flash, render
 from flask.typing import ResponseReturnValue
 from flask_login import login_user, current_user, login_required, logout_user
 from flask_session.base import ServerSideSession
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -260,8 +261,18 @@ def login(data: Any) -> ResponseReturnValue:
 			return login_local(user, password, db_session)
 		elif user and user.auth_type == "ldap":
 			return login_ldap_existing(user, password, db_session)
-		else:
-			return login_ldap_group(username, password, db_session)
+		# Directories match names whatever their case: "Alice" is the LDAP
+		# account "alice" (its state and role apply - a new account from a
+		# group would bypass a disable or a demotion). Another account under
+		# other capitals is refused, never duplicated.
+		same_name = db_session.query(User).filter(
+			func.lower(User.username) == username.lower()).all()
+		ldap_users = [u for u in same_name if u.auth_type == "ldap"]
+		if len(ldap_users) == 1 and len(same_name) == 1:
+			return login_ldap_existing(ldap_users[0], password, db_session)
+		if same_name:
+			return login_fail(username, "invalid_credentials")
+		return login_ldap_group(username, password, db_session)
 
 @bp.route("/register", methods=["GET"])
 def register_form() -> str:
@@ -345,10 +356,15 @@ def otp_enroll(data: Any) -> ResponseReturnValue:
 	"""2FA enrolment after the password: GET shows a new authenticator's QR
 	code (its secret waits in the session); POST checks a code from it, then
 	stores the secret (encrypted) and signs in. Rate limited; wrong codes
-	count (_wrong_code)."""
+	count (_wrong_code). A user who has 2FA already goes to the code page -
+	only an admin's 2FA reset allows a new enrolment (else the password
+	alone would replace the user's authenticator)."""
 	user = _pending_user()
 	if user is None:
 		return redirect(url_for("auth.home"))
+	if user.otp_secret:
+		session.pop("pending_totp_secret", None)
+		return redirect(url_for("auth.otp_verify"))
 	if request.method == "GET":
 		secret = session.get("pending_totp_secret") or pyotp.random_base32()
 		session["pending_totp_secret"] = secret
