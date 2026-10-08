@@ -451,7 +451,11 @@ function Get-Rollouts([switch]$Json) {
 	if ($r.Code -ne 0) { return $null }
 	$lines = @($r.Output -split "`n" | Where-Object { $_.Trim() -ne "System.Management.Automation.RemoteException" })
 	if ($Json) { return ($lines | Where-Object { $_.TrimStart().StartsWith("{") } | Select-Object -Last 1) }
-	return (($lines | Where-Object { $_.Trim() }) -join "`n")
+	# the table only, from its heading: compose's and Python's warnings (stderr) left out
+	$start = -1
+	for ($i = 0; $i -lt $lines.Count; $i++) { if ($lines[$i] -match "^\d+ rollouts? running or queued:$") { $start = $i; break } }
+	if ($start -lt 0) { return "" }
+	return (($lines[$start..($lines.Count - 1)] | Where-Object { $_.Trim() -and ($_ -match "^(\d+ rollouts? running|   )") }) -join "`n")
 }
 
 # The stop under way cancels the running rollouts at once (the app's drain
