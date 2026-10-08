@@ -5,9 +5,11 @@ import re
 from unittest.mock import patch
 
 import pytest
+from sqlalchemy import event
 
 from src.db.tables import AuditLog, DeviceAttribute, Inventory, SecurityProfile
 from src.encryption import decrypt
+from src.inventory import query_visible_devices
 
 pytestmark = [pytest.mark.postgres, pytest.mark.redis]
 
@@ -719,3 +721,42 @@ def test_inventory_cards_have_reachability_indicator(client_for, make_user,
 	dev = make_device(user)
 	html = client_for(user).get("/inventory").get_data(as_text=True)
 	assert f'data-reach-for="{dev}"' in html and 'id="reachRecheck"' in html
+
+
+# ── Loading the visible devices ──────────────────────────────────────────────
+
+def test_visible_devices_load_in_a_constant_number_of_statements(
+		app, make_user, make_profile, make_device, make_mapping):
+	"""query_visible_devices loads the devices with their security profiles and
+	mappings in the same number of SQL statements for 1 device as for 6 (no
+	query per device), and both relationships are there after the session
+	closes."""
+	def statements_to_load(user):
+		seen = []
+
+		def listen(conn, cursor, statement, *rest):
+			seen.append(statement)
+
+		engine = app.backend.postgres.engine
+		event.listen(engine, "before_cursor_execute", listen)
+		try:
+			with app.backend.postgres.get_session() as s:
+				devices = query_visible_devices(s, user.id)
+				s.expunge_all()
+		finally:
+			event.remove(engine, "before_cursor_execute", listen)
+		assert all(d.security_profile is not None and len(d.var_mappings) == 1
+		           for d in devices)
+		return len(devices), len(seen)
+
+	def user_with(n):
+		user = make_user()
+		for i in range(n):
+			device = make_device(user, ip=f"10.9.{n}.{i + 1}",
+			                     profile_id=make_profile(user, label=f"p{i}"))
+			make_mapping(user, token=f"T{i}", devices=[device])
+		return user
+
+	one, many = statements_to_load(user_with(1)), statements_to_load(user_with(6))
+	assert (one[0], many[0]) == (1, 6)
+	assert many[1] == one[1]

@@ -29,7 +29,7 @@ from typing import Iterable, TypedDict, cast, Any
 
 import redis
 from sqlalchemy import ColumnElement, or_
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from src.db.connections import REDIS_UNAVAILABLE
 from src.db.tables import DeviceAttribute, Inventory, SecurityProfile, User
@@ -173,13 +173,12 @@ def visible_devices_clause(user_id: uuid.UUID) -> ColumnElement[bool]:
 def query_visible_devices(db_session: Session, user_id: uuid.UUID) -> list[Inventory]:
 	"""Visible devices with the relationships templates and rollout need,
 	preloaded so rows survive expunge."""
-	devices = (db_session.query(Inventory)
-	           .filter(visible_devices_clause(user_id))
-	           .order_by(Inventory.label)
-	           .all())
-	_ = [d.security_profile for d in devices]
-	_ = [d.var_mappings for d in devices]
-	return devices
+	return (db_session.query(Inventory)
+	        .filter(visible_devices_clause(user_id))
+	        .options(selectinload(Inventory.security_profile),
+	                 selectinload(Inventory.var_mappings))
+	        .order_by(Inventory.label)
+	        .all())
 
 
 def can_edit_device(device: Inventory, user: User) -> bool:
