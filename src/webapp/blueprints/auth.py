@@ -231,7 +231,10 @@ def home() -> str:
 
 @bp.route("/login", methods=["GET"])
 def login_get() -> ResponseReturnValue:
-	return redirect(url_for("auth.home"))
+	"""The sign-in page (/login is where its form posts); a safe ?next= is
+	kept, so a linked /login?next=<path> still lands there after signing in."""
+	target = safe_next(request.args.get("next"))
+	return redirect(url_for("auth.home", next=target) if target else url_for("auth.home"))
 
 @bp.route("/login", methods=["POST"])
 @csrf.exempt
