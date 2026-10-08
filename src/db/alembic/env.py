@@ -34,7 +34,7 @@ def cli_config() -> PostgresConfig:
 	# Same resolution as the app: DATABASE_URL if set, else PG_* vars.
 	# config/runtime.env is loaded WITHOUT override so variables set in the
 	# shell (e.g. the test suite's DATABASE_URL) always win.
-	load_dotenv(runtime.runtime_env(), override=False)
+	load_dotenv(runtime.runtime_env(), override=False, interpolate=False)
 	return PostgresConfig.unload_env()
 
 

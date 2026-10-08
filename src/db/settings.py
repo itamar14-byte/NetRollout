@@ -60,6 +60,8 @@ class Setting:
 	pattern_hint: str = ""
 	placeholder: str = ""
 	max_length: int | None = None
+	required: bool = False      # str settings: empty isn't a value
+	lowercase: bool = False     # str settings: kept lowercase (a DNS name)
 	# str settings: a fixed list, ((value, what the page shows), ...) — a
 	# dropdown on the page
 	choices: tuple[tuple[str, str], ...] | None = None
@@ -91,6 +93,10 @@ class Setting:
 				raise ValueError(f"must be at most {self.maximum}")
 			return number
 		text = "" if raw is None else str(raw).strip()
+		if self.lowercase:
+			text = text.lower()
+		if self.required and not text:
+			raise ValueError("is required")
 		if self.max_length is not None and len(text) > self.max_length:
 			raise ValueError(f"must be at most {self.max_length} characters")
 		if text and self.pattern and not re.fullmatch(self.pattern, text):
@@ -176,7 +182,7 @@ SETTINGS: dict[str, Setting] = {s.key: s for s in [
 	                r"(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*",
 	        pattern_hint="must be a hostname or IP address only — no "
 	                     "https://, port or path",
-	        placeholder="netrollout.corp.local", max_length=253),
+	        placeholder="netrollout.corp.local", max_length=253, lowercase=True),
 	# ── Sessions ──
 	Setting("session_idle_minutes", "Sign out after inactivity",
 	        "Minutes without a click or a page change before a session ends "
@@ -198,7 +204,7 @@ SETTINGS: dict[str, Setting] = {s.key: s for s in [
 	        "Backups", "02:00", kind=str, applies="next scheduled time",
 	        pattern=r"([01][0-9]|2[0-3]):[0-5][0-9]",
 	        pattern_hint="must be a time like 02:00 (24-hour)",
-	        placeholder="02:00", max_length=5),
+	        placeholder="02:00", max_length=5, required=True),
 	Setting("backup_weekday", "On",
 	        "The day of a weekly backup.",
 	        "Backups", "sun", kind=str, applies="next scheduled time",
@@ -382,6 +388,7 @@ class SettingsStore:
 				"minimum": s.minimum, "maximum": s.maximum,
 				"pattern": s.pattern, "pattern_hint": s.pattern_hint,
 				"placeholder": s.placeholder, "max_length": s.max_length,
+				"required": s.required,
 				"applies": s.applies, "editable": s.editable,
 				"kind": s.kind.__name__,
 				"choices": [list(c) for c in s.choices] if s.choices else None,

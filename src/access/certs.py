@@ -212,6 +212,14 @@ def names_in(cert_pem: bytes) -> tuple[list[str], list[SanIP]]:
 	return _san(x509.load_pem_x509_certificates(cert_pem)[0])
 
 
+def common_name(cert_pem: bytes) -> str:
+	""":returns: the server certificate's common name ("" without one) - the
+	 hostname a self-signed one was issued to"""
+	cert = x509.load_pem_x509_certificates(cert_pem)[0]
+	names = cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)
+	return str(names[0].value) if names else ""
+
+
 def host_matches(hostname: str, dns_names: Iterable[str],
                  ips: Sequence[SanIP]) -> bool:
 	"""Browser rules: an IP must be listed as an IP; a wildcard covers

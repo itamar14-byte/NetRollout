@@ -11,6 +11,7 @@ from types import SimpleNamespace
 import pytest
 import redis
 from dotenv import dotenv_values, load_dotenv
+from redis.connection import parse_url
 from sqlalchemy.engine import make_url
 
 from src import jobs
@@ -184,6 +185,34 @@ def test_a_switch_overrides_everything_inherited(isolated_env, tmp_path):
 	assert make_url(pg.get_url()).host == "db.example.org"
 	assert not pg.schema
 	assert rd.get_url() == "redis://cache.example.org:6379/0"   # no password
+
+
+AWKWARD_PASSWORDS = ["p'a ss #x", "a${HOME}b", 'q"uote', "back\\slash\\", " padded ", "=eq"]
+
+
+@pytest.mark.parametrize("password", AWKWARD_PASSWORDS)
+def test_a_password_with_any_character_survives_runtime_env(isolated_env, tmp_path, password):
+	"""A switch's password with quotes, spaces, `#`, `${...}` or backslashes is read back
+	exactly - by the app (load_config into the environment) and by _config_values - not
+	cut at the `#`, its quotes eaten or its `${HOME}` expanded."""
+	backend = _backend_writing_to(tmp_path / "config" / "runtime.env")
+	backend._write_config(PostgresConfig(host="db", password=password).to_env_dict())
+	backend._write_config(RedisConfig(host="cache", password=password).to_env_dict())
+	connections.load_config(backend._CONFIG_ENV)
+	assert PostgresConfig.unload_env().password == password
+	assert RedisConfig.unload_env().password == password
+	assert backend._config_values()["PG_PASSWORD"] == password
+
+
+@pytest.mark.parametrize("password", ["p@ss:w/rd#?%", "plain"])
+def test_a_redis_password_with_url_characters_connects(password):
+	"""The Redis URL built from parts carries the password exactly (URL-encoded): `@`,
+	`:`, `/`, `#`, `?` and `%` don't break it (they raised ValueError: a 500 showing part
+	of the password)."""
+	config = RedisConfig(host="cache", port="6380", db="2", password=password)
+	parts = parse_url(config.get_url())
+	assert (parts["password"], parts["host"], parts["port"], parts["db"]) == (password, "cache", 6380, 2)
+	assert config.place() == ("cache", 6380, 2)
 
 
 def test_write_config_is_atomic_merged_and_owner_only(tmp_path):
