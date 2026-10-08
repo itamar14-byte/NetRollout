@@ -196,8 +196,8 @@ namespace NetRollout
 			if (!wasChanged && id == lastId && (DateTime.Now - lastEnd).TotalSeconds < Pause) return;
 			lastId = id;
 			var log = Path.Combine(Install.Root, @"logs\port-helper.log");
-			var info = new ProcessStartInfo("cmd.exe", "/c powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"" +
-				Install.Script + "\" apply -Yes -NoBrowser >> \"" + log + "\" 2>&1")
+			var info = new ProcessStartInfo("cmd.exe", "/c powershell.exe " +
+				Install.PsArgs("apply -Yes -NoBrowser") + " >> \"" + log + "\" 2>&1")
 			{
 				UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = Install.Root
 			};
@@ -292,6 +292,12 @@ namespace NetRollout
 			Path.GetDirectoryName(Application.ExecutablePath);
 		public static readonly string Root = Path.GetDirectoryName(BinDir);
 		public static readonly string Script = Path.Combine(BinDir, "manage.ps1");
+
+		// powershell.exe's arguments: run manage.ps1 with this command line
+		public static string PsArgs(string commandLine)
+		{
+			return "-NoProfile -ExecutionPolicy Bypass -File \"" + Script + "\" " + commandLine;
+		}
 		public const string Releases = "https://github.com/itamar14-byte/NetRollout/releases";
 
 		// this install, for names shared across the machine: the folder, hashed
@@ -632,9 +638,15 @@ namespace NetRollout
 			catch (Exception e) { Say("Couldn't open the browser: " + e.Message); }
 		}
 
+		// the status line says rollouts are running (the health's count)
+		bool RolloutsRunning
+		{
+			get { return state == State.Running && detailLabel.Text.Contains("running"); }
+		}
+
 		void StopNetRollout()
 		{
-			if (state == State.Running && detailLabel.Text.Contains("running") &&
+			if (RolloutsRunning &&
 				MessageBox.Show(this, detailLabel.Text + ". They finish and are recorded before NetRollout stops (up to 10 minutes). Stop now?",
 					"Stop NetRollout", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
 				return;
@@ -719,7 +731,7 @@ namespace NetRollout
 		void OfferUpdate(Release release)
 		{
 			Say("NetRollout " + release.Version + " is available (you have " + Install.Version + ").");
-			var running = state == State.Running && detailLabel.Text.Contains("running") ? detailLabel.Text + " - they finish first. " : "";
+			var running = RolloutsRunning ? detailLabel.Text + " - they finish first. " : "";
 			using (var dialog = new UpdateDialog(release, running))
 			{
 				if (dialog.ShowDialog(this) != DialogResult.OK) return;
@@ -775,8 +787,7 @@ namespace NetRollout
 			if (running != null) { Say("Busy with the previous action - one moment."); return; }
 			output.Clear();
 			Say(heading);
-			var info = new ProcessStartInfo("powershell.exe",
-				"-NoProfile -ExecutionPolicy Bypass -File \"" + Install.Script + "\" " + command + " -NoBrowser")
+			var info = new ProcessStartInfo("powershell.exe", Install.PsArgs(command + " -NoBrowser"))
 			{
 				UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = Install.Root,
 				RedirectStandardOutput = true, RedirectStandardError = true
