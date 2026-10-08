@@ -186,6 +186,108 @@ class TestBaseNotify(unittest.TestCase):
 		self.assertIn("logged", content)
 
 
+# ── The live log: best-effort writes, numbered messages, a reader's follow ──
+
+def test_a_live_log_outage_never_fails_notify_and_the_file_has_the_line(tmp_path):
+	"""Redis raising on the live log (rpush / publish) doesn't fail notify, and
+	the line is in the log file all the same."""
+	client = MagicMock()
+	client.rpush.side_effect = ConnectionError("redis down")
+	logger = RolloutLogger(webapp=True, verbose=False, job_id="job-1",
+	                       redis_client=client)
+	logger.logfile = str(tmp_path / "rollout.log")
+	logger.notify("device 10.0.0.1 failed", "red")
+	assert "device 10.0.0.1 failed" in (tmp_path / "rollout.log").read_text(encoding="utf-8")
+
+
+def test_a_live_message_is_published_with_its_history_number(tmp_path):
+	"""A streamed line goes to the history and is published as
+	"<the history's length>\\t<line>" - how a reader tells what it already has."""
+	client = MagicMock()
+	client.rpush.return_value = 7
+	logger = RolloutLogger(webapp=True, verbose=False, job_id="job-1",
+	                       redis_client=client)
+	logger.logfile = str(tmp_path / "rollout.log")
+	logger.notify("rollout started", important=True)
+	client.rpush.assert_called_once_with("job:job-1:history", "rollout started")
+	client.publish.assert_called_once_with("job:job-1:logs", "7\trollout started")
+
+
+class FakePubSub:
+	"""A subscription replaying given replies to get_message (None once spent)."""
+
+	def __init__(self, replies):
+		self.replies = list(replies)
+		self.closed = False
+
+	def subscribe(self, channel):
+		pass
+
+	def get_message(self, timeout=None):
+		return self.replies.pop(0) if self.replies else None
+
+	def close(self):
+		self.closed = True
+
+
+def _message(data):
+	return {"type": "message", "data": data.encode()}
+
+
+def _following(history, replies):
+	"""A web logger whose Redis has `history` and whose subscription replies
+	`replies` (after the subscription's confirmation)."""
+	client = MagicMock()
+	ps = FakePubSub([{"type": "subscribe"}, *replies])
+	client.pubsub.return_value = ps
+	client.lrange.return_value = [line.encode() for line in history]
+	logger = RolloutLogger(webapp=True, verbose=False, job_id="job-1",
+	                       redis_client=client)
+	return logger, ps
+
+
+def test_follow_skips_a_line_both_in_the_history_and_published():
+	"""A line logged between the subscription and the history read is in both:
+	follow sends it once, then the newer lines, and ends at the done message."""
+	logger, ps = _following(["one", "two"],
+	                        [_message("2\ttwo"), _message("3\tthree"), _message("__done__")])
+	assert list(logger.follow(lambda: False)) == ["one", "two", "three"]
+	assert ps.closed
+
+
+def test_follow_subscribes_before_reading_the_history():
+	"""The subscription is in effect (confirmed) before the history is read - else
+	a line logged in between is in neither."""
+	order = []
+	logger, ps = _following(["one"], [_message("__done__")])
+	client = logger._redis
+	confirm = ps.get_message
+
+	def get_message(timeout=None):
+		reply = confirm(timeout)
+		if reply and reply["type"] == "subscribe":
+			order.append("subscribed")
+		return reply
+	ps.get_message = get_message
+	client.lrange.side_effect = lambda *_: order.append("history") or [b"one"]
+	assert list(logger.follow(lambda: False)) == ["one"]
+	assert order == ["subscribed", "history"]
+
+
+def test_follow_sends_heartbeats_until_the_job_is_over():
+	"""With nothing coming, follow yields None (a heartbeat) while the job isn't
+	over, and ends once it is."""
+	logger, _ = _following([], [])
+	over = iter([False, False, True])
+	assert list(logger.follow(lambda: next(over), wait=0.01)) == [None, None]
+
+
+def test_follow_keeps_a_multi_line_message_whole():
+	"""A published line with newlines in it comes out as one line."""
+	logger, _ = _following([], [_message("1\tfirst\nsecond"), _message("__done__")])
+	assert list(logger.follow(lambda: False)) == ["first\nsecond"]
+
+
 def cp1252_stream():
 	"""What stdout looks like when output is redirected on Windows."""
 	return io.TextIOWrapper(io.BytesIO(), encoding="cp1252")

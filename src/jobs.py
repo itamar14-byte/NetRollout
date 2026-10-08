@@ -11,7 +11,9 @@ there when the app starts is left over from a crash and is cleared
 
 Keys: job:{id}:meta (hash: user_id, status, device_count, created_at,
 started_at), user_jobs:{user_id} (set of job ids), the job queue (list), and
-the pending / active counters (the Prometheus gauges).
+the pending / active counters (the Prometheus gauges); a job's live log
+(src/rollout/log.py: live_log_keys) is the logger's, its leftovers cleared
+here too.
 
 `python -m src.jobs rollouts | stop-now [--clear]` (main()): the same keys read from
 outside the app's process - netrollout stop / update and NetRollout Manager
@@ -28,11 +30,10 @@ import threading
 import time
 import uuid
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from typing import Any, cast, Callable
 
 import redis
-from redis.client import PubSub
 from sqlalchemy import ColumnElement, and_, func, not_
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -41,7 +42,7 @@ from src.db.connections import (BackendServices, PostgresConnection, REDIS_UNAVA
                                 load_config)
 from src.db.tables import DeviceResult, JobMetadata, User
 from src.rollout.engine import RolloutEngine, RolloutOptions, Device, DeviceResultDict
-from src.rollout.log import RolloutLogger
+from src.rollout.log import RolloutLogger, live_log_keys
 
 
 QUEUE = "netrollout:job_queue"
@@ -107,8 +108,11 @@ class JobStore:
 		self._client.lrem(QUEUE, 0, str(job_id))
 
 	def set_status(self, job_id: uuid.UUID, status: str) -> None:
-		""":param status: what Active Jobs shows (pending / active / cancelling)"""
-		self._client.hset(_meta(job_id), "status", status)
+		"""The status of a job still here - never one that has ended (a cancel
+		racing the job's end would bring its hash back as a phantom row).
+
+		:param status: what Active Jobs shows (pending / active / cancelling)"""
+		self._client.eval(_SET_IF_EXISTS, 1, _meta(job_id), "status", status)
 
 	def started(self, job_id: uuid.UUID) -> None:
 		"""Pending → active."""
@@ -121,9 +125,14 @@ class JobStore:
 	def finished(self, job_id: uuid.UUID, user_id: uuid.UUID,
 	             was_running: bool) -> None:
 		"""The job is over (its results are in Postgres): gone from here."""
+		self.forget(job_id, user_id)
+		self._client.decr(ACTIVE if was_running else PENDING)
+
+	def forget(self, job_id: uuid.UUID, user_id: uuid.UUID) -> None:
+		"""A job's hash and listing gone, the counters untouched (a job whose
+		add() didn't complete was never counted)."""
 		self._client.delete(_meta(job_id))
 		self._client.srem(_user_jobs(user_id), str(job_id))
-		self._client.decr(ACTIVE if was_running else PENDING)
 
 	def reset_stale(self) -> int:
 		"""At startup: no job of this process exists yet, so every job key is
@@ -132,7 +141,8 @@ class JobStore:
 		:returns: how many jobs were cleared"""
 		client = self._client
 		metas = list(client.scan_iter(_meta("*")))
-		for key in (*metas, *client.scan_iter(_user_jobs("*")),
+		histories = client.scan_iter(live_log_keys("*")[0])
+		for key in (*metas, *client.scan_iter(_user_jobs("*")), *histories,
 		            QUEUE, PENDING, ACTIVE, STOP_NOW):
 			client.delete(key)
 		return len(metas)
@@ -204,6 +214,10 @@ class JobStore:
 # a job's status in Redis -> what the waiting lists call it
 _STATES = {"pending": "queued", "active": "running", "cancelling": "cancelling"}
 
+# HSET only on a hash that exists (set_status), atomically
+_SET_IF_EXISTS = ("if redis.call('exists', KEYS[1]) == 1 then "
+                  "return redis.call('hset', KEYS[1], ARGV[1], ARGV[2]) end return 0")
+
 
 # Dispatcher retry backoff while Redis is down (seconds)
 _BACKOFF_START, _BACKOFF_MAX = 1, 30
@@ -220,6 +234,10 @@ _SAVE_TRIES, _SAVE_RETRY_WAIT = 3, 2
 _SAVE_WAIT = 60
 QUEUED_CANCEL_REASON = ("Cancelled: NetRollout restarted before this rollout "
                         "started. Nothing was sent to the devices.")
+CANCELLED_BEFORE_START = ("Cancelled before it started. Nothing was sent to "
+                          "the devices.")
+# what the pages and a queued job's live log say while it waits
+QUEUED_LINE = "Queued — waiting for a free slot"
 
 
 DRAINING_MESSAGE = ("NetRollout is stopping or restarting — new rollouts are "
@@ -297,17 +315,15 @@ class RolloutJob:
 		self._logger.notify(reason, "red", important=True)
 		self.results = self._engine.cancelled_results()
 
-	def is_alive(self) -> bool:
-		""":returns: whether its thread is still running"""
-		return self._thread is not None and self._thread.is_alive()
+	def is_over(self) -> bool:
+		""":returns: whether it ran and has ended (a queued job isn't)"""
+		return self._thread is not None and not self._thread.is_alive()
 
-	def get_log_queue(self) -> PubSub:
-		""":returns: a subscription to its live log (the page's stream)"""
-		return self._logger.subscribe()
+	def follow_log(self, over: Callable[[], bool]) -> Iterator[str | None]:
+		"""Its live log for the page's stream (RolloutLogger.follow).
 
-	def get_log_history(self) -> list[str]:
-		""":returns: its live log so far"""
-		return self._logger.get_history()
+		:param over: whether it has ended, asked while nothing comes"""
+		return self._logger.follow(over)
 
 	def log_cleanup(self) -> None:
 		"""End its live log (readers get "done"; the keys go)."""
@@ -398,16 +414,40 @@ class RolloutOrchestrator:
 			self._refuse_if_closed()
 			self._jobs[job.job_id] = job
 
-		self._store.add(job.job_id, user_id, job.get_device_count())
-
-		with self._backend.postgres.get_session() as db_session:
-			db_session.add(JobMetadata(job_id=job.job_id,
-			                           user_id=user_id,
-			                           commands=commands,
-			                           comment=comment))
-
-		self._store.enqueue(job.job_id)
+		added = False
+		try:
+			self._store.add(job.job_id, user_id, job.get_device_count())
+			added = True
+			with self._backend.postgres.get_session() as db_session:
+				db_session.add(JobMetadata(job_id=job.job_id,
+				                           user_id=user_id,
+				                           commands=commands,
+				                           comment=comment))
+			self._store.enqueue(job.job_id)
+		except BaseException:
+			self._withdraw(job, added)
+			raise
 		return job.job_id
+
+	def _withdraw(self, job: RolloutJob, added: bool) -> None:
+		"""Undo a submit that failed partway: no job left behind here or in
+		Redis (best-effort - Redis may be why it failed; the next start clears
+		what stays).
+
+		:param added: whether JobStore.add completed (it counted the job)"""
+		with self._lock:
+			self._jobs.pop(job.job_id, None)
+		def gone() -> None:
+			if added:
+				self._store.finished(job.job_id, job.user_id, was_running=False)
+			else:
+				self._store.forget(job.job_id, job.user_id)
+
+		for undo in (lambda: self._store.unqueue(job.job_id), gone):
+			try:
+				undo()
+			except Exception:     # noqa: BLE001 - the submit's own error is what's raised
+				pass
 
 	def refusal(self) -> str | None:
 		"""Why a new rollout would be refused now (for people), or None."""
@@ -424,12 +464,31 @@ class RolloutOrchestrator:
 			raise Paused()
 
 	def cancel(self, job_id: uuid.UUID) -> None:
-		"""Cancel a running or queued rollout of this process (unknown: nothing)."""
+		"""Cancel a rollout of this process (unknown: nothing). A queued one
+		ends at once - recorded as cancelled, never started; a running one is
+		asked to stop (devices not reached yet are skipped)."""
 		with self._lock:
 			job = self._jobs.get(job_id, None)
-		if job:
-			job.cancel()
-			self._store.set_status(job.job_id, "cancelling")
+			queued = job is not None and self._claim(job)
+		if job is None:
+			return
+		if queued:
+			self._cancel_queued(job, CANCELLED_BEFORE_START)
+			return
+		job.cancel()
+		self._store.set_status(job.job_id, "cancelling")
+
+	@staticmethod
+	def _claim(job: RolloutJob) -> bool:
+		"""Under the lock: take a queued job for whoever calls (the dispatcher
+		to start it, a cancel or the drain to record it) - each job is claimed
+		once (started_at set).
+
+		:returns: whether it was queued (now claimed by the caller)"""
+		if job.started_at is not None:
+			return False
+		job.started_at = datetime.datetime.now()
+		return True
 
 	def jobs(self) -> list[dict[str, Any]]:
 		"""This process's rollouts (a database move lists what it waits for)."""
@@ -481,28 +540,28 @@ class RolloutOrchestrator:
 
 			self._slots.acquire()
 
-			# Claimed under the lock (started_at set), started outside it: drain()
-			# reads "queued" (not started) under the lock too, so each job is
-			# either run here or cancelled there. start() isn't called under
-			# the lock — a job that ends at once needs it for its cleanup.
+			# Claimed under the lock (_claim), started outside it: drain() and
+			# cancel() claim a queued job under the lock too, so each job is
+			# either run here or recorded as cancelled there. start() isn't
+			# called under the lock — a job that ends at once needs it for its
+			# cleanup.
 			with self._lock:
 				job = self._jobs.get(job_id)
-				if job is not None and not self._draining:
-					job.started_at = datetime.datetime.now()
-				else:
+				if job is None or self._draining or not self._claim(job):
 					job = None
 			if job is None:
-				self._slots.release()   # gone, or drain() records it
+				self._slots.release()   # gone, or a cancel / drain() records it
 				continue
-			job.start(self._cleanup)
 
-			# The job is already running; a Redis failure here only leaves
-			# status/counters stale, so it must not take the loop down.
+			# Before start(): a job that ends at once has its hash deleted, and
+			# this would bring it back. A failure only leaves status / counters
+			# stale - the job starts anyway, and the loop must not die.
 			try:
 				self._store.started(job.job_id)
-			except REDIS_UNAVAILABLE as e:
-				print(f"[NetRollout] dispatcher: job {job.job_id} started but "
-				      f"status update failed ({e})", flush=True)
+			except Exception as e:   # noqa: BLE001
+				print(f"[NetRollout] dispatcher: job {job.job_id} starts but its "
+				      f"status update failed ({e!r})", flush=True)
+			job.start(self._cleanup)
 
 	def _cleanup(self, job_id: uuid.UUID) -> None:
 		"""A job's end (its on_complete): finalize, then free its slot."""
@@ -526,9 +585,9 @@ class RolloutOrchestrator:
 		:param report: where progress lines go (the console by default)"""
 		with self._lock:
 			self._draining = True
-			queued = [j for j in self._jobs.values() if j.started_at is None]
+			queued = [j for j in self._jobs.values() if self._claim(j)]
 		for job in queued:
-			self._cancel_queued(job)
+			self._cancel_queued(job, QUEUED_CANCEL_REASON)
 		if queued:
 			report(f"[NetRollout] {len(queued)} queued rollout(s) cancelled — "
 			       f"they hadn't started")
@@ -574,12 +633,14 @@ class RolloutOrchestrator:
 		with self._lock:
 			return self._saving > 0
 
-	def _cancel_queued(self, job: RolloutJob) -> None:
-		"""Record a queued job as cancelled. Its definition (devices, commands)
-		lives only in this process, so after a restart it could never run:
-		recorded, not lost."""
+	def _cancel_queued(self, job: RolloutJob, reason: str) -> None:
+		"""Record a queued job (claimed by the caller) as cancelled - a cancel,
+		or a drain: its definition (devices, commands) lives only in this
+		process, so after a restart it could never run: recorded, not lost.
+
+		:param reason: why, in its log"""
 		try:
-			job.cancel_before_start(QUEUED_CANCEL_REASON)
+			job.cancel_before_start(reason)
 			try:
 				self._store.unqueue(job.job_id)
 			except REDIS_UNAVAILABLE:

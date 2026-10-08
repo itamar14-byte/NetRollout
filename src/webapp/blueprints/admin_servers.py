@@ -282,16 +282,25 @@ def _switch_redis(config: RedisConfig, back: bool) -> ResponseReturnValue:
 	job state are cleared in the Redis switched to - one used before still
 	holds old sessions, terminated ones included - so everyone signs in
 	again; the admin who switches stays signed in (this request saves its
-	session into the new Redis at its end - its index entry goes there now)."""
-	if any(current_app.orchestrator.counts().values()):
-		return err("Rollouts are running - their live state is in Redis. Switch "
-		           "once they've finished.", 409)
+	session into the new Redis at its end - its index entry goes there now).
+	New rollouts are paused from the check to the switch, so none starts in
+	between (a pause already on - a database move's - is left on)."""
+	orchestrator = current_app.orchestrator
+	was_paused = orchestrator.paused
+	orchestrator.pause()
 	try:
-		current_app.backend.reload_redis(config)
-	except RuntimeError as e:
-		return err(str(e))
-	clear_sessions(current_app.backend.redis)
-	clear_stale_jobs(current_app.backend.redis)
+		if any(orchestrator.counts().values()):
+			return err("Rollouts are running - their live state is in Redis. Switch "
+			           "once they've finished.", 409)
+		try:
+			current_app.backend.reload_redis(config)
+		except RuntimeError as e:
+			return err(str(e))
+		clear_sessions(current_app.backend.redis)
+		clear_stale_jobs(current_app.backend.redis)   # before a new rollout's keys go there
+	finally:
+		if not was_paused:
+			orchestrator.resume()
 	place = "{}:{}/{}".format(*config.place())
 	current_app.web.audit("server.redis_switched", object_type="redis", object_label=place,
 	                      detail={"back": back})

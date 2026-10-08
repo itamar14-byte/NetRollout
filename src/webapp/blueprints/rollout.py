@@ -13,9 +13,9 @@ from flask.typing import ResponseReturnValue
 from flask_login import current_user, login_required
 from werkzeug.wrappers import Response as BaseResponse
 
-from src.db.tables import DeviceResult, Inventory, User
+from src.db.tables import DeviceResult, Inventory, JobMetadata, User
 from src.inventory import attributes, visible_devices_clause, query_visible_devices, partition_devices
-from src.jobs import Draining
+from src.jobs import QUEUED_LINE, Draining
 from src.rollout.engine import Device, RolloutOptions, missing_value, unresolved
 from src.rollout.inputs import InputParser
 from src.webapp.app import current_app
@@ -171,9 +171,9 @@ def submit_jobs(devices: list[Device], commands: list[str] | None,
                 audit_comment: str | None) -> uuid.UUID | BaseResponse:
 	"""Queue the rollout: one job, or one per platform with its own commands -
 	all of them or none: every platform's commands are checked before the
-	first job is queued, and if NetRollout starts stopping (or pauses for a
-	database move) between two platforms, the jobs already queued are
-	cancelled.
+	first job is queued, and if queuing one fails (NetRollout starts
+	stopping or pauses for a database move between two platforms, a service
+	fails), the jobs already queued are cancelled.
 
 	:returns: the (first) job's id; or the way back to the form, the reason
 	 flashed
@@ -204,7 +204,7 @@ def submit_jobs(devices: list[Device], commands: list[str] | None,
 			queued.append(current_app.orchestrator.submit(
 				group_devices, group_commands, options, current_user.id,
 				audit_comment))
-	except Draining:
+	except Exception:   # stopping / paused, or a service failing: none or all
 		for job_id in queued:
 			current_app.orchestrator.cancel(job_id)
 		raise
@@ -373,42 +373,56 @@ def new_start_rollout() -> ResponseReturnValue:
 @bp.route("/stream/<uuid:job_id>")
 @login_required
 def rollout_stream(job_id: uuid.UUID) -> Response:
-	"""The live log (Server-Sent Events): what's logged so far, then each new
-	line, a heartbeat every 0.5 s, and "done" at the end. The job's owner or
-	an admin; the job must be running in this process."""
-	job = current_app.orchestrator.get_job(job_id)
-	if not job or (
-			job.user_id != current_user.id and current_user.role != "admin"):
+	"""The live log (Server-Sent Events): for a queued job a "Queued" line,
+	what's logged so far, then each new line, a heartbeat comment every
+	0.5 s, and "done" at the end. The job's owner or an admin. A job that has
+	already ended (or never ran here) gets just "done" - the page then shows
+	its outcome; 403 when it's someone else's, 404 when nothing is known of it."""
+	orchestrator = current_app.orchestrator   # the generator runs after the request
+	job = orchestrator.get_job(job_id)
+	if job is None:
+		with current_app.backend.postgres.get_session() as db_session:
+			owner = db_session.query(JobMetadata.user_id).filter_by(job_id=job_id).scalar()
+		if owner is None:
+			return Response(status=404)
+		if owner != current_user.id and current_user.role != "admin":
+			return Response(status=403)
+		return _event_stream(iter([DONE_EVENT]))
+	if job.user_id != current_user.id and current_user.role != "admin":
 		return Response(status=403)
+	followed = job
+
+	def over() -> bool:
+		return followed.is_over() or orchestrator.get_job(job_id) is None
 
 	def generate() -> Iterator[str]:
-		snapshot = job.get_log_history()
-		for line in snapshot:
-			yield f"data: {line}\n\n"
+		if followed.started_at is None:
+			yield sse_data(QUEUED_LINE)
+		for line in followed.follow_log(over):
+			yield HEARTBEAT if line is None else sse_data(line)
+		yield DONE_EVENT
 
-		ps = job.get_log_queue()
-		try:
-			while True:
-				# redis-py: a dict per message (its stubs say otherwise)
-				msg = cast(dict[str, Any] | None, ps.get_message(timeout=0.5))
-				if msg and msg["type"] == "message":
-					data = cast(bytes, msg["data"]).decode()
-					if data == "__done__":
-						break
-					yield f"data: {data}\n\n"
-				elif not job.is_alive():
-					break
-				else:
-					yield "data: \n\n"
-		finally:
-			ps.close()
-		yield "event: done\ndata: \n\n"
+	return _event_stream(generate())
 
-	return Response(
-		generate(),
-		mimetype="text/event-stream",
-		headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
-	)
+
+# a comment line: keeps the connection (and nginx) alive, not a message
+HEARTBEAT = ": hb\n\n"
+
+
+def sse_data(text: str) -> str:
+	""":returns: one SSE message carrying `text` whole - a line of its own per
+	 line (a bare "\\r" would end an SSE line too)"""
+	lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+	return "".join(f"data: {line}\n" for line in lines) + "\n"
+
+
+DONE_EVENT = "event: done\n" + sse_data("")
+
+
+def _event_stream(events: Iterator[str]) -> Response:
+	""":returns: the SSE response, unbuffered by nginx"""
+	return Response(events, mimetype="text/event-stream",
+	                headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 @bp.route("/rollback/<uuid:job_id>", methods=["POST"])
 @login_required

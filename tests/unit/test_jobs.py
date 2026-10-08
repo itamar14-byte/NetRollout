@@ -58,7 +58,9 @@ class FakeRedis:
 			return None
 
 	def rpush(self, key, value):
-		self._queue(key).put(value.encode() if isinstance(value, str) else value)
+		q = self._queue(key)
+		q.put(value.encode() if isinstance(value, str) else value)
+		return q.qsize()           # redis-py: the list's length after the push
 
 	# Same signature as redis-py's hset — a permissive **kwargs here once hid
 	# a real bug (orchestrator passing a nonexistent `field=` argument)
@@ -67,14 +69,40 @@ class FakeRedis:
 			raise redis.exceptions.TimeoutError("simulated timeout")
 		self.hashes[name].update(mapping or {key: value})
 
-	# Counters / sets / pub-sub — state isn't asserted on, only must not fail
-	def incr(self, *_): pass
-	def decr(self, *_): pass
-	def sadd(self, *_): pass
-	def srem(self, *_): pass
+	def eval(self, script, numkeys, key, field, value):
+		"""JobStore's one script (_SET_IF_EXISTS): HSET only on an existing hash
+		(the real script runs in tests/integration/test_job_store.py)."""
+		assert script == jobs._SET_IF_EXISTS and numkeys == 1
+		if self.fail_writes:
+			raise redis.exceptions.TimeoutError("simulated timeout")
+		if self.hashes.get(key):
+			self.hashes[key][field] = value
+			return 1
+		return 0
+
+	# Counters and sets
+	def incr(self, key):
+		self.values[key] = int(self.values.get(key, 0)) + 1
+
+	def decr(self, key):
+		self.values[key] = int(self.values.get(key, 0)) - 1
+
+	def sadd(self, key, member):
+		self.values.setdefault(key, set()).add(member)
+
+	def srem(self, key, member):
+		self.values.get(key, set()).discard(member)
+
+	def smembers(self, key):
+		return set(self.values.get(key, set()))
+
+	def get(self, key):
+		return self.values.get(key)
+
 	def delete(self, *keys):
 		for key in keys:
 			self.values.pop(key, None)
+			self.hashes.pop(key, None)
 
 	def set(self, name, value, ex=None):
 		self.values[name] = value
@@ -249,15 +277,53 @@ def test_engine_crash_releases_slot_and_next_job_runs(make_orchestrator):
 
 
 def test_cancel_marks_job_cancelling(make_orchestrator):
-	"""cancel() sets the job's Redis status to "cancelling"."""
+	"""cancel() of a running job sets its Redis status to "cancelling"."""
 	fake = FakeRedis()
 	orch = make_orchestrator(fake)
 	job = FakeJob()
 	job.cancel = lambda: None
+	job.started_at = time.time()                  # running, its hash there
+	fake.hashes[f"job:{job.job_id}:meta"] = {"status": "active"}
 	with orch._lock:
 		orch._jobs[job.job_id] = job
 	orch.cancel(job.job_id)
 	assert fake.hashes[f"job:{job.job_id}:meta"]["status"] == "cancelling"
+
+
+def test_a_cancel_racing_the_jobs_end_leaves_no_phantom_row(make_orchestrator):
+	"""The job ends (its hash deleted) between cancel() finding it and writing
+	"cancelling": the status isn't written - no hash comes back to show a job
+	that never ends on Active Jobs."""
+	fake = FakeRedis()
+	orch = make_orchestrator(fake)
+	store = JobStore(SimpleNamespace(client=fake))
+	job = FakeJob()
+	job.started_at = time.time()
+	store.add(job.job_id, job.user_id, 1)
+	store.started(job.job_id)
+	with orch._lock:
+		orch._jobs[job.job_id] = job
+	# the job's end lands right inside the cancel
+	job.cancel = lambda: store.finished(job.job_id, job.user_id, was_running=True)
+	orch.cancel(job.job_id)
+	assert f"job:{job.job_id}:meta" not in fake.hashes
+	assert store.job_ids(job.user_id) == [] and store.counts() == (0, 0)
+
+
+def test_a_job_that_ends_at_once_leaves_no_phantom_row(make_orchestrator):
+	"""A job that ends the moment it starts (FakeJob calls on_complete inside
+	start) is finalized before the dispatcher would mark it active: its hash
+	must not come back as "active" afterwards."""
+	fake = FakeRedis()
+	orch = make_orchestrator(fake, max_concurrent=1)
+	job = FakeJob()
+	JobStore(SimpleNamespace(client=fake)).add(job.job_id, job.user_id, 1)
+	enqueue(orch, fake, job)
+	assert job.ran.wait(5)
+	assert wait_for(lambda: orch._slots._value == 1)
+	time.sleep(0.1)
+	assert f"job:{job.job_id}:meta" not in fake.hashes
+	assert fake.values.get(jobs.ACTIVE, 0) == 0 and fake.values.get(jobs.PENDING, 0) == 0
 
 
 def test_results_are_persisted_with_port(make_orchestrator):
@@ -640,6 +706,174 @@ def test_a_stop_now_request_cancels_the_running_rollouts_at_once(make_orchestrat
 	assert any("Cancelling 1 running" in line for line in lines)
 	store.reset_stale()
 	assert not store.stop_now_requested()
+
+
+# ── The live log is best-effort: a Redis outage loses no result ─────────────
+
+class LiveLogDownRedis(FakeRedis):
+	"""The job queue works; the live log (history list, pub/sub) raises."""
+
+	def rpush(self, key, value):
+		if key.endswith(":history"):
+			raise redis.exceptions.ConnectionError("simulated outage")
+		return super().rpush(key, value)
+
+	def publish(self, *_):
+		raise redis.exceptions.ConnectionError("simulated outage")
+
+
+def _log_text(tmp_path):
+	"""Every rollout log file's text under tmp_path/logs."""
+	return "".join(p.read_text(encoding="utf-8")
+	               for p in (tmp_path / "logs").glob("rollout_*.log"))
+
+
+def test_a_redis_outage_mid_rollout_keeps_every_result_and_log_line(
+		make_orchestrator, monkeypatch, tmp_path):
+	"""Redis fails every live-log write while a web rollout runs: every device
+	result is still recorded and the log file holds every line."""
+	monkeypatch.setenv("NETROLLOUT_HOME", str(tmp_path))
+	orch = make_orchestrator(LiveLogDownRedis())
+	options = RolloutOptions(verify=False, verbose=False, webapp=True)
+
+	def run(cancel_flag, logger):
+		logger.notify("10.0.0.1: configured", important=True)
+		logger.notify("10.0.0.2: refused the login", "red")
+		return [dict(RESULT), dict(RESULT, device_ip="10.0.0.2", status="failed")]
+
+	with patch.object(RolloutEngine, "run", side_effect=run):
+		orch.submit([_device(), _device("10.0.0.2")], ["cmd"], options, uuid.uuid4())
+		assert wait_for(orch.idle)
+	assert sorted((r.device_ip, r.status) for r in _rows(orch)) == \
+	       [("10.0.0.1", "success"), ("10.0.0.2", "failed")]
+	text = _log_text(tmp_path)
+	assert "10.0.0.1: configured" in text and "10.0.0.2: refused the login" in text
+
+
+def test_a_redis_outage_during_a_drain_still_records_the_queued_rollout(
+		make_orchestrator, monkeypatch, tmp_path):
+	"""A queued web rollout cancelled by a drain while the live log is down is
+	still recorded (every device cancelled) with the reason in its log file."""
+	monkeypatch.setenv("NETROLLOUT_HOME", str(tmp_path))
+	orch = make_orchestrator(LiveLogDownRedis(), max_concurrent=1)
+	options = RolloutOptions(verify=False, verbose=False, webapp=True)
+	release = threading.Event()
+	with patch.object(RolloutEngine, "run", side_effect=_blocking_run(release)):
+		orch.submit([_device()], ["cmd"], options, uuid.uuid4())
+		assert wait_for(lambda: orch.counts()["running"] == 1)
+		orch.submit([_device("10.0.0.2")], ["cmd"], options, uuid.uuid4())
+		threading.Timer(0.3, release.set).start()
+		orch.drain(30, report=lambda _: None)
+	assert [(r.device_ip, r.status) for r in _rows(orch, "cancelled")] == \
+	       [("10.0.0.2", "cancelled")]
+	assert jobs.QUEUED_CANCEL_REASON in _log_text(tmp_path)
+
+
+# ── submit() failing partway leaves nothing behind ───────────────────────────
+
+class EnqueueFailsRedis(FakeRedis):
+	"""Queuing a job fails (everything else works)."""
+
+	def rpush(self, key, value):
+		if key == QUEUE:
+			raise redis.exceptions.ConnectionError("simulated drop")
+		return super().rpush(key, value)
+
+
+@pytest.mark.parametrize("failing", ["store.add", "metadata", "enqueue"])
+def test_a_submit_failing_partway_leaves_no_job(make_orchestrator, failing):
+	"""submit() raises when a step fails - recording the job in Redis, its
+	metadata in Postgres, queuing it - and leaves no job: idle, nothing
+	counted (here or in Redis), no job keys."""
+	fake = EnqueueFailsRedis() if failing == "enqueue" else FakeRedis()
+	fake.fail_writes = failing == "store.add"
+	orch = make_orchestrator(fake)
+	if failing == "metadata":
+		orch._backend.postgres = FlakyPostgres()
+	options = RolloutOptions(verify=False, verbose=False, webapp=False)
+	uid = uuid.uuid4()
+	with pytest.raises(Exception):
+		orch.submit([_device()], ["cmd"], options, uid)
+	assert orch.idle() and orch.counts() == {"running": 0, "queued": 0}
+	store = JobStore(SimpleNamespace(client=fake))
+	assert store.counts() == (0, 0) and store.job_ids(uid) == []
+	assert not [k for k in fake.hashes if k.startswith("job:")]
+
+
+# ── Cancelling a queued job ends it at once ──────────────────────────────────
+
+class QueuedJob(FakeJob):
+	"""A FakeJob that can be recorded as cancelled before it starts."""
+
+	def __init__(self):
+		super().__init__()
+		self.reasons = []
+		self.cancel = lambda: None
+
+	def cancel_before_start(self, reason):
+		self.started_at = time.time()
+		self.reasons.append(reason)
+		self.results = [dict(RESULT, status="cancelled")]
+
+
+def test_cancelling_a_queued_job_records_it_at_once(make_orchestrator):
+	"""A queued rollout (its slot taken by a running one) cancelled: recorded as
+	cancelled at once - it doesn't wait for a slot - and never runs, even
+	once the slot frees."""
+	orch = make_orchestrator(FakeRedis(), max_concurrent=1)
+	options = RolloutOptions(verify=False, verbose=False, webapp=False)
+	release, runs = threading.Event(), []
+	blocking = _blocking_run(release)
+
+	def run(cancel_flag, logger):
+		runs.append(1)
+		return blocking(cancel_flag, logger)
+
+	with patch.object(RolloutEngine, "run", side_effect=run):
+		uid = uuid.uuid4()
+		orch.submit([_device()], ["cmd"], options, uid)
+		assert wait_for(lambda: orch.counts()["running"] == 1)
+		queued = orch.submit([_device("10.0.0.2")], ["cmd"], options, uid)
+		orch.cancel(queued)
+		# at once, while the running one still holds the slot
+		assert [r.device_ip for r in _rows(orch, "cancelled")] == ["10.0.0.2"]
+		assert orch.counts() == {"running": 1, "queued": 0}
+		release.set()
+		assert wait_for(orch.idle)
+		time.sleep(0.3)
+	assert len(runs) == 1
+
+
+def test_a_queued_job_cancelled_while_the_dispatcher_waits_for_a_slot_never_starts(
+		make_orchestrator):
+	"""The dispatcher has taken the job off the queue and waits for a slot when
+	the job is cancelled: once the slot frees, it doesn't start the job."""
+	fake = FakeRedis()
+	orch = make_orchestrator(fake, max_concurrent=1)
+	orch._slots.acquire()                      # the only slot is busy
+	job = QueuedJob()
+	enqueue(orch, fake, job)
+	assert wait_for(lambda: fake._queue(QUEUE).empty())   # taken: waits for the slot
+	orch.cancel(job.job_id)
+	assert job.reasons == [jobs.CANCELLED_BEFORE_START]
+	orch._slots.release()
+	time.sleep(0.3)
+	assert not job.ran.is_set()
+	assert orch._slots._value == 1
+
+
+def test_a_job_not_started_is_not_over():
+	"""RolloutJob.is_over: false while queued (no thread yet), true once its
+	run has ended."""
+	options = RolloutOptions(verify=False, verbose=False, webapp=False)
+	job = jobs.RolloutJob(uuid.uuid4(), uuid.uuid4(),
+	                      RolloutEngine(options, [], ["cmd"]), options)
+	assert not job.is_over()
+	ended = threading.Event()
+	with patch.object(RolloutEngine, "run", return_value=[]):
+		job.start(lambda _: ended.set())
+		assert ended.wait(5)
+	assert wait_for(job.is_over)
 
 
 # ── KPIs, job status, snapshot expiry ────────────────────────────────────────
