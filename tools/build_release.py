@@ -20,7 +20,7 @@ The Docker images aren't built here: the release job builds and pushes them
 (docker build --build-arg VERSION=...).
 
 SHIPPED is the one list of the files an install gets besides the images;
-tests/unit/test_release_files.py checks that the Windows installer ships the
+tests/unit/packaging/test_release_files.py checks that the Windows installer ships the
 same and that every file compose mounts is in it.
 """
 import argparse

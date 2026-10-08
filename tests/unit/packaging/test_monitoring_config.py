@@ -8,7 +8,8 @@ from pathlib import Path
 
 import yaml
 
-GRAFANA = Path(__file__).resolve().parents[2] / "deploy" / "grafana"
+
+GRAFANA = Path(__file__).resolve().parents[3] / "deploy" / "grafana"
 BUILT_IN = {"-- Grafana --", "-- Dashboard --", "-- Mixed --"}
 
 

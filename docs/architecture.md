@@ -620,7 +620,7 @@ NetRollout          the shipped dashboards — view-only, re-imported on every u
 Custom              the admins' own (Save as, new dashboards, subfolders) — never touched by updates
 ```
 
-**Four Grafana dashboards**, dashboard v2 files in `deploy/grafana/dashboards/<subfolder>/`, imported through Grafana's v2 API (`metadata.name` is the stable id); `tests/unit/test_monitoring_config.py` checks every datasource they reference is provisioned (by uid — keep the uids) and every subfolder is one the setup imports:
+**Four Grafana dashboards**, dashboard v2 files in `deploy/grafana/dashboards/<subfolder>/`, imported through Grafana's v2 API (`metadata.name` is the stable id); `tests/unit/packaging/test_monitoring_config.py` checks every datasource they reference is provisioned (by uid — keep the uids) and every subfolder is one the setup imports:
 
 | Dashboard | File | Datasources | Purpose |
 |---|---|---|---|

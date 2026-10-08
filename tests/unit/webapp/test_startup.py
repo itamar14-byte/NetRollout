@@ -14,8 +14,9 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import NameOID
 
 from src.webapp import startup
-from src.webapp.startup import (Probe, announcement, probe,
-                                resolve_public_url, should_open_browser)
+from src.webapp.startup import (Probe, announcement, probe, resolve_public_url, should_open_browser,
+                                container_announcement)
+
 
 TOKEN = "a" * 32
 
@@ -226,3 +227,18 @@ def test_announcer_prints_the_verified_url(capsys, monkeypatch):
 	# one line per message: no blank lines around it, name not repeated
 	assert out.splitlines()[0] == f"[NetRollout] Available at http://127.0.0.1:{port}"
 	assert opened == [f"http://127.0.0.1:{port}"]
+
+
+# ── Container startup line ───────────────────────────────────────────────────
+
+def test_container_announcement():
+	"""The container's startup line names the expected URL, or says no hostname is
+	set."""
+	assert "expected at https://netops-srv01:8443" in \
+	       container_announcement("https://netops-srv01:8443")
+	assert "no hostname set" in container_announcement(None)
+
+
+def test_no_browser_in_a_container(container):
+	"""In a container no browser is opened, even on a desktop platform."""
+	assert should_open_browser({}, "win32") is False

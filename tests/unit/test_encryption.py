@@ -13,6 +13,8 @@ import pytest
 from cryptography.fernet import Fernet
 
 import src.encryption as enc
+from src import runtime
+
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -142,3 +144,53 @@ def test_importing_app_modules_has_no_key_side_effect(tmp_path):
 	                        cwd=ROOT, env=env, capture_output=True, text=True)
 	assert result.returncode == 0, result.stderr
 	assert not (tmp_path / ".netrollout").exists()
+
+
+# ── Encryption key in a container ────────────────────────────────────────────
+
+@pytest.fixture
+def no_env_key(monkeypatch):
+	"""No encryption key in the environment; removes the dev key file afterwards."""
+	monkeypatch.delenv(enc.ENV_VAR, raising=False)
+	yield
+	if enc.KEY_FILE.exists():
+		enc.KEY_FILE.unlink()
+
+
+def test_container_never_generates_a_key(container, no_env_key):
+	"""In a container without a key, init_encryption refuses ("never generated")
+	where dev would generate one, and writes no key file."""
+	with pytest.raises(enc.EncryptionStartupError, match="never generated"):
+		enc.init_encryption(None)          # a fresh install, in dev: generates
+	assert not enc.KEY_FILE.exists()
+
+
+def test_container_ignores_a_key_file(container, no_env_key):
+	"""In a container a key file is not used: without the env key the start is
+	refused even when the file exists (a file inside the container would vanish
+	at the next update)."""
+	enc.KEY_DIR.mkdir(parents=True, exist_ok=True)
+	enc.KEY_FILE.write_bytes(Fernet.generate_key())
+	with pytest.raises(enc.EncryptionStartupError):
+		enc.init_encryption(None)
+
+
+def test_container_uses_the_env_key(container, monkeypatch):
+	"""In a container the key from the environment is used: encrypt then decrypt
+	gives the text back."""
+	monkeypatch.setenv(enc.ENV_VAR, Fernet.generate_key().decode())
+	enc.init_encryption(None)
+	assert enc.decrypt(enc.encrypt("x")) == "x"
+
+
+def test_container_key_is_checked_without_a_database(container, no_env_key):
+	"""require_key_in_container refuses a missing key without any database (launch_app
+	calls it before BackendServices touches Postgres)."""
+	with pytest.raises(enc.EncryptionStartupError):
+		enc.require_key_in_container()
+
+
+def test_encryption_error_is_a_startup_error():
+	"""EncryptionStartupError is a StartupError, so the entry point's catch gives a
+	readable abort."""
+	assert issubclass(enc.EncryptionStartupError, runtime.StartupError)

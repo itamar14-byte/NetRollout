@@ -12,9 +12,11 @@ import yaml
 
 from src.setup import update
 
-ROOT = Path(__file__).resolve().parents[2]
+
+ROOT = Path(__file__).resolve().parents[3]
 spec = importlib.util.spec_from_file_location("build_release", ROOT / "tools" / "build_release.py")
 build = importlib.util.module_from_spec(spec)
+
 spec.loader.exec_module(build)
 VERSION = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
 
