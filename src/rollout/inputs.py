@@ -52,7 +52,8 @@ def normalize_ip(ip: str) -> str:
 
 def validate_port(port: str) -> bool:
 	""":returns: whether `port` (as typed) is a TCP port number, 1-65535"""
-	if not port.isnumeric():
+	# isascii: isnumeric() / isdigit() also accept "²", "½", "①" - int() doesn't
+	if not (port.isascii() and port.isdigit()):
 		return False
 	return 1 <= int(port) <= 65535
 

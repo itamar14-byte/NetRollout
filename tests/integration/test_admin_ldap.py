@@ -51,6 +51,7 @@ def test_ldap_server_crud_encrypts_bind_password(admin, client_for,
 
 @pytest.mark.parametrize("bad, message", [
 	({"port": "abc"}, "The port is a number from 1 to 65535."),
+	({"port": "²2"}, "The port is a number from 1 to 65535."),
 	({"bind_type": "weird"}, "The bind type is regular or simple."),
 ])
 def test_ldap_server_form_refuses_a_bad_field_in_words(admin, client_for,

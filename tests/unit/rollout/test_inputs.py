@@ -86,6 +86,13 @@ class TestValidatePort(unittest.TestCase):
 		"""An empty string fails validate_port."""
 		self.assertFalse(inputs.validate_port(""))
 
+	def test_non_ascii_digits(self):
+		"""Characters Python calls numeric or digits but int() refuses ("²2",
+		"½", "①") fail validate_port instead of raising."""
+		for port in ("²2", "½", "①", "2²"):
+			with self.subTest(port=port):
+				self.assertFalse(inputs.validate_port(port))
+
 
 class TestValidatePlatform(unittest.TestCase):
 
@@ -313,6 +320,17 @@ class TestPrepareDevices(unittest.TestCase):
 		self.assertEqual(len(errors), 2)
 		self.assertIn("Row 2", errors[0])
 		self.assertIn("Row 3", errors[1])
+
+	@patch("src.rollout.inputs.tcp_reachable", return_value=True)
+	def test_a_non_ascii_digit_port_is_refused_as_its_row(self, _):
+		"""A port of "²2" is reported as that row; the other rows still become
+		devices (it used to raise ValueError and abort the whole file)."""
+		rows = [self._raw(ip="10.0.0.1"), self._raw(ip="10.0.0.2", port="²2"),
+				self._raw(ip="10.0.0.3")]
+		devices, errors = self.parser.prepare_devices(rows)
+		self.assertEqual([d.ip for d in devices], ["10.0.0.1", "10.0.0.3"])
+		self.assertEqual(len(errors), 1)
+		self.assertIn("Row 2", errors[0])
 
 	@patch("src.rollout.inputs.tcp_reachable", return_value=True)
 	def test_credentials_required_only_when_asked(self, _):

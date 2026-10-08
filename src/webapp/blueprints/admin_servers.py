@@ -89,7 +89,7 @@ def _target(data: dict[str, Any], user_key: str = "user",
 	user, password = data.get(user_key, "").strip(), data.get(password_key, "")
 	if not all([host, port, database, user, password]):
 		return err("Fill in the server, port, database, login and password.", 422)
-	if not port.isdigit():
+	if not (port.isascii() and port.isdigit()):
 		return err("The port is a number.", 422)
 	if schema and (problem := schema_problem(schema)):
 		return err(problem, 422)

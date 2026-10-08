@@ -194,7 +194,7 @@ def _reached_port() -> int:
 	header: "name:port", no port = 443)."""
 	host = request.host
 	port = host.rsplit(":", 1)[1] if ":" in host and not host.endswith("]") else ""
-	return int(port) if port.isdigit() else 443
+	return int(port) if port.isascii() and port.isdigit() else 443
 
 
 @bp.route("/port")

@@ -68,6 +68,14 @@ def test_a_schema_name_netrollout_cant_use_is_refused_by_every_step(admin, clien
 	                                'at most 63 characters.')
 
 
+def test_a_port_of_non_ascii_digits_is_refused(admin, client_for):
+	"""A port Python calls digits but int() refuses ("²2") answers the form's
+	422 "The port is a number." instead of reaching the connection."""
+	resp = client_for(admin, xhr=True).post("/admin/server/database/check", json={
+		"host": "127.0.0.1", "port": "²2", "database": "ops", "user": "x", "password": "y"})
+	assert (resp.status_code, resp.json["message"]) == (422, "The port is a number.")
+
+
 def test_check_refuses_the_current_database(app, admin, client_for):
 	"""A check of the database NetRollout uses now is refused as such."""
 	url = make_url(app.backend.postgres.config.get_url())

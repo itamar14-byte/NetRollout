@@ -74,7 +74,7 @@ def facts_from(args: argparse.Namespace) -> install.Facts:
 	listed: str = args.busy_ports
 	for item in filter(None, (x.strip() for x in listed.split(","))):
 		port, _, who = item.partition("=")
-		if port.isdigit():
+		if port.isascii() and port.isdigit():
 			busy[int(port)] = who.strip()
 	return install.Facts(os=args.os, computer_name=args.computer_name,
 	               timezone=args.host_timezone,

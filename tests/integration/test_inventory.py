@@ -61,6 +61,7 @@ BAD_FIELDS = [
 	({"ip": "300.1.1.1"}, "Not a valid IP address: 300.1.1.1."),
 	({"port": "abc"}, "The port is a number from 1 to 65535."),
 	({"port": "70000"}, "The port is a number from 1 to 65535."),
+	({"port": "²2"}, "The port is a number from 1 to 65535."),
 	({"device_type": "foo_os"}, "Unsupported device type: foo_os."),
 ]
 
@@ -173,6 +174,33 @@ def test_connection_test_endpoint(client_for, make_user):
 	bad = client.post("/inventory/test_connection",
 	                  json={"ip": "not-an-ip", "port": "22"})
 	assert bad.status_code == 400
+
+
+def test_connection_test_refuses_a_port_of_non_ascii_digits(client_for, make_user):
+	"""A port of "²2" gets the connection test's port message (400), not a 500."""
+	resp = client_for(make_user()).post("/inventory/test_connection",
+	                                    json={"ip": "10.0.0.1", "port": "²2"})
+	assert (resp.status_code, resp.json["message"]) == \
+		(400, "Port must be between 1 and 65535")
+
+
+def test_csv_import_refuses_a_port_of_non_ascii_digits_as_its_row(
+		client_for, make_user, session_scope):
+	"""A row whose port is "²2" is reported as that row and the rest are
+	imported (it used to abort the whole file)."""
+	user = make_user()
+	csv = ("ip,device_type,port\n"
+	       "10.4.4.1,cisco_ios,22\n"
+	       "10.4.4.2,cisco_ios,²2\n"
+	       "10.4.4.3,cisco_ios,22\n")
+	client = client_for(user)
+	client.post("/inventory/import_csv", data={
+		"csv_file": (io.BytesIO(csv.encode()), "devices.csv")},
+		content_type="multipart/form-data")
+	with session_scope() as s:
+		ips = sorted(d.ip for d in s.query(Inventory).filter_by(user_id=user.id))
+	assert ips == ["10.4.4.1", "10.4.4.3"]
+	assert any("Row 2" in m for m in flashes(client))
 
 
 def test_csv_import(client_for, make_user, session_scope):

@@ -150,6 +150,14 @@ def test_the_cli_prints_one_line_to_act_on(install):
 	assert out == ["none 9443 r2", "port 9443 is in use on this computer (by IIS)"]
 
 
+def test_busy_ports_of_non_ascii_digits_are_ignored(install):
+	"""A busy-ports item whose port is digits int() refuses ("²2") is skipped
+	like any other non-number, not a ValueError."""
+	request(9443)
+	assert run(["port-next", "--busy-ports", "²2=x,8080=web"]) == \
+		(0, ["try 9443 r1"])
+
+
 def test_the_scripts_stopwatch_ends_a_trial_whatever_the_clocks_say(install):
 	"""port-close --timed-out rolls a trial back without consulting its recorded
 	deadline (Docker Desktop's VM clock can lag Windows' by minutes, so the
