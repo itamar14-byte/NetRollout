@@ -387,6 +387,65 @@ def test_unknown_user_without_group_match_is_rejected(client_for, ldap_server):
 	assert resp.headers["Location"] == "/"
 
 
+@pytest.mark.parametrize("typed", ["Alice", "ALICE", "aLiCe"])
+def test_an_ldap_user_typed_in_other_capitals_is_the_same_account(
+		client_for, make_user, ldap_server, session_scope, typed):
+	"""Directories match names regardless of case: "Alice" is the LDAP account
+	"alice" - disabled stays refused, and no second account is created from a
+	mapped group (else a disabled or demoted user got back in by changing the
+	capitals)."""
+	user = make_user(username="alice")
+	with session_scope() as s:
+		u = s.get(User, user.id)
+		u.auth_type, u.ldap_server_id, u.password_hash = "ldap", ldap_server, None
+		u.is_active = False
+		s.add(LDAPGroup(group_dn="cn=admins,dc=corp", label="admins",
+		                role="admin", ldap_server_id=ldap_server))
+	with patch("src.webapp.blueprints.auth.user_bind", return_value=True), 			patch("src.webapp.blueprints.auth.check_group_membership",
+			      return_value=("cn=admins,dc=corp", "admin")), 			patch("src.webapp.blueprints.auth.fetch_user_details", return_value={}):
+		resp = login(client_for(), typed, "directory-pass")
+	assert resp.headers["Location"] == "/"
+	with session_scope() as s:
+		assert [u.username for u in s.query(User).all()] == ["alice"]
+		(row,) = s.query(AuditLog).filter_by(action="auth.login").all()
+		assert row.detail == {"reason": "account_disabled"}
+
+
+def test_an_ldap_user_in_other_capitals_keeps_their_role(client_for, make_user,
+                                                         ldap_server, session_scope):
+	"""A demoted LDAP user (operator) signing in as "BOB" is the account "bob",
+	still an operator - not a new admin from a mapped group."""
+	user = make_user(username="bob")
+	with session_scope() as s:
+		u = s.get(User, user.id)
+		u.auth_type, u.ldap_server_id, u.password_hash = "ldap", ldap_server, None
+		s.add(LDAPGroup(group_dn="cn=admins,dc=corp", label="admins",
+		                role="admin", ldap_server_id=ldap_server))
+	with patch("src.webapp.blueprints.auth.user_bind", return_value=True), 			patch("src.webapp.blueprints.auth.check_group_membership",
+			      return_value=("cn=admins,dc=corp", "admin")), 			patch("src.webapp.blueprints.auth.fetch_user_details", return_value={}):
+		client = client_for()
+		resp = login(client, "BOB", "directory-pass")
+	assert resp.headers["Location"] == "/dashboard"
+	with session_scope() as s:
+		assert [(u.username, u.role) for u in s.query(User).all()] == [("bob", "operator")]
+
+
+def test_a_local_name_in_other_capitals_creates_no_ldap_account(client_for, make_user,
+                                                               ldap_server, session_scope):
+	"""A local account "carol": signing in as "Carol" through a mapped LDAP group
+	is refused as invalid credentials - no second, near-identical account."""
+	make_user(username="carol")
+	with session_scope() as s:
+		s.add(LDAPGroup(group_dn="cn=netops,dc=corp", label="netops",
+		                role="operator", ldap_server_id=ldap_server))
+	with patch("src.webapp.blueprints.auth.check_group_membership",
+	           return_value=("cn=netops,dc=corp", "operator")), 			patch("src.webapp.blueprints.auth.fetch_user_details", return_value={}):
+		resp = login(client_for(), "Carol", "directory-pass")
+	assert resp.headers["Location"] == "/"
+	with session_scope() as s:
+		assert [u.username for u in s.query(User).all()] == ["carol"]
+
+
 # ── Session lifecycle ────────────────────────────────────────────────────────
 
 def test_logout_ends_session(client_for, make_user):
