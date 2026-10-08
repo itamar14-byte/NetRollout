@@ -9,6 +9,7 @@
 
 using System;
 using System.Collections;
+using System.Diagnostics;
 using System.IO;
 using System.Net;
 using System.Security.Cryptography;
@@ -182,7 +183,8 @@ namespace NetRollout
 		}
 	}
 
-	// A newer version: what's new, what happens, Update now (Enter) or Not now
+	// A newer version: what's new (and its page on GitHub), what happens,
+	// Update now (Enter) or Not now
 	class UpdateDialog : Form
 	{
 		public UpdateDialog(Release release, string running)
@@ -215,6 +217,19 @@ namespace NetRollout
 			var later = new Button { Text = "Not now", DialogResult = DialogResult.Cancel, Size = new Size(120, 32),
 				Location = new Point(422, 376), Anchor = AnchorStyles.Right | AnchorStyles.Bottom, FlatStyle = FlatStyle.System };
 			Controls.AddRange(new Control[] { title, current, notes, what, daily, update, later });
+			// the release's page (full notes, downloads) - when the feed gives a web address
+			if (Regex.IsMatch(release.Page ?? "", "^https?://", RegexOptions.IgnoreCase))
+			{
+				var page = new LinkLabel { Text = "View release on GitHub", AutoSize = true,
+					Anchor = AnchorStyles.Top | AnchorStyles.Right };
+				page.LinkClicked += delegate
+				{
+					try { Process.Start(release.Page); }
+					catch (Exception e) { MessageBox.Show(this, "Couldn't open the browser: " + e.Message, Text); }
+				};
+				Controls.Add(page);    // first: its width in the window's font
+				page.Location = new Point(ClientSize.Width - 18 - page.PreferredWidth, 44);   // the notes' right edge
+			}
 			AcceptButton = update;     // Enter updates
 			CancelButton = later;
 			Shown += delegate { update.Focus(); };
