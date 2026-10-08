@@ -3,35 +3,78 @@
      restart_btn   id of the sidebar button
      restart_icon  class of its icon (keeps the sidebar's sizing)
      restart_label selector of its label element
-   With rollouts running or queued the modal asks: "when_finished" (drain —
-   the page reloads and the banner takes over) or "now" (cancels them). #}
+   With rollouts running or queued the modal lists them (GET
+   /admin/server/rollouts, refreshed as background requests, each row with
+   Cancel) and asks: "when_finished" (drain - the modal stays, the list
+   refreshing, until the new instance answers; closed, the page reloads and
+   the banner takes over) or "now" (cancels them). #}
 <script>
-let _restartTimer = null;
+let _restartTimer = null;       // the "Restart now" countdown
+let _restartListTimer = null;   // the list's refresh
+let _restartWaiting = false;    // "when finished" chosen: waiting for the rollouts
+
+// {rollouts, running, queued}; null: no answer
+async function nrRestartRollouts(background) {
+    try {
+        const r = await fetch('/admin/server/rollouts', {cache: 'no-store',
+            headers: background ? {'X-NR-Background': '1'} : {}});
+        if (!r.ok) return null;
+        const d = await r.json();
+        return d.status === 'ok' ? d : null;
+    } catch (e) { return null; }
+}
 
 async function nrRestartClick() {
-    let counts = {count: 0, running: 0, queued: 0};
-    try {
-        counts = await (await fetch('/admin/active_job_count')).json();
-    } catch (e) { /* unknown: the server answers 409 if rollouts run */ }
-    if (!counts.count) {
+    const d = await nrRestartRollouts(false);
+    // unknown: the server answers 409 if rollouts run
+    if (!d || !(d.running + d.queued)) {
         if (confirm('Restart NetRollout? Everyone will be signed out and sign in again.'))
             nrFireRestart();
         return;
     }
-    nrShowRestartChoice(counts);
+    nrShowRestartChoice(d);
 }
 
-function nrShowRestartChoice(counts) {
+function nrShowRestartList(d) {
     const plural = (n, word) => `${n} ${word}${n !== 1 ? 's' : ''}`;
+    const running = d ? d.running : 0, queued = d ? d.queued : 0;
     const parts = [];
-    if (counts.running) parts.push(`${plural(counts.running, 'rollout')} running`);
-    if (counts.queued) parts.push(`${plural(counts.queued, 'rollout')} queued`);
-    document.getElementById('restartJobWarning').textContent = parts.join(', ') + '.';
+    if (running) parts.push(`${plural(running, 'rollout')} running`);
+    if (queued) parts.push(`${plural(queued, 'rollout')} queued`);
+    document.getElementById('restartJobWarning').textContent =
+        parts.length ? parts.join(', ') + '.' : (_restartWaiting ? 'No rollout left.' : 'No rollout running now.');
+    nrRolloutsTable(document.getElementById('restartRollouts'), d ? d.rollouts : []);
+}
+
+function nrRestartPoll() {
+    clearInterval(_restartListTimer);
+    _restartListTimer = setInterval(async () => {
+        const d = await nrRestartRollouts(true);
+        if (d) { nrShowRestartList(d); return; }
+        if (_restartWaiting) {       // down: the restart is under way
+            document.getElementById('restartJobWarning').textContent = '';
+            nrRolloutsTable(document.getElementById('restartRollouts'), []);
+            document.getElementById('restartWaitingTitle').textContent = 'NetRollout is restarting.';
+            document.getElementById('restartWaitingText').textContent = 'This page reconnects when it\'s back.';
+        }
+    }, 3000);
+}
+
+function nrShowRestartChoice(d) {
+    _restartWaiting = false;
+    document.getElementById('restartChoice').style.display = '';
+    document.getElementById('restartWaiting').style.display = 'none';
+    document.getElementById('restartWhenDoneBtn').style.display = '';
+    document.getElementById('restartConfirmBtn').style.display = '';
+    document.getElementById('restartCloseBtn').textContent = 'Cancel';
+    nrShowRestartList(d);
+    if (!d.rollouts) nrRestartRollouts(false).then(full => { if (full) nrShowRestartList(full); });
 
     // "Now" cancels work: enabled after a short pause
     const nowBtn = document.getElementById('restartConfirmBtn');
     const countdown = document.getElementById('restartCountdown');
     nowBtn.disabled = true;
+    document.getElementById('restartWhenDoneBtn').disabled = false;
     let secs = 3;
     countdown.textContent = `"Restart now" in ${secs}…`;
     clearInterval(_restartTimer);
@@ -40,7 +83,21 @@ function nrShowRestartChoice(counts) {
         if (secs > 0) { countdown.textContent = `"Restart now" in ${secs}…`; }
         else { clearInterval(_restartTimer); countdown.textContent = ''; nowBtn.disabled = false; }
     }, 1000);
+    nrRestartPoll();
     bootstrap.Modal.getOrCreateInstance(document.getElementById('restartModal')).show();
+}
+
+// "when finished" accepted: the list stays, refreshing, with Cancel per row
+function nrShowRestartWaiting() {
+    _restartWaiting = true;
+    clearInterval(_restartTimer);
+    document.getElementById('restartCountdown').textContent = '';
+    document.getElementById('restartChoice').style.display = 'none';
+    document.getElementById('restartWaiting').style.display = '';
+    document.getElementById('restartWhenDoneBtn').style.display = 'none';
+    document.getElementById('restartConfirmBtn').style.display = 'none';
+    document.getElementById('restartCloseBtn').textContent = 'Close';
+    nrRestartPoll();
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -48,13 +105,18 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!modal) return;
     modal.addEventListener('hidden.bs.modal', () => {
         clearInterval(_restartTimer);
+        clearInterval(_restartListTimer);
         const nowBtn = document.getElementById('restartConfirmBtn');
         if (nowBtn) nowBtn.disabled = true;
+        if (_restartWaiting) window.location.reload();   // the drain banner takes over
     });
 });
 
 function doRestart(mode) {
-    bootstrap.Modal.getOrCreateInstance(document.getElementById('restartModal')).hide();
+    if (mode === 'now')
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('restartModal')).hide();
+    else
+        document.getElementById('restartWhenDoneBtn').disabled = true;
     nrFireRestart(mode);
 }
 
@@ -91,18 +153,19 @@ async function nrFireRestart(mode) {
     if (resp && resp.status === 409 && data.running !== undefined) {
         // Rollouts started since the check: ask
         nrSetRestartButton(false);
-        nrShowRestartChoice({count: data.running + data.queued, ...data});
+        nrShowRestartChoice(data);
         return;
     }
     if (resp && !resp.ok) {
         nrSetRestartButton(false);
+        const whenDone = document.getElementById('restartWhenDoneBtn');
+        if (whenDone) whenDone.disabled = false;
         alert(data.message || `Restart failed (${resp.status})`);
         return;
     }
-    if (mode === 'when_finished' && (data.running || 0) > 0) {
-        window.location.reload();   // the drain banner reloads once it's back
-        return;
-    }
+    if (mode === 'when_finished' && (data.running || 0) > 0) nrShowRestartWaiting();
+    else if (mode === 'when_finished')    // nothing running: it restarts at once
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('restartModal')).hide();
     // Back when a different instance answers
     const poll = setInterval(async () => {
         const now = await nrInstanceToken();

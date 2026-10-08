@@ -738,3 +738,24 @@ class TestConfigExpired:
 		"""An old result where verify didn't run never had a snapshot: not expired."""
 		assert not config_expired(
 			result("success", verified=None, age_days=self.OLD), self.DAYS)
+
+
+# ── The waiting list for a terminal (python -m src.jobs rollouts) ───────────
+
+def test_rollouts_text_is_empty_without_rollouts():
+	"""No rollouts: nothing to print (the scripts take empty output as none)."""
+	assert jobs.rollouts_text([]) == ""
+
+
+def test_rollouts_text_lists_owner_devices_state_started():
+	"""Two rollouts: a heading with the count, a header row, then one row each
+	with the owner, devices, state and the start (T as a space, '-' for none)."""
+	text = jobs.rollouts_text([
+		{"user": "alice", "devices": 12, "state": "running", "started": "2026-10-08T14:02:11"},
+		{"user": "bob", "devices": 3, "state": "queued", "started": None}])
+	lines = text.splitlines()
+	assert lines[0] == "2 rollouts running or queued:"
+	assert lines[1].split() == ["By", "Devices", "State", "Started"]
+	assert lines[2].split() == ["alice", "12", "running", "2026-10-08", "14:02:11"]
+	assert lines[3].split() == ["bob", "3", "queued", "-"]
+	assert text.endswith("\n")

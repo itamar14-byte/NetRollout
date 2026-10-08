@@ -13,11 +13,17 @@ Keys: job:{id}:meta (hash: user_id, status, device_count, created_at,
 started_at), user_jobs:{user_id} (set of job ids), the job queue (list), and
 the pending / active counters (the Prometheus gauges).
 
+`python -m src.jobs rollouts | stop-now` (main()): the same keys read from
+outside the app's process - netrollout stop / update and NetRollout Manager
+list the rollouts before a stop and may have it cancel them at once.
+
 redis-py types every reply as maybe-awaitable (one signature for its sync and
 async clients); this client is synchronous, so each reply is cast to what it
 is."""
+import argparse
 import datetime
 import json
+import sys
 import threading
 import time
 import uuid
@@ -26,12 +32,14 @@ from collections.abc import Sequence
 from typing import Any, cast, Callable
 
 import redis
+from dotenv import load_dotenv
 from redis.client import PubSub
 from sqlalchemy import ColumnElement, and_, func, not_
+from sqlalchemy.exc import SQLAlchemyError
 
 from src import runtime
-from src.db.connections import BackendServices, REDIS_UNAVAILABLE, RedisConnection
-from src.db.tables import DeviceResult, JobMetadata
+from src.db.connections import BackendServices, PostgresConnection, REDIS_UNAVAILABLE, RedisConnection
+from src.db.tables import DeviceResult, JobMetadata, User
 from src.rollout.engine import RolloutEngine, RolloutOptions, Device, DeviceResultDict
 from src.rollout.log import RolloutLogger
 
@@ -163,6 +171,30 @@ class JobStore:
 		active: Any = self._client.get(ACTIVE)
 		pending: Any = self._client.get(PENDING)
 		return int(active or 0), int(pending or 0)
+
+	def rollouts(self) -> list[dict[str, Any]]:
+		"""Every job here, oldest first, in RolloutOrchestrator.jobs()' shape -
+		for a process that isn't the one running them (netrollout stop /
+		update, the Manager: python -m src.jobs rollouts).
+
+		:returns: [{job_id, user_id, devices, state (queued / running /
+		 cancelling), started (to the second, or None)}]"""
+		rows: list[tuple[str, dict[str, Any]]] = []
+		for job_id in self.job_ids():
+			meta = self.meta(job_id)
+			if not meta:
+				continue              # ended between the scan and the read
+			started = meta.get("started_at")
+			rows.append((meta.get("created_at", ""), {
+				"job_id": job_id, "user_id": meta.get("user_id", ""),
+				"devices": int(meta.get("device_count") or 0),
+				"state": _STATES.get(meta.get("status", ""), "running"),
+				"started": started[:19] if started else None}))
+		return [row for _, row in sorted(rows, key=lambda r: r[0])]
+
+
+# a job's status in Redis -> what the waiting lists call it
+_STATES = {"pending": "queued", "active": "running", "cancelling": "cancelling"}
 
 
 # Dispatcher retry backoff while Redis is down (seconds)
@@ -650,6 +682,97 @@ def job_status_condition(status: str) -> ColumnElement[bool]:
 	raise ValueError(f"no job status {status!r}")
 
 
+def with_owners(rollouts: Sequence[dict[str, Any]],
+                postgres: PostgresConnection) -> list[dict[str, Any]]:
+	"""The waiting lists' rows (a database move, the Restart dialog,
+	netrollout stop / update): each rollout with its owner's username, in one
+	query.
+
+	:param rollouts: RolloutOrchestrator.jobs() or JobStore.rollouts() - their
+	 user_id a UUID or its text
+	:param postgres: where the users are
+	:returns: the rollouts, job_id and user_id as text, plus "user" ("?" for
+	 an id without a user)"""
+	ids = set()
+	for rollout in rollouts:
+		try:
+			ids.add(uuid.UUID(str(rollout["user_id"])))
+		except ValueError:
+			pass
+	names: dict[str, str] = {}
+	if ids:
+		with postgres.get_session() as session:
+			names = {str(row.id): row.username for row in
+			         session.query(User.id, User.username).filter(User.id.in_(ids))}
+	return [{**r, "job_id": str(r["job_id"]), "user_id": str(r["user_id"]),
+	         "user": names.get(str(r["user_id"]), "?")} for r in rollouts]
+
+
+def rollouts_text(rollouts: Sequence[dict[str, Any]]) -> str:
+	"""with_owners' rows for a terminal: a heading line and a table, each line
+	indented as the scripts' messages are; "" when there are none."""
+	if not rollouts:
+		return ""
+	n = len(rollouts)
+	lines = [f"{n} rollout{'s' if n != 1 else ''} running or queued:",
+	         f"   {'By':<20} {'Devices':>7}  {'State':<10}  Started"]
+	for r in rollouts:
+		started = (r["started"] or "-").replace("T", " ")
+		lines.append(f"   {str(r['user'])[:20]:<20} {r['devices']:>7}  "
+		             f"{r['state']:<10}  {started}")
+	return "\n".join(lines) + "\n"
+
+
+def main(argv: list[str] | None = None) -> int:
+	"""python -m src.jobs rollouts [--json] | stop-now - run in the app's
+	container (docker compose exec app) by netrollout stop / update and
+	NetRollout Manager: the running app's rollouts, read from Redis (its
+	JobStore keys, not the orchestrator, which lives in the app's process),
+	and the request that its stop cancel them at once
+	(JobStore.request_stop_now). The connections are resolved as the app's:
+	config/runtime.env over the environment.
+
+	:param argv: the arguments; sys.argv's when None
+	:returns: the exit code: 0 done, 1 Redis unreachable (why, on stderr)"""
+	parser = argparse.ArgumentParser(prog="python -m src.jobs")
+	sub = parser.add_subparsers(dest="command", required=True)
+	listing = sub.add_parser("rollouts", help="the rollouts running or queued "
+	                                          "(nothing printed when none)")
+	listing.add_argument("--json", action="store_true",
+	                     help='one line: {"rollouts": [...]}')
+	sub.add_parser("stop-now", help="the stop under way cancels the running "
+	                                "rollouts at once")
+	args = parser.parse_args(argv)
+	load_dotenv(runtime.runtime_env(), override=True)
+	redis_conn = RedisConnection()
+	try:
+		store = JobStore(redis_conn)
+		if args.command == "stop-now":
+			store.request_stop_now()
+			print("The running rollouts are cancelled as NetRollout stops - "
+			      "devices being configured finish first, and every result is "
+			      "recorded.")
+			return 0
+		rows = store.rollouts()
+	except REDIS_UNAVAILABLE as e:
+		print(f"Redis isn't reachable ({e})", file=sys.stderr)
+		return 1
+	finally:
+		redis_conn.disconnect()
+	postgres = PostgresConnection()
+	try:
+		named = with_owners(rows, postgres)
+	except SQLAlchemyError:       # the names only: the list stands without them
+		named = [{**r, "user": "?"} for r in rows]
+	finally:
+		postgres.engine.dispose()
+	if args.json:
+		print(json.dumps({"rollouts": named}))
+	else:
+		print(rollouts_text(named), end="")
+	return 0
+
+
 def clear_stale_jobs(redis_conn: RedisConnection) -> None:
 	"""Rollout jobs live only in the process running them: any job state in
 	Redis at startup is left over from a crash and would show as a job that
@@ -696,3 +819,7 @@ def build_kpi(results_30d: Sequence[DeviceResult],
 		"commands_pushed": sum(r.commands_sent for r in results_30d),
 		"top_failed": top_failed
 	}
+
+
+if __name__ == "__main__":
+	sys.exit(main())

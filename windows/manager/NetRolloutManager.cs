@@ -490,13 +490,73 @@ namespace NetRollout
 			get { return state == State.Running && detailLabel.Text.Contains("running"); }
 		}
 
+		// with rollouts running or queued: the list (Rollouts.cs) and the choice -
+		// wait, cancel them all now, or don't stop. stop runs with -Yes: the
+		// choice was made here (a hidden script can't ask)
 		void StopNetRollout()
 		{
-			if (RolloutsRunning &&
-				MessageBox.Show(this, detailLabel.Text + ". They finish and are recorded before NetRollout stops (up to 10 minutes). Stop now?",
-					"Stop NetRollout", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
-				return;
-			Run("stop", "Stopping NetRollout...");
+			if (running != null || updating) { Say("Busy with the previous action - one moment."); return; }
+			if (state != State.Running && state != State.Attention) { Run("stop -Yes", "Stopping NetRollout..."); return; }
+			AskAboutRollouts("stop", delegate (bool cancelAll)
+			{
+				if (!cancelAll) { Run("stop -Yes", "Stopping NetRollout..."); return; }
+				Say("Asking NetRollout to cancel the running rollouts...");
+				SetBusy(true);
+				ThreadPool.QueueUserWorkItem(delegate
+				{
+					bool asked = Rollouts.StopNow();
+					BeginInvoke((Action)delegate
+					{
+						SetBusy(false);
+						if (!asked) Say("Couldn't ask it to cancel them - they finish first.");
+						Run("stop -Yes", "Stopping NetRollout...");
+					});
+				});
+			});
+		}
+
+		// The rollouts running or queued, asked of the app (off this thread);
+		// none: go on at once; some: RolloutsDialog. then(cancelAll) unless
+		// "don't". When the app can't list them (an older version): the
+		// health's count, and a yes / no as before.
+		void AskAboutRollouts(string action, Action<bool> then)
+		{
+			output.Clear();
+			Say("Checking for running rollouts...");
+			SetBusy(true);
+			ThreadPool.QueueUserWorkItem(delegate
+			{
+				var rows = Rollouts.Fetch();
+				BeginInvoke((Action)delegate
+				{
+					SetBusy(false);
+					if (rows == null)
+					{
+						if (RolloutsRunning && MessageBox.Show(this, detailLabel.Text + ". They finish and are recorded first (up to 10 minutes). " +
+								(action == "update" ? "Update now?" : "Stop now?"), action == "update" ? "Update NetRollout" : "Stop NetRollout",
+								MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+						{
+							Say(action == "update" ? "Not updated." : "Not stopped - NetRollout keeps running.");
+							return;
+						}
+						then(false);
+						return;
+					}
+					if (rows.Count == 0) { then(false); return; }
+					RolloutChoice choice;
+					using (var dialog = new RolloutsDialog(rows, action))
+					{
+						dialog.ShowDialog(this);
+						choice = dialog.Choice;
+					}
+					if (choice == RolloutChoice.DontStop)
+					{
+						Say(action == "update" ? "Not updated - update later (Update)." : "Not stopped - NetRollout keeps running.");
+						return;
+					}
+					then(choice == RolloutChoice.CancelAll);
+				});
+			});
 		}
 
 		// a backup from the backups folder (or anywhere), confirmed first

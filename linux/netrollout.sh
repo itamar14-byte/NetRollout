@@ -283,10 +283,43 @@ running_rollouts() {
 	fi
 }
 
+# The running app's rollouts, asked inside its container (python -m src.jobs:
+# its Redis and database settings are there): the table, nothing when none;
+# fails when it can't say (not running, a version without the command)
+rollouts_list() { compose exec -T app python -m src.jobs rollouts 2>/dev/null; }
+
+# Before a stop or an update: the rollouts running or queued and - asked here,
+# not with --yes, nor with "shown" - wait for them (up to the drain deadline),
+# cancel them all now (the app's drain cancels them at once: devices being
+# configured finish, results recorded), or don't. Returns 1: don't stop.
+#   confirm_rollouts stop|update [shown]
+confirm_rollouts() {
+	local list a out
+	if ! list="$(rollouts_list)"; then running_rollouts; return 0; fi   # an older version: the count
+	[ -n "$list" ] || return 0
+	warn "$(printf '%s\n' "$list" | head -1)"
+	printf '%s\n' "$list" | tail -n +2
+	if [ -z "$INTERACTIVE" ] || [ "${2:-}" = shown ]; then
+		warn "They finish and are recorded first (up to 10 minutes)."
+		return 0
+	fi
+	while true; do
+		read -r -p "   [W]ait for them (up to 10 minutes), [C]ancel them all now, or [D]on't $1? [W] " a || a=""
+		case "$a" in
+			""|w|W|wait) warn "They finish and are recorded first."; return 0 ;;
+			c*|C*)
+				if out="$(compose exec -T app python -m src.jobs stop-now 2>&1)"; then show "$out"
+				else warn "Couldn't ask NetRollout to cancel them - they finish first."; fi
+				return 0 ;;
+			d*|D*) return 1 ;;
+		esac
+	done
+}
+
 do_stop() {
 	need_installed; need_root
 	if ! docker info >/dev/null 2>&1; then good "NetRollout isn't running (Docker isn't)."; return; fi
-	running_rollouts
+	confirm_rollouts stop || { good "Not stopped - NetRollout keeps running."; return 0; }
 	step "Stopping NetRollout"
 	compose stop >/dev/null 2>&1 || fail "Docker couldn't stop it: $(compose stop 2>&1 | tail -3)"
 	good "Stopped. Start it again with: sudo $BIN/netrollout.sh start"
@@ -440,7 +473,7 @@ do_update() {
 		read -r -p "Update to NetRollout $new? A backup is made first; then about a minute without NetRollout, and everyone signs in again. [y/N] " a || true
 		case "$a" in y|Y|yes) ;; *) rm -rf "$stage"; fail "Nothing was changed." 2 ;; esac
 	fi
-	running_rollouts
+	confirm_rollouts update || { rm -rf "$stage"; fail "Nothing was changed." 2; }
 	step "Backing up first"
 	backup_create before-update || { rm -rf "$stage"; fail "Couldn't back up - nothing was changed. Fix it (above), then update again."; }
 	step "Putting NetRollout $new's files in place"
@@ -476,7 +509,7 @@ do_update_finish() {
 	step "Updating the settings"
 	out="$(setup_core upgrade 2>&1)" || { show "$out"; fail "The update stopped before the restart - see above. $back"; }
 	show "$out"
-	running_rollouts
+	confirm_rollouts update shown     # asked before the files were replaced
 	step "Restarting on the new version (about a minute; running rollouts finish first)"
 	do_start
 	rm -rf "$ROOT/.update"
