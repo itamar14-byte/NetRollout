@@ -8,7 +8,8 @@ lists them. Unit tests are unaffected.
 Isolation (nothing here touches the developer's live data):
 - PostgreSQL: a dedicated `rollout_test` database, dropped/created fresh per
   session, migrated to head via Alembic in a subprocess, truncated per test
-- Redis: pinned to db 15 (hard assert), flushed per test
+- Redis: db 15 of the app's server, or the db TEST_REDIS_URL names (never
+  the app's own db - refused), flushed per test
 - Encryption: a throwaway key via env var; KEY_FILE already points at a
   temp dir (tests/conftest.py)
 - Rollouts: orchestrator.submit is replaced for every test, so no test can
@@ -17,7 +18,9 @@ Isolation (nothing here touches the developer's live data):
   in a process-global registry, so a second create_app() would fail
 
 Configure with env vars: TEST_PG_ADMIN_URL (a DB the test user can connect
-to for CREATE/DROP DATABASE), TEST_PG_DBNAME, TEST_REDIS_URL.
+to for CREATE/DROP DATABASE), TEST_PG_DBNAME, TEST_REDIS_URL (its db is kept: two runs side by side on one
+server each name their own, e.g. /15 and /11; test_redis_switch also uses the
+db two below it).
 """
 import os
 import re
@@ -46,7 +49,7 @@ from src.webapp.build import create_app
 from src.webapp.hooks import conn_limit
 
 ROOT = Path(__file__).resolve().parents[2]
-REDIS_TEST_DB = 15
+DEFAULT_TEST_DB = 15
 def _pg_admin_url() -> str:
 	"""A superuser login (it creates and drops the test database): the dev
 	stack's Postgres (compose.dev.yaml), with the superuser password from the
@@ -66,25 +69,50 @@ TEST_DB_URL = PG_ADMIN_URL.rsplit("/", 1)[0] + "/" + TEST_DB
 TEST_PASSWORD = "Test-pass-1"
 
 
+def _app_redis_url() -> str:
+	"""The app's Redis, from the developer's config/runtime.env (with its db)."""
+	env = {k: v for k, v in dotenv_values(
+		ROOT / "config" / "runtime.env").items()
+	       if k.startswith("REDIS_")}
+	url = env.get("REDIS_URL")
+	if not url:
+		password = env.get("REDIS_PASSWORD")
+		auth = f":{password}@" if password else ""
+		url = (f"redis://{auth}{env.get('REDIS_HOST', 'localhost')}:"
+		       f"{env.get('REDIS_PORT', '6379')}/{env.get('REDIS_DB', '0')}")
+	return url
+
+
+def _place(url: str) -> tuple[str, int, int]:
+	""":returns: (host, port, db) of a redis:// URL"""
+	kwargs = redis_lib.connection.parse_url(url)
+	return kwargs.get("host", "localhost"), int(kwargs.get("port", 6379)), int(kwargs.get("db", 0))
+
+
 def _redis_url() -> str:
-	"""TEST_REDIS_URL, else the app's Redis from config/runtime.env - always on db 15."""
+	"""TEST_REDIS_URL with the db it names (DEFAULT_TEST_DB when it names
+	none), else the app's server on DEFAULT_TEST_DB. Never the app's own db:
+	the tests flush their database.
+
+	:raises RuntimeError: TEST_REDIS_URL is the app's own database"""
 	url = os.environ.get("TEST_REDIS_URL")
 	if not url:
 		# Same server the app uses (credentials from the developer's
 		# config/runtime.env), never its db
-		env = {k: v for k, v in dotenv_values(
-			ROOT / "config" / "runtime.env").items()
-		       if k.startswith("REDIS_")}
-		url = env.get("REDIS_URL")
-		if not url:
-			password = env.get("REDIS_PASSWORD")
-			auth = f":{password}@" if password else ""
-			url = (f"redis://{auth}{env.get('REDIS_HOST', 'localhost')}:"
-			       f"{env.get('REDIS_PORT', '6379')}/0")
-	return re.sub(r"/\d+$", "", url) + f"/{REDIS_TEST_DB}"
+		return re.sub(r"/\d+$", "", _app_redis_url()) + f"/{DEFAULT_TEST_DB}"
+	if not re.search(r"/\d+$", url):
+		url = url.rstrip("/") + f"/{DEFAULT_TEST_DB}"
+	app_place = _place(_app_redis_url())
+	if _place(url) == app_place:
+		raise RuntimeError(f"TEST_REDIS_URL is the app's own Redis database "
+		                   f"(db {app_place[2]}) - the tests flush it; name another db")
+	return url
 
 
 REDIS_URL = _redis_url()
+REDIS_TEST_DB = _place(REDIS_URL)[2]
+# test_redis_switch's second database on the same server
+REDIS_OTHER_DB = REDIS_TEST_DB - 2 if REDIS_TEST_DB >= 2 else REDIS_TEST_DB + 2
 
 
 # ── Health probes (once, at collection) ──────────────────────────────────────
@@ -159,8 +187,8 @@ def test_db_url():
 
 @pytest.fixture(scope="session")
 def redis_url():
-	"""The test Redis URL (asserted to be db 15), flushed at the session's start
-	and end."""
+	"""The test Redis URL (asserted to be the test db), flushed at the
+	session's start and end."""
 	if REDIS_DOWN:
 		pytest.skip(REDIS_DOWN)
 	client = redis_lib.from_url(REDIS_URL)

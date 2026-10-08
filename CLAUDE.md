@@ -62,7 +62,7 @@ pytest tests/unit         # hermetic, no services
 python -m mypy            # the type gate (mypy.ini): every function in src/, tools/ and Grafana's setup typed
 ```
 Code is documented in reST (`:param:` / `:returns:` / `:raises:`) on non-trivial functions; comments only where the logic needs explaining. Tests aren't typed — each says what it checks and expects.
-Integration tests use a real Postgres (`rollout_test` DB, created on the dev stack's Postgres as its superuser — password from `.env`; `TEST_PG_ADMIN_URL` overrides) and Redis (db 15, the server in `config/runtime.env`) and are skipped with a reason when a service is unhealthy — if ~150 skip right after `docker` starts, Postgres wasn't ready; rerun. LDAP tests start and remove an ephemeral OpenLDAP container. Known bugs are recorded as strict xfails.
+Integration tests use a real Postgres (`rollout_test` DB, created on the dev stack's Postgres as its superuser — password from `.env`; `TEST_PG_ADMIN_URL` overrides) and Redis (db 15 of the server in `config/runtime.env`; `TEST_REDIS_URL` names another server or db — two runs side by side each need their own db and `TEST_PG_DBNAME`; the app's own db is refused, the tests flush theirs) and are skipped with a reason when a service is unhealthy — if ~150 skip right after `docker` starts, Postgres wasn't ready; rerun. LDAP tests start and remove an ephemeral OpenLDAP container. Known bugs are recorded as strict xfails.
 
 ### Migrations
 ```bash
