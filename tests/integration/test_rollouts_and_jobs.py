@@ -1,8 +1,10 @@
 """Rollout routes (captured, never executed), cancel, SSE stream, rollback,
 results / Verify Diff / log download, dashboards, operator analytics."""
 import datetime as dt
+import itertools
 import json
 import os
+import re
 import threading
 import uuid
 from types import SimpleNamespace
@@ -13,7 +15,7 @@ from sqlalchemy import event
 from src import runtime
 from src.db.settings import SETTINGS
 from src.db.tables import AuditLog, DeviceResult, JobMetadata
-from src.jobs import Draining
+from src.jobs import JOB_STATUSES, Draining, job_status
 
 pytestmark = [pytest.mark.postgres, pytest.mark.redis]
 
@@ -560,6 +562,139 @@ def test_results_page_the_jobs_in_the_database(operator, client_for,
 	assert any("LIMIT" in s and "OFFSET" in s for s in reads)
 	assert all("LIMIT" in s or "IN (" in s or "count(" in s
 	           or "= %(job_id" in s for s in reads), reads
+
+
+def add_status_jobs(session_scope, user, device_statuses, count=1):
+	"""Store count jobs whose devices end with device_statuses (one device
+	each), a minute apart and an hour older than add_jobs'; :returns: their
+	ids, newest first."""
+	now = dt.datetime.now() - dt.timedelta(hours=1)
+	jobs = [uuid.uuid4() for _ in range(count)]
+	with session_scope() as s:
+		s.add_all(DeviceResult(user_id=user.id, job_id=job,
+		                       started_at=now - dt.timedelta(minutes=i),
+		                       completed_at=now - dt.timedelta(minutes=i),
+		                       device_ip=f"10.0.1.{n}", device_port=22,
+		                       device_type="cisco_ios", commands_sent=1,
+		                       status=status)
+		          for i, job in enumerate(jobs)
+		          for n, status in enumerate(device_statuses))
+	return jobs
+
+
+def filter_hrefs(html, cls="filter-btn"):
+	""":returns: {label: (href, active)} of the status filter's links"""
+	return {label: (href.replace("&amp;", "&"), bool(active))
+	        for active, href, label in re.findall(
+		        rf'<a class="{cls}( active)?" href="([^"]*)">(\w+)</a>', html)}
+
+
+def shown_jobs(html):
+	""":returns: the ids of the job rows on the page"""
+	return set(re.findall(r'class="job-row"[^>]*?data-job-id="([^"]+)"', html))
+
+
+def test_results_status_filter_follows_job_status(operator, client_for,
+                                                  session_scope):
+	"""?status= shows exactly the jobs whose status (job_status, the badge
+	the page shows) is that one - for every mix of 1 to 3 device outcomes;
+	an unknown or empty value shows every job, "All" active."""
+	outcomes = ("success", "partial", "failed", "cancelled")
+	expected = {status: set() for status in JOB_STATUSES}
+	for mix in itertools.chain.from_iterable(
+			itertools.combinations_with_replacement(outcomes, n)
+			for n in (1, 2, 3)):
+		job, = add_status_jobs(session_scope, operator.user, mix)
+		rows = [SimpleNamespace(status=s) for s in mix]
+		expected[job_status(rows)].add(str(job))
+	assert all(expected.values())  # every status has jobs
+	client = client_for(operator.user)
+	for status in JOB_STATUSES:
+		html = client.get(f"/results?per_page=500&status={status}")\
+			.get_data(as_text=True)
+		assert shown_jobs(html) == expected[status], status
+		assert filter_hrefs(html)[status.capitalize()][1], status
+		assert not filter_hrefs(html)["All"][1], status
+	every = set().union(*expected.values())
+	for raw in ("bogus", "", "SUCCESS"):
+		html = client.get(f"/results?per_page=500&status={raw}")\
+			.get_data(as_text=True)
+		assert shown_jobs(html) == every, raw
+		links = filter_hrefs(html)
+		assert links["All"][1], raw
+		assert not any(active for label, (_, active) in links.items()
+		               if label != "All"), raw
+
+
+def test_results_status_filter_before_paging(operator, client_for,
+                                             session_scope):
+	"""The filter is applied before the pages: the count, the page count and
+	each page hold only the matching jobs."""
+	failed = add_status_jobs(session_scope, operator.user, ["failed"], 30)
+	add_jobs(session_scope, operator.user, 5)  # newer, success
+	client = client_for(operator.user)
+	html = client.get("/results?per_page=25&status=failed")\
+		.get_data(as_text=True)
+	assert ">30 jobs</span>" in html
+	assert "Page 1 of 2" in html
+	assert shown_jobs(html) == {str(job) for job in failed[:25]}
+	page2 = client.get("/results?per_page=25&status=failed&page=2")\
+		.get_data(as_text=True)
+	assert shown_jobs(page2) == {str(job) for job in failed[25:]}
+	html = client.get("/results?status=cancelled").get_data(as_text=True)
+	assert html.count('class="job-row"') == 0
+	assert ">0 jobs</span>" in html
+	assert "No cancelled jobs." in html
+	assert "No completed jobs yet" not in html  # the filter bar stays
+
+
+def test_results_status_filter_links(operator, client_for, session_scope):
+	"""The filter's links keep ?per_page, start again at page 1 (?page and
+	?job= dropped) and set ?status (All: none); the pages' links and the
+	per-page form keep the filter."""
+	jobs = add_status_jobs(session_scope, operator.user, ["failed"], 30)
+	client = client_for(operator.user)
+	html = client.get(
+		f"/results?per_page=25&page=2&status=failed&job={jobs[0]}")\
+		.get_data(as_text=True)
+	assert filter_hrefs(html) == {
+		"All": ("/results?per_page=25", False),
+		"Success": ("/results?per_page=25&status=success", False),
+		"Partial": ("/results?per_page=25&status=partial", False),
+		"Failed": ("/results?per_page=25&status=failed", True),
+		"Cancelled": ("/results?per_page=25&status=cancelled", False)}
+	assert 'href="/results?per_page=25&amp;page=1&amp;status=failed"' in html
+	assert '<input type="hidden" name="status" value="failed">' in html
+
+
+def test_results_status_filter_in_an_admins_views(make_user, client_for,
+                                                  session_scope):
+	"""One filter for both of an admin's lists: own and other users' jobs
+	filtered and counted alike; the all-users view's links keep ?view=all,
+	the flat view's don't, and both drop ?other_page."""
+	admin, other = make_user(role="admin"), make_user()
+	mine = add_status_jobs(session_scope, admin, ["failed"], 2)
+	add_jobs(session_scope, admin, 3)
+	theirs = add_status_jobs(session_scope, other, ["success", "failed"], 4)
+	add_status_jobs(session_scope, other, ["failed"], 6)
+	client = client_for(admin)
+	html = client.get("/results?view=all&other_page=2&status=partial")\
+		.get_data(as_text=True)
+	assert 'data-mine-total="0" data-all-total="4"' in html
+	assert shown_jobs(html) == {str(job) for job in theirs}
+	assert "No partial jobs." in html
+	assert filter_hrefs(html, "filter-btn-split") == {
+		"All": ("/results?view=all", False),
+		"Success": ("/results?view=all&status=success", False),
+		"Partial": ("/results?view=all&status=partial", True),
+		"Failed": ("/results?view=all&status=failed", False),
+		"Cancelled": ("/results?view=all&status=cancelled", False)}
+	assert filter_hrefs(html)["Failed"] == ("/results?status=failed", False)
+	html = client.get("/results?view=all&status=failed").get_data(as_text=True)
+	assert 'data-mine-total="2" data-all-total="8"' in html
+	assert html.count('class="job-row"') == 2 * 2 + 6  # own: flat + split
+	assert {str(job) for job in mine} <= shown_jobs(html)
+	assert not shown_jobs(html) & {str(job) for job in theirs}
 
 
 def test_job_summary_for_the_completion_card(operator, client_for,

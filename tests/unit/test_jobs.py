@@ -20,7 +20,8 @@ import redis
 
 from src import jobs
 from src.db.settings import SETTINGS
-from src.jobs import RolloutOrchestrator, job_status, build_kpi
+from src.jobs import (JOB_STATUSES, RolloutOrchestrator, job_status,
+                      job_status_condition, build_kpi)
 from src.rollout.engine import RolloutEngine, RolloutOptions
 from src.webapp.blueprints.jobs import config_expired
 
@@ -625,6 +626,15 @@ def test_job_status(statuses, expected):
 	"""A job's status from its devices': all success → success, any failed or
 	partial → partial, all failed → failed, any cancelled → cancelled."""
 	assert job_status([result(s) for s in statuses]) == expected
+
+
+def test_job_status_condition_refuses_an_unknown_status():
+	"""job_status_condition has a condition for every status job_status
+	gives, and refuses any other (no silent "match nothing")."""
+	for status in JOB_STATUSES:
+		assert job_status_condition(status) is not None
+	with pytest.raises(ValueError):
+		job_status_condition("bogus")
 
 
 class TestConfigExpired:

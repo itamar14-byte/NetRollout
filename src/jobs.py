@@ -27,6 +27,7 @@ from typing import Any, cast, Callable
 
 import redis
 from redis.client import PubSub
+from sqlalchemy import ColumnElement, and_, func, not_
 
 from src import runtime
 from src.db.connections import BackendServices, REDIS_UNAVAILABLE, RedisConnection
@@ -585,6 +586,33 @@ def job_status(rows: Sequence[DeviceResult]) -> str:
 	if any(r.status in ("failed", "partial") for r in rows):
 		return "partial"
 	return "success"
+
+
+# what job_status can say, in the Results page's filter order
+JOB_STATUSES = ("success", "partial", "failed", "cancelled")
+
+
+def job_status_condition(status: str) -> ColumnElement[bool]:
+	"""job_status' rules in SQL, over one job's device results (a HAVING
+	condition of a query grouped by job_id): true exactly for the jobs
+	job_status calls status.
+
+	:param status: one of JOB_STATUSES
+	:raises ValueError: any other status"""
+	def any_device(*statuses: str) -> ColumnElement[bool]:
+		return func.bool_or(DeviceResult.status.in_(statuses))
+
+	all_failed = func.bool_and(DeviceResult.status == "failed")
+	if status == "cancelled":
+		return any_device("cancelled")
+	if status == "failed":
+		return and_(not_(any_device("cancelled")), all_failed)
+	if status == "partial":
+		return and_(not_(any_device("cancelled")), not_(all_failed),
+		            any_device("failed", "partial"))
+	if status == "success":
+		return not_(any_device("cancelled", "failed", "partial"))
+	raise ValueError(f"no job status {status!r}")
 
 
 def clear_stale_jobs(redis_conn: RedisConnection) -> None:
