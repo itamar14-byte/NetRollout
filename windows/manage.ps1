@@ -501,13 +501,15 @@ function Confirm-Rollouts([string]$What) {
 }
 
 function Invoke-Stop {
-	Assert-Installed
-	if (-not (Test-DockerReady)) { Good "NetRollout isn't running (Docker isn't)."; return }
-	if (-not (Confirm-Rollouts "stop")) { Good "Not stopped - NetRollout keeps running."; return }
-	Step "Stopping NetRollout"
-	$r = Compose @("stop")
-	if ($r.Code -ne 0) { Write-Host $r.Output; Fail "Docker couldn't stop it - see above." }
-	Good "Stopped. Start it again with: netrollout start"
+	Invoke-ClearingStopNow {
+		Assert-Installed
+		if (-not (Test-DockerReady)) { Good "NetRollout isn't running (Docker isn't)."; return }
+		if (-not (Confirm-Rollouts "stop")) { Good "Not stopped - NetRollout keeps running."; return }
+		Step "Stopping NetRollout"
+		$r = Compose @("stop")
+		if ($r.Code -ne 0) { Write-Host $r.Output; Fail "Docker couldn't stop it - see above." }
+		Good "Stopped. Start it again with: netrollout start"
+	}
 }
 
 # ── backups (the engine: python -m src.backup, in the app image) ─────────────
@@ -650,40 +652,44 @@ function Invoke-Restore {
 # -InstallDir: the direction (the installed version's image decides), then
 # a backup by the installed version. Exit 2: refused, nothing changed.
 function Invoke-PrepareUpdate {
-	Assert-Installed
-	if (-not $NewVersion) { Fail "prepare-update needs -NewVersion" }
-	Confirm-Docker
-	Step "Checking the update: NetRollout $Version -> $NewVersion"
-	$r = Invoke-Native "docker" @("run", "--rm", $AppImage, "python", "-m", "src.setup", "check-update",
-		"--installed", $Version, "--new", $NewVersion)
-	if ($r.Code -eq 2) { Show-Output $r.Output; Fail "Nothing was changed." 2 }
-	if ($r.Code -ne 0) {
-		Warn "Couldn't compare the versions ($AppImage didn't run) - continuing."
-	}
-	if (-not (Confirm-Rollouts "update")) { Fail "Nothing was changed." 2 }
-	Step "Backing up first"
-	if ((Invoke-BackupCreate "before-update") -ne 0) {
-		Fail "Couldn't back up - nothing was changed. Fix it (above), then run Setup again."
+	Invoke-ClearingStopNow {
+		Assert-Installed
+		if (-not $NewVersion) { Fail "prepare-update needs -NewVersion" }
+		Confirm-Docker
+		Step "Checking the update: NetRollout $Version -> $NewVersion"
+		$r = Invoke-Native "docker" @("run", "--rm", $AppImage, "python", "-m", "src.setup", "check-update",
+			"--installed", $Version, "--new", $NewVersion)
+		if ($r.Code -eq 2) { Show-Output $r.Output; Fail "Nothing was changed." 2 }
+		if ($r.Code -ne 0) {
+			Warn "Couldn't compare the versions ($AppImage didn't run) - continuing."
+		}
+		if (-not (Confirm-Rollouts "update")) { Fail "Nothing was changed." 2 }
+		Step "Backing up first"
+		if ((Invoke-BackupCreate "before-update") -ne 0) {
+			Fail "Couldn't back up - nothing was changed. Fix it (above), then run Setup again."
+		}
 	}
 }
 
 # After Setup replaced the files (this is the new script): the new images
 # while the old version keeps running, .env brought up to date, the restart.
 function Invoke-Update {
-	Assert-Installed
-	Confirm-Docker
-	Step "Downloading NetRollout $Version (it keeps running meanwhile)"
-	# failures of others' images surface at the start; ours are checked here
-	# (a local build isn't on Docker Hub)
-	Compose @("pull", "--quiet", "--ignore-pull-failures") | Out-Null
-	foreach ($image in "netrollout", "netrollout-nginx") { Get-OurImage "itamarweinstein/${image}:$Version" }
-	Step "Updating the settings"
-	if ((Invoke-Setup @("upgrade")) -ne 0) { Fail "The update stopped before the restart - see above." }
-	Confirm-Rollouts "update" | Out-Null      # the files are in place: shown, never refused
-	Step "Restarting on the new version (about a minute; running rollouts finish first)"
-	Start-NetRollout
-	Start-PortHelper
-	Good "Updated to NetRollout $Version. Everyone signs in again."
+	Invoke-ClearingStopNow {
+		Assert-Installed
+		Confirm-Docker
+		Step "Downloading NetRollout $Version (it keeps running meanwhile)"
+		# failures of others' images surface at the start; ours are checked here
+		# (a local build isn't on Docker Hub)
+		Compose @("pull", "--quiet", "--ignore-pull-failures") | Out-Null
+		foreach ($image in "netrollout", "netrollout-nginx") { Get-OurImage "itamarweinstein/${image}:$Version" }
+		Step "Updating the settings"
+		if ((Invoke-Setup @("upgrade")) -ne 0) { Fail "The update stopped before the restart - see above." }
+		Confirm-Rollouts "update" | Out-Null      # the files are in place: shown, never refused
+		Step "Restarting on the new version (about a minute; running rollouts finish first)"
+		Start-NetRollout
+		Start-PortHelper
+		Good "Updated to NetRollout $Version. Everyone signs in again."
+	}
 }
 
 # ── the port helper (System Settings -> HTTPS port) ──────────────────────────
@@ -882,11 +888,11 @@ function Invoke-NrCommand([string]$Name) {
 			Assert-Installed -Setup
 			Start-NetRollout; Start-PortHelper; Open-Browser; return 0
 		}
-		"stop" { Invoke-ClearingStopNow { Invoke-Stop }; return 0 }
+		"stop" { Invoke-Stop; return 0 }
 		"backup" { Invoke-Backup; return 0 }
 		"restore" { Invoke-Restore; return 0 }
-		"prepare-update" { Invoke-ClearingStopNow { Invoke-PrepareUpdate }; return 0 }
-		"update" { Invoke-ClearingStopNow { Invoke-Update }; return 0 }
+		"prepare-update" { Invoke-PrepareUpdate; return 0 }
+		"update" { Invoke-Update; return 0 }
 		"apply" { Invoke-Apply; return 0 }
 		"rollouts" {
 			Assert-Installed
