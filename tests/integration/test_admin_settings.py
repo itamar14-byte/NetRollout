@@ -9,7 +9,7 @@ import pytest
 from src import runtime as _runtime
 from src.access import certs as _certs, site_env as _site, nginx as _pc, port as _pa
 from src.db.settings import seed_settings, SettingsError
-from src.db.tables import AuditLog
+from src.db.tables import AuditLog, SystemSetting
 from src.webapp.blueprints import admin_settings
 from src.webapp.startup import Probe
 from tests.unit.access.test_certs import key_pem, make_cert, pem
@@ -63,6 +63,24 @@ def test_invalid_values_are_reported_per_field_and_save_nothing(admin, app,
 	assert set(resp.json["errors"]) == {"audit_retention_days", "public_hostname"}
 	assert "no https://" in resp.json["errors"]["public_hostname"]
 	assert app.backend.settings.get("job_retention_days") == 30
+
+
+def test_an_empty_backup_time_is_refused(admin, app, client_for):
+	"""Saving the backup time empty is 422 with the field's error, and the time stays."""
+	resp = save(client_for(admin), backup_time="")
+	assert resp.status_code == 422
+	assert resp.json["errors"]["backup_time"].endswith("is required")
+	assert app.backend.settings.get("backup_time") == "02:00"
+
+
+def test_a_backup_time_stored_empty_still_shows_the_page(admin, app, client_for,
+                                                        session_scope):
+	"""A backup time saved empty before the check (an older version) reads as the default:
+	System Settings opens (it was a 500) and the schedule gets a time."""
+	with session_scope() as s:
+		s.query(SystemSetting).filter_by(key="backup_time").update({"value": ""})
+	assert client_for(admin).get("/admin/settings").status_code == 200
+	assert app.backend.settings.get("backup_time") == "02:00"
 
 
 def test_rule_violations_are_reported_and_save_nothing(admin, app, client_for):

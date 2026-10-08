@@ -243,6 +243,7 @@
         throw `${s.label} must be one of: ${s.choices.map(c => c[1]).join(', ')}`;
       return v;
     }
+    if (s.required && !v) throw `${s.label} is required`;
     if (s.max_length && v.length > s.max_length) throw `${s.label} must be at most ${s.max_length} characters`;
     if (v && s.pattern && !new RegExp('^(?:' + s.pattern + ')$').test(v))
       throw `${s.label} ${s.pattern_hint || 'has an invalid format'}`;

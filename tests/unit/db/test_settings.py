@@ -111,6 +111,23 @@ def test_sql_value_reads_the_row():
 		sql_value("log_retention_days")
 
 
+@pytest.mark.parametrize("raw", ["", "   ", None])
+def test_the_backup_time_cant_be_left_empty(raw):
+	"""An empty backup time is refused (it was accepted: System Settings then failed with
+	a 500 and scheduled backups stopped silently); one already stored empty reads as the
+	default, with the problem for the log."""
+	setting = SETTINGS["backup_time"]
+	with pytest.raises(ValueError, match="is required"):
+		setting.parse(raw)
+	value, problem = setting.coerce(raw)
+	assert value == "02:00" and problem
+
+
+def test_an_optional_str_setting_may_be_empty():
+	"""The hostname may be empty (no canonical name)."""
+	assert SETTINGS["public_hostname"].parse("") == ""
+
+
 def test_str_setting_parse_trims():
 	"""A str setting trims its value, and None becomes empty."""
 	s = Setting("x", "X", "help", "Access", None, kind=str)
