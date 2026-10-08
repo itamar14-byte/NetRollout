@@ -15,6 +15,7 @@ import pytest
 from cryptography.fernet import Fernet
 
 import src.encryption as enc
+import src.rollout.engine as engine_module
 # Import through the src package only — the app itself imports src.*, and a
 # bare `import core` would load a second copy of every module (patches and
 # isinstance checks would then silently target the wrong one).
@@ -265,6 +266,45 @@ class TestRolloutEnginePushConfig(unittest.TestCase):
 		# C (10.0.0.3) started after the cancel: never connected
 		applied = PushResult(applied=True, rejected=0)
 		self.assertEqual(push_results, {0: applied, 1: applied})  # by index
+
+	def test_ctrl_c_skips_the_devices_not_reached_yet(self):
+		"""Ctrl+C in the CLI (KeyboardInterrupt in the waiting thread) cancels:
+		the devices not started yet are skipped, those already being configured
+		finish and are recorded, and the push returns "cancel_sent" - not every
+		queued device pushed before the cancel (the thread pool's exit used to
+		wait for all of them)."""
+		pushed = []
+		lock = threading.Lock()
+
+		def push(device, cancel_event, logger):
+			if cancel_event.is_set():
+				return device.ip, None
+			time.sleep(0.2)
+			with lock:
+				pushed.append(device.ip)
+			return device.ip, PushResult(applied=True, rejected=0)
+
+		real = engine_module.as_completed
+		pressed = threading.Event()        # one Ctrl+C, after the first result
+
+		def interrupted(futures):
+			for i, future in enumerate(real(futures)):
+				if i == 1 and not pressed.is_set():
+					pressed.set()
+					raise KeyboardInterrupt
+				yield future
+
+		devices = [make_device(ip=f"10.0.1.{i}") for i in range(1, 31)]
+		engine = RolloutEngine(param=make_options(max_workers=2), devices=devices,
+		                       commands=["hostname x"])
+		with patch.object(engine, "_push_device", side_effect=push), \
+				patch.object(engine_module, "as_completed", interrupted):
+			cancel = threading.Event()
+			cancel_signal, push_results = engine._push_config(cancel, self.logger)
+		self.assertEqual(cancel_signal, "cancel_sent")
+		self.assertTrue(cancel.is_set())
+		self.assertLessEqual(len(pushed), 4)          # the first ones and those in flight
+		self.assertEqual(len(push_results), len(pushed))   # each pushed device recorded
 
 	@patch("netmiko.ConnectHandler")
 	def test_multiple_devices_all_attempted(self, mock_ch):

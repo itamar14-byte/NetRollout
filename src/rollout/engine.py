@@ -7,7 +7,8 @@ import os
 import threading
 import uuid
 from collections import Counter
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from collections.abc import Iterable
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, NamedTuple, Optional, TypedDict
 
@@ -511,15 +512,12 @@ class RolloutEngine:
 		# Keyed by position, not IP: several devices can share an IP (NAT /
 		# port forwarding, overlapping address space) and must not overwrite
 		# each other's result
-		push_results = {}
+		push_results: dict[int, PushResult] = {}
 		cancelled = False
-		with ThreadPoolExecutor(max_workers=self._max_workers) as executor:
-			futures = {
-				executor.submit(self._push_device, device, cancel_event,
-				                logger): idx
-				for idx, device in enumerate(self._devices)
-			}
-			for future in as_completed(futures):
+
+		def collect(done: Iterable[Future[tuple[str, PushResult | None]]]) -> None:
+			nonlocal cancelled
+			for future in done:
 				_, result = future.result()
 				if result is None:
 					if not cancelled:
@@ -527,6 +525,30 @@ class RolloutEngine:
 					cancelled = True
 					continue
 				push_results[futures[future]] = result
+
+		executor = ThreadPoolExecutor(max_workers=self._max_workers)
+		try:
+			futures = {
+				executor.submit(self._push_device, device, cancel_event,
+				                logger): idx
+				for idx, device in enumerate(self._devices)
+			}
+			try:
+				collect(as_completed(futures))
+			except KeyboardInterrupt:
+				# Ctrl+C (the CLI): the devices not reached yet are skipped,
+				# those being configured finish and are recorded; a second
+				# Ctrl+C leaves at once (the CLI exits without waiting)
+				cancel_event.set()
+				logger.notify("Interrupted - the devices being configured now "
+				              "finish, the rest are skipped (Ctrl+C again to "
+				              "quit at once)", "red", important=True)
+				cancelled = True
+				collect(as_completed([f for f in futures
+				                      if futures[f] not in push_results]))
+		finally:
+			# not waiting here: after a second Ctrl+C the CLI leaves at once
+			executor.shutdown(wait=False, cancel_futures=True)
 		return ("cancel_sent" if cancelled else None), push_results
 
 	def _verify_device(self, device: Device,

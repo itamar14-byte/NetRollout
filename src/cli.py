@@ -41,8 +41,22 @@ def get_args() -> argparse.Namespace:
 
 def main() -> NoReturn:
 	"""One rollout, start to finish; exits with exit_code's code (130 on
-	Ctrl+C)."""
+	Ctrl+C, 2 when the input ends at a question)."""
 	args = get_args()
+	try:
+		rollout(args)
+	except KeyboardInterrupt:          # at a question, before the push
+		print("\nInterrupted - nothing was pushed.")
+		sys.exit(130)
+	except EOFError:                   # stdin closed or piped out at a question
+		print("\nNo answer (the input ended) - nothing was pushed.")
+		sys.exit(2)
+
+
+def rollout(args: argparse.Namespace) -> NoReturn:
+	"""The questions, the checks, the push and the exit (main's body).
+
+	:param args: get_args()'s"""
 	# Anything asked for means a person is at the keyboard: they also get the
 	# verify question and a last confirmation before the push
 	interactive = not (args.devices and args.commands)
@@ -98,15 +112,31 @@ def main() -> NoReturn:
 	cancel = threading.Event()
 	engine = RolloutEngine(param=options, devices=devices, commands=commands)
 
-	# Ctrl+C sets the cancel event: devices not reached yet are skipped
+	# Ctrl+C during the push: the engine skips the devices not reached yet,
+	# lets those being configured finish and returns (the summary is logged)
 	try:
 		results = engine.run(cancel, logger)
-		pause()
-		sys.exit(exit_code(results))
 	except KeyboardInterrupt:
+		# a second Ctrl+C, or one during verify: leave now, without waiting
+		# for the devices still in flight
 		cancel.set()
 		logger.notify("Interrupted by user. Exiting.", "red")
-		sys.exit(130)  # shell convention for Ctrl+C (128 + SIGINT)
+		hard_exit(130)  # shell convention for Ctrl+C (128 + SIGINT)
+	if cancel.is_set():
+		logger.notify("Interrupted by user - the summary above shows what was done.", "red")
+		sys.exit(130)
+	try:
+		pause()
+	except KeyboardInterrupt:
+		pass                           # the rollout is over: its result stands
+	sys.exit(exit_code(results))
+
+
+def hard_exit(code: int) -> NoReturn:
+	"""Leave at once - without waiting for the push's threads still in
+	flight (a second Ctrl+C means now)."""
+	sys.stdout.flush()
+	os._exit(code)
 
 
 def ask_path(prompt: str) -> str:

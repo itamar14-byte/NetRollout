@@ -50,7 +50,10 @@ def run_cli(monkeypatch):
 		engine_ctor.return_value.run.return_value = results(*statuses)
 		if engine_run is not None:
 			engine_ctor.return_value.run.side_effect = engine_run
+		def hard_exit(code):           # os._exit would end the test run
+			raise SystemExit(code)
 		with patch.object(cli, "RolloutEngine", engine_ctor), \
+				patch.object(cli, "hard_exit", hard_exit), \
 				patch("src.rollout.inputs.tcp_reachable",
 				      return_value=reachable):
 			with pytest.raises(SystemExit) as exc:
@@ -225,8 +228,9 @@ def test_exit_code_reflects_device_outcomes(files, run_cli, statuses,
 # ── Ctrl+C ───────────────────────────────────────────────────────────────────
 
 def test_ctrl_c_sets_cancel_and_exits_130(files, run_cli):
-	"""Ctrl+C during the push sets the engine's cancel flag and exits 130
-	without the closing pause."""
+	"""A Ctrl+C the engine doesn't take (a second one while the devices in
+	flight finish, or during verify) sets the cancel flag and exits 130 at
+	once, without the closing pause."""
 	devices, commands = files()
 	seen = {}
 
@@ -238,6 +242,45 @@ def test_ctrl_c_sets_cancel_and_exits_130(files, run_cli):
 	assert code == 130  # shell convention for Ctrl+C
 	assert seen["cancel"].is_set()
 	assert "Press Enter to exit..." not in prompts
+
+
+def test_an_interrupted_rollout_exits_130_after_its_summary(files, run_cli):
+	"""Ctrl+C during the push: the engine cancels (skips the devices not reached)
+	and returns its results - the CLI exits 130, not as a finished rollout."""
+	devices, commands = files()
+
+	def cancelled(cancel, logger):
+		cancel.set()                 # what the engine does on Ctrl+C
+		return results("success", "cancelled")
+	code, _, prompts = run_cli(["-d", devices, "-c", commands], engine_run=cancelled)
+	assert code == 130
+	assert "Press Enter to exit..." not in prompts
+
+
+@pytest.mark.parametrize("error, code", [(KeyboardInterrupt, 130), (EOFError, 2)])
+def test_ctrl_c_or_no_input_at_a_prompt_ends_cleanly(files, run_cli, monkeypatch,
+                                                      error, code):
+	"""Ctrl+C at a prompt exits 130, the input ending (a closed or piped stdin)
+	exits 2 - nothing pushed, no traceback."""
+	devices, commands = files()
+
+	def failing_input(prompt=""):
+		raise error
+	monkeypatch.setattr("builtins.input", failing_input)
+	monkeypatch.setattr(sys, "argv", ["cli.py", "-d", devices])     # asks for commands
+	engine_ctor = MagicMock(name="RolloutEngine")
+	with patch.object(cli, "RolloutEngine", engine_ctor), pytest.raises(SystemExit) as exc:
+		cli.main()
+	assert exc.value.code == code and not engine_ctor.return_value.run.called
+
+
+def test_ctrl_c_at_the_closing_pause_keeps_the_result(files, run_cli, monkeypatch):
+	"""Ctrl+C at "Press Enter to exit" after a finished rollout keeps the
+	rollout's exit code (0) - it isn't an interrupted rollout."""
+	devices, commands = files()
+	monkeypatch.setattr(cli, "pause", lambda: (_ for _ in ()).throw(KeyboardInterrupt))
+	code, _, _ = run_cli(["-d", devices, "-c", commands])
+	assert code == 0
 
 
 # ── Commands file: same rules as the web path ───────────────────────────────
