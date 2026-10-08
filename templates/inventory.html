@@ -1136,15 +1136,8 @@
 {% from "_property_modal.html" import property_modal %}
 {% call property_modal(modal_id="quickCreatePropertyModal",
                        prefix="qcProp",
-                       max_width="380px",
-                       esc_closes=false,
                        badge="QUICK CREATE",
-                       title="New Property",
-                       name_hint="auto-generated · immutable",
-                       name_help="Dict key for $$TOKEN$$ substitution. Edit if needed.",
-                       icon_hint="Bootstrap Icons class",
-                       icon_placeholder=false,
-                       list_label="List property (comma-separated)") %}
+                       title="New Property") %}
             <div class="modal-footer" style="justify-content:space-between; align-items:center;">
                 <div id="qcPropError2" style="display:none; font-size:0.78rem; color:#ef5350;"></div>
                 <div class="d-flex gap-2 ms-auto">
