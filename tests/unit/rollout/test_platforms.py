@@ -907,6 +907,76 @@ def test_a_new_hostname_that_cant_be_saved_says_so():
 	assert "NOT saved" in log_of(logger)
 
 
+
+def stops_answering(replies, commands, logger=None):
+	"""One cisco_ios rollout whose device gives `replies` (a reply, or an exception
+	to raise) to the commands in turn. :returns: (its result, the first session, the
+	ConnectHandler mock, the logger)"""
+	first = connection()
+	first.send_config_set.side_effect = replies
+	logger = logger or fresh_logger()
+	device = Device(ip="10.0.0.1", label="d", username="u", password="p",
+	                device_type="cisco_ios", secret="", port=22)
+	engine = RolloutEngine(RolloutOptions(), [device], commands)
+	with patch("netmiko.ConnectHandler", side_effect=[first, connection()]) as handler:
+		(result,) = engine.run(threading.Event(), logger)
+	return result, first, handler, logger
+
+
+def test_a_device_that_stops_answering_mid_list_is_partial_and_not_saved():
+	"""A timeout on a command that isn't the last (a question with no prompt, a slow
+	command): the commands after it aren't sent, nothing is saved, the device is
+	"partial" with the commands sent counted and an ACTION NEEDED saying which
+	command and that the earlier ones are live but NOT saved - not "applied" with
+	the half-done config saved."""
+	commands = ["logging host 1.1.1.1", "crypto key generate rsa",
+	            "snmp-server community x RO", "ntp server 2.2.2.2"]
+	result, first, handler, logger = stops_answering(
+		["ok", netmiko.exceptions.ReadTimeout("no prompt")], commands)
+	assert result["status"] == "partial"
+	assert result["commands_sent"] == 2
+	assert first.send_config_set.call_count == 2          # nothing after it
+	first.save_config.assert_not_called()
+	assert handler.call_count == 1                        # no second session to save
+	assert "'crypto key generate rsa' (command 2 of 4)" in result["action_needed"]
+	assert "NOT saved" in result["action_needed"]
+	assert "ACTION NEEDED" in log_of(logger)
+
+
+def test_a_rejection_before_a_mid_list_timeout_still_counts():
+	"""A command refused before the device stopped answering stays counted and
+	logged; one accepted command keeps the device "partial"."""
+	commands = ["ntp server bogus", "logging host 1.1.1.1", "crypto key generate rsa",
+	            "snmp-server community x RO"]
+	result, _, _, logger = stops_answering(
+		["% Invalid input detected at '^' marker.", "ok",
+		 netmiko.exceptions.ReadTimeout("no prompt")], commands)
+	assert result["status"] == "partial" and result["commands_sent"] == 3
+	assert "'ntp server bogus' rejected" in log_of(logger)
+
+
+def test_a_timeout_on_the_first_command_is_failed():
+	"""The first command already gets no answer: nothing confirmed, nothing else
+	sent - "failed", with the ACTION NEEDED saying so."""
+	result, first, _, _ = stops_answering(
+		[netmiko.exceptions.ReadTimeout("no prompt")],
+		["crypto key generate rsa", "logging host 1.1.1.1"])
+	assert result["status"] == "failed"
+	assert first.send_config_set.call_count == 1
+	assert "(command 1 of 2)" in result["action_needed"]
+	first.save_config.assert_not_called()
+
+
+def test_a_new_hostname_after_a_rejection_keeps_the_rejection():
+	"""The last command's timeout (a new hostname) is still saved from a new session -
+	but a command refused before it keeps the device "partial" (it was reset to none:
+	"success")."""
+	result, _, handler, _ = stops_answering(
+		["% Invalid input detected at '^' marker.", netmiko.exceptions.ReadTimeout("prompt")],
+		["ntp server bogus", "hostname r9"])
+	assert handler.call_count == 2                        # saved from a new session
+	assert result["status"] == "partial"
+
 # ── Cases only a person can resolve: unmistakable, and in the summary ──
 
 @pytest.mark.parametrize("device_type, setup, words", [

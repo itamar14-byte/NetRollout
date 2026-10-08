@@ -55,6 +55,11 @@ class PushResult(NamedTuple):
 	"""How the push went on one device."""
 	applied: bool    # the change took effect (connected, finished, committed)
 	rejected: int    # commands the device refused
+	# the device stopped answering before the last command: how many were
+	# sent (the one without an answer included); the rest weren't, nothing
+	# was saved
+	sent: int | None = None
+	interrupted: bool = False
 
 
 class VerifyResult(NamedTuple):
@@ -75,6 +80,8 @@ def classify(push: PushResult | None, verify: VerifyResult | None,
 	- not verified: what the device said while the commands were sent —
 	  none refused → success; every configuring one refused → failed;
 	  else partial.
+	- interrupted (the device stopped answering before the last command,
+	  some commands confirmed) → partial, the commands sent counted.
 
 	:param push: None if the device never started (cancelled first)
 	:param verify: None when verify was off or the config couldn't be fetched
@@ -85,6 +92,9 @@ def classify(push: PushResult | None, verify: VerifyResult | None,
 		return "cancelled", 0, None
 	if not push.applied:
 		return "failed", 0, None
+	if push.interrupted:
+		# some commands took effect (live, not saved), the rest weren't sent
+		return "partial", push.sent or 0, verify.verified if verify is not None else None
 	if verify is not None:
 		if verify.verified == verify.checkable and not push.rejected:
 			status = "success"
@@ -322,6 +332,7 @@ class RolloutEngine:
 		platform = PLATFORMS[device.device_type]
 		logger.notify(f"connecting to {device.endpoint}", "yellow")
 		commands_sent = False
+		sent = rejected = 0      # commands sent so far, and refused
 		try:
 			net_connect = netmiko.ConnectHandler(**(device.netmiko_connector()))
 			try:
@@ -347,9 +358,9 @@ class RolloutEngine:
 				else:
 					net_connect.config_mode()
 
-				rejected = 0
 				for command in commands:
 					commands_sent = True
+					sent += 1
 					# Config mode was entered above: each command goes in exactly
 					# as typed. Netmiko's default re-checks config mode per call,
 					# and drivers that only recognise their top-level config
@@ -380,12 +391,26 @@ class RolloutEngine:
 			logger.notify(f"{device.ip} timed out", "red")
 			return device.ip, PushResult(applied=False, rejected=0)
 		except netmiko.exceptions.ReadTimeout as e:
-			if commands_sent and platform.finish != "commit":
-				# Prompt changed mid-session (e.g. a new hostname): the commands
-				# were applied, but the finish couldn't run in this session —
-				# a fresh one learns the new prompt
+			if commands_sent and platform.finish != "commit" and sent == len(commands):
+				# The last command changed the prompt (e.g. a new hostname):
+				# the commands were applied, but the finish couldn't run in this
+				# session — a fresh one learns the new prompt
 				self._finish_in_new_session(device, platform, logger)
-				return device.ip, PushResult(applied=True, rejected=0)
+				return device.ip, PushResult(applied=True, rejected=rejected)
+			if commands_sent and platform.finish != "commit":
+				# No answer before the last command (a question without a
+				# prompt, a slow command): the rest isn't sent, nothing saved
+				answered = sent - 1
+				self._action_needed(device, (
+					f"stopped answering after '{commands[sent - 1].strip()}' "
+					f"(command {sent} of {len(commands)}): "
+					+ (f"the {answered} before it {'is' if answered == 1 else 'are'} "
+					   f"live but NOT saved, " if answered else "")
+					+ f"the {len(commands) - sent} after it weren't sent — check "
+					  f"the device, then save the change or remove it"), logger)
+				took_effect = answered - rejected > 0
+				return device.ip, PushResult(applied=took_effect, rejected=rejected,
+				                             sent=sent, interrupted=True)
 			logger.notify(f"{device.ip} failed: {e}", "red")
 			return device.ip, PushResult(applied=False, rejected=0)
 		except Exception as e:
