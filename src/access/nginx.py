@@ -192,12 +192,15 @@ def drop_expired_names(now: float | None = None) -> list[str]:
 			return []
 		now = time.time() if now is None else now
 		keep = {n: u for n, u in stored.items() if u > now}
-		dns, ips = certs.names_in(cert.read_bytes())
-		expired = [n for n in dns[1:] if n in stored and n not in keep]
+		pem = cert.read_bytes()
+		dns, ips = certs.names_in(pem)
+		# the hostname is the common name (an IP address isn't among the DNS names)
+		host = certs.common_name(pem)
+		others = [n for n in dns if n != host]
+		expired = [n for n in others if n in stored and n not in keep]
 		if expired:
-			# the first name is the hostname itself
-			certs.selfsigned(dns[0], [str(ip) for ip in ips], cert_dir,
-			                 also_names=[n for n in dns[1:] if n not in expired])
+			certs.selfsigned(host, [str(ip) for ip in ips], cert_dir,
+			                 also_names=[n for n in others if n not in expired])
 		_write_old_names(cert_dir, keep)
 		return expired
 

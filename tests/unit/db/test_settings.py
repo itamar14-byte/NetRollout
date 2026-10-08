@@ -123,6 +123,15 @@ def test_the_backup_time_cant_be_left_empty(raw):
 	assert value == "02:00" and problem
 
 
+def test_the_hostname_is_kept_lowercase():
+	"""A hostname typed with capitals is saved lowercase, and one stored with capitals
+	reads lowercase: nginx serves names lowercase, and the save waits for nginx's answer
+	for that name (with capitals it never matched: "no answer")."""
+	setting = SETTINGS["public_hostname"]
+	assert setting.parse(" NetRollout.Corp.Local ") == "netrollout.corp.local"
+	assert setting.coerce("NR01.Lab") == ("nr01.lab", None)
+
+
 def test_an_optional_str_setting_may_be_empty():
 	"""The hostname may be empty (no canonical name)."""
 	assert SETTINGS["public_hostname"].parse("") == ""

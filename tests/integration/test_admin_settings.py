@@ -606,6 +606,20 @@ def test_old_names_leave_after_the_transition(admin, app, client_for, proxy):
 	assert not (_runtime.certs_dir() / _pc.OLD_NAMES_FILE).exists()
 
 
+def test_old_names_leave_when_the_hostname_is_an_ip_address(admin, app, client_for,
+                                                            proxy):
+	"""With an IP address as the hostname, the previous name still leaves the certificate
+	when its transition ends (it was taken for the hostname and kept for good), and the
+	certificate stays issued to the address."""
+	_certs.selfsigned("a.lab", ["10.0.0.5"], _runtime.certs_dir())
+	save(client_for(admin), public_hostname="10.0.0.5")
+	later = _time.time() + _pc.NAME_TRANSITION_DAYS * 86400 + 60
+	assert _pc.drop_expired_names(now=later) == ["a.lab"]
+	dns, ips = _certs.names_in(proxy.cert.read_bytes())
+	assert dns == [] and [str(i) for i in ips] == ["10.0.0.5"]
+	assert _certs.host_matches("10.0.0.5", dns, ips)
+
+
 def test_going_back_to_an_old_name_ends_its_transition(admin, app, client_for,
                                                        proxy):
 	"""Going back to a name in transition makes it the hostname again: it leaves the
