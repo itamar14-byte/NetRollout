@@ -674,7 +674,7 @@
     let singleFileMode = {};      // platform → "paste"|"file"
     let duplicateCount = 0;       // clashes found by markDuplicateTargets
     // a command file's text by its file input (none while it's being read);
-    // a rebuilt block has a new, empty input, so its old text goes with it
+    // a block dropped with its platform takes its input and text with it
     const fileText = new WeakMap();
 
     /* ── Elements ── */
@@ -709,8 +709,8 @@
         return map;
     }
 
-    /* ── Build a single command block ── */
-    function buildCmdBlock(platform, isOnly) {
+    /* ── Build a single command block (its header's name: rebuildCommandBlocks) ── */
+    function buildCmdBlock(platform) {
         const mode = singleFileMode[platform] || "paste";
         const blockId = "cb_" + platform.replace(/[^a-z0-9]/g, "_");
         const taId    = "ta_" + platform.replace(/[^a-z0-9]/g, "_");
@@ -733,7 +733,7 @@
         wrap.innerHTML = `
             <div class="cmd-section-header">
                 <span class="cmd-platform-label" style="display:flex;align-items:center;">
-                    ${logoHtml}${isOnly ? "Commands" : nrEscape(platform)}
+                    ${logoHtml}<span class="cmd-platform-name"></span>
                 </span>
                 <div class="cmd-toggle">
                     <button type="button" class="cmd-toggle-btn ${mode==="paste"?"active":""}"
@@ -809,24 +809,20 @@
 
         mpWarning.classList.toggle("show", isMulti);
 
-        /* Preserve existing text so toggling doesn't wipe typed commands */
-        const existing = {};
-        cmdBlocks.querySelectorAll(".cmd-section").forEach(el => {
-            const ta = el.querySelector(".cmd-textarea");
-            if (ta) existing[el.id] = ta.value;
-        });
+        /* A platform still selected keeps its block element as it is - the
+           typed commands, the chosen file (its name, its text in fileText),
+           the listeners; only its name changes. Others go; new ones are built. */
+        const kept = {};
+        cmdBlocks.querySelectorAll(".cmd-section").forEach(el => { kept[el.id] = el; });
 
-        cmdBlocks.innerHTML = "";
+        cmdBlocks.replaceChildren();
 
         keys.forEach(platform => {
-            const block  = buildCmdBlock(platform, keys.length === 1);
             const blockId = "cb_" + platform.replace(/[^a-z0-9]/g, "_");
-            const taId    = "ta_" + platform.replace(/[^a-z0-9]/g, "_");
+            const block   = kept[blockId] || buildCmdBlock(platform);
+            block.querySelector(".cmd-platform-name").textContent =
+                isMulti ? platform : "Commands";
             cmdBlocks.appendChild(block);
-            /* Restore preserved text */
-            if (existing[blockId]) {
-                block.querySelector(`#${taId}`).value = existing[blockId];
-            }
         });
         updateLaunch();     // the commands each device gets may have changed
     }
