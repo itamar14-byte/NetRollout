@@ -502,8 +502,8 @@
         {% endfor %}
         {% if split %}<input type="hidden" name="view" value="all">{% endif %}
         {% if show_size %}
-        <label for="perPage-{{ param }}">Per page:</label>
-        <select id="perPage-{{ param }}" name="per_page" class="per-page-select"
+        <label for="perPage-{{ param }}{{ '-all' if split }}">Per page:</label>
+        <select id="perPage-{{ param }}{{ '-all' if split }}" name="per_page" class="per-page-select"
                 onchange="this.form.submit()">
             {% for n in per_page_choices %}
             <option value="{{ n }}"{{ ' selected' if n == per_page }}>{{ n }}</option>

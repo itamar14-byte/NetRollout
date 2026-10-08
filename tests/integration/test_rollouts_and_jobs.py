@@ -532,6 +532,10 @@ def test_results_admin_pages_other_users_apart(make_user, client_for,
 	assert f'data-job-id="{theirs[29]}"' in page2
 	assert f'data-job-id="{theirs[0]}"' not in page2
 	assert ">3 jobs</span>" in page2
+	add_jobs(session_scope, admin, 27)  # 30 own: each view its own dropdown
+	html = client.get("/results?view=all").get_data(as_text=True)
+	assert html.count('id="perPage-page"') == 1
+	assert html.count('id="perPage-page-all"') == 1
 
 
 def test_results_page_the_jobs_in_the_database(operator, client_for,
