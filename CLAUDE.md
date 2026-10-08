@@ -106,7 +106,7 @@ Full architecture in `docs/architecture.md`; plan and current status in `docs/wo
 
 ### Packages (one module = one whole concern)
 - `src/rollout/` — the engine, shared by the CLI and the web app and free of the web stack: `engine.py` (Device, RolloutEngine, classify), `inputs.py` (checks, the devices CSV / commands file: InputParser, Validator), `platforms.py`, `log.py` (RolloutLogger).
-- `src/jobs.py` — a web rollout's life: the orchestrator, JobStore (its Redis keys), job_status, build_kpi, clear_stale_jobs. `src/inventory.py` — the device inventory's rules: visibility, shared endpoints, reachability, the CSV import (`import_csv`).
+- `src/jobs.py` — a web rollout's life: the orchestrator, JobStore (its Redis keys), job_status, build_kpi, clear_stale_jobs. `src/inventory.py` — the device inventory's rules: visibility, shared endpoints, reachability, the CSV import (`import_csv`), attribute values. **Attributes**: a system property's value (`SYSTEM_PROPERTIES`) is the device's own — `Inventory.var_maps`, shared, set by who may edit the device; a custom property is one user's and so are its values — `device_attributes` rows (device, user, name; deleted with the device, the user or the property), set by anyone who sees the device (an operator on a global device: "My attributes" in its read-only modal, `POST /inventory/<id>/attributes`). `attributes(session, devices, user_id)` is the one read (system + that user's custom values, one query per list): rollouts (the rollback: the job owner's), mapping eligibility, the Inventory and Mappings pages. A form changes only the `attr_` fields it sends (blank removes) for the system properties and the user's own; others are ignored.
 - `src/db/` — `connections.py` (Postgres, Redis, BackendServices), `tables.py`, `install.py` (migrations, grants, seeds, retention SQL), `retention.py` (the nightly run), `settings.py`, `move.py`.
 - `src/accounts/` — `users.py` (local accounts, the password rule, sessions and their lifetime), `ldap.py`.
 - `src/access/` — how NetRollout is reached: `site_env.py` (config/nginx/site.env), `nginx.py` (hostname, certificate, nginx's verdict), `port.py` (the HTTPS port request), `certs.py`.
@@ -129,7 +129,7 @@ The list is `SUPPORTED_PLATFORMS` (`src/rollout/inputs.py`, derived from `PLATFO
 ### Device CSV format (shared by CLI and web import)
 Required: `ip` (IPv4 or IPv6 — everywhere: the forms, the CSV import, the CLI; an endpoint is written `ip:port`, IPv6 as `[addr]:port`, by `rollout/engine.endpoint`, also a template filter), `device_type`, `port`. Optional: `label`; credentials `username`, `password`, `secret`; attribute columns named after a property (by name or label).
 - **CLI**: credentials required; attribute columns unused; unreachable devices are dropped before the push.
-- **Web import**: attribute columns saved as `var_maps`; credentials become security profiles (checkbox, default on — exact match reuses a profile, otherwise a new uniquely labelled one); unknown columns reported; no reachability check.
+- **Web import**: attribute columns saved as the device's values — a system property's in its `var_maps`, a custom property's as the importer's own (`device_attributes`); credentials become security profiles (checkbox, default on — exact match reuses a profile, otherwise a new uniquely labelled one); unknown columns reported; no reachability check.
 
 ## Frontend
 

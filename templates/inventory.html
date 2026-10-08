@@ -120,7 +120,7 @@
 }
 
 /* Read-only mode for global devices opened by non-admins:
-   only the mapping multi-select stays interactive */
+   only the mapping multi-select and the user's own attributes stay interactive */
 .readonly-banner {
     display: none;
     align-items: center;
@@ -135,6 +135,7 @@
 }
 #editDeviceModal.is-readonly .readonly-banner { display: flex; }
 #editDeviceModal.is-readonly .nr-select { pointer-events: none; opacity: 0.55; }
+#editDeviceModal.is-readonly input:disabled { opacity: 0.55; }
 #editDeviceModal.is-readonly .edit-only { display: none !important; }
 #editDeviceModal:not(.is-readonly) .readonly-only { display: none !important; }
 
@@ -347,7 +348,9 @@
     everyone else the card opens a read-only modal where they can bind
     their own mappings. Mapping chips show only the viewer's own mappings,
     and the security profile id is exposed to editors only — viewers see
-    the label, never an id they could attach to a device of their own. -#}
+    the label, never an id they could attach to a device of their own.
+    var_maps: the values this user sees - the device's system values and
+    the user's own custom ones (inventory.attributes). -#}
 {% macro device_card(device) %}
     {% set editable = device.user_id == current_user.id or (device.is_global and is_admin) %}
     {% set logo_url = VENDOR_LOGOS.get(device.device_type, '') %}
@@ -368,7 +371,7 @@
                  "port":                  device.port,
                  "sec_profile_id":        device.sec_profile_id|string if (device.sec_profile_id and editable) else "",
                  "sec_profile_label":     prof_label,
-                 "var_maps":              device.var_maps or {},
+                 "var_maps":              attributes.get(device.id, {}),
                  "assigned_mapping_ids":  ns.am_list | map(attribute='id') | list,
                  "assigned_mappings":     ns.am_list,
                  "is_global":             device.is_global,
@@ -664,7 +667,7 @@
 
                     <div class="readonly-banner">
                         <i class="bi bi-globe2"></i>
-                        <span>Global device, managed by an administrator. You can bind your own variable mappings.</span>
+                        <span>Global device, managed by an administrator. You can bind your own variable mappings and set your own attributes (only your mappings use them).</span>
                     </div>
 
                     <div class="mb-3">
@@ -843,7 +846,8 @@
 
                         {% if user_props %}
                         <div style="border-top:1px solid #1e1e1e; margin:10px 0 8px; display:flex; align-items:center; gap:8px;">
-                            <span style="font-size: 0.6875rem; color:var(--nr-text-muted); letter-spacing:1px; text-transform:uppercase; white-space:nowrap;">Custom</span>
+                            <span style="font-size: 0.6875rem; color:var(--nr-text-muted); letter-spacing:1px; text-transform:uppercase; white-space:nowrap;"
+                                  title="Your own properties: only you see these values, and only your mappings use them">My attributes</span>
                         </div>
                         <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px 12px;">
                             {% for p in user_props %}
@@ -889,7 +893,7 @@
                             <i class="bi bi-check-lg me-1"></i>Save
                         </button>
                         <button type="submit" class="btn btn-primary btn-sm readonly-only">
-                            <i class="bi bi-check-lg me-1"></i>Save Mappings
+                            <i class="bi bi-check-lg me-1"></i>Save Mine
                         </button>
                     </div>
                 </div>
@@ -1157,6 +1161,8 @@
 <script>
 const VENDOR_LOGOS   = {{ VENDOR_LOGOS | tojson }};   // the platform picker's selected logo
 const PROP_DEFS      = {{ (sys_props + user_props) | tojson }};
+// the device's own (shared) properties; every other attribute is the user's own
+const SYS_PROP_NAMES = new Set({{ sys_props | map(attribute='name') | list | tojson }});
 const QCM_LIST_PROPS = new Set({{ (sys_props + user_props) | selectattr('is_list') | map(attribute='name') | list | tojson }});
 
 // ════════════════════════════════════════
@@ -1608,14 +1614,17 @@ function openEdit(device) {
     if (editPlatformSel) editPlatformSel.setValue(device.device_type);
 
     // Global devices the viewer can't edit open read-only: every field is
-    // disabled except the mapping multi-select, which posts to /mappings.
+    // disabled except the mapping multi-select and the viewer's own (custom)
+    // attributes, which post to /attributes. A disabled field isn't sent.
     const readonly = !device.editable;
     const modalEl  = document.getElementById('editDeviceModal');
     modalEl.classList.toggle('is-readonly', readonly);
-    modalEl.querySelectorAll('#editDevLabel, #editDevIp, #editDevPort, [id^="attr_"]')
+    modalEl.querySelectorAll('#editDevLabel, #editDevIp, #editDevPort')
         .forEach(el => { el.disabled = readonly; });
+    modalEl.querySelectorAll('[id^="attr_"]')
+        .forEach(el => { el.disabled = readonly && SYS_PROP_NAMES.has(el.id.slice(5)); });
     document.getElementById('editDevForm').action =
-        '/inventory/' + device.id + (readonly ? '/mappings' : '/edit');
+        '/inventory/' + device.id + (readonly ? '/attributes' : '/edit');
     const editIsGlobal = document.getElementById('editIsGlobal');
     if (editIsGlobal) editIsGlobal.checked = !!device.is_global;
     document.getElementById('editGlobalProfileError').style.display = 'none';

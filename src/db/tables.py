@@ -74,6 +74,10 @@ class User(UserMixin, Base):
 		cascade="all, delete-orphan")
 	property_definitions: Mapped[list["PropertyDefinition"]] = relationship(
 		back_populates="user", cascade="all, delete-orphan")
+	# the database deletes them with the user (ON DELETE CASCADE)
+	device_attributes: Mapped[list["DeviceAttribute"]] = relationship(
+		back_populates="user", cascade="all, delete-orphan",
+		passive_deletes=True)
 	ldap_server: Mapped["LDAPServer | None"] = relationship(
 		back_populates="users")
 
@@ -100,8 +104,9 @@ class SecurityProfile(Base):
 
 class Inventory(Base):
 	"""A device: where it is (ip:port), what it is (Netmiko device type), its
-	login (a security profile) and its attribute values for variable
-	mappings (var_maps)."""
+	login (a security profile) and its system attribute values for variable
+	mappings (var_maps: the system properties only, shared by everyone who
+	sees it; each user's custom values are DeviceAttribute rows)."""
 	__tablename__ = 'inventory'
 	id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True,
 	                                      default=uuid.uuid4)
@@ -127,6 +132,30 @@ class Inventory(Base):
 	user: Mapped["User"] = relationship(back_populates="inventory")
 	var_mappings: Mapped[list["VariableMapping"]] = \
 		relationship(secondary=var_mapping_to_devices, back_populates="devices")
+	# every user's custom values on it (the database deletes them with it)
+	custom_attributes: Mapped[list["DeviceAttribute"]] = relationship(
+		back_populates="device", cascade="all, delete-orphan",
+		passive_deletes=True)
+
+
+class DeviceAttribute(Base):
+	"""One user's value of one of their custom properties on a device (a text
+	or a list of texts) - theirs alone: another user's property of the same
+	name has its own row."""
+	__tablename__ = 'device_attributes'
+	__table_args__ = (UniqueConstraint('device_id', 'user_id', 'name'),)
+	id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True,
+	                                      default=uuid.uuid4)
+	device_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey(
+		"inventory.id", ondelete="CASCADE"), nullable=False)
+	user_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey(
+		"users.id", ondelete="CASCADE"), nullable=False, index=True)
+	# the property's name (PropertyDefinition.name of that user)
+	name: Mapped[str] = mapped_column(String(64), nullable=False)
+	value: Mapped[str | list[str]] = mapped_column(JSON, nullable=False)
+
+	device: Mapped["Inventory"] = relationship(back_populates="custom_attributes")
+	user: Mapped["User"] = relationship(back_populates="device_attributes")
 
 
 class VariableMapping(Base):

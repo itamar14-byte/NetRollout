@@ -15,30 +15,12 @@ from sqlalchemy.orm import Session
 from src.db.connections import BackendServices
 from src.db.tables import AuditLog, Base, PropertyDefinition, SecurityProfile
 from src.encryption import encrypt
-from src.inventory import ReachabilityChecker
+from src.inventory import SYSTEM_PROPERTIES, ReachabilityChecker
 from src.webapp.app import current_app
 
 
 # A view function, and one that receives the request's data as `data`
 View = Callable[..., ResponseReturnValue]
-
-SYSTEM_PROPERTIES: list[dict[str, Any]] = [
-	{"name": "hostname", "label": "Hostname", "icon": "bi-type-h1",
-	 "is_list": False},
-	{"name": "loopback_ip", "label": "Loopback IP", "icon": "bi-hdd-network",
-	 "is_list": False},
-	{"name": "asn", "label": "ASN", "icon": "bi-diagram-3", "is_list": False},
-	{"name": "mgmt_vrf", "label": "Management VRF", "icon": "bi-box",
-	 "is_list": False},
-	{"name": "mgmt_interface", "label": "Management Interface",
-	 "icon": "bi-ethernet", "is_list": False},
-	{"name": "site", "label": "Site", "icon": "bi-geo-alt", "is_list": False},
-	{"name": "domain", "label": "Domain", "icon": "bi-globe2",
-	 "is_list": False},
-	{"name": "timezone", "label": "Timezone", "icon": "bi-clock",
-	 "is_list": False},
-	{"name": "vrfs", "label": "VRFs", "icon": "bi-layers", "is_list": True},
-]
 
 
 def ok(message: str | None = None, /, **extra: Any) -> Response:

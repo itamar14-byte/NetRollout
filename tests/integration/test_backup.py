@@ -9,12 +9,13 @@ import sqlite3
 import pytest
 from alembic import command as alembic_command
 from cryptography.fernet import Fernet
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import Session
 
 from src.backup import archive
 from src.db.connections import PostgresConfig, PostgresConnection
-from src.db.tables import AuditLog, SecurityProfile, SystemSetting, User
+from src.db.tables import (AuditLog, DeviceAttribute, Inventory, SecurityProfile,
+                           SystemSetting, User)
 from tests.integration.conftest import PG_ADMIN_URL
 
 pytestmark = [pytest.mark.postgres]
@@ -90,7 +91,8 @@ def revision_of(engine):
 
 def populate(engine, key, role="admin"):
 	"""Add a user, a security profile encrypted with `key`, the https_port setting
-	and an audit row."""
+	and an audit row - and, where the database has the table, a device with one
+	of the user's custom attribute values."""
 	cipher = Fernet(key)
 	with Session(engine) as s, s.begin():
 		user = User(username="alice", password_hash="x", email="a@example.com",
@@ -101,6 +103,14 @@ def populate(engine, key, role="admin"):
 		                      password_secret=cipher.encrypt(b"s3cret").decode()))
 		s.add(SystemSetting(key="https_port", value=443))
 		s.add(AuditLog(actor_username="alice", action="auth.login"))
+		if inspect(s.connection()).has_table("device_attributes"):
+			device = Inventory(ip="10.0.0.1", port=22, device_type="cisco_ios",
+			                   label="r1", user_id=user.id,
+			                   var_maps={"hostname": "r1"})
+			s.add(device)
+			s.flush()
+			s.add(DeviceAttribute(device_id=device.id, user_id=user.id,
+			                      name="uplinks", value=["Gi0/1", "Gi0/2"]))
 
 
 def test_a_backup_restores_into_another_database_through_a_non_superuser(
@@ -123,6 +133,7 @@ def test_a_backup_restores_into_another_database_through_a_non_superuser(
 	manifest = archive.check(path)
 	assert manifest.revision == revision_of(source)
 	assert manifest.tables["users"] == 1 and manifest.tables["security_profiles"] == 1
+	assert manifest.tables["device_attributes"] == 1
 
 	# restoring into an install with its own (organisation's) certificate
 	restored_places = archive.Places(places.backups, places.certs.parent / "c2",
@@ -137,6 +148,9 @@ def test_a_backup_restores_into_another_database_through_a_non_superuser(
 		profile = s.query(SecurityProfile).one()
 		assert Fernet(key).decrypt(profile.password_secret.encode()) == b"s3cret"
 		assert s.query(User).one().username == "alice"
+		attribute = s.query(DeviceAttribute).one()
+		assert (attribute.device.label, attribute.user.username, attribute.name,
+		        attribute.value) == ("r1", "alice", "uplinks", ["Gi0/1", "Gi0/2"])
 		assert s.get(SystemSetting, "https_port").value == 8443
 		actions = {a.action for a in s.query(AuditLog)}
 		assert actions == {"auth.login", "backup.restored"}

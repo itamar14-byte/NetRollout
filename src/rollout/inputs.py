@@ -11,7 +11,8 @@ import re
 import socket
 import time
 import uuid
-from typing import TYPE_CHECKING
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Any
 
 from src.rollout.engine import Device, endpoint
 from src.rollout.log import RolloutLogger
@@ -221,13 +222,19 @@ class InputParser:
 		return devices, errors
 
 	@staticmethod
-	def import_from_inventory(raw_devices: list[Inventory],
-	                          user_id: uuid.UUID) -> list[Device]:
+	def import_from_inventory(raw_devices: list[Inventory], user_id: uuid.UUID,
+	                          attributes: Mapping[uuid.UUID, dict[str, Any]] | None = None
+	                          ) -> list[Device]:
 		"""Inventory rows made Devices for a rollout (their profiles decrypted).
 
 		:param user_id: who rolls out - only their own variable mappings apply
+		:param attributes: each device's attribute values as that user sees
+		 them, by device id (the web app: src/inventory.attributes); None:
+		 the rows' own (var_maps)
 		:raises ValueError: a device without a security profile"""
-		return [Device.from_inventory(row, user_id) for row in raw_devices]
+		return [Device.from_inventory(
+			row, user_id, None if attributes is None else attributes.get(row.id, {}))
+			for row in raw_devices]
 
 	def parse_commands(self, commands_path: str) -> list[str]:
 		"""The commands of a commands file: UTF-8, one per line, stripped,

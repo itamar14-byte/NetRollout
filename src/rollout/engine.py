@@ -143,7 +143,7 @@ class Device:
 	# $$TOKEN$$ -> (attribute name, index in a list attribute or None)
 	var_map_subs: dict[str, tuple[str, int | None]] = field(
 		default_factory=dict)
-	# the attribute values (var_maps): text, or a list of texts
+	# the attribute values the rolling-out user sees: text, or a list of texts
 	extra: dict[str, Any] = field(default_factory=dict)
 
 	@property
@@ -188,11 +188,15 @@ class Device:
 			return None
 
 	@classmethod
-	def from_inventory(cls, row: "Inventory", user_id: uuid.UUID) -> "Device":
+	def from_inventory(cls, row: "Inventory", user_id: uuid.UUID,
+	                   attributes: dict[str, Any] | None = None) -> "Device":
 		"""A rollout target from an inventory row, credentials decrypted.
 
 		:param user_id: who rolls out - only their own mappings apply (the
 		 join table is shared across users through global devices)
+		:param attributes: the device's attribute values as that user sees
+		 them (the web app: src/inventory.attributes - the device's system
+		 values and the user's own custom ones); None: the row's var_maps
 		:raises ValueError: the device has no security profile"""
 		profile = row.security_profile
 		mappings = [m for m in row.var_mappings if m.user_id == user_id]
@@ -208,7 +212,7 @@ class Device:
 		           secret=encryption.decrypt(profile.enable_secret) if
 		           profile.enable_secret else "",
 		           var_map_subs=parsed_mappings,
-		           extra=row.var_maps or {})
+		           extra=(row.var_maps or {}) if attributes is None else attributes)
 
 
 def _enter_cli_shell(conn: BaseConnection, platform: Platform) -> str | None:

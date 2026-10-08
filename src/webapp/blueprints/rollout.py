@@ -14,7 +14,7 @@ from flask_login import current_user, login_required
 from werkzeug.wrappers import Response as BaseResponse
 
 from src.db.tables import DeviceResult, Inventory, User
-from src.inventory import visible_devices_clause, query_visible_devices, partition_devices
+from src.inventory import attributes, visible_devices_clause, query_visible_devices, partition_devices
 from src.jobs import Draining
 from src.rollout.engine import Device, RolloutOptions
 from src.rollout.inputs import InputParser
@@ -85,6 +85,7 @@ def load_devices(selected_ids: list[uuid.UUID]) -> list[Device] | BaseResponse:
 		# Preload relationships needed for runtime device construction.
 		_ = [row.security_profile for row in selected_rows]
 		_ = [row.var_mappings for row in selected_rows]
+		values = attributes(db_session, selected_rows, current_user.id)
 		db_session.expunge_all()
 
 	# 7) Validate the selected devices.
@@ -106,7 +107,8 @@ def load_devices(selected_ids: list[uuid.UUID]) -> list[Device] | BaseResponse:
 
 	# 9) Convert ORM inventory rows into runtime Device objects.
 	try:
-		return InputParser.import_from_inventory(selected_rows, current_user.id)
+		return InputParser.import_from_inventory(selected_rows, current_user.id,
+		                                         values)
 	except ValueError as e:
 		flash(str(e), "danger")
 		return redirect(url_for("rollout.new_rollout"))
@@ -408,11 +410,12 @@ def rollback(job_id: uuid.UUID, data: dict[str, Any]) -> ResponseReturnValue:
 
 		_ = [row.security_profile for row in rows]
 		_ = [row.var_mappings for row in rows]
+		values = attributes(db_session, rows, owner_id)   # the owner's values
 		db_session.expunge_all()
 
 	commands = [l.strip() for l in data["commands"].splitlines() if l.strip()]
 	try:
-		devices = InputParser.import_from_inventory(rows, owner_id)
+		devices = InputParser.import_from_inventory(rows, owner_id, values)
 	except ValueError as e:              # a device without a security profile
 		return err(f"Can't roll back: {e}.", 409)
 	if unreachable := unreachable_devices(devices):
