@@ -55,12 +55,16 @@ def test_an_admin_can_be_added(admin, client_for, session_scope):
 	({"full_name": ""}, "Full name is required"),
 	({"email": "dana.corp.example"}, "isn't valid"),
 	({"username": "d" * 65}, "at most 64"),
+	({"username": "<b>dana</b>"}, "letters, digits"),
+	({"username": "dana smith"}, "letters, digits"),
+	({"username": ".dana"}, "letters, digits"),
 	({"role": "superuser"}, "operator or admin"),
 ])
 def test_refused_in_words(admin, client_for, session_scope, changes, message):
 	"""A missing username / email / full name, an email without @, a username
-	over 64 characters or an unknown role is refused with 422 and a message
-	saying why; no user is created (the admin is the only one)."""
+	over 64 characters or with other characters than letters, digits, . _ -
+	(starting with a letter or digit), or an unknown role is refused with 422
+	and a message saying why; no user is created (the admin is the only one)."""
 	resp = add(client_for(admin, xhr=True), **changes)
 	assert resp.status_code == 422 and message in resp.json["message"]
 	with session_scope() as s:
@@ -74,6 +78,14 @@ def test_a_taken_username_or_email_is_refused(admin, client_for, make_user):
 	c = client_for(admin, xhr=True)
 	assert "username is taken" in add(c).json["message"]
 	assert "already in use" in add(c, username="dana2", email=f"{taken.username}@test.local").json["message"]
+
+
+def test_a_username_taken_in_other_capitals_is_refused(admin, client_for, make_user):
+	"""A new local account can't be "Dana" next to "dana" - one person, one name
+	(sign-in treats a directory's names case-insensitively too)."""
+	make_user(username="dana")
+	resp = add(client_for(admin, xhr=True), username="Dana", email="d2@corp.example")
+	assert resp.status_code == 422 and "username is taken" in resp.json["message"]
 
 
 def test_operators_cant_add_users(make_user, client_for):
@@ -91,6 +103,9 @@ def test_request_access_uses_the_same_checks(client_for, session_scope, make_use
 	resp = client_for().post("/register", data={**FORM, "username": "e" * 65, "email": "e@y.io",
 	                                            "password": "Str0ng-pass"}, follow_redirects=True)
 	assert b"at most 64 characters" in resp.data
+	resp = client_for().post("/register", data={**FORM, "username": "<i>e</i>", "email": "e@y.io",
+	                                            "password": "Str0ng-pass"}, follow_redirects=True)
+	assert b"letters, digits" in resp.data
 	with session_scope() as s:
 		assert s.query(User).filter_by(email="e@y.io").count() == 0
 

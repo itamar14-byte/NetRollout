@@ -1,6 +1,7 @@
 """Variable mappings: a $$TOKEN$$ in the commands bound to a device
 property (or one item of a list property), resolved per device at rollout -
 create, edit, delete, and assign devices to one."""
+import re
 import uuid
 from typing import Any
 
@@ -363,6 +364,29 @@ def properties() -> str:
 	                       user_props=user_props, active_section="properties")
 
 
+# A property's name is the dict key $$TOKEN$$ substitution reads; its icon a
+# Bootstrap Icons class put in a class attribute - nothing else belongs in either
+PROPERTY_NAME_RE = re.compile(r"[a-z][a-z0-9_]*")
+ICON_RE = re.compile(r"bi-[a-z0-9-]+")
+PROPERTY_FIELD_MAX = 64     # the columns' length
+
+
+def property_problem(label: str, icon: str, name: str | None = None) -> str | None:
+	""":param name: a new property's (normalised) name; None: an edit
+	:returns: why the property can't be saved, None when it can"""
+	if name is not None:
+		if len(name) > PROPERTY_FIELD_MAX:
+			return f"The name is too long (at most {PROPERTY_FIELD_MAX} characters)."
+		if not PROPERTY_NAME_RE.fullmatch(name):
+			return ("The name may contain letters, digits and _ (starting with a letter): "
+			        "it's the key $$TOKEN$$ substitution uses.")
+	if len(label) > PROPERTY_FIELD_MAX:
+		return f"The label is too long (at most {PROPERTY_FIELD_MAX} characters)."
+	if len(icon) > PROPERTY_FIELD_MAX or not ICON_RE.fullmatch(icon):
+		return "The icon must be a Bootstrap Icons class, e.g. bi-tag."
+	return None
+
+
 @properties_bp.route("/create", methods=["POST"])
 @properties_bp.route("/quick_create", methods=["POST"])
 @login_required
@@ -379,6 +403,8 @@ def properties_create() -> ResponseReturnValue:
 	is_list = bool(data.get("is_list", False))
 	if not name or not label:
 		return err("Name and label are required.")
+	if problem := property_problem(label, icon, name):
+		return err(problem)
 	with current_app.backend.postgres.get_session() as db_session:
 		existing = db_session.query(PropertyDefinition).filter_by(
 			name=name, user_id=current_user.id).first()
@@ -408,6 +434,8 @@ def properties_edit(prop_id: uuid.UUID) -> ResponseReturnValue:
 	is_list = bool(data.get("is_list", False))
 	if not label:
 		return err("Label is required.")
+	if problem := property_problem(label, icon):
+		return err(problem)
 	return current_app.web.act_on_db_obj(
 		PropertyDefinition, prop_id,
 		current_app.web.update_op({"label": label, "icon": icon, "is_list":

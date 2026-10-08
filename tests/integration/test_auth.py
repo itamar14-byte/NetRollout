@@ -446,6 +446,17 @@ def test_a_local_name_in_other_capitals_creates_no_ldap_account(client_for, make
 		assert [u.username for u in s.query(User).all()] == ["carol"]
 
 
+def test_a_failed_sign_in_with_a_long_name_is_still_audited(client_for, session_scope):
+	"""A failed sign-in under a name longer than the audit column (64) is refused
+	and audited with the name cut to 64 characters - not a server error that
+	leaves no trace."""
+	resp = login(client_for(), "x" * 200, "whatever")
+	assert resp.status_code == 302 and resp.headers["Location"] == "/"
+	with session_scope() as s:
+		(row,) = s.query(AuditLog).filter_by(action="auth.login").all()
+		assert row.actor_username == "x" * 64 and row.success is False
+
+
 # ── Session lifecycle ────────────────────────────────────────────────────────
 
 def test_logout_ends_session(client_for, make_user):
