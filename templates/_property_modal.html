@@ -1,0 +1,58 @@
+{# The new-property form in a modal (Properties' Add, the quick create on
+   Inventory and Variable Mappings): label, name (autoSlug from the label),
+   icon with its preview, list property, the error line. The fields' ids are
+   prefix + Label / Name / Icon / IconPreview / IsList / Error (the page's
+   script reads them); the footer is the page's, given as the call's body. #}
+{% macro property_modal(modal_id, prefix, max_width, esc_closes, badge, title, name_hint, name_help, icon_hint, icon_placeholder, list_label) %}
+<div class="modal fade" id="{{ modal_id }}" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="{{ 'true' if esc_closes else 'false' }}">
+    <div class="modal-dialog modal-dialog-centered" style="max-width:{{ max_width }};">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div>
+                    <div class="nr-badge" style="margin-bottom:0.3rem;">{{ badge }}</div>
+                    <h5 class="modal-title">{{ title }}</h5>
+                </div>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="nr-label">LABEL</label>
+                    <input type="text" class="form-control form-control-sm" id="{{ prefix }}Label"
+                           placeholder="e.g. BGP Peer IP" autocomplete="off"
+                           oninput="autoSlug('{{ prefix }}Label','{{ prefix }}Name')">
+                </div>
+                <div class="mb-3">
+                    <label class="nr-label">NAME <span style="color:var(--nr-text-muted); text-transform:none; letter-spacing:0;">({{ name_hint }})</span></label>
+                    <input type="text" class="form-control form-control-sm" id="{{ prefix }}Name"
+                           placeholder="bgp_peer_ip" autocomplete="off">
+                    <div style="font-size: 0.75rem; color:var(--nr-text-muted); margin-top:3px;">{{ name_help }}</div>
+                </div>
+                <div class="mb-3">
+                    <label class="nr-label">ICON{% if icon_hint %} <span style="color:var(--nr-text-muted); text-transform:none; letter-spacing:0;">({{ icon_hint }})</span>{% endif %}</label>
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text" style="background:#111; border-color:#2a2a2a;">
+                            <i id="{{ prefix }}IconPreview" class="bi bi-tag" style="color:var(--nr-text-faint);"></i>
+                        </span>
+                        <input type="text" class="form-control form-control-sm" id="{{ prefix }}Icon"
+                               value="bi-tag"{% if icon_placeholder %} placeholder="bi-tag"{% endif %} autocomplete="off"
+                               oninput="document.getElementById('{{ prefix }}IconPreview').className='bi ' + this.value">
+                    </div>
+                    <a href="https://icons.getbootstrap.com" target="_blank" rel="noopener"
+                       style="font-size: 0.75rem; color:var(--nr-text-muted); text-decoration:none;"
+                       onmouseenter="this.style.color='#00bcd4'"
+                       onmouseleave="this.style.color='var(--nr-text-muted)'">
+                        Browse Bootstrap Icons ↗
+                    </a>
+                </div>
+                <div class="form-check">
+                    <input type="checkbox" class="form-check-input" id="{{ prefix }}IsList">
+                    <label class="form-check-label" for="{{ prefix }}IsList"
+                           style="font-size:0.8rem; color:#888;">{{ list_label }}</label>
+                </div>
+                <div id="{{ prefix }}Error" style="display:none; font-size:0.78rem; color:#ef5350; margin-top:8px;"></div>
+            </div>
+{{ caller() }}
+        </div>
+    </div>
+</div>
+{% endmacro %}

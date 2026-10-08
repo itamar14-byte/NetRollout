@@ -514,61 +514,25 @@
 <!-- ══════════════════════════════════════
      QUICK CREATE — PROPERTY
 ══════════════════════════════════════ -->
-<div class="modal fade" id="mappingQuickPropModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="true">
-    <div class="modal-dialog modal-dialog-centered" style="max-width:360px;">
-        <div class="modal-content">
-            <div class="modal-header">
-                <div>
-                    <div class="nr-badge" style="margin-bottom:0.3rem;">QUICK CREATE</div>
-                    <h5 class="modal-title">New Property</h5>
-                </div>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <div class="mb-3">
-                    <label class="nr-label">LABEL</label>
-                    <input type="text" class="form-control form-control-sm" id="mqpLabel"
-                           placeholder="e.g. BGP Peer IP" autocomplete="off"
-                           oninput="autoSlug('mqpLabel','mqpName')">
-                </div>
-                <div class="mb-3">
-                    <label class="nr-label">NAME <span style="color:var(--nr-text-muted); text-transform:none; letter-spacing:0;">(auto-generated · immutable)</span></label>
-                    <input type="text" class="form-control form-control-sm" id="mqpName"
-                           placeholder="bgp_peer_ip" autocomplete="off">
-                    <div style="font-size: 0.75rem; color:var(--nr-text-muted); margin-top:3px;">Dict key for $$TOKEN$$ substitution. Edit if needed.</div>
-                </div>
-                <div class="mb-3">
-                    <label class="nr-label">ICON</label>
-                    <div class="input-group input-group-sm">
-                        <span class="input-group-text" style="background:#111; border-color:#2a2a2a;">
-                            <i id="mqpIconPreview" class="bi bi-tag" style="color:var(--nr-text-faint);"></i>
-                        </span>
-                        <input type="text" class="form-control form-control-sm" id="mqpIcon"
-                               value="bi-tag" autocomplete="off"
-                               oninput="document.getElementById('mqpIconPreview').className='bi ' + this.value">
-                    </div>
-                    <a href="https://icons.getbootstrap.com" target="_blank" rel="noopener"
-                       style="font-size: 0.75rem; color:var(--nr-text-muted); text-decoration:none;"
-                       onmouseenter="this.style.color='#00bcd4'" onmouseleave="this.style.color='var(--nr-text-muted)'">
-                        Browse Bootstrap Icons ↗
-                    </a>
-                </div>
-                <div class="form-check">
-                    <input type="checkbox" class="form-check-input" id="mqpIsList">
-                    <label class="form-check-label" for="mqpIsList"
-                           style="font-size:0.8rem; color:#888;">List property</label>
-                </div>
-                <div id="mqpError" style="display:none; font-size:0.78rem; color:#ef5350; margin-top:8px;"></div>
-            </div>
+{% from "_property_modal.html" import property_modal %}
+{% call property_modal(modal_id="mappingQuickPropModal",
+                       prefix="mqp",
+                       max_width="360px",
+                       esc_closes=true,
+                       badge="QUICK CREATE",
+                       title="New Property",
+                       name_hint="auto-generated · immutable",
+                       name_help="Dict key for $$TOKEN$$ substitution. Edit if needed.",
+                       icon_hint="",
+                       icon_placeholder=false,
+                       list_label="List property") %}
             <div class="modal-footer d-flex justify-content-end gap-2">
                 <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
                 <button type="button" class="btn btn-primary btn-sm" onclick="submitMappingQuickProp()">
                     <i class="bi bi-plus me-1"></i>Create
                 </button>
             </div>
-        </div>
-    </div>
-</div>
+{% endcall %}
 
 {% endblock %}
 
