@@ -287,6 +287,7 @@
     min-width: 110px;
     text-align: center;
 }
+.job-action-btn.btn-rollback:hover { border-color:rgba(255,224,130,0.3); color:#ffe082; background:rgba(255,224,130,0.04); }
 .job-action-btn.is-disabled,
 .job-action-btn.is-disabled:hover {
     opacity: 0.3;
@@ -438,6 +439,14 @@
                   title="Config snapshots are kept {{ config_retention_days }} days — this job's have expired">
                 <i class="bi bi-clock-history"></i> Verify Diff expired
             </span>
+            {% endif %}
+            {# a rollback targets the devices the job configured successfully #}
+            {% if job.devices | selectattr('status', 'equalto', 'success') | first %}
+            <button type="button" class="job-action-btn btn-rollback"
+                    data-job-id="{{ job.job_id }}" data-rollback-job="{{ job.job_id }}"
+                    onclick="openRollback(this.dataset.jobId)">
+                <i class="bi bi-arrow-counterclockwise"></i> Rollback
+            </button>
             {% endif %}
         </div>
 
@@ -753,6 +762,8 @@
         </div>
     </div>
 </div>
+
+{% include "_rollback.html" %}
 
 {% endblock %}
 

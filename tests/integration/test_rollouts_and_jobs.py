@@ -300,6 +300,113 @@ def test_rollback_matches_on_ip_and_port(operator, client_for, session_scope,
 	assert [d.label for d in call.devices] == ["node-a"]  # not the failed one
 
 
+def _rollback_audit(session_scope, job):
+	"""The rollout.rollback audit row of a job: (actor, detail)."""
+	with session_scope() as s:
+		(row,) = s.query(AuditLog).filter_by(action="rollout.rollback",
+		                                     object_id=job).all()
+		return row.actor_username, row.detail
+
+
+def test_operator_rolls_back_own_job_audited_with_owner(
+		operator, client_for, session_scope, captured_submits):
+	"""An operator's rollback of their own job is submitted as them to their
+	device, and the audit names the job's owner (them)."""
+	job = uuid.uuid4()
+	add_result(session_scope, operator.user, job, ip="10.0.0.1")
+	resp = client_for(operator.user).post(f"/rollout/rollback/{job}",
+	                                      json={"commands": "no hostname"})
+	assert resp.json["status"] == "ok"
+	(call,) = captured_submits
+	assert call.user_id == operator.user.id
+	assert [d.label for d in call.devices] == ["dev-10.0.0.1"]
+	actor, detail = _rollback_audit(session_scope, job)
+	assert actor == operator.user.username
+	assert detail["job_owner"] == operator.user.username
+	assert detail["job_owner_id"] == str(operator.user.id)
+
+
+def test_operator_cannot_roll_back_another_users_job(
+		operator, client_for, session_scope, make_user, captured_submits):
+	"""Another operator's job is answered 404 (as its summary is), nothing
+	submitted."""
+	job = uuid.uuid4()
+	add_result(session_scope, operator.user, job, ip="10.0.0.1")
+	resp = client_for(make_user()).post(f"/rollout/rollback/{job}",
+	                                    json={"commands": "no hostname"})
+	assert resp.status_code == 404
+	assert captured_submits == []
+
+
+def test_admin_rolls_back_another_users_job_on_the_owners_devices(
+		operator, client_for, session_scope, make_user, make_profile,
+		make_device, make_mapping, captured_submits):
+	"""An admin's rollback of an operator's job targets the operator's device
+	(not the admin's own entry on the same ip:port) with the operator's
+	variable mappings (not the admin's), is submitted as the admin, and the
+	audit names the operator as the job's owner."""
+	admin = make_user(role="admin")
+	make_device(admin, ip="10.0.0.1", label="ADMIN-OWN",
+	            profile_id=make_profile(admin))
+	make_mapping(operator.user, token="HOST", prop="hostname",
+	             devices=[operator.ios])
+	make_mapping(admin, token="ADM", prop="site", devices=[operator.ios])
+	job = uuid.uuid4()
+	add_result(session_scope, operator.user, job, ip="10.0.0.1")
+	add_result(session_scope, operator.user, job, ip="10.0.0.2", status="failed")
+	resp = client_for(admin).post(f"/rollout/rollback/{job}",
+	                              json={"commands": "no hostname"})
+	assert resp.json["status"] == "ok"
+	(call,) = captured_submits
+	assert call.user_id == admin.id
+	(device,) = call.devices
+	assert device.label == "dev-10.0.0.1"
+	assert device.var_map_subs == {"$$HOST$$": ("hostname", None)}
+	actor, detail = _rollback_audit(session_scope, job)
+	assert actor == admin.username
+	assert detail["job_owner"] == operator.user.username
+	assert detail["job_owner_id"] == str(operator.user.id)
+	assert detail["new_job_id"] == str(call.job_id)
+
+
+def test_rollback_of_a_job_without_successful_devices_is_refused(
+		operator, client_for, session_scope, captured_submits):
+	"""A job none of whose devices succeeded is refused with the reason;
+	nothing submitted."""
+	job = uuid.uuid4()
+	add_result(session_scope, operator.user, job, ip="10.0.0.1", status="failed")
+	resp = client_for(operator.user).post(f"/rollout/rollback/{job}",
+	                                      json={"commands": "no hostname"})
+	assert resp.status_code == 400
+	assert resp.json["message"] == \
+		"No successfully configured devices found for this job."
+	assert captured_submits == []
+
+
+def test_results_offer_rollback_only_with_a_successful_device(
+		operator, client_for, session_scope):
+	"""Results show Rollback (opening the shared dialog) on a job with a
+	successful device, not on a job whose devices all failed."""
+	good, bad = uuid.uuid4(), uuid.uuid4()
+	add_result(session_scope, operator.user, good, ip="10.0.0.1")
+	add_result(session_scope, operator.user, good, ip="10.0.0.2", status="failed")
+	add_result(session_scope, operator.user, bad, ip="10.0.0.1", status="failed")
+	html = client_for(operator.user).get("/results").get_data(as_text=True)
+	assert f'data-rollback-job="{good}"' in html
+	assert f'data-rollback-job="{bad}"' not in html
+	assert 'id="rollbackModal"' in html
+
+
+def test_results_offer_an_admin_rollback_of_another_users_job(
+		operator, client_for, session_scope, make_user):
+	"""An admin's Results show Rollback on another user's finished job."""
+	job = uuid.uuid4()
+	add_result(session_scope, operator.user, job, ip="10.0.0.1")
+	html = client_for(make_user(role="admin")).get("/results?view=all")\
+		.get_data(as_text=True)
+	assert f'data-rollback-job="{job}"' in html
+
+
 # ── Results / Verify Diff / logs ─────────────────────────────────────────────
 
 def test_results_distinguish_devices_sharing_an_ip(operator, client_for,
@@ -882,6 +989,26 @@ def test_active_jobs_lists_running_job(app, operator, client_for, monkeypatch):
 	_register_job_meta(app, operator.user, job.job_id)
 	resp = client_for(operator.user).get("/active_jobs")
 	assert resp.status_code == 200 and str(job.job_id) in resp.get_data(as_text=True)
+
+
+def test_active_jobs_rollback_waits_for_the_job_to_finish(
+		app, operator, client_for, monkeypatch):
+	"""A running job's Rollback is disabled, inside a wrapper whose tooltip
+	says it's available when the rollout finishes."""
+	job = FakeRunningJob(operator.user.id)
+	job.started_at = dt.datetime.now()
+	job.get_device_count = lambda: 1
+	monkeypatch.setitem(app.orchestrator._jobs, job.job_id, job)
+	_register_job_meta(app, operator.user, job.job_id)
+	html = client_for(operator.user).get("/active_jobs").get_data(as_text=True)
+	wrapper = re.search(
+		r'<span class="rollback-wait"[^>]*title="([^"]*)">\s*'
+		r'<button type="button" class="job-action-btn btn-rollback" disabled>',
+		html)
+	assert wrapper is not None
+	assert wrapper.group(1) == ("Available when the rollout finishes — then "
+	                            "from the completion card or Results")
+	assert "openRollback('" not in html
 
 
 def test_active_jobs_survives_orphaned_job_meta(app, operator, client_for):

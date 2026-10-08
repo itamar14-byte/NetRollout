@@ -12,7 +12,7 @@ from flask.typing import ResponseReturnValue
 from flask_login import current_user, login_required
 from werkzeug.wrappers import Response as BaseResponse
 
-from src.db.tables import DeviceResult, Inventory
+from src.db.tables import DeviceResult, Inventory, User
 from src.inventory import visible_devices_clause, query_visible_devices, partition_devices
 from src.jobs import Draining
 from src.rollout.engine import Device, RolloutOptions
@@ -337,31 +337,43 @@ def rollout_stream(job_id: uuid.UUID) -> Response:
 @with_json("commands")
 def rollback(job_id: uuid.UUID, data: dict[str, Any]) -> ResponseReturnValue:
 	"""A new rollout of the given commands (JSON {commands, verify?,
-	verbose?}) to the devices one of the user's jobs configured successfully
-	- matched by ip:port, the user's own entry preferred. Audited
-	(rollout.rollback).
+	verbose?}) to the devices a finished job configured successfully - the
+	user's own job, or anyone's for an admin. The devices are the job
+	owner's: matched by ip:port among what the owner may see (their own
+	entry preferred), their variables resolved with the owner's mappings, so
+	the rollback targets what the job configured; the new job is the
+	signed-in user's. Audited (rollout.rollback, with the job's owner).
 
-	:returns: {"status": "ok", job_id} or an error"""
+	:returns: {"status": "ok", job_id}; 404 when the job has no results (yet)
+	 or isn't the user's; or another error"""
 	with current_app.backend.postgres.get_session() as db_session:
+		first = db_session.query(DeviceResult.user_id).filter_by(
+			job_id=job_id).first()
+		if first is None or (current_user.role != "admin"
+		                     and first.user_id != current_user.id):
+			return err("Not found", 404)
+		owner_id = first.user_id
+		owner = db_session.get(User, owner_id)
+		owner_name = owner.username if owner else None
 		result = db_session.query(DeviceResult).filter_by(
-			user_id=current_user.id,
+			user_id=owner_id,
 			job_id=job_id,
 			status="success").all()
 		successful = {(r.device_ip, r.device_port) for r in result}
 
 		candidates = db_session.query(Inventory).filter(
-			visible_devices_clause(current_user.id),
+			visible_devices_clause(owner_id),
 			Inventory.ip.in_({ip for ip, _ in successful})).all()
 		# Match on ip:port (the target), not IP alone — devices behind one
-		# NAT address differ by port. A user's own entry and a global entry
-		# can still describe the same target: keep one per ip:port,
-		# preferring the user's own, so the box isn't pushed twice.
+		# NAT address differ by port. The owner's own entry and a global
+		# entry can still describe the same target: keep one per ip:port,
+		# preferring the owner's own, so the box isn't pushed twice.
 		by_target: dict[tuple[str, int], Inventory] = {}
 		for row in candidates:
 			target = (row.ip, row.port)
 			if target not in successful:
 				continue
-			if target not in by_target or row.user_id == current_user.id:
+			if target not in by_target or row.user_id == owner_id:
 				by_target[target] = row
 		rows = list(by_target.values())
 		if not rows:
@@ -373,7 +385,7 @@ def rollback(job_id: uuid.UUID, data: dict[str, Any]) -> ResponseReturnValue:
 
 	commands = [l.strip() for l in data["commands"].splitlines() if l.strip()]
 	try:
-		devices = InputParser.import_from_inventory(rows, current_user.id)
+		devices = InputParser.import_from_inventory(rows, owner_id)
 	except ValueError as e:              # a device without a security profile
 		return err(f"Can't roll back: {e}.", 409)
 	if unreachable := unreachable_devices(devices):
@@ -390,5 +402,8 @@ def rollback(job_id: uuid.UUID, data: dict[str, Any]) -> ResponseReturnValue:
 	except Draining as e:
 		return err(str(e), 503)
 	current_app.web.audit("rollout.rollback", object_id=job_id,
-	      detail={"new_job_id": str(new_job_id), "device_count": len(devices)})
+	                      detail={"new_job_id": str(new_job_id),
+	                              "device_count": len(devices),
+	                              "job_owner_id": str(owner_id),
+	                              "job_owner": owner_name})
 	return ok(job_id=str(new_job_id))

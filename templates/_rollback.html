@@ -1,0 +1,120 @@
+{# The rollback dialog, shared by Active Jobs (the completion card) and Results:
+   openRollback(jobId) opens it for a finished job; Execute Rollback posts the
+   commands to /rollout/rollback/<job> and goes to Active Jobs with the new job.
+   Pages open it with data-job-id + onclick="openRollback(this.dataset.jobId)". #}
+<div class="modal fade" id="rollbackModal" tabindex="-1" data-bs-backdrop="static">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header border-0 pb-0">
+                <span class="nr-badge" style="color:#ffe082; border-color:rgba(255,224,130,0.25);">ROLLBACK</span>
+                <button type="button" class="btn-close btn-close-white"
+                        data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body pt-2">
+                <h6 style="color:#e0e0e0; font-weight:600; margin-bottom:0.4rem;">
+                    <i class="bi bi-arrow-counterclockwise me-2" style="color:#ffe082;"></i>
+                    Compensatory Commands
+                </h6>
+                <p style="font-size:0.8rem; color:var(--nr-text-muted); margin-bottom:0.85rem;">
+                    Provide the compensatory commands to push to successfully configured devices.
+                    <span class="nr-muted">Device attributes are resolved at rollback time — verify they still reflect the current network state.</span>
+                </p>
+                <div id="rollbackError"
+                     style="display:none; font-family:'Inter',sans-serif; font-size:0.78rem;
+                            color:#ef9a9a; background:rgba(239,83,80,0.06);
+                            border:1px solid rgba(239,83,80,0.2); border-radius:6px;
+                            padding:0.5rem 0.75rem; margin-bottom:0.75rem;">
+                </div>
+                <textarea id="rollbackCommands"
+                          class="form-control"
+                          rows="7"
+                          placeholder="no interface GigabitEthernet0/1&#10;no description uplink"
+                          style="font-family:'JetBrains Mono',monospace; font-size:0.78rem;
+                                 background:#111; border-color:#222; color:#ccc; resize:vertical;">
+                </textarea>
+                <div class="d-flex gap-3 mt-2">
+                    <label class="option-check" style="font-size:0.78rem; color:var(--nr-text-muted); display:flex; align-items:center; gap:0.4rem; cursor:pointer;">
+                        <input type="checkbox" id="rollbackVerify" style="accent-color:#00bcd4;">
+                        <i class="bi bi-patch-check nr-accent"></i>
+                        Verify after push
+                        <span title="Verification is based on best-effort text matching. Vendors that restructure the config file (e.g. JSON-based platforms) may produce false negatives."
+                              style="font-family:'JetBrains Mono',monospace; font-size: 0.6875rem;
+                                     color:var(--nr-text-muted); border:1px solid #2a2a2a; border-radius:50%;
+                                     width:14px; height:14px; display:inline-flex;
+                                     align-items:center; justify-content:center;
+                                     cursor:help; flex-shrink:0;">?</span>
+                    </label>
+                    <label class="option-check" style="font-size:0.78rem; color:var(--nr-text-muted); display:flex; align-items:center; gap:0.4rem; cursor:pointer;">
+                        <input type="checkbox" id="rollbackVerbose" style="accent-color:#00bcd4;">
+                        <i class="bi bi-terminal nr-faint"></i>
+                        Verbose
+                    </label>
+                </div>
+                <input type="hidden" id="rollbackJobId">
+            </div>
+            <div class="modal-footer border-0 pt-1">
+                <button class="btn btn-outline-secondary btn-sm"
+                        data-bs-dismiss="modal">Cancel</button>
+                <button class="btn btn-sm" id="rollbackSubmitBtn"
+                        style="background:rgba(255,224,130,0.1); border:1px solid rgba(255,224,130,0.3);
+                               color:#ffe082; font-size:0.8rem;"
+                        onclick="submitRollback()">
+                    <i class="bi bi-arrow-counterclockwise me-1"></i>Execute Rollback
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+(function () {
+    let rollbackModal = null;
+
+    window.openRollback = function(jobId) {
+        document.getElementById("rollbackJobId").value = jobId;
+        document.getElementById("rollbackCommands").value = "";
+        document.getElementById("rollbackVerify").checked = false;
+        document.getElementById("rollbackVerbose").checked = false;
+        const err = document.getElementById("rollbackError");
+        err.style.display = "none";
+        err.textContent = "";
+        if (!rollbackModal) {
+            rollbackModal = new bootstrap.Modal(
+                document.getElementById("rollbackModal"));
+        }
+        rollbackModal.show();
+    };
+
+    window.submitRollback = function() {
+        const jobId    = document.getElementById("rollbackJobId").value;
+        const commands = document.getElementById("rollbackCommands").value.trim();
+        if (!commands) {
+            document.getElementById("rollbackCommands").focus();
+            return;
+        }
+        fetch(`/rollout/rollback/${encodeURIComponent(jobId)}`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "X-CSRFToken": CSRF_TOKEN
+            },
+            body: JSON.stringify({
+                commands,
+                verify: document.getElementById("rollbackVerify").checked,
+                verbose: document.getElementById("rollbackVerbose").checked
+            })
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.status === "ok") {
+                rollbackModal.hide();
+                window.location.href = `/active_jobs?new=${encodeURIComponent(data.job_id)}`;
+            } else {
+                const err = document.getElementById("rollbackError");
+                err.textContent = data.message || "Rollback failed.";
+                err.style.display = "block";
+            }
+        });
+    };
+})();
+</script>
