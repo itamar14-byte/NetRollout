@@ -123,8 +123,6 @@ def pending_requests(db_session: Session) -> int:
 	return db_session.query(User.id).filter(User.is_approved.is_(False)).count()
 
 
-##########################Sessions#############################################
-
 SESSION_PREFIX = "redis_session:"
 
 
@@ -266,7 +264,7 @@ def clear_sessions(redis_conn: RedisConnection) -> None:
 	sessions (the drain lets them finish). Within a run, sessions end after
 	inactivity (session_idle_minutes) and after ABSOLUTE_SESSION_HOURS (above)."""
 	try:
-		for redis_key in redis_conn.client.scan_iter("redis_session:*"):
+		for redis_key in redis_conn.client.scan_iter(f"{SESSION_PREFIX}*"):
 			redis_conn.client.delete(redis_key)
 	except REDIS_UNAVAILABLE:
 		pass

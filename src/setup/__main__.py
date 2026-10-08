@@ -3,6 +3,7 @@ check-update | upgrade | release | port-ready | port-next | port-open |
 port-trying | port-close - see src/setup/__init__.py."""
 import argparse
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 from packaging.version import Version
@@ -20,10 +21,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 	""":returns: the command and its flags
 	:raises SystemExit: bad arguments (argparse says why)"""
 	p = argparse.ArgumentParser(prog="python -m src.setup")
-	p.add_argument("command", choices=("init", "check", "prepare-start", "status",
-	                                   "restore-key", "check-update", "upgrade", "release",
-	                                   "port-ready", "port-next", "port-open", "port-trying",
-	                                   "port-close"))
+	p.add_argument("command", choices=tuple(COMMANDS))
 	facts = p.add_argument_group("facts (from the host script)")
 	facts.add_argument("--os", choices=("windows", "linux"), default="linux")
 	facts.add_argument("--computer-name", default="")
@@ -103,57 +101,24 @@ def main(argv: list[str] | None = None, read: install.Read = input,
 			write(str(e))
 			return REFUSED
 		return OK
-	facts = facts_from(args)
-	if args.command == "check-update":
-		# prints "update" or "same" (a repair); refused: why, exit 2
-		if not (args.installed and args.new):
-			write("check-update needs --installed and --new")
-			return INVALID
-		try:
-			write(update.update_kind(args.installed, args.new))
-		except ValueError as e:
-			write(str(e))
-			return REFUSED
-		return OK
-	if args.command == "release":
-		return _release(args, write)
-	if args.command.startswith("port-"):
-		if not env_path().exists():
-			write(f"NetRollout isn't installed here ({env_path()} is missing).")
-			return INVALID
-		return _port(args, facts, write)
-	if args.command in ("prepare-start", "status", "restore-key", "upgrade"):
-		if not env_path().exists():
-			write(f"NetRollout isn't installed here ({env_path()} is missing) "
-			      f"- run the install first.")
-			return INVALID
-		if args.command == "prepare-start":
-			for line in manage.prepare_start(facts.busy_ports, facts.server_ips):
-				write(line)
-			return OK
-		if args.command == "upgrade":
-			try:
-				for line in update.upgrade():
-					write(line)
-			except ValueError as e:
-				write(str(e))
-				return INVALID
-			return OK
-		if args.command == "restore-key":
-			try:
-				write(manage.restore_key())
-			except ValueError as e:
-				write(str(e))
-				return INVALID
-			return OK
-		seen = manage.Observed(containers=manage.parse_containers(args.containers),
-		                       reachable=None if args.reachable is None
-		                       else args.reachable == "yes",
-		                       busy=facts.busy_ports)
-		lines, well = manage.status(seen, manage.fetch_health(args.health_url))
-		for line in lines:
-			write(line)
-		return OK if well else INVALID
+	return COMMANDS[args.command](args, facts_from(args), read, write)
+
+
+def _installed(write: install.Write, then: str = "") -> bool:
+	""":param then: what the "isn't installed" line adds
+	:returns: whether .env is there; when not, says so"""
+	if env_path().exists():
+		return True
+	write(f"NetRollout isn't installed here ({env_path()} is missing){then}.")
+	return False
+
+
+def _install(args: argparse.Namespace, facts: install.Facts, read: install.Read,
+             write: install.Write) -> int:
+	"""init: the answers (asked unless --defaults) and the install; check: the
+	answers only (prints ok).
+
+	:returns: the exit code"""
 	given = {k: getattr(args, k) for k in ANSWER_FLAGS
 	         if getattr(args, k) is not None}
 	interactive = args.command == "init" and not args.defaults
@@ -192,11 +157,82 @@ def main(argv: list[str] | None = None, read: install.Read = input,
 	return OK
 
 
-def _port(args: argparse.Namespace, facts: install.Facts, write: install.Write) -> int:
+def _check_update(args: argparse.Namespace, _facts: install.Facts, _read: install.Read,
+                  write: install.Write) -> int:
+	"""Prints "update" or "same" (a repair); refused: why, exit 2.
+
+	:returns: the exit code"""
+	if not (args.installed and args.new):
+		write("check-update needs --installed and --new")
+		return INVALID
+	try:
+		write(update.update_kind(args.installed, args.new))
+	except ValueError as e:
+		write(str(e))
+		return REFUSED
+	return OK
+
+
+def _prepare_start(_args: argparse.Namespace, facts: install.Facts, _read: install.Read,
+                   write: install.Write) -> int:
+	""":returns: the exit code"""
+	if not _installed(write, " - run the install first"):
+		return INVALID
+	for line in manage.prepare_start(facts.busy_ports, facts.server_ips):
+		write(line)
+	return OK
+
+
+def _upgrade(_args: argparse.Namespace, _facts: install.Facts, _read: install.Read,
+             write: install.Write) -> int:
+	""":returns: the exit code"""
+	if not _installed(write, " - run the install first"):
+		return INVALID
+	try:
+		for line in update.upgrade():
+			write(line)
+	except ValueError as e:
+		write(str(e))
+		return INVALID
+	return OK
+
+
+def _restore_key(_args: argparse.Namespace, _facts: install.Facts, _read: install.Read,
+                 write: install.Write) -> int:
+	""":returns: the exit code"""
+	if not _installed(write, " - run the install first"):
+		return INVALID
+	try:
+		write(manage.restore_key())
+	except ValueError as e:
+		write(str(e))
+		return INVALID
+	return OK
+
+
+def _status(args: argparse.Namespace, facts: install.Facts, _read: install.Read,
+            write: install.Write) -> int:
+	""":returns: OK when all is well, else INVALID"""
+	if not _installed(write, " - run the install first"):
+		return INVALID
+	seen = manage.Observed(containers=manage.parse_containers(args.containers),
+	                       reachable=None if args.reachable is None
+	                       else args.reachable == "yes",
+	                       busy=facts.busy_ports)
+	lines, well = manage.status(seen, manage.fetch_health(args.health_url))
+	for line in lines:
+		write(line)
+	return OK if well else INVALID
+
+
+def _port(args: argparse.Namespace, facts: install.Facts, _read: install.Read,
+          write: install.Write) -> int:
 	"""port-next prints "<action> <port|-> <id|->" and, when there is one, a
 	second line saying why; the others do their step and print nothing.
 
 	:returns: the exit code"""
+	if not _installed(write):
+		return INVALID
 	if args.command == "port-ready":
 		port.ready()
 	elif args.command == "port-next":
@@ -216,7 +252,8 @@ def _port(args: argparse.Namespace, facts: install.Facts, write: install.Write) 
 	return OK
 
 
-def _release(args: argparse.Namespace, write: install.Write) -> int:
+def _release(args: argparse.Namespace, _facts: install.Facts, _read: install.Read,
+             write: install.Write) -> int:
 	"""--check: whether a newer one exists; else downloaded (or given), checked
 	and unpacked under --out; prints version=… and folder=… for the script.
 
@@ -241,6 +278,16 @@ def _release(args: argparse.Namespace, write: install.Write) -> int:
 	write(f"version={version}")
 	write(f"folder={folder}")
 	return OK
+
+
+# Each command's handler: (args, facts, read, write) -> the exit code
+Handler = Callable[[argparse.Namespace, install.Facts, install.Read, install.Write], int]
+COMMANDS: dict[str, Handler] = {
+	"init": _install, "check": _install, "prepare-start": _prepare_start, "status": _status,
+	"restore-key": _restore_key, "check-update": _check_update, "upgrade": _upgrade,
+	"release": _release, "port-ready": _port, "port-next": _port, "port-open": _port,
+	"port-trying": _port, "port-close": _port,
+}
 
 
 if __name__ == "__main__":

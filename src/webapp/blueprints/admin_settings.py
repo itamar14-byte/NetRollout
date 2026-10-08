@@ -28,7 +28,6 @@ bp = Blueprint("admin_settings", __name__, url_prefix="/admin/settings")
 RULES_KEY = "_rules"   # errors not tied to one field (cross-setting rules)
 
 
-##############################Route Helpers####################################
 def _errors_response(e: SettingsError) -> tuple[Response, int]:
 	""":returns: 422 with the errors by field (cross-setting rules under
 	 RULES_KEY), for the page to show under each"""
@@ -81,7 +80,6 @@ def restart_pending_for_admin_pages() -> dict[str, Any]:
 	return {"settings_restart_pending": pending}
 
 
-##############################Routes#######################################
 @bp.route("")
 @login_required
 @require_admin

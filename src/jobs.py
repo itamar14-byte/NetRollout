@@ -574,7 +574,6 @@ class RolloutOrchestrator:
 		      flush=True)
 
 
-##############################Route Helpers################################
 def job_status(rows: Sequence[DeviceResult]) -> str:
 	""":returns: a job's status from its devices': cancelled if any was; failed
 	 if all failed; partial if any failed or was partial; else success"""

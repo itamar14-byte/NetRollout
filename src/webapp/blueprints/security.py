@@ -20,7 +20,7 @@ from src.webapp.http import ok, err, with_json, with_form, flash_redirect
 
 bp = Blueprint('security', __name__, url_prefix='/security')
 
-#######################Routes###############################
+
 @bp.route("")
 @login_required
 def security() -> str:

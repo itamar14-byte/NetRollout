@@ -21,7 +21,6 @@ bp = Blueprint('admin_ldap', __name__, url_prefix='/admin/server')
 LDAP_BIND_TYPES = ("regular", "simple")   # with a service account / without
 
 
-##############################Route Helpers#####################################
 def unload_ldap_data(req: Request) -> dict[str, str]:
 	""":returns: the LDAP server form's fields, stripped (a missing one "")"""
 	label = req.form.get("label", "").strip()

@@ -33,7 +33,7 @@ from src.webapp.http import ok, with_form
 
 bp = Blueprint("auth", __name__)
 
-#######################Constants###############################
+
 _LOGIN_FAIL_MESSAGES = {
 	"invalid_credentials": "Invalid credentials",
 	"account_disabled": "User disabled, please check with administrator",
@@ -42,8 +42,6 @@ _LOGIN_FAIL_MESSAGES = {
 	"ldap_unavailable": "LDAP authentication service unavailable",
 }
 
-
-#######################Auth helpers###############################
 
 # Where to go after signing in. The sign-in page is opened with ?next=<path>
 # (Flask-Login for app pages, nginx for /grafana/); it's kept in the session
@@ -224,8 +222,6 @@ def login_ldap_group(username: str, password: str,
 	return login_fail(username, "invalid_credentials")
 
 
-
-#######################Routes###############################
 @bp.route("/")
 def home() -> str:
 	"""The sign-in page; ?next= (a path on this site) is kept for after it."""

@@ -22,7 +22,6 @@ from src.webapp.http import ok, err, with_form, with_json, flash_redirect, SYSTE
 bp = Blueprint('mappings', __name__, url_prefix='/mappings')
 
 
-#######################Route helpers###########################################
 def property_rules() -> tuple[set[str], set[str]]:
 	"""(allowed names, list names), from the same definitions the pages show:
 	the system's and the user's own properties."""
@@ -84,7 +83,6 @@ def parse_mapping_input(data: Any) -> ResponseReturnValue | dict[str, Any]:
 	        "token": f"$${inner_token}$$"}
 
 
-##############################Routes#######################################
 @bp.route("")
 @login_required
 def mappings() -> str:
@@ -356,7 +354,6 @@ def mappings_bulk_assign() -> ResponseReturnValue:
 properties_bp = Blueprint('properties', __name__, url_prefix='/properties')
 
 
-##############################Routes#######################################
 @properties_bp.route("")
 @login_required
 def properties() -> str:

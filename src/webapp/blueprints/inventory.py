@@ -25,7 +25,6 @@ from src.webapp.http import ok, err, with_form, with_json, flash_redirect
 bp = Blueprint('inventory', __name__, url_prefix='/inventory')
 
 
-##############################Route Helpers################################
 def parse_mapping_ids(raw_ids: list[str]) -> list[uuid.UUID]:
 	""":raises ValueError: a malformed id"""
 	return [uuid.UUID(mid) for mid in raw_ids]
@@ -86,7 +85,6 @@ def device_not_found() -> ResponseReturnValue:
 	return flash_redirect("Device not found.", "inventory.inventory", "danger")
 
 
-##############################Routes#######################################
 @bp.route("")
 @login_required
 def inventory() -> str:

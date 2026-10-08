@@ -23,7 +23,6 @@ from src.webapp.http import ok, err, with_form, with_json
 bp = Blueprint('rollout', __name__, url_prefix='/rollout')
 
 
-##############################Route Helpers################################
 def parse_commands() -> tuple[list[str] | None, dict[str, str], bool] | BaseResponse:
 	"""The start form's commands. The page sends "platform_commands" (JSON:
 	platform → command text) when the devices are of several platforms;
@@ -189,7 +188,6 @@ def submit_jobs(devices: list[Device], commands: list[str] | None,
 	return queued[0]
 
 
-##############################Routes#######################################
 @bp.route("/cancel", methods=["POST"])
 @login_required
 @with_form("job_id")

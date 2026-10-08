@@ -30,8 +30,6 @@ from src.webapp.http import ok, err, require_admin, with_json
 bp = Blueprint('admin_servers', __name__, url_prefix='/admin/server')
 
 
-##############################Routes#######################################
-
 @bp.route("")
 @login_required
 @require_admin

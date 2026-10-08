@@ -17,7 +17,7 @@ from sqlalchemy.exc import OperationalError
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from src.access.nginx import seed_hostname_from_site, sync_at_start
-from src.accounts.users import clear_sessions
+from src.accounts.users import SESSION_PREFIX, clear_sessions
 from src.db.connections import BackendServices, REDIS_UNAVAILABLE, RedisConnection
 from src.encryption import init_encryption, require_key_in_container
 from src.jobs import JobStore, RolloutOrchestrator, clear_stale_jobs
@@ -45,8 +45,6 @@ from src.webapp.lifecycle import Shutdown
 from src.webapp.startup import new_instance_token
 
 
-########Constants###################################################
-
 _CDN = "https://cdn.simpleicons.org"
 # Simple Icons has no Arista, Aruba or Check Point logo: those come from the
 # dashboard-icons collection (jsDelivr) and Wikimedia Commons. Arista's is a
@@ -68,8 +66,6 @@ VENDOR_LOGOS = {
 	'hp_comware': f'{_CDN}/hp',
 }
 
-
-########Class definitions###################################################
 
 class _SafeRedisSessionInterface(RedisSessionInterface):
 	"""flask_session's Redis sessions, kept working when Redis isn't: a
@@ -136,7 +132,7 @@ def configure_app(app: Flask, redis: RedisConnection, secret_key: str) -> None:
 
 	app.config["SESSION_TYPE"] = "redis"
 	app.config["SESSION_REDIS"] = redis.client
-	app.config["SESSION_KEY_PREFIX"] = "redis_session:"
+	app.config["SESSION_KEY_PREFIX"] = SESSION_PREFIX
 	app.config["SESSION_PERMANENT"] = False
 
 	app.config["SESSION_COOKIE_SECURE"] = True
@@ -216,7 +212,6 @@ def init_app_encryption(backend: BackendServices) -> None:
 	init_encryption(sample, db_checked=db_checked)
 
 
-###########App initialization#########################################
 def launch_app() -> NetRolloutApp:
 	"""Build the app with its services, in the order they depend on each
 	other; the caller serves it.
@@ -263,7 +258,7 @@ def launch_app() -> NetRolloutApp:
 	app.session_interface = _SafeRedisSessionInterface(
 		app,
 		app.backend,
-		key_prefix="redis_session:",
+		key_prefix=SESSION_PREFIX,
 		permanent=False,
 	)
 	clear_sessions(app.backend.redis)

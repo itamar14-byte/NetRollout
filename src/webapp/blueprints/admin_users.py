@@ -38,7 +38,6 @@ def pending_access_requests() -> dict[str, Any]:
 		return {}
 
 
-##############################Route Helpers####################################
 def user_action_factory(user: User, action: str, db_session: Session) -> None:
 	"""Apply one admin action to a user (in the caller's session).
 
@@ -67,7 +66,6 @@ def user_action_factory(user: User, action: str, db_session: Session) -> None:
 		end_user_sessions(user.id)
 
 
-##############################Routes#######################################
 @bp.route("")
 @login_required
 @require_admin
