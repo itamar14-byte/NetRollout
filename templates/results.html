@@ -127,6 +127,8 @@
 
 /* ── Filters ── */
 .filter-btn, .filter-btn-split {
+    display: inline-block;
+    text-decoration: none;
     background: transparent;
     border: 1px solid #333;
     color: #888;
@@ -479,6 +481,25 @@
 {% endfor %}
 {% endmacro %}
 
+{# ── Macro: the status filter (server-side: ?status=, one for both of an
+   admin's lists). Links keep ?per_page, start again at page 1 (?page /
+   ?other_page / ?job= dropped); split = the admin's all-users view. ── #}
+{% macro filter_href(value, split) -%}
+{%- set args = request.args.to_dict() -%}
+{%- for key in ('job', 'page', 'other_page', 'status') %}{% set _ = args.pop(key, None) %}{% endfor -%}
+{%- if split %}{% set _ = args.update({'view': 'all'}) %}{% else %}{% set _ = args.pop('view', None) %}{% endif -%}
+{%- if value %}{% set _ = args.update({'status': value}) %}{% endif -%}
+{{ url_for('jobs.results', **args) }}
+{%- endmacro %}
+{% macro filter_links(split=false) %}
+{% set cls = 'filter-btn-split' if split else 'filter-btn' %}
+<span style="color:var(--nr-text-muted); font-size:0.78rem; margin-right:4px;">Filter:</span>
+<a class="{{ cls }}{{ ' active' if not status_filter }}" href="{{ filter_href(none, split) }}">All</a>
+{% for value in job_statuses %}
+<a class="{{ cls }}{{ ' active' if value == status_filter }}" href="{{ filter_href(value, split) }}">{{ value | capitalize }}</a>
+{% endfor %}
+{% endmacro %}
+
 {# ── Macro: one list's pages. The entries-per-page choice shows once there are
    more jobs than the smallest choice, the page controls once they don't fit
    one page. Links keep the other query parameters (?job= dropped: it only
@@ -534,15 +555,10 @@
 
 {# ── Flat view (default) ── #}
 <div id="flat-view">
-{% if jobs %}
+{% if jobs or status_filter %}
 <!-- Filter bar -->
 <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
-    <span style="color:var(--nr-text-muted); font-size:0.78rem; margin-right:4px;">Filter:</span>
-    <button class="filter-btn active" data-filter="all">All</button>
-    <button class="filter-btn" data-filter="success">Success</button>
-    <button class="filter-btn" data-filter="partial">Partial</button>
-    <button class="filter-btn" data-filter="failed">Failed</button>
-    <button class="filter-btn" data-filter="cancelled">Cancelled</button>
+    {{ filter_links() }}
     <div class="ms-auto d-flex gap-2 align-items-center">
         <button id="diffModeBtn" class="filter-btn" onclick="toggleDiffMode()">
             <i class="bi bi-file-diff me-1"></i>Compare
@@ -567,6 +583,9 @@
 <div id="job-list">
 {{ job_rows(jobs) }}
 </div>
+{% if not jobs %}
+<div style="text-align:center; padding:1.5rem; color:var(--nr-text-muted); font-size:0.8rem;">No {{ status_filter }} jobs.</div>
+{% endif %}
 
 {{ pager(mine, 'page') }}
 
@@ -585,14 +604,9 @@
 {% if is_admin %}
 <div id="split-view" style="display:none;">
 
-    {# Shared data_filter bar for split view #}
+    {# The status filter, for both lists #}
     <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
-        <span style="color:var(--nr-text-muted); font-size:0.78rem; margin-right:4px;">Filter:</span>
-        <button class="filter-btn-split active" data-filter="all">All</button>
-        <button class="filter-btn-split" data-filter="success">Success</button>
-        <button class="filter-btn-split" data-filter="partial">Partial</button>
-        <button class="filter-btn-split" data-filter="failed">Failed</button>
-        <button class="filter-btn-split" data-filter="cancelled">Cancelled</button>
+        {{ filter_links(split=true) }}
     </div>
 
     {# My Jobs section #}
@@ -616,7 +630,7 @@
         <div id="my-job-list">{{ job_rows(jobs) }}</div>
         {{ pager(mine, 'page', split=true) }}
         {% else %}
-        <div style="text-align:center; padding:1.5rem; color:var(--nr-text-muted); font-size:0.8rem;">No jobs.</div>
+        <div style="text-align:center; padding:1.5rem; color:var(--nr-text-muted); font-size:0.8rem;">No {{ status_filter ~ ' ' if status_filter }}jobs.</div>
         {% endif %}
     </div>
 
@@ -641,7 +655,7 @@
         <div id="other-job-list">{{ job_rows(other_jobs, show_owner=true) }}</div>
         {{ pager(others, 'other_page', split=true) }}
         {% else %}
-        <div style="text-align:center; padding:1.5rem; color:var(--nr-text-muted); font-size:0.8rem;">No other users' jobs.</div>
+        <div style="text-align:center; padding:1.5rem; color:var(--nr-text-muted); font-size:0.8rem;">No other users' {{ status_filter ~ ' ' if status_filter }}jobs.</div>
         {% endif %}
     </div>
 
@@ -960,20 +974,6 @@ function showCommands(commands) {
     bootstrap.Modal.getOrCreateInstance(document.getElementById('commandsModal')).show();
 }
 
-// ── Filter buttons (flat view) ────────────────────────────────────────────────
-// (pages are the server's: ?page / ?other_page / ?per_page)
-document.querySelectorAll('.data_filter-btn').forEach(btn => {
-    btn.addEventListener('click', function() {
-        if (!this.dataset.filter) return;
-        document.querySelectorAll('.data_filter-btn[data-data_filter]').forEach(b => b.classList.remove('active'));
-        this.classList.add('active');
-        const filter = this.dataset.filter;
-        document.querySelectorAll('#job-list .job-row').forEach(row => {
-            row.style.display = (filter === 'all' || row.dataset.status === filter) ? '' : 'none';
-        });
-    });
-});
-
 // ── /results?job=<id> (the completion card's link): open that job ─────────────
 // (the server shows the page it is on)
 (() => {
@@ -985,18 +985,6 @@ document.querySelectorAll('.data_filter-btn').forEach(btn => {
     row.classList.add('expanded');
     row.scrollIntoView({block: 'center'});
 })();
-
-// ── Filter buttons (split view) ──────────────────────────────────────────────
-document.querySelectorAll('.data_filter-btn-split').forEach(btn => {
-    btn.addEventListener('click', function() {
-        document.querySelectorAll('.data_filter-btn-split').forEach(b => b.classList.remove('active'));
-        this.classList.add('active');
-        const filter = this.dataset.filter;
-        document.querySelectorAll('#my-job-list .job-row, #other-job-list .job-row').forEach(row => {
-            row.style.display = (filter === 'all' || row.dataset.status === filter) ? '' : 'none';
-        });
-    });
-});
 
 // ── Diff mode ────────────────────────────────────────────────────────────────
 let diffMode = false;

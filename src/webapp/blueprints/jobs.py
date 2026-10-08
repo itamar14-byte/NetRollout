@@ -19,7 +19,8 @@ from sqlalchemy.orm import Session
 from src import runtime
 from src.db.tables import DeviceResult, JobMetadata, User, Inventory
 from src.inventory import visible_devices_clause
-from src.jobs import JobStore, RolloutJob, job_status, build_kpi
+from src.jobs import (JobStore, RolloutJob, JOB_STATUSES, job_status,
+                      job_status_condition, build_kpi)
 from src.rollout.engine import endpoint
 from src.rollout.platforms import PLATFORMS, verify_commands
 from src.webapp.app import current_app
@@ -53,6 +54,12 @@ def per_page_arg(raw: str | None) -> int:
 	return value if value in PER_PAGE_CHOICES else DEFAULT_PER_PAGE
 
 
+def status_arg(raw: str | None) -> str | None:
+	""":returns: the job status asked for when it is one of JOB_STATUSES,
+	 else None (no filter)"""
+	return raw if raw in JOB_STATUSES else None
+
+
 def page_arg(raw: str | None) -> int:
 	""":returns: the 1-based page asked for; 1 when missing or not a positive
 	 number"""
@@ -63,7 +70,8 @@ def page_arg(raw: str | None) -> int:
 
 
 def load_job_page(db_session: Session, scope: ColumnElement[bool], page: int,
-                  per_page: int, focus: uuid.UUID | None = None) -> JobPage:
+                  per_page: int, focus: uuid.UUID | None = None,
+                  status: str | None = None) -> JobPage:
 	"""One page of the jobs whose device results match scope, newest first
 	(by their last device's completion; the job id breaks ties, so pages
 	stay stable). The database pages the jobs (LIMIT/OFFSET), then only
@@ -74,8 +82,16 @@ def load_job_page(db_session: Session, scope: ColumnElement[bool], page: int,
 	:param per_page: jobs per page
 	:param focus: a job to land on: when it is in scope, its page replaces
 	 page
+	:param status: only the jobs job_status gives this status (one of
+	 JOB_STATUSES; judged on all their device results, all of which are
+	 loaded); None: every job
 	:returns: the page's device results, the jobs' total, the page shown and
 	 the number of pages"""
+	if status is not None:
+		scope = and_(scope, DeviceResult.job_id.in_(
+			db_session.query(DeviceResult.job_id).filter(scope)
+			.group_by(DeviceResult.job_id)
+			.having(job_status_condition(status))))
 	done = func.max(DeviceResult.completed_at).label("done")
 	total = db_session.query(func.count(distinct(DeviceResult.job_id)))\
 		.filter(scope).scalar() or 0
@@ -398,10 +414,13 @@ def results() -> str:
 	"""Results: the user's jobs - and, for an admin, everyone else's apart,
 	with their owners - newest first, a page at a time: ?per_page= (one of
 	PER_PAGE_CHOICES, else 100), ?page= (the user's own jobs), ?other_page=
-	(an admin's other users' jobs), ?view=all (an admin's all-users view);
-	?job=<id> without ?page= lands on that job's page."""
+	(an admin's other users' jobs), ?view=all (an admin's all-users view),
+	?status= (one of JOB_STATUSES: only those jobs, in both of an admin's
+	lists; else every job); ?job=<id> without ?page= lands on that job's
+	page."""
 	is_admin = current_user.role == "admin"
 	per_page = per_page_arg(request.args.get("per_page"))
+	status = status_arg(request.args.get("status"))
 	focus = None
 	if "page" not in request.args:
 		try:
@@ -414,11 +433,12 @@ def results() -> str:
 	with current_app.backend.postgres.get_session() as db_session:
 		mine = load_job_page(db_session, DeviceResult.user_id == current_user.id,
 		                     page_arg(request.args.get("page")), per_page,
-		                     focus)
+		                     focus, status)
 		if is_admin:
 			others = load_job_page(
 				db_session, DeviceResult.user_id != current_user.id,
-				page_arg(request.args.get("other_page")), per_page)
+				page_arg(request.args.get("other_page")), per_page,
+				status=status)
 			owner_ids = {r.user_id for r in others.results}
 			usernames = {u.id: u.username for u in db_session.query(User)
 			             .filter(User.id.in_(owner_ids))} if owner_ids else {}
@@ -465,6 +485,8 @@ def results() -> str:
 	                       others=others,
 	                       per_page=per_page,
 	                       per_page_choices=PER_PAGE_CHOICES,
+	                       status_filter=status,
+	                       job_statuses=JOB_STATUSES,
 	                       split_view=is_admin
 	                       and request.args.get("view") == "all",
 	                       is_admin=is_admin,
