@@ -19,7 +19,6 @@ from src.webapp.http import err, with_json, ok, require_admin
 
 bp = Blueprint('analytics', __name__, url_prefix='/analytics')
 
-##############################Constants#######################################
 
 QUERY_DEVICE_RESULT_FIELDS = {
 	"started_at": (
@@ -43,7 +42,7 @@ DEVICE_RESULT_COLUMNS = ["job_id", "device_ip", "device_port", "device_type",
                          "commands_sent", "commands_verified",
                          "started_at", "completed_at"]
 
-##############################Routes#######################################
+
 @bp.route("")
 @login_required
 def analytics() -> str:
@@ -136,7 +135,6 @@ QUERY_OPS: dict[str, Callable[[Any, Any], ColumnElement[bool]]] = {
 }
 
 
-#######################Query helpers###############################
 def _json_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 	""":returns: the query's rows for JSON - a time as "YYYY-MM-DD HH:MM:SS",
 	 an id as text, the rest as it is"""
@@ -193,7 +191,6 @@ def compile_query_rules(node: dict[str, Any],
 admin_bp = Blueprint('admin_observability', __name__, url_prefix='/admin')
 
 
-##############################Constants#####################################
 QUERY_AUDIT_LOG_FIELDS = {
 	"timestamp": (
 		AuditLog.timestamp, {"equal", "less_or_equal", "greater_or_equal"}),
@@ -215,7 +212,6 @@ AUDIT_LOG_COLUMNS = ["timestamp", "actor_username", "action",
                      "object_label", "success", "ip_address"]
 
 
-##############################Routes###########################################
 @admin_bp.route("/analytics")
 @login_required
 @require_admin

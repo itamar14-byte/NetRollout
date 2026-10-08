@@ -146,7 +146,7 @@
     <div>
         <div class="nr-badge">VARIABLE MAPPINGS</div>
         <h4 class="mb-0" style="font-weight:600; font-size:1.15rem;">Token Bindings</h4>
-        <p class="mt-1 mb-0" style="font-size:0.82rem; color:var(--nr-text-muted);">
+        <p class="mt-1 mb-0 nr-note">
             {{ mappings|length }} mapping{{ "s" if mappings|length != 1 else "" }} configured
         </p>
     </div>
@@ -254,7 +254,7 @@
                 <div class="modal-body">
 
                     <div class="mb-3">
-                        <label class="nr-label" for="addLabel">LABEL <span style="color:var(--nr-text-muted);">(optional)</span></label>
+                        <label class="nr-label" for="addLabel">LABEL <span class="nr-muted">(optional)</span></label>
                         <input type="text" class="form-control" id="addLabel" name="label"
                                placeholder="e.g. Loopback address for BGP">
                     </div>
@@ -330,7 +330,7 @@
 
                     <div class="mb-1 index-field-wrap" id="addIndexWrap">
                         <label class="nr-label" for="addIndex">LIST INDEX
-                            <span style="color:var(--nr-text-muted); text-transform:none; letter-spacing:0;">(0-based position in list)</span>
+                            <span class="nr-label-hint">(0-based position in list)</span>
                         </label>
                         <input type="number" class="form-control" id="addIndex" name="index"
                                min="0" placeholder="0" style="width:100px;">
@@ -367,7 +367,7 @@
                 <div class="modal-body">
 
                     <div class="mb-3">
-                        <label class="nr-label" for="editLabel">LABEL <span style="color:var(--nr-text-muted);">(optional)</span></label>
+                        <label class="nr-label" for="editLabel">LABEL <span class="nr-muted">(optional)</span></label>
                         <input type="text" class="form-control" id="editLabel" name="label">
                     </div>
 
@@ -442,7 +442,7 @@
 
                     <div class="mb-1 index-field-wrap" id="editIndexWrap">
                         <label class="nr-label" for="editIndex">LIST INDEX
-                            <span style="color:var(--nr-text-muted); text-transform:none; letter-spacing:0;">(0-based position in list)</span>
+                            <span class="nr-label-hint">(0-based position in list)</span>
                         </label>
                         <input type="number" class="form-control" id="editIndex" name="index"
                                min="0" placeholder="0" style="width:100px;">
@@ -517,15 +517,8 @@
 {% from "_property_modal.html" import property_modal %}
 {% call property_modal(modal_id="mappingQuickPropModal",
                        prefix="mqp",
-                       max_width="360px",
-                       esc_closes=true,
                        badge="QUICK CREATE",
-                       title="New Property",
-                       name_hint="auto-generated · immutable",
-                       name_help="Dict key for $$TOKEN$$ substitution. Edit if needed.",
-                       icon_hint="",
-                       icon_placeholder=false,
-                       list_label="List property") %}
+                       title="New Property") %}
             <div class="modal-footer d-flex justify-content-end gap-2">
                 <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
                 <button type="button" class="btn btn-primary btn-sm" onclick="submitMappingQuickProp()">

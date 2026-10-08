@@ -86,7 +86,6 @@ def register_auth(app: NetRolloutApp) -> None:
 			return None
 		reason = "idle" if idle_left <= 0 else "absolute"
 		current_app.web.audit("auth.session_expired", detail={"reason": reason})
-		current_app.backend.redis.client.delete(f"user_session:{current_user.id}")
 		logout_user()
 		session.clear()
 		if request.endpoint == "system.grafana_auth":

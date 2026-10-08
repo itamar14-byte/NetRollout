@@ -188,7 +188,6 @@ def test_terminate_session_signs_the_user_out_everywhere(
 	for b in browsers:
 		b.get("/dashboard")
 	sids = [b.get_cookie("session").value for b in browsers]
-	app.backend.redis.client.set(f"user_session:{target.id}", sids[-1])
 	client_for(admin).post(f"/admin/users/{target.id}/terminate_session")
 	assert not any(app.backend.redis.client.exists(f"redis_session:{s}")
 	               for s in sids)

@@ -418,7 +418,7 @@
     <div>
         <div class="nr-badge">INVENTORY</div>
         <h4 class="mb-0" style="font-weight:600; font-size:1.15rem;">Device Inventory</h4>
-        <p class="mt-1 mb-0" style="font-size:0.82rem; color:var(--nr-text-muted);">
+        <p class="mt-1 mb-0 nr-note">
             {{ devices|length }} device{{ "s" if devices|length != 1 else "" }} configured
         </p>
     </div>
@@ -575,7 +575,7 @@
 
                     <div class="mb-1">
                         <label class="nr-label">SECURITY PROFILE
-                            <span style="color:var(--nr-text-muted);">(optional)</span>
+                            <span class="nr-muted">(optional)</span>
                         </label>
                         <div class="nr-select" id="addSecSelect">
                             <div class="nr-select-trigger">
@@ -721,7 +721,7 @@
 
                     <div class="mb-1">
                         <label class="nr-label">SECURITY PROFILE
-                            <span style="color:var(--nr-text-muted);">(optional)</span>
+                            <span class="nr-muted">(optional)</span>
                         </label>
                         <div class="nr-select" id="editSecSelect">
                             <div class="nr-select-trigger">
@@ -777,7 +777,7 @@
                     <!-- Variable Mappings multi-select -->
                     <div class="mb-3">
                         <label class="nr-label">VARIABLE MAPPINGS
-                            <span style="color:var(--nr-text-muted);">(optional)</span>
+                            <span class="nr-muted">(optional)</span>
                         </label>
                         <div id="editMappingSelect"
                              style="background:#111; border:1px solid #222; border-radius:8px; overflow:hidden;">
@@ -832,7 +832,7 @@
                             <div {% if p.is_list %}style="grid-column:1/-1"{% endif %}>
                                 <label class="nr-label" for="attr_{{ p.name }}">
                                     <i class="bi {{ p.icon }}" style="margin-right:4px; color:var(--nr-text-faint);"></i>{{ p.label | upper }}
-                                    {% if p.is_list %}<span style="color:var(--nr-text-muted); text-transform:none; letter-spacing:0;">(comma-separated)</span>{% endif %}
+                                    {% if p.is_list %}<span class="nr-label-hint">(comma-separated)</span>{% endif %}
                                 </label>
                                 <input type="text" class="form-control form-control-sm"
                                        id="attr_{{ p.name }}" name="attr_{{ p.name }}"
@@ -850,7 +850,7 @@
                             <div {% if p.is_list %}style="grid-column:1/-1"{% endif %}>
                                 <label class="nr-label" for="attr_{{ p.name }}">
                                     <i class="bi {{ p.icon }}" style="margin-right:4px; color:var(--nr-text-faint);"></i>{{ p.label | upper }}
-                                    {% if p.is_list %}<span style="color:var(--nr-text-muted); text-transform:none; letter-spacing:0;">(comma-separated)</span>{% endif %}
+                                    {% if p.is_list %}<span class="nr-label-hint">(comma-separated)</span>{% endif %}
                                 </label>
                                 <input type="text" class="form-control form-control-sm"
                                        id="attr_{{ p.name }}" name="attr_{{ p.name }}"
@@ -907,11 +907,10 @@
         <div class="modal-content">
             <div class="modal-header">
                 <div>
-                    <div class="nr-badge"
-                         style="margin-bottom:0.3rem; border-color:rgba(239,83,80,0.4); color:#ef9a9a;">
+                    <div class="nr-badge nr-badge-danger">
                         IRREVERSIBLE ACTION
                     </div>
-                    <h5 class="modal-title" style="color:#ef9a9a;">Remove Device</h5>
+                    <h5 class="modal-title nr-danger-soft">Remove Device</h5>
                 </div>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
@@ -923,7 +922,7 @@
                     </span>
                     from inventory?
                 </p>
-                <p style="font-size:0.82rem; color:var(--nr-text-muted); margin-bottom:0;">
+                <p class="nr-note-tight">
                     This cannot be undone.
                 </p>
             </div>
@@ -964,12 +963,12 @@
                         Required columns:
                         <span style="font-family:'JetBrains Mono',monospace; color:var(--nr-accent-soft);">ip, device_type, port</span>.
                         Optional:
-                        <span style="font-family:'JetBrains Mono',monospace; color:var(--nr-text-secondary);">label</span>,
+                        <span class="nr-mono">label</span>,
                         credentials
-                        <span style="font-family:'JetBrains Mono',monospace; color:var(--nr-text-secondary);">username, password, secret</span>,
+                        <span class="nr-mono">username, password, secret</span>,
                         and attribute columns named after a property
-                        (<span style="font-family:'JetBrains Mono',monospace; color:var(--nr-text-secondary);">hostname</span>,
-                        <span style="font-family:'JetBrains Mono',monospace; color:var(--nr-text-secondary);">vrfs</span>, your own).
+                        (<span class="nr-mono">hostname</span>,
+                        <span class="nr-mono">vrfs</span>, your own).
                     </p>
                     <p style="font-size:0.78rem; color:var(--nr-text-muted); margin-bottom:1.2rem;">
                         The same CSV works with the CLI. Other columns are listed after import.
@@ -985,7 +984,7 @@
 
                     <div class="mb-1">
                         <label class="nr-label" for="csvLabel">LABEL
-                            <span style="color:var(--nr-text-muted);">(optional — applied to all imported devices)</span>
+                            <span class="nr-muted">(optional — applied to all imported devices)</span>
                         </label>
                         <input type="text" class="form-control" id="csvLabel" name="label"
                                placeholder="e.g. Branch Routers">
@@ -1031,7 +1030,7 @@
             </div>
             <div class="modal-body">
                 <div class="mb-3">
-                    <label class="nr-label">LABEL <span style="color:var(--nr-text-muted);">(optional)</span></label>
+                    <label class="nr-label">LABEL <span class="nr-muted">(optional)</span></label>
                     <input type="text" class="form-control form-control-sm" id="qcpLabel"
                            placeholder="e.g. Lab Routers" autocomplete="off">
                 </div>
@@ -1046,7 +1045,7 @@
                            autocomplete="new-password">
                 </div>
                 <div class="mb-1">
-                    <label class="nr-label">ENABLE SECRET <span style="color:var(--nr-text-muted);">(optional)</span></label>
+                    <label class="nr-label">ENABLE SECRET <span class="nr-muted">(optional)</span></label>
                     <input type="password" class="form-control form-control-sm" id="qcpSecret"
                            autocomplete="new-password">
                 </div>
@@ -1136,15 +1135,8 @@
 {% from "_property_modal.html" import property_modal %}
 {% call property_modal(modal_id="quickCreatePropertyModal",
                        prefix="qcProp",
-                       max_width="380px",
-                       esc_closes=false,
                        badge="QUICK CREATE",
-                       title="New Property",
-                       name_hint="auto-generated · immutable",
-                       name_help="Dict key for $$TOKEN$$ substitution. Edit if needed.",
-                       icon_hint="Bootstrap Icons class",
-                       icon_placeholder=false,
-                       list_label="List property (comma-separated)") %}
+                       title="New Property") %}
             <div class="modal-footer" style="justify-content:space-between; align-items:center;">
                 <div id="qcPropError2" style="display:none; font-size:0.78rem; color:#ef5350;"></div>
                 <div class="d-flex gap-2 ms-auto">
@@ -1841,8 +1833,11 @@ let _quickCreateActive = false;
     el.addEventListener('hidden.bs.modal', () => { _quickCreateActive = false; });
 });
 
-// All modals have data-bs-keyboard="false" — Escape is handled here exclusively.
-// Document-level so focus location doesn't matter.
+// Escape closes the top modal: a quick create first, else Add / Edit device.
+// Document-level so focus location doesn't matter (Add / Edit device and the
+// profile quick create have data-bs-keyboard="false" - only this closes them;
+// the mapping and property quick creates close on Bootstrap's own Escape too,
+// and then this finds them already closed).
 document.addEventListener('keydown', function(e) {
     if (e.key !== 'Escape') return;
     const ids = _quickCreateActive

@@ -608,7 +608,7 @@
             {# Rollout note #}
             <div class="nr-panel mb-3">
                 <div class="nr-panel-body" style="padding:1rem 1.25rem;">
-                    <span class="nr-label d-block mb-2">Rollout Note <span style="color:var(--nr-text-muted);">(optional)</span></span>
+                    <span class="nr-label d-block mb-2">Rollout Note <span class="nr-muted">(optional)</span></span>
                     <input type="text" name="comment" maxlength="255"
                            placeholder="e.g. VLAN 100 provisioning — ticket #4821"
                            style="width:100%; background:#111; border:1px solid #222;
@@ -630,7 +630,7 @@
                                 <input type="checkbox" name="_verify" value="on">
                                 <span class="nr-toggle-slider"></span>
                             </span>
-                            <i class="bi bi-patch-check" style="color:#00bcd4;"></i>
+                            <i class="bi bi-patch-check nr-accent"></i>
                             Verify after push
                             <span class="tooltip-q">?
                                 <span class="tip-text">After the push, NetRollout reads each device's configuration and checks every command in the section it was typed in: a command must be there, a removal (<code>no</code> / <code>undo</code> / <code>delete</code> / <code>unset</code>) must be gone. Navigation and operational commands (<code>exit</code>, <code>write memory</code>, <code>commit</code>…) are marked not verifiable. It can report a command as <strong>not configured although it is</strong> (typed abbreviations like <code>int gi1</code>, values the device rewrites such as hashed secrets, normalised values or defaults), or as <strong>verified because it was already there</strong> before the rollout.</span>
@@ -641,7 +641,7 @@
                                 <input type="checkbox" name="_verbose" value="on">
                                 <span class="nr-toggle-slider"></span>
                             </span>
-                            <i class="bi bi-terminal" style="color:var(--nr-text-faint);"></i>
+                            <i class="bi bi-terminal nr-faint"></i>
                             Verbose logging
                         </label>
                     </div>

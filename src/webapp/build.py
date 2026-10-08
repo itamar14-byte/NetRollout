@@ -10,14 +10,13 @@ from typing import Any
 
 from flask import Flask, Request, Response
 from flask.sessions import SessionMixin
-from flask_session import Session
 from flask_session.redis import RedisSessionInterface
 from prometheus_client.core import REGISTRY, GaugeMetricFamily
 from sqlalchemy.exc import OperationalError
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from src.access.nginx import seed_hostname_from_site, sync_at_start
-from src.accounts.users import clear_sessions
+from src.accounts.users import SESSION_PREFIX, clear_sessions
 from src.db.connections import BackendServices, REDIS_UNAVAILABLE, RedisConnection
 from src.encryption import init_encryption, require_key_in_container
 from src.jobs import JobStore, RolloutOrchestrator, clear_stale_jobs
@@ -45,8 +44,6 @@ from src.webapp.lifecycle import Shutdown
 from src.webapp.startup import new_instance_token
 
 
-########Constants###################################################
-
 _CDN = "https://cdn.simpleicons.org"
 # Simple Icons has no Arista, Aruba or Check Point logo: those come from the
 # dashboard-icons collection (jsDelivr) and Wikimedia Commons. Arista's is a
@@ -68,8 +65,6 @@ VENDOR_LOGOS = {
 	'hp_comware': f'{_CDN}/hp',
 }
 
-
-########Class definitions###################################################
 
 class _SafeRedisSessionInterface(RedisSessionInterface):
 	"""flask_session's Redis sessions, kept working when Redis isn't: a
@@ -128,22 +123,16 @@ def resolve_secret_key(env: Mapping[str, str] | None = None) -> str:
 	return secrets.token_hex(32)
 
 
-def configure_app(app: Flask, redis: RedisConnection, secret_key: str) -> None:
-	"""Flask's settings: the secret, sessions in Redis (session cookies,
-	Secure, HttpOnly, SameSite=Lax), the proxy headers nginx sets, and the
-	templates' globals (vendor logos, version, source link, monitoring)."""
+def configure_app(app: Flask, secret_key: str) -> None:
+	"""Flask's settings: the secret, the session cookie (Secure, HttpOnly,
+	SameSite=Lax - the sessions live in Redis: launch_app's interface), the
+	proxy headers nginx sets, and the templates' globals (vendor logos,
+	version, source link, monitoring)."""
 	app.config["SECRET_KEY"] = secret_key
-
-	app.config["SESSION_TYPE"] = "redis"
-	app.config["SESSION_REDIS"] = redis.client
-	app.config["SESSION_KEY_PREFIX"] = "redis_session:"
-	app.config["SESSION_PERMANENT"] = False
 
 	app.config["SESSION_COOKIE_SECURE"] = True
 	app.config["SESSION_COOKIE_HTTPONLY"] = True
 	app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
-
-	Session(app)
 
 	# Flask's documented way to add WSGI middleware (mypy sees a method replaced)
 	app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)  # type: ignore[method-assign]
@@ -216,7 +205,6 @@ def init_app_encryption(backend: BackendServices) -> None:
 	init_encryption(sample, db_checked=db_checked)
 
 
-###########App initialization#########################################
 def launch_app() -> NetRolloutApp:
 	"""Build the app with its services, in the order they depend on each
 	other; the caller serves it.
@@ -249,7 +237,7 @@ def launch_app() -> NetRolloutApp:
 	app.web = web_services
 
 
-	configure_app(app, app.backend.redis, secret_key)
+	configure_app(app, secret_key)
 	# first of the request hooks: while a move copies the data, nothing writes
 	register_maintenance(app)
 	app.db_move = DatabaseMove(app)   # Server Management → Database → Move
@@ -263,7 +251,7 @@ def launch_app() -> NetRolloutApp:
 	app.session_interface = _SafeRedisSessionInterface(
 		app,
 		app.backend,
-		key_prefix="redis_session:",
+		key_prefix=SESSION_PREFIX,
 		permanent=False,
 	)
 	clear_sessions(app.backend.redis)

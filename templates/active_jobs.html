@@ -473,7 +473,7 @@
                 </h6>
                 <p style="font-size:0.8rem; color:var(--nr-text-muted); margin-bottom:0.85rem;">
                     Provide the compensatory commands to push to successfully configured devices.
-                    <span style="color:var(--nr-text-muted);">Device attributes are resolved at rollback time — verify they still reflect the current network state.</span>
+                    <span class="nr-muted">Device attributes are resolved at rollback time — verify they still reflect the current network state.</span>
                 </p>
                 <div id="rollbackError"
                      style="display:none; font-family:'Inter',sans-serif; font-size:0.78rem;
@@ -491,7 +491,7 @@
                 <div class="d-flex gap-3 mt-2">
                     <label class="option-check" style="font-size:0.78rem; color:var(--nr-text-muted); display:flex; align-items:center; gap:0.4rem; cursor:pointer;">
                         <input type="checkbox" id="rollbackVerify" style="accent-color:#00bcd4;">
-                        <i class="bi bi-patch-check" style="color:#00bcd4;"></i>
+                        <i class="bi bi-patch-check nr-accent"></i>
                         Verify after push
                         <span title="Verification is based on best-effort text matching. Vendors that restructure the config file (e.g. JSON-based platforms) may produce false negatives."
                               style="font-family:'JetBrains Mono',monospace; font-size: 0.6875rem;
@@ -502,7 +502,7 @@
                     </label>
                     <label class="option-check" style="font-size:0.78rem; color:var(--nr-text-muted); display:flex; align-items:center; gap:0.4rem; cursor:pointer;">
                         <input type="checkbox" id="rollbackVerbose" style="accent-color:#00bcd4;">
-                        <i class="bi bi-terminal" style="color:var(--nr-text-faint);"></i>
+                        <i class="bi bi-terminal nr-faint"></i>
                         Verbose
                     </label>
                 </div>

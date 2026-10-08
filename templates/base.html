@@ -9,21 +9,8 @@
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
 
     <style>
-        /* ── Readability tokens ──────────────────────────────────────────
-           Every text tier passes WCAG AA (4.5:1) on all app surfaces
-           (#121212 page .. #2a2a2a raised). Use these instead of raw greys. */
-        :root {
-            --nr-text:           #e6e6e6;  /* primary */
-            --nr-text-secondary: #bdbdbd;  /* labels, secondary values */
-            --nr-text-muted:     #949494;  /* captions, metadata, hints */
-            --nr-text-faint:     #7a7a7a;  /* decorative icons only (>=3:1), never text */
-            --nr-accent:         #00bcd4;
-            --nr-accent-soft:    #4fa3ad;  /* teal-tinted secondary text, footer links */
-        }
-        /* Keyboard focus is always visible (mouse clicks don't show it) */
-        :focus-visible { outline: 2px solid var(--nr-accent) !important; outline-offset: 2px; }
-        ::placeholder { color: var(--nr-text-muted) !important; opacity: 1; }
-
+        {% include "_theme_core_css.html" %}
+        {% include "_theme_pages_css.html" %}
         /* ── Base ── */
         body {
             background-color: #121212;
@@ -32,28 +19,8 @@
             min-height: 100vh;
         }
 
-        /* ── Dot-grid background ── */
-        body::before {
-            content: '';
-            position: fixed;
-            inset: 0;
-            pointer-events: none;
-            z-index: -1;
-            background-image:
-                radial-gradient(circle at 15% 15%, rgba(0,188,212,0.05) 0%, transparent 50%),
-                radial-gradient(circle at 85% 85%, rgba(0,188,212,0.03) 0%, transparent 50%),
-                linear-gradient(rgba(0,188,212,0.03) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(0,188,212,0.03) 1px, transparent 1px);
-            background-size: 100% 100%, 100% 100%, 40px 40px, 40px 40px;
-        }
-
         .container { position: relative; }
-
-        /* ── Typography ── */
-        h1, h2, h3, h4, h5 { color: #e0e0e0; font-family: 'Inter', sans-serif; }
         .fw-bold { color: #e0e0e0; }
-        p { color: #999 !important; }
-        .lead { color: #bbb !important; }
 
         /* ── Top bar ── */
         .nr-topbar {
@@ -92,124 +59,7 @@
             opacity: 0.35;
             cursor: not-allowed;
         }
-
-        /* ── User dropdown button ── */
-        .nr-user-btn {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 0.72rem;
-            color: var(--nr-text-muted) !important;
-            background: #161616 !important;
-            border: 1px solid #242424 !important;
-            border-radius: 6px;
-            padding: 0.38rem 0.9rem;
-            transition: border-color 0.2s, color 0.2s;
-        }
-        .nr-user-btn:hover, .nr-user-btn.show {
-            border-color: rgba(0,188,212,0.3) !important;
-            color: #00bcd4 !important;
-            background: #161616 !important;
-            box-shadow: none !important;
-        }
-        .nr-user-btn::after { opacity: 0.5; }
-
-        /* ── Dropdown ── */
-        .dropdown-menu {
-            background-color: #161616 !important;
-            border: 1px solid #1e1e1e !important;
-            border-radius: 8px !important;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.6) !important;
-            padding: 0.35rem !important;
-        }
-        .dropdown-item {
-            color: #888 !important;
-            border-radius: 5px;
-            font-family: 'Inter', sans-serif;
-            font-size: 0.82rem;
-            padding: 0.45rem 0.8rem;
-            transition: background 0.15s, color 0.15s;
-        }
-        .dropdown-item:hover { background-color: #1e1e1e !important; color: #e0e0e0 !important; }
-        .dropdown-divider { border-color: #222 !important; margin: 0.3rem 0; }
-
-
-        /* ── Accent card ── */
-        .nr-card {
-            position: relative;
-            background: #1a1a1a;
-            border: 1px solid #222;
-            border-radius: 12px;
-            overflow: hidden;
-            box-shadow:
-                0 0 0 1px rgba(0,188,212,0.1),
-                0 20px 60px rgba(0,0,0,0.5),
-                0 0 40px rgba(0,188,212,0.04);
-            transition: box-shadow 0.3s;
-        }
-        .nr-card:hover {
-            box-shadow:
-                0 0 0 1px rgba(0,188,212,0.18),
-                0 20px 60px rgba(0,0,0,0.6),
-                0 0 60px rgba(0,188,212,0.07);
-        }
-        .nr-card-accent {
-            height: 3px;
-            background: linear-gradient(90deg, #00bcd4, #00e5ff, transparent);
-        }
-        .nr-card-body { padding: 2rem; }
-
-        /* ── Section badge ── */
-        .nr-badge {
-            display: inline-block;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 0.6875rem;
-            font-weight: 700;
-            letter-spacing: 3px;
-            color: #00bcd4;
-            border: 1px solid rgba(0,188,212,0.35);
-            padding: 0.2rem 0.7rem;
-            border-radius: 2px;
-            margin-bottom: 0.6rem;
-        }
-
-        /* ── Form labels ── */
-        .nr-label {
-            display: block;
-            font-family: 'Inter', sans-serif;
-            font-size: 0.72rem;
-            font-weight: 500;
-            letter-spacing: 0.8px;
-            color: var(--nr-text-muted) !important;
-            text-transform: uppercase;
-            margin-bottom: 0.4rem;
-        }
-
-        /* ── Form controls ── */
-        .form-control, .form-select {
-            background-color: #1e1e1e !important;
-            color: #e0e0e0 !important;
-            border: 1px solid #2a2a2a !important;
-            border-radius: 6px !important;
-            font-family: 'Inter', sans-serif;
-            font-size: 0.88rem;
-            transition: border-color 0.2s, box-shadow 0.2s;
-        }
-        .form-control:focus, .form-select:focus {
-            background-color: #222 !important;
-            color: #e0e0e0 !important;
-            border-color: #00bcd4 !important;
-            box-shadow: 0 0 0 3px rgba(0,188,212,0.12) !important;
-        }
-        .form-control::placeholder { color: var(--nr-text-muted) !important; }
-        .form-control:disabled { background-color: #161616 !important; color: var(--nr-text-muted) !important; }
-        .form-control.is-invalid { border-color: rgba(239,83,80,0.6) !important; }
-        .invalid-feedback { color: #ef9a9a !important; font-size: 0.78rem; }
-
-        /* ── Input groups ── */
-        .input-group-text {
-            background-color: #1e1e1e !important;
-            border: 1px solid #2a2a2a !important;
-            color: var(--nr-text-muted) !important;
-        }
+        /* ── The password fields' eye button (an input group) ── */
         .input-group .btn-outline-secondary {
             background: #1e1e1e !important;
             border: 1px solid #2a2a2a !important;
@@ -220,118 +70,14 @@
             background: #252525 !important;
             color: #aaa !important;
         }
-
-        /* ── Buttons ── */
-        .btn-primary {
-            background: linear-gradient(135deg, #00bcd4, #00acc1) !important;
-            border: none !important;
-            color: #080808 !important;
-            font-family: 'Inter', sans-serif;
-            font-weight: 600;
-            font-size: 0.88rem;
-            letter-spacing: 0.5px;
-            border-radius: 6px;
-            transition: all 0.2s;
-        }
-        .btn-primary:hover {
-            background: linear-gradient(135deg, #00e5ff, #00bcd4) !important;
-            box-shadow: 0 4px 20px rgba(0,188,212,0.35) !important;
-            transform: translateY(-1px);
-            color: #080808 !important;
-        }
-        .btn-primary:disabled {
-            background: #1a3035 !important;
-            color: #2e666e !important;
-            box-shadow: none !important;
-            transform: none !important;
-        }
-        .btn-primary:active { transform: none !important; }
-
-        .btn-outline-secondary {
-            color: var(--nr-text-muted) !important;
-            border-color: #2a2a2a !important;
-            background: transparent !important;
-        }
+        /* Not in _theme_pages_css.html with the other buttons: it must come after
+           base.html's .input-group .btn-outline-secondary (same specificity) -
+           its border colour is the one a hovered eye button shows */
         .btn-outline-secondary:hover {
             background: #1e1e1e !important;
             color: #aaa !important;
             border-color: #3a3a3a !important;
         }
-
-        .btn-outline-primary {
-            color: #00bcd4 !important;
-            border-color: rgba(0,188,212,0.35) !important;
-            background: transparent !important;
-        }
-        .btn-outline-primary:hover {
-            background: rgba(0,188,212,0.08) !important;
-            color: #00e5ff !important;
-            border-color: rgba(0,188,212,0.5) !important;
-        }
-
-        .btn-outline-danger {
-            color: #ef5350 !important;
-            border-color: rgba(239,83,80,0.3) !important;
-            background: transparent !important;
-        }
-        .btn-outline-danger:hover {
-            background: rgba(239,83,80,0.08) !important;
-            color: #ef9a9a !important;
-        }
-
-        .btn-secondary {
-            background-color: #1e1e1e !important;
-            border-color: #2a2a2a !important;
-            color: #888 !important;
-        }
-        .btn-secondary:hover {
-            background-color: #252525 !important;
-            color: #ccc !important;
-            border-color: #3a3a3a !important;
-        }
-
-        .btn-success {
-            background: linear-gradient(135deg, #1b5e20, #2e7d32) !important;
-            border: none !important;
-            color: #c8e6c9 !important;
-            font-family: 'Inter', sans-serif;
-            font-weight: 600;
-            transition: all 0.2s;
-        }
-        .btn-success:hover {
-            background: linear-gradient(135deg, #2e7d32, #388e3c) !important;
-            box-shadow: 0 4px 16px rgba(46,125,50,0.3) !important;
-            transform: translateY(-1px);
-            color: #e8f5e9 !important;
-        }
-
-        .btn-danger {
-            background: linear-gradient(135deg, #7f0000, #b71c1c) !important;
-            border: none !important;
-            color: #ffcdd2 !important;
-        }
-        .btn-danger:hover {
-            background: linear-gradient(135deg, #b71c1c, #c62828) !important;
-            box-shadow: 0 4px 16px rgba(183,28,28,0.3) !important;
-        }
-
-        {% include "_theme_core_css.html" %}
-
-        /* ── HR ── */
-        hr { border-color: #1e1e1e !important; opacity: 1; }
-
-        /* ── Badges (Bootstrap) ── */
-        .badge.bg-secondary { background-color: #1e1e1e !important; color: var(--nr-text-muted) !important; border: 1px solid #2a2a2a; }
-        .badge.bg-danger    { background-color: rgba(183,28,28,0.2)  !important; color: #ef9a9a !important; }
-        .badge.bg-success   { background-color: rgba(27,94,32,0.2)   !important; color: #a5d6a7 !important; }
-        .badge.bg-warning   { background-color: rgba(245,127,23,0.2) !important; color: #ffe082 !important; }
-
-
-        /* ── Scrollbar ── */
-        ::-webkit-scrollbar { width: 5px; height: 5px; }
-        ::-webkit-scrollbar-track { background: #161616; }
-        ::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 3px; }
-        ::-webkit-scrollbar-thumb:hover { background: #3a3a3a; }
 
         /* ── Footer ── */
         .nr-footer {
@@ -344,13 +90,6 @@
             letter-spacing: 1.5px;
         }
         /* ── Form validation ── */
-        @keyframes shake {
-            0%, 100% { transform: translateX(0); }
-            18%       { transform: translateX(-7px); }
-            36%       { transform: translateX(7px); }
-            54%       { transform: translateX(-4px); }
-            72%       { transform: translateX(4px); }
-        }
         input.form-control:invalid:not(:placeholder-shown) {
             border-color: #ef5350 !important;
             box-shadow: none !important;
@@ -363,8 +102,7 @@
         }
         input.form-control:invalid:not(:placeholder-shown) + .field-error,
         input.form-control.nr-submitted:invalid + .field-error { display: block; }
-        .pw-group:has(input.form-control:invalid:not(:placeholder-shown)) + .field-error,
-        .pw-group:has(input.form-control.nr-submitted:invalid) + .field-error { display: block; }
+        {% include "_classes_css.html" %}
     </style>
 </head>
 <body>

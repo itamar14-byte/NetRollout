@@ -7,8 +7,8 @@
         <div class="modal-content">
             <div class="modal-header">
                 <div>
-                    <div class="nr-badge" style="margin-bottom:0.3rem; border-color:rgba(239,83,80,0.4); color:#ef9a9a;">IRREVERSIBLE ACTION</div>
-                    <h5 class="modal-title" style="color:#ef9a9a;">{{ title }}</h5>
+                    <div class="nr-badge nr-badge-danger">IRREVERSIBLE ACTION</div>
+                    <h5 class="modal-title nr-danger-soft">{{ title }}</h5>
                 </div>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
@@ -17,7 +17,7 @@
                     {{ prompt }}
                     <span id="{{ name_id }}" style="font-family:'JetBrains Mono',monospace; color:{{ name_color }}; font-weight:700;"></span>?
                 </p>
-                <p style="font-size:0.82rem; color:var(--nr-text-muted); margin-bottom:0;">
+                <p class="nr-note-tight">
                     {{ note }}
                 </p>
             </div>

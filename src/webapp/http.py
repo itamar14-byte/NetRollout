@@ -19,7 +19,6 @@ from src.inventory import ReachabilityChecker
 from src.webapp.app import current_app
 
 
-##########################Constants#######################################
 # A view function, and one that receives the request's data as `data`
 View = Callable[..., ResponseReturnValue]
 
@@ -42,8 +41,6 @@ SYSTEM_PROPERTIES: list[dict[str, Any]] = [
 ]
 
 
-##########################Jsonify helpers#######################################
-
 def ok(message: str | None = None, /, **extra: Any) -> Response:
 	""":returns: {"status": "ok", "message"?, **extra} as JSON (the message is
 	 positional, so no extra field can stand in for it)"""
@@ -59,7 +56,6 @@ def err(message: str, code: int = 400, **extra: Any) -> tuple[Response, int]:
 	return jsonify({"status": "error", "message": message, **extra}), code
 
 
-##########################Decorators###########################################
 def require_admin(f: View) -> View:
 	"""Admins only: anyone else gets 403 (JSON / XHR) or is sent back to the
 	page they came from."""
@@ -122,14 +118,13 @@ def with_form(*required_fields: str) -> Callable[[View], View]:
 	return decorator
 
 
-#######################Route helpers###############################
 def flash_redirect(msg: str, endpoint: str,
                    category: str = "success") -> ResponseReturnValue:
 	""":returns: a redirect to the endpoint, with the message flashed"""
 	flash(msg, category)
 	return redirect(url_for(endpoint))
 
-##################Backend facing helpers#######################################
+
 class WebServices:
 	"""The web app's services on top of the backend (current_app.web)."""
 
@@ -140,7 +135,6 @@ class WebServices:
 			lambda: backend.redis.client,
 			ttl=lambda: backend.settings.get("reachability_cache_seconds"))
 
-	##########################Audit############################################
 	def audit(self, action: str, *, object_type: str | None = None,
 	          object_id: uuid.UUID | str | None = None,
 	          object_label: str | None = None, detail: dict[str, Any] | None = None,
@@ -176,7 +170,6 @@ class WebServices:
 				detail=detail,
 			))
 
-	#######################DB functional abstractions###############################
 	def act_on_db_obj(self, model: type[Base], obj_id: uuid.UUID | str | None,
 	                  func: Callable[[Any, Session], ResponseReturnValue],
 	                  user_id: uuid.UUID | None = None, many: bool = False,
@@ -270,7 +263,6 @@ class WebServices:
 
 		return func
 
-	###################Route helpers###########################################
 	def build_security_profile(self, label: str | None, username: str, password: str,
 	                           enable_secret: str | None,
 	                           user_id: uuid.UUID) -> str:
@@ -294,7 +286,6 @@ class WebServices:
 		           object_label=label or username)
 		return profile_id
 
-	#######################Auth helpers###############################
 	def get_property_defs(self, user_id: uuid.UUID) -> tuple[
 			list[dict[str, Any]], list[dict[str, Any]]]:
 		""":returns: (the system properties, the user's own) - {name, label,

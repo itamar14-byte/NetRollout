@@ -11,7 +11,6 @@ from src.webapp.http import require_admin
 bp = Blueprint('admin_audit', __name__, url_prefix='/admin')
 
 
-##############################Routes###########################################
 @bp.route("/audit")
 @login_required
 @require_admin

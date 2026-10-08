@@ -22,11 +22,11 @@
   <div class="nr-card" style="height:100%;">
     <div class="nr-card-accent" style="background:linear-gradient(90deg,rgba(0,188,212,0.4),transparent);"></div>
     <div class="nr-card-body" style="padding:1.25rem;">
-      <div class="nr-label mb-1">ACTIVE USERS <span style="color:var(--nr-text-muted); text-transform:none; letter-spacing:0;">30d</span></div>
+      <div class="nr-label mb-1">ACTIVE USERS <span class="nr-label-hint">30d</span></div>
       <div style="font-family:'JetBrains Mono',monospace; font-size:2rem; font-weight:700; color:#00bcd4; line-height:1;">
         {{ org_kpi.active_users }}
       </div>
-      <div style="font-size: 0.75rem; color:var(--nr-text-muted); margin-top:0.4rem;">of {{ org_kpi.total_users }} registered</div>
+      <div class="nr-help-spaced">of {{ org_kpi.total_users }} registered</div>
     </div>
   </div>
   </div>
@@ -40,7 +40,7 @@
         {% elif org_kpi.success_rate >= 50 %}rgba(255,193,7,0.5)
         {% else %}rgba(239,83,80,0.6){% endif %},transparent);"></div>
     <div class="nr-card-body" style="padding:1.25rem;">
-      <div class="nr-label mb-1">ORG SUCCESS RATE <span style="color:var(--nr-text-muted); text-transform:none; letter-spacing:0;">30d</span></div>
+      <div class="nr-label mb-1">ORG SUCCESS RATE <span class="nr-label-hint">30d</span></div>
       <div style="font-family:'JetBrains Mono',monospace; font-size:2rem; font-weight:700; line-height:1;
           color:{% if org_kpi.success_rate is none %}#333
                 {% elif org_kpi.success_rate >= 80 %}#a5d6a7
@@ -48,7 +48,7 @@
                 {% else %}#ef9a9a{% endif %};">
         {% if org_kpi.success_rate is none %}—{% else %}{{ org_kpi.success_rate }}%{% endif %}
       </div>
-      <div style="font-size: 0.75rem; color:var(--nr-text-muted); margin-top:0.4rem;">across all operators</div>
+      <div class="nr-help-spaced">across all operators</div>
     </div>
   </div>
   </div>
@@ -58,11 +58,11 @@
   <div class="nr-card" style="height:100%;">
     <div class="nr-card-accent"></div>
     <div class="nr-card-body" style="padding:1.25rem;">
-      <div class="nr-label mb-1">TOTAL JOBS <span style="color:var(--nr-text-muted); text-transform:none; letter-spacing:0;">30d</span></div>
+      <div class="nr-label mb-1">TOTAL JOBS <span class="nr-label-hint">30d</span></div>
       <div style="font-family:'JetBrains Mono',monospace; font-size:2rem; font-weight:700; color:#e0e0e0; line-height:1;">
         {{ org_kpi.total_jobs }}
       </div>
-      <div style="font-size: 0.75rem; color:var(--nr-text-muted); margin-top:0.4rem;">rollout jobs executed</div>
+      <div class="nr-help-spaced">rollout jobs executed</div>
     </div>
   </div>
   </div>
@@ -72,11 +72,11 @@
   <div class="nr-card" style="height:100%;">
     <div class="nr-card-accent"></div>
     <div class="nr-card-body" style="padding:1.25rem;">
-      <div class="nr-label mb-1">DEVICE OPERATIONS <span style="color:var(--nr-text-muted); text-transform:none; letter-spacing:0;">30d</span></div>
+      <div class="nr-label mb-1">DEVICE OPERATIONS <span class="nr-label-hint">30d</span></div>
       <div style="font-family:'JetBrains Mono',monospace; font-size:2rem; font-weight:700; color:#e0e0e0; line-height:1;">
         {{ org_kpi.total_ops }}
       </div>
-      <div style="font-size: 0.75rem; color:var(--nr-text-muted); margin-top:0.4rem;">individual device pushes</div>
+      <div class="nr-help-spaced">individual device pushes</div>
     </div>
   </div>
   </div>
@@ -97,7 +97,7 @@
           <div class="nr-badge" style="margin-bottom:0;">OPERATORS</div>
         </div>
       </div>
-      <div style="font-size:0.88rem; font-weight:600; color:#e0e0e0; margin-bottom:1rem;">Most Active (30d)</div>
+      <div class="nr-section-title">Most Active (30d)</div>
       {% if active_users %}
       <table class="table align-middle mb-0" style="font-size:0.82rem;">
         <thead><tr>
@@ -112,7 +112,7 @@
           <td><span style="font-family:'JetBrains Mono',monospace; font-size:0.8rem; color:#ccc;">{{ u.username }}</span></td>
           <td class="text-center"><span style="font-family:'JetBrains Mono',monospace; color:#e0e0e0;">{{ u.job_count }}</span></td>
           <td class="text-center"><span style="font-family:'JetBrains Mono',monospace; color:#e0e0e0;">{{ u.devices_reached }}</span></td>
-          <td><span style="font-size: 0.75rem; color:var(--nr-text-muted);">{{ u.last_job_at.strftime("%b %d, %H:%M") if u.last_job_at else '—' }}</span></td>
+          <td><span class="nr-help-text">{{ u.last_job_at.strftime("%b %d, %H:%M") if u.last_job_at else '—' }}</span></td>
         </tr>
         {% endfor %}
         </tbody>
@@ -127,7 +127,7 @@
   <!-- Most Failed Devices -->
   <div class="col-12 col-lg-6">
   <div class="nr-card" style="height:100%;">
-    <div class="nr-card-accent" style="background:linear-gradient(90deg,rgba(239,83,80,0.25),transparent);"></div>
+    <div class="nr-card-accent nr-accent-danger"></div>
     <div class="nr-card-body" style="padding:1.25rem;">
       <div class="d-flex align-items-center gap-2 mb-3">
         <i class="bi bi-exclamation-triangle-fill" style="color:#ef9a9a; font-size:0.9rem;"></i>
@@ -135,7 +135,7 @@
           <div class="nr-badge" style="margin-bottom:0; border-color:rgba(239,83,80,0.3); color:#ef9a9a;">RELIABILITY</div>
         </div>
       </div>
-      <div style="font-size:0.88rem; font-weight:600; color:#e0e0e0; margin-bottom:1rem;">Most Failed Devices (30d)</div>
+      <div class="nr-section-title">Most Failed Devices (30d)</div>
       {% if failed_devices %}
       <table class="table align-middle mb-0" style="font-size:0.82rem;">
         <thead><tr>
@@ -148,9 +148,9 @@
         <tr style="border-color:#1a1a1a;">
           <td>
             <div style="font-family:'JetBrains Mono',monospace; font-size:0.78rem; color:#ef9a9a;">{{ d.label or d.ip }}</div>
-            <div style="font-size: 0.75rem; color:var(--nr-text-muted);">{{ d.ip }}</div>
+            <div class="nr-help-text">{{ d.ip }}</div>
           </td>
-          <td><span style="font-size: 0.75rem; color:var(--nr-text-muted);">{{ d.device_type }}</span></td>
+          <td><span class="nr-help-text">{{ d.device_type }}</span></td>
           <td class="text-center"><span style="font-family:'JetBrains Mono',monospace; color:#ef9a9a; font-weight:700;">{{ d.fail_count }}</span></td>
         </tr>
         {% endfor %}
@@ -181,7 +181,7 @@
       </div>
       <div>
         <div class="nr-badge" style="border-color:rgba(255,224,130,0.25); color:#ffe082; margin-bottom:0.2rem;">AUDIT INVESTIGATION</div>
-        <div style="font-size:0.88rem; font-weight:600; color:#e0e0e0;">Audit Log Query</div>
+        <div class="nr-section-title-tight">Audit Log Query</div>
         <div style="font-size:0.7rem; color:var(--nr-text-muted); font-family:'JetBrains Mono',monospace; margin-top:0.1rem;">
           90-day retention · append-only · admin access only
         </div>

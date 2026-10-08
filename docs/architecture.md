@@ -509,7 +509,7 @@ app.shutdown      →  lifecycle.Shutdown (drain, then exit; relaunch in dev)
 ```
 
 - **Sessions:** server-side in Redis via Flask-Session, prefix `redis_session:`, not permanent. The cookie is `Secure`, `HttpOnly`, `SameSite=Lax`. A session ends after `session_idle_minutes` (System Settings, default 15) without user activity — background requests (`X-NR-Background: 1`, `?_bg=1`, the live log stream) don't count but are checked — and after 12 hours regardless; the page warns a minute ahead (`_idle_timeout.html`) and returns to the page after signing in again (`?next=`). Every app start clears all sessions on purpose (a restart / update / reboot starts clean, like a firewall's management plane; rollouts don't depend on sessions).
-- **`_SafeRedisSessionInterface`:** catches `REDIS_UNAVAILABLE` on open and save and returns an empty session instead of crashing. Its `client` is looked up per request from `backend.redis`, so a Server Management Redis switch keeps sign-ins working. It is registered **after** `configure_app()` (which calls `Session(app)`) so it isn't overwritten.
+- **`_SafeRedisSessionInterface`:** catches `REDIS_UNAVAILABLE` on open and save and returns an empty session instead of crashing. Its `client` is looked up per request from `backend.redis`, so a Server Management Redis switch keeps sign-ins working. It is the app's only session interface, set in `launch_app()` (Flask-Session's `Session(app)` isn't used: it would build one only to be replaced).
 - **Proxy headers:** `ProxyFix(x_for=1, x_proto=1, x_host=1)` sits behind nginx.
 - **Drain banner:** a context processor gives every template `server_draining`; `_drain_banner.html` (in both base templates) says new rollouts are paused and reloads the page when a new instance answers. The Restart modal and script are shared includes too (`_restart_modal.html`, `_restart_script.html`).
 - **Vendor logos:** `VENDOR_LOGOS` (device_type → Simple Icons CDN URL) is a Jinja global.
@@ -583,14 +583,14 @@ start_otp_flow()
   → no secret?          → /otp_enroll (first-time setup)
 
 complete_login()
-  → login_user(user) → record_redis_session() → audit → redirect jobs.dashboard
+  → login_user(user) → audit → redirect jobs.dashboard
 ```
 
 Admins can reset a user's 2FA; the user re-enrols at the next login.
 
 **Passwords** (local accounts): one rule, `src/accounts/users.py` — at least 8 characters with at least 2 of letters / digits / special characters, ASCII only, not containing the username; a change must differ from the current one. Registration, `/account/password` and generated temporary passwords all use it; `templates/_password_rule_script.html` mirrors it in the pages. While `must_change_password` is set, a `before_request` gate (`hooks.py`, allowlist `PASSWORD_CHANGE_ALLOWED`: the change page, logout, static, instance/health) redirects pages to `/account/password` and answers fetch calls with 403. A change (rate-limited like login) clears the flag, rotates the session id, **signs the user out of every other session** and is audited (`auth.password_change`). An admin *Reset password* on another local user (not LDAP, not themselves, not the factory admin) replaces the stored password with a random temporary one shown once, sets the flag and **signs the user out everywhere** (`user.reset_password`; the password is never logged). Admin *Terminate Session* signs out everywhere too.
 
-**Signing a user out everywhere** (`src/accounts/users.py`, `end_user_sessions`): `user_session:<id>` points only at the latest sign-in, so every `redis_session:*` is decoded with flask-session's serializer and the user's (`_user_id`) are deleted — complete (sessions from before the change too) and cheap at this scale; a per-user index would be faster but miss existing sessions and need expiry cleanup.
+**Signing a user out everywhere** (`src/accounts/users.py`, `end_user_sessions`): every `redis_session:*` is decoded with flask-session's serializer and the user's (`_user_id`) are deleted — complete and cheap at this scale; a per-user index would be faster but miss existing sessions and need expiry cleanup (the earlier `user_session:<id>` pointer, latest sign-in only, was dropped in the 2026-10 clean-up: nothing read it). Live Sessions and the Users page read the sessions the same way (`signed_in_users`).
 
 **Real-time logs:** `/rollout/stream/<job_id>` is Server-Sent Events. It replays `job:<id>:history` (LRANGE), then tails the pub/sub channel `job:<id>:logs`, sending a heartbeat every 0.5 s. The response sets `X-Accel-Buffering: no` so nginx doesn't buffer.
 
@@ -648,7 +648,7 @@ Custom              the admins' own (Save as, new dashboards, subfolders) — ne
 | Flask extensions | Module-level with `init_app()` | Must be importable by blueprints at definition time, before an app context exists |
 | `app.web` / `app.backend` | Set on the app object in `launch_app()` | Available through `current_app` in any request context; avoids circular imports |
 | Blueprint `url_for` | Always prefixed (`"auth.home"`, `"jobs.dashboard"`) | Blueprint namespace prevents endpoint name collisions |
-| `_SafeRedisSessionInterface` | Registered after `Session(app)` | `Session(app)` overwrites `session_interface`; must follow it |
+| `_SafeRedisSessionInterface` | The only session interface, set in `launch_app()`; no `Session(app)` | Flask-Session's `Session(app)` only builds an interface from `SESSION_*` config - ours replaces it, so it isn't called |
 | LDAP auto-provisioning | A matched group rule creates a user on first login | Zero-touch onboarding; role assigned from the group mapping |
 | `AuditLog.actor_username` | Denormalized | Audit records survive user deletion; no orphaned FK |
 | `reload_db()` | Raises `RuntimeError` if the new server is unreachable | Silent failure would leave the app pointing at a broken connection |

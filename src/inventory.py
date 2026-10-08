@@ -136,7 +136,6 @@ class ReachabilityChecker:
 			pass
 
 
-#######################Device visibility###############################
 def visible_devices_clause(user_id: uuid.UUID) -> ColumnElement[bool]:
 	"""Devices a user may see and roll out to: their own plus all global ones."""
 	return or_(Inventory.user_id == user_id, Inventory.is_global.is_(True))

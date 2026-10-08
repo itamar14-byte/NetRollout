@@ -22,7 +22,6 @@ from src.webapp.http import ok, err, with_form, with_json, flash_redirect, SYSTE
 bp = Blueprint('mappings', __name__, url_prefix='/mappings')
 
 
-#######################Route helpers###########################################
 def property_rules() -> tuple[set[str], set[str]]:
 	"""(allowed names, list names), from the same definitions the pages show:
 	the system's and the user's own properties."""
@@ -40,11 +39,11 @@ def validate_mapping_fields(index: int | None, property_name: str,
 	:returns: None when valid; else the way back to the page, the reason
 	 flashed"""
 	allowed, list_props = property_rules()
-	for valid, why in (inputs.validate_var_map_inner_token(inner_token),
-	                   inputs.validate_var_map_property_name(property_name, allowed),
-	                   inputs.validate_var_index(index, property_name, list_props)):
-		if not valid:
-			flash(why or "Invalid mapping.", "danger")
+	for problem in (inputs.token_problem(inner_token),
+	                inputs.property_name_problem(property_name, allowed),
+	                inputs.index_problem(index, property_name, list_props)):
+		if problem:
+			flash(problem, "danger")
 			return redirect(url_for("mappings.mappings"))
 	return None
 
@@ -84,7 +83,6 @@ def parse_mapping_input(data: Any) -> ResponseReturnValue | dict[str, Any]:
 	        "token": f"$${inner_token}$$"}
 
 
-##############################Routes#######################################
 @bp.route("")
 @login_required
 def mappings() -> str:
@@ -154,11 +152,11 @@ def mappings_quick_create(data: dict[str, Any]) -> ResponseReturnValue:
 		return err(str(e), 422)
 
 	allowed, list_props = property_rules()
-	for valid, why in (inputs.validate_var_map_inner_token(inner_token),
-	                   inputs.validate_var_map_property_name(property_name, allowed),
-	                   inputs.validate_var_index(index, property_name, list_props)):
-		if not valid:
-			return err(why or "Invalid mapping.")
+	for problem in (inputs.token_problem(inner_token),
+	                inputs.property_name_problem(property_name, allowed),
+	                inputs.index_problem(index, property_name, list_props)):
+		if problem:
+			return err(problem)
 
 	token = f"$${inner_token}$$"
 	row = VariableMapping(token=token, index=index, property_name=property_name,
@@ -356,7 +354,6 @@ def mappings_bulk_assign() -> ResponseReturnValue:
 properties_bp = Blueprint('properties', __name__, url_prefix='/properties')
 
 
-##############################Routes#######################################
 @properties_bp.route("")
 @login_required
 def properties() -> str:

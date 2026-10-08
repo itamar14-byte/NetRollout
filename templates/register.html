@@ -9,10 +9,10 @@
 <!-- Hero -->
 <div class="mb-4">
   <div class="nr-badge">REQUEST ACCESS</div>
-  <h2 style="font-family:'JetBrains Mono',monospace; font-size:1.9rem; font-weight:700; color:#e0e0e0; letter-spacing:-0.5px; margin-bottom:0.4rem;">
+  <h2 class="nr-kpi-value">
     Join NetRollout
   </h2>
-  <p style="font-size:0.85rem; color:var(--nr-text-muted); font-weight:300;">
+  <p class="nr-page-subtitle">
     Your account will be reviewed by an administrator before activation.
   </p>
 </div>
@@ -25,21 +25,21 @@
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
       <div class="mb-3 text-start">
-        <label for="username" class="nr-label">Username <span style="color:#ef5350;">*</span></label>
+        <label for="username" class="nr-label">Username <span class="nr-danger">*</span></label>
         <input type="text" class="form-control" id="username" name="username"
                placeholder="Enter username" autocomplete="off">
         <div class="invalid-feedback" id="usernameError"></div>
       </div>
 
       <div class="mb-3 text-start">
-        <label for="email" class="nr-label">Email <span style="color:#ef5350;">*</span></label>
+        <label for="email" class="nr-label">Email <span class="nr-danger">*</span></label>
         <input type="text" class="form-control" id="email" name="email"
                placeholder="Enter email" autocomplete="off">
         <div class="invalid-feedback" id="emailError"></div>
       </div>
 
       <div class="mb-3 text-start">
-        <label for="full_name" class="nr-label">Full Name <span style="color:#ef5350;">*</span></label>
+        <label for="full_name" class="nr-label">Full Name <span class="nr-danger">*</span></label>
         <input type="text" class="form-control" id="full_name" name="full_name"
                placeholder="Enter full name">
         <div class="invalid-feedback" id="fullNameError"></div>
@@ -55,7 +55,7 @@
       </div>
 
       <div class="mb-3 text-start">
-        <label for="password" class="nr-label">Password <span style="color:#ef5350;">*</span></label>
+        <label for="password" class="nr-label">Password <span class="nr-danger">*</span></label>
         <div class="input-group">
           <input type="password" class="form-control" id="password" name="password"
                  placeholder="Enter password" autocomplete="new-password">
@@ -66,7 +66,7 @@
       </div>
 
       <div class="mb-4 text-start">
-        <label for="confirm_password" class="nr-label">Confirm Password <span style="color:#ef5350;">*</span></label>
+        <label for="confirm_password" class="nr-label">Confirm Password <span class="nr-danger">*</span></label>
         <div class="input-group">
           <input type="password" class="form-control" id="confirm_password"
                  placeholder="Repeat password" autocomplete="new-password">

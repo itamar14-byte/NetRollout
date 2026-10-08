@@ -5,6 +5,7 @@ import glob
 import os
 import uuid
 from collections.abc import Iterable
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from itertools import groupby
 from typing import Any
@@ -12,13 +13,14 @@ from typing import Any
 from flask import Blueprint, render_template, request, send_file, Response, url_for
 from flask.typing import ResponseReturnValue
 from flask_login import current_user, login_required
+from sqlalchemy import ColumnElement, and_, distinct, func, or_
 from sqlalchemy.orm import Session
 
 from src import runtime
-from src.accounts.users import signed_in_user
 from src.db.tables import DeviceResult, JobMetadata, User, Inventory
 from src.inventory import visible_devices_clause
-from src.jobs import JobStore, RolloutJob, job_status, build_kpi
+from src.jobs import (JobStore, RolloutJob, JOB_STATUSES, job_status,
+                      job_status_condition, build_kpi)
 from src.rollout.engine import endpoint
 from src.rollout.platforms import PLATFORMS, verify_commands
 from src.webapp.app import current_app
@@ -26,6 +28,94 @@ from src.webapp.http import ok, err
 
 
 bp = Blueprint('jobs', __name__)
+
+# Results' "entries per page" (an entry is a job, with all its devices)
+PER_PAGE_CHOICES = (25, 50, 100, 250, 500)
+DEFAULT_PER_PAGE = 100
+
+
+@dataclass
+class JobPage:
+	"""One page of Results' jobs: their device results, and where the page
+	sits among all the jobs in its scope."""
+	results: list[DeviceResult]
+	total: int  # jobs in the whole scope, not on this page
+	page: int
+	pages: int
+
+
+def per_page_arg(raw: str | None) -> int:
+	""":returns: the entries per page asked for when it is one of
+	 PER_PAGE_CHOICES, else DEFAULT_PER_PAGE"""
+	try:
+		value = int(raw or "")
+	except ValueError:
+		return DEFAULT_PER_PAGE
+	return value if value in PER_PAGE_CHOICES else DEFAULT_PER_PAGE
+
+
+def status_arg(raw: str | None) -> str | None:
+	""":returns: the job status asked for when it is one of JOB_STATUSES,
+	 else None (no filter)"""
+	return raw if raw in JOB_STATUSES else None
+
+
+def page_arg(raw: str | None) -> int:
+	""":returns: the 1-based page asked for; 1 when missing or not a positive
+	 number"""
+	try:
+		return max(1, int(raw or ""))
+	except ValueError:
+		return 1
+
+
+def load_job_page(db_session: Session, scope: ColumnElement[bool], page: int,
+                  per_page: int, focus: uuid.UUID | None = None,
+                  status: str | None = None) -> JobPage:
+	"""One page of the jobs whose device results match scope, newest first
+	(by their last device's completion; the job id breaks ties, so pages
+	stay stable). The database pages the jobs (LIMIT/OFFSET), then only
+	those jobs' device results are loaded.
+
+	:param scope: which device results count, e.g. one user's
+	:param page: the page asked for, 1-based; past the last one → the last
+	:param per_page: jobs per page
+	:param focus: a job to land on: when it is in scope, its page replaces
+	 page
+	:param status: only the jobs job_status gives this status (one of
+	 JOB_STATUSES; judged on all their device results, all of which are
+	 loaded); None: every job
+	:returns: the page's device results, the jobs' total, the page shown and
+	 the number of pages"""
+	if status is not None:
+		scope = and_(scope, DeviceResult.job_id.in_(
+			db_session.query(DeviceResult.job_id).filter(scope)
+			.group_by(DeviceResult.job_id)
+			.having(job_status_condition(status))))
+	done = func.max(DeviceResult.completed_at).label("done")
+	total = db_session.query(func.count(distinct(DeviceResult.job_id)))\
+		.filter(scope).scalar() or 0
+	pages = max(1, -(-total // per_page))
+	if focus is not None:
+		focus_done = db_session.query(func.max(DeviceResult.completed_at))\
+			.filter(scope, DeviceResult.job_id == focus).scalar()
+		if focus_done is not None:
+			jobs = db_session.query(DeviceResult.job_id, done).filter(scope)\
+				.group_by(DeviceResult.job_id).subquery()
+			before = db_session.query(func.count()).select_from(jobs).filter(
+				or_(jobs.c.done > focus_done,
+				    and_(jobs.c.done == focus_done, jobs.c.job_id > focus)))\
+				.scalar() or 0
+			page = before // per_page + 1
+	page = min(max(page, 1), pages)
+	job_ids = [row.job_id for row in
+	           db_session.query(DeviceResult.job_id, done).filter(scope)
+	           .group_by(DeviceResult.job_id)
+	           .order_by(done.desc(), DeviceResult.job_id.desc())
+	           .limit(per_page).offset((page - 1) * per_page)]
+	results = db_session.query(DeviceResult).filter(
+		scope, DeviceResult.job_id.in_(job_ids)).all() if job_ids else []
+	return JobPage(results=results, total=total, page=page, pages=pages)
 
 
 def visible_label_map(db_session: Session, user_id: uuid.UUID) -> dict[str, str]:
@@ -224,7 +314,7 @@ def build_job_dict(job_id: str, usernames: dict[str, str]) -> dict[str, Any]:
 		"owner": usernames.get(meta.get("user_id", ""), "unknown")
 	}
 
-##############################Routes################################
+
 @bp.route("/dashboard")
 @login_required
 def dashboard() -> str:
@@ -322,38 +412,58 @@ def active_jobs() -> str:
 @login_required
 def results() -> str:
 	"""Results: the user's jobs - and, for an admin, everyone else's apart,
-	with their owners - newest first."""
+	with their owners - newest first, a page at a time: ?per_page= (one of
+	PER_PAGE_CHOICES, else 100), ?page= (the user's own jobs), ?other_page=
+	(an admin's other users' jobs), ?view=all (an admin's all-users view),
+	?status= (one of JOB_STATUSES: only those jobs, in both of an admin's
+	lists; else every job); ?job=<id> without ?page= lands on that job's
+	page."""
 	is_admin = current_user.role == "admin"
+	per_page = per_page_arg(request.args.get("per_page"))
+	status = status_arg(request.args.get("status"))
+	focus = None
+	if "page" not in request.args:
+		try:
+			focus = uuid.UUID(request.args.get("job", ""))
+		except ValueError:
+			pass
 	# System Setting, read once per page (not per row)
 	snapshot_days = current_app.backend.settings.get(
 		"config_snapshot_retention_days")
 	with current_app.backend.postgres.get_session() as db_session:
+		mine = load_job_page(db_session, DeviceResult.user_id == current_user.id,
+		                     page_arg(request.args.get("page")), per_page,
+		                     focus, status)
 		if is_admin:
-			raw_results = db_session.query(DeviceResult).all()
-			metadata_rows = db_session.query(JobMetadata).all()
-			usernames = {u.id: u.username for u in db_session.query(User).all()}
+			others = load_job_page(
+				db_session, DeviceResult.user_id != current_user.id,
+				page_arg(request.args.get("other_page")), per_page,
+				status=status)
+			owner_ids = {r.user_id for r in others.results}
+			usernames = {u.id: u.username for u in db_session.query(User)
+			             .filter(User.id.in_(owner_ids))} if owner_ids else {}
 			endpoint_labels = {(row.ip, row.port): (row.label or row.ip)
 			                   for row in db_session.query(Inventory).all()}
 		else:
-			user = signed_in_user(db_session)
-			raw_results = user.results
-			metadata_rows = user.job_metadata
+			others = JobPage(results=[], total=0, page=1, pages=1)
 			usernames = {}
 			endpoint_labels = visible_endpoint_labels(db_session,
 			                                          current_user.id)
+		page_job_ids = {r.job_id for r in mine.results + others.results}
+		metadata_rows = db_session.query(JobMetadata).filter(
+			JobMetadata.job_id.in_(page_job_ids)).all() if page_job_ids else []
 		db_session.expunge_all()
 
 	metadata_by_job = {m.job_id: m for m in metadata_rows}
 
 	if is_admin:
-		my_raw = [r for r in raw_results if r.user_id == current_user.id]
-		other_raw = [r for r in raw_results if r.user_id != current_user.id]
-		jobs = build_jobs(my_raw, metadata_by_job, endpoint_labels,
+		jobs = build_jobs(mine.results, metadata_by_job, endpoint_labels,
 		                  snapshot_days)
 		jobs.sort(key=lambda x: x["completed_at"], reverse=True)
 		other_jobs: list[dict[str, Any]] = []
-		# group other_raw by user_id so each job gets its job_owner username
-		other_raw_sorted = sorted(other_raw, key=lambda x: x.user_id)
+		# group the others' results by user_id so each job gets its
+		# job_owner username
+		other_raw_sorted = sorted(others.results, key=lambda x: x.user_id)
 		for user_id, user_rows in groupby(other_raw_sorted,
 		                                  key=lambda x: x.user_id):
 			owner = usernames.get(user_id, "unknown")
@@ -362,7 +472,7 @@ def results() -> str:
 				           snapshot_days, job_owner=owner))
 		other_jobs.sort(key=lambda x: x["completed_at"], reverse=True)
 	else:
-		jobs = build_jobs(raw_results, metadata_by_job, endpoint_labels,
+		jobs = build_jobs(mine.results, metadata_by_job, endpoint_labels,
 		                  snapshot_days)
 		jobs.sort(key=lambda x: x["completed_at"], reverse=True)
 		other_jobs = []
@@ -371,6 +481,14 @@ def results() -> str:
 	                       active_section="results_30d",
 	                       jobs=jobs,
 	                       other_jobs=other_jobs,
+	                       mine=mine,
+	                       others=others,
+	                       per_page=per_page,
+	                       per_page_choices=PER_PAGE_CHOICES,
+	                       status_filter=status,
+	                       job_statuses=JOB_STATUSES,
+	                       split_view=is_admin
+	                       and request.args.get("view") == "all",
 	                       is_admin=is_admin,
 	                       config_retention_days=snapshot_days)
 

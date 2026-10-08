@@ -162,7 +162,7 @@ def test_voluntary_change_from_the_account_page(make_user, client_for,
 
 def signed_in_clients(client_for, user, count):
 	"""`count` separate browsers signed in as `user`, each with a session
-	stored in Redis (user_session:<id> points at the last one only)."""
+	stored in Redis."""
 	clients = [client_for(user) for _ in range(count)]
 	for c in clients:
 		c.get("/account/password")          # allowed even while flagged
@@ -288,7 +288,6 @@ def test_reset_gives_a_temporary_password_and_forces_a_change(
 	target_client = client_for(target)
 	target_client.get("/dashboard")                     # has a live session
 	sid = target_client.get_cookie("session").value
-	app.backend.redis.client.set(f"user_session:{target.id}", sid)
 
 	resp = reset(client_for(admin), target.id)
 	assert resp.status_code == 200
@@ -299,7 +298,6 @@ def test_reset_gives_a_temporary_password_and_forces_a_change(
 	assert user.must_change_password is True
 	assert check_password_hash(user.password_hash, temporary)
 	assert not check_password_hash(user.password_hash, TEST_PASSWORD)
-	assert not app.backend.redis.client.exists(f"user_session:{target.id}")
 	assert not app.backend.redis.client.exists(f"redis_session:{sid}")
 	# Signed out: sent to sign in, not to the change page (the flag alone
 	# would redirect there too)
@@ -311,13 +309,11 @@ def test_reset_gives_a_temporary_password_and_forces_a_change(
 
 def test_reset_signs_the_user_out_everywhere(admin, make_user, client_for,
                                               session_scope, app):
-	"""A reset ends all three of the user's browser sessions, not only the one
-	user_session points at, and audits sessions_ended 3."""
+	"""A reset ends all three of the user's browser sessions, and audits
+	sessions_ended 3."""
 	target = make_user()
 	browsers = signed_in_clients(client_for, target, 3)
 	sids = [sid_of(b) for b in browsers]
-	# the pointer knows only the latest sign-in; the others must go too
-	app.backend.redis.client.set(f"user_session:{target.id}", sids[-1])
 	assert reset(client_for(admin), target.id).status_code == 200
 	for sid, browser in zip(sids, browsers):
 		assert not app.backend.redis.client.exists(f"redis_session:{sid}")
