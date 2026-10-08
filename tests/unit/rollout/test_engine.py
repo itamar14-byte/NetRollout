@@ -441,6 +441,41 @@ class TestRolloutEngineRun(unittest.TestCase):
 		self.assertEqual(result[0]["status"], "success")
 		self.assertIsNone(result[0]["commands_verified"])
 
+	@patch("netmiko.ConnectHandler")
+	def test_a_line_of_only_quotes_still_records_every_device(self, mock_ch):
+		"""A command line of only double quotes ("" / " ") normalizes to
+		nothing: the run still finishes and records a result for every device
+		it configured, with and without verify (it used to raise IndexError
+		after the push - no results recorded)."""
+		mock_conn = MagicMock()
+		mock_conn.send_config_set.return_value = "ok"
+		mock_ch.return_value = mock_conn
+		commands = ["hostname x", '""', '" "']
+		for verify in (False, True):
+			with self.subTest(verify=verify):
+				devices = [make_device(ip="10.0.0.1"), make_device(ip="10.0.0.2")]
+				engine = RolloutEngine(param=make_options(verify=verify),
+				                       devices=devices, commands=commands)
+				with patch.object(Device, "fetch_config",
+				                  return_value="hostname x"):
+					result = engine.run(self.cancel, self.logger)
+				self.assertEqual(sorted(r["device_ip"] for r in result),
+				                 ["10.0.0.1", "10.0.0.2"])
+				self.assertTrue(all(r["commands_sent"] == 3 for r in result))
+
+	def test_verify_names_an_unverifiable_quotes_only_line(self):
+		"""Verify's report of an unverifiable line looks at its first word: a
+		line of only quotes has none, and verify still answers (it used to
+		raise IndexError)."""
+		device = make_device()
+		engine = RolloutEngine(param=make_options(verify=True), devices=[device],
+		                       commands=["hostname x", '""'])
+		with patch.object(device, "fetch_config", return_value="hostname x"), \
+				patch.object(engine_module, "verify_commands",
+				             return_value=["verified", "not verifiable"]):
+			result = engine._verify([0], self.logger)
+		self.assertEqual((result[0].verified, result[0].checkable), (1, 1))
+
 	def test_same_ip_different_ports_get_separate_results(self):
 		"""Two devices on one IP with different ports (e.g. lab nodes
 		port-forwarded behind one host IP) get their own results: 2001 success,

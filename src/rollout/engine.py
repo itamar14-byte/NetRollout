@@ -18,7 +18,7 @@ from netmiko import BaseConnection
 
 from src import encryption
 from src.rollout.log import RolloutLogger
-from src.rollout.platforms import COMMIT_TIMEOUT, FETCH_TIMEOUT, NOT_CONFIGURED, PLATFORMS, STILL_CONFIGURED, UNVERIFIABLE, VERIFIED, Platform, navigates, normalize, rejection, verify_commands
+from src.rollout.platforms import COMMIT_TIMEOUT, FETCH_TIMEOUT, NOT_CONFIGURED, PLATFORMS, STILL_CONFIGURED, UNVERIFIABLE, VERIFIED, Platform, first_word, navigates, rejection, verify_commands
 if TYPE_CHECKING:   # type hints only: the CLI (.exe) must not load the DB stack
 	from src.db.tables import Inventory
 
@@ -648,7 +648,7 @@ class RolloutEngine:
 				logger.notify(f"{device.endpoint}: '{command.strip()}' "
 				              f"{verdict}", "red")
 			elif verdict == UNVERIFIABLE and \
-					not navigates(normalize(command).split()[0]):
+					not navigates(first_word(command)):
 				logger.notify(f"{device.endpoint}: '{command.strip()}' not "
 				              f"verifiable — it leaves nothing in the config",
 				              "yellow")
@@ -719,7 +719,7 @@ class RolloutEngine:
 			total = len(self._commands)
 			# the commands that configure something (not exit / end / next…)
 			configuring = sum(1 for c in self._commands
-			                  if not navigates(normalize(c).split()[0] if c.strip() else ""))
+			                  if not navigates(first_word(c)))
 			for idx, device in enumerate(self._devices):
 				push = push_results.get(idx)
 				check = verify_results.get(idx) if push and push.applied else None

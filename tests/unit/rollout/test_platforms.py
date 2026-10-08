@@ -12,7 +12,7 @@ import pytest
 from src.rollout import inputs
 from src.rollout.engine import Device, PushResult, RolloutEngine, RolloutOptions
 from src.rollout.log import RolloutLogger
-from src.rollout.platforms import COMMIT_TIMEOUT, NOT_CONFIGURED, PLATFORMS, STILL_CONFIGURED, UNVERIFIABLE, VARIABLE, VERIFIED, rejection, verify_commands
+from src.rollout.platforms import COMMIT_TIMEOUT, NOT_CONFIGURED, PLATFORMS, STILL_CONFIGURED, UNVERIFIABLE, VARIABLE, VERIFIED, first_word, rejection, verify_commands
 
 
 OK, MISSING, STILL, NV = VERIFIED, NOT_CONFIGURED, STILL_CONFIGURED, UNVERIFIABLE
@@ -376,6 +376,16 @@ def test_unresolved_variables_are_not_judged():
 	verdicts = verify_commands("cisco_ios", IOS_CONFIG,
 	                           ["hostname $$HOSTNAME$$", "hostname r1"])
 	assert verdicts == [VARIABLE, OK]
+
+
+@pytest.mark.parametrize("command, word", [
+	('""', ""), ('" "', ""), ("", ""), ("   ", ""),
+	('  "Exit" now', "exit"), ("Hostname R1", "hostname"),
+])
+def test_first_word_of_a_command(command, word):
+	"""A command's first word as compared; a line that normalizes to nothing
+	(blank, or only quotes) has the empty word instead of raising."""
+	assert first_word(command) == word
 
 
 # ── A refused command, in each vendor's words ────────────────────────────────

@@ -135,6 +135,12 @@ def normalize(line: str) -> str:
 	return " ".join(line.replace('"', "").split()).lower()
 
 
+def first_word(command: str) -> str:
+	""":returns: a command's first word as compared ("" when normalizing
+	 leaves nothing - a blank line, or one of only quotes)"""
+	return (normalize(command).split() or [""])[0]
+
+
 class _Section:
 	"""A config section: its lines (normalized), each with its own children."""
 	__slots__ = ("children",)
@@ -179,7 +185,7 @@ def _verify_sectioned(config: str, commands: list[str],
 	verdicts = []
 	for command in commands:
 		key = normalize(command)
-		word = key.split()[0] if key else ""
+		word = first_word(command)
 		if navigates(word):
 			leaves_all = word in ("return", "root") or (word == "end" and not blocks)
 			stack = [] if leaves_all else stack[:-1]
