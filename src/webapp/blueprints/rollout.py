@@ -6,6 +6,7 @@ import uuid
 from collections.abc import Iterator
 from itertools import groupby
 from typing import Any, cast
+from urllib.parse import urlsplit
 
 from flask import Blueprint, render_template, request, flash, redirect, url_for, Response
 from flask.typing import ResponseReturnValue
@@ -204,7 +205,7 @@ def cancel_rollout(data: Any) -> ResponseReturnValue:
 		if scripted:
 			return err(message, code)
 		flash(f"The rollout could not be cancelled: {message}.", "danger")
-		return redirect(request.referrer or url_for("jobs.active_jobs"))
+		return redirect(_back())
 
 	raw = data.get("job_id", "").strip()
 	try:
@@ -222,7 +223,17 @@ def cancel_rollout(data: Any) -> ResponseReturnValue:
 		return ok("canceled")
 	flash("Rollout cancelled - devices it has not reached are skipped.",
 	      "success")
-	return redirect(request.referrer or url_for("jobs.active_jobs"))
+	return redirect(_back())
+
+
+def _back() -> str:
+	""":returns: where a page's form goes back to - the referring page's path
+	 on this site (not its query: Active Jobs' auto-reload adds ?_bg=1,
+	 which marks a request as background), else Active Jobs"""
+	referrer = urlsplit(request.referrer or "")
+	if referrer.netloc == request.host and referrer.path.startswith("/"):
+		return referrer.path
+	return url_for("jobs.active_jobs")
 
 
 @bp.route("/new")

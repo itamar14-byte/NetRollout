@@ -238,9 +238,27 @@ def test_cancel_from_a_page_form_flashes_and_goes_back(app, operator,
 	resp = client.post("/rollout/cancel", data={"job_id": str(job.job_id)},
 	                   headers={"Referer": "https://localhost/dashboard"})
 	assert resp.status_code == 302 and job.cancelled.is_set()
-	assert resp.headers["Location"] == "https://localhost/dashboard"
+	assert resp.headers["Location"] == "/dashboard"
 	page = client.get("/dashboard").get_data(as_text=True)
 	assert "Rollout cancelled - devices it has not reached are skipped." in page
+
+
+@pytest.mark.parametrize("referer, back", [
+	# Active Jobs' auto-reload address: its ?_bg=1 would mark the next page as
+	# background (not activity) - only the path is returned to
+	("https://localhost/active_jobs?_bg=1", "/active_jobs"),
+	("https://evil.example/active_jobs", "/active_jobs"),     # another site: never
+	("https://localhost/dashboard?x=1", "/dashboard"),
+])
+def test_cancel_goes_back_to_the_page_not_its_query_nor_another_site(
+		app, operator, client_for, monkeypatch, referer, back):
+	"""A page's Cancel goes back to the referring page's path on this site - without its
+	query, never to another site - else Active Jobs."""
+	job = FakeRunningJob(operator.user.id)
+	monkeypatch.setitem(app.orchestrator._jobs, job.job_id, job)
+	resp = client_for(operator.user).post(
+		"/rollout/cancel", data={"job_id": str(job.job_id)}, headers={"Referer": referer})
+	assert resp.status_code == 302 and resp.headers["Location"] == back
 
 
 def test_cancel_refused_from_a_page_form_flashes_the_reason(
