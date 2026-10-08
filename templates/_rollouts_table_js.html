@@ -1,0 +1,41 @@
+{# nrRolloutsTable(container, rollouts): the rollouts a database move or a
+   Restart waits for, as a table (class nr-rollouts) - by, devices, state,
+   started - each row with "Cancel rollout" (POST /rollout/cancel; an admin
+   may cancel any). `rollouts` as the server gives them (jobs.with_owners:
+   job_id, user, devices, state, started); none: the container is emptied.
+   A row cancelled from this page stays "Cancelling..." across refreshes.
+   In the <head> of operator_base.html and admin.html, after _escape_js.html. #}
+<script>
+const _nrCancelledRollouts = new Set();
+
+function nrRolloutsTable(container, rollouts) {
+    if (!container) return;
+    if (!rollouts || !rollouts.length) { container.innerHTML = ''; return; }
+    const rows = rollouts.map(j => {
+        const asked = _nrCancelledRollouts.has(j.job_id);
+        return `<tr><td>${nrEscape(j.user)}</td><td>${nrEscape(j.devices)}</td>
+            <td>${nrEscape(j.state)}</td><td>${j.started ? nrEscape(String(j.started).replace('T', ' ')) : '—'}</td>
+            <td class="text-end"><button type="button" class="btn btn-outline-danger btn-sm py-0" data-job="${nrEscape(j.job_id)}"${asked ? ' disabled' : ''}>${asked ? 'Cancelling…' : 'Cancel rollout'}</button></td></tr>`;
+    }).join('');
+    container.innerHTML = `<table class="nr-rollouts"><thead><tr><th>By</th><th>Devices</th><th>State</th><th>Started</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+    container.querySelectorAll('[data-job]').forEach(b => b.addEventListener('click', async () => {
+        if (!confirm('Cancel this rollout? Devices it has not reached are skipped.')) return;
+        b.disabled = true;
+        b.textContent = 'Cancelling…';
+        let resp = null;
+        try {
+            resp = await fetch('/rollout/cancel', {method: 'POST', headers: {'X-CSRFToken': CSRF_TOKEN},
+                                                   body: new URLSearchParams({job_id: b.dataset.job})});
+        } catch (e) { /* no answer: allowed again below */ }
+        if (resp && (resp.ok || resp.status === 404)) {   // 404: it ended meanwhile
+            _nrCancelledRollouts.add(b.dataset.job);
+            return;
+        }
+        b.disabled = false;
+        b.textContent = 'Cancel rollout';
+        let message = 'The rollout could not be cancelled - try again.';
+        try { message = (await resp.json()).message || message; } catch (e) { /* not JSON */ }
+        alert(message);
+    }));
+}
+</script>

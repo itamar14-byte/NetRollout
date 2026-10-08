@@ -3,7 +3,7 @@ NetRollout's engine on Windows: NetRollout Setup, its uninstaller and
 NetRollout Manager run it; admins can too (bin\netrollout.bat):
 
   netrollout start | stop | status | open | logs [service] | backup |
-             restore <file> | apply | help
+             restore <file> | apply | rollouts [-Json] | stop-now | help
 
 Installing is NetRollout Setup's (it runs `install -Yes` with the answers of
 its pages). The install folder is this script's parent folder. The script does
@@ -27,6 +27,7 @@ param(
 	[switch]$KeepData,              # uninstall: keep it (no question)
 	[switch]$DeleteBackups,         # uninstall with -DeleteData: the backups too (else kept)
 	[switch]$NoSafetyBackup,        # restore: without backing up the current state
+	[switch]$Json,                  # rollouts: one line of JSON (NetRollout Manager)
 	# NetRollout Setup, updating: the installed folder (this copy runs from
 	# Setup's temporary folder) and the version it brings
 	[string]$InstallDir = "",
@@ -439,10 +440,54 @@ function Show-RunningRollouts {
 	} catch { }
 }
 
+# The running app's rollouts, asked inside its container (python -m src.jobs:
+# its Redis and database settings are there): the table ("" when none), or
+# with -Json one line {"rollouts": [...]}. $null when it can't say (not
+# running, or a version without the command).
+function Get-Rollouts([switch]$Json) {
+	$a = @("exec", "-T", "app", "python", "-m", "src.jobs", "rollouts")
+	if ($Json) { $a += "--json" }
+	$r = Compose $a
+	if ($r.Code -ne 0) { return $null }
+	$lines = @($r.Output -split "`n" | Where-Object { $_.Trim() -ne "System.Management.Automation.RemoteException" })
+	if ($Json) { return ($lines | Where-Object { $_.TrimStart().StartsWith("{") } | Select-Object -Last 1) }
+	return (($lines | Where-Object { $_.Trim() }) -join "`n")
+}
+
+# The stop under way cancels the running rollouts at once (the app's drain
+# looks for the mark) - devices being configured finish, results recorded
+function Request-StopNow {
+	$r = Compose @("exec", "-T", "app", "python", "-m", "src.jobs", "stop-now")
+	if ($r.Code -eq 0) { Show-Output $r.Output; return $true }
+	Warn "Couldn't ask NetRollout to cancel them - they finish first."
+	return $false
+}
+
+# Before a stop or an update's restart: the rollouts running or queued, and -
+# asked here, not with -Yes - wait for them (up to the drain deadline),
+# cancel them all now, or don't. $false: don't stop.
+function Confirm-Rollouts([string]$What) {
+	$list = Get-Rollouts
+	if ($null -eq $list) { Show-RunningRollouts; return $true }    # an older version: the count
+	if (-not $list) { return $true }
+	Warn (($list -split "`n" | Select-Object -First 1))
+	Write-Host (($list -split "`n" | Select-Object -Skip 1) -join "`n")     # indented already
+	if (-not $Interactive) {
+		Warn "They finish and are recorded first (up to 10 minutes)."
+		return $true
+	}
+	while ($true) {
+		$a = (Read-Host "   [W]ait for them (up to 10 minutes), [C]ancel them all now, or [D]on't $($What)? [W]").Trim()
+		if ($a -match "^(w|wait)?$") { Warn "They finish and are recorded first."; return $true }
+		if ($a -match "^c") { Request-StopNow | Out-Null; return $true }
+		if ($a -match "^d") { return $false }
+	}
+}
+
 function Invoke-Stop {
 	Assert-Installed
 	if (-not (Test-DockerReady)) { Good "NetRollout isn't running (Docker isn't)."; return }
-	Show-RunningRollouts
+	if (-not (Confirm-Rollouts "stop")) { Good "Not stopped - NetRollout keeps running."; return }
 	Step "Stopping NetRollout"
 	$r = Compose @("stop")
 	if ($r.Code -ne 0) { Write-Host $r.Output; Fail "Docker couldn't stop it - see above." }
@@ -599,7 +644,7 @@ function Invoke-PrepareUpdate {
 	if ($r.Code -ne 0) {
 		Warn "Couldn't compare the versions ($AppImage didn't run) - continuing."
 	}
-	Show-RunningRollouts
+	if (-not (Confirm-Rollouts "update")) { Fail "Nothing was changed." 2 }
 	Step "Backing up first"
 	if ((Invoke-BackupCreate "before-update") -ne 0) {
 		Fail "Couldn't back up - nothing was changed. Fix it (above), then run Setup again."
@@ -618,7 +663,7 @@ function Invoke-Update {
 	foreach ($image in "netrollout", "netrollout-nginx") { Get-OurImage "itamarweinstein/${image}:$Version" }
 	Step "Updating the settings"
 	if ((Invoke-Setup @("upgrade")) -ne 0) { Fail "The update stopped before the restart - see above." }
-	Show-RunningRollouts
+	Confirm-Rollouts "update" | Out-Null      # the files are in place: shown, never refused
 	Step "Restarting on the new version (about a minute; running rollouts finish first)"
 	Start-NetRollout
 	Start-PortHelper
@@ -806,6 +851,8 @@ function Show-Help {
 	Say "  netrollout backup           back up now (into the backups folder)"
 	Say "  netrollout restore <file>   put NetRollout back to a backup (asks first)"
 	Say "  netrollout apply            apply an HTTPS port saved in System Settings (the helper does it by itself)"
+	Say "  netrollout rollouts         the rollouts running or queued (-Json: as JSON)"
+	Say "  netrollout stop-now         a stop under way (or the next) cancels them at once"
 	Say ""
 	Say "  -NoBrowser   don't open the browser"
 	Say "  Installing and uninstalling: NetRollout Setup / Settings -> Apps."
@@ -825,6 +872,20 @@ function Invoke-NrCommand([string]$Name) {
 		"prepare-update" { Invoke-PrepareUpdate; return 0 }
 		"update" { Invoke-Update; return 0 }
 		"apply" { Invoke-Apply; return 0 }
+		"rollouts" {
+			Assert-Installed
+			if (-not (Test-DockerReady)) { return 1 }
+			$list = Get-Rollouts -Json:$Json
+			if ($null -eq $list) { return 1 }
+			if ($Json -and -not $list) { return 1 }
+			if ($list) { Write-Host $list } elseif (-not $Json) { Say "No rollout running or queued." }
+			return 0
+		}
+		"stop-now" {
+			Assert-Installed
+			if (-not (Test-DockerReady) -or -not (Request-StopNow)) { return 1 }
+			return 0
+		}
 		"uninstall" { Invoke-Uninstall; return 0 }
 		"ensure-docker" { Confirm-Docker -OfferInstall; Good "Docker is running."; return 0 }
 		"defaults" { Write-Defaults; return 0 }

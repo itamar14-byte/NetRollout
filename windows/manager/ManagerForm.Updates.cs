@@ -66,16 +66,19 @@ namespace NetRollout
 		void OfferUpdate(Release release)
 		{
 			Say("NetRollout " + release.Version + " is available (you have " + Install.Version + ").");
-			var running = RolloutsRunning ? detailLabel.Text + " - they finish first. " : "";
-			using (var dialog = new UpdateDialog(release, running))
+			using (var dialog = new UpdateDialog(release, ""))   // rollouts: asked next
 			{
 				if (dialog.ShowDialog(this) != DialogResult.OK) return;
 			}
 			if (dailyItem != null) dailyItem.Checked = Updates.Daily;
-			InstallUpdate(release);
+			if (state != State.Running && state != State.Attention) { InstallUpdate(release, false); return; }
+			AskAboutRollouts("update", delegate (bool cancelAll) { InstallUpdate(release, cancelAll); });
 		}
 
-		void InstallUpdate(Release release)
+		// cancelAll: the running rollouts are cancelled as the update restarts
+		// NetRollout - asked for once the Setup is downloaded and checked, so a
+		// failed download leaves nothing behind
+		void InstallUpdate(Release release, bool cancelAll)
 		{
 			updating = true;
 			SetBusy(true);
@@ -85,6 +88,11 @@ namespace NetRollout
 				string setup = null, problem = null;
 				try { setup = Updates.Download(release, p => SayLater("   " + p + "%")); }
 				catch (Exception e) { problem = e.Message; }
+				if (problem == null && cancelAll)
+				{
+					SayLater("Asking NetRollout to cancel the running rollouts as it restarts...");
+					if (!Rollouts.StopNow()) SayLater("Couldn't ask it to cancel them - they finish first.");
+				}
 				BeginInvoke((Action)delegate
 				{
 					if (problem != null)

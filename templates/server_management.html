@@ -108,9 +108,6 @@
                        padding:1rem 1.15rem; margin-bottom:1.25rem; font-size:0.84rem; color:#e0e0e0; }
         .mv-progress.failed { border-color:rgba(239,83,80,0.35); background:rgba(239,83,80,0.05); }
         .mv-progress.done { border-color:rgba(102,187,106,0.35); background:rgba(102,187,106,0.05); }
-        .mv-progress table { width:100%; font-size:0.8rem; margin:0.6rem 0; }
-        .mv-progress td, .mv-progress th { padding:0.3rem 0.4rem; border-bottom:1px solid #1e1e1e; color:var(--nr-text-secondary); }
-        .mv-progress th { font-weight:500; color:var(--nr-text-muted); }
       </style>
 
       <p class="mv-now">
@@ -868,16 +865,13 @@
       if ($('mvBack')) $('mvBack').style.display = moving ? 'none' : 'block';
       let html = '';
       if (m.state === 'waiting') {
-        const rows = (m.rollouts || []).map(j => `<tr><td>${nrEscape(j.user)}</td><td>${j.devices}</td>
-            <td>${j.state}</td><td>${j.started ? nrEscape(j.started.replace('T', ' ')) : '—'}</td>
-            <td class="text-end"><button class="btn btn-outline-danger btn-sm py-0" data-job="${j.job_id}">Cancel rollout</button></td></tr>`).join('');
         const n = (m.rollouts || []).length, what = m.what || '';
         html = `<strong><span class="spinner-border spinner-border-sm text-info me-2"></span>${nrEscape(what.charAt(0).toUpperCase() + what.slice(1))}:
           waiting for ${n === 1 ? 'a rollout' : n ? `${n} rollouts` : 'the last rollout'} to finish</strong>
           <div class="mv-hint mt-1">New rollouts are paused. The move starts by itself when none is left; it's given up in
           ${mmss(m.seconds_left || 0)} if they're still running. Cancelling a rollout skips devices it hasn't reached;
           a device being configured finishes first.</div>
-          ${rows ? `<table><thead><tr><th>By</th><th>Devices</th><th>State</th><th>Started</th><th></th></tr></thead><tbody>${rows}</tbody></table>` : ''}
+          <div id="mvRollouts"></div>
           <button class="btn btn-outline-secondary btn-sm mt-1" id="mvCancelMove">Cancel the move</button>`;
       } else if (m.state === 'copying' || m.state === 'switching') {
         html = `<strong><span class="spinner-border spinner-border-sm text-info me-2"></span>${nrEscape(m.step || 'Working')}…</strong>
@@ -892,12 +886,7 @@
           <div class="mv-hint mt-1">${nrEscape(m.message || '')}</div>`;
       }
       box.innerHTML = html;
-      box.querySelectorAll('[data-job]').forEach(b => b.addEventListener('click', async () => {
-        if (!confirm('Cancel this rollout? Devices it has not reached are skipped.')) return;
-        b.disabled = true;
-        const form = new URLSearchParams({job_id: b.dataset.job});
-        await fetch('/rollout/cancel', {method: 'POST', headers: {'X-CSRFToken': CSRF_TOKEN}, body: form});
-      }));
+      nrRolloutsTable($('mvRollouts'), m.rollouts);
       $('mvCancelMove')?.addEventListener('click', async () => {
         $('mvCancelMove').disabled = true;
         await call(`${BASE}/move/cancel`, {});

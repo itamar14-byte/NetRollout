@@ -127,6 +127,56 @@ def test_restart_is_admin_only(make_user, client_for, begins):
 	assert begins == []
 
 
+# ── The rollouts a Restart waits for (the dialog's list) ────────────────────
+
+@pytest.fixture
+def two_rollouts(app, admin, monkeypatch):
+	"""The orchestrator holds a running rollout of `admin` and a queued one of
+	a user id without a user. :returns: their job ids"""
+	running, queued = uuid.uuid4(), uuid.uuid4()
+	monkeypatch.setattr(app.orchestrator, "jobs", lambda: [
+		{"job_id": running, "user_id": admin.id, "devices": 4, "state": "running",
+		 "started": "2026-10-08T14:02:11"},
+		{"job_id": queued, "user_id": uuid.uuid4(), "devices": 1, "state": "queued",
+		 "started": None}])
+	return running, queued
+
+
+def test_rollouts_lists_each_with_its_owner(admin, client_for, busy, two_rollouts):
+	"""GET /admin/server/rollouts gives the counts, not draining, and each rollout:
+	id (text), owner name ("?" for an unknown user), devices, state, started."""
+	busy(running=1, queued=1)
+	running, queued = two_rollouts
+	body = client_for(admin, xhr=True).get("/admin/server/rollouts").json
+	assert (body["status"], body["running"], body["queued"], body["draining"]) == ("ok", 1, 1, False)
+	assert [(r["job_id"], r["user"], r["devices"], r["state"], r["started"]) for r in body["rollouts"]] == [
+		(str(running), admin.username, 4, "running", "2026-10-08T14:02:11"),
+		(str(queued), "?", 1, "queued", None)]
+
+
+def test_rollouts_answers_while_draining(admin, client_for, two_rollouts, draining):
+	"""While the server drains (a Restart "when finished"), the list still
+	answers 200 - as a background request too - and says it's draining."""
+	c = client_for(admin, xhr=True)
+	resp = c.get("/admin/server/rollouts", headers={"X-NR-Background": "1"})
+	assert resp.status_code == 200
+	assert resp.json["draining"] is True and len(resp.json["rollouts"]) == 2
+
+
+def test_rollouts_is_admin_only(make_user, client_for, two_rollouts):
+	"""An operator asking for the list is refused (302 or 403)."""
+	resp = client_for(make_user(), xhr=True).get("/admin/server/rollouts")
+	assert resp.status_code in (302, 403)
+
+
+def test_the_restart_dialog_lists_the_rollouts(admin, client_for):
+	"""Admin pages carry the Restart dialog's list (#restartRollouts) and the
+	shared table, which the database move's panel uses too."""
+	html = client_for(admin).get("/admin/server").data.decode()
+	assert 'id="restartRollouts"' in html and "function nrRolloutsTable(" in html
+	assert "nrRolloutsTable($('mvRollouts'), m.rollouts)" in html
+
+
 # ── While the server drains ──────────────────────────────────────────────────
 
 @pytest.fixture

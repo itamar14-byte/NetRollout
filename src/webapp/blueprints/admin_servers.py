@@ -3,7 +3,6 @@
 certificate, and Restart. Admins only; every change audited."""
 import os
 import time
-import uuid
 from collections.abc import Callable
 from typing import Any
 
@@ -18,8 +17,7 @@ from src.access import nginx
 from src.accounts.users import clear_sessions
 from src.db import move
 from src.db.connections import PostgresConfig, REDIS_UNAVAILABLE, RedisConfig
-from src.db.tables import User
-from src.jobs import clear_stale_jobs
+from src.jobs import clear_stale_jobs, with_owners
 from src.runtime import drain_seconds
 from src.webapp import db_move
 from src.webapp.app import current_app
@@ -205,16 +203,14 @@ def _status() -> dict[str, Any]:
 	status.pop("deadline", None)
 	if status["state"] == db_move.WAITING:
 		status["seconds_left"] = max(0, int(current_app.db_move.seconds_left()))
-		jobs = current_app.orchestrator.jobs()
-		names: dict[uuid.UUID, str] = {}
-		if jobs:
-			with current_app.backend.postgres.get_session() as session:
-				names = {row.id: row.username for row in
-				         session.query(User.id, User.username)
-				         .filter(User.id.in_({j["user_id"] for j in jobs}))}
-		status["rollouts"] = [{**j, "job_id": str(j["job_id"]), "user_id": str(j["user_id"]),
-		                       "user": names.get(j["user_id"], "?")} for j in jobs]
+		status["rollouts"] = _rollouts()
 	return status
+
+
+def _rollouts() -> list[dict[str, Any]]:
+	""":returns: this process's rollouts, each with its owner's name
+	 (jobs.with_owners)"""
+	return with_owners(current_app.orchestrator.jobs(), current_app.backend.postgres)
 
 
 @bp.route("/database/move/cancel", methods=["POST"])
@@ -371,6 +367,19 @@ def certificate_selfsigned() -> ResponseReturnValue:
 	names = (nginx.overview(hostname)["certificate"] or {}).get("names", [])
 	return _certificate_applied("server.certificate_generated", undo, started,
 	                            managed, {"names": names})
+
+
+@bp.route("/rollouts")
+@login_required
+@require_admin
+def rollouts() -> Response:
+	"""The rollouts a Restart waits for - queued and running, with their owner,
+	devices, state and start - polled by the Restart dialog (also while the
+	server drains: nothing refuses requests then).
+
+	:returns: {rollouts: [...], running, queued, draining}"""
+	return ok(rollouts=_rollouts(), draining=current_app.orchestrator.draining,
+	          **current_app.orchestrator.counts())
 
 
 @bp.route("/restart", methods=["POST"])
