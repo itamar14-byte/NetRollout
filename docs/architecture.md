@@ -372,7 +372,7 @@ Known limits (Phase 5b: Deep Diff with hier_config + netutils): typed abbreviati
 
 ### `RolloutJob`
 Lifecycle owner, constructed as `RolloutJob(job_id, user_id, engine, options, redis_client)`. It owns the thread, cancel flag, engine and logger.
-- **Methods:** `start(on_complete)`, `cancel()` and `is_alive()`, plus log accessors (`get_log_queue`, `get_log_history`) and `log_cleanup`.
+- **Methods:** `start(on_complete)`, `cancel()`, `cancel_before_start(reason)` and `is_over()`, plus `follow_log(over)` (the live log for the stream) and `log_cleanup`.
 - **Completion:** `on_complete` always fires, even if the engine raises, so an orchestrator slot is never leaked.
 
 ### `RolloutOrchestrator`
@@ -605,7 +605,7 @@ Admins can reset a user's 2FA; the user re-enrols at the next login.
 
 **Signing a user out everywhere** (`src/accounts/users.py`, `end_user_sessions`): every `redis_session:*` is decoded with flask-session's serializer and the user's (`_user_id`) are deleted — complete and cheap at this scale; a per-user index would be faster but miss existing sessions and need expiry cleanup (the earlier `user_session:<id>` pointer, latest sign-in only, was dropped in the 2026-10 clean-up: nothing read it). Live Sessions and the Users page read the sessions the same way (`signed_in_users`).
 
-**Real-time logs:** `/rollout/stream/<job_id>` is Server-Sent Events. It replays `job:<id>:history` (LRANGE), then tails the pub/sub channel `job:<id>:logs`, sending a heartbeat every 0.5 s. The response sets `X-Accel-Buffering: no` so nginx doesn't buffer.
+**Real-time logs:** `/rollout/stream/<job_id>` is Server-Sent Events. It subscribes to the pub/sub channel `job:<id>:logs`, then replays `job:<id>:history` (LRANGE) and tails the channel, skipping a numbered message (`<n>	<line>`) the history already held; a heartbeat comment every 0.5 s; a queued job's stream first says it's queued. The response sets `X-Accel-Buffering: no` so nginx doesn't buffer.
 
 ---
 
