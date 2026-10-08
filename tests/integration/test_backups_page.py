@@ -146,3 +146,12 @@ def test_the_settings_page_shows_the_backups_card(admin, home, client_for):
 	assert 'id="backupNowBtn"' in page
 	assert '<select class="form-select form-select-sm set-input" id="set-backup_schedule"' in page
 	assert '<option value="daily" selected>Daily</option>' in page
+
+
+def test_the_list_names_the_backups(admin, home, client_for):
+	"""GET /admin/backups (the Backups card's refresh) lists a backup just made,
+	by name and kind."""
+	client = client_for(admin, xhr=True)
+	name = client.post("/admin/backups").json["created"]
+	listed = client.get("/admin/backups").json["backups"]
+	assert [(b["name"], b["kind"]) for b in listed] == [(name, "manual")]

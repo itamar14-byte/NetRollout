@@ -3,6 +3,8 @@ databases, is test_db_move.py)."""
 import pytest
 from sqlalchemy import make_url
 
+from src.db.tables import AuditLog
+
 from src.webapp import db_move
 
 pytestmark = [pytest.mark.postgres, pytest.mark.redis]
@@ -98,3 +100,34 @@ def test_operators_get_none_of_it(make_user, client_for):
 	for url in ("/admin/server/database/sql", "/admin/server/database/check",
 	            "/admin/server/database/move", "/admin/server/database/move-back"):
 		assert c.post(url, json={}).status_code in (302, 403)
+
+
+def test_prepare_needs_the_administrator_login(admin, client_for):
+	"""The administrator-login way without the administrator's login answers 422
+	and prepares nothing."""
+	resp = client_for(admin, xhr=True).post("/admin/server/database/prepare", json={
+		"host": "127.0.0.1", "port": "1", "database": "ops"})
+	assert resp.status_code == 422
+
+
+def test_prepare_on_an_unreachable_server_fails_and_is_audited(admin, client_for, session_scope):
+	"""Preparing on a server nobody listens on answers the error, and the failure
+	is audited (database.prepare_failed) - never the administrator's password."""
+	resp = client_for(admin, xhr=True).post("/admin/server/database/prepare", json={
+		"host": "127.0.0.1", "port": "1", "admin_user": "postgres", "admin_password": "s3cret",
+		"database": "ops", "schema": "nr", "login": "nr_app"})
+	assert resp.status_code == 400 and resp.json["status"] == "error"
+	with session_scope() as s:
+		rows = s.query(AuditLog).filter_by(action="database.prepare_failed").all()
+		assert len(rows) == 1 and rows[0].success is False
+		assert "s3cret" not in str(rows[0].detail)
+
+
+def test_a_move_to_an_unreachable_server_is_refused(admin, client_for):
+	"""A move to a server nobody listens on is refused (409: it's checked first)
+	and no move begins."""
+	c = client_for(admin, xhr=True)
+	resp = c.post("/admin/server/database/move", json={
+		"host": "127.0.0.1", "port": "1", "database": "x", "user": "x", "password": "y"})
+	assert resp.status_code == 409
+	assert c.get("/admin/server/database/move/status").json["move"]["state"] == "idle"

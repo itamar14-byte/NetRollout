@@ -618,3 +618,9 @@ def test_the_setting_range(minutes, ok):
 	else:
 		with pytest.raises(ValueError):
 			s.parse(minutes)
+
+
+def test_get_login_goes_to_the_sign_in_page(client_for):
+	"""GET /login (a bookmark, a typed address) redirects to the sign-in page."""
+	resp = client_for().get("/login")
+	assert resp.status_code == 302 and resp.headers["Location"] == "/"
