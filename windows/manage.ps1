@@ -42,7 +42,7 @@ $Root = if ($InstallDir) { $InstallDir } else { Split-Path -Parent $PSScriptRoot
 $VersionFile = Join-Path $Root "VERSION"
 $Version = if (Test-Path $VersionFile) { (Get-Content -Raw $VersionFile).Trim() } else { "" }
 # A different project name only for testing next to a running NetRollout
-$Project = if ($env:NETROLLOUT_PROJECT) { $env:NETROLLOUT_PROJECT } else { "netrollout" }
+$Project = "netrollout"
 $AppImage = "itamarweinstein/netrollout:$Version"
 $EnvFile = Join-Path $Root ".env"
 $Interactive = [Environment]::UserInteractive -and -not $Yes

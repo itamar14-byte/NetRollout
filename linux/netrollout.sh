@@ -19,7 +19,7 @@ set -euo pipefail
 BIN="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"   # the scripts (bin/)
 ROOT="$(dirname "$BIN")"
 VERSION="$(tr -d ' \r\n' < "$ROOT/VERSION" 2>/dev/null || true)"
-PROJECT="${NETROLLOUT_PROJECT:-netrollout}"   # another name only for testing
+PROJECT=netrollout
 UNIT="netrollout-port-$PROJECT"               # the port helper's systemd units
 APP_IMAGE="itamarweinstein/netrollout:$VERSION"
 ENV_FILE="$ROOT/.env"
@@ -493,14 +493,11 @@ has_systemd() { [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>
 # the path unit watching site.env (no systemd: the page says to run apply)
 port_helper_on() {
 	has_systemd || return 0
-	local project_env=""
-	if [ "$PROJECT" != netrollout ]; then project_env="Environment=NETROLLOUT_PROJECT=$PROJECT"; fi
 	cat > "/etc/systemd/system/$UNIT.service" <<UNITEOF
 [Unit]
 Description=NetRollout port helper ($ROOT): applies an HTTPS port saved in System Settings
 [Service]
 Type=oneshot
-$project_env
 ExecStart=$ROOT/bin/netrollout.sh apply --yes
 TimeoutStartSec=600
 UNITEOF
