@@ -108,11 +108,15 @@ def analytics_query(data: dict[str, Any]) -> ResponseReturnValue:
 				scope_user_id = uuid.UUID(param)
 			except ValueError:
 				pass
+	rules = data.get("rules")
+	if not isinstance(rules, dict):
+		return err("Invalid query: the rules are missing or incomplete")
 	try:
-		rules = data.get("rules", [])
 		filters = compile_query_rules(rules, QUERY_DEVICE_RESULT_FIELDS)
 	except (ValueError, KeyError) as e:
 		return err(str(e))
+	except TypeError:
+		return err("Invalid query: a rule is malformed")
 	with current_app.backend.postgres.get_session() as db_session:
 		query = db_session.query(DeviceResult).filter(
 			DeviceResult.user_id == scope_user_id).filter(filters)
@@ -316,11 +320,15 @@ def admin_analytics_query(data: dict[str, Any]) -> ResponseReturnValue:
 	newest first): JSON {rules}.
 
 	:returns: {columns, rows} or an error (a field or operator not allowed)"""
+	rules = data.get("rules")
+	if not isinstance(rules, dict):
+		return err("Invalid query: the rules are missing or incomplete")
 	try:
-		rules = data.get("rules", [])
 		filters = compile_query_rules(rules, QUERY_AUDIT_LOG_FIELDS)
 	except (ValueError, KeyError) as e:
 		return err(str(e))
+	except TypeError:
+		return err("Invalid query: a rule is malformed")
 
 	with current_app.backend.postgres.get_session() as db_session:
 		query = db_session.query(AuditLog).filter(filters)

@@ -193,20 +193,36 @@ def submit_jobs(devices: list[Device], commands: list[str] | None,
 @with_form("job_id")
 def cancel_rollout(data: Any) -> ResponseReturnValue:
 	"""Cancel a running or queued rollout - the user's own, or any for an
-	admin."""
+	admin.
+
+	:returns: JSON for a script (XHR / JSON); a page's form gets the outcome
+	 flashed and is sent back to the page it came from (else Active Jobs)"""
+	scripted = request.is_json or \
+		request.headers.get("X-Requested-With") == "XMLHttpRequest"
+
+	def refused(message: str, code: int) -> ResponseReturnValue:
+		if scripted:
+			return err(message, code)
+		flash(f"The rollout could not be cancelled: {message}.", "danger")
+		return redirect(request.referrer or url_for("jobs.active_jobs"))
+
 	raw = data.get("job_id", "").strip()
 	try:
 		job_id = uuid.UUID(raw)
 	except ValueError:
-		return err("invalid job_id", 422)
+		return refused("invalid job_id", 422)
 	job = current_app.orchestrator.get_job(job_id)
 	if not job:
-		return err("job not found", 404)
+		return refused("job not found", 404)
 	if job.user_id != current_user.id and current_user.role != "admin":
-		return err("job not assigned to user", 403)
+		return refused("job not assigned to user", 403)
 	current_app.orchestrator.cancel(job_id)
 	current_app.web.audit("rollout.cancel", object_id=job_id)
-	return ok("canceled")
+	if scripted:
+		return ok("canceled")
+	flash("Rollout cancelled - devices it has not reached are skipped.",
+	      "success")
+	return redirect(request.referrer or url_for("jobs.active_jobs"))
 
 
 @bp.route("/new")

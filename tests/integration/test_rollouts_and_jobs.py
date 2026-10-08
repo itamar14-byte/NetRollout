@@ -211,8 +211,8 @@ def test_owner_cancels_running_job(app, operator, client_for, monkeypatch):
 	status is "cancelling"."""
 	job = FakeRunningJob(operator.user.id)
 	monkeypatch.setitem(app.orchestrator._jobs, job.job_id, job)
-	resp = client_for(operator.user).post("/rollout/cancel",
-	                                      data={"job_id": str(job.job_id)})
+	resp = client_for(operator.user, xhr=True).post(
+		"/rollout/cancel", data={"job_id": str(job.job_id)})
 	assert resp.json["status"] == "ok" and job.cancelled.is_set()
 	status = app.backend.redis.client.hget(f"job:{job.job_id}:meta", "status")
 	assert status == b"cancelling"
@@ -223,9 +223,51 @@ def test_other_user_cannot_cancel(app, operator, client_for, make_user,
 	"""Another user's cancel gets 403 and the job isn't cancelled."""
 	job = FakeRunningJob(operator.user.id)
 	monkeypatch.setitem(app.orchestrator._jobs, job.job_id, job)
-	resp = client_for(make_user()).post("/rollout/cancel",
-	                                    data={"job_id": str(job.job_id)})
+	resp = client_for(make_user(), xhr=True).post(
+		"/rollout/cancel", data={"job_id": str(job.job_id)})
 	assert resp.status_code == 403 and not job.cancelled.is_set()
+
+
+def test_cancel_from_a_page_form_flashes_and_goes_back(app, operator,
+                                                      client_for, monkeypatch):
+	"""A page's Cancel form (no XHR header) gets the page it came from back
+	with the outcome flashed, not JSON: the job is cancelled."""
+	job = FakeRunningJob(operator.user.id)
+	monkeypatch.setitem(app.orchestrator._jobs, job.job_id, job)
+	client = client_for(operator.user)
+	resp = client.post("/rollout/cancel", data={"job_id": str(job.job_id)},
+	                   headers={"Referer": "https://localhost/dashboard"})
+	assert resp.status_code == 302 and job.cancelled.is_set()
+	assert resp.headers["Location"] == "https://localhost/dashboard"
+	page = client.get("/dashboard").get_data(as_text=True)
+	assert "Rollout cancelled - devices it has not reached are skipped." in page
+
+
+def test_cancel_refused_from_a_page_form_flashes_the_reason(
+		app, operator, client_for, make_user, monkeypatch):
+	"""A refused Cancel from a page's form (another user's job; a job that
+	has ended) is flashed and goes back - to Active Jobs without a referrer -
+	and the job isn't cancelled."""
+	job = FakeRunningJob(operator.user.id)
+	monkeypatch.setitem(app.orchestrator._jobs, job.job_id, job)
+	other = client_for(make_user())
+	resp = other.post("/rollout/cancel", data={"job_id": str(job.job_id)})
+	assert resp.status_code == 302 and not job.cancelled.is_set()
+	assert resp.headers["Location"] == "/active_jobs"
+	page = other.get("/active_jobs").get_data(as_text=True)
+	assert "The rollout could not be cancelled: job not assigned to user." in page
+	gone = client_for(operator.user).post(
+		"/rollout/cancel", data={"job_id": str(uuid.uuid4())})
+	assert gone.status_code == 302
+
+
+def test_cancel_from_a_script_of_an_ended_job_answers_json_404(operator,
+                                                               client_for):
+	"""A script's Cancel (XHR) of a job that's no longer running gets JSON
+	404, as the rollouts table expects."""
+	resp = client_for(operator.user, xhr=True).post(
+		"/rollout/cancel", data={"job_id": str(uuid.uuid4())})
+	assert resp.status_code == 404 and resp.json["status"] == "error"
 
 
 def test_stream_replays_history_then_tails_live(app, operator, client_for,
@@ -647,6 +689,16 @@ def test_results_admin_pages_other_users_apart(make_user, client_for,
 	assert html.count('id="perPage-page-all"') == 1
 
 
+def test_results_admin_sees_the_owner_of_another_users_job(make_user,
+                                                           client_for,
+                                                           session_scope):
+	"""An admin's all-users view names the owner on each other user's job."""
+	admin, other = make_user(role="admin"), make_user()
+	add_jobs(session_scope, other, 1)
+	html = client_for(admin).get("/results?view=all").get_data(as_text=True)
+	assert f'<span class="owner-badge ms-2">{other.username}</span>' in html
+
+
 def test_results_admin_job_link_lands_on_another_users_job(make_user,
                                                            client_for,
                                                            session_scope):
@@ -980,6 +1032,22 @@ def test_dashboard_renders(operator, client_for):
 	assert client_for(operator.user).get("/dashboard").status_code == 200
 
 
+def test_dashboard_active_rollout_card_names_its_job(app, operator, client_for,
+                                                    monkeypatch):
+	"""The dashboard's active rollout card shows the job id's first 8
+	characters, its Cancel form posts that job_id, and the elapsed timer's
+	start is a JSON string."""
+	job = FakeRunningJob(operator.user.id)
+	job.started_at = dt.datetime(2026, 10, 8, 9, 30, 0)
+	job.get_device_count = lambda: 2
+	monkeypatch.setitem(app.orchestrator._jobs, job.job_id, job)
+	_register_job_meta(app, operator.user, job.job_id)
+	html = client_for(operator.user).get("/dashboard").get_data(as_text=True)
+	assert f'<input type="hidden" name="job_id" value="{job.job_id}">' in html
+	assert f'{str(job.job_id)[:8]}…</div>' in html
+	assert 'const jobStart = new Date("2026-10-08T09:30:00");' in html
+
+
 def test_active_jobs_lists_running_job(app, operator, client_for, monkeypatch):
 	"""Active Jobs lists a running job of the user."""
 	job = FakeRunningJob(operator.user.id)
@@ -1036,6 +1104,29 @@ def test_analytics_query_is_scoped_and_allowlisted(operator, client_for,
 		"field": "fetched_config", "operator": "contains", "value": "x"}})
 	assert bad.status_code == 400
 	assert client.get("/analytics").status_code == 200
+
+
+def test_analytics_query_with_invalid_rules_is_400(operator, client_for):
+	"""Rules the builder couldn't make (null when a rule is invalid), not an
+	object, missing, or a group whose rules aren't a list: 400 with a
+	message, never a 500."""
+	client = client_for(operator.user)
+	for body in ({"rules": None}, {"rules": []}, {"rules": "x"},
+	             {"user": "me"},
+	             {"rules": {"condition": "AND", "rules": None}}):
+		resp = client.post("/analytics/query", json=body)
+		assert resp.status_code == 400, body
+		assert resp.json["status"] == "error" and resp.json["message"], body
+
+
+def test_analytics_query_with_an_empty_group_returns_every_row(
+		operator, client_for, session_scope):
+	"""Every rule deleted (an empty root group): all the user's rows."""
+	add_result(session_scope, operator.user, uuid.uuid4())
+	add_result(session_scope, operator.user, uuid.uuid4(), status="failed")
+	resp = client_for(operator.user).post("/analytics/query", json={
+		"rules": {"condition": "AND", "rules": []}})
+	assert resp.status_code == 200 and len(resp.json["rows"]) == 2
 
 
 # ── Reachability blocks rollouts ─────────────────────────────────────────────

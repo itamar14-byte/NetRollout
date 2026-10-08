@@ -161,6 +161,7 @@
                     </div>
                     <form method="POST" action="{{ url_for('rollout.cancel_rollout') }}">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="job_id" value="{{ active_job.job_id }}">
                         <button type="submit" class="btn btn-outline-danger btn-sm"
                                 style="font-size:0.75rem; padding:0.25rem 0.7rem;">
                             <i class="bi bi-stop-circle me-1"></i>Cancel
@@ -171,7 +172,7 @@
                 <div class="row g-3">
                     <div class="col-6 col-md-3">
                         <div class="nr-label">Job ID</div>
-                        <div class="term bright" style="font-size: 0.75rem;">{{ active_job.id | string | truncate(8, True, '') }}…</div>
+                        <div class="term bright" style="font-size: 0.75rem;">{{ active_job.job_id | truncate(8, True, '') }}…</div>
                     </div>
                     <div class="col-6 col-md-3">
                         <div class="nr-label">Devices</div>
@@ -564,7 +565,7 @@
 
     // ── Active job elapsed timer ──
     {% if active_job %}
-    const jobStart = new Date("{{ active_job.started_at_iso }}");
+    const jobStart = new Date({{ active_job.started_at_iso | tojson }});
     function updateElapsed() {
         const secs = Math.floor((new Date() - jobStart) / 1000);
         const m = String(Math.floor(secs / 60)).padStart(2, '0');

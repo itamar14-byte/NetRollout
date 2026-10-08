@@ -223,6 +223,7 @@
     <div id="queryEmpty" style="display:none; text-align:center; padding:2rem 0; color:var(--nr-text-muted); font-size:0.82rem;">
       No results for the selected filters.
     </div>
+    <div id="queryError" class="nr-danger" role="alert" style="display:none; text-align:center; padding:2rem 0; font-size:0.82rem;"></div>
     <div id="queryLoading" style="display:none; text-align:center; padding:2rem 0; color:var(--nr-text-muted); font-size:0.82rem;">
       <i class="bi bi-arrow-repeat" style="animation:spin 1s linear infinite; display:inline-block; margin-right:6px;"></i>
       Running query…
@@ -259,7 +260,7 @@ function injectFieldIcon(rule) {
   const id = rule.filter ? rule.filter.id : null;
   const icon = FIELD_ICONS[id] || 'bi-funnel';
   const color = id ? '#00bcd4' : '#444';
-  rule.$el.find('.rule-data_filter-container').before(
+  rule.$el.find('.rule-filter-container').before(
     `<i class="bi ${icon} nr-field-icon" style="color:${color};"></i>`
   );
 }
@@ -370,19 +371,35 @@ function applyScope(val) {
 
 async function runQuery() {
   const rules = $('#queryBuilder').queryBuilder('getRules');
-  if (rules === false) return;
+  if (!rules) return;   // invalid (null): the builder already marks the rule
+
+  const errorBox = document.getElementById('queryError');
+  errorBox.style.display = 'none';
 
   document.getElementById('queryLoading').style.display     = '';
   document.getElementById('queryResultsWrap').style.display = 'none';
   document.getElementById('queryEmpty').style.display       = 'none';
 
-  const resp = await fetch('/analytics/query', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN },
-    body: JSON.stringify({ rules, user: SCOPE_USER })
-  });
-  const data = await resp.json();
-  document.getElementById('queryLoading').style.display = 'none';
+  let data;
+  try {
+    const resp = await fetch('/analytics/query', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN },
+      body: JSON.stringify({ rules, user: SCOPE_USER })
+    });
+    data = await resp.json().catch(() => ({}));
+    if (!resp.ok || data.status === 'error') {
+      errorBox.textContent = data.message || 'Query failed';
+      errorBox.style.display = '';
+      return;
+    }
+  } catch (e) {
+    errorBox.textContent = 'Query failed';
+    errorBox.style.display = '';
+    return;
+  } finally {
+    document.getElementById('queryLoading').style.display = 'none';
+  }
 
   if (!data.rows || data.rows.length === 0) {
     document.getElementById('queryEmpty').style.display = '';

@@ -30,3 +30,16 @@ def test_admin_analytics_page_and_job_count(app, admin, client_for,
 	                    lambda: {"running": 2, "queued": 1})
 	body = c.get("/admin/active_job_count").json
 	assert (body["count"], body["running"], body["queued"]) == (3, 2, 1)
+
+
+def test_audit_query_with_invalid_rules_is_400(admin, client_for):
+	"""Rules the builder couldn't make (null when a rule is invalid), not an
+	object, missing, or a group whose rules aren't a list: 400 with a
+	message, never a 500."""
+	c = client_for(admin)
+	for body in ({"rules": None}, {"rules": []}, {"rules": "x"},
+	             {"other": 1},
+	             {"rules": {"condition": "AND", "rules": None}}):
+		resp = c.post("/admin/analytics/query", json=body)
+		assert resp.status_code == 400, body
+		assert resp.json["status"] == "error" and resp.json["message"], body

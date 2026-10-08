@@ -140,6 +140,22 @@ def test_live_sessions_list_and_kick(app, admin, client_for, make_user):
 	assert c.post(f"/admin/sessions/{uuid.uuid4()}/kick").status_code == 404
 
 
+def test_kick_refuses_the_admins_own_session(app, admin, client_for):
+	"""An admin's Kick of themselves is refused (400, Sign out ends their
+	own session) and they stay signed in; their own row on Live Sessions has
+	no Kick button."""
+	c = client_for(admin)
+	assert c.get("/dashboard").status_code == 200
+	resp = c.post(f"/admin/sessions/{admin.id}/kick")
+	assert resp.status_code == 400
+	assert resp.json["message"] == ("You can't end your own session here - "
+	                                "use Sign out")
+	assert c.get("/dashboard").status_code == 200
+	page = c.get("/admin/sessions").get_data(as_text=True)
+	assert f'<tr id="row-{admin.id}" data-self="1">' in page
+	assert f"kick('{admin.id}')" not in page
+
+
 def test_kick_signs_the_user_out_of_every_browser(admin, client_for, make_user):
 	"""A user signed in on two computers is signed out of both by one Kick:
 	each one's next page goes to the sign-in page, and the open page's

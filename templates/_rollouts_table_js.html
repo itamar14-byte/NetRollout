@@ -24,7 +24,7 @@ function nrRolloutsTable(container, rollouts) {
         b.textContent = 'Cancelling…';
         let resp = null;
         try {
-            resp = await fetch('/rollout/cancel', {method: 'POST', headers: {'X-CSRFToken': CSRF_TOKEN},
+            resp = await fetch('/rollout/cancel', {method: 'POST', headers: {'X-CSRFToken': CSRF_TOKEN, 'X-Requested-With': 'XMLHttpRequest'},
                                                    body: new URLSearchParams({job_id: b.dataset.job})});
         } catch (e) { /* no answer: allowed again below */ }
         if (resp && (resp.ok || resp.status === 404)) {   // 404: it ended meanwhile

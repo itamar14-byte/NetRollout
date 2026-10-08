@@ -242,7 +242,10 @@ def admin_sessions_kick(user_id: uuid.UUID) -> ResponseReturnValue:
 	"""Sign the user out everywhere - every session of theirs, on every
 	computer (as Terminate Session). An open page notices within 30 s.
 
-	:returns: ok, or 404 when they have no session"""
+	:returns: ok; 400 for the admin's own sessions (Sign out ends those);
+	 404 when they have no session"""
+	if user_id == current_user.id:
+		return err("You can't end your own session here - use Sign out", 400)
 	ended = end_user_sessions(user_id)
 	if not ended:
 		return err("Session not found", 404)

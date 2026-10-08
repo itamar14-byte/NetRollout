@@ -49,7 +49,7 @@
         </span>
         <span class="session-count">{{ local_sessions | length }}</span>
       </div>
-      <button class="btn btn-outline-danger btn-sm" onclick="kickAll('local')">
+      <button class="btn btn-outline-danger btn-sm" onclick="kickAll(this)">
         <i class="bi bi-box-arrow-right me-1"></i>Kick All
       </button>
     </div>
@@ -66,7 +66,7 @@
       </thead>
       <tbody>
         {% for s in local_sessions %}
-        <tr id="row-{{ s.user_id }}">
+        <tr id="row-{{ s.user_id }}"{% if s.user_id == current_user.id | string %} data-self="1"{% endif %}>
           <td style="font-family:'JetBrains Mono',monospace; font-weight:600; color:#e0e0e0; font-size:0.84rem;">
             {{ s.username }}
           </td>
@@ -84,11 +84,15 @@
             {{ elapsed(s.elapsed_secs) }}
           </td>
           <td style="text-align:right;">
+            {% if s.user_id == current_user.id | string %}
+            <span class="nr-mono-caption nr-faint" title="Your own session - use Sign out">you</span>
+            {% else %}
             <button class="btn btn-outline-danger btn-sm kick-btn"
                     style="font-size: 0.75rem; padding:0.18rem 0.6rem;"
                     onclick="kick('{{ s.user_id }}')">
               <i class="bi bi-box-arrow-right me-1"></i>Kick
             </button>
+            {% endif %}
           </td>
         </tr>
         {% endfor %}
@@ -117,7 +121,7 @@
         <span style="font-family:'JetBrains Mono',monospace; font-size: 0.6875rem; font-weight:700;
                      letter-spacing:1.5px; color:#80deea; opacity:0.6;">LDAP</span>
       </div>
-      <button class="btn btn-outline-danger btn-sm" onclick="kickAll('ldap')">
+      <button class="btn btn-outline-danger btn-sm" onclick="kickAll(this)">
         <i class="bi bi-box-arrow-right me-1"></i>Kick All
       </button>
     </div>
@@ -134,7 +138,7 @@
       </thead>
       <tbody>
         {% for s in ldap_sessions %}
-        <tr id="row-{{ s.user_id }}">
+        <tr id="row-{{ s.user_id }}"{% if s.user_id == current_user.id | string %} data-self="1"{% endif %}>
           <td style="font-family:'JetBrains Mono',monospace; font-weight:600; color:#e0e0e0; font-size:0.84rem;">
             {{ s.username }}
           </td>
@@ -152,11 +156,15 @@
             {{ elapsed(s.elapsed_secs) }}
           </td>
           <td style="text-align:right;">
+            {% if s.user_id == current_user.id | string %}
+            <span class="nr-mono-caption nr-faint" title="Your own session - use Sign out">you</span>
+            {% else %}
             <button class="btn btn-outline-danger btn-sm kick-btn"
                     style="font-size: 0.75rem; padding:0.18rem 0.6rem;"
                     onclick="kick('{{ s.user_id }}')">
               <i class="bi bi-box-arrow-right me-1"></i>Kick
             </button>
+            {% endif %}
           </td>
         </tr>
         {% endfor %}
@@ -201,30 +209,27 @@
     const row = document.getElementById(`row-${userId}`);
     row.classList.add('kicking');
 
-    fetch(`/admin/sessions/${userId}/kick`, {
+    return fetch(`/admin/sessions/${userId}/kick`, {
       method: 'POST',
-      headers: { 'X-CSRFToken': CSRF_TOKEN }
+      headers: { 'X-CSRFToken': CSRF_TOKEN, 'X-Requested-With': 'XMLHttpRequest' }
     })
-    .then(r => r.json())
-    .then(data => {
-      if (data.status === 'ok') {
-        row.classList.remove('kicking');
+    .then(r => {
+      row.classList.remove('kicking');
+      if (r.ok || r.status === 404) {   // 404: the session had already ended
         row.classList.add('kicked');
         updateCounts();
-      } else {
-        row.classList.remove('kicking');
       }
     })
     .catch(() => row.classList.remove('kicking'));
   }
 
-  function kickAll(section) {
-    const btn = event.target.closest('button');
+  // everyone else in this list - never the admin's own row (Sign out ends that)
+  function kickAll(btn) {
     const table = btn.closest('.nr-card-body').querySelector('.session-table tbody');
-    table.querySelectorAll('tr:not(.kicked)').forEach(row => {
-      const userId = row.id.replace('row-', '');
-      kick(userId);
-    });
+    const rows = [...table.querySelectorAll('tr:not(.kicked):not([data-self])')];
+    if (!rows.length) return;
+    if (!confirm(`End the sessions of ${rows.length} user${rows.length !== 1 ? 's' : ''}? They are signed out everywhere.`)) return;
+    rows.forEach(row => kick(row.id.replace('row-', '')));
   }
 
   function updateCounts() {
