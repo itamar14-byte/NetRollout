@@ -706,14 +706,14 @@ function initTestDevSelect() {
         } else {
             const logoUrl = VENDOR_LOGOS[deviceType] || '';
             const logoHtml = logoUrl
-                ? `<img alt="" src="${logoUrl}" width="16" height="16"
+                ? `<img alt="" src="${nrEscape(logoUrl)}" width="16" height="16"
                         style="border-radius:3px;opacity:0.85;flex-shrink:0;"
                         onerror="this.style.display='none'">`
                 : '<i class="bi bi-router" style="font-size:0.85rem;color:var(--nr-text-faint);flex-shrink:0;"></i>';
             display.innerHTML =
                 logoHtml +
-                `<span class="nr-select-display-label">${label.replace(/</g,'&lt;')}</span>` +
-                `<span class="opt-sub" style="margin-left:0.3rem;">${ip}</span>`;
+                `<span class="nr-select-display-label">${nrEscape(label)}</span>` +
+                `<span class="opt-sub" style="margin-left:0.3rem;">${nrEscape(ip)}</span>`;
         }
     }
 
@@ -797,10 +797,10 @@ async function runTest() {
 
         if (data.status === 'ok') {
             result.className = 'test-result success';
-            result.innerHTML = '<i class="bi bi-check-circle me-2"></i>' + data.message;
+            result.innerHTML = '<i class="bi bi-check-circle me-2"></i>' + nrEscape(data.message);
         } else {
             result.className = 'test-result error';
-            result.innerHTML = '<i class="bi bi-x-circle me-2"></i>' + data.message;
+            result.innerHTML = '<i class="bi bi-x-circle me-2"></i>' + nrEscape(data.message);
         }
         result.style.display = 'block';
 

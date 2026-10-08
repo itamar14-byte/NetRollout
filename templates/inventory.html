@@ -1180,7 +1180,7 @@ function initNrSelect(containerId) {
             display.innerHTML =
                 '<i class="bi bi-shield-lock opt-shield" style="font-size:0.82rem;"></i>' +
                 '<span class="nr-select-display-label">' +
-                label.replace(/</g, '&lt;').replace(/>/g, '&gt;') +
+                nrEscape(label) +
                 '</span>';
         }
     }
@@ -1220,7 +1220,7 @@ function initNrSelect(containerId) {
             opt.dataset.label = label;
             opt.innerHTML =
                 '<i class="bi bi-shield-lock opt-shield"></i>' +
-                '<span class="opt-label">' + label.replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</span>' +
+                '<span class="opt-label">' + nrEscape(label) + '</span>' +
                 '<i class="bi bi-check2 opt-check"></i>';
             list.appendChild(opt);
             wireOption(opt);
@@ -1257,13 +1257,13 @@ function initPlatformSelect(containerId, hiddenId, errorId) {
         } else {
             const logoUrl = (typeof VENDOR_LOGOS !== 'undefined') ? (VENDOR_LOGOS[value] || '') : '';
             const logoHtml = logoUrl
-                ? `<img alt="" src="${logoUrl}" width="16" height="16"
+                ? `<img alt="" src="${nrEscape(logoUrl)}" width="16" height="16"
                         style="border-radius:3px;opacity:0.85;flex-shrink:0;"
                         onerror="this.style.display='none'">`
                 : '';
             display.innerHTML =
                 logoHtml +
-                `<span class="nr-select-display-label">${label.replace(/</g,'&lt;')}</span>`;
+                `<span class="nr-select-display-label">${nrEscape(label)}</span>`;
         }
     }
 
@@ -1384,7 +1384,7 @@ async function testAddConnection() {
         status.style.display = '';
         if (data.status === 'ok') {
             status.className  = 'conn-status conn-ok';
-            status.innerHTML  = '<i class="bi bi-check-circle-fill"></i>' + data.message;
+            status.innerHTML  = '<i class="bi bi-check-circle-fill"></i>' + nrEscape(data.message);
             btn.type      = 'submit';
             btn.className = 'btn btn-success btn-sm';
             btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Confirm';
@@ -1392,7 +1392,7 @@ async function testAddConnection() {
             btn.onclick   = null;
         } else {
             status.className  = 'conn-status conn-fail';
-            status.innerHTML  = '<i class="bi bi-x-circle-fill"></i>' + data.message;
+            status.innerHTML  = '<i class="bi bi-x-circle-fill"></i>' + nrEscape(data.message);
             btn.type      = 'submit';
             btn.className = 'btn btn-danger btn-sm';
             btn.innerHTML = '<i class="bi bi-exclamation-triangle me-1"></i>Save Anyway';
@@ -1453,7 +1453,7 @@ async function testEditConnection() {
         const ok = data.status === 'ok';
         status.style.display = '';
         status.className  = 'conn-status ' + (ok ? 'conn-ok' : 'conn-fail');
-        status.innerHTML  = '<i class="bi bi-' + (ok ? 'check' : 'x') + '-circle-fill"></i>' + data.message;
+        status.innerHTML  = '<i class="bi bi-' + (ok ? 'check' : 'x') + '-circle-fill"></i>' + nrEscape(data.message);
     } catch (_) {
         status.style.display = '';
         status.className  = 'conn-status conn-fail';
@@ -1520,8 +1520,8 @@ function showTooltip(card, device) {
     if (assignedMappings.length > 0) {
         ttMappings.innerHTML = assignedMappings.map(m => `
             <div class="mapping-chip">
-                <span class="mapping-chip-token">${m.token}</span>
-                <span class="mapping-chip-prop">→ ${m.property}</span>
+                <span class="mapping-chip-token">${nrEscape(m.token)}</span>
+                <span class="mapping-chip-prop">→ ${nrEscape(m.property)}</span>
             </div>`).join('');
         mappingsRow.style.display = '';
     } else {
@@ -1793,15 +1793,15 @@ async function submitQuickCreateMapping() {
         lbl.dataset.token = data.token;
         const indexSuffix = data.index !== null ? '[' + data.index + ']' : '';
         lbl.innerHTML =
-            '<input type="checkbox" name="mapping_ids" value="' + data.id + '"' +
+            '<input type="checkbox" name="mapping_ids" value="' + nrEscape(data.id) + '"' +
             ' class="edit-mapping-cb" checked' +
             ' style="appearance:none;-webkit-appearance:none;width:13px;height:13px;' +
             'border:1px solid #333;border-radius:3px;background:#1a1a1a;' +
             'flex-shrink:0;position:relative;cursor:pointer;margin:0;">' +
             '<span style="font-family:\'JetBrains Mono\',monospace;font-size:0.72rem;color:#00bcd4;">' +
-            data.token + '</span>' +
+            nrEscape(data.token) + '</span>' +
             '<span style="font-size: 0.75rem;color:var(--nr-text-muted);margin-left:4px;">→ ' +
-            data.property_name + indexSuffix + '</span>';
+            nrEscape(data.property_name + indexSuffix) + '</span>';
         list.appendChild(lbl);
     }
 
@@ -1911,10 +1911,10 @@ async function submitQuickCreateProperty() {
     if (is_list) div.style.gridColumn = '1/-1';
     div.innerHTML =
         `<label class="nr-label">` +
-        `<i class="bi ${icon}" style="margin-right:4px; color:var(--nr-text-faint);"></i>${label.toUpperCase()}` +
+        `<i class="bi ${nrEscape(icon)}" style="margin-right:4px; color:var(--nr-text-faint);"></i>${nrEscape(label.toUpperCase())}` +
         (is_list ? ' <span style="color:var(--nr-text-muted); text-transform:none; letter-spacing:0;">(comma-separated)</span>' : '') +
         `</label>` +
-        `<input type="text" class="form-control form-control-sm" id="attr_${name}" name="attr_${name}" autocomplete="off">`;
+        `<input type="text" class="form-control form-control-sm" id="attr_${nrEscape(name)}" name="attr_${nrEscape(name)}" autocomplete="off">`;
     grid.appendChild(div);
 
     // Add to global PROP_DEFS so re-opening the edit modal populates the new field

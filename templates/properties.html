@@ -92,14 +92,17 @@
                     style="background:none; border:1px solid #222; color:var(--nr-text-muted); padding:2px 8px; font-size: 0.75rem;"
                     onmouseenter="this.style.borderColor='#444';this.style.color='#aaa';"
                     onmouseleave="this.style.borderColor='#222';this.style.color='var(--nr-text-muted)';"
-                    onclick="openEditProp('{{ p.id }}', '{{ p.label }}', '{{ p.icon }}', {{ 'true' if p.is_list else 'false' }})">
+                    data-id="{{ p.id }}" data-label="{{ p.label }}" data-icon="{{ p.icon }}"
+                    data-is-list="{{ 'true' if p.is_list else 'false' }}"
+                    onclick="openEditProp(this.dataset.id, this.dataset.label, this.dataset.icon, this.dataset.isList === 'true')">
                 <i class="bi bi-pencil"></i>
             </button>
             <button aria-label="Delete property" title="Delete property" class="btn btn-sm"
                     style="background:none; border:1px solid #222; color:var(--nr-text-muted); padding:2px 8px; font-size: 0.75rem;"
                     onmouseenter="this.style.borderColor='#ef5350';this.style.color='#ef5350';"
                     onmouseleave="this.style.borderColor='#222';this.style.color='var(--nr-text-muted)';"
-                    onclick="deleteProp('{{ p.id }}', '{{ p.name }}')">
+                    data-id="{{ p.id }}" data-name="{{ p.name }}"
+                    onclick="deleteProp(this.dataset.id, this.dataset.name)">
                 <i class="bi bi-trash"></i>
             </button>
         </div>

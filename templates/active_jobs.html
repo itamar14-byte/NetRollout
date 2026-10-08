@@ -648,7 +648,6 @@
 
     /* ── Completion card: the outcome, without having to open Results ── */
     async function showCompletionCard(jobId, logOut) {
-        const esc = t => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
         let data = null;
         // the results are stored a moment after the stream ends: retry briefly
         for (let i = 0; i < 15 && !data; i++) {
@@ -665,13 +664,13 @@
         let html =
             `<div class="d-flex align-items-center justify-content-between flex-wrap gap-2">` +
             // which job — several can finish in parallel
-            `<span><strong>Rollout finished — ${data.comment ? esc(data.comment) + ' ' : ''}` +
-            `<span title="${esc(data.job_id)}" style="font-family:'JetBrains Mono',monospace;">` +
-            `[${esc(data.job_id.slice(0, 8))}]</span></strong> ` +
-            `<span class="status-pill ${esc(data.status)}">${esc(data.status)}</span> ` +
-            `<span class="term muted" style="font-size:0.78rem;">${esc(parts.join(', '))}` +
+            `<span><strong>Rollout finished — ${data.comment ? nrEscape(data.comment) + ' ' : ''}` +
+            `<span title="${nrEscape(data.job_id)}" style="font-family:'JetBrains Mono',monospace;">` +
+            `[${nrEscape(data.job_id.slice(0, 8))}]</span></strong> ` +
+            `<span class="status-pill ${nrEscape(data.status)}">${nrEscape(data.status)}</span> ` +
+            `<span class="term muted" style="font-size:0.78rem;">${nrEscape(parts.join(', '))}` +
             ` (of ${data.device_count} device${data.device_count !== 1 ? 's' : ''})</span></span>` +
-            `<a class="btn btn-sm btn-outline-info" href="${esc(data.results_url)}">` +
+            `<a class="btn btn-sm btn-outline-info" href="${nrEscape(data.results_url)}">` +
             `<i class="bi bi-clock-history me-1"></i>View in Results</a></div>`;
         if (data.action_needed.length) {
             html += `<div class="completion-action"><div class="completion-action-title">` +
@@ -679,8 +678,8 @@
                 `${data.action_needed.length} device${data.action_needed.length !== 1 ? 's' : ''}</div>` +
                 data.action_needed.map(a =>
                     `<div class="completion-action-item"><span class="completion-action-device">` +
-                    `${esc(a.device)}</span>` +
-                    a.text.split('\n').map(t => `<div>${esc(t)}</div>`).join('') + `</div>`
+                    `${nrEscape(a.device)}</span>` +
+                    a.text.split('\n').map(t => `<div>${nrEscape(t)}</div>`).join('') + `</div>`
                 ).join('') + `</div>`;
         }
         const card = document.createElement('div');

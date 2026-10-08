@@ -577,8 +577,8 @@ function initAttrSelect(containerId, hiddenId, indexWrapId) {
             const listTag = LIST_PROPS.has(value)
                 ? '<span class="opt-sub" style="margin-left:0.3rem;">list</span>' : '';
             display.innerHTML =
-                `<i class="bi ${icon}" style="color:#00bcd4; font-size:0.85rem; flex-shrink:0;"></i>` +
-                `<span class="nr-select-display-label">${value}</span>` + listTag;
+                `<i class="bi ${nrEscape(icon)}" style="color:#00bcd4; font-size:0.85rem; flex-shrink:0;"></i>` +
+                `<span class="nr-select-display-label">${nrEscape(value)}</span>` + listTag;
         }
     }
 

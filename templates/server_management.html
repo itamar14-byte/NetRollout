@@ -672,7 +672,7 @@
         form.reset();
       } else {
         show('error', '<i class="bi bi-x-circle me-1"></i>' +
-          escHtml(data.message || `Server error (${resp.status || 'no answer'}).`));
+          nrEscape(data.message || `Server error (${resp.status || 'no answer'}).`));
       }
     }
 
@@ -738,7 +738,7 @@
       if (on) { btn.dataset.label = btn.innerHTML; btn.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span>${label}`; }
       else if (btn.dataset.label) btn.innerHTML = btn.dataset.label;
     };
-    const error = msg => `<span class="res-err"><i class="bi bi-x-circle me-1"></i>${escHtml(msg)}</span>`;
+    const error = msg => `<span class="res-err"><i class="bi bi-x-circle me-1"></i>${nrEscape(msg)}</span>`;
 
     // Step 1: the two ways
     const ways = {dba: [$('mvWayDba'), $('mvDba')], admin: [$('mvWayAdmin'), $('mvAdmin')]};
@@ -807,7 +807,7 @@
       if (d.status !== 'ok') { out.innerHTML = error(d.message); return; }
       $('mvAdPassword').value = '';            // not kept, not even in the page
       out.innerHTML = '<span class="res-ok"><i class="bi bi-check-circle me-1"></i>Ready: ' +
-        d.done.map(escHtml).join('; ') + '. Step 2 is filled in — check it.</span>' +
+        d.done.map(nrEscape).join('; ') + '. Step 2 is filled in — check it.</span>' +
         (d.grafana_known ? '' : '<div class="mv-hint">Grafana\'s password isn\'t known to this server: its login wasn\'t created.</div>');
       fillStep2(d, body.host, body.port);
     });
@@ -829,9 +829,9 @@
       out.style.display = 'block';
       if (d.status !== 'ok') { forget(); out.style.display = 'block'; out.innerHTML = error(d.message); return; }
       const r = d.report;
-      const list = (items, cls) => items.length ? `<ul class="${cls}">${items.map(i => `<li>${escHtml(i)}</li>`).join('')}</ul>` : '';
+      const list = (items, cls) => items.length ? `<ul class="${cls}">${items.map(i => `<li>${nrEscape(i)}</li>`).join('')}</ul>` : '';
       out.innerHTML = (r.ok
-          ? `<span class="res-ok"><i class="bi bi-check-circle me-1"></i>Ready for the move — PostgreSQL ${escHtml(r.server_version)}, schema ${escHtml(r.schema)}, ${r.contents === 'empty' ? 'empty' : 'holding a NetRollout database'}.</span>`
+          ? `<span class="res-ok"><i class="bi bi-check-circle me-1"></i>Ready for the move — PostgreSQL ${nrEscape(r.server_version)}, schema ${nrEscape(r.schema)}, ${r.contents === 'empty' ? 'empty' : 'holding a NetRollout database'}.</span>`
           : `<span class="res-err"><i class="bi bi-x-circle me-1"></i>NetRollout can't move there yet:</span>${list(r.problems, 'res-err')}`)
         + list(r.notes, 'mv-hint');
       checked = r.ok ? r : null;
@@ -868,11 +868,11 @@
       if ($('mvBack')) $('mvBack').style.display = moving ? 'none' : 'block';
       let html = '';
       if (m.state === 'waiting') {
-        const rows = (m.rollouts || []).map(j => `<tr><td>${escHtml(j.user)}</td><td>${j.devices}</td>
-            <td>${j.state}</td><td>${j.started ? escHtml(j.started.replace('T', ' ')) : '—'}</td>
+        const rows = (m.rollouts || []).map(j => `<tr><td>${nrEscape(j.user)}</td><td>${j.devices}</td>
+            <td>${j.state}</td><td>${j.started ? nrEscape(j.started.replace('T', ' ')) : '—'}</td>
             <td class="text-end"><button class="btn btn-outline-danger btn-sm py-0" data-job="${j.job_id}">Cancel rollout</button></td></tr>`).join('');
         const n = (m.rollouts || []).length, what = m.what || '';
-        html = `<strong><span class="spinner-border spinner-border-sm text-info me-2"></span>${escHtml(what.charAt(0).toUpperCase() + what.slice(1))}:
+        html = `<strong><span class="spinner-border spinner-border-sm text-info me-2"></span>${nrEscape(what.charAt(0).toUpperCase() + what.slice(1))}:
           waiting for ${n === 1 ? 'a rollout' : n ? `${n} rollouts` : 'the last rollout'} to finish</strong>
           <div class="mv-hint mt-1">New rollouts are paused. The move starts by itself when none is left; it's given up in
           ${mmss(m.seconds_left || 0)} if they're still running. Cancelling a rollout skips devices it hasn't reached;
@@ -880,16 +880,16 @@
           ${rows ? `<table><thead><tr><th>By</th><th>Devices</th><th>State</th><th>Started</th><th></th></tr></thead><tbody>${rows}</tbody></table>` : ''}
           <button class="btn btn-outline-secondary btn-sm mt-1" id="mvCancelMove">Cancel the move</button>`;
       } else if (m.state === 'copying' || m.state === 'switching') {
-        html = `<strong><span class="spinner-border spinner-border-sm text-info me-2"></span>${escHtml(m.step || 'Working')}…</strong>
-          <div class="mv-hint mt-1">NetRollout is in maintenance for everyone else. ${escHtml(m.source)} → ${escHtml(m.target)}.
+        html = `<strong><span class="spinner-border spinner-border-sm text-info me-2"></span>${nrEscape(m.step || 'Working')}…</strong>
+          <div class="mv-hint mt-1">NetRollout is in maintenance for everyone else. ${nrEscape(m.source)} → ${nrEscape(m.target)}.
           Keep this page open; it updates by itself.</div>`;
       } else if (m.state === 'done') {
-        html = `<strong class="res-ok"><i class="bi bi-check-circle me-1"></i>${escHtml(m.message)}</strong>
-          <div class="mv-hint mt-1">Backup made before the move: ${escHtml(m.backup || '—')}.${live ? ' This page reloads in a moment.' : ''}</div>`;
+        html = `<strong class="res-ok"><i class="bi bi-check-circle me-1"></i>${nrEscape(m.message)}</strong>
+          <div class="mv-hint mt-1">Backup made before the move: ${nrEscape(m.backup || '—')}.${live ? ' This page reloads in a moment.' : ''}</div>`;
         if (live) setTimeout(() => location.reload(), 4000);
       } else {
         html = `<strong class="res-err"><i class="bi bi-x-circle me-1"></i>${m.state === 'cancelled' ? 'The move was cancelled' : 'The move didn\'t happen'}</strong>
-          <div class="mv-hint mt-1">${escHtml(m.message || '')}</div>`;
+          <div class="mv-hint mt-1">${nrEscape(m.message || '')}</div>`;
       }
       box.innerHTML = html;
       box.querySelectorAll('[data-job]').forEach(b => b.addEventListener('click', async () => {
@@ -950,7 +950,7 @@
         document.getElementById('rdBtnSave').disabled = false;
         res.innerHTML = '<span class="res-ok"><i class="bi bi-check-circle me-1"></i>Connection successful</span>';
       } else {
-        res.innerHTML = `<span class="res-err"><i class="bi bi-x-circle me-1"></i>${data.message}</span>`;
+        res.innerHTML = `<span class="res-err"><i class="bi bi-x-circle me-1"></i>${nrEscape(data.message)}</span>`;
       }
     })
     .catch(() => {
@@ -987,7 +987,7 @@
         btn.disabled = false;
         document.getElementById('rdTestResult').style.display = 'block';
         document.getElementById('rdTestResult').innerHTML =
-          `<span class="res-err"><i class="bi bi-x-circle me-1"></i>${escHtml(data.message || 'Switch failed')}</span>`;
+          `<span class="res-err"><i class="bi bi-x-circle me-1"></i>${nrEscape(data.message || 'Switch failed')}</span>`;
       }
     })
     .catch(() => { spinner.style.display = 'none'; btn.disabled = false; });
@@ -996,7 +996,7 @@
   // Applied at once (no restart); this page reloads to show the new state
   function redisSwitched(box, message) {
     box.style.display = 'block';
-    box.innerHTML = `<i class="bi bi-check-circle me-2"></i>${escHtml(message)}`;
+    box.innerHTML = `<i class="bi bi-check-circle me-2"></i>${nrEscape(message)}`;
     setTimeout(() => location.reload(), 3000);
   }
 
@@ -1011,7 +1011,7 @@
       data = await r.json();
     } catch (_) { data = {status: 'error', message: 'No answer from NetRollout.'}; }
     if (data.status === 'ok') { out.className = 'nr-restart-banner mt-2'; redisSwitched(out, data.message); }
-    else { btn.disabled = false; out.innerHTML = `<span class="res-err"><i class="bi bi-x-circle me-1"></i>${escHtml(data.message)}</span>`; }
+    else { btn.disabled = false; out.innerHTML = `<span class="res-err"><i class="bi bi-x-circle me-1"></i>${nrEscape(data.message)}</span>`; }
   });
 
   /* ── LDAP server management ───────────────────────────────── */
@@ -1051,8 +1051,8 @@
     return `
       <div class="ldap-server-row" id="row-${s.id}" onclick="toggleExpand('${s.id}')">
         ${dot}
-        <span class="ldap-server-name">${escHtml(s.name)}</span>
-        <span class="ldap-server-host">${escHtml(s.host)}:${s.port}</span>
+        <span class="ldap-server-name">${nrEscape(s.name)}</span>
+        <span class="ldap-server-host">${nrEscape(s.host)}:${s.port}</span>
         <span class="ldap-bind-badge">${s.bind_type.toUpperCase()}</span>
         <span style="flex:1;"></span>
         <i class="bi bi-chevron-down ldap-chevron" id="chev-${s.id}"></i>
@@ -1096,11 +1096,11 @@
         <div class="row g-3">
           <div class="col-md-4">
             <label class="nr-label">Name</label>
-            <input id="e_${s.id}_name" class="form-control form-control-sm" value="${escHtml(s.name)}">
+            <input id="e_${s.id}_name" class="form-control form-control-sm" value="${nrEscape(s.name)}">
           </div>
           <div class="col-md-4">
             <label class="nr-label">Host</label>
-            <input id="e_${s.id}_host" class="form-control form-control-sm" value="${escHtml(s.host)}">
+            <input id="e_${s.id}_host" class="form-control form-control-sm" value="${nrEscape(s.host)}">
           </div>
           <div class="col-md-2">
             <label class="nr-label">Port</label>
@@ -1116,7 +1116,7 @@
           <div class="col-md-8">
             <label class="nr-label">Base DN</label>
             <div class="input-group input-group-sm">
-              <input id="e_${s.id}_dn" class="form-control" value="${escHtml(s.base_dn)}">
+              <input id="e_${s.id}_dn" class="form-control" value="${nrEscape(s.base_dn)}">
               <button class="btn btn-outline-secondary" type="button" onclick="fetchDn('${s.id}')">
                 <span id="e_${s.id}_fetch_spin" style="display:none;"
                       class="spinner-border spinner-border-sm"></span>
@@ -1127,7 +1127,7 @@
           <div class="col-md-4">
             <label class="nr-label">CN Identifier</label>
             <input id="e_${s.id}_cn" class="form-control form-control-sm"
-                   value="${escHtml(s.cn_identifier)}" placeholder="sAMAccountName">
+                   value="${nrEscape(s.cn_identifier)}" placeholder="sAMAccountName">
           </div>
           <div class="col-12">
             <label class="nr-label d-block mb-2">Bind Type</label>
@@ -1149,7 +1149,7 @@
               <div class="col-md-6">
                 <label class="nr-label">Bind DN</label>
                 <input id="e_${s.id}_bdn" class="form-control form-control-sm"
-                       value="${escHtml(s.bind_dn || '')}" placeholder="CN=svc-ldap,DC=corp,DC=com">
+                       value="${nrEscape(s.bind_dn || '')}" placeholder="CN=svc-ldap,DC=corp,DC=com">
               </div>
               <div class="col-md-6">
                 <label class="nr-label">
@@ -1283,7 +1283,7 @@
         loadServers();
       } else {
         res.style.display = 'block';
-        res.innerHTML = `<span class="res-err"><i class="bi bi-x-circle me-1"></i>${data.message}</span>`;
+        res.innerHTML = `<span class="res-err"><i class="bi bi-x-circle me-1"></i>${nrEscape(data.message)}</span>`;
       }
     });
   }
@@ -1318,7 +1318,7 @@
         res.innerHTML = '<span class="res-ok"><i class="bi bi-check-circle me-1"></i>Saved</span>';
         loadServers();
       } else {
-        res.innerHTML = `<span class="res-err"><i class="bi bi-x-circle me-1"></i>${data.message}</span>`;
+        res.innerHTML = `<span class="res-err"><i class="bi bi-x-circle me-1"></i>${nrEscape(data.message)}</span>`;
       }
     });
   }
@@ -1340,7 +1340,7 @@
         loadServers();
       } else {
         const res = document.getElementById(`e_${id}_result`);
-        if (res) { res.style.display = 'block'; res.innerHTML = `<span class="res-err">${data.message}</span>`; }
+        if (res) { res.style.display = 'block'; res.innerHTML = `<span class="res-err">${nrEscape(data.message)}</span>`; }
       }
     });
   }
@@ -1358,9 +1358,9 @@
     .then(r => r.json())
     .then(data => {
       if (data.status === 'ok') {
-        res.innerHTML = `<span class="res-ok"><i class="bi bi-check-circle me-1"></i>${data.message}</span>`;
+        res.innerHTML = `<span class="res-ok"><i class="bi bi-check-circle me-1"></i>${nrEscape(data.message)}</span>`;
       } else {
-        res.innerHTML = `<span class="res-err"><i class="bi bi-x-circle me-1"></i>${data.message}</span>`;
+        res.innerHTML = `<span class="res-err"><i class="bi bi-x-circle me-1"></i>${nrEscape(data.message)}</span>`;
       }
     });
   }
@@ -1387,9 +1387,9 @@
     .then(r => r.json())
     .then(data => {
       if (data.status === 'ok') {
-        res.innerHTML = `<span class="res-ok"><i class="bi bi-check-circle me-1"></i>${data.message}</span>`;
+        res.innerHTML = `<span class="res-ok"><i class="bi bi-check-circle me-1"></i>${nrEscape(data.message)}</span>`;
       } else {
-        res.innerHTML = `<span class="res-err"><i class="bi bi-x-circle me-1"></i>${data.message}</span>`;
+        res.innerHTML = `<span class="res-err"><i class="bi bi-x-circle me-1"></i>${nrEscape(data.message)}</span>`;
       }
     });
   }
@@ -1415,7 +1415,7 @@
         document.getElementById(`e_${id}_dn`).value = data.base_dn;
         res.innerHTML = `<span class="res-ok"><i class="bi bi-check-circle me-1"></i>Base DN populated</span>`;
       } else {
-        res.innerHTML = `<span class="res-err"><i class="bi bi-x-circle me-1"></i>${data.message}</span>`;
+        res.innerHTML = `<span class="res-err"><i class="bi bi-x-circle me-1"></i>${nrEscape(data.message)}</span>`;
       }
     });
   }
@@ -1453,7 +1453,7 @@
     .then(data => {
       if (data.status === 'error') {
         tree.innerHTML = `<div class="exp-tree-item" style="color:#ef9a9a; font-size:0.82rem; padding:1rem;">
-          <i class="bi bi-x-circle me-2"></i>${data.message}</div>`;
+          <i class="bi bi-x-circle me-2"></i>${nrEscape(data.message)}</div>`;
         return;
       }
       renderTree(data.entries || []);
@@ -1486,19 +1486,19 @@
         el.className = 'exp-tree-item ou';
         el.innerHTML = `
           <i class="bi bi-folder exp-item-icon" style="color:#ffe082;"></i>
-          <span class="exp-item-label">${escHtml(e.label)}</span>
+          <span class="exp-item-label">${nrEscape(e.label)}</span>
           <i class="bi bi-chevron-right" style="color:var(--nr-text-faint); font-size: 0.75rem;"></i>`;
         el.addEventListener('click', () => drillDown(e.dn, e.label));
       } else {
         const icon     = e.type === 'group' ? 'bi-people-fill' : 'bi-person-fill';
         const color    = e.type === 'group' ? '#80deea' : '#a5d6a7';
-        const subLabel = e.type === 'user' ? escHtml(e.username || e.label) : escHtml(e.dn);
+        const subLabel = e.type === 'user' ? nrEscape(e.username || e.label) : nrEscape(e.dn);
         const isSel    = !!explorerSelected[e.dn];
         el.className   = `exp-tree-item selectable${isSel ? ' selected' : ''}`;
         el.dataset.dn  = e.dn;
         el.innerHTML   = `
           <i class="bi ${icon} exp-item-icon" style="color:${color};"></i>
-          <span class="exp-item-label">${escHtml(e.label)}</span>
+          <span class="exp-item-label">${nrEscape(e.label)}</span>
           <span class="exp-item-sub">${subLabel}</span>
           ${isSel ? '<i class="bi bi-check-lg chk" style="color:#00bcd4; font-size:0.8rem;"></i>' : ''}`;
         el.addEventListener('click', () => {
@@ -1582,7 +1582,7 @@
       el.className = 'exp-sel-item';
       el.innerHTML = `
         <i class="bi ${icon} exp-sel-icon" style="color:${color};"></i>
-        <span class="exp-sel-label" title="${escHtml(e.dn)}">${escHtml(e.label)}</span>
+        <span class="exp-sel-label" title="${nrEscape(e.dn)}">${nrEscape(e.label)}</span>
         <i class="bi bi-x exp-sel-remove"></i>`;
       el.querySelector('.exp-sel-remove').addEventListener('click', () => {
         delete explorerSelected[e.dn];
@@ -1622,20 +1622,10 @@
         explorerSelected = {};
         renderSelectedPanel();
       } else {
-        res.innerHTML = `<span class="res-err"><i class="bi bi-x-circle me-1"></i>${data.message}</span>`;
+        res.innerHTML = `<span class="res-err"><i class="bi bi-x-circle me-1"></i>${nrEscape(data.message)}</span>`;
         btn.disabled = false;
       }
     });
-  }
-
-  /* ── Utility ── */
-  function escHtml(str) {
-    if (!str) return '';
-    return String(str)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
   }
 </script>
 {% endblock %}
