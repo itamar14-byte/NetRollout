@@ -338,6 +338,14 @@ def set_custom_values(db_session: Session, device: Inventory,
 			                               name=name, value=value))
 
 
+def drop_other_users_values(db_session: Session, device: Inventory) -> None:
+	"""Remove everyone's values on a device but its owner's (it was made
+	local: nobody else can see it - their bindings go too)."""
+	db_session.query(DeviceAttribute).filter(
+		DeviceAttribute.device_id == device.id,
+		DeviceAttribute.user_id != device.user_id).delete(synchronize_session=False)
+
+
 def delete_property_values(db_session: Session, user_id: uuid.UUID,
                            name: str) -> None:
 	"""Remove a user's values of one of their properties, on every device

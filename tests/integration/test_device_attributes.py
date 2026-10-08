@@ -218,3 +218,18 @@ def test_deleting_a_device_or_a_user_leaves_no_values(
 		assert s.get(User, admin2.id) is None and s.get(Inventory, other_global) is None
 		rows = {(a.user_id, a.device_id) for a in s.query(DeviceAttribute)}
 	assert rows == {(world.c.id, world.core)}
+
+
+def test_making_a_device_local_drops_the_other_users_values(world, client_for,
+                                                             session_scope):
+	"""A global device made local: the other users can't see it any more - their values
+	on it go with their mapping bindings (they were left hidden, coming back if it went
+	global again); the owner's stay."""
+	admin = client_for(world.admin)
+	admin.post("/properties/create", json={"name": "rack", "label": "Rack"})
+	set_mine(client_for(world.b), world.core, rack="B-RACK")
+	admin.post(f"/inventory/{world.core}/edit", data={
+		**FORM, "sec_profile_id": str(world.prof), "is_global": "on", "attr_rack": "A-RACK"})
+	admin.post(f"/inventory/{world.core}/edit", data={
+		**FORM, "sec_profile_id": str(world.prof), "attr_rack": "A-RACK"})
+	assert values_of(session_scope, world.core) == {(world.admin.username, "rack"): "A-RACK"}

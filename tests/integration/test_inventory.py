@@ -480,7 +480,7 @@ def test_unresolvable_mappings_are_not_bound(client_for, make_user,
 	vrf2 = make_mapping(user, token="VRF2", prop="vrfs", index=2)  # out of range
 	vrf0 = make_mapping(user, token="VRF0", prop="vrfs", index=0)  # fine
 	client = client_for(user)
-	client.post(f"/inventory/{dev}/mappings", data={
+	client.post(f"/inventory/{dev}/attributes", data={
 		"mapping_ids": [str(host), str(vrf2), str(vrf0)]})
 	with session_scope() as s:
 		bound = {m.token for m in s.get(Inventory, dev).var_mappings}
@@ -607,12 +607,12 @@ def test_users_bind_own_mappings_without_touching_others(world, client_for,
 	"""A user binds own mappings to a global device beside another user's; another
 	user's mapping can't be bound (the own binding is replaced); drag-assign too."""
 	client = client_for(world.b)
-	client.post(f"/inventory/{world.core}/mappings",
+	client.post(f"/inventory/{world.core}/attributes",
 	            data={"mapping_ids": [str(world.map_b)]})
 	assert mapping_owners(session_scope, world.core) == \
 	       sorted([str(world.b.id), str(world.c.id)])
 	# another user's mapping can't be bound; own binding replaced
-	client.post(f"/inventory/{world.core}/mappings",
+	client.post(f"/inventory/{world.core}/attributes",
 	            data={"mapping_ids": [str(world.map_c)]})
 	assert mapping_owners(session_scope, world.core) == [str(world.c.id)]
 	# drag-assign path

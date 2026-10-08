@@ -13,7 +13,8 @@ from sqlalchemy.orm import Session
 
 from src.accounts.users import signed_in_user
 from src.db.tables import VariableMapping, Inventory, SecurityProfile
-from src.inventory import (attributes, attributes_of, can_edit_device, form_values, import_csv,
+from src.inventory import (attributes, attributes_of, can_edit_device, drop_other_users_values,
+                           form_values, import_csv,
                            partition_devices, query_visible_devices, same_endpoint_devices,
                            same_endpoint_warning, set_custom_values, set_system_values,
                            visible_devices_clause)
@@ -275,6 +276,7 @@ def inventory_edit(device_id: uuid.UUID) -> ResponseReturnValue:
 			# rather than leave invisible orphans in the join table.
 			device.var_mappings = [m for m in device.var_mappings
 			                       if m.user_id == device.user_id]
+			drop_other_users_values(db_session, device)
 		current_app.web.audit("inventory.edit", object_type="Inventory",
 		                      object_id=device_id, object_label=device.label,
 		                      detail={"is_global": is_global})
@@ -291,32 +293,6 @@ def inventory_edit(device_id: uuid.UUID) -> ResponseReturnValue:
 	return current_app.web.act_on_db_obj(
 		Inventory, device_id, _edit,
 		can_access=lambda d: can_edit_device(d, current_user),
-		on_missing=device_not_found)
-
-
-@bp.route("/<uuid:device_id>/mappings", methods=["POST"])
-@login_required
-def inventory_mappings(device_id: uuid.UUID) -> ResponseReturnValue:
-	"""Bind / unbind the user's own mappings on any device they see - the
-	only way to on a global device they can't edit."""
-	try:
-		mapping_ids = parse_mapping_ids(request.form.getlist("mapping_ids"))
-	except ValueError:
-		return flash_redirect("Invalid mapping ID.", "inventory.inventory",
-		                      "danger")
-
-	def _set_mappings(device: Inventory, db_session: Session) -> ResponseReturnValue:
-		flash_skipped_mappings(
-			set_user_mappings(device, current_user.id, mapping_ids, db_session))
-		current_app.web.audit("inventory.mappings", object_type="Inventory",
-		                      object_id=device_id, object_label=device.label,
-		                      detail={"mapping_count": len(mapping_ids)})
-		return flash_redirect(f"Mappings updated for {device.label}.",
-		                      "inventory.inventory")
-
-	return current_app.web.act_on_db_obj(
-		Inventory, device_id, _set_mappings,
-		can_access=lambda d: d.user_id == current_user.id or d.is_global,
 		on_missing=device_not_found)
 
 
