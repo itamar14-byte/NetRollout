@@ -1201,6 +1201,7 @@
 {% block extra_script %}
 <script>
 const CSRF_TOKEN     = "{{ csrf_token() }}";
+const VENDOR_LOGOS   = {{ VENDOR_LOGOS | tojson }};   // the platform picker's selected logo
 const PROP_DEFS      = {{ (sys_props + user_props) | tojson }};
 const QCM_LIST_PROPS = new Set({{ (sys_props + user_props) | selectattr('is_list') | map(attribute='name') | list | tojson }});
 

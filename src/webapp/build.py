@@ -48,17 +48,22 @@ from src.webapp.startup import new_instance_token
 ########Constants###################################################
 
 _CDN = "https://cdn.simpleicons.org"
+# Simple Icons has no Arista, Aruba or Check Point logo: those come from the
+# dashboard-icons collection (jsDelivr) and Wikimedia Commons. Arista's is a
+# dark wordmark - operator_base.html shows it white on the dark theme.
+_ICONS = "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg"
+ARISTA_LOGO = "https://upload.wikimedia.org/wikipedia/commons/9/99/Arista-networks-logo.svg"
 VENDOR_LOGOS = {
 	'cisco_ios': f'{_CDN}/cisco',
 	'cisco_xe': f'{_CDN}/cisco',
 	'cisco_xr': f'{_CDN}/cisco',
 	'cisco_nxos': f'{_CDN}/cisco',
 	'juniper_junos': f'{_CDN}/junipernetworks',
-	'arista_eos': f'{_CDN}/aristanetworks',
+	'arista_eos': ARISTA_LOGO,
 	'fortinet': f'{_CDN}/fortinet',
 	'paloalto_panos': f'{_CDN}/paloaltonetworks',
-	'aruba_aoscx': f'{_CDN}/arubanetworks',
-	'checkpoint_gaia': f'{_CDN}/checkpoint',
+	'aruba_aoscx': f'{_ICONS}/aruba.svg',
+	'checkpoint_gaia': f'{_ICONS}/check-point.svg',
 	'hp_procurve': f'{_CDN}/hp',
 	'hp_comware': f'{_CDN}/hp',
 }

@@ -343,6 +343,9 @@
         }
         .nr-card-body { padding: 2rem; }
 
+        /* Arista's logo is a dark wordmark (VENDOR_LOGOS): white on the dark theme */
+        img[src*="Arista-networks-logo"] { filter: brightness(0) invert(1); }
+
         /* Badges / Labels */
         .nr-badge {
             display: inline-block;
