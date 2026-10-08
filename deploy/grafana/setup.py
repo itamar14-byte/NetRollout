@@ -29,6 +29,7 @@ uid, which never changes.
 import base64
 import json
 import os
+import re
 import sys
 import time
 import urllib.error
@@ -106,7 +107,10 @@ def read_env(path: Path) -> dict[str, str]:
 	for line in lines:
 		key, sep, value = line.partition("=")
 		if sep and not key.lstrip().startswith("#"):
-			values[key.strip()] = value.strip().strip("'\"")
+			value = value.strip()
+			if len(value) >= 2 and value[0] == value[-1] == "'":    # as the app writes it
+				value = re.sub(r"\\(['\\])", r"\1", value[1:-1])
+			values[key.strip()] = value.strip("\"")
 	return values
 
 

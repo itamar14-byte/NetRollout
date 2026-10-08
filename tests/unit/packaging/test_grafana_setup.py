@@ -30,6 +30,8 @@ def setup(monkeypatch, tmp_path):
 	# development: the host app's 127.0.0.1 is the bundled database to a container
 	("PG_HOST=127.0.0.1\nPG_PORT=5432\nPG_NAME=netrollout\n", ("postgres", "5432", "netrollout", "disable")),
 	("# a comment\nPG_HOST='db2'\n", ("db2", "5432", "netrollout", "disable")),
+	# as the app writes it (quoted, escaped): a password with a quote doesn't matter here
+	("PG_HOST='db3'\nPG_PASSWORD='it\\'s'\nPG_NAME='o\\'ps'\n", ("db3", "5432", "o'ps", "disable")),
 ])
 def test_where_the_data_is(setup, env, expected):
 	"""runtime.env gives the data source's host, port, database and sslmode: bundled when

@@ -7,6 +7,8 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import cached_property
+from pathlib import Path
+from urllib.parse import quote
 
 import redis
 from dotenv import dotenv_values, load_dotenv
@@ -158,6 +160,20 @@ class PostgresConnection:
 		self.engine.dispose()
 
 
+def load_config(path: Path, override: bool = True) -> None:
+	"""config/runtime.env into the environment, literally: a password's `$`
+	isn't expanded.
+
+	:param path: the file (a missing one changes nothing)
+	:param override: whether it wins over the environment"""
+	load_dotenv(path, override=override, interpolate=False)
+
+
+def _escaped(value: str) -> str:
+	""":returns: the value for a single-quoted runtime.env line"""
+	return value.replace("\\", "\\\\").replace("'", "\\'")
+
+
 # Client timeouts (seconds): fail fast when Redis is unreachable
 CONNECT_TIMEOUT = 3
 SOCKET_TIMEOUT = 15  # > orchestration._BLPOP_TIMEOUT (enforced by a test)
@@ -193,8 +209,8 @@ class RedisConfig:
 		""":returns: the redis:// URL to connect with (the password in it)"""
 		if self.url:
 			return self.url
-		if self.password:
-			return f"redis://:{self.password}@{self.host}:{self.port}/{self.db}"
+		if self.password:      # URL-encoded: any character may be in it
+			return f"redis://:{quote(self.password, safe='')}@{self.host}:{self.port}/{self.db}"
 		return f"redis://{self.host}:{self.port}/{self.db}"
 
 	def place(self) -> tuple[str | None, int, int]:
@@ -301,7 +317,7 @@ class BackendServices:
 		over the environment (the installer's .env), which wins over the code's
 		defaults."""
 		self._CONFIG_ENV = runtime.runtime_env()
-		load_dotenv(self._CONFIG_ENV, override=True)
+		load_config(self._CONFIG_ENV)
 		self.postgres = PostgresConnection()
 		install(self.postgres)
 		self.redis = RedisConnection()
@@ -346,12 +362,13 @@ class BackendServices:
 		"""Merge `updates` into config/runtime.env - atomically (a crash
 		mid-write can't leave half a file) and owner-only (it holds database
 		and Redis passwords)."""
-		cfg = dict(dotenv_values(self._CONFIG_ENV)) if \
-			self._CONFIG_ENV.exists() else {}
+		cfg = self._config_values()
 		cfg.update(updates)
 		self._CONFIG_ENV.parent.mkdir(parents=True, exist_ok=True)
 		tmp = self._CONFIG_ENV.with_name(self._CONFIG_ENV.name + ".tmp")
-		tmp.write_text("\n".join(f"{k}={v}" for k, v in cfg.items()) + "\n")
+		# single-quoted, \ and ' escaped: a password may hold any character
+		tmp.write_text("".join(f"{k}='{_escaped(v or '')}'\n" for k, v in cfg.items()),
+		               encoding="utf-8")
 		os.chmod(tmp, 0o600)
 		os.replace(tmp, self._CONFIG_ENV)
 
@@ -425,7 +442,8 @@ class BackendServices:
 
 	def _config_values(self) -> dict[str, str | None]:
 		""":returns: config/runtime.env's keys ({} when there's no file)"""
-		return dict(dotenv_values(self._CONFIG_ENV)) if self._CONFIG_ENV.exists() else {}
+		return (dict(dotenv_values(self._CONFIG_ENV, interpolate=False))
+		        if self._CONFIG_ENV.exists() else {})
 
 	def bundled_redis(self) -> RedisConfig | None:
 		"""The bundled Redis: remembered by the switch that left it, or the
