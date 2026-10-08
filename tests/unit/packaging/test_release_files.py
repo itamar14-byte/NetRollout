@@ -286,12 +286,17 @@ def test_installing_again_over_a_kept_linux_install_starts_it():
 	"""do_install, before asking anything, starts an install whose .env was kept and
 	returns, never saying "already installed" - as `uninstall --keep-data` promises
 	("installing again in this folder picks it up"). install.sh used to refuse
-	(exit 2) - found by 9.9e; it now starts as Setup does on Windows."""
+	(exit 2) - found by 9.9e; it now starts as Setup does on Windows. The same
+	version starts at once; an older one goes through the update (install_over_kept)."""
 	sh = (ROOT / "linux" / "netrollout.sh").read_text(encoding="utf-8")
 	install = re.search(r"\ndo_install\(\) \{(.*?)\n\}", sh, re.S)[1]
 	kept = install[:install.index("if [ -z \"$YES\" ]")]
-	assert 'if [ -f "$ENV_FILE" ]; then' in kept and "do_start" in kept and "return" in kept
-	assert "already installed" not in kept
+	assert 'if [ -f "$ENV_FILE" ]; then' in kept and "install_over_kept" in kept and "return" in kept
+	over = re.search(r"\ninstall_over_kept\(\) \{(.*?)\n\}", sh, re.S)[1]
+	same = over[:over.index('step "Getting NetRollout $VERSION"')]
+	assert 'if [ "$kept" = "$VERSION" ]; then' in same and "do_start" in same and "return" in same
+	assert "do_update_finish" in over
+	assert "already installed" not in kept + over
 	assert "installing again in this folder picks it up" in sh
 
 
