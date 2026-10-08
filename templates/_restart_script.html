@@ -83,7 +83,7 @@ async function nrFireRestart(mode) {
     try {
         resp = await fetch('/admin/server/restart', {
             method: 'POST',
-            headers: {'X-CSRFToken': '{{ csrf_token() }}', 'Content-Type': 'application/json'},
+            headers: {'X-CSRFToken': CSRF_TOKEN, 'Content-Type': 'application/json'},
             body: JSON.stringify(mode ? {mode} : {}),
         });
         data = await resp.json();

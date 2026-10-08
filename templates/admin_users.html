@@ -601,7 +601,7 @@
     try {
       const resp = await fetch(`/admin/users/${resetPwTarget.id}/reset_password`, {
         method: "POST",
-        headers: {"X-CSRFToken": "{{ csrf_token() }}", "X-Requested-With": "XMLHttpRequest"},
+        headers: {"X-CSRFToken": CSRF_TOKEN, "X-Requested-With": "XMLHttpRequest"},
       });
       data = await resp.json();
       if (!resp.ok) throw new Error(data.message || `server error (${resp.status})`);
@@ -650,7 +650,7 @@
       try {
         resp = await fetch("{{ url_for('admin_users.admin_add_user') }}", {
           method: "POST",
-          headers: {"Content-Type": "application/json", "X-CSRFToken": "{{ csrf_token() }}",
+          headers: {"Content-Type": "application/json", "X-CSRFToken": CSRF_TOKEN,
                     "X-Requested-With": "XMLHttpRequest"},
           body: JSON.stringify({username, email, full_name: fullName, position,
                                 role: document.getElementById("auRole").value}),
@@ -833,8 +833,6 @@
 </style>
 
 <script>
-  const GR_CSRF = '{{ csrf_token() }}';
-
   window.addEventListener('DOMContentLoaded', loadGroupRules);
 
   function loadGroupRules() {
@@ -910,7 +908,7 @@
   function toggleGroup(serverId, groupId, el) {
     fetch(`/admin/server/ldap/${serverId}/groups/${groupId}/toggle`, {
       method: 'POST',
-      headers: { 'X-CSRFToken': GR_CSRF }
+      headers: { 'X-CSRFToken': CSRF_TOKEN }
     })
     .then(r => r.json())
     .then(data => {
@@ -925,7 +923,7 @@
     if (!confirm('Remove this group rule?')) return;
     fetch(`/admin/server/ldap/${serverId}/groups/${groupId}/delete`, {
       method: 'POST',
-      headers: { 'X-CSRFToken': GR_CSRF }
+      headers: { 'X-CSRFToken': CSRF_TOKEN }
     })
     .then(r => r.json())
     .then(data => {

@@ -635,7 +635,6 @@
 {% include '_access_status.html' %}
 
 <script>
-  const CSRF = '{{ csrf_token() }}';
   const LDAP_BASE = '/admin/server/ldap';
 
   /* ── TLS certificate (proxy_config: install_certificate / generate_selfsigned) ── */
@@ -661,7 +660,7 @@
       show('warn', '<i class="bi bi-hourglass-split me-1"></i>Applying…');
       let resp, data = {};
       try {
-        resp = await fetch(url, {method: 'POST', headers: {'X-CSRFToken': CSRF}, body});
+        resp = await fetch(url, {method: 'POST', headers: {'X-CSRFToken': CSRF_TOKEN}, body});
         try { data = await resp.json(); } catch (_) {}
       } catch (_) { resp = {ok: false, status: 0}; }
       uploadBtn.disabled = selfBtn.disabled = false;
@@ -722,7 +721,7 @@
     let checked = null;          // the last check's report, for the fields as they are
 
     async function call(url, body, background) {
-      const headers = {'X-CSRFToken': CSRF};
+      const headers = {'X-CSRFToken': CSRF_TOKEN};
       if (body !== undefined) headers['Content-Type'] = 'application/json';
       if (background) headers['X-NR-Background'] = '1';
       let resp, data = {};
@@ -897,7 +896,7 @@
         if (!confirm('Cancel this rollout? Devices it has not reached are skipped.')) return;
         b.disabled = true;
         const form = new URLSearchParams({job_id: b.dataset.job});
-        await fetch('/rollout/cancel', {method: 'POST', headers: {'X-CSRFToken': CSRF}, body: form});
+        await fetch('/rollout/cancel', {method: 'POST', headers: {'X-CSRFToken': CSRF_TOKEN}, body: form});
       }));
       $('mvCancelMove')?.addEventListener('click', async () => {
         $('mvCancelMove').disabled = true;
@@ -933,7 +932,7 @@
 
     fetch('{{ url_for("admin_servers.admin_server_redis_test") }}', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN },
       body: JSON.stringify({
         host:     document.getElementById('rd_host').value.trim(),
         port:     document.getElementById('rd_port').value.trim(),
@@ -971,7 +970,7 @@
 
     fetch('{{ url_for("admin_servers.admin_server_redis_save") }}', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN },
       body: JSON.stringify({
         host:     document.getElementById('rd_host').value.trim(),
         port:     document.getElementById('rd_port').value.trim(),
@@ -1008,7 +1007,7 @@
     let data = {};
     try {
       const r = await fetch('{{ url_for("admin_servers.admin_server_redis_back") }}',
-                            {method: 'POST', headers: {'X-CSRFToken': CSRF}});
+                            {method: 'POST', headers: {'X-CSRFToken': CSRF_TOKEN}});
       data = await r.json();
     } catch (_) { data = {status: 'error', message: 'No answer from NetRollout.'}; }
     if (data.status === 'ok') { out.className = 'nr-restart-banner mt-2'; redisSwitched(out, data.message); }
@@ -1274,7 +1273,7 @@
 
     fetch(`${LDAP_BASE}/new`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRFToken': CSRF },
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRFToken': CSRF_TOKEN },
       body
     })
     .then(r => r.json())
@@ -1309,7 +1308,7 @@
 
     fetch(`${LDAP_BASE}/${id}/save`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRFToken': CSRF },
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRFToken': CSRF_TOKEN },
       body
     })
     .then(r => r.json())
@@ -1331,7 +1330,7 @@
 
     fetch(`${LDAP_BASE}/${id}/delete`, {
       method: 'POST',
-      headers: { 'X-CSRFToken': CSRF }
+      headers: { 'X-CSRFToken': CSRF_TOKEN }
     })
     .then(r => r.json())
     .then(data => {
@@ -1354,7 +1353,7 @@
 
     fetch(`${LDAP_BASE}/${id}/test`, {
       method: 'POST',
-      headers: { 'X-CSRFToken': CSRF }
+      headers: { 'X-CSRFToken': CSRF_TOKEN }
     })
     .then(r => r.json())
     .then(data => {
@@ -1382,7 +1381,7 @@
     const body = new URLSearchParams({ username: user, password: pass });
     fetch(`${LDAP_BASE}/${id}/test_user`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRFToken': CSRF },
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRFToken': CSRF_TOKEN },
       body
     })
     .then(r => r.json())
@@ -1404,7 +1403,7 @@
 
     fetch(`${LDAP_BASE}/${id}/fetch_dn`, {
       method: 'POST',
-      headers: { 'X-CSRFToken': CSRF }
+      headers: { 'X-CSRFToken': CSRF_TOKEN }
     })
     .then(r => r.json())
     .then(data => {
@@ -1447,7 +1446,7 @@
 
     fetch(`${LDAP_BASE}/${explorerServerId}/explore`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRFToken': CSRF },
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRFToken': CSRF_TOKEN },
       body
     })
     .then(r => r.json())
@@ -1608,7 +1607,7 @@
 
     fetch(`${LDAP_BASE}/${explorerServerId}/import`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN },
       body: JSON.stringify(items)
     })
     .then(r => r.json())

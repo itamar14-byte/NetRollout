@@ -387,6 +387,10 @@
 
         {% block extra_style %}{% endblock %}
     </style>
+    <script>
+        // The CSRF token every request the page's scripts send carries (X-CSRFToken).
+        const CSRF_TOKEN = "{{ csrf_token() }}";
+    </script>
 </head>
 <body>
 

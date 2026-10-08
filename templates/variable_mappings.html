@@ -575,8 +575,6 @@
 
 {% block extra_script %}
 <script>
-const CSRF_TOKEN = "{{ csrf_token() }}";
-
 // ── Static data ──
 {% set ns = namespace(all_devs=[]) %}
 {% for d in global_devices + my_devices %}
@@ -837,7 +835,6 @@ document.querySelectorAll('form[novalidate]').forEach(form => {
 
 
 // ── Quick Create Property ─────────────────────────────────────────────────────
-const CSRF_TOKEN_VM = "{{ csrf_token() }}";
 initIconPicker('mqpIconPreview', 'mqpIcon');
 
 function openMappingQuickProp() {
@@ -859,7 +856,7 @@ async function submitMappingQuickProp() {
 
     const resp = await fetch('/properties/quick_create', {
         method: 'POST',
-        headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN_VM},
+        headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN},
         body: JSON.stringify({name, label, icon, is_list})
     });
     const data = await resp.json();

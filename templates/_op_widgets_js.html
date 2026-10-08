@@ -3,19 +3,21 @@
    nrSetReach, ...), the assign board (nrAssignBoard), autoSlug, the icon
    picker (initIconPicker). #}
 <script>
+// The CSRF token every request the page's scripts send carries (X-CSRFToken).
+const CSRF_TOKEN = "{{ csrf_token() }}";
+
 // ── Reachability (shared by New Rollout and Inventory) ─────────────────────
 // Defined in <head> so page scripts can call it wherever they sit in the
 // body (New Rollout's runs inside the content block, before the footer).
 // Probed from the NetRollout server (ip:port), cached ~60s server-side;
 // refresh=true re-probes.
-const NR_CSRF = "{{ csrf_token() }}";
 
 async function nrCheckReachability(deviceIds, refresh = false) {
     if (!deviceIds.length) return {};
     try {
         const resp = await fetch('/inventory/reachability', {
             method: 'POST',
-            headers: {'Content-Type': 'application/json', 'X-CSRFToken': NR_CSRF},
+            headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN},
             body: JSON.stringify({device_ids: deviceIds, refresh})
         });
         const data = await resp.json();
