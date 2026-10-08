@@ -91,7 +91,7 @@ class DatabaseMove:
 		return self._status["state"] in (WAITING, COPYING, SWITCHING)
 
 	def start(self, target: PostgresConfig, actor_id: uuid.UUID | None, actor: str,
-	          back: bool = False) -> None:
+	          back: bool = False, replace: bool = False) -> None:
 		"""Checks the target, then moves in a thread - audited as
 		database.move_started first: once the thread runs, maintenance may lock
 		at once, and a row written then would be lost (the row is copied with
@@ -99,6 +99,8 @@ class DatabaseMove:
 
 		:param actor_id: the admin moving it (and actor, their username)
 		:param back: a move back to the bundled database (the wording)
+		:param replace: a NetRollout database there may be overwritten (the
+		 page's "replace" box; a move back always replaces)
 		:raises move.MoveError: refused (the reason in words)"""
 		backend = self._app.backend
 		if same_database(target, backend.postgres.config):
@@ -106,6 +108,9 @@ class DatabaseMove:
 		report = move.check_target(target)
 		if not report.ok:
 			raise move.MoveError(" ".join(report.problems))
+		if report.contents == move.NETROLLOUT and not replace:
+			raise move.MoveError("It holds a NetRollout database - tick 'replace' to "
+			                     "overwrite it.")
 		what = ("moving back to the bundled database" if back
 		        else "moving to another database")
 		if not self._app.maintenance.begin(what, actor_id):

@@ -170,11 +170,12 @@ def database_check(data: dict[str, Any]) -> ResponseReturnValue:
 @require_admin
 @with_json()
 def database_move(data: dict[str, Any]) -> ResponseReturnValue:
-	"""Start a move to the server in the form (checked first)."""
+	"""Start a move to the server in the form (checked first); a NetRollout
+	database there is replaced only with `replace` true (the page's box)."""
 	target = _target(data)
 	if not isinstance(target, PostgresConfig):
 		return target
-	return _start(target, back=False)
+	return _start(target, back=False, replace=data.get("replace") is True)
 
 
 @bp.route("/database/move-back", methods=["POST"])
@@ -182,18 +183,20 @@ def database_move(data: dict[str, Any]) -> ResponseReturnValue:
 @require_admin
 def database_move_back() -> ResponseReturnValue:
 	"""Start a move back to the bundled database (its address remembered by
-	the move away)."""
+	the move away) - replacing what's there (the page's question says so)."""
 	bundled = current_app.backend.bundled_postgres()
 	if bundled is None or current_app.backend.connection_modes()["POSTGRES"] == "bundled":
 		return err("There's no bundled database to move back to.", 409)
-	return _start(bundled, back=True)
+	return _start(bundled, back=True, replace=True)
 
 
-def _start(target: PostgresConfig, back: bool) -> ResponseReturnValue:
-	""":returns: the move's status once started (db_move audits it); 409 when
+def _start(target: PostgresConfig, back: bool, replace: bool) -> ResponseReturnValue:
+	""":param replace: a NetRollout database there may be overwritten
+	:returns: the move's status once started (db_move audits it); 409 when
 	 refused"""
 	try:
-		current_app.db_move.start(target, current_user.id, current_user.username, back=back)
+		current_app.db_move.start(target, current_user.id, current_user.username, back=back,
+		                          replace=replace)
 	except move.MoveError as e:
 		return err(str(e), 409)
 	return ok(move=_status())

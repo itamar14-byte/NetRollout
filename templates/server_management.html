@@ -847,7 +847,7 @@
       if (d.status !== 'ok') { showProgress({state: 'failed', message: d.message}); return; }
       follow(d.move);
     }
-    $('mvMoveBtn').addEventListener('click', () => start(`${BASE}/move`, target(),
+    $('mvMoveBtn').addEventListener('click', () => start(`${BASE}/move`, {...target(), replace: $('mvReplace').checked},
       'Move NetRollout\'s data now?\n\nNew rollouts pause and running ones finish first; then NetRollout is ' +
       'unavailable for a few minutes while the data is copied. Everyone stays signed in.'));
     $('mvBackBtn')?.addEventListener('click', () => start(`${BASE}/move-back`, {},

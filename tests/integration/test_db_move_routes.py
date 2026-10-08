@@ -11,7 +11,8 @@ from src.db.connections import PostgresConfig
 from src.db.tables import AuditLog, User
 from src.webapp import db_move
 from tests.integration.conftest import PG_ADMIN_URL
-from tests.integration.test_db_move import _wait, mover, target  # noqa: F401 - fixtures
+from tests.integration.test_db_move import (_wait, holding_netrollout, mover,  # noqa: F401 - fixtures
+                                            target)
 
 pytestmark = [pytest.mark.postgres, pytest.mark.redis]
 
@@ -225,6 +226,25 @@ def test_a_move_through_the_page_and_back(app, admin, client_for, target, mover,
 	assert resp.json["move"]["target"] == db_move.describe(app.backend.bundled_postgres())
 	assert _wait(mover)["state"] == db_move.DONE
 	assert db_move.same_database(app.backend.postgres.config, home)
+
+
+def test_a_netrollout_database_there_needs_replace_ticked(app, admin, client_for, target, mover,
+                                                         monkeypatch):
+	"""Move to a target holding a NetRollout database answers 409 ("tick 'replace'")
+	without replace, or with replace not true (the string "true"), and no move
+	begins; with replace true it answers 200 and the move ends done."""
+	monkeypatch.setattr(app, "db_move", mover)
+	holding_netrollout(target)
+	c = client_for(admin, xhr=True)
+	for body in (_form(target), {**_form(target), "replace": False},
+	             {**_form(target), "replace": "true"}):
+		resp = c.post("/admin/server/database/move", json=body)
+		assert resp.status_code == 409, resp.json
+		assert "tick 'replace' to overwrite it" in resp.json["message"]
+		assert mover.status()["state"] == db_move.IDLE
+	resp = c.post("/admin/server/database/move", json={**_form(target), "replace": True})
+	assert resp.status_code == 200, resp.json
+	assert _wait(mover)["state"] == db_move.DONE
 
 
 def test_the_move_started_audit_row_survives_the_move(app, admin, client_for, target, mover,
