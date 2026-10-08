@@ -16,7 +16,7 @@ from werkzeug.wrappers import Response as BaseResponse
 from src.db.tables import DeviceResult, Inventory, User
 from src.inventory import attributes, visible_devices_clause, query_visible_devices, partition_devices
 from src.jobs import Draining
-from src.rollout.engine import Device, RolloutOptions, unresolved
+from src.rollout.engine import Device, RolloutOptions, missing_value, unresolved
 from src.rollout.inputs import InputParser
 from src.webapp.app import current_app
 from src.webapp.http import ok, err, with_form, with_json
@@ -264,14 +264,37 @@ def new_rollout() -> str:
 	"""The new rollout page: the devices the user may roll out to."""
 	with current_app.backend.postgres.get_session() as db_session:
 		devices = query_visible_devices(db_session, current_user.id)
+		tokens = token_states(devices, attributes(db_session, devices, current_user.id),
+		                      current_user.id)
 		db_session.expunge_all()
 	global_devices, my_devices = partition_devices(devices)
 
 	return render_template("new_rollout.html",
 	                       global_devices=global_devices,
 	                       my_devices=my_devices,
+	                       token_states=tokens,
 	                       active_section="rollout"
 	                       )
+
+
+def token_states(devices: list[Inventory], values: dict[uuid.UUID, dict[str, Any]],
+                 user_id: uuid.UUID) -> dict[str, dict[str, str | None]]:
+	"""What the New Rollout page needs to block a token that can't be filled
+	in before the launch does (engine.unresolved): per device, the tokens the
+	user bound on it and why each can't substitute.
+
+	:param devices: rows with their mappings loaded (every user's)
+	:param values: each device's attribute values as the user sees them
+	 (inventory.attributes - never another user's)
+	:returns: {device id: {token: None when it resolves, else the reason}};
+	 devices without the user's mappings left out"""
+	states: dict[str, dict[str, str | None]] = {}
+	for device in devices:
+		own = {m.token: missing_value(values.get(device.id), m.property_name, m.index)
+		       for m in device.var_mappings if m.user_id == user_id}
+		if own:
+			states[str(device.id)] = own
+	return states
 
 @bp.route("/start", methods=["POST"])
 @login_required

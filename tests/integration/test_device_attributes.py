@@ -5,6 +5,8 @@ mappings and rollouts only, removed with the property, the device or the
 user."""
 import datetime as dt
 import io
+import json
+import re
 import uuid
 from types import SimpleNamespace
 
@@ -233,3 +235,29 @@ def test_making_a_device_local_drops_the_other_users_values(world, client_for,
 	admin.post(f"/inventory/{world.core}/edit", data={
 		**FORM, "sec_profile_id": str(world.prof), "attr_rack": "A-RACK"})
 	assert values_of(session_scope, world.core) == {(world.admin.username, "rack"): "A-RACK"}
+
+
+def page_token_states(client):
+	"""The New Rollout page's token data (TOKEN_STATES, rendered with |tojson)."""
+	html = client.get("/rollout/new").get_data(as_text=True)
+	found = re.search(r"const TOKEN_STATES = (.*?);\s*$", html, re.M)
+	assert found, "the page has no token data"
+	return json.loads(found.group(1))
+
+
+def test_the_new_rollout_page_gives_each_device_the_users_own_tokens(
+		world, client_for, make_mapping):
+	"""The New Rollout page tells its script, per device, the tokens the user
+	bound on it and why each can't be filled in (null: it can) - from the
+	device's system values and the user's own custom ones. Another user's
+	mapping on the same global device, and another user's value of a property
+	of the same name, never reach it."""
+	set_mine(client_for(world.c), world.core, rack="C-RACK-1")
+	make_mapping(world.b, token="HOST", prop="hostname", devices=[world.core])
+	make_mapping(world.b, token="RACK", prop="rack", devices=[world.core])
+	make_mapping(world.c, token="CRACK", prop="rack", devices=[world.core])
+
+	assert page_token_states(client_for(world.b)) == {
+		str(world.core): {"$$HOST$$": None, "$$RACK$$": "no value for 'rack'"}}
+	assert page_token_states(client_for(world.c)) == {
+		str(world.core): {"$$CRACK$$": None}}
