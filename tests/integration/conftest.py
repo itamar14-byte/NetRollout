@@ -18,9 +18,10 @@ Isolation (nothing here touches the developer's live data):
   in a process-global registry, so a second create_app() would fail
 
 Configure with env vars: TEST_PG_ADMIN_URL (a DB the test user can connect
-to for CREATE/DROP DATABASE), TEST_PG_DBNAME, TEST_REDIS_URL (its db is kept: two runs side by side on one
-server each name their own, e.g. /15 and /11; test_redis_switch also uses the
-db two below it).
+to for CREATE/DROP DATABASE), TEST_PG_DBNAME, TEST_REDIS_URL (its db is kept). A run uses TWO Redis
+databases: its own and REDIS_OTHER_DB (test_redis_switch's, two below it, or
+two above when that would be the app's) - so two runs side by side on one
+server need dbs that don't overlap, e.g. /15 (+13) and /11 (+9), not /11 and /9.
 """
 import os
 import re
@@ -111,8 +112,11 @@ def _redis_url() -> str:
 
 REDIS_URL = _redis_url()
 REDIS_TEST_DB = _place(REDIS_URL)[2]
-# test_redis_switch's second database on the same server
+# test_redis_switch's second database on the same server (it's flushed):
+# two below the test db, never the app's own
 REDIS_OTHER_DB = REDIS_TEST_DB - 2 if REDIS_TEST_DB >= 2 else REDIS_TEST_DB + 2
+if (*_place(REDIS_URL)[:2], REDIS_OTHER_DB) == _place(_app_redis_url()):
+	REDIS_OTHER_DB = REDIS_TEST_DB + 2
 
 
 # ── Health probes (once, at collection) ──────────────────────────────────────
