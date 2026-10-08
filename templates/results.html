@@ -267,13 +267,41 @@
 }
 .section-divider.open .section-divider-chevron { transform: rotate(180deg); }
 
+/* ── Pages (server-side: ?page / ?other_page, ?per_page) ── */
+.results-pager { color: var(--nr-text-muted); font-size: 0.78rem; }
+.results-pager select {
+    background: #111;
+    border: 1px solid #222;
+    border-radius: 6px;
+    color: #888;
+    font-size: 0.78rem;
+    padding: 3px 8px;
+    cursor: pointer;
+    outline: none;
+}
+.pager-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+    min-width: 110px;
+    text-align: center;
+}
+.job-action-btn.is-disabled,
+.job-action-btn.is-disabled:hover {
+    opacity: 0.3;
+    border-color: #2a2a2a;
+    color: var(--nr-text-muted);
+    background: transparent;
+    cursor: default;
+}
+
 {% endblock %}
 
 {% block operator_content %}
 <div class="d-flex align-items-center gap-3 mb-4">
     <div class="nr-badge">RESULTS</div>
     <h4 class="mb-0" style="font-weight:600;">Job History</h4>
-    <span style="color:var(--nr-text-muted); font-size:0.85rem;" id="jobCountLabel">{{ jobs|length }} job{{ 's' if jobs|length != 1 }}</span>
+    <span style="color:var(--nr-text-muted); font-size:0.85rem;" id="jobCountLabel"
+          data-mine-total="{{ mine.total }}" data-all-total="{{ mine.total + others.total }}">{{ mine.total }} job{{ 's' if mine.total != 1 }}</span>
     {% if is_admin %}
     <div class="ms-auto">
         <button id="allUsersToggle" class="job-action-btn" onclick="toggleAllUsers()"
@@ -451,6 +479,59 @@
 {% endfor %}
 {% endmacro %}
 
+{# ── Macro: one list's pages. The entries-per-page choice shows once there are
+   more jobs than the smallest choice, the page controls once they don't fit
+   one page. Links keep the other query parameters (?job= dropped: it only
+   picks the first page shown); split = the admin's all-users view. ── #}
+{% macro page_href(param, n, split) -%}
+{%- set args = request.args.to_dict() -%}
+{%- set _ = args.pop('job', None) -%}
+{%- if split %}{% set _ = args.update({'view': 'all'}) %}{% else %}{% set _ = args.pop('view', None) %}{% endif -%}
+{%- set _ = args.update({param: n}) -%}
+{{ url_for('jobs.results', **args) }}
+{%- endmacro %}
+{% macro pager(p, param, split=false) %}
+{% set show_size = p.total > per_page_choices[0] %}
+{% set show_pages = p.pages > 1 %}
+{% if show_size or show_pages %}
+<div class="results-pager d-flex align-items-center justify-content-between mt-3 flex-wrap gap-2"
+     data-pager="{{ param }}">
+    <form method="get" action="{{ url_for('jobs.results') }}" class="d-flex align-items-center gap-2">
+        {% for key, value in request.args.items() if key not in ('per_page', 'page', 'other_page', 'job', 'view') %}
+        <input type="hidden" name="{{ key }}" value="{{ value }}">
+        {% endfor %}
+        {% if split %}<input type="hidden" name="view" value="all">{% endif %}
+        {% if show_size %}
+        <label for="perPage-{{ param }}">Per page:</label>
+        <select id="perPage-{{ param }}" name="per_page" class="per-page-select"
+                onchange="this.form.submit()">
+            {% for n in per_page_choices %}
+            <option value="{{ n }}"{{ ' selected' if n == per_page }}>{{ n }}</option>
+            {% endfor %}
+        </select>
+        {% endif %}
+    </form>
+    {% if show_pages %}
+    <nav class="d-flex align-items-center gap-2" aria-label="Pages">
+        {% if p.page > 1 %}
+        <a class="job-action-btn" href="{{ page_href(param, p.page - 1, split) }}"
+           aria-label="Previous page" title="Previous page"><i class="bi bi-chevron-left"></i></a>
+        {% else %}
+        <span class="job-action-btn is-disabled" aria-hidden="true"><i class="bi bi-chevron-left"></i></span>
+        {% endif %}
+        <span class="pager-label">Page {{ p.page }} of {{ p.pages }}</span>
+        {% if p.page < p.pages %}
+        <a class="job-action-btn" href="{{ page_href(param, p.page + 1, split) }}"
+           aria-label="Next page" title="Next page"><i class="bi bi-chevron-right"></i></a>
+        {% else %}
+        <span class="job-action-btn is-disabled" aria-hidden="true"><i class="bi bi-chevron-right"></i></span>
+        {% endif %}
+    </nav>
+    {% endif %}
+</div>
+{% endif %}
+{% endmacro %}
+
 {# ── Flat view (default) ── #}
 <div id="flat-view">
 {% if jobs %}
@@ -487,38 +568,7 @@
 {{ job_rows(jobs) }}
 </div>
 
-<!-- Pagination bar -->
-<div id="paginationBar" class="d-flex align-items-center justify-content-between mt-3"
-     style="display:none !important;">
-    <div class="d-flex align-items-center gap-2">
-        <span style="color:var(--nr-text-muted); font-size:0.78rem;">Per page:</span>
-        <select id="perPageSelect"
-                style="background:#111; border:1px solid #222; border-radius:6px; color:#888;
-                       font-size:0.78rem; padding:3px 8px; cursor:pointer; outline:none;">
-            <option value="10">10</option>
-            <option value="25">25</option>
-            <option value="50">50</option>
-            <option value="0">All</option>
-        </select>
-    </div>
-    <div class="d-flex align-items-center gap-2">
-        <button id="pgPrev" aria-label="Previous page" title="Previous page" onclick="changePage(-1)"
-                style="background:none; border:1px solid #222; border-radius:6px; color:var(--nr-text-muted);
-                       width:28px; height:28px; cursor:pointer; font-size:0.9rem; transition:color 0.15s, border-color 0.15s;"
-                onmouseenter="this.style.color='#aaa';this.style.borderColor='#444';"
-                onmouseleave="this.style.color='var(--nr-text-muted)';this.style.borderColor='#222';">
-            <i class="bi bi-chevron-left"></i>
-        </button>
-        <span id="pgLabel" style="font-family:'JetBrains Mono',monospace; font-size:0.75rem; color:var(--nr-text-muted); min-width:80px; text-align:center;"></span>
-        <button id="pgNext" aria-label="Next page" title="Next page" onclick="changePage(1)"
-                style="background:none; border:1px solid #222; border-radius:6px; color:var(--nr-text-muted);
-                       width:28px; height:28px; cursor:pointer; font-size:0.9rem; transition:color 0.15s, border-color 0.15s;"
-                onmouseenter="this.style.color='#aaa';this.style.borderColor='#444';"
-                onmouseleave="this.style.color='var(--nr-text-muted)';this.style.borderColor='#222';">
-            <i class="bi bi-chevron-right"></i>
-        </button>
-    </div>
-</div>
+{{ pager(mine, 'page') }}
 
 {% else %}
 <div class="nr-card">
@@ -550,7 +600,7 @@
         <i class="bi bi-chevron-down section-divider-chevron"></i>
         <span class="section-divider-label">My Jobs</span>
         <span style="font-family:'JetBrains Mono',monospace; font-size: 0.6875rem; color:var(--nr-text-muted);">
-            {{ jobs|length }}
+            {{ mine.total }}
         </span>
     </div>
     <div id="my-jobs-body">
@@ -564,6 +614,7 @@
             <span class="col-header">Status</span>
         </div>
         <div id="my-job-list">{{ job_rows(jobs) }}</div>
+        {{ pager(mine, 'page', split=true) }}
         {% else %}
         <div style="text-align:center; padding:1.5rem; color:var(--nr-text-muted); font-size:0.8rem;">No jobs.</div>
         {% endif %}
@@ -574,7 +625,7 @@
         <i class="bi bi-chevron-down section-divider-chevron"></i>
         <span class="section-divider-label">Other Users</span>
         <span style="font-family:'JetBrains Mono',monospace; font-size: 0.6875rem; color:var(--nr-text-muted);">
-            {{ other_jobs|length }}
+            {{ others.total }}
         </span>
     </div>
     <div id="other-jobs-body">
@@ -588,6 +639,7 @@
             <span class="col-header">Status</span>
         </div>
         <div id="other-job-list">{{ job_rows(other_jobs, show_owner=true) }}</div>
+        {{ pager(others, 'other_page', split=true) }}
         {% else %}
         <div style="text-align:center; padding:1.5rem; color:var(--nr-text-muted); font-size:0.8rem;">No other users' jobs.</div>
         {% endif %}
@@ -875,13 +927,18 @@ function toggleAllUsers() {
     btn.style.color       = on ? '#00bcd4'               : '';
     btn.style.background  = on ? 'rgba(0,188,212,0.06)'  : '';
     if (on) {
-        const total = document.querySelectorAll('#my-job-list .job-row, #other-job-list .job-row').length;
+        const total = parseInt(label.dataset.allTotal);
         label.textContent = total + ' job' + (total !== 1 ? 's' : '') + ' (all users)';
     } else {
-        const mine = document.querySelectorAll('#job-list .job-row').length;
+        const mine = parseInt(label.dataset.mineTotal);
         label.textContent = mine + ' job' + (mine !== 1 ? 's' : '');
     }
+    // the view stays on a reload; its pages are its own
+    const url = new URL(window.location.href);
+    if (on) url.searchParams.set('view', 'all'); else url.searchParams.delete('view');
+    history.replaceState(null, '', url);
 }
+{% if split_view %}toggleAllUsers();{% endif %}
 
 function toggleSection(header, bodyId) {
     const body = document.getElementById(bodyId);
@@ -903,76 +960,30 @@ function showCommands(commands) {
     bootstrap.Modal.getOrCreateInstance(document.getElementById('commandsModal')).show();
 }
 
-// ── Filter buttons (flat view) ───────────────────────────────────────────────
-// ── Pagination ───────────────────────────────────────────────────────────────
-let _pgCurrent = 1;
-let _pgFilter  = 'all';
-
-function _filteredRows() {
-    return [...document.querySelectorAll('#job-list .job-row')]
-        .filter(r => _pgFilter === 'all' || r.dataset.status === _pgFilter);
-}
-
-function applyPagination() {
-    const perPage  = parseInt(document.getElementById('perPageSelect').value);
-    const rows     = _filteredRows();
-    const total    = rows.length;
-    const pages    = perPage === 0 ? 1 : Math.max(1, Math.ceil(total / perPage));
-    _pgCurrent     = Math.min(_pgCurrent, pages);
-
-    const start = perPage === 0 ? 0          : (_pgCurrent - 1) * perPage;
-    const end   = perPage === 0 ? total       : start + perPage;
-
-    // Hide all, then show current page subset
-    document.querySelectorAll('#job-list .job-row').forEach(r => { r.style.display = 'none'; });
-    rows.forEach((r, i) => { r.style.display = (i >= start && i < end) ? '' : 'none'; });
-
-    // Update controls
-    const bar   = document.getElementById('paginationBar');
-    const label = document.getElementById('pgLabel');
-    bar.style.display   = total > 0 ? 'flex' : 'none';
-    label.textContent   = perPage === 0 ? `${total} total` : `${_pgCurrent} / ${pages}`;
-    document.getElementById('pgPrev').disabled = _pgCurrent <= 1;
-    document.getElementById('pgNext').disabled = _pgCurrent >= pages;
-    document.getElementById('pgPrev').style.opacity = _pgCurrent <= 1 ? '0.3' : '1';
-    document.getElementById('pgNext').style.opacity = _pgCurrent >= pages ? '0.3' : '1';
-}
-
-function changePage(dir) {
-    _pgCurrent += dir;
-    applyPagination();
-}
-
-document.getElementById('perPageSelect').addEventListener('change', () => {
-    _pgCurrent = 1;
-    applyPagination();
-});
-
 // ── Filter buttons (flat view) ────────────────────────────────────────────────
+// (pages are the server's: ?page / ?other_page / ?per_page)
 document.querySelectorAll('.data_filter-btn').forEach(btn => {
     btn.addEventListener('click', function() {
         if (!this.dataset.filter) return;
         document.querySelectorAll('.data_filter-btn[data-data_filter]').forEach(b => b.classList.remove('active'));
         this.classList.add('active');
-        _pgFilter  = this.dataset.filter;
-        _pgCurrent = 1;
-        applyPagination();
+        const filter = this.dataset.filter;
+        document.querySelectorAll('#job-list .job-row').forEach(row => {
+            row.style.display = (filter === 'all' || row.dataset.status === filter) ? '' : 'none';
+        });
     });
 });
 
-applyPagination();
-
 // ── /results?job=<id> (the completion card's link): open that job ─────────────
+// (the server shows the page it is on)
 (() => {
     const id = new URLSearchParams(window.location.search).get('job');
     if (!id) return;
-    const rows = _filteredRows();
-    const idx  = rows.findIndex(r => r.dataset.jobId === id);
-    if (idx < 0) return;
-    const perPage = parseInt(document.getElementById('perPageSelect').value);
-    if (perPage) { _pgCurrent = Math.floor(idx / perPage) + 1; applyPagination(); }
-    rows[idx].classList.add('expanded');
-    rows[idx].scrollIntoView({block: 'center'});
+    const row = [...document.querySelectorAll('#job-list .job-row')]
+        .find(r => r.dataset.jobId === id);
+    if (!row) return;
+    row.classList.add('expanded');
+    row.scrollIntoView({block: 'center'});
 })();
 
 // ── Filter buttons (split view) ──────────────────────────────────────────────

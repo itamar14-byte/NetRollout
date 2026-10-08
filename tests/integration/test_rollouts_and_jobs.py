@@ -8,6 +8,7 @@ import uuid
 from types import SimpleNamespace
 
 import pytest
+from sqlalchemy import event
 
 from src import runtime
 from src.db.settings import SETTINGS
@@ -405,6 +406,156 @@ def test_results_page_shows_what_needs_a_person(operator, client_for,
 	assert html.count('class="action-needed-badge"') == 1      # only that job
 	assert "Action needed on" in html
 	assert "save it on the device (config lock)" in html
+
+
+def add_jobs(session_scope, user, count):
+	"""Store count one-device jobs, a minute apart; :returns: their ids,
+	newest first."""
+	now = dt.datetime.now()
+	jobs = [uuid.uuid4() for _ in range(count)]
+	with session_scope() as s:
+		s.add_all(DeviceResult(user_id=user.id, job_id=job,
+		                       started_at=now - dt.timedelta(minutes=i),
+		                       completed_at=now - dt.timedelta(minutes=i),
+		                       device_ip="10.0.0.1", device_port=22,
+		                       device_type="cisco_ios", commands_sent=1,
+		                       status="success")
+		          for i, job in enumerate(jobs))
+	return jobs
+
+
+def test_results_show_100_jobs_per_page_by_default(operator, client_for,
+                                                    session_scope):
+	"""105 jobs: the first page holds the newest 100, "Page 1 of 2" with a
+	link to page 2, and the count says 105; page 2 holds the oldest 5."""
+	jobs = add_jobs(session_scope, operator.user, 105)
+	client = client_for(operator.user)
+	html = client.get("/results").get_data(as_text=True)
+	assert html.count('class="job-row"') == 100
+	assert f'data-job-id="{jobs[0]}"' in html
+	assert f'data-job-id="{jobs[100]}"' not in html
+	assert "Page 1 of 2" in html
+	assert 'href="/results?page=2"' in html
+	assert ">105 jobs</span>" in html
+	assert '<option value="100" selected>' in html
+	page2 = client.get("/results?page=2").get_data(as_text=True)
+	assert page2.count('class="job-row"') == 5
+	assert f'data-job-id="{jobs[104]}"' in page2
+	assert "Page 2 of 2" in page2
+	assert ">105 jobs</span>" in page2
+
+
+def test_results_per_page_choice_and_fallback(operator, client_for,
+                                              session_scope):
+	"""?per_page= takes one of the dropdown's choices (25: 105 jobs on 5
+	pages); anything else - not a number, not a choice - is 100."""
+	add_jobs(session_scope, operator.user, 105)
+	client = client_for(operator.user)
+	html = client.get("/results?per_page=25").get_data(as_text=True)
+	assert html.count('class="job-row"') == 25
+	assert "Page 1 of 5" in html
+	assert '<option value="25" selected>' in html
+	assert 'href="/results?per_page=25&amp;page=2"' in html  # keeps per_page
+	for raw in ("abc", "37", "0", "-25"):
+		html = client.get(f"/results?per_page={raw}").get_data(as_text=True)
+		assert html.count('class="job-row"') == 100, raw
+		assert "Page 1 of 2" in html, raw
+
+
+def test_results_page_out_of_range_is_clamped(operator, client_for,
+                                              session_scope):
+	"""A page past the last shows the last; zero, negative or not a number
+	shows the first."""
+	jobs = add_jobs(session_scope, operator.user, 105)
+	client = client_for(operator.user)
+	html = client.get("/results?page=999").get_data(as_text=True)
+	assert "Page 2 of 2" in html and html.count('class="job-row"') == 5
+	assert f'data-job-id="{jobs[104]}"' in html
+	for raw in ("0", "-3", "x"):
+		html = client.get(f"/results?page={raw}").get_data(as_text=True)
+		assert "Page 1 of 2" in html, raw
+		assert f'data-job-id="{jobs[0]}"' in html, raw
+
+
+def test_results_page_controls_only_when_needed(operator, client_for,
+                                                session_scope):
+	"""Jobs that fit the smallest choice: no pager at all. More than that but
+	one page: the per-page dropdown, no page controls."""
+	add_jobs(session_scope, operator.user, 3)
+	client = client_for(operator.user)
+	html = client.get("/results").get_data(as_text=True)
+	assert html.count('class="job-row"') == 3
+	assert 'class="results-pager' not in html
+	assert 'name="per_page"' not in html and "Page 1 of" not in html
+	add_jobs(session_scope, operator.user, 27)  # 30 in all
+	html = client.get("/results").get_data(as_text=True)
+	assert html.count('class="job-row"') == 30
+	assert 'name="per_page"' in html
+	assert "Page 1 of" not in html and "page=2" not in html
+
+
+def test_results_job_link_lands_on_its_page(operator, client_for,
+                                            session_scope):
+	"""/results?job=<id> (the completion card's and dashboard's link) shows
+	the page that job is on; an explicit ?page= wins."""
+	jobs = add_jobs(session_scope, operator.user, 105)
+	client = client_for(operator.user)
+	html = client.get(f"/results?job={jobs[102]}").get_data(as_text=True)
+	assert "Page 2 of 2" in html
+	assert f'data-job-id="{jobs[102]}"' in html
+	assert 'href="/results?page=1"' in html  # the link drops ?job=
+	html = client.get(f"/results?job={jobs[3]}").get_data(as_text=True)
+	assert "Page 1 of 2" in html and f'data-job-id="{jobs[3]}"' in html
+	html = client.get(f"/results?job={jobs[102]}&page=1").get_data(as_text=True)
+	assert "Page 1 of 2" in html
+	assert f'data-job-id="{jobs[102]}"' not in html
+
+
+def test_results_admin_pages_other_users_apart(make_user, client_for,
+                                               session_scope):
+	"""An admin's own jobs and other users' are paged apart (?page /
+	?other_page), the counts over all of them, and the all-users view kept
+	in the links."""
+	admin, other = make_user(role="admin"), make_user()
+	add_jobs(session_scope, admin, 3)
+	theirs = add_jobs(session_scope, other, 30)
+	client = client_for(admin)
+	html = client.get("/results?per_page=25&view=all").get_data(as_text=True)
+	assert 'data-mine-total="3" data-all-total="33"' in html
+	assert html.count('class="job-row"') == 3 * 2 + 25  # own: flat + split
+	assert "Page 1 of 2" in html
+	assert 'href="/results?per_page=25&amp;view=all&amp;other_page=2"' in html
+	assert "toggleAllUsers();" in html  # opens on the all-users view
+	page2 = client.get("/results?per_page=25&view=all&other_page=2")\
+		.get_data(as_text=True)
+	assert page2.count('class="job-row"') == 3 * 2 + 5
+	assert f'data-job-id="{theirs[29]}"' in page2
+	assert f'data-job-id="{theirs[0]}"' not in page2
+	assert ">3 jobs</span>" in page2
+
+
+def test_results_page_the_jobs_in_the_database(operator, client_for,
+                                               session_scope, app):
+	"""The jobs are paged by the query (LIMIT/OFFSET), and only the page's
+	device results are loaded - never the whole table."""
+	add_jobs(session_scope, operator.user, 105)
+	statements = []
+
+	def capture(conn, cursor, statement, params, context, executemany):
+		statements.append(statement)
+
+	engine = app.backend.postgres.engine
+	event.listen(engine, "before_cursor_execute", capture)
+	try:
+		html = client_for(operator.user).get("/results?page=2")\
+			.get_data(as_text=True)
+	finally:
+		event.remove(engine, "before_cursor_execute", capture)
+	assert html.count('class="job-row"') == 5
+	reads = [s for s in statements if "FROM device_results" in s]
+	assert any("LIMIT" in s and "OFFSET" in s for s in reads)
+	assert all("LIMIT" in s or "IN (" in s or "count(" in s
+	           or "= %(job_id" in s for s in reads), reads
 
 
 def test_job_summary_for_the_completion_card(operator, client_for,
