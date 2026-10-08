@@ -1,7 +1,6 @@
 """Stage 3 (container runtime) without services: the deployment mode, both
 secret checks, the container startup line and how a deliberate stop exits."""
 import importlib
-import os
 from pathlib import Path
 from types import SimpleNamespace
 

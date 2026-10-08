@@ -99,7 +99,6 @@ def utf8_console() -> None:
 RED = "\033[91m"
 GREEN = "\033[92m"
 YELLOW = "\033[93m"
-REGULAR = "\033[1m"
 END = "\033[0m"
 
 WEBAPP_RED = '<div class="text-danger">'

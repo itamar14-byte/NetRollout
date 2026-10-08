@@ -1,7 +1,6 @@
 """A Redis switch is live - no restart: on the real Redis, from the test
 database (15, the "bundled" one here) to another (13) and back."""
 import threading
-import time
 import uuid
 
 import pytest

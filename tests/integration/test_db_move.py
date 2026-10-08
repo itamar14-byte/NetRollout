@@ -107,7 +107,7 @@ def test_a_table_under_one_of_netrollouts_names_refuses_it(target):
 def test_a_login_without_rights_on_the_schema_is_refused(target):
 	"""A login with no rights on the target schema is refused: it can't create tables."""
 	with _admin_engine().connect() as c:
-		c.execute(text(f'DROP ROLE IF EXISTS nr_move_nobody'))
+		c.execute(text('DROP ROLE IF EXISTS nr_move_nobody'))
 		c.execute(text("CREATE ROLE nr_move_nobody LOGIN PASSWORD 'x-pass-1'"))
 	try:
 		report = move.check_target(PostgresConfig(
