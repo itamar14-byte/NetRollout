@@ -52,6 +52,18 @@ def mapping_resolvable(var_maps: dict[str, Any] | None, property_name: str,
 	return isinstance(value, list) and 0 <= index < len(value)
 
 
+def missing_value(var_maps: dict[str, Any] | None, property_name: str,
+                  index: int | None) -> str | None:
+	"""Why a mapping can't substitute on a device, in the words unresolved()
+	and the New Rollout page use (see mapping_resolvable).
+
+	:returns: e.g. "no value for 'vrfs[2]'"; None when it can"""
+	if mapping_resolvable(var_maps, property_name, index):
+		return None
+	where = property_name if index is None else f"{property_name}[{index}]"
+	return f"no value for '{where}'"
+
+
 # a $$TOKEN$$ in a command (a mapping's token shape: inputs.token_problem); a
 # lone $$ isn't one
 TOKEN_IN_COMMAND = re.compile(r"\$\$[A-Za-z0-9_]{1,64}\$\$")
@@ -78,9 +90,8 @@ def unresolved(device: "Device", commands: list[str]) -> list[str]:
 				problems.append(f"{token}: no mapping on this device")
 				continue
 			property_name, index = device.var_map_subs[token]
-			if not mapping_resolvable(device.extra, property_name, index):
-				where = property_name if index is None else f"{property_name}[{index}]"
-				problems.append(f"{token}: no value for '{where}'")
+			if missing := missing_value(device.extra, property_name, index):
+				problems.append(f"{token}: {missing}")
 	return problems
 
 

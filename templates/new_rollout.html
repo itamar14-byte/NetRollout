@@ -121,7 +121,9 @@
 
 /* ── Same ip:port ticked twice: the same box would be pushed twice ── */
 .device-row.dup-conflict { box-shadow: inset 2px 0 0 #ef5350; }
-.dup-note {
+/* ── A $$TOKEN$$ in its commands that can't be filled in on it ── */
+.device-row.token-blocked { box-shadow: inset 2px 0 0 #ef5350; }
+.dup-note, .token-note {
     font-family: 'JetBrains Mono', monospace;
     font-size: 0.6875rem;
     color: #ef9a9a;
@@ -477,6 +479,9 @@
                                 {# Filled in when another ticked row has the same ip:port #}
                                 <span class="dup-note" hidden></span>
 
+                                {# Filled in when its commands use a token that can't be filled in on it #}
+                                <span class="token-note" hidden></span>
+
                                 <span class="platform-tag">{{ device.device_type }}</span>
 
                                 {# Reachability from NetRollout — filled in by the page script #}
@@ -565,6 +570,7 @@
                             </div>
                             <div class="no-profile-warning" id="unreachWarning"></div>
                             <div class="no-profile-warning" id="dupWarning" role="status"></div>
+                            <div class="no-profile-warning" id="tokenWarning" role="status"></div>
                             <div class="no-profile-warning" id="noProfileWarning">
                                 {% set missing = devices | selectattr('security_profile', 'none') | list | length %}
                                 {% if missing > 0 %}
@@ -658,8 +664,18 @@
     /* ── Vendor logo URLs (injected from Jinja) ── */
     const VENDOR_LOGOS = {{ VENDOR_LOGOS | tojson }};
 
+    /* ── Per device: the tokens you bound on it → null (it fills in) or why
+       it can't. Devices without your mappings are absent. ── */
+    const TOKEN_STATES = {{ token_states | tojson }};
+    // a $$TOKEN$$ in a command - the engine's TOKEN_IN_COMMAND, exact case
+    const TOKEN_RE = /\$\$[A-Za-z0-9_]{1,64}\$\$/g;
+
     /* ── State ── */
     let singleFileMode = {};      // platform → "paste"|"file"
+    let duplicateCount = 0;       // clashes found by markDuplicateTargets
+    // a command file's text by its file input (none while it's being read);
+    // a rebuilt block has a new, empty input, so its old text goes with it
+    const fileText = new WeakMap();
 
     /* ── Elements ── */
     const form          = document.getElementById("rolloutForm");
@@ -753,17 +769,33 @@
                 const fz = wrap.querySelector(`#${fzId}`);
                 ta.style.display = m === "paste" ? "" : "none";
                 fz.style.display = m === "file"  ? "block" : "none";
+                updateLaunch();
             });
         });
 
-        /* File name display */
+        wrap.querySelector(`#${taId}`).addEventListener("input", updateLaunch);
+
+        /* File name display; its text read for the token check */
         const fi = wrap.querySelector(`#${fiId}`);
         const fn = wrap.querySelector(`#${fnId}`);
-        fi.addEventListener("change", () => {
-            if (fi.files[0]) {
-                fn.textContent = fi.files[0].name;
+        fi.addEventListener("change", async () => {
+            const file = fi.files[0];
+            fileText.delete(fi);
+            if (file) {
+                fn.textContent = file.name;
                 fn.style.display = "block";
             }
+            updateLaunch();             // held while the file is read
+            if (!file) return;
+            let text = "";
+            try {
+                text = await file.text();
+            } catch (err) {
+                text = "";              // Launch alerts that it can't be read
+            }
+            if (fi.files[0] !== file) return;   // another file was chosen since
+            fileText.set(fi, text);
+            updateLaunch();
         });
 
         return wrap;
@@ -786,8 +818,6 @@
 
         cmdBlocks.innerHTML = "";
 
-        if (keys.length === 0) return;
-
         keys.forEach(platform => {
             const block  = buildCmdBlock(platform, keys.length === 1);
             const blockId = "cb_" + platform.replace(/[^a-z0-9]/g, "_");
@@ -798,6 +828,7 @@
                 block.querySelector(`#${taId}`).value = existing[blockId];
             }
         });
+        updateLaunch();     // the commands each device gets may have changed
     }
 
     /* ── Update footer count + platform pills ── */
@@ -813,8 +844,78 @@
             .map(p => `<span class="platform-pill">${nrEscape(p)}</span>`)
             .join("");
 
-        const duplicates = markDuplicateTargets(checked);
-        submitBtn.disabled = count === 0 || duplicates > 0;
+        duplicateCount = markDuplicateTargets(checked);
+        updateLaunch();
+    }
+
+    /* ── Launch: held with nothing ticked, a target twice, or a token that
+       can't be filled in (or a command file still being read) ── */
+    function updateLaunch() {
+        const checked = checkedBoxes();
+        const blocked = markUnresolvedTokens(checked);
+        submitBtn.disabled = checked.length === 0 || duplicateCount > 0 || blocked > 0;
+    }
+
+    /* ── The commands a platform's devices get: its block's pasted text or
+       its command file's; null while the file is being read ── */
+    function platformCommands(platform) {
+        const suffix = platform.replace(/[^a-z0-9]/g, "_");
+        const block  = document.getElementById("cb_" + suffix);
+        if (!block) return "";
+        if ((singleFileMode[platform] || "paste") === "paste") {
+            return block.querySelector("#ta_" + suffix).value;
+        }
+        const fi = block.querySelector(`input[type="file"]`);
+        if (!fi.files[0]) return "";
+        return fileText.has(fi) ? fileText.get(fi) : null;
+    }
+
+    /* ── A $$TOKEN$$ in the commands a ticked device gets (its platform's)
+       that isn't bound on it, or has no value there (TOKEN_STATES): flag the
+       row, name it in the footer and hold Launch until fixed or unticked.
+       The server refuses it too. Returns the number of devices held
+       (a command file still being read counts as one). ── */
+    const tokenWarn = document.getElementById("tokenWarning");
+    function markUnresolvedTokens(checked) {
+        document.querySelectorAll(".device-row").forEach(row => {
+            row.classList.remove("token-blocked");
+            const note = row.querySelector(".token-note");
+            if (note) { note.hidden = true; note.title = ""; }
+        });
+        const tokensOf = {};    // platform → its commands' tokens, each once
+        let reading = false;
+        const blocked = [];     // [row, problems]
+        checked.forEach(cb => {
+            const platform = cb.dataset.platform;
+            if (!(platform in tokensOf)) {
+                const text = platformCommands(platform);
+                if (text === null) reading = true;
+                tokensOf[platform] = [...new Set((text || "").match(TOKEN_RE) || [])];
+            }
+            const row = cb.closest(".device-row");
+            const bound = TOKEN_STATES[row.dataset.deviceId] || {};
+            const problems = tokensOf[platform].flatMap(token =>
+                !(token in bound) ? [token + ": no mapping on this device"]
+                : bound[token] !== null ? [token + ": " + bound[token]]
+                : []);
+            if (problems.length) blocked.push([row, problems]);
+        });
+        blocked.forEach(([row, problems]) => {
+            const note = row.querySelector(".token-note");
+            note.textContent = "unresolved token";   // the footer says which
+            note.title = problems.join("\n");
+            note.hidden = false;
+            row.classList.add("token-blocked");
+        });
+        tokenWarn.textContent = blocked.length
+            ? "Tokens that can't be filled in — fix the commands or the " +
+              "device's mappings and attributes, or untick: " +
+              blocked.map(([row, problems]) =>
+                  row.querySelector(".device-label").textContent.trim() +
+                  " (" + row.dataset.endpoint + "): " + problems.join(", ")).join("; ")
+            : "";
+        tokenWarn.classList.toggle("show", blocked.length > 0);
+        return blocked.length + (reading ? 1 : 0);
     }
 
     /* ── Same ip:port ticked twice = the same box twice (e.g. your own entry
@@ -907,6 +1008,7 @@
     });
 
     async function doSubmit() {
+        if (submitBtn.disabled) return;     // held: see updateLaunch
         const platforms = getSelectedPlatforms();
         const keys = Object.keys(platforms);
         const isMulti = keys.length > 1;
