@@ -1834,8 +1834,11 @@ let _quickCreateActive = false;
     el.addEventListener('hidden.bs.modal', () => { _quickCreateActive = false; });
 });
 
-// All modals have data-bs-keyboard="false" — Escape is handled here exclusively.
-// Document-level so focus location doesn't matter.
+// Escape closes the top modal: a quick create first, else Add / Edit device.
+// Document-level so focus location doesn't matter (Add / Edit device and the
+// profile quick create have data-bs-keyboard="false" - only this closes them;
+// the mapping and property quick creates close on Bootstrap's own Escape too,
+// and then this finds them already closed).
 document.addEventListener('keydown', function(e) {
     if (e.key !== 'Escape') return;
     const ids = _quickCreateActive
