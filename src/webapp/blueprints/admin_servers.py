@@ -75,34 +75,39 @@ def admin_server() -> str:
 
 # ── Database: move to another server / back (src/db/move.py, db_move.py) ────
 
+class _FormError(Exception):
+	"""The form can't be used as it is; the message says why (a 422)."""
+
+
 def _target(data: dict[str, Any], user_key: str = "user",
-            password_key: str = "password") -> PostgresConfig | tuple[Response, int]:
+            password_key: str = "password") -> PostgresConfig:
 	"""A PostgresConfig from the form ("public" or no schema: none).
 
 	:param user_key: the form's field for the login (and password_key, its
 	 password) - the app's, or the administrator's
-	:returns: the config; or 422 - something missing, the port not a number,
-	 a schema name NetRollout can't use"""
+	:raises _FormError: something missing, the port not a number, a schema
+	 name NetRollout can't use"""
 	host, port = data.get("host", "").strip(), str(data.get("port") or "5432").strip()
 	database, schema = data.get("database", "").strip(), data.get("schema", "").strip()
 	user, password = data.get(user_key, "").strip(), data.get(password_key, "")
 	if not all([host, port, database, user, password]):
-		return err("Fill in the server, port, database, login and password.", 422)
+		raise _FormError("Fill in the server, port, database, login and password.")
 	if not (port.isascii() and port.isdigit()):
-		return err("The port is a number.", 422)
+		raise _FormError("The port is a number.")
 	if schema and (problem := schema_problem(schema)):
-		return err(problem, 422)
+		raise _FormError(problem)
 	return PostgresConfig(host=host, port=port, database=database, user=user,
 	                      password=password, schema=None if schema in ("", "public") else schema)
 
 
-def _plan(data: dict[str, Any]) -> move.Plan | tuple[Response, int]:
+def _plan(data: dict[str, Any]) -> move.Plan:
 	""":returns: what to prepare on the new server - its database, schema and
 	 login (defaults where blank), Grafana's password when this server knows
-	 it; or 422 - a schema name NetRollout can't use"""
+	 it
+	:raises _FormError: a schema name NetRollout can't use"""
 	schema = data.get("schema", "").strip() or "public"
 	if problem := schema_problem(schema):
-		return err(problem, 422)
+		raise _FormError(problem)
 	return move.Plan(database=data.get("database", "").strip() or move.DEFAULT_DATABASE,
 	                 schema=schema,
 	                 login=data.get("login", "").strip() or move.DEFAULT_LOGIN,
@@ -116,9 +121,10 @@ def _plan(data: dict[str, Any]) -> move.Plan | tuple[Response, int]:
 def database_sql(data: dict[str, Any]) -> ResponseReturnValue:
 	"""The DBA's way: what to ask for, and the SQL - a new password for the
 	app's login, Grafana's (when this server knows it) filled in."""
-	plan = _plan(data)
-	if not isinstance(plan, move.Plan):
-		return plan
+	try:
+		plan = _plan(data)
+	except _FormError as e:
+		return err(str(e), 422)
 	return ok(sql=move.preparation_sql(plan), access=list(move.ACCESS_NEEDED),
 	          database=plan.database, schema=plan.schema, login=plan.login,
 	          password=plan.password, grafana_known=bool(plan.grafana_password))
@@ -131,12 +137,11 @@ def database_sql(data: dict[str, Any]) -> ResponseReturnValue:
 def database_prepare(data: dict[str, Any]) -> ResponseReturnValue:
 	"""The administrator-login way: the same created now; the admin login is
 	used for this request only, never stored or logged."""
-	admin = _target({**data, "database": "postgres"}, "admin_user", "admin_password")
-	if not isinstance(admin, PostgresConfig):
-		return admin
-	plan = _plan(data)
-	if not isinstance(plan, move.Plan):
-		return plan
+	try:
+		admin = _target({**data, "database": "postgres"}, "admin_user", "admin_password")
+		plan = _plan(data)
+	except _FormError as e:
+		return err(str(e), 422)
 	label = f"{admin.host}:{admin.port}/{plan.database}"
 	try:
 		done = move.prepare_with_admin(admin.host, admin.port, admin.user, admin.password, plan)
@@ -156,9 +161,10 @@ def database_prepare(data: dict[str, Any]) -> ResponseReturnValue:
 @with_json()
 def database_check(data: dict[str, Any]) -> ResponseReturnValue:
 	"""Check a server before a move (move.check_target): the report."""
-	target = _target(data)
-	if not isinstance(target, PostgresConfig):
-		return target
+	try:
+		target = _target(data)
+	except _FormError as e:
+		return err(str(e), 422)
 	if same_database(target, current_app.backend.postgres.config):
 		return err("That is the database NetRollout uses now.")
 	return ok(report=move.check_target(target).as_dict())
@@ -171,9 +177,10 @@ def database_check(data: dict[str, Any]) -> ResponseReturnValue:
 def database_move(data: dict[str, Any]) -> ResponseReturnValue:
 	"""Start a move to the server in the form (checked first); a NetRollout
 	database there is replaced only with `replace` true (the page's box)."""
-	target = _target(data)
-	if not isinstance(target, PostgresConfig):
-		return target
+	try:
+		target = _target(data)
+	except _FormError as e:
+		return err(str(e), 422)
 	return _start(target, back=False, replace=data.get("replace") is True)
 
 
