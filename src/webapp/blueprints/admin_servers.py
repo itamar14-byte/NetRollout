@@ -16,11 +16,11 @@ from src.access.nginx import Verdict
 from src.audit import AuditAction
 from src.db import move
 from src.db.connections import PostgresConfig, REDIS_UNAVAILABLE, RedisConfig, schema_problem, ServiceMode
-from src.jobs import clear_stale_jobs, with_owners
+from src.jobs import with_owners
 from src.runtime import drain_seconds
 from src.webapp import db_move
 from src.webapp.app import current_app
-from src.webapp.db_move import same_database
+from src.webapp.db_move import RolloutsRunning, same_database, switch_redis
 from src.webapp.http import ok, err, require_admin, with_json
 from src.webapp.lifecycle import during_maintenance
 
@@ -290,30 +290,15 @@ def admin_server_redis_back() -> ResponseReturnValue:
 
 
 def _switch_redis(config: RedisConfig, back: bool) -> ResponseReturnValue:
-	"""Live, no restart: everything looks the client up per use. Refused
-	while rollouts run (their live state is in Redis). Sessions and leftover
-	job state are cleared in the Redis switched to - one used before still
-	holds old sessions, terminated ones included - so everyone signs in
-	again; the admin who switches stays signed in (this request saves its
-	session into the new Redis at its end - its index entry goes there now).
-	New rollouts are paused from the check to the switch, so none starts in
-	between (a pause already on - a database move's - is left on)."""
-	orchestrator = current_app.orchestrator
-	was_paused = orchestrator.paused
-	orchestrator.pause()
+	"""The switch (db_move.switch_redis), audited.
+
+	:returns: what happened; 409 while rollouts run"""
 	try:
-		if any(orchestrator.counts().values()):
-			return err("Rollouts are running - their live state is in Redis. Switch "
-			           "once they've finished.", 409)
-		try:
-			current_app.backend.reload_redis(config)
-		except RuntimeError as e:
-			return err(str(e))
-		current_app.sessions.clear_all()
-		clear_stale_jobs(current_app.backend.redis)   # before a new rollout's keys go there
-	finally:
-		if not was_paused:
-			orchestrator.resume()
+		switch_redis(current_app.backend, current_app.orchestrator, current_app.sessions, config)
+	except RolloutsRunning as e:
+		return err(str(e), 409)
+	except RuntimeError as e:
+		return err(str(e))
 	place = config.describe()
 	current_app.web.audit(AuditAction.SERVER_REDIS_SWITCHED, object_type="redis", object_label=place,
 	                      detail={"back": back})

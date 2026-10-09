@@ -62,7 +62,7 @@ def mover(app, monkeypatch):
 	monkeypatch.setattr(app.shutdown, "begin", lambda *a, **k: True)
 	runtime_env = app.backend.env.path
 	saved = runtime_env.read_text() if runtime_env.exists() else None
-	yield DatabaseMove(app, poll_seconds=0.05)
+	yield DatabaseMove(app.backend, app.maintenance, app.web.audit_trail, poll_seconds=0.05)
 	app.maintenance.end()
 	if app.backend.postgres.config != home:     # never leave the app elsewhere
 		app.backend.postgres.reload_db(home, install_flag=False)
@@ -229,7 +229,8 @@ def test_rollouts_still_running_after_the_wait_give_the_move_up(app, target, mon
 	"""Rollouts still running when the wait runs out fail the move ("Cancel the
 	stuck rollouts") and maintenance ends."""
 	monkeypatch.setattr(app.orchestrator, "idle", lambda: False)
-	short = DatabaseMove(app, wait_seconds=0.3, poll_seconds=0.05)
+	short = DatabaseMove(app.backend, app.maintenance, app.web.audit_trail,
+	                     wait_seconds=0.3, poll_seconds=0.05)
 	short.start(target, None, "admin")
 	status = _wait(short)
 	assert status["state"] == db_move.MoveState.FAILED and "Cancel the stuck rollouts" in status["message"]

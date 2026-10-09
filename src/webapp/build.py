@@ -242,7 +242,8 @@ def launch_app() -> NetRolloutApp:
 	configure_app(app, secret_key)
 	# first of the request hooks: while a move copies the data, nothing writes
 	register_maintenance(app)
-	app.db_move = DatabaseMove(app)   # Server Management → Database → Move
+	# Server Management → Database → Move
+	app.db_move = DatabaseMove(backend, app.maintenance, web_services.audit_trail)
 	register_extensions(app)
 	register_auth(app)
 	register_metrics(app.backend.redis)
