@@ -6,11 +6,11 @@ from typing import Any
 from flask import Blueprint, Request, Response, request, jsonify
 from flask.typing import ResponseReturnValue
 from flask_login import login_required
-from sqlalchemy import func
 
 from src.accounts.ldap import test_user, test_connection, fetch_base_dn, walk_tree
+from src.accounts.users import Accounts
 from src.audit import AuditAction
-from src.db.tables import LDAPServer, LDAPGroup, User, AuthType, BindType
+from src.db.tables import LDAPServer, LDAPGroup, BindType
 from src.encryption import encrypt
 from src.rollout import inputs
 from src.webapp.app import current_app
@@ -234,6 +234,7 @@ def admin_server_ldap_import(server_id: uuid.UUID) -> ResponseReturnValue:
 		srv = db_session.query(LDAPServer).filter_by(id=server_id).first()
 		if not srv:
 			return err("Server not found", 404)
+		accounts = Accounts(db_session)
 
 		for item in items:
 			if not isinstance(item, dict) or not (
@@ -243,18 +244,10 @@ def admin_server_ldap_import(server_id: uuid.UUID) -> ResponseReturnValue:
 				continue
 			if item["type"] == "user":
 				# usernames are compared as sign-in compares them: whatever the case
-				if db_session.query(User).filter(
-						func.lower(User.username) == item["username"].lower()).first():
+				if accounts.by_name_ci(item["username"]):
 					skipped += 1
 					continue
-				db_session.add(User(
-					username=item["username"],
-					auth_type=AuthType.LDAP,
-					ldap_server_id=server_id,
-					is_approved=True,
-					is_active=True,
-					password_hash=None
-				))
+				accounts.new_ldap(item["username"], server_id)
 				users_created += 1
 
 			elif item["type"] == "group":

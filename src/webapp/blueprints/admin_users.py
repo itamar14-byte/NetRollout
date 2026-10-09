@@ -12,12 +12,12 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 from werkzeug.security import generate_password_hash
 
-from src.accounts.users import temporary_password, AccountError, new_local_user, pending_requests
+from src.accounts.users import temporary_password, AccountError, Accounts
 from src.audit import AuditAction
 from src.db.tables import User, AuthType, Role
 from src.webapp.app import current_app
 from src.webapp.hooks import end_user_sessions, signed_in_users
-from src.webapp.http import ok, err, require_admin, with_json
+from src.webapp.http import ok, err, require_admin, with_json, viewer
 
 bp = Blueprint('admin_users', __name__, url_prefix='/admin')
 
@@ -30,11 +30,11 @@ USER_ACTIONS = frozenset({"approve", "enable", "disable", "promote", "demote",
 def pending_access_requests() -> dict[str, Any]:
 	"""The admin sidebar's count of access requests waiting (none: no badge)."""
 	if not (request.path.startswith("/admin") and current_user.is_authenticated
-	        and current_user.role == Role.ADMIN):
+	        and viewer().is_admin):
 		return {}
 	try:
 		with current_app.backend.postgres.get_session() as db_session:
-			return {"pending_requests": pending_requests(db_session)}
+			return {"pending_requests": Accounts(db_session).pending_count()}
 	except SQLAlchemyError:
 		return {}
 
@@ -160,10 +160,11 @@ def admin_add_user(data: dict[str, Any]) -> ResponseReturnValue:
 	temporary = temporary_password(username)
 	with current_app.backend.postgres.get_session() as db_session:
 		try:
-			user = new_local_user(db_session, username=username, email=str(data.get("email", "")),
-			                      full_name=str(data.get("full_name", "")),
-			                      position=str(data.get("position", "")), password=temporary,
-			                      role=role, approved=True, must_change_password=True)
+			user = Accounts(db_session).new_local(
+				username=username, email=str(data.get("email", "")),
+				full_name=str(data.get("full_name", "")),
+				position=str(data.get("position", "")), password=temporary,
+				role=role, approved=True, must_change_password=True)
 		except AccountError as e:
 			db_session.rollback()
 			return err(str(e), 422)

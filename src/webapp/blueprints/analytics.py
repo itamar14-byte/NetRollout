@@ -11,8 +11,8 @@ from flask.typing import ResponseReturnValue
 from flask_login import login_required
 from sqlalchemy import ColumnElement, and_, false, or_, true
 
-from src.accounts.users import Viewer
-from src.db.tables import DeviceResult, User, AuditLog
+from src.accounts.users import Accounts, Viewer
+from src.db.tables import DeviceResult, AuditLog
 from src.inventory import InventoryView, LabelScope
 from src.jobs import build_kpi
 from src.results import JobResults
@@ -59,8 +59,7 @@ def analytics() -> str:
 
 		inv_label_map = InventoryView(db_session, Viewer(scope_user_id)).label_map(
 			LabelScope.OWN)
-		users = db_session.query(User).order_by(User.username).all() \
-			if viewer().is_admin else []
+		users = Accounts(db_session).for_admin_picker() if viewer().is_admin else []
 		db_session.expunge_all()
 
 	kpi = build_kpi(results_30d, inv_label_map)
@@ -205,7 +204,7 @@ def admin_analytics() -> str:
 	with current_app.backend.postgres.get_session() as db_session:
 		results_30d = JobResults(db_session, viewer()).recent(None)   # everyone's
 
-		all_users = db_session.query(User).order_by(User.username).all()
+		all_users = Accounts(db_session).for_admin_picker()
 		total_users = len(all_users)
 		active_user_ids = {r.user_id for r in results_30d}
 		total_ops = len(results_30d)

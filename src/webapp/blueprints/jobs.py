@@ -11,7 +11,7 @@ from flask import Blueprint, render_template, request, send_file, Response, url_
 from flask.typing import ResponseReturnValue
 from flask_login import current_user, login_required
 
-from src.accounts.users import Viewer
+from src.accounts.users import Accounts, Viewer
 from src.db.tables import User
 from src.inventory import InventoryView, LabelScope
 from src.jobs import JobStore, RolloutJob, JOB_STATUSES, build_kpi
@@ -76,8 +76,7 @@ def load_dashboard_data(picked: str | None) -> dict[str, Any]:
 		kpi_label_map = InventoryView(db_session, Viewer(kpi_user_id)).label_map(
 			LabelScope.VISIBLE)
 
-		users = db_session.query(User).order_by(User.username).all() \
-			if me.is_admin else []
+		users = Accounts(db_session).for_admin_picker() if me.is_admin else []
 		db_session.expunge_all()
 
 	return {
@@ -182,7 +181,7 @@ def active_jobs() -> str:
 		if is_admin:
 			job_ids = store.job_ids()
 			usernames = {str(u.id): u.username for u in
-			             db_session.query(User).all()}
+			             Accounts(db_session).for_admin_picker()}
 		else:
 			job_ids = store.job_ids(current_user.id)
 			usernames = {}

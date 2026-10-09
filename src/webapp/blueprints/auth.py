@@ -15,13 +15,12 @@ from flask import Blueprint, Response, session, redirect, url_for, flash, render
 from flask.typing import ResponseReturnValue
 from flask_login import login_user, current_user, login_required, logout_user
 from flask_session.base import ServerSideSession
-from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from src.accounts.ldap import check_group_membership, fetch_user_details, user_bind, LdapUnavailable
-from src.accounts.users import RULE, password_problem, LIMITS, AccountError, new_local_user
+from src.accounts.users import RULE, password_problem, LIMITS, AccountError, Accounts
 from src.audit import AuditAction
 from src.db.tables import DeviceResult, LDAPServer, LDAPGroup, User, AuthType
 from src.encryption import decrypt, encrypt
@@ -200,16 +199,9 @@ def login_ldap_group(username: str, password: str,
 				group_dn, role = match
 				# Fetch display attributes from LDAP directory; tolerate failure.
 				details = fetch_user_details(ldap_server, username)
-				email = details.get("email") if details else None
-				full_name = details.get("full_name") if details else None
 				# Auto-provisioned users are pre-approved and active; role comes
 				# from the matched group mapping.
-				user = User(username=username, auth_type=AuthType.LDAP,
-				            ldap_server_id=ldap_server.id, role=role,
-				            is_approved=True, is_active=True,
-				            password_hash=None, email=email,
-				            full_name=full_name)
-				db_session.add(user)
+				user = Accounts(db_session).new_ldap(username, ldap_server.id, role, details)
 				# Commit (not just flush) before complete_login: its audit row is
 				# written in a separate session with actor_id -> this user, which
 				# must already be visible there or the FK insert fails. Refresh
@@ -257,7 +249,8 @@ def login(data: Any) -> ResponseReturnValue:
 	username = data["username"]
 	password = data["password"]
 	with current_app.backend.postgres.get_session() as db_session:
-		user = db_session.query(User).filter_by(username=username).first()
+		accounts = Accounts(db_session)
+		user = accounts.by_name(username)
 		if user and user.auth_type == AuthType.LOCAL:
 			return login_local(user, password, db_session)
 		elif user and user.auth_type == AuthType.LDAP:
@@ -266,8 +259,7 @@ def login(data: Any) -> ResponseReturnValue:
 		# account "alice" (its state and role apply - a new account from a
 		# group would bypass a disable or a demotion). Another account under
 		# other capitals is refused, never duplicated.
-		same_name = db_session.query(User).filter(
-			func.lower(User.username) == username.lower()).all()
+		same_name = accounts.by_name_ci(username)
 		ldap_users = [u for u in same_name if u.auth_type == AuthType.LDAP]
 		if len(ldap_users) == 1 and len(same_name) == 1:
 			return login_ldap_existing(ldap_users[0], password, db_session)
@@ -288,9 +280,9 @@ def register(data: Any) -> ResponseReturnValue:
 	username = data["username"].strip()
 	with current_app.backend.postgres.get_session() as db_session:
 		try:
-			new_local_user(db_session, username=username, email=data["email"],
-			               full_name=data["full_name"], position=data.get("position"),
-			               password=data["password"])
+			Accounts(db_session).new_local(
+				username=username, email=data["email"], full_name=data["full_name"],
+				position=data.get("position"), password=data["password"])
 		except AccountError as e:
 			db_session.rollback()
 			# what was typed may be longer than the audit's column (that can
