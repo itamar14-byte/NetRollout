@@ -1,9 +1,9 @@
 """The instance route behind the startup reverse-proxy check."""
 import pytest
 
-from src.accounts.users import end_user_sessions
 from src.db.tables import User
 from src.runtime import VERSION, source_url
+from src.webapp.hooks import end_user_sessions
 
 pytestmark = [pytest.mark.postgres, pytest.mark.redis]
 

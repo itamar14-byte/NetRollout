@@ -21,17 +21,16 @@ from sqlalchemy.orm import Session
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from src.accounts.ldap import check_group_membership, fetch_user_details, user_bind, LdapUnavailable
-from src.accounts.users import (RULE, password_problem, LIMITS, AccountError, new_local_user,
-                                mark_signed_in, session_seconds_left, is_background,
-                                end_user_sessions, signed_in_user)
+from src.accounts.users import RULE, password_problem, LIMITS, AccountError, new_local_user
 from src.audit import AuditAction
 from src.db.tables import DeviceResult, LDAPServer, LDAPGroup, User, AuthType
 from src.encryption import decrypt, encrypt
 from src.jobs import job_status
 from src.rollout.engine import DeviceStatus
 from src.webapp.app import current_app
-from src.webapp.hooks import csrf, conn_limit
-from src.webapp.http import ok, with_form
+from src.webapp.hooks import (csrf, conn_limit, end_user_sessions, mark_signed_in,
+                              session_seconds_left, signed_in_user)
+from src.webapp.http import is_background, ok, with_form
 
 
 bp = Blueprint("auth", __name__)

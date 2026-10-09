@@ -13,7 +13,6 @@ from flask.typing import ResponseReturnValue
 from flask_login import current_user
 from sqlalchemy.orm import Session
 
-from src.accounts.users import is_background
 from src.audit import Actor, AuditAction
 from src.db.connections import BackendServices
 from src.db.tables import Base, PropertyDefinition, SecurityProfile, Role
@@ -24,12 +23,23 @@ from src.webapp.app import current_app
 
 # A view function, and one that receives the request's data as `data`
 View = Callable[..., ResponseReturnValue]
+# what a page does by itself, not a person (is_background)
+_PASSIVE_PATHS = ("/rollout/stream/",)
+
+
+def is_background() -> bool:
+	""":returns: whether the request is the page's own (a poll, an automatic
+	 reload, the live log), not something a person did - marked by the header
+	 X-NR-Background: 1 or ?_bg=1, or the live log's stream"""
+	return (request.headers.get("X-NR-Background") == "1"
+	        or request.args.get("_bg") == "1"
+	        or request.path.startswith(_PASSIVE_PATHS))
 
 
 class Caller(Enum):
 	"""Which signs make a request one from a page's script - answered JSON,
 	not a page or a redirect (wants_json). Each situation has its own signs:
-	(a JSON body, the XHR header, a background request (users.is_background),
+	(a JSON body, the XHR header, a background request (is_background),
 	any method but GET, the live log's stream)."""
 	#             JSON body, XHR,  background, non-GET, live log stream
 	# a page's script (fetch with a JSON body or the XHR header)

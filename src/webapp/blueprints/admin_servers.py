@@ -14,7 +14,6 @@ from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 
 from src.access import nginx
-from src.accounts.users import clear_sessions
 from src.audit import AuditAction
 from src.db import move
 from src.db.connections import PostgresConfig, REDIS_UNAVAILABLE, RedisConfig, schema_problem, ServiceMode
@@ -311,7 +310,7 @@ def _switch_redis(config: RedisConfig, back: bool) -> ResponseReturnValue:
 			current_app.backend.reload_redis(config)
 		except RuntimeError as e:
 			return err(str(e))
-		clear_sessions(current_app.backend.redis)
+		current_app.sessions.clear_all()
 		clear_stale_jobs(current_app.backend.redis)   # before a new rollout's keys go there
 	finally:
 		if not was_paused:

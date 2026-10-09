@@ -16,7 +16,7 @@ from sqlalchemy.exc import OperationalError
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from src.access.nginx import seed_hostname_from_site, sync_at_start
-from src.accounts.users import SESSION_PREFIX, clear_sessions
+from src.accounts.users import SESSION_PREFIX, SessionStore
 from src.db.connections import BackendServices, REDIS_UNAVAILABLE, RedisConnection
 from src.encryption import init_encryption, require_key_in_container
 from src.jobs import JobStore, RolloutOrchestrator, clear_stale_jobs
@@ -117,7 +117,7 @@ def resolve_secret_key(env: Mapping[str, str] | None = None) -> str:
 			"SECRET_KEY is not set. In Docker it comes from the installation's "
 			".env (the installer generates it). Restore it in .env and start "
 			"again.")
-	# Development: sessions are cleared at every start anyway (clear_sessions)
+	# Development: sessions are cleared at every start anyway (SessionStore.clear_all)
 	print("[NetRollout] SECRET_KEY is not set — using a random key for this "
 	      "run (development only).", flush=True)
 	return secrets.token_hex(32)
@@ -254,7 +254,10 @@ def launch_app() -> NetRolloutApp:
 		key_prefix=SESSION_PREFIX,
 		permanent=False,
 	)
-	clear_sessions(app.backend.redis)
+	app.sessions = SessionStore(
+		lambda: app.backend.redis.client, app.session_interface.serializer,
+		lambda: app.backend.settings.get("session_idle_minutes"))
+	app.sessions.clear_all()
 	clear_stale_jobs(app.backend.redis)
 	# nginx serves the saved hostname (deploy/nginx's watcher applies it)
 	sync_at_start(app.backend.settings)
