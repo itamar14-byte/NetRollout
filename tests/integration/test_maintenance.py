@@ -85,6 +85,14 @@ def test_pages_get_the_maintenance_page_and_requests_json(admin, client_for, loc
 	assert WHAT in call.json["message"]
 
 
+def test_a_live_log_stream_gets_json_while_locked(admin, client_for, locked):
+	"""Locked: the live log's stream (a background request by its path, as the session
+	rules count it) gets the 503 JSON answer like the page's other background requests,
+	not the maintenance page meant for a person."""
+	resp = client_for(admin).get(f"/rollout/stream/{uuid.uuid4()}")
+	assert resp.status_code == 503 and resp.json["maintenance"] is True
+
+
 def test_health_stays_200_and_says_so(app, locked):
 	"""Locked: health still answers 200, with the maintenance state and
 	progress."""

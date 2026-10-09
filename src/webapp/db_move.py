@@ -38,6 +38,7 @@ from flask import Response, g, render_template, request
 from flask.typing import ResponseReturnValue
 from sqlalchemy import make_url
 
+from src.accounts.users import is_background
 from src.db import move
 from src.db.connections import PostgresConfig
 from src.db.tables import AuditLog
@@ -335,9 +336,9 @@ def register_maintenance(app: NetRolloutApp) -> None:
 			return None
 		info = maintenance.snapshot()
 		message = f"NetRollout is under maintenance - {info['what']}. Try again in a few minutes."
+		# background requests by the same rule as the session's (is_background)
 		if request.method != "GET" or request.is_json or \
-				request.headers.get("X-Requested-With") == "XMLHttpRequest" or \
-				request.headers.get("X-NR-Background") == "1" or request.args.get("_bg") == "1":
+				request.headers.get("X-Requested-With") == "XMLHttpRequest" or is_background():
 			answer: ResponseReturnValue = err(message, 503, maintenance=True)
 		else:
 			answer = render_template("maintenance.html", info=info), 503
