@@ -312,8 +312,8 @@ def test_a_self_signed_certificate_is_reissued_for_the_new_name(
 	# the previous name stays for the transition period (approved 2026-10-04)
 	assert dns == ["new.lab", "old.lab"] and [str(i) for i in ips] == ["10.0.0.5"]
 	assert _certs.is_selfsigned(_runtime.certs_dir())
-	until = _json.loads((_runtime.certs_dir() / _pc.OLD_NAMES_FILE).read_text())["old.lab"]
-	assert abs(until - (_time.time() + _pc.NAME_TRANSITION_DAYS * 86400)) < 60
+	until = _json.loads((_runtime.certs_dir() / _certs.OLD_NAMES_FILE).read_text())["old.lab"]
+	assert abs(until - (_time.time() + _certs.NAME_TRANSITION_DAYS * 86400)) < 60
 
 
 def _org_cert(names):
@@ -597,13 +597,13 @@ def test_old_names_leave_after_the_transition(admin, app, client_for, proxy):
 	save(client, public_hostname="b.lab")
 	save(client, public_hostname="c.lab")          # a.lab and b.lab both kept
 	assert _certs.names_in(proxy.cert.read_bytes())[0] == ["c.lab", "a.lab", "b.lab"]
-	assert _pc.drop_expired_names() == []          # nothing due yet
-	later = _time.time() + _pc.NAME_TRANSITION_DAYS * 86400 + 60
-	assert sorted(_pc.drop_expired_names(now=later)) == ["a.lab", "b.lab"]
+	assert app.access.certificates.drop_expired() == []          # nothing due yet
+	later = _time.time() + _certs.NAME_TRANSITION_DAYS * 86400 + 60
+	assert sorted(app.access.certificates.drop_expired(now=later)) == ["a.lab", "b.lab"]
 	dns, ips = _certs.names_in(proxy.cert.read_bytes())
 	assert dns == ["c.lab"] and [str(i) for i in ips] == ["10.0.0.5"]
 	assert _certs.is_selfsigned(_runtime.certs_dir())
-	assert not (_runtime.certs_dir() / _pc.OLD_NAMES_FILE).exists()
+	assert not (_runtime.certs_dir() / _certs.OLD_NAMES_FILE).exists()
 
 
 def test_old_names_leave_when_the_hostname_is_an_ip_address(admin, app, client_for,
@@ -613,8 +613,8 @@ def test_old_names_leave_when_the_hostname_is_an_ip_address(admin, app, client_f
 	certificate stays issued to the address."""
 	_certs.selfsigned("a.lab", ["10.0.0.5"], _runtime.certs_dir())
 	save(client_for(admin), public_hostname="10.0.0.5")
-	later = _time.time() + _pc.NAME_TRANSITION_DAYS * 86400 + 60
-	assert _pc.drop_expired_names(now=later) == ["a.lab"]
+	later = _time.time() + _certs.NAME_TRANSITION_DAYS * 86400 + 60
+	assert app.access.certificates.drop_expired(now=later) == ["a.lab"]
 	dns, ips = _certs.names_in(proxy.cert.read_bytes())
 	assert dns == [] and [str(i) for i in ips] == ["10.0.0.5"]
 	assert _certs.host_matches("10.0.0.5", dns, ips)
@@ -629,16 +629,16 @@ def test_going_back_to_an_old_name_ends_its_transition(admin, app, client_for,
 	save(client, public_hostname="b.lab")
 	save(client, public_hostname="a.lab")
 	assert _certs.names_in(proxy.cert.read_bytes())[0] == ["a.lab", "b.lab"]
-	stored = _json.loads((_runtime.certs_dir() / _pc.OLD_NAMES_FILE).read_text())
+	stored = _json.loads((_runtime.certs_dir() / _certs.OLD_NAMES_FILE).read_text())
 	assert list(stored) == ["b.lab"]               # a.lab is the hostname again
 
 
 def test_an_organisation_certificate_is_never_reissued(admin, app, proxy):
 	"""Dropping expired old names never touches an organisation's certificate."""
 	_org_cert(("nr01.corp.local", "old.corp.local"))
-	(_runtime.certs_dir() / _pc.OLD_NAMES_FILE).write_text('{"old.corp.local": 1}')
+	(_runtime.certs_dir() / _certs.OLD_NAMES_FILE).write_text('{"old.corp.local": 1}')
 	before = proxy.cert.read_bytes()
-	assert _pc.drop_expired_names() == [] and proxy.cert.read_bytes() == before
+	assert app.access.certificates.drop_expired() == [] and proxy.cert.read_bytes() == before
 
 
 def test_a_refused_save_keeps_the_old_names_file(admin, app, client_for, proxy,
@@ -664,7 +664,7 @@ def test_a_later_change_does_not_extend_an_old_names_deadline(
 	_certs.selfsigned("a.lab", [], _runtime.certs_dir())
 	client = client_for(admin)
 	save(client, public_hostname="b.lab")
-	names = _runtime.certs_dir() / _pc.OLD_NAMES_FILE
+	names = _runtime.certs_dir() / _certs.OLD_NAMES_FILE
 	soon = _time.time() + 86400                       # a.lab: one day left
 	names.write_text(_json.dumps({"a.lab": soon}))
 	save(client, public_hostname="c.lab")
@@ -675,7 +675,7 @@ def test_a_later_change_does_not_extend_an_old_names_deadline(
 
 def overview(app):
 	"""The Access status for the saved hostname."""
-	return _pc.overview(app.backend.settings.get("public_hostname"))
+	return app.access.overview()
 
 
 def test_status_with_nothing_there(admin, app, proxy):

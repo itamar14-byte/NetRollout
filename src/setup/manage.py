@@ -16,7 +16,7 @@ from cryptography.fernet import Fernet
 
 from src import runtime
 from src.access import certs, site_env
-from src.access.nginx import VerdictState
+from src.access.nginx import VerdictState, read_status
 from src.backup import archive
 from src.setup.env import env_write, env_read, env_set, COMPOSE_HTTP, compose_files
 
@@ -178,8 +178,9 @@ def status(seen: Observed, health: dict[str, Any] | None,
 			            "computer: check the name (DNS) and the firewall for port "
 			            f"{port}")
 
-	nginx = runtime.read_json(site_env.folder() / "status.json")
-	if nginx:
+	nginx = read_status()
+	# unreadable ("unknown"): no line, as before
+	if nginx and nginx.get("state") != VerdictState.UNKNOWN:
 		state = nginx.get("state", "?")
 		when = nginx.get("time", "")
 		if state == VerdictState.REJECTED:
@@ -236,16 +237,15 @@ def _certificate(now: datetime.datetime, todo: list[str]) -> str:
 
 	:param todo: what to do; missing, unreadable, a problem or expiring soon
 	 add to it"""
-	folder = runtime.certs_dir()
+	store = certs.CertificateStore()
+	hostname = site_env.read().get(site_env.HOSTNAME) or None
 	try:
-		cert = (folder / certs.CERT_FILE).read_bytes()
-		key = (folder / certs.KEY_FILE).read_bytes()
+		check = store.check(hostname)
 	except OSError:
 		todo.append("No certificate: upload one in Server Management, or generate a "
 		            "self-signed one there")
 		return "MISSING"
-	check = certs.validate(cert, key, site_env.read().get(site_env.HOSTNAME) or None)
-	kind = "self-signed" if certs.is_selfsigned(folder) else "your organisation's"
+	kind = "self-signed" if store.selfsigned else "your organisation's"
 	if not check.not_after:
 		todo.append("The certificate can't be read: upload it again in Server Management")
 		return f"{kind}, unreadable"

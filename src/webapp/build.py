@@ -16,6 +16,7 @@ from sqlalchemy.exc import OperationalError
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from src.access.nginx import seed_hostname_from_site, sync_at_start
+from src.access.service import Access
 from src.accounts.users import SESSION_PREFIX, SessionStore
 from src.db.connections import BackendServices, REDIS_UNAVAILABLE, RedisConnection
 from src.encryption import init_encryption, require_key_in_container
@@ -235,6 +236,7 @@ def launch_app() -> NetRolloutApp:
 	app.orchestrator = orchestrator
 	app.shutdown = Shutdown(orchestrator)
 	app.web = web_services
+	app.access = Access(backend.settings)   # the hostname, the port, the certificate
 
 
 	configure_app(app, secret_key)

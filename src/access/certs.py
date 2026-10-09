@@ -1,8 +1,10 @@
-"""TLS certificates for nginx: create a self-signed one, check an uploaded one.
+"""TLS certificates for nginx: create a self-signed one, check an uploaded one,
+and the certs folder that holds the one in use (CertificateStore).
 
 Runs inside the app image, so the host needs no OpenSSL. Used by the
-installer (`python -m src.access.certs selfsigned ...` through the image) and by the
-Server Management certificate upload (`validate`).
+installer (`python -m src.access.certs selfsigned ...` through the image), the
+setup core's checks and by the app (Server Management's certificate, a new
+hostname, the upkeep that drops previous hostnames).
 
 The pair nginx serves is `fullchain.pem` + `privkey.pem` in the certs folder;
 a `.selfsigned` marker beside them means NetRollout made it and may replace
@@ -11,10 +13,16 @@ it (e.g. for a new hostname) — an organisation's certificate is never touched.
 import argparse
 import datetime
 import ipaddress
+import json
 import sys
-from collections.abc import Iterable, Sequence
+import threading
+import time
+from abc import ABC, abstractmethod
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
+from enum import StrEnum
 from pathlib import Path
+from typing import Any, ClassVar
 
 from cryptography import x509
 from cryptography.exceptions import UnsupportedAlgorithm
@@ -33,6 +41,14 @@ SELFSIGNED_MARKER = ".selfsigned"
 # trusting it by hand works on every client
 SELFSIGNED_DAYS = 825
 EXPIRY_WARNING_DAYS = 30
+# A self-signed certificate reissued for a new hostname keeps the previous
+# names this long, so people still typing one reach the redirect without a
+# name warning — then they're dropped (the deadlines: OLD_NAMES_FILE).
+OLD_NAMES_FILE = ".old-names.json"     # in the certs folder
+NAME_TRANSITION_DAYS = 7
+UPKEEP_INTERVAL_SECONDS = 3600
+
+Undo = Callable[[], None]   # puts the previous files back
 
 IPAddress = ipaddress.IPv4Address | ipaddress.IPv6Address
 # a SAN's IP entry as cryptography types it (a network only in name constraints)
@@ -247,6 +263,334 @@ def _ip(value: str) -> IPAddress | None:
 		return ipaddress.ip_address(value.strip())
 	except ValueError:
 		return None
+
+
+# ── The certificate in use: the certs folder ─────────────────────────────────
+
+class ProxyError(Exception):
+	"""A change of what nginx serves (its certificate, its hostname) couldn't
+	be made; the message is for the page. Nothing was left changed."""
+
+
+class CertificateKind(StrEnum):
+	"""Whose the certificate in use is - what NetRollout may do to it."""
+	SELF_SIGNED = "self-signed"       # NetRollout made it: reissued as needed
+	ORGANISATION = "organisation"     # never touched
+
+
+class Certificate(ABC):
+	"""The certificate in the certs folder (CertificateStore.current()). Its
+	kind decides what a new hostname and the upkeep do to it. Called under
+	the store's lock, with its snapshot taken."""
+	kind: ClassVar[CertificateKind]
+
+	def __init__(self, store: "CertificateStore") -> None:
+		self._store = store
+
+	def pem(self) -> bytes:
+		""":returns: the certificate file (the server's first)
+		:raises OSError: it can't be read"""
+		return (self._store.folder() / CERT_FILE).read_bytes()
+
+	@abstractmethod
+	def rename_to(self, new: str) -> None:
+		"""Make it serve the hostname `new`.
+
+		:raises ProxyError: it can't (the reason, for the page)
+		:raises OSError: a file can't be read or written
+		:raises ValueError: the certificate isn't readable PEM"""
+
+	@abstractmethod
+	def drop_expired(self, now: float) -> list[str]:
+		"""Drop the previous hostnames whose transition ended (`now`, epoch
+		seconds).
+
+		:returns: the names dropped"""
+
+
+class SelfSigned(Certificate):
+	"""NetRollout's own: reissued for a new hostname, keeping the addresses
+	it covered and its previous names for NAME_TRANSITION_DAYS."""
+	kind = CertificateKind.SELF_SIGNED
+
+	def rename_to(self, new: str) -> None:
+		dns, ips = names_in(self.pem())
+		# the names it covered stay for a transition period
+		now = time.time()
+		old = {n: u for n, u in self._store.old_names().items() if u > now}
+		for name in dns:
+			old.setdefault(name, now + NAME_TRANSITION_DAYS * 86400)
+		old.pop(new, None)
+		selfsigned(new, [str(ip) for ip in ips], self._store.folder(),
+		           also_names=sorted(old))
+		self._store.keep_old_names(old)
+
+	def drop_expired(self, now: float) -> list[str]:
+		stored = self._store.old_names()
+		if not stored:
+			return []
+		keep = {n: u for n, u in stored.items() if u > now}
+		pem = self.pem()
+		dns, ips = names_in(pem)
+		# the hostname is the common name (an IP address isn't among the DNS names)
+		host = common_name(pem)
+		others = [n for n in dns if n != host]
+		expired = [n for n in others if n in stored and n not in keep]
+		if expired:
+			selfsigned(host, [str(ip) for ip in ips], self._store.folder(),
+			           also_names=[n for n in others if n not in expired])
+		self._store.keep_old_names(keep)
+		return expired
+
+
+class Organisation(Certificate):
+	"""An organisation's: never reissued - a new hostname must already be
+	covered by it."""
+	kind = CertificateKind.ORGANISATION
+
+	def rename_to(self, new: str) -> None:
+		dns, ips = names_in(self.pem())
+		if not host_matches(new, dns, ips):
+			covers = ", ".join([*dns, *map(str, ips)]) or "no names"
+			raise ProxyError(
+				f"The certificate in use covers {covers} — not {new}. Upload "
+				f"a certificate for {new} first (Server Management → "
+				f"Certificate), then change the hostname.")
+
+	def drop_expired(self, now: float) -> list[str]:
+		return []
+
+
+class CertificateStore:
+	"""The certs folder: the pair nginx serves, the self-signed marker and the
+	previous names' deadlines. Every change runs under one lock, from a
+	snapshot of those files - all or nothing - and its undo puts back only
+	what no later change has replaced."""
+	# one per process, like the folder: a hostname save and the upkeep thread
+	# never reissue at the same moment (re-entrant: a hostname change holds it
+	# across the certificate and site.env - Nginx.change_hostname)
+	lock = threading.RLock()
+
+	@staticmethod
+	def folder() -> Path:
+		return runtime.certs_dir()
+
+	@property
+	def selfsigned(self) -> bool:
+		""":returns: whether NetRollout made the certificate in use (its marker)"""
+		return is_selfsigned(self.folder())
+
+	def current(self) -> Certificate | None:
+		""":returns: the certificate in use, by its kind; None: no file"""
+		folder = self.folder()
+		if not (folder / CERT_FILE).is_file():
+			return None
+		return SelfSigned(self) if is_selfsigned(folder) else Organisation(self)
+
+	def check(self, hostname: str | None, require_key: bool = True) -> CertCheck:
+		"""The certificate in use and its key, validated against `hostname`
+		(validate).
+
+		:param require_key: an unreadable key raises; else it's checked as
+		 missing (validate reports it)
+		:raises FileNotFoundError: there is no certificate
+		:raises OSError: it - or a required key - can't be read"""
+		folder = self.folder()
+		cert_pem = (folder / CERT_FILE).read_bytes()
+		try:
+			key_pem = (folder / KEY_FILE).read_bytes()
+		except OSError:
+			if require_key:
+				raise
+			key_pem = b""
+		return validate(cert_pem, key_pem, hostname or None)
+
+	def summary(self, hostname: str | None) -> dict[str, Any] | None:
+		"""What the Access card shows about the certificate, checked against
+		`hostname` (the saved one): None (no file) | {"names", "not_after",
+		"selfsigned", "problems", "warnings", "old_names": [{"name", "until"}]}"""
+		try:
+			check = self.check(hostname, require_key=False)
+		except FileNotFoundError:
+			return None
+		except OSError as e:
+			return {"names": [], "not_after": None, "selfsigned": False, "old_names": [],
+			        "problems": [f"NetRollout can't read the certificate: {e.strerror or e}."],
+			        "warnings": []}
+		old = self.old_names()
+		return {
+			"names": check.names,
+			"not_after": check.not_after.isoformat() if check.not_after else None,
+			"selfsigned": self.selfsigned,
+			"problems": check.problems, "warnings": check.warnings,
+			"old_names": [{"name": n, "until": old[n]} for n in check.names if n in old]}
+
+	def rename(self, new: str) -> Undo:
+		"""Serve the hostname `new` (empty: nothing to do): the certificate in
+		use renamed by its kind (Certificate.rename_to).
+
+		:returns: undo()
+		:raises ProxyError: it can't (an organisation's that doesn't cover it)
+		:raises OSError: a file can't be read or written
+		:raises ValueError: the certificate isn't readable PEM - each having
+		 changed nothing"""
+		with self.lock:
+			saved = self._snapshot()
+			try:
+				cert = self.current() if new else None
+				if cert:
+					cert.rename_to(new)
+			except (ProxyError, OSError, ValueError):
+				self._restore(saved)
+				raise
+			return self._undo(saved, f"undoing the hostname {new}")
+
+	def install(self, cert_pem: bytes, key_pem: bytes,
+	            hostname: str | None) -> tuple[CertCheck, Undo]:
+		"""Use an organisation's certificate + key: checked first (validate,
+		against the saved `hostname`), then written key first (nginx's watcher
+		tests the pair before using it). The self-signed marker goes, so
+		NetRollout never reissues it.
+
+		:returns: (the check - its warnings for the page, undo)
+		:raises ProxyError: every problem found, having changed nothing"""
+		check = validate(cert_pem, key_pem, hostname or None)
+		if not check.ok:
+			raise ProxyError(" ".join(check.problems))
+		with self.lock:
+			folder = self.folder()
+			saved = self._snapshot()
+			try:
+				folder.mkdir(parents=True, exist_ok=True)
+				self._restore({folder / KEY_FILE: key_pem})
+				self._restore({folder / CERT_FILE: cert_pem})
+				(folder / SELFSIGNED_MARKER).unlink(missing_ok=True)
+				(folder / OLD_NAMES_FILE).unlink(missing_ok=True)
+			except OSError as e:
+				self._restore(saved)
+				raise ProxyError(f"NetRollout couldn't write {e.filename or folder}: "
+				                 f"{e.strerror or e}. Nothing was changed.") from e
+			return check, self._undo(saved, "undoing the certificate upload")
+
+	def generate_selfsigned(self, hostname: str | None, server_ips: list[str]) -> Undo:
+		"""Replace the certificate with a new self-signed one for `hostname`
+		(else the name the current certificate is for), for `server_ips` and
+		any address the current one covers.
+
+		:returns: undo()
+		:raises ProxyError: no name to make it for, or it couldn't be written -
+		 having changed nothing"""
+		with self.lock:
+			folder = self.folder()
+			cert = folder / CERT_FILE
+			dns: list[str] = []
+			ips: list[SanIP] = []
+			try:
+				if cert.is_file():
+					dns, ips = names_in(cert.read_bytes())
+			except (OSError, ValueError):
+				pass                          # unreadable: start from the hostname
+			name = hostname or (dns[0] if dns else "")
+			if not name:
+				raise ProxyError("Set the hostname first (System Settings → Access): "
+				                 "the certificate is made for it.")
+			saved = self._snapshot()
+			try:
+				addresses = list(server_ips)
+				addresses += [str(ip) for ip in ips if str(ip) not in addresses]
+				selfsigned(name, addresses, folder)
+				(folder / OLD_NAMES_FILE).unlink(missing_ok=True)
+			except (OSError, ValueError) as e:
+				self._restore(saved)
+				where = getattr(e, "filename", None) or folder
+				raise ProxyError(f"NetRollout couldn't write {where}: "
+				                 f"{getattr(e, 'strerror', None) or e}. Nothing was "
+				                 f"changed.") from e
+			return self._undo(saved, "undoing the self-signed certificate")
+
+	def drop_expired(self, now: float | None = None) -> list[str]:
+		"""Drop the previous hostnames whose transition period ended from
+		NetRollout's self-signed certificate (reissued; nginx reloads it, no
+		restart). An organisation's certificate is never touched.
+
+		:param now: the time (epoch seconds; tests); now when None
+		:returns: the names dropped"""
+		with self.lock:
+			cert = self.current()
+			if cert is None:
+				return []
+			return cert.drop_expired(time.time() if now is None else now)
+
+	def old_names(self) -> dict[str, float]:
+		"""{name: until (epoch seconds)}; nothing readable → {}."""
+		try:
+			data = json.loads((self.folder() / OLD_NAMES_FILE).read_text(encoding="utf-8"))
+		except (OSError, ValueError):
+			return {}
+		if not isinstance(data, dict):
+			return {}
+		return {n: float(u) for n, u in data.items()
+		        if isinstance(n, str) and isinstance(u, (int, float))}
+
+	def keep_old_names(self, names: dict[str, float]) -> None:
+		"""Keep the previous names' deadlines ({name: until}); none: the file goes."""
+		path = self.folder() / OLD_NAMES_FILE
+		if not names:
+			path.unlink(missing_ok=True)
+			return
+		self._restore({path: json.dumps(names, indent=1, sort_keys=True).encode()})
+
+	def _snapshot(self, paths: list[Path] | None = None) -> dict[Path, bytes | None]:
+		""":param paths: the files; every file a change replaces when None
+		:returns: each file's content (None: it doesn't exist), for _restore"""
+		if paths is None:
+			folder = self.folder()
+			paths = [folder / CERT_FILE, folder / KEY_FILE,
+			         folder / SELFSIGNED_MARKER, folder / OLD_NAMES_FILE]
+		return {p: (p.read_bytes() if p.is_file() else None) for p in paths}
+
+	@staticmethod
+	def _restore(saved: dict[Path, bytes | None]) -> None:
+		"""Write each file's content atomically (the key owner-only); None
+		deletes it - a _snapshot put back, or new files written."""
+		for path, data in saved.items():
+			if data is None:
+				path.unlink(missing_ok=True)
+				continue
+			runtime.write_atomic(path, data, 0o600 if path.name == KEY_FILE else 0o644)
+
+	def _undo(self, saved: dict[Path, bytes | None], what: str) -> Undo:
+		"""undo() for a change that has just written its files (called under
+		the lock, right after): `saved` is put back only while the files are
+		still the ones the change wrote - a change made since (another upload,
+		a reissue) is left in place, and the log says so."""
+		written = self._snapshot(list(saved))
+
+		def undo() -> None:
+			with self.lock:
+				if self._snapshot(list(written)) != written:
+					print(f"[NetRollout] {what}: the certificate files weren't put back - "
+					      f"they were changed again since; the newer ones stay", flush=True)
+					return
+				self._restore(saved)
+		return undo
+
+
+class CertificateUpkeep(runtime.PeriodicTask):
+	"""CertificateStore.drop_expired() now and every UPKEEP_INTERVAL_SECONDS -
+	a server that never restarts still drops them."""
+	FAILURE = "certificate upkeep failed: {error}"
+
+	def __init__(self, store: CertificateStore) -> None:
+		super().__init__("certificate-upkeep", UPKEEP_INTERVAL_SECONDS)
+		self._store = store
+
+	def run_once(self) -> None:
+		dropped = self._store.drop_expired()
+		if dropped:
+			print(f"[NetRollout] certificate reissued without the previous "
+			      f"hostname(s) {', '.join(dropped)} (transition of "
+			      f"{NAME_TRANSITION_DAYS} days over)", flush=True)
 
 
 # ── Command line (the installer runs it through the image) ───────────────────

@@ -2,8 +2,6 @@
 (a live switch and back), LDAP servers and their groups, the TLS
 certificate, and Restart. Admins only; every change audited."""
 import os
-import time
-from collections.abc import Callable
 from typing import Any
 
 import redis as redis_lib
@@ -13,7 +11,8 @@ from flask_login import current_user, login_required
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 
-from src.access import nginx
+from src.access.certs import ProxyError
+from src.access.nginx import Verdict
 from src.audit import AuditAction
 from src.db import move
 from src.db.connections import PostgresConfig, REDIS_UNAVAILABLE, RedisConfig, schema_problem, ServiceMode
@@ -70,8 +69,7 @@ def admin_server() -> str:
 	                       redis_host=current_app.backend.redis.config.host,
 	                       redis_port=current_app.backend.redis.config.port,
 	                       redis_db=current_app.backend.redis.config.db,
-	                       access=nginx.overview(
-		                       current_app.backend.settings.get("public_hostname")))
+	                       access=current_app.access.overview())
 
 
 # ── Database: move to another server / back (src/db/move.py, db_move.py) ────
@@ -324,25 +322,17 @@ def _switch_redis(config: RedisConfig, back: bool) -> ResponseReturnValue:
 CERT_UPLOAD_MAX_BYTES = 256 * 1024
 
 
-def _certificate_applied(action: AuditAction, undo: Callable[[], None], started: float,
-                         managed: bool, detail: dict[str, Any]) -> ResponseReturnValue:
-	"""After the files are written: nginx's verdict — rejected → the previous
-	files are put back and the reason returned; otherwise audited and the
-	new status returned.
-
-	:param started: when the files were written (the verdict comes after)
-	:param managed: whether a NetRollout nginx reports here"""
-	settings = current_app.backend.settings
-	proxy = nginx.verdict(managed, started)
-	if proxy["state"] == nginx.VerdictState.REJECTED:
-		undo()
-		return err(f"nginx rejected the certificate: {proxy.get('message')} — "
+def _certificate_applied(action: AuditAction, proxy: Verdict,
+                         detail: dict[str, Any]) -> ResponseReturnValue:
+	"""After nginx's verdict: rejected (the previous files are back) → the
+	reason; otherwise audited and the new status returned."""
+	if proxy.rejected:
+		return err(f"nginx rejected the certificate: {proxy.message} — "
 		           f"the previous certificate is back.", 422)
 	current_app.web.audit(action, object_type="Certificate",
 	                      object_label=", ".join(detail.get("names", [])[:3]),
-	                      detail={**detail, "nginx": proxy["state"]})
-	return ok(proxy=proxy,
-	          access=nginx.overview(settings.get("public_hostname")))
+	                      detail={**detail, "nginx": proxy.state})
+	return ok(proxy=proxy.as_dict(), access=current_app.access.overview())
 
 
 @bp.route("/certificate", methods=["POST"])
@@ -350,7 +340,7 @@ def _certificate_applied(action: AuditAction, undo: Callable[[], None], started:
 @require_admin
 def certificate_upload() -> ResponseReturnValue:
 	"""An organisation's certificate (+ chain) and key: checked, then used —
-	all or nothing, nginx's verdict included."""
+	all or nothing, nginx's verdict included (Access.upload_certificate)."""
 	files: dict[str, bytes] = {}
 	for field in ("certificate", "key"):
 		upload = request.files.get(field)
@@ -360,16 +350,12 @@ def certificate_upload() -> ResponseReturnValue:
 		if len(data) > CERT_UPLOAD_MAX_BYTES:
 			return err(f"The {field} file is too big for a PEM {field}.")
 		files[field] = data
-	hostname = current_app.backend.settings.get("public_hostname")
-	managed = nginx.read_status() is not None
-	started = time.time()
 	try:
-		check, undo = nginx.install_certificate(
-			files["certificate"], files["key"], hostname)
-	except nginx.ProxyError as e:
+		check, proxy = current_app.access.upload_certificate(files["certificate"], files["key"])
+	except ProxyError as e:
 		return err(f"Not used: {e}", 422)
 	return _certificate_applied(
-		AuditAction.SERVER_CERTIFICATE_UPLOADED, undo, started, managed,
+		AuditAction.SERVER_CERTIFICATE_UPLOADED, proxy,
 		{"subject": check.subject, "names": check.names,
 		 "not_after": check.not_after.isoformat() if check.not_after else None,
 		 "warnings": check.warnings})
@@ -380,16 +366,12 @@ def certificate_upload() -> ResponseReturnValue:
 @require_admin
 def certificate_selfsigned() -> ResponseReturnValue:
 	"""A new self-signed certificate for the saved hostname (D2)."""
-	hostname = current_app.backend.settings.get("public_hostname")
-	managed = nginx.read_status() is not None
-	started = time.time()
 	try:
-		undo = nginx.generate_selfsigned(hostname)
-	except nginx.ProxyError as e:
+		names, proxy = current_app.access.generate_selfsigned()
+	except ProxyError as e:
 		return err(str(e), 422)
-	names = (nginx.overview(hostname)["certificate"] or {}).get("names", [])
-	return _certificate_applied(AuditAction.SERVER_CERTIFICATE_GENERATED, undo, started,
-	                            managed, {"names": names})
+	return _certificate_applied(AuditAction.SERVER_CERTIFICATE_GENERATED, proxy,
+	                            {"names": names})
 
 
 @bp.route("/rollouts")

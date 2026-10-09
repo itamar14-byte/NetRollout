@@ -7,7 +7,7 @@ import sys
 
 from waitress import serve
 
-from src.access.nginx import start_certificate_upkeep
+from src.access.certs import CertificateUpkeep
 from src.access.port import serving_port
 from src.backup.schedule import start_backup_schedule
 from src.db.retention import start_retention
@@ -34,7 +34,8 @@ signal.signal(signal.SIGTERM, lambda signum, frame: app.shutdown.begin(
 	drain_seconds(), restart=False))
 
 start_log_pruning(lambda: app.backend.settings.get("log_retention_days"))
-start_certificate_upkeep()   # previous hostnames leave the self-signed cert
+# previous hostnames leave the self-signed certificate
+CertificateUpkeep(app.access.certificates).start()
 
 
 def moving() -> bool:

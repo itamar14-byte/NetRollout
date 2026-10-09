@@ -24,6 +24,11 @@ def site(home):
 	return (home / "config" / "nginx" / "site.env").read_text(encoding="utf-8")
 
 
+def nginx():
+	"""Nginx with the certs folder (NETROLLOUT_HOME's)."""
+	return pc.Nginx(certs.CertificateStore())
+
+
 def test_writes_the_hostname_and_the_applied_port(home, monkeypatch):
 	"""write_site writes site.env with exactly the hostname and the applied port
 	(NETROLLOUT_HTTPS_PORT from the environment), and says it changed."""
@@ -178,7 +183,7 @@ def test_a_hostname_undo_puts_back_only_the_hostname(home):
 	keeps the keys written meanwhile (a port request, its confirmation) - it
 	used to put the whole file back, dropping them."""
 	pc.write_site("a.lab")
-	undo = pc.change_hostname("b.lab")
+	undo = nginx().change_hostname("b.lab")
 	site_env.update({site_env.PORT_REQUEST: "8443", site_env.PORT_REQUEST_ID: "r1",
 	                 site_env.PORT_CONFIRMED: "r1"})
 	undo()
@@ -192,7 +197,7 @@ def test_a_hostname_undo_keeps_a_port_kept_since(home):
 	"""The port in use written by the helper after a hostname change (a kept
 	port) survives the hostname's undo; the hostname goes back."""
 	pc.write_site("a.lab")
-	undo = pc.change_hostname("b.lab")
+	undo = nginx().change_hostname("b.lab")
 	site_env.update({site_env.HTTPS_PORT: "8443"})
 	undo()
 	values = site_env.read()
@@ -205,8 +210,8 @@ def test_an_undo_leaves_what_a_later_change_wrote(home):
 	works."""
 	certs.selfsigned("a.lab", ["10.0.0.5"], home / "certs")
 	pc.write_site("a.lab")
-	undo_a = pc.change_hostname("b.lab")
-	undo_b = pc.change_hostname("c.lab")
+	undo_a = nginx().change_hostname("b.lab")
+	undo_b = nginx().change_hostname("c.lab")
 	undo_a()
 	assert certificate_for(home) == "c.lab"
 	assert site_env.read()[site_env.HOSTNAME] == "c.lab"
@@ -219,8 +224,8 @@ def test_a_certificate_undo_leaves_a_later_certificate(home):
 	"""Generate a self-signed certificate (A), then another (B), then A's undo:
 	B's stays; B's undo puts A's back."""
 	certs.selfsigned("old.lab", [], home / "certs")
-	undo_a = pc.generate_selfsigned("a.lab")
-	undo_b = pc.generate_selfsigned("b.lab")
+	undo_a = certs.CertificateStore().generate_selfsigned("a.lab", pc.server_ips())
+	undo_b = certs.CertificateStore().generate_selfsigned("b.lab", pc.server_ips())
 	undo_a()
 	assert certificate_for(home) == "b.lab"
 	undo_b()
@@ -232,9 +237,9 @@ def test_an_undo_waits_for_the_certificate_lock(home, change):
 	"""An undo runs under the certificate lock: while another change (or the
 	upkeep) holds it, the undo waits."""
 	certs.selfsigned("a.lab", [], home / "certs")
-	undo = pc.change_hostname("b.lab") if change == "hostname" \
-		else pc.generate_selfsigned("b.lab")
-	with pc._cert_lock:
+	undo = nginx().change_hostname("b.lab") if change == "hostname" \
+		else certs.CertificateStore().generate_selfsigned("b.lab", pc.server_ips())
+	with certs.CertificateStore.lock:
 		worker = threading.Thread(target=undo)
 		worker.start()
 		worker.join(timeout=0.5)
@@ -263,8 +268,8 @@ def test_a_hostname_whose_site_env_cant_be_written_changes_nothing(home, monkeyp
 	def fail(hostname):
 		raise PermissionError(13, "Permission denied", "/shared/site.env")
 	monkeypatch.setattr(pc, "write_site", fail)
-	with pytest.raises(pc.ProxyError) as e:
-		pc.change_hostname("b.lab")
+	with pytest.raises(certs.ProxyError) as e:
+		nginx().change_hostname("b.lab")
 	assert str(e.value) == ("NetRollout couldn't write /shared/site.env: "
 	                        "Permission denied. Nothing was changed.")
 	assert cert_files(home) == before and certificate_for(home) == "a.lab"
@@ -279,8 +284,8 @@ def test_an_unnamed_write_failure_names_the_shared_folder(home, monkeypatch):
 	def fail(hostname):
 		raise OSError("disk gone")
 	monkeypatch.setattr(pc, "write_site", fail)
-	with pytest.raises(pc.ProxyError) as e:
-		pc.change_hostname("b.lab")
+	with pytest.raises(certs.ProxyError) as e:
+		nginx().change_hostname("b.lab")
 	assert str(e.value) == (f"NetRollout couldn't write {site_env.folder()}: "
 	                        f"disk gone. Nothing was changed.")
 
@@ -295,8 +300,8 @@ def test_a_value_error_during_a_hostname_change_changes_nothing(home, monkeypatc
 	def fail(hostname):
 		raise ValueError("Hostname 'b.lab' isn't allowed")
 	monkeypatch.setattr(pc, "write_site", fail)
-	with pytest.raises(pc.ProxyError) as e:
-		pc.change_hostname("b.lab")
+	with pytest.raises(certs.ProxyError) as e:
+		nginx().change_hostname("b.lab")
 	assert str(e.value) == "Hostname 'b.lab' isn't allowed. Nothing was changed."
 	assert cert_files(home) == before and certificate_for(home) == "a.lab"
 
@@ -305,8 +310,8 @@ def test_an_invalid_hostname_is_refused_without_writing(home):
 	"""An invalid hostname (no certificate in use) is a ProxyError ending in
 	"Nothing was changed."; site.env keeps the previous hostname."""
 	pc.write_site("a.lab")
-	with pytest.raises(pc.ProxyError, match=r"\. Nothing was changed\.$"):
-		pc.change_hostname("not a hostname!")
+	with pytest.raises(certs.ProxyError, match=r"\. Nothing was changed\.$"):
+		nginx().change_hostname("not a hostname!")
 	assert site_env.read()[site_env.HOSTNAME] == "a.lab"
 
 
@@ -327,15 +332,16 @@ def test_an_organisation_certificate_that_cant_be_written_changes_nothing(
 	certs.selfsigned("a.lab", [], home / "certs")
 	before = cert_files(home)
 	cert_pem, key_pem = organisation_pair(tmp_path, "org.lab")
-	real_restore = pc._restore
+	store = certs.CertificateStore()
+	real_restore = store._restore
 
 	def restore(saved):
 		if saved == {home / "certs" / certs.CERT_FILE: cert_pem}:
 			raise PermissionError(13, "Access is denied", str(home / "certs" / certs.CERT_FILE))
 		real_restore(saved)
-	monkeypatch.setattr(pc, "_restore", restore)
-	with pytest.raises(pc.ProxyError) as e:
-		pc.install_certificate(cert_pem, key_pem, "org.lab")
+	monkeypatch.setattr(store, "_restore", restore)
+	with pytest.raises(certs.ProxyError) as e:
+		store.install(cert_pem, key_pem, "org.lab")
 	assert str(e.value) == (f"NetRollout couldn't write {home / 'certs' / certs.CERT_FILE}: "
 	                        f"Access is denied. Nothing was changed.")
 	assert cert_files(home) == before
@@ -347,10 +353,10 @@ def test_an_organisation_certificate_is_installed_without_the_marker(home, tmp_p
 	one, the marker and old-names file removed; the undo puts the self-signed
 	files back."""
 	certs.selfsigned("a.lab", [], home / "certs")
-	(home / "certs" / pc.OLD_NAMES_FILE).write_text('{"x.lab": 1}', encoding="utf-8")
+	(home / "certs" / certs.OLD_NAMES_FILE).write_text('{"x.lab": 1}', encoding="utf-8")
 	before = cert_files(home)
 	cert_pem, key_pem = organisation_pair(tmp_path, "org.lab")
-	check, undo = pc.install_certificate(cert_pem, key_pem, "org.lab")
+	check, undo = certs.CertificateStore().install(cert_pem, key_pem, "org.lab")
 	assert check.ok
 	assert cert_files(home) == {certs.CERT_FILE: cert_pem, certs.KEY_FILE: key_pem}
 	undo()
@@ -361,7 +367,7 @@ def test_an_organisation_certificate_is_installed_without_the_marker(home, tmp_p
 
 def test_overview_without_a_certificate(home):
 	"""No certificate file and no nginx status: both None."""
-	assert pc.overview("a.lab") == {"nginx": None, "certificate": None}
+	assert nginx().overview("a.lab") == {"nginx": None, "certificate": None}
 
 
 def test_overview_when_the_certificate_cant_be_read(home):
@@ -369,7 +375,7 @@ def test_overview_when_the_certificate_cant_be_read(home):
 	shown as one problem "NetRollout can't read the certificate: <reason>." with
 	no names, no expiry, not self-signed, no warnings or old names."""
 	(home / "certs" / certs.CERT_FILE).mkdir(parents=True)
-	cert = pc.overview("a.lab")["certificate"]
+	cert = nginx().overview("a.lab")["certificate"]
 	assert (cert["names"], cert["not_after"], cert["selfsigned"], cert["old_names"],
 	        cert["warnings"]) == ([], None, False, [], [])
 	(problem,) = cert["problems"]
@@ -383,7 +389,7 @@ def test_overview_with_the_key_missing(home):
 	private key.") is the only problem."""
 	certs.selfsigned("a.lab", ["10.0.0.5"], home / "certs")
 	(home / "certs" / certs.KEY_FILE).unlink()
-	cert = pc.overview("a.lab")["certificate"]
+	cert = nginx().overview("a.lab")["certificate"]
 	assert cert["names"] == ["a.lab", "10.0.0.5"]
 	assert cert["selfsigned"] is True
 	assert cert["problems"] == ["The key file isn't a PEM private key."]
@@ -401,14 +407,14 @@ def test_seeding_ignores_an_unreadable_site_env(home, monkeypatch):
 	assert os.environ[pc.HOSTNAME_SEED_ENV] == ""
 
 
-# ── The upkeep thread (start_certificate_upkeep), driven turn by turn ────────
+# ── The upkeep thread (CertificateUpkeep), driven turn by turn ───────────────
 
 class _Stop(Exception):
 	"""Ends the loop: raised by the fake sleep."""
 
 
 def test_the_upkeep_drops_names_every_hour_and_survives_failures(monkeypatch, capsys):
-	"""The thread (daemon, "certificate-upkeep") calls drop_expired_names() at
+	"""The thread (daemon, "certificate-upkeep") calls the store's drop_expired() at
 	once and after every UPKEEP_INTERVAL_SECONDS sleep: nothing dropped prints
 	nothing; names dropped print the reissue line; an exception prints
 	"certificate upkeep failed: ..." and the loop goes on."""
@@ -436,14 +442,15 @@ def test_the_upkeep_drops_names_every_hour_and_survives_failures(monkeypatch, ca
 
 	monkeypatch.setattr(runtime.threading, "Thread", FakeThread)
 	monkeypatch.setattr(runtime, "time", SimpleNamespace(sleep=sleep))
-	monkeypatch.setattr(pc, "drop_expired_names", drop)
-	pc.start_certificate_upkeep()
+	store = certs.CertificateStore()
+	monkeypatch.setattr(store, "drop_expired", drop)
+	certs.CertificateUpkeep(store).start()
 	assert thread["started"] and thread["daemon"] is True
 	assert thread["name"] == "certificate-upkeep"
 	with pytest.raises(_Stop):
 		thread["target"]()
-	assert events == [("drop",), ("sleep", pc.UPKEEP_INTERVAL_SECONDS)] * 4
+	assert events == [("drop",), ("sleep", certs.UPKEEP_INTERVAL_SECONDS)] * 4
 	assert capsys.readouterr().out == (
 		"[NetRollout] certificate reissued without the previous hostname(s) "
-		f"old.lab, older.lab (transition of {pc.NAME_TRANSITION_DAYS} days over)\n"
+		f"old.lab, older.lab (transition of {certs.NAME_TRANSITION_DAYS} days over)\n"
 		"[NetRollout] certificate upkeep failed: no certs folder\n")

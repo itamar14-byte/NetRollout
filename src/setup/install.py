@@ -120,16 +120,14 @@ def check_yes_no(value: str) -> bool:
 def check_org_certificate(hostname: str) -> None:
 	"""The organisation's certificate is in the certs folder and usable.
 
-	:raises Invalid: missing, or its problems (certs.validate)"""
-	folder = runtime.certs_dir()
+	:raises Invalid: missing, or its problems (CertificateStore.check)"""
+	store = certs.CertificateStore()
 	try:
-		cert = (folder / certs.CERT_FILE).read_bytes()
-		key = (folder / certs.KEY_FILE).read_bytes()
+		check = store.check(hostname)
 	except OSError:
 		raise Invalid(f"Put the certificate ({certs.CERT_FILE}: yours first, "
 		              f"then each issuer) and its key ({certs.KEY_FILE}, without "
-		              f"a password) into {folder}.") from None
-	check = certs.validate(cert, key, hostname)
+		              f"a password) into {store.folder()}.") from None
 	if not check.ok:
 		raise Invalid(" ".join(check.problems))
 

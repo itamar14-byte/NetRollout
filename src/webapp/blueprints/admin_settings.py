@@ -1,7 +1,6 @@
 """System Settings (admin panel → System). The registry and all validation
 live in src/db/settings.py; these routes call it, audit every change, and
 return per-field / rule errors for the page to show."""
-import time
 from pathlib import Path
 from typing import Any, cast
 
@@ -11,7 +10,8 @@ from flask_login import current_user, login_required
 from sqlalchemy.exc import SQLAlchemyError
 
 from src import runtime
-from src.access import port as port_apply, nginx
+from src.access.nginx import Verdict
+from src.access.service import FOLLOWED, SaveResult
 from src.audit import AuditAction
 from src.backup import archive
 from src.backup.schedule import schedule_state
@@ -46,20 +46,20 @@ def _state() -> dict[str, Any]:
 		"settings": settings.list_for_display(),
 		"restart_pending": settings.restart_pending(
 			current_app.config.get("SETTINGS_STARTED_WITH", {})),
-		"port": port_apply.state(settings.get("https_port")),
-		"access": nginx.overview(settings.get("public_hostname")),
+		"port": current_app.access.port_state(),
+		"access": current_app.access.overview(),
 	}
 
 
-def _audit(action: AuditAction, change: Change, proxy: dict[str, Any] | None = None,
+def _audit(action: AuditAction, change: Change, proxy: Verdict | None = None,
            port: dict[str, Any] | None = None) -> None:
 	"""One audit row per setting changed.
 
 	:param proxy: nginx's verdict on a new hostname
-	:param port: where a new port stands (port_apply.state)"""
+	:param port: where a new port stands (Access.port_state)"""
 	detail = {"key": change.key, "old": change.old, "new": change.new}
 	if proxy:
-		detail["nginx"] = proxy.get("state")     # applied / not_managed / no_answer
+		detail["nginx"] = proxy.state     # applied / not_managed / no_answer
 	if port:
 		detail["port_apply"] = port.get("state")  # manual / waiting / applied
 	current_app.web.audit(action, object_type="SystemSetting",
@@ -99,65 +99,28 @@ def settings_page() -> str:
 
 
 def _save(values: dict[str, Any], action: AuditAction) -> ResponseReturnValue:
-	"""Validate, prepare nginx for a new hostname and the port helper for a
-	new port, save, and report nginx's verdict — all or nothing: an invalid
-	value, a certificate that doesn't cover the new name, a file that can't
-	be written, or nginx rejecting the result leaves every setting and file
-	as it was, and says why. (A new port is applied later, by the helper.)
+	"""Save through Access.save - all or nothing, nginx's verdict included.
 
 	:param values: setting key → the value typed
 	:param action: the audit action (settings.update / settings.reset)
 	:returns: the changes and the page's new state; or 422 with the reasons"""
-	store = current_app.backend.settings
 	try:
-		changes = store.plan(values)
+		result = current_app.access.save(values, current_user.id)
 	except SettingsError as e:
 		return _errors_response(e)
-	host = next((c for c in changes if c.key == "public_hostname"), None)
-	undo, proxy = None, None
-	if host:
-		managed = nginx.read_status() is not None
-		started = time.time()
-		try:
-			undo = nginx.change_hostname(cast(str, host.new))
-		except nginx.ProxyError as e:
-			return _errors_response(SettingsError({"public_hostname": str(e)}))
-	port = next((c for c in changes if c.key == "https_port"), None)
-	undo_port = None
-	if port:
-		try:
-			undo_port = port_apply.request_port(cast(int, port.new))
-		except OSError as e:
-			if undo:
-				undo()
-			return _errors_response(SettingsError({"https_port":
-				f"NetRollout couldn't write {e.filename or 'config/'}: "
-				f"{e.strerror or e}. Nothing was changed."}))
-	try:
-		changes = store.update(values, current_user.id)
-	except SettingsError as e:            # changed meanwhile: back out
-		for back in (undo, undo_port):
-			if back:
-				back()
-		return _errors_response(e)
-	if host:
-		proxy = nginx.verdict(managed, started, cast(str, host.new))
-		if proxy["state"] == nginx.VerdictState.REJECTED:
-			# the whole save goes back, not only the hostname
-			store.update({c.key: c.old for c in changes}, current_user.id)
-			assert undo is not None   # set above for a new hostname
-			undo()
-			if undo_port:
-				undo_port()
-			return _errors_response(SettingsError({"public_hostname":
-				f"nginx rejected the new hostname: {proxy.get('message')} — "
-				f"nothing was changed, the previous hostname is back."}))
+	return _saved(result, action)
+
+
+def _saved(result: SaveResult, action: AuditAction) -> ResponseReturnValue:
+	""":returns: the changes, nginx's verdict and the page's new state - each
+	 change audited"""
 	state = _state()
-	for change in changes:
+	for change in result.changes:
 		_audit(action, change,
-		       proxy=proxy if change.key == "public_hostname" else None,
+		       proxy=result.proxy if change.key == "public_hostname" else None,
 		       port=state["port"] if change.key == "https_port" else None)
-	return ok(changed=[c.key for c in changes], proxy=proxy, **state)
+	return ok(changed=[c.key for c in result.changes],
+	          proxy=result.proxy.as_dict() if result.proxy else None, **state)
 
 
 @bp.route("", methods=["POST"])
@@ -180,15 +143,15 @@ def settings_reset(key: str) -> ResponseReturnValue:
 	_save, as nginx and the port helper follow them."""
 	if key not in SETTINGS or not SETTINGS[key].editable:
 		return err("Unknown setting", 404)
-	if key in ("public_hostname", "https_port"):   # nginx follows: the full path
-		return _save({key: SETTINGS[key].default}, AuditAction.SETTINGS_RESET)
 	try:
-		change = current_app.backend.settings.reset(key, current_user.id)
+		result = current_app.access.reset(key, current_user.id)
 	except SettingsError as e:
 		return _errors_response(e)
-	if change:
+	if key in FOLLOWED:   # nginx and the port helper follow: the full answer
+		return _saved(result, AuditAction.SETTINGS_RESET)
+	for change in result.changes:
 		_audit(AuditAction.SETTINGS_RESET, change)
-	return ok(changed=[key] if change else [], **_state())
+	return ok(changed=[key] if result.changes else [], **_state())
 
 
 def _reached_port() -> int:
@@ -205,7 +168,7 @@ def _reached_port() -> int:
 def port_status() -> Response:
 	"""Where a port change stands — polled by the page (as a background
 	request: it must not keep a session alive)."""
-	return ok(port=port_apply.state(current_app.backend.settings.get("https_port")))
+	return ok(port=current_app.access.port_state())
 
 
 @bp.route("/port/confirm", methods=["POST"])
@@ -215,18 +178,13 @@ def port_status() -> Response:
 def port_confirm(data: dict[str, Any]) -> ResponseReturnValue:
 	"""Sent by the page served on the new port: this admin reached it, so the
 	helper may drop the old one."""
-	problem = port_apply.confirm(str(data["id"]), _reached_port())
+	problem = current_app.access.confirm_port(str(data["id"]), _reached_port())
 	if problem:
 		return err(problem, 409)
-	try:
-		# redirects follow the confirmed port now, not after the helper's next step
-		nginx.write_site(current_app.backend.settings.get("public_hostname"))
-	except (ValueError, OSError):
-		pass                              # nginx keeps the previous values
 	current_app.web.audit(AuditAction.SETTINGS_PORT_CONFIRMED, object_type="SystemSetting",
 	                      object_label="https_port",
 	                      detail={"port": _reached_port()})
-	return ok(port=port_apply.state(current_app.backend.settings.get("https_port")))
+	return ok(port=current_app.access.port_state())
 
 
 @bp.route("/port/retry", methods=["POST"])
@@ -236,11 +194,11 @@ def port_retry() -> ResponseReturnValue:
 	"""Ask the helper again for the saved port (after a rollback — e.g. the
 	firewall was opened meanwhile)."""
 	try:
-		port_apply.request_port(current_app.backend.settings.get("https_port"))
+		current_app.access.retry_port()
 	except OSError as e:
 		return err(f"NetRollout couldn't write {e.filename or 'config/'}: "
 		           f"{e.strerror or e}.", 500)
-	return ok(port=port_apply.state(current_app.backend.settings.get("https_port")))
+	return ok(port=current_app.access.port_state())
 
 
 @bp.route("/test", methods=["POST"])
@@ -262,8 +220,7 @@ def settings_test_access(data: dict[str, Any]) -> ResponseReturnValue:
 		# reachable: a probe here would report working setups as broken —
 		# what nginx itself last reported is shown instead
 		return ok(url=url, source=source, container=True,
-		          access=nginx.overview(
-		              current_app.backend.settings.get("public_hostname")))
+		          access=current_app.access.overview())
 	local, public = check_proxy(url, current_app.config["INSTANCE_TOKEN"])
 	return ok(url=url, source=source,
 	          local={"ok": local.ok, "reason": local.reason},

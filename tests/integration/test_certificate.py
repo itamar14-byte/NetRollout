@@ -53,7 +53,7 @@ def test_an_organisation_certificate_is_used(admin, app, client_for, proxy,
 	exactly the uploaded pair (marker and old names gone), the page's status and the
 	audit name it, and the audit has only the certificate's details, never the key."""
 	certs.selfsigned("nr01.corp.local", ["10.1.1.5"], runtime.certs_dir())
-	(runtime.certs_dir() / pc.OLD_NAMES_FILE).write_text('{"old.lab": 9999999999}')
+	(runtime.certs_dir() / certs.OLD_NAMES_FILE).write_text('{"old.lab": 9999999999}')
 	cert_bytes, key_bytes = org_pair(("*.corp.local",))
 	resp = upload(client_for(admin), cert_bytes, key_bytes)
 	assert resp.status_code == 200
@@ -180,11 +180,11 @@ def test_generating_drops_old_names_in_transition(admin, app, client_for, proxy,
 	transition, and removes the old-names file."""
 	certs.selfsigned("nr01.corp.local", [], runtime.certs_dir(),
 	                 also_names=["old.lab"])
-	(runtime.certs_dir() / pc.OLD_NAMES_FILE).write_text('{"old.lab": 9999999999}')
+	(runtime.certs_dir() / certs.OLD_NAMES_FILE).write_text('{"old.lab": 9999999999}')
 	assert client_for(admin).post("/admin/server/certificate/selfsigned").status_code == 200
 	assert certs.names_in((runtime.certs_dir() / certs.CERT_FILE).read_bytes())[0] \
 	       == ["nr01.corp.local"]
-	assert not (runtime.certs_dir() / pc.OLD_NAMES_FILE).exists()
+	assert not (runtime.certs_dir() / certs.OLD_NAMES_FILE).exists()
 
 
 def test_without_a_hostname_the_current_name_is_kept(admin, app, client_for,

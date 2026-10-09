@@ -6,23 +6,26 @@ that is actually published — into site.env in the folder it shares with nginx
 renders its own template, tests the result with `nginx -t` and reloads — or
 keeps serving the last good site — and reports in status.json. The app never
 writes nginx syntax.
+
+Nginx is that contract seen from the app: whether a NetRollout nginx reports
+here, its verdicts, and a change it must accept (a new hostname, a new
+certificate - the certs folder is certs.CertificateStore) applied or undone.
 """
 import datetime
 import ipaddress
 import json
 import os
 import re
-import threading
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from enum import StrEnum
-from pathlib import Path
 from typing import Any, cast
 
 from sqlalchemy.exc import SQLAlchemyError
 
-from src import runtime
-from src.access import certs, site_env, port
+from src.access import site_env, port
+from src.access.certs import CertificateStore, ProxyError, Undo
 from src.db.settings import SETTINGS, SettingsStore
 
 
@@ -30,16 +33,6 @@ SITE_FILE = site_env.FILE
 STATUS_FILE = "status.json"
 HOSTNAME_SEED_ENV = cast(str, SETTINGS["public_hostname"].env)   # it has one
 SERVER_IPS_ENV = "NETROLLOUT_SERVER_IPS"
-# A self-signed certificate reissued for a new hostname keeps the previous
-# names this long, so people still typing one reach the redirect without a
-# name warning — then they're dropped (the deadlines: OLD_NAMES_FILE).
-OLD_NAMES_FILE = ".old-names.json"     # in the certs folder
-NAME_TRANSITION_DAYS = 7
-UPKEEP_INTERVAL_SECONDS = 3600
-# a hostname save and the upkeep thread never reissue at the same moment
-_cert_lock = threading.Lock()
-
-Undo = Callable[[], None]   # puts the previous files back
 
 
 class VerdictState(StrEnum):
@@ -47,9 +40,35 @@ class VerdictState(StrEnum):
 	(applied / rejected), or the app's reading when there is none."""
 	APPLIED = "applied"
 	REJECTED = "rejected"          # the last good site keeps serving
-	NOT_MANAGED = "not_managed"    # no NetRollout nginx reports here (verdict())
-	NO_ANSWER = "no_answer"        # none within the wait (verdict())
+	NOT_MANAGED = "not_managed"    # no NetRollout nginx reports here (Nginx.apply)
+	NO_ANSWER = "no_answer"        # none within the wait (Nginx.apply)
 	UNKNOWN = "unknown"            # status.json can't be read
+
+
+@dataclass(frozen=True)
+class Verdict:
+	"""nginx's verdict: its watcher's (status.json) - or why there is none
+	(not_managed, no_answer)."""
+	state: str | None              # a VerdictState, or what status.json says
+	message: str | None = None
+	time: str | None = None        # when the watcher wrote it (UTC, ISO 8601)
+
+	@property
+	def rejected(self) -> bool:
+		""":returns: whether nginx refused the change (the last good site serves)"""
+		return self.state == VerdictState.REJECTED
+
+	def as_dict(self, with_time: bool = False) -> dict[str, Any]:
+		"""The JSON the pages read: {"state"} when nginx didn't answer, else
+		{"state", "message"}.
+
+		:param with_time: add "time" (the Access card's last verdict)"""
+		if self.state in (VerdictState.NOT_MANAGED, VerdictState.NO_ANSWER):
+			return {"state": self.state}
+		out: dict[str, Any] = {"state": self.state, "message": self.message}
+		if with_time:
+			out["time"] = self.time
+		return out
 
 
 def write_site(hostname: str | None) -> bool:
@@ -97,309 +116,6 @@ def server_ips() -> list[str]:
 	return out
 
 
-class ProxyError(Exception):
-	"""A hostname change couldn't be prepared; the message is for the page.
-	Nothing was left changed."""
-
-
-def _snapshot(paths: list[Path]) -> dict[Path, bytes | None]:
-	""":returns: each file's content (None: it doesn't exist), for _restore"""
-	return {p: (p.read_bytes() if p.is_file() else None) for p in paths}
-
-
-def _restore(saved: dict[Path, bytes | None]) -> None:
-	"""Write each file's content atomically (the key owner-only); None
-	deletes it - a _snapshot put back, or new files written."""
-	for path, data in saved.items():
-		if data is None:
-			path.unlink(missing_ok=True)
-			continue
-		runtime.write_atomic(path, data, 0o600 if path.name == certs.KEY_FILE else 0o644)
-
-
-def _put_back(saved: dict[Path, bytes | None],
-              written: dict[Path, bytes | None], what: str) -> None:
-	"""An undo's certificate files, under _cert_lock: `saved` is put back only
-	while the files are still the ones the change wrote (`written`) - a
-	change made since (another upload, a reissue) is left in place, and the
-	log says so."""
-	if _snapshot(list(written)) != written:
-		print(f"[NetRollout] {what}: the certificate files weren't put back - "
-		      f"they were changed again since; the newer ones stay", flush=True)
-		return
-	_restore(saved)
-
-
-def _cert_undo(saved: dict[Path, bytes | None], what: str) -> Undo:
-	"""undo() for a certificate change that has just written its files (call
-	it under _cert_lock, right after): see _put_back."""
-	written = _snapshot(list(saved))
-
-	def undo() -> None:
-		with _cert_lock:
-			_put_back(saved, written, what)
-	return undo
-
-
-def change_hostname(new: str) -> Undo:
-	"""Prepare nginx for the hostname `new`: the certificate first — a
-	self-signed one is reissued for the new name (keeping the addresses it
-	covered, and its previous names for NAME_TRANSITION_DAYS); an
-	organisation's must already cover it — then site.env.
-
-	:returns: undo(), which puts the previous certificate files and hostname
-	 back - only the hostname key of site.env (a port request or the port
-	 helper's keys written meanwhile stay), and only what no other change has
-	 replaced since
-	:raises ProxyError: the reason, having changed nothing"""
-	with _cert_lock:
-		return _change_hostname(new)
-
-
-def _change_hostname(new: str) -> Undo:
-	"""change_hostname's work, under the certificate lock."""
-	cert_dir = runtime.certs_dir()
-	cert = cert_dir / certs.CERT_FILE
-	saved = _snapshot(_cert_files(cert_dir))
-	try:
-		previous, existed = site_env.read(), site_env.path().is_file()
-		if new and cert.is_file():
-			dns, ips = certs.names_in(cert.read_bytes())
-			if certs.is_selfsigned(cert_dir):
-				# the names it covered stay for a transition period
-				now = time.time()
-				old = {n: u for n, u in _read_old_names(cert_dir).items() if u > now}
-				for name in dns:
-					old.setdefault(name, now + NAME_TRANSITION_DAYS * 86400)
-				old.pop(new, None)
-				certs.selfsigned(new, [str(ip) for ip in ips], cert_dir,
-				                 also_names=sorted(old))
-				_write_old_names(cert_dir, old)
-			elif not certs.host_matches(new, dns, ips):
-				covers = ", ".join([*dns, *map(str, ips)]) or "no names"
-				raise ProxyError(
-					f"The certificate in use covers {covers} — not {new}. Upload "
-					f"a certificate for {new} first (Server Management → "
-					f"Certificate), then change the hostname.")
-		values = _site_values(new)    # what write_site writes, for the undo
-		write_site(new)     # the last step: when it raises, site.env is as it was
-	except ProxyError:
-		_restore(saved)
-		raise
-	except OSError as e:
-		_restore(saved)
-		raise ProxyError(f"NetRollout couldn't write {e.filename or site_env.folder()}: "
-		                 f"{e.strerror or e}. Nothing was changed.") from e
-	except ValueError as e:
-		_restore(saved)
-		raise ProxyError(f"{e}. Nothing was changed.") from e
-	written = _snapshot(list(saved))
-
-	def undo() -> None:
-		with _cert_lock:
-			_put_back(saved, written, f"undoing the hostname {new}")
-			# only the keys this change wrote, while the hostname is still its
-			left = site_env.put_back(previous, values, existed, guard=site_env.HOSTNAME)
-			if left:
-				print(f"[NetRollout] undoing the hostname {new}: site.env's "
-				      f"{', '.join(left)} changed again since; left as it is",
-				      flush=True)
-	return undo
-
-
-def _read_old_names(cert_dir: Path) -> dict[str, float]:
-	"""{name: until (epoch seconds)}; nothing readable → {}."""
-	try:
-		data = json.loads((cert_dir / OLD_NAMES_FILE).read_text(encoding="utf-8"))
-	except (OSError, ValueError):
-		return {}
-	if not isinstance(data, dict):
-		return {}
-	return {n: float(u) for n, u in data.items()
-	        if isinstance(n, str) and isinstance(u, (int, float))}
-
-
-def _write_old_names(cert_dir: Path, names: dict[str, float]) -> None:
-	"""Keep the previous names' deadlines ({name: until}); none: the file goes."""
-	path = cert_dir / OLD_NAMES_FILE
-	if not names:
-		path.unlink(missing_ok=True)
-		return
-	_restore({path: json.dumps(names, indent=1, sort_keys=True).encode()})
-
-
-def drop_expired_names(now: float | None = None) -> list[str]:
-	"""Reissue NetRollout's self-signed certificate without the previous
-	hostnames whose transition period ended (nginx reloads it, no restart).
-	An organisation's certificate is never touched.
-
-	:param now: the time (epoch seconds; tests); now when None
-	:returns: the names dropped"""
-	with _cert_lock:
-		cert_dir = runtime.certs_dir()
-		cert = cert_dir / certs.CERT_FILE
-		stored = _read_old_names(cert_dir)
-		if not stored or not cert.is_file() or not certs.is_selfsigned(cert_dir):
-			return []
-		now = time.time() if now is None else now
-		keep = {n: u for n, u in stored.items() if u > now}
-		pem = cert.read_bytes()
-		dns, ips = certs.names_in(pem)
-		# the hostname is the common name (an IP address isn't among the DNS names)
-		host = certs.common_name(pem)
-		others = [n for n in dns if n != host]
-		expired = [n for n in others if n in stored and n not in keep]
-		if expired:
-			certs.selfsigned(host, [str(ip) for ip in ips], cert_dir,
-			                 also_names=[n for n in others if n not in expired])
-		_write_old_names(cert_dir, keep)
-		return expired
-
-
-class CertificateUpkeep(runtime.PeriodicTask):
-	"""drop_expired_names() now and every UPKEEP_INTERVAL_SECONDS - a server
-	that never restarts still drops them."""
-	FAILURE = "certificate upkeep failed: {error}"
-
-	def __init__(self) -> None:
-		super().__init__("certificate-upkeep", UPKEEP_INTERVAL_SECONDS)
-
-	def run_once(self) -> None:
-		dropped = drop_expired_names()
-		if dropped:
-			print(f"[NetRollout] certificate reissued without the previous "
-			      f"hostname(s) {', '.join(dropped)} (transition of "
-			      f"{NAME_TRANSITION_DAYS} days over)", flush=True)
-
-
-def start_certificate_upkeep() -> None:
-	"""The upkeep's daemon thread (CertificateUpkeep). Called by the web app's
-	entry point. Never raises."""
-	CertificateUpkeep().start()
-
-
-def _cert_files(cert_dir: Path) -> list[Path]:
-	"""Everything a certificate change replaces — the undo snapshot."""
-	return [cert_dir / certs.CERT_FILE, cert_dir / certs.KEY_FILE,
-	        cert_dir / certs.SELFSIGNED_MARKER, cert_dir / OLD_NAMES_FILE]
-
-
-def install_certificate(cert_pem: bytes, key_pem: bytes,
-                        hostname: str | None) -> tuple[certs.CertCheck, Undo]:
-	"""Use an organisation's certificate + key: checked first (certs.validate,
-	against the saved `hostname`), then written key first (nginx's watcher
-	tests the pair before using it). The self-signed marker goes, so
-	NetRollout never reissues it.
-
-	:returns: (the check - its warnings for the page, undo)
-	:raises ProxyError: every problem found, having changed nothing"""
-	check = certs.validate(cert_pem, key_pem, hostname or None)
-	if not check.ok:
-		raise ProxyError(" ".join(check.problems))
-	with _cert_lock:
-		cert_dir = runtime.certs_dir()
-		saved = _snapshot(_cert_files(cert_dir))
-		try:
-			cert_dir.mkdir(parents=True, exist_ok=True)
-			_restore({cert_dir / certs.KEY_FILE: key_pem})
-			_restore({cert_dir / certs.CERT_FILE: cert_pem})
-			(cert_dir / certs.SELFSIGNED_MARKER).unlink(missing_ok=True)
-			(cert_dir / OLD_NAMES_FILE).unlink(missing_ok=True)
-		except OSError as e:
-			_restore(saved)
-			raise ProxyError(f"NetRollout couldn't write {e.filename or cert_dir}: "
-			                 f"{e.strerror or e}. Nothing was changed.") from e
-		return check, _cert_undo(saved, "undoing the certificate upload")
-
-
-def generate_selfsigned(hostname: str | None) -> Undo:
-	"""Replace the certificate with a new self-signed one for `hostname`
-	(else the name the current certificate is for), for the server's IP
-	addresses (server_ips()) and any the current one covers.
-
-	:returns: undo()
-	:raises ProxyError: no name to make it for, or it couldn't be written -
-	 having changed nothing"""
-	with _cert_lock:
-		cert_dir = runtime.certs_dir()
-		cert = cert_dir / certs.CERT_FILE
-		dns: list[str] = []
-		ips: list[certs.SanIP] = []
-		try:
-			if cert.is_file():
-				dns, ips = certs.names_in(cert.read_bytes())
-		except (OSError, ValueError):
-			pass                          # unreadable: start from the hostname
-		name = hostname or (dns[0] if dns else "")
-		if not name:
-			raise ProxyError("Set the hostname first (System Settings → Access): "
-			                 "the certificate is made for it.")
-		saved = _snapshot(_cert_files(cert_dir))
-		try:
-			addresses = server_ips()
-			addresses += [str(ip) for ip in ips if str(ip) not in addresses]
-			certs.selfsigned(name, addresses, cert_dir)
-			(cert_dir / OLD_NAMES_FILE).unlink(missing_ok=True)
-		except (OSError, ValueError) as e:
-			_restore(saved)
-			where = getattr(e, "filename", None) or cert_dir
-			raise ProxyError(f"NetRollout couldn't write {where}: "
-			                 f"{getattr(e, 'strerror', None) or e}. Nothing was "
-			                 f"changed.") from e
-		return _cert_undo(saved, "undoing the self-signed certificate")
-
-
-def verdict(managed: bool, started: float, hostname: str | None = None) -> dict[str, Any]:
-	"""nginx's answer to a change written at `started`: applied / rejected,
-	or why there is none — not_managed (no NetRollout nginx reports here) or
-	no_answer. With `hostname`: the answer for that hostname.
-
-	:param managed: whether a NetRollout nginx reports here
-	:param started: when the change was written (epoch seconds)
-	:returns: {"state", "message"?}"""
-	if not managed:
-		return {"state": VerdictState.NOT_MANAGED}
-	status = wait_for_status(started, hostname=hostname)
-	if status is None:
-		return {"state": VerdictState.NO_ANSWER}
-	return {"state": status.get("state"), "message": status.get("message")}
-
-
-def overview(hostname: str | None) -> dict[str, Any]:
-	"""What the Access card shows, whenever an admin looks — not only right
-	after a save: nginx's last verdict and the certificate in use, checked
-	against `hostname` (the saved one).
-	{"nginx": None (no NetRollout nginx reports here) | {"state", "message",
-	 "time"}, "certificate": None (no file) | {"names", "not_after",
-	 "selfsigned", "problems", "warnings", "old_names": [{"name", "until"}]}}"""
-	status = read_status()
-	nginx = None if status is None else {
-		"state": status.get("state", VerdictState.UNKNOWN),
-		"message": status.get("message", ""), "time": status.get("time")}
-	cert_dir = runtime.certs_dir()
-	try:
-		cert_pem = (cert_dir / certs.CERT_FILE).read_bytes()
-	except FileNotFoundError:
-		return {"nginx": nginx, "certificate": None}
-	except OSError as e:
-		return {"nginx": nginx, "certificate": {
-			"names": [], "not_after": None, "selfsigned": False, "old_names": [],
-			"problems": [f"NetRollout can't read the certificate: {e.strerror or e}."],
-			"warnings": []}}
-	try:
-		key_pem = (cert_dir / certs.KEY_FILE).read_bytes()
-	except OSError:
-		key_pem = b""                    # validate() reports the key as missing
-	check = certs.validate(cert_pem, key_pem, hostname or None)
-	old = _read_old_names(cert_dir)
-	return {"nginx": nginx, "certificate": {
-		"names": check.names,
-		"not_after": check.not_after.isoformat() if check.not_after else None,
-		"selfsigned": certs.is_selfsigned(cert_dir),
-		"problems": check.problems, "warnings": check.warnings,
-		"old_names": [{"name": n, "until": old[n]} for n in check.names if n in old]}}
-
-
 def read_status() -> dict[str, Any] | None:
 	"""The watcher's last verdict: {"state": "applied" | "rejected",
 	"message", "time"}. None when no nginx reports here (an external proxy,
@@ -445,6 +161,107 @@ def wait_for_status(after: float, timeout: float = 8.0, poll: float = 0.5,
 		if time.monotonic() >= deadline:
 			return None
 		time.sleep(poll)
+
+
+class Nginx:
+	"""NetRollout's nginx, from the app's side: whether one reports here, its
+	last verdict, and the changes it must accept - each applied, or undone
+	when nginx rejects it."""
+
+	def __init__(self, certificates: CertificateStore) -> None:
+		""":param certificates: the certs folder nginx serves from"""
+		self.certificates = certificates
+
+	@property
+	def managed(self) -> bool:
+		""":returns: whether a NetRollout nginx reports here (its status.json)"""
+		return read_status() is not None
+
+	def status(self) -> Verdict | None:
+		""":returns: the watcher's last verdict (unreadable: "unknown"); None
+		 when no nginx reports here"""
+		status = read_status()
+		if status is None:
+			return None
+		return Verdict(status.get("state", VerdictState.UNKNOWN),
+		               status.get("message", ""), status.get("time"))
+
+	def overview(self, hostname: str | None) -> dict[str, Any]:
+		"""What the Access card shows, whenever an admin looks — not only right
+		after a save: nginx's last verdict and the certificate in use, checked
+		against `hostname` (the saved one).
+		{"nginx": None (no NetRollout nginx reports here) | {"state", "message",
+		 "time"}, "certificate": CertificateStore.summary}"""
+		status = self.status()
+		return {"nginx": None if status is None else status.as_dict(with_time=True),
+		        "certificate": self.certificates.summary(hostname)}
+
+	def change_hostname(self, new: str) -> Undo:
+		"""Prepare nginx for the hostname `new`: the certificate first
+		(CertificateStore.rename: a self-signed one is reissued, an
+		organisation's must cover it), then site.env - both under the
+		certificate lock.
+
+		:returns: undo(), which puts the previous certificate files and hostname
+		 back - only the hostname key of site.env (a port request or the port
+		 helper's keys written meanwhile stay), and only what no other change has
+		 replaced since
+		:raises ProxyError: the reason, having changed nothing"""
+		with self.certificates.lock:
+			try:
+				previous, existed = site_env.read(), site_env.path().is_file()
+				undo_certificate = self.certificates.rename(new)
+				try:
+					values = _site_values(new)    # what write_site writes, for the undo
+					write_site(new)     # the last step: when it raises, site.env is as it was
+				except (OSError, ValueError):
+					undo_certificate()
+					raise
+			except OSError as e:
+				raise ProxyError(f"NetRollout couldn't write {e.filename or site_env.folder()}: "
+				                 f"{e.strerror or e}. Nothing was changed.") from e
+			except ValueError as e:
+				raise ProxyError(f"{e}. Nothing was changed.") from e
+
+		def undo() -> None:
+			with self.certificates.lock:
+				undo_certificate()
+				# only the keys this change wrote, while the hostname is still its
+				left = site_env.put_back(previous, values, existed, guard=site_env.HOSTNAME)
+				if left:
+					print(f"[NetRollout] undoing the hostname {new}: site.env's "
+					      f"{', '.join(left)} changed again since; left as it is",
+					      flush=True)
+		return undo
+
+	def apply(self, change: Callable[[], Undo], hostname: str | None = None) -> Verdict:
+		"""Make a change nginx must accept and wait for its verdict - rejected:
+		the change is undone.
+
+		:param change: writes the files; returns its undo(). What it raises
+		 propagates (it has changed nothing)
+		:param hostname: wait for the site applied for this name (a new
+		 hostname); None: any verdict
+		:returns: the verdict - applied / rejected (undone), or why there is
+		 none: not_managed (no NetRollout nginx reports here) or no_answer"""
+		managed = self.managed
+		started = time.time()
+		undo = change()
+		verdict = self._verdict(managed, started, hostname)
+		if verdict.rejected:
+			undo()
+		return verdict
+
+	@staticmethod
+	def _verdict(managed: bool, started: float, hostname: str | None) -> Verdict:
+		"""nginx's answer to a change written at `started` (with `hostname`:
+		the answer for that hostname)."""
+		if not managed:
+			return Verdict(VerdictState.NOT_MANAGED)
+		status = wait_for_status(started, hostname=hostname)
+		if status is None:
+			return Verdict(VerdictState.NO_ANSWER)
+		return Verdict(status.get("state"), status.get("message"), status.get("time"))
 
 
 def sync_at_start(settings: SettingsStore) -> None:
