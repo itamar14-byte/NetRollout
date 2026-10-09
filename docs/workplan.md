@@ -624,6 +624,7 @@ Approved 2026-09-30, branch `phase-4-packaging`. Replaces the earlier Steps 4–
   - A command line of only `""` no longer crashes a rollout, but verify reports it as "not configured" on every platform — debatable.
   - After a failed kept-install update (Setup over an uninstalled install's kept data), a hand-run `netrollout start` starts the new version without `setup upgrade`; Setup no longer suggests it, but `start` doesn't refuse.
   - Linux install over kept data fetches the new images before the version check: with an unpublished release and newer kept data the admin gets "report it" (exit 3) instead of the downgrade refusal — nothing changes either way.
+  - LDAP, multi-domain Active Directory: a mapped group in another domain may be answered with a referral instead of "no such object"; sign-in then treats the directory as unavailable for users who reach that mapping (a group that doesn't exist is skipped since 2026-10-09). Rare (cross-domain group mappings); the LDAP page's test-user button shows it at once.
   - Results (admin view): the device label is ambiguous when two users have devices on the same ip:port; `?job=` combined with `page=`; the split view's section counts don't say they are filtered.
 
 ---
