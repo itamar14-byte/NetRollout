@@ -12,7 +12,7 @@ import pytest
 from src.rollout import inputs
 from src.rollout.engine import Device, RolloutEngine, RolloutOptions
 from src.rollout.log import RolloutLogger
-from src.rollout.platforms import COMMIT_TIMEOUT, NOT_CONFIGURED, PLATFORMS, STILL_CONFIGURED, UNVERIFIABLE, VARIABLE, VERIFIED, Commit, SaveConfig, first_word, rejection, verify_commands
+from src.rollout.platforms import COMMIT_TIMEOUT, NOT_CONFIGURED, PLATFORMS, STILL_CONFIGURED, UNVERIFIABLE, VARIABLE, VERIFIED, Commit, NoFinish, RunCommand, SaveConfig, first_word, rejection, verify_commands
 from src.rollout.session import NetmikoSession, PushResult, RunReport
 
 
@@ -1093,3 +1093,100 @@ def test_no_instruction_in_a_clean_result():
 	with patch("netmiko.ConnectHandler", return_value=connection()):
 		(result,) = engine.run(threading.Event(), fresh_logger())
 	assert result["action_needed"] is None
+
+
+# ── The Finish kinds' contracts ──────────────────────────────────────────────
+
+class Recorder:
+	"""A report that records what a finish tells it."""
+	def __init__(self):
+		self.lines, self.actions = [], []
+
+	def notify(self, text, tone, important=False):
+		self.lines.append(text)
+
+	def action_needed(self, device, what):
+		self.actions.append((device.endpoint, what))
+
+
+TARGET = Device(ip="10.0.0.1", label="d", username="u", password="p",
+                device_type="cisco_ios", secret="", port=22)
+
+
+def test_only_a_commit_is_not_interruptible():
+	"""A device that stops answering mid-push keeps what it took unless the platform
+	commits: SaveConfig, RunCommand and NoFinish are interruptible, Commit isn't."""
+	assert [f.interruptible for f in (SaveConfig(), RunCommand("save config"),
+	                                  NoFinish(), Commit())] == [True, True, True, False]
+
+
+def test_the_finish_after_leaving_config_mode():
+	"""After leaving config mode: SaveConfig saves (reply, "save"), RunCommand sends its
+	command (reply, the command), NoFinish and Commit send nothing ("", "")."""
+	conn = MagicMock()
+	conn.save_config.return_value = "[OK]"
+	conn.send_command.return_value = "done"
+	assert SaveConfig().after_leave(conn) == ("[OK]", "save")
+	assert RunCommand("save config").after_leave(conn) == ("done", "save config")
+	conn.send_command.assert_called_once_with("save config")
+	assert NoFinish().after_leave(conn) == ("", "")
+	assert Commit().after_leave(conn) == ("", "")
+
+
+def test_finishing_in_a_new_session():
+	"""From a fresh session, SaveConfig and RunCommand enable then finish as after
+	leaving config mode; NoFinish opens no session and answers None."""
+	conn = MagicMock()
+	conn.__enter__.return_value = conn
+	conn.save_config.return_value = "[OK]"
+	connect = MagicMock(return_value=conn)
+	assert SaveConfig().in_new_session(connect) == ("[OK]", "save")
+	assert [c[0] for c in conn.method_calls] == ["enable", "save_config"]
+	assert RunCommand("save config").in_new_session(connect)[1] == "save config"
+	unused = MagicMock()
+	assert NoFinish().in_new_session(unused) is None
+	unused.assert_not_called()
+
+
+def test_only_a_commit_acts_before_leaving_config_mode():
+	"""Before leaving config mode the save / command / nothing kinds do nothing and go
+	on (True); a commit that works commits once and goes on, telling nothing."""
+	for finish in (SaveConfig(), RunCommand("save config"), NoFinish()):
+		conn, report = MagicMock(), Recorder()
+		assert finish.before_leave(conn, report, TARGET) is True
+		assert conn.method_calls == [] and report.actions == []
+	conn, report = MagicMock(), Recorder()
+	assert Commit(discard=("rollback 0",)).before_leave(conn, report, TARGET) is True
+	assert conn.method_calls == [call.commit(read_timeout=COMMIT_TIMEOUT)]
+	assert (report.lines, report.actions) == ([], [])
+
+
+def test_a_commit_that_reverts_on_failure_asks_nothing_of_a_person():
+	"""A failed commit on a platform that drops it by itself sends no discard, leaves
+	config mode and asks no one to discard anything (False: not applied)."""
+	conn, report = MagicMock(), Recorder()
+	conn.commit.side_effect = ValueError("Commit failed")
+	assert Commit(reverts_on_failure=True).before_leave(conn, report, TARGET) is False
+	assert conn.method_calls == [call.commit(read_timeout=COMMIT_TIMEOUT),
+	                             call.exit_config_mode()]
+	assert report.actions == []
+
+
+def test_a_commit_without_a_discard_that_fails_asks_to_discard():
+	"""A failed commit with no discard command and no revert of its own asks a person
+	to discard the candidate on the device."""
+	conn, report = MagicMock(), Recorder()
+	conn.commit.side_effect = ValueError("Commit failed")
+	assert Commit().before_leave(conn, report, TARGET) is False
+	assert [where for where, _ in report.actions] == ["10.0.0.1:22"]
+	assert "still be in the candidate" in report.actions[0][1]
+
+
+def test_a_commit_that_outlasts_the_wait_stays_in_config_mode_untouched():
+	"""A commit still running after the wait: not applied, an ACTION NEEDED to check the
+	device - and nothing else sent (no discard, config mode not left)."""
+	conn, report = MagicMock(), Recorder()
+	conn.commit.side_effect = netmiko.exceptions.ReadTimeout("slow")
+	assert Commit(discard=("rollback 0",)).before_leave(conn, report, TARGET) is False
+	assert conn.method_calls == [call.commit(read_timeout=COMMIT_TIMEOUT)]
+	assert "didn't finish within" in report.actions[0][1]
