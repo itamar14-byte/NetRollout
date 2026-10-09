@@ -2,10 +2,11 @@
 timeouts, and unreachable-server classification."""
 import os
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from cryptography.fernet import Fernet
+from ldap3.core.exceptions import LDAPException
 
 import src.encryption as enc
 from src.accounts import ldap
@@ -65,3 +66,112 @@ def test_browsing_without_service_account_reports_error(server):
 	status error."""
 	server.bind_type = "simple"
 	assert ldap.walk_tree(server)["status"] == "error"
+
+
+# ── Branches a real directory can't easily produce ───────────────────────────
+
+def test_closing_ignores_an_unbind_error():
+	"""_close swallows an LDAPException from unbind (and does nothing for None)."""
+	conn = MagicMock()
+	conn.unbind.side_effect = LDAPException("connection already gone")
+	ldap._close(conn)
+	conn.unbind.assert_called_once_with()
+	ldap._close(None)
+
+
+def _root_dse(server, other, naming_contexts):
+	"""fetch_base_dn against a fake directory whose root entry has `other`
+	attributes and `naming_contexts`; :returns: its answer."""
+	fake = SimpleNamespace(info=SimpleNamespace(other=other,
+	                                            naming_contexts=naming_contexts))
+	conn = MagicMock()
+	with patch.object(ldap, "make_server", return_value=fake), \
+			patch.object(ldap, "_connection", return_value=conn) as made:
+		answer = ldap.fetch_base_dn(server)
+	made.assert_called_once_with(fake)
+	conn.open.assert_called_once_with()
+	conn.unbind.assert_called_once_with()
+	return answer
+
+
+def test_base_dn_prefers_active_directorys_default_naming_context(server):
+	"""With defaultNamingContext (AD) in the root entry, that is the base DN, not
+	the first naming context."""
+	assert _root_dse(server, {"defaultNamingContext": ["DC=corp,DC=example"]},
+	                 ["CN=Configuration,DC=corp,DC=example"]) == \
+	       {"status": "ok", "base_dn": "DC=corp,DC=example"}
+
+
+def test_base_dn_falls_back_to_the_first_naming_context(server):
+	"""Without defaultNamingContext the first naming context is the base DN."""
+	assert _root_dse(server, {}, ["dc=corp,dc=test", "dc=other"]) == \
+	       {"status": "ok", "base_dn": "dc=corp,dc=test"}
+
+
+@pytest.mark.parametrize("naming_contexts", [[], None])
+def test_base_dn_without_any_naming_context_is_an_error(server, naming_contexts):
+	"""No defaultNamingContext and no naming contexts: status error "Could not
+	determine base DN"."""
+	assert _root_dse(server, {}, naming_contexts) == \
+	       {"status": "error", "message": "Could not determine base DN"}
+
+
+def test_base_dn_of_an_unreachable_directory_is_an_error(server):
+	"""A directory nobody listens on: status error with ldap3's message."""
+	answer = ldap.fetch_base_dn(server)
+	assert answer["status"] == "error" and answer["message"]
+
+
+@pytest.mark.parametrize("bind_type", ["anonymous", "", None])
+def test_an_unknown_bind_type_is_refused_without_connecting(server, bind_type):
+	"""test_connection says "Unknown bind type" and test_user "Invalid bind type"
+	for a bind type other than regular / simple, without opening a connection."""
+	server.bind_type = bind_type
+	with patch.object(ldap, "_connection") as conn:
+		assert ldap.test_connection(server) == {"status": "error",
+		                                        "message": "Unknown bind type"}
+		assert ldap.test_user(server, "jdoe", "pw") == {"status": "error",
+		                                                "message": "Invalid bind type"}
+	conn.assert_not_called()
+
+
+def test_group_membership_needs_a_service_account(server):
+	"""Without a service account (bind type simple) no group is looked at: None,
+	no connection opened."""
+	server.bind_type = "simple"
+	with patch.object(ldap, "_connection") as conn:
+		assert ldap.check_group_membership(server, "jdoe", "pw", []) is None
+	conn.assert_not_called()
+
+
+def test_a_failing_membership_search_makes_the_directory_unavailable(server):
+	"""The user authenticated, then the group search fails (the connection lost):
+	check_group_membership raises LdapUnavailable with ldap3's message and the
+	service connection is closed."""
+	conn = MagicMock()
+	conn.search.side_effect = LDAPException("connection lost")
+	groups = [SimpleNamespace(group_dn="cn=netops,dc=corp,dc=test", role="operator")]
+	with patch.object(ldap, "authenticate", return_value="uid=jdoe,dc=corp,dc=test"), \
+			patch.object(ldap, "service_bind", return_value=conn):
+		with pytest.raises(ldap.LdapUnavailable, match="connection lost"):
+			ldap.check_group_membership(server, "jdoe", "pw", groups)
+	conn.unbind.assert_called_once_with()
+
+
+def test_user_details_need_a_service_account(server):
+	"""Without a service account the details aren't read: None, no connection."""
+	server.bind_type = "simple"
+	with patch.object(ldap, "_connection") as conn:
+		assert ldap.fetch_user_details(server, "jdoe") is None
+	conn.assert_not_called()
+
+
+def test_user_details_of_an_unreachable_directory_are_none(server):
+	"""The directory failing (port 1: refused) gives None, not an exception."""
+	assert ldap.fetch_user_details(server, "jdoe") is None
+
+
+def test_browsing_an_unreachable_directory_is_an_error(server):
+	"""walk_tree with the service bind failing: status error with ldap3's message."""
+	answer = ldap.walk_tree(server)
+	assert answer["status"] == "error" and answer["message"]

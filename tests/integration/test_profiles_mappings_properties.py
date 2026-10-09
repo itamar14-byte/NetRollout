@@ -8,7 +8,7 @@ import netmiko
 import pytest
 
 from src.db.tables import AuditLog, PropertyDefinition, SecurityProfile, VariableMapping, Inventory
-from src.encryption import decrypt
+from src.encryption import decrypt, encrypt
 
 pytestmark = [pytest.mark.postgres, pytest.mark.redis]
 
@@ -147,6 +147,170 @@ def test_connection_test_follows_the_edit_rule(client_for, make_user, make_profi
 		                               json={"device_id": str(glob)})
 	assert mine.status_code == 200
 	assert op.status_code == 404
+
+
+def with_enable_secret(session_scope, pid, secret):
+	"""Stores `secret` (encrypted) as the profile's enable secret."""
+	with session_scope() as s:
+		s.get(SecurityProfile, pid).enable_secret = encrypt(secret)
+
+
+def test_edit_replaces_the_password_when_given(client_for, make_user, make_profile,
+                                               db_get):
+	"""A password typed on edit is stored encrypted (Fernet, not the plain text),
+	surrounding spaces trimmed; the username is saved as typed."""
+	user = make_user()
+	pid = make_profile(user, password="original")
+	client_for(user).post(f"/security/{pid}/edit", data={
+		"label": "core", "username": "admin2", "password": "  N3w-pass  "})
+	p = db_get(SecurityProfile, pid)
+	assert p.password_secret.startswith("gAAAAA") and "N3w-pass" not in p.password_secret
+	assert decrypt(p.password_secret) == "N3w-pass"
+	assert p.username == "admin2"
+
+
+@pytest.mark.parametrize("form, expected", [
+	({}, "en-old"),                                         # blank: kept
+	({"enable_secret": "   "}, "en-old"),                   # only spaces: kept
+	({"enable_secret": "en-new"}, "en-new"),                 # given: replaced
+	({"clear_enable_secret": "1"}, None),                    # cleared
+	({"enable_secret": "en-new", "clear_enable_secret": "1"}, "en-new"),  # a new one wins
+])
+def test_edit_keeps_replaces_or_clears_the_enable_secret(
+		client_for, make_user, make_profile, db_get, session_scope, form, expected):
+	"""On edit the enable secret is kept when the field is blank, replaced (encrypted)
+	when typed, removed with clear_enable_secret - and a typed secret wins over
+	the clear box; the password is kept throughout."""
+	user = make_user()
+	pid = make_profile(user, password="pw")
+	with_enable_secret(session_scope, pid, "en-old")
+	resp = client_for(user).post(f"/security/{pid}/edit",
+	                             data={"username": "netops", **form})
+	assert resp.status_code == 302
+	p = db_get(SecurityProfile, pid)
+	assert (decrypt(p.enable_secret) if p.enable_secret else None) == expected
+	assert decrypt(p.password_secret) == "pw"
+
+
+def test_edit_is_audited(client_for, make_user, make_profile, session_scope):
+	"""An edit writes one security_profile.edit audit entry naming the profile."""
+	user = make_user()
+	pid = make_profile(user)
+	client_for(user).post(f"/security/{pid}/edit", data={"username": "netops"})
+	with session_scope() as s:
+		rows = s.query(AuditLog).filter_by(action="security_profile.edit",
+		                                   object_id=pid).all()
+		assert [r.object_type for r in rows] == ["SecurityProfile"]
+
+
+@pytest.mark.parametrize("payload", [{"device_id": ""}, {"device_id": None},
+                                     {"other": "x"}])
+def test_connection_test_without_a_device(client_for, make_user, make_profile, payload):
+	"""No device chosen (blank, null, or no device_id in the body): 404 "No device
+	selected"."""
+	user = make_user()
+	resp = client_for(user).post(f"/security/{make_profile(user)}/test", json=payload)
+	assert resp.status_code == 404
+	assert resp.json == {"status": "error", "message": "No device selected"}
+
+
+def test_connection_test_with_an_empty_body(client_for, make_user, make_profile):
+	"""An empty JSON body is refused before the view (with_json): 400 "Invalid
+	request"."""
+	user = make_user()
+	resp = client_for(user).post(f"/security/{make_profile(user)}/test", json={})
+	assert resp.status_code == 400
+	assert resp.json == {"status": "error", "message": "Invalid request"}
+
+
+def test_connection_test_with_an_invalid_device_id(client_for, make_user, make_profile):
+	"""A device id that isn't a UUID: 422 "Invalid device ID"."""
+	user = make_user()
+	resp = client_for(user).post(f"/security/{make_profile(user)}/test",
+	                             json={"device_id": "not-a-uuid"})
+	assert resp.status_code == 422
+	assert resp.json == {"status": "error", "message": "Invalid device ID"}
+
+
+def test_connection_test_of_an_unknown_device_or_profile(client_for, make_user,
+                                                         make_profile, make_device):
+	"""A device id or profile id that doesn't exist: 404 "Profile or device not
+	found"."""
+	user = make_user()
+	pid, dev = make_profile(user), make_device(user)
+	client = client_for(user)
+	for path, device in ((f"/security/{pid}/test", uuid.uuid4()),
+	                     (f"/security/{uuid.uuid4()}/test", dev)):
+		resp = client.post(path, json={"device_id": str(device)})
+		assert resp.status_code == 404
+		assert resp.json["message"] == "Profile or device not found"
+
+
+@pytest.mark.parametrize("ip, endpoint", [("10.0.0.7", "10.0.0.7:2222"),
+                                          ("2001:db8::7", "[2001:db8::7]:2222")])
+def test_connection_test_timeout(client_for, make_user, make_profile, make_device,
+                                 ip, endpoint):
+	"""A connection that times out: 504 "Connection timed out on <ip:port>" (IPv6
+	in brackets)."""
+	user = make_user()
+	pid, dev = make_profile(user), make_device(user, ip=ip, port=2222)
+	with patch("src.rollout.inputs.tcp_reachable", return_value=True), \
+			patch("src.webapp.blueprints.security.ConnectHandler",
+			      side_effect=netmiko.NetmikoTimeoutException("slow")):
+		resp = client_for(user).post(f"/security/{pid}/test", json={"device_id": str(dev)})
+	assert resp.status_code == 504
+	assert resp.json == {"status": "error", "message": f"Connection timed out on {endpoint}"}
+
+
+def test_connection_test_other_errors_are_500_with_their_text(
+		client_for, make_user, make_profile, make_device):
+	"""Any other exception from the connection: 500 with the exception's text."""
+	user = make_user()
+	pid, dev = make_profile(user), make_device(user)
+	with patch("src.rollout.inputs.tcp_reachable", return_value=True), \
+			patch("src.webapp.blueprints.security.ConnectHandler",
+			      side_effect=ValueError("Unsupported 'device_type'")):
+		resp = client_for(user).post(f"/security/{pid}/test", json={"device_id": str(dev)})
+	assert resp.status_code == 500
+	assert resp.json == {"status": "error", "message": "Unsupported 'device_type'"}
+
+
+@pytest.mark.parametrize("secret, sent", [("en-able", "en-able"), (None, "")])
+def test_connection_test_signs_in_with_the_profile(client_for, make_user, make_profile,
+                                                   make_device, session_scope,
+                                                   secret, sent):
+	"""A working test connects with the device's address, port and type and the
+	profile's decrypted username / password / enable secret ("" without one),
+	disconnects, and answers 200 "Connected successfully to <ip>"."""
+	user = make_user()
+	pid = make_profile(user, username="netops", password="pw")
+	if secret:
+		with_enable_secret(session_scope, pid, secret)
+	dev = make_device(user, ip="10.0.0.9", port=2222, device_type="juniper_junos")
+	conn = MagicMock()
+	with patch("src.rollout.inputs.tcp_reachable", return_value=True) as reachable, \
+			patch("src.webapp.blueprints.security.ConnectHandler",
+			      return_value=conn) as connect:
+		resp = client_for(user).post(f"/security/{pid}/test", json={"device_id": str(dev)})
+	assert resp.status_code == 200
+	assert resp.json["message"] == "Connected successfully to 10.0.0.9"
+	reachable.assert_called_once_with("10.0.0.9", 2222)
+	connect.assert_called_once_with(ip="10.0.0.9", username="netops", password="pw",
+	                                device_type="juniper_junos", port=2222, secret=sent)
+	conn.disconnect.assert_called_once_with()
+
+
+def test_connection_test_unreachable_message(client_for, make_user, make_profile,
+                                             make_device):
+	"""An unreachable port: 503 "TCP port <port> unreachable on <ip>", no SSH tried."""
+	user = make_user()
+	pid, dev = make_profile(user), make_device(user, ip="10.0.0.8", port=2222)
+	with patch("src.rollout.inputs.tcp_reachable", return_value=False), \
+			patch("src.webapp.blueprints.security.ConnectHandler") as connect:
+		resp = client_for(user).post(f"/security/{pid}/test", json={"device_id": str(dev)})
+	assert resp.status_code == 503
+	assert resp.json["message"] == "TCP port 2222 unreachable on 10.0.0.8"
+	connect.assert_not_called()
 
 
 # ── Variable mappings ────────────────────────────────────────────────────────

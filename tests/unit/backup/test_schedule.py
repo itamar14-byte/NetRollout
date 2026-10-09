@@ -1,9 +1,11 @@
 """When a scheduled backup is due (System Settings → Backups), and the
 choice settings it uses."""
 from datetime import datetime, timedelta
+from types import SimpleNamespace
 
 import pytest
 
+from src.backup import schedule as backup_schedule
 from src.backup.schedule import RETRY_SECONDS, due, last_slot, next_slot
 from src.db.settings import SETTINGS
 
@@ -79,3 +81,91 @@ def test_the_backup_time_is_24_hour_hh_mm(value, good):
 	else:
 		with pytest.raises(ValueError, match="like 02:00"):
 			SETTINGS["backup_time"].parse(value)
+
+
+# ── The scheduler thread (start_backup_schedule), driven turn by turn ────────
+
+class _Stop(Exception):
+	"""Ends the loop: raised by the fake sleep."""
+
+
+def test_the_scheduler_waits_first_then_ticks_unless_held_and_survives_failures(
+		monkeypatch, capsys):
+	"""The thread (daemon, "backup-schedule") sleeps FIRST_CHECK_SECONDS before its
+	first check, then each turn calls tick(backend) unless hold() is True, prints
+	"backup schedule check failed: ..." when tick raises and keeps going, and
+	sleeps CHECK_SECONDS after every turn."""
+	thread, events = {}, []
+	backend = SimpleNamespace(name="the-backend")
+	holds = iter([False, True, False, False])
+
+	class FakeThread:
+		def __init__(self, **kwargs):
+			thread.update(kwargs)
+
+		def start(self):
+			thread["started"] = True
+
+	def sleep(seconds):
+		events.append(("sleep", seconds))
+		if len([e for e in events if e[0] == "sleep"]) == 5:
+			raise _Stop
+
+	def tick(b):
+		events.append(("tick", b))
+		if len([e for e in events if e[0] == "tick"]) == 2:
+			raise OSError("the backups folder is full")
+
+	def hold():
+		events.append(("hold",))
+		return next(holds)
+
+	monkeypatch.setattr(backup_schedule.threading, "Thread", FakeThread)
+	monkeypatch.setattr(backup_schedule, "time", SimpleNamespace(sleep=sleep))
+	monkeypatch.setattr(backup_schedule, "tick", tick)
+	backup_schedule.start_backup_schedule(backend, hold)
+	assert thread["started"] and thread["daemon"] is True
+	assert thread["name"] == "backup-schedule"
+	with pytest.raises(_Stop):
+		thread["target"]()
+	first, check = backup_schedule.FIRST_CHECK_SECONDS, backup_schedule.CHECK_SECONDS
+	assert events == [("sleep", first),
+	                  ("hold",), ("tick", backend), ("sleep", check),
+	                  ("hold",), ("sleep", check),                      # held
+	                  ("hold",), ("tick", backend), ("sleep", check),   # fails
+	                  ("hold",), ("tick", backend), ("sleep", check)]   # goes on
+	assert capsys.readouterr().out == \
+		"[NetRollout] backup schedule check failed: the backups folder is full\n"
+
+
+def test_the_scheduler_survives_a_failing_hold(monkeypatch, capsys):
+	"""hold() raising is caught like a failing tick: printed, no tick, and the
+	loop sleeps CHECK_SECONDS and goes on."""
+	thread, sleeps, ticks = {}, [], []
+
+	class FakeThread:
+		def __init__(self, **kwargs):
+			thread.update(kwargs)
+
+		def start(self):
+			pass
+
+	def sleep(seconds):
+		sleeps.append(seconds)
+		if len(sleeps) == 3:
+			raise _Stop
+
+	def hold():
+		raise RuntimeError("no move state")
+
+	monkeypatch.setattr(backup_schedule.threading, "Thread", FakeThread)
+	monkeypatch.setattr(backup_schedule, "time", SimpleNamespace(sleep=sleep))
+	monkeypatch.setattr(backup_schedule, "tick", ticks.append)
+	backup_schedule.start_backup_schedule(SimpleNamespace(), hold)
+	with pytest.raises(_Stop):
+		thread["target"]()
+	assert sleeps == [backup_schedule.FIRST_CHECK_SECONDS,
+	                  backup_schedule.CHECK_SECONDS, backup_schedule.CHECK_SECONDS]
+	assert ticks == []
+	assert capsys.readouterr().out == (
+		"[NetRollout] backup schedule check failed: no move state\n" * 2)
