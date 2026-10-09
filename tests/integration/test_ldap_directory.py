@@ -186,12 +186,22 @@ def test_user_details_fall_back_to_the_common_name(ldap_server_config):
 
 def test_tree_at_the_base_lists_the_ous(ldap_server_config):
 	"""walk_tree with no DN looks at the base DN: its organizational units, each
-	type "ou" with no username. (Their label isn't pinned: an OU has no cn, and
-	today it reads "[]".)"""
+	type "ou" with no username."""
 	tree = ldap.walk_tree(ldap_server_config)
 	assert tree["status"] == "ok"
 	assert sorted((e["type"], e["dn"], e["username"]) for e in tree["entries"]) == [
 		("ou", f"ou={ou},{LDAP_BASE}", None) for ou in ("Groups", "Service", "Users")]
+
+
+def test_ous_are_labelled_by_their_name(ldap_server_config):
+	"""An OU (which has no cn) is labelled by its ou value - at the base and
+	nested - never by an empty attribute list ("[]")."""
+	base = ldap.walk_tree(ldap_server_config)["entries"]
+	assert sorted(e["label"] for e in base) == ["Groups", "Service", "Users"]
+	nested = ldap.walk_tree(ldap_server_config, f"ou=Users,{LDAP_BASE}")["entries"]
+	assert [e for e in nested if e["type"] == "ou"] == [
+		{"type": "ou", "dn": f"ou=Network,ou=Users,{LDAP_BASE}", "label": "Network",
+		 "username": None}]
 
 
 BROWSE_OU = f"ou=Browse,{LDAP_BASE}"

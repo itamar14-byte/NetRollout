@@ -9,7 +9,7 @@ from ldap3.core.exceptions import (LDAPException, LDAPBindError,
                                    LDAPInvalidCredentialsResult,
                                    LDAPNoSuchObjectResult)
 from ldap3.utils.conv import escape_filter_chars
-from ldap3.utils.dn import escape_rdn
+from ldap3.utils.dn import escape_rdn, parse_dn
 
 from src.db.tables import LDAPServer, LDAPGroup
 from src.encryption import decrypt
@@ -279,6 +279,21 @@ def fetch_base_dn(server: LDAPServer) -> dict[str, str]:
 		_close(conn)
 
 
+def _first_value(entry: Any, attribute: str) -> str | None:
+	""":returns: the entry's first value of the attribute; None when it has none
+	 (one it doesn't hold, or one not returned)"""
+	values = getattr(entry, attribute, None)
+	if values is None or not values.values:
+		return None
+	return str(values.values[0])
+
+
+def _label(entry: Any, attribute: str) -> str:
+	""":returns: the entry's first value of the attribute, else the value of its
+	 DN's first RDN (never an empty attribute rendered as "[]")"""
+	return _first_value(entry, attribute) or str(parse_dn(entry.entry_dn)[0][1])
+
+
 def walk_tree(server: LDAPServer, dn: str | None = None) -> dict[str, Any]:
 	"""One level of the directory, for the admin page's browser (it needs the
 	service account).
@@ -297,7 +312,8 @@ def walk_tree(server: LDAPServer, dn: str | None = None) -> dict[str, Any]:
 			search_base=scope,
 			search_filter='(objectClass=*)',
 			search_scope=LEVEL,
-			attributes=['objectClass', 'cn', server.cn_identifier]
+			attributes=list(dict.fromkeys(['objectClass', 'cn', 'ou',
+			                               server.cn_identifier]))
 		)
 
 		results: list[dict[str, str | None]] = []
@@ -306,20 +322,20 @@ def walk_tree(server: LDAPServer, dn: str | None = None) -> dict[str, Any]:
 			classes = [str(c).lower() for c in entry.objectClass]
 			if "organizationalunit" in classes:
 				results.append({"type": "ou", "dn": entry.entry_dn,
-				                "label": str(entry.cn), "username": None})
+				                "label": _label(entry, "ou"), "username": None})
 
 			# AD: group; OpenLDAP-style directories: groupOfNames / groupOfUniqueNames
 			elif {"group", "groupofnames", "groupofuniquenames"} & set(classes):
 				results.append(
 					{"type": "group", "dn": entry.entry_dn,
-					 "label": str(entry.cn),
+					 "label": _label(entry, "cn"),
 					 "username": None})
 
 			elif USER_CLASSES & set(classes):
-				identifier = getattr(entry, server.cn_identifier, None)
-				username = str(identifier) if identifier else str(entry.cn)
+				label = _label(entry, "cn")
+				username = _first_value(entry, server.cn_identifier) or label
 				results.append({"type": "user", "dn": entry.entry_dn,
-				                "label": str(entry.cn), "username": username})
+				                "label": label, "username": username})
 		return {"status": "ok", "entries": results}
 	except LDAPException as e:
 		return {"status": "error", "message": str(e)}

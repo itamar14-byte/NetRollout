@@ -175,3 +175,32 @@ def test_browsing_an_unreachable_directory_is_an_error(server):
 	"""walk_tree with the service bind failing: status error with ldap3's message."""
 	answer = ldap.walk_tree(server)
 	assert answer["status"] == "error" and answer["message"]
+
+
+def _entry(dn, classes, **attributes):
+	"""A search result entry as ldap3 gives it: each attribute with its values
+	(an empty list: requested, but the entry holds none)."""
+	return SimpleNamespace(entry_dn=dn, objectClass=classes,
+	                       **{k: SimpleNamespace(values=v) for k, v in attributes.items()})
+
+
+def test_tree_labels_use_the_first_value_else_the_rdn(server):
+	"""Labels are an attribute's first value - one of several cn values, not
+	the list - and, for an entry without that attribute, its RDN's value;
+	never an empty attribute shown as "[]". A user without the cn_identifier
+	attribute has its label as username."""
+	conn = MagicMock()
+	conn.entries = [
+		_entry("ou=Lab,dc=corp,dc=test", ["organizationalUnit"], ou=[], cn=[]),
+		_entry("cn=ops,dc=corp,dc=test", ["groupOfNames"], cn=["ops", "operations"]),
+		_entry("cn=Kim Lee,dc=corp,dc=test", ["inetOrgPerson"], cn=[], uid=[]),
+	]
+	with patch.object(ldap, "service_bind", return_value=conn):
+		answer = ldap.walk_tree(server)
+	assert answer == {"status": "ok", "entries": [
+		{"type": "ou", "dn": "ou=Lab,dc=corp,dc=test", "label": "Lab", "username": None},
+		{"type": "group", "dn": "cn=ops,dc=corp,dc=test", "label": "ops",
+		 "username": None},
+		{"type": "user", "dn": "cn=Kim Lee,dc=corp,dc=test", "label": "Kim Lee",
+		 "username": "Kim Lee"},
+	]}
