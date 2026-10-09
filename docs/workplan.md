@@ -619,6 +619,12 @@ Approved 2026-09-30, branch `phase-4-packaging`. Replaces the earlier Steps 4–
 - **4.0b Grafana BYO + operator monitoring** — _(hooks built in Phase 4 stage 9 — `docs/architecture.md` §9, Bring your own)_ server management card for an external Grafana instance; and Grafana for operators: v1.0 is admins-only because free Grafana lets anyone who can sign in query every datasource through its API (datasource permissions are Enterprise; found in 7.3). Plan: a separate Grafana **organization** for operators (organizations isolate dashboards *and* datasources in the free edition) holding only Prometheus + a restricted Postgres role that sees aggregates (counts, rates — never commands, logs or the audit log); each user assigned to the right organization at sign-in by the setup step / the app through Grafana's API
 - **Local-AI "Explain this failure"** — optional small quantized model on the server, on demand per failed device, advisory only (never the pass/fail verdict), no cloud
 - ~~4.5 CLI `.exe`~~ — moved into Phase 4
+- **Known minor issues** _(left after the 2026-10-08/09 bug scan — every likely or serious finding was fixed; these are rare or cosmetic)_:
+  - A Redis switch pauses new rollouts with the database move's pause: a start refused during a switch shows the move's wording, and a database move started in the middle of a switch has its pause lifted when the switch ends (a narrow window).
+  - A command line of only `""` no longer crashes a rollout, but verify reports it as "not configured" on every platform — debatable.
+  - After a failed kept-install update (Setup over an uninstalled install's kept data), a hand-run `netrollout start` starts the new version without `setup upgrade`; Setup no longer suggests it, but `start` doesn't refuse.
+  - Linux install over kept data fetches the new images before the version check: with an unpublished release and newer kept data the admin gets "report it" (exit 3) instead of the downgrade refusal — nothing changes either way.
+  - Results (admin view): the device label is ambiguous when two users have devices on the same ip:port; `?job=` combined with `page=`; the split view's section counts don't say they are filtered.
 
 ---
 
