@@ -1,5 +1,5 @@
 """The NetRollout Flask application's type: Flask plus the services the pages
-use, attached once by `setup.launch_app` (and `maintenance.register_maintenance`).
+use, attached once by `build.launch_app`.
 
 Pages and helpers import `current_app` from here instead of from flask: the
 same proxy, typed as `NetRolloutApp`, so `current_app.backend.postgres` and
@@ -15,8 +15,7 @@ if TYPE_CHECKING:   # annotations only: these modules import this one's users
 	from src.db.connections import BackendServices
 	from src.jobs import RolloutOrchestrator
 	from src.webapp.db_move import DatabaseMove
-	from src.webapp.lifecycle import Shutdown
-	from src.webapp.db_move import Maintenance
+	from src.webapp.lifecycle import Maintenance, Shutdown
 	from src.webapp.http import WebServices
 
 

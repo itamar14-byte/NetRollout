@@ -10,7 +10,7 @@ from flask_login import current_user
 from src.db.tables import Role
 from src.runtime import VERSION
 from src.webapp.app import current_app
-from src.webapp.db_move import during_maintenance, MaintenanceState
+from src.webapp.lifecycle import during_maintenance
 from src.webapp.startup import GRAFANA_AUTH_PATH, HEALTH_PATH, INSTANCE_PATH
 
 bp = Blueprint("system", __name__)
@@ -67,7 +67,7 @@ def health() -> ResponseReturnValue:
 
 def _maintenance() -> dict[str, Any] | None:
 	""":returns: a database move's {state, progress}; None: none"""
-	info = current_app.maintenance.snapshot()
-	if info["state"] == MaintenanceState.IDLE:
+	if not current_app.maintenance.active:
 		return None
+	info = current_app.maintenance.snapshot()
 	return {"state": info["state"], "progress": info["progress"]}

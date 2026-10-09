@@ -38,10 +38,10 @@ from src.webapp.blueprints.mappings import bp as mappings_bp, properties_bp
 from src.webapp.blueprints.rollout import bp as rollout_bp
 from src.webapp.blueprints.security import bp as security_bp
 from src.webapp.blueprints.system import bp as system_bp
-from src.webapp.db_move import DatabaseMove, register_maintenance
+from src.webapp.db_move import DatabaseMove
 from src.webapp.hooks import register_extensions, register_handlers, register_auth
 from src.webapp.http import WebServices
-from src.webapp.lifecycle import Shutdown
+from src.webapp.lifecycle import Shutdown, register_maintenance
 from src.webapp.startup import new_instance_token
 
 

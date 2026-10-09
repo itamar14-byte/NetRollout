@@ -20,8 +20,9 @@ from src.jobs import clear_stale_jobs, with_owners
 from src.runtime import drain_seconds
 from src.webapp import db_move
 from src.webapp.app import current_app
-from src.webapp.db_move import same_database, during_maintenance
+from src.webapp.db_move import same_database
 from src.webapp.http import ok, err, require_admin, with_json
+from src.webapp.lifecycle import during_maintenance
 
 
 bp = Blueprint('admin_servers', __name__, url_prefix='/admin/server')
