@@ -22,6 +22,7 @@
 ; The install's identity: Windows finds it by this id (Settings -> Apps, the
 ; install record Setup reads for an update) - never change it
 #define AppGuid "6C1F0E52-9B47-4E1B-A7D3-5E2C8F41B0A9"
+#define DefaultDir "C:\NetRollout"
 
 [Setup]
 AppId={{{#AppGuid}}
@@ -34,7 +35,7 @@ AppSupportURL={#Repo}/issues
 AppUpdatesURL={#Repo}/releases
 AppCopyright=GNU AGPL v3
 VersionInfoDescription=NetRollout Setup
-DefaultDirName=C:\NetRollout
+DefaultDirName={#DefaultDir}
 DisableDirPage=no
 DisableProgramGroupPage=yes
 DisableReadyPage=no
@@ -147,6 +148,9 @@ var
 	Reinstall: Boolean;
 	{ over an installed NetRollout (Windows' record of it + its VERSION) }
 	UpdateMode: Boolean;
+	{ over the data an uninstall kept (.env; no record, no VERSION) of an
+	  older version - or one that doesn't say: updated, a backup first }
+	KeptUpdate: Boolean;
 	InstalledDir, InstalledVersion: String;
 
 { powershell.exe's arguments: run Script with CommandLine }
@@ -232,6 +236,16 @@ begin
 	Result := Format('%.6d.%.6d.%.6d.%d.%.6d', [A, B, C, Stage, N]);
 end;
 
+{ A version newer than this Setup: no downgrades (the data may be upgraded) }
+procedure SayDowngrade(const Installed: String);
+begin
+	SuppressibleMsgBox('NetRollout ' + Installed + ' is installed - newer than this Setup ' +
+		'({#AppVersion}). Downgrades aren''t supported.' + #13#10#13#10 +
+		'To run an earlier version: uninstall NetRollout, then run that version''s Setup - with your ' +
+		'data from a backup made by that version (the current data may already be upgraded).',
+		mbError, MB_OK, IDOK);
+end;
+
 { Over an installed NetRollout only a newer Setup goes on (the update): the
   same version or an older one says so before the first page. False: stop. }
 function NewerThanInstalled: Boolean;
@@ -246,17 +260,62 @@ begin
 			'version. Nothing to update.', mbInformation, MB_OK, IDOK);
 		Result := False;
 	end else if This < Installed then begin
-		SuppressibleMsgBox('NetRollout ' + InstalledVersion + ' is installed - newer than this Setup ' +
-			'({#AppVersion}). Downgrades aren''t supported.' + #13#10#13#10 +
-			'To run an earlier version: uninstall NetRollout, then run that version''s Setup - with your ' +
-			'data from a backup made by that version (the current data may already be upgraded).',
-			mbError, MB_OK, IDOK);
+		SayDowngrade(InstalledVersion);
 		Result := False;
 	end;
 end;
 
+{ S up to its first space }
+function FirstWord(const S: String): String;
+begin
+	Result := S;
+	if Pos(' ', Result) > 0 then Result := Copy(Result, 1, Pos(' ', Result) - 1);
+end;
+
+{ The version a kept .env was last set up by: its "# Updated to NetRollout X
+  on ..." line (an update), else the installer's "# NetRollout X - written by
+  the installer" header; '' when it has neither (an early install) }
+function KeptVersion(const Dir: String): String;
+var Lines: TArrayOfString; I: Integer; Updated, Header: String;
+begin
+	Updated := ''; Header := '';
+	if LoadStringsFromFile(AddBackslash(Dir) + '.env', Lines) then
+		for I := 0 to GetArrayLength(Lines) - 1 do begin
+			if Pos('# Updated to NetRollout ', Lines[I]) = 1 then
+				Updated := FirstWord(Copy(Lines[I], 25, Length(Lines[I])))
+			else if (Pos('# NetRollout ', Lines[I]) = 1) and (Pos('written by the installer', Lines[I]) > 0) then
+				Header := FirstWord(Copy(Lines[I], 14, Length(Lines[I])));
+		end;
+	if Updated <> '' then Result := Updated else Result := Header;
+end;
+
+{ A folder holding the data an uninstall kept (.env): the same version is
+  started as it is; an older one (or one .env doesn't name) is updated -
+  KeptUpdate; a newer one is refused, nothing changed. False: refused. }
+function CheckKept(const Dir: String): Boolean;
+var Kept, Key, This: String;
+begin
+	Result := True;
+	KeptUpdate := False;
+	Kept := KeptVersion(Dir);
+	Key := VersionKey(Kept);
+	This := VersionKey('{#AppVersion}');
+	if (Kept = '{#AppVersion}') or ((Key <> '') and (Key = This)) then exit;
+	if (Key <> '') and (This <> '') and (Key > This) then begin
+		SayDowngrade(Kept);
+		Result := False;
+		exit;
+	end;
+	{ older, or not one of ours: the script's check-update decides (refused there
+	  before any file is replaced) }
+	KeptUpdate := True;
+	InstalledDir := Dir;
+	if Kept <> '' then InstalledVersion := Kept else InstalledVersion := 'an earlier version';
+end;
+
 { Before the first page: Windows Server, or virtualization off -> say so and
-  stop; over an install, only a newer Setup goes on }
+  stop; over an install, only a newer Setup goes on - and over the data an
+  uninstall kept in the default folder, never an older Setup }
 function InitializeSetup: Boolean;
 var Problem: String;
 begin
@@ -267,7 +326,8 @@ begin
 		SuppressibleMsgBox('NetRollout can''t run on this computer.' + #13#10#13#10 + Problem, mbCriticalError, MB_OK, IDOK)
 	else begin
 		FindInstalled;
-		if UpdateMode then Result := NewerThanInstalled;
+		if UpdateMode then Result := NewerThanInstalled
+		else if FileExists('{#DefaultDir}\.env') then Result := CheckKept('{#DefaultDir}');
 	end;
 end;
 
@@ -443,7 +503,9 @@ end;
 
 function ManagerCanStart: Boolean;
 begin
-	Result := SetUpFailed and not ReleaseBroken and HasSettings;
+	{ a kept install's update that didn't finish: Start would skip the update's
+	  steps (the backup, setup upgrade) - Retry or Setup again instead }
+	Result := SetUpFailed and not ReleaseBroken and HasSettings and not KeptUpdate;
 end;
 
 { After a failed set-up and Cancel: what to do next }
@@ -456,6 +518,10 @@ begin
 		Result := 'Fix it, then click Retry - or Start in NetRollout Manager. The backup made before the ' +
 			'update is in the backups folder (...-before-update.zip): to go back to NetRollout ' +
 			InstalledVersion + ', install it and restore that backup.'
+	else if KeptUpdate then
+		Result := 'Fix it, then click Retry - or run this Setup again (the same folder): the update runs again, ' +
+			'a backup first. Don''t start NetRollout from NetRollout Manager before that - it would skip the ' +
+			'update''s steps.'
 	else if HasSettings then
 		Result := 'Fix it, then click Start in NetRollout Manager.'
 	else
@@ -476,7 +542,7 @@ begin
 			'downloads; then it restarts (about a minute).';
 		WizardForm.NextButton.Caption := 'Update';
 	end;
-	if (CurPageID = wpFinished) and UpdateMode and not SetUpFailed then begin
+	if (CurPageID = wpFinished) and (UpdateMode or KeptUpdate) and not SetUpFailed then begin
 		WizardForm.FinishedHeadingLabel.Caption := 'NetRollout is updated';
 		WizardForm.FinishedLabel.Caption := 'NetRollout {#AppVersion} is running. Everyone signs in again ' +
 			'(a restart signs everyone out).';
@@ -508,11 +574,14 @@ function NextButtonClick(CurPageID: Integer): Boolean;
 var Code, Port: Integer; Who: String;
 begin
 	Result := True;
-	if CurPageID = wpSelectDir then
+	if CurPageID = wpSelectDir then begin
 		{ NetRollout's data already there (an uninstall that kept it): its
-		  settings stay, the Settings page is skipped }
-		Reinstall := FileExists(AddBackslash(WizardDirValue) + '.env')
-	else if CurPageID = DockerPage.ID then begin
+		  settings stay, the Settings page is skipped; its version decides
+		  (the same: started; older: updated; newer: refused) }
+		Reinstall := FileExists(AddBackslash(WizardDirValue) + '.env');
+		KeptUpdate := False;
+		if Reinstall then Result := CheckKept(RemoveBackslashUnlessRoot(WizardDirValue));
+	end else if CurPageID = DockerPage.ID then begin
 		if GetDefault('docker', 'missing') <> 'running' then begin
 			DockerHint.Caption := 'Getting Docker Desktop ready - this window waits (up to 15 minutes)...';
 			WizardForm.NextButton.Enabled := False;
@@ -601,9 +670,12 @@ begin
 		exit;
 	end;
 	Lines := 'Install folder:' + NewLine + Space + WizardDirValue + NewLine + NewLine;
-	if Reinstall then
-		Lines := Lines + 'Settings:' + NewLine + Space + 'kept from the NetRollout already in this folder' + NewLine + NewLine
-	else begin
+	if Reinstall then begin
+		Lines := Lines + 'Settings:' + NewLine + Space + 'kept from the NetRollout already in this folder' + NewLine + NewLine;
+		if KeptUpdate then
+			Lines := Lines + 'Update:' + NewLine + Space + 'NetRollout ' + InstalledVersion + ' → {#AppVersion} ' +
+				'(the data is backed up first, then updated)' + NewLine + NewLine;
+	end else begin
 		if OrgCertBox.Checked then Certificate := 'your organisation''s (' + ExtractFileName(CertEdit.Text) + ')'
 		else Certificate := 'self-signed, for ' + Lowercase(HostnameEdit.Text);
 		Lines := Lines + 'Address:' + NewLine + Space + Address('') + NewLine + NewLine +
@@ -668,8 +740,10 @@ end;
 function RunSetUp(const Log: String): Integer;
 var Args: String;
 begin
-	if UpdateMode then begin
+	if UpdateMode or KeptUpdate then begin
 		Args := 'update -Yes -NoBrowser';
+		{ over kept data: the backup prepare-update couldn't make (no files yet) }
+		if KeptUpdate then Args := Args + ' -BackupFirst';
 		WizardForm.StatusLabel.Caption := 'Updating NetRollout - downloading the new version, then a restart (about a minute)...';
 		WizardForm.ProgressGauge.Style := npbstMarquee;
 		{ appended: the log of the preparation is in the same file }
@@ -718,15 +792,18 @@ function PrepareToInstall(var NeedsRestart: Boolean): String;
 var Code: Integer; Log: String;
 begin
 	Result := '';
-	if not UpdateMode then exit;
+	if not (UpdateMode or KeptUpdate) then exit;
 	ForceDirectories(InstalledDir + '\logs');
 	Log := InstalledDir + '\logs\update.log';
+	{ kept data (no VERSION there): the script checks its version by its image;
+	  the backup follows once the files are in place (update -BackupFirst) }
 	Exec(ExpandConstant('{cmd}'), '/C powershell.exe ' +
 		PsArgs(ExpandConstant('{tmp}\manage.ps1'), 'prepare-update -Yes -InstallDir "' + InstalledDir +
 		'" -NewVersion {#AppVersion}') + ' > "' + Log + '" 2>&1', InstalledDir, SW_HIDE, ewWaitUntilTerminated, Code);
 	if Code <> 0 then begin
-		Result := 'Nothing was changed - NetRollout ' + InstalledVersion + ' keeps running.' + #13#10#13#10 +
-			LogTail(Log) + #13#10 + 'The whole log: ' + Log;
+		if KeptUpdate then Result := 'Nothing was changed.'
+		else Result := 'Nothing was changed - NetRollout ' + InstalledVersion + ' keeps running.';
+		Result := Result + #13#10#13#10 + LogTail(Log) + #13#10 + 'The whole log: ' + Log;
 		exit;
 	end;
 	{ this install's Manager - the tray and the port helper - holds its .exe:
@@ -744,14 +821,14 @@ begin
 	if CurStep <> ssPostInstall then exit;
 	if WizardIsTaskSelected('addtopath') then SetOurPath(True);
 	ForceDirectories(ExpandConstant('{app}\logs'));
-	if UpdateMode then Log := ExpandConstant('{app}\logs\update.log')
+	if UpdateMode or KeptUpdate then Log := ExpandConstant('{app}\logs\update.log')
 	else Log := ExpandConstant('{app}\logs\install.log');
 	SetUpLog := Log;
 	while True do begin
 		SetUpCode := RunSetUp(Log);
 		SetUpFailed := SetUpCode <> 0;
 		if not SetUpFailed then break;
-		if UpdateMode then Text := 'NetRollout''s files are updated, but the update didn''t finish:'
+		if UpdateMode or KeptUpdate then Text := 'NetRollout''s files are updated, but the update didn''t finish:'
 		else Text := 'NetRollout was installed, but setting it up didn''t finish:';
 		Text := Text + #13#10#13#10 + LogTail(Log) + #13#10 + 'The whole log: ' + Log;
 		if ReleaseBroken then begin
