@@ -23,6 +23,7 @@ redis-py types every reply as maybe-awaitable (one signature for its sync and
 async clients); this client is synchronous, so each reply is cast to what it
 is."""
 import argparse
+import dataclasses
 import datetime
 import json
 import sys
@@ -31,6 +32,7 @@ import time
 import uuid
 from collections import defaultdict
 from collections.abc import Iterator, Sequence
+from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, cast, Callable
 
@@ -74,6 +76,51 @@ def _user_jobs(user_id: uuid.UUID | str) -> str:
 def _text(value: Any) -> str:
 	""":returns: a Redis reply as text (bytes decoded)"""
 	return value.decode() if isinstance(value, bytes) else str(value)
+
+
+@dataclass(frozen=True)
+class JobMeta:
+	"""A job's hash in Redis (JobStore.meta), typed."""
+	user_id: str                # who started it ("" if missing)
+	status: JobStatus | None    # None: missing, or not a status this version writes
+	device_count: int           # 0 if missing or not a number
+	created_at: str             # ISO, "" if missing
+	started_at: str | None      # ISO; None while queued
+
+	@classmethod
+	def from_hash(cls, fields: dict[str, str]) -> "JobMeta":
+		""":param fields: the hash as text"""
+		try:
+			device_count = int(fields.get("device_count") or 0)
+		except ValueError:
+			device_count = 0
+		status = fields.get("status", "")
+		return cls(user_id=fields.get("user_id", ""),
+		           status=JobStatus(status) if status in _JOB_STATUSES else None,
+		           device_count=device_count,
+		           created_at=fields.get("created_at", ""),
+		           started_at=fields.get("started_at") or None)
+
+
+_JOB_STATUSES = {s.value for s in JobStatus}
+
+
+@dataclass(frozen=True)
+class RolloutRow:
+	"""A rollout as the waiting lists show it (a database move, the Restart
+	dialog, netrollout stop / update): RolloutOrchestrator.jobs() and
+	JobStore.rollouts(). Its fields, in this order, are the JSON the scripts
+	and NetRollout Manager parse (named())."""
+	job_id: str
+	user_id: str
+	devices: int
+	state: str                  # queued / running / cancelling
+	started: str | None         # ISO to the second; None while queued
+
+	def named(self, user: str) -> dict[str, Any]:
+		""":param user: its owner's username
+		:returns: the row as JSON, its owner's name last ("user")"""
+		return {**dataclasses.asdict(self), "user": user}
 
 
 class JobStore:
@@ -176,11 +223,12 @@ class JobStore:
 
 	# ── read by the pages and the metrics ──
 
-	def meta(self, job_id: uuid.UUID | str) -> dict[str, str]:
-		""":returns: the job's fields (user_id, status, device_count, created_at,
-		 started_at), as text; {} when it isn't running here"""
+	def meta(self, job_id: uuid.UUID | str) -> JobMeta | None:
+		""":returns: the job's fields; None when it isn't running here"""
 		fields = cast(dict[bytes, bytes], self._client.hgetall(_meta(job_id)))
-		return {_text(k): _text(v) for k, v in fields.items()}
+		if not fields:
+			return None
+		return JobMeta.from_hash({_text(k): _text(v) for k, v in fields.items()})
 
 	def job_ids(self, user_id: uuid.UUID | str | None = None) -> list[str]:
 		""":param user_id: whose; None: everyone's
@@ -197,30 +245,25 @@ class JobStore:
 		pending: Any = self._client.get(PENDING)
 		return int(active or 0), int(pending or 0)
 
-	def rollouts(self) -> list[dict[str, Any]]:
-		"""Every job here, oldest first, in RolloutOrchestrator.jobs()' shape -
-		for a process that isn't the one running them (netrollout stop /
-		update, the Manager: python -m src.jobs rollouts).
-
-		:returns: [{job_id, user_id, devices, state (queued / running /
-		 cancelling), started (to the second, or None)}]"""
-		rows: list[tuple[str, dict[str, Any]]] = []
+	def rollouts(self) -> list[RolloutRow]:
+		"""Every job here, oldest first, as RolloutOrchestrator.jobs() gives
+		them - for a process that isn't the one running them (netrollout stop /
+		update, the Manager: python -m src.jobs rollouts)."""
+		rows: list[tuple[str, RolloutRow]] = []
 		for job_id in self.job_ids():
 			meta = self.meta(job_id)
-			if not meta:
+			if meta is None:
 				continue              # ended between the scan and the read
-			started = meta.get("started_at")
-			rows.append((meta.get("created_at", ""), {
-				"job_id": job_id, "user_id": meta.get("user_id", ""),
-				"devices": int(meta.get("device_count") or 0),
-				"state": _STATES.get(meta.get("status", ""), "running"),
-				"started": started[:19] if started else None}))
+			rows.append((meta.created_at, RolloutRow(
+				job_id=job_id, user_id=meta.user_id, devices=meta.device_count,
+				state=_STATES[meta.status] if meta.status else "running",
+				started=meta.started_at[:19] if meta.started_at else None)))
 		return [row for _, row in sorted(rows, key=lambda r: r[0])]
 
 
 # a job's status in Redis -> what the waiting lists call it
-_STATES: dict[str, str] = {JobStatus.PENDING: "queued", JobStatus.ACTIVE: "running",
-                           JobStatus.CANCELLING: "cancelling"}
+_STATES: dict[JobStatus, str] = {JobStatus.PENDING: "queued", JobStatus.ACTIVE: "running",
+                                 JobStatus.CANCELLING: "cancelling"}
 
 # HSET only on a hash that exists (set_status), atomically
 _SET_IF_EXISTS = ("if redis.call('exists', KEYS[1]) == 1 then "
@@ -568,13 +611,13 @@ class RolloutOrchestrator:
 		job.cancel()
 		self._store.set_status(job.job_id, JobStatus.CANCELLING)
 
-	def jobs(self) -> list[dict[str, Any]]:
+	def jobs(self) -> list[RolloutRow]:
 		"""This process's rollouts (a database move lists what it waits for)."""
 		with self._lock:
-			return [{"job_id": j.job_id, "user_id": j.user_id,
-			         "devices": j.get_device_count(),
-			         "state": "running" if j.started_at is not None else "queued",
-			         "started": j.started_at.isoformat(timespec="seconds") if j.started_at else None}
+			return [RolloutRow(job_id=str(j.job_id), user_id=str(j.user_id),
+			                   devices=j.get_device_count(),
+			                   state="running" if j.started_at is not None else "queued",
+			                   started=j.started_at.isoformat(timespec="seconds") if j.started_at else None)
 			        for j in self._jobs.values()]
 
 	def get_job(self, job_id: uuid.UUID) -> RolloutJob | None:
@@ -793,21 +836,20 @@ def job_status_condition(status: str) -> ColumnElement[bool]:
 	raise ValueError(f"no job status {status!r}")
 
 
-def with_owners(rollouts: Sequence[dict[str, Any]],
+def with_owners(rollouts: Sequence[RolloutRow],
                 postgres: PostgresConnection) -> list[dict[str, Any]]:
 	"""The waiting lists' rows (a database move, the Restart dialog,
 	netrollout stop / update): each rollout with its owner's username, in one
 	query.
 
-	:param rollouts: RolloutOrchestrator.jobs() or JobStore.rollouts() - their
-	 user_id a UUID or its text
+	:param rollouts: RolloutOrchestrator.jobs() or JobStore.rollouts()
 	:param postgres: where the users are
-	:returns: the rollouts, job_id and user_id as text, plus "user" ("?" for
-	 an id without a user)"""
+	:returns: the rollouts as JSON (RolloutRow.named), "user" "?" for an id
+	 without a user"""
 	ids = set()
 	for rollout in rollouts:
 		try:
-			ids.add(uuid.UUID(str(rollout["user_id"])))
+			ids.add(uuid.UUID(rollout.user_id))
 		except ValueError:
 			pass
 	names: dict[str, str] = {}
@@ -815,8 +857,7 @@ def with_owners(rollouts: Sequence[dict[str, Any]],
 		with postgres.get_session() as session:
 			names = {str(row.id): row.username for row in
 			         session.query(User.id, User.username).filter(User.id.in_(ids))}
-	return [{**r, "job_id": str(r["job_id"]), "user_id": str(r["user_id"]),
-	         "user": names.get(str(r["user_id"]), "?")} for r in rollouts]
+	return [r.named(names.get(r.user_id, "?")) for r in rollouts]
 
 
 def rollouts_text(rollouts: Sequence[dict[str, Any]]) -> str:
@@ -880,7 +921,7 @@ def main(argv: list[str] | None = None) -> int:
 	try:
 		named = with_owners(rows, postgres)
 	except SQLAlchemyError:       # the names only: the list stands without them
-		named = [{**r, "user": "?"} for r in rows]
+		named = [r.named("?") for r in rows]
 	finally:
 		postgres.engine.dispose()
 	if args.json:

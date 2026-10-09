@@ -9,6 +9,7 @@ from sqlalchemy import create_engine, make_url, text
 from src.db import move
 from src.db.connections import PostgresConfig
 from src.db.tables import AuditLog, User
+from src.jobs import RolloutRow
 from src.webapp import db_move
 from tests.integration.conftest import PG_ADMIN_URL
 from tests.integration.test_db_move import (_wait, holding_netrollout, mover,  # noqa: F401 - fixtures
@@ -105,7 +106,8 @@ def test_status_while_waiting_lists_the_rollouts_by_name(app, admin, client_for,
 	monkeypatch.setattr(app.db_move, "status", lambda: {"state": db_move.MoveState.WAITING, "deadline": 0})
 	monkeypatch.setattr(app.db_move, "seconds_left", lambda: 90.4)
 	monkeypatch.setattr(app.orchestrator, "jobs", lambda: [
-		{"job_id": admin.id, "user_id": admin.id, "devices": 3, "state": "running", "started": None}])
+		RolloutRow(job_id=str(admin.id), user_id=str(admin.id), devices=3, state="running",
+		           started=None)])
 	move = client_for(admin, xhr=True).get("/admin/server/database/move/status").json["move"]
 	assert move["seconds_left"] == 90 and "deadline" not in move
 	assert move["rollouts"][0]["user"] == admin.username and move["rollouts"][0]["devices"] == 3

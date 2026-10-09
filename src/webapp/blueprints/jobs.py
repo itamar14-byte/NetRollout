@@ -309,21 +309,18 @@ def build_job_dict(job_id: str, usernames: dict[str, str]) -> dict[str, Any]:
 	:param usernames: user id → username, to name the owner"""
 	meta = JobStore(current_app.backend.redis).meta(job_id)
 	job = current_app.orchestrator.get_job(uuid.UUID(job_id))
-	# Not in memory (e.g. after a restart): Redis hash values are strings,
-	# and the page sums device counts — always return an int
-	try:
-		stored_count = int(meta.get("device_count", 0))
-	except ValueError:
-		stored_count = 0
+	# Not in memory (another process's, or ended meanwhile): the stored
+	# count - the page sums device counts, always an int
+	stored_count = meta.device_count if meta else 0
 	return {
 		"id": job_id,
-		"status": meta.get("status", "unknown"),
-		"created_at": meta.get("created_at", ""),
+		"status": meta.status if meta and meta.status else "unknown",
+		"created_at": meta.created_at if meta else "",
 		"device_count": job.get_device_count() if job else stored_count,
 		"started_at": job.started_at.strftime(
 			"%H:%M:%S") if job and job.started_at else "—",
 		"started_at_iso": job.started_at.isoformat() if job and job.started_at else "",
-		"owner": usernames.get(meta.get("user_id", ""), "unknown")
+		"owner": usernames.get(meta.user_id, "unknown") if meta else "unknown"
 	}
 
 

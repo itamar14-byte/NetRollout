@@ -10,7 +10,7 @@ import pytest
 import redis as redis_lib
 
 from src.db.tables import DeviceResult
-from src.jobs import DRAINING_MESSAGE, Draining
+from src.jobs import DRAINING_MESSAGE, Draining, RolloutRow
 from src.runtime import VERSION, drain_seconds
 
 pytestmark = [pytest.mark.postgres, pytest.mark.redis]
@@ -135,10 +135,10 @@ def two_rollouts(app, admin, monkeypatch):
 	a user id without a user. :returns: their job ids"""
 	running, queued = uuid.uuid4(), uuid.uuid4()
 	monkeypatch.setattr(app.orchestrator, "jobs", lambda: [
-		{"job_id": running, "user_id": admin.id, "devices": 4, "state": "running",
-		 "started": "2026-10-08T14:02:11"},
-		{"job_id": queued, "user_id": uuid.uuid4(), "devices": 1, "state": "queued",
-		 "started": None}])
+		RolloutRow(job_id=str(running), user_id=str(admin.id), devices=4, state="running",
+		           started="2026-10-08T14:02:11"),
+		RolloutRow(job_id=str(queued), user_id=str(uuid.uuid4()), devices=1, state="queued",
+		           started=None)])
 	return running, queued
 
 

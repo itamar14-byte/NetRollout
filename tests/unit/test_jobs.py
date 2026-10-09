@@ -995,3 +995,57 @@ def test_rollouts_text_lists_owner_devices_state_started():
 	assert lines[2].split() == ["alice", "12", "running", "2026-10-08", "14:02:11"]
 	assert lines[3].split() == ["bob", "3", "queued", "-"]
 	assert text.endswith("\n")
+
+
+class OneUserPostgres:
+	"""Postgres knowing one user (with_owners' query): alice, by her id."""
+	ALICE = uuid.UUID(int=0xA11CE)
+
+	@contextmanager
+	def get_session(self):
+		rows = [SimpleNamespace(id=self.ALICE, username="alice-with-a-very-long-name")]
+		yield SimpleNamespace(query=lambda *_: SimpleNamespace(filter=lambda *_: rows))
+
+
+def test_the_waiting_list_text_and_json_are_byte_for_byte_what_the_scripts_parse():
+	"""with_owners -> `python -m src.jobs rollouts [--json]`'s output, byte for
+	byte as before RolloutRow (the scripts and NetRollout Manager parse it):
+	the keys job_id, user_id, devices, state, started, user in that order,
+	the ids as text, "?" for an unknown or malformed owner, and main()'s
+	fallback without the names."""
+	alice = str(OneUserPostgres.ALICE)
+	rows = [jobs.RolloutRow(job_id=str(uuid.UUID(int=1)), user_id=alice, devices=5,
+	                        state="cancelling", started="2026-10-08T14:02:11"),
+	        jobs.RolloutRow(job_id="j2", user_id="not-a-uuid", devices=0,
+	                        state="running", started=None)]
+	named = jobs.with_owners(rows, OneUserPostgres())
+	assert json.dumps({"rollouts": named}) == (
+		'{"rollouts": [{"job_id": "00000000-0000-0000-0000-000000000001", '
+		'"user_id": "00000000-0000-0000-0000-0000000a11ce", "devices": 5, '
+		'"state": "cancelling", "started": "2026-10-08T14:02:11", '
+		'"user": "alice-with-a-very-long-name"}, {"job_id": "j2", '
+		'"user_id": "not-a-uuid", "devices": 0, "state": "running", '
+		'"started": null, "user": "?"}]}')
+	assert jobs.rollouts_text(named) == (
+		"2 rollouts running or queued:\n"
+		"   By                   Devices  State       Started\n"
+		"   alice-with-a-very-lo       5  cancelling  2026-10-08 14:02:11\n"
+		"   ?                          0  running     -\n")
+	assert json.dumps({"rollouts": [r.named("?") for r in rows]}) == (
+		'{"rollouts": [{"job_id": "00000000-0000-0000-0000-000000000001", '
+		'"user_id": "00000000-0000-0000-0000-0000000a11ce", "devices": 5, '
+		'"state": "cancelling", "started": "2026-10-08T14:02:11", "user": "?"}, '
+		'{"job_id": "j2", "user_id": "not-a-uuid", "devices": 0, '
+		'"state": "running", "started": null, "user": "?"}]}')
+
+
+def test_the_orchestrators_rollouts_have_text_ids(make_orchestrator):
+	"""RolloutOrchestrator.jobs(): a queued job's row - its ids as text (as
+	JobStore.rollouts gives them), its devices, queued, no start."""
+	orch = make_orchestrator(FakeRedis())
+	job = FakeJob()
+	job.get_device_count = lambda: 3
+	with orch._lock:
+		orch._jobs[job.job_id] = job
+	assert orch.jobs() == [jobs.RolloutRow(job_id=str(job.job_id), user_id=str(job.user_id),
+	                                       devices=3, state="queued", started=None)]

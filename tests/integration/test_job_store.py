@@ -27,14 +27,14 @@ def test_a_jobs_life(store):
 	counters back at (0, 0)."""
 	job, user = uuid.uuid4(), uuid.uuid4()
 	store.add(job, user, device_count=3)
-	assert store.meta(job)["status"] == "pending" and store.counts() == (0, 1)
+	assert store.meta(job).status == "pending" and store.counts() == (0, 1)
 	assert store.job_ids(user) == [str(job)] and store.job_ids() == [str(job)]
 	# (the queue isn't checked here: the test app's own dispatcher takes
 	# whatever is queued — tests/unit/test_jobs.py covers it)
 	store.started(job)
-	assert store.meta(job)["status"] == "active" and store.counts() == (1, 0)
+	assert store.meta(job).status == "active" and store.counts() == (1, 0)
 	store.finished(job, user, was_running=True)
-	assert store.meta(job) == {} and store.job_ids(user) == []
+	assert store.meta(job) is None and store.job_ids(user) == []
 	assert store.counts() == (0, 0)
 
 
@@ -72,10 +72,10 @@ def test_a_status_is_written_only_while_the_job_is_here(store):
 	job, user = uuid.uuid4(), uuid.uuid4()
 	store.add(job, user, device_count=1)
 	store.set_status(job, "cancelling")
-	assert store.meta(job)["status"] == "cancelling"
+	assert store.meta(job).status == "cancelling"
 	store.finished(job, user, was_running=False)
 	store.set_status(job, "cancelling")
-	assert store.meta(job) == {} and store.job_ids() == []
+	assert store.meta(job) is None and store.job_ids() == []
 
 
 # ── The host's view: JobStore.rollouts, with_owners, python -m src.jobs ─────
@@ -98,23 +98,23 @@ def test_rollouts_lists_each_job_oldest_first(store, make_user):
 	owner = make_user()
 	running, queued = _two_jobs(store, owner.id)
 	rows = store.rollouts()
-	assert [r["job_id"] for r in rows] == [str(running), str(queued)]
-	assert rows[0]["user_id"] == str(owner.id) and rows[0]["devices"] == 5
-	assert rows[0]["state"] == "running" and len(rows[0]["started"]) == 19
-	assert rows[1]["state"] == "queued" and rows[1]["started"] is None
+	assert [r.job_id for r in rows] == [str(running), str(queued)]
+	assert rows[0].user_id == str(owner.id) and rows[0].devices == 5
+	assert rows[0].state == "running" and len(rows[0].started) == 19
+	assert rows[1].state == "queued" and rows[1].started is None
 	store.set_status(running, "cancelling")
-	assert store.rollouts()[0]["state"] == "cancelling"
+	assert store.rollouts()[0].state == "cancelling"
 
 
 @pytest.mark.postgres
 def test_with_owners_names_each_rollout(app, make_user):
-	"""with_owners adds the owner's username for a UUID or a text id, "?" for an
-	id without a user, and gives the ids as text."""
+	"""with_owners adds the owner's username, "?" for an id without a user, and
+	gives the ids as text."""
 	alice, bob = make_user(), make_user()
 	rows = jobs.with_owners([
-		{"job_id": uuid.UUID(int=1), "user_id": alice.id, "devices": 1, "state": "running", "started": None},
-		{"job_id": "j2", "user_id": str(bob.id), "devices": 2, "state": "queued", "started": None},
-		{"job_id": "j3", "user_id": uuid.uuid4(), "devices": 3, "state": "queued", "started": None}],
+		jobs.RolloutRow(job_id=str(uuid.UUID(int=1)), user_id=str(alice.id), devices=1, state="running", started=None),
+		jobs.RolloutRow(job_id="j2", user_id=str(bob.id), devices=2, state="queued", started=None),
+		jobs.RolloutRow(job_id="j3", user_id=str(uuid.uuid4()), devices=3, state="queued", started=None)],
 		app.backend.postgres)
 	assert [r["user"] for r in rows] == [alice.username, bob.username, "?"]
 	assert rows[0]["job_id"] == str(uuid.UUID(int=1)) and rows[0]["user_id"] == str(alice.id)
