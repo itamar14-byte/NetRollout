@@ -13,7 +13,7 @@ from flask.typing import ResponseReturnValue
 from flask_login import current_user
 from sqlalchemy.orm import Session
 
-from src.audit import Actor, AuditAction
+from src.audit import Actor, AuditAction, AuditTrail
 from src.db.connections import BackendServices
 from src.db.tables import Base, PropertyDefinition, SecurityProfile, Role
 from src.encryption import encrypt
@@ -150,6 +150,8 @@ class WebServices:
 
 	def __init__(self, backend: BackendServices) -> None:
 		self.backend = backend
+		# the connection looked up per row: a database move is followed
+		self.audit_trail = AuditTrail(lambda: backend.postgres)
 		# resolved per use: the Redis connection can be hot-swapped
 		self.reachability = ReachabilityChecker(
 			lambda: backend.redis.client,
@@ -180,7 +182,7 @@ class WebServices:
 			return
 		if actor_id is None:
 			actor_id = current_user.id if current_user.is_authenticated else None
-		self.backend.audit_trail.record(
+		self.audit_trail.record(
 			Actor(actor_id, username, request.remote_addr), action,
 			object_type=object_type, object_id=object_id, object_label=object_label,
 			detail=detail, success=success)

@@ -14,7 +14,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from src import runtime
-from src.audit import Actor, AuditAction
+from src.audit import Actor, AuditAction, AuditTrail
 from src.backup import archive
 from src.db.connections import BackendServices
 from src.db.settings import BackupSchedule, Weekday
@@ -81,8 +81,9 @@ def due(now: datetime, slot: datetime | None, newest: datetime | None,
 def system_audit(backend: BackendServices, action: AuditAction, *, label: str | None = None,
                  success: bool = True, detail: dict[str, Any] | None = None) -> None:
 	"""A backup's audit row from the server itself (no request, no user)."""
-	backend.audit_trail.record(Actor.system(ACTOR), action, object_type="backup",
-	                           object_label=label, success=success, detail=detail)
+	AuditTrail(lambda: backend.postgres).record(
+		Actor.system(ACTOR), action, object_type="backup", object_label=label,
+		success=success, detail=detail)
 
 
 # ── Running ──────────────────────────────────────────────────────────────────

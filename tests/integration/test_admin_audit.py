@@ -38,7 +38,7 @@ def test_the_audit_trail_writes_every_column(app, admin, session_scope):
 		              success=False, username="dana", actor_id=admin.id)
 	system_audit(app.backend, AuditAction.BACKUP_FAILED, label="b.zip", success=False,
 	             detail={"kind": "scheduled"})
-	app.backend.audit_trail.record(Actor.system("netrollout"), AuditAction.BACKUP_CREATED)
+	app.web.audit_trail.record(Actor.system("netrollout"), AuditAction.BACKUP_CREATED)
 	with session_scope() as s:
 		rows = {r.action: _columns(r) for r in s.query(AuditLog).filter(AuditLog.action.in_(
 			[AuditAction.SETTINGS_UPDATE, AuditAction.BACKUP_FAILED,

@@ -132,9 +132,9 @@ class DatabaseMove:
 		                "target": target.describe(), "actor": actor,
 		                "started": _now(), "deadline": time.time() + self._wait}
 		try:   # never stops the move (maintenance has begun): a failure is printed
-			backend.audit_trail.record(Actor(actor_id, actor), AuditAction.DATABASE_MOVE_STARTED,
-			                           object_type="database", object_label=target.describe(),
-			                           detail={"back": back})
+			self._app.web.audit_trail.record(
+				Actor(actor_id, actor), AuditAction.DATABASE_MOVE_STARTED,
+				object_type="database", object_label=target.describe(), detail={"back": back})
 		except Exception as e:                    # noqa: BLE001
 			print(f"[NetRollout] database move: start not audited ({e})", flush=True)
 		threading.Thread(target=self._run, args=(target, actor_id, actor),
@@ -202,7 +202,7 @@ class DatabaseMove:
 		"""A move that didn't happen, in the audit log of the database
 		NetRollout stays on (never stops: a failure to audit is printed)."""
 		try:
-			self._app.backend.audit_trail.record(
+			self._app.web.audit_trail.record(
 				Actor(actor_id, actor),
 				AuditAction.DATABASE_MOVE_CANCELLED if outcome == MoveState.CANCELLED
 				else AuditAction.DATABASE_MOVE_FAILED, object_type="database",
