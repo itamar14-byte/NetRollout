@@ -33,11 +33,9 @@ import datetime
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
-
 from src import runtime
 from src.access import site_env
-from src.access.port import ApplyState
+from src.access.port import ApplyState, ApplyStatus
 from src.setup.env import compose_files, env_read, env_set
 
 STATUS_FILE = "apply-status.json"          # src/access/port.py reads it
@@ -72,13 +70,15 @@ def trial_path() -> Path:
 	return runtime.config_dir() / TRIAL_FILE
 
 
-def read_status() -> dict[str, Any] | None:
-	return runtime.read_json(status_path())
+def read_status() -> ApplyStatus | None:
+	""":returns: the last status written; None: none, or unreadable"""
+	data = runtime.read_json(status_path())
+	return None if data is None else ApplyStatus.from_dict(data)
 
 
 def write_status(id_: str, state: ApplyState, port: int, trying: int | None = None,
                  deadline: float | None = None, message: str = "",
-                 now: float | None = None) -> dict[str, Any]:
+                 now: float | None = None) -> ApplyStatus:
 	"""Write apply-status.json - what the page shows and waits on.
 
 	:param id_: the request it's about
@@ -90,10 +90,9 @@ def write_status(id_: str, state: ApplyState, port: int, trying: int | None = No
 	:param now: the time it's stamped with (tests); now when None
 	:returns: what was written"""
 	now = now if now is not None else datetime.datetime.now().timestamp()
-	status = {"id": id_, "state": state, "port": port, "trying": trying,
-	          "deadline": deadline, "message": message,
-	          "time": datetime.datetime.fromtimestamp(now).isoformat(timespec="seconds")}
-	runtime.write_json(status_path(), status)
+	status = ApplyStatus(id_, state, port, trying, deadline, message,
+	                     datetime.datetime.fromtimestamp(now).isoformat(timespec="seconds"))
+	runtime.write_json(status_path(), status.as_dict())
 	return status
 
 
@@ -130,22 +129,22 @@ def next_step(busy: dict[int, str], now: float | None = None) -> Step:
 	now = now if now is not None else datetime.datetime.now().timestamp()
 	request = site_env.read()
 	req_id = request.get(site_env.PORT_REQUEST_ID, "")
-	status = read_status() or {}
+	status = read_status() or ApplyStatus()
 	current = current_port()
 
 	# a trial in progress: its own outcome first
-	if status.get("state") == ApplyState.TRYING:
-		trial_id = status.get("id", "")
+	if status.state == ApplyState.TRYING:
+		trial_id = status.id
 		if trial_id != req_id:
 			return Step(StepAction.ROLLBACK, id=trial_id,
 			            message="replaced by a newer request")
 		if request.get(site_env.PORT_CONFIRMED) == req_id:
-			return Step(StepAction.KEEP, status.get("trying"), req_id)
-		if now > float(status.get("deadline") or 0):
-			return Step(StepAction.ROLLBACK, id=req_id, message=timed_out(status.get("trying")))
-		return Step(StepAction.WAIT, status.get("trying"), req_id)
+			return Step(StepAction.KEEP, status.trying, req_id)
+		if now > float(status.deadline or 0):
+			return Step(StepAction.ROLLBACK, id=req_id, message=timed_out(status.trying))
+		return Step(StepAction.WAIT, status.trying, req_id)
 
-	if not req_id or status.get("id") == req_id:
+	if not req_id or status.id == req_id:
 		return Step(StepAction.NONE)              # nothing asked, or handled
 	port = _wanted(request.get(site_env.PORT_REQUEST))
 	if port is None:
@@ -182,7 +181,7 @@ def open_trial(port: int) -> None:
 		env_set({"COMPOSE_FILE": ",".join(compose + [TRIAL_ENTRY])})
 
 
-def trying(port: int, id_: str, now: float | None = None) -> dict:
+def trying(port: int, id_: str, now: float | None = None) -> ApplyStatus:
 	"""nginx answers on both ports: the trial's clock starts."""
 	now = now if now is not None else datetime.datetime.now().timestamp()
 	return write_status(id_, ApplyState.TRYING, current_port(), trying=port,
@@ -190,13 +189,13 @@ def trying(port: int, id_: str, now: float | None = None) -> dict:
 
 
 def close(outcome: str, id_: str, message: str = "",
-          now: float | None = None, timed_out_: bool = False) -> dict:
+          now: float | None = None, timed_out_: bool = False) -> ApplyStatus:
 	"""The trial ends: keep (the new port in .env and site.env), rollback or
 	failed (the current port stays). The trial file goes either way; then
 	the script recreates nginx. timed_out_: the script's stopwatch ran out
 	(the message says so)."""
-	status = read_status() or {}
-	new = status.get("trying")
+	status = read_status() or ApplyStatus()
+	new = status.trying
 	if timed_out_:
 		message = timed_out(new)
 	if outcome == StepAction.KEEP and new:

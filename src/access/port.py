@@ -13,11 +13,13 @@ here). The app only writes requests and reads the helper's answers:
 
 The System Settings value is the *desired* port; anything that shows or
 redirects to an address uses serving_port()."""
+import dataclasses
 import json
 import os
 import secrets
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, cast
@@ -59,6 +61,31 @@ class PortPageState(StrEnum):
 	FAILED = "failed"
 
 
+@dataclass(frozen=True)
+class ApplyStatus:
+	"""apply-status.json: the helper's last answer - written by the helper
+	(src/setup/port.py), read here. The values are the file's, as written
+	(each reader checks what it uses); a key missing from the file is its
+	default."""
+	id: str = ""                  # the request it answers
+	state: str | None = None      # an ApplyState
+	port: Any = None              # the port in use
+	trying: Any = None            # a trial's new port
+	deadline: Any = None          # when the trial ends (epoch seconds)
+	message: Any = ""             # why (a rollback, a failure)
+	time: Any = None              # when it was written (local, ISO 8601)
+
+	@classmethod
+	def from_dict(cls, data: dict[str, Any]) -> "ApplyStatus":
+		""":returns: the status the file's object holds (other keys ignored)"""
+		names = {f.name for f in dataclasses.fields(cls)}
+		return cls(**{k: v for k, v in data.items() if k in names})
+
+	def as_dict(self) -> dict[str, Any]:
+		""":returns: the file's object - every key, in the file's order"""
+		return dataclasses.asdict(self)
+
+
 def _path(name: str) -> Path:
 	""":returns: the file in the config folder"""
 	return runtime.config_dir() / name
@@ -72,7 +99,7 @@ def _port(value: object) -> int | None:
 		return None
 
 
-def read_status() -> dict[str, Any] | None:
+def read_status() -> ApplyStatus | None:
 	"""The helper's last answer; None when no helper reports here (dev,
 	before stage 9, your own reverse proxy). Unreadable → state "unknown"."""
 	try:
@@ -80,8 +107,9 @@ def read_status() -> dict[str, Any] | None:
 	except FileNotFoundError:
 		return None
 	except (OSError, ValueError):
-		return {"state": ApplyState.UNKNOWN}
-	return data if isinstance(data, dict) else {"state": ApplyState.UNKNOWN}
+		return ApplyStatus(state=ApplyState.UNKNOWN)
+	return ApplyStatus.from_dict(data) if isinstance(data, dict) \
+		else ApplyStatus(state=ApplyState.UNKNOWN)
 
 
 def read_request() -> dict[str, Any] | None:
@@ -115,11 +143,11 @@ def serving_port() -> int:
 	container started, else 443."""
 	status = read_status()
 	if status:
-		if (status.get("state") == ApplyState.TRYING and status.get("id")
-				and status.get("id") == _confirmed_id()
-				and (trial := _port(status.get("trying")))):
+		if (status.state == ApplyState.TRYING and status.id
+				and status.id == _confirmed_id()
+				and (trial := _port(status.trying))):
 			return trial
-		if port := _port(status.get("port")):
+		if port := _port(status.port):
 			return port
 	return _port(os.environ.get(PUBLISHED_PORT_ENV, "443")) or 443
 
@@ -150,14 +178,13 @@ def confirm(apply_id: str, reached_port: int) -> str | None:
 	it, which proves nothing to anyone else anyway.)
 
 	:returns: None when confirmed, else why it can't be"""
-	status = read_status() or {}
-	if status.get("state") != ApplyState.TRYING or not apply_id \
-			or status.get("id") != apply_id:
+	status = read_status() or ApplyStatus()
+	if status.state != ApplyState.TRYING or not apply_id or status.id != apply_id:
 		return "There is no port change waiting for confirmation."
-	if _port(status.get("trying")) != reached_port:
-		return (f"Open NetRollout on port {status.get('trying')} to confirm "
+	if _port(status.trying) != reached_port:
+		return (f"Open NetRollout on port {status.trying} to confirm "
 		        f"— this page came through port {reached_port}.")
-	if status.get("deadline") and time.time() > float(status["deadline"]):
+	if status.deadline and time.time() > float(status.deadline):
 		return "Too late: the trial ended, the previous port is back."
 	site_env.update({site_env.PORT_CONFIRMED: apply_id})
 	return None
@@ -175,16 +202,15 @@ def state(saved_port: int) -> dict[str, Any]:
 	out: dict[str, Any] = {"saved": saved_port, "serving": serving}
 	status = read_status()
 	request = read_request()
-	if status and request and request["id"] and status.get("id") == request["id"]:
-		st = status.get("state")
+	if status and request and request["id"] and status.id == request["id"]:
+		st = status.state
 		if st == ApplyState.TRYING and _confirmed_id() == request["id"]:
 			return {**out, "state": PortPageState.CONFIRMING}
 		if st == ApplyState.TRYING:
 			return {**out, "state": PortPageState.TRYING, "id": request["id"],
-			        "trying": _port(status.get("trying")),
-			        "deadline": status.get("deadline")}
+			        "trying": _port(status.trying), "deadline": status.deadline}
 		if st in (ApplyState.ROLLED_BACK, ApplyState.FAILED):
-			return {**out, "state": PortPageState(st), "message": status.get("message", "")}
+			return {**out, "state": PortPageState(st), "message": status.message}
 	if saved_port == serving:
 		return {**out, "state": PortPageState.APPLIED}
 	if status is None:
