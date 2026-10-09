@@ -11,9 +11,7 @@ it (e.g. for a new hostname) — an organisation's certificate is never touched.
 import argparse
 import datetime
 import ipaddress
-import os
 import sys
-import tempfile
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -93,10 +91,10 @@ def selfsigned(hostname: str, ips: Iterable[str] = (),
 	cert_pem = cert.public_bytes(serialization.Encoding.PEM)
 	# Key first: nginx's watcher tests the pair before using it, so a moment
 	# with the new key and the old certificate is rejected, never served
-	_write_atomic(out / KEY_FILE, key_pem, mode=0o600)
-	_write_atomic(out / CERT_FILE, cert_pem, mode=0o644)
-	_write_atomic(out / SELFSIGNED_MARKER,
-	              f"{host}\n{now.isoformat()}\n".encode(), mode=0o644)
+	runtime.write_atomic(out / KEY_FILE, key_pem, mode=0o600)
+	runtime.write_atomic(out / CERT_FILE, cert_pem, mode=0o644)
+	runtime.write_atomic(out / SELFSIGNED_MARKER,
+	                     f"{host}\n{now.isoformat()}\n".encode(), mode=0o644)
 	return out
 
 
@@ -105,21 +103,6 @@ def is_selfsigned(cert_dir: str | Path | None = None) -> bool:
 	it)? The certs folder when None."""
 	return ((Path(cert_dir) if cert_dir else runtime.certs_dir())
 	        / SELFSIGNED_MARKER).is_file()
-
-
-def _write_atomic(path: Path, data: bytes, mode: int) -> None:
-	"""Write through a temp file in the same folder + rename: readers see the
-	old file or the new one, never half of one."""
-	fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
-	try:
-		with os.fdopen(fd, "wb") as f:
-			f.write(data)
-		os.chmod(tmp, mode)
-		os.replace(tmp, path)
-	except BaseException:
-		if os.path.exists(tmp):
-			os.remove(tmp)
-		raise
 
 
 # ── Validation ───────────────────────────────────────────────────────────────

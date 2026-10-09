@@ -171,6 +171,8 @@ def env_write(updates: dict[str, str]) -> bool:
 	text = "\n".join(out) + "\n"
 	if text == path.read_text(encoding="utf-8"):
 		return False
+	# rewritten in place, not runtime.write_atomic: a new file would lose the
+	# ACLs / owner the scripts set on .env
 	with open(path, "w", encoding="utf-8", newline="\n") as f:
 		f.write(text)
 	return True

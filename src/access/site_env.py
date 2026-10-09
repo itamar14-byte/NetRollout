@@ -11,8 +11,6 @@ of a change. Each reader takes only its own keys:
   System Settings hostname
 
 No web dependencies: the installer's setup core uses it too."""
-import os
-import tempfile
 import threading
 from collections.abc import Mapping
 from pathlib import Path
@@ -111,15 +109,7 @@ def _update(values: Mapping[str, str | None]) -> bool:
 def _write(content: str) -> None:
 	target = path()
 	target.parent.mkdir(parents=True, exist_ok=True)
-	fd, tmp = tempfile.mkstemp(dir=target.parent, prefix=f".{FILE}.")
 	try:
-		with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
-			f.write(content)
-		os.chmod(tmp, 0o644)
-		os.replace(tmp, target)
+		runtime.write_atomic(target, content.encode("utf-8"), 0o644)
 	except OSError as e:
-		Path(tmp).unlink(missing_ok=True)
 		raise OSError(e.errno, e.strerror, str(target)) from e
-	except BaseException:
-		Path(tmp).unlink(missing_ok=True)
-		raise

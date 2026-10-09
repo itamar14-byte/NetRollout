@@ -1,6 +1,6 @@
 """How and where this NetRollout process runs: its version, whether it's in
 the Docker image, the folders it keeps its files in, and its small status
-files (read_json / write_json).
+files (read_json / write_json, written atomically: write_atomic).
 
 Everything is read at call time, so a test (or the image) only has to set
 the environment variables.
@@ -8,6 +8,7 @@ the environment variables.
 import json
 import os
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -138,10 +139,27 @@ def read_json(path: Path) -> dict[str, Any] | None:
 	return data if isinstance(data, dict) else None
 
 
+def write_atomic(path: Path, data: bytes, mode: int) -> None:
+	"""Replace a file: written to a temp file in the same folder (created
+	owner-only), given `mode`, then renamed over it - a reader sees the old
+	file or the new one, never half of one. The temp file goes on any failure.
+
+	:param mode: the new file's permissions (e.g. 0o600 for a private key)"""
+	fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
+	try:
+		with os.fdopen(fd, "wb") as f:
+			f.write(data)
+		os.chmod(tmp, mode)
+		os.replace(tmp, path)
+	except BaseException:
+		if os.path.exists(tmp):
+			os.remove(tmp)
+		raise
+
+
 def write_json(path: Path, data: dict[str, Any]) -> None:
-	"""Replace a status file: written aside, then renamed - a reader never
-	sees half of it. The folder is made when missing."""
+	"""Replace a status file atomically (write_atomic; readable by all - the
+	app and the host scripts read what the other wrote). The folder is made
+	when missing."""
 	path.parent.mkdir(parents=True, exist_ok=True)
-	tmp = path.with_name(path.name + ".tmp")
-	tmp.write_text(json.dumps(data), encoding="utf-8")
-	os.replace(tmp, path)
+	write_atomic(path, json.dumps(data).encode("utf-8"), 0o644)
