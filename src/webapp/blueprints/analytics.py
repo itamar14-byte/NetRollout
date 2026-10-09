@@ -11,11 +11,13 @@ from flask.typing import ResponseReturnValue
 from flask_login import current_user, login_required
 from sqlalchemy import ColumnElement, and_, false, or_, true
 
-from src.db.tables import DeviceResult, Inventory, User, AuditLog, Role
+from src.accounts.users import Viewer
+from src.db.tables import DeviceResult, User, AuditLog, Role
+from src.inventory import InventoryView, LabelScope
 from src.jobs import build_kpi
 from src.rollout.engine import DeviceStatus
 from src.webapp.app import current_app
-from src.webapp.http import err, with_json, ok, require_admin
+from src.webapp.http import err, with_json, ok, require_admin, viewer
 
 
 bp = Blueprint('analytics', __name__, url_prefix='/analytics')
@@ -68,11 +70,8 @@ def analytics() -> str:
 			DeviceResult.user_id == scope_user_id,
 		).all()
 
-		inv_label_map = {
-			row.ip: row.label
-			for row in db_session.query(Inventory.ip, Inventory.label)
-			.filter(Inventory.user_id == scope_user_id).all()
-		}
+		inv_label_map = InventoryView(db_session, Viewer(scope_user_id)).label_map(
+			LabelScope.OWN)
 		users = db_session.query(User).order_by(User.username).all() \
 			if current_user.role == Role.ADMIN else []
 		db_session.expunge_all()
@@ -279,14 +278,8 @@ def admin_analytics() -> str:
 				fail_counts[r.device_ip]["device_type"] = r.device_type
 				fail_counts[r.device_ip]["count"] += 1
 
-		failed_ips = set(fail_counts.keys())
-		inv_rows = (
-			db_session.query(Inventory.ip, Inventory.label)
-			.filter(Inventory.ip.in_(failed_ips))
-			.all()
-			if failed_ips else []
-		)
-		label_map = {row.ip: row.label for row in inv_rows}
+		label_map = InventoryView(db_session, viewer()).label_map(
+			LabelScope.ANYONE, ips=set(fail_counts.keys()))
 
 		failed_devices_rows = sorted(
 			[

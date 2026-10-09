@@ -7,9 +7,10 @@ from unittest.mock import patch
 import pytest
 from sqlalchemy import event
 
+from src.accounts.users import Viewer
 from src.db.tables import AuditLog, DeviceAttribute, Inventory, SecurityProfile
 from src.encryption import decrypt
-from src.inventory import query_visible_devices
+from src.inventory import InventoryView
 
 pytestmark = [pytest.mark.postgres, pytest.mark.redis]
 
@@ -786,7 +787,7 @@ def test_inventory_cards_have_reachability_indicator(client_for, make_user,
 
 def test_visible_devices_load_in_a_constant_number_of_statements(
 		app, make_user, make_profile, make_device, make_mapping):
-	"""query_visible_devices loads the devices with their security profiles and
+	"""InventoryView.visible loads the devices with their security profiles and
 	mappings in the same number of SQL statements for 1 device as for 6 (no
 	query per device), and both relationships are there after the session
 	closes."""
@@ -800,7 +801,7 @@ def test_visible_devices_load_in_a_constant_number_of_statements(
 		event.listen(engine, "before_cursor_execute", listen)
 		try:
 			with app.backend.postgres.get_session() as s:
-				devices = query_visible_devices(s, user.id)
+				devices = InventoryView(s, Viewer(user.id)).visible()
 				s.expunge_all()
 		finally:
 			event.remove(engine, "before_cursor_execute", listen)

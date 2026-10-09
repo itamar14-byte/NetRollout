@@ -6,18 +6,19 @@ import functools
 import uuid
 from collections.abc import Callable
 from enum import Enum
-from typing import Any
+from typing import Any, cast
 
-from flask import Response, flash, jsonify, redirect, request, url_for
+from flask import Response, flash, g, jsonify, redirect, request, url_for
 from flask.typing import ResponseReturnValue
 from flask_login import current_user
 from sqlalchemy.orm import Session
 
+from src.accounts.users import Viewer
 from src.audit import Actor, AuditAction, AuditTrail
 from src.db.connections import BackendServices
-from src.db.tables import Base, PropertyDefinition, SecurityProfile, Role
+from src.db.tables import Base, SecurityProfile
 from src.encryption import encrypt
-from src.inventory import SYSTEM_PROPERTIES, ReachabilityChecker
+from src.inventory import ReachabilityChecker
 from src.webapp.app import current_app
 
 
@@ -63,6 +64,14 @@ class Caller(Enum):
 		            or (stream and request.path.startswith("/rollout/stream")))
 
 
+def viewer() -> Viewer:
+	""":returns: the signed-in user as the data layer's rules see them (built
+	 once per request)"""
+	if "viewer" not in g:
+		g.viewer = Viewer.of(current_user)
+	return cast(Viewer, g.viewer)
+
+
 def ok(message: str | None = None, /, **extra: Any) -> Response:
 	""":returns: {"status": "ok", "message"?, **extra} as JSON (the message is
 	 positional, so no extra field can stand in for it)"""
@@ -83,7 +92,7 @@ def require_admin(f: View) -> View:
 	page they came from."""
 	@functools.wraps(f)
 	def decorated(*args: Any, **kwargs: Any) -> ResponseReturnValue:
-		if current_user.role != Role.ADMIN:
+		if not viewer().is_admin:
 			if Caller.SCRIPT.wants_json():
 				return err("Forbidden", 403)
 			return redirect(request.referrer or url_for("jobs.dashboard"))
@@ -303,14 +312,3 @@ class WebServices:
 		           object_label=label or username)
 		return profile_id
 
-	def get_property_defs(self, user_id: uuid.UUID) -> tuple[
-			list[dict[str, Any]], list[dict[str, Any]]]:
-		""":returns: (the system properties, the user's own) - {name, label,
-		 icon, is_list, and the user's: id}"""
-		with self.backend.postgres.get_session() as db_session:
-			user_props = db_session.query(PropertyDefinition).filter_by(
-				user_id=user_id).order_by(PropertyDefinition.name).all()
-			user_defs = [{"name": p.name, "label": p.label, "icon": p.icon,
-			              "is_list": p.is_list, "id": str(p.id)}
-			             for p in user_props]
-		return SYSTEM_PROPERTIES, user_defs

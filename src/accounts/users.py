@@ -1,5 +1,6 @@
-"""NetRollout's users: local accounts (one set of checks for Request access
-and an admin's Add user), the one password rule (registration, a change, an
+"""NetRollout's users: who the data layer's rules are about (Viewer), local
+accounts (one set of checks for Request access and an admin's Add user),
+the one password rule (registration, a change, an
 admin reset's temporary password; the pages mirror it in
 templates/_password_rule_script.html), and who is signed in and for how
 long - the sessions in Redis (SessionStore), their idle and absolute limits,
@@ -11,6 +12,7 @@ import string
 import time
 import uuid
 from collections.abc import Callable, Iterator, Mapping
+from dataclasses import dataclass
 from typing import Any, Protocol, cast
 
 import redis
@@ -58,6 +60,22 @@ def temporary_password(username: str | None = None) -> str:
 		                    for _ in range(_TEMP_LENGTH))
 		if password_problem(candidate, username) is None:
 			return candidate
+
+
+@dataclass(frozen=True)
+class Viewer:
+	"""Who the data layer's rules are about: a user's id and whether they're
+	an admin. The web app builds the signed-in user's once per request
+	(webapp/http.viewer(); nothing here knows of a request). A rule about
+	another user - a job owner's devices, an admin's look at someone's
+	numbers - gets that user's: visibility doesn't depend on is_admin."""
+	id: uuid.UUID
+	is_admin: bool = False
+
+	@classmethod
+	def of(cls, user: User) -> "Viewer":
+		""":returns: the user's viewer (their id, admin or not)"""
+		return cls(user.id, user.role == Role.ADMIN)
 
 
 ROLES = (Role.OPERATOR, Role.ADMIN)

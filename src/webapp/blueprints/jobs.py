@@ -13,18 +13,19 @@ from typing import Any
 from flask import Blueprint, render_template, request, send_file, Response, url_for
 from flask.typing import ResponseReturnValue
 from flask_login import current_user, login_required
-from sqlalchemy import ColumnElement, and_, distinct, func, or_, tuple_
+from sqlalchemy import ColumnElement, and_, distinct, func, or_
 from sqlalchemy.orm import Session
 
 from src import runtime
-from src.db.tables import DeviceResult, JobMetadata, User, Inventory, Role
-from src.inventory import visible_devices_clause
+from src.accounts.users import Viewer
+from src.db.tables import DeviceResult, JobMetadata, User, Role
+from src.inventory import InventoryView, LabelScope
 from src.jobs import (JobStore, RolloutJob, JOB_STATUSES, job_status,
                       job_status_condition, build_kpi)
 from src.rollout.engine import endpoint
 from src.rollout.platforms import PLATFORMS, verify_commands
 from src.webapp.app import current_app
-from src.webapp.http import ok, err
+from src.webapp.http import ok, err, viewer
 
 
 bp = Blueprint('jobs', __name__)
@@ -118,38 +119,15 @@ def load_job_page(db_session: Session, scope: ColumnElement[bool], page: int,
 	return JobPage(results=results, total=total, page=page, pages=pages)
 
 
-def visible_label_map(db_session: Session, user_id: uuid.UUID) -> dict[str, str]:
-	"""ip → label over the user's own and global devices; their own win
-	when one shares an IP with a global one."""
-	rows = db_session.query(Inventory.ip, Inventory.label, Inventory.user_id)\
-		.filter(visible_devices_clause(user_id)).all()
-	rows.sort(key=lambda r: r.user_id == user_id)
-	return {r.ip: r.label for r in rows}
-
-
-def visible_endpoint_labels(db_session: Session,
-                            user_id: uuid.UUID) -> dict[tuple[str, int], str]:
-	"""(ip, port) → label, to name each device: the IP alone is ambiguous
-	when several share it (NAT, port forwarding). Their own win."""
-	rows = db_session.query(Inventory.ip, Inventory.port, Inventory.label,
-	                        Inventory.user_id)\
-		.filter(visible_devices_clause(user_id)).all()
-	rows.sort(key=lambda r: r.user_id == user_id)
-	return {(r.ip, r.port): r.label for r in rows}
-
-
-def shown_endpoint_labels(db_session: Session, results: Iterable[DeviceResult]) 		-> dict[tuple[str, int], str]:
+def shown_endpoint_labels(db_session: Session, results: Iterable[DeviceResult]) \
+		-> dict[tuple[str, int], str]:
 	"""(ip, port) → label (else the IP) for these device results' devices, from
 	anyone's inventory - what an admin sees (Results, the completion card);
 	only those devices are read.
 
 	:param results: the device results being shown"""
-	shown = {(r.device_ip, r.device_port) for r in results}
-	if not shown:
-		return {}
-	return {(row.ip, row.port): (row.label or row.ip)
-	        for row in db_session.query(Inventory.ip, Inventory.port, Inventory.label)
-	        .filter(tuple_(Inventory.ip, Inventory.port).in_(shown))}
+	return InventoryView(db_session, viewer()).endpoint_labels(
+		LabelScope.ANYONE, {(r.device_ip, r.device_port) for r in results})
 
 
 def user_owns_job(job_id: uuid.UUID, user_id: uuid.UUID) -> bool:
@@ -175,7 +153,8 @@ def load_dashboard_data(user_id: uuid.UUID, kpi_user_id: uuid.UUID,
 		profile_count = len(user.security_profiles)
 		mapping_count = len(user.variable_mappings)
 		jobs_results = user.results
-		inv_label_map = visible_label_map(db_session, user_id)
+		inv_label_map = InventoryView(db_session, Viewer(user_id)).label_map(
+			LabelScope.VISIBLE)
 
 		# KPI data — scoped to kpi_user_id (may differ from current user for admin)
 		cutoff = datetime.now() - timedelta(days=30)
@@ -188,7 +167,8 @@ def load_dashboard_data(user_id: uuid.UUID, kpi_user_id: uuid.UUID,
 				DeviceResult.user_id == kpi_user_id,
 				DeviceResult.started_at >= cutoff,
 			).all()
-			kpi_label_map = visible_label_map(db_session, kpi_user_id)
+			kpi_label_map = InventoryView(db_session, Viewer(kpi_user_id)).label_map(
+				LabelScope.VISIBLE)
 
 		users = db_session.query(User).order_by(User.username).all() \
 			if is_admin else []
@@ -466,8 +446,8 @@ def results() -> str:
 			others = JobPage(results=[], total=0, page=1, pages=1)
 			focus_in_others = False
 			usernames = {}
-			endpoint_labels = visible_endpoint_labels(db_session,
-			                                          current_user.id)
+			endpoint_labels = InventoryView(db_session, viewer()).endpoint_labels(
+				LabelScope.VISIBLE)
 		page_job_ids = {r.job_id for r in mine.results + others.results}
 		metadata_rows = db_session.query(JobMetadata).filter(
 			JobMetadata.job_id.in_(page_job_ids)).all() if page_job_ids else []
@@ -559,7 +539,8 @@ def job_summary(job_id: uuid.UUID) -> ResponseReturnValue:
 		                and rows[0].user_id != current_user.id):
 			return err("Not found", 404)
 		# an admin names devices as on Results (anyone's inventory)
-		labels = shown_endpoint_labels(db_session, rows) 			if current_user.role == Role.ADMIN 			else visible_endpoint_labels(db_session, current_user.id)
+		labels = shown_endpoint_labels(db_session, rows) if viewer().is_admin \
+			else InventoryView(db_session, viewer()).endpoint_labels(LabelScope.VISIBLE)
 		meta = db_session.query(JobMetadata).filter_by(job_id=job_id).first()
 		comment = meta.comment if meta else None
 		db_session.expunge_all()

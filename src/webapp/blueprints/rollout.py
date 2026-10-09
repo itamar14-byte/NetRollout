@@ -14,13 +14,14 @@ from flask_login import current_user, login_required
 from werkzeug.wrappers import Response as BaseResponse
 
 from src.audit import AuditAction
+from src.accounts.users import Viewer
 from src.db.tables import DeviceResult, Inventory, JobMetadata, User, Role
-from src.inventory import attributes, visible_devices_clause, query_visible_devices, partition_devices
+from src.inventory import InventoryView, partition_devices
 from src.jobs import QUEUED_LINE, Draining
 from src.rollout.engine import Device, DeviceStatus, RolloutOptions, missing_value
 from src.rollout.inputs import InputParser
 from src.webapp.app import current_app
-from src.webapp.http import ok, err, with_form, with_json, Caller
+from src.webapp.http import ok, err, with_form, with_json, Caller, viewer
 
 bp = Blueprint('rollout', __name__, url_prefix='/rollout')
 
@@ -77,16 +78,10 @@ def load_devices(selected_ids: list[uuid.UUID]) -> list[Device] | BaseResponse:
 	:returns: the devices; or the way back to the form, the reason flashed
 	 (none found, some missing, one without a security profile)"""
 	with current_app.backend.postgres.get_session() as db_session:
-		selected_rows = (
-			db_session.query(Inventory)
-			.filter(visible_devices_clause(current_user.id),
-			        Inventory.id.in_(selected_ids))
-			.all()
-		)
-		# Preload relationships needed for runtime device construction.
-		_ = [row.security_profile for row in selected_rows]
-		_ = [row.var_mappings for row in selected_rows]
-		values = attributes(db_session, selected_rows, current_user.id)
+		view = InventoryView(db_session, viewer())
+		# relationships preloaded for runtime device construction
+		selected_rows = view.visible_ids(selected_ids)
+		values = view.attributes(selected_rows)
 		db_session.expunge_all()
 
 	# 7) Validate the selected devices.
@@ -263,9 +258,9 @@ def _back() -> str:
 def new_rollout() -> str:
 	"""The new rollout page: the devices the user may roll out to."""
 	with current_app.backend.postgres.get_session() as db_session:
-		devices = query_visible_devices(db_session, current_user.id)
-		tokens = token_states(devices, attributes(db_session, devices, current_user.id),
-		                      current_user.id)
+		view = InventoryView(db_session, viewer())
+		devices = view.visible()
+		tokens = token_states(devices, view.attributes(devices), current_user.id)
 		db_session.expunge_all()
 	global_devices, my_devices = partition_devices(devices)
 
@@ -446,15 +441,15 @@ def rollback(job_id: uuid.UUID, data: dict[str, Any]) -> ResponseReturnValue:
 		owner_id = first.user_id
 		owner = db_session.get(User, owner_id)
 		owner_name = owner.username if owner else None
+		# the owner's devices and values, as they see them
+		owner_view = InventoryView(db_session, Viewer.of(owner) if owner else Viewer(owner_id))
 		result = db_session.query(DeviceResult).filter_by(
 			user_id=owner_id,
 			job_id=job_id,
 			status=DeviceStatus.SUCCESS.value).all()
 		successful = {(r.device_ip, r.device_port) for r in result}
 
-		candidates = db_session.query(Inventory).filter(
-			visible_devices_clause(owner_id),
-			Inventory.ip.in_({ip for ip, _ in successful})).all()
+		candidates = owner_view.visible(ips={ip for ip, _ in successful})
 		# Match on ip:port (the target), not IP alone — devices behind one
 		# NAT address differ by port. The owner's own entry and a global
 		# entry can still describe the same target: keep one per ip:port,
@@ -470,9 +465,7 @@ def rollback(job_id: uuid.UUID, data: dict[str, Any]) -> ResponseReturnValue:
 		if not rows:
 			return err("No successfully configured devices found for this job.")
 
-		_ = [row.security_profile for row in rows]
-		_ = [row.var_mappings for row in rows]
-		values = attributes(db_session, rows, owner_id)   # the owner's values
+		values = owner_view.attributes(rows)   # the owner's values (relationships preloaded)
 		db_session.expunge_all()
 
 	commands = [l.strip() for l in data["commands"].splitlines() if l.strip()]

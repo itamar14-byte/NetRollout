@@ -12,24 +12,30 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from src.audit import AuditAction
-from src.db.tables import VariableMapping, Inventory, PropertyDefinition
-from src.inventory import (SYSTEM_PROPERTIES, attributes, attributes_of, delete_property_values,
-                           partition_devices, query_visible_devices, visible_devices_clause)
+from src.db.tables import VariableMapping, PropertyDefinition
+from src.inventory import SYSTEM_NAMES, InventoryView, PropertyDef, partition_devices
 from src.rollout import inputs
 from src.rollout.engine import mapping_resolvable
 from src.rollout.log import RolloutLogger, Tone
 from src.webapp.app import current_app
 from src.webapp.hooks import signed_in_user
-from src.webapp.http import ok, err, with_form, with_json, flash_redirect
+from src.webapp.http import ok, err, with_form, with_json, flash_redirect, viewer
 
 
 bp = Blueprint('mappings', __name__, url_prefix='/mappings')
 
 
+def property_defs() -> tuple[list[PropertyDef], list[PropertyDef]]:
+	""":returns: (the system properties, the signed-in user's own)
+	 (InventoryView.property_defs)"""
+	with current_app.backend.postgres.get_session() as db_session:
+		return InventoryView(db_session, viewer()).property_defs()
+
+
 def property_rules() -> tuple[set[str], set[str]]:
 	"""(allowed names, list names), from the same definitions the pages show:
 	the system's and the user's own properties."""
-	sys_props, user_props = current_app.web.get_property_defs(current_user.id)
+	sys_props, user_props = property_defs()
 	props = sys_props + user_props
 	return ({p["name"] for p in props},
 	        {p["name"] for p in props if p["is_list"]})
@@ -93,16 +99,17 @@ def mappings() -> str:
 	"""The mappings page: the user's mappings with their devices, and the
 	devices they may assign, with the attribute values the user sees."""
 	with current_app.backend.postgres.get_session() as db_session:
+		view = InventoryView(db_session, viewer())
 		user = signed_in_user(db_session)
 		var_binds = user.variable_mappings
 		_ = [m.devices for m in var_binds]
-		devices = query_visible_devices(db_session, current_user.id)
+		devices = view.visible()
 		# a mapping's devices are visible ones (binding checks it)
-		values = attributes(db_session, devices, current_user.id)
+		values = view.attributes(devices)
+		sys_props, user_props = view.property_defs()
 		db_session.expunge_all()
 	global_devices, my_devices = partition_devices(devices)
 
-	sys_props, user_props = current_app.web.get_property_defs(current_user.id)
 	return render_template("variable_mappings.html", mappings=var_binds,
 	                       global_devices=global_devices,
 	                       my_devices=my_devices, sys_props=sys_props,
@@ -284,6 +291,7 @@ def mappings_bulk_assign() -> ResponseReturnValue:
 		return err("Invalid mapping ID")
 
 	with current_app.backend.postgres.get_session() as db_session:
+		view = InventoryView(db_session, viewer())
 		# Ownership check on mapping — done once before the loop
 		mapping = db_session.query(VariableMapping).filter_by(
 			id=parsed_mapping_id, user_id=current_user.id).first()
@@ -316,9 +324,7 @@ def mappings_bulk_assign() -> ResponseReturnValue:
 		for device_id_str in device_ids:
 			# Parse each device UUID — skip silently if malformed
 			try:
-				device: Inventory | None = db_session.query(Inventory).filter(
-					Inventory.id == uuid.UUID(str(device_id_str)),
-					visible_devices_clause(current_user.id)).first()
+				device = view.get_visible(uuid.UUID(str(device_id_str)))
 			except (ValueError, TypeError):
 				skipped += 1
 				continue
@@ -331,7 +337,7 @@ def mappings_bulk_assign() -> ResponseReturnValue:
 			# and the value must be truthy (empty string/list would produce
 			# garbage substitution at rollout time)
 			if not mapping_resolvable(
-					attributes_of(db_session, device, current_user.id),
+					view.attributes([device])[device.id],
 					mapping.property_name, mapping.index):
 				logger.notify(
 					f"{device.label} ({device.ip}): ineligible — missing attribute '{mapping.property_name}'",
@@ -367,7 +373,7 @@ properties_bp = Blueprint('properties', __name__, url_prefix='/properties')
 @login_required
 def properties() -> str:
 	"""The properties page: the system properties and the user's own."""
-	sys_props, user_props = current_app.web.get_property_defs(current_user.id)
+	sys_props, user_props = property_defs()
 	return render_template("properties.html", sys_props=sys_props,
 	                       user_props=user_props, active_section="properties")
 
@@ -419,8 +425,7 @@ def properties_create() -> ResponseReturnValue:
 		if existing:
 			return err("Property name already exists.")
 		# Also block shadowing system property names
-		sys_names = {p["name"] for p in SYSTEM_PROPERTIES}
-		if name in sys_names:
+		if name in SYSTEM_NAMES:
 			return err("Cannot shadow a system property.")
 		prop = PropertyDefinition(name=name, label=label, icon=icon,
 		                          is_list=is_list, user_id=current_user.id)
@@ -462,7 +467,7 @@ def properties_delete(prop_id: uuid.UUID) -> ResponseReturnValue:
 	                                   label_func=lambda p: p.name)
 
 	def _delete(prop: PropertyDefinition, db_session: Session) -> ResponseReturnValue:
-		delete_property_values(db_session, prop.user_id, prop.name)
+		InventoryView(db_session, viewer()).delete_property_values(prop.name)
 		return delete(prop, db_session)
 
 	return current_app.web.act_on_db_obj(

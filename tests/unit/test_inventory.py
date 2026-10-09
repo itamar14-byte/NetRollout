@@ -10,7 +10,8 @@ from unittest.mock import MagicMock, patch
 
 import redis
 
-from src.inventory import (ReachabilityChecker, import_csv, probe, can_edit_device,
+from src.accounts.users import Viewer
+from src.inventory import (InventoryView, ReachabilityChecker, import_csv, probe,
                            partition_devices, visible_devices_clause)
 from src.rollout.engine import Device
 from src.rollout.inputs import InputParser, Validator
@@ -197,6 +198,11 @@ def device(user_id, is_global):
 
 def user(user_id, role="operator"):
 	return SimpleNamespace(id=user_id, role=role)
+
+
+def can_edit_device(device, user):
+	"""InventoryView.can_edit for this user (the rule needs no session)."""
+	return InventoryView(MagicMock(), Viewer.of(user)).can_edit(device)
 
 
 class TestDeviceAccess:
