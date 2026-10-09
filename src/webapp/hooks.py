@@ -20,7 +20,6 @@ from prometheus_flask_exporter import PrometheusMetrics
 from redis.exceptions import ConnectionError as RedisConnectionError, \
 	TimeoutError as RedisTimeoutError
 from sqlalchemy.exc import OperationalError
-
 from sqlalchemy.orm import Session
 
 from src.accounts.users import (ABSOLUTE_SESSION_HOURS, LAST_ACTIVE, NO_SESSION_PATHS,
