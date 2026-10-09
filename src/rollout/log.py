@@ -9,6 +9,7 @@ import sys
 import threading
 import time
 from collections.abc import Iterator
+from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Callable, cast
 
 from src import runtime
@@ -115,6 +116,16 @@ COLORS = {
 
 ANSI_TO_HTML = {"RED": WEBAPP_RED, "GREEN": WEBAPP_GREEN, "YELLOW": WEBAPP_YELLOW}
 
+
+class Tone(StrEnum):
+	"""How a log message is shown: its value is the colour name the logger
+	maps to ANSI (a console) or the page's class (COLORS / ANSI_TO_HTML).
+	An ERROR is always shown, verbose or not."""
+	ERROR = "red"
+	WARNING = "yellow"
+	SUCCESS = "green"
+	INFO = ""
+
 # The live log's end, published on its channel (unnumbered)
 DONE = "__done__"
 # How long subscribe() waits for Redis to confirm the subscription
@@ -187,11 +198,11 @@ class RolloutLogger:
 				timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 				file.write(f"{timestamp}\t{message}\n")
 
-	def _msg(self, message: str, color: str = "") -> str:
+	def _msg(self, message: str, color: str = Tone.INFO) -> str:
 		"""The message dressed for where it's shown: an HTML <div> with the
 		page's colour class (the text escaped), or ANSI colours for a console.
 
-		:param color: "red" / "green" / "yellow"; "" for none"""
+		:param color: a Tone (its colour name); Tone.INFO for none"""
 		if self._webapp:
 			message = html.escape(message)
 			opening = ANSI_TO_HTML.get(color.upper()) if color else None
@@ -206,7 +217,7 @@ class RolloutLogger:
 			return message
 
 
-	def notify(self, message: str, color: str = "", important: bool = False) -> \
+	def notify(self, message: str, color: str = Tone.INFO, important: bool = False) -> \
 			None:
 		"""Log a message. Every message goes to the file; the notable ones -
 		errors (red), important ones, or all in verbose mode - are also shown:
@@ -215,11 +226,11 @@ class RolloutLogger:
 		The file comes first; the live log is best-effort - a Redis outage
 		must not fail the rollout (and lose its results) over a log line.
 
-		:param color: "red" (an error) / "green" / "yellow"; "" for none
+		:param color: a Tone - ERROR (always shown), WARNING, SUCCESS; INFO for none
 		:param important: shown even when not verbose"""
 		if self._webapp:
 			self._log(message)
-			if (important or self._verbose or color == "red") and self._channel_key:
+			if (important or self._verbose or color == Tone.ERROR) and self._channel_key:
 				client, history, channel = self._live_log()
 				content = self._msg(message, color)
 				try:
@@ -230,7 +241,7 @@ class RolloutLogger:
 					pass
 			return None
 		else:
-			if important or self._verbose or color == "red":
+			if important or self._verbose or color == Tone.ERROR:
 				print(self._msg(message, color))
 			self._log(message)
 

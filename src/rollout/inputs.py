@@ -15,7 +15,7 @@ from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
 from src.rollout.engine import Device, endpoint
-from src.rollout.log import RolloutLogger
+from src.rollout.log import RolloutLogger, Tone
 from src.rollout.platforms import PLATFORMS
 if TYPE_CHECKING:   # annotations only: the DB models load the web stack, which the CLI (.exe) must not
 	from src.db.tables import Inventory
@@ -130,10 +130,10 @@ class Validator:
 		"""The path is an existing file with the expected extension (csv for
 		devices, txt for commands)."""
 		if not os.path.isfile(path):
-			self._logger.notify(f"{path} is not a file", "red")
+			self._logger.notify(f"{path} is not a file", Tone.ERROR)
 			return False
 		if not path.lower().endswith(extension):
-			self._logger.notify(f"file must be {extension}", "red")
+			self._logger.notify(f"file must be {extension}", Tone.ERROR)
 			return False
 		return True
 
@@ -142,13 +142,13 @@ class Validator:
 		the first problem is reported."""
 		if not validate_ip(device["ip"]):
 			self._logger.notify(f"{device['ip']} is not a valid IP address",
-			                    "red")
+			                    Tone.ERROR)
 		elif not validate_port(device["port"]):
 			self._logger.notify(f"{device['port']} is not a valid port number",
-			                    "red")
+			                    Tone.ERROR)
 		elif not validate_platform(device["device_type"]):
 			self._logger.notify(f"{device['device_type']} is not supported",
-			                    "red")
+			                    Tone.ERROR)
 		else:
 			return True
 		return False
@@ -219,7 +219,7 @@ class InputParser:
 				username=item.get("username", ""), password=item.get("password", ""),
 				secret=item.get("secret", ""), extra=extra))
 			self.logger.notify(
-				f"Device {item['device_type']}: {ip} successfully added", "green")
+				f"Device {item['device_type']}: {ip} successfully added", Tone.SUCCESS)
 		return devices, errors
 
 	@staticmethod
@@ -254,23 +254,23 @@ class InputParser:
 				self.logger.notify(
 					f"Commands file successfully processed\n"
 					f"{len(commands)} commands will be executed",
-					"green")
+					Tone.SUCCESS)
 				return commands
 
 			except UnicodeDecodeError:
-				self.logger.notify("commands file must be UTF-8 text", "red")
+				self.logger.notify("commands file must be UTF-8 text", Tone.ERROR)
 				return []
 
 			except FileNotFoundError:
-				self.logger.notify("file not found", "red")
+				self.logger.notify("file not found", Tone.ERROR)
 				return []
 
 			except PermissionError:
-				self.logger.notify("can't access file", "red")
+				self.logger.notify("can't access file", Tone.ERROR)
 				return []
 
 			except Exception as e:
-				self.logger.notify(f"Parsing failed: {e}", "red")
+				self.logger.notify(f"Parsing failed: {e}", Tone.ERROR)
 				return []
 		else:
 			return []

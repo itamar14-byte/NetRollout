@@ -31,6 +31,7 @@ import time
 import uuid
 from collections import defaultdict
 from collections.abc import Iterator, Sequence
+from enum import StrEnum
 from typing import Any, cast, Callable
 
 import redis
@@ -41,8 +42,8 @@ from src import runtime
 from src.db.connections import (BackendServices, PostgresConnection, REDIS_UNAVAILABLE, RedisConnection,
                                 load_config)
 from src.db.tables import DeviceResult, JobMetadata, User
-from src.rollout.engine import RolloutEngine, RolloutOptions, Device, DeviceResultDict
-from src.rollout.log import RolloutLogger, live_log_keys
+from src.rollout.engine import RolloutEngine, RolloutOptions, Device, DeviceResultDict, DeviceStatus
+from src.rollout.log import RolloutLogger, Tone, live_log_keys
 
 
 QUEUE = "netrollout:job_queue"
@@ -52,6 +53,13 @@ ACTIVE = "netrollout:active_count"
 # under way cancels the running rollouts now instead of waiting for them
 STOP_NOW = "netrollout:stop_now"
 STOP_NOW_SECONDS = 15 * 60   # an update's download, backup and restart fit in it
+
+
+class JobStatus(StrEnum):
+	"""A job's status in its Redis hash, as Active Jobs shows it."""
+	PENDING = "pending"        # waiting for a slot
+	ACTIVE = "active"          # running
+	CANCELLING = "cancelling"  # asked to stop, finishing the devices in flight
 
 
 def _meta(job_id: uuid.UUID | str) -> str:
@@ -87,7 +95,7 @@ class JobStore:
 	        device_count: int) -> None:
 		"""A new job, waiting for a slot (not queued yet: enqueue())."""
 		self._client.hset(_meta(job_id), mapping={
-			"user_id": str(user_id), "status": "pending",
+			"user_id": str(user_id), "status": JobStatus.PENDING,
 			"device_count": device_count,
 			"created_at": datetime.datetime.now().isoformat()})
 		self._client.sadd(_user_jobs(user_id), str(job_id))
@@ -107,17 +115,17 @@ class JobStore:
 		"""Out of the queue (a job cancelled before it started)."""
 		self._client.lrem(QUEUE, 0, str(job_id))
 
-	def set_status(self, job_id: uuid.UUID, status: str) -> None:
+	def set_status(self, job_id: uuid.UUID, status: JobStatus) -> None:
 		"""The status of a job still here - never one that has ended (a cancel
 		racing the job's end would bring its hash back as a phantom row).
 
-		:param status: what Active Jobs shows (pending / active / cancelling)"""
+		:param status: what Active Jobs shows"""
 		self._client.eval(_SET_IF_EXISTS, 1, _meta(job_id), "status", status)
 
 	def started(self, job_id: uuid.UUID) -> None:
 		"""Pending → active."""
 		self._client.hset(_meta(job_id), mapping={
-			"status": "active",
+			"status": JobStatus.ACTIVE,
 			"started_at": datetime.datetime.now().isoformat()})
 		self._client.decr(PENDING)
 		self._client.incr(ACTIVE)
@@ -212,7 +220,8 @@ class JobStore:
 
 
 # a job's status in Redis -> what the waiting lists call it
-_STATES = {"pending": "queued", "active": "running", "cancelling": "cancelling"}
+_STATES: dict[str, str] = {JobStatus.PENDING: "queued", JobStatus.ACTIVE: "running",
+                           JobStatus.CANCELLING: "cancelling"}
 
 # HSET only on a hash that exists (set_status), atomically
 _SET_IF_EXISTS = ("if redis.call('exists', KEYS[1]) == 1 then "
@@ -295,7 +304,7 @@ class RolloutJob:
 			try:
 				self.results = self._engine.run(self._cancel_flag, self._logger)
 			except Exception as e:
-				self._logger.notify(f"Rollout aborted: {e}", "red")
+				self._logger.notify(f"Rollout aborted: {e}", Tone.ERROR)
 			finally:
 				on_complete(self.job_id)
 
@@ -312,7 +321,7 @@ class RolloutJob:
 		"""A queued job that will never run: every device recorded as
 		cancelled, with the reason in its log, so it shows in Results."""
 		self.started_at = datetime.datetime.now()
-		self._logger.notify(reason, "red", important=True)
+		self._logger.notify(reason, Tone.ERROR, important=True)
 		self.results = self._engine.cancelled_results()
 
 	def is_over(self) -> bool:
@@ -476,7 +485,7 @@ class RolloutOrchestrator:
 			self._cancel_queued(job, CANCELLED_BEFORE_START)
 			return
 		job.cancel()
-		self._store.set_status(job.job_id, "cancelling")
+		self._store.set_status(job.job_id, JobStatus.CANCELLING)
 
 	@staticmethod
 	def _claim(job: RolloutJob) -> bool:
@@ -612,7 +621,7 @@ class RolloutOrchestrator:
 			for job in jobs:
 				job.cancel()
 				try:
-					self._store.set_status(job.job_id, "cancelling")
+					self._store.set_status(job.job_id, JobStatus.CANCELLING)
 				except REDIS_UNAVAILABLE:
 					pass
 			end = time.monotonic() + _CANCEL_WAIT
@@ -711,21 +720,21 @@ class RolloutOrchestrator:
 		      flush=True)
 
 
-def job_status(rows: Sequence[DeviceResult]) -> str:
+def job_status(rows: Sequence[DeviceResult]) -> DeviceStatus:
 	""":returns: a job's status from its devices': cancelled if any was; failed
 	 if all failed; partial if any failed or was partial; else success"""
 	statuses = {r.status for r in rows}
-	if "cancelled" in statuses:
-		return "cancelled"
-	if all(r.status == "failed" for r in rows):
-		return "failed"
-	if any(r.status in ("failed", "partial") for r in rows):
-		return "partial"
-	return "success"
+	if DeviceStatus.CANCELLED in statuses:
+		return DeviceStatus.CANCELLED
+	if all(r.status == DeviceStatus.FAILED for r in rows):
+		return DeviceStatus.FAILED
+	if any(r.status in (DeviceStatus.FAILED, DeviceStatus.PARTIAL) for r in rows):
+		return DeviceStatus.PARTIAL
+	return DeviceStatus.SUCCESS
 
 
 # what job_status can say, in the Results page's filter order
-JOB_STATUSES = ("success", "partial", "failed", "cancelled")
+JOB_STATUSES = tuple(DeviceStatus)
 
 
 def job_status_condition(status: str) -> ColumnElement[bool]:
@@ -735,19 +744,20 @@ def job_status_condition(status: str) -> ColumnElement[bool]:
 
 	:param status: one of JOB_STATUSES
 	:raises ValueError: any other status"""
-	def any_device(*statuses: str) -> ColumnElement[bool]:
-		return func.bool_or(DeviceResult.status.in_(statuses))
+	def any_device(*statuses: DeviceStatus) -> ColumnElement[bool]:
+		return func.bool_or(DeviceResult.status.in_([s.value for s in statuses]))
 
-	all_failed = func.bool_and(DeviceResult.status == "failed")
-	if status == "cancelled":
-		return any_device("cancelled")
-	if status == "failed":
-		return and_(not_(any_device("cancelled")), all_failed)
-	if status == "partial":
-		return and_(not_(any_device("cancelled")), not_(all_failed),
-		            any_device("failed", "partial"))
-	if status == "success":
-		return not_(any_device("cancelled", "failed", "partial"))
+	all_failed = func.bool_and(DeviceResult.status == DeviceStatus.FAILED.value)
+	if status == DeviceStatus.CANCELLED:
+		return any_device(DeviceStatus.CANCELLED)
+	if status == DeviceStatus.FAILED:
+		return and_(not_(any_device(DeviceStatus.CANCELLED)), all_failed)
+	if status == DeviceStatus.PARTIAL:
+		return and_(not_(any_device(DeviceStatus.CANCELLED)), not_(all_failed),
+		            any_device(DeviceStatus.FAILED, DeviceStatus.PARTIAL))
+	if status == DeviceStatus.SUCCESS:
+		return not_(any_device(DeviceStatus.CANCELLED, DeviceStatus.FAILED,
+		                       DeviceStatus.PARTIAL))
 	raise ValueError(f"no job status {status!r}")
 
 
@@ -874,11 +884,11 @@ def build_kpi(results_30d: Sequence[DeviceResult],
 	 label, fail_count} or None)"""
 	total_ops = len(results_30d)
 	jobs_30d = len({r.job_id for r in results_30d})
-	success_count = sum(1 for r in results_30d if r.status == "success")
+	success_count = sum(1 for r in results_30d if r.status == DeviceStatus.SUCCESS)
 
 	fail_counts_ip: dict[str, int] = defaultdict(int)
 	for r in results_30d:
-		if r.status == "failed":
+		if r.status == DeviceStatus.FAILED:
 			fail_counts_ip[r.device_ip] += 1
 	top_failed = None
 	if fail_counts_ip:

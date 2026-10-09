@@ -11,13 +11,14 @@ from collections import Counter
 from collections.abc import Iterable
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
+from enum import StrEnum
 from typing import TYPE_CHECKING, Any, NamedTuple, Optional, TypedDict
 
 import netmiko
 from netmiko import BaseConnection
 
 from src import encryption
-from src.rollout.log import RolloutLogger
+from src.rollout.log import RolloutLogger, Tone
 from src.rollout.platforms import COMMIT_TIMEOUT, FETCH_TIMEOUT, NOT_CONFIGURED, PLATFORMS, STILL_CONFIGURED, UNVERIFIABLE, VERIFIED, Platform, first_word, navigates, rejection, verify_commands
 if TYPE_CHECKING:   # type hints only: the CLI (.exe) must not load the DB stack
 	from src.db.tables import Inventory
@@ -95,6 +96,16 @@ def unresolved(device: "Device", commands: list[str]) -> list[str]:
 	return problems
 
 
+class DeviceStatus(StrEnum):
+	"""A device's outcome in a rollout (device_results.status; a job's status
+	is one of them too: src/jobs.job_status), in the order the summary and
+	the Results filter list them."""
+	SUCCESS = "success"
+	PARTIAL = "partial"
+	FAILED = "failed"
+	CANCELLED = "cancelled"
+
+
 class PushResult(NamedTuple):
 	"""How the push went on one device."""
 	applied: bool    # the change took effect (connected, finished, committed)
@@ -115,7 +126,7 @@ class VerifyResult(NamedTuple):
 
 
 def classify(push: PushResult | None, verify: VerifyResult | None,
-             total: int, configuring: int) -> tuple[str, int, int | None]:
+             total: int, configuring: int) -> tuple[DeviceStatus, int, int | None]:
 	"""A device's outcome, by these rules:
 	- not applied (no connection, no commit) → failed, nothing counted
 	- verified: every checkable command confirmed and none refused →
@@ -133,22 +144,23 @@ def classify(push: PushResult | None, verify: VerifyResult | None,
 	:param configuring: those that configure something (not navigation)
 	:returns: (status, commands_sent, commands_verified - None unverified)"""
 	if push is None:
-		return "cancelled", 0, None
+		return DeviceStatus.CANCELLED, 0, None
 	if not push.applied:
-		return "failed", 0, None
+		return DeviceStatus.FAILED, 0, None
 	if push.interrupted:
 		# some commands took effect (live, not saved), the rest weren't sent
-		return "partial", push.sent or 0, verify.verified if verify is not None else None
+		return DeviceStatus.PARTIAL, push.sent or 0, verify.verified if verify is not None else None
 	if verify is not None:
 		if verify.verified == verify.checkable and not push.rejected:
-			status = "success"
+			status = DeviceStatus.SUCCESS
 		elif verify.verified == 0 and verify.checkable:
-			status = "failed"
+			status = DeviceStatus.FAILED
 		else:
-			status = "partial"
+			status = DeviceStatus.PARTIAL
 		return status, total, verify.verified + total - verify.checkable
-	status = ("success" if not push.rejected else
-	          "failed" if push.rejected >= configuring else "partial")
+	status = (DeviceStatus.SUCCESS if not push.rejected else
+	          DeviceStatus.FAILED if push.rejected >= configuring
+	          else DeviceStatus.PARTIAL)
 	return status, total, None
 
 
@@ -219,7 +231,7 @@ class Device:
 			with netmiko.ConnectHandler(**self.netmiko_connector()) as conn:
 				if problem := _enter_cli_shell(conn, platform):
 					logger.notify(f"could not fetch the config of {self.endpoint} "
-					              f"to verify it: {problem}", "red")
+					              f"to verify it: {problem}", Tone.ERROR)
 					return None
 				conn.enable()
 				output = ""
@@ -228,7 +240,7 @@ class Device:
 				return output
 		except Exception as e:
 			logger.notify(f"could not fetch the config of {self.endpoint} to "
-			              f"verify it: {e}", "red")
+			              f"verify it: {e}", Tone.ERROR)
 			return None
 
 	@classmethod
@@ -329,7 +341,7 @@ class RolloutEngine:
 		return [DeviceResultDict(device_ip=d.ip, device_port=int(d.port),
 		                         device_type=d.device_type, commands_sent=0,
 		                         commands_verified=None, fetched_config=None,
-		                         status="cancelled", action_needed=None)
+		                         status=DeviceStatus.CANCELLED, action_needed=None)
 		        for d in self._devices]
 
 	def _substitute_commands(self, device: Device) -> list[str]:
@@ -373,17 +385,17 @@ class RolloutEngine:
 		try:
 			commands = self._substitute_commands(device)
 		except SubstitutionError as e:
-			logger.notify(f"{device.endpoint} skipped — {e}", "red")
+			logger.notify(f"{device.endpoint} skipped — {e}", Tone.ERROR)
 			return device.ip, PushResult(applied=False, rejected=0)
 
 		platform = PLATFORMS[device.device_type]
-		logger.notify(f"connecting to {device.endpoint}", "yellow")
+		logger.notify(f"connecting to {device.endpoint}", Tone.WARNING)
 		commands_sent = False
 		sent = rejected = 0      # commands sent so far, and refused
 		try:
 			net_connect = netmiko.ConnectHandler(**(device.netmiko_connector()))
 			try:
-				logger.notify(f"{device.ip} connected successfully", "green")
+				logger.notify(f"{device.ip} connected successfully", Tone.SUCCESS)
 				# Goes into privileged config mode, depending on the platform
 				if problem := _enter_cli_shell(net_connect, platform):
 					self._action_needed(device, f"{problem} (nothing was sent)",
@@ -418,7 +430,7 @@ class RolloutEngine:
 					if complaint := rejection(output, command.strip()):
 						rejected += 1
 						logger.notify(f"{device.endpoint}: '{command.strip()}' "
-						              f"rejected — {complaint}", "red")
+						              f"rejected — {complaint}", Tone.ERROR)
 
 				applied = self._finish(net_connect, platform, device, logger)
 				return device.ip, PushResult(applied=applied, rejected=rejected)
@@ -432,10 +444,10 @@ class RolloutEngine:
 		# In case of exception or issue in connecting and executing the _commands,
 		# an error message will be printed, and we move to the next device
 		except netmiko.NetMikoAuthenticationException:
-			logger.notify(f"{device.ip} authentication failed", "red")
+			logger.notify(f"{device.ip} authentication failed", Tone.ERROR)
 			return device.ip, PushResult(applied=False, rejected=0)
 		except netmiko.NetmikoTimeoutException:
-			logger.notify(f"{device.ip} timed out", "red")
+			logger.notify(f"{device.ip} timed out", Tone.ERROR)
 			return device.ip, PushResult(applied=False, rejected=0)
 		except netmiko.exceptions.ReadTimeout as e:
 			if commands_sent and platform.finish != "commit" and sent == len(commands):
@@ -458,10 +470,10 @@ class RolloutEngine:
 				took_effect = answered - rejected > 0
 				return device.ip, PushResult(applied=took_effect, rejected=rejected,
 				                             sent=sent, interrupted=True)
-			logger.notify(f"{device.ip} failed: {e}", "red")
+			logger.notify(f"{device.ip} failed: {e}", Tone.ERROR)
 			return device.ip, PushResult(applied=False, rejected=0)
 		except Exception as e:
-			logger.notify(f"{device.ip} failed: {e}", "red")
+			logger.notify(f"{device.ip} failed: {e}", Tone.ERROR)
 			return device.ip, PushResult(applied=False, rejected=0)
 
 	def _action_needed(self, device: Device, what: str,
@@ -469,7 +481,7 @@ class RolloutEngine:
 		"""Something only a person can do on the device: one unmistakable
 		line (live log, log file, CLI console), counted in the summary."""
 		self._needs_action.setdefault(device.endpoint, []).append(what)
-		logger.notify(f"ACTION NEEDED — {device.endpoint}: {what}", "red",
+		logger.notify(f"ACTION NEEDED — {device.endpoint}: {what}", Tone.ERROR,
 		              important=True)
 
 	def _finish_in_new_session(self, device: Device, platform: Platform,
@@ -477,7 +489,7 @@ class RolloutEngine:
 		"""Save from a fresh session after the old one lost its prompt."""
 		if not platform.finish:
 			logger.notify(f"{device.endpoint}: prompt changed after the push "
-			              f"(e.g. a new hostname) — applied", "yellow")
+			              f"(e.g. a new hostname) — applied", Tone.WARNING)
 			return
 		try:
 			with netmiko.ConnectHandler(**device.netmiko_connector()) as conn:
@@ -491,7 +503,7 @@ class RolloutEngine:
 				raise RuntimeError(complaint)
 			logger.notify(f"{device.endpoint}: prompt changed after the push (e.g. "
 			              f"a new hostname) — applied, and saved from a new "
-			              f"session", "yellow")
+			              f"session", Tone.WARNING)
 		except Exception as e:
 			self._action_needed(device, f"the change is live but NOT saved — "
 			                    f"save it on the device (the prompt changed "
@@ -514,7 +526,7 @@ class RolloutEngine:
 					break
 				if complaint := rejection(conn.send_command_timing("end"), "end"):
 					logger.notify(f"{device.endpoint}: closing a config block "
-					              f"failed — {complaint}", "red")
+					              f"failed — {complaint}", Tone.ERROR)
 			saved, complaint = _fortios_save_if_manual(conn)
 			if complaint:
 				self._action_needed(device, f"cfg-save is not automatic and "
@@ -523,7 +535,7 @@ class RolloutEngine:
 				                    f"/ reverted ({complaint})", logger)
 			elif saved:
 				logger.notify(f"{device.endpoint}: cfg-save is not automatic — "
-				              f"configuration saved", "yellow")
+				              f"configuration saved", Tone.WARNING)
 		if platform.finish == "commit":
 			# Before leaving config mode: leaving discards uncommitted changes
 			try:
@@ -537,7 +549,7 @@ class RolloutEngine:
 				return False
 			except ValueError as e:
 				logger.notify(f"{device.endpoint}: commit failed — nothing was "
-				              f"applied. {e}", "red")
+				              f"applied. {e}", Tone.ERROR)
 				discarded = False
 				for command in platform.discard:
 					reply = conn.send_config_set([command], exit_config_mode=False)
@@ -593,7 +605,7 @@ class RolloutEngine:
 				_, result = future.result()
 				if result is None:
 					if not cancelled:
-						logger.notify("Rollout Canceled By User", color="red")
+						logger.notify("Rollout Canceled By User", color=Tone.ERROR)
 					cancelled = True
 					continue
 				push_results[futures[future]] = result
@@ -614,7 +626,7 @@ class RolloutEngine:
 				cancel_event.set()
 				logger.notify("Interrupted - the devices being configured now "
 				              "finish, the rest are skipped (Ctrl+C again to "
-				              "quit at once)", "red", important=True)
+				              "quit at once)", Tone.ERROR, important=True)
 				cancelled = True
 				collect(as_completed([f for f in futures
 				                      if futures[f] not in push_results]))
@@ -646,12 +658,12 @@ class RolloutEngine:
 		for command, verdict in zip(expected, verdicts):
 			if verdict in (NOT_CONFIGURED, STILL_CONFIGURED):
 				logger.notify(f"{device.endpoint}: '{command.strip()}' "
-				              f"{verdict}", "red")
+				              f"{verdict}", Tone.ERROR)
 			elif verdict == UNVERIFIABLE and \
 					not navigates(first_word(command)):
 				logger.notify(f"{device.endpoint}: '{command.strip()}' not "
 				              f"verifiable — it leaves nothing in the config",
-				              "yellow")
+				              Tone.WARNING)
 		verified = verdicts.count(VERIFIED)
 		checkable = verified + verdicts.count(NOT_CONFIGURED) + \
 			verdicts.count(STILL_CONFIGURED)
@@ -676,11 +688,10 @@ class RolloutEngine:
 		"""Final line, counted from the per-device statuses (it used to
 		report every attempted device as configured)."""
 		counts = Counter(r["status"] for r in results)
-		parts = [f"{counts[s]} {s}" for s in
-		         ("success", "partial", "failed", "cancelled") if counts[s]]
-		ok = counts["success"]
-		color = ("green" if ok == len(results)
-		         else "red" if ok == 0 and not counts["partial"] else "yellow")
+		parts = [f"{counts[s]} {s}" for s in DeviceStatus if counts[s]]
+		ok = counts[DeviceStatus.SUCCESS]
+		color = (Tone.SUCCESS if ok == len(results)
+		         else Tone.ERROR if ok == 0 and not counts[DeviceStatus.PARTIAL] else Tone.WARNING)
 		logger.notify(f"Configuration rollout complete: "
 		              f"{', '.join(parts)} (of {len(results)} devices)",
 		              color, important=True)
@@ -689,7 +700,7 @@ class RolloutEngine:
 			logger.notify(f"ACTION NEEDED on {count} device"
 			              f"{'s' if count != 1 else ''} "
 			              f"({', '.join(sorted(self._needs_action))}) — see the "
-			              f"lines marked ACTION NEEDED", "red", important=True)
+			              f"lines marked ACTION NEEDED", Tone.ERROR, important=True)
 		logger.notify(
 			f"Please see Execution logs in {os.path.abspath(logger.logfile)}",
 			important=True)
@@ -747,5 +758,5 @@ class RolloutEngine:
 			return results
 
 		else:
-			logger.notify("Device input invalid", "red")
+			logger.notify("Device input invalid", Tone.ERROR)
 			return []

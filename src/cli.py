@@ -11,12 +11,21 @@ import sys
 import threading
 from argparse import ArgumentParser
 from csv import DictReader
+from enum import IntEnum
 from typing import NoReturn
 
 from src import runtime
-from src.rollout.engine import DeviceResultDict, RolloutEngine, RolloutOptions
+from src.rollout.engine import DeviceResultDict, DeviceStatus, RolloutEngine, RolloutOptions
 from src.rollout.inputs import InputParser, Validator
-from src.rollout.log import RolloutLogger, prune_logs, utf8_console
+from src.rollout.log import RolloutLogger, Tone, prune_logs, utf8_console
+
+
+class CliExit(IntEnum):
+	"""The CLI's exit codes (exit_code), for scripts and CI."""
+	OK = 0                  # every device succeeded
+	MIXED = 1               # some partial, failed or cancelled
+	NOTHING_APPLIED = 2     # nothing applied anywhere, or stopped before the push
+	INTERRUPTED = 130       # Ctrl+C - the shell convention (128 + SIGINT)
 
 
 def get_args() -> argparse.Namespace:
@@ -47,10 +56,10 @@ def main() -> NoReturn:
 		rollout(args)
 	except KeyboardInterrupt:          # at a question, before the push
 		print("\nInterrupted - nothing was pushed.")
-		sys.exit(130)
+		sys.exit(CliExit.INTERRUPTED)
 	except EOFError:                   # stdin closed or piped out at a question
 		print("\nNo answer (the input ended) - nothing was pushed.")
-		sys.exit(2)
+		sys.exit(CliExit.NOTHING_APPLIED)
 
 
 def rollout(args: argparse.Namespace) -> NoReturn:
@@ -92,7 +101,7 @@ def rollout(args: argparse.Namespace) -> NoReturn:
 
 	devices, errors  = parser.prepare_devices(raw_devices)
 	for msg in errors:
-		logger.notify(msg, "red")
+		logger.notify(msg, Tone.ERROR)
 
 	commands = parser.parse_commands(commands_path)
 	if not devices or not commands:
@@ -106,8 +115,8 @@ def rollout(args: argparse.Namespace) -> NoReturn:
 		               f"{'s' if len(commands) != 1 else ''} to {len(devices)} "
 		               f"device{'s' if len(devices) != 1 else ''}. Continue? (y/n): ")
 		if answer.strip().lower() != "y":
-			logger.notify("Cancelled — nothing was pushed.", "red")
-			sys.exit(2)
+			logger.notify("Cancelled — nothing was pushed.", Tone.ERROR)
+			sys.exit(CliExit.NOTHING_APPLIED)
 
 	cancel = threading.Event()
 	engine = RolloutEngine(param=options, devices=devices, commands=commands)
@@ -120,11 +129,11 @@ def rollout(args: argparse.Namespace) -> NoReturn:
 		# a second Ctrl+C, or one during verify: leave now, without waiting
 		# for the devices still in flight
 		cancel.set()
-		logger.notify("Interrupted by user. Exiting.", "red")
-		hard_exit(130)  # shell convention for Ctrl+C (128 + SIGINT)
+		logger.notify("Interrupted by user. Exiting.", Tone.ERROR)
+		hard_exit(CliExit.INTERRUPTED)
 	if cancel.is_set():
-		logger.notify("Interrupted by user - the summary above shows what was done.", "red")
-		sys.exit(130)
+		logger.notify("Interrupted by user - the summary above shows what was done.", Tone.ERROR)
+		sys.exit(CliExit.INTERRUPTED)
 	try:
 		pause()
 	except KeyboardInterrupt:
@@ -161,12 +170,12 @@ def pause() -> None:
 
 def abort(logger: RolloutLogger, message: str) -> NoReturn:
 	"""Stop before the push: nothing was applied anywhere, so exit 2."""
-	logger.notify(message, "red")
+	logger.notify(message, Tone.ERROR)
 	pause()
-	sys.exit(2)
+	sys.exit(CliExit.NOTHING_APPLIED)
 
 
-def exit_code(results: list[DeviceResultDict]) -> int:
+def exit_code(results: list[DeviceResultDict]) -> CliExit:
 	"""How the run went, for scripts and CI.
 
 	:param results: one per device
@@ -174,9 +183,10 @@ def exit_code(results: list[DeviceResultDict]) -> int:
 	 cancelled); 2 = nothing applied anywhere (every device failed or was
 	 cancelled - or the run stopped before the push: abort())"""
 	statuses = [r["status"] for r in results]
-	if statuses and all(s == "success" for s in statuses):
-		return 0
-	return 1 if any(s in ("success", "partial") for s in statuses) else 2
+	if statuses and all(s == DeviceStatus.SUCCESS for s in statuses):
+		return CliExit.OK
+	return CliExit.MIXED if any(s in (DeviceStatus.SUCCESS, DeviceStatus.PARTIAL)
+	                            for s in statuses) else CliExit.NOTHING_APPLIED
 
 
 if __name__ == "__main__":
