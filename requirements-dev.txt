@@ -1,5 +1,7 @@
 -r requirements.txt
 pytest~=8.3
 mypy~=1.13.0
+# test coverage (python -m coverage run -m pytest); development only
+coverage~=7.16
 # builds the CLI .exe (netrollout-cli.spec); never part of the image
 pyinstaller~=6.22

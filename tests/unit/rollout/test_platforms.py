@@ -547,6 +547,32 @@ def test_panos_failed_commit_reverts_the_candidate():
 	assert "still be in the candidate" not in log_of(logger)
 
 
+def test_xr_failed_commit_needs_no_discard_and_no_warning():
+	"""A failed IOS XR commit sends no discard command (XR drops a failed commit by
+	itself), leaves config mode, reports not applied - and the log doesn't ask to discard
+	the changes on the device (unlike Junos / PAN-OS when their discard fails)."""
+	conn = connection()
+	conn.commit.side_effect = ValueError("Commit failed")
+	logger = fresh_logger()
+	assert push("cisco_xr", conn, logger=logger) == PushResult(applied=False, rejected=0)
+	assert finish_calls(conn) == [call.commit(read_timeout=COMMIT_TIMEOUT),
+	                              call.exit_config_mode()]
+	assert "still be in the candidate" not in log_of(logger)
+
+
+def test_junos_failed_commit_whose_rollback_is_refused_asks_to_discard():
+	"""When Junos refuses `rollback 0` after a failed commit, the log says the changes
+	may still be in the candidate configuration - an ACTION NEEDED for the device."""
+	conn = connection()
+	conn.commit.side_effect = ValueError("Commit failed")
+	conn.send_config_set.side_effect = lambda cmds, **kw: (
+		"error: syntax error" if cmds == ["rollback 0"] else "ok")
+	logger = fresh_logger()
+	assert not push("juniper_junos", conn, logger=logger).applied
+	log = log_of(logger)
+	assert "still be in the candidate" in log and "ACTION NEEDED" in log
+
+
 def test_panos_falls_back_to_loading_the_running_config():
 	"""When `revert config` is refused (older releases), PAN-OS loads the running config
 	instead, and the log doesn't ask to discard the changes on the device."""
