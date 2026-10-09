@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from src import runtime
 from src.access import certs, nginx as pc, port, site_env
 
 
@@ -433,8 +434,8 @@ def test_the_upkeep_drops_names_every_hour_and_survives_failures(monkeypatch, ca
 			raise outcome
 		return outcome
 
-	monkeypatch.setattr(pc.threading, "Thread", FakeThread)
-	monkeypatch.setattr(pc, "time", SimpleNamespace(sleep=sleep))
+	monkeypatch.setattr(runtime.threading, "Thread", FakeThread)
+	monkeypatch.setattr(runtime, "time", SimpleNamespace(sleep=sleep))
 	monkeypatch.setattr(pc, "drop_expired_names", drop)
 	pc.start_certificate_upkeep()
 	assert thread["started"] and thread["daemon"] is True

@@ -5,8 +5,6 @@ time missed while NetRollout was off is caught up once when it's back; a
 failure is retried after an hour. The last outcome is kept in
 config/retention-status.json for System Settings."""
 import json
-import threading
-import time
 from collections.abc import Callable
 from datetime import datetime, time as clock, timedelta
 from typing import Any
@@ -71,24 +69,35 @@ def _last_success() -> datetime | None:
 	return None
 
 
+class NightlyCleanUp(runtime.PeriodicTask):
+	"""The daily clean-up's loop: every CHECK_SECONDS (the first check after
+	one), the clean-up when it's due and not held - the database looked up
+	each time, so it follows a move. A failure is retried after RETRY."""
+	FAILURE = "ACTION NEEDED - the nightly clean-up failed: {error} (tried again in an hour)"
+
+	def __init__(self, backend: BackendServices, hold: Callable[[], bool]) -> None:
+		super().__init__("retention", CHECK_SECONDS, first_delay=CHECK_SECONDS, hold=hold)
+		self.backend = backend
+		self.last_run = _last_success()      # a restart doesn't run it again
+		self.retry_at: datetime | None = None
+		self.now = datetime.min              # this turn's time
+
+	def run_once(self) -> None:
+		self.now = datetime.now()
+		if (self.retry_at and self.now < self.retry_at) or not due(self.now, self.last_run) \
+				or self.hold():
+			return
+		run_once(self.backend.postgres.engine, self.now)
+		self.last_run, self.retry_at = self.now, None
+
+	def failed(self, error: Exception) -> None:
+		super().failed(error)
+		self.retry_at = self.now + RETRY
+
+
 def start_retention(backend: BackendServices,
                     hold: Callable[[], bool] = lambda: False) -> None:
-	"""The daily clean-up, from a daemon thread (the database looked up each
-	time: it follows a move). Called by the web app's entry point. Never raises.
-	hold(): True while a database move runs - the clean-up waits for it."""
-	def loop() -> None:
-		last_run = _last_success()      # a restart doesn't run it again
-		retry_at: datetime | None = None
-		while True:
-			time.sleep(CHECK_SECONDS)
-			now = datetime.now()
-			if (retry_at and now < retry_at) or not due(now, last_run) or hold():
-				continue
-			try:
-				run_once(backend.postgres.engine, now)
-				last_run, retry_at = now, None
-			except Exception as e:          # noqa: BLE001 - keep the thread alive
-				print(f"[NetRollout] ACTION NEEDED - the nightly clean-up failed: {e} "
-				      f"(tried again in an hour)", flush=True)
-				retry_at = now + RETRY
-	threading.Thread(target=loop, name="retention", daemon=True).start()
+	"""The daily clean-up, from a daemon thread (NightlyCleanUp). Called by
+	the web app's entry point. Never raises. hold(): True while a database
+	move runs - the clean-up waits for it."""
+	NightlyCleanUp(backend, hold).start()

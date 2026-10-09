@@ -9,12 +9,11 @@ deletes the oldest scheduled ones beyond `backup_keep`. The outcome of the
 last run is kept next to the backups (BackupFolder.status) for the page; a failure
 is audited, printed as ACTION NEEDED and retried after RETRY_SECONDS.
 """
-import threading
-import time
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Any
 
+from src import runtime
 from src.audit import Actor, AuditAction
 from src.backup import archive
 from src.db.connections import BackendServices
@@ -152,18 +151,25 @@ def schedule_state(settings_values: dict[str, Any],
 	        "last": archive.BackupFolder.app().status()}
 
 
+class BackupScheduler(runtime.PeriodicTask):
+	"""The scheduler's loop: FIRST_CHECK_SECONDS, then a tick every
+	CHECK_SECONDS unless held (a failing hold or tick is printed; the
+	backup's own retry is the status file's - due())."""
+	FAILURE = "backup schedule check failed: {error}"
+
+	def __init__(self, backend: BackendServices, hold: Callable[[], bool]) -> None:
+		super().__init__("backup-schedule", CHECK_SECONDS, first_delay=FIRST_CHECK_SECONDS,
+		                 hold=hold)
+		self.backend = backend
+
+	def run_once(self) -> None:
+		if not self.hold():
+			tick(self.backend)
+
+
 def start_backup_schedule(backend: BackendServices,
                           hold: Callable[[], bool] = lambda: False) -> None:
-	"""The scheduler thread. Called by the web app's entry point. Never raises.
-	hold(): True while a database move runs - a due backup waits (caught up
-	after it; the move itself takes the backup lock)."""
-	def loop() -> None:
-		time.sleep(FIRST_CHECK_SECONDS)
-		while True:
-			try:
-				if not hold():
-					tick(backend)
-			except Exception as e:              # noqa: BLE001 — keep the thread alive
-				print(f"[NetRollout] backup schedule check failed: {e}", flush=True)
-			time.sleep(CHECK_SECONDS)
-	threading.Thread(target=loop, name="backup-schedule", daemon=True).start()
+	"""The scheduler thread (BackupScheduler). Called by the web app's entry
+	point. Never raises. hold(): True while a database move runs - a due
+	backup waits (caught up after it; the move itself takes the backup lock)."""
+	BackupScheduler(backend, hold).start()

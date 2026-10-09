@@ -89,8 +89,8 @@ def _drive(monkeypatch, times, hold=lambda: False, run_once=None, turns=None):
 		if run_once:
 			run_once(now)
 
-	monkeypatch.setattr(retention.threading, "Thread", FakeThread)
-	monkeypatch.setattr(retention, "time", SimpleNamespace(sleep=sleep))
+	monkeypatch.setattr(runtime.threading, "Thread", FakeThread)
+	monkeypatch.setattr(runtime, "time", SimpleNamespace(sleep=sleep))
 	monkeypatch.setattr(retention, "datetime", FakeDateTime)
 	monkeypatch.setattr(retention, "run_once", fake_run_once)
 	backend = SimpleNamespace(postgres=SimpleNamespace(engine="the-engine"))
