@@ -216,7 +216,8 @@ def submit_jobs(devices: list[Device], commands: list[str] | None,
 @with_form("job_id")
 def cancel_rollout(data: Any) -> ResponseReturnValue:
 	"""Cancel a running or queued rollout - the user's own, or any for an
-	admin.
+	admin. Someone else's job is answered as one that doesn't exist (404 "job
+	not found"), so its existence isn't revealed.
 
 	:returns: JSON for a script (XHR / JSON); a page's form gets the outcome
 	 flashed and is sent back to the page it came from (else Active Jobs)"""
@@ -235,10 +236,8 @@ def cancel_rollout(data: Any) -> ResponseReturnValue:
 	except ValueError:
 		return refused("invalid job_id", 422)
 	job = current_app.orchestrator.get_job(job_id)
-	if not job:
+	if not job or (job.user_id != current_user.id and current_user.role != "admin"):
 		return refused("job not found", 404)
-	if job.user_id != current_user.id and current_user.role != "admin":
-		return refused("job not assigned to user", 403)
 	queued = job.started_at is None        # it ends at once, nothing pushed
 	current_app.orchestrator.cancel(job_id)
 	current_app.web.audit("rollout.cancel", object_id=job_id)
@@ -378,19 +377,18 @@ def rollout_stream(job_id: uuid.UUID) -> Response:
 	what's logged so far, then each new line, a heartbeat comment every
 	0.5 s, and "done" at the end. The job's owner or an admin. A job that has
 	already ended (or never ran here) gets just "done" - the page then shows
-	its outcome; 403 when it's someone else's, 404 when nothing is known of it."""
+	its outcome; 404 when nothing is known of it, and when it's someone else's
+	(the same answer, so its existence isn't revealed)."""
 	orchestrator = current_app.orchestrator   # the generator runs after the request
 	job = orchestrator.get_job(job_id)
 	if job is None:
 		with current_app.backend.postgres.get_session() as db_session:
 			owner = db_session.query(JobMetadata.user_id).filter_by(job_id=job_id).scalar()
-		if owner is None:
+		if owner is None or (owner != current_user.id and current_user.role != "admin"):
 			return Response(status=404)
-		if owner != current_user.id and current_user.role != "admin":
-			return Response(status=403)
 		return _event_stream(iter([DONE_EVENT]))
 	if job.user_id != current_user.id and current_user.role != "admin":
-		return Response(status=403)
+		return Response(status=404)
 	followed = job
 
 	def over() -> bool:

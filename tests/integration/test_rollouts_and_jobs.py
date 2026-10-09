@@ -236,12 +236,17 @@ def test_owner_cancels_running_job(app, operator, client_for, monkeypatch):
 
 def test_other_user_cannot_cancel(app, operator, client_for, make_user,
                                   monkeypatch):
-	"""Another user's cancel gets 403 and the job isn't cancelled."""
+	"""Another user's cancel gets 404 "job not found" - the same answer as a job
+	nobody knows, so it doesn't reveal that the job exists - and the job isn't
+	cancelled."""
 	job = FakeRunningJob(operator.user.id)
 	monkeypatch.setitem(app.orchestrator._jobs, job.job_id, job)
-	resp = client_for(make_user(), xhr=True).post(
-		"/rollout/cancel", data={"job_id": str(job.job_id)})
-	assert resp.status_code == 403 and not job.cancelled.is_set()
+	client = client_for(make_user(), xhr=True)
+	resp = client.post("/rollout/cancel", data={"job_id": str(job.job_id)})
+	assert resp.status_code == 404 and not job.cancelled.is_set()
+	assert resp.json == {"status": "error", "message": "job not found"}
+	unknown = client.post("/rollout/cancel", data={"job_id": str(uuid.uuid4())})
+	assert (unknown.status_code, unknown.json) == (resp.status_code, resp.json)
 
 
 def test_cancel_from_a_page_form_flashes_and_goes_back(app, operator,
@@ -305,7 +310,7 @@ def test_cancel_refused_from_a_page_form_flashes_the_reason(
 	assert resp.status_code == 302 and not job.cancelled.is_set()
 	assert resp.headers["Location"] == "/active_jobs"
 	page = other.get("/active_jobs").get_data(as_text=True)
-	assert "The rollout could not be cancelled: job not assigned to user." in page
+	assert "The rollout could not be cancelled: job not found." in page
 	gone = client_for(operator.user).post(
 		"/rollout/cancel", data={"job_id": str(uuid.uuid4())})
 	assert gone.status_code == 302
@@ -332,13 +337,17 @@ def test_stream_replays_history_then_tails_live(app, operator, client_for,
 	assert body.rstrip().endswith("event: done\ndata:")
 
 
-def test_stream_of_another_users_job_forbidden(app, operator, client_for,
+def test_stream_of_another_users_job_not_found(app, operator, client_for,
                                                make_user, monkeypatch):
-	"""Another user's live log stream gets 403."""
+	"""Another user's live log stream gets 404 with no body - the same answer
+	as a job nobody knows."""
 	job = FakeRunningJob(operator.user.id)
 	monkeypatch.setitem(app.orchestrator._jobs, job.job_id, job)
-	resp = client_for(make_user()).get(f"/rollout/stream/{job.job_id}")
-	assert resp.status_code == 403
+	client = client_for(make_user())
+	resp = client.get(f"/rollout/stream/{job.job_id}")
+	assert resp.status_code == 404 and resp.get_data() == b""
+	unknown = client.get(f"/rollout/stream/{uuid.uuid4()}")
+	assert (unknown.status_code, unknown.get_data()) == (404, b"")
 
 
 def test_stream_of_a_queued_job_waits_for_it(app, operator, client_for, monkeypatch):
@@ -383,7 +392,7 @@ def test_stream_of_a_job_that_has_ended(app, operator, client_for, make_user,
                                         session_scope):
 	"""A job no longer running here (it just finished): its owner and an admin
 	get a stream with only the done event (the page shows the outcome);
-	another user 403; a job nobody knows 404."""
+	another user 404, as a job nobody knows."""
 	job_id = uuid.uuid4()
 	with session_scope() as s:
 		s.add(JobMetadata(job_id=job_id, user_id=operator.user.id, commands=["x"]))
@@ -391,7 +400,8 @@ def test_stream_of_a_job_that_has_ended(app, operator, client_for, make_user,
 		resp = client_for(user).get(f"/rollout/stream/{job_id}")
 		assert resp.status_code == 200 and resp.mimetype == "text/event-stream"
 		assert resp.get_data(as_text=True) == "event: done\ndata: \n\n"
-	assert client_for(make_user()).get(f"/rollout/stream/{job_id}").status_code == 403
+	other = client_for(make_user()).get(f"/rollout/stream/{job_id}")
+	assert other.status_code == 404 and other.get_data() == b""
 	assert client_for(operator.user).get(
 		f"/rollout/stream/{uuid.uuid4()}").status_code == 404
 
