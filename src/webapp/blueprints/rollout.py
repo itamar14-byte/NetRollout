@@ -5,13 +5,12 @@ import json
 import uuid
 from collections.abc import Callable, Iterator
 from itertools import groupby
-from typing import Any, cast
+from typing import Any
 from urllib.parse import urlsplit
 
 from flask import Blueprint, render_template, request, flash, redirect, url_for, Response
 from flask.typing import ResponseReturnValue
 from flask_login import current_user, login_required
-from werkzeug.wrappers import Response as BaseResponse
 
 from src.audit import AuditAction
 from src.accounts.users import Viewer
@@ -21,26 +20,26 @@ from src.jobs import QUEUED_LINE, Draining
 from src.rollout.engine import Device, DeviceStatus, RolloutOptions, missing_value
 from src.rollout.inputs import InputParser
 from src.webapp.app import current_app
-from src.webapp.http import ok, err, with_form, with_json, Caller, viewer
+from src.webapp.http import Refused, ok, err, with_form, with_json, Caller, viewer
 
 bp = Blueprint('rollout', __name__, url_prefix='/rollout')
 
 
-def parse_commands() -> tuple[list[str] | None, dict[str, str], bool] | BaseResponse:
+def parse_commands() -> tuple[list[str] | None, dict[str, str], bool]:
 	"""The start form's commands. The page sends "platform_commands" (JSON:
 	platform → command text) when the devices are of several platforms;
 	else a commands file or pasted text.
 
 	:returns: (commands - None for several platforms, platform → command
-	 text, several platforms); or the way back to the form, the reason flashed"""
+	 text, several platforms)
+	:raises Refused: no usable commands - the reason"""
 	raw_platform_commands = request.form.get("platform_commands", "").strip()
 	if raw_platform_commands:
 		# Multi-platform: parse the JSON map of the platform → command text.
 		try:
 			platform_commands_map = json.loads(raw_platform_commands)
 		except json.JSONDecodeError:
-			flash("Invalid platform commands format.", "danger")
-			return redirect(url_for("rollout.new_rollout"))
+			raise Refused("Invalid platform commands format.") from None
 		# commands is unused in multi-platform mode — each platform has its own
 		return None, platform_commands_map, True
 
@@ -50,33 +49,30 @@ def parse_commands() -> tuple[list[str] | None, dict[str, str], bool] | BaseResp
 
 	if commands_file and commands_file.filename:
 		if not commands_file.filename.lower().endswith(".txt"):
-			flash("Command file must be a .txt file.", "danger")
-			return redirect(url_for("rollout.new_rollout"))
+			raise Refused("Command file must be a .txt file.")
 		try:
 			commands = [
 				line for raw_line in commands_file.readlines()
 				if (line := raw_line.decode("utf-8").strip())
 			]
 		except UnicodeDecodeError:
-			flash("Command file must be valid UTF-8 text.", "danger")
-			return redirect(url_for("rollout.new_rollout"))
+			raise Refused("Command file must be valid UTF-8 text.") from None
 	else:
 		commands = [l.strip() for l in manual_commands.splitlines() if l.strip()]
 
 	if not commands:
-		flash("Provide commands by pasting text or uploading a command file.",
-		      "danger")
-		return redirect(url_for("rollout.new_rollout"))
+		raise Refused("Provide commands by pasting text or uploading a command file.")
 
 	return commands, {}, False
 
 
-def load_devices(selected_ids: list[uuid.UUID]) -> list[Device] | BaseResponse:
+def load_devices(selected_ids: list[uuid.UUID]) -> list[Device]:
 	"""The selected devices the user may see (own and global), as rollout
 	targets with their credentials.
 
-	:returns: the devices; or the way back to the form, the reason flashed
-	 (none found, some missing, one without a security profile)"""
+	:returns: the devices
+	:raises Refused: none found, some missing, one without a security
+	 profile"""
 	with current_app.backend.postgres.get_session() as db_session:
 		view = InventoryView(db_session, viewer())
 		# relationships preloaded for runtime device construction
@@ -86,28 +82,24 @@ def load_devices(selected_ids: list[uuid.UUID]) -> list[Device] | BaseResponse:
 
 	# 7) Validate the selected devices.
 	if not selected_rows:
-		flash("No valid devices selected.", "danger")
-		return redirect(url_for("rollout.new_rollout"))
+		raise Refused("No valid devices selected.")
 
 	if len(selected_rows) != len(selected_ids):
-		flash("One or more selected devices were not found.", "danger")
-		return redirect(url_for("rollout.new_rollout"))
+		raise Refused("One or more selected devices were not found.")
 
 	# 8) Ensure every device has a security profile.
 	missing_profiles = [row.label or row.ip for row in selected_rows
 	                    if not row.security_profile]
 	if missing_profiles:
-		flash("These devices have no security profile assigned: "
-		      + ", ".join(missing_profiles), "danger")
-		return redirect(url_for("rollout.new_rollout"))
+		raise Refused("These devices have no security profile assigned: "
+		              + ", ".join(missing_profiles))
 
 	# 9) Convert ORM inventory rows into runtime Device objects.
 	try:
 		return InputParser.import_from_inventory(selected_rows, current_user.id,
 		                                         values)
 	except ValueError as e:
-		flash(str(e), "danger")
-		return redirect(url_for("rollout.new_rollout"))
+		raise Refused(str(e)) from None
 
 
 def duplicate_targets(devices: list[Device]) -> dict[str, list[str]]:
@@ -164,15 +156,15 @@ def platform_lines(text: str) -> list[str]:
 def submit_jobs(devices: list[Device], commands: list[str] | None,
                 platform_commands_map: dict[str, str], is_multi_platform: bool,
                 options: RolloutOptions,
-                audit_comment: str | None) -> uuid.UUID | BaseResponse:
+                audit_comment: str | None) -> uuid.UUID:
 	"""Queue the rollout: one job, or one per platform with its own commands -
 	all of them or none: every platform's commands are checked before the
 	first job is queued, and if queuing one fails (NetRollout starts
 	stopping or pauses for a database move between two platforms, a service
 	fails), the jobs already queued are cancelled.
 
-	:returns: the (first) job's id; or the way back to the form, the reason
-	 flashed
+	:returns: the (first) job's id
+	:raises Refused: the platforms or their commands don't fit - the reason
 	:raises Draining: NetRollout is stopping, or paused for a database move"""
 	if not is_multi_platform:
 		assert commands is not None   # parse_commands gives them for one platform
@@ -182,16 +174,14 @@ def submit_jobs(devices: list[Device], commands: list[str] | None,
 	# Backend enforces multi-platform — never trust the frontend alone.
 	actual_platforms = {d.device_type for d in devices}
 	if len(actual_platforms) < 2:
-		flash("Expected multiple platforms but only one found.", "danger")
-		return redirect(url_for("rollout.new_rollout"))
+		raise Refused("Expected multiple platforms but only one found.")
 
 	devices.sort(key=lambda d: d.device_type)
 	jobs: list[tuple[list[Device], list[str]]] = []
 	for platform, group in groupby(devices, key=lambda d: d.device_type):
 		curr_commands = platform_lines(platform_commands_map.get(platform, ""))
 		if not curr_commands:
-			flash(f"No commands provided for {platform}.", "danger")
-			return redirect(url_for("rollout.new_rollout"))
+			raise Refused(f"No commands provided for {platform}.")
 		jobs.append((list(group), curr_commands))
 
 	queued: list[uuid.UUID] = []
@@ -291,54 +281,40 @@ def token_states(devices: list[Inventory], values: dict[uuid.UUID, dict[str, Any
 			states[str(device.id)] = own
 	return states
 
-@bp.route("/start", methods=["POST"])
-@login_required
-def new_start_rollout() -> ResponseReturnValue:
-	"""Start a rollout from the page's form: the devices (none twice, all
-	reachable), the commands, verify / verbose, a comment. Audited
-	(rollout.start).
+def start_rollout() -> tuple[uuid.UUID, list[Device], str | None]:
+	"""The start form's checks, in order, then the rollout queued
+	(submit_jobs).
 
-	:returns: the way to Active Jobs; or back to the form, the reason flashed"""
+	:returns: the (first) job's id, the devices, the comment
+	:raises Refused: a check refused it - the reason
+	:raises Draining: NetRollout is stopping, or paused for a database move"""
 	# before the reachability checks: stopping, or paused for a database move
 	if refused := current_app.orchestrator.refusal():
-		flash(refused, "danger")
-		return redirect(url_for("rollout.new_rollout"))
+		raise Refused(refused)
 	raw_device_ids = request.form.getlist("device_ids")
 	if not raw_device_ids:
-		flash("Select at least one device.", "danger")
-		return redirect(url_for("rollout.new_rollout"))
+		raise Refused("Select at least one device.")
 
 	try:
 		selected_ids = list({uuid.UUID(did) for did in raw_device_ids})
 	except ValueError:
-		flash("Invalid device selection.", "danger")
-		return redirect(url_for("rollout.new_rollout"))
+		raise Refused("Invalid device selection.") from None
 
-	result = parse_commands()
-	if isinstance(result, BaseResponse):
-		return result
-	commands, platform_commands_map, is_multi_platform = result
-
+	commands, platform_commands_map, is_multi_platform = parse_commands()
 	devices = load_devices(selected_ids)
-	if isinstance(devices, BaseResponse):
-		return devices
 
 	if duplicates := duplicate_targets(devices):
-		flash("The same target was selected more than once — select only one "
-		      "of: " + "; ".join(f"{' / '.join(labels)} ({ep})"
-		                         for ep, labels in duplicates.items()),
-		      "danger")
-		return redirect(url_for("rollout.new_rollout"))
+		raise Refused("The same target was selected more than once — select only one "
+		              "of: " + "; ".join(f"{' / '.join(labels)} ({ep})"
+		                                 for ep, labels in duplicates.items()))
 
 	if unreachable := unreachable_devices(devices):
-		flash(unreachable_message(unreachable), "danger")
-		return redirect(url_for("rollout.new_rollout"))
+		raise Refused(unreachable_message(unreachable))
 
 	if blocked := unresolved_message(devices, lambda d: platform_lines(
 			platform_commands_map.get(d.device_type, "")) if is_multi_platform
 			else commands or []):
-		flash(blocked, "danger")
-		return redirect(url_for("rollout.new_rollout"))
+		raise Refused(blocked)
 
 	options = RolloutOptions(
 		verify=bool(request.form.get("_verify", "")),
@@ -347,15 +323,24 @@ def new_start_rollout() -> ResponseReturnValue:
 		max_workers=current_app.backend.settings.get("device_parallelism")
 	)
 	audit_comment = request.form.get("comment", "").strip() or None
+	job_id = submit_jobs(devices, commands, platform_commands_map,
+	                     is_multi_platform, options, audit_comment)
+	return job_id, devices, audit_comment
 
+
+@bp.route("/start", methods=["POST"])
+@login_required
+def new_start_rollout() -> ResponseReturnValue:
+	"""Start a rollout from the page's form: the devices (none twice, all
+	reachable), the commands, verify / verbose, a comment. Audited
+	(rollout.start).
+
+	:returns: the way to Active Jobs; or back to the form, the reason flashed"""
 	try:
-		job_id = submit_jobs(devices, commands, platform_commands_map,
-		                     is_multi_platform, options, audit_comment)
-	except Draining as e:   # stopping, or paused for a database move
+		job_id, devices, audit_comment = start_rollout()
+	except (Refused, Draining) as e:   # Draining: stopping, or paused for a database move
 		flash(str(e), "danger")
 		return redirect(url_for("rollout.new_rollout"))
-	if isinstance(job_id, BaseResponse):
-		return job_id
 
 	current_app.web.audit(AuditAction.ROLLOUT_START, object_id=job_id,
 	                      detail={"device_count": len(devices),

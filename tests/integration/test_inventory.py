@@ -8,7 +8,7 @@ import pytest
 from sqlalchemy import event
 
 from src.accounts.users import Viewer
-from src.db.tables import AuditLog, DeviceAttribute, Inventory, SecurityProfile
+from src.db.tables import AuditLog, DeviceAttribute, Inventory, SecurityProfile, VariableMapping
 from src.encryption import decrypt
 from src.inventory import InventoryView
 
@@ -820,3 +820,93 @@ def test_visible_devices_load_in_a_constant_number_of_statements(
 	one, many = statements_to_load(user_with(1)), statements_to_load(user_with(6))
 	assert (one[0], many[0]) == (1, 6)
 	assert many[1] == one[1]
+
+
+# ── A refused change commits nothing ────────────────────────────────────────
+# Every write route checks its rules before changing anything, and a refusal
+# raised in the session block is answered after it (rolled back): a request
+# that changes fields AND breaks a rule leaves everything as it was.
+
+def device_state(session_scope, device_id):
+	"""What an edit could change on a device: its fields, its system values,
+	the custom values and mapping bindings on it."""
+	with session_scope() as s:
+		d = s.get(Inventory, device_id)
+		custom = sorted((str(a.user_id), a.name, str(a.value)) for a in
+		                s.query(DeviceAttribute).filter_by(device_id=device_id))
+		return (d.label, d.ip, d.port, d.device_type, d.sec_profile_id, d.is_global,
+		        d.var_maps, custom, sorted(str(m.id) for m in d.var_mappings))
+
+
+def test_a_global_device_without_a_profile_is_refused_whole(
+		client_for, make_user, make_device, make_mapping, session_scope):
+	"""An admin's edit that renames a device, moves it, sets a system and a
+	custom value and a mapping binding, but makes it global without a profile:
+	refused with the reason, and none of the other changes are saved."""
+	admin = make_user(role="admin")
+	dev = make_device(admin, ip="10.60.0.1", label="half-1",
+	                  var_maps={"hostname": "old"})
+	mapping = make_mapping(admin, token="HN", prop="hostname")
+	client = client_for(admin)
+	client.post("/properties/create", json={"name": "rack", "label": "Rack"})
+	before = device_state(session_scope, dev)
+	resp = client.post(f"/inventory/{dev}/edit", data={
+		**FORM, "label": "half-1-renamed", "ip": "10.60.0.2", "is_global": "on",
+		"attr_hostname": "new", "attr_rack": "R1", "mapping_ids": [str(mapping)]})
+	assert resp.headers["Location"] == "/inventory"
+	assert flashes(client)[-1] == ("A global device needs a security profile — "
+	                               "users can't assign their own to it.")
+	assert device_state(session_scope, dev) == before
+
+
+def test_another_users_profile_is_refused_whole(client_for, make_user, make_device,
+                                                make_profile, session_scope):
+	"""An operator's edit that renames a device and sets a value but attaches
+	another user's profile: refused, and the rename and the value aren't saved."""
+	user, other = make_user(), make_user()
+	dev = make_device(user, ip="10.60.1.1", label="half-2")
+	foreign = make_profile(other)
+	client = client_for(user)
+	before = device_state(session_scope, dev)
+	client.post(f"/inventory/{dev}/edit", data={
+		**FORM, "label": "half-2-renamed", "attr_hostname": "h2",
+		"sec_profile_id": str(foreign)})
+	assert flashes(client)[-1] == "Security profile not found."
+	assert device_state(session_scope, dev) == before
+
+
+def test_a_refused_create_adds_no_device(client_for, make_user, make_profile,
+                                         session_scope):
+	"""A create refused by a rule (another user's profile) adds no device."""
+	user, other = make_user(), make_user()
+	client = client_for(user)
+	client.post("/inventory/create", data={
+		**FORM, "label": "half-3", "sec_profile_id": str(make_profile(other))})
+	assert flashes(client) == ["Security profile not found."]
+	assert device_by_label(session_scope, "half-3") is None
+
+
+def test_a_refused_mapping_edit_changes_nothing(client_for, make_user, make_mapping,
+                                                db_get):
+	"""A mapping edit with a new label and token but an index on a property
+	that isn't a list: refused with the reason, the mapping as it was."""
+	user = make_user()
+	mapping = make_mapping(user, token="KEEP", prop="hostname")
+	client = client_for(user)
+	client.post(f"/mappings/{mapping}/edit", data={
+		"label": "renamed", "token_inner": "OTHER", "property_name": "hostname",
+		"index": "1"})
+	kept = db_get(VariableMapping, mapping)
+	assert (kept.label, kept.token, kept.index) == (None, "$$KEEP$$", None)
+
+
+def test_a_refused_profile_delete_keeps_the_profile(client_for, make_user, make_device,
+                                                    make_profile, db_get):
+	"""Deleting a profile a device uses is refused, and the profile stays."""
+	user = make_user()
+	profile = make_profile(user, label="in-use")
+	make_device(user, ip="10.60.2.1", profile_id=profile)
+	client = client_for(user)
+	client.post(f"/security/{profile}/delete")
+	assert flashes(client)[-1].startswith("Cannot delete 'in-use'")
+	assert db_get(SecurityProfile, profile).label == "in-use"

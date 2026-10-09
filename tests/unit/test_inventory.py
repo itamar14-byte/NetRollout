@@ -8,11 +8,12 @@ import uuid
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import pytest
 import redis
 
 from src.accounts.users import Viewer
-from src.inventory import (InventoryView, ReachabilityChecker, import_csv, probe,
-                           partition_devices, visible_devices_clause)
+from src.inventory import (DeviceFields, InventoryView, ReachabilityChecker, RuleRefused,
+                           import_csv, probe, partition_devices, visible_devices_clause)
 from src.rollout.engine import Device
 from src.rollout.inputs import InputParser, Validator
 from src.rollout.log import RolloutLogger
@@ -237,3 +238,57 @@ class TestDeviceAccess:
 		out = sql(visible_devices_clause(OWNER))
 		assert "inventory.user_id" in out and "inventory.is_global IS true" in out
 		assert " OR " in out
+
+
+# ── Saving a device: every rule before any change ────────────────────────────
+
+def saved_device(**kw):
+	"""A device row as save_device sees it (no session needed for the rules)."""
+	fields = dict(id=uuid.uuid4(), user_id=OWNER, is_global=False, label="old",
+	              ip="10.0.0.1", port=22, device_type="cisco_ios", sec_profile_id=None,
+	              var_maps=None, var_mappings=[])
+	fields.update(kw)
+	return SimpleNamespace(**fields)
+
+
+def fields(**kw):
+	values = dict(ip="10.0.0.2", port=2222, device_type="juniper_junos", label="new",
+	              profile_id=None, make_global=False)
+	values.update(kw)
+	return DeviceFields(**values)
+
+
+class TestSaveDeviceRules:
+
+	def test_a_global_device_needs_a_profile_and_nothing_changes(self):
+		"""An admin making a device global without a profile: RuleRefused with
+		the reason, the device untouched, nothing added to the session."""
+		session = MagicMock()
+		device = saved_device()
+		before = dict(vars(device))
+		with pytest.raises(RuleRefused, match="needs a security profile"):
+			InventoryView(session, Viewer(OWNER, is_admin=True)).save_device(
+				device, fields(make_global=True), values={"hostname": "x"},
+				mapping_ids=[])
+		assert vars(device) == before
+		session.add.assert_not_called()
+
+	def test_an_operators_global_request_is_ignored(self):
+		"""An operator asking to make a device global: the request is ignored
+		(it stays local), no refusal."""
+		device = saved_device()
+		saved = InventoryView(MagicMock(), Viewer(OWNER)).save_device(
+			device, fields(ip="10.0.0.1", port=22, make_global=True))
+		assert (saved.is_global, device.is_global, device.label) == (False, False, "new")
+
+	def test_a_profile_the_viewer_doesnt_own_is_refused_before_any_change(self):
+		"""A profile that isn't the viewer's (the lookup finds none): RuleRefused
+		"Security profile not found.", the device untouched."""
+		session = MagicMock()
+		session.query.return_value.filter_by.return_value.first.return_value = None
+		device = saved_device()
+		before = dict(vars(device))
+		with pytest.raises(RuleRefused, match="Security profile not found."):
+			InventoryView(session, Viewer(OWNER)).save_device(
+				device, fields(profile_id=uuid.uuid4()))
+		assert vars(device) == before

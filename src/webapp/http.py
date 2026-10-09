@@ -1,12 +1,13 @@
 """What many web pages share: JSON answers, the admin / JSON / form
-decorators, which devices a user sees, the query builder's filters, the
-dashboard's KPIs, signing a user out everywhere - and WebServices
-(current_app.web): the audit log and the generic load-check-act on a row."""
+decorators, the signed-in user as the data layer's rules see them (viewer),
+loading a row the request may act on (load_owned) and the refusals a route
+answers after its session block - and WebServices (current_app.web): the
+audit log and the reachability checks."""
 import functools
 import uuid
 from collections.abc import Callable
 from enum import Enum
-from typing import Any, cast
+from typing import Any, TypeVar, cast
 
 from flask import Response, flash, g, jsonify, redirect, request, url_for
 from flask.typing import ResponseReturnValue
@@ -146,6 +147,36 @@ def with_form(*required_fields: str) -> Callable[[View], View]:
 	return decorator
 
 
+class NotFound(LookupError):
+	"""No such row - or one the request may not touch (the same answer, so
+	its existence isn't revealed). Raised by load_owned; the route answers it
+	after its session block."""
+
+
+class Refused(Exception):
+	"""The request is refused - the reason in words for the person. Raised by
+	the pages' helpers; the route answers it after its session block, so
+	nothing of a half-done change is committed (get_session rolls back on an
+	exception, and commits on a normal exit)."""
+
+
+Row = TypeVar("Row", bound=Base)
+
+
+def load_owned(session: Session, model: type[Row], obj_id: uuid.UUID,
+               can_access: Callable[[Row], bool] | None = None) -> Row:
+	"""A row the request may act on.
+
+	:param can_access: the access rule (e.g. its owner, or an admin on a
+	 global one); None: the signed-in user owns it (its user_id)
+	:raises NotFound: there's none, or the rule refuses it"""
+	obj = session.get(model, obj_id)
+	allowed = can_access or (lambda row: getattr(row, "user_id", None) == viewer().id)
+	if obj is None or not allowed(obj):
+		raise NotFound(f"no {model.__name__} {obj_id}")
+	return obj
+
+
 def flash_redirect(msg: str, endpoint: str,
                    category: str = "success") -> ResponseReturnValue:
 	""":returns: a redirect to the endpoint, with the message flashed"""
@@ -154,7 +185,8 @@ def flash_redirect(msg: str, endpoint: str,
 
 
 class WebServices:
-	"""The web app's services on top of the backend (current_app.web)."""
+	"""The web app's services on top of the backend (current_app.web): the
+	audit log and the reachability checks."""
 
 	def __init__(self, backend: BackendServices) -> None:
 		self.backend = backend
@@ -195,97 +227,5 @@ class WebServices:
 			object_type=object_type, object_id=object_id, object_label=object_label,
 			detail=detail, success=success)
 
-	def act_on_db_obj(self, model: type[Base], obj_id: uuid.UUID | str | None,
-	                  func: Callable[[Any, Session], ResponseReturnValue],
-	                  user_id: uuid.UUID | None = None, many: bool = False,
-	                  on_missing: Callable[[], ResponseReturnValue] | None = None,
-	                  can_access: Callable[[Any], bool] | None = None,
-	                  **extra_filters: Any) -> ResponseReturnValue:
-		"""Load a row (or rows) and act on it in one session - committed when
-		func returns.
-
-		:param model: the table's class
-		:param obj_id: the row's id; None: by the other filters only
-		:param func: (the row - or the list, with many - , the session) → the
-		 view's answer
-		:param user_id: only a row of this owner
-		:param many: every matching row (never "not found")
-		:param on_missing: the answer when there's no such row; 404 JSON when None
-		:param can_access: access rules filter_by can't express (e.g. owner
-		 OR admin-on-global); a denied row gets the same answer as a missing
-		 one, so its existence isn't leaked
-		:param extra_filters: more column = value filters"""
-		with self.backend.postgres.get_session() as db_session:
-			filters: dict[str, Any] = {"id": obj_id} if obj_id is not None else {}
-			if user_id is not None:
-				filters["user_id"] = user_id
-			filters.update(extra_filters)
-			query = db_session.query(model).filter_by(**filters)
-			if many:
-				return func(query.all(), db_session)
-			else:
-				obj = query.first()
-				if not obj or (can_access and not can_access(obj)):
-					return on_missing() if on_missing else err("Not found", 404)
-				return func(obj, db_session)
-
-	# CRUD factories
-	@staticmethod
-	def get_label(obj: Any) -> str:
-		""":returns: how the audit names a row: its label, name or token, else
-		 its id"""
-		return (getattr(obj, 'label', None) or
-		        getattr(obj, 'name', None) or
-		        getattr(obj, 'token', None) or
-		        str(obj.id))
-
-	def update_op(self, fields: dict[str, Any], audit_action: AuditAction,
-	              label_func: Callable[[Any], str] | None = None,
-	              skip_none: bool = False,
-	              on_success: Callable[[str], ResponseReturnValue] | None = None
-	              ) -> Callable[[Any, Session], ResponseReturnValue]:
-		"""An act_on_db_obj func that sets fields on the row and audits it.
-
-		:param fields: column → new value
-		:param label_func: the row's name in the audit; get_label when None
-		:param skip_none: a None value leaves its column as it is
-		:param on_success: the answer, given the label; ok() when None"""
-		def func(obj: Any, _: Session) -> ResponseReturnValue:
-			for k, v in fields.items():
-				if skip_none and v is None:
-					continue
-				setattr(obj, k, v)
-			label = label_func(obj) if label_func else self.get_label(obj)
-			self.audit(audit_action, object_type=type(obj).__name__,
-			           object_id=obj.id,
-			           object_label=label)
-			return on_success(label) if on_success else ok()
-
-		return func
-
-	def delete_op(self, audit_action: AuditAction,
-	              data_filter: Callable[[Any], ResponseReturnValue | None] | None = None,
-	              label_func: Callable[[Any], str] | None = None,
-	              on_success: Callable[[str], ResponseReturnValue] | None = None
-	              ) -> Callable[[Any, Session], ResponseReturnValue]:
-		"""An act_on_db_obj func that deletes the row and audits it.
-
-		:param data_filter: may refuse: its answer is returned instead (None:
-		 go ahead)
-		:param label_func: the row's name in the audit; get_label when None
-		:param on_success: the answer, given the label; ok() when None"""
-		def func(obj: Any, db_session: Session) -> ResponseReturnValue:
-			if data_filter:
-				res = data_filter(obj)
-				if res is not None:
-					return res
-			label = label_func(obj) if label_func else self.get_label(obj)
-			db_session.delete(obj)
-			self.audit(audit_action, object_type=type(obj).__name__,
-			           object_id=obj.id,
-			           object_label=label)
-			return on_success(label) if on_success else ok()
-
-		return func
 
 
