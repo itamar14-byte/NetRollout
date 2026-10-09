@@ -460,6 +460,7 @@ LDAP_USERS = {  # uid -> (dn, password)
 _SLAPD_CONF = f"""include /etc/openldap/schema/core.schema
 include /etc/openldap/schema/cosine.schema
 include /etc/openldap/schema/inetorgperson.schema
+include /etc/openldap/schema/nis.schema
 pidfile /tmp/slapd.pid
 modulepath /usr/lib/openldap
 moduleload back_mdb.so

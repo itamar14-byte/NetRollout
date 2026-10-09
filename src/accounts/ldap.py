@@ -23,6 +23,16 @@ RECEIVE_TIMEOUT = 10
 # ldap3 means the directory couldn't be used (down, timeout, bad config).
 _BAD_CREDENTIALS = (LDAPBindError, LDAPInvalidCredentialsResult)
 
+# The object classes (lower case) that make an entry a user in the tree
+# browser. A directory returns only the classes an entry was stored with -
+# AD the whole chain (… person, organizationalPerson, user), OpenLDAP just
+# what was added (often inetOrgPerson alone) - so each person class counts on
+# its own. posixAccount: an RFC 2307 Unix account (often account +
+# posixAccount, no person class) - it has a uid and a password, so it can
+# sign in like any other user.
+USER_CLASSES = frozenset({"person", "organizationalperson", "inetorgperson",
+                          "user", "posixaccount"})
+
 
 class LdapUnavailable(Exception):
 	"""The directory couldn't be reached or used — distinct from a user
@@ -284,7 +294,7 @@ def walk_tree(server: LDAPServer, dn: str | None = None) -> dict[str, Any]:
 					 "label": str(entry.cn),
 					 "username": None})
 
-			elif "person" in classes or "user" in classes:
+			elif USER_CLASSES & set(classes):
 				identifier = getattr(entry, server.cn_identifier, None)
 				username = str(identifier) if identifier else str(entry.cn)
 				results.append({"type": "user", "dn": entry.entry_dn,

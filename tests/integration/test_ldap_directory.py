@@ -244,6 +244,62 @@ def test_tree_lists_people_groups_and_ous(ldap_server_config, browse_entries):
 	]
 
 
+PEOPLE_OU = f"ou=People,{LDAP_BASE}"
+
+
+@pytest.fixture
+def people_entries(ldap_directory):
+	"""An OU of users as directories store them, added as the directory's admin
+	and removed afterwards: an organizationalPerson only (no uid), and an RFC
+	2307 Unix account (account + posixAccount, no person class)."""
+	conn = Connection(Server("127.0.0.1", port=ldap_directory), LDAP_ADMIN_DN,
+	                  LDAP_ADMIN_PW, auto_bind=True, raise_exceptions=True)
+	entries = [
+		(PEOPLE_OU, ["organizationalUnit"], {"ou": "People"}),
+		(f"cn=Dan Grey,{PEOPLE_OU}", ["organizationalPerson"],
+		 {"cn": "Dan Grey", "sn": "Grey"}),
+		(f"uid=eve,{PEOPLE_OU}", ["account", "posixAccount"],
+		 {"uid": "eve", "cn": "Eve Black", "uidNumber": "1001",
+		  "gidNumber": "1001", "homeDirectory": "/home/eve"}),
+	]
+	try:
+		for dn, classes, attrs in entries:
+			conn.add(dn, classes, attrs)
+		yield
+	finally:
+		for dn, _, _ in reversed(entries):
+			try:
+				conn.delete(dn)
+			except LDAPException:
+				pass                 # not added: nothing to remove
+		conn.unbind()
+
+
+def test_tree_lists_users_by_their_stored_classes(ldap_server_config,
+                                                  people_entries):
+	"""OpenLDAP returns only the object classes an entry was stored with (not
+	their superclasses): inetOrgPerson-only, organizationalPerson-only and
+	posixAccount users are all listed as type "user" - labelled by cn, the
+	uid as username (the cn without one)."""
+	users = [e for e in ldap.walk_tree(ldap_server_config, f"ou=Users,{LDAP_BASE}")
+	         ["entries"] if e["type"] == "user"]
+	assert sorted(users, key=lambda e: e["dn"]) == [
+		{"type": "user", "dn": ALICE_DN, "label": "Alice Brown", "username": "alice"},
+		{"type": "user", "dn": f"cn=Dup One,ou=Users,{LDAP_BASE}", "label": "Dup One",
+		 "username": "dup"},
+		# OpenLDAP returns the escaped comma in its hex form
+		{"type": "user", "dn": rf"cn=Smith\2C Bob,ou=Users,{LDAP_BASE}",
+		 "label": "Smith, Bob", "username": "bsmith"},
+	]
+	people = ldap.walk_tree(ldap_server_config, PEOPLE_OU)["entries"]
+	assert sorted(people, key=lambda e: e["dn"]) == [
+		{"type": "user", "dn": f"cn=Dan Grey,{PEOPLE_OU}", "label": "Dan Grey",
+		 "username": "Dan Grey"},
+		{"type": "user", "dn": f"uid=eve,{PEOPLE_OU}", "label": "Eve Black",
+		 "username": "eve"},
+	]
+
+
 def test_tree_errors_are_reported(ldap_server_config):
 	"""walk_tree reports status error (with the directory's message) for a DN that
 	doesn't exist and for a service account that can't bind."""
