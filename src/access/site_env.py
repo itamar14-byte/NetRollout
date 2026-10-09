@@ -14,6 +14,7 @@ No web dependencies: the installer's setup core uses it too."""
 import os
 import tempfile
 import threading
+from collections.abc import Mapping
 from pathlib import Path
 
 from src import runtime
@@ -57,7 +58,7 @@ def read() -> dict[str, str]:
 	return values
 
 
-def update(values: dict[str, str | None]) -> bool:
+def update(values: Mapping[str, str | None]) -> bool:
 	"""Set keys (None removes one); the others are kept. True if the file
 	changed — an unchanged file isn't rewritten, so nginx isn't reloaded for
 	nothing. Raises OSError when the folder can't be written (the message
@@ -90,7 +91,7 @@ def put_back(previous: dict[str, str], written: dict[str, str],
 		return left
 
 
-def _update(values: dict[str, str | None]) -> bool:
+def _update(values: Mapping[str, str | None]) -> bool:
 	"""update(), under _lock."""
 	current = read()
 	new = dict(current)
