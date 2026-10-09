@@ -6,6 +6,7 @@ from typing import Any
 from flask import Blueprint, Request, Response, request, jsonify
 from flask.typing import ResponseReturnValue
 from flask_login import login_required
+from sqlalchemy import func
 
 from src.accounts.ldap import test_user, test_connection, fetch_base_dn, walk_tree
 from src.db.tables import LDAPServer, LDAPGroup, User
@@ -240,8 +241,9 @@ def admin_server_ldap_import(server_id: uuid.UUID) -> ResponseReturnValue:
 				skipped += 1
 				continue
 			if item["type"] == "user":
-				if db_session.query(User).filter_by(
-						username=item["username"]).first():
+				# usernames are compared as sign-in compares them: whatever the case
+				if db_session.query(User).filter(
+						func.lower(User.username) == item["username"].lower()).first():
 					skipped += 1
 					continue
 				db_session.add(User(

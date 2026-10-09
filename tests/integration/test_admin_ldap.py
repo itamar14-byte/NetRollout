@@ -85,6 +85,24 @@ def test_ldap_import_skips_malformed_items(admin, client_for, session_scope):
 	              json={"type": "user"}).status_code == 422
 
 
+def test_ldap_import_skips_a_user_that_exists_in_another_case(
+		admin, client_for, session_scope, make_user):
+	"""Importing "Alice" when "alice" exists - or twice in one list in two cases - skips
+	the duplicate, as sign-in and account creation compare usernames: it created a
+	second account (the two sign in as one another's)."""
+	make_user(username="alice")
+	c = client_for(admin)
+	c.post("/admin/server/ldap/new", data=LDAP_FORM)
+	sid = only_server(session_scope).id
+	resp = c.post(f"/admin/server/ldap/{sid}/import", json=[
+		{"type": "user", "username": "Alice"},
+		{"type": "user", "username": "BOB"}, {"type": "user", "username": "bob"}])
+	assert (resp.json["users_created"], resp.json["skipped"]) == (1, 2)
+	with session_scope() as s:
+		names = sorted(u.username.lower() for u in s.query(User))
+	assert names.count("alice") == 1 and names.count("bob") == 1
+
+
 def test_ldap_directory_calls_are_delegated(admin, client_for, session_scope):
 	"""The LDAP test, test-user, fetch-DN and explore routes hand off to the
 	directory functions; an unknown server is 404."""
