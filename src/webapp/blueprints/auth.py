@@ -24,9 +24,11 @@ from src.accounts.ldap import check_group_membership, fetch_user_details, user_b
 from src.accounts.users import (RULE, password_problem, LIMITS, AccountError, new_local_user,
                                 mark_signed_in, session_seconds_left, is_background,
                                 end_user_sessions, signed_in_user)
-from src.db.tables import DeviceResult, LDAPServer, LDAPGroup, User
+from src.audit import AuditAction
+from src.db.tables import DeviceResult, LDAPServer, LDAPGroup, User, AuthType
 from src.encryption import decrypt, encrypt
 from src.jobs import job_status
+from src.rollout.engine import DeviceStatus
 from src.webapp.app import current_app
 from src.webapp.hooks import csrf, conn_limit
 from src.webapp.http import ok, with_form
@@ -92,7 +94,7 @@ def login_fail(username: str, reason: str,
 
 	:returns: the way back to the sign-in page"""
 	flash(_LOGIN_FAIL_MESSAGES.get(reason, "Login failed"), "danger")
-	current_app.web.audit("auth.login", success=False, username=username,
+	current_app.web.audit(AuditAction.AUTH_LOGIN, success=False, username=username,
 	           actor_id=actor_id, detail={"reason": reason})
 	session.pop("pre_auth_user_id", None)
 	return redirect(url_for("auth.home"))
@@ -121,7 +123,7 @@ def _sign_in(user: User, **audit_detail: Any) -> ResponseReturnValue:
 	for key in _PENDING_2FA:
 		session.pop(key, None)
 	login_user(user)
-	current_app.web.audit("auth.login", success=True, username=user.username,
+	current_app.web.audit(AuditAction.AUTH_LOGIN, success=True, username=user.username,
 	                      actor_id=user.id, detail=audit_detail or None)
 	return after_login(user)
 
@@ -133,7 +135,7 @@ def start_otp_flow(user: User) -> ResponseReturnValue:
 	auth.password_ok: not a sign-in yet."""
 	session["pre_auth_user_id"] = str(user.id)
 	session.pop(WRONG_CODES_KEY, None)
-	current_app.web.audit("auth.password_ok", success=True, username=user.username,
+	current_app.web.audit(AuditAction.AUTH_PASSWORD_OK, success=True, username=user.username,
 	                      actor_id=user.id)
 	if user.otp_secret:
 		return redirect(url_for("auth.otp_verify"))
@@ -175,7 +177,7 @@ def login_ldap_existing(user: User, password: str,
 		return login_fail(user.username, "pending_approval", user.id)
 	if not user.is_active:
 		return login_fail(user.username, "account_disabled", user.id)
-	return complete_login(user, db_session, auth_type="ldap")
+	return complete_login(user, db_session, auth_type=AuthType.LDAP)
 
 
 def login_ldap_group(username: str, password: str,
@@ -203,7 +205,7 @@ def login_ldap_group(username: str, password: str,
 				full_name = details.get("full_name") if details else None
 				# Auto-provisioned users are pre-approved and active; role comes
 				# from the matched group mapping.
-				user = User(username=username, auth_type="ldap",
+				user = User(username=username, auth_type=AuthType.LDAP,
 				            ldap_server_id=ldap_server.id, role=role,
 				            is_approved=True, is_active=True,
 				            password_hash=None, email=email,
@@ -216,7 +218,7 @@ def login_ldap_group(username: str, password: str,
 				db_session.commit()
 				db_session.refresh(user)
 				return complete_login(user, db_session,
-				                      auth_type="ldap", auto_created=True,
+				                      auth_type=AuthType.LDAP, auto_created=True,
 				                      group_dn=group_dn)
 	# No server, no matching group, or bind failed — treat as bad credentials.
 	return login_fail(username, "invalid_credentials")
@@ -257,9 +259,9 @@ def login(data: Any) -> ResponseReturnValue:
 	password = data["password"]
 	with current_app.backend.postgres.get_session() as db_session:
 		user = db_session.query(User).filter_by(username=username).first()
-		if user and user.auth_type == "local":
+		if user and user.auth_type == AuthType.LOCAL:
 			return login_local(user, password, db_session)
-		elif user and user.auth_type == "ldap":
+		elif user and user.auth_type == AuthType.LDAP:
 			return login_ldap_existing(user, password, db_session)
 		# Directories match names whatever their case: "Alice" is the LDAP
 		# account "alice" (its state and role apply - a new account from a
@@ -267,7 +269,7 @@ def login(data: Any) -> ResponseReturnValue:
 		# other capitals is refused, never duplicated.
 		same_name = db_session.query(User).filter(
 			func.lower(User.username) == username.lower()).all()
-		ldap_users = [u for u in same_name if u.auth_type == "ldap"]
+		ldap_users = [u for u in same_name if u.auth_type == AuthType.LDAP]
 		if len(ldap_users) == 1 and len(same_name) == 1:
 			return login_ldap_existing(ldap_users[0], password, db_session)
 		if same_name:
@@ -294,7 +296,7 @@ def register(data: Any) -> ResponseReturnValue:
 			db_session.rollback()
 			# what was typed may be longer than the audit's column (that can
 			# be why it's refused)
-			current_app.web.audit("auth.register", success=False,
+			current_app.web.audit(AuditAction.AUTH_REGISTER, success=False,
 			                      username=username[:LIMITS["username"]] or "anonymous",
 			                      detail={"reason": str(e)})
 			flash(str(e), "danger")
@@ -303,11 +305,11 @@ def register(data: Any) -> ResponseReturnValue:
 			# two requests at once for the same name: the database refuses the
 			# second. The failed flush leaves the session unusable - roll back.
 			db_session.rollback()
-			current_app.web.audit("auth.register", success=False, username=username,
+			current_app.web.audit(AuditAction.AUTH_REGISTER, success=False, username=username,
 			                      detail={"reason": "duplicate_username_or_email"})
 			flash("That username or email address is already in use.", "danger")
 			return redirect(url_for("auth.register_form"))
-	current_app.web.audit("auth.register", success=True, username=username,
+	current_app.web.audit(AuditAction.AUTH_REGISTER, success=True, username=username,
 	                      object_type="User", object_label=username)
 	flash("Registration successful - your account is pending admin approval.", "success")
 	return redirect(url_for("auth.home"))
@@ -338,12 +340,12 @@ def _wrong_code(user: User, retry_endpoint: str) -> ResponseReturnValue:
 	if wrong >= MAX_WRONG_CODES:
 		for key in _PENDING_2FA:
 			session.pop(key, None)
-		current_app.web.audit("auth.login", success=False, username=user.username,
+		current_app.web.audit(AuditAction.AUTH_LOGIN, success=False, username=user.username,
 		                      actor_id=user.id, detail={"reason": "too_many_wrong_codes"})
 		flash("Too many wrong codes - sign in again.", "danger")
 		return redirect(url_for("auth.home"))
 	session[WRONG_CODES_KEY] = wrong
-	current_app.web.audit("auth.login", success=False, username=user.username,
+	current_app.web.audit(AuditAction.AUTH_LOGIN, success=False, username=user.username,
 	                      actor_id=user.id, detail={"reason": "wrong_code"})
 	flash("invalid code, please try again", "danger")
 	return redirect(url_for(retry_endpoint))
@@ -412,7 +414,7 @@ def otp_verify(data: Any) -> ResponseReturnValue:
 def logout() -> ResponseReturnValue:
 	# Anonymous requests (stale tab, double click) just land on the login page
 	if current_user.is_authenticated:
-		current_app.web.audit("auth.logout")
+		current_app.web.audit(AuditAction.AUTH_LOGOUT)
 	logout_user()
 	session.clear()
 	return redirect(url_for("auth.home"))
@@ -425,7 +427,7 @@ def change_password() -> ResponseReturnValue:
 	"""Pick a new password: forced (must_change_password — the seeded admin,
 	or after an admin reset; the gate in extensions.py sends every page
 	here) or voluntary, from the Account page. Local accounts only."""
-	if current_user.auth_type != "local":
+	if current_user.auth_type != AuthType.LOCAL:
 		flash("Your password is managed by the directory (LDAP) — change it "
 		      "there.", "info")
 		return redirect(url_for("auth.account"))
@@ -454,7 +456,7 @@ def change_password() -> ResponseReturnValue:
 			reason, problem = "rule", password_problem(new, user.username,
 			                                             None if forced else current)
 		if problem:
-			current_app.web.audit("auth.password_change", success=False,
+			current_app.web.audit(AuditAction.AUTH_PASSWORD_CHANGE, success=False,
 			                      detail={"reason": reason, "forced": forced})
 			flash(problem, "danger")
 			return redirect(url_for("auth.change_password"))
@@ -467,7 +469,7 @@ def change_password() -> ResponseReturnValue:
 	current_app.session_interface.regenerate(session)
 	ended = end_user_sessions(current_user.id,
 	                          keep_sid=cast(ServerSideSession, session).sid)
-	current_app.web.audit("auth.password_change",
+	current_app.web.audit(AuditAction.AUTH_PASSWORD_CHANGE,
 	                      detail={"forced": forced, "other_sessions_ended": ended})
 	flash("Password changed.", "success")
 	# a page asked for before a forced change waited for it
@@ -504,7 +506,7 @@ def account() -> str:
 
 	if total_rollouts > 0:
 		# a job's status as Results shows it - one failed device spoils it
-		successful = sum(1 for rows in by_job.values() if job_status(rows) == "success")
+		successful = sum(1 for rows in by_job.values() if job_status(rows) == DeviceStatus.SUCCESS)
 		success_rate = round((successful / total_rollouts) * 100)
 	else:
 		success_rate = None

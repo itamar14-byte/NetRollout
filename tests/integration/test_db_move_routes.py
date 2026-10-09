@@ -102,7 +102,7 @@ def test_nothing_to_move_back_to_on_the_bundled_database(admin, client_for):
 def test_status_while_waiting_lists_the_rollouts_by_name(app, admin, client_for, monkeypatch):
 	"""While the move waits, its status gives whole seconds left (no raw deadline)
 	and each running rollout with its user's name and device count."""
-	monkeypatch.setattr(app.db_move, "status", lambda: {"state": db_move.WAITING, "deadline": 0})
+	monkeypatch.setattr(app.db_move, "status", lambda: {"state": db_move.MoveState.WAITING, "deadline": 0})
 	monkeypatch.setattr(app.db_move, "seconds_left", lambda: 90.4)
 	monkeypatch.setattr(app.orchestrator, "jobs", lambda: [
 		{"job_id": admin.id, "user_id": admin.id, "devices": 3, "state": "running", "started": None}])
@@ -222,8 +222,8 @@ def test_a_move_through_the_page_and_back(app, admin, client_for, target, mover,
 	assert resp.status_code == 200, resp.json
 	started = resp.json["move"]
 	assert started["target"] == db_move.describe(target) and started["back"] is False
-	assert started["state"] in (db_move.WAITING, db_move.COPYING, db_move.SWITCHING, db_move.DONE)
-	assert _wait(mover)["state"] == db_move.DONE
+	assert started["state"] in (db_move.MoveState.WAITING, db_move.MoveState.COPYING, db_move.MoveState.SWITCHING, db_move.MoveState.DONE)
+	assert _wait(mover)["state"] == db_move.MoveState.DONE
 	assert app.backend.postgres.config == target
 	with app.backend.postgres.get_session() as s:
 		assert s.query(User).filter_by(id=admin.id).one().username == admin.username
@@ -232,7 +232,7 @@ def test_a_move_through_the_page_and_back(app, admin, client_for, target, mover,
 	assert resp.status_code == 200, (resp.headers.get("Location"), resp.json)
 	assert resp.json["move"]["back"] is True
 	assert resp.json["move"]["target"] == db_move.describe(app.backend.bundled_postgres())
-	assert _wait(mover)["state"] == db_move.DONE
+	assert _wait(mover)["state"] == db_move.MoveState.DONE
 	assert db_move.same_database(app.backend.postgres.config, home)
 
 
@@ -249,10 +249,10 @@ def test_a_netrollout_database_there_needs_replace_ticked(app, admin, client_for
 		resp = c.post("/admin/server/database/move", json=body)
 		assert resp.status_code == 409, resp.json
 		assert "tick 'replace' to overwrite it" in resp.json["message"]
-		assert mover.status()["state"] == db_move.IDLE
+		assert mover.status()["state"] == db_move.MoveState.IDLE
 	resp = c.post("/admin/server/database/move", json={**_form(target), "replace": True})
 	assert resp.status_code == 200, resp.json
-	assert _wait(mover)["state"] == db_move.DONE
+	assert _wait(mover)["state"] == db_move.MoveState.DONE
 
 
 def test_the_move_started_audit_row_survives_the_move(app, admin, client_for, target, mover,
@@ -263,7 +263,7 @@ def test_the_move_started_audit_row_survives_the_move(app, admin, client_for, ta
 	monkeypatch.setattr(app, "db_move", mover)
 	resp = client_for(admin, xhr=True).post("/admin/server/database/move", json=_form(target))
 	assert resp.status_code == 200, resp.json
-	assert _wait(mover)["state"] == db_move.DONE
+	assert _wait(mover)["state"] == db_move.MoveState.DONE
 	with app.backend.postgres.get_session() as s:
 		rows = [(r.object_label, r.detail) for r in
 		        s.query(AuditLog).filter_by(action="database.move_started")]

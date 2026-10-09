@@ -15,8 +15,9 @@ from sqlalchemy.exc import OperationalError
 
 from src.access import nginx
 from src.accounts.users import clear_sessions
+from src.audit import AuditAction
 from src.db import move
-from src.db.connections import PostgresConfig, REDIS_UNAVAILABLE, RedisConfig, schema_problem
+from src.db.connections import PostgresConfig, REDIS_UNAVAILABLE, RedisConfig, schema_problem, ServiceMode
 from src.jobs import clear_stale_jobs, with_owners
 from src.runtime import drain_seconds
 from src.webapp import db_move
@@ -58,13 +59,13 @@ def admin_server() -> str:
 	                       postgres_schema=current_app.backend.postgres
 	                       .config.schema,
 	                       db_place=describe(current_app.backend.postgres.config),
-	                       can_move_back=(connection_modes["POSTGRES"] == "external"
+	                       can_move_back=(connection_modes["POSTGRES"] == ServiceMode.EXTERNAL
 	                                      and current_app.backend.bundled_postgres() is not None),
 	                       access_needed=move.ACCESS_NEEDED,
 	                       db_move=_status(),
 	                       redis_mode=connection_modes["REDIS"],
 	                       redis_place="{}:{}/{}".format(*current_app.backend.redis.config.place()),
-	                       can_redis_back=(connection_modes["REDIS"] == "external"
+	                       can_redis_back=(connection_modes["REDIS"] == ServiceMode.EXTERNAL
 	                                       and current_app.backend.bundled_redis() is not None),
 	                       redis_connected=redis_connected,
 	                       redis_host=current_app.backend.redis.config.host,
@@ -142,10 +143,10 @@ def database_prepare(data: dict[str, Any]) -> ResponseReturnValue:
 	try:
 		done = move.prepare_with_admin(admin.host, admin.port, admin.user, admin.password, plan)
 	except move.MoveError as e:
-		current_app.web.audit("database.prepare_failed", object_type="database",
+		current_app.web.audit(AuditAction.DATABASE_PREPARE_FAILED, object_type="database",
 		                      object_label=label, success=False, detail={"message": str(e)})
 		return err(str(e))
-	current_app.web.audit("database.prepared", object_type="database", object_label=label,
+	current_app.web.audit(AuditAction.DATABASE_PREPARED, object_type="database", object_label=label,
 	                      detail={"login": plan.login, "schema": plan.schema, "done": done})
 	return ok(done=done, database=plan.database, schema=plan.schema, login=plan.login,
 	          password=plan.password, grafana_known=bool(plan.grafana_password))
@@ -185,7 +186,7 @@ def database_move_back() -> ResponseReturnValue:
 	"""Start a move back to the bundled database (its address remembered by
 	the move away) - replacing what's there (the page's question says so)."""
 	bundled = current_app.backend.bundled_postgres()
-	if bundled is None or current_app.backend.connection_modes()["POSTGRES"] == "bundled":
+	if bundled is None or current_app.backend.connection_modes()["POSTGRES"] == ServiceMode.BUNDLED:
 		return err("There's no bundled database to move back to.", 409)
 	return _start(bundled, back=True, replace=True)
 
@@ -215,7 +216,7 @@ def _status() -> dict[str, Any]:
 	"""The move's state and step; while it waits, the rollouts it waits for."""
 	status = current_app.db_move.status()
 	status.pop("deadline", None)
-	if status["state"] == db_move.WAITING:
+	if status["state"] == db_move.MoveState.WAITING:
 		status["seconds_left"] = max(0, int(current_app.db_move.seconds_left()))
 		status["rollouts"] = _rollouts()
 	return status
@@ -285,7 +286,7 @@ def admin_server_redis_save(data: dict[str, Any]) -> ResponseReturnValue:
 def admin_server_redis_back() -> ResponseReturnValue:
 	"""Switch back to the bundled Redis."""
 	bundled = current_app.backend.bundled_redis()
-	if bundled is None or current_app.backend.connection_modes()["REDIS"] == "bundled":
+	if bundled is None or current_app.backend.connection_modes()["REDIS"] == ServiceMode.BUNDLED:
 		return err("There's no bundled Redis to switch back to.", 409)
 	return _switch_redis(bundled, back=True)
 
@@ -316,7 +317,7 @@ def _switch_redis(config: RedisConfig, back: bool) -> ResponseReturnValue:
 		if not was_paused:
 			orchestrator.resume()
 	place = "{}:{}/{}".format(*config.place())
-	current_app.web.audit("server.redis_switched", object_type="redis", object_label=place,
+	current_app.web.audit(AuditAction.SERVER_REDIS_SWITCHED, object_type="redis", object_label=place,
 	                      detail={"back": back})
 	return ok(f"NetRollout now uses Redis at {place}. Everyone else signs in again.")
 
@@ -324,7 +325,7 @@ def _switch_redis(config: RedisConfig, back: bool) -> ResponseReturnValue:
 CERT_UPLOAD_MAX_BYTES = 256 * 1024
 
 
-def _certificate_applied(action: str, undo: Callable[[], None], started: float,
+def _certificate_applied(action: AuditAction, undo: Callable[[], None], started: float,
                          managed: bool, detail: dict[str, Any]) -> ResponseReturnValue:
 	"""After the files are written: nginx's verdict — rejected → the previous
 	files are put back and the reason returned; otherwise audited and the
@@ -334,7 +335,7 @@ def _certificate_applied(action: str, undo: Callable[[], None], started: float,
 	:param managed: whether a NetRollout nginx reports here"""
 	settings = current_app.backend.settings
 	proxy = nginx.verdict(managed, started)
-	if proxy["state"] == "rejected":
+	if proxy["state"] == nginx.VerdictState.REJECTED:
 		undo()
 		return err(f"nginx rejected the certificate: {proxy.get('message')} — "
 		           f"the previous certificate is back.", 422)
@@ -369,7 +370,7 @@ def certificate_upload() -> ResponseReturnValue:
 	except nginx.ProxyError as e:
 		return err(f"Not used: {e}", 422)
 	return _certificate_applied(
-		"server.certificate_uploaded", undo, started, managed,
+		AuditAction.SERVER_CERTIFICATE_UPLOADED, undo, started, managed,
 		{"subject": check.subject, "names": check.names,
 		 "not_after": check.not_after.isoformat() if check.not_after else None,
 		 "warnings": check.warnings})
@@ -388,7 +389,7 @@ def certificate_selfsigned() -> ResponseReturnValue:
 	except nginx.ProxyError as e:
 		return err(str(e), 422)
 	names = (nginx.overview(hostname)["certificate"] or {}).get("names", [])
-	return _certificate_applied("server.certificate_generated", undo, started,
+	return _certificate_applied(AuditAction.SERVER_CERTIFICATE_GENERATED, undo, started,
 	                            managed, {"names": names})
 
 
@@ -423,7 +424,7 @@ def admin_restart() -> ResponseReturnValue:
 	deadline = 0 if mode == "now" else drain_seconds()
 	if not current_app.shutdown.begin(deadline, restart=True):
 		return err("A restart is already in progress", 409)
-	current_app.web.audit("server.restart", object_type="Server",
+	current_app.web.audit(AuditAction.SERVER_RESTART, object_type="Server",
 	                      object_label="webapp",
 	                      detail={"mode": mode or "idle", **counts})
 	return ok(**counts)

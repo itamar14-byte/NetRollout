@@ -20,12 +20,13 @@ from redis.exceptions import ConnectionError as RedisConnectionError, \
 from sqlalchemy.exc import OperationalError
 
 from src.accounts.users import ABSOLUTE_SESSION_HOURS, LAST_ACTIVE, SIGNED_IN_AT, NO_SESSION_PATHS, idle_seconds, is_background, session_seconds_left
+from src.audit import AuditAction
 from src.db.connections import BackendServices
-from src.db.tables import User
+from src.db.tables import User, Role
 from src.encryption import ENV_VAR, KEY_FILE, InvalidEncryptionKeyError, \
 	key_source
 from src.webapp.app import NetRolloutApp, current_app
-from src.webapp.http import err
+from src.webapp.http import Caller, err
 
 
 login_mng = LoginManager()
@@ -85,13 +86,12 @@ def register_auth(app: NetRolloutApp) -> None:
 				session[LAST_ACTIVE] = now
 			return None
 		reason = "idle" if idle_left <= 0 else "absolute"
-		current_app.web.audit("auth.session_expired", detail={"reason": reason})
+		current_app.web.audit(AuditAction.AUTH_SESSION_EXPIRED, detail={"reason": reason})
 		logout_user()
 		session.clear()
 		if request.endpoint == "system.grafana_auth":
 			return Response(status=401)           # nginx: only a status
-		if request.method != "GET" or is_background() or request.is_json or \
-				request.headers.get("X-Requested-With") == "XMLHttpRequest":
+		if Caller.SESSION_CHECK.wants_json():
 			return err("Your session has ended — sign in again", 401,
 			           redirect=url_for("auth.home"))
 		flash(f"You were signed out after {idle_seconds() // 60} minutes "
@@ -119,8 +119,7 @@ def register_auth(app: NetRolloutApp) -> None:
 			return None
 		if request.endpoint in PASSWORD_CHANGE_ALLOWED:
 			return None
-		if request.is_json or request.headers.get("X-Requested-With") == \
-				"XMLHttpRequest":
+		if Caller.SCRIPT.wants_json():
 			return err("Change your password first", 403,
 			           redirect=url_for("auth.change_password"))
 		return redirect(url_for("auth.change_password"))
@@ -132,7 +131,7 @@ def register_handlers(app: Flask, backend: BackendServices) -> None:
 
 	@app.errorhandler(csrf_err.CSRFError)
 	def handle_csrf_error(_: Exception) -> ResponseReturnValue:
-		if request.is_json:
+		if Caller.JSON_BODY.wants_json():
 			return err("Session expired")
 		return redirect(url_for("auth.home"))
 
@@ -144,7 +143,7 @@ def register_handlers(app: Flask, backend: BackendServices) -> None:
 	def handle_service_unavailable(_: Exception) -> ResponseReturnValue:
 		""":returns: 503 - JSON for a request from a page, else the page that
 		 says which service is down and where it was looked for"""
-		if request.is_json or request.path.startswith('/rollout/stream'):
+		if Caller.STREAM_AWARE.wants_json():
 			return err("a backend service is unavailable", 503)
 
 		res = backend.health()
@@ -176,10 +175,10 @@ def register_handlers(app: Flask, backend: BackendServices) -> None:
 		      f"LDAP bind password; for 2FA, Admin -> Users -> Reset 2FA (the "
 		      f"factory admin account signs in without 2FA).\n"
 		      f"  Don't generate a new key.", file=sys.stderr, flush=True)
-		if request.is_json:
+		if Caller.JSON_BODY.wants_json():
 			return err("Encryption key invalid", 500)
 		is_admin = (current_user.is_authenticated
-		            and current_user.role == "admin")
+		            and current_user.role == Role.ADMIN)
 		# a POST can't be retried by a link: go back to where it came from
 		retry = request.path if request.method == "GET" \
 			else (request.referrer or "/")

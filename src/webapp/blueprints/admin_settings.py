@@ -12,11 +12,13 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from src import runtime
 from src.access import port as port_apply, nginx
+from src.audit import AuditAction
 from src.backup import archive
 from src.backup.schedule import schedule_state
 from src.db import retention
 from src.db.settings import (SETTINGS, Change, SettingsError, public_url,
                              rules_for_client)
+from src.db.tables import Role
 from src.runtime import in_container
 from src.webapp.app import current_app
 from src.webapp.http import err, ok, require_admin, with_json
@@ -49,7 +51,7 @@ def _state() -> dict[str, Any]:
 	}
 
 
-def _audit(action: str, change: Change, proxy: dict[str, Any] | None = None,
+def _audit(action: AuditAction, change: Change, proxy: dict[str, Any] | None = None,
            port: dict[str, Any] | None = None) -> None:
 	"""One audit row per setting changed.
 
@@ -70,7 +72,7 @@ def restart_pending_for_admin_pages() -> dict[str, Any]:
 	restart-only setting differs from what this process runs with — decided
 	on the server, so it survives page loads."""
 	if not (request.path.startswith("/admin") and current_user.is_authenticated
-	        and current_user.role == "admin"):
+	        and current_user.role == Role.ADMIN):
 		return {}
 	try:
 		pending = current_app.backend.settings.restart_pending(
@@ -96,7 +98,7 @@ def settings_page() -> str:
 	                       app_port=current_app.config.get("APP_PORT"))
 
 
-def _save(values: dict[str, Any], action: str) -> ResponseReturnValue:
+def _save(values: dict[str, Any], action: AuditAction) -> ResponseReturnValue:
 	"""Validate, prepare nginx for a new hostname and the port helper for a
 	new port, save, and report nginx's verdict — all or nothing: an invalid
 	value, a certificate that doesn't cover the new name, a file that can't
@@ -140,7 +142,7 @@ def _save(values: dict[str, Any], action: str) -> ResponseReturnValue:
 		return _errors_response(e)
 	if host:
 		proxy = nginx.verdict(managed, started, cast(str, host.new))
-		if proxy["state"] == "rejected":
+		if proxy["state"] == nginx.VerdictState.REJECTED:
 			# the whole save goes back, not only the hostname
 			store.update({c.key: c.old for c in changes}, current_user.id)
 			assert undo is not None   # set above for a new hostname
@@ -167,7 +169,7 @@ def settings_save(data: dict[str, Any]) -> ResponseReturnValue:
 	values = data["values"]
 	if not isinstance(values, dict):
 		return err("Invalid request")
-	return _save(values, "settings.update")
+	return _save(values, AuditAction.SETTINGS_UPDATE)
 
 
 @bp.route("/<key>/reset", methods=["POST"])
@@ -179,13 +181,13 @@ def settings_reset(key: str) -> ResponseReturnValue:
 	if key not in SETTINGS or not SETTINGS[key].editable:
 		return err("Unknown setting", 404)
 	if key in ("public_hostname", "https_port"):   # nginx follows: the full path
-		return _save({key: SETTINGS[key].default}, "settings.reset")
+		return _save({key: SETTINGS[key].default}, AuditAction.SETTINGS_RESET)
 	try:
 		change = current_app.backend.settings.reset(key, current_user.id)
 	except SettingsError as e:
 		return _errors_response(e)
 	if change:
-		_audit("settings.reset", change)
+		_audit(AuditAction.SETTINGS_RESET, change)
 	return ok(changed=[key] if change else [], **_state())
 
 
@@ -221,7 +223,7 @@ def port_confirm(data: dict[str, Any]) -> ResponseReturnValue:
 		nginx.write_site(current_app.backend.settings.get("public_hostname"))
 	except (ValueError, OSError):
 		pass                              # nginx keeps the previous values
-	current_app.web.audit("settings.port_confirmed", object_type="SystemSetting",
+	current_app.web.audit(AuditAction.SETTINGS_PORT_CONFIRMED, object_type="SystemSetting",
 	                      object_label="https_port",
 	                      detail={"port": _reached_port()})
 	return ok(port=port_apply.state(current_app.backend.settings.get("https_port")))
@@ -297,7 +299,7 @@ def _file(name: str) -> Path | None:
 	return path if path.is_file() else None
 
 
-def _audit_backup(action: str, name: str, **detail: Any) -> None:
+def _audit_backup(action: AuditAction, name: str, **detail: Any) -> None:
 	current_app.web.audit(action, object_type="backup", object_label=name,
 	                      detail=detail or None)
 
@@ -316,12 +318,12 @@ def backups_list() -> Response:
 def backups_create() -> ResponseReturnValue:
 	"""Back up now. Runs in this request: seconds for most installations."""
 	try:
-		path = archive.create(current_app.backend.postgres.engine, "manual")
+		path = archive.create(current_app.backend.postgres.engine, archive.BackupKind.MANUAL)
 	except archive.BackupError as e:
-		current_app.web.audit("backup.failed", object_type="backup", success=False,
-		                      detail={"kind": "manual", "message": str(e)})
+		current_app.web.audit(AuditAction.BACKUP_FAILED, object_type="backup", success=False,
+		                      detail={"kind": archive.BackupKind.MANUAL, "message": str(e)})
 		return err(str(e), 409)
-	_audit_backup("backup.created", path.name, kind="manual", size=path.stat().st_size)
+	_audit_backup(AuditAction.BACKUP_CREATED, path.name, kind=archive.BackupKind.MANUAL, size=path.stat().st_size)
 	return ok(created=path.name, **backups_state())
 
 
@@ -333,7 +335,7 @@ def backups_download(name: str) -> ResponseReturnValue:
 	path = _file(name)
 	if path is None:
 		return err("No such backup", 404)
-	_audit_backup("backup.downloaded", name)
+	_audit_backup(AuditAction.BACKUP_DOWNLOADED, name)
 	return send_file(path, as_attachment=True, download_name=name,
 	                 mimetype="application/zip")
 
@@ -349,5 +351,5 @@ def backups_delete(name: str) -> ResponseReturnValue:
 	if path is None:
 		return err("No such backup", 404)
 	path.unlink(missing_ok=True)
-	_audit_backup("backup.deleted", name)
+	_audit_backup(AuditAction.BACKUP_DELETED, name)
 	return ok(**backups_state())

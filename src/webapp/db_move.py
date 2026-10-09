@@ -32,26 +32,42 @@ import threading
 import time
 import uuid
 from datetime import datetime
+from enum import StrEnum
 from typing import Any, TYPE_CHECKING, TypeVar
 
 from flask import Response, g, render_template, request
 from flask.typing import ResponseReturnValue
 from sqlalchemy import make_url
 
-from src.accounts.users import is_background
+from src.audit import AuditAction
 from src.db import move
 from src.db.connections import PostgresConfig
 from src.db.tables import AuditLog
 from src.webapp.app import NetRolloutApp, current_app
-from src.webapp.http import err
+from src.webapp.http import Caller, err
 if TYPE_CHECKING:   # annotations only: the orchestrator loads the database stack
 	from src.jobs import RolloutOrchestrator
 
 
 WAIT_SECONDS = 30 * 60
 POLL_SECONDS = 1.0
-IDLE, WAITING, COPYING, SWITCHING, DONE, FAILED, CANCELLED = (
-	"idle", "waiting", "copying", "switching", "done", "failed", "cancelled")
+class MoveState(StrEnum):
+	"""Where a database move is (DatabaseMove.status()'s state, the page's)."""
+	IDLE = "idle"              # none yet
+	WAITING = "waiting"        # for the rollouts (maintenance: waiting)
+	COPYING = "copying"        # maintenance: locked
+	SWITCHING = "switching"
+	DONE = "done"
+	FAILED = "failed"
+	CANCELLED = "cancelled"
+
+
+class MaintenanceState(StrEnum):
+	"""This process's maintenance (Maintenance.state): idle -> waiting ->
+	locked -> idle."""
+	IDLE = "idle"
+	WAITING = "waiting"        # new rollouts paused, the rest goes on
+	LOCKED = "locked"          # nothing may write
 
 
 def describe(config: PostgresConfig) -> str:
@@ -78,7 +94,7 @@ class DatabaseMove:
 		self._wait = wait_seconds
 		self._poll = poll_seconds
 		self._cancel = threading.Event()
-		self._status: dict[str, Any] = {"state": IDLE}
+		self._status: dict[str, Any] = {"state": MoveState.IDLE}
 
 	def status(self) -> dict[str, Any]:
 		"""For the page: state, step, target, times, outcome."""
@@ -91,7 +107,7 @@ class DatabaseMove:
 	@property
 	def running(self) -> bool:
 		""":returns: whether a move is under way (not idle nor ended)"""
-		return self._status["state"] in (WAITING, COPYING, SWITCHING)
+		return self._status["state"] in (MoveState.WAITING, MoveState.COPYING, MoveState.SWITCHING)
 
 	def start(self, target: PostgresConfig, actor_id: uuid.UUID | None, actor: str,
 	          back: bool = False, replace: bool = False) -> None:
@@ -119,7 +135,7 @@ class DatabaseMove:
 		if not self._app.maintenance.begin(what, actor_id):
 			raise move.MoveError("A move is under way already.")
 		self._cancel.clear()
-		self._status = {"state": WAITING, "step": "Waiting for rollouts to finish",
+		self._status = {"state": MoveState.WAITING, "step": "Waiting for rollouts to finish",
 		                "what": what, "back": back,
 		                "source": describe(backend.postgres.config),
 		                "target": describe(target), "actor": actor,
@@ -127,7 +143,7 @@ class DatabaseMove:
 		try:   # never stops the move (maintenance has begun): a failure is printed
 			with backend.postgres.get_session() as session:
 				session.add(AuditLog(
-					actor_id=actor_id, actor_username=actor, action="database.move_started",
+					actor_id=actor_id, actor_username=actor, action=AuditAction.DATABASE_MOVE_STARTED,
 					object_type="database", object_label=describe(target),
 					detail={"back": back}))
 		except Exception as e:                    # noqa: BLE001
@@ -139,12 +155,12 @@ class DatabaseMove:
 		"""Gives the move up - only while it waits for rollouts.
 
 		:returns: False: too late (or nothing to cancel)"""
-		if self._status["state"] != WAITING:
+		if self._status["state"] != MoveState.WAITING:
 			return False
 		self._cancel.set()
 		return True
 
-	def _step(self, state: str, step: str) -> None:
+	def _step(self, state: MoveState, step: str) -> None:
 		"""The step under way: the status, maintenance's progress, the console."""
 		self._status.update(state=state, step=step)
 		self._app.maintenance.report(step)
@@ -155,11 +171,11 @@ class DatabaseMove:
 		"""The move itself (its thread): wait for the lock, copy, switch.
 		Maintenance ends whatever happens; the outcome stays in the status."""
 		maintenance = self._app.maintenance
-		outcome, message = FAILED, ""
+		outcome, message = MoveState.FAILED, ""
 		try:
 			while not maintenance.lock():
 				if self._cancel.is_set():
-					outcome, message = CANCELLED, "Cancelled - NetRollout stays on its database."
+					outcome, message = MoveState.CANCELLED, "Cancelled - NetRollout stays on its database."
 					return
 				if time.time() >= self._status["deadline"]:
 					message = (f"Rollouts were still running after {int(self._wait // 60)} "
@@ -167,19 +183,19 @@ class DatabaseMove:
 					           f"Cancel the stuck rollouts, then move again.")
 					return
 				time.sleep(self._poll)
-			self._step(COPYING, "Copying the data")
+			self._step(MoveState.COPYING, "Copying the data")
 			detail: dict[str, Any] = {"from": self._status["source"], "to": self._status["target"],
 			          "by": actor}
 			copied = move.copy(self._app.backend.postgres.engine, target, detail=detail,
-			                   report=lambda step: self._step(COPYING, step))
+			                   report=lambda step: self._step(MoveState.COPYING, step))
 			self._status["backup"] = copied.backup.name
-			self._step(SWITCHING, "Switching to the new database")
+			self._step(MoveState.SWITCHING, "Switching to the new database")
 			try:
 				self._app.backend.move_postgres(target)
 			except RuntimeError as e:
 				raise move.MoveError(f"Switching failed: {e} - NetRollout stays on its "
 				                     f"database.") from None
-			outcome = DONE
+			outcome = MoveState.DONE
 			message = f"NetRollout now uses {self._status['target']}."
 		except move.MoveError as e:
 			message = str(e)
@@ -189,10 +205,10 @@ class DatabaseMove:
 			maintenance.end()
 			self._status.update(state=outcome, step="", message=message, finished=_now())
 			print(f"[NetRollout] database move: {outcome} - {message}", flush=True)
-			if outcome != DONE:
+			if outcome != MoveState.DONE:
 				self._audit_failure(outcome, message, actor_id, actor)
 
-	def _audit_failure(self, outcome: str, message: str,
+	def _audit_failure(self, outcome: MoveState, message: str,
 	                   actor_id: uuid.UUID | None, actor: str) -> None:
 		"""A move that didn't happen, in the audit log of the database
 		NetRollout stays on (never stops: a failure to audit is printed)."""
@@ -200,8 +216,8 @@ class DatabaseMove:
 			with self._app.backend.postgres.get_session() as session:
 				session.add(AuditLog(
 					actor_id=actor_id, actor_username=actor,
-					action="database.move_cancelled" if outcome == CANCELLED
-					else "database.move_failed", object_type="database",
+					action=AuditAction.DATABASE_MOVE_CANCELLED if outcome == MoveState.CANCELLED
+					else AuditAction.DATABASE_MOVE_FAILED, object_type="database",
 					object_label=self._status.get("target"), success=False,
 					detail={"from": self._status.get("source"), "message": message}))
 		except Exception as e:                    # noqa: BLE001
@@ -213,7 +229,6 @@ def _now() -> str:
 	return datetime.now().isoformat(timespec="seconds")
 
 
-LOCKED = "locked"        # maintenance: IDLE -> WAITING -> LOCKED (IDLE, WAITING above)
 RETRY_AFTER_SECONDS = 10
 # not views of ours: the files the pages need, Prometheus' scrape (Redis only)
 ALWAYS_SERVED = {"static", "prometheus_metrics"}
@@ -237,21 +252,21 @@ class Maintenance:
 	def __init__(self, orchestrator: "RolloutOrchestrator") -> None:
 		self._orchestrator = orchestrator
 		self._lock = threading.Lock()
-		self._state = IDLE
+		self._state = MaintenanceState.IDLE
 		self._what = ""
 		self._progress = ""
 		self._actor_id: uuid.UUID | None = None
 		self._under_way = 0       # requests that may write, being answered
 
 	@property
-	def state(self) -> str:
-		""":returns: IDLE, WAITING or LOCKED"""
+	def state(self) -> MaintenanceState:
+		""":returns: idle, waiting or locked"""
 		return self._state
 
 	@property
 	def writes_blocked(self) -> bool:
 		""":returns: whether nothing may write (locked)"""
-		return self._state == LOCKED
+		return self._state == MaintenanceState.LOCKED
 
 	def begin(self, what: str, actor_id: uuid.UUID | None) -> bool:
 		"""Waiting: new rollouts paused.
@@ -260,9 +275,9 @@ class Maintenance:
 		:param actor_id: the admin who started it
 		:returns: False when something is under way already (one at a time)"""
 		with self._lock:
-			if self._state != IDLE:
+			if self._state != MaintenanceState.IDLE:
 				return False
-			self._state, self._what, self._actor_id = WAITING, what, actor_id
+			self._state, self._what, self._actor_id = MaintenanceState.WAITING, what, actor_id
 			self._progress = "Waiting for rollouts to finish"
 			self._orchestrator.pause()
 			return True
@@ -271,11 +286,11 @@ class Maintenance:
 		"""Locked, once no rollout is queued or running and no request that
 		may write is being answered; else False (still waiting)."""
 		with self._lock:
-			if self._state != WAITING:
+			if self._state != MaintenanceState.WAITING:
 				return False
 			if self._under_way or not self._orchestrator.idle():
 				return False
-			self._state = LOCKED
+			self._state = MaintenanceState.LOCKED
 			return True
 
 	def enter(self) -> bool:
@@ -284,7 +299,7 @@ class Maintenance:
 
 		:returns: False: locked - refused, not counted"""
 		with self._lock:
-			if self._state == LOCKED:
+			if self._state == MaintenanceState.LOCKED:
 				return False
 			self._under_way += 1
 			return True
@@ -301,7 +316,7 @@ class Maintenance:
 	def end(self) -> None:
 		"""Back to normal (moved, failed or cancelled): rollouts resume."""
 		with self._lock:
-			self._state, self._what, self._progress, self._actor_id = IDLE, "", "", None
+			self._state, self._what, self._progress, self._actor_id = MaintenanceState.IDLE, "", "", None
 			self._orchestrator.resume()
 
 	def snapshot(self) -> dict[str, Any]:
@@ -336,9 +351,8 @@ def register_maintenance(app: NetRolloutApp) -> None:
 			return None
 		info = maintenance.snapshot()
 		message = f"NetRollout is under maintenance - {info['what']}. Try again in a few minutes."
-		# background requests by the same rule as the session's (is_background)
-		if request.method != "GET" or request.is_json or \
-				request.headers.get("X-Requested-With") == "XMLHttpRequest" or is_background():
+		# by the same rule as a session that ended
+		if Caller.SESSION_CHECK.wants_json():
 			answer: ResponseReturnValue = err(message, 503, maintenance=True)
 		else:
 			answer = render_template("maintenance.html", info=info), 503
@@ -356,4 +370,4 @@ def register_maintenance(app: NetRolloutApp) -> None:
 	def maintenance_banner() -> dict[str, Any]:
 		"""The banner's details while waiting (locked: the pages aren't served)."""
 		info = app.maintenance.snapshot()
-		return {"maintenance": info} if info["state"] == WAITING else {}
+		return {"maintenance": info} if info["state"] == MaintenanceState.WAITING else {}

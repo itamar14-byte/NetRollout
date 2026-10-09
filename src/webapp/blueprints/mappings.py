@@ -12,12 +12,13 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from src.accounts.users import signed_in_user
+from src.audit import AuditAction
 from src.db.tables import VariableMapping, Inventory, PropertyDefinition
 from src.inventory import (SYSTEM_PROPERTIES, attributes, attributes_of, delete_property_values,
                            partition_devices, query_visible_devices, visible_devices_clause)
 from src.rollout import inputs
 from src.rollout.engine import mapping_resolvable
-from src.rollout.log import RolloutLogger
+from src.rollout.log import RolloutLogger, Tone
 from src.webapp.app import current_app
 from src.webapp.http import ok, err, with_form, with_json, flash_redirect
 
@@ -130,11 +131,11 @@ def mappings_create(data: Any) -> ResponseReturnValue:
 	try:
 		with current_app.backend.postgres.get_session() as db_session:
 			db_session.add(row)
-		current_app.web.audit("mapping.create", object_type="VariableMapping",
+		current_app.web.audit(AuditAction.MAPPING_CREATE, object_type="VariableMapping",
 		                      object_label=token)
 		flash("Mapping created.", "success")
 	except IntegrityError:
-		current_app.web.audit("mapping.create", success=False,
+		current_app.web.audit(AuditAction.MAPPING_CREATE, success=False,
 		                      detail={"reason": "duplicate_token",
 		                              "token": token})
 		flash("A mapping with that token already exists.", "danger")
@@ -173,11 +174,11 @@ def mappings_quick_create(data: dict[str, Any]) -> ResponseReturnValue:
 			db_session.flush()
 			mapping_id = str(row.id)
 	except IntegrityError:
-		current_app.web.audit("mapping.create", success=False,
+		current_app.web.audit(AuditAction.MAPPING_CREATE, success=False,
 		                      detail={"reason": "duplicate_token",
 		                              "token": token})
 		return err(f"Token {token} already exists")
-	current_app.web.audit("mapping.create", object_type="VariableMapping",
+	current_app.web.audit(AuditAction.MAPPING_CREATE, object_type="VariableMapping",
 	                      object_label=token)
 	return ok(id=mapping_id, token=token, property_name=property_name,
 	          index=index)
@@ -208,11 +209,11 @@ def mappings_edit(mapping_id: uuid.UUID, data: Any) -> ResponseReturnValue:
 			mapping.property_name = parsed_data["property_name"]
 			mapping.index = parsed_data["index"]
 
-		current_app.web.audit("mapping.edit", object_type="VariableMapping",
+		current_app.web.audit(AuditAction.MAPPING_EDIT, object_type="VariableMapping",
 		                      object_id=mapping_id, object_label=token)
 		flash("Mapping updated.", "success")
 	except IntegrityError:
-		current_app.web.audit("mapping.edit", success=False,
+		current_app.web.audit(AuditAction.MAPPING_EDIT, success=False,
 		                      detail={"reason": "duplicate_token",
 		                              "token": token})
 		flash("A mapping with that token already exists.", "danger")
@@ -226,7 +227,7 @@ def mappings_delete(mapping_id: uuid.UUID) -> ResponseReturnValue:
 	"""Delete one of the user's mappings (its device bindings go with it)."""
 	return current_app.web.act_on_db_obj(
 		VariableMapping, mapping_id,
-		current_app.web.delete_op("mapping.delete",
+		current_app.web.delete_op(AuditAction.MAPPING_DELETE,
 		                          label_func=lambda m: m.token,
 		                          on_success=lambda _: flash_redirect(
 			                          "Mapping deleted.",
@@ -262,7 +263,7 @@ def mappings_bulk_assign() -> ResponseReturnValue:
 	# Parse JSON body — bail immediately if malformed or missing
 	data = request.get_json(silent=True)
 	if not data:
-		logger.notify("Bulk mapping assign failed: invalid request", "red",
+		logger.notify("Bulk mapping assign failed: invalid request", Tone.ERROR,
 		              important=True)
 		return err("Invalid request")
 	mapping_id = data.get("mapping_id", None)
@@ -270,7 +271,7 @@ def mappings_bulk_assign() -> ResponseReturnValue:
 	remove_ids = data.get("remove_ids", [])
 
 	if not device_ids and not remove_ids:
-		logger.notify("Bulk mapping assign failed: no devices provided", "red",
+		logger.notify("Bulk mapping assign failed: no devices provided", Tone.ERROR,
 		              important=True)
 		return err("No devices provided")
 
@@ -278,7 +279,7 @@ def mappings_bulk_assign() -> ResponseReturnValue:
 	try:
 		parsed_mapping_id = uuid.UUID(str(mapping_id))
 	except (ValueError, TypeError):
-		logger.notify("Bulk mapping assign failed: invalid mapping ID", "red",
+		logger.notify("Bulk mapping assign failed: invalid mapping ID", Tone.ERROR,
 		              important=True)
 		return err("Invalid mapping ID")
 
@@ -288,7 +289,7 @@ def mappings_bulk_assign() -> ResponseReturnValue:
 			id=parsed_mapping_id, user_id=current_user.id).first()
 		if not mapping:
 			logger.notify("Bulk mapping assign failed: mapping not found",
-			              "red", important=True)
+			              Tone.ERROR, important=True)
 			return err("Mapping not found", 404)
 
 		logger.notify(
@@ -308,7 +309,7 @@ def mappings_bulk_assign() -> ResponseReturnValue:
 				continue
 		for unbound in [d for d in mapping.devices if d.id in remove_set]:
 			mapping.devices.remove(unbound)
-			logger.notify(f"{unbound.label} ({unbound.ip}): unassigned", "green")
+			logger.notify(f"{unbound.label} ({unbound.ip}): unassigned", Tone.SUCCESS)
 			removed += 1
 
 		assigned, skipped = 0, 0
@@ -323,7 +324,7 @@ def mappings_bulk_assign() -> ResponseReturnValue:
 				continue
 			# Skip if device not found or not owned by current_user
 			if not device:
-				logger.notify(f"Device {device_id_str}: not found", "red")
+				logger.notify(f"Device {device_id_str}: not found", Tone.ERROR)
 				skipped += 1
 				continue
 			# Eligibility check — device must have the mapped attribute set,
@@ -334,24 +335,24 @@ def mappings_bulk_assign() -> ResponseReturnValue:
 					mapping.property_name, mapping.index):
 				logger.notify(
 					f"{device.label} ({device.ip}): ineligible — missing attribute '{mapping.property_name}'",
-					"yellow")
+					Tone.WARNING)
 				skipped += 1
 				continue
 			# Skip if already assigned to avoid duplicate join table rows
 			if device.id in assigned_ids:
 				logger.notify(f"{device.label} ({device.ip}): already assigned",
-				              "yellow")
+				              Tone.WARNING)
 				skipped += 1
 				continue
 			mapping.devices.append(device)
-			logger.notify(f"{device.label} ({device.ip}): assigned", "green")
+			logger.notify(f"{device.label} ({device.ip}): assigned", Tone.SUCCESS)
 			assigned += 1
 
 	logger.notify(
 		f"Bulk mapping assign complete: {assigned} assigned, {removed} "
 		f"unassigned, {skipped} skipped",
-		"green" if not skipped else "yellow", important=True)
-	current_app.web.audit("mapping.bulk_assign", object_type="VariableMapping",
+		Tone.SUCCESS if not skipped else Tone.WARNING, important=True)
+	current_app.web.audit(AuditAction.MAPPING_BULK_ASSIGN, object_type="VariableMapping",
 	                      object_id=parsed_mapping_id,
 	                      detail={"count": assigned, "removed": removed})
 	return ok()
@@ -426,7 +427,7 @@ def properties_create() -> ResponseReturnValue:
 		db_session.add(prop)
 		db_session.flush()
 		prop_id = str(prop.id)
-	current_app.web.audit("property.create", object_type="PropertyDefinition",
+	current_app.web.audit(AuditAction.PROPERTY_CREATE, object_type="PropertyDefinition",
 	                      object_id=uuid.UUID(prop_id), object_label=name)
 	return ok(id=prop_id, name=name, label=label, icon=icon, is_list=is_list)
 
@@ -447,7 +448,7 @@ def properties_edit(prop_id: uuid.UUID) -> ResponseReturnValue:
 		PropertyDefinition, prop_id,
 		current_app.web.update_op({"label": label, "icon": icon, "is_list":
 			is_list},
-		                          "property.edit", label_func=lambda p: p.name),
+		                          AuditAction.PROPERTY_EDIT, label_func=lambda p: p.name),
 		user_id=current_user.id
 	)
 
@@ -457,7 +458,7 @@ def properties_edit(prop_id: uuid.UUID) -> ResponseReturnValue:
 def properties_delete(prop_id: uuid.UUID) -> ResponseReturnValue:
 	"""Delete one of the user's properties, and their values of it on every
 	device."""
-	delete = current_app.web.delete_op("property.delete",
+	delete = current_app.web.delete_op(AuditAction.PROPERTY_DELETE,
 	                                   label_func=lambda p: p.name)
 
 	def _delete(prop: PropertyDefinition, db_session: Session) -> ResponseReturnValue:

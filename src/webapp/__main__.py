@@ -15,6 +15,7 @@ from src.db.settings import public_url
 from src.rollout.log import start_log_pruning, utf8_console
 from src.runtime import StartupError, drain_seconds, in_container, server_threads
 from src.webapp.build import create_app
+from src.webapp.db_move import MaintenanceState
 from src.webapp.startup import container_announcement, start_announcer
 
 utf8_console()
@@ -39,7 +40,7 @@ start_certificate_upkeep()   # previous hostnames leave the self-signed cert
 def moving() -> bool:
 	"""A database move is running: the backup schedule and the clean-up wait
 	(src/webapp/db_move.py)."""
-	return app.maintenance.state != "idle"
+	return app.maintenance.state != MaintenanceState.IDLE
 
 
 start_backup_schedule(app.backend, hold=moving)   # System Settings → Backups

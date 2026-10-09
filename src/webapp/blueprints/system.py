@@ -7,9 +7,10 @@ from flask import Blueprint, Response, jsonify
 from flask.typing import ResponseReturnValue
 from flask_login import current_user
 
+from src.db.tables import Role
 from src.runtime import VERSION
 from src.webapp.app import current_app
-from src.webapp.db_move import during_maintenance
+from src.webapp.db_move import during_maintenance, MaintenanceState
 from src.webapp.startup import GRAFANA_AUTH_PATH, HEALTH_PATH, INSTANCE_PATH
 
 bp = Blueprint("system", __name__)
@@ -27,7 +28,7 @@ def grafana_auth() -> Response:
 	# is User.is_active)
 	if not current_user.is_authenticated:
 		return Response(status=401)       # nginx sends them to sign in
-	if current_user.role != "admin" or current_user.must_change_password:
+	if current_user.role != Role.ADMIN or current_user.must_change_password:
 		return Response(status=403)
 	return Response(status=204,
 	                headers={"X-NetRollout-User": current_user.username})
@@ -67,6 +68,6 @@ def health() -> ResponseReturnValue:
 def _maintenance() -> dict[str, Any] | None:
 	""":returns: a database move's {state, progress}; None: none"""
 	info = current_app.maintenance.snapshot()
-	if info["state"] == "idle":
+	if info["state"] == MaintenanceState.IDLE:
 		return None
 	return {"state": info["state"], "progress": info["progress"]}

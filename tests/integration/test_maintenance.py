@@ -8,7 +8,7 @@ import pytest
 from sqlalchemy import text
 
 from src.jobs import PAUSED_MESSAGE
-from src.webapp.db_move import IDLE, LOCKED, WAITING
+from src.webapp.db_move import MaintenanceState
 from tests.integration.test_route_matrix import _routes, _url
 
 pytestmark = [pytest.mark.postgres, pytest.mark.redis]
@@ -99,7 +99,7 @@ def test_health_stays_200_and_says_so(app, locked):
 	locked.report("Switching")
 	resp = app.test_client().get("/_netrollout/health")
 	assert resp.status_code == 200
-	assert resp.json["maintenance"] == {"state": LOCKED, "progress": "Switching"}
+	assert resp.json["maintenance"] == {"state": MaintenanceState.LOCKED, "progress": "Switching"}
 
 
 def test_nothing_is_audited_while_locked(app, admin, locked):
@@ -120,7 +120,7 @@ def test_waiting_pauses_rollouts_shows_a_banner_and_writes_as_usual(
 	assert app.orchestrator.refusal() == PAUSED_MESSAGE
 	page = client_for(admin).get("/admin/users")
 	assert page.status_code == 200 and b'id="maintenanceBanner"' in page.data
-	assert app.test_client().get("/_netrollout/health").json["maintenance"]["state"] == WAITING
+	assert app.test_client().get("/_netrollout/health").json["maintenance"]["state"] == MaintenanceState.WAITING
 	before = _audit_rows(app)
 	with app.test_request_context("/"):
 		app.web.audit("auth.login", username="someone")
@@ -132,9 +132,9 @@ def test_locking_waits_for_the_rollouts(app, admin, maintenance, monkeypatch):
 	and locks once it is."""
 	assert maintenance.begin(WHAT, admin.id)
 	monkeypatch.setattr(app.orchestrator, "idle", lambda: False)
-	assert maintenance.lock() is False and maintenance.state == WAITING
+	assert maintenance.lock() is False and maintenance.state == MaintenanceState.WAITING
 	monkeypatch.setattr(app.orchestrator, "idle", lambda: True)
-	assert maintenance.lock() and maintenance.state == LOCKED
+	assert maintenance.lock() and maintenance.state == MaintenanceState.LOCKED
 
 
 def _held_in(app, monkeypatch, endpoint, fail=False):
@@ -176,10 +176,10 @@ def test_the_lock_waits_for_a_request_under_way(app, admin, client_for, maintena
 	thread = _in_thread(lambda: client.get("/dashboard"))
 	assert entered.wait(10)
 	assert maintenance.begin(WHAT, admin.id)
-	assert maintenance.lock() is False and maintenance.state == WAITING
+	assert maintenance.lock() is False and maintenance.state == MaintenanceState.WAITING
 	release.set()
 	thread.join(10)
-	assert maintenance.lock() and maintenance.state == LOCKED
+	assert maintenance.lock() and maintenance.state == MaintenanceState.LOCKED
 
 
 def test_a_live_log_open_doesnt_hold_the_lock(app, admin, client_for, maintenance, monkeypatch):
@@ -191,7 +191,7 @@ def test_a_live_log_open_doesnt_hold_the_lock(app, admin, client_for, maintenanc
 	assert entered.wait(10)
 	try:
 		assert maintenance.begin(WHAT, admin.id)
-		assert maintenance.lock() and maintenance.state == LOCKED
+		assert maintenance.lock() and maintenance.state == MaintenanceState.LOCKED
 	finally:
 		release.set()
 		thread.join(10)
@@ -210,6 +210,6 @@ def test_the_end_resumes_rollouts_and_the_site(app, admin, client_for, locked):
 	"""end() goes back to idle: rollouts are accepted, pages served, health
 	shows no maintenance."""
 	locked.end()
-	assert locked.state == IDLE and app.orchestrator.refusal() is None
+	assert locked.state == MaintenanceState.IDLE and app.orchestrator.refusal() is None
 	assert client_for(admin).get("/dashboard").status_code == 200
 	assert app.test_client().get("/_netrollout/health").json["maintenance"] is None

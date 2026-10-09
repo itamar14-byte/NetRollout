@@ -11,6 +11,7 @@ from netmiko import ConnectHandler, NetmikoTimeoutException, \
 from sqlalchemy.orm import Session
 
 from src.accounts.users import signed_in_user
+from src.audit import AuditAction
 from src.db.tables import SecurityProfile, Inventory
 from src.encryption import encrypt, decrypt
 from src.inventory import can_edit_device
@@ -93,7 +94,7 @@ def security_edit(profile_id: uuid.UUID) -> ResponseReturnValue:
 			profile.enable_secret = encrypt(new_secret)
 		elif request.form.get("clear_enable_secret"):
 			profile.enable_secret = None
-		current_app.web.audit("security_profile.edit",
+		current_app.web.audit(AuditAction.SECURITY_PROFILE_EDIT,
 		                      object_type="SecurityProfile",
 		                      object_id=profile_id)
 		return flash_redirect("Security profile updated.", "security.security")
@@ -119,7 +120,7 @@ def security_delete(profile_id: uuid.UUID) -> ResponseReturnValue:
 
 	return current_app.web.act_on_db_obj(
 		SecurityProfile, profile_id,
-		current_app.web.delete_op("security_profile.delete",
+		current_app.web.delete_op(AuditAction.SECURITY_PROFILE_DELETE,
 		                          data_filter=_guard,
 		                          label_func=lambda p: p.label or p.username,
 		                          on_success=lambda _: flash_redirect(

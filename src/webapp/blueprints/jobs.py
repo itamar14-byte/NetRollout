@@ -17,7 +17,7 @@ from sqlalchemy import ColumnElement, and_, distinct, func, or_, tuple_
 from sqlalchemy.orm import Session
 
 from src import runtime
-from src.db.tables import DeviceResult, JobMetadata, User, Inventory
+from src.db.tables import DeviceResult, JobMetadata, User, Inventory, Role
 from src.inventory import visible_devices_clause
 from src.jobs import (JobStore, RolloutJob, JOB_STATUSES, job_status,
                       job_status_condition, build_kpi)
@@ -333,7 +333,7 @@ def dashboard() -> str:
 	"""The dashboard: counts, recent jobs, the user's running rollout, and
 	the 30-day KPIs - an admin's of any user (?user=<id>)."""
 	# ── Admin KPI scope ───────────────────────────────────────────────────────
-	is_admin = current_user.role == "admin"
+	is_admin = current_user.role == Role.ADMIN
 	selected_user = "me"
 	kpi_user_id = current_user.id
 	if is_admin:
@@ -392,7 +392,7 @@ def dashboard() -> str:
 def active_jobs() -> str:
 	"""Active Jobs: the user's queued and running rollouts - and, for an
 	admin, everyone else's apart."""
-	is_admin = current_user.role == "admin"
+	is_admin = current_user.role == Role.ADMIN
 	store = JobStore(current_app.backend.redis)
 	with current_app.backend.postgres.get_session() as db_session:
 		if is_admin:
@@ -433,7 +433,7 @@ def results() -> str:
 	lists; else every job); ?job=<id> without ?page= lands on that job's
 	page - for an admin, another user's job without ?other_page= on its page
 	of the all-users view."""
-	is_admin = current_user.role == "admin"
+	is_admin = current_user.role == Role.ADMIN
 	per_page = per_page_arg(request.args.get("per_page"))
 	status = status_arg(request.args.get("status"))
 	focus = None
@@ -531,7 +531,7 @@ def config_diff(job_id: uuid.UUID, device_ip: str) -> ResponseReturnValue:
 		filters["device_port"] = port
 	with current_app.backend.postgres.get_session() as db_session:
 		row = db_session.query(DeviceResult).filter_by(**filters).first()
-		if not row or (current_user.role != "admin" and row.user_id != current_user.id):
+		if not row or (current_user.role != Role.ADMIN and row.user_id != current_user.id):
 			return err("Not found", 404)
 		config = row.fetched_config
 		if config is None:
@@ -558,11 +558,11 @@ def job_summary(job_id: uuid.UUID) -> ResponseReturnValue:
 	before) — the card retries."""
 	with current_app.backend.postgres.get_session() as db_session:
 		rows = db_session.query(DeviceResult).filter_by(job_id=job_id).all()
-		if not rows or (current_user.role != "admin"
+		if not rows or (current_user.role != Role.ADMIN
 		                and rows[0].user_id != current_user.id):
 			return err("Not found", 404)
 		# an admin names devices as on Results (anyone's inventory)
-		labels = shown_endpoint_labels(db_session, rows) 			if current_user.role == "admin" 			else visible_endpoint_labels(db_session, current_user.id)
+		labels = shown_endpoint_labels(db_session, rows) 			if current_user.role == Role.ADMIN 			else visible_endpoint_labels(db_session, current_user.id)
 		meta = db_session.query(JobMetadata).filter_by(job_id=job_id).first()
 		comment = meta.comment if meta else None
 		db_session.expunge_all()
@@ -586,7 +586,7 @@ def job_summary(job_id: uuid.UUID) -> ResponseReturnValue:
 @login_required
 def download_log(job_id: uuid.UUID) -> ResponseReturnValue:
 	"""The job's rollout log file - its owner's, or any for an admin."""
-	if current_user.role != "admin":
+	if current_user.role != Role.ADMIN:
 		owned = user_owns_job(job_id, current_user.id)
 		if not owned:
 			return Response("Not found", status=404)

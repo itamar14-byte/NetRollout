@@ -13,13 +13,14 @@ from flask.typing import ResponseReturnValue
 from flask_login import current_user, login_required
 from werkzeug.wrappers import Response as BaseResponse
 
-from src.db.tables import DeviceResult, Inventory, JobMetadata, User
+from src.audit import AuditAction
+from src.db.tables import DeviceResult, Inventory, JobMetadata, User, Role
 from src.inventory import attributes, visible_devices_clause, query_visible_devices, partition_devices
 from src.jobs import QUEUED_LINE, Draining
-from src.rollout.engine import Device, RolloutOptions, missing_value, unresolved
+from src.rollout.engine import Device, DeviceStatus, RolloutOptions, missing_value, unresolved
 from src.rollout.inputs import InputParser
 from src.webapp.app import current_app
-from src.webapp.http import ok, err, with_form, with_json
+from src.webapp.http import ok, err, with_form, with_json, Caller
 
 bp = Blueprint('rollout', __name__, url_prefix='/rollout')
 
@@ -221,8 +222,7 @@ def cancel_rollout(data: Any) -> ResponseReturnValue:
 
 	:returns: JSON for a script (XHR / JSON); a page's form gets the outcome
 	 flashed and is sent back to the page it came from (else Active Jobs)"""
-	scripted = request.is_json or \
-		request.headers.get("X-Requested-With") == "XMLHttpRequest"
+	scripted = Caller.SCRIPT.wants_json()
 
 	def refused(message: str, code: int) -> ResponseReturnValue:
 		if scripted:
@@ -236,11 +236,11 @@ def cancel_rollout(data: Any) -> ResponseReturnValue:
 	except ValueError:
 		return refused("invalid job_id", 422)
 	job = current_app.orchestrator.get_job(job_id)
-	if not job or (job.user_id != current_user.id and current_user.role != "admin"):
+	if not job or (job.user_id != current_user.id and current_user.role != Role.ADMIN):
 		return refused("job not found", 404)
 	queued = job.started_at is None        # it ends at once, nothing pushed
 	current_app.orchestrator.cancel(job_id)
-	current_app.web.audit("rollout.cancel", object_id=job_id)
+	current_app.web.audit(AuditAction.ROLLOUT_CANCEL, object_id=job_id)
 	if scripted:
 		return ok("canceled")
 	flash("Queued rollout cancelled - it never started." if queued else
@@ -362,7 +362,7 @@ def new_start_rollout() -> ResponseReturnValue:
 	if isinstance(job_id, BaseResponse):
 		return job_id
 
-	current_app.web.audit("rollout.start", object_id=job_id,
+	current_app.web.audit(AuditAction.ROLLOUT_START, object_id=job_id,
 	                      detail={"device_count": len(devices),
 	                              "comment": audit_comment})
 	flash(f"Rollout started for {len(devices)} "
@@ -384,10 +384,10 @@ def rollout_stream(job_id: uuid.UUID) -> Response:
 	if job is None:
 		with current_app.backend.postgres.get_session() as db_session:
 			owner = db_session.query(JobMetadata.user_id).filter_by(job_id=job_id).scalar()
-		if owner is None or (owner != current_user.id and current_user.role != "admin"):
+		if owner is None or (owner != current_user.id and current_user.role != Role.ADMIN):
 			return Response(status=404)
 		return _event_stream(iter([DONE_EVENT]))
-	if job.user_id != current_user.id and current_user.role != "admin":
+	if job.user_id != current_user.id and current_user.role != Role.ADMIN:
 		return Response(status=404)
 	followed = job
 
@@ -440,7 +440,7 @@ def rollback(job_id: uuid.UUID, data: dict[str, Any]) -> ResponseReturnValue:
 	with current_app.backend.postgres.get_session() as db_session:
 		first = db_session.query(DeviceResult.user_id).filter_by(
 			job_id=job_id).first()
-		if first is None or (current_user.role != "admin"
+		if first is None or (current_user.role != Role.ADMIN
 		                     and first.user_id != current_user.id):
 			return err("Not found", 404)
 		owner_id = first.user_id
@@ -449,7 +449,7 @@ def rollback(job_id: uuid.UUID, data: dict[str, Any]) -> ResponseReturnValue:
 		result = db_session.query(DeviceResult).filter_by(
 			user_id=owner_id,
 			job_id=job_id,
-			status="success").all()
+			status=DeviceStatus.SUCCESS.value).all()
 		successful = {(r.device_ip, r.device_port) for r in result}
 
 		candidates = db_session.query(Inventory).filter(
@@ -495,7 +495,7 @@ def rollback(job_id: uuid.UUID, data: dict[str, Any]) -> ResponseReturnValue:
 		                                              options, current_user.id)
 	except Draining as e:
 		return err(str(e), 503)
-	current_app.web.audit("rollout.rollback", object_id=job_id,
+	current_app.web.audit(AuditAction.ROLLOUT_ROLLBACK, object_id=job_id,
 	                      detail={"new_job_id": str(new_job_id),
 	                              "device_count": len(devices),
 	                              "job_owner_id": str(owner_id),

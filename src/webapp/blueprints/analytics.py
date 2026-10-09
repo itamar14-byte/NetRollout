@@ -11,8 +11,9 @@ from flask.typing import ResponseReturnValue
 from flask_login import current_user, login_required
 from sqlalchemy import ColumnElement, and_, false, or_, true
 
-from src.db.tables import DeviceResult, Inventory, User, AuditLog
+from src.db.tables import DeviceResult, Inventory, User, AuditLog, Role
 from src.jobs import build_kpi
+from src.rollout.engine import DeviceStatus
 from src.webapp.app import current_app
 from src.webapp.http import err, with_json, ok, require_admin
 
@@ -51,7 +52,7 @@ def analytics() -> str:
 	selected_user = "me"
 	scope_user_id = current_user.id
 
-	if current_user.role == "admin":
+	if current_user.role == Role.ADMIN:
 		param = request.args.get("user", "me").strip()
 		if param != "me":
 			try:
@@ -73,7 +74,7 @@ def analytics() -> str:
 			.filter(Inventory.user_id == scope_user_id).all()
 		}
 		users = db_session.query(User).order_by(User.username).all() \
-			if current_user.role == "admin" else []
+			if current_user.role == Role.ADMIN else []
 		db_session.expunge_all()
 
 	kpi = build_kpi(results_30d, inv_label_map)
@@ -101,7 +102,7 @@ def analytics_query(data: dict[str, Any]) -> ResponseReturnValue:
 
 	:returns: {columns, rows} or an error (a field or operator not allowed)"""
 	scope_user_id = current_user.id
-	if current_user.role == "admin":
+	if current_user.role == Role.ADMIN:
 		param = str(data.get("user", "me")).strip()
 		if param != "me":
 			try:
@@ -236,7 +237,7 @@ def admin_analytics() -> str:
 		active_user_ids = {r.user_id for r in results_30d}
 		total_ops = len(results_30d)
 		total_jobs = len({r.job_id for r in results_30d})
-		success_count = sum(1 for r in results_30d if r.status == "success")
+		success_count = sum(1 for r in results_30d if r.status == DeviceStatus.SUCCESS)
 
 		org_kpi = {
 			"active_users": len(active_user_ids),
@@ -274,7 +275,7 @@ def admin_analytics() -> str:
 		fail_counts: defaultdict[str, dict[str, Any]] = defaultdict(
 			lambda: {"device_type": "", "count": 0})
 		for r in results_30d:
-			if r.status == "failed":
+			if r.status == DeviceStatus.FAILED:
 				fail_counts[r.device_ip]["device_type"] = r.device_type
 				fail_counts[r.device_ip]["count"] += 1
 

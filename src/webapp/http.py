@@ -5,6 +5,7 @@ dashboard's KPIs, signing a user out everywhere - and WebServices
 import functools
 import uuid
 from collections.abc import Callable
+from enum import Enum
 from typing import Any
 
 from flask import Response, flash, jsonify, redirect, request, url_for
@@ -12,8 +13,10 @@ from flask.typing import ResponseReturnValue
 from flask_login import current_user
 from sqlalchemy.orm import Session
 
+from src.accounts.users import is_background
+from src.audit import AuditAction
 from src.db.connections import BackendServices
-from src.db.tables import AuditLog, Base, PropertyDefinition, SecurityProfile
+from src.db.tables import AuditLog, Base, PropertyDefinition, SecurityProfile, Role
 from src.encryption import encrypt
 from src.inventory import SYSTEM_PROPERTIES, ReachabilityChecker
 from src.webapp.app import current_app
@@ -21,6 +24,33 @@ from src.webapp.app import current_app
 
 # A view function, and one that receives the request's data as `data`
 View = Callable[..., ResponseReturnValue]
+
+
+class Caller(Enum):
+	"""Which signs make a request one from a page's script - answered JSON,
+	not a page or a redirect (wants_json). Each situation has its own signs:
+	(a JSON body, the XHR header, a background request (users.is_background),
+	any method but GET, the live log's stream)."""
+	#             JSON body, XHR,  background, non-GET, live log stream
+	# a page's script (fetch with a JSON body or the XHR header)
+	SCRIPT = (True, True, False, False, False)
+	# a request that can't follow a redirect to a page either: background
+	# ones and form posts too (a session that ended, maintenance)
+	SESSION_CHECK = (True, True, True, True, False)
+	# only a JSON body counts (a stale CSRF token, a key that doesn't decrypt)
+	JSON_BODY = (True, False, False, False, False)
+	# a JSON body, or the live log's stream (a service that's down)
+	STREAM_AWARE = (True, False, False, False, True)
+
+	def wants_json(self) -> bool:
+		""":returns: whether the current request shows one of this situation's
+		 signs"""
+		json_body, xhr, background, non_get, stream = self.value
+		return bool((non_get and request.method != "GET")
+		            or (json_body and request.is_json)
+		            or (xhr and request.headers.get("X-Requested-With") == "XMLHttpRequest")
+		            or (background and is_background())
+		            or (stream and request.path.startswith("/rollout/stream")))
 
 
 def ok(message: str | None = None, /, **extra: Any) -> Response:
@@ -43,9 +73,8 @@ def require_admin(f: View) -> View:
 	page they came from."""
 	@functools.wraps(f)
 	def decorated(*args: Any, **kwargs: Any) -> ResponseReturnValue:
-		if current_user.role != "admin":
-			if (request.is_json or request.headers.get("X-Requested-With")
-					== "XMLHttpRequest"):
+		if current_user.role != Role.ADMIN:
+			if Caller.SCRIPT.wants_json():
 				return err("Forbidden", 403)
 			return redirect(request.referrer or url_for("jobs.dashboard"))
 		return f(*args, **kwargs)
@@ -87,8 +116,7 @@ def with_form(*required_fields: str) -> Callable[[View], View]:
 			if request.method not in ("GET", "HEAD", "OPTIONS"):
 				for field in required_fields:
 					if not request.form.get(field, "").strip():
-						if (request.is_json or request.headers.get(
-								"X-Requested-With") == "XMLHttpRequest"):
+						if Caller.SCRIPT.wants_json():
 							return err(f"Missing field: {field}")
 						flash(f"{field.replace('_', ' ').title()} is required.",
 						      "danger")
@@ -117,7 +145,7 @@ class WebServices:
 			lambda: backend.redis.client,
 			ttl=lambda: backend.settings.get("reachability_cache_seconds"))
 
-	def audit(self, action: str, *, object_type: str | None = None,
+	def audit(self, action: AuditAction, *, object_type: str | None = None,
 	          object_id: uuid.UUID | str | None = None,
 	          object_label: str | None = None, detail: dict[str, Any] | None = None,
 	          success: bool = True, username: str | None = None,
@@ -126,7 +154,7 @@ class WebServices:
 		commits independently of the calling route's transaction. During a
 		database move's maintenance it's printed instead (it would be lost).
 
-		:param action: e.g. "user.created"
+		:param action: what happened (its value is the row's action)
 		:param username: who did it; the signed-in user (or "anonymous") when None
 		:param actor_id: their id; the signed-in user's when None"""
 		if username is None:
@@ -198,7 +226,7 @@ class WebServices:
 		        getattr(obj, 'token', None) or
 		        str(obj.id))
 
-	def update_op(self, fields: dict[str, Any], audit_action: str,
+	def update_op(self, fields: dict[str, Any], audit_action: AuditAction,
 	              label_func: Callable[[Any], str] | None = None,
 	              skip_none: bool = False,
 	              on_success: Callable[[str], ResponseReturnValue] | None = None
@@ -222,7 +250,7 @@ class WebServices:
 
 		return func
 
-	def delete_op(self, audit_action: str,
+	def delete_op(self, audit_action: AuditAction,
 	              data_filter: Callable[[Any], ResponseReturnValue | None] | None = None,
 	              label_func: Callable[[Any], str] | None = None,
 	              on_success: Callable[[str], ResponseReturnValue] | None = None
@@ -266,7 +294,7 @@ class WebServices:
 			db_session.add(profile)
 			db_session.flush()
 			profile_id = str(profile.id)
-		self.audit("security_profile.create", object_type="SecurityProfile",
+		self.audit(AuditAction.SECURITY_PROFILE_CREATE, object_type="SecurityProfile",
 		           object_label=label or username)
 		return profile_id
 

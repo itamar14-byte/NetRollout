@@ -12,7 +12,8 @@ from flask_login import current_user, login_required
 from sqlalchemy.orm import Session
 
 from src.accounts.users import signed_in_user
-from src.db.tables import VariableMapping, Inventory, SecurityProfile
+from src.audit import AuditAction
+from src.db.tables import VariableMapping, Inventory, SecurityProfile, Role
 from src.inventory import (attributes, attributes_of, can_edit_device, drop_other_users_values,
                            form_values, import_csv,
                            partition_devices, query_visible_devices, same_endpoint_devices,
@@ -21,7 +22,7 @@ from src.inventory import (attributes, attributes_of, can_edit_device, drop_othe
 from src.rollout import inputs
 from src.rollout.engine import endpoint, mapping_resolvable
 from src.rollout.inputs import InputParser, Validator
-from src.rollout.log import RolloutLogger
+from src.rollout.log import RolloutLogger, Tone
 from src.webapp.app import current_app
 from src.webapp.http import ok, err, with_form, with_json, flash_redirect
 
@@ -108,7 +109,7 @@ def inventory() -> str:
 	return render_template("inventory.html",
 	                       global_devices=global_devices,
 	                       my_devices=my_devices,
-	                       is_admin=current_user.role == "admin",
+	                       is_admin=current_user.role == Role.ADMIN,
 	                       profiles=profiles,
 	                       mappings=var_mappings,
 	                       sys_props=sys_props,
@@ -137,7 +138,7 @@ def inventory_create(data: Any) -> ResponseReturnValue:
 	except ValueError:
 		return err("Invalid security profile ID", 422)
 	# Only admins may publish a device globally; the field is ignored otherwise
-	is_global = current_user.role == "admin" and data.get("is_global") == "on"
+	is_global = current_user.role == Role.ADMIN and data.get("is_global") == "on"
 	if is_global and not parsed_sec_id:
 		return flash_redirect("A global device needs a security profile — "
 		                      "users can't assign their own to it.",
@@ -161,7 +162,7 @@ def inventory_create(data: Any) -> ResponseReturnValue:
 		)
 		db_session.add(row)
 
-	current_app.web.audit("inventory.create", object_type="Inventory",
+	current_app.web.audit(AuditAction.INVENTORY_CREATE, object_type="Inventory",
 	                      object_label=label,
 	                      detail={"is_global": is_global})
 	flash(f"{label} added to inventory.", "success")
@@ -244,7 +245,7 @@ def inventory_edit(device_id: uuid.UUID) -> ResponseReturnValue:
 		was_global = device.is_global
 		# Only admins may change global status; the field is ignored otherwise
 		is_global = (request.form.get("is_global") == "on"
-		             if current_user.role == "admin" else was_global)
+		             if current_user.role == Role.ADMIN else was_global)
 		if is_global and not parsed_sec_id:
 			return flash_redirect("A global device needs a security profile — "
 			                      "users can't assign their own to it.",
@@ -277,12 +278,12 @@ def inventory_edit(device_id: uuid.UUID) -> ResponseReturnValue:
 			device.var_mappings = [m for m in device.var_mappings
 			                       if m.user_id == device.user_id]
 			drop_other_users_values(db_session, device)
-		current_app.web.audit("inventory.edit", object_type="Inventory",
+		current_app.web.audit(AuditAction.INVENTORY_EDIT, object_type="Inventory",
 		                      object_id=device_id, object_label=device.label,
 		                      detail={"is_global": is_global})
 		if is_global != was_global:
 			current_app.web.audit(
-				"inventory.globalize" if is_global else "inventory.localize",
+				AuditAction.INVENTORY_GLOBALIZE if is_global else AuditAction.INVENTORY_LOCALIZE,
 				object_type="Inventory", object_id=device_id,
 				object_label=device.label)
 		flash(f"{device.label} updated.", "success")
@@ -318,7 +319,7 @@ def inventory_attributes(device_id: uuid.UUID) -> ResponseReturnValue:
 		                  [p["name"] for p in user_props])
 		flash_skipped_mappings(
 			set_user_mappings(device, current_user.id, mapping_ids, db_session))
-		current_app.web.audit("inventory.attributes", object_type="Inventory",
+		current_app.web.audit(AuditAction.INVENTORY_ATTRIBUTES, object_type="Inventory",
 		                      object_id=device_id, object_label=device.label,
 		                      detail={"mapping_count": len(mapping_ids)})
 		return flash_redirect(f"Your attributes and mappings saved for "
@@ -335,7 +336,7 @@ def inventory_delete(device_id: uuid.UUID) -> ResponseReturnValue:
 	"""Delete a device - its owner, or an admin for a global one."""
 	return current_app.web.act_on_db_obj(
 		Inventory, device_id,
-		current_app.web.delete_op("inventory.delete",
+		current_app.web.delete_op(AuditAction.INVENTORY_DELETE,
 		                          on_success=lambda label: flash_redirect(
 			                          f"{label} removed from inventory.",
 			                          "inventory.inventory")),
@@ -408,13 +409,13 @@ def inventory_import_csv() -> ResponseReturnValue:
 			flash(msg, "danger")
 		# same audit action as a manually created profile, marked by source
 		for profile_id, profile_label in report.created_profiles:
-			current_app.web.audit("security_profile.create",
+			current_app.web.audit(AuditAction.SECURITY_PROFILE_CREATE,
 			                      object_type="SecurityProfile",
 			                      object_id=profile_id,
 			                      object_label=profile_label,
 			                      detail={"source": "csv_import"})
 		if devices:
-			current_app.web.audit("inventory.import_csv", detail={
+			current_app.web.audit(AuditAction.INVENTORY_IMPORT_CSV, detail={
 				"count": len(devices),
 				"profiles_created": len(report.created_profiles)})
 			flash(
@@ -443,7 +444,7 @@ def inventory_bulk_assign() -> ResponseReturnValue:
 	                       job_id=str(uuid.uuid4())[:8])
 	data = request.get_json(silent=True)
 	if not data:
-		logger.notify("Bulk assign failed: invalid request", "red",
+		logger.notify("Bulk assign failed: invalid request", Tone.ERROR,
 		              important=True)
 		return err("Invalid request")
 
@@ -451,7 +452,7 @@ def inventory_bulk_assign() -> ResponseReturnValue:
 	device_ids = data.get("device_ids", [])
 
 	if not device_ids:
-		logger.notify("Bulk assign failed: no devices provided", "red",
+		logger.notify("Bulk assign failed: no devices provided", Tone.ERROR,
 		              important=True)
 		return err("No devices provided")
 
@@ -468,7 +469,7 @@ def inventory_bulk_assign() -> ResponseReturnValue:
 			profile = db_session.query(SecurityProfile).filter_by(
 				id=parsed_profile_id, user_id=current_user.id).first()
 			if not profile:
-				logger.notify("Bulk assign failed: profile not found", "red",
+				logger.notify("Bulk assign failed: profile not found", Tone.ERROR,
 				              important=True)
 				return err("Profile not found", 404)
 
@@ -486,22 +487,22 @@ def inventory_bulk_assign() -> ResponseReturnValue:
 				# same rule as create/edit: a global device must keep a
 				# profile — other users can't give it one
 				logger.notify(f"{device.label} ({device.ip}): global device "
-				              f"must keep a profile", "yellow")
+				              f"must keep a profile", Tone.WARNING)
 				skipped += 1
 			elif device:
 				device.sec_profile_id = parsed_profile_id
 				logger.notify(f"{device.label} ({device.ip}): "
 				              f"{'assigned' if parsed_profile_id else 'unassigned'}",
-				              "green")
+				              Tone.SUCCESS)
 				assigned += 1
 			else:
-				logger.notify(f"Device {device_id_str}: not found", "red")
+				logger.notify(f"Device {device_id_str}: not found", Tone.ERROR)
 				skipped += 1
 
 	logger.notify(
 		f"Bulk security assign complete: {assigned} assigned, {skipped} skipped",
-		"green" if not skipped else "yellow", important=True)
-	current_app.web.audit("inventory.bulk_assign", detail={
+		Tone.SUCCESS if not skipped else Tone.WARNING, important=True)
+	current_app.web.audit(AuditAction.INVENTORY_BULK_ASSIGN, detail={
 		"count": len(device_ids),
 		"profile_id": str(profile_id) if profile_id else None})
 	return ok()

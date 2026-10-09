@@ -141,7 +141,7 @@ def test_move_there_and_back(app, target, mover, make_user, make_profile):
 
 	mover.start(target, admin.id, admin.username)
 	status = _wait(mover)
-	assert status["state"] == db_move.DONE, status
+	assert status["state"] == db_move.MoveState.DONE, status
 	assert app.backend.postgres.config == target
 	assert app.maintenance.state == "idle" and app.orchestrator.refusal() is None
 	# on the same host as the bundled one, yet not it: Move back is offered
@@ -161,7 +161,7 @@ def test_move_there_and_back(app, target, mover, make_user, make_profile):
 	mover.start(app.backend.bundled_postgres(), admin.id, admin.username, back=True,
 	            replace=True)
 	status = _wait(mover)
-	assert status["state"] == db_move.DONE, status
+	assert status["state"] == db_move.MoveState.DONE, status
 	assert db_move.same_database(app.backend.postgres.config, home)
 	assert app.backend.connection_modes()["POSTGRES"] == "bundled"
 	assert _rows(app.backend.postgres.engine,
@@ -203,7 +203,7 @@ def test_a_netrollout_database_there_is_replaced_only_when_asked(app, target, mo
 		mover.start(target, None, "admin")
 	assert app.maintenance.state == "idle"
 	mover.start(target, None, "admin", replace=True)
-	assert _wait(mover)["state"] == db_move.DONE
+	assert _wait(mover)["state"] == db_move.MoveState.DONE
 	assert app.backend.postgres.config == target
 
 
@@ -215,10 +215,10 @@ def test_cancelled_while_waiting_for_rollouts(app, target, mover, monkeypatch):
 	mover.start(target, None, "admin")
 	assert app.orchestrator.refusal() is not None
 	time.sleep(0.2)
-	assert mover.status()["state"] == db_move.WAITING
+	assert mover.status()["state"] == db_move.MoveState.WAITING
 	assert mover.cancel()
 	status = _wait(mover)
-	assert status["state"] == db_move.CANCELLED
+	assert status["state"] == db_move.MoveState.CANCELLED
 	assert app.maintenance.state == "idle" and app.orchestrator.refusal() is None
 	assert _rows(app.backend.postgres.engine,
 	             "select 1 from audit_log where action = 'database.move_cancelled'")
@@ -231,7 +231,7 @@ def test_rollouts_still_running_after_the_wait_give_the_move_up(app, target, mon
 	short = DatabaseMove(app, wait_seconds=0.3, poll_seconds=0.05)
 	short.start(target, None, "admin")
 	status = _wait(short)
-	assert status["state"] == db_move.FAILED and "Cancel the stuck rollouts" in status["message"]
+	assert status["state"] == db_move.MoveState.FAILED and "Cancel the stuck rollouts" in status["message"]
 	assert app.maintenance.state == "idle"
 
 
@@ -250,7 +250,7 @@ def test_a_switch_failing_after_the_reconnect_goes_back_to_the_database(
 	monkeypatch.setattr(app.backend, "_write_config", read_only)
 	mover.start(target, None, "admin")
 	status = _wait(mover)
-	assert status["state"] == db_move.FAILED, status
+	assert status["state"] == db_move.MoveState.FAILED, status
 	assert "Permission denied" in status["message"]
 	assert "stays on its database" in status["message"]
 	assert app.backend.postgres.config == home and app.maintenance.state == "idle"
@@ -269,7 +269,7 @@ def test_a_failed_copy_leaves_everything_as_it_was(app, target, mover, monkeypat
 	monkeypatch.setattr(db_move.move, "copy", broken)
 	mover.start(target, None, "admin")
 	status = _wait(mover)
-	assert status["state"] == db_move.FAILED and "simulated" in status["message"]
+	assert status["state"] == db_move.MoveState.FAILED and "simulated" in status["message"]
 	assert app.backend.postgres.config == home and app.maintenance.state == "idle"
 	assert _rows(app.backend.postgres.engine,
 	             "select 1 from audit_log where action = 'database.move_failed'")

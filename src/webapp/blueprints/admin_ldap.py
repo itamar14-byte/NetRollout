@@ -9,7 +9,8 @@ from flask_login import login_required
 from sqlalchemy import func
 
 from src.accounts.ldap import test_user, test_connection, fetch_base_dn, walk_tree
-from src.db.tables import LDAPServer, LDAPGroup, User
+from src.audit import AuditAction
+from src.db.tables import LDAPServer, LDAPGroup, User, AuthType, BindType
 from src.encryption import encrypt
 from src.rollout import inputs
 from src.webapp.app import current_app
@@ -19,7 +20,7 @@ from src.webapp.http import ok, err, require_admin, with_form
 bp = Blueprint('admin_ldap', __name__, url_prefix='/admin/server')
 
 
-LDAP_BIND_TYPES = ("regular", "simple")   # with a service account / without
+LDAP_BIND_TYPES = (BindType.REGULAR, BindType.SIMPLE)   # with a service account / without
 
 
 def unload_ldap_data(req: Request) -> dict[str, str]:
@@ -105,7 +106,7 @@ def admin_server_ldap_new() -> ResponseReturnValue:
 
 		db_session.add(row)
 
-		current_app.web.audit("admin.ldap_server_save",
+		current_app.web.audit(AuditAction.ADMIN_LDAP_SERVER_SAVE,
 		                      object_type="LDAPServer",
 		                      object_label=server_input["label"], success=True)
 	return ok()
@@ -140,7 +141,7 @@ def admin_server_ldap_save(server_id: uuid.UUID) -> ResponseReturnValue:
 		srv.is_active = server_input["is_active"].lower() == "true"
 		srv.bind_password = encrypt(server_input["bind_password"]) if \
 			server_input["bind_password"] else srv.bind_password
-		current_app.web.audit("admin.ldap_server_save",
+		current_app.web.audit(AuditAction.ADMIN_LDAP_SERVER_SAVE,
 		                      object_type="LDAPServer",
 		                      object_label=srv.name, success=True)
 	return ok()
@@ -155,7 +156,7 @@ def admin_server_ldap_delete(server_id: uuid.UUID) -> ResponseReturnValue:
 		if not srv:
 			return err("Server not found", 404)
 		db_session.delete(srv)
-		current_app.web.audit("admin.ldap_server_delete",
+		current_app.web.audit(AuditAction.ADMIN_LDAP_SERVER_DELETE,
 		                      object_type="LDAPServer",
 		                      object_label=srv.name, success=True)
 	return ok()
@@ -248,7 +249,7 @@ def admin_server_ldap_import(server_id: uuid.UUID) -> ResponseReturnValue:
 					continue
 				db_session.add(User(
 					username=item["username"],
-					auth_type="ldap",
+					auth_type=AuthType.LDAP,
 					ldap_server_id=server_id,
 					is_approved=True,
 					is_active=True,
@@ -268,7 +269,7 @@ def admin_server_ldap_import(server_id: uuid.UUID) -> ResponseReturnValue:
 				))
 				groups_created += 1
 
-		current_app.web.audit("admin.ldap_import", success=True,
+		current_app.web.audit(AuditAction.ADMIN_LDAP_IMPORT, success=True,
 		                      detail={"users": users_created,
 		                              "groups": groups_created,
 		                              "skipped": skipped})
@@ -302,7 +303,7 @@ def admin_server_ldap_group_toggle(server_id: uuid.UUID,
 			return err("Group not found", 404)
 		new_state = not g.is_active
 		g.is_active = new_state
-		current_app.web.audit("admin.ldap_group_toggle",
+		current_app.web.audit(AuditAction.ADMIN_LDAP_GROUP_TOGGLE,
 		                      object_type="LDAPGroup",
 		                      object_label=g.label, success=True,
 		                      detail={"is_active": g.is_active})
@@ -321,7 +322,7 @@ def admin_server_ldap_group_delete(server_id: uuid.UUID,
 		if not g:
 			return err("Group not found", 404)
 		db_session.delete(g)
-		current_app.web.audit("admin.ldap_group_delete",
+		current_app.web.audit(AuditAction.ADMIN_LDAP_GROUP_DELETE,
 		                      object_type="LDAPGroup",
 		                      object_label=g.label, success=True)
 	return ok()

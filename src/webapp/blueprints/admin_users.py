@@ -14,7 +14,8 @@ from werkzeug.security import generate_password_hash
 
 from src.accounts.users import (temporary_password, AccountError, new_local_user, pending_requests,
                                 signed_in_users, end_user_sessions)
-from src.db.tables import User
+from src.audit import AuditAction
+from src.db.tables import User, AuthType, Role
 from src.webapp.app import current_app
 from src.webapp.http import ok, err, require_admin, with_json
 
@@ -29,7 +30,7 @@ USER_ACTIONS = frozenset({"approve", "enable", "disable", "promote", "demote",
 def pending_access_requests() -> dict[str, Any]:
 	"""The admin sidebar's count of access requests waiting (none: no badge)."""
 	if not (request.path.startswith("/admin") and current_user.is_authenticated
-	        and current_user.role == "admin"):
+	        and current_user.role == Role.ADMIN):
 		return {}
 	try:
 		with current_app.backend.postgres.get_session() as db_session:
@@ -50,11 +51,11 @@ def user_action_factory(user: User, action: str, db_session: Session) -> None:
 	elif action == "disable":
 		user.is_active = False
 	elif action == "promote":
-		user.role = "admin"
+		user.role = Role.ADMIN
 		user.is_approved = True
 		user.is_active = True
 	elif action == "demote":
-		user.role = "operator"
+		user.role = Role.OPERATOR
 	elif action == "delete":
 		db_session.delete(user)
 	elif action == "reset_2fa":
@@ -109,7 +110,7 @@ def admin_user_action(user_id: uuid.UUID, action: str) -> ResponseReturnValue:
 		target_username = user.username
 		target_id = user.id
 		user_action_factory(user, action, db_session)
-	current_app.web.audit(f"user.{action}", object_type="User",
+	current_app.web.audit(AuditAction(f"user.{action}"), object_type="User",
 	                      object_id=target_id, object_label=target_username)
 	return redirect(url_for("admin_users.admin_users"))
 
@@ -131,14 +132,14 @@ def admin_reset_password(user_id: uuid.UUID) -> ResponseReturnValue:
 			return err("User not found", 404)
 		if user.username == "admin":
 			return err("The factory admin's password can't be reset", 400)
-		if user.auth_type != "local":
+		if user.auth_type != AuthType.LOCAL:
 			return err("LDAP passwords are managed in the directory", 400)
 		temporary = temporary_password(user.username)
 		user.password_hash = generate_password_hash(temporary)
 		user.must_change_password = True
 		username = user.username
 	ended = end_user_sessions(user_id)
-	current_app.web.audit("user.reset_password", object_type="User",
+	current_app.web.audit(AuditAction.USER_RESET_PASSWORD, object_type="User",
 	                      object_id=user_id, object_label=username,
 	                      detail={"sessions_ended": ended})
 	return ok(username=username, temporary_password=temporary)
@@ -155,7 +156,7 @@ def admin_add_user(data: dict[str, Any]) -> ResponseReturnValue:
 	admin never knows the password in use). 2FA is enrolled at that sign-in,
 	as for every local user."""
 	username = str(data.get("username", "")).strip()
-	role = str(data.get("role", "operator"))
+	role = str(data.get("role", Role.OPERATOR))
 	temporary = temporary_password(username)
 	with current_app.backend.postgres.get_session() as db_session:
 		try:
@@ -170,7 +171,7 @@ def admin_add_user(data: dict[str, Any]) -> ResponseReturnValue:
 			db_session.rollback()
 			return err("That username or email address is already in use.", 409)
 		user_id, username = user.id, user.username
-	current_app.web.audit("user.created", object_type="User", object_id=user_id,
+	current_app.web.audit(AuditAction.USER_CREATED, object_type="User", object_id=user_id,
 	                      object_label=username, detail={"role": role})
 	return ok(username=username, role=role, temporary_password=temporary)
 
@@ -200,7 +201,7 @@ def admin_bulk_action(action: str) -> ResponseReturnValue:
 				continue
 			affected.append(user.username)
 			user_action_factory(user, action, db_session)
-	current_app.web.audit(f"user.bulk_{action}",
+	current_app.web.audit(AuditAction(f"user.bulk_{action}"),
 	                      detail={"count": len(affected), "users": affected})
 	return redirect(url_for("admin_users.admin_users"))
 
@@ -229,9 +230,9 @@ def admin_sessions() -> str:
 
 	return render_template("live_sessions.html",
 	                       local_sessions=[s for s in sessions if
-	                                       s["auth_type"] == "local"],
+	                                       s["auth_type"] == AuthType.LOCAL],
 	                       ldap_sessions=[s for s in sessions if
-	                                      s["auth_type"] == "ldap"],
+	                                      s["auth_type"] == AuthType.LDAP],
 	                       active_section="sessions")
 
 
@@ -249,7 +250,7 @@ def admin_sessions_kick(user_id: uuid.UUID) -> ResponseReturnValue:
 	ended = end_user_sessions(user_id)
 	if not ended:
 		return err("Session not found", 404)
-	current_app.web.audit("admin.session_kick", object_type="User",
+	current_app.web.audit(AuditAction.ADMIN_SESSION_KICK, object_type="User",
 	                      object_id=user_id, success=True,
 	                      detail={"sessions_ended": ended})
 	return ok()
