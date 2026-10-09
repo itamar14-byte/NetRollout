@@ -21,6 +21,7 @@ from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
 
+from src.audit import AuditAction
 from src.backup import archive
 from src.db.connections import PostgresConfig
 from src.db.install import GRAFANA_ROLE
@@ -318,7 +319,7 @@ def copy(source: Engine, target: PostgresConfig, *, detail: dict[str, object],
 	:raises MoveError: refused or failed - NetRollout's database unchanged"""
 	report("Backing up this database")
 	try:
-		path = archive.create(source, "before-move", places)
+		path = archive.create(source, archive.BackupKind.BEFORE_MOVE, places)
 	except archive.BackupError as e:
 		raise MoveError(f"The backup before the move failed: {e}") from None
 	manifest = archive.read_manifest(path)
@@ -326,7 +327,7 @@ def copy(source: Engine, target: PostgresConfig, *, detail: dict[str, object],
 	try:
 		report(f"Copying {sum(manifest.tables.values())} rows to {target.host}")
 		try:
-			archive.restore_database(path, engine, audit=("database.moved", detail),
+			archive.restore_database(path, engine, audit=(AuditAction.DATABASE_MOVED, detail),
 			                         places=places)
 		except archive.BackupError as e:
 			raise MoveError(str(e)) from None

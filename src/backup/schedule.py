@@ -18,8 +18,10 @@ from pathlib import Path
 from typing import Any
 
 from src import runtime
+from src.audit import AuditAction
 from src.backup import archive
 from src.db.connections import BackendServices
+from src.db.settings import BackupSchedule, Weekday
 from src.db.tables import AuditLog
 
 
@@ -27,7 +29,7 @@ CHECK_SECONDS = 30
 FIRST_CHECK_SECONDS = 120     # not during the start itself
 RETRY_SECONDS = 3600
 STATUS_FILE = ".schedule-status.json"
-WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+WEEKDAYS = tuple(Weekday)       # Monday first, as datetime.weekday()
 ACTOR = "scheduler"
 
 
@@ -46,10 +48,10 @@ def last_slot(now: datetime, schedule: str, at: str, weekday: str) -> datetime |
 	:param at: the time of day, "HH:MM"
 	:param weekday: weekly's day, one of WEEKDAYS
 	:returns: that time; None when off"""
-	if schedule == "daily":
+	if schedule == BackupSchedule.DAILY:
 		slot = _at(now, at)
 		return slot if slot <= now else slot - timedelta(days=1)
-	if schedule == "weekly":
+	if schedule == BackupSchedule.WEEKLY:
 		slot = _at(now, at) - timedelta(days=(now.weekday() - WEEKDAYS.index(weekday)) % 7)
 		return slot if slot <= now else slot - timedelta(days=7)
 	return None
@@ -60,7 +62,7 @@ def next_slot(now: datetime, schedule: str, at: str, weekday: str) -> datetime |
 	slot = last_slot(now, schedule, at, weekday)
 	if slot is None:
 		return None
-	return slot + timedelta(days=1 if schedule == "daily" else 7)
+	return slot + timedelta(days=1 if schedule == BackupSchedule.DAILY else 7)
 
 
 def due(now: datetime, slot: datetime | None, newest: datetime | None,
@@ -84,7 +86,7 @@ def newest_scheduled(folder: Path) -> datetime | None:
 	""":returns: when the newest scheduled backup in the folder was made;
 	 None: there's none"""
 	for entry in archive.list_backups(folder):          # newest first
-		if entry.kind == "scheduled":
+		if entry.kind == archive.BackupKind.SCHEDULED:
 			return datetime.strptime(entry.stamp, "%Y%m%d-%H%M%S")
 	return None
 
@@ -101,7 +103,7 @@ def read_status(folder: Path | None = None) -> dict[str, Any] | None:
 		return None
 
 
-def system_audit(backend: BackendServices, action: str, *, label: str | None = None,
+def system_audit(backend: BackendServices, action: AuditAction, *, label: str | None = None,
                  success: bool = True, detail: dict[str, Any] | None = None) -> None:
 	"""An audit row from the server itself (no request, no user)."""
 	with backend.postgres.get_session() as db_session:
@@ -121,12 +123,12 @@ def run_scheduled(backend: BackendServices, now: datetime,
 	:returns: the status written"""
 	places = places or archive.Places.app()
 	try:
-		path = archive.create(backend.postgres.engine, "scheduled", places, now=now)
+		path = archive.create(backend.postgres.engine, archive.BackupKind.SCHEDULED, places, now=now)
 		gone = archive.prune(places.backups, int(backend.settings.get("backup_keep")))
 		status: dict[str, Any] = {"time": now.isoformat(timespec="seconds"), "ok": True,
 		          "file": path.name, "message": ""}
-		system_audit(backend, "backup.created", label=path.name,
-		             detail={"kind": "scheduled", "size": path.stat().st_size,
+		system_audit(backend, AuditAction.BACKUP_CREATED, label=path.name,
+		             detail={"kind": archive.BackupKind.SCHEDULED, "size": path.stat().st_size,
 		                     "deleted": [p.name for p in gone]})
 	except Exception as e:                  # noqa: BLE001 — reported, retried
 		message = str(e).splitlines()[0] if str(e) else type(e).__name__
@@ -135,8 +137,8 @@ def run_scheduled(backend: BackendServices, now: datetime,
 		print(f"[NetRollout] ACTION NEEDED — scheduled backup failed: {message} "
 		      f"(retried in {RETRY_SECONDS // 60} minutes)", flush=True)
 		try:
-			system_audit(backend, "backup.failed", success=False,
-			             detail={"kind": "scheduled", "message": message})
+			system_audit(backend, AuditAction.BACKUP_FAILED, success=False,
+			             detail={"kind": archive.BackupKind.SCHEDULED, "message": message})
 		except Exception:                   # noqa: BLE001 — e.g. the database is down
 			pass
 	runtime.write_json(places.backups / STATUS_FILE, status)

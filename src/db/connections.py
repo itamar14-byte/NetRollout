@@ -7,6 +7,7 @@ import re
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
+from enum import StrEnum
 from functools import cached_property
 from pathlib import Path
 from urllib.parse import quote
@@ -318,6 +319,13 @@ ENCRYPTED_COLUMNS = (SecurityProfile.password_secret,
                       User.otp_secret)
 # All Fernet tokens start with this (version byte 0x80, base64-encoded)
 FERNET_PREFIX = "gAAAAA"
+class ServiceMode(StrEnum):
+	"""Whether NetRollout uses a bundled service or an organisation's
+	(BackendServices.connection_modes)."""
+	BUNDLED = "bundled"
+	EXTERNAL = "external"
+
+
 # Hosts of the bundled services: local development, or the compose service
 # names (deploy/compose.yaml must use these names)
 BUNDLED_HOSTS = {"POSTGRES": ("localhost", "127.0.0.1", "postgres"),
@@ -397,10 +405,10 @@ class BackendServices:
 		os.chmod(tmp, 0o600)
 		os.replace(tmp, self._CONFIG_ENV)
 
-	def connection_modes(self) -> dict[str, str]:
+	def connection_modes(self) -> dict[str, ServiceMode]:
 		"""Whether NetRollout uses the bundled services or an organisation's.
 
-		:returns: {"POSTGRES": "bundled" | "external", "REDIS": ...} - by host
+		:returns: {"POSTGRES": a ServiceMode, "REDIS": ...} - by host
 		 (the compose names, localhost), or by the whole address once a move or
 		 switch has remembered the bundled one's"""
 		# the live connection's host: with a DATABASE_URL / REDIS_URL,
@@ -410,17 +418,17 @@ class BackendServices:
 			"REDIS": self.redis.client.connection_pool.connection_kwargs.get(
 				"host"),
 		}
-		modes = {service: "bundled" if host in BUNDLED_HOSTS[service]
-		         else "external" for service, host in hosts.items()}
+		modes = {service: ServiceMode.BUNDLED if host in BUNDLED_HOSTS[service]
+		         else ServiceMode.EXTERNAL for service, host in hosts.items()}
 		# after a move the bundled database's address is known: compare the
 		# whole place (another database on the same host isn't the bundled one)
 		remembered = self._config_values()
 		if remembered.get(BUNDLED_DATABASE_KEY):
-			modes["POSTGRES"] = ("bundled" if PostgresConfig(url=remembered[BUNDLED_DATABASE_KEY]).place()
-			                     == self.postgres.config.place() else "external")
+			modes["POSTGRES"] = (ServiceMode.BUNDLED if PostgresConfig(url=remembered[BUNDLED_DATABASE_KEY]).place()
+			                     == self.postgres.config.place() else ServiceMode.EXTERNAL)
 		if remembered.get(BUNDLED_REDIS_KEY):
-			modes["REDIS"] = ("bundled" if RedisConfig(url=remembered[BUNDLED_REDIS_KEY]).place()
-			                  == self.redis.config.place() else "external")
+			modes["REDIS"] = (ServiceMode.BUNDLED if RedisConfig(url=remembered[BUNDLED_REDIS_KEY]).place()
+			                  == self.redis.config.place() else ServiceMode.EXTERNAL)
 		return modes
 
 	def bundled_postgres(self) -> PostgresConfig | None:
@@ -430,7 +438,7 @@ class BackendServices:
 		remembered = self._config_values().get(BUNDLED_DATABASE_KEY)
 		if remembered:
 			return PostgresConfig(url=remembered)
-		if self.connection_modes()["POSTGRES"] == "bundled":
+		if self.connection_modes()["POSTGRES"] == ServiceMode.BUNDLED:
 			return self.postgres.config
 		return None
 
@@ -445,7 +453,7 @@ class BackendServices:
 		 unchanged"""
 		old = self.postgres.config
 		leaving = None
-		if self.connection_modes()["POSTGRES"] == "bundled":
+		if self.connection_modes()["POSTGRES"] == ServiceMode.BUNDLED:
 			leaving = self.postgres.engine.url.render_as_string(hide_password=False)
 		# not install(): it would seed the factory admin into a copy whose
 		# admins renamed or removed it
@@ -489,7 +497,7 @@ class BackendServices:
 		remembered = self._config_values().get(BUNDLED_REDIS_KEY)
 		if remembered:
 			return RedisConfig(url=remembered)
-		if self.connection_modes()["REDIS"] == "bundled":
+		if self.connection_modes()["REDIS"] == ServiceMode.BUNDLED:
 			return self.redis.config
 		return None
 
@@ -498,7 +506,7 @@ class BackendServices:
 		of it looks the current one up - then runtime.env; leaving the bundled
 		Redis, its address is kept there first, for the way back.
 		:raises RuntimeError: the new server doesn't answer (nothing changed)"""
-		leaving = self.redis.config.get_url() if self.connection_modes()["REDIS"] == "bundled" else None
+		leaving = self.redis.config.get_url() if self.connection_modes()["REDIS"] == ServiceMode.BUNDLED else None
 		self.redis.reload_db(config)
 		updates = config.to_env_dict()
 		if config.url:          # REDIS_* blank: the URL is the connection

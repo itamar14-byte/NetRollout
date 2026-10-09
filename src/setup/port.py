@@ -31,11 +31,13 @@ it back).
 """
 import datetime
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
 from src import runtime
 from src.access import site_env
+from src.access.port import ApplyState
 from src.setup.env import compose_files, env_read, env_set
 
 STATUS_FILE = "apply-status.json"          # src/access/port.py reads it
@@ -44,10 +46,19 @@ TRIAL_ENTRY = "config/" + TRIAL_FILE       # relative to the install folder
 TRIAL_SECONDS = 120                        # time to click through a certificate warning
 
 
+class StepAction(StrEnum):
+	"""What the port helper does next (the scripts read it from port-next)."""
+	NONE = "none"
+	WAIT = "wait"
+	TRY = "try"
+	KEEP = "keep"
+	ROLLBACK = "rollback"
+
+
 @dataclass
 class Step:
 	"""What the port helper does next (port-next prints it)."""
-	action: str               # none / wait / try / keep / rollback
+	action: StepAction
 	port: int | None = None   # try: the new port
 	id: str = ""
 	message: str = ""         # what to say (refused, rolled back: why)
@@ -65,13 +76,13 @@ def read_status() -> dict[str, Any] | None:
 	return runtime.read_json(status_path())
 
 
-def write_status(id_: str, state: str, port: int, trying: int | None = None,
+def write_status(id_: str, state: ApplyState, port: int, trying: int | None = None,
                  deadline: float | None = None, message: str = "",
                  now: float | None = None) -> dict[str, Any]:
 	"""Write apply-status.json - what the page shows and waits on.
 
 	:param id_: the request it's about
-	:param state: e.g. waiting / trying / applied / rolled-back / failed
+	:param state: the helper's answer
 	:param port: the port in use
 	:param trying: the trial's new port
 	:param deadline: when the trial ends (epoch seconds)
@@ -92,7 +103,7 @@ def ready() -> bool:
 	`netrollout apply` by hand. Only when there's none yet; True if written."""
 	if status_path().exists():
 		return False
-	write_status("", "applied", current_port())
+	write_status("", ApplyState.APPLIED, current_port())
 	return True
 
 
@@ -123,32 +134,32 @@ def next_step(busy: dict[int, str], now: float | None = None) -> Step:
 	current = current_port()
 
 	# a trial in progress: its own outcome first
-	if status.get("state") == "trying":
+	if status.get("state") == ApplyState.TRYING:
 		trial_id = status.get("id", "")
 		if trial_id != req_id:
-			return Step("rollback", id=trial_id,
+			return Step(StepAction.ROLLBACK, id=trial_id,
 			            message="replaced by a newer request")
 		if request.get(site_env.PORT_CONFIRMED) == req_id:
-			return Step("keep", status.get("trying"), req_id)
+			return Step(StepAction.KEEP, status.get("trying"), req_id)
 		if now > float(status.get("deadline") or 0):
-			return Step("rollback", id=req_id, message=timed_out(status.get("trying")))
-		return Step("wait", status.get("trying"), req_id)
+			return Step(StepAction.ROLLBACK, id=req_id, message=timed_out(status.get("trying")))
+		return Step(StepAction.WAIT, status.get("trying"), req_id)
 
 	if not req_id or status.get("id") == req_id:
-		return Step("none")                       # nothing asked, or handled
+		return Step(StepAction.NONE)              # nothing asked, or handled
 	port = _wanted(request.get(site_env.PORT_REQUEST))
 	if port is None:
 		message = f"{request.get(site_env.PORT_REQUEST)!r} isn't a usable HTTPS port"
 	elif port == current:
-		write_status(req_id, "applied", current, now=now)
-		return Step("none", current, req_id, f"port {current} is in use already")
+		write_status(req_id, ApplyState.APPLIED, current, now=now)
+		return Step(StepAction.NONE, current, req_id, f"port {current} is in use already")
 	elif port in busy:
 		who = busy[port]
 		message = f"port {port} is in use on this computer{f' (by {who})' if who else ''}"
 	else:
-		return Step("try", port, req_id)
-	write_status(req_id, "failed", current, message=message, now=now)
-	return Step("none", port, req_id, message)
+		return Step(StepAction.TRY, port, req_id)
+	write_status(req_id, ApplyState.FAILED, current, message=message, now=now)
+	return Step(StepAction.NONE, port, req_id, message)
 
 
 def timed_out(trial_port: int | None) -> str:
@@ -174,7 +185,7 @@ def open_trial(port: int) -> None:
 def trying(port: int, id_: str, now: float | None = None) -> dict:
 	"""nginx answers on both ports: the trial's clock starts."""
 	now = now if now is not None else datetime.datetime.now().timestamp()
-	return write_status(id_, "trying", current_port(), trying=port,
+	return write_status(id_, ApplyState.TRYING, current_port(), trying=port,
 	                    deadline=now + TRIAL_SECONDS, now=now)
 
 
@@ -188,12 +199,14 @@ def close(outcome: str, id_: str, message: str = "",
 	new = status.get("trying")
 	if timed_out_:
 		message = timed_out(new)
-	if outcome == "keep" and new:
+	if outcome == StepAction.KEEP and new:
 		env_set({"HTTPS_PORT": str(new)})
 		site_env.update({site_env.HTTPS_PORT: str(new)})   # nginx's redirects
 	compose = compose_files(env_read())
 	if TRIAL_ENTRY in compose:
 		env_set({"COMPOSE_FILE": ",".join(f for f in compose if f != TRIAL_ENTRY)})
 	trial_path().unlink(missing_ok=True)
-	state = {"keep": "applied", "rollback": "rolled_back"}.get(outcome, "failed")
+	ends: dict[str, ApplyState] = {StepAction.KEEP: ApplyState.APPLIED,
+	                               StepAction.ROLLBACK: ApplyState.ROLLED_BACK}
+	state = ends.get(outcome, ApplyState.FAILED)
 	return write_status(id_, state, current_port(), message=message, now=now)

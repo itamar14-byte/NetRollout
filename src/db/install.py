@@ -12,7 +12,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from werkzeug.security import generate_password_hash
 
 from src.db.settings import seed_settings, sql_value
-from src.db.tables import User
+from src.db.tables import User, Role
 if TYPE_CHECKING:
 	from src.db.connections import PostgresConnection
 
@@ -107,7 +107,7 @@ def install(postgres: "PostgresConnection") -> None:
 				            password_hash=generate_password_hash("admin"),
 				            email="example@test.com",
 				            full_name="Net Rollout",
-				            role="admin",
+				            role=Role.ADMIN,
 				            is_active=True,
 				            is_approved=True,
 				            must_change_password=True)

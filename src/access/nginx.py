@@ -12,10 +12,10 @@ import ipaddress
 import json
 import os
 import re
-import tempfile
 import threading
 import time
 from collections.abc import Callable
+from enum import StrEnum
 from pathlib import Path
 from typing import Any, cast
 
@@ -40,6 +40,16 @@ UPKEEP_INTERVAL_SECONDS = 3600
 _cert_lock = threading.Lock()
 
 Undo = Callable[[], None]   # puts the previous files back
+
+
+class VerdictState(StrEnum):
+	"""nginx's verdict on a change: what its watcher writes in status.json
+	(applied / rejected), or the app's reading when there is none."""
+	APPLIED = "applied"
+	REJECTED = "rejected"          # the last good site keeps serving
+	NOT_MANAGED = "not_managed"    # no NetRollout nginx reports here (verdict())
+	NO_ANSWER = "no_answer"        # none within the wait (verdict())
+	UNKNOWN = "unknown"            # status.json can't be read
 
 
 def write_site(hostname: str | None) -> bool:
@@ -104,11 +114,7 @@ def _restore(saved: dict[Path, bytes | None]) -> None:
 		if data is None:
 			path.unlink(missing_ok=True)
 			continue
-		fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
-		with os.fdopen(fd, "wb") as f:
-			f.write(data)
-		os.chmod(tmp, 0o600 if path.name == certs.KEY_FILE else 0o644)
-		os.replace(tmp, path)
+		runtime.write_atomic(path, data, 0o600 if path.name == certs.KEY_FILE else 0o644)
 
 
 def _put_back(saved: dict[Path, bytes | None],
@@ -348,10 +354,10 @@ def verdict(managed: bool, started: float, hostname: str | None = None) -> dict[
 	:param started: when the change was written (epoch seconds)
 	:returns: {"state", "message"?}"""
 	if not managed:
-		return {"state": "not_managed"}
+		return {"state": VerdictState.NOT_MANAGED}
 	status = wait_for_status(started, hostname=hostname)
 	if status is None:
-		return {"state": "no_answer"}
+		return {"state": VerdictState.NO_ANSWER}
 	return {"state": status.get("state"), "message": status.get("message")}
 
 
@@ -364,7 +370,7 @@ def overview(hostname: str | None) -> dict[str, Any]:
 	 "selfsigned", "problems", "warnings", "old_names": [{"name", "until"}]}}"""
 	status = read_status()
 	nginx = None if status is None else {
-		"state": status.get("state", "unknown"),
+		"state": status.get("state", VerdictState.UNKNOWN),
 		"message": status.get("message", ""), "time": status.get("time")}
 	cert_dir = runtime.certs_dir()
 	try:
@@ -399,10 +405,10 @@ def read_status() -> dict[str, Any] | None:
 	except FileNotFoundError:
 		return None
 	except (OSError, ValueError):
-		return {"state": "unknown", "message": "nginx's status.json can't be read",
+		return {"state": VerdictState.UNKNOWN, "message": "nginx's status.json can't be read",
 		        "time": None}
 	if not isinstance(data, dict):
-		return {"state": "unknown", "message": "nginx's status.json can't be read",
+		return {"state": VerdictState.UNKNOWN, "message": "nginx's status.json can't be read",
 		        "time": None}
 	return data
 
@@ -428,7 +434,7 @@ def wait_for_status(after: float, timeout: float = 8.0, poll: float = 0.5,
 		written = _status_time(status) if status else None
 		# the watcher's clock has whole seconds
 		if status and written is not None and written >= int(after) and (
-				hostname is None or status.get("state") == "rejected"
+				hostname is None or status.get("state") == VerdictState.REJECTED
 				or f"hostname={hostname or '(none)'} " in
 				f"{status.get('message', '')} "):
 			return status

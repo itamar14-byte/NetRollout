@@ -4,6 +4,7 @@ port-trying | port-close - see src/setup/__init__.py."""
 import argparse
 import sys
 from collections.abc import Callable
+from enum import IntEnum
 from pathlib import Path
 
 from packaging.version import Version
@@ -12,7 +13,14 @@ from src import runtime
 from src.setup import install, manage, port, update
 from src.setup.env import env_path
 
-OK, INVALID, REFUSED = 0, 1, 2
+
+class SetupExit(IntEnum):
+	"""The setup core's exit codes - the host scripts branch on them."""
+	OK = 0
+	INVALID = 1     # bad input, not installed, a step failed
+	REFUSED = 2     # already installed; check-update: the same or an older version
+
+
 ANSWER_FLAGS = ("hostname", "https_port", "monitoring", "org_certificate",
                 "timezone")
 
@@ -90,8 +98,7 @@ def main(argv: list[str] | None = None, read: install.Read = input,
 	:param argv: the arguments; sys.argv's when None
 	:param read: how a question is asked (tests answer)
 	:param write: where every line goes (tests read it)
-	:returns: the exit code - OK, INVALID (bad input, not installed), or
-	 REFUSED (already installed, an older version)"""
+	:returns: the exit code (SetupExit)"""
 	args = parse_args(sys.argv[1:] if argv is None else argv)
 	if args.dev:
 		try:
@@ -99,8 +106,8 @@ def main(argv: list[str] | None = None, read: install.Read = input,
 				write(line)
 		except install.Refused as e:
 			write(str(e))
-			return REFUSED
-		return OK
+			return SetupExit.REFUSED
+		return SetupExit.OK
 	return COMMANDS[args.command](args, facts_from(args), read, write)
 
 
@@ -125,36 +132,36 @@ def _install(args: argparse.Namespace, facts: install.Facts, read: install.Read,
 	if args.command == "init" and env_path().exists():
 		write(f"NetRollout is already installed here ({env_path()}) - "
 		      f"see `netrollout status`, or `netrollout update`.")
-		return REFUSED
+		return SetupExit.REFUSED
 	if args.command == "init" and not args.licence_accepted:
 		write("The licence notice wasn't accepted - run the install script, "
 		      "which shows it (unattended: its --yes).")
-		return INVALID
+		return SetupExit.INVALID
 	try:
 		answers = install.collect(facts, given, interactive, read, write)
 	except install.Invalid as e:
 		for line in str(e).splitlines():
 			write(line)
-		return INVALID
+		return SetupExit.INVALID
 	except install.NoAnswer as e:
 		write(f"No answer for '{e}' (input ended) - run it in a terminal, or "
 		      f"give the answers as flags with --defaults.")
-		return INVALID
+		return SetupExit.INVALID
 	if args.command == "check":
 		write("ok")
-		return OK
+		return SetupExit.OK
 	try:
 		for line in install.install(answers, facts):
 			write(line)
 	except install.Refused as e:
 		write(str(e))
-		return REFUSED
+		return SetupExit.REFUSED
 	except OSError as e:
 		write(f"Couldn't write {e.filename or 'the install folder'}: "
 		      f"{e.strerror or e}. Nothing is installed yet - fix it and run "
 		      f"the install again.")
-		return INVALID
-	return OK
+		return SetupExit.INVALID
+	return SetupExit.OK
 
 
 def _check_update(args: argparse.Namespace, _facts: install.Facts, _read: install.Read,
@@ -164,57 +171,57 @@ def _check_update(args: argparse.Namespace, _facts: install.Facts, _read: instal
 	:returns: the exit code"""
 	if not (args.installed and args.new):
 		write("check-update needs --installed and --new")
-		return INVALID
+		return SetupExit.INVALID
 	try:
 		write(update.update_kind(args.installed, args.new))
 	except ValueError as e:
 		write(str(e))
-		return REFUSED
-	return OK
+		return SetupExit.REFUSED
+	return SetupExit.OK
 
 
 def _prepare_start(_args: argparse.Namespace, facts: install.Facts, _read: install.Read,
                    write: install.Write) -> int:
 	""":returns: the exit code"""
 	if not _installed(write, " - run the install first"):
-		return INVALID
+		return SetupExit.INVALID
 	for line in manage.prepare_start(facts.busy_ports, facts.server_ips):
 		write(line)
-	return OK
+	return SetupExit.OK
 
 
 def _upgrade(_args: argparse.Namespace, _facts: install.Facts, _read: install.Read,
              write: install.Write) -> int:
 	""":returns: the exit code"""
 	if not _installed(write, " - run the install first"):
-		return INVALID
+		return SetupExit.INVALID
 	try:
 		for line in update.upgrade():
 			write(line)
 	except ValueError as e:
 		write(str(e))
-		return INVALID
-	return OK
+		return SetupExit.INVALID
+	return SetupExit.OK
 
 
 def _restore_key(_args: argparse.Namespace, _facts: install.Facts, _read: install.Read,
                  write: install.Write) -> int:
 	""":returns: the exit code"""
 	if not _installed(write, " - run the install first"):
-		return INVALID
+		return SetupExit.INVALID
 	try:
 		write(manage.restore_key())
 	except ValueError as e:
 		write(str(e))
-		return INVALID
-	return OK
+		return SetupExit.INVALID
+	return SetupExit.OK
 
 
 def _status(args: argparse.Namespace, facts: install.Facts, _read: install.Read,
             write: install.Write) -> int:
-	""":returns: OK when all is well, else INVALID"""
+	""":returns: SetupExit.OK when all is well, else INVALID"""
 	if not _installed(write, " - run the install first"):
-		return INVALID
+		return SetupExit.INVALID
 	seen = manage.Observed(containers=manage.parse_containers(args.containers),
 	                       reachable=None if args.reachable is None
 	                       else args.reachable == "yes",
@@ -222,7 +229,7 @@ def _status(args: argparse.Namespace, facts: install.Facts, _read: install.Read,
 	lines, well = manage.status(seen, manage.fetch_health(args.health_url))
 	for line in lines:
 		write(line)
-	return OK if well else INVALID
+	return SetupExit.OK if well else SetupExit.INVALID
 
 
 def _port(args: argparse.Namespace, facts: install.Facts, _read: install.Read,
@@ -232,7 +239,7 @@ def _port(args: argparse.Namespace, facts: install.Facts, _read: install.Read,
 
 	:returns: the exit code"""
 	if not _installed(write):
-		return INVALID
+		return SetupExit.INVALID
 	if args.command == "port-ready":
 		port.ready()
 	elif args.command == "port-next":
@@ -247,9 +254,9 @@ def _port(args: argparse.Namespace, facts: install.Facts, _read: install.Read,
 	else:
 		if not args.outcome:
 			write("port-close needs --outcome keep|rollback|failed")
-			return INVALID
+			return SetupExit.INVALID
 		port.close(args.outcome, args.id, args.message, timed_out_=args.timed_out)
-	return OK
+	return SetupExit.OK
 
 
 def _release(args: argparse.Namespace, _facts: install.Facts, _read: install.Read,
@@ -270,14 +277,14 @@ def _release(args: argparse.Namespace, _facts: install.Facts, _read: install.Rea
 					      f"{runtime.VERSION}): sudo bin/netrollout.sh update")
 				else:
 					write(f"You have the latest version ({runtime.VERSION}).")
-				return OK
+				return SetupExit.OK
 			folder, version = update.unpack(update.download(found, out), out)
 	except update.ReleaseError as e:
 		write(str(e))
-		return INVALID
+		return SetupExit.INVALID
 	write(f"version={version}")
 	write(f"folder={folder}")
-	return OK
+	return SetupExit.OK
 
 
 # Each command's handler: (args, facts, read, write) -> the exit code

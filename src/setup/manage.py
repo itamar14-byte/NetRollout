@@ -16,6 +16,7 @@ from cryptography.fernet import Fernet
 
 from src import runtime
 from src.access import certs, site_env
+from src.access.nginx import VerdictState
 from src.backup import archive
 from src.setup.env import env_write, env_read, env_set, COMPOSE_HTTP, compose_files
 
@@ -181,7 +182,7 @@ def status(seen: Observed, health: dict[str, Any] | None,
 	if nginx:
 		state = nginx.get("state", "?")
 		when = nginx.get("time", "")
-		if state == "rejected":
+		if state == VerdictState.REJECTED:
 			lines.append(f"nginx:        REJECTED the last change ({when}): "
 			             f"{nginx.get('message', '')} - it keeps serving the last good site")
 			todo.append("Fix what nginx rejected: System Settings / Server Management "

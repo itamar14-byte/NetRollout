@@ -44,6 +44,7 @@ import zipfile
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
+from enum import StrEnum
 from pathlib import Path
 from typing import Any, cast
 
@@ -57,13 +58,25 @@ from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.exc import SQLAlchemyError
 
 from src import runtime
+from src.audit import AuditAction
 from src.db.connections import ENCRYPTED_COLUMNS, FERNET_PREFIX
 from src.db.tables import AuditLog, Base, SystemSetting
 from src.encryption import read_key
 
 
 FORMAT = 1
-KINDS = ("manual", "scheduled", "before-restore", "before-update", "before-move")
+
+
+class BackupKind(StrEnum):
+	"""What made a backup (the end of its name, its manifest's kind)."""
+	MANUAL = "manual"                  # an admin, the scripts' backup
+	SCHEDULED = "scheduled"            # src/backup/schedule.py - the only kind pruned
+	BEFORE_RESTORE = "before-restore"
+	BEFORE_UPDATE = "before-update"
+	BEFORE_MOVE = "before-move"        # a database move's copy
+
+
+KINDS = tuple(k.value for k in BackupKind)
 NAME_RE = re.compile(r"^netrollout-(?P<version>[0-9A-Za-z.+]+)-"
                      r"(?P<stamp>\d{8}-\d{6})-(?P<kind>[a-z-]+)\.zip$")
 MANIFEST = "manifest.json"
@@ -174,7 +187,7 @@ class Restored:
 
 # ── Create ───────────────────────────────────────────────────────────────────
 
-def create(engine: Engine, kind: str = "manual", places: Places | None = None,
+def create(engine: Engine, kind: str = BackupKind.MANUAL, places: Places | None = None,
            *, key: bytes | None = None, now: datetime | None = None) -> Path:
 	"""Write a backup into places.backups: the database (one consistent
 	snapshot), Grafana's database, the certificates, the rollout logs and the
@@ -519,7 +532,7 @@ def prune(folder: Path, keep: int) -> list[Path]:
 	files killed backups left go too.
 
 	:returns: the deleted backups"""
-	scheduled = [e.path for e in list_backups(folder) if e.kind == "scheduled"]
+	scheduled = [e.path for e in list_backups(folder) if e.kind == BackupKind.SCHEDULED]
 	gone = scheduled[max(keep, 0):]
 	for path in gone:
 		path.unlink(missing_ok=True)
@@ -566,9 +579,9 @@ def restore(path: Path, engine: Engine, places: Places | None = None, *,
 				key_out.write_bytes(key + b"\n")
 				owner_only(key_out)
 			_restore_database(engine, zf, manifest, cipher, https_port,
-			                  ("backup.restored", {"version": manifest.version,
-			                                       "created": manifest.created,
-			                                       "kind": manifest.kind}), shown(path))
+			                  (AuditAction.BACKUP_RESTORED,
+			                   {"version": manifest.version, "created": manifest.created,
+			                    "kind": manifest.kind}), shown(path))
 		except BaseException as e:
 			if key_out is not None:
 				key_out.unlink(missing_ok=True)
@@ -601,7 +614,7 @@ def restore(path: Path, engine: Engine, places: Places | None = None, *,
 	return Restored(manifest, key, files)
 
 
-def restore_database(path: Path, engine: Engine, *, audit: tuple[str, dict[str, Any]],
+def restore_database(path: Path, engine: Engine, *, audit: tuple[AuditAction, dict[str, Any]],
                      places: Places | None = None, version: str = runtime.VERSION) -> Manifest:
 	"""Only the database part of a backup, into the database `engine`
 	connects to (a database move: the files stay where they are), with the
@@ -623,7 +636,7 @@ def restore_database(path: Path, engine: Engine, *, audit: tuple[str, dict[str, 
 
 def _restore_database(engine: Engine, zf: zipfile.ZipFile, manifest: Manifest,
                       cipher: Fernet, https_port: int | None,
-                      audit: tuple[str, dict[str, Any]], name: str) -> None:
+                      audit: tuple[AuditAction, dict[str, Any]], name: str) -> None:
 	"""The backup's tables into the database, in one transaction: NetRollout's
 	tables dropped and recreated at the backup's migration level, the rows
 	loaded, the sequences moved past them, the key checked.

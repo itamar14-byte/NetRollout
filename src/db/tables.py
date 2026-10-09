@@ -4,6 +4,7 @@ revision. Each user's devices, profiles, mappings and properties are their
 own; global devices are shared."""
 import uuid
 from datetime import datetime
+from enum import StrEnum
 
 from flask_login import UserMixin
 from sqlalchemy import (DateTime, String, Boolean, Integer, Uuid, Text,
@@ -14,6 +15,26 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship, DeclarativeBase
 
 class Base(DeclarativeBase):
 	"""Every NetRollout table (Base.metadata: the migrations' target)."""
+
+
+class Role(StrEnum):
+	"""What a user may do (users.role, ldap_groups.role)."""
+	ADMIN = "admin"
+	OPERATOR = "operator"
+
+
+class AuthType(StrEnum):
+	"""Who checks a user's password (users.auth_type)."""
+	LOCAL = "local"     # NetRollout: a password hash, 2FA
+	LDAP = "ldap"       # the directory
+
+
+class BindType(StrEnum):
+	"""How NetRollout binds to an LDAP server (ldap_servers.bind_type)."""
+	REGULAR = "regular"       # with a service account (bind_dn / bind_password)
+	SIMPLE = "simple"         # as the user signing in, no service account
+	ANONYMOUS = "anonymous"   # the column's default; the pages never set it
+
 
 # which devices a variable mapping applies to (many to many)
 var_mapping_to_devices = Table("var_mapping_to_devices",
@@ -39,8 +60,8 @@ class User(UserMixin, Base):
 	email: Mapped[str | None] = mapped_column(String(120), unique=True,
 	                                     nullable=True)
 	full_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
-	# "admin" or "operator" — the app only ever checks for "admin"
-	role: Mapped[str] = mapped_column(String(40), default='operator',
+	# a Role — the app only ever checks for Role.ADMIN
+	role: Mapped[str] = mapped_column(String(40), default=Role.OPERATOR.value,
 	                                  nullable=False)
 	position: Mapped[str | None] = mapped_column(String(64), nullable=True)
 	is_active: Mapped[bool] = mapped_column(Boolean, default=False,
@@ -56,7 +77,7 @@ class User(UserMixin, Base):
 	must_change_password: Mapped[bool] = mapped_column(
 		Boolean, default=False, server_default=false(), nullable=False)
 
-	auth_type: Mapped[str] = mapped_column(String(20), default="local",
+	auth_type: Mapped[str] = mapped_column(String(20), default=AuthType.LOCAL.value,
 	                                       nullable=False)
 	ldap_server_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey(
 		"ldap_servers.id", ondelete="SET NULL"), nullable=True)
@@ -291,7 +312,7 @@ class LDAPServer(Base):
 	                                           nullable=False,
 	                                           default='sAMAccountName')
 	bind_type: Mapped[str] = mapped_column(String(20), nullable=False,
-	                                       default='anonymous')
+	                                       default=BindType.ANONYMOUS.value)
 	bind_dn: Mapped[str | None] = mapped_column(String(255),
 	                                            nullable=True)
 	bind_password: Mapped[str | None] = mapped_column(String(255),
@@ -314,7 +335,7 @@ class LDAPGroup(Base):
 	group_dn: Mapped[str] = mapped_column(String(512), nullable=False)
 	label: Mapped[str] = mapped_column(String(128), nullable=False)
 	role: Mapped[str] = mapped_column(String(40), nullable=False,
-	                                  default='operator')
+	                                  default=Role.OPERATOR.value)
 	is_active: Mapped[bool] = mapped_column(Boolean, nullable=False,
 	                                        default=True)
 

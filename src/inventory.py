@@ -32,10 +32,11 @@ from sqlalchemy import ColumnElement, or_
 from sqlalchemy.orm import Session, selectinload
 
 from src.db.connections import REDIS_UNAVAILABLE
-from src.db.tables import DeviceAttribute, Inventory, SecurityProfile, User
+from src.db.tables import DeviceAttribute, Inventory, SecurityProfile, User, Role
 from src.encryption import decrypt, encrypt
 from src.rollout.engine import endpoint, Device
 from src.rollout.inputs import InputParser
+from src.rollout.log import Tone
 
 
 PROBE_TIMEOUT = 2.0   # seconds; single attempt — this is a status hint
@@ -184,7 +185,7 @@ def query_visible_devices(db_session: Session, user_id: uuid.UUID) -> list[Inven
 def can_edit_device(device: Inventory, user: User) -> bool:
 	"""Owners edit their own devices; any admin may edit a global device."""
 	return device.user_id == user.id or (
-			device.is_global and user.role == "admin")
+			device.is_global and user.role == Role.ADMIN)
 
 
 def same_endpoint_devices(db_session: Session, user_id: uuid.UUID, ip: str,
@@ -550,7 +551,7 @@ def import_csv(parser: InputParser, device_path: str, user_id: uuid.UUID,
 		report.errors.append("The CSV must be UTF-8 text")
 		return report
 	except OSError as e:
-		parser.logger.notify(f"Reading CSV failed: {e}", "red")
+		parser.logger.notify(f"Reading CSV failed: {e}", Tone.ERROR)
 		report.errors.append("The CSV file could not be read")
 		return report
 
@@ -599,5 +600,5 @@ def import_csv(parser: InputParser, device_path: str, user_id: uuid.UUID,
 	parser.logger.notify(
 		f"CSV processed: {len(devices)} imported, "
 		f"{len(report.errors)} failed",
-		"green" if not report.errors else "yellow", important=True)
+		Tone.SUCCESS if not report.errors else Tone.WARNING, important=True)
 	return report

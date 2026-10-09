@@ -11,7 +11,7 @@ from ldap3.core.exceptions import (LDAPException, LDAPBindError,
 from ldap3.utils.conv import escape_filter_chars
 from ldap3.utils.dn import escape_rdn, parse_dn
 
-from src.db.tables import LDAPServer, LDAPGroup
+from src.db.tables import LDAPServer, LDAPGroup, BindType
 from src.encryption import decrypt
 
 
@@ -72,7 +72,7 @@ def service_bind(server: LDAPServer) -> Connection | None:
 	:returns: the connection; None when the server has no service account
 	:raises LDAPException: the bind failed - also when no password is
 	 stored (ldap3 never sends an empty one in a simple bind)"""
-	if server.bind_type != "regular":
+	if server.bind_type != BindType.REGULAR:
 		return None
 	conn = _connection(make_server(server), user=server.bind_dn,
 	                   password=decrypt(server.bind_password),
@@ -153,11 +153,11 @@ def test_connection(server: LDAPServer) -> dict[str, str]:
 	:returns: {"status": "ok" | "error", "message": ...} for the page"""
 	conn = None
 	try:
-		if server.bind_type not in ("regular", "simple"):
+		if server.bind_type not in (BindType.REGULAR, BindType.SIMPLE):
 			return {"status": "error", "message": "Unknown bind type"}
-		elif server.bind_type == "regular":
+		elif server.bind_type == BindType.REGULAR:
 			conn = service_bind(server)
-		elif server.bind_type == "simple":
+		elif server.bind_type == BindType.SIMPLE:
 			conn = _connection(make_server(server))
 			conn.open()
 		return {"status": "ok", "message": "Connection established"}
@@ -171,7 +171,7 @@ def test_user(server: LDAPServer, username: str, password: str) -> dict[str, str
 	"""The admin page's Test user: do these credentials sign in?
 
 	:returns: {"status": "ok" | "error", "message": ...} for the page"""
-	if server.bind_type not in ("regular", "simple"):
+	if server.bind_type not in (BindType.REGULAR, BindType.SIMPLE):
 		return {"status": "error", "message": "Invalid bind type"}
 	try:
 		if user_bind(server, username, password):
@@ -192,7 +192,7 @@ def check_group_membership(server: LDAPServer, username: str, password: str,
 	 mapped group that doesn't exist in the directory is one the user isn't
 	 a member of (reported once, ACTION NEEDED)
 	:raises LdapUnavailable: the directory couldn't be reached or used"""
-	if server.bind_type != "regular":
+	if server.bind_type != BindType.REGULAR:
 		return None
 	dn = authenticate(server, username, password)
 	if dn is None:

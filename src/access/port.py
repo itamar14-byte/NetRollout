@@ -18,6 +18,7 @@ import os
 import secrets
 import time
 from collections.abc import Callable
+from enum import StrEnum
 from pathlib import Path
 from typing import Any, cast
 
@@ -34,6 +35,28 @@ _REQUEST_KEYS = (site_env.PORT_REQUEST, site_env.PORT_REQUEST_ID,
 PUBLISHED_PORT_ENV = "NETROLLOUT_HTTPS_PORT"
 # the page stops waiting for a helper that doesn't pick a request up
 WAIT_SECONDS = 30
+
+
+class ApplyState(StrEnum):
+	"""apply-status.json's state: the helper's answer (src/setup/port.py
+	writes it)."""
+	TRYING = "trying"            # both ports open: confirm from the new one
+	APPLIED = "applied"          # the port in use is the one asked for
+	ROLLED_BACK = "rolled_back"  # not confirmed in time, or superseded
+	FAILED = "failed"            # refused (the reason in "message")
+	UNKNOWN = "unknown"          # the app's reading of a file it can't read
+
+
+class PortPageState(StrEnum):
+	"""What System Settings shows about the port (state())."""
+	APPLIED = "applied"                    # nothing pending
+	MANUAL = "manual"                      # no helper: run `netrollout apply`
+	WAITING = "waiting"                    # the helper hasn't picked it up
+	NO_HELPER_ANSWER = "no_helper_answer"  # ... within WAIT_SECONDS
+	TRYING = "trying"                      # confirm from the new port
+	CONFIRMING = "confirming"              # confirmed, the old port being dropped
+	ROLLED_BACK = "rolled_back"
+	FAILED = "failed"
 
 
 def _path(name: str) -> Path:
@@ -57,8 +80,8 @@ def read_status() -> dict[str, Any] | None:
 	except FileNotFoundError:
 		return None
 	except (OSError, ValueError):
-		return {"state": "unknown"}
-	return data if isinstance(data, dict) else {"state": "unknown"}
+		return {"state": ApplyState.UNKNOWN}
+	return data if isinstance(data, dict) else {"state": ApplyState.UNKNOWN}
 
 
 def read_request() -> dict[str, Any] | None:
@@ -92,7 +115,7 @@ def serving_port() -> int:
 	container started, else 443."""
 	status = read_status()
 	if status:
-		if (status.get("state") == "trying" and status.get("id")
+		if (status.get("state") == ApplyState.TRYING and status.get("id")
 				and status.get("id") == _confirmed_id()
 				and (trial := _port(status.get("trying")))):
 			return trial
@@ -128,7 +151,7 @@ def confirm(apply_id: str, reached_port: int) -> str | None:
 
 	:returns: None when confirmed, else why it can't be"""
 	status = read_status() or {}
-	if status.get("state") != "trying" or not apply_id \
+	if status.get("state") != ApplyState.TRYING or not apply_id \
 			or status.get("id") != apply_id:
 		return "There is no port change waiting for confirmation."
 	if _port(status.get("trying")) != reached_port:
@@ -154,19 +177,19 @@ def state(saved_port: int) -> dict[str, Any]:
 	request = read_request()
 	if status and request and request["id"] and status.get("id") == request["id"]:
 		st = status.get("state")
-		if st == "trying" and _confirmed_id() == request["id"]:
-			return {**out, "state": "confirming"}
-		if st == "trying":
-			return {**out, "state": "trying", "id": request["id"],
+		if st == ApplyState.TRYING and _confirmed_id() == request["id"]:
+			return {**out, "state": PortPageState.CONFIRMING}
+		if st == ApplyState.TRYING:
+			return {**out, "state": PortPageState.TRYING, "id": request["id"],
 			        "trying": _port(status.get("trying")),
 			        "deadline": status.get("deadline")}
-		if st in ("rolled_back", "failed"):
-			return {**out, "state": st, "message": status.get("message", "")}
+		if st in (ApplyState.ROLLED_BACK, ApplyState.FAILED):
+			return {**out, "state": PortPageState(st), "message": status.get("message", "")}
 	if saved_port == serving:
-		return {**out, "state": "applied"}
+		return {**out, "state": PortPageState.APPLIED}
 	if status is None:
-		return {**out, "state": "manual"}
+		return {**out, "state": PortPageState.MANUAL}
 	if request and request["port"] == saved_port \
 			and time.time() - request["time"] > WAIT_SECONDS:
-		return {**out, "state": "no_helper_answer"}
-	return {**out, "state": "waiting"}
+		return {**out, "state": PortPageState.NO_HELPER_ANSWER}
+	return {**out, "state": PortPageState.WAITING}

@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 from werkzeug.security import generate_password_hash
 
 from src.db.connections import REDIS_UNAVAILABLE, RedisConnection
-from src.db.tables import User
+from src.db.tables import User, AuthType, Role
 from src.webapp.app import current_app
 
 
@@ -61,7 +61,7 @@ def temporary_password(username: str | None = None) -> str:
 			return candidate
 
 
-ROLES = ("operator", "admin")
+ROLES = (Role.OPERATOR, Role.ADMIN)
 # the columns' sizes (src/db/tables.py) - longer input is refused in words,
 # not by a database error
 LIMITS = {"username": 64, "email": 120, "full_name": 120, "position": 64}
@@ -104,7 +104,7 @@ def check_new_user(db_session: Session, username: str, email: str, full_name: st
 
 
 def new_local_user(db_session: Session, *, username: str, email: str, full_name: str,
-                   position: str | None, password: str, role: str = "operator",
+                   position: str | None, password: str, role: str = Role.OPERATOR,
                    approved: bool = False, must_change_password: bool = False) -> User:
 	"""The account, added to the session (checked first; the caller commits).
 
@@ -122,7 +122,7 @@ def new_local_user(db_session: Session, *, username: str, email: str, full_name:
 	user = User(username=username, email=email, full_name=full_name, position=position,
 	            password_hash=generate_password_hash(password), role=role,
 	            is_approved=approved, is_active=approved,
-	            must_change_password=must_change_password, auth_type="local")
+	            must_change_password=must_change_password, auth_type=AuthType.LOCAL)
 	db_session.add(user)
 	db_session.flush()
 	return user

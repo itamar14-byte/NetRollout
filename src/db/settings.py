@@ -19,6 +19,7 @@ import os
 import re
 import uuid
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Callable
 
 from sqlalchemy.exc import SQLAlchemyError
@@ -36,6 +37,25 @@ AFTER_RESTART = "after restart"
 
 # a setting's value: an int setting's number, a str setting's text
 Value = int | str
+
+
+class BackupSchedule(StrEnum):
+	"""How often the scheduled backup runs (backup_schedule)."""
+	OFF = "off"
+	DAILY = "daily"
+	WEEKLY = "weekly"
+
+
+class Weekday(StrEnum):
+	"""A weekly backup's day (backup_weekday), Monday first as
+	datetime.weekday() counts."""
+	MON = "mon"
+	TUE = "tue"
+	WED = "wed"
+	THU = "thu"
+	FRI = "fri"
+	SAT = "sat"
+	SUN = "sun"
 
 
 @dataclass(frozen=True)
@@ -196,8 +216,9 @@ SETTINGS: dict[str, Setting] = {s.key: s for s in [
 	        "and the rollout logs, into the backups folder on the server. "
 	        "Copy them off the server too (Download below): a backup on the "
 	        "same disk doesn't survive losing it.",
-	        "Backups", "daily", kind=str, applies="next scheduled time",
-	        choices=(("off", "Off"), ("daily", "Daily"), ("weekly", "Weekly"))),
+	        "Backups", BackupSchedule.DAILY, kind=str, applies="next scheduled time",
+	        choices=((BackupSchedule.OFF, "Off"), (BackupSchedule.DAILY, "Daily"),
+	                 (BackupSchedule.WEEKLY, "Weekly"))),
 	Setting("backup_time", "At",
 	        "The server's local time (24-hour). A time missed while the server "
 	        "was off is caught up when it's back.",
@@ -207,10 +228,11 @@ SETTINGS: dict[str, Setting] = {s.key: s for s in [
 	        placeholder="02:00", max_length=5, required=True),
 	Setting("backup_weekday", "On",
 	        "The day of a weekly backup.",
-	        "Backups", "sun", kind=str, applies="next scheduled time",
-	        choices=(("mon", "Monday"), ("tue", "Tuesday"), ("wed", "Wednesday"),
-	                 ("thu", "Thursday"), ("fri", "Friday"),
-	                 ("sat", "Saturday"), ("sun", "Sunday"))),
+	        "Backups", Weekday.SUN, kind=str, applies="next scheduled time",
+	        choices=((Weekday.MON, "Monday"), (Weekday.TUE, "Tuesday"),
+	                 (Weekday.WED, "Wednesday"), (Weekday.THU, "Thursday"),
+	                 (Weekday.FRI, "Friday"), (Weekday.SAT, "Saturday"),
+	                 (Weekday.SUN, "Sunday"))),
 	Setting("backup_keep", "Keep",
 	        "How many scheduled backups are kept; older ones are deleted. "
 	        "Backups made by hand, or before a restore or an update, stay "

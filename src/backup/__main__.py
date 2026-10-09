@@ -2,14 +2,22 @@
 (windows/manage.ps1, linux/netrollout.sh)."""
 import argparse
 import sys
+from enum import IntEnum
 from pathlib import Path
 
 from sqlalchemy.engine import Engine
 
 from src import runtime
-from src.backup.archive import (KINDS, BackupError, FilesIncomplete, check, create, restore,
+from src.backup.archive import (KINDS, BackupError, BackupKind, FilesIncomplete, check, create, restore,
                                 shown)
 from src.db.connections import PostgresConfig, PostgresConnection, load_config
+
+
+class BackupExit(IntEnum):
+	"""`python -m src.backup`'s exit codes - the scripts branch on them."""
+	OK = 0
+	FAILED = 1                # refused or failed - nothing changed
+	FILES_INCOMPLETE = 3      # restore: the database and key done, not every file
 
 
 # ── Command line ─────────────────────────────────────────────────────────────
@@ -29,7 +37,7 @@ def _resolve(name: str) -> Path:
 	return path
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None) -> BackupExit:
 	"""`create`, `check` or `restore` a backup (the scripts call it).
 
 	:param argv: the arguments; sys.argv's when None
@@ -39,7 +47,7 @@ def main(argv: list[str] | None = None) -> int:
 	parser = argparse.ArgumentParser(prog="python -m src.backup")
 	sub = parser.add_subparsers(dest="command", required=True)
 	make = sub.add_parser("create")
-	make.add_argument("--kind", choices=KINDS, default="manual")
+	make.add_argument("--kind", choices=KINDS, default=BackupKind.MANUAL.value)
 	look = sub.add_parser("check")
 	look.add_argument("backup")
 	back = sub.add_parser("restore")
@@ -74,11 +82,11 @@ def main(argv: list[str] | None = None) -> int:
 			      f"(NetRollout {done.manifest.version}, {done.manifest.created})")
 	except FilesIncomplete as e:
 		print(str(e), file=sys.stderr)
-		return 3
+		return BackupExit.FILES_INCOMPLETE
 	except BackupError as e:
 		print(str(e), file=sys.stderr)
-		return 1
-	return 0
+		return BackupExit.FAILED
+	return BackupExit.OK
 
 if __name__ == "__main__":
 	sys.exit(main())
