@@ -632,7 +632,8 @@ def test_results_show_verify_diff_and_expired_states(operator, client_for,
 
 def test_config_diff_endpoint(operator, client_for, session_scope, make_user):
 	"""Verify Diff's endpoint returns the config and commands to the owner, 410
-	when the config is gone, 403 to another user."""
+	when the config is gone, 404 to another user - the same answer as a job that
+	doesn't exist, as the summary and rollback give (it doesn't reveal the job)."""
 	job, cleared = uuid.uuid4(), uuid.uuid4()
 	add_result(session_scope, operator.user, job, status="partial", verified=1,
 	           config="running-cfg", commands=["a", "b"])
@@ -643,7 +644,7 @@ def test_config_diff_endpoint(operator, client_for, session_scope, make_user):
 	assert ok.json["config"] == "running-cfg" and ok.json["commands"] == ["a", "b"]
 	assert client.get(f"/results/config_diff/{cleared}/10.0.0.1").status_code == 410
 	other = client_for(make_user()).get(f"/results/config_diff/{job}/10.0.0.1")
-	assert other.status_code == 403
+	assert other.status_code == 404 and other.json["message"] == "Not found"
 
 
 def test_config_diff_returns_the_engines_verdicts(operator, client_for,

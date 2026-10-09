@@ -523,18 +523,16 @@ def config_diff(job_id: uuid.UUID, device_ip: str) -> ResponseReturnValue:
 	from the engine's own matcher. ?port= picks one of the devices sharing
 	the IP in the job.
 
-	:returns: {config, commands, verdicts: [[command, verdict]]}; 404, 403,
-	 or 410 once the snapshot is gone"""
+	:returns: {config, commands, verdicts: [[command, verdict]]}; 404 (also
+	 for another user's job: it isn't revealed), or 410 once the snapshot is gone"""
 	filters: dict[str, Any] = {"job_id": job_id, "device_ip": device_ip}
 	port = request.args.get("port", type=int)
 	if port is not None:
 		filters["device_port"] = port
 	with current_app.backend.postgres.get_session() as db_session:
 		row = db_session.query(DeviceResult).filter_by(**filters).first()
-		if not row:
+		if not row or (current_user.role != "admin" and row.user_id != current_user.id):
 			return err("Not found", 404)
-		if current_user.role != "admin" and row.user_id != current_user.id:
-			return err("Forbidden", 403)
 		config = row.fetched_config
 		if config is None:
 			return err(f"Config snapshot no longer available — snapshots are "
