@@ -47,7 +47,7 @@ start_backup_schedule(app.backend, hold=moving)   # System Settings → Backups
 start_retention(app.backend, hold=moving)   # the nightly clean-up, 03:00
 # Internal app port: set at install; nginx forwards to it
 port = int(os.getenv("PORT", "8080"))
-app.config["APP_PORT"] = port   # shown read-only in System Settings
+app.app_port = port   # shown read-only in System Settings
 settings = app.backend.settings
 
 
@@ -68,6 +68,6 @@ else:
 	# Once Waitress answers: check the reverse proxy and print the address
 	# people should use (and open it in the browser on a normal desktop
 	# launch)
-	start_announcer(app.config["INSTANCE_TOKEN"], port,
+	start_announcer(app.instance_token, port,
 	                public_setting=configured_public_url)
 serve(app, host="0.0.0.0", port=port, threads=server_threads())

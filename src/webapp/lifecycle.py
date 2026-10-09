@@ -216,9 +216,8 @@ class Maintenance:
 
 
 def register_maintenance(app: NetRolloutApp) -> None:
-	"""app.maintenance, its gate (registered before every other request hook,
+	"""app.maintenance's gate (registered before every other request hook,
 	so session and sign-in hooks can't write while locked) and the banner."""
-	app.maintenance = Maintenance(app.orchestrator)
 
 	@app.before_request
 	def maintenance_gate() -> Response | None:

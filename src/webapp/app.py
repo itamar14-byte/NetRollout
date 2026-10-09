@@ -5,7 +5,7 @@ Pages and helpers import `current_app` from here instead of from flask: the
 same proxy, typed as `NetRolloutApp`, so `current_app.backend.postgres` and
 the rest are checked like any other attribute.
 """
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from flask import Flask, current_app as flask_current_app
 from flask_session.redis import RedisSessionInterface
@@ -30,6 +30,14 @@ class NetRolloutApp(Flask):
 	access: "Access"                      # the hostname, the HTTPS port, the certificate
 	session_interface: RedisSessionInterface   # sessions live in Redis
 	sessions: "SessionStore"              # those sessions: who, signing out, the idle limit
+	# this run's identity for the startup reverse-proxy check (startup.py)
+	instance_token: str
+	# the restart-only settings this process runs with (System Settings shows
+	# "restart pending" while a saved value differs)
+	settings_started_with: dict[str, Any]
+	# the internal port Waitress serves on - set by the entry point
+	# (src/webapp/__main__.py), shown in System Settings; None when not served
+	app_port: int | None = None
 
 
 # The request's app, typed (the same LocalProxy as flask.current_app)

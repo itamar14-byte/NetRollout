@@ -45,7 +45,7 @@ def _state() -> dict[str, Any]:
 	return {
 		"settings": settings.list_for_display(),
 		"restart_pending": settings.restart_pending(
-			current_app.config.get("SETTINGS_STARTED_WITH", {})),
+			current_app.settings_started_with),
 		"port": current_app.access.port_state(),
 		"access": current_app.access.overview(),
 	}
@@ -76,7 +76,7 @@ def restart_pending_for_admin_pages() -> dict[str, Any]:
 		return {}
 	try:
 		pending = current_app.backend.settings.restart_pending(
-			current_app.config.get("SETTINGS_STARTED_WITH", {}))
+			current_app.settings_started_with)
 	except SQLAlchemyError:
 		pending = []
 	return {"settings_restart_pending": pending}
@@ -95,7 +95,7 @@ def settings_page() -> str:
 	                       rules=rules_for_client(), port=state["port"],
 	                       access=state["access"], backups=backups_state(),
 	                       cleanup=retention.read_status(),
-	                       app_port=current_app.config.get("APP_PORT"))
+	                       app_port=current_app.app_port)
 
 
 def _save(values: dict[str, Any], action: AuditAction) -> ResponseReturnValue:
@@ -221,7 +221,7 @@ def settings_test_access(data: dict[str, Any]) -> ResponseReturnValue:
 		# what nginx itself last reported is shown instead
 		return ok(url=url, source=source, container=True,
 		          access=current_app.access.overview())
-	local, public = check_proxy(url, current_app.config["INSTANCE_TOKEN"])
+	local, public = check_proxy(url, current_app.instance_token)
 	return ok(url=url, source=source,
 	          local={"ok": local.ok, "reason": local.reason},
 	          public={"ok": public.ok, "reason": public.reason})

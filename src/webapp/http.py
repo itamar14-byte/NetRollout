@@ -6,7 +6,7 @@ import functools
 import uuid
 from collections.abc import Callable
 from enum import Enum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from flask import Response, flash, jsonify, redirect, request, url_for
 from flask.typing import ResponseReturnValue
@@ -19,6 +19,8 @@ from src.db.tables import Base, PropertyDefinition, SecurityProfile, Role
 from src.encryption import encrypt
 from src.inventory import SYSTEM_PROPERTIES, ReachabilityChecker
 from src.webapp.app import current_app
+if TYPE_CHECKING:   # annotations only: lifecycle imports this module
+	from src.webapp.lifecycle import Maintenance
 
 
 # A view function, and one that receives the request's data as `data`
@@ -148,8 +150,10 @@ def flash_redirect(msg: str, endpoint: str,
 class WebServices:
 	"""The web app's services on top of the backend (current_app.web)."""
 
-	def __init__(self, backend: BackendServices) -> None:
+	def __init__(self, backend: BackendServices, maintenance: "Maintenance") -> None:
+		""":param maintenance: while it's locked, audit rows are printed, not written"""
 		self.backend = backend
+		self._maintenance = maintenance
 		# the connection looked up per row: a database move is followed
 		self.audit_trail = AuditTrail(lambda: backend.postgres)
 		# resolved per use: the Redis connection can be hot-swapped
@@ -174,7 +178,7 @@ class WebServices:
 			username = current_user.username if current_user.is_authenticated else "anonymous"
 		# a failed sign-in records the name as typed - at most the column's length
 		username = username[:64]
-		if current_app.maintenance.writes_blocked:
+		if self._maintenance.writes_blocked:
 			# a database move copies the data: a row now would be lost at
 			# the switch (the gate lets only views that don't write through)
 			print(f"[NetRollout] not audited during maintenance: {action} by "

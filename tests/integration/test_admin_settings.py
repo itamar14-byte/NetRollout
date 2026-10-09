@@ -135,7 +135,7 @@ def test_access_test_runs_the_proxy_check(admin, app, client_for, monkeypatch):
 	assert resp.json["source"] == "from System Settings"
 	assert resp.json["local"] == {"ok": True, "reason": ""}
 	assert resp.json["public"]["ok"] is False
-	assert calls == [("https://nr.corp:8443", app.config["INSTANCE_TOKEN"])]
+	assert calls == [("https://nr.corp:8443", app.instance_token)]
 	bad = client.post("/admin/settings/test", json={"hostname": "x/y", "port": 443})
 	assert bad.status_code == 422
 
@@ -143,7 +143,7 @@ def test_access_test_runs_the_proxy_check(admin, app, client_for, monkeypatch):
 def test_restart_pending_follows_the_worker_count(admin, app, client_for):
 	"""Changing the concurrent rollout jobs marks a restart pending; setting it back to
 	the value the app started with clears it."""
-	started = app.config["SETTINGS_STARTED_WITH"]["orchestrator_workers"]
+	started = app.settings_started_with["orchestrator_workers"]
 	client = client_for(admin)
 	resp = save(client, orchestrator_workers=started + 2)
 	assert resp.json["restart_pending"] == ["Concurrent rollout jobs"]
@@ -154,7 +154,7 @@ def test_restart_pending_follows_the_worker_count(admin, app, client_for):
 def test_orchestrator_started_with_the_setting(app):
 	"""The orchestrator runs as many jobs at once as the setting said at start."""
 	assert app.orchestrator.max_concurrent == \
-	       app.config["SETTINGS_STARTED_WITH"]["orchestrator_workers"]
+	       app.settings_started_with["orchestrator_workers"]
 
 
 def test_rollouts_use_the_device_parallelism_setting(admin, app, make_user,
@@ -214,7 +214,7 @@ def test_restart_dot_shows_on_admin_pages_while_pending(admin, app, client_for):
 	"""Admin pages hide the restart-pending dot until the worker count changes, then show
 	it with a tooltip naming the changed setting."""
 	client = client_for(admin)
-	started = app.config["SETTINGS_STARTED_WITH"]["orchestrator_workers"]
+	started = app.settings_started_with["orchestrator_workers"]
 	html = client.get("/admin/users").get_data(as_text=True)
 	assert 'title="Restart server"' in html
 	assert 'id="restartPendingDot" style="display:none' in html

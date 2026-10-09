@@ -6,7 +6,7 @@ cleared)."""
 import os
 import secrets
 from collections.abc import Iterator, Mapping
-from typing import Any
+from typing import Any, ClassVar
 
 from flask import Flask, Request, Response
 from flask.sessions import SessionMixin
@@ -41,7 +41,7 @@ from src.webapp.blueprints.system import bp as system_bp
 from src.webapp.db_move import DatabaseMove
 from src.webapp.hooks import register_extensions, register_handlers, register_auth
 from src.webapp.http import WebServices
-from src.webapp.lifecycle import Shutdown, register_maintenance
+from src.webapp.lifecycle import Maintenance, Shutdown, register_maintenance
 from src.webapp.startup import new_instance_token
 
 
@@ -149,9 +149,21 @@ def configure_app(app: Flask, secret_key: str) -> None:
 class RolloutSessionCollector:
 	"""Prometheus' rollout gauges, read from Redis at each scrape:
 	netrollout_active_jobs and netrollout_pending_jobs."""
+	# the one in Prometheus' registry (process-wide): a later app replaces it
+	_registered: ClassVar["RolloutSessionCollector | None"] = None
 
 	def __init__(self, redis_conn: RedisConnection) -> None:
 		self.redis = redis_conn
+
+	@classmethod
+	def register(cls, redis_conn: RedisConnection) -> None:
+		"""The rollout gauges join Prometheus' registry (/metrics) - in place
+		of an earlier app's in the same process (the registry refuses the
+		same metric twice)."""
+		if cls._registered is not None:
+			REGISTRY.unregister(cls._registered)
+		cls._registered = cls(redis_conn)
+		REGISTRY.register(cls._registered)
 
 	def collect(self) -> Iterator[GaugeMetricFamily]:
 		""":returns: the two gauges - 0 when Redis is down"""
@@ -173,11 +185,6 @@ class RolloutSessionCollector:
 		)
 		pending_metric.add_metric([], pending)
 		yield pending_metric
-
-
-def register_metrics(redis_conn: RedisConnection) -> None:
-	"""The rollout gauges join Prometheus' registry (/metrics)."""
-	REGISTRY.register(RolloutSessionCollector(redis_conn))
 
 
 def register_server_state(app: NetRolloutApp) -> None:
@@ -206,47 +213,50 @@ def init_app_encryption(backend: BackendServices) -> None:
 	init_encryption(sample, db_checked=db_checked)
 
 
-def launch_app() -> NetRolloutApp:
+def launch_app(backend: BackendServices | None = None) -> NetRolloutApp:
 	"""Build the app with its services, in the order they depend on each
 	other; the caller serves it.
 
+	:param backend: the connections; made here (the database brought up to
+	 this version) when None
 	:raises StartupError: a secret missing in a container, a bad encryption
 	 key - NetRollout must not start"""
 	# Before touching any service: a missing secret must stop the start
 	secret_key = resolve_secret_key()
 	require_key_in_container()
-	# the installer hands the hostname over in site.env (not .env): seed it
-	# before BackendServices seeds the settings
-	seed_hostname_from_site()
-	backend = BackendServices()
+	if backend is None:
+		# the installer hands the hostname over in site.env (not .env): seed
+		# it before BackendServices seeds the settings
+		seed_hostname_from_site()
+		backend = BackendServices()
 	init_app_encryption(backend)
 	# restart-only settings: what this process runs with (System Settings
 	# shows "restart pending" while the saved value differs)
 	started_with = backend.settings.restart_only_values()
 	orchestrator = RolloutOrchestrator(backend,
 	                                   started_with["orchestrator_workers"])
-	web_services = WebServices(backend)
+	maintenance = Maintenance(orchestrator)
+	web_services = WebServices(backend, maintenance)
 	app = NetRolloutApp(__name__, template_folder='../../templates',
 	                   static_folder='../static')
 
-	# per-run identity for the startup reverse-proxy check (startup.py)
-	app.config["INSTANCE_TOKEN"] = new_instance_token()
-	app.config["SETTINGS_STARTED_WITH"] = started_with
+	app.instance_token = new_instance_token()
+	app.settings_started_with = started_with
 	app.backend = backend
 	app.orchestrator = orchestrator
 	app.shutdown = Shutdown(orchestrator)
+	app.maintenance = maintenance
 	app.web = web_services
 	app.access = Access(backend.settings)   # the hostname, the port, the certificate
-
+	# Server Management → Database → Move
+	app.db_move = DatabaseMove(backend, maintenance, web_services.audit_trail)
 
 	configure_app(app, secret_key)
 	# first of the request hooks: while a move copies the data, nothing writes
 	register_maintenance(app)
-	# Server Management → Database → Move
-	app.db_move = DatabaseMove(backend, app.maintenance, web_services.audit_trail)
 	register_extensions(app)
 	register_auth(app)
-	register_metrics(app.backend.redis)
+	RolloutSessionCollector.register(app.backend.redis)
 	register_server_state(app)
 
 	register_handlers(app, backend)
@@ -268,12 +278,13 @@ def launch_app() -> NetRolloutApp:
 	return app
 
 
-def create_app() -> NetRolloutApp:
+def create_app(backend: BackendServices | None = None) -> NetRolloutApp:
 	"""The app with its services and every blueprint.
 
+	:param backend: the connections (launch_app); made there when None
 	:raises StartupError: NetRollout must not start (a missing secret, a
 	 bad encryption key)"""
-	net_rollout = launch_app()
+	net_rollout = launch_app(backend)
 	net_rollout.register_blueprint(auth_bp)
 	net_rollout.register_blueprint(rollout_bp)
 	net_rollout.register_blueprint(inventory_bp)

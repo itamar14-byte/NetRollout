@@ -40,7 +40,7 @@ def instance() -> Response:
 	"""This process's random per-run token — lets the startup check prove the
 	reverse proxy forwards to *this* instance. No login, no session write, no
 	DB; the token means nothing outside this process."""
-	return jsonify(instance=current_app.config["INSTANCE_TOKEN"])
+	return jsonify(instance=current_app.instance_token)
 
 
 @bp.route(HEALTH_PATH)

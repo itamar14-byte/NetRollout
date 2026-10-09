@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from functools import cached_property
 from pathlib import Path
-from typing import ClassVar, Generic, TypeVar
+from typing import Any, ClassVar, Generic, TypeVar
 from urllib.parse import quote
 
 import redis
@@ -599,6 +599,17 @@ class BackendServices:
 			"POSTGRES": postgres_up,
 			"REDIS": redis_up
 		}
+
+	def addresses(self) -> dict[str, Any]:
+		"""Where each service is looked for - read now: a Server Management
+		switch replaces the connections, so the startup values may be stale.
+
+		:returns: {"db_host", "db_port", "redis_host", "redis_port"}"""
+		pg_url = self.postgres.engine.url
+		redis_kwargs = self.redis.client.connection_pool.connection_kwargs
+		return {"db_host": pg_url.host, "db_port": pg_url.port,
+		        "redis_host": redis_kwargs.get("host", "localhost"),
+		        "redis_port": redis_kwargs.get("port", 6379)}
 
 	def encrypted_sample(self) -> str | None:
 		"""One stored Fernet token from any encrypted column, or None if the

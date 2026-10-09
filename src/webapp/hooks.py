@@ -198,15 +198,7 @@ def register_handlers(app: Flask, backend: BackendServices) -> None:
 			return err("a backend service is unavailable", 503)
 
 		res = backend.health()
-		# Read addresses at error time — connections can be hot-swapped from
-		# the Server Management page, so startup values may be stale
-		pg_url = backend.postgres.engine.url
-		redis_kwargs = backend.redis.client.connection_pool.connection_kwargs
-		return render_template("db_error.html",
-		                       db_host=pg_url.host,
-		                       db_port=pg_url.port,
-		                       redis_host=redis_kwargs.get("host", "localhost"),
-		                       redis_port=redis_kwargs.get("port", 6379),
+		return render_template("db_error.html", **backend.addresses(),
 		                       postgres=res["POSTGRES"],
 		                       redis=res["REDIS"]), 503
 
