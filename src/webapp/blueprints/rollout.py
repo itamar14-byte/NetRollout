@@ -14,10 +14,11 @@ from flask_login import current_user, login_required
 
 from src.audit import AuditAction
 from src.accounts.users import Viewer
-from src.db.tables import DeviceResult, Inventory, JobMetadata, User, Role
+from src.db.tables import Inventory, JobMetadata, User
 from src.inventory import InventoryView, partition_devices
 from src.jobs import QUEUED_LINE, Draining
-from src.rollout.engine import Device, DeviceStatus, RolloutOptions, missing_value
+from src.results import JobResults
+from src.rollout.engine import Device, RolloutOptions, missing_value
 from src.rollout.inputs import InputParser
 from src.webapp.app import current_app
 from src.webapp.http import Refused, ok, err, with_form, with_json, Caller, viewer
@@ -221,7 +222,7 @@ def cancel_rollout(data: Any) -> ResponseReturnValue:
 	except ValueError:
 		return refused("invalid job_id", 422)
 	job = current_app.orchestrator.get_job(job_id)
-	if not job or (job.user_id != current_user.id and current_user.role != Role.ADMIN):
+	if not job or (job.user_id != current_user.id and not viewer().is_admin):
 		return refused("job not found", 404)
 	queued = job.started_at is None        # it ends at once, nothing pushed
 	current_app.orchestrator.cancel(job_id)
@@ -364,10 +365,10 @@ def rollout_stream(job_id: uuid.UUID) -> Response:
 	if job is None:
 		with current_app.backend.postgres.get_session() as db_session:
 			owner = db_session.query(JobMetadata.user_id).filter_by(job_id=job_id).scalar()
-		if owner is None or (owner != current_user.id and current_user.role != Role.ADMIN):
+		if owner is None or (owner != current_user.id and not viewer().is_admin):
 			return Response(status=404)
 		return _event_stream(iter([DONE_EVENT]))
-	if job.user_id != current_user.id and current_user.role != Role.ADMIN:
+	if job.user_id != current_user.id and not viewer().is_admin:
 		return Response(status=404)
 	followed = job
 
@@ -418,21 +419,15 @@ def rollback(job_id: uuid.UUID, data: dict[str, Any]) -> ResponseReturnValue:
 	:returns: {"status": "ok", job_id}; 404 when the job has no results (yet)
 	 or isn't the user's; or another error"""
 	with current_app.backend.postgres.get_session() as db_session:
-		first = db_session.query(DeviceResult.user_id).filter_by(
-			job_id=job_id).first()
-		if first is None or (current_user.role != Role.ADMIN
-		                     and first.user_id != current_user.id):
+		history = JobResults(db_session, viewer())
+		owner_id = history.get_accessible(job_id)
+		if owner_id is None:
 			return err("Not found", 404)
-		owner_id = first.user_id
 		owner = db_session.get(User, owner_id)
 		owner_name = owner.username if owner else None
 		# the owner's devices and values, as they see them
 		owner_view = InventoryView(db_session, Viewer.of(owner) if owner else Viewer(owner_id))
-		result = db_session.query(DeviceResult).filter_by(
-			user_id=owner_id,
-			job_id=job_id,
-			status=DeviceStatus.SUCCESS.value).all()
-		successful = {(r.device_ip, r.device_port) for r in result}
+		successful = history.successful_endpoints(job_id, owner_id)
 
 		candidates = owner_view.visible(ips={ip for ip, _ in successful})
 		# Match on ip:port (the target), not IP alone — devices behind one

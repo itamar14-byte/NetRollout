@@ -23,7 +23,7 @@ from src.db.settings import SETTINGS
 from src.jobs import (JOB_STATUSES, JobStore, RolloutOrchestrator, job_status,
                       job_status_condition, build_kpi)
 from src.rollout.engine import RolloutEngine, RolloutOptions
-from src.webapp.blueprints.jobs import config_expired
+from src.results import config_expired
 
 
 QUEUE = "netrollout:job_queue"
