@@ -17,7 +17,7 @@ from src.audit import AuditAction
 from src.db.tables import DeviceResult, Inventory, JobMetadata, User, Role
 from src.inventory import attributes, visible_devices_clause, query_visible_devices, partition_devices
 from src.jobs import QUEUED_LINE, Draining
-from src.rollout.engine import Device, DeviceStatus, RolloutOptions, missing_value, unresolved
+from src.rollout.engine import Device, DeviceStatus, RolloutOptions, missing_value
 from src.rollout.inputs import InputParser
 from src.webapp.app import current_app
 from src.webapp.http import ok, err, with_form, with_json, Caller
@@ -146,12 +146,12 @@ def unreachable_message(devices: list[Device]) -> str:
 
 def unresolved_message(devices: list[Device], commands_of: Callable[[Device], list[str]]) -> str | None:
 	"""The refusal naming every device whose commands keep a token that can't
-	be filled in (engine.unresolved: no mapping on the device, or no value) -
+	be filled in (Device.unresolved: no mapping on the device, or no value) -
 	checked before a rollout is queued, as reachability is.
 
 	:param commands_of: the commands a device would get (its platform's)
 	:returns: the message; None when every token resolves"""
-	blocked = [(d, problems) for d in devices if (problems := unresolved(d, commands_of(d)))]
+	blocked = [(d, problems) for d in devices if (problems := d.unresolved(commands_of(d)))]
 	if not blocked:
 		return None
 	names = "; ".join(f"{d.label or d.ip} ({d.endpoint}): {', '.join(problems)}"
@@ -280,7 +280,7 @@ def new_rollout() -> str:
 def token_states(devices: list[Inventory], values: dict[uuid.UUID, dict[str, Any]],
                  user_id: uuid.UUID) -> dict[str, dict[str, str | None]]:
 	"""What the New Rollout page needs to block a token that can't be filled
-	in before the launch does (engine.unresolved): per device, the tokens the
+	in before the launch does (Device.unresolved): per device, the tokens the
 	user bound on it and why each can't substitute.
 
 	:param devices: rows with their mappings loaded (every user's)

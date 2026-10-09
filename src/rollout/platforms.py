@@ -1,28 +1,191 @@
 """What NetRollout knows about each platform (Netmiko device type), with no
-I/O: how a push finishes (save / commit / a command / nothing) and how the
-config prints (PLATFORMS), what a refused command looks like (rejection),
-and how a typed command is found in — or confirmed gone from — a fetched
-config (verify_commands). The engine (src/rollout/engine.py) does the SSH; the web
-pages use this directly. Adding a vendor: one PLATFORMS row plus a fixture
-in tests/unit/test_platforms.py."""
+I/O of its own: how a push finishes (the Finish family: save / commit / a
+command / nothing - acting on the session it is handed) and how the config
+prints (PLATFORMS), what a refused command looks like (rejection), and how
+a typed command is found in — or confirmed gone from — a fetched config
+(verify_commands). The SSH conversation is src/rollout/session.py's; the
+web pages use this directly. Adding a vendor: one PLATFORMS row plus a
+fixture in tests/unit/rollout/test_platforms.py."""
 import re
+from abc import ABC, abstractmethod
+from collections.abc import Callable
+from contextlib import AbstractContextManager
 from dataclasses import dataclass
+from typing import Any, Protocol
+
+from netmiko.exceptions import ReadTimeout
+
+from src.rollout.log import Tone
+
+
+class ConfigSession(Protocol):
+	"""The Netmiko connection methods a push, its finish and a config fetch
+	use (netmiko.BaseConnection has them all)."""
+
+	def find_prompt(self) -> str: ...
+
+	def set_base_prompt(self) -> str: ...
+
+	def enable(self) -> str: ...
+
+	def config_mode(self, config_command: str = "") -> str: ...
+
+	def exit_config_mode(self) -> str: ...
+
+	def send_config_set(self, config_commands: list[str], *,
+	                    exit_config_mode: bool = True,
+	                    enter_config_mode: bool = True) -> str: ...
+
+	def send_command(self, command_string: str,
+	                 read_timeout: float = 10.0) -> Any: ...
+
+	def send_command_timing(self, command_string: str) -> Any: ...
+
+	def commit(self, read_timeout: float = ...) -> str: ...
+
+	def save_config(self) -> str: ...
+
+	def disconnect(self) -> None: ...
+
+
+class Target(Protocol):
+	"""What a finish names a device by (a rollout Device)."""
+
+	@property
+	def endpoint(self) -> str: ...
+
+
+class Report(Protocol):
+	"""Where a finish reports (the rollout's RunReport, src/rollout/session.py)."""
+
+	def notify(self, text: str, tone: Tone, important: bool = False) -> None: ...
+
+	def action_needed(self, device: Target, what: str) -> None: ...
+
+
+class Finish(ABC):
+	"""How a pushed change takes effect and is kept, once the commands are
+	in: around leaving config mode (before_leave, after_leave), and from a
+	fresh session when the push's own lost its prompt (in_new_session)."""
+
+	@property
+	def interruptible(self) -> bool:
+		""":returns: whether a device that stops answering mid-push keeps
+		 what it took (live, unsaved) - True unless a commit would have made
+		 it take effect"""
+		return True
+
+	def before_leave(self, conn: ConfigSession, report: Report,
+	                 device: Target) -> bool:
+		"""Runs in config mode, after the commands.
+
+		:returns: False if the change didn't take effect (config mode is
+		 then left already)"""
+		return True
+
+	@abstractmethod
+	def after_leave(self, conn: ConfigSession) -> tuple[Any, str]:
+		"""Runs after leaving config mode.
+
+		:returns: (the device's reply, the command it answers - "" when
+		 nothing was sent)"""
+
+	def in_new_session(self, connect: Callable[
+			[], AbstractContextManager[ConfigSession]]) -> tuple[Any, str] | None:
+		"""Finish from a fresh session (privileged, out of config mode).
+
+		:param connect: opens it
+		:returns: as after_leave; None when there is nothing to finish (no
+		 session opened)"""
+		with connect() as conn:
+			conn.enable()
+			return self.after_leave(conn)
+
+
+class SaveConfig(Finish):
+	"""save_config() after leaving config mode."""
+
+	def after_leave(self, conn: ConfigSession) -> tuple[Any, str]:
+		return conn.save_config(), "save"
+
+
+class RunCommand(Finish):
+	"""A CLI command after leaving config mode (Gaia's `save config`)."""
+
+	def __init__(self, text: str) -> None:
+		self.text = text
+
+	def after_leave(self, conn: ConfigSession) -> tuple[Any, str]:
+		return conn.send_command(self.text), self.text
+
+
+class NoFinish(Finish):
+	"""Nothing: the change is live as typed."""
+
+	def after_leave(self, conn: ConfigSession) -> tuple[Any, str]:
+		return "", ""
+
+	def in_new_session(self, connect: Callable[
+			[], AbstractContextManager[ConfigSession]]) -> tuple[Any, str] | None:
+		return None
+
+
+class Commit(Finish):
+	"""commit() before leaving config mode (leaving discards uncommitted
+	changes).
+
+	:param discard: after a failed commit, the commands that drop the
+	 candidate - tried in order until one is accepted
+	:param reverts_on_failure: the platform drops a failed commit by itself
+	 (IOS XR): no discard needed, nothing left to warn about"""
+
+	def __init__(self, discard: tuple[str, ...] = (),
+	             reverts_on_failure: bool = False) -> None:
+		self.discard = discard
+		self.reverts_on_failure = reverts_on_failure
+
+	@property
+	def interruptible(self) -> bool:
+		return False
+
+	def before_leave(self, conn: ConfigSession, report: Report,
+	                 device: Target) -> bool:
+		try:
+			conn.commit(read_timeout=COMMIT_TIMEOUT)
+		except ReadTimeout:
+			# It may still complete on the device: don't claim either way
+			report.action_needed(device, f"the commit didn't finish within "
+			                     f"{COMMIT_TIMEOUT}s — check on the device "
+			                     f"whether it went through (reported as failed)")
+			return False
+		except ValueError as e:
+			report.notify(f"{device.endpoint}: commit failed — nothing was "
+			              f"applied. {e}", Tone.ERROR)
+			discarded = False
+			for command in self.discard:
+				reply = conn.send_config_set([command], exit_config_mode=False)
+				if rejection(reply, command) is None:
+					discarded = True
+					break
+			if not discarded and not self.reverts_on_failure:
+				report.action_needed(device, "the failed changes may still be "
+				                     "in the candidate configuration — discard "
+				                     "them on the device")
+			conn.exit_config_mode()
+			return False
+		return True
+
+	def after_leave(self, conn: ConfigSession) -> tuple[Any, str]:
+		return "", ""
 
 
 @dataclass(frozen=True)
 class Platform:
 	"""How a platform finishes a push and prints its config in the syntax
-	engineers type.
-	finish: "save" → save_config() after leaving config mode; "commit" →
-	 commit() before leaving it (leaving discards uncommitted changes); any
-	 other text → that CLI command after leaving config mode; "" → nothing
-	 (the change is live as typed)."""
-	finish: str
+	engineers type."""
+	finish: Finish
 	show_config: tuple[str, ...] = ("show running-config",)
 	flat: bool = False         # one "set …" line per setting, no sections
-	# after a failed commit: drop the candidate — tried in order until one
-	# is accepted
-	discard: tuple[str, ...] = ()
 	close_blocks: bool = False  # FortiOS: an open config block is discarded
 	config_command: str = ""   # instead of the driver's default config mode
 	leave_first: str = ""      # sent before leaving config mode (Aruba CX:
@@ -32,40 +195,38 @@ class Platform:
 
 
 PLATFORMS = {
-	"cisco_ios": Platform("save"),
-	"cisco_xe": Platform("save"),
-	"cisco_nxos": Platform("save"),
+	"cisco_ios": Platform(SaveConfig()),
+	"cisco_xe": Platform(SaveConfig()),
+	"cisco_nxos": Platform(SaveConfig()),
 	# a failed commit reverts the running config; leaving config mode
 	# (Netmiko answers "no" to "commit them?") drops the pending changes
-	"cisco_xr": Platform("commit"),
-	"arista_eos": Platform("save"),
-	"aruba_aoscx": Platform("save", leave_first="end"),
-	"hp_procurve": Platform("save"),
-	"hp_comware": Platform("save", ("display current-configuration",)),
+	"cisco_xr": Platform(Commit(reverts_on_failure=True)),
+	"arista_eos": Platform(SaveConfig()),
+	"aruba_aoscx": Platform(SaveConfig(), leave_first="end"),
+	"hp_procurve": Platform(SaveConfig()),
+	"hp_comware": Platform(SaveConfig(), ("display current-configuration",)),
 	# private: our commit can't take other users' pending edits along, and
 	# our rollback can't wipe them (Junos refuses it while someone has
 	# uncommitted shared edits — the device then fails, with the reason)
-	"juniper_junos": Platform("commit", ("show configuration | display set",),
-	                          flat=True, discard=("rollback 0",),
+	"juniper_junos": Platform(Commit(discard=("rollback 0",)),
+	                          ("show configuration | display set",), flat=True,
 	                          config_command="configure private"),
 	# revert config (8.0+); loading the running config into the candidate
 	# discards too, also on older releases
-	"paloalto_panos": Platform("commit", ("set cli config-output-format set",
-	                                      "show config running"), flat=True,
-	                           discard=("revert config",
-	                                    "load config from running-config.xml")),
+	"paloalto_panos": Platform(Commit(discard=(
+		"revert config", "load config from running-config.xml")),
+		("set cli config-output-format set", "show config running"), flat=True),
 	# An account whose shell is expert (bash) would take every "set …" as
 	# bash's own set builtin (nothing configured, nothing refused): switch to
 	# clish first, or refuse
-	"checkpoint_gaia": Platform("save config", ("show configuration",),
-	                            flat=True, wrong_shell=("expert@", "#"),
-	                            cli_shell="clish"),
-	"fortinet": Platform("", ("show",), close_blocks=True),
+	"checkpoint_gaia": Platform(RunCommand("save config"),
+	                            ("show configuration",), flat=True,
+	                            wrong_shell=("expert@", "#"), cli_shell="clish"),
+	"fortinet": Platform(NoFinish(), ("show",), close_blocks=True),
 }
 
 # PAN-OS commits can take minutes; Netmiko waits 120 s by default
-COMMIT_TIMEOUT = 300
-# Printing a large firewall config (PAN-OS, FortiOS) takes a while
+COMMIT_TIMEOUT = 300# Printing a large firewall config (PAN-OS, FortiOS) takes a while
 FETCH_TIMEOUT = 120
 
 # A device's reply to a command it refused (any vendor; matched with the

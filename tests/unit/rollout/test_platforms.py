@@ -10,9 +10,10 @@ import netmiko
 import pytest
 
 from src.rollout import inputs
-from src.rollout.engine import Device, PushResult, RolloutEngine, RolloutOptions
+from src.rollout.engine import Device, RolloutEngine, RolloutOptions
 from src.rollout.log import RolloutLogger
-from src.rollout.platforms import COMMIT_TIMEOUT, NOT_CONFIGURED, PLATFORMS, STILL_CONFIGURED, UNVERIFIABLE, VARIABLE, VERIFIED, first_word, rejection, verify_commands
+from src.rollout.platforms import COMMIT_TIMEOUT, NOT_CONFIGURED, PLATFORMS, STILL_CONFIGURED, UNVERIFIABLE, VARIABLE, VERIFIED, Commit, SaveConfig, first_word, rejection, verify_commands
+from src.rollout.session import NetmikoSession, PushResult, RunReport
 
 
 OK, MISSING, STILL, NV = VERIFIED, NOT_CONFIGURED, STILL_CONFIGURED, UNVERIFIABLE
@@ -481,7 +482,7 @@ def finish_calls(conn):
 
 
 @pytest.mark.parametrize("device_type", [t for t, p in PLATFORMS.items()
-                                         if p.finish == "save"])
+                                         if isinstance(p.finish, SaveConfig)])
 def test_save_platforms_leave_config_mode_then_save(device_type):
 	"""Every "save" platform leaves config mode, then saves (Aruba CX sends `end` first);
 	the push is applied with nothing rejected."""
@@ -747,7 +748,7 @@ def test_failed_devices_are_not_verified():
 	                device_type="juniper_junos", secret="", port=22)
 	engine = RolloutEngine(RolloutOptions(verify=True), [device], ["set x"])
 	with patch("netmiko.ConnectHandler", return_value=conn), \
-			patch.object(Device, "fetch_config") as fetch:
+			patch.object(NetmikoSession, "fetch_config") as fetch:
 		(result,) = engine.run(threading.Event(),
 		                       RolloutLogger(webapp=False, verbose=False))
 	assert result["status"] == "failed"
@@ -825,8 +826,8 @@ def test_the_whole_rollout_on_each_platform(device_type, config, expected):
 	shown = [c.args[0] for c in conn.send_command.call_args_list
 	         if c.args and c.args[0] in platform.show_config]
 	assert shown == list(platform.show_config)
-	assert conn.commit.called == (platform.finish == "commit")
-	assert conn.save_config.called == (platform.finish == "save")
+	assert conn.commit.called == isinstance(platform.finish, Commit)
+	assert conn.save_config.called == isinstance(platform.finish, SaveConfig)
 
 
 def test_each_command_is_sent_as_typed_without_reentering_config_mode():
@@ -905,7 +906,7 @@ def test_gaia_fetch_switches_to_clish_too():
 	device = Device(ip="10.0.0.1", label="d", username="u", password="p",
 	                device_type="checkpoint_gaia", secret="", port=22)
 	with patch("netmiko.ConnectHandler", return_value=conn):
-		config = device.fetch_config(fresh_logger())
+		config = NetmikoSession(device, RunReport(fresh_logger())).fetch_config()
 	assert config == "set hostname gw-1"
 	conn.send_command_timing.assert_any_call("clish")
 

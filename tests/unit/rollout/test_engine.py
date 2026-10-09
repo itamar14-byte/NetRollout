@@ -20,11 +20,12 @@ import src.rollout.engine as engine_module
 # bare `import core` would load a second copy of every module (patches and
 # isinstance checks would then silently target the wrong one).
 from src.rollout import inputs
-from src.rollout.engine import (SubstitutionError, unresolved, PushResult, VerifyResult, Device, RolloutOptions, RolloutEngine,
+from src.rollout.engine import (SubstitutionError, VerifyResult, Device, RolloutOptions, RolloutEngine,
                                 endpoint, classify, mapping_resolvable)
 from src.rollout.inputs import InputParser, Validator
 from src.rollout.log import RolloutLogger
 from src.rollout.platforms import FETCH_TIMEOUT, PLATFORMS
+from src.rollout.session import NetmikoSession, PushResult, RunReport
 
 
 # ---------------------------------------------------------------------------
@@ -44,6 +45,19 @@ def make_device(**kwargs) -> Device:
 	)
 	defaults.update(kwargs)
 	return Device(**defaults)
+
+
+def connect_params(device):
+	"""The arguments the session hands Netmiko's ConnectHandler for this device."""
+	with patch("netmiko.ConnectHandler") as connect:
+		with NetmikoSession.connect(device):
+			pass
+	return connect.call_args.kwargs
+
+
+def fetch_config(device, logger):
+	"""The device's config, fetched by its session."""
+	return NetmikoSession(device, RunReport(logger)).fetch_config()
 
 
 def make_options(**kwargs) -> RolloutOptions:
@@ -97,18 +111,18 @@ class TestIPv6(unittest.TestCase):
 class TestDeviceNetmikoConnector(unittest.TestCase):
 
 	def test_returns_dict_with_all_fields(self):
-		"""netmiko_connector returns a dict with ip, username, password,
+		"""The connect arguments are a dict with ip, username, password,
 		device_type, port and secret."""
 		device = make_device()
-		params = device.netmiko_connector()
+		params = connect_params(device)
 		self.assertIsInstance(params, dict)
 		for key in ("ip", "username", "password", "device_type", "port", "secret"):
 			self.assertIn(key, params)
 
 	def test_values_match_device_fields(self):
-		"""netmiko_connector carries the device's own ip and port."""
+		"""The connect arguments carry the device's own ip and port."""
 		device = make_device(ip="10.1.1.1", port=2222)
-		params = device.netmiko_connector()
+		params = connect_params(device)
 		self.assertEqual(params["ip"], "10.1.1.1")
 		self.assertEqual(params["port"], 2222)
 
@@ -136,7 +150,7 @@ class TestDeviceFetchConfig(unittest.TestCase):
 		"""fetch_config on cisco_ios sends "show running-config" once with
 		FETCH_TIMEOUT and returns its output."""
 		conn = self._connection(mock_ch)
-		result = make_device(device_type="cisco_ios").fetch_config(self.logger)
+		result = fetch_config(make_device(device_type="cisco_ios"), self.logger)
 		self.assertEqual(result, "interface GigabitEthernet0/0")
 		conn.send_command.assert_called_once_with("show running-config",
 												  read_timeout=FETCH_TIMEOUT)
@@ -145,7 +159,7 @@ class TestDeviceFetchConfig(unittest.TestCase):
 	def test_uses_the_device_port(self, mock_ch):
 		"""fetch_config connects on the device's own port (2201), not 22."""
 		self._connection(mock_ch)
-		make_device(port=2201).fetch_config(self.logger)   # port-forwarded
+		fetch_config(make_device(port=2201), self.logger)   # port-forwarded
 		self.assertEqual(mock_ch.call_args.kwargs["port"], 2201)
 
 	@patch("netmiko.ConnectHandler")
@@ -154,7 +168,7 @@ class TestDeviceFetchConfig(unittest.TestCase):
 		platform's show_config commands, in order."""
 		for device_type, platform in PLATFORMS.items():
 			conn = self._connection(mock_ch, output="set x")
-			make_device(device_type=device_type).fetch_config(self.logger)
+			fetch_config(make_device(device_type=device_type), self.logger)
 			sent = [c.args[0] for c in conn.send_command.call_args_list]
 			self.assertEqual(sent, list(platform.show_config), device_type)
 
@@ -162,7 +176,7 @@ class TestDeviceFetchConfig(unittest.TestCase):
 	def test_returns_none_on_connection_exception(self, mock_ch):
 		"""fetch_config returns None when the connection raises."""
 		mock_ch.side_effect = Exception("timeout")
-		self.assertIsNone(make_device().fetch_config(self.logger))
+		self.assertIsNone(fetch_config(make_device(), self.logger))
 
 
 # ---------------------------------------------------------------------------
@@ -194,8 +208,8 @@ class TestRolloutEnginePushConfig(unittest.TestCase):
 		mock_ch.return_value = mock_conn
 
 		engine = self._make_engine()
-		cancel_signal, push_results = engine._push_config(self.cancel, self.logger)
-		self.assertIsNone(cancel_signal)
+		cancelled, push_results = engine._push_config(self.cancel, self.logger)
+		self.assertIs(cancelled, False)
 		self.assertEqual(push_results.get(0), PushResult(applied=True, rejected=0))
 		mock_conn.save_config.assert_called_once()
 		mock_conn.disconnect.assert_called_once()
@@ -209,8 +223,8 @@ class TestRolloutEnginePushConfig(unittest.TestCase):
 		mock_ch.return_value = mock_conn
 
 		engine = self._make_engine(commands=["bad command", "good command"])
-		cancel_signal, push_results = engine._push_config(self.cancel, self.logger)
-		self.assertIsNone(cancel_signal)
+		cancelled, push_results = engine._push_config(self.cancel, self.logger)
+		self.assertIs(cancelled, False)
 		# Both commands were attempted despite first error, both counted
 		self.assertEqual(mock_conn.send_config_set.call_count, 2)
 		self.assertEqual(push_results[0], PushResult(applied=True, rejected=2))
@@ -221,19 +235,19 @@ class TestRolloutEnginePushConfig(unittest.TestCase):
 		cancel signal."""
 		mock_ch.side_effect = nm.NetMikoAuthenticationException("auth failed")
 		engine = self._make_engine()
-		cancel_signal, push_results = engine._push_config(self.cancel, self.logger)
-		self.assertIsNone(cancel_signal)
+		cancelled, push_results = engine._push_config(self.cancel, self.logger)
+		self.assertIs(cancelled, False)
 		self.assertFalse(push_results[0].applied)
 
 	@patch("netmiko.ConnectHandler")
 	def test_cancel_event_stops_rollout(self, mock_ch):
-		"""With the cancel event already set, the push returns "cancel_sent" and
+		"""With the cancel event already set, the push returns cancelled and
 		never connects to a device."""
 		cancel = threading.Event()
 		cancel.set()
 		engine = self._make_engine()
-		cancel_signal, push_results = engine._push_config(cancel, self.logger)
-		self.assertEqual(cancel_signal, "cancel_sent")
+		cancelled, push_results = engine._push_config(cancel, self.logger)
+		self.assertIs(cancelled, True)
 		mock_ch.assert_not_called()
 
 	def test_devices_finishing_after_cancel_are_still_recorded(self):
@@ -260,9 +274,9 @@ class TestRolloutEnginePushConfig(unittest.TestCase):
 		engine = RolloutEngine(param=make_options(max_workers=2),
 							   devices=devices, commands=["hostname x"])
 		with patch("netmiko.ConnectHandler", side_effect=connect):
-			cancel_signal, push_results = engine._push_config(cancel,
+			cancelled, push_results = engine._push_config(cancel,
 															  self.logger)
-		self.assertEqual(cancel_signal, "cancel_sent")
+		self.assertIs(cancelled, True)
 		# C (10.0.0.3) started after the cancel: never connected
 		applied = PushResult(applied=True, rejected=0)
 		self.assertEqual(push_results, {0: applied, 1: applied})  # by index
@@ -270,19 +284,19 @@ class TestRolloutEnginePushConfig(unittest.TestCase):
 	def test_ctrl_c_skips_the_devices_not_reached_yet(self):
 		"""Ctrl+C in the CLI (KeyboardInterrupt in the waiting thread) cancels:
 		the devices not started yet are skipped, those already being configured
-		finish and are recorded, and the push returns "cancel_sent" - not every
+		finish and are recorded, and the push returns cancelled - not every
 		queued device pushed before the cancel (the thread pool's exit used to
 		wait for all of them)."""
 		pushed = []
 		lock = threading.Lock()
 
-		def push(device, cancel_event, logger):
+		def push(device, cancel_event, report):
 			if cancel_event.is_set():
-				return device.ip, None
+				return None
 			time.sleep(0.2)
 			with lock:
 				pushed.append(device.ip)
-			return device.ip, PushResult(applied=True, rejected=0)
+			return PushResult(applied=True, rejected=0)
 
 		real = engine_module.as_completed
 		pressed = threading.Event()        # one Ctrl+C, after the first result
@@ -300,8 +314,8 @@ class TestRolloutEnginePushConfig(unittest.TestCase):
 		with patch.object(engine, "_push_device", side_effect=push), \
 				patch.object(engine_module, "as_completed", interrupted):
 			cancel = threading.Event()
-			cancel_signal, push_results = engine._push_config(cancel, self.logger)
-		self.assertEqual(cancel_signal, "cancel_sent")
+			cancelled, push_results = engine._push_config(cancel, self.logger)
+		self.assertIs(cancelled, True)
 		self.assertTrue(cancel.is_set())
 		self.assertLessEqual(len(pushed), 4)          # the first ones and those in flight
 		self.assertEqual(len(push_results), len(pushed))   # each pushed device recorded
@@ -316,8 +330,8 @@ class TestRolloutEnginePushConfig(unittest.TestCase):
 
 		devices = [make_device(ip=f"10.0.0.{i}") for i in range(1, 4)]
 		engine = self._make_engine(devices=devices)
-		cancel_signal, push_results = engine._push_config(self.cancel, self.logger)
-		self.assertIsNone(cancel_signal)
+		cancelled, push_results = engine._push_config(self.cancel, self.logger)
+		self.assertIs(cancelled, False)
 		self.assertEqual(mock_ch.call_count, 3)
 		self.assertEqual(sorted(push_results), [0, 1, 2])
 		self.assertTrue(all(r.applied for r in push_results.values()))
@@ -350,7 +364,7 @@ class TestRolloutEngineVerify(unittest.TestCase):
 			devices=[device],
 			commands=["ip route 0.0.0.0 0.0.0.0 1.1.1.1"],
 		)
-		with patch.object(device, "fetch_config",
+		with patch.object(NetmikoSession, "fetch_config",
 						  return_value="ip route 0.0.0.0 0.0.0.0 1.1.1.1"):
 			result = engine._verify([0], self.logger)
 		# fully verified -> no config snapshot kept (nothing to diff)
@@ -364,7 +378,7 @@ class TestRolloutEngineVerify(unittest.TestCase):
 			devices=[device],
 			commands=["ip route 0.0.0.0 0.0.0.0 1.1.1.1"],
 		)
-		with patch.object(device, "fetch_config", return_value="no relevant config"):
+		with patch.object(NetmikoSession, "fetch_config", return_value="no relevant config"):
 			result = engine._verify([0], self.logger)
 		self.assertEqual((result[0].verified, result[0].checkable), (0, 1))
 
@@ -374,11 +388,11 @@ class TestRolloutEngineVerify(unittest.TestCase):
 		flagged "applied but NOT verified" for a person."""
 		device = make_device()
 		engine = self._make_engine(devices=[device])
-		with patch.object(device, "fetch_config", return_value=None):
+		with patch.object(NetmikoSession, "fetch_config", return_value=None):
 			result = engine._verify([0], self.logger)
 		self.assertIsNone(result[0])
 		# ...but nobody checked the result: a person must, and is told so
-		(what,) = engine._needs_action[device.endpoint]
+		(what,) = engine._report.needs_action[device.endpoint]
 		self.assertIn("applied but NOT verified", what)
 
 	def test_partial_commands_matched(self):
@@ -388,7 +402,7 @@ class TestRolloutEngineVerify(unittest.TestCase):
 		commands = ["ip route 0.0.0.0 0.0.0.0 1.1.1.1", "hostname ROUTER"]
 		config = "ip route 0.0.0.0 0.0.0.0 1.1.1.1\nno relevant line"
 		engine = self._make_engine(devices=[device], commands=commands)
-		with patch.object(device, "fetch_config", return_value=config):
+		with patch.object(NetmikoSession, "fetch_config", return_value=config):
 			result = engine._verify([0], self.logger)
 		# mismatch -> config snapshot kept for Verify Diff
 		self.assertEqual(result[0], VerifyResult(verified=1, checkable=2,
@@ -456,7 +470,7 @@ class TestRolloutEngineRun(unittest.TestCase):
 				devices = [make_device(ip="10.0.0.1"), make_device(ip="10.0.0.2")]
 				engine = RolloutEngine(param=make_options(verify=verify),
 				                       devices=devices, commands=commands)
-				with patch.object(Device, "fetch_config",
+				with patch.object(NetmikoSession, "fetch_config",
 				                  return_value="hostname x"):
 					result = engine.run(self.cancel, self.logger)
 				self.assertEqual(sorted(r["device_ip"] for r in result),
@@ -470,7 +484,7 @@ class TestRolloutEngineRun(unittest.TestCase):
 		device = make_device()
 		engine = RolloutEngine(param=make_options(verify=True), devices=[device],
 		                       commands=["hostname x", '""'])
-		with patch.object(device, "fetch_config", return_value="hostname x"), \
+		with patch.object(NetmikoSession, "fetch_config", return_value="hostname x"), \
 				patch.object(engine_module, "verify_commands",
 				             return_value=["verified", "not verifiable"]):
 			result = engine._verify([0], self.logger)
@@ -794,13 +808,13 @@ def test_substitution_uses_each_users_own_binding():
 	"hostname blue" for USER_B; USER_C has no binding - refused, never the token
 	pushed literally."""
 	row = global_row()
-	engine = RolloutEngine(RolloutOptions(), [], ["hostname $$HOST$$"])
-	assert engine._substitute_commands(Device.from_inventory(row, USER_A)) == \
+	commands = ["hostname $$HOST$$"]
+	assert Device.from_inventory(row, USER_A).commands_for(commands) == \
 	       ["hostname core-x"]
-	assert engine._substitute_commands(Device.from_inventory(row, USER_B)) == \
+	assert Device.from_inventory(row, USER_B).commands_for(commands) == \
 	       ["hostname blue"]
 	with pytest.raises(SubstitutionError, match=r"\$\$HOST\$\$: no mapping on this device"):
-		engine._substitute_commands(Device.from_inventory(row, USER_C))
+		Device.from_inventory(row, USER_C).commands_for(commands)
 
 
 @pytest.mark.parametrize("commands, subs, extra, problems", [
@@ -821,10 +835,10 @@ def test_substitution_uses_each_users_own_binding():
 	(["hostname $$HOST$$"], {"$$HOST$$": ("hostname", None)}, {"hostname": "r1"}, []),
 ])
 def test_unresolved_names_every_token_that_cant_be_filled(commands, subs, extra, problems):
-	"""unresolved() lists, per device, each token in the commands with no value (or an
+	"""Device.unresolved lists, per device, each token in the commands with no value (or an
 	index past the end) and each with no mapping on the device - in order, once each."""
 	device = make_device(var_map_subs=subs, extra=extra)
-	assert unresolved(device, commands) == problems
+	assert device.unresolved(commands) == problems
 
 
 def test_a_device_with_a_leftover_token_is_skipped_at_push():
@@ -886,7 +900,7 @@ def test_unresolvable_device_fails_alone_without_ssh(monkeypatch):
 	conn = MagicMock()
 	conn.send_config_set.return_value = "ok"
 	with patch("netmiko.ConnectHandler", return_value=conn) as connect, \
-			patch.object(Device, "fetch_config", return_value="hostname core-x"):
+			patch.object(NetmikoSession, "fetch_config", return_value="hostname core-x"):
 		results = engine.run(threading.Event(), RolloutLogger(False, False))
 	assert [c.kwargs["ip"] for c in connect.call_args_list] == ["10.0.0.1"]
 	assert {r["device_ip"]: r["status"] for r in results} == \

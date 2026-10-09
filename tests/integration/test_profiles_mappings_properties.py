@@ -126,7 +126,7 @@ def test_connection_test(client_for, make_user, make_profile, make_device,
 	side_effect = (netmiko.NetMikoAuthenticationException("no")
 	               if connect_error == "auth" else None)
 	with patch("src.rollout.inputs.tcp_reachable", return_value=tcp_ok), \
-			patch("src.webapp.blueprints.security.ConnectHandler",
+			patch("netmiko.ConnectHandler",
 			      side_effect=side_effect, return_value=MagicMock()):
 		resp = client_for(user).post(f"/security/{pid}/test",
 		                             json={"device_id": str(dev)})
@@ -140,7 +140,7 @@ def test_connection_test_follows_the_edit_rule(client_for, make_user, make_profi
 	owner, admin, operator = make_user(role="admin"), make_user(role="admin"), make_user()
 	glob = make_device(owner, ip="10.0.0.1", profile_id=make_profile(owner), is_global=True)
 	with patch("src.rollout.inputs.tcp_reachable", return_value=True), \
-			patch("src.webapp.blueprints.security.ConnectHandler", return_value=MagicMock()):
+			patch("netmiko.ConnectHandler", return_value=MagicMock()):
 		mine = client_for(admin).post(f"/security/{make_profile(admin)}/test",
 		                              json={"device_id": str(glob)})
 		op = client_for(operator).post(f"/security/{make_profile(operator)}/test",
@@ -267,7 +267,7 @@ def test_connection_test_timeout(client_for, make_user, make_profile, make_devic
 	user = make_user()
 	pid, dev = make_profile(user), make_device(user, ip=ip, port=2222)
 	with patch("src.rollout.inputs.tcp_reachable", return_value=True), \
-			patch("src.webapp.blueprints.security.ConnectHandler",
+			patch("netmiko.ConnectHandler",
 			      side_effect=netmiko.NetmikoTimeoutException("slow")):
 		resp = client_for(user).post(f"/security/{pid}/test", json={"device_id": str(dev)})
 	assert resp.status_code == 504
@@ -280,7 +280,7 @@ def test_connection_test_other_errors_are_500_with_their_text(
 	user = make_user()
 	pid, dev = make_profile(user), make_device(user)
 	with patch("src.rollout.inputs.tcp_reachable", return_value=True), \
-			patch("src.webapp.blueprints.security.ConnectHandler",
+			patch("netmiko.ConnectHandler",
 			      side_effect=ValueError("Unsupported 'device_type'")):
 		resp = client_for(user).post(f"/security/{pid}/test", json={"device_id": str(dev)})
 	assert resp.status_code == 500
@@ -301,7 +301,7 @@ def test_connection_test_signs_in_with_the_profile(client_for, make_user, make_p
 	dev = make_device(user, ip="10.0.0.9", port=2222, device_type="juniper_junos")
 	conn = MagicMock()
 	with patch("src.rollout.inputs.tcp_reachable", return_value=True) as reachable, \
-			patch("src.webapp.blueprints.security.ConnectHandler",
+			patch("netmiko.ConnectHandler",
 			      return_value=conn) as connect:
 		resp = client_for(user).post(f"/security/{pid}/test", json={"device_id": str(dev)})
 	assert resp.status_code == 200
@@ -318,7 +318,7 @@ def test_connection_test_unreachable_message(client_for, make_user, make_profile
 	user = make_user()
 	pid, dev = make_profile(user), make_device(user, ip="10.0.0.8", port=2222)
 	with patch("src.rollout.inputs.tcp_reachable", return_value=False), \
-			patch("src.webapp.blueprints.security.ConnectHandler") as connect:
+			patch("netmiko.ConnectHandler") as connect:
 		resp = client_for(user).post(f"/security/{pid}/test", json={"device_id": str(dev)})
 	assert resp.status_code == 503
 	assert resp.json["message"] == "TCP port 2222 unreachable on 10.0.0.8"

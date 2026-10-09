@@ -6,8 +6,7 @@ from typing import Any
 from flask import Blueprint, render_template, request, flash, redirect, url_for
 from flask.typing import ResponseReturnValue
 from flask_login import current_user, login_required
-from netmiko import ConnectHandler, NetmikoTimeoutException, \
-	NetmikoAuthenticationException
+from netmiko import NetmikoAuthenticationException, NetmikoTimeoutException
 from sqlalchemy.orm import Session
 
 from src.accounts.users import signed_in_user
@@ -17,6 +16,7 @@ from src.encryption import encrypt, decrypt
 from src.inventory import can_edit_device
 from src.rollout import inputs
 from src.rollout.engine import Device
+from src.rollout.session import NetmikoSession
 from src.webapp.app import current_app
 from src.webapp.http import ok, err, with_json, with_form, flash_redirect
 
@@ -171,8 +171,8 @@ def security_test(profile_id: uuid.UUID, data: dict[str, Any]) -> ResponseReturn
 	                    if profile.enable_secret else ""
 	                    )
 	try:
-		conn = ConnectHandler(**device_obj.netmiko_connector())
-		conn.disconnect()
+		with NetmikoSession.connect(device_obj):
+			pass
 		return ok(f"Connected successfully to {device.ip}")
 	except NetmikoAuthenticationException:
 		return err("Authentication failed — check username and password", 401)
