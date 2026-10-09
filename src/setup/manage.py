@@ -217,12 +217,13 @@ def _backups(todo: list[str]) -> str:
 	failed scheduled one.
 
 	:param todo: what to do; a failed scheduled backup adds to it"""
-	entries = archive.list_backups(runtime.backups_dir())
+	folder = archive.BackupFolder.app()
+	entries = folder.entries()
 	text = (f"{len(entries)}, {sum(e.size for e in entries) / 1048576:.1f} MB "
 	        f"in backups" if entries else "none yet")
 	if entries and entries[0].manifest:
 		text += f", newest {entries[0].manifest.created.replace('T', ' ')[:16]}"
-	last = runtime.read_json(runtime.backups_dir() / ".schedule-status.json")
+	last = folder.status()
 	if last and not last.get("ok"):
 		text += " - the last scheduled one FAILED"
 		todo.append(f"The last scheduled backup failed ({last.get('message', '')}): "

@@ -1,7 +1,7 @@
 """The database move's pure parts: the SQL a DBA runs, places compared."""
 from src.db.connections import PostgresConfig
 from src.db.move import Plan, preparation_sql
-from src.webapp.db_move import describe, same_database
+from src.webapp.db_move import same_database
 
 
 def test_the_sql_in_public_owns_the_schema_and_lets_grafana_in():
@@ -38,5 +38,5 @@ def test_places_compare_by_server_database_and_schema():
 	assert same_database(a, url)                              # other login, same place
 	assert not same_database(a, PostgresConfig(host="db1", port="5432", database="nr",
 	                                           user="x", password="p", schema="other"))
-	assert describe(PostgresConfig(host="db1", port="6432", database="nr", user="x",
-	                               password="secret", schema="ops")) == "db1:6432/nr (schema ops)"
+	assert PostgresConfig(host="db1", port="6432", database="nr", user="x",
+	                      password="secret", schema="ops").describe() == "db1:6432/nr (schema ops)"

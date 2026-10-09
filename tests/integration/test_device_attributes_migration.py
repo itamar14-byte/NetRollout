@@ -10,7 +10,7 @@ import pytest
 from alembic import command as alembic_command
 from sqlalchemy import create_engine, text
 
-from src.backup import archive
+from src.db.install import alembic_config
 from tests.integration.conftest import PG_ADMIN_URL
 
 pytestmark = [pytest.mark.postgres]
@@ -49,7 +49,7 @@ def engine():
 
 def migrate(engine, command, revision):
 	with engine.begin() as conn:
-		getattr(alembic_command, command)(archive._alembic_config(conn), revision)
+		getattr(alembic_command, command)(alembic_config(conn), revision)
 
 
 def seed_old_shape(engine):

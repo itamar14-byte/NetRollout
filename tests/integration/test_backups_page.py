@@ -121,9 +121,9 @@ def test_the_scheduler_backs_up_once_per_time_and_keeps_the_newest(
 		now = start + timedelta(days=day)
 		assert backup_schedule.tick(app.backend, now, places)["ok"]
 		assert backup_schedule.tick(app.backend, now + timedelta(minutes=1), places) is None
-	names = sorted(e.name for e in archive.list_backups(places.backups))
+	names = sorted(e.name for e in archive.BackupFolder(places.backups).entries())
 	assert [archive.NAME_RE.match(n)["stamp"][:8] for n in names] == ["20261006", "20261007"]
-	assert backup_schedule.read_status(places.backups)["file"] == names[-1]
+	assert archive.BackupFolder(places.backups).status()["file"] == names[-1]
 	created = [a for a in actions(session_scope) if a[0] == "backup.created"]
 	assert len(created) == 3 and {a[1] for a in created} == {"scheduler"}
 
@@ -132,7 +132,7 @@ def test_scheduled_backups_off_make_none(admin, app, home):
 	"""With the schedule off the scheduler makes no backup."""
 	app.backend.settings.update({"backup_schedule": "off"}, None)
 	assert backup_schedule.tick(app.backend, datetime(2026, 10, 5, 3, 0)) is None
-	assert not archive.list_backups()
+	assert not archive.BackupFolder.app().entries()
 
 
 def test_a_failed_scheduled_backup_is_reported_audited_and_retried(
@@ -185,7 +185,7 @@ def test_the_list_says_everything_the_card_shows(admin, app, home, client_for, s
 	(folder / damaged).write_bytes(b"not a zip at all")
 	(folder / "notes.txt").write_text("not a backup")
 	last = {"time": "2026-10-05T02:00:00", "ok": False, "file": None, "message": "disk full"}
-	runtime.write_json(folder / backup_schedule.STATUS_FILE, last)
+	runtime.write_json(folder / archive.SCHEDULE_STATUS_FILE, last)
 
 	state = client.get("/admin/backups").json
 	listed = state["backups"]

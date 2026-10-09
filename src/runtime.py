@@ -1,6 +1,7 @@
 """How and where this NetRollout process runs: its version, whether it's in
-the Docker image, the folders it keeps its files in, and its small status
-files (read_json / write_json, written atomically: write_atomic).
+the Docker image, the folders it keeps its files in, its small status files
+(read_json / write_json, written atomically: write_atomic), and its
+background loops (PeriodicTask).
 
 Everything is read at call time, so a test (or the image) only has to set
 the environment variables.
@@ -9,8 +10,12 @@ import json
 import os
 import sys
 import tempfile
+import threading
+import time
+from abc import ABC, abstractmethod
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 FALLBACK_VERSION = "0.0.0.dev0"
 
@@ -163,3 +168,52 @@ def write_json(path: Path, data: dict[str, Any]) -> None:
 	when missing."""
 	path.parent.mkdir(parents=True, exist_ok=True)
 	write_atomic(path, json.dumps(data).encode("utf-8"), 0o644)
+
+
+# ── Background loops ─────────────────────────────────────────────────────────
+
+class PeriodicTask(ABC):
+	"""A daemon thread doing one thing every `interval` seconds, for as long
+	as the process lives (the nightly clean-up, the backup schedule, the
+	certificate upkeep): an optional first wait, then run_once() and a sleep,
+	again and again. A failure never ends it: failed() reports it (FAILURE,
+	printed) - and may arrange a retry. hold() is the caller's "not now" (a
+	database move), asked by run_once() where it matters."""
+	FAILURE: ClassVar[str]      # the failure's line, with {error}
+
+	def __init__(self, name: str, interval: float, first_delay: float | None = None,
+	             hold: Callable[[], bool] = lambda: False) -> None:
+		""":param name: the thread's name
+		:param interval: seconds slept after every turn
+		:param first_delay: seconds slept before the first turn; None: none
+		:param hold: True while the task must wait"""
+		self.name = name
+		self.interval = interval
+		self.first_delay = first_delay
+		self._hold = hold
+
+	def hold(self) -> bool:
+		""":returns: whether the task must wait now (the caller's hold)"""
+		return self._hold()
+
+	@abstractmethod
+	def run_once(self) -> None:
+		"""One turn (it raises: failed() reports it)."""
+
+	def failed(self, error: Exception) -> None:
+		"""A turn raised: printed (FAILURE), the loop goes on."""
+		print(f"[NetRollout] {self.FAILURE.format(error=error)}", flush=True)
+
+	def start(self) -> None:
+		"""The loop, in a daemon thread. Never raises."""
+		threading.Thread(target=self._loop, name=self.name, daemon=True).start()
+
+	def _loop(self) -> None:
+		if self.first_delay is not None:
+			time.sleep(self.first_delay)
+		while True:
+			try:
+				self.run_once()
+			except Exception as e:      # noqa: BLE001 - keep the thread alive
+				self.failed(e)
+			time.sleep(self.interval)

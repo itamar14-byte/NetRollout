@@ -13,10 +13,9 @@ from flask.typing import ResponseReturnValue
 from flask_login import current_user
 from sqlalchemy.orm import Session
 
-from src.accounts.users import is_background
-from src.audit import AuditAction
+from src.audit import Actor, AuditAction, AuditTrail
 from src.db.connections import BackendServices
-from src.db.tables import AuditLog, Base, PropertyDefinition, SecurityProfile, Role
+from src.db.tables import Base, PropertyDefinition, SecurityProfile, Role
 from src.encryption import encrypt
 from src.inventory import SYSTEM_PROPERTIES, ReachabilityChecker
 from src.webapp.app import current_app
@@ -24,12 +23,23 @@ from src.webapp.app import current_app
 
 # A view function, and one that receives the request's data as `data`
 View = Callable[..., ResponseReturnValue]
+# what a page does by itself, not a person (is_background)
+_PASSIVE_PATHS = ("/rollout/stream/",)
+
+
+def is_background() -> bool:
+	""":returns: whether the request is the page's own (a poll, an automatic
+	 reload, the live log), not something a person did - marked by the header
+	 X-NR-Background: 1 or ?_bg=1, or the live log's stream"""
+	return (request.headers.get("X-NR-Background") == "1"
+	        or request.args.get("_bg") == "1"
+	        or request.path.startswith(_PASSIVE_PATHS))
 
 
 class Caller(Enum):
 	"""Which signs make a request one from a page's script - answered JSON,
 	not a page or a redirect (wants_json). Each situation has its own signs:
-	(a JSON body, the XHR header, a background request (users.is_background),
+	(a JSON body, the XHR header, a background request (is_background),
 	any method but GET, the live log's stream)."""
 	#             JSON body, XHR,  background, non-GET, live log stream
 	# a page's script (fetch with a JSON body or the XHR header)
@@ -140,6 +150,8 @@ class WebServices:
 
 	def __init__(self, backend: BackendServices) -> None:
 		self.backend = backend
+		# the connection looked up per row: a database move is followed
+		self.audit_trail = AuditTrail(lambda: backend.postgres)
 		# resolved per use: the Redis connection can be hot-swapped
 		self.reachability = ReachabilityChecker(
 			lambda: backend.redis.client,
@@ -150,9 +162,10 @@ class WebServices:
 	          object_label: str | None = None, detail: dict[str, Any] | None = None,
 	          success: bool = True, username: str | None = None,
 	          actor_id: uuid.UUID | None = None) -> None:
-		"""Write one append-only audit row, in its own DB session so it
-		commits independently of the calling route's transaction. During a
-		database move's maintenance it's printed instead (it would be lost).
+		"""The request's audit row (AuditTrail.record: its own session, so it
+		commits independently of the calling route's transaction), by the
+		signed-in user from the request's address. During a database move's
+		maintenance it's printed instead (it would be lost).
 
 		:param action: what happened (its value is the row's action)
 		:param username: who did it; the signed-in user (or "anonymous") when None
@@ -169,18 +182,10 @@ class WebServices:
 			return
 		if actor_id is None:
 			actor_id = current_user.id if current_user.is_authenticated else None
-		with self.backend.postgres.get_session() as db_session:
-			db_session.add(AuditLog(
-				actor_id=actor_id,
-				actor_username=username,
-				action=action,
-				object_type=object_type,
-				object_id=object_id,
-				object_label=object_label,
-				success=success,
-				ip_address=request.remote_addr,
-				detail=detail,
-			))
+		self.audit_trail.record(
+			Actor(actor_id, username, request.remote_addr), action,
+			object_type=object_type, object_id=object_id, object_label=object_label,
+			detail=detail, success=success)
 
 	def act_on_db_obj(self, model: type[Base], obj_id: uuid.UUID | str | None,
 	                  func: Callable[[Any, Session], ResponseReturnValue],

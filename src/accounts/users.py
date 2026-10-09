@@ -2,25 +2,24 @@
 and an admin's Add user), the one password rule (registration, a change, an
 admin reset's temporary password; the pages mirror it in
 templates/_password_rule_script.html), and who is signed in and for how
-long - the sessions in Redis, their idle and absolute limits, signing a user
-out everywhere, and the clean start (everyone signed out)."""
+long - the sessions in Redis (SessionStore), their idle and absolute limits,
+signing a user out everywhere, and the clean start (everyone signed out).
+No request here: the web app's side is in webapp/hooks.py."""
 import re
 import secrets
 import string
 import time
 import uuid
-from collections.abc import Mapping
-from typing import Any, cast
+from collections.abc import Callable, Iterator, Mapping
+from typing import Any, Protocol, cast
 
-from flask import request, session
-from flask_login import current_user
+import redis
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 from werkzeug.security import generate_password_hash
 
-from src.db.connections import REDIS_UNAVAILABLE, RedisConnection
+from src.db.connections import REDIS_UNAVAILABLE
 from src.db.tables import User, AuthType, Role
-from src.webapp.app import current_app
 
 
 MIN_LENGTH = 8
@@ -136,40 +135,6 @@ def pending_requests(db_session: Session) -> int:
 SESSION_PREFIX = "redis_session:"
 
 
-def signed_in_user(db_session: Session) -> User:
-	"""The signed-in user's row in this session (current_user is a detached
-	copy, without its relationships).
-
-	:raises LookupError: the account is gone (deleted while signed in)"""
-	user = db_session.get(User, current_user.id)
-	if user is None:
-		raise LookupError("the signed-in account no longer exists")
-	return user
-
-
-def end_user_sessions(user_id: uuid.UUID | str, keep_sid: str | None = None) -> int:
-	"""Sign a user out everywhere (except `keep_sid`, the caller's own
-	session after a password change): every stored session is decoded to
-	find the user's — complete and cheap at this scale.
-
-	:returns: how many sessions were ended"""
-	client = current_app.backend.redis.client
-	serializer = current_app.session_interface.serializer
-	ended = 0
-	for key in client.scan_iter(f"{SESSION_PREFIX}*"):
-		if keep_sid and key.decode() == f"{SESSION_PREFIX}{keep_sid}":
-			continue
-		raw = client.get(key)
-		try:
-			owner = serializer.decode(raw).get("_user_id") if raw else None
-		except Exception:   # unreadable: not ours to judge — leave it
-			continue
-		if owner == str(user_id):
-			client.delete(key)
-			ended += 1
-	return ended
-
-
 # ── Session lifetime ──
 # A session ends after `session_idle_minutes` (System Settings) without user
 # activity, and after ABSOLUTE_SESSION_HOURS however active. Activity is what
@@ -182,86 +147,113 @@ SIGNED_IN_AT = "nr_signed_in_at"
 LAST_ACTIVE = "nr_last_active"
 # no session is checked or written for these (the request hook in hooks.py)
 NO_SESSION_PATHS = ("/static/", "/_netrollout/instance", "/_netrollout/health")
-_PASSIVE_PATHS = ("/rollout/stream/",)
-_IDLE_CACHE: dict[str, Any] = {"at": 0.0, "seconds": None}
+# the idle limit is re-read from System Settings at most this often (it's
+# asked on every request, Grafana's included)
+IDLE_LIMIT_CACHE_SECONDS = 30
 
 
-def idle_seconds() -> int:
-	"""The idle limit, re-read from System Settings at most every 30 s (this
-	runs on every request, Grafana's included)."""
-	now = time.monotonic()
-	if _IDLE_CACHE["seconds"] is None or now - _IDLE_CACHE["at"] > 30:
-		_IDLE_CACHE["seconds"] = \
-			current_app.backend.settings.get("session_idle_minutes") * 60
-		_IDLE_CACHE["at"] = now
-	return _IDLE_CACHE["seconds"]
+def seconds_left(data: Mapping[str, Any], now: float, idle_limit: int) -> tuple[float, float]:
+	"""(idle, absolute) seconds left for a session's data (a session without
+	its clocks counts from now).
 
-
-def is_background() -> bool:
-	""":returns: whether the request is the page's own (a poll, an automatic
-	 reload, the live log), not something a person did"""
-	return (request.headers.get("X-NR-Background") == "1"
-	        or request.args.get("_bg") == "1"
-	        or request.path.startswith(_PASSIVE_PATHS))
-
-
-def session_seconds_left(now: float | None = None) -> tuple[float, float]:
-	"""(idle, absolute) seconds left for the current session.
-
-	:param now: the time (epoch seconds); now when None"""
-	return _seconds_left(session, now or time.time())
-
-
-def _seconds_left(data: Mapping[str, Any], now: float) -> tuple[float, float]:
-	""":returns: (idle, absolute) seconds left for a session's data (a session
-	 without its clocks counts from now)"""
-	idle = idle_seconds() - (now - data.get(LAST_ACTIVE, now))
+	:param now: the time (epoch seconds)
+	:param idle_limit: the idle limit, seconds"""
+	idle = idle_limit - (now - data.get(LAST_ACTIVE, now))
 	absolute = ABSOLUTE_SESSION_HOURS * 3600 - (now - data.get(SIGNED_IN_AT, now))
 	return idle, absolute
 
 
-def signed_in_users(now: float | None = None) -> dict[str, float]:
-	"""Who is signed in now, for Live Sessions and the Users page. Every
-	stored session is read: one that ended by inactivity stays stored until
-	its browser comes back (that's when it's checked).
+class SessionSerializer(Protocol):
+	"""How the stored sessions are encoded (flask-session's serializer)."""
+	def decode(self, serialized_data: bytes) -> Any: ...
 
-	:param now: the time (epoch seconds); now when None
-	:returns: user id → when the newest of their live sessions began"""
-	client = current_app.backend.redis.client
-	serializer = current_app.session_interface.serializer
-	now = now or time.time()
-	users: dict[str, float] = {}
-	for key in client.scan_iter(f"{SESSION_PREFIX}*"):
-		raw = cast(bytes | None, client.get(key))
-		if not raw:
-			continue
+
+class SessionStore:
+	"""The signed-in sessions in Redis (redis_session:<sid>, written by the
+	web app's session interface): whose they are, signing a user out
+	everywhere, who is signed in, the clean start - and the idle limit, from
+	System Settings, cached."""
+
+	def __init__(self, client: Callable[[], redis.Redis], serializer: SessionSerializer,
+	             idle_minutes: Callable[[], int]) -> None:
+		""":param client: returns the Redis client in use now (a Redis switch
+		 is followed)
+		:param serializer: decodes a stored session
+		:param idle_minutes: reads the session_idle_minutes setting"""
+		self._client = client
+		self._serializer = serializer
+		self._idle_minutes = idle_minutes
+		self._idle_at = 0.0
+		self._idle_seconds: int | None = None
+
+	def idle_seconds(self) -> int:
+		"""The idle limit, re-read at most every IDLE_LIMIT_CACHE_SECONDS."""
+		now = time.monotonic()
+		if self._idle_seconds is None or now - self._idle_at > IDLE_LIMIT_CACHE_SECONDS:
+			self._idle_seconds = self._idle_minutes() * 60
+			self._idle_at = now
+		return self._idle_seconds
+
+	def forget_idle_limit(self) -> None:
+		"""The next idle_seconds() reads the setting again."""
+		self._idle_seconds = None
+
+	def _stored(self, client: redis.Redis) -> Iterator[tuple[bytes, Any]]:
+		""":returns: each stored session's (key, decoded data) - an empty or
+		 unreadable one left out (not ours to judge)"""
+		for key in client.scan_iter(f"{SESSION_PREFIX}*"):
+			raw = cast(bytes | None, client.get(key))
+			if not raw:
+				continue
+			try:
+				data = self._serializer.decode(raw)
+			except Exception:   # unreadable: not a session of ours
+				continue
+			yield key, data
+
+	def end_for(self, user_id: uuid.UUID | str, keep_sid: str | None = None) -> int:
+		"""Sign a user out everywhere (except `keep_sid`, the caller's own
+		session after a password change): every stored session is decoded to
+		find the user's — complete and cheap at this scale.
+
+		:returns: how many sessions were ended"""
+		client = self._client()
+		ended = 0
+		for key, data in self._stored(client):
+			if keep_sid and key.decode() == f"{SESSION_PREFIX}{keep_sid}":
+				continue
+			if data.get("_user_id") == str(user_id):
+				client.delete(key)
+				ended += 1
+		return ended
+
+	def signed_in(self, now: float) -> dict[str, float]:
+		"""Who is signed in now, for Live Sessions and the Users page. Every
+		stored session is read: one that ended by inactivity stays stored until
+		its browser comes back (that's when it's checked).
+
+		:param now: the time (epoch seconds)
+		:returns: user id → when the newest of their live sessions began"""
+		users: dict[str, float] = {}
+		for _, data in self._stored(self._client()):
+			user_id = data.get("_user_id")
+			if not user_id:
+				continue
+			idle, absolute = seconds_left(data, now, self.idle_seconds())
+			if idle > 0 and absolute > 0:
+				users[user_id] = max(users.get(user_id, 0.0), data.get(SIGNED_IN_AT, now))
+		return users
+
+	def clear_all(self) -> None:
+		"""Everyone signed out. Every start does it — deliberately (2026-10-04):
+		a privileged network-management console starts clean after a restart,
+		update or reboot, like a firewall's management plane. Rollouts don't
+		depend on sessions (the drain lets them finish). Within a run, sessions
+		end after inactivity (session_idle_minutes) and after
+		ABSOLUTE_SESSION_HOURS (above). Redis being down changes nothing."""
+		client = self._client()
 		try:
-			data: dict[str, Any] = serializer.decode(raw)
-		except Exception:   # unreadable: not a session of ours
-			continue
-		user_id = data.get("_user_id")
-		if not user_id:
-			continue
-		idle, absolute = _seconds_left(data, now)
-		if idle > 0 and absolute > 0:
-			users[user_id] = max(users.get(user_id, 0.0), data.get(SIGNED_IN_AT, now))
-	return users
-
-
-def mark_signed_in() -> None:
-	"""A sign-in just completed: both clocks start now."""
-	now = time.time()
-	session[SIGNED_IN_AT] = session[LAST_ACTIVE] = now
-
-
-def clear_sessions(redis_conn: RedisConnection) -> None:
-	"""Every start signs everyone out — deliberately (2026-10-04): a privileged
-	network-management console starts clean after a restart, update or
-	reboot, like a firewall's management plane. Rollouts don't depend on
-	sessions (the drain lets them finish). Within a run, sessions end after
-	inactivity (session_idle_minutes) and after ABSOLUTE_SESSION_HOURS (above)."""
-	try:
-		for redis_key in redis_conn.client.scan_iter(f"{SESSION_PREFIX}*"):
-			redis_conn.client.delete(redis_key)
-	except REDIS_UNAVAILABLE:
-		pass
+			for redis_key in client.scan_iter(f"{SESSION_PREFIX}*"):
+				client.delete(redis_key)
+		except REDIS_UNAVAILABLE:
+			pass

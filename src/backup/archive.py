@@ -49,7 +49,6 @@ from pathlib import Path
 from typing import Any, cast
 
 from alembic import command as alembic_command
-from alembic.config import Config as AlembicConfig
 from alembic.script import ScriptDirectory
 from cryptography.fernet import Fernet, InvalidToken
 from packaging.version import InvalidVersion, Version
@@ -60,6 +59,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from src import runtime
 from src.audit import AuditAction
 from src.db.connections import ENCRYPTED_COLUMNS, FERNET_PREFIX
+from src.db.install import alembic_config
 from src.db.tables import AuditLog, Base, SystemSetting
 from src.encryption import read_key
 
@@ -95,7 +95,8 @@ STALE_LOCK_SECONDS = 5 * 60
 # a backup being written (.<name>.partial); one older than this was killed
 PARTIAL_GLOB = ".*.partial"
 STALE_PARTIAL_SECONDS = 3600
-ALEMBIC_INI = Path(__file__).resolve().parents[1] / "db" / "alembic.ini"
+# the last scheduled backup's outcome (src/backup/schedule.py writes it)
+SCHEDULE_STATUS_FILE = ".schedule-status.json"
 
 
 class BackupError(Exception):
@@ -173,7 +174,7 @@ class Entry:
 
 	def _part(self, group: str) -> str:
 		match = NAME_RE.match(self.name)
-		assert match is not None   # list_backups lists only matching names
+		assert match is not None   # BackupFolder.entries lists only matching names
 		return match[group]
 
 
@@ -211,7 +212,7 @@ def create(engine: Engine, kind: str = BackupKind.MANUAL, places: Places | None 
 	partial = places.backups / f".{name}.partial"
 	try:
 		places.backups.mkdir(parents=True, exist_ok=True)
-		with _lock(places.backups):
+		with BackupFolder(places.backups).lock():
 			try:
 				with zipfile.ZipFile(partial, "w", zipfile.ZIP_DEFLATED) as zf:
 					revision, tables = _dump_database(engine, zf)
@@ -349,21 +350,23 @@ def owner_only(path: Path) -> None:
 		pass
 
 
-class _lock:
+class BackupLock:
 	"""One backup or restore at a time per backups folder (a scheduled one
 	and a manual one can meet - or the scripts' one-off container and the
-	app). The file holds the holder's token and since when; the holder
-	refreshes its time while it works (a heartbeat), so a lock not refreshed
-	for STALE_LOCK_SECONDS was left by a killed holder and is taken over -
-	and a holder removes the file only while it is still its own."""
+	app): BackupFolder.lock(). The file holds the holder's token and since
+	when; the holder refreshes its time while it works (a heartbeat), so a
+	lock not refreshed for STALE_LOCK_SECONDS was left by a killed holder and
+	is taken over - and a holder removes the file only while it is still its
+	own."""
 
-	def __init__(self, folder: Path) -> None:
-		self.path = folder / LOCK
+	def __init__(self, folder: "BackupFolder") -> None:
+		self.folder = folder
+		self.path = folder.path / LOCK
 		self.token = secrets.token_hex(16)
 		self._done = threading.Event()
 		self._heartbeat: threading.Thread | None = None
 
-	def __enter__(self) -> "_lock":
+	def __enter__(self) -> "BackupLock":
 		""":raises BackupError: another backup or restore holds it"""
 		self.path.parent.mkdir(parents=True, exist_ok=True)
 		self._take_over_stale()
@@ -421,7 +424,7 @@ class _lock:
 				self.path.unlink()
 		except FileNotFoundError:
 			return
-		_remove_leftover_partials(self.path.parent)
+		self.folder.remove_leftover_partials()
 
 	def _busy(self) -> str:
 		""":returns: the refusal, with the lock's age and what to do"""
@@ -434,20 +437,84 @@ class _lock:
 		        f"it's done. If nothing is running, delete backups/{LOCK}.")
 
 
-def _remove_leftover_partials(folder: Path) -> list[Path]:
-	"""The .partial files killed backups left (older than
-	STALE_PARTIAL_SECONDS: a backup being written is never one of them).
+class BackupFolder:
+	"""The backups folder: the backups in it, the scheduled ones' retention,
+	its lock (one backup or restore at a time), the last scheduled outcome,
+	the .partial files killed backups left."""
 
-	:returns: the deleted files"""
-	gone = []
-	for path in folder.glob(PARTIAL_GLOB):
-		try:
-			if time.time() - path.stat().st_mtime > STALE_PARTIAL_SECONDS:
-				path.unlink()
-				gone.append(path)
-		except FileNotFoundError:
-			pass
-	return gone
+	def __init__(self, path: Path) -> None:
+		self.path = path
+
+	@classmethod
+	def app(cls) -> "BackupFolder":
+		""":returns: the app's own backups folder"""
+		return cls(runtime.backups_dir())
+
+	def entries(self) -> list[Entry]:
+		"""The backups in the folder, newest first (by the time in the name)."""
+		if not self.path.is_dir():
+			return []
+		entries: list[Entry] = []
+		for path in self.path.iterdir():
+			if not (path.is_file() and NAME_RE.match(path.name)):
+				continue
+			entry = Entry(path, path.stat().st_size)
+			try:
+				entry.manifest = read_manifest(path)
+			except BackupError as e:
+				entry.problem = str(e)
+			entries.append(entry)
+		return sorted(entries, key=lambda e: e.stamp, reverse=True)
+
+	def newest_scheduled(self) -> datetime | None:
+		""":returns: when the newest scheduled backup in the folder was made;
+		 None: there's none"""
+		for entry in self.entries():          # newest first
+			if entry.kind == BackupKind.SCHEDULED:
+				return datetime.strptime(entry.stamp, "%Y%m%d-%H%M%S")
+		return None
+
+	def prune(self, keep: int) -> list[Path]:
+		"""Scheduled backups beyond the newest `keep` are deleted; the others
+		(manual, before a restore or update) only by a person. The .partial
+		files killed backups left go too.
+
+		:returns: the deleted backups"""
+		scheduled = [e.path for e in self.entries() if e.kind == BackupKind.SCHEDULED]
+		gone = scheduled[max(keep, 0):]
+		for path in gone:
+			path.unlink(missing_ok=True)
+		if self.path.is_dir():
+			self.remove_leftover_partials()
+		return gone
+
+	def remove_leftover_partials(self) -> list[Path]:
+		"""The .partial files killed backups left (older than
+		STALE_PARTIAL_SECONDS: a backup being written is never one of them).
+
+		:returns: the deleted files"""
+		gone = []
+		for path in self.path.glob(PARTIAL_GLOB):
+			try:
+				if time.time() - path.stat().st_mtime > STALE_PARTIAL_SECONDS:
+					path.unlink()
+					gone.append(path)
+			except FileNotFoundError:
+				pass
+		return gone
+
+	def lock(self) -> BackupLock:
+		""":returns: the folder's lock, to hold with `with` (BackupLock)"""
+		return BackupLock(self)
+
+	def status(self) -> dict[str, Any] | None:
+		""":returns: the last scheduled backup's {time, ok, file, message};
+		 None: never ran (or the file isn't readable)"""
+		return runtime.read_json(self.path / SCHEDULE_STATUS_FILE)
+
+	def write_status(self, status: dict[str, Any]) -> None:
+		"""The last scheduled backup's outcome, for the page (status())."""
+		runtime.write_json(self.path / SCHEDULE_STATUS_FILE, status)
 
 
 # ── Read / check ─────────────────────────────────────────────────────────────
@@ -462,16 +529,6 @@ def read_manifest(path: Path) -> Manifest:
 	except (zipfile.BadZipFile, KeyError, ValueError, TypeError) as e:
 		raise BackupError(f"{shown(path)} isn't a NetRollout backup, or it's "
 		                  f"damaged ({e}).") from None
-
-
-def _alembic_config(conn: Connection | None = None) -> AlembicConfig:
-	""":param conn: the connection migrations run on (in its transaction);
-	 None: Alembic's own (from alembic.ini)"""
-	cfg = AlembicConfig(str(ALEMBIC_INI))
-	cfg.set_main_option("script_location", str(ALEMBIC_INI.parent / "alembic"))
-	if conn is not None:
-		cfg.attributes["connection"] = conn
-	return cfg
 
 
 def check(path: Path, version: str = runtime.VERSION) -> Manifest:
@@ -490,7 +547,7 @@ def check(path: Path, version: str = runtime.VERSION) -> Manifest:
 		                  f"newer than this one ({version}). Update NetRollout "
 		                  f"first, then restore.")
 	try:
-		known = ScriptDirectory.from_config(_alembic_config()).get_revision(
+		known = ScriptDirectory.from_config(alembic_config()).get_revision(
 			manifest.revision)
 	except Exception:
 		known = None
@@ -506,39 +563,6 @@ def check(path: Path, version: str = runtime.VERSION) -> Manifest:
 	if missing:
 		raise BackupError(f"{shown(path)} is incomplete (missing {', '.join(missing)}).")
 	return manifest
-
-
-def list_backups(folder: Path | None = None) -> list[Entry]:
-	"""The backups in the folder, newest first (by the time in the name)."""
-	folder = folder or runtime.backups_dir()
-	if not folder.is_dir():
-		return []
-	entries: list[Entry] = []
-	for path in folder.iterdir():
-		if not (path.is_file() and NAME_RE.match(path.name)):
-			continue
-		entry = Entry(path, path.stat().st_size)
-		try:
-			entry.manifest = read_manifest(path)
-		except BackupError as e:
-			entry.problem = str(e)
-		entries.append(entry)
-	return sorted(entries, key=lambda e: e.stamp, reverse=True)
-
-
-def prune(folder: Path, keep: int) -> list[Path]:
-	"""Scheduled backups beyond the newest `keep` are deleted; the others
-	(manual, before a restore or update) only by a person. The .partial
-	files killed backups left go too.
-
-	:returns: the deleted backups"""
-	scheduled = [e.path for e in list_backups(folder) if e.kind == BackupKind.SCHEDULED]
-	gone = scheduled[max(keep, 0):]
-	for path in gone:
-		path.unlink(missing_ok=True)
-	if folder.is_dir():
-		_remove_leftover_partials(folder)
-	return gone
 
 
 # ── Restore ──────────────────────────────────────────────────────────────────
@@ -568,7 +592,7 @@ def restore(path: Path, engine: Engine, places: Places | None = None, *,
 	 nothing was changed"""
 	places = places or Places.app()
 	manifest = check(path, version)
-	with _lock(places.backups), zipfile.ZipFile(path) as zf:
+	with BackupFolder(places.backups).lock(), zipfile.ZipFile(path) as zf:
 		key = zf.read(KEY_MEMBER).strip()
 		try:
 			cipher = Fernet(key)
@@ -625,7 +649,7 @@ def restore_database(path: Path, engine: Engine, *, audit: tuple[AuditAction, di
 	:raises BackupError: refused or failed - the database is unchanged"""
 	places = places or Places.app()
 	manifest = check(path, version)
-	with _lock(places.backups), zipfile.ZipFile(path) as zf:
+	with BackupFolder(places.backups).lock(), zipfile.ZipFile(path) as zf:
 		try:
 			cipher = Fernet(zf.read(KEY_MEMBER).strip())
 		except ValueError:
@@ -649,7 +673,7 @@ def _restore_database(engine: Engine, zf: zipfile.ZipFile, manifest: Manifest,
 	:raises BackupError: the key doesn't match - nothing changed"""
 	with engine.begin() as conn:
 		conn.execute(text("SET LOCAL lock_timeout = '15s'"))
-		cfg = _alembic_config(conn)
+		cfg = alembic_config(conn)
 		# NetRollout's tables only, by its own migrations: anything else in
 		# this database (an organisation's schema) is never touched
 		alembic_command.downgrade(cfg, "base")

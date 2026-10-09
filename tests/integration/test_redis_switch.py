@@ -29,7 +29,7 @@ def other_redis(app):
 	url = home.get_url().rsplit("/", 1)[0] + f"/{OTHER_DB}"
 	other = redis_lib.from_url(url)
 	other.flushdb()
-	runtime_env = app.backend._CONFIG_ENV
+	runtime_env = app.backend.env.path
 	saved = runtime_env.read_text() if runtime_env.exists() else None
 	runtime_env.unlink(missing_ok=True)
 	yield other
@@ -71,7 +71,7 @@ def test_switch_there_and_back_without_a_restart(app, admin, client_for, make_us
 	assert switched.json["status"] == "ok", switched.json
 	assert app.backend.redis.config.place()[2] == OTHER_DB
 	assert app.backend.connection_modes()["REDIS"] == "external"     # same host, not the bundled one
-	assert BUNDLED_REDIS_KEY in dotenv_values(app.backend._CONFIG_ENV)
+	assert BUNDLED_REDIS_KEY in dotenv_values(app.backend.env.path)
 
 	# the admin who switched stays signed in - the session went along
 	assert before.get("/admin/server").status_code == 200

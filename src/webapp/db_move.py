@@ -37,12 +37,10 @@ from typing import Any, TYPE_CHECKING, TypeVar
 
 from flask import Response, g, render_template, request
 from flask.typing import ResponseReturnValue
-from sqlalchemy import make_url
 
-from src.audit import AuditAction
+from src.audit import Actor, AuditAction
 from src.db import move
 from src.db.connections import PostgresConfig
-from src.db.tables import AuditLog
 from src.webapp.app import NetRolloutApp, current_app
 from src.webapp.http import Caller, err
 if TYPE_CHECKING:   # annotations only: the orchestrator loads the database stack
@@ -68,13 +66,6 @@ class MaintenanceState(StrEnum):
 	IDLE = "idle"
 	WAITING = "waiting"        # new rollouts paused, the rest goes on
 	LOCKED = "locked"          # nothing may write
-
-
-def describe(config: PostgresConfig) -> str:
-	"""host:port/database[/schema], no password - for pages and the audit."""
-	url = make_url(config.get_url())
-	place = f"{url.host}:{url.port or 5432}/{url.database}"
-	return place + (f" (schema {config.schema})" if config.schema else "")
 
 
 def same_database(a: PostgresConfig, b: PostgresConfig) -> bool:
@@ -137,15 +128,13 @@ class DatabaseMove:
 		self._cancel.clear()
 		self._status = {"state": MoveState.WAITING, "step": "Waiting for rollouts to finish",
 		                "what": what, "back": back,
-		                "source": describe(backend.postgres.config),
-		                "target": describe(target), "actor": actor,
+		                "source": backend.postgres.describe(),
+		                "target": target.describe(), "actor": actor,
 		                "started": _now(), "deadline": time.time() + self._wait}
 		try:   # never stops the move (maintenance has begun): a failure is printed
-			with backend.postgres.get_session() as session:
-				session.add(AuditLog(
-					actor_id=actor_id, actor_username=actor, action=AuditAction.DATABASE_MOVE_STARTED,
-					object_type="database", object_label=describe(target),
-					detail={"back": back}))
+			self._app.web.audit_trail.record(
+				Actor(actor_id, actor), AuditAction.DATABASE_MOVE_STARTED,
+				object_type="database", object_label=target.describe(), detail={"back": back})
 		except Exception as e:                    # noqa: BLE001
 			print(f"[NetRollout] database move: start not audited ({e})", flush=True)
 		threading.Thread(target=self._run, args=(target, actor_id, actor),
@@ -213,13 +202,12 @@ class DatabaseMove:
 		"""A move that didn't happen, in the audit log of the database
 		NetRollout stays on (never stops: a failure to audit is printed)."""
 		try:
-			with self._app.backend.postgres.get_session() as session:
-				session.add(AuditLog(
-					actor_id=actor_id, actor_username=actor,
-					action=AuditAction.DATABASE_MOVE_CANCELLED if outcome == MoveState.CANCELLED
-					else AuditAction.DATABASE_MOVE_FAILED, object_type="database",
-					object_label=self._status.get("target"), success=False,
-					detail={"from": self._status.get("source"), "message": message}))
+			self._app.web.audit_trail.record(
+				Actor(actor_id, actor),
+				AuditAction.DATABASE_MOVE_CANCELLED if outcome == MoveState.CANCELLED
+				else AuditAction.DATABASE_MOVE_FAILED, object_type="database",
+				object_label=self._status.get("target"), success=False,
+				detail={"from": self._status.get("source"), "message": message})
 		except Exception as e:                    # noqa: BLE001
 			print(f"[NetRollout] database move: not audited ({e})", flush=True)
 

@@ -84,7 +84,7 @@ def test_a_file_that_isnt_a_backup_is_refused(tmp_path):
 # ── the list and retention ───────────────────────────────────────────────────
 
 def test_the_list_is_newest_first_and_only_netrollout_backups(tmp_path):
-	"""list_backups lists backup-named zips newest first, a broken one with its
+	"""BackupFolder.entries lists backup-named zips newest first, a broken one with its
 	problem and no manifest, and leaves out other files and partial ones."""
 	make_zip(tmp_path, "netrollout-1.0.0-20261003-020000-scheduled.zip")
 	make_zip(tmp_path, "netrollout-1.0.0-20261005-091500-manual.zip")
@@ -92,7 +92,7 @@ def test_the_list_is_newest_first_and_only_netrollout_backups(tmp_path):
 	(tmp_path / "netrollout_2026-10-04.dump").write_text("someone else's")
 	(tmp_path / ".netrollout-1.0.0-20261006-020000-manual.zip.partial").write_text("")
 
-	entries = archive.list_backups(tmp_path)
+	entries = archive.BackupFolder(tmp_path).entries()
 	assert [e.name[17:32] for e in entries] == [
 		"20261005-091500", "20261004-020000", "20261003-020000"]
 	assert entries[0].manifest.kind == "manual"
@@ -107,7 +107,7 @@ def test_retention_deletes_only_the_oldest_scheduled_backups(tmp_path):
 	make_zip(tmp_path, "netrollout-1.0.0-20260930-120000-manual.zip")
 	make_zip(tmp_path, "netrollout-1.0.0-20260929-120000-before-restore.zip")
 
-	gone = archive.prune(tmp_path, keep=2)
+	gone = archive.BackupFolder(tmp_path).prune(keep=2)
 	assert sorted(p.name[17:25] for p in gone) == ["20261001", "20261002"]
 	left = sorted(p.name for p in tmp_path.iterdir())
 	assert left == ["netrollout-1.0.0-20260929-120000-before-restore.zip",
@@ -122,16 +122,16 @@ def test_a_second_backup_waits_its_turn_and_a_crashed_ones_lock_expires(tmp_path
 	"""A second lock while one is held is refused ("Another backup or restore"),
 	the lock file is gone after release, and a lock file older than the stale
 	limit is taken over."""
-	with archive._lock(tmp_path):
+	with archive.BackupFolder(tmp_path).lock():
 		with pytest.raises(archive.BackupError, match="Another backup or restore"):
-			with archive._lock(tmp_path):
+			with archive.BackupFolder(tmp_path).lock():
 				pass
 	assert not (tmp_path / archive.LOCK).exists()
 
 	(tmp_path / archive.LOCK).write_text("")
 	old = time.time() - archive.STALE_LOCK_SECONDS - 60
 	os.utime(tmp_path / archive.LOCK, (old, old))
-	with archive._lock(tmp_path):
+	with archive.BackupFolder(tmp_path).lock():
 		pass
 
 
@@ -205,7 +205,7 @@ def test_a_staged_copy_is_named_as_the_file_chosen(tmp_path):
 def test_a_lock_taken_over_by_another_holder_is_not_removed_by_the_first(tmp_path):
 	"""A holder whose lock was taken over (the file now holds another holder's
 	token) leaves that lock in place when it ends."""
-	with archive._lock(tmp_path):
+	with archive.BackupFolder(tmp_path).lock():
 		(tmp_path / archive.LOCK).write_text('{"token": "someone else", "since": 0}')
 	assert (tmp_path / archive.LOCK).read_text() == '{"token": "someone else", "since": 0}'
 
@@ -216,7 +216,7 @@ def test_a_held_lock_is_kept_fresh_and_a_quiet_one_is_stale_after_minutes(tmp_pa
 	hours: ten minutes is stale) is taken over."""
 	monkeypatch.setattr(archive, "LOCK_HEARTBEAT_SECONDS", 0.05, raising=False)
 	lock = tmp_path / archive.LOCK
-	with archive._lock(tmp_path):
+	with archive.BackupFolder(tmp_path).lock():
 		old = time.time() - 3600
 		os.utime(lock, (old, old))
 		time.sleep(0.5)
@@ -224,7 +224,7 @@ def test_a_held_lock_is_kept_fresh_and_a_quiet_one_is_stale_after_minutes(tmp_pa
 	lock.write_text("")
 	old = time.time() - 10 * 60
 	os.utime(lock, (old, old))
-	with archive._lock(tmp_path):
+	with archive.BackupFolder(tmp_path).lock():
 		pass
 	assert not lock.exists()
 
@@ -235,7 +235,7 @@ def test_the_refusal_says_how_old_the_lock_is_and_what_to_do(tmp_path):
 	lock = tmp_path / archive.LOCK
 	lock.write_text(json.dumps({"token": "other", "since": time.time() - 3 * 60}))
 	with pytest.raises(archive.BackupError) as refused:
-		with archive._lock(tmp_path):
+		with archive.BackupFolder(tmp_path).lock():
 			pass
 	assert "3 minutes ago" in str(refused.value)
 	assert "delete backups/.backup.lock" in str(refused.value)
@@ -250,14 +250,14 @@ def test_a_killed_backups_partial_file_is_cleaned_up(tmp_path):
 		path.write_text("half")
 	hours_ago = time.time() - 2 * 3600
 	os.utime(old, (hours_ago, hours_ago))
-	archive.prune(tmp_path, keep=2)
+	archive.BackupFolder(tmp_path).prune(keep=2)
 	assert not old.exists() and new.exists()
 
 	old.write_text("half")
 	os.utime(old, (hours_ago, hours_ago))
 	(tmp_path / archive.LOCK).write_text("")
 	os.utime(tmp_path / archive.LOCK, (hours_ago, hours_ago))
-	with archive._lock(tmp_path):
+	with archive.BackupFolder(tmp_path).lock():
 		pass
 	assert not old.exists() and new.exists()
 

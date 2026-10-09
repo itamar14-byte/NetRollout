@@ -17,6 +17,22 @@ if TYPE_CHECKING:
 	from src.db.connections import PostgresConnection
 
 
+ALEMBIC_INI = os.path.join(os.path.dirname(__file__), "alembic.ini")
+
+
+def alembic_config(conn: Connection | None = None) -> AlembicConfig:
+	"""Alembic's configuration for NetRollout's migrations, wherever it runs
+	from (the script location made absolute).
+
+	:param conn: the connection migrations run on (in its transaction);
+	 None: Alembic's own (from alembic.ini)"""
+	cfg = AlembicConfig(ALEMBIC_INI)
+	cfg.set_main_option("script_location", os.path.join(os.path.dirname(ALEMBIC_INI), "alembic"))
+	if conn is not None:
+		cfg.attributes["connection"] = conn
+	return cfg
+
+
 def _older_than(column: str, setting: str) -> str:
 	"""SQL: `column` is older than the setting's number of days (read from
 	system_settings when the statement runs)."""

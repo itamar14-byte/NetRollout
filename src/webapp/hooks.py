@@ -1,7 +1,9 @@
 """The web app's request-wide machinery: sign-in (Flask-Login), CSRF, rate
 limits and Prometheus metrics; the session lifetime and the forced password
-change, checked before every request; the pages for an unavailable service
-and an encryption key that doesn't match."""
+change, checked before every request, and the request's side of the
+sessions (the signed-in user's row, their clocks; the store is
+users.SessionStore, current_app.sessions); the pages for an unavailable
+service and an encryption key that doesn't match."""
 import sys
 import time
 import uuid
@@ -18,15 +20,64 @@ from prometheus_flask_exporter import PrometheusMetrics
 from redis.exceptions import ConnectionError as RedisConnectionError, \
 	TimeoutError as RedisTimeoutError
 from sqlalchemy.exc import OperationalError
+from sqlalchemy.orm import Session
 
-from src.accounts.users import ABSOLUTE_SESSION_HOURS, LAST_ACTIVE, SIGNED_IN_AT, NO_SESSION_PATHS, idle_seconds, is_background, session_seconds_left
+from src.accounts.users import (ABSOLUTE_SESSION_HOURS, LAST_ACTIVE, NO_SESSION_PATHS,
+                                SIGNED_IN_AT, seconds_left)
 from src.audit import AuditAction
 from src.db.connections import BackendServices
 from src.db.tables import User, Role
 from src.encryption import ENV_VAR, KEY_FILE, InvalidEncryptionKeyError, \
 	key_source
 from src.webapp.app import NetRolloutApp, current_app
-from src.webapp.http import Caller, err
+from src.webapp.http import Caller, err, is_background
+
+
+# ── The request's session ──
+
+def idle_seconds() -> int:
+	""":returns: the idle limit, seconds (SessionStore.idle_seconds)"""
+	return current_app.sessions.idle_seconds()
+
+
+def session_seconds_left(now: float | None = None) -> tuple[float, float]:
+	"""(idle, absolute) seconds left for the current session.
+
+	:param now: the time (epoch seconds); now when None"""
+	return seconds_left(session, now or time.time(), idle_seconds())
+
+
+def mark_signed_in() -> None:
+	"""A sign-in just completed: both clocks start now."""
+	now = time.time()
+	session[SIGNED_IN_AT] = session[LAST_ACTIVE] = now
+
+
+def signed_in_user(db_session: Session) -> User:
+	"""The signed-in user's row in this session (current_user is a detached
+	copy, without its relationships).
+
+	:raises LookupError: the account is gone (deleted while signed in)"""
+	user = db_session.get(User, current_user.id)
+	if user is None:
+		raise LookupError("the signed-in account no longer exists")
+	return user
+
+
+def end_user_sessions(user_id: uuid.UUID | str, keep_sid: str | None = None) -> int:
+	"""Sign a user out everywhere (SessionStore.end_for).
+
+	:param keep_sid: the caller's own session (after a password change)
+	:returns: how many sessions were ended"""
+	return current_app.sessions.end_for(user_id, keep_sid)
+
+
+def signed_in_users(now: float | None = None) -> dict[str, float]:
+	"""Who is signed in now (SessionStore.signed_in).
+
+	:param now: the time (epoch seconds); now when None
+	:returns: user id → when the newest of their live sessions began"""
+	return current_app.sessions.signed_in(now or time.time())
 
 
 login_mng = LoginManager()

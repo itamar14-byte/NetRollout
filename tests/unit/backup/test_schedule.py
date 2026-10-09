@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from src import runtime
 from src.backup import schedule as backup_schedule
 from src.backup.schedule import RETRY_SECONDS, due, last_slot, next_slot
 from src.db.settings import SETTINGS
@@ -120,8 +121,8 @@ def test_the_scheduler_waits_first_then_ticks_unless_held_and_survives_failures(
 		events.append(("hold",))
 		return next(holds)
 
-	monkeypatch.setattr(backup_schedule.threading, "Thread", FakeThread)
-	monkeypatch.setattr(backup_schedule, "time", SimpleNamespace(sleep=sleep))
+	monkeypatch.setattr(runtime.threading, "Thread", FakeThread)
+	monkeypatch.setattr(runtime, "time", SimpleNamespace(sleep=sleep))
 	monkeypatch.setattr(backup_schedule, "tick", tick)
 	backup_schedule.start_backup_schedule(backend, hold)
 	assert thread["started"] and thread["daemon"] is True
@@ -158,8 +159,8 @@ def test_the_scheduler_survives_a_failing_hold(monkeypatch, capsys):
 	def hold():
 		raise RuntimeError("no move state")
 
-	monkeypatch.setattr(backup_schedule.threading, "Thread", FakeThread)
-	monkeypatch.setattr(backup_schedule, "time", SimpleNamespace(sleep=sleep))
+	monkeypatch.setattr(runtime.threading, "Thread", FakeThread)
+	monkeypatch.setattr(runtime, "time", SimpleNamespace(sleep=sleep))
 	monkeypatch.setattr(backup_schedule, "tick", ticks.append)
 	backup_schedule.start_backup_schedule(SimpleNamespace(), hold)
 	with pytest.raises(_Stop):

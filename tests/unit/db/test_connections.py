@@ -17,7 +17,8 @@ from sqlalchemy.engine import make_url
 from src import jobs
 from src.db import connections
 from src.db.connections import (RedisConfig, RedisConnection, CONNECT_TIMEOUT, REDIS_UNAVAILABLE,
-                                SOCKET_TIMEOUT, BackendServices, PostgresConfig)
+                                SOCKET_TIMEOUT, BackendServices, PostgresConfig,
+                                PostgresConnection, RuntimeEnv)
 
 
 class FakeClient:
@@ -146,7 +147,7 @@ def isolated_env(monkeypatch):
 
 def _backend_writing_to(path) -> BackendServices:
 	backend = object.__new__(BackendServices)   # no DB connection
-	backend._CONFIG_ENV = path
+	backend.env = RuntimeEnv(path)
 	return backend
 
 
@@ -178,9 +179,9 @@ def test_a_switch_overrides_everything_inherited(isolated_env, tmp_path):
 	isolated_env.setenv("REDIS_URL", "redis://:pw@redis:6379/0")
 	isolated_env.setenv("REDIS_PASSWORD", "compose-password")
 	backend = _backend_writing_to(tmp_path / "config" / "runtime.env")
-	backend._write_config(PostgresConfig(host="db.example.org").to_env_dict())
-	backend._write_config(RedisConfig(host="cache.example.org").to_env_dict())
-	load_dotenv(backend._CONFIG_ENV, override=True)
+	backend.env.merge(PostgresConfig(host="db.example.org").to_env_dict())
+	backend.env.merge(RedisConfig(host="cache.example.org").to_env_dict())
+	load_dotenv(backend.env.path, override=True)
 	pg, rd = PostgresConfig.unload_env(), RedisConfig.unload_env()
 	assert make_url(pg.get_url()).host == "db.example.org"
 	assert not pg.schema
@@ -215,15 +216,15 @@ AWKWARD_PASSWORDS =["p'a ss #x", "a${HOME}b", 'q"uote', "back\\slash\\", " padde
 @pytest.mark.parametrize("password", AWKWARD_PASSWORDS)
 def test_a_password_with_any_character_survives_runtime_env(isolated_env, tmp_path, password):
 	"""A switch's password with quotes, spaces, `#`, `${...}` or backslashes is read back
-	exactly - by the app (load_config into the environment) and by _config_values - not
+	exactly - by the app (load_config into the environment) and by RuntimeEnv.values - not
 	cut at the `#`, its quotes eaten or its `${HOME}` expanded."""
 	backend = _backend_writing_to(tmp_path / "config" / "runtime.env")
-	backend._write_config(PostgresConfig(host="db", password=password).to_env_dict())
-	backend._write_config(RedisConfig(host="cache", password=password).to_env_dict())
-	connections.load_config(backend._CONFIG_ENV)
+	backend.env.merge(PostgresConfig(host="db", password=password).to_env_dict())
+	backend.env.merge(RedisConfig(host="cache", password=password).to_env_dict())
+	connections.load_config(backend.env.path)
 	assert PostgresConfig.unload_env().password == password
 	assert RedisConfig.unload_env().password == password
-	assert backend._config_values()["PG_PASSWORD"] == password
+	assert backend.env.values()["PG_PASSWORD"] == password
 
 
 @pytest.mark.parametrize("password", ["p@ss:w/rd#?%", "plain"])
@@ -238,16 +239,16 @@ def test_a_redis_password_with_url_characters_connects(password):
 
 
 def test_write_config_is_atomic_merged_and_owner_only(tmp_path):
-	"""_write_config merges into runtime.env (a Postgres switch keeps the Redis
+	"""RuntimeEnv.merge merges into runtime.env (a Postgres switch keeps the Redis
 	key), leaves no temporary file behind, and the file is 600 on POSIX."""
 	backend = _backend_writing_to(tmp_path / "config" / "runtime.env")
-	backend._write_config({"PG_HOST": "a", "REDIS_HOST": "r"})
-	backend._write_config({"PG_HOST": "b"})    # a Postgres switch keeps Redis
-	assert dotenv_values(backend._CONFIG_ENV) == {"PG_HOST": "b",
-	                                             "REDIS_HOST": "r"}
-	assert list((tmp_path / "config").iterdir()) == [backend._CONFIG_ENV]
+	backend.env.merge({"PG_HOST": "a", "REDIS_HOST": "r"})
+	backend.env.merge({"PG_HOST": "b"})    # a Postgres switch keeps Redis
+	assert dotenv_values(backend.env.path) == {"PG_HOST": "b",
+	                                          "REDIS_HOST": "r"}
+	assert list((tmp_path / "config").iterdir()) == [backend.env.path]
 	if os.name == "posix":
-		assert stat.S_IMODE(backend._CONFIG_ENV.stat().st_mode) == 0o600
+		assert stat.S_IMODE(backend.env.path.stat().st_mode) == 0o600
 
 
 def test_a_switch_no_longer_writes_external_flags():
@@ -263,13 +264,15 @@ def _backend_connected_to(pg_url: str, redis_host: str,
 	"""A BackendServices with no real connection that looks connected to these."""
 	backend = object.__new__(BackendServices)
 	# no runtime.env unless given: nothing remembered by a database move
-	backend._CONFIG_ENV = runtime_env or Path("does-not-exist") / "runtime.env"
-	backend.postgres = SimpleNamespace(
-		engine=SimpleNamespace(url=make_url(pg_url)),
-		config=PostgresConfig(url=pg_url))
-	backend.redis = SimpleNamespace(client=SimpleNamespace(
+	backend.env = RuntimeEnv(runtime_env or Path("does-not-exist") / "runtime.env")
+	# the connections without connecting: only what the mode is read from
+	backend.postgres = object.__new__(PostgresConnection)
+	backend.postgres.engine = SimpleNamespace(url=make_url(pg_url))
+	backend.postgres.config = PostgresConfig(url=pg_url)
+	backend.redis = object.__new__(RedisConnection)
+	backend.redis.client = SimpleNamespace(
 		connection_pool=SimpleNamespace(
-			connection_kwargs={"host": redis_host})))
+			connection_kwargs={"host": redis_host}))
 	return backend
 
 

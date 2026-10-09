@@ -11,7 +11,6 @@ from flask_login import current_user, login_required
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from src.accounts.users import signed_in_user
 from src.audit import AuditAction
 from src.db.tables import VariableMapping, Inventory, PropertyDefinition
 from src.inventory import (SYSTEM_PROPERTIES, attributes, attributes_of, delete_property_values,
@@ -20,6 +19,7 @@ from src.rollout import inputs
 from src.rollout.engine import mapping_resolvable
 from src.rollout.log import RolloutLogger, Tone
 from src.webapp.app import current_app
+from src.webapp.hooks import signed_in_user
 from src.webapp.http import ok, err, with_form, with_json, flash_redirect
 
 

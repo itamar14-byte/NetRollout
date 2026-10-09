@@ -578,11 +578,11 @@ def test_a_forced_password_change_comes_first_then_the_page(client_for,
 
 
 @pytest.fixture
-def fresh_idle_limit():
+def fresh_idle_limit(app):
 	"""Makes the session idle limit re-read from System Settings, before and after."""
-	_users._IDLE_CACHE.update(at=0.0, seconds=None)     # re-read the setting
+	app.sessions.forget_idle_limit()     # re-read the setting
 	yield
-	_users._IDLE_CACHE.update(at=0.0, seconds=None)
+	app.sessions.forget_idle_limit()
 
 
 def stamp(client, *, idle_ago=0, signed_in_ago=0):

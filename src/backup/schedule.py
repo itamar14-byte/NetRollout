@@ -6,29 +6,23 @@ Every CHECK_SECONDS the thread asks whether a scheduled time has passed
 since the newest scheduled backup in the folder — a time missed while the
 server was off is caught up when it's back, once. After a backup, retention
 deletes the oldest scheduled ones beyond `backup_keep`. The outcome of the
-last run is kept next to the backups (STATUS_FILE) for the page; a failure
+last run is kept next to the backups (BackupFolder.status) for the page; a failure
 is audited, printed as ACTION NEEDED and retried after RETRY_SECONDS.
 """
-import json
-import threading
-import time
 from collections.abc import Callable
 from datetime import datetime, timedelta
-from pathlib import Path
 from typing import Any
 
 from src import runtime
-from src.audit import AuditAction
+from src.audit import Actor, AuditAction, AuditTrail
 from src.backup import archive
 from src.db.connections import BackendServices
 from src.db.settings import BackupSchedule, Weekday
-from src.db.tables import AuditLog
 
 
 CHECK_SECONDS = 30
 FIRST_CHECK_SECONDS = 120     # not during the start itself
 RETRY_SECONDS = 3600
-STATUS_FILE = ".schedule-status.json"
 WEEKDAYS = tuple(Weekday)       # Monday first, as datetime.weekday()
 ACTOR = "scheduler"
 
@@ -82,34 +76,14 @@ def due(now: datetime, slot: datetime | None, newest: datetime | None,
 	return True
 
 
-def newest_scheduled(folder: Path) -> datetime | None:
-	""":returns: when the newest scheduled backup in the folder was made;
-	 None: there's none"""
-	for entry in archive.list_backups(folder):          # newest first
-		if entry.kind == archive.BackupKind.SCHEDULED:
-			return datetime.strptime(entry.stamp, "%Y%m%d-%H%M%S")
-	return None
-
-
-# ── The last outcome ─────────────────────────────────────────────────────────
-
-def read_status(folder: Path | None = None) -> dict[str, Any] | None:
-	""":param folder: the backups folder; the app's when None
-	:returns: the last run's {time, ok, file, message}; None: never ran"""
-	try:
-		return json.loads(((folder or runtime.backups_dir()) / STATUS_FILE)
-		                  .read_text(encoding="utf-8"))
-	except (OSError, ValueError):
-		return None
-
+# ── The audit ────────────────────────────────────────────────────────────────
 
 def system_audit(backend: BackendServices, action: AuditAction, *, label: str | None = None,
                  success: bool = True, detail: dict[str, Any] | None = None) -> None:
-	"""An audit row from the server itself (no request, no user)."""
-	with backend.postgres.get_session() as db_session:
-		db_session.add(AuditLog(actor_username=ACTOR, action=action,
-		                        object_type="backup", object_label=label,
-		                        success=success, detail=detail))
+	"""A backup's audit row from the server itself (no request, no user)."""
+	AuditTrail(lambda: backend.postgres).record(
+		Actor.system(ACTOR), action, object_type="backup", object_label=label,
+		success=success, detail=detail)
 
 
 # ── Running ──────────────────────────────────────────────────────────────────
@@ -122,9 +96,10 @@ def run_scheduled(backend: BackendServices, now: datetime,
 	:param places: the folders; the app's when None
 	:returns: the status written"""
 	places = places or archive.Places.app()
+	folder = archive.BackupFolder(places.backups)
 	try:
 		path = archive.create(backend.postgres.engine, archive.BackupKind.SCHEDULED, places, now=now)
-		gone = archive.prune(places.backups, int(backend.settings.get("backup_keep")))
+		gone = folder.prune(int(backend.settings.get("backup_keep")))
 		status: dict[str, Any] = {"time": now.isoformat(timespec="seconds"), "ok": True,
 		          "file": path.name, "message": ""}
 		system_audit(backend, AuditAction.BACKUP_CREATED, label=path.name,
@@ -141,7 +116,7 @@ def run_scheduled(backend: BackendServices, now: datetime,
 			             detail={"kind": archive.BackupKind.SCHEDULED, "message": message})
 		except Exception:                   # noqa: BLE001 — e.g. the database is down
 			pass
-	runtime.write_json(places.backups / STATUS_FILE, status)
+	folder.write_status(status)
 	return status
 
 
@@ -155,8 +130,8 @@ def tick(backend: BackendServices, now: datetime | None = None,
 	values = backend.settings.values()
 	slot = last_slot(now, values["backup_schedule"], values["backup_time"],
 	                 values["backup_weekday"])
-	if not due(now, slot, newest_scheduled(places.backups),
-	           read_status(places.backups)):
+	folder = archive.BackupFolder(places.backups)
+	if not due(now, slot, folder.newest_scheduled(), folder.status()):
 		return None
 	return run_scheduled(backend, now, places)
 
@@ -167,27 +142,35 @@ def schedule_state(settings_values: dict[str, Any],
 
 	:param settings_values: the System Settings (backup_schedule, _time,
 	 _weekday)
-	:returns: {"next": ISO time or None (off), "last": read_status()}"""
+	:returns: {"next": ISO time or None (off), "last": the app's folder's
+	 BackupFolder.status()}"""
 	now = now or datetime.now()
 	upcoming = next_slot(now, settings_values["backup_schedule"],
 	                     settings_values["backup_time"],
 	                     settings_values["backup_weekday"])
 	return {"next": upcoming.isoformat(timespec="minutes") if upcoming else None,
-	        "last": read_status()}
+	        "last": archive.BackupFolder.app().status()}
+
+
+class BackupScheduler(runtime.PeriodicTask):
+	"""The scheduler's loop: FIRST_CHECK_SECONDS, then a tick every
+	CHECK_SECONDS unless held (a failing hold or tick is printed; the
+	backup's own retry is the status file's - due())."""
+	FAILURE = "backup schedule check failed: {error}"
+
+	def __init__(self, backend: BackendServices, hold: Callable[[], bool]) -> None:
+		super().__init__("backup-schedule", CHECK_SECONDS, first_delay=FIRST_CHECK_SECONDS,
+		                 hold=hold)
+		self.backend = backend
+
+	def run_once(self) -> None:
+		if not self.hold():
+			tick(self.backend)
 
 
 def start_backup_schedule(backend: BackendServices,
                           hold: Callable[[], bool] = lambda: False) -> None:
-	"""The scheduler thread. Called by the web app's entry point. Never raises.
-	hold(): True while a database move runs - a due backup waits (caught up
-	after it; the move itself takes the backup lock)."""
-	def loop() -> None:
-		time.sleep(FIRST_CHECK_SECONDS)
-		while True:
-			try:
-				if not hold():
-					tick(backend)
-			except Exception as e:              # noqa: BLE001 — keep the thread alive
-				print(f"[NetRollout] backup schedule check failed: {e}", flush=True)
-			time.sleep(CHECK_SECONDS)
-	threading.Thread(target=loop, name="backup-schedule", daemon=True).start()
+	"""The scheduler thread (BackupScheduler). Called by the web app's entry
+	point. Never raises. hold(): True while a database move runs - a due
+	backup waits (caught up after it; the move itself takes the backup lock)."""
+	BackupScheduler(backend, hold).start()

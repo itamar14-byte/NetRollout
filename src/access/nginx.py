@@ -256,22 +256,26 @@ def drop_expired_names(now: float | None = None) -> list[str]:
 		return expired
 
 
+class CertificateUpkeep(runtime.PeriodicTask):
+	"""drop_expired_names() now and every UPKEEP_INTERVAL_SECONDS - a server
+	that never restarts still drops them."""
+	FAILURE = "certificate upkeep failed: {error}"
+
+	def __init__(self) -> None:
+		super().__init__("certificate-upkeep", UPKEEP_INTERVAL_SECONDS)
+
+	def run_once(self) -> None:
+		dropped = drop_expired_names()
+		if dropped:
+			print(f"[NetRollout] certificate reissued without the previous "
+			      f"hostname(s) {', '.join(dropped)} (transition of "
+			      f"{NAME_TRANSITION_DAYS} days over)", flush=True)
+
+
 def start_certificate_upkeep() -> None:
-	"""drop_expired_names() now and every hour, from a daemon thread — a
-	server that never restarts still drops them. Called by the web app's
+	"""The upkeep's daemon thread (CertificateUpkeep). Called by the web app's
 	entry point. Never raises."""
-	def loop() -> None:
-		while True:
-			try:
-				dropped = drop_expired_names()
-				if dropped:
-					print(f"[NetRollout] certificate reissued without the previous "
-					      f"hostname(s) {', '.join(dropped)} (transition of "
-					      f"{NAME_TRANSITION_DAYS} days over)", flush=True)
-			except Exception as e:      # noqa: BLE001 — keep the thread alive
-				print(f"[NetRollout] certificate upkeep failed: {e}", flush=True)
-			time.sleep(UPKEEP_INTERVAL_SECONDS)
-	threading.Thread(target=loop, name="certificate-upkeep", daemon=True).start()
+	CertificateUpkeep().start()
 
 
 def _cert_files(cert_dir: Path) -> list[Path]:
