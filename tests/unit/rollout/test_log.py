@@ -260,7 +260,7 @@ def test_follow_subscribes_before_reading_the_history():
 	a line logged in between is in neither."""
 	order = []
 	logger, ps = _following(["one"], [_message("__done__")])
-	client = logger._redis
+	client = logger.live_log._store
 	confirm = ps.get_message
 
 	def get_message(timeout=None):
