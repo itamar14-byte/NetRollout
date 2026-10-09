@@ -279,7 +279,7 @@ def backups_state() -> dict[str, Any]:
 	"""What the Backups card shows: the files, the next time, the last
 	scheduled outcome."""
 	entries: list[dict[str, Any]] = []
-	for e in archive.list_backups(runtime.backups_dir()):
+	for e in archive.BackupFolder.app().entries():
 		m = e.manifest
 		entries.append({"name": e.name, "size": e.size, "kind": e.kind,
 		                "created": m.created if m else None,

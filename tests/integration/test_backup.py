@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from src.backup import archive
 from src.db.connections import PostgresConfig, PostgresConnection
+from src.db.install import alembic_config
 from src.db.tables import (AuditLog, DeviceAttribute, Inventory, SecurityProfile,
                            SystemSetting, User)
 from tests.integration.conftest import PG_ADMIN_URL
@@ -81,7 +82,7 @@ def places(tmp_path):
 
 def migrate(engine, revision="head"):
 	with engine.begin() as conn:
-		alembic_command.upgrade(archive._alembic_config(conn), revision)
+		alembic_command.upgrade(alembic_config(conn), revision)
 
 
 def revision_of(engine):

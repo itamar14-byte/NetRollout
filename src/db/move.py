@@ -24,7 +24,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from src.audit import AuditAction
 from src.backup import archive
 from src.db.connections import PostgresConfig
-from src.db.install import GRAFANA_ROLE
+from src.db.install import GRAFANA_ROLE, alembic_config
 from src.db.tables import Base
 
 MIN_SERVER_VERSION = 130000          # gen_random_uuid() is core from 13
@@ -85,7 +85,7 @@ def _our_names() -> set[str]:
 def _known_revisions() -> set[str]:
 	""":returns: every migration revision this version knows (a database at
 	 one of them is NetRollout's)"""
-	script = ScriptDirectory.from_config(archive._alembic_config())
+	script = ScriptDirectory.from_config(alembic_config())
 	return {r.revision for r in script.walk_revisions()}
 
 

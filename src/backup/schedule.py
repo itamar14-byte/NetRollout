@@ -6,18 +6,15 @@ Every CHECK_SECONDS the thread asks whether a scheduled time has passed
 since the newest scheduled backup in the folder — a time missed while the
 server was off is caught up when it's back, once. After a backup, retention
 deletes the oldest scheduled ones beyond `backup_keep`. The outcome of the
-last run is kept next to the backups (STATUS_FILE) for the page; a failure
+last run is kept next to the backups (BackupFolder.status) for the page; a failure
 is audited, printed as ACTION NEEDED and retried after RETRY_SECONDS.
 """
-import json
 import threading
 import time
 from collections.abc import Callable
 from datetime import datetime, timedelta
-from pathlib import Path
 from typing import Any
 
-from src import runtime
 from src.audit import Actor, AuditAction
 from src.backup import archive
 from src.db.connections import BackendServices
@@ -27,7 +24,6 @@ from src.db.settings import BackupSchedule, Weekday
 CHECK_SECONDS = 30
 FIRST_CHECK_SECONDS = 120     # not during the start itself
 RETRY_SECONDS = 3600
-STATUS_FILE = ".schedule-status.json"
 WEEKDAYS = tuple(Weekday)       # Monday first, as datetime.weekday()
 ACTOR = "scheduler"
 
@@ -81,26 +77,7 @@ def due(now: datetime, slot: datetime | None, newest: datetime | None,
 	return True
 
 
-def newest_scheduled(folder: Path) -> datetime | None:
-	""":returns: when the newest scheduled backup in the folder was made;
-	 None: there's none"""
-	for entry in archive.list_backups(folder):          # newest first
-		if entry.kind == archive.BackupKind.SCHEDULED:
-			return datetime.strptime(entry.stamp, "%Y%m%d-%H%M%S")
-	return None
-
-
-# ── The last outcome ─────────────────────────────────────────────────────────
-
-def read_status(folder: Path | None = None) -> dict[str, Any] | None:
-	""":param folder: the backups folder; the app's when None
-	:returns: the last run's {time, ok, file, message}; None: never ran"""
-	try:
-		return json.loads(((folder or runtime.backups_dir()) / STATUS_FILE)
-		                  .read_text(encoding="utf-8"))
-	except (OSError, ValueError):
-		return None
-
+# ── The audit ────────────────────────────────────────────────────────────────
 
 def system_audit(backend: BackendServices, action: AuditAction, *, label: str | None = None,
                  success: bool = True, detail: dict[str, Any] | None = None) -> None:
@@ -119,9 +96,10 @@ def run_scheduled(backend: BackendServices, now: datetime,
 	:param places: the folders; the app's when None
 	:returns: the status written"""
 	places = places or archive.Places.app()
+	folder = archive.BackupFolder(places.backups)
 	try:
 		path = archive.create(backend.postgres.engine, archive.BackupKind.SCHEDULED, places, now=now)
-		gone = archive.prune(places.backups, int(backend.settings.get("backup_keep")))
+		gone = folder.prune(int(backend.settings.get("backup_keep")))
 		status: dict[str, Any] = {"time": now.isoformat(timespec="seconds"), "ok": True,
 		          "file": path.name, "message": ""}
 		system_audit(backend, AuditAction.BACKUP_CREATED, label=path.name,
@@ -138,7 +116,7 @@ def run_scheduled(backend: BackendServices, now: datetime,
 			             detail={"kind": archive.BackupKind.SCHEDULED, "message": message})
 		except Exception:                   # noqa: BLE001 — e.g. the database is down
 			pass
-	runtime.write_json(places.backups / STATUS_FILE, status)
+	folder.write_status(status)
 	return status
 
 
@@ -152,8 +130,8 @@ def tick(backend: BackendServices, now: datetime | None = None,
 	values = backend.settings.values()
 	slot = last_slot(now, values["backup_schedule"], values["backup_time"],
 	                 values["backup_weekday"])
-	if not due(now, slot, newest_scheduled(places.backups),
-	           read_status(places.backups)):
+	folder = archive.BackupFolder(places.backups)
+	if not due(now, slot, folder.newest_scheduled(), folder.status()):
 		return None
 	return run_scheduled(backend, now, places)
 
@@ -164,13 +142,14 @@ def schedule_state(settings_values: dict[str, Any],
 
 	:param settings_values: the System Settings (backup_schedule, _time,
 	 _weekday)
-	:returns: {"next": ISO time or None (off), "last": read_status()}"""
+	:returns: {"next": ISO time or None (off), "last": the app's folder's
+	 BackupFolder.status()}"""
 	now = now or datetime.now()
 	upcoming = next_slot(now, settings_values["backup_schedule"],
 	                     settings_values["backup_time"],
 	                     settings_values["backup_weekday"])
 	return {"next": upcoming.isoformat(timespec="minutes") if upcoming else None,
-	        "last": read_status()}
+	        "last": archive.BackupFolder.app().status()}
 
 
 def start_backup_schedule(backend: BackendServices,

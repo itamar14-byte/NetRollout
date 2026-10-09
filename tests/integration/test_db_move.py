@@ -13,6 +13,7 @@ from sqlalchemy import create_engine, make_url, text
 from src.backup import archive
 from src.db import move
 from src.db.connections import BUNDLED_DATABASE_KEY, PostgresConfig
+from src.db.install import alembic_config
 from src.encryption import decrypt
 from src.webapp import db_move
 from src.webapp.db_move import DatabaseMove
@@ -188,7 +189,7 @@ def holding_netrollout(target):
 	"""The target with a NetRollout database in it (migrated to head)."""
 	engine = move.engine_for(target)
 	with engine.begin() as conn:
-		alembic_command.upgrade(archive._alembic_config(conn), "head")
+		alembic_command.upgrade(alembic_config(conn), "head")
 	engine.dispose()
 	assert move.check_target(target).contents == move.NETROLLOUT
 	return target
@@ -282,11 +283,11 @@ def test_the_copy_takes_the_backup_lock_where_its_backup_is(app, target, tmp_pat
 	folder (the places given) - the restore took it in the app's own backups folder."""
 	places = archive.Places(tmp_path / "backups", tmp_path / "certs", tmp_path / "logs")
 	taken = []
-	real = archive._lock
+	real = archive.BackupFolder.lock
 
 	def recording(folder):
-		taken.append(folder)
+		taken.append(folder.path)
 		return real(folder)
-	monkeypatch.setattr(archive, "_lock", recording)
+	monkeypatch.setattr(archive.BackupFolder, "lock", recording)
 	move.copy(app.backend.postgres.engine, target, detail={}, places=places)
 	assert taken and set(taken) == {places.backups}
