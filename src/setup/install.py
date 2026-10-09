@@ -268,7 +268,7 @@ def install(answers: Answers, facts: Facts, now: datetime.datetime | None = None
 		done.append(f"certificate: self-signed for {answers.hostname}"
 		            + (f" and {', '.join(facts.server_ips)}" if facts.server_ips else ""))
 	site_env.update({site_env.HOSTNAME: answers.hostname,
-	                 site_env.HTTPS_PORT: str(answers.https_port)})
+	                 site_env.PORT_IN_USE: str(answers.https_port)})
 	done.append(f"hostname: {answers.hostname}")
 	text = env_text(answers, facts, generate_secrets(),
 	                now or datetime.datetime.now(), version or runtime.VERSION,

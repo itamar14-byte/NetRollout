@@ -164,7 +164,7 @@ def test_an_install_writes_everything(home):
 	header = (home / ".env").read_text(encoding="utf-8").splitlines()[0]
 	assert "written by the installer" in header and "CORP\\admin" in header
 	assert site_env.read() == {site_env.HOSTNAME: "nr-srv01",
-	                           site_env.HTTPS_PORT: "443"}
+	                           site_env.PORT_IN_USE: "443"}
 	dns, ips = certs.names_in((home / "certs" / certs.CERT_FILE).read_bytes())
 	assert dns == ["nr-srv01"] and [str(i) for i in ips] == ["10.0.0.5", "192.168.1.20"]
 

@@ -204,7 +204,7 @@ def test_the_hostname_and_a_port_request_share_site_env(home):
 	nginx.write_site("nr02.lab")              # a later hostname save
 	values = site_env.read()
 	assert values[site_env.HOSTNAME] == "nr02.lab"
-	assert values[site_env.HTTPS_PORT] == "443"      # in use, not the request
+	assert values[site_env.PORT_IN_USE] == "443"      # in use, not the request
 	assert pa.read_request()["port"] == 8443         # the request survived
 
 

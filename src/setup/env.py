@@ -24,6 +24,19 @@ COMPOSE = "compose.yaml"
 COMPOSE_HTTP = "compose.http.yaml"
 # A developer's stack: built from the repo, the app on the host
 DEV_COMPOSE = "compose.yaml,compose.http.yaml,compose.build.yaml,compose.dev.yaml"
+# The HTTPS port Docker publishes (compose passes it to the app as
+# access.port.PUBLISHED_PORT_ENV; the port in use in site.env is
+# site_env.PORT_IN_USE)
+PUBLISHED_PORT = "HTTPS_PORT"
+
+
+def published_port(env: dict[str, str]) -> int:
+	""":returns: the port .env's PUBLISHED_PORT says; 443 when missing or not
+	 a number"""
+	try:
+		return int(env.get(PUBLISHED_PORT, "443"))
+	except ValueError:
+		return 443
 
 
 def compose_files(env: dict[str, str]) -> list[str]:
@@ -113,7 +126,7 @@ UPGRADE_DEFAULTS: dict[str, Callable[[], str] | None] = {
 	"GRAFANA_ADMIN_PASSWORD": None,
 	"SECRET_KEY": lambda: secrets.token_hex(32),   # only signs sessions
 	"NETROLLOUT_ENCRYPTION_KEY": None,
-	"HTTPS_PORT": lambda: "443",                  # what compose uses without it
+	PUBLISHED_PORT: lambda: "443",                # what compose uses without it
 	"TZ": lambda: "UTC",
 	"NETROLLOUT_SERVER_IPS": lambda: "",
 	"COMPOSE_PROFILES": lambda: "",
@@ -123,7 +136,7 @@ UPGRADE_DEFAULTS: dict[str, Callable[[], str] | None] = {
 
 
 # The .env keys the scripts may change; never a secret
-SCRIPT_KEYS = ("COMPOSE_FILE", "NETROLLOUT_SERVER_IPS", "HTTPS_PORT",
+SCRIPT_KEYS = ("COMPOSE_FILE", "NETROLLOUT_SERVER_IPS", PUBLISHED_PORT,
                "COMPOSE_PROFILES", "TZ")
 
 

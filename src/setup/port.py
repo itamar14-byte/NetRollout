@@ -36,7 +36,7 @@ from pathlib import Path
 from src import runtime
 from src.access import site_env
 from src.access.port import ApplyState, ApplyStatus
-from src.setup.env import compose_files, env_read, env_set
+from src.setup.env import PUBLISHED_PORT, compose_files, env_read, env_set, published_port
 
 STATUS_FILE = "apply-status.json"          # src/access/port.py reads it
 TRIAL_FILE = "port-trial.yaml"             # in config/, listed in COMPOSE_FILE
@@ -108,10 +108,7 @@ def ready() -> bool:
 
 def current_port() -> int:
 	"""The port Docker publishes now (.env's HTTPS_PORT)."""
-	try:
-		return int(env_read().get("HTTPS_PORT", "443"))
-	except ValueError:
-		return 443
+	return published_port(env_read())
 
 
 def _wanted(raw: str | None) -> int | None:
@@ -199,8 +196,8 @@ def close(outcome: str, id_: str, message: str = "",
 	if timed_out_:
 		message = timed_out(new)
 	if outcome == StepAction.KEEP and new:
-		env_set({"HTTPS_PORT": str(new)})
-		site_env.update({site_env.HTTPS_PORT: str(new)})   # nginx's redirects
+		env_set({PUBLISHED_PORT: str(new)})
+		site_env.update({site_env.PORT_IN_USE: str(new)})   # nginx's redirects
 	compose = compose_files(env_read())
 	if TRIAL_ENTRY in compose:
 		env_set({"COMPOSE_FILE": ",".join(f for f in compose if f != TRIAL_ENTRY)})

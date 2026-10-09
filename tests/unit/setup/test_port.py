@@ -64,7 +64,7 @@ def test_a_trial_confirmed_from_the_new_port_is_kept(install):
 	assert env()["HTTPS_PORT"] == "9443"
 	assert port.TRIAL_ENTRY not in env()["COMPOSE_FILE"]
 	assert not port.trial_path().exists()
-	assert site_env.read()[site_env.HTTPS_PORT] == "9443"     # nginx's redirects follow
+	assert site_env.read()[site_env.PORT_IN_USE] == "9443"     # nginx's redirects follow
 	assert port_apply.serving_port() == 9443
 	assert port_apply.state(9443)["state"] == "applied"
 	assert port.next_step({}, NOW + 40).action == "none"        # handled once

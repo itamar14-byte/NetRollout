@@ -149,6 +149,12 @@ def serving_port() -> int:
 			return trial
 		if port := _port(status.port):
 			return port
+	return published_port()
+
+
+def published_port() -> int:
+	""":returns: the port Docker published when this container was created
+	 (PUBLISHED_PORT_ENV); 443 when unset or not a port"""
 	return _port(os.environ.get(PUBLISHED_PORT_ENV, "443")) or 443
 
 

@@ -198,10 +198,10 @@ def test_a_hostname_undo_keeps_a_port_kept_since(home):
 	port) survives the hostname's undo; the hostname goes back."""
 	pc.write_site("a.lab")
 	undo = nginx().change_hostname("b.lab")
-	site_env.update({site_env.HTTPS_PORT: "8443"})
+	site_env.update({site_env.PORT_IN_USE: "8443"})
 	undo()
 	values = site_env.read()
-	assert (values[site_env.HOSTNAME], values[site_env.HTTPS_PORT]) == ("a.lab", "8443")
+	assert (values[site_env.HOSTNAME], values[site_env.PORT_IN_USE]) == ("a.lab", "8443")
 
 
 def test_an_undo_leaves_what_a_later_change_wrote(home):

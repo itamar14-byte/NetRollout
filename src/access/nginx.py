@@ -86,7 +86,7 @@ def _site_values(hostname: str | None) -> dict[str, str]:
 	""":returns: what write_site writes into site.env
 	:raises ValueError: an invalid hostname"""
 	host = cast(str, SETTINGS["public_hostname"].parse(hostname or ""))
-	return {site_env.HOSTNAME: host, site_env.HTTPS_PORT: str(port.serving_port())}
+	return {site_env.HOSTNAME: host, site_env.PORT_IN_USE: str(port.serving_port())}
 
 
 def seed_hostname_from_site() -> None:

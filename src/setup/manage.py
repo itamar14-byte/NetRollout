@@ -18,7 +18,8 @@ from src import runtime
 from src.access import certs, site_env
 from src.access.nginx import VerdictState, read_status
 from src.backup import archive
-from src.setup.env import env_write, env_read, env_set, COMPOSE_HTTP, compose_files
+from src.setup.env import (PUBLISHED_PORT, env_write, env_read, env_set, COMPOSE_HTTP,
+                           compose_files)
 
 
 CORE_SERVICES = ("app", "nginx", "postgres", "redis")
@@ -121,7 +122,7 @@ def fetch_health(url: str = HEALTH_URL,
 
 def address(env: dict[str, str]) -> str:
 	host = site_env.read().get(site_env.HOSTNAME) or "localhost"
-	port = env.get("HTTPS_PORT", "443")
+	port = env.get(PUBLISHED_PORT, "443")
 	return f"https://{host}" + ("" if port == "443" else f":{port}")
 
 
@@ -134,7 +135,7 @@ def status(seen: Observed, health: dict[str, Any] | None,
 	lines, todo = [], []
 	url = address(env)
 	ips = [ip for ip in env.get("NETROLLOUT_SERVER_IPS", "").split(",") if ip]
-	port = env.get("HTTPS_PORT", "443")
+	port = env.get(PUBLISHED_PORT, "443")
 	others = [f"https://{ip}" + ("" if port == "443" else f":{port}") for ip in ips]
 	lines.append(f"NetRollout {runtime.VERSION}")
 	lines.append(f"Address:      {url}" + (f"  (also {', '.join(others)})" if others else ""))

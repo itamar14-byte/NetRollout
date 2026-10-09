@@ -4,8 +4,8 @@ One file, one module writing it: keys are read and updated together under a
 lock and the file is replaced whole (atomically), so no reader ever sees half
 of a change. Each reader takes only its own keys:
 
-- nginx (deploy/nginx): HOSTNAME and HTTPS_PORT — the port in use, never the
-  one requested; it validates them and ignores every other key
+- nginx (deploy/nginx): HOSTNAME and PORT_IN_USE — never the port requested;
+  it validates them and ignores every other key
 - the port helper (host side, stage 9): the PORT_REQUEST keys
 - the app, at its first start: HOSTNAME, written by the installer, seeds the
   System Settings hostname
@@ -21,14 +21,14 @@ from src import runtime
 FILE = "site.env"
 
 HOSTNAME = "NETROLLOUT_HOSTNAME"
-HTTPS_PORT = "NETROLLOUT_HTTPS_PORT"            # in use (published)
+PORT_IN_USE = "NETROLLOUT_HTTPS_PORT"           # the HTTPS port in use (published)
 PORT_REQUEST = "NETROLLOUT_PORT_REQUEST"        # wanted (System Settings)
 PORT_REQUEST_ID = "NETROLLOUT_PORT_REQUEST_ID"  # a new id per request
 PORT_REQUESTED_AT = "NETROLLOUT_PORT_REQUESTED_AT"   # epoch seconds
 PORT_CONFIRMED = "NETROLLOUT_PORT_CONFIRMED"    # the id, confirmed from the new port
 
 # written in this order (the rest, if any, after them)
-_ORDER = (HOSTNAME, HTTPS_PORT, PORT_REQUEST, PORT_REQUEST_ID,
+_ORDER = (HOSTNAME, PORT_IN_USE, PORT_REQUEST, PORT_REQUEST_ID,
           PORT_REQUESTED_AT, PORT_CONFIRMED)
 _lock = threading.Lock()
 
