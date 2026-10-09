@@ -524,6 +524,27 @@ def test_unresolvable_mappings_are_not_bound(client_for, make_user,
 	assert "$$VRF2$$" not in bound
 
 
+def test_drag_assign_with_ids_that_are_not_strings(client_for, make_user, make_device,
+                                                   make_mapping, session_scope):
+	"""Drag-assign (/mappings/bulk_assign) with ids of another JSON type: a
+	mapping id that's a number is 400 "Invalid mapping ID"; device and remove
+	ids that are numbers are skipped like malformed ones while the valid
+	device is bound - not a server error."""
+	user = make_user()
+	dev = make_device(user, var_maps={"vrfs": ["red"]})
+	vrf0 = make_mapping(user, token="VRF0", prop="vrfs", index=0)
+	client = client_for(user)
+	resp = client.post("/mappings/bulk_assign",
+	                   json={"mapping_id": 5, "device_ids": [str(dev)]})
+	assert resp.status_code == 400
+	assert resp.json == {"status": "error", "message": "Invalid mapping ID"}
+	resp = client.post("/mappings/bulk_assign", json={
+		"mapping_id": str(vrf0), "device_ids": [5, str(dev)], "remove_ids": [5]})
+	assert resp.status_code == 200 and resp.json["status"] == "ok"
+	with session_scope() as s:
+		assert {m.token for m in s.get(Inventory, dev).var_mappings} == {"$$VRF0$$"}
+
+
 def test_bulk_profile_assign_only_own_profile_and_devices(
 		client_for, make_user, make_profile, make_device, db_get):
 	"""Bulk assign of another user's profile is 404; the user's own profile is assigned."""
@@ -538,6 +559,25 @@ def test_bulk_profile_assign_only_own_profile_and_devices(
 	                   json={"profile_id": str(mine), "device_ids": [str(dev)]})
 	assert resp.json["status"] == "ok"
 	assert db_get(Inventory, dev).sec_profile_id == mine
+
+
+def test_bulk_profile_assign_with_ids_that_are_not_strings(
+		client_for, make_user, make_profile, make_device, db_get):
+	"""Bulk profile assign with ids of another JSON type: a profile id that's a
+	number is 422 "Invalid profile ID"; a device id that's a number is skipped
+	like a malformed one while the valid devices are assigned - not a server
+	error."""
+	user = make_user()
+	prof, dev = make_profile(user), make_device(user)
+	client = client_for(user)
+	resp = client.post("/inventory/bulk_assign",
+	                   json={"profile_id": 5, "device_ids": [str(dev)]})
+	assert resp.status_code == 422
+	assert resp.json == {"status": "error", "message": "Invalid profile ID"}
+	resp = client.post("/inventory/bulk_assign",
+	                   json={"profile_id": str(prof), "device_ids": [5, str(dev)]})
+	assert resp.status_code == 200 and resp.json["status"] == "ok"
+	assert db_get(Inventory, dev).sec_profile_id == prof
 
 
 def test_bulk_profile_assign_follows_the_edit_rule(

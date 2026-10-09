@@ -232,6 +232,18 @@ def test_connection_test_with_an_invalid_device_id(client_for, make_user, make_p
 	assert resp.json == {"status": "error", "message": "Invalid device ID"}
 
 
+@pytest.mark.parametrize("device_id", [5, 5.5, [1], {"id": 1}])
+def test_connection_test_with_a_device_id_that_is_not_a_string(
+		client_for, make_user, make_profile, device_id):
+	"""A device id of another JSON type (a number, a list, an object): 422
+	"Invalid device ID", as for a malformed string - not a server error."""
+	user = make_user()
+	resp = client_for(user).post(f"/security/{make_profile(user)}/test",
+	                             json={"device_id": device_id})
+	assert resp.status_code == 422
+	assert resp.json == {"status": "error", "message": "Invalid device ID"}
+
+
 def test_connection_test_of_an_unknown_device_or_profile(client_for, make_user,
                                                          make_profile, make_device):
 	"""A device id or profile id that doesn't exist: 404 "Profile or device not

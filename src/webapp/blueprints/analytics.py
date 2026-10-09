@@ -102,7 +102,7 @@ def analytics_query(data: dict[str, Any]) -> ResponseReturnValue:
 	:returns: {columns, rows} or an error (a field or operator not allowed)"""
 	scope_user_id = current_user.id
 	if current_user.role == "admin":
-		param = data.get("user", "me").strip()
+		param = str(data.get("user", "me")).strip()
 		if param != "me":
 			try:
 				scope_user_id = uuid.UUID(param)

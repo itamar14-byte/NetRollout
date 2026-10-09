@@ -456,7 +456,7 @@ def inventory_bulk_assign() -> ResponseReturnValue:
 		return err("No devices provided")
 
 	try:
-		parsed_profile_id = uuid.UUID(profile_id) if profile_id else None
+		parsed_profile_id = uuid.UUID(str(profile_id)) if profile_id else None
 	except ValueError:
 		return err("Invalid profile ID", 422)
 	logger.notify(
@@ -475,7 +475,7 @@ def inventory_bulk_assign() -> ResponseReturnValue:
 		assigned, skipped = 0, 0
 		for device_id_str in device_ids:
 			try:
-				parsed_device_id = uuid.UUID(device_id_str)
+				parsed_device_id = uuid.UUID(str(device_id_str))
 			except (ValueError, TypeError):
 				skipped += 1
 				continue

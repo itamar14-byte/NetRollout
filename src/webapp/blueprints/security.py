@@ -143,7 +143,7 @@ def security_test(profile_id: uuid.UUID, data: dict[str, Any]) -> ResponseReturn
 		return err("No device selected", 404)
 
 	try:
-		device_id = uuid.UUID(data["device_id"])
+		device_id = uuid.UUID(str(data["device_id"]))
 	except ValueError:
 		return err("Invalid device ID", 422)
 

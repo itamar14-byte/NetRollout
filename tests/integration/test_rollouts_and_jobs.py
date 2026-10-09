@@ -1257,6 +1257,21 @@ def test_analytics_query_is_scoped_and_allowlisted(operator, client_for,
 	assert client.get("/analytics").status_code == 200
 
 
+def test_admin_analytics_query_with_a_user_that_is_not_a_string(client_for,
+                                                                session_scope,
+                                                                make_user):
+	"""An admin's analytics query whose user param is another JSON type (a
+	number) is ignored like a malformed id - the admin's own results - not a
+	server error."""
+	admin, other = make_user(role="admin"), make_user()
+	add_result(session_scope, admin, uuid.uuid4(), status="failed")
+	add_result(session_scope, other, uuid.uuid4(), status="failed")
+	rule = {"condition": "AND", "rules": [
+		{"field": "status", "operator": "equal", "value": "failed"}]}
+	resp = client_for(admin).post("/analytics/query", json={"rules": rule, "user": 5})
+	assert resp.status_code == 200 and len(resp.json["rows"]) == 1
+
+
 def test_analytics_query_with_invalid_rules_is_400(operator, client_for):
 	"""Rules the builder couldn't make (null when a rule is invalid), not an
 	object, missing, or a group whose rules aren't a list: 400 with a

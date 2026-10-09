@@ -276,7 +276,7 @@ def mappings_bulk_assign() -> ResponseReturnValue:
 
 	# mapping_id comes from JSON, not a URL parameter — manual UUID cast needed
 	try:
-		parsed_mapping_id = uuid.UUID(mapping_id)
+		parsed_mapping_id = uuid.UUID(str(mapping_id))
 	except (ValueError, TypeError):
 		logger.notify("Bulk mapping assign failed: invalid mapping ID", "red",
 		              important=True)
@@ -303,7 +303,7 @@ def mappings_bulk_assign() -> ResponseReturnValue:
 		remove_set: set[uuid.UUID] = set()
 		for device_id_str in remove_ids:
 			try:
-				remove_set.add(uuid.UUID(device_id_str))
+				remove_set.add(uuid.UUID(str(device_id_str)))
 			except (ValueError, TypeError):
 				continue
 		for unbound in [d for d in mapping.devices if d.id in remove_set]:
@@ -316,7 +316,7 @@ def mappings_bulk_assign() -> ResponseReturnValue:
 			# Parse each device UUID — skip silently if malformed
 			try:
 				device: Inventory | None = db_session.query(Inventory).filter(
-					Inventory.id == uuid.UUID(device_id_str),
+					Inventory.id == uuid.UUID(str(device_id_str)),
 					visible_devices_clause(current_user.id)).first()
 			except (ValueError, TypeError):
 				skipped += 1
