@@ -6,7 +6,8 @@ from typing import Any
 
 from ldap3 import Server, Connection, ALL, SIMPLE, SUBTREE, LEVEL, BASE
 from ldap3.core.exceptions import (LDAPException, LDAPBindError,
-                                   LDAPInvalidCredentialsResult)
+                                   LDAPInvalidCredentialsResult,
+                                   LDAPNoSuchObjectResult)
 from ldap3.utils.conv import escape_filter_chars
 from ldap3.utils.dn import escape_rdn
 
@@ -32,6 +33,10 @@ _BAD_CREDENTIALS = (LDAPBindError, LDAPInvalidCredentialsResult)
 # sign in like any other user.
 USER_CLASSES = frozenset({"person", "organizationalperson", "inetorgperson",
                           "user", "posixaccount"})
+
+# Mapped group DNs found missing from the directory, already reported (once
+# per process, not at every sign-in)
+_reported_missing_groups: set[str] = set()
 
 
 class LdapUnavailable(Exception):
@@ -183,7 +188,9 @@ def check_group_membership(server: LDAPServer, username: str, password: str,
 
 	:param groups: the groups mapped to roles, in order
 	:returns: (group DN, role) of the first group the authenticated user is
-	 a direct member of; None when not a member, or not authenticated
+	 a direct member of; None when not a member, or not authenticated. A
+	 mapped group that doesn't exist in the directory is one the user isn't
+	 a member of (reported once, ACTION NEEDED)
 	:raises LdapUnavailable: the directory couldn't be reached or used"""
 	if server.bind_type != "regular":
 		return None
@@ -197,9 +204,13 @@ def check_group_membership(server: LDAPServer, username: str, password: str,
 		for g in groups:
 			# The member value is a DN — it may contain filter metacharacters
 			# (e.g. "cn=Smith\, Bob"), so it's escaped like any other value
-			conn.search(search_base=g.group_dn,
-			            search_filter=f"(member={escape_filter_chars(dn)})",
-			            search_scope=BASE, attributes=[])
+			try:
+				conn.search(search_base=g.group_dn,
+				            search_filter=f"(member={escape_filter_chars(dn)})",
+				            search_scope=BASE, attributes=[])
+			except LDAPNoSuchObjectResult:
+				_report_missing_group(g)
+				continue
 			if conn.entries:
 				return g.group_dn, g.role
 		return None
@@ -207,6 +218,16 @@ def check_group_membership(server: LDAPServer, username: str, password: str,
 		raise LdapUnavailable(str(e)) from e
 	finally:
 		_close(conn)
+
+
+def _report_missing_group(group: LDAPGroup) -> None:
+	"""Print, once per process, that a mapped group isn't in the directory."""
+	if group.group_dn in _reported_missing_groups:
+		return
+	_reported_missing_groups.add(group.group_dn)
+	print(f"[NetRollout] ACTION NEEDED - the LDAP group {group.group_dn} mapped "
+	      f"to role {group.role} doesn't exist in the directory: sign-ins skip "
+	      f"it until the mapping is fixed or removed", flush=True)
 
 
 def fetch_user_details(server: LDAPServer, username: str) -> dict[str, str | None] | None:

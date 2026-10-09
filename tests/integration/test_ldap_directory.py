@@ -321,6 +321,27 @@ def test_the_first_matching_group_wins(ldap_server_config):
 	assert ldap.check_group_membership(ldap_server_config, "jdoe", JDOE_PW, []) is None
 
 
+def test_a_mapped_group_that_does_not_exist_is_skipped(ldap_server_config, capsys,
+                                                       monkeypatch):
+	"""A mapped group whose DN isn't in the directory (deleted, renamed) is "not
+	a member of it", not the directory failing: a member of a valid group
+	mapped after it gets that group's role, a non-member None. The missing DN
+	is reported once (ACTION NEEDED on the console), not at every sign-in."""
+	monkeypatch.setattr(ldap, "_reported_missing_groups", set(), raising=False)
+	gone = f"cn=gone,ou=Groups,{LDAP_BASE}"
+	groups = [SimpleNamespace(group_dn=gone, role="admin"),
+	          SimpleNamespace(group_dn=LDAP_GROUP_DN, role="operator")]
+	assert ldap.check_group_membership(ldap_server_config, "jdoe", JDOE_PW, groups) == \
+	       (LDAP_GROUP_DN, "operator")
+	assert capsys.readouterr().out == (
+		f"[NetRollout] ACTION NEEDED - the LDAP group {gone} mapped to role admin "
+		f"doesn't exist in the directory: sign-ins skip it until the mapping is "
+		f"fixed or removed\n")
+	assert ldap.check_group_membership(ldap_server_config, "alice", ALICE_PW,
+	                                   groups) is None
+	assert capsys.readouterr().out == ""
+
+
 # ── Login end to end (also needs Postgres + Redis) ───────────────────────────
 
 @pytest.fixture
