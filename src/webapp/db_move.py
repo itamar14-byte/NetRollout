@@ -37,7 +37,6 @@ from typing import Any, TYPE_CHECKING, TypeVar
 
 from flask import Response, g, render_template, request
 from flask.typing import ResponseReturnValue
-from sqlalchemy import make_url
 
 from src.audit import Actor, AuditAction
 from src.db import move
@@ -67,13 +66,6 @@ class MaintenanceState(StrEnum):
 	IDLE = "idle"
 	WAITING = "waiting"        # new rollouts paused, the rest goes on
 	LOCKED = "locked"          # nothing may write
-
-
-def describe(config: PostgresConfig) -> str:
-	"""host:port/database[/schema], no password - for pages and the audit."""
-	url = make_url(config.get_url())
-	place = f"{url.host}:{url.port or 5432}/{url.database}"
-	return place + (f" (schema {config.schema})" if config.schema else "")
 
 
 def same_database(a: PostgresConfig, b: PostgresConfig) -> bool:
@@ -136,12 +128,12 @@ class DatabaseMove:
 		self._cancel.clear()
 		self._status = {"state": MoveState.WAITING, "step": "Waiting for rollouts to finish",
 		                "what": what, "back": back,
-		                "source": describe(backend.postgres.config),
-		                "target": describe(target), "actor": actor,
+		                "source": backend.postgres.describe(),
+		                "target": target.describe(), "actor": actor,
 		                "started": _now(), "deadline": time.time() + self._wait}
 		try:   # never stops the move (maintenance has begun): a failure is printed
 			backend.audit_trail.record(Actor(actor_id, actor), AuditAction.DATABASE_MOVE_STARTED,
-			                           object_type="database", object_label=describe(target),
+			                           object_type="database", object_label=target.describe(),
 			                           detail={"back": back})
 		except Exception as e:                    # noqa: BLE001
 			print(f"[NetRollout] database move: start not audited ({e})", flush=True)

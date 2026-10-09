@@ -221,7 +221,7 @@ def test_a_move_through_the_page_and_back(app, admin, client_for, target, mover,
 	resp = c.post("/admin/server/database/move", json=_form(target))
 	assert resp.status_code == 200, resp.json
 	started = resp.json["move"]
-	assert started["target"] == db_move.describe(target) and started["back"] is False
+	assert started["target"] == target.describe() and started["back"] is False
 	assert started["state"] in (db_move.MoveState.WAITING, db_move.MoveState.COPYING, db_move.MoveState.SWITCHING, db_move.MoveState.DONE)
 	assert _wait(mover)["state"] == db_move.MoveState.DONE
 	assert app.backend.postgres.config == target
@@ -231,7 +231,7 @@ def test_a_move_through_the_page_and_back(app, admin, client_for, target, mover,
 	resp = c.post("/admin/server/database/move-back")
 	assert resp.status_code == 200, (resp.headers.get("Location"), resp.json)
 	assert resp.json["move"]["back"] is True
-	assert resp.json["move"]["target"] == db_move.describe(app.backend.bundled_postgres())
+	assert resp.json["move"]["target"] == app.backend.bundled_postgres().describe()
 	assert _wait(mover)["state"] == db_move.MoveState.DONE
 	assert db_move.same_database(app.backend.postgres.config, home)
 
@@ -267,4 +267,4 @@ def test_the_move_started_audit_row_survives_the_move(app, admin, client_for, ta
 	with app.backend.postgres.get_session() as s:
 		rows = [(r.object_label, r.detail) for r in
 		        s.query(AuditLog).filter_by(action="database.move_started")]
-	assert rows == [(db_move.describe(target), {"back": False})]
+	assert rows == [(target.describe(), {"back": False})]

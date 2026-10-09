@@ -43,7 +43,7 @@ def switch_writes_only(app, monkeypatch):
 	route → backend → config/runtime.env path runs for real. Yields the
 	runtime.env path, removed before and after."""
 	monkeypatch.setattr(app.backend.redis, "reload_db", lambda config: None)
-	runtime_env = app.backend._CONFIG_ENV
+	runtime_env = app.backend.env.path
 	runtime_env.unlink(missing_ok=True)
 	yield runtime_env
 	runtime_env.unlink(missing_ok=True)

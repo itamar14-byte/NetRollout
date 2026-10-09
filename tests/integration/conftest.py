@@ -241,7 +241,7 @@ def app(test_db_url, redis_url, tmp_path_factory):
 	scratch = tmp_path_factory.mktemp("backend")
 
 	def _test_backend_init(self):
-		self._CONFIG_ENV = scratch / "runtime.env"   # never the real one
+		self.env = connections.RuntimeEnv(scratch / "runtime.env")   # never the real one
 		self.postgres = PostgresConnection(PostgresConfig(url=test_db_url))
 		self.redis = RedisConnection(RedisConfig(url=redis_url))
 

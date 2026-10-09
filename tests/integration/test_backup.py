@@ -55,8 +55,8 @@ def databases():
 	with target_admin.connect() as conn:
 		conn.execute(text(f'CREATE SCHEMA "{SCHEMA}" AUTHORIZATION "{ROLE}"'))
 	target_admin.dispose()
-	source = PostgresConnection._build_engine(PostgresConfig(url=_url(SOURCE_DB)))
-	target = PostgresConnection._build_engine(PostgresConfig(
+	source = PostgresConnection.build_engine(PostgresConfig(url=_url(SOURCE_DB)))
+	target = PostgresConnection.build_engine(PostgresConfig(
 		url=_url(TARGET_DB, ROLE, ROLE_PASSWORD), schema=SCHEMA))
 	with target.begin() as conn:
 		# another application's table in the same schema: never touched

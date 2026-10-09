@@ -59,7 +59,7 @@ def mover(app, monkeypatch):
 	maintenance ended, the app back on the test database and runtime.env restored."""
 	home = app.backend.postgres.config
 	monkeypatch.setattr(app.shutdown, "begin", lambda *a, **k: True)
-	runtime_env = app.backend._CONFIG_ENV
+	runtime_env = app.backend.env.path
 	saved = runtime_env.read_text() if runtime_env.exists() else None
 	yield DatabaseMove(app, poll_seconds=0.05)
 	app.maintenance.end()
@@ -155,7 +155,7 @@ def test_move_there_and_back(app, target, mover, make_user, make_profile):
 	assert moved[0][0]["by"] == admin.username
 	assert (app.backend.bundled_postgres().get_url() ==
 	        make_url(home.get_url()).render_as_string(hide_password=False))
-	assert BUNDLED_DATABASE_KEY in app.backend._CONFIG_ENV.read_text()
+	assert BUNDLED_DATABASE_KEY in app.backend.env.path.read_text()
 	assert status["backup"].endswith("-before-move.zip")
 
 	mover.start(app.backend.bundled_postgres(), admin.id, admin.username, back=True,
@@ -242,12 +242,12 @@ def test_a_switch_failing_after_the_reconnect_goes_back_to_the_database(
 	connection is back on it, runtime.env unchanged, database.move_failed audited
 	there."""
 	home = app.backend.postgres.config
-	runtime_env = app.backend._CONFIG_ENV
+	runtime_env = app.backend.env.path
 	before = runtime_env.read_text() if runtime_env.exists() else None
 
 	def read_only(updates):
 		raise PermissionError(13, "Permission denied", str(runtime_env))
-	monkeypatch.setattr(app.backend, "_write_config", read_only)
+	monkeypatch.setattr(app.backend.env, "merge", read_only)
 	mover.start(target, None, "admin")
 	status = _wait(mover)
 	assert status["state"] == db_move.MoveState.FAILED, status

@@ -64,7 +64,7 @@ def run_migrations_online() -> None:
 		_migrate(shared_connection)
 		return
 	# CLI: build the engine the way the app does (incl. PG_SCHEMA search_path)
-	engine = PostgresConnection._build_engine(cli_config())
+	engine = PostgresConnection.build_engine(cli_config())
 	try:
 		with engine.connect() as connection:
 			_migrate(connection)

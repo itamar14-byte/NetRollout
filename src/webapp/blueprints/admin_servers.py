@@ -22,7 +22,7 @@ from src.jobs import clear_stale_jobs, with_owners
 from src.runtime import drain_seconds
 from src.webapp import db_move
 from src.webapp.app import current_app
-from src.webapp.db_move import describe, same_database, during_maintenance
+from src.webapp.db_move import same_database, during_maintenance
 from src.webapp.http import ok, err, require_admin, with_json
 
 
@@ -58,13 +58,13 @@ def admin_server() -> str:
 	                       db_user=current_app.backend.postgres.config.user,
 	                       postgres_schema=current_app.backend.postgres
 	                       .config.schema,
-	                       db_place=describe(current_app.backend.postgres.config),
+	                       db_place=current_app.backend.postgres.describe(),
 	                       can_move_back=(connection_modes["POSTGRES"] == ServiceMode.EXTERNAL
 	                                      and current_app.backend.bundled_postgres() is not None),
 	                       access_needed=move.ACCESS_NEEDED,
 	                       db_move=_status(),
 	                       redis_mode=connection_modes["REDIS"],
-	                       redis_place="{}:{}/{}".format(*current_app.backend.redis.config.place()),
+	                       redis_place=current_app.backend.redis.describe(),
 	                       can_redis_back=(connection_modes["REDIS"] == ServiceMode.EXTERNAL
 	                                       and current_app.backend.bundled_redis() is not None),
 	                       redis_connected=redis_connected,
@@ -316,7 +316,7 @@ def _switch_redis(config: RedisConfig, back: bool) -> ResponseReturnValue:
 	finally:
 		if not was_paused:
 			orchestrator.resume()
-	place = "{}:{}/{}".format(*config.place())
+	place = config.describe()
 	current_app.web.audit(AuditAction.SERVER_REDIS_SWITCHED, object_type="redis", object_label=place,
 	                      detail={"back": back})
 	return ok(f"NetRollout now uses Redis at {place}. Everyone else signs in again.")

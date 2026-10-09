@@ -26,7 +26,7 @@ def _app_engine() -> Engine:
 	"""The database the app uses: config/runtime.env (a move to an
 	organisation's database) over the environment, as the app resolves it."""
 	load_config(runtime.runtime_env())
-	return PostgresConnection._build_engine(PostgresConfig.unload_env())
+	return PostgresConnection.build_engine(PostgresConfig.unload_env())
 
 
 def _resolve(name: str) -> Path:
