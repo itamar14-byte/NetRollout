@@ -540,6 +540,25 @@ def test_bulk_profile_assign_only_own_profile_and_devices(
 	assert db_get(Inventory, dev).sec_profile_id == mine
 
 
+def test_bulk_profile_assign_follows_the_edit_rule(
+		client_for, make_user, make_profile, make_device, db_get):
+	"""Bulk assign touches the devices the user may edit: an admin assigns their profile
+	to another admin's global device (they may edit it; it was skipped as not theirs),
+	an operator can't assign to a global device nor to another user's device."""
+	owner, admin, operator = make_user(role="admin"), make_user(role="admin"), make_user()
+	glob = make_device(owner, ip="10.0.0.1", profile_id=make_profile(owner), is_global=True)
+	theirs = make_device(make_user(), ip="10.0.0.2")
+	admins = make_profile(admin)
+	resp = client_for(admin).post("/inventory/bulk_assign",
+	                              json={"profile_id": str(admins), "device_ids": [str(glob)]})
+	assert resp.json["status"] == "ok" and db_get(Inventory, glob).sec_profile_id == admins
+	ops = make_profile(operator)
+	client_for(operator).post("/inventory/bulk_assign", json={
+		"profile_id": str(ops), "device_ids": [str(glob), str(theirs)]})
+	assert db_get(Inventory, glob).sec_profile_id == admins
+	assert db_get(Inventory, theirs).sec_profile_id is None
+
+
 def test_bulk_unassign_keeps_global_devices_profile(
 		client_for, make_user, make_profile, make_device, db_get):
 	"""Bulk unassign clears a local device's profile but a global device keeps its own

@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from src.accounts.users import signed_in_user
 from src.db.tables import SecurityProfile, Inventory
 from src.encryption import encrypt, decrypt
+from src.inventory import can_edit_device
 from src.rollout import inputs
 from src.rollout.engine import Device
 from src.webapp.app import current_app
@@ -149,8 +150,9 @@ def security_test(profile_id: uuid.UUID, data: dict[str, Any]) -> ResponseReturn
 	with current_app.backend.postgres.get_session() as db_session:
 		profile = db_session.query(SecurityProfile).filter_by(
 			id=profile_id, user_id=current_user.id).first()
-		device = db_session.query(Inventory).filter_by(
-			id=device_id, user_id=current_user.id).first()
+		device = db_session.get(Inventory, device_id)
+		if device and not can_edit_device(device, current_user):
+			device = None            # the edit rule: owners, admins on global devices
 		if not profile or not device:
 			return err("Profile or device not found", 404)
 		if not inputs.tcp_reachable(device.ip, device.port):

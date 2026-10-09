@@ -479,8 +479,9 @@ def inventory_bulk_assign() -> ResponseReturnValue:
 			except (ValueError, TypeError):
 				skipped += 1
 				continue
-			device = db_session.query(Inventory).filter_by(
-				id=parsed_device_id, user_id=current_user.id).first()
+			device = db_session.get(Inventory, parsed_device_id)
+			if device and not can_edit_device(device, current_user):
+				device = None        # the edit rule: owners, admins on global devices
 			if device and device.is_global and not parsed_profile_id:
 				# same rule as create/edit: a global device must keep a
 				# profile — other users can't give it one

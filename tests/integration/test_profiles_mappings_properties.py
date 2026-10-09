@@ -133,6 +133,22 @@ def test_connection_test(client_for, make_user, make_profile, make_device,
 	assert resp.status_code == expected
 
 
+def test_connection_test_follows_the_edit_rule(client_for, make_user, make_profile,
+                                               make_device):
+	"""An admin tests their profile against another admin's global device (a device they
+	may edit; it was "not found"); an operator can't test against a global device."""
+	owner, admin, operator = make_user(role="admin"), make_user(role="admin"), make_user()
+	glob = make_device(owner, ip="10.0.0.1", profile_id=make_profile(owner), is_global=True)
+	with patch("src.rollout.inputs.tcp_reachable", return_value=True), \
+			patch("src.webapp.blueprints.security.ConnectHandler", return_value=MagicMock()):
+		mine = client_for(admin).post(f"/security/{make_profile(admin)}/test",
+		                              json={"device_id": str(glob)})
+		op = client_for(operator).post(f"/security/{make_profile(operator)}/test",
+		                               json={"device_id": str(glob)})
+	assert mine.status_code == 200
+	assert op.status_code == 404
+
+
 # ── Variable mappings ────────────────────────────────────────────────────────
 
 def mappings_of(session_scope, user):
