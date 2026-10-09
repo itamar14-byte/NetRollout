@@ -23,6 +23,7 @@ from sqlalchemy.exc import OperationalError, SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from src import runtime
+from src.audit import AuditTrail
 from src.db.install import install, install_extras
 from src.db.settings import SettingsStore
 from src.db.tables import SecurityProfile, LDAPServer, User
@@ -360,6 +361,12 @@ class BackendServices:
 		"""The System Settings - their connection looked up per call, so a
 		database move is followed."""
 		return SettingsStore(lambda: self.postgres)
+
+	@cached_property
+	def audit_trail(self) -> AuditTrail:
+		"""The audit log's writer - its connection looked up per row, so a
+		database move is followed."""
+		return AuditTrail(lambda: self.postgres)
 
 	def health(self) -> dict[str, bool]:
 		""":returns: {"POSTGRES": up, "REDIS": up} - each asked now, a failure

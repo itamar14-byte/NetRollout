@@ -1,8 +1,19 @@
-"""The audit log's vocabulary: every action an audit row can record. The
-values are what the audit_log table, the admin's audit page and analytics,
-the tests and Grafana's dashboards see - never change one; add a member for
-a new action."""
+"""The audit log: its vocabulary (AuditAction - every action a row can
+record; the values are what the audit_log table, the admin's audit page and
+analytics, the tests and Grafana's dashboards see - never change one; add a
+member for a new action), who did it (Actor) and writing a row (AuditTrail)."""
+from __future__ import annotations
+
+import uuid
+from collections.abc import Callable
+from dataclasses import dataclass
 from enum import StrEnum
+from typing import TYPE_CHECKING, Any
+
+from src.db.tables import AuditLog
+
+if TYPE_CHECKING:   # annotations only: connections imports this module
+	from src.db.connections import PostgresConnection
 
 
 class AuditAction(StrEnum):
@@ -82,3 +93,47 @@ class AuditAction(StrEnum):
 	DATABASE_MOVED = "database.moved"
 	DATABASE_MOVE_FAILED = "database.move_failed"
 	DATABASE_MOVE_CANCELLED = "database.move_cancelled"
+
+
+@dataclass(frozen=True)
+class Actor:
+	"""Who an audit row names: a user (id, name as shown or typed), or the
+	server itself (Actor.system), and the address the request came from."""
+	user_id: uuid.UUID | None
+	username: str
+	ip: str | None = None
+
+	@classmethod
+	def system(cls, name: str) -> Actor:
+		""":param name: what acted - "scheduler", ... (no user, no request)"""
+		return cls(None, name)
+
+
+class AuditTrail:
+	"""Writes the append-only audit rows - each in its own session, so it
+	commits whatever the caller's transaction does. `postgres` returns the
+	connection in use now (a database move is followed)."""
+
+	def __init__(self, postgres: Callable[[], PostgresConnection]) -> None:
+		""":param postgres: returns the connection in use now"""
+		self._postgres = postgres
+
+	def record(self, actor: Actor, action: AuditAction, *, object_type: str | None = None,
+	           object_id: uuid.UUID | str | None = None, object_label: str | None = None,
+	           detail: dict[str, Any] | None = None, success: bool = True) -> None:
+		"""One row, committed now.
+
+		:param action: what happened (its value is the row's action)
+		:raises sqlalchemy.exc.SQLAlchemyError: it couldn't be written"""
+		with self._postgres().get_session() as db_session:
+			db_session.add(AuditLog(
+				actor_id=actor.user_id,
+				actor_username=actor.username,
+				action=action,
+				object_type=object_type,
+				object_id=object_id,
+				object_label=object_label,
+				success=success,
+				ip_address=actor.ip,
+				detail=detail,
+			))

@@ -39,10 +39,9 @@ from flask import Response, g, render_template, request
 from flask.typing import ResponseReturnValue
 from sqlalchemy import make_url
 
-from src.audit import AuditAction
+from src.audit import Actor, AuditAction
 from src.db import move
 from src.db.connections import PostgresConfig
-from src.db.tables import AuditLog
 from src.webapp.app import NetRolloutApp, current_app
 from src.webapp.http import Caller, err
 if TYPE_CHECKING:   # annotations only: the orchestrator loads the database stack
@@ -141,11 +140,9 @@ class DatabaseMove:
 		                "target": describe(target), "actor": actor,
 		                "started": _now(), "deadline": time.time() + self._wait}
 		try:   # never stops the move (maintenance has begun): a failure is printed
-			with backend.postgres.get_session() as session:
-				session.add(AuditLog(
-					actor_id=actor_id, actor_username=actor, action=AuditAction.DATABASE_MOVE_STARTED,
-					object_type="database", object_label=describe(target),
-					detail={"back": back}))
+			backend.audit_trail.record(Actor(actor_id, actor), AuditAction.DATABASE_MOVE_STARTED,
+			                           object_type="database", object_label=describe(target),
+			                           detail={"back": back})
 		except Exception as e:                    # noqa: BLE001
 			print(f"[NetRollout] database move: start not audited ({e})", flush=True)
 		threading.Thread(target=self._run, args=(target, actor_id, actor),
@@ -213,13 +210,12 @@ class DatabaseMove:
 		"""A move that didn't happen, in the audit log of the database
 		NetRollout stays on (never stops: a failure to audit is printed)."""
 		try:
-			with self._app.backend.postgres.get_session() as session:
-				session.add(AuditLog(
-					actor_id=actor_id, actor_username=actor,
-					action=AuditAction.DATABASE_MOVE_CANCELLED if outcome == MoveState.CANCELLED
-					else AuditAction.DATABASE_MOVE_FAILED, object_type="database",
-					object_label=self._status.get("target"), success=False,
-					detail={"from": self._status.get("source"), "message": message}))
+			self._app.backend.audit_trail.record(
+				Actor(actor_id, actor),
+				AuditAction.DATABASE_MOVE_CANCELLED if outcome == MoveState.CANCELLED
+				else AuditAction.DATABASE_MOVE_FAILED, object_type="database",
+				object_label=self._status.get("target"), success=False,
+				detail={"from": self._status.get("source"), "message": message})
 		except Exception as e:                    # noqa: BLE001
 			print(f"[NetRollout] database move: not audited ({e})", flush=True)
 

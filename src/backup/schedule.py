@@ -18,11 +18,10 @@ from pathlib import Path
 from typing import Any
 
 from src import runtime
-from src.audit import AuditAction
+from src.audit import Actor, AuditAction
 from src.backup import archive
 from src.db.connections import BackendServices
 from src.db.settings import BackupSchedule, Weekday
-from src.db.tables import AuditLog
 
 
 CHECK_SECONDS = 30
@@ -105,11 +104,9 @@ def read_status(folder: Path | None = None) -> dict[str, Any] | None:
 
 def system_audit(backend: BackendServices, action: AuditAction, *, label: str | None = None,
                  success: bool = True, detail: dict[str, Any] | None = None) -> None:
-	"""An audit row from the server itself (no request, no user)."""
-	with backend.postgres.get_session() as db_session:
-		db_session.add(AuditLog(actor_username=ACTOR, action=action,
-		                        object_type="backup", object_label=label,
-		                        success=success, detail=detail))
+	"""A backup's audit row from the server itself (no request, no user)."""
+	backend.audit_trail.record(Actor.system(ACTOR), action, object_type="backup",
+	                           object_label=label, success=success, detail=detail)
 
 
 # ── Running ──────────────────────────────────────────────────────────────────
