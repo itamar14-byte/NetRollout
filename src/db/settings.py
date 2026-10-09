@@ -18,9 +18,10 @@ import operator
 import os
 import re
 import uuid
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, ClassVar
 
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -59,33 +60,22 @@ class Weekday(StrEnum):
 
 
 @dataclass(frozen=True)
-class Setting:
-	"""One System Setting: its type and rules, what the page says about it,
-	when a change applies and what a new install starts with."""
+class Setting(ABC):
+	"""One System Setting: its rules (the kind: IntSetting, TextSetting,
+	ChoiceSetting), what the page says about it, when a change applies and
+	what a new install starts with."""
+	kind: ClassVar[type]        # the value's type, as the page names it
 	key: str
 	label: str
 	help: str
 	card: str
-	default: int | str | None
-	kind: type = int
-	minimum: int | None = None
-	maximum: int | None = None
+	default: Value | None
 	applies: str = "immediately"
 	env: str | None = None      # install-time value: seeds a new row only
 	sql: bool = False           # also read inside Postgres (the retention statements)
 	editable: bool = True
-	# str settings: a regex both sides use (Python here, the input's
-	# `pattern` attribute on the page) and what to say when it doesn't match
-	pattern: str | None = None
-	pattern_hint: str = ""
-	placeholder: str = ""
-	max_length: int | None = None
-	required: bool = False      # str settings: empty isn't a value
-	lowercase: bool = False     # str settings: kept lowercase (a DNS name)
-	# str settings: a fixed list, ((value, what the page shows), ...) — a
-	# dropdown on the page
-	choices: tuple[tuple[str, str], ...] | None = None
 
+	@abstractmethod
 	def parse(self, raw: object) -> Value:
 		"""Raw input made a valid value.
 
@@ -94,55 +84,25 @@ class Setting:
 		:returns: the value, of the setting's kind
 		:raises ValueError: why not, as the page shows it after the label
 		 ("must be at least 1")"""
-		if self.choices:
-			choice = "" if raw is None else str(raw).strip()
-			if choice not in (c[0] for c in self.choices):
-				raise ValueError("must be one of: " +
-				                 ", ".join(label for _, label in self.choices))
-			return choice
-		if self.kind is int:
-			if isinstance(raw, bool):      # JSON true is an int to Python
-				raise ValueError("must be a whole number")
-			try:
-				number = int(str(raw).strip())
-			except (TypeError, ValueError):
-				raise ValueError("must be a whole number") from None
-			if self.minimum is not None and number < self.minimum:
-				raise ValueError(f"must be at least {self.minimum}")
-			if self.maximum is not None and number > self.maximum:
-				raise ValueError(f"must be at most {self.maximum}")
-			return number
-		text = "" if raw is None else str(raw).strip()
-		if self.lowercase:
-			text = text.lower()
-		if self.required and not text:
-			raise ValueError("is required")
-		if self.max_length is not None and len(text) > self.max_length:
-			raise ValueError(f"must be at most {self.max_length} characters")
-		if text and self.pattern and not re.fullmatch(self.pattern, text):
-			raise ValueError(self.pattern_hint or "has an invalid format")
-		return text
 
 	def coerce(self, stored: object) -> tuple[Value | None, str | None]:
 		"""A stored value made usable. Never raises - reading a setting must
 		not crash.
 
 		:param stored: the row's value
-		:returns: (value, problem): out of range -> the nearest valid value (a
-		 range tightened in a release); unreadable -> the default; problem is
-		 None when the stored value was fine, else what was wrong, for the log"""
+		:returns: (value, problem): unreadable -> the default; problem is None
+		 when the stored value was fine, else what was wrong, for the log"""
 		try:
 			return self.parse(stored), None
 		except ValueError as e:
-			if self.kind is int:
-				try:
-					n = int(str(stored).strip())
-					lo = self.minimum if self.minimum is not None else n
-					hi = self.maximum if self.maximum is not None else n
-					return min(max(n, lo), hi), f"{stored!r} {e}"
-				except (TypeError, ValueError):
-					pass
 			return self.default, f"{stored!r} {e}"
+
+	def page_fields(self) -> dict[str, object]:
+		"""What the page's input needs besides the value - every key for every
+		kind (the template reads them all), empty where it doesn't apply."""
+		return {"minimum": None, "maximum": None, "pattern": None, "pattern_hint": "",
+		        "placeholder": "", "max_length": None, "required": False,
+		        "choices": None}
 
 	def seed_value(self) -> Value | None:
 		"""Value for a new row: the install-time env value if valid, else the
@@ -156,46 +116,141 @@ class Setting:
 		return self.default
 
 
+@dataclass(frozen=True)
+class IntSetting(Setting):
+	"""A whole number within an optional range."""
+	kind: ClassVar[type] = int
+	minimum: int | None = None
+	maximum: int | None = None
+
+	def parse(self, raw: object) -> int:
+		if isinstance(raw, bool):      # JSON true is an int to Python
+			raise ValueError("must be a whole number")
+		try:
+			number = int(str(raw).strip())
+		except (TypeError, ValueError):
+			raise ValueError("must be a whole number") from None
+		if self.minimum is not None and number < self.minimum:
+			raise ValueError(f"must be at least {self.minimum}")
+		if self.maximum is not None and number > self.maximum:
+			raise ValueError(f"must be at most {self.maximum}")
+		return number
+
+	def coerce(self, stored: object) -> tuple[Value | None, str | None]:
+		"""As Setting.coerce, but a number out of range becomes the nearest
+		valid one (a range tightened in a release)."""
+		try:
+			return self.parse(stored), None
+		except ValueError as e:
+			try:
+				n = int(str(stored).strip())
+				lo = self.minimum if self.minimum is not None else n
+				hi = self.maximum if self.maximum is not None else n
+				return min(max(n, lo), hi), f"{stored!r} {e}"
+			except (TypeError, ValueError):
+				return self.default, f"{stored!r} {e}"
+
+	def page_fields(self) -> dict[str, object]:
+		return {**super().page_fields(), "minimum": self.minimum, "maximum": self.maximum}
+
+	def sql_value(self) -> str:
+		"""SQL expression for the setting, for statements that run inside
+		Postgres. The row always exists after seeding; the COALESCE is only a
+		safety net if seeding failed."""
+		assert self.sql and isinstance(self.default, int)
+		return (f"COALESCE((SELECT (value #>> '{{}}')::int FROM system_settings "
+		        f"WHERE key = '{self.key}'), {self.default})")
+
+
+@dataclass(frozen=True)
+class TextSetting(Setting):
+	"""Text, trimmed: optionally required, lowercase, of a format (a regex
+	both sides use - Python here, the input's `pattern` attribute on the
+	page - and what to say when it doesn't match) and a length."""
+	kind: ClassVar[type] = str
+	pattern: str | None = None
+	pattern_hint: str = ""
+	placeholder: str = ""
+	max_length: int | None = None
+	required: bool = False      # empty isn't a value
+	lowercase: bool = False     # kept lowercase (a DNS name)
+
+	def parse(self, raw: object) -> str:
+		text = "" if raw is None else str(raw).strip()
+		if self.lowercase:
+			text = text.lower()
+		if self.required and not text:
+			raise ValueError("is required")
+		if self.max_length is not None and len(text) > self.max_length:
+			raise ValueError(f"must be at most {self.max_length} characters")
+		if text and self.pattern and not re.fullmatch(self.pattern, text):
+			raise ValueError(self.pattern_hint or "has an invalid format")
+		return text
+
+	def page_fields(self) -> dict[str, object]:
+		return {**super().page_fields(), "pattern": self.pattern,
+		        "pattern_hint": self.pattern_hint, "placeholder": self.placeholder,
+		        "max_length": self.max_length, "required": self.required}
+
+
+@dataclass(frozen=True)
+class ChoiceSetting(Setting):
+	"""One of a fixed list, ((value, what the page shows), ...) - a dropdown
+	on the page."""
+	kind: ClassVar[type] = str
+	choices: tuple[tuple[str, str], ...] = ()
+
+	def parse(self, raw: object) -> str:
+		choice = "" if raw is None else str(raw).strip()
+		if choice not in (c[0] for c in self.choices):
+			raise ValueError("must be one of: " +
+			                 ", ".join(label for _, label in self.choices))
+		return choice
+
+	def page_fields(self) -> dict[str, object]:
+		return {**super().page_fields(), "choices": [list(c) for c in self.choices]}
+
+
 SETTINGS: dict[str, Setting] = {s.key: s for s in [
 	# ── Retention ──
-	Setting("job_retention_days", "Job records",
+	IntSetting("job_retention_days", "Job records",
 	        "A rollout's results and commands (Results, Download Log).",
 	        "Retention", 30, minimum=1, maximum=3650,
 	        applies="next nightly clean-up", sql=True),
-	Setting("config_snapshot_retention_days", "Config snapshots",
+	IntSetting("config_snapshot_retention_days", "Config snapshots",
 	        "Running configs fetched by Verify (Verify Diff). The job record "
 	        "itself is kept longer.",
 	        "Retention", 7, minimum=1, maximum=3650,
 	        applies="next nightly clean-up", sql=True),
-	Setting("audit_retention_days", "Audit log",
+	IntSetting("audit_retention_days", "Audit log",
 	        "Who did what, when (Admin → Audit).",
 	        "Retention", 90, minimum=7, maximum=3650,
 	        applies="next nightly clean-up", sql=True),
-	Setting("log_retention_days", "Log files",
+	IntSetting("log_retention_days", "Log files",
 	        "Files in the logs/ folder — browsable on the server for "
 	        "troubleshooting after the job record is gone.",
 	        "Retention", LOG_RETENTION_DAYS, minimum=1, maximum=3650,
 	        applies="next daily log clean-up"),
 	# ── Rollouts ──
-	Setting("orchestrator_workers", "Concurrent rollout jobs",
+	IntSetting("orchestrator_workers", "Concurrent rollout jobs",
 	        "How many rollouts run at the same time; more wait in the queue.",
 	        "Rollouts", 4, minimum=1, maximum=32, applies=AFTER_RESTART,
 	        env="ORCHESTRATOR_WORKERS"),
-	Setting("device_parallelism", "Devices in parallel per job",
+	IntSetting("device_parallelism", "Devices in parallel per job",
 	        "How many devices one rollout configures at the same time.",
 	        "Rollouts", 10, minimum=1, maximum=64, applies="next rollout"),
-	Setting("reachability_cache_seconds", "Reachability cache",
+	IntSetting("reachability_cache_seconds", "Reachability cache",
 	        "How long a device's up/down status is reused before it's probed "
 	        "again (seconds).",
 	        "Rollouts", 60, minimum=10, maximum=3600, applies="immediately"),
 	# ── Access ──
-	Setting("public_hostname", "Hostname",
+	TextSetting("public_hostname", "Hostname",
 	        "The name people use to open NetRollout, e.g. "
 	        "netrollout.corp.local. Other names that reach the server "
 	        "redirect to it (IP addresses are always served). The certificate "
 	        "must cover it — a self-signed one is reissued automatically. "
 	        "Empty: no canonical name.",
-	        "Access", "", kind=str, applies="immediately",
+	        "Access", "", applies="immediately",
 	        env="NETROLLOUT_PUBLIC_HOSTNAME",
 	        # DNS name or IPv4 address; no scheme, port or path
 	        pattern=r"[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
@@ -204,42 +259,42 @@ SETTINGS: dict[str, Setting] = {s.key: s for s in [
 	                     "https://, port or path",
 	        placeholder="netrollout.corp.local", max_length=253, lowercase=True),
 	# ── Sessions ──
-	Setting("session_idle_minutes", "Sign out after inactivity",
+	IntSetting("session_idle_minutes", "Sign out after inactivity",
 	        "Minutes without a click or a page change before a session ends "
 	        "(a warning comes a minute before). Background refreshes and live "
 	        "logs don't count. However active, signing in is required again "
 	        "after 12 hours.",
 	        "Sessions", 15, minimum=5, maximum=480, applies="within 30 s"),
 	# ── Backups (src/backup/schedule.py runs them) ──
-	Setting("backup_schedule", "Scheduled backup",
+	ChoiceSetting("backup_schedule", "Scheduled backup",
 	        "A backup of the database, Grafana's dashboards, the certificate "
 	        "and the rollout logs, into the backups folder on the server. "
 	        "Copy them off the server too (Download below): a backup on the "
 	        "same disk doesn't survive losing it.",
-	        "Backups", BackupSchedule.DAILY, kind=str, applies="next scheduled time",
+	        "Backups", BackupSchedule.DAILY, applies="next scheduled time",
 	        choices=((BackupSchedule.OFF, "Off"), (BackupSchedule.DAILY, "Daily"),
 	                 (BackupSchedule.WEEKLY, "Weekly"))),
-	Setting("backup_time", "At",
+	TextSetting("backup_time", "At",
 	        "The server's local time (24-hour). A time missed while the server "
 	        "was off is caught up when it's back.",
-	        "Backups", "02:00", kind=str, applies="next scheduled time",
+	        "Backups", "02:00", applies="next scheduled time",
 	        pattern=r"([01][0-9]|2[0-3]):[0-5][0-9]",
 	        pattern_hint="must be a time like 02:00 (24-hour)",
 	        placeholder="02:00", max_length=5, required=True),
-	Setting("backup_weekday", "On",
+	ChoiceSetting("backup_weekday", "On",
 	        "The day of a weekly backup.",
-	        "Backups", Weekday.SUN, kind=str, applies="next scheduled time",
+	        "Backups", Weekday.SUN, applies="next scheduled time",
 	        choices=((Weekday.MON, "Monday"), (Weekday.TUE, "Tuesday"),
 	                 (Weekday.WED, "Wednesday"), (Weekday.THU, "Thursday"),
 	                 (Weekday.FRI, "Friday"), (Weekday.SAT, "Saturday"),
 	                 (Weekday.SUN, "Sunday"))),
-	Setting("backup_keep", "Keep",
+	IntSetting("backup_keep", "Keep",
 	        "How many scheduled backups are kept; older ones are deleted. "
 	        "Backups made by hand, or before a restore or an update, stay "
 	        "until someone deletes them.",
 	        "Backups", 14, minimum=1, maximum=365,
 	        applies="next scheduled backup"),
-	Setting("https_port", "HTTPS port",
+	IntSetting("https_port", "HTTPS port",
 	        "The port people use to reach NetRollout. Saving a new one opens "
 	        "it next to the current one; open NetRollout on the new port to "
 	        "keep it — unconfirmed (e.g. a firewall blocks it), the current "
@@ -297,13 +352,12 @@ def rules_for_client() -> list[dict[str, str]]:
 
 
 def sql_value(key: str) -> str:
-	"""SQL expression for an int setting, for statements that run inside
-	Postgres. The row always exists after seeding; the COALESCE is only a
-	safety net if seeding failed."""
+	"""IntSetting.sql_value of the setting `key` (a number read by SQL).
+
+	:raises AssertionError: not an int setting read by SQL"""
 	s = SETTINGS[key]
-	assert s.sql and s.kind is int and isinstance(s.default, int)
-	return (f"COALESCE((SELECT (value #>> '{{}}')::int FROM system_settings "
-	        f"WHERE key = '{key}'), {s.default})")
+	assert isinstance(s, IntSetting)
+	return s.sql_value()
 
 
 def seed_settings(db_session: Session) -> list[str]:
@@ -401,19 +455,20 @@ class SettingsStore:
 			row = rows.get(s.key)
 			value = self._value(s, rows)
 			changed = value != s.default
+			fields = s.page_fields()
 			out.append({
 				"key": s.key, "label": s.label, "help": s.help, "card": s.card,
 				"value": value, "default": s.default, "changed": changed,
 				"from_install": changed and row is not None
 				                and row.updated_by is None,
 				"updated_at": row.updated_at if row is not None else None,
-				"minimum": s.minimum, "maximum": s.maximum,
-				"pattern": s.pattern, "pattern_hint": s.pattern_hint,
-				"placeholder": s.placeholder, "max_length": s.max_length,
-				"required": s.required,
+				"minimum": fields["minimum"], "maximum": fields["maximum"],
+				"pattern": fields["pattern"], "pattern_hint": fields["pattern_hint"],
+				"placeholder": fields["placeholder"], "max_length": fields["max_length"],
+				"required": fields["required"],
 				"applies": s.applies, "editable": s.editable,
 				"kind": s.kind.__name__,
-				"choices": [list(c) for c in s.choices] if s.choices else None,
+				"choices": fields["choices"],
 			})
 		return out
 

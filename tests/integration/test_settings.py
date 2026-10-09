@@ -4,7 +4,7 @@ import pytest
 
 from src import runtime
 from src.access.nginx import sync_at_start
-from src.db.settings import SETTINGS, Setting, SettingsError, seed_settings
+from src.db.settings import SETTINGS, IntSetting, SettingsError, seed_settings
 from src.db.tables import SystemSetting
 
 pytestmark = [pytest.mark.postgres, pytest.mark.redis]
@@ -44,7 +44,7 @@ def test_seeding_fills_every_setting_once(app, session_scope):
 def test_seeding_takes_the_install_value(monkeypatch, session_scope, app):
 	"""Seeding takes a setting's install value from its env var (shown as changed, from
 	install); after that the env var is never consulted again."""
-	monkeypatch.setitem(SETTINGS, "test_workers", Setting(
+	monkeypatch.setitem(SETTINGS, "test_workers", IntSetting(
 		"test_workers", "Workers", "help", "Rollouts", 4, minimum=1,
 		maximum=32, env="NR_TEST_WORKERS"))
 	monkeypatch.setenv("NR_TEST_WORKERS", "8")

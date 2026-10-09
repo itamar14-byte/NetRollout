@@ -3,8 +3,8 @@ coercion of stored values, seed values and the declarative rules — no
 database here (the store and seeding are tested in integration)."""
 import pytest
 
-from src.db.settings import (RULES, SETTINGS, Rule, Setting, rules_for_client,
-                             sql_value)
+from src.db.settings import (RULES, SETTINGS, IntSetting, Rule, TextSetting,
+                             rules_for_client, sql_value)
 
 
 def test_defaults_satisfy_every_rule_and_range():
@@ -75,7 +75,7 @@ def test_coerce_never_raises(stored, value, problem):
 
 def test_seed_value_prefers_a_valid_install_value(monkeypatch):
 	"""The seed value is the env var's when set and valid, else the default."""
-	s = Setting("w", "W", "help", "Rollouts", 4, minimum=1, maximum=32,
+	s = IntSetting("w", "W", "help", "Rollouts", 4, minimum=1, maximum=32,
 	            env="NR_TEST_W")
 	monkeypatch.delenv("NR_TEST_W", raising=False)
 	assert s.seed_value() == 4
@@ -139,6 +139,6 @@ def test_an_optional_str_setting_may_be_empty():
 
 def test_str_setting_parse_trims():
 	"""A str setting trims its value, and None becomes empty."""
-	s = Setting("x", "X", "help", "Access", None, kind=str)
+	s = TextSetting("x", "X", "help", "Access", None)
 	assert s.parse("  https://nr.corp  ") == "https://nr.corp"
 	assert s.parse(None) == ""
