@@ -80,6 +80,16 @@ namespace NetRollout
 				using (var exitHelper = new EventWaitHandle(false, EventResetMode.AutoReset, name + ".Helper.Exit"))
 				{
 					if (!first) return 0;     // running already
+					// headless: an error goes to its log, never .NET's dialog
+					Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+					Application.ThreadException += delegate (object s, ThreadExceptionEventArgs e)
+					{
+						PortHelper.Log("port helper: " + e.Exception.GetType().Name + ": " + e.Exception.Message);
+					};
+					AppDomain.CurrentDomain.UnhandledException += delegate (object s, UnhandledExceptionEventArgs e)
+					{
+						PortHelper.Log("port helper stopped: " + e.ExceptionObject);
+					};
 					Application.Run(new PortHelper(exitHelper));
 				}
 				return 0;

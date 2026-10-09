@@ -147,8 +147,17 @@ def unpack(zip_path: Path, dest: Path) -> tuple[Path, str]:
 	:raises ReleaseError: not a NetRollout release, or it doesn't match"""
 	sums = zip_path.parent / "SHA256SUMS"
 	if sums.exists():
-		expected = expected_sum(sums.read_text(encoding="utf-8"), zip_path.name)
-		if expected and hashlib.sha256(zip_path.read_bytes()).hexdigest() != expected:
+		listed = sums.read_text(encoding="utf-8")
+		expected = expected_sum(listed, zip_path.name)
+		if not expected:
+			# a renamed zip would otherwise go unchecked
+			names = sorted({m.group(1) for m in re.finditer(
+				r"^[0-9a-fA-F]{64}\s+\*?(netrollout-\S+-linux\.zip)\s*$", listed, re.M)})
+			back = (f"rename it back to {' or '.join(names)}" if names
+			        else f"rename it back to its release name ({zip_name('<version>')})")
+			raise ReleaseError(f"{zip_path.name} isn't listed in the SHA256SUMS next to it, "
+			                   f"so it can't be checked - if it was renamed, {back}.")
+		if hashlib.sha256(zip_path.read_bytes()).hexdigest() != expected:
 			raise ReleaseError(f"{zip_path.name} doesn't match the SHA256SUMS next "
 			                   f"to it - the file is damaged or was altered.")
 	try:
