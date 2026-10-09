@@ -16,8 +16,7 @@ from sqlalchemy.orm import Session
 from src.accounts.users import Viewer
 from src.audit import Actor, AuditAction, AuditTrail
 from src.db.connections import BackendServices
-from src.db.tables import Base, SecurityProfile
-from src.encryption import encrypt
+from src.db.tables import Base
 from src.inventory import ReachabilityChecker
 from src.webapp.app import current_app
 
@@ -289,26 +288,4 @@ class WebServices:
 
 		return func
 
-	def build_security_profile(self, label: str | None, username: str, password: str,
-	                           enable_secret: str | None,
-	                           user_id: uuid.UUID) -> str:
-		"""Save a security profile (its secrets encrypted) and audit it.
-
-		:param label: its name; None: shown by its username
-		:returns: its id"""
-		profile = SecurityProfile(
-			label=label,
-			username=username,
-			password_secret=encrypt(password),
-			enable_secret=encrypt(
-				enable_secret) if enable_secret else None,
-			user_id=user_id
-		)
-		with self.backend.postgres.get_session() as db_session:
-			db_session.add(profile)
-			db_session.flush()
-			profile_id = str(profile.id)
-		self.audit(AuditAction.SECURITY_PROFILE_CREATE, object_type="SecurityProfile",
-		           object_label=label or username)
-		return profile_id
 

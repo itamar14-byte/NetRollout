@@ -11,9 +11,8 @@ from flask.typing import ResponseReturnValue
 from flask_login import current_user, login_required
 
 from src.audit import AuditAction
-from src.db.tables import SecurityProfile
-from src.inventory import (DeviceFields, InventoryView, RuleRefused, form_values, import_csv,
-                           partition_devices)
+from src.inventory import (DeviceFields, InventoryView, RuleRefused, SecurityProfiles,
+                           form_values, import_csv, partition_devices)
 from src.rollout import inputs
 from src.rollout.engine import endpoint
 from src.rollout.inputs import InputParser, Validator
@@ -380,8 +379,7 @@ def inventory_bulk_assign() -> ResponseReturnValue:
 	with current_app.backend.postgres.get_session() as db_session:
 		view = InventoryView(db_session, viewer())
 		if parsed_profile_id:
-			profile = db_session.query(SecurityProfile).filter_by(
-				id=parsed_profile_id, user_id=current_user.id).first()
+			profile = SecurityProfiles(db_session, viewer()).owned(parsed_profile_id)
 			if not profile:
 				logger.notify("Bulk assign failed: profile not found", Tone.ERROR,
 				              important=True)

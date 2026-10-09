@@ -1,18 +1,17 @@
 """Security profiles: the credentials devices are reached with (stored
-encrypted) - create, edit, delete, and test one against a device."""
+encrypted: SecurityProfiles in src/inventory.py) - create, edit, delete, and
+test one against a device."""
 import uuid
 from typing import Any
 
 from flask import Blueprint, render_template, request, flash, redirect, url_for
 from flask.typing import ResponseReturnValue
-from flask_login import current_user, login_required
+from flask_login import login_required
 from netmiko import NetmikoAuthenticationException, NetmikoTimeoutException
-from sqlalchemy.orm import Session
 
 from src.audit import AuditAction
-from src.db.tables import SecurityProfile
-from src.encryption import encrypt, decrypt
-from src.inventory import InventoryView
+from src.encryption import decrypt
+from src.inventory import InventoryView, SecurityProfiles
 from src.rollout import inputs
 from src.rollout.engine import Device
 from src.rollout.session import NetmikoSession
@@ -21,6 +20,23 @@ from src.webapp.hooks import signed_in_user
 from src.webapp.http import ok, err, with_json, with_form, flash_redirect, viewer
 
 bp = Blueprint('security', __name__, url_prefix='/security')
+
+
+def create_profile(label: str | None, username: str, password: str,
+                   enable_secret: str | None) -> str:
+	"""Save a new profile of the signed-in user's (SecurityProfiles.create)
+	and audit it.
+
+	:param label: its name; None: shown by its username
+	:returns: its id"""
+	with current_app.backend.postgres.get_session() as db_session:
+		profile = SecurityProfiles(db_session, viewer()).create(label, username, password,
+		                                                        enable_secret)
+		db_session.flush()
+		profile_id = str(profile.id)
+	current_app.web.audit(AuditAction.SECURITY_PROFILE_CREATE, object_type="SecurityProfile",
+	                      object_label=label or username)
+	return profile_id
 
 
 @bp.route("")
@@ -51,8 +67,7 @@ def security_create(data: Any) -> ResponseReturnValue:
 	password = data.get("password", "").strip()
 	enable_secret = data.get("enable_secret", "").strip() or None
 
-	current_app.web.build_security_profile(label, username, password,
-	                                       enable_secret, current_user.id)
+	create_profile(label, username, password, enable_secret)
 	flash("Security profile created.", "success")
 	return redirect(url_for("security.security"))
 
@@ -71,10 +86,7 @@ def security_quick_create(data: dict[str, Any]) -> ResponseReturnValue:
 	if not username or not password:
 		return err("Username and password are required", 422)
 
-	profile_id = current_app.web.build_security_profile(label, username,
-	                                                    password,
-	                                                    enable_secret,
-	                                                    current_user.id)
+	profile_id = create_profile(label, username, password, enable_secret)
 	return ok(id=profile_id, label=label or username)
 
 
@@ -82,53 +94,42 @@ def security_quick_create(data: dict[str, Any]) -> ResponseReturnValue:
 @login_required
 def security_edit(profile_id: uuid.UUID) -> ResponseReturnValue:
 	"""Change a profile: an empty password or secret keeps the stored one;
-	clear_enable_secret removes the secret."""
-	def _edit(profile: SecurityProfile, _: Session) -> ResponseReturnValue:
-		profile.label = request.form.get("label", "").strip() or None
-		profile.username = request.form["username"]
-		new_password = request.form.get("password", "").strip()
-		if new_password:
-			profile.password_secret = encrypt(new_password)
-		new_secret = request.form.get("enable_secret", "").strip()
-		if new_secret:
-			profile.enable_secret = encrypt(new_secret)
-		elif request.form.get("clear_enable_secret"):
-			profile.enable_secret = None
-		current_app.web.audit(AuditAction.SECURITY_PROFILE_EDIT,
-		                      object_type="SecurityProfile",
-		                      object_id=profile_id)
-		return flash_redirect("Security profile updated.", "security.security")
-
-	return current_app.web.act_on_db_obj(SecurityProfile, profile_id, _edit,
-	                                     user_id=current_user.id,
-	                                     on_missing=lambda: redirect(
-		                                     url_for("security.security")))
+	clear_enable_secret removes the secret (SecurityProfiles.update)."""
+	with current_app.backend.postgres.get_session() as db_session:
+		profiles = SecurityProfiles(db_session, viewer())
+		profile = profiles.owned(profile_id)
+		if profile is None:
+			return redirect(url_for("security.security"))
+		profiles.update(profile,
+		                label=request.form.get("label", "").strip() or None,
+		                username=request.form["username"],
+		                password=request.form.get("password", "").strip(),
+		                enable_secret=request.form.get("enable_secret", "").strip(),
+		                clear_enable_secret=bool(request.form.get("clear_enable_secret")))
+	current_app.web.audit(AuditAction.SECURITY_PROFILE_EDIT,
+	                      object_type="SecurityProfile",
+	                      object_id=profile_id)
+	return flash_redirect("Security profile updated.", "security.security")
 
 
 @bp.route("/<uuid:profile_id>/delete", methods=["POST"])
 @login_required
 def security_delete(profile_id: uuid.UUID) -> ResponseReturnValue:
 	"""Delete a profile - refused while devices use it."""
-	def _guard(p: SecurityProfile) -> ResponseReturnValue | None:
-		if p.inventory:
+	with current_app.backend.postgres.get_session() as db_session:
+		profile = SecurityProfiles(db_session, viewer()).owned(profile_id)
+		if profile is None:
+			return redirect(url_for("security.security"))
+		label = profile.label or profile.username
+		if profile.inventory:
 			return flash_redirect(
-				f"Cannot delete '{p.label or p.username}' — "
-				f"{len(p.inventory)} device(s) assigned. "
-				f"Delete or reassign them first.",
+				f"Cannot delete '{label}' — {len(profile.inventory)} device(s) "
+				f"assigned. Delete or reassign them first.",
 				"security.security", "danger")
-		return None
-
-	return current_app.web.act_on_db_obj(
-		SecurityProfile, profile_id,
-		current_app.web.delete_op(AuditAction.SECURITY_PROFILE_DELETE,
-		                          data_filter=_guard,
-		                          label_func=lambda p: p.label or p.username,
-		                          on_success=lambda _: flash_redirect(
-			                          "Profile deleted.",
-			                          "security.security")),
-		user_id=current_user.id,
-		on_missing=lambda: redirect(url_for("security.security"))
-	)
+		db_session.delete(profile)
+	current_app.web.audit(AuditAction.SECURITY_PROFILE_DELETE, object_type="SecurityProfile",
+	                      object_id=profile_id, object_label=label)
+	return flash_redirect("Profile deleted.", "security.security")
 
 
 @bp.route("/<uuid:profile_id>/test", methods=["POST"])
@@ -149,8 +150,7 @@ def security_test(profile_id: uuid.UUID, data: dict[str, Any]) -> ResponseReturn
 		return err("Invalid device ID", 422)
 
 	with current_app.backend.postgres.get_session() as db_session:
-		profile = db_session.query(SecurityProfile).filter_by(
-			id=profile_id, user_id=current_user.id).first()
+		profile = SecurityProfiles(db_session, viewer()).owned(profile_id)
 		# the edit rule: owners, admins on global devices
 		device = InventoryView(db_session, viewer()).get_editable(device_id)
 		if not profile or not device:

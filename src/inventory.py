@@ -602,6 +602,51 @@ class InventoryView:
 		return True
 
 
+class SecurityProfiles:
+	"""The viewer's security profiles: the credentials devices are reached
+	with - their secrets are encrypted here, in one place. Every method works
+	in the caller's session; the caller commits."""
+
+	def __init__(self, session: Session, viewer: Viewer) -> None:
+		self.session = session
+		self.viewer = viewer
+
+	def create(self, label: str | None, username: str, password: str,
+	           enable_secret: str | None) -> SecurityProfile:
+		"""A new profile of the viewer's, added to the session (not flushed:
+		no id yet).
+
+		:param label: its name; None: shown by its username
+		:param enable_secret: None or "": none"""
+		profile = SecurityProfile(
+			label=label, username=username,
+			password_secret=encrypt(password),
+			enable_secret=encrypt(enable_secret) if enable_secret else None,
+			user_id=self.viewer.id)
+		self.session.add(profile)
+		return profile
+
+	def owned(self, profile_id: uuid.UUID) -> SecurityProfile | None:
+		""":returns: the viewer's profile; None when there's none - or it's
+		 another user's (the same answer)"""
+		return self.session.query(SecurityProfile).filter_by(
+			id=profile_id, user_id=self.viewer.id).first()
+
+	def update(self, profile: SecurityProfile, *, label: str | None, username: str,
+	           password: str, enable_secret: str, clear_enable_secret: bool) -> None:
+		"""Change a profile: an empty password or enable secret keeps the
+		stored one; clear_enable_secret removes the secret (a new one given
+		with it wins)."""
+		profile.label = label
+		profile.username = username
+		if password:
+			profile.password_secret = encrypt(password)
+		if enable_secret:
+			profile.enable_secret = encrypt(enable_secret)
+		elif clear_enable_secret:
+			profile.enable_secret = None
+
+
 # ── the CSV import ──────────────────────────────────────────────────────────
 
 @dataclass
@@ -667,7 +712,7 @@ class _ProfileResolver:
 	the same exposure as a rollout; nothing is logged or stored in clear."""
 
 	def __init__(self, user_id: uuid.UUID, db_session: Session):
-		self._user_id, self._db = user_id, db_session
+		self._profiles = SecurityProfiles(db_session, Viewer(user_id))
 		self._known: list[tuple[tuple[str, str, str], SecurityProfile]] = []
 		for p in db_session.query(SecurityProfile).filter_by(user_id=user_id):
 			secret = decrypt(p.enable_secret) if p.enable_secret else ""
@@ -713,12 +758,7 @@ class _ProfileResolver:
 		another of the user's profiles has the same username."""
 		username, password, secret = creds
 		label = self._unique_label(username)
-		profile = SecurityProfile(
-			label=label, username=username,
-			password_secret=encrypt(password),
-			enable_secret=encrypt(secret) if secret else None,
-			user_id=self._user_id)
-		self._db.add(profile)
+		profile = self._profiles.create(label, username, password, secret)
 		# Same username, different credentials: a typo or an old password in
 		# the CSV is the likely cause, so say so instead of hiding it
 		for (other_user, other_pw, _), other in self._known:
