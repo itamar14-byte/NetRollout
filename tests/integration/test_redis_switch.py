@@ -8,7 +8,7 @@ import redis as redis_lib
 from dotenv import dotenv_values
 
 from src.db.connections import BUNDLED_REDIS_KEY
-from src.jobs import JobStore
+from src.jobs import JobStore, RolloutJob
 from tests.integration.conftest import REDIS_OTHER_DB
 
 pytestmark = [pytest.mark.postgres, pytest.mark.redis]
@@ -48,6 +48,8 @@ class StubJob:
 	def __init__(self, user_id):
 		self.job_id, self.user_id, self.started_at = uuid.uuid4(), user_id, None
 		self.begun = threading.Event()
+
+	claim = RolloutJob.claim   # the real one: the dispatcher claims through the job
 
 	def start(self, cleanup):
 		self.begun.set()

@@ -34,7 +34,6 @@ from collections.abc import Iterator, Sequence
 from enum import StrEnum
 from typing import Any, cast, Callable
 
-import redis
 from sqlalchemy import ColumnElement, and_, func, not_
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -43,7 +42,7 @@ from src.db.connections import (BackendServices, PostgresConnection, REDIS_UNAVA
                                 load_config)
 from src.db.tables import DeviceResult, JobMetadata, User
 from src.rollout.engine import RolloutEngine, RolloutOptions, Device, DeviceResultDict, DeviceStatus
-from src.rollout.log import RolloutLogger, Tone, live_log_keys
+from src.rollout.log import KeyValueStore, RolloutLogger, Tone, live_log_keys
 
 
 QUEUE = "netrollout:job_queue"
@@ -80,13 +79,13 @@ def _text(value: Any) -> str:
 class JobStore:
 	"""The rollout job keys in Redis (see the module's docstring)."""
 
-	def __init__(self, redis_service: "RedisConnection") -> None:
+	def __init__(self, redis_service: RedisConnection) -> None:
 		""":param redis_service: the app's Redis - the service, not its client: a
 		 Redis switch replaces the client, and every call must use the current one"""
 		self._redis = redis_service
 
 	@property
-	def _client(self) -> redis.Redis:
+	def _client(self) -> KeyValueStore:
 		return self._redis.client
 
 	# ── written by the orchestrator ──
@@ -271,11 +270,12 @@ class Paused(Draining):
 
 
 class RolloutJob:
-	"""One rollout: its engine, its log, its thread, its results."""
+	"""One rollout: its engine, its log (and live log), its thread, its
+	results."""
 
 	def __init__(self, job_id: uuid.UUID, user_id: uuid.UUID,
 	             engine: RolloutEngine, options: RolloutOptions,
-	             redis_client: redis.Redis | None = None) -> None:
+	             redis_client: KeyValueStore | None = None) -> None:
 		""":param user_id: who started it
 		:param engine: what it runs (devices, commands, options)
 		:param options: how it logs (web page / console, verbose)
@@ -288,8 +288,21 @@ class RolloutJob:
 		self._logger = RolloutLogger(options.webapp, options.verbose,
 		                             job_id=str(job_id), prefix="rollout",
 		                             redis_client=redis_client)
+		self._live_log = self._logger.live_log
 		self._cancel_flag = threading.Event()
 		self._thread: threading.Thread | None = None
+
+	def claim(self) -> bool:
+		"""Take this job while it's queued, for whoever calls (the dispatcher
+		to start it, a cancel or the drain to record it) - each job is claimed
+		once (started_at set); a claimed job counts as running until it is
+		finalised. Called under the orchestrator's lock.
+
+		:returns: whether it was queued (now claimed by the caller)"""
+		if self.started_at is not None:
+			return False
+		self.started_at = datetime.datetime.now()
+		return True
 
 	def start(self, on_complete: Callable[[uuid.UUID], None]) -> None:
 		"""Run the rollout in its own thread.
@@ -329,18 +342,86 @@ class RolloutJob:
 		return self._thread is not None and not self._thread.is_alive()
 
 	def follow_log(self, over: Callable[[], bool]) -> Iterator[str | None]:
-		"""Its live log for the page's stream (RolloutLogger.follow).
+		"""Its live log for the page's stream (LiveLog.follow); nothing
+		without one.
 
 		:param over: whether it has ended, asked while nothing comes"""
-		return self._logger.follow(over)
+		return self._live_log.follow(over) if self._live_log else iter(())
 
 	def log_cleanup(self) -> None:
 		"""End its live log (readers get "done"; the keys go)."""
-		return self._logger.redis_cleanup()
+		if self._live_log:
+			self._live_log.close()
 
 	def get_device_count(self) -> int:
 		""":returns: how many devices it targets"""
 		return self._engine.device_count
+
+
+class ResultRecorder:
+	"""Finished jobs' results into Postgres - retried, and if that keeps
+	failing into a JSON file in logs/ (ACTION NEEDED on the console): never
+	dropped. Counts the saves under way (busy()): a database move and a stop
+	wait for them."""
+
+	def __init__(self, postgres: PostgresConnection) -> None:
+		""":param postgres: where the results go (the service: a database move
+		 replaces its engine, not the service)"""
+		self._postgres = postgres
+		self._lock = threading.Lock()
+		self._saving = 0
+
+	def begin(self) -> None:
+		"""A save is coming (busy() from now): called by the orchestrator
+		under its lock, in the step that takes the job out of its table - so
+		a job is never neither there nor being saved (idle())."""
+		with self._lock:
+			self._saving += 1
+
+	def busy(self) -> bool:
+		""":returns: whether a finished job is still writing its results"""
+		with self._lock:
+			return self._saving > 0
+
+	def save(self, job: RolloutJob) -> None:
+		"""Write the job's results (the save begin() announced); no longer
+		busy for it afterwards, however it went."""
+		try:
+			self._write(job)
+		finally:
+			with self._lock:
+				self._saving -= 1
+
+	def _write(self, job: RolloutJob) -> None:
+		"""Into Postgres, retried; if that keeps failing, into a JSON file in
+		logs/ (ACTION NEEDED on the console) — never dropped."""
+		completed_at = datetime.datetime.now()
+		error = None
+		for attempt in range(_SAVE_TRIES):
+			if attempt:
+				time.sleep(_SAVE_RETRY_WAIT)
+			try:
+				with self._postgres.get_session() as db_session:
+					for result in job.results:
+						db_session.add(DeviceResult(
+							**result, user_id=job.user_id, job_id=job.job_id,
+							started_at=job.started_at, completed_at=completed_at))
+				return
+			except Exception as e:     # noqa: BLE001 — any failure: keep them
+				error = e
+		path = runtime.logs_dir() / f"unsaved-results-{job.job_id}.json"
+		try:   # the last resort: nothing here may raise
+			path.parent.mkdir(parents=True, exist_ok=True)
+			path.write_text(json.dumps({
+				"job_id": job.job_id, "user_id": job.user_id,
+				"started_at": job.started_at, "completed_at": completed_at,
+				"results": job.results}, indent=1, default=str), encoding="utf-8")
+			where = f"saved to {path}"
+		except Exception as e:     # noqa: BLE001
+			where = f"and couldn't be written to {path} either ({e})"
+		print(f"[NetRollout] ACTION NEEDED — rollout {job.job_id}: its results "
+		      f"couldn't be saved to the database ({error}); {where}",
+		      flush=True)
 
 
 class RolloutOrchestrator:
@@ -360,7 +441,7 @@ class RolloutOrchestrator:
 		self._lock = threading.Lock()
 		self._draining = False
 		self._paused = False
-		self._saving = 0     # finished jobs whose results are being written
+		self._recorder = ResultRecorder(backend_obj.postgres)
 		threading.Thread(target=self._dispatcher, daemon=True).start()
 
 	@property
@@ -385,7 +466,7 @@ class RolloutOrchestrator:
 		"""Nothing queued, running, or still writing its results - nothing of
 		the rollouts will write to the database any more (while pause()d)."""
 		with self._lock:
-			return not self._jobs and not self._saving
+			return not self._jobs and not self._recorder.busy()
 
 	def resume(self) -> None:
 		"""New rollouts accepted again - unless a stop / restart began
@@ -478,7 +559,7 @@ class RolloutOrchestrator:
 		asked to stop (devices not reached yet are skipped)."""
 		with self._lock:
 			job = self._jobs.get(job_id, None)
-			queued = job is not None and self._claim(job)
+			queued = job is not None and job.claim()
 		if job is None:
 			return
 		if queued:
@@ -486,18 +567,6 @@ class RolloutOrchestrator:
 			return
 		job.cancel()
 		self._store.set_status(job.job_id, JobStatus.CANCELLING)
-
-	@staticmethod
-	def _claim(job: RolloutJob) -> bool:
-		"""Under the lock: take a queued job for whoever calls (the dispatcher
-		to start it, a cancel or the drain to record it) - each job is claimed
-		once (started_at set).
-
-		:returns: whether it was queued (now claimed by the caller)"""
-		if job.started_at is not None:
-			return False
-		job.started_at = datetime.datetime.now()
-		return True
 
 	def jobs(self) -> list[dict[str, Any]]:
 		"""This process's rollouts (a database move lists what it waits for)."""
@@ -549,14 +618,14 @@ class RolloutOrchestrator:
 
 			self._slots.acquire()
 
-			# Claimed under the lock (_claim), started outside it: drain() and
+			# Claimed under the lock (RolloutJob.claim), started outside it: drain() and
 			# cancel() claim a queued job under the lock too, so each job is
 			# either run here or recorded as cancelled there. start() isn't
 			# called under the lock — a job that ends at once needs it for its
 			# cleanup.
 			with self._lock:
 				job = self._jobs.get(job_id)
-				if job is None or self._draining or not self._claim(job):
+				if job is None or self._draining or not job.claim():
 					job = None
 			if job is None:
 				self._slots.release()   # gone, or a cancel / drain() records it
@@ -594,7 +663,7 @@ class RolloutOrchestrator:
 		:param report: where progress lines go (the console by default)"""
 		with self._lock:
 			self._draining = True
-			queued = [j for j in self._jobs.values() if self._claim(j)]
+			queued = [j for j in self._jobs.values() if j.claim()]
 		for job in queued:
 			self._cancel_queued(job, QUEUED_CANCEL_REASON)
 		if queued:
@@ -631,16 +700,11 @@ class RolloutOrchestrator:
 		# A job that just ended has left the job table but may still be
 		# writing its results: the exit after the drain would cut that off
 		end = time.monotonic() + _SAVE_WAIT
-		while self._saving_now() and time.monotonic() < end:
+		while self._recorder.busy() and time.monotonic() < end:
 			time.sleep(0.2)
-		if self._saving_now():
+		if self._recorder.busy():
 			report(f"[NetRollout] A rollout's results are still being saved after "
 			       f"{_SAVE_WAIT}s - stopping anyway: they may be lost")
-
-	def _saving_now(self) -> bool:
-		""":returns: whether a finished job is still writing its results"""
-		with self._lock:
-			return self._saving > 0
 
 	def _cancel_queued(self, job: RolloutJob, reason: str) -> None:
 		"""Record a queued job (claimed by the caller) as cancelled - a cancel,
@@ -669,14 +733,12 @@ class RolloutOrchestrator:
 		with self._lock:
 			job = self._jobs.pop(job_id, None)
 			if job:
-				self._saving += 1      # idle() waits for the results
+				self._recorder.begin()   # idle() waits for the results
 		if not job:
 			return
 		try:
-			self._save_results(job)
+			self._recorder.save(job)
 		finally:
-			with self._lock:
-				self._saving -= 1
 			try:
 				self._store.finished(job.job_id, job.user_id, was_running)
 			except REDIS_UNAVAILABLE as e:
@@ -688,36 +750,6 @@ class RolloutOrchestrator:
 			except REDIS_UNAVAILABLE:
 				pass
 
-	def _save_results(self, job: "RolloutJob") -> None:
-		"""Into Postgres, retried; if that keeps failing, into a JSON file in
-		logs/ (ACTION NEEDED on the console) — never dropped."""
-		completed_at = datetime.datetime.now()
-		error = None
-		for attempt in range(_SAVE_TRIES):
-			if attempt:
-				time.sleep(_SAVE_RETRY_WAIT)
-			try:
-				with self._backend.postgres.get_session() as db_session:
-					for result in job.results:
-						db_session.add(DeviceResult(
-							**result, user_id=job.user_id, job_id=job.job_id,
-							started_at=job.started_at, completed_at=completed_at))
-				return
-			except Exception as e:     # noqa: BLE001 — any failure: keep them
-				error = e
-		path = runtime.logs_dir() / f"unsaved-results-{job.job_id}.json"
-		try:   # the last resort: nothing here may raise
-			path.parent.mkdir(parents=True, exist_ok=True)
-			path.write_text(json.dumps({
-				"job_id": job.job_id, "user_id": job.user_id,
-				"started_at": job.started_at, "completed_at": completed_at,
-				"results": job.results}, indent=1, default=str), encoding="utf-8")
-			where = f"saved to {path}"
-		except Exception as e:     # noqa: BLE001
-			where = f"and couldn't be written to {path} either ({e})"
-		print(f"[NetRollout] ACTION NEEDED — rollout {job.job_id}: its results "
-		      f"couldn't be saved to the database ({error}); {where}",
-		      flush=True)
 
 
 def job_status(rows: Sequence[DeviceResult]) -> DeviceStatus:

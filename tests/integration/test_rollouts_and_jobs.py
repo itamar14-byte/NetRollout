@@ -15,7 +15,7 @@ from sqlalchemy import event
 from src import runtime
 from src.db.settings import SETTINGS
 from src.db.tables import AuditLog, DeviceResult, JobMetadata
-from src.jobs import JOB_STATUSES, Draining, job_status
+from src.jobs import JOB_STATUSES, Draining, RolloutJob, job_status
 
 pytestmark = [pytest.mark.postgres, pytest.mark.redis]
 
@@ -195,6 +195,8 @@ class FakeRunningJob:
 		self._messages = list(messages)
 		self._heartbeats = heartbeats
 		self._on_end = on_end
+
+	claim = RolloutJob.claim   # the real one: a cancel claims through the job
 
 	def cancel(self):
 		self.cancelled.set()

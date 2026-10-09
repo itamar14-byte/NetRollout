@@ -139,6 +139,8 @@ class FakeJob:
 		self.started_at = None
 		self.ran = threading.Event()
 
+	claim = jobs.RolloutJob.claim   # the real one: the orchestrator claims through the job
+
 	def start(self, on_complete):
 		self.started_at = time.time()
 		self.ran.set()
