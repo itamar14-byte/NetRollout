@@ -1,20 +1,27 @@
-/dist/
-/.venv/
-/build/
+# Python and its tools
 __pycache__/
 *.pyc
+.mypy_cache/
+.pytest_cache/
 .coverage
-.idea/
-docs/credentials
-*.env
+.venv/
+
+# Build outputs (tools: PyInstaller, packaging/build_release.py, the Manager's build.ps1)
+/build/
+/dist/
+packaging/windows/NetRollout Manager.exe
+
+# The dev app's runtime folders and secrets
 .env
-src/db/alembic/versions/__pycache__
-logs/
-.Rhistory
-backups/
+*.env
 /config/
 /certs/
-windows/NetRollout Manager.exe
-dist/
+/logs/
+/backups/
+docs/credentials
+
+# Editors
+.idea/
+.Rhistory
 # the developer's Obsidian settings (docs/plans opened as a vault)
 docs/plans/.obsidian/
