@@ -19,7 +19,7 @@ from src.results import (JOB_STATUSES, JobPage, JobResults, JobScope, build_job_
                          build_jobs, build_kpi, log_file)
 from src.rollout.platforms import PLATFORMS, verify_commands
 from src.webapp.app import current_app
-from src.webapp.http import ok, err, viewer
+from src.webapp.http import ok, err, picked_username, viewer
 
 
 bp = Blueprint('jobs', __name__)
@@ -151,9 +151,7 @@ def dashboard() -> str:
 		}
 
 	users = data["users"]
-	selected_username = next(
-		(u.username for u in users if str(u.id) == selected_user), selected_user
-	) if selected_user != "me" else "me"
+	selected_username = picked_username(users, selected_user)
 
 	return render_template("dashboard.html",
 	                       active_section="dashboard",

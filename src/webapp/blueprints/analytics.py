@@ -17,7 +17,7 @@ from src.inventory import InventoryView, LabelScope
 from src.results import JobResults, build_kpi
 from src.rollout.engine import DeviceStatus
 from src.webapp.app import current_app
-from src.webapp.http import err, with_json, ok, require_admin, viewer
+from src.webapp.http import err, with_json, ok, picked_username, require_admin, viewer
 
 
 bp = Blueprint('analytics', __name__, url_prefix='/analytics')
@@ -65,9 +65,7 @@ def analytics() -> str:
 	kpi["top_platforms"] = Counter(r.device_type for r in
 	                               results_30d).most_common(3)
 
-	selected_username = next(
-		(u.username for u in users if str(u.id) == selected_user), selected_user
-	) if selected_user != "me" else "me"
+	selected_username = picked_username(users, selected_user)
 
 	return render_template("analytics.html",
 	                       kpi=kpi,

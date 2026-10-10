@@ -38,9 +38,10 @@ from typing import Any, cast, Callable
 from sqlalchemy.exc import SQLAlchemyError
 
 from src import runtime
+from src.accounts.users import Accounts
 from src.db.connections import (BackendServices, PostgresConnection, REDIS_UNAVAILABLE, RedisConnection,
                                 load_config)
-from src.db.tables import DeviceResult, JobMetadata, User
+from src.db.tables import DeviceResult, JobMetadata
 from src.rollout.engine import RolloutEngine, RolloutOptions, Device, DeviceResultDict
 from src.rollout.log import KeyValueStore, RolloutLogger, Tone, live_log_keys
 
@@ -847,8 +848,7 @@ def with_owners(rollouts: Sequence[RolloutRow],
 	names: dict[str, str] = {}
 	if ids:
 		with postgres.get_session() as session:
-			names = {str(row.id): row.username for row in
-			         session.query(User.id, User.username).filter(User.id.in_(ids))}
+			names = {str(uid): name for uid, name in Accounts(session).usernames(ids).items()}
 	return [r.named(names.get(r.user_id, "?")) for r in rollouts]
 
 

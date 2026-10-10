@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from src.accounts.users import Viewer
 from src.audit import Actor, AuditAction, AuditTrail
 from src.db.connections import BackendServices
-from src.db.tables import Base
+from src.db.tables import Base, User
 from src.inventory import ReachabilityChecker
 if TYPE_CHECKING:   # annotations only: lifecycle imports this module
 	from src.webapp.lifecycle import Maintenance
@@ -63,6 +63,16 @@ class Caller(Enum):
 		            or (xhr and request.headers.get("X-Requested-With") == "XMLHttpRequest")
 		            or (background and is_background())
 		            or (stream and request.path.startswith("/rollout/stream")))
+
+
+def picked_username(users: list[User], selected: str) -> str:
+	""":param users: the accounts an admin picks from (Accounts.for_admin_picker)
+	:param selected: the page's ?user= scope - "me" or an id
+	:returns: what the user picker shows: "me", the picked user's name, else
+	 the id as given"""
+	if selected == "me":
+		return "me"
+	return next((u.username for u in users if str(u.id) == selected), selected)
 
 
 def viewer() -> Viewer:

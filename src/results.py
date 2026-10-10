@@ -24,8 +24,8 @@ from sqlalchemy import ColumnElement, and_, distinct, func, not_, or_
 from sqlalchemy.orm import Session
 
 from src import runtime
-from src.accounts.users import Viewer
-from src.db.tables import DeviceResult, JobMetadata, User
+from src.accounts.users import Accounts, Viewer
+from src.db.tables import DeviceResult, JobMetadata
 from src.inventory import InventoryView, LabelScope, Target
 from src.rollout.engine import DeviceStatus, endpoint
 
@@ -340,9 +340,7 @@ class JobResults:
 
 	def owner_names(self, results: Iterable[DeviceResult]) -> dict[uuid.UUID, str]:
 		""":returns: user id → username, for these results' owners"""
-		owner_ids = {r.user_id for r in results}
-		return {u.id: u.username for u in self.session.query(User)
-		        .filter(User.id.in_(owner_ids))} if owner_ids else {}
+		return Accounts(self.session).usernames(r.user_id for r in results)
 
 	# ── one job ──
 

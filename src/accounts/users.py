@@ -12,7 +12,7 @@ import secrets
 import string
 import time
 import uuid
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from typing import Any, Protocol, cast
 
@@ -118,6 +118,13 @@ class Accounts:
 	def for_admin_picker(self) -> list[User]:
 		""":returns: every account, by name - the users an admin picks from"""
 		return self.session.query(User).order_by(User.username).all()
+
+	def usernames(self, ids: Iterable[uuid.UUID]) -> dict[uuid.UUID, str]:
+		""":returns: user id → username for these ids, in one query (an id
+		 without an account is left out)"""
+		wanted = set(ids)
+		return {row.id: row.username for row in self.session.query(User.id, User.username)
+		        .filter(User.id.in_(wanted))} if wanted else {}
 
 	def new_local(self, *, username: str, email: str, full_name: str,
 	              position: str | None, password: str, role: str = Role.OPERATOR,
