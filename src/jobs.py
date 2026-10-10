@@ -30,20 +30,18 @@ import sys
 import threading
 import time
 import uuid
-from collections import defaultdict
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, cast, Callable
 
-from sqlalchemy import ColumnElement, and_, func, not_
 from sqlalchemy.exc import SQLAlchemyError
 
 from src import runtime
 from src.db.connections import (BackendServices, PostgresConnection, REDIS_UNAVAILABLE, RedisConnection,
                                 load_config)
 from src.db.tables import DeviceResult, JobMetadata, User
-from src.rollout.engine import RolloutEngine, RolloutOptions, Device, DeviceResultDict, DeviceStatus
+from src.rollout.engine import RolloutEngine, RolloutOptions, Device, DeviceResultDict
 from src.rollout.log import KeyValueStore, RolloutLogger, Tone, live_log_keys
 
 
@@ -795,47 +793,6 @@ class RolloutOrchestrator:
 
 
 
-def job_status(rows: Sequence[DeviceResult]) -> DeviceStatus:
-	""":returns: a job's status from its devices': cancelled if any was; failed
-	 if all failed; partial if any failed or was partial; else success"""
-	statuses = {r.status for r in rows}
-	if DeviceStatus.CANCELLED in statuses:
-		return DeviceStatus.CANCELLED
-	if all(r.status == DeviceStatus.FAILED for r in rows):
-		return DeviceStatus.FAILED
-	if any(r.status in (DeviceStatus.FAILED, DeviceStatus.PARTIAL) for r in rows):
-		return DeviceStatus.PARTIAL
-	return DeviceStatus.SUCCESS
-
-
-# what job_status can say, in the Results page's filter order
-JOB_STATUSES = tuple(DeviceStatus)
-
-
-def job_status_condition(status: str) -> ColumnElement[bool]:
-	"""job_status' rules in SQL, over one job's device results (a HAVING
-	condition of a query grouped by job_id): true exactly for the jobs
-	job_status calls status.
-
-	:param status: one of JOB_STATUSES
-	:raises ValueError: any other status"""
-	def any_device(*statuses: DeviceStatus) -> ColumnElement[bool]:
-		return func.bool_or(DeviceResult.status.in_([s.value for s in statuses]))
-
-	all_failed = func.bool_and(DeviceResult.status == DeviceStatus.FAILED.value)
-	if status == DeviceStatus.CANCELLED:
-		return any_device(DeviceStatus.CANCELLED)
-	if status == DeviceStatus.FAILED:
-		return and_(not_(any_device(DeviceStatus.CANCELLED)), all_failed)
-	if status == DeviceStatus.PARTIAL:
-		return and_(not_(any_device(DeviceStatus.CANCELLED)), not_(all_failed),
-		            any_device(DeviceStatus.FAILED, DeviceStatus.PARTIAL))
-	if status == DeviceStatus.SUCCESS:
-		return not_(any_device(DeviceStatus.CANCELLED, DeviceStatus.FAILED,
-		                       DeviceStatus.PARTIAL))
-	raise ValueError(f"no job status {status!r}")
-
-
 def with_owners(rollouts: Sequence[RolloutRow],
                 postgres: PostgresConnection) -> list[dict[str, Any]]:
 	"""The waiting lists' rows (a database move, the Restart dialog,
@@ -944,39 +901,6 @@ def clear_stale_jobs(redis_conn: RedisConnection) -> None:
 	if cleared:
 		print(f"[NetRollout] Cleared {cleared} rollout(s) left over from a "
 		      f"previous run that didn't stop cleanly", flush=True)
-
-
-def build_kpi(results_30d: Sequence[DeviceResult],
-              label_map: dict[str, str]) -> dict[str, Any]:
-	"""The dashboard's tiles from the last 30 days' device results.
-
-	:param label_map: device IP → its label, to name the most-failed device
-	:returns: success_rate (%, None without results), jobs_30d,
-	 device_pushes (device results: a device pushed to in a rollout, failed
-	 ones too - not distinct devices), commands_pushed, top_failed ({ip,
-	 label, fail_count} or None)"""
-	total_ops = len(results_30d)
-	jobs_30d = len({r.job_id for r in results_30d})
-	success_count = sum(1 for r in results_30d if r.status == DeviceStatus.SUCCESS)
-
-	fail_counts_ip: dict[str, int] = defaultdict(int)
-	for r in results_30d:
-		if r.status == DeviceStatus.FAILED:
-			fail_counts_ip[r.device_ip] += 1
-	top_failed = None
-	if fail_counts_ip:
-		top_ip = max(fail_counts_ip, key=lambda ip: fail_counts_ip[ip])
-		top_failed = {"ip": top_ip, "label": label_map.get(top_ip),
-		              "fail_count": fail_counts_ip[top_ip]}
-
-	return {
-		"success_rate": round(
-			success_count / total_ops * 100) if total_ops else None,
-		"jobs_30d": jobs_30d,
-		"device_pushes": total_ops,
-		"commands_pushed": sum(r.commands_sent for r in results_30d),
-		"top_failed": top_failed
-	}
 
 
 if __name__ == "__main__":

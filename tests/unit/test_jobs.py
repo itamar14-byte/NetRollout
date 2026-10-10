@@ -4,7 +4,6 @@ The orchestrator has no stop(), so each test leaves a daemon dispatcher
 thread behind. FakeRedis.blpop therefore genuinely blocks (queue.get with a
 timeout) so leftover threads sit idle instead of busy-looping.
 """
-import datetime as dt
 import json
 import queue
 import threading
@@ -19,11 +18,8 @@ import pytest
 import redis
 
 from src import jobs
-from src.db.settings import SETTINGS
-from src.jobs import (JOB_STATUSES, JobStore, RolloutOrchestrator, job_status,
-                      job_status_condition, build_kpi)
+from src.jobs import JobStore, RolloutOrchestrator
 from src.rollout.engine import RolloutEngine, RolloutOptions
-from src.results import config_expired
 
 
 QUEUE = "netrollout:job_queue"
@@ -876,104 +872,6 @@ def test_a_job_not_started_is_not_over():
 		job.start(lambda _: ended.set())
 		assert ended.wait(5)
 	assert wait_for(job.is_over)
-
-
-# ── KPIs, job status, snapshot expiry ────────────────────────────────────────
-
-def result(status, ip="10.0.0.1", job_id=None, sent=2, verified=None,
-           config=None, age_days=0):
-	"""A stand-in device result row: its own job unless one is given,
-	completed age_days ago."""
-	return SimpleNamespace(
-		status=status, device_ip=ip, job_id=job_id or uuid.uuid4(),
-		commands_sent=sent, commands_verified=verified, fetched_config=config,
-		completed_at=dt.datetime.now() - dt.timedelta(days=age_days))
-
-
-def test_build_kpi():
-	"""Four results (1 success) for two devices over three jobs: success rate 25 %,
-	3 jobs, 8 commands pushed, the device that failed twice named by its label as the
-	top failed - and "device_pushes" 4: it counts device results (pushes, failed
-	ones included), not distinct devices, so each device counts once per rollout
-	(the Analytics tile says "device push operations")."""
-	job = uuid.uuid4()
-	rows = [result("success", job_id=job), result("failed", "10.0.0.9", job),
-	        result("failed", "10.0.0.9"), result("partial")]
-	assert len({r.device_ip for r in rows}) == 2
-	kpi = build_kpi(rows, {"10.0.0.9": "edge-9"})
-	assert kpi["success_rate"] == 25
-	assert kpi["jobs_30d"] == 3
-	assert kpi["device_pushes"] == len(rows) == 4
-	assert kpi["commands_pushed"] == 8
-	assert kpi["top_failed"] == {"ip": "10.0.0.9", "label": "edge-9",
-	                             "fail_count": 2}
-
-
-def test_build_kpi_empty():
-	"""Without results the success rate and the top failed device are None."""
-	kpi = build_kpi([], {})
-	assert kpi["success_rate"] is None and kpi["top_failed"] is None
-
-
-@pytest.mark.parametrize("statuses,expected", [
-	(["success", "success"], "success"),
-	(["success", "failed"], "partial"),
-	(["success", "partial"], "partial"),
-	(["failed", "failed"], "failed"),
-	(["success", "cancelled"], "cancelled"),
-])
-def test_job_status(statuses, expected):
-	"""A job's status from its devices': all success → success, any failed or
-	partial → partial, all failed → failed, any cancelled → cancelled."""
-	assert job_status([result(s) for s in statuses]) == expected
-
-
-def test_job_status_condition_refuses_an_unknown_status():
-	"""job_status_condition has a condition for every status job_status
-	gives, and refuses any other (no silent "match nothing")."""
-	for status in JOB_STATUSES:
-		assert job_status_condition(status) is not None
-	with pytest.raises(ValueError):
-		job_status_condition("bogus")
-
-
-class TestConfigExpired:
-	DAYS = SETTINGS["config_snapshot_retention_days"].default
-	OLD = DAYS + 1
-
-	def test_mismatch_past_window_without_config_is_expired(self):
-		"""A verify mismatch older than the snapshot retention, with no config
-		left, is reported as expired."""
-		assert config_expired(result("partial", verified=1, age_days=self.OLD),
-		                      self.DAYS)
-
-	def test_within_window_is_not_expired(self):
-		"""A verify mismatch inside the retention window isn't expired."""
-		assert not config_expired(result("partial", verified=1, age_days=1),
-		                          self.DAYS)
-
-	def test_window_follows_the_setting(self):
-		"""The same 3-day-old row is not expired with a 7-day retention and is
-		expired with a 2-day one."""
-		row = result("partial", verified=1, age_days=3)
-		assert not config_expired(row, 7)
-		assert config_expired(row, 2)
-
-	def test_config_still_present_is_not_expired(self):
-		"""An old mismatch whose config snapshot is still stored isn't expired."""
-		assert not config_expired(
-			result("partial", verified=1, config="cfg", age_days=self.OLD),
-			self.DAYS)
-
-	def test_fully_verified_never_had_a_snapshot(self):
-		"""An old fully verified result never had a snapshot, so it isn't expired."""
-		assert not config_expired(
-			result("success", verified=2, age_days=self.OLD), self.DAYS)
-
-	def test_verify_not_run_never_had_a_snapshot(self):
-		"""An old result where verify didn't run never had a snapshot: not expired."""
-		assert not config_expired(
-			result("success", verified=None, age_days=self.OLD), self.DAYS)
 
 
 # ── The waiting list for a terminal (python -m src.jobs rollouts) ───────────

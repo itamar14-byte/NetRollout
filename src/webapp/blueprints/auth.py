@@ -4,7 +4,6 @@ verification for local users, access requests, the password change, the
 session's time left and the Account page."""
 import base64
 import uuid
-from collections import Counter
 from io import BytesIO
 from typing import Any, cast
 from urllib.parse import urlparse, urlsplit
@@ -22,14 +21,13 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from src.accounts.ldap import Directory, LdapUnavailable
 from src.accounts.users import RULE, password_problem, LIMITS, AccountError, Accounts
 from src.audit import AuditAction
-from src.db.tables import DeviceResult, LDAPServer, LDAPGroup, User, AuthType
+from src.db.tables import LDAPServer, LDAPGroup, User, AuthType
 from src.encryption import decrypt, encrypt
-from src.jobs import job_status
-from src.rollout.engine import DeviceStatus
+from src.results import JobResults
 from src.webapp.app import current_app
 from src.webapp.hooks import (csrf, conn_limit, mark_signed_in, session_seconds_left,
                               signed_in_user)
-from src.webapp.http import is_background, ok, with_form
+from src.webapp.http import is_background, ok, viewer, with_form
 
 
 bp = Blueprint("auth", __name__)
@@ -485,35 +483,6 @@ def account() -> str:
 	"""The Account page: the user's details and their rollouts in numbers."""
 	with current_app.backend.postgres.get_session() as db_session:
 		user = signed_in_user(db_session)
-		user_results = user.results
-		db_session.expunge_all()
+		totals = JobResults(db_session, viewer()).totals(user.id)
 
-	by_job: dict[uuid.UUID, list[DeviceResult]] = {}
-	for r in user_results:
-		by_job.setdefault(r.job_id, []).append(r)
-	total_rollouts = len(by_job)
-
-	total_devices = len(user_results)
-
-	if total_rollouts > 0:
-		# a job's status as Results shows it - one failed device spoils it
-		successful = sum(1 for rows in by_job.values() if job_status(rows) == DeviceStatus.SUCCESS)
-		success_rate = round((successful / total_rollouts) * 100)
-	else:
-		success_rate = None
-
-	if user_results:
-		most_common_platform = \
-			Counter(r.device_type for r in user_results).most_common(1)[0][0]
-	else:
-		most_common_platform = None
-
-	total_commands = sum(r.commands_sent for r in user_results)
-
-	return render_template("account.html",
-	                       user=current_user,
-	                       total_rollouts=total_rollouts,
-	                       total_devices=total_devices,
-	                       success_rate=success_rate,
-	                       most_common_platform=most_common_platform,
-	                       total_commands=total_commands)
+	return render_template("account.html", user=current_user, **totals)

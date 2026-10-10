@@ -14,8 +14,9 @@ from flask_login import current_user, login_required
 from src.accounts.users import Accounts, Viewer
 from src.db.tables import User
 from src.inventory import InventoryView, LabelScope
-from src.jobs import JobStore, RolloutJob, JOB_STATUSES, build_kpi
-from src.results import JobPage, JobResults, JobScope, build_job_summaries, build_jobs, log_file
+from src.jobs import JobStore, RolloutJob
+from src.results import (JOB_STATUSES, JobPage, JobResults, JobScope, build_job_summaries,
+                         build_jobs, build_kpi, log_file)
 from src.rollout.platforms import PLATFORMS, verify_commands
 from src.webapp.app import current_app
 from src.webapp.http import ok, err, viewer

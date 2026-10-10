@@ -3,28 +3,30 @@ rollout leaves in Postgres, as one user - the viewer - may see them: their
 own jobs, any job for an admin (the one rule, JobResults.may_see; a job
 someone may not see is answered as one that doesn't exist). Results' pages
 of jobs, a job's summary, a device's config snapshot, the successful
-devices a rollback targets, the last 30 days for the dashboard and
-Analytics, and the rollout log files."""
+devices a rollback targets, a user's totals for the Account page, the last
+30 days for the dashboard and Analytics (build_kpi), a job's status from its
+devices' (job_status, and in SQL job_status_condition), and the rollout log
+files."""
 from __future__ import annotations   # type hints are never evaluated
 
 import glob
 import os
 import uuid
-from collections.abc import Iterable
+from collections import Counter, defaultdict
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
 from itertools import groupby
 from typing import Any
 
-from sqlalchemy import ColumnElement, and_, distinct, func, or_
+from sqlalchemy import ColumnElement, and_, distinct, func, not_, or_
 from sqlalchemy.orm import Session
 
 from src import runtime
 from src.accounts.users import Viewer
 from src.db.tables import DeviceResult, JobMetadata, User
 from src.inventory import InventoryView, LabelScope, Target
-from src.jobs import job_status, job_status_condition
 from src.rollout.engine import DeviceStatus, endpoint
 
 
@@ -50,6 +52,47 @@ def config_expired(row: DeviceResult, snapshot_days: int) -> bool:
 	too_old = row.completed_at < datetime.now() - timedelta(
 		days=snapshot_days)
 	return verify_mismatch and row.fetched_config is None and too_old
+
+
+def job_status(rows: Sequence[DeviceResult]) -> DeviceStatus:
+	""":returns: a job's status from its devices': cancelled if any was; failed
+	 if all failed; partial if any failed or was partial; else success"""
+	statuses = {r.status for r in rows}
+	if DeviceStatus.CANCELLED in statuses:
+		return DeviceStatus.CANCELLED
+	if all(r.status == DeviceStatus.FAILED for r in rows):
+		return DeviceStatus.FAILED
+	if any(r.status in (DeviceStatus.FAILED, DeviceStatus.PARTIAL) for r in rows):
+		return DeviceStatus.PARTIAL
+	return DeviceStatus.SUCCESS
+
+
+# what job_status can say, in the Results page's filter order
+JOB_STATUSES = tuple(DeviceStatus)
+
+
+def job_status_condition(status: str) -> ColumnElement[bool]:
+	"""job_status' rules in SQL, over one job's device results (a HAVING
+	condition of a query grouped by job_id): true exactly for the jobs
+	job_status calls status.
+
+	:param status: one of JOB_STATUSES
+	:raises ValueError: any other status"""
+	def any_device(*statuses: DeviceStatus) -> ColumnElement[bool]:
+		return func.bool_or(DeviceResult.status.in_([s.value for s in statuses]))
+
+	all_failed = func.bool_and(DeviceResult.status == DeviceStatus.FAILED.value)
+	if status == DeviceStatus.CANCELLED:
+		return any_device(DeviceStatus.CANCELLED)
+	if status == DeviceStatus.FAILED:
+		return and_(not_(any_device(DeviceStatus.CANCELLED)), all_failed)
+	if status == DeviceStatus.PARTIAL:
+		return and_(not_(any_device(DeviceStatus.CANCELLED)), not_(all_failed),
+		            any_device(DeviceStatus.FAILED, DeviceStatus.PARTIAL))
+	if status == DeviceStatus.SUCCESS:
+		return not_(any_device(DeviceStatus.CANCELLED, DeviceStatus.FAILED,
+		                       DeviceStatus.PARTIAL))
+	raise ValueError(f"no job status {status!r}")
 
 
 def device_label(labels: dict[Target, str], row: DeviceResult) -> str:
@@ -129,6 +172,39 @@ def build_jobs(result_rows: Iterable[DeviceResult],
 			entry["job_owner"] = job_owner
 		out.append(entry)
 	return out
+
+
+def build_kpi(results_30d: Sequence[DeviceResult],
+              label_map: dict[str, str]) -> dict[str, Any]:
+	"""The dashboard's tiles from the last 30 days' device results.
+
+	:param label_map: device IP → its label, to name the most-failed device
+	:returns: success_rate (%, None without results), jobs_30d,
+	 device_pushes (device results: a device pushed to in a rollout, failed
+	 ones too - not distinct devices), commands_pushed, top_failed ({ip,
+	 label, fail_count} or None)"""
+	total_ops = len(results_30d)
+	jobs_30d = len({r.job_id for r in results_30d})
+	success_count = sum(1 for r in results_30d if r.status == DeviceStatus.SUCCESS)
+
+	fail_counts_ip: dict[str, int] = defaultdict(int)
+	for r in results_30d:
+		if r.status == DeviceStatus.FAILED:
+			fail_counts_ip[r.device_ip] += 1
+	top_failed = None
+	if fail_counts_ip:
+		top_ip = max(fail_counts_ip, key=lambda ip: fail_counts_ip[ip])
+		top_failed = {"ip": top_ip, "label": label_map.get(top_ip),
+		              "fail_count": fail_counts_ip[top_ip]}
+
+	return {
+		"success_rate": round(
+			success_count / total_ops * 100) if total_ops else None,
+		"jobs_30d": jobs_30d,
+		"device_pushes": total_ops,
+		"commands_pushed": sum(r.commands_sent for r in results_30d),
+		"top_failed": top_failed
+	}
 
 
 @dataclass
@@ -316,6 +392,29 @@ class JobResults:
 		rows = self.session.query(DeviceResult.device_ip, DeviceResult.device_port).filter_by(
 			user_id=owner_id, job_id=job_id, status=DeviceStatus.SUCCESS.value).all()
 		return {(ip, port) for ip, port in rows}
+
+	# ── all time ──
+
+	def totals(self, user_id: uuid.UUID) -> dict[str, Any]:
+		"""A user's rollouts in numbers, all time (the Account page).
+
+		:returns: total_rollouts (jobs), total_devices (device results),
+		 success_rate (% of the jobs job_status calls success - one failed
+		 device spoils it, as on Results; None without a job),
+		 most_common_platform (None without results), total_commands"""
+		rows = self.session.query(DeviceResult).filter(DeviceResult.user_id == user_id).all()
+		by_job: dict[uuid.UUID, list[DeviceResult]] = defaultdict(list)
+		for r in rows:
+			by_job[r.job_id].append(r)
+		successful = sum(1 for job in by_job.values() if job_status(job) == DeviceStatus.SUCCESS)
+		return {
+			"total_rollouts": len(by_job),
+			"total_devices": len(rows),
+			"success_rate": round(successful / len(by_job) * 100) if by_job else None,
+			"most_common_platform": (Counter(r.device_type for r in rows).most_common(1)[0][0]
+			                         if rows else None),
+			"total_commands": sum(r.commands_sent for r in rows),
+		}
 
 	# ── the last 30 days ──
 

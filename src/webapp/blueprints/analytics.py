@@ -14,8 +14,7 @@ from sqlalchemy import ColumnElement, and_, false, or_, true
 from src.accounts.users import Accounts, Viewer
 from src.db.tables import DeviceResult, AuditLog
 from src.inventory import InventoryView, LabelScope
-from src.jobs import build_kpi
-from src.results import JobResults
+from src.results import JobResults, build_kpi
 from src.rollout.engine import DeviceStatus
 from src.webapp.app import current_app
 from src.webapp.http import err, with_json, ok, require_admin, viewer

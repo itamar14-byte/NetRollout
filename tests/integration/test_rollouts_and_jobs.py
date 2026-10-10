@@ -16,7 +16,8 @@ from sqlalchemy import event
 from src import runtime
 from src.db.settings import SETTINGS
 from src.db.tables import AuditLog, DeviceResult, JobMetadata
-from src.jobs import JOB_STATUSES, Draining, RolloutJob, job_status
+from src.jobs import Draining, RolloutJob
+from src.results import JOB_STATUSES, job_status
 
 pytestmark = [pytest.mark.postgres, pytest.mark.redis]
 

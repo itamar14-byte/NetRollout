@@ -71,7 +71,7 @@ TOKEN_IN_COMMAND = re.compile(r"\$\$[A-Za-z0-9_]{1,64}\$\$")
 
 class DeviceStatus(StrEnum):
 	"""A device's outcome in a rollout (device_results.status; a job's status
-	is one of them too: src/jobs.job_status), in the order the summary and
+	is one of them too: src/results.job_status), in the order the summary and
 	the Results filter list them."""
 	SUCCESS = "success"
 	PARTIAL = "partial"
