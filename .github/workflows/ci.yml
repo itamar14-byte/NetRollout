@@ -3,15 +3,21 @@
 name: CI
 
 on:
-  push:            # every branch: green before it is merged
+  push:            # every branch: green before it is merged (a tag starts the Release workflow, which runs these itself)
+    branches: ["**"]
   pull_request:
   workflow_dispatch:
+  workflow_call:   # the Release workflow runs the same checks on the tagged commit
+    inputs:
+      skip_e2e:    # the release runs the end-to-end checks itself, on the images it publishes
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
-concurrency:   # a newer push to the same branch cancels the older run
-  group: ci-${{ github.ref }}
+concurrency:   # a newer push to the same branch cancels the older run (named per calling workflow: a release never cancels its own checks)
+  group: ${{ github.workflow }}-checks-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -72,6 +78,7 @@ jobs:
   # and isn't required by the branch protection.
   e2e:
     name: End-to-end (informative)
+    if: ${{ !inputs.skip_e2e }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     continue-on-error: true
