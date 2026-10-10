@@ -21,6 +21,14 @@ spec.loader.exec_module(build)
 VERSION = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
 
 
+def release_items():
+	""":returns: what an update replaces - linux/netrollout.sh's RELEASE_ITEMS
+	 (the script is the list's one home: bash can't import Python)"""
+	script = (ROOT / "linux" / "netrollout.sh").read_text(encoding="utf-8")
+	(items,) = re.findall(r"^RELEASE_ITEMS=\(([^)]*)\)", script, flags=re.MULTILINE)
+	return items.split()
+
+
 def test_the_linux_zip_keeps_the_contract(tmp_path):
 	"""The Linux zip has the release's name, everything under netrollout/, all that an
 	update replaces, exactly SHIPPED + the Linux scripts + VERSION + README.md, Unix
@@ -31,8 +39,9 @@ def test_the_linux_zip_keeps_the_contract(tmp_path):
 		infos = {i.filename: i for i in zf.infolist()}
 		names = {n.removeprefix("netrollout/") for n in infos}
 		assert all(n.startswith("netrollout/") for n in infos)
-		# what an update replaces (release.REPLACED) is all there
-		for top in update.REPLACED:
+		# what an update replaces (netrollout.sh's RELEASE_ITEMS) is all there
+		assert release_items()
+		for top in release_items():
 			assert any(n == top or n.startswith(top + "/") for n in names), top
 		assert names == {*build.SHIPPED, *build.LINUX_BIN, "VERSION", "README.md"}
 		assert zf.read("netrollout/VERSION").decode() == VERSION + "\n"

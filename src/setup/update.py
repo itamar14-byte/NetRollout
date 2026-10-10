@@ -31,10 +31,6 @@ from src.setup.env import env_read, env_path, UPGRADE_DEFAULTS
 
 
 TOP = "netrollout"
-# what an update replaces in the install folder - never .env, config/,
-# certs/, logs/, backups/
-REPLACED = ("bin", "compose.yaml", "compose.http.yaml", "deploy", "VERSION",
-            "LICENSE", "README.md")
 TIMEOUT = 60
 
 
