@@ -31,8 +31,7 @@ jobs:
           if git ls-remote --exit-code --heads origin stats >/dev/null; then
             git switch -q -c stats origin/stats
           else
-            git switch -q --orphan stats
-            git rm -rfq . >/dev/null
+            git switch -q --orphan stats      # an empty branch: no files from master
             printf '%s\n' \
               "# NetRollout download counts" "" \
               "\`downloads.csv\`, a row per day and file, added by \`.github/workflows/stats.yml\` on master:" "" \
