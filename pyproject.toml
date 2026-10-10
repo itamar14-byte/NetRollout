@@ -1,0 +1,41 @@
+# The development tools' settings. NetRollout isn't installed as a Python
+# package: it runs from the repo (src is a package, imported as src.*), in
+# the image, or as the CLI .exe. The version is the VERSION file.
+
+# Type checking for NetRollout's own code (the gate for its type hints):
+#   python -m mypy            (repo root, dev venv)
+# Every function is typed (disallow_untyped_defs); the bodies of all of them
+# are checked. Tests aren't typed - their names and docstrings say what they
+# check. Third-party packages without type information are taken as Any.
+[tool.mypy]
+python_version = "3.12"
+files = ["src", "packaging/build_release.py", "deploy/grafana/setup.py"]
+exclude = [
+	"^src/db/alembic/versions/",   # generated migrations
+]
+disallow_untyped_defs = true
+check_untyped_defs = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+ignore_missing_imports = true
+explicit_package_bases = true
+
+# Packages typeshed has stubs for, not installed (the global setting above
+# doesn't cover those)
+[[tool.mypy.overrides]]
+module = ["waitress.*"]
+ignore_missing_imports = true
+
+# Run from the repo root: `pytest` (all), `pytest tests/unit` (no services),
+# `pytest -m "not postgres and not redis"` (skip service-dependent tests)
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+# -ra: summary lists every skip with its reason (e.g. which service was down)
+addopts = "-ra --import-mode=importlib"
+markers = [
+	"postgres: needs PostgreSQL (auto-skipped when the health probe fails)",
+	"redis: needs Redis (auto-skipped when the health probe fails)",
+	"ldap: needs Docker; runs an ephemeral OpenLDAP container (auto-removed)",
+]
