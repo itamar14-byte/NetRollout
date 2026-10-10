@@ -33,6 +33,24 @@ def _read_version() -> str:
 
 
 VERSION = _read_version()
+
+# Each major release's name: a networking alphabet, one letter per major (1 -
+# A, 2 - B, ...); minors and patches carry their major's (CONTRIBUTING:
+# versioning). The next one is added when its major is planned.
+CODENAMES = ("Anycast",)
+
+
+def codename(version: str = VERSION) -> str | None:
+	""":returns: the release name of the version's major (1.x.y -> CODENAMES[0]);
+	 None when that major has none (a development 0.x, or one not named yet)"""
+	try:
+		major = int(version.split(".", 1)[0])
+	except ValueError:
+		return None
+	return CODENAMES[major - 1] if 1 <= major <= len(CODENAMES) else None
+
+
+CODENAME = codename()
 SOURCE_REPO = "https://github.com/itamar14-byte/NetRollout"
 
 

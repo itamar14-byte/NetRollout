@@ -1,7 +1,7 @@
 {# The page footer: version + the source of this version (AGPL-3.0 §13).
    Included by base.html, operator_base.html and admin.html. #}
 <div class="nr-footer">
-    NETROLLOUT V{{ NR_VERSION | upper }} &nbsp;·&nbsp; ITAMAR WEINSTEIN &nbsp;·&nbsp; © 2025
+    NETROLLOUT V{{ NR_VERSION | upper }}{% if NR_CODENAME %} &nbsp;·&nbsp; <span title="This release's name">{{ NR_CODENAME | upper }}</span>{% endif %} &nbsp;·&nbsp; ITAMAR WEINSTEIN &nbsp;·&nbsp; © 2025
 </div>
 <div class="nr-footer" style="padding-top:0;">
     SOURCE AVAILABLE AT <a href="{{ NR_SOURCE_URL }}" target="_blank" rel="noopener"

@@ -22,7 +22,7 @@ from src.db.connections import BackendServices, REDIS_UNAVAILABLE, RedisConnecti
 from src.encryption import init_encryption, require_key_in_container
 from src.jobs import JobStore, RolloutOrchestrator, clear_stale_jobs
 from src.rollout.engine import endpoint
-from src.runtime import VERSION, StartupError, in_container, source_url
+from src.runtime import CODENAME, VERSION, StartupError, in_container, source_url
 from src.webapp.app import NetRolloutApp
 from src.webapp.blueprints.admin_audit import bp as admin_audit_bp
 from src.webapp.blueprints.admin_ldap import bp as admin_ldap_bp
@@ -140,6 +140,7 @@ def configure_app(app: Flask, secret_key: str) -> None:
 	app.jinja_env.globals['VENDOR_LOGOS'] = VENDOR_LOGOS
 	app.jinja_env.filters['endpoint'] = endpoint     # {{ ip | endpoint(port) }}
 	app.jinja_env.globals['NR_VERSION'] = VERSION        # the footer
+	app.jinja_env.globals['NR_CODENAME'] = CODENAME      # ... and its release name
 	app.jinja_env.globals['NR_SOURCE_URL'] = source_url()
 	# compose passes COMPOSE_PROFILES: Grafana runs (at /grafana/) with "monitoring"
 	app.jinja_env.globals['NR_MONITORING'] = "monitoring" in [

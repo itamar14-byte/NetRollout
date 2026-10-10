@@ -154,3 +154,14 @@ def test_the_running_version_follows_the_file(tmp_path, monkeypatch):
 		vars(runtime).clear()
 		vars(runtime).update(saved)
 	assert runtime.VERSION != "9.9.9"
+
+@pytest.mark.parametrize("version, name", [
+	("1.0.0rc1", "Anycast"), ("1.0.0", "Anycast"), ("1.4.2", "Anycast"),   # every 1.x
+	("0.0.0.dev0", None),       # development, no release
+	("2.0.0", None),            # a major not named yet
+	("garbage", None),
+])
+def test_a_release_is_named_after_its_major(version, name):
+	"""The codename belongs to the major version: every 1.x is the first name
+	(A); a version without a named major has none."""
+	assert runtime.codename(version) == name
