@@ -1,10 +1,10 @@
 # the app's exact pins (requirements.txt, compiled from requirements.in), then the tools
 -r requirements.txt
-pytest~=8.3
-mypy~=1.13.0
+pytest~=9.1
+mypy~=2.4.0
 # test coverage (python -m coverage run -m pytest); development only
 coverage~=7.16
 # builds the CLI .exe (packaging/netrollout-cli.spec); never part of the image
 pyinstaller~=6.22
 # compiles requirements.in into requirements.txt (pip-compile); Dependabot does the same
-pip-tools~=7.5
+pip-tools~=7.6
