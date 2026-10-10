@@ -6,7 +6,7 @@ from __future__ import annotations   # type hints are never evaluated
 
 from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, NamedTuple, Protocol
+from typing import TYPE_CHECKING, NamedTuple, Protocol, cast
 
 import netmiko
 
@@ -320,7 +320,9 @@ class NetmikoSession:
 				conn.enable()
 				output = ""
 				for command in platform.show_config:
-					output = conn.send_command(command, read_timeout=FETCH_TIMEOUT)
+					# text: no parsing is asked for (TextFSM, TTP, Genie)
+					output = cast(str, conn.send_command(command,
+					                                     read_timeout=FETCH_TIMEOUT))
 				return output
 		except Exception as e:
 			report.notify(f"could not fetch the config of {device.endpoint} to "
