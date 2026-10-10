@@ -28,19 +28,14 @@ jobs:
         options: >-
           --health-cmd "pg_isready -U postgres"
           --health-interval 5s --health-timeout 5s --health-retries 20
-      redis:
-        image: redis:8.6-alpine
-        ports: ["6379:6379"]
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 5s --health-timeout 5s --health-retries 20
     env:
       TEST_PG_ADMIN_URL: postgresql+psycopg2://postgres:ci-postgres@127.0.0.1:5432/postgres
-      TEST_REDIS_URL: redis://127.0.0.1:6379/15
+      # with a password, as every install's Redis has one (tests rely on it)
+      TEST_REDIS_URL: redis://:ci-redis@127.0.0.1:6379/15
       PYTHONDONTWRITEBYTECODE: "1"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: pip
@@ -61,6 +56,14 @@ jobs:
           python -m alembic downgrade base
       - name: The LDAP tests' image
         run: docker pull alpine:latest
+      - name: Redis, with a password (a service container can't be given one)
+        run: |
+          docker run -d --name ci-redis -p 6379:6379 redis:8.6-alpine redis-server --requirepass ci-redis
+          for i in $(seq 1 30); do
+            docker exec ci-redis redis-cli -a ci-redis --no-auth-warning ping | grep -q PONG && exit 0
+            sleep 1
+          done
+          echo "Redis didn't start"; exit 1
       - name: Tests (unit + integration)
         run: python -m pytest -p no:cacheprovider
 
@@ -69,7 +72,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: ShellCheck (preinstalled on the runner)
         run: |
           shellcheck --version
@@ -80,8 +83,8 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: pip
