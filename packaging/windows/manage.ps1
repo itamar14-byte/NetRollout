@@ -816,7 +816,8 @@ function Backup-KeptData {
 		if (-not (Test-Image $old)) {
 			Fail ("NetRollout $kept's image ($old) isn't on this computer and couldn't be downloaded - it makes " +
 			      "the backup before the update. NetRollout wasn't started; its data is as NetRollout $kept left it. " +
-			      "Check this computer's internet connection, then Retry (or run Setup again).")
+			      "Check this computer's internet connection, then Retry - or later: " +
+			      "run Setup again, or netrollout start (both finish the update).")
 		}
 	} else {
 		Warn "No version line in .env: the backup is made by NetRollout $Version (it restores into $Version, not into the earlier version)."
@@ -826,7 +827,7 @@ function Backup-KeptData {
 	try { $code = Invoke-BackupCreate "before-update" } finally { $script:ImageVersion = "" }
 	if ($code -ne 0) {
 		Fail ("Couldn't back up - NetRollout wasn't started and its data wasn't changed. Fix it (above), " +
-		      "then Retry (or run Setup again).")
+		      "then Retry - or later: run Setup again, or netrollout start (both finish the update).")
 	}
 }
 

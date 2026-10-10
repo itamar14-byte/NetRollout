@@ -585,9 +585,19 @@ end;
 
 function ManagerCanStart: Boolean;
 begin
-	{ a kept install's update that didn't finish: Start would skip the update's
-	  steps (the backup, setup upgrade) - Retry or Setup again instead }
-	Result := SetUpFailed and not ReleaseBroken and HasSettings and not KeptUpdate;
+	{ an update that didn't finish too: its marker (.update-pending) turns the
+	  Manager's Start into Finish update - never the new version without the
+	  update's steps }
+	Result := SetUpFailed and not ReleaseBroken and HasSettings;
+end;
+
+{ An update (over an install or kept data) failed after its files: finished
+  later by this Setup again, NetRollout Manager's Finish update or netrollout
+  start - its marker keeps it pending }
+function FinishLater: String;
+begin
+	Result := 'run this Setup again (the same folder) - it finishes the update - or click Finish update ' +
+		'in NetRollout Manager.';
 end;
 
 { After a failed set-up and Cancel: what to do next }
@@ -596,14 +606,12 @@ begin
 	if ReleaseBroken then
 		Result := 'This release can''t be set up - please report it: {#Repo}/issues' + #13#10 +
 			'To remove it: Settings -> Apps -> NetRollout -> Uninstall.'
-	else if UpdateMode then
-		Result := 'Fix it, then click Retry - or Start in NetRollout Manager. The backup made before the ' +
-			'update is in the backups folder (...-before-update.zip): to go back to NetRollout ' +
-			InstalledVersion + ', install it and restore that backup.'
-	else if KeptUpdate then
-		Result := 'Fix it, then click Retry - or run this Setup again (the same folder): the update runs again, ' +
-			'a backup first. Don''t start NetRollout from NetRollout Manager before that - it would skip the ' +
-			'update''s steps.'
+	else if UpdateMode and not Resume then
+		Result := 'Fix it, then ' + FinishLater + ' The backup made before the update is in the backups ' +
+			'folder (...-before-update.zip): to go back to NetRollout ' + InstalledVersion + ', install it and ' +
+			'restore that backup.'
+	else if UpdateMode or KeptUpdate then
+		Result := 'Fix it, then ' + FinishLater
 	else if HasSettings then
 		Result := 'Fix it, then click Start in NetRollout Manager.'
 	else
@@ -622,7 +630,10 @@ begin
 	BrowserBox.Visible := not SetUpFailed;
 	BrowserBox.Checked := True;
 	ManagerBox.Visible := (not SetUpFailed) or ManagerCanStart;
-	if SetUpFailed then begin
+	if SetUpFailed and (UpdateMode or KeptUpdate) then begin
+		ManagerBox.Caption := 'Open NetRollout Manager (to finish the update once it''s fixed)';
+		ManagerBox.Checked := True;
+	end else if SetUpFailed then begin
 		ManagerBox.Caption := 'Open NetRollout Manager (to start NetRollout once it''s fixed)';
 		ManagerBox.Checked := True;
 	end else begin
@@ -1030,8 +1041,11 @@ begin
 			SuppressibleMsgBox(Text, mbError, MB_OK, IDOK);
 			break;
 		end;
-		if SuppressibleMsgBox(Text + #13#10#13#10 + 'Fix it and click Retry, or Cancel to finish without it.',
-				mbError, MB_RETRYCANCEL, IDCANCEL) <> IDRETRY then break;
+		if UpdateMode or KeptUpdate then
+			Text := Text + #13#10#13#10 + 'Fix it and click Retry - or Cancel, and later ' + FinishLater
+		else
+			Text := Text + #13#10#13#10 + 'Fix it and click Retry, or Cancel to finish without it.';
+		if SuppressibleMsgBox(Text, mbError, MB_RETRYCANCEL, IDCANCEL) <> IDRETRY then break;
 	end;
 end;
 

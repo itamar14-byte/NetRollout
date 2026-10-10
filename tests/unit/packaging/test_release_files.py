@@ -561,3 +561,26 @@ def test_setup_and_the_manager_finish_an_unfinished_update():
 	assert 'startButton = AddButton("Start", delegate { StartOrFinish(); }, false);' in cs
 	assert 'startItem = menu.Items.Add("Start", null, delegate { ShowWindow(); StartOrFinish(); });' in cs
 	assert 'Install.PendingUpdate != null ? "Finish update" : "Start"' in cs
+
+
+def test_a_failed_update_is_told_retry_now_or_setup_again_later():
+	"""After an update's files, a failure offers Retry in its message box, which says so -
+	and that Cancel leaves it for later: this Setup again or the Manager's Finish update
+	(both finish it, item C). The finished page comes only after Cancel, so it never says
+	"click Retry" (rc1 did); it says how to finish it later, and the Manager is offered
+	for an update too: its Start became Finish update. The script's own advice agrees."""
+	text = iss_text()
+	later = pascal(text, "function FinishLater:")
+	assert "run this Setup again (the same folder) - it finishes the update" in later
+	assert "click Finish update ' +\n\t\t'in NetRollout Manager." in later
+	assert "Retry" not in pascal(text, "function NextStep:")
+	assert pascal(text, "function NextStep:").count("'Fix it, then ' + FinishLater") == 2
+	assert "KeptUpdate" not in pascal(text, "function ManagerCanStart:")
+	assert "'Open NetRollout Manager (to finish the update once it''s fixed)'" in pascal(text, "procedure FinishBoxes;")
+	post = pascal(text, "procedure CurStepChanged(")
+	assert "'Fix it and click Retry - or Cancel, and later ' + FinishLater" in post
+	assert "MB_RETRYCANCEL" in post
+	ps1 = (ROOT / "packaging" / "windows" / "manage.ps1").read_text(encoding="utf-8")
+	backup = ps1_function(ps1, "Backup-KeptData")
+	assert backup.count("run Setup again, or netrollout start (both finish the update)") == 2
+	assert "then Retry (or run Setup again)" not in ps1
