@@ -67,8 +67,11 @@ def test_a_new_hostname_is_applied_without_a_restart(install, originals):
 	install.write(SITE_ENV, site_env_with(site, NEW_NAME))
 	verdict = verdict_after(install, before, "applied", f"hostname={NEW_NAME} ")
 	assert f"https_port={HTTPS_PORT}" in verdict["message"]
-	# the new name is served, the old one is now another name
-	assert served(install, f"{NEW_NAME}:{HTTPS_PORT}") == 200
+	# the new name is served, the old one is now another name. nginx's reload is
+	# graceful: for a moment after the verdict an old worker can still take a
+	# new connection with the old site - so the new name is awaited, bounded
+	wait_for(lambda: served(install, f"{NEW_NAME}:{HTTPS_PORT}") == 200, 15,
+	         f"{NEW_NAME} served after the reload", every=0.5)
 	old = Browser(install).get("/_netrollout/health")
 	assert old.status == 301
 	assert old.location == f"https://{NEW_NAME}:{HTTPS_PORT}/_netrollout/health"
