@@ -433,3 +433,13 @@ def test_setup_shows_the_scripts_current_step_live():
 	setup = pascal(text, "function RunSetUp(")
 	assert setup.count("RunScript(") == 2 and "ewWaitUntilTerminated" not in setup
 	assert "Result := RunScript(Args, Log, True);" in setup and "Result := RunScript(Args, Log, False);" in setup
+
+
+def test_every_finished_page_has_its_own_heading():
+	"""A fresh install's finished page says "NetRollout is installed" (not Inno's
+	"Completing the NetRollout Setup Wizard"), next to the update's and the
+	not-running one's; kept data started as it was says so instead of admin / admin."""
+	page = pascal(iss_text(), "procedure CurPageChanged(")
+	for heading in ("NetRollout is installed, but not running", "NetRollout is updated", "NetRollout is installed"):
+		assert f"WizardForm.FinishedHeadingLabel.Caption := '{heading}';" in page
+	assert "is running again with the data kept in" in page

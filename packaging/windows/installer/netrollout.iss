@@ -640,6 +640,13 @@ begin
 		WizardForm.FinishedHeadingLabel.Caption := 'NetRollout is updated';
 		WizardForm.FinishedLabel.Caption := 'NetRollout {#AppVersion} is running. Everyone signs in again ' +
 			'(a restart signs everyone out).';
+	end else begin
+		WizardForm.FinishedHeadingLabel.Caption := 'NetRollout is installed';
+		{ the data an uninstall kept, the same version: started - the factory
+		  admin / admin of FinishedLabel doesn't apply }
+		if Reinstall then
+			WizardForm.FinishedLabel.Caption := 'NetRollout {#AppVersion} is running again with the data kept in ' +
+				RemoveBackslashUnlessRoot(WizardDirValue) + '. Sign in as before.';
 	end;
 	FinishBoxes;
 end;
