@@ -258,6 +258,7 @@ def test_the_setting_follows_through_the_settings_own_rules(install, monkeypatch
 			saved.append((raw, user_id))
 			if raw["https_port"] == 1:
 				raise SettingsError({"https_port": "HTTPS port must be at least 2"})
+			return []      # SettingsStore.update returns the changes (none to audit here)
 
 	class Connection:
 		class engine:
