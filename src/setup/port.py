@@ -35,6 +35,7 @@ from enum import StrEnum
 from pathlib import Path
 
 from src import runtime
+from src.audit import Actor, AuditAction, AuditTrail
 from src.access import site_env
 from src.access.port import ApplyState, ApplyStatus
 from src.db.connections import PostgresConnection, load_config
@@ -265,6 +266,25 @@ def save_setting(port: int) -> None:
 	load_config(runtime.runtime_env())
 	connection = PostgresConnection()
 	try:
-		SettingsStore(lambda: connection).update({"https_port": port}, None)
+		record_setting(connection, port)
 	finally:
 		connection.engine.dispose()
+
+
+# what the audit log and System Settings name as the actor of a change made
+# with `netrollout port` (no user signed in: it ran on the server itself)
+BY_HAND_ACTOR = "netrollout port (on the server)"
+
+
+def record_setting(connection: PostgresConnection, port: int) -> None:
+	"""Save the HTTPS port and audit it as System Settings' Save does
+	(settings.update, one row per change) - the actor the server itself.
+
+	:raises SettingsError: the setting refuses it
+	:raises SQLAlchemyError: the database didn't answer"""
+	for change in SettingsStore(lambda: connection).update({"https_port": port}, None):
+		AuditTrail(lambda: connection).record(
+			Actor.system(BY_HAND_ACTOR), AuditAction.SETTINGS_UPDATE,
+			object_type="SystemSetting", object_label=change.key,
+			detail={"key": change.key, "old": change.old, "new": change.new,
+			        "port_apply": ApplyState.APPLIED.value})

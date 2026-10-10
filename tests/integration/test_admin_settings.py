@@ -10,6 +10,7 @@ from src import runtime as _runtime
 from src.access import certs as _certs, site_env as _site, nginx as _pc, port as _pa
 from src.db.settings import seed_settings, SettingsError
 from src.db.tables import AuditLog, SystemSetting
+from src.setup import port as _setup_port
 from src.webapp.blueprints import admin_settings
 from src.webapp.startup import Probe
 from tests.unit.access.test_certs import key_pem, make_cert, pem
@@ -51,6 +52,24 @@ def test_save_writes_rows_and_audits_each_change(admin, app, client_for,
 	assert sorted(audit(session_scope, "settings.update")) == [
 		("device_parallelism", {"key": "device_parallelism", "old": 10, "new": 20}),
 		("job_retention_days", {"key": "job_retention_days", "old": 30, "new": 45})]
+
+
+def test_netrollout_port_saves_and_audits_the_port_as_the_server(admin, app, client_for,
+                                                                session_scope):
+	"""`netrollout port N` (setup.port.record_setting) saves the HTTPS port and
+	audits it like the page's Save, the actor the server itself; the page then
+	marks it "set on the server", not as changed by an admin. The same port
+	again is no change and no row."""
+	_setup_port.record_setting(app.backend.postgres, 8443)
+	_setup_port.record_setting(app.backend.postgres, 8443)
+	assert app.backend.settings.get("https_port") == 8443
+	assert audit(session_scope, "settings.update") == [
+		("https_port", {"key": "https_port", "old": 443, "new": 8443, "port_apply": "applied"})]
+	with session_scope() as s:
+		row = s.query(AuditLog).filter_by(action="settings.update").one()
+		assert (row.actor_id, row.actor_username) == (None, "netrollout port (on the server)")
+	page = client_for(admin).get("/admin/settings").get_data(as_text=True)
+	assert "set on the server" in page
 
 
 def test_invalid_values_are_reported_per_field_and_save_nothing(admin, app,

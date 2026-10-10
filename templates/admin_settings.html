@@ -94,7 +94,7 @@
           <span class="set-chip applies">applies: {{ s.applies }}</span>
           <span>default: {{ s.default if s.default not in (None, '') else '—' }}</span>
           <span class="set-chip changed" data-marker="changed" {% if not s.changed or s.from_install %}hidden{% endif %}>changed</span>
-          <span class="set-chip install" data-marker="install" {% if not s.from_install %}hidden{% endif %}>set at install</span>
+          <span class="set-chip install" data-marker="install" title="Set by the installer, or on the server itself (netrollout port) - the audit log says which" {% if not s.from_install %}hidden{% endif %}>set on the server</span>
           <button type="button" class="set-reset" data-reset="{{ s.key }}" {% if not s.changed %}hidden{% endif %}>reset to default</button>
         </div>
       </div>
