@@ -969,7 +969,12 @@
         selectAll.checked = visible.length > 0 && checked.length === visible.length;
     }
 
-    selectAll.addEventListener("change", () => {
+    /* The device list (select-all, search, its footer, Recheck) is drawn
+       only when the user sees devices; without one there is nothing to
+       wire up (and the page must not stop on a missing element). */
+    const hasDeviceList = selectAll !== null;
+
+    if (hasDeviceList) selectAll.addEventListener("change", () => {
         const visible = [...document.querySelectorAll(".device-row")]
             .filter(r => r.style.display !== "none" && !r.classList.contains("disabled"));
         visible.forEach(row => {
@@ -982,7 +987,7 @@
     });
 
     /* ── Search ── */
-    deviceSearch.addEventListener("input", () => {
+    if (hasDeviceList) deviceSearch.addEventListener("input", () => {
         const q = deviceSearch.value.toLowerCase();
         document.querySelectorAll(".device-row").forEach(row => {
             const match = row.dataset.label.includes(q) || row.dataset.ip.includes(q);
@@ -1151,8 +1156,10 @@
         syncSelectAll();
     }
 
-    recheckBtn.addEventListener("click", () => refreshReachability(true));
-    refreshReachability();
+    if (hasDeviceList) {
+        recheckBtn.addEventListener("click", () => refreshReachability(true));
+        refreshReachability();
+    }
 })();
 </script>
 {% endblock %}
