@@ -19,7 +19,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from src.accounts.ldap import check_group_membership, fetch_user_details, user_bind, LdapUnavailable
+from src.accounts.ldap import Directory, LdapUnavailable
 from src.accounts.users import RULE, password_problem, LIMITS, AccountError, Accounts
 from src.audit import AuditAction
 from src.db.tables import DeviceResult, LDAPServer, LDAPGroup, User, AuthType
@@ -166,7 +166,7 @@ def login_ldap_existing(user: User, password: str,
 		flash("LDAP auth service unavailable", "danger")
 		return redirect(url_for("auth.home"))
 	try:
-		bound = user_bind(ldap_server, user.username, password)
+		bound = Directory(ldap_server).user_bind(user.username, password)
 	except LdapUnavailable:
 		return login_fail(user.username, "ldap_unavailable", user.id)
 	if not bound:
@@ -188,17 +188,17 @@ def login_ldap_group(username: str, password: str,
 		groups = db_session.query(LDAPGroup).filter_by(
 			ldap_server_id=ldap_server.id, is_active=True).all()
 		if groups:
+			directory = Directory(ldap_server)
 			# check_group_membership performs the bind and returns (group_dn, role)
 			# if the user is a member of any mapped group, None otherwise.
 			try:
-				match = check_group_membership(ldap_server, username,
-				                               password, groups)
+				match = directory.check_group_membership(username, password, groups)
 			except LdapUnavailable:
 				return login_fail(username, "ldap_unavailable")
 			if match:
 				group_dn, role = match
 				# Fetch display attributes from LDAP directory; tolerate failure.
-				details = fetch_user_details(ldap_server, username)
+				details = directory.user_details(username)
 				# Auto-provisioned users are pre-approved and active; role comes
 				# from the matched group mapping.
 				user = Accounts(db_session).new_ldap(username, ldap_server.id, role, details)

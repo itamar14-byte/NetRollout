@@ -343,7 +343,7 @@ def test_existing_ldap_user_logs_in_without_otp(client_for, make_user,
 	with session_scope() as s:
 		u = s.get(User, user.id)
 		u.auth_type, u.ldap_server_id, u.password_hash = "ldap", ldap_server, None
-	with patch("src.webapp.blueprints.auth.user_bind", return_value=True):
+	with patch("src.accounts.ldap.Directory.user_bind", return_value=True):
 		resp = login(client_for(), user.username, "directory-pass")
 	assert resp.headers["Location"] == "/dashboard"
 
@@ -356,7 +356,7 @@ def test_ldap_bind_failure_is_rejected(client_for, make_user, ldap_server,
 	with session_scope() as s:
 		u = s.get(User, user.id)
 		u.auth_type, u.ldap_server_id = "ldap", ldap_server
-	with patch("src.webapp.blueprints.auth.user_bind", return_value=False):
+	with patch("src.accounts.ldap.Directory.user_bind", return_value=False):
 		resp = login(client_for(), user.username, "bad")
 	assert resp.headers["Location"] == "/"
 
@@ -368,9 +368,9 @@ def test_ldap_group_member_is_auto_provisioned(client_for, ldap_server,
 	with session_scope() as s:
 		s.add(LDAPGroup(group_dn="cn=netops,dc=corp", label="netops",
 		                role="operator", ldap_server_id=ldap_server))
-	with patch("src.webapp.blueprints.auth.check_group_membership",
+	with patch("src.accounts.ldap.Directory.check_group_membership",
 	           return_value=("cn=netops,dc=corp", "operator")), \
-			patch("src.webapp.blueprints.auth.fetch_user_details",
+			patch("src.accounts.ldap.Directory.user_details",
 			      return_value={"email": "jd@corp", "full_name": "J D"}):
 		resp = login(client_for(), "jdoe", "directory-pass")
 	assert resp.headers["Location"] == "/dashboard"
@@ -381,7 +381,7 @@ def test_ldap_group_member_is_auto_provisioned(client_for, ldap_server,
 
 def test_unknown_user_without_group_match_is_rejected(client_for, ldap_server):
 	"""An unknown user in no mapped LDAP group is sent back to the sign-in page."""
-	with patch("src.webapp.blueprints.auth.check_group_membership",
+	with patch("src.accounts.ldap.Directory.check_group_membership",
 	           return_value=None):
 		resp = login(client_for(), "stranger", "x")
 	assert resp.headers["Location"] == "/"
@@ -401,8 +401,8 @@ def test_an_ldap_user_typed_in_other_capitals_is_the_same_account(
 		u.is_active = False
 		s.add(LDAPGroup(group_dn="cn=admins,dc=corp", label="admins",
 		                role="admin", ldap_server_id=ldap_server))
-	with patch("src.webapp.blueprints.auth.user_bind", return_value=True), 			patch("src.webapp.blueprints.auth.check_group_membership",
-			      return_value=("cn=admins,dc=corp", "admin")), 			patch("src.webapp.blueprints.auth.fetch_user_details", return_value={}):
+	with patch("src.accounts.ldap.Directory.user_bind", return_value=True), 			patch("src.accounts.ldap.Directory.check_group_membership",
+			      return_value=("cn=admins,dc=corp", "admin")), 			patch("src.accounts.ldap.Directory.user_details", return_value={}):
 		resp = login(client_for(), typed, "directory-pass")
 	assert resp.headers["Location"] == "/"
 	with session_scope() as s:
@@ -421,8 +421,8 @@ def test_an_ldap_user_in_other_capitals_keeps_their_role(client_for, make_user,
 		u.auth_type, u.ldap_server_id, u.password_hash = "ldap", ldap_server, None
 		s.add(LDAPGroup(group_dn="cn=admins,dc=corp", label="admins",
 		                role="admin", ldap_server_id=ldap_server))
-	with patch("src.webapp.blueprints.auth.user_bind", return_value=True), 			patch("src.webapp.blueprints.auth.check_group_membership",
-			      return_value=("cn=admins,dc=corp", "admin")), 			patch("src.webapp.blueprints.auth.fetch_user_details", return_value={}):
+	with patch("src.accounts.ldap.Directory.user_bind", return_value=True), 			patch("src.accounts.ldap.Directory.check_group_membership",
+			      return_value=("cn=admins,dc=corp", "admin")), 			patch("src.accounts.ldap.Directory.user_details", return_value={}):
 		client = client_for()
 		resp = login(client, "BOB", "directory-pass")
 	assert resp.headers["Location"] == "/dashboard"
@@ -438,8 +438,8 @@ def test_a_local_name_in_other_capitals_creates_no_ldap_account(client_for, make
 	with session_scope() as s:
 		s.add(LDAPGroup(group_dn="cn=netops,dc=corp", label="netops",
 		                role="operator", ldap_server_id=ldap_server))
-	with patch("src.webapp.blueprints.auth.check_group_membership",
-	           return_value=("cn=netops,dc=corp", "operator")), 			patch("src.webapp.blueprints.auth.fetch_user_details", return_value={}):
+	with patch("src.accounts.ldap.Directory.check_group_membership",
+	           return_value=("cn=netops,dc=corp", "operator")), 			patch("src.accounts.ldap.Directory.user_details", return_value={}):
 		resp = login(client_for(), "Carol", "directory-pass")
 	assert resp.headers["Location"] == "/"
 	with session_scope() as s:

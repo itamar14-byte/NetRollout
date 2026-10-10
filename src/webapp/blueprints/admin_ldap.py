@@ -7,7 +7,7 @@ from flask import Blueprint, Request, Response, request, jsonify
 from flask.typing import ResponseReturnValue
 from flask_login import login_required
 
-from src.accounts.ldap import test_user, test_connection, fetch_base_dn, walk_tree
+from src.accounts.ldap import Directory
 from src.accounts.users import Accounts
 from src.audit import AuditAction
 from src.db.tables import LDAPServer, LDAPGroup, BindType
@@ -170,7 +170,7 @@ def admin_server_ldap_test(server_id: uuid.UUID) -> ResponseReturnValue:
 		srv = db_session.query(LDAPServer).filter_by(id=server_id).first()
 		if not srv:
 			return err("Server not found", 404)
-		return jsonify(test_connection(srv))
+		return jsonify(Directory(srv).test_connection())
 
 
 @bp.route("/ldap/<uuid:server_id>/test_user", methods=["POST"])
@@ -184,7 +184,7 @@ def admin_server_ldap_test_user(server_id: uuid.UUID, data: Any) -> ResponseRetu
 		srv = db_session.query(LDAPServer).filter_by(id=server_id).first()
 		if not srv:
 			return err("Server not found", 404)
-		return jsonify(test_user(srv, username, password))
+		return jsonify(Directory(srv).test_user(username, password))
 
 
 @bp.route("/ldap/<uuid:server_id>/fetch_dn", methods=["POST"])
@@ -195,7 +195,7 @@ def admin_server_ldap_fetch_dn(server_id: uuid.UUID) -> ResponseReturnValue:
 		srv = db_session.query(LDAPServer).filter_by(id=server_id).first()
 		if not srv:
 			return err("Server not found", 404)
-		return jsonify(fetch_base_dn(srv))
+		return jsonify(Directory(srv).fetch_base_dn())
 
 
 @bp.route("/ldap/<uuid:server_id>/explore", methods=["POST"])
@@ -207,7 +207,7 @@ def admin_server_ldap_explore(server_id: uuid.UUID) -> ResponseReturnValue:
 		srv = db_session.query(LDAPServer).filter_by(id=server_id).first()
 		if not srv:
 			return err("Server not found", 404)
-		return jsonify(walk_tree(srv, dn))
+		return jsonify(Directory(srv).walk_tree(dn))
 
 
 @bp.route("/ldap/<uuid:server_id>/import", methods=["POST"])

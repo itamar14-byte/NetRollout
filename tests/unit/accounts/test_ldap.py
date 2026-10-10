@@ -26,21 +26,21 @@ def server():
 
 def test_constructed_dn_escapes_the_username(server):
 	"""A username with DN syntax (`,` and `=`) is escaped in the constructed DN."""
-	assert ldap.constructed_dn(server, "jdoe,ou=admins") == \
+	assert ldap.Directory(server).constructed_dn("jdoe,ou=admins") == \
 	       r"uid=jdoe\,ou\=admins,dc=corp,dc=test"
 
 
 def test_user_filter_escapes_metacharacters(server):
 	"""Filter metacharacters in a username (`*`, `(`, `)`) are hex-escaped in the
 	search filter."""
-	assert ldap.user_filter(server, "*)(uid=*") == r"(uid=\2a\29\28uid=\2a)"
+	assert ldap.Directory(server).user_filter("*)(uid=*") == r"(uid=\2a\29\28uid=\2a)"
 
 
 @pytest.mark.parametrize("username,password", [("jdoe", ""), ("", "pw")])
 def test_empty_credentials_never_reach_the_network(server, username, password):
 	"""An empty password or username returns None without opening a connection."""
 	with patch.object(ldap, "_connection") as conn:
-		assert ldap.authenticate(server, username, password) is None
+		assert ldap.Directory(server).authenticate(username, password) is None
 	conn.assert_not_called()
 
 
@@ -55,17 +55,17 @@ def test_unreachable_directory_is_unavailable_not_bad_credentials(server):
 	"""A refused connection raises LdapUnavailable from authenticate, not a
 	plain refusal; the admin test tools report status error instead of raising."""
 	with pytest.raises(ldap.LdapUnavailable):
-		ldap.authenticate(server, "jdoe", "pw")  # port 1: refused
+		ldap.Directory(server).authenticate("jdoe", "pw")  # port 1: refused
 	# the admin test tools report it instead of raising
-	assert ldap.test_user(server, "jdoe", "pw")["status"] == "error"
-	assert ldap.test_connection(server)["status"] == "error"
+	assert ldap.Directory(server).test_user("jdoe", "pw")["status"] == "error"
+	assert ldap.Directory(server).test_connection()["status"] == "error"
 
 
 def test_browsing_without_service_account_reports_error(server):
 	"""Browsing the tree without a service account (bind type simple) reports
 	status error."""
 	server.bind_type = "simple"
-	assert ldap.walk_tree(server)["status"] == "error"
+	assert ldap.Directory(server).walk_tree()["status"] == "error"
 
 
 # ── Branches a real directory can't easily produce ───────────────────────────
@@ -87,7 +87,7 @@ def _root_dse(server, other, naming_contexts):
 	conn = MagicMock()
 	with patch.object(ldap, "make_server", return_value=fake), \
 			patch.object(ldap, "_connection", return_value=conn) as made:
-		answer = ldap.fetch_base_dn(server)
+		answer = ldap.Directory(server).fetch_base_dn()
 	made.assert_called_once_with(fake)
 	conn.open.assert_called_once_with()
 	conn.unbind.assert_called_once_with()
@@ -118,7 +118,7 @@ def test_base_dn_without_any_naming_context_is_an_error(server, naming_contexts)
 
 def test_base_dn_of_an_unreachable_directory_is_an_error(server):
 	"""A directory nobody listens on: status error with ldap3's message."""
-	answer = ldap.fetch_base_dn(server)
+	answer = ldap.Directory(server).fetch_base_dn()
 	assert answer["status"] == "error" and answer["message"]
 
 
@@ -128,9 +128,9 @@ def test_an_unknown_bind_type_is_refused_without_connecting(server, bind_type):
 	for a bind type other than regular / simple, without opening a connection."""
 	server.bind_type = bind_type
 	with patch.object(ldap, "_connection") as conn:
-		assert ldap.test_connection(server) == {"status": "error",
+		assert ldap.Directory(server).test_connection() == {"status": "error",
 		                                        "message": "Unknown bind type"}
-		assert ldap.test_user(server, "jdoe", "pw") == {"status": "error",
+		assert ldap.Directory(server).test_user("jdoe", "pw") == {"status": "error",
 		                                                "message": "Invalid bind type"}
 	conn.assert_not_called()
 
@@ -140,7 +140,7 @@ def test_group_membership_needs_a_service_account(server):
 	no connection opened."""
 	server.bind_type = "simple"
 	with patch.object(ldap, "_connection") as conn:
-		assert ldap.check_group_membership(server, "jdoe", "pw", []) is None
+		assert ldap.Directory(server).check_group_membership("jdoe", "pw", []) is None
 	conn.assert_not_called()
 
 
@@ -151,10 +151,10 @@ def test_a_failing_membership_search_makes_the_directory_unavailable(server):
 	conn = MagicMock()
 	conn.search.side_effect = LDAPException("connection lost")
 	groups = [SimpleNamespace(group_dn="cn=netops,dc=corp,dc=test", role="operator")]
-	with patch.object(ldap, "authenticate", return_value="uid=jdoe,dc=corp,dc=test"), \
-			patch.object(ldap, "service_bind", return_value=conn):
+	with patch.object(ldap.Directory, "authenticate", return_value="uid=jdoe,dc=corp,dc=test"), \
+			patch.object(ldap.Directory, "service_bind", return_value=conn):
 		with pytest.raises(ldap.LdapUnavailable, match="connection lost"):
-			ldap.check_group_membership(server, "jdoe", "pw", groups)
+			ldap.Directory(server).check_group_membership("jdoe", "pw", groups)
 	conn.unbind.assert_called_once_with()
 
 
@@ -162,18 +162,18 @@ def test_user_details_need_a_service_account(server):
 	"""Without a service account the details aren't read: None, no connection."""
 	server.bind_type = "simple"
 	with patch.object(ldap, "_connection") as conn:
-		assert ldap.fetch_user_details(server, "jdoe") is None
+		assert ldap.Directory(server).user_details("jdoe") is None
 	conn.assert_not_called()
 
 
 def test_user_details_of_an_unreachable_directory_are_none(server):
 	"""The directory failing (port 1: refused) gives None, not an exception."""
-	assert ldap.fetch_user_details(server, "jdoe") is None
+	assert ldap.Directory(server).user_details("jdoe") is None
 
 
 def test_browsing_an_unreachable_directory_is_an_error(server):
 	"""walk_tree with the service bind failing: status error with ldap3's message."""
-	answer = ldap.walk_tree(server)
+	answer = ldap.Directory(server).walk_tree()
 	assert answer["status"] == "error" and answer["message"]
 
 
@@ -195,8 +195,8 @@ def test_tree_labels_use_the_first_value_else_the_rdn(server):
 		_entry("cn=ops,dc=corp,dc=test", ["groupOfNames"], cn=["ops", "operations"]),
 		_entry("cn=Kim Lee,dc=corp,dc=test", ["inetOrgPerson"], cn=[], uid=[]),
 	]
-	with patch.object(ldap, "service_bind", return_value=conn):
-		answer = ldap.walk_tree(server)
+	with patch.object(ldap.Directory, "service_bind", return_value=conn):
+		answer = ldap.Directory(server).walk_tree()
 	assert answer == {"status": "ok", "entries": [
 		{"type": "ou", "dn": "ou=Lab,dc=corp,dc=test", "label": "Lab", "username": None},
 		{"type": "group", "dn": "cn=ops,dc=corp,dc=test", "label": "ops",

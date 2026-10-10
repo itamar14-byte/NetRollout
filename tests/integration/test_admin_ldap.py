@@ -109,7 +109,7 @@ def test_ldap_directory_calls_are_delegated(admin, client_for, session_scope):
 	c = client_for(admin)
 	c.post("/admin/server/ldap/new", data=LDAP_FORM)
 	sid = only_server(session_scope).id
-	base = "src.webapp.blueprints.admin_ldap"
+	base = "src.accounts.ldap.Directory"
 	with patch(f"{base}.test_connection", return_value={"status": "ok"}), \
 			patch(f"{base}.test_user", return_value={"status": "ok"}), \
 			patch(f"{base}.fetch_base_dn", return_value={"status": "ok"}), \
