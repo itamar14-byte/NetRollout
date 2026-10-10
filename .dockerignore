@@ -7,7 +7,7 @@
 *
 !src/
 !templates/
-!requirements.lock
+!requirements.txt
 !LICENSE
 !VERSION
 !deploy/grafana/setup.py

@@ -1,0 +1,36 @@
+# What NetRollout needs (ranges). The exact pins the image installs are
+# requirements.txt, compiled from this file on Linux:
+#   pip-compile requirements.in      (CLAUDE.md: Dependencies)
+# Dependabot updates both. Edit this file, never requirements.txt.
+SQLAlchemy~=2.0.49
+alembic~=1.18.4
+Flask-Login~=0.6.3
+flask-session~=0.8.0
+Werkzeug~=3.1.8
+netmiko~=4.6.0
+pyotp~=2.9.0
+qrcode~=8.2
+python-dotenv~=1.2.2
+Flask~=3.1.3
+Flask-WTF~=1.2.2
+Flask-Limiter~=4.1.1
+prometheus_flask_exporter~=0.23.2
+prometheus_client~=0.25.0
+waitress~=3.0.2
+cryptography~=46.0.7
+pillow~=12.2.0
+typing_extensions~=4.15.0
+MarkupSafe~=3.0.3
+click~=8.3.1
+Jinja2~=3.1.6
+blinker~=1.9.0
+itsdangerous~=2.2.0
+greenlet~=3.3.2
+psycopg2-binary~=2.9.11
+redis~=7.4.0
+ldap3~=2.9.1
+tzlocal~=5.4.4
+# the timezone database where the OS has none (Windows); always, for the same answers everywhere
+tzdata>=2026.5
+# version comparisons (the update's and the backup's: 1.0.0rc1 < 1.0.0)
+packaging~=26.3

@@ -7,7 +7,7 @@
 # the build fails if the two differ.
 #
 # Build context = the repo root, filtered by .dockerignore (a whitelist:
-# src/, templates/, requirements.lock, LICENSE, VERSION, Grafana's setup and
+# src/, templates/, requirements.txt, LICENSE, VERSION, Grafana's setup and
 # dashboards). One stage: every locked
 # package installs as a prebuilt wheel, so there is no compiler to leave behind.
 # Persistent state lives outside the image: the database in Postgres, and
@@ -28,8 +28,8 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 # Dependencies first: this layer is reused while only the code changes
-COPY requirements.lock ./
-RUN pip install --root-user-action=ignore -r requirements.lock
+COPY requirements.txt ./
+RUN pip install --root-user-action=ignore -r requirements.txt
 
 COPY LICENSE VERSION ./
 COPY templates/ templates/

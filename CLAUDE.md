@@ -71,10 +71,10 @@ cd src/db && alembic revision --autogenerate -m "..."   # new migration
 The app applies migrations itself at startup; the alembic CLI resolves `DATABASE_URL`, else `PG_*`. History starts at the `v1_0_0_baseline` revision (the development migrations were squashed); from v1.0.0 on, released migrations are never edited or squashed — every schema change is a new revision.
 
 ### Dependencies
-Python 3.12 (dev `.venv` and the image). `requirements.txt` (runtime, `~=` ranges) → `requirements.lock` (exact pins, installed by the image); `requirements-dev.txt` adds pytest + mypy. After changing `requirements.txt`, regenerate the lock on Linux (a Windows freeze can pick up Windows-only packages):
+Python 3.12 (dev `.venv` and the image). `requirements.in` (what NetRollout needs, `~=` ranges; edit this one) → `requirements.txt` (exact pins with who needs each, compiled by pip-tools; the image and CI install it); `requirements-dev.txt` adds pytest, mypy, coverage, PyInstaller and pip-tools on top of it. Dependabot (`.github/dependabot.yml`) updates both files in one pull request. By hand, after changing `requirements.in`, compile on Linux (pip-compile resolves for the platform it runs on: on Windows it would add Windows-only packages such as colorama):
 ```bash
-MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd -W)/requirements.txt:/req/requirements.txt:ro" python:3.12-slim \
-  sh -c "pip install -q --root-user-action=ignore -r /req/requirements.txt >/dev/null && pip freeze" > requirements.lock
+MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd -W):/work" -w /work python:3.12-slim sh -c \
+  "pip install -q --root-user-action=ignore pip-tools && pip-compile --quiet --strip-extras --no-emit-index-url requirements.in -o requirements.txt"
 ```
 
 ### Configuration
