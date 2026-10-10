@@ -196,12 +196,21 @@ def test_an_update_closes_the_installs_manager_before_the_files():
 
 
 def test_the_installer_ends_honestly():
-	"""On success the portal opens on Finish (ticked, only when set up); on failure Retry
+	"""On success the portal opens on Finish (ticked, only when set up); set up but not
+	started, NetRollout Manager is offered, ticked (its Start is the next step); on failure Retry
 	is offered unless the script says retrying can't help (exit 3: the release's image
 	isn't published)."""
 	text = (ROOT / "packaging" / "windows" / "installer" / "netrollout.iss").read_text(encoding="utf-8")
-	browser = re.search(r'^Filename: "\{code:Address\}";.*$', text, re.M).group(0)
-	assert "postinstall" in browser and "unchecked" not in browser and "Check: SetUpOk" in browser
+	# the finished page's own check boxes (rc2: they replace [Run]'s postinstall entries,
+	# which Inno 6.7 draws half-themed in dark mode): the browser box only when set up,
+	# ticked; Finish opens what's ticked, never in a silent run
+	assert "postinstall" not in text
+	boxes = pascal(text, "procedure FinishBoxes;")
+	assert "BrowserBox.Visible := not SetUpFailed;" in boxes and "BrowserBox.Checked := True;" in boxes
+	assert "ManagerBox.Visible := (not SetUpFailed) or ManagerCanStart;" in boxes
+	done = pascal(text, "procedure CurStepChanged(")
+	assert "if (CurStep = ssDone) and not WizardSilent then begin" in done
+	assert "if BrowserBox.Visible and BrowserBox.Checked then\n\t\t\tShellExec('open', Address('')" in done
 	assert "MB_RETRYCANCEL" in text and "(SetUpCode = 3)" in text
 	script = (ROOT / "packaging" / "windows" / "manage.ps1").read_text(encoding="utf-8")
 	assert re.search(r"isn't published on Docker Hub.*\) 3$", script, re.M | re.S)

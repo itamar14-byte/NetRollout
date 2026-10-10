@@ -133,10 +133,9 @@ Type: dirifempty; Name: "{app}"
 Filename: "{app}\bin\NetRollout Manager.exe"; Parameters: "--helper"; WorkingDir: "{app}"; Flags: nowait; Check: SetUpOk
 ; the tray now, not only from the next sign-in (also after an update closed it)
 Filename: "{app}\bin\NetRollout Manager.exe"; Parameters: "--tray"; WorkingDir: "{app}"; Flags: nowait; Tasks: trayatsignin; Check: SetUpOk
-Filename: "{code:Address}"; Description: "Open NetRollout in the browser"; Flags: postinstall shellexec nowait skipifsilent; Check: SetUpOk
-Filename: "{app}\bin\NetRollout Manager.exe"; Description: "Open NetRollout Manager"; Flags: postinstall nowait skipifsilent unchecked; Check: SetUpOk
-; set up but not started: the Manager's Start is the next step, so it's ticked
-Filename: "{app}\bin\NetRollout Manager.exe"; Description: "Open NetRollout Manager (to start NetRollout once it's fixed)"; Flags: postinstall nowait skipifsilent; Check: ManagerCanStart
+; the finished page's "Open NetRollout in the browser" / "Open NetRollout
+; Manager" are our own check boxes (FinishBoxes): Inno's list of [Run]
+; entries for the finished page draws half-themed in dark mode
 
 [Code]
 var
@@ -149,6 +148,8 @@ var
 	SetUpLog: String;
 	TimezoneIds: TArrayOfString;
 	MonitoringBox, OrgCertBox: TNewCheckBox;
+	{ the finished page's (FinishBoxes) }
+	BrowserBox, ManagerBox: TNewCheckBox;
 	CertButton, KeyButton: TNewButton;
 	DefaultsFile: String;
 	Reinstall: Boolean;
@@ -541,6 +542,13 @@ begin
 	KeyButton := MakeBrowse(SettingsPage, 246);
 	KeyButton.OnClick := @BrowseFile;
 	OrgCertClick(nil);
+
+	{ the finished page's choices: shown and placed by FinishBoxes }
+	BrowserBox := TNewCheckBox.Create(WizardForm);
+	BrowserBox.Parent := WizardForm.FinishedPage;
+	BrowserBox.Caption := 'Open NetRollout in the browser';
+	ManagerBox := TNewCheckBox.Create(WizardForm);
+	ManagerBox.Parent := WizardForm.FinishedPage;
 end;
 
 { .env is written by the script's init: with it NetRollout is set up (Start
@@ -583,6 +591,32 @@ begin
 		Result := 'Fix it, then run NetRollout Setup again (the same folder) - nothing is set up yet.';
 end;
 
+{ The finished page's check boxes (our own: Inno's list of [Run] entries
+  draws half-themed in dark mode), below the text: set up -> open it in the
+  browser (ticked) or NetRollout Manager; set up but not started -> the
+  Manager, ticked (its Start is the next step); else none }
+procedure FinishBoxes;
+var Top: Integer;
+begin
+	WizardForm.AdjustLabelHeight(WizardForm.FinishedLabel);
+	Top := WizardForm.FinishedLabel.Top + WizardForm.FinishedLabel.Height + ScaleY(12);
+	BrowserBox.Visible := not SetUpFailed;
+	BrowserBox.Checked := True;
+	ManagerBox.Visible := (not SetUpFailed) or ManagerCanStart;
+	if SetUpFailed then begin
+		ManagerBox.Caption := 'Open NetRollout Manager (to start NetRollout once it''s fixed)';
+		ManagerBox.Checked := True;
+	end else begin
+		ManagerBox.Caption := 'Open NetRollout Manager';
+		ManagerBox.Checked := False;
+	end;
+	if BrowserBox.Visible then begin
+		BrowserBox.SetBounds(WizardForm.FinishedLabel.Left, Top, WizardForm.FinishedLabel.Width, ScaleY(20));
+		Top := Top + ScaleY(24);
+	end;
+	ManagerBox.SetBounds(WizardForm.FinishedLabel.Left, Top, WizardForm.FinishedLabel.Width, ScaleY(20));
+end;
+
 { The install-location page: the default selected, so typing replaces it }
 procedure CurPageChanged(CurPageID: Integer);
 begin
@@ -597,16 +631,17 @@ begin
 			'downloads; then it restarts (about a minute).';
 		WizardForm.NextButton.Caption := 'Update';
 	end;
-	if (CurPageID = wpFinished) and (UpdateMode or KeptUpdate) and not SetUpFailed then begin
+	if CurPageID <> wpFinished then exit;
+	if SetUpFailed then begin
+		WizardForm.FinishedHeadingLabel.Caption := 'NetRollout is installed, but not running';
+		WizardForm.FinishedLabel.Caption := 'Setting it up didn''t finish. The reason is at the end of the log:' + #13#10#13#10 +
+			SetUpLog + #13#10#13#10 + NextStep;
+	end else if UpdateMode or KeptUpdate then begin
 		WizardForm.FinishedHeadingLabel.Caption := 'NetRollout is updated';
 		WizardForm.FinishedLabel.Caption := 'NetRollout {#AppVersion} is running. Everyone signs in again ' +
 			'(a restart signs everyone out).';
 	end;
-	if (CurPageID = wpFinished) and SetUpFailed then begin
-		WizardForm.FinishedHeadingLabel.Caption := 'NetRollout is installed, but not running';
-		WizardForm.FinishedLabel.Caption := 'Setting it up didn''t finish. The reason is at the end of the log:' + #13#10#13#10 +
-			SetUpLog + #13#10#13#10 + NextStep;
-	end;
+	FinishBoxes;
 end;
 
 function SetUpOk: Boolean;
@@ -917,8 +952,16 @@ end;
 { After the files: the script sets NetRollout up and starts it. A failure
   that can be fixed here offers Retry (a silent install cancels) }
 procedure CurStepChanged(CurStep: TSetupStep);
-var Log, Text: String;
+var Log, Text: String; Code: Integer;
 begin
+	{ Finish clicked: what the finished page's boxes ask (a silent run opens nothing) }
+	if (CurStep = ssDone) and not WizardSilent then begin
+		if BrowserBox.Visible and BrowserBox.Checked then
+			ShellExec('open', Address(''), '', '', SW_SHOWNORMAL, ewNoWait, Code);
+		if ManagerBox.Visible and ManagerBox.Checked then
+			Exec(ExpandConstant('{app}\bin\NetRollout Manager.exe'), '', ExpandConstant('{app}'),
+				SW_SHOWNORMAL, ewNoWait, Code);
+	end;
 	if CurStep <> ssPostInstall then exit;
 	{ an install again: Windows' install record takes over from the kept-data record }
 	ForgetKept(ExpandConstant('{app}'));
