@@ -108,17 +108,16 @@ def build_job_dict(job_id: str, usernames: dict[str, str]) -> dict[str, Any]:
 	:param usernames: user id → username, to name the owner"""
 	meta = JobStore(current_app.backend.redis).meta(job_id)
 	job = current_app.orchestrator.get_job(uuid.UUID(job_id))
-	# Not in memory (another process's, or ended meanwhile): the stored
-	# count - the page sums device counts, always an int
-	stored_count = meta.device_count if meta else 0
+	# Not in memory (another process's, or ended meanwhile): its stored row -
+	# the page sums device counts, always an int
+	row = job.row() if job else JobStore.row(job_id, meta) if meta else None
 	return {
 		"id": job_id,
 		"status": meta.status if meta and meta.status else "unknown",
 		"created_at": meta.created_at if meta else "",
-		"device_count": job.get_device_count() if job else stored_count,
-		"started_at": job.started_at.strftime(
-			"%H:%M:%S") if job and job.started_at else "—",
-		"started_at_iso": job.started_at.isoformat() if job and job.started_at else "",
+		"device_count": row.devices if row else 0,
+		"started_at": row.clock if row else "—",
+		"started_at_iso": row.started or "" if row else "",
 		"owner": usernames.get(meta.user_id, "unknown") if meta else "unknown"
 	}
 
@@ -142,13 +141,13 @@ def dashboard() -> str:
 	active_job = get_active_job(current_user.id)
 	active_job_data = None
 	if active_job:
-		started = active_job.started_at
+		row = active_job.row()
 		active_job_data = {
-			"job_id": str(active_job.job_id),
-			"device_count": active_job.get_device_count(),
-			"queued": started is None,
-			"started_at": started.strftime("%H:%M:%S") if started else "—",
-			"started_at_iso": started.isoformat() if started else "",
+			"job_id": row.job_id,
+			"device_count": row.devices,
+			"queued": row.started is None,
+			"started_at": row.clock,
+			"started_at_iso": row.started or "",
 		}
 
 	users = data["users"]

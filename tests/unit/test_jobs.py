@@ -4,6 +4,7 @@ The orchestrator has no stop(), so each test leaves a daemon dispatcher
 thread behind. FakeRedis.blpop therefore genuinely blocks (queue.get with a
 timeout) so leftover threads sit idle instead of busy-looping.
 """
+import datetime as dt
 import json
 import queue
 import threading
@@ -134,8 +135,11 @@ class FakeJob:
 		self.results = []
 		self.started_at = None
 		self.ran = threading.Event()
+		self._cancel_flag = threading.Event()
 
 	claim = jobs.RolloutJob.claim   # the real one: the orchestrator claims through the job
+	status = jobs.RolloutJob.status   # the real ones: the lists' rows come from the job
+	row = jobs.RolloutJob.row
 
 	def start(self, on_complete):
 		self.started_at = time.time()
@@ -947,3 +951,18 @@ def test_the_orchestrators_rollouts_have_text_ids(make_orchestrator):
 		orch._jobs[job.job_id] = job
 	assert orch.jobs() == [jobs.RolloutRow(job_id=str(job.job_id), user_id=str(job.user_id),
 	                                       devices=3, state="queued", started=None)]
+
+
+def test_the_orchestrator_lists_a_cancelled_running_job_as_cancelling(make_orchestrator):
+	"""RolloutOrchestrator.jobs() (the Restart dialog, the database move's
+	waiting list) says what JobStore.rollouts (netrollout stop) says for a
+	running job asked to stop: cancelling, with its start to the second."""
+	orch = make_orchestrator(FakeRedis())
+	job = FakeJob()
+	job.get_device_count = lambda: 2
+	job.started_at = dt.datetime(2026, 10, 8, 14, 2, 11, 123456)
+	job._cancel_flag.set()
+	with orch._lock:
+		orch._jobs[job.job_id] = job
+	(row,) = orch.jobs()
+	assert (row.state, row.started, row.clock) == ("cancelling", "2026-10-08T14:02:11", "14:02:11")

@@ -103,17 +103,44 @@ class JobMeta:
 _JOB_STATUSES = {s.value for s in JobStatus}
 
 
+# a job's status -> what the waiting lists call it
+_STATES: dict[JobStatus, str] = {JobStatus.PENDING: "queued", JobStatus.ACTIVE: "running",
+                                 JobStatus.CANCELLING: "cancelling"}
+
+
 @dataclass(frozen=True)
 class RolloutRow:
-	"""A rollout as the waiting lists show it (a database move, the Restart
-	dialog, netrollout stop / update): RolloutOrchestrator.jobs() and
-	JobStore.rollouts(). Its fields, in this order, are the JSON the scripts
-	and NetRollout Manager parse (named())."""
+	"""A running or queued rollout as every list shows it: the waiting
+	lists (a database move, the Restart dialog, netrollout stop / update:
+	RolloutOrchestrator.jobs(), JobStore.rollouts()), Active Jobs and the
+	dashboard's card. Built only by of() - from the job itself or from its
+	Redis hash -, so each shows the same state for a job. Its fields, in
+	this order, are the JSON the scripts and NetRollout Manager parse
+	(named())."""
 	job_id: str
 	user_id: str
 	devices: int
 	state: str                  # queued / running / cancelling
 	started: str | None         # ISO to the second; None while queued
+
+	@classmethod
+	def of(cls, job_id: uuid.UUID | str, user_id: uuid.UUID | str, devices: int,
+	       status: JobStatus | None, started: str | None) -> "RolloutRow":
+		"""The one way a row is built.
+
+		:param status: the job's; None (missing, or not one this version
+		 writes) counts as running
+		:param started: when it started, ISO (cut to the second); None while
+		 queued"""
+		return cls(job_id=str(job_id), user_id=str(user_id), devices=devices,
+		           state=_STATES[status] if status else "running",
+		           started=started[:19] if started else None)
+
+	@property
+	def clock(self) -> str:
+		""":returns: the start's time of day (HH:MM:SS) for the pages; "—"
+		 while queued"""
+		return self.started[11:19] if self.started else "—"
 
 	def named(self, user: str) -> dict[str, Any]:
 		""":param user: its owner's username
@@ -252,16 +279,14 @@ class JobStore:
 			meta = self.meta(job_id)
 			if meta is None:
 				continue              # ended between the scan and the read
-			rows.append((meta.created_at, RolloutRow(
-				job_id=job_id, user_id=meta.user_id, devices=meta.device_count,
-				state=_STATES[meta.status] if meta.status else "running",
-				started=meta.started_at[:19] if meta.started_at else None)))
+			rows.append((meta.created_at, self.row(job_id, meta)))
 		return [row for _, row in sorted(rows, key=lambda r: r[0])]
 
-
-# a job's status in Redis -> what the waiting lists call it
-_STATES: dict[JobStatus, str] = {JobStatus.PENDING: "queued", JobStatus.ACTIVE: "running",
-                                 JobStatus.CANCELLING: "cancelling"}
+	@staticmethod
+	def row(job_id: uuid.UUID | str, meta: JobMeta) -> RolloutRow:
+		""":returns: the job's row, from its hash (meta())"""
+		return RolloutRow.of(job_id, meta.user_id, meta.device_count, meta.status,
+		                     meta.started_at)
 
 # HSET only on a hash that exists (set_status), atomically
 _SET_IF_EXISTS = ("if redis.call('exists', KEYS[1]) == 1 then "
@@ -397,6 +422,19 @@ class RolloutJob:
 	def get_device_count(self) -> int:
 		""":returns: how many devices it targets"""
 		return self._engine.device_count
+
+	@property
+	def status(self) -> JobStatus:
+		""":returns: cancelling once asked to stop, else running once claimed
+		 (started), else waiting for a slot - what its Redis hash says"""
+		if self._cancel_flag.is_set():
+			return JobStatus.CANCELLING
+		return JobStatus.ACTIVE if self.started_at is not None else JobStatus.PENDING
+
+	def row(self) -> RolloutRow:
+		""":returns: its row in the lists (RolloutRow.of)"""
+		return RolloutRow.of(self.job_id, self.user_id, self.get_device_count(), self.status,
+		                     self.started_at.isoformat() if self.started_at else None)
 
 
 class ResultRecorder:
@@ -610,13 +648,10 @@ class RolloutOrchestrator:
 		self._store.set_status(job.job_id, JobStatus.CANCELLING)
 
 	def jobs(self) -> list[RolloutRow]:
-		"""This process's rollouts (a database move lists what it waits for)."""
+		"""This process's rollouts, oldest first (submission order) - what a
+		database move waits for, the Restart dialog's list."""
 		with self._lock:
-			return [RolloutRow(job_id=str(j.job_id), user_id=str(j.user_id),
-			                   devices=j.get_device_count(),
-			                   state="running" if j.started_at is not None else "queued",
-			                   started=j.started_at.isoformat(timespec="seconds") if j.started_at else None)
-			        for j in self._jobs.values()]
+			return [j.row() for j in self._jobs.values()]
 
 	def get_job(self, job_id: uuid.UUID) -> RolloutJob | None:
 		""":returns: this process's job (None: not here - over, or another's)"""
