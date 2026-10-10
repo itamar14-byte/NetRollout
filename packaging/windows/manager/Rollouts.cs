@@ -105,11 +105,11 @@ namespace NetRollout
 	{
 		public RolloutChoice Choice = RolloutChoice.DontStop;
 
-		// action: "stop" or "update"
+		// action: "stop", "update" or "uninstall"
 		public RolloutsDialog(List<RolloutRow> rows, string action)
 		{
-			bool update = action == "update";
-			Text = update ? "Update NetRollout" : "Stop NetRollout";
+			bool update = action == "update", uninstall = action == "uninstall";
+			Text = update ? "Update NetRollout" : uninstall ? "Uninstall NetRollout" : "Stop NetRollout";
 			Icon = Install.AppIcon(32);
 			Font = new Font("Segoe UI", 9.5f);
 			ClientSize = new Size(600, 400);
@@ -123,7 +123,8 @@ namespace NetRollout
 			var intro = new Label { AutoSize = false, Location = new Point(18, 46), Size = new Size(564, 22),
 				Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right, ForeColor = Color.DimGray,
 				Text = update ? "The update restarts NetRollout. What should happen to them?"
-				              : "What should happen to them before NetRollout stops?" };
+				     : uninstall ? "Uninstalling stops NetRollout first. What should happen to them?"
+				                 : "What should happen to them before NetRollout stops?" };
 			var list = new ListView { View = View.Details, FullRowSelect = true, HeaderStyle = ColumnHeaderStyle.Nonclickable,
 				Location = new Point(18, 72), Size = new Size(564, 150), MultiSelect = false,
 				Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom };
@@ -138,10 +139,12 @@ namespace NetRollout
 				Text = "Wait: they finish and are recorded first (up to 10 minutes); new rollouts are paused meanwhile.\r\n\r\n" +
 				       "Cancel all now: devices they haven't reached are skipped; a device being configured finishes " +
 				       "first, and every result is recorded. Queued rollouts are cancelled either way.\r\n\r\n" +
-				       (update ? "Don't update: nothing changes - update later." : "Don't stop: NetRollout keeps running.") };
+				       (update ? "Don't update: nothing changes - update later."
+				        : uninstall ? "Don't uninstall: nothing changes."
+				                    : "Don't stop: NetRollout keeps running.") };
 			var wait = AddButton("Wait for them", RolloutChoice.Wait, 150);
 			var cancel = AddButton("Cancel all now", RolloutChoice.CancelAll, 140);
-			var dont = AddButton(update ? "Don't update" : "Don't stop", RolloutChoice.DontStop, 120);
+			var dont = AddButton(update ? "Don't update" : uninstall ? "Don't uninstall" : "Don't stop", RolloutChoice.DontStop, 120);
 			dont.Location = new Point(ClientSize.Width - 18 - dont.Width, 350);
 			cancel.Location = new Point(dont.Left - 10 - cancel.Width, 350);
 			wait.Location = new Point(cancel.Left - 10 - wait.Width, 350);

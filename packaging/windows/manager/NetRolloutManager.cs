@@ -156,6 +156,19 @@ namespace NetRollout
 		}
 		public const string Releases = "https://github.com/itamar14-byte/NetRollout/releases";
 
+		// NetRollout Setup's uninstaller in the install folder (unins000.exe);
+		// null: none (not installed by Setup)
+		public static string Uninstaller()
+		{
+			try
+			{
+				var found = Directory.GetFiles(Root, "unins*.exe");
+				Array.Sort(found, StringComparer.OrdinalIgnoreCase);
+				return found.Length > 0 ? found[0] : null;
+			}
+			catch (Exception) { return null; }
+		}
+
 		// this install, for names shared across the machine: the folder, hashed
 		public static string Id
 		{
@@ -388,6 +401,8 @@ namespace NetRollout
 			dailyItem.CheckedChanged += delegate { Updates.Daily = dailyItem.Checked; };
 			menu.Items.Add(dailyItem);
 			menu.Items.Add(new ToolStripSeparator());
+			menu.Items.Add("Uninstall NetRollout...", null, delegate { ShowWindow(); UninstallNetRollout(); });
+			menu.Items.Add(new ToolStripSeparator());
 			menu.Items.Add("Exit", null, delegate { exiting = true; Close(); });
 			trayIcon.ContextMenuStrip = menu;
 			trayIcon.MouseClick += delegate (object s, MouseEventArgs e)
@@ -525,6 +540,64 @@ namespace NetRollout
 			});
 		}
 
+		// Windows' uninstaller for this install (it asks "are you sure" and whether
+		// to keep the data, removes the containers and the files, and closes this
+		// Manager and the port helper first). Running rollouts get Stop's choice
+		// first; NetRollout is stopped, and only once it has stopped does the
+		// uninstaller start - then this Manager exits, so its files can go.
+		void UninstallNetRollout()
+		{
+			if (running != null || updating) { Say("Busy with the previous action - one moment."); return; }
+			string uninstaller = Install.Uninstaller();
+			if (uninstaller == null)
+			{
+				MessageBox.Show(this, "NetRollout's uninstaller isn't in " + Install.Root + ".\n\n" +
+					"Remove NetRollout in Windows' Settings -> Apps instead.", "Uninstall NetRollout",
+					MessageBoxButtons.OK, MessageBoxIcon.Information);
+				return;
+			}
+			if (state != State.Running && state != State.Attention) { StartUninstaller(uninstaller); return; }
+			AskAboutRollouts("uninstall", delegate (bool cancelAll)
+			{
+				Action stopFirst = delegate
+				{
+					Run("stop -Yes", "Stopping NetRollout before it's uninstalled...", delegate (int code)
+					{
+						if (code == 0) StartUninstaller(uninstaller);
+						else Say("NetRollout didn't stop (see above) - nothing was uninstalled.");
+					});
+				};
+				if (!cancelAll) { stopFirst(); return; }
+				Say("Asking NetRollout to cancel the running rollouts...");
+				SetBusy(true);
+				ThreadPool.QueueUserWorkItem(delegate
+				{
+					bool asked = Rollouts.StopNow();
+					BeginInvoke((Action)delegate
+					{
+						SetBusy(false);
+						if (!asked) Say("Couldn't ask it to cancel them - they finish first.");
+						stopFirst();
+					});
+				});
+			});
+		}
+
+		void StartUninstaller(string uninstaller)
+		{
+			try
+			{
+				Process.Start(new ProcessStartInfo(uninstaller) { UseShellExecute = true, WorkingDirectory = Install.Root });
+			}
+			catch (Exception e)
+			{
+				Say("Couldn't start the uninstaller: " + e.Message);
+				return;
+			}
+			exiting = true;      // the uninstaller removes this program's folder
+			Close();
+		}
+
 		// The rollouts running or queued, asked of the app (off this thread);
 		// none: go on at once; some: RolloutsDialog. then(cancelAll) unless
 		// "don't". When the app can't list them (an older version): the
@@ -543,10 +616,11 @@ namespace NetRollout
 					if (rows == null)
 					{
 						if (RolloutsRunning && MessageBox.Show(this, detailLabel.Text + ". They finish and are recorded first (up to 10 minutes). " +
-								(action == "update" ? "Update now?" : "Stop now?"), action == "update" ? "Update NetRollout" : "Stop NetRollout",
+								(action == "update" ? "Update now?" : action == "uninstall" ? "Uninstall now?" : "Stop now?"),
+								action == "update" ? "Update NetRollout" : action == "uninstall" ? "Uninstall NetRollout" : "Stop NetRollout",
 								MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
 						{
-							Say(action == "update" ? "Not updated." : "Not stopped - NetRollout keeps running.");
+							Say(action == "update" ? "Not updated." : action == "uninstall" ? "Not uninstalled." : "Not stopped - NetRollout keeps running.");
 							return;
 						}
 						then(false);
@@ -561,7 +635,8 @@ namespace NetRollout
 					}
 					if (choice == RolloutChoice.DontStop)
 					{
-						Say(action == "update" ? "Not updated - update later (Update)." : "Not stopped - NetRollout keeps running.");
+						Say(action == "update" ? "Not updated - update later (Update)." :
+							action == "uninstall" ? "Not uninstalled." : "Not stopped - NetRollout keeps running.");
 						return;
 					}
 					then(choice == RolloutChoice.CancelAll);
@@ -593,7 +668,8 @@ namespace NetRollout
 		}
 
 		// manage.ps1, hidden; its output in the pane
-		void Run(string command, string heading)
+		// after: run on the window's thread with the script's exit code (null: none)
+		void Run(string command, string heading, Action<int> after = null)
 		{
 			if (running != null) { Say("Busy with the previous action - one moment."); return; }
 			output.Clear();
@@ -608,11 +684,13 @@ namespace NetRollout
 			running.ErrorDataReceived += delegate (object s, DataReceivedEventArgs a) { if (a.Data != null) SayLater(a.Data); };
 			running.Exited += delegate
 			{
+				int code = running.ExitCode;
 				BeginInvoke((Action)delegate
 				{
 					running = null;
 					SetBusy(false);
 					RefreshStatus();
+					if (after != null) after(code);
 				});
 			};
 			SetBusy(true);
