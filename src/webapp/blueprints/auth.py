@@ -27,8 +27,8 @@ from src.encryption import decrypt, encrypt
 from src.jobs import job_status
 from src.rollout.engine import DeviceStatus
 from src.webapp.app import current_app
-from src.webapp.hooks import (csrf, conn_limit, end_user_sessions, mark_signed_in,
-                              session_seconds_left, signed_in_user)
+from src.webapp.hooks import (csrf, conn_limit, mark_signed_in, session_seconds_left,
+                              signed_in_user)
 from src.webapp.http import is_background, ok, with_form
 
 
@@ -458,8 +458,8 @@ def change_password() -> ResponseReturnValue:
 	# Every other session of this user ends (e.g. a thief's, the reason for
 	# the change); this one stays signed in.
 	current_app.session_interface.regenerate(session)
-	ended = end_user_sessions(current_user.id,
-	                          keep_sid=cast(ServerSideSession, session).sid)
+	ended = current_app.sessions.end_for(current_user.id,
+	                                     cast(ServerSideSession, session).sid)
 	current_app.web.audit(AuditAction.AUTH_PASSWORD_CHANGE,
 	                      detail={"forced": forced, "other_sessions_ended": ended})
 	flash("Password changed.", "success")

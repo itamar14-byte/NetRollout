@@ -35,16 +35,11 @@ from src.webapp.http import Caller, err, is_background
 
 # ── The request's session ──
 
-def idle_seconds() -> int:
-	""":returns: the idle limit, seconds (SessionStore.idle_seconds)"""
-	return current_app.sessions.idle_seconds()
-
-
 def session_seconds_left(now: float | None = None) -> tuple[float, float]:
 	"""(idle, absolute) seconds left for the current session.
 
 	:param now: the time (epoch seconds); now when None"""
-	return seconds_left(session, now or time.time(), idle_seconds())
+	return seconds_left(session, now or time.time(), current_app.sessions.idle_seconds())
 
 
 def mark_signed_in() -> None:
@@ -62,22 +57,6 @@ def signed_in_user(db_session: Session) -> User:
 	if user is None:
 		raise LookupError("the signed-in account no longer exists")
 	return user
-
-
-def end_user_sessions(user_id: uuid.UUID | str, keep_sid: str | None = None) -> int:
-	"""Sign a user out everywhere (SessionStore.end_for).
-
-	:param keep_sid: the caller's own session (after a password change)
-	:returns: how many sessions were ended"""
-	return current_app.sessions.end_for(user_id, keep_sid)
-
-
-def signed_in_users(now: float | None = None) -> dict[str, float]:
-	"""Who is signed in now (SessionStore.signed_in).
-
-	:param now: the time (epoch seconds); now when None
-	:returns: user id → when the newest of their live sessions began"""
-	return current_app.sessions.signed_in(now or time.time())
 
 
 login_mng = LoginManager()
@@ -145,7 +124,7 @@ def register_auth(app: NetRolloutApp) -> None:
 		if Caller.SESSION_CHECK.wants_json():
 			return err("Your session has ended — sign in again", 401,
 			           redirect=url_for("auth.home"))
-		flash(f"You were signed out after {idle_seconds() // 60} minutes "
+		flash(f"You were signed out after {current_app.sessions.idle_seconds() // 60} minutes "
 		      f"without activity." if reason == "idle" else
 		      f"Signed out: sessions last at most {ABSOLUTE_SESSION_HOURS} "
 		      f"hours. Sign in again.", "info")
@@ -157,7 +136,7 @@ def register_auth(app: NetRolloutApp) -> None:
 		(_idle_timeout.html)."""
 		if not current_user.is_authenticated:
 			return {}
-		return {"NR_IDLE_SECONDS": idle_seconds()}
+		return {"NR_IDLE_SECONDS": current_app.sessions.idle_seconds()}
 
 	@app.before_request
 	def require_password_change() -> ResponseReturnValue | None:

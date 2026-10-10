@@ -3,7 +3,6 @@ import pytest
 
 from src.db.tables import User
 from src.runtime import VERSION, source_url
-from src.webapp.hooks import end_user_sessions
 
 pytestmark = [pytest.mark.postgres, pytest.mark.redis]
 
@@ -66,7 +65,7 @@ def test_grafana_refuses_an_admin_who_must_change_the_password(client_for,
 
 def test_grafana_access_ends_with_the_session(app, client_for, make_user):
 	"""Grafana's auth check turns 401 once the session ends: after signing
-	out, and after end_user_sessions (Terminate Session / a reset)."""
+	out, and after SessionStore.end_for (Terminate Session / a reset)."""
 	admin = make_user(role="admin")
 	browser = client_for(admin)
 	assert browser.get(GRAFANA_AUTH).status_code == 204
@@ -76,7 +75,7 @@ def test_grafana_access_ends_with_the_session(app, client_for, make_user):
 	browser = client_for(admin)
 	browser.get("/dashboard")                       # a stored Redis session
 	with app.app_context():
-		end_user_sessions(admin.id)                 # Terminate Session / reset
+		app.sessions.end_for(admin.id)              # Terminate Session / reset
 	assert browser.get(GRAFANA_AUTH).status_code == 401
 
 

@@ -16,7 +16,6 @@ from src.accounts.users import temporary_password, AccountError, Accounts
 from src.audit import AuditAction
 from src.db.tables import User, AuthType, Role
 from src.webapp.app import current_app
-from src.webapp.hooks import end_user_sessions, signed_in_users
 from src.webapp.http import ok, err, require_admin, with_json, viewer
 
 bp = Blueprint('admin_users', __name__, url_prefix='/admin')
@@ -64,7 +63,7 @@ def user_action_factory(user: User, action: str, db_session: Session) -> None:
 		# LDAP users and the factory admin don't use 2FA.
 		user.otp_secret = None
 	elif action == "terminate_session":
-		end_user_sessions(user.id)
+		current_app.sessions.end_for(user.id)
 
 
 @bp.route("")
@@ -86,7 +85,7 @@ def admin_users() -> str:
 
 	return render_template("admin_users.html", users=users,
 	                       active_section="users",
-	                       session_user_ids=set(signed_in_users()))
+	                       session_user_ids=set(current_app.sessions.signed_in(time.time())))
 
 
 @bp.route("/users/<uuid:user_id>/<action>", methods=["POST"])
@@ -138,7 +137,7 @@ def admin_reset_password(user_id: uuid.UUID) -> ResponseReturnValue:
 		user.password_hash = generate_password_hash(temporary)
 		user.must_change_password = True
 		username = user.username
-	ended = end_user_sessions(user_id)
+	ended = current_app.sessions.end_for(user_id)
 	current_app.web.audit(AuditAction.USER_RESET_PASSWORD, object_type="User",
 	                      object_id=user_id, object_label=username,
 	                      detail={"sessions_ended": ended})
@@ -214,7 +213,7 @@ def admin_sessions() -> str:
 	"""Live Sessions: the users signed in now (a session within its limits),
 	local and LDAP apart, with how long ago their newest sign-in was."""
 	now = time.time()
-	signed_in = signed_in_users(now)
+	signed_in = current_app.sessions.signed_in(now)
 	sessions: list[dict[str, Any]] = []
 	if signed_in:
 		with current_app.backend.postgres.get_session() as db_session:
@@ -248,7 +247,7 @@ def admin_sessions_kick(user_id: uuid.UUID) -> ResponseReturnValue:
 	 404 when they have no session"""
 	if user_id == current_user.id:
 		return err("You can't end your own session here - use Sign out", 400)
-	ended = end_user_sessions(user_id)
+	ended = current_app.sessions.end_for(user_id)
 	if not ended:
 		return err("Session not found", 404)
 	current_app.web.audit(AuditAction.ADMIN_SESSION_KICK, object_type="User",
