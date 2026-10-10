@@ -192,6 +192,18 @@ namespace NetRollout
 			get { return File.Exists(Path.Combine(Root, ".env")); }
 		}
 
+		// The update this folder's files are for, unfinished: manage.ps1 writes
+		// .update-pending before an update's second half and removes it once
+		// that worked; it names this VERSION (another: stale). null: none
+		public static string PendingUpdate
+		{
+			get
+			{
+				string pending = Value(Path.Combine(Root, ".update-pending"), "version", "");
+				return pending.Length > 0 && pending == Version ? pending : null;
+			}
+		}
+
 		public static string Port
 		{
 			get { return Value(Path.Combine(Root, ".env"), "HTTPS_PORT", "443"); }
@@ -251,6 +263,10 @@ namespace NetRollout
 		public static Tuple<State, string> Health()
 		{
 			if (!Installed) return Tuple.Create(State.Stopped, "Not installed here - run NetRollout Setup");
+			// first: Start would otherwise look like the way on (it finishes the update too)
+			string pending = PendingUpdate;
+			if (pending != null)
+				return Tuple.Create(State.Attention, "The update to " + pending + " didn't finish - click Finish update");
 			try
 			{
 				var request = (HttpWebRequest)WebRequest.Create(
@@ -304,6 +320,9 @@ namespace NetRollout
 		bool exiting, toldAboutTray, updating;
 		Release announced;                  // the daily check's find, for a click on its notification
 		ToolStripMenuItem dailyItem;
+		// Start, or Finish update while an update is unfinished (ShowState)
+		Button startButton;
+		ToolStripItem startItem;
 		readonly bool startInTray;
 
 		public ManagerForm(bool tray)
@@ -350,7 +369,7 @@ namespace NetRollout
 			buttons.AutoSizeMode = AutoSizeMode.GrowAndShrink;
 			buttons.Padding = new Padding(14, 6, 14, 6);
 			AddButton("Open NetRollout", delegate { OpenNetRollout(); }, true);
-			AddButton("Start", delegate { Run("start", "Starting NetRollout..."); }, false);
+			startButton = AddButton("Start", delegate { StartOrFinish(); }, false);
 			AddButton("Stop", delegate { StopNetRollout(); }, false);
 			AddButton("Status", delegate { Run("status", "Checking everything..."); }, false);
 			AddButton("Logs", delegate { Run("logs", "Recent log lines of the app:"); }, false);
@@ -393,7 +412,7 @@ namespace NetRollout
 			open.Font = new Font(menu.Font, FontStyle.Bold);
 			menu.Items.Add("Show NetRollout Manager", null, delegate { ShowWindow(); });
 			menu.Items.Add(new ToolStripSeparator());
-			menu.Items.Add("Start", null, delegate { ShowWindow(); Run("start", "Starting NetRollout..."); });
+			startItem = menu.Items.Add("Start", null, delegate { ShowWindow(); StartOrFinish(); });
 			menu.Items.Add("Stop", null, delegate { ShowWindow(); StopNetRollout(); });
 			menu.Items.Add(new ToolStripSeparator());
 			menu.Items.Add("Check for updates", null, delegate { ShowWindow(); CheckForUpdates(true); });
@@ -446,13 +465,24 @@ namespace NetRollout
 			base.SetVisibleCore(value);
 		}
 
-		void AddButton(string text, EventHandler click, bool primary)
+		Button AddButton(string text, EventHandler click, bool primary)
 		{
 			var b = new Button { Text = text, AutoSize = true, Height = 32, Padding = new Padding(10, 2, 10, 2),
 				Margin = new Padding(4), FlatStyle = FlatStyle.System };
 			b.Click += click;
 			if (primary) AcceptButton = b;
 			buttons.Controls.Add(b);
+			return b;
+		}
+
+		// An update whose second half didn't finish (Setup closed after a
+		// failure): Finish update runs that half again - the new images, the
+		// settings, the restart - never the new version without them
+		void StartOrFinish()
+		{
+			string pending = Install.PendingUpdate;
+			if (pending == null) { Run("start", "Starting NetRollout..."); return; }
+			Run("update -Yes", "Finishing the update to NetRollout " + pending + "...");
 		}
 
 		void ShowWindow()
@@ -738,6 +768,9 @@ namespace NetRollout
 				: s == State.Stopped ? "Stopped" : "Checking...";
 			detailLabel.Text = detail;
 			addressLink.Text = Install.Installed ? Install.Address : "";
+			string start = Install.PendingUpdate != null ? "Finish update" : "Start";
+			startButton.Text = start;
+			startItem.Text = start;
 			light.Invalidate();
 			trayIcon.Text = "NetRollout - " + stateLabel.Text;
 			trayIcon.Icon = TrayIcon(LightColor(s));

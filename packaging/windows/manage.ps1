@@ -51,6 +51,9 @@ $AppImage = "itamarweinstein/netrollout:$Version"
 # compose's images of another version (a kept install's backup); "" = $Version
 $ImageVersion = ""
 $EnvFile = Join-Path $Root ".env"
+# An update's second half (update) hasn't finished while this is here (and
+# names this folder's VERSION): Setup, the Manager and start finish it
+$MarkerFile = Join-Path $Root ".update-pending"
 $Interactive = [Environment]::UserInteractive -and -not $Yes
 # Docker Desktop's own folder: 64-bit Program Files even from a 32-bit caller
 $DockerDir = Join-Path $(if ($env:ProgramW6432) { $env:ProgramW6432 } else { $env:ProgramFiles }) "Docker\Docker"
@@ -203,6 +206,33 @@ function Get-KeptVersion {
 	}
 	return ""
 }
+
+# The update this folder's files are for, unfinished: @{Version; BackupFirst}
+# - the marker naming the VERSION in place ($null: none, or a stale one: an
+# update cancelled before its files were replaced names a version not here)
+function Get-PendingUpdate {
+	if (-not $Version -or -not (Test-Path $MarkerFile)) { return $null }
+	$found = @{ Version = ""; BackupFirst = $false }
+	foreach ($line in Get-Content $MarkerFile) {
+		if ($line -match "^version=(.+)$") { $found.Version = $Matches[1].Trim() }
+		if ($line -match "^backup-first=yes") { $found.BackupFirst = $true }
+	}
+	if ($found.Version -ne $Version) { return $null }
+	return $found
+}
+
+# The marker, written before an update's second half can start: the version
+# it brings, and whether the kept data's backup is still owed (-BackupFirst).
+# ASCII key=value: Setup and the Manager read it (no BOM before the first key)
+function Write-UpdateMarker([string]$Target, [switch]$BackupFirst) {
+	$lines = @("# NetRollout's update to $Target hasn't finished while this file is here:",
+	           "# netrollout start (or Setup, or NetRollout Manager's Finish update) finishes it",
+	           "version=$Target", "started=$((Get-Date).ToString('yyyy-MM-dd HH:mm'))")
+	if ($BackupFirst) { $lines += "backup-first=yes" }
+	Set-Content -Encoding ASCII -Path $MarkerFile -Value $lines
+}
+
+function Remove-UpdateMarker { Remove-Item -Force -ErrorAction SilentlyContinue $MarkerFile }
 
 function Get-Address {
 	$hostName = "localhost"
@@ -470,11 +500,19 @@ function Invoke-Install {
 
 function Invoke-Status {
 	Assert-Installed -Setup
+	# first: the new version's image may not be here yet (the setup core's report needs it)
+	$pending = Get-PendingUpdate
+	if ($pending) {
+		Write-Host ("Update:       the update to NetRollout $($pending.Version) DIDN'T FINISH - run: netrollout start " +
+		            "(it finishes the update, then starts; NetRollout Manager: Finish update)") -ForegroundColor Yellow
+	}
 	Confirm-Docker
 	$reachable = if (Test-Reachable) { "yes" } else { "no" }
 	$busy = Get-BusyPorts (Get-OurPorts)
-	return Invoke-Setup (@("status", "--containers", (Get-ContainerStates), "--reachable", $reachable,
+	$code = Invoke-Setup (@("status", "--containers", (Get-ContainerStates), "--reachable", $reachable,
 		"--busy-ports", $busy) + (Get-Facts)) -OnNetwork
+	if ($pending -and $code -eq 0) { return 1 }
+	return $code
 }
 
 function Show-RunningRollouts {
@@ -725,6 +763,9 @@ function Invoke-PrepareUpdate {
 		if ((Invoke-BackupCreate "before-update") -ne 0) {
 			Fail "Couldn't back up - nothing was changed. Fix it (above), then run Setup again."
 		}
+		# from here on the files are replaced: the update counts as unfinished
+		# until its second half (update) has run
+		Write-UpdateMarker $NewVersion
 	}
 }
 
@@ -741,6 +782,7 @@ function Invoke-PrepareKept {
 		      "updated. The backup before the update is made by NetRollout $NewVersion - it restores into " +
 		      "$NewVersion, not into the earlier version.")
 		Say "   The backup is made once NetRollout $NewVersion's files are in place, before anything starts."
+		Write-UpdateMarker $NewVersion -BackupFirst
 		return
 	}
 	$old = "itamarweinstein/netrollout:$kept"
@@ -761,6 +803,8 @@ function Invoke-PrepareKept {
 		      "computer's internet connection, then run Setup again.")
 	}
 	Say "   The backup (by NetRollout $kept) is made once NetRollout $NewVersion's files are in place, before anything starts."
+	# the backup is owed until the update's second half has made it
+	Write-UpdateMarker $NewVersion -BackupFirst
 }
 
 # Invoke-Update -BackupFirst: the backup prepare-update couldn't make for
@@ -788,24 +832,47 @@ function Backup-KeptData {
 
 # After Setup replaced the files (this is the new script): the new images
 # while the old version keeps running, .env brought up to date, the restart.
+# Resumable: the marker says the update is unfinished until the restart
+# worked, and whether the kept data's backup is still owed - so an update
+# that failed halfway is finished by running this again (Setup, the
+# Manager's Finish update, start), never skipped.
 function Invoke-Update {
 	Invoke-ClearingStopNow {
 		Assert-Installed
 		Confirm-Docker
+		$pending = Get-PendingUpdate
+		$owed = $BackupFirst -or ($pending -and $pending.BackupFirst)
+		Write-UpdateMarker $Version -BackupFirst:$owed
 		Step "Downloading NetRollout $Version (it keeps running meanwhile)"
 		# failures of others' images surface at the start; ours are checked here
 		# (a local build isn't on Docker Hub)
 		Compose @("pull", "--quiet", "--ignore-pull-failures") | Out-Null
 		foreach ($image in "netrollout", "netrollout-nginx") { Get-OurImage "itamarweinstein/${image}:$Version" }
-		if ($BackupFirst) { Backup-KeptData }
+		if ($owed) {
+			Backup-KeptData
+			Write-UpdateMarker $Version      # the backup is made: not again on a resume
+		}
 		Step "Updating the settings"
 		if ((Invoke-Setup @("upgrade")) -ne 0) { Fail "The update stopped before the restart - see above." }
 		Confirm-Rollouts "update" | Out-Null      # the files are in place: shown, never refused
 		Step "Restarting on the new version (about a minute; running rollouts finish first)"
 		Start-NetRollout
+		Remove-UpdateMarker
 		Start-PortHelper
 		Good "Updated to NetRollout $Version. Everyone signs in again."
 	}
+}
+
+# start with an unfinished update here: the update's second half first (its
+# restart is the start) - never the new version without setup upgrade
+function Invoke-Start {
+	Assert-Installed -Setup
+	$pending = Get-PendingUpdate
+	if ($pending) {
+		Step "The update to NetRollout $($pending.Version) didn't finish - finishing it first"
+		Invoke-Update; Open-Browser; return
+	}
+	Start-NetRollout; Start-PortHelper; Open-Browser
 }
 
 # ── the port helper (System Settings -> HTTPS port) ──────────────────────────
@@ -999,6 +1066,7 @@ function Invoke-Uninstall {
 		foreach ($name in $gone) {
 			Remove-Item -Recurse -Force -ErrorAction SilentlyContinue (Join-Path $Root $name)
 		}
+		Remove-UpdateMarker
 		if ($deleteBackups -or -not (Test-Path (Join-Path $Root "backups"))) {
 			Good "NetRollout and its data are removed."
 		} else {
@@ -1033,10 +1101,7 @@ function Show-Help {
 function Invoke-NrCommand([string]$Name) {
 	switch ($Name) {
 		"install" { Invoke-Install; return 0 }
-		"start" {
-			Assert-Installed -Setup
-			Start-NetRollout; Start-PortHelper; Open-Browser; return 0
-		}
+		"start" { Invoke-Start; return 0 }
 		"stop" { Invoke-Stop; return 0 }
 		"backup" { Invoke-Backup; return 0 }
 		"restore" { Invoke-Restore; return 0 }

@@ -443,3 +443,121 @@ def test_every_finished_page_has_its_own_heading():
 	for heading in ("NetRollout is installed, but not running", "NetRollout is updated", "NetRollout is installed"):
 		assert f"WizardForm.FinishedHeadingLabel.Caption := '{heading}';" in page
 	assert "is running again with the data kept in" in page
+
+
+def ps1_function(text, name):
+	"""manage.ps1's function `name`, up to the next top-level function."""
+	start = text.index(f"function {name}")
+	end = text.find("\nfunction ", start + 1)
+	return text[start:end if end > 0 else len(text)]
+
+
+def sh_function(text, name):
+	"""netrollout.sh's function `name`, up to its closing brace."""
+	return re.search(rf"\n{re.escape(name)}\(\) \{{(.*?)\n\}}", text, re.S)[1]
+
+
+def test_an_unfinished_windows_update_is_finished_never_skipped():
+	"""manage.ps1 keeps .update-pending (ASCII key=value, naming the version) from before
+	an update's second half until its restart worked: prepare-update writes it once the
+	files are about to be replaced (kept data: with the backup still owed), update
+	rewrites it first, makes an owed backup (then drops the flag), removes it only after
+	Start-NetRollout. `start` with it pending runs the update instead of starting the new
+	version without `setup upgrade` (rc1: a failed update's second half was skipped by
+	Setup's "same version" and by start); status names it before needing Docker; deleting
+	the data deletes it."""
+	ps1 = (ROOT / "packaging" / "windows" / "manage.ps1").read_text(encoding="utf-8")
+	assert '$MarkerFile = Join-Path $Root ".update-pending"' in ps1
+	pending = ps1_function(ps1, "Get-PendingUpdate")
+	assert 'if ($found.Version -ne $Version) { return $null }' in pending
+	write = ps1_function(ps1, "Write-UpdateMarker")
+	assert "Set-Content -Encoding ASCII -Path $MarkerFile" in write
+	assert '"version=$Target"' in write and 'if ($BackupFirst) { $lines += "backup-first=yes" }' in write
+	prepare = ps1_function(ps1, "Invoke-PrepareUpdate")
+	assert prepare.index('(Invoke-BackupCreate "before-update")') < prepare.index("Write-UpdateMarker $NewVersion")
+	assert ps1_function(ps1, "Invoke-PrepareKept").count("Write-UpdateMarker $NewVersion -BackupFirst") == 2
+	update = ps1_function(ps1, "Invoke-Update")
+	assert "$owed = $BackupFirst -or ($pending -and $pending.BackupFirst)" in update
+	marked = update.index("Write-UpdateMarker $Version -BackupFirst:$owed")
+	pull = update.index('Compose @("pull"')
+	backup = update.index("Backup-KeptData")
+	upgrade = update.index('(Invoke-Setup @("upgrade"))')
+	started = update.index("Start-NetRollout")
+	removed = update.index("Remove-UpdateMarker")
+	assert marked < pull < backup < upgrade < started < removed
+	assert "if ($owed) {\n\t\t\tBackup-KeptData\n\t\t\tWrite-UpdateMarker $Version " in update
+	start = ps1_function(ps1, "Invoke-Start")
+	assert "if ($pending) {" in start and "Invoke-Update" in start
+	assert '"start" { Invoke-Start; return 0 }' in ps1
+	status = ps1_function(ps1, "Invoke-Status")
+	assert status.index("Get-PendingUpdate") < status.index("Confirm-Docker")
+	assert "DIDN'T FINISH - run: netrollout start" in status and "if ($pending -and $code -eq 0) { return 1 }" in status
+	uninstall = ps1_function(ps1, "Invoke-Uninstall")
+	assert "Remove-UpdateMarker" in uninstall[uninstall.index("if ($delete) {\n\t\t$gone"):]
+
+
+def test_an_unfinished_linux_update_is_finished_never_skipped():
+	"""netrollout.sh keeps the same .update-pending as manage.ps1: update writes it before
+	the files are replaced, install over older kept data writes it with the backup owed,
+	update-finish rewrites it first, makes an owed backup by the kept version (then drops
+	the flag) and removes it only after do_start; start (and the menu's Start, and install
+	again) finish a pending update instead of starting the new version without `setup
+	upgrade`; status names it before needing Docker; deleting the data deletes it."""
+	sh = (ROOT / "packaging" / "linux" / "netrollout.sh").read_text(encoding="utf-8")
+	assert 'MARKER="$ROOT/.update-pending"' in sh
+	assert '[ "$v" = "$VERSION" ]' in sh_function(sh, "pending_update")
+	write = sh_function(sh, "write_marker")
+	assert "printf 'version=%s\\nstarted=%s\\n'" in write and "backup-first=yes" in write
+	update = sh_function(sh, "do_update")
+	assert update.index('write_marker "$new"') < update.index('rm -rf "${ROOT:?}/$item"')
+	over = sh_function(sh, "install_over_kept")
+	assert over.index('if [ -n "$(pending_update)" ]; then') < over.index('if [ "$kept" = "$VERSION" ]; then')
+	assert 'write_marker "$VERSION" backup-first\n\tdo_update_finish' in over
+	finish = sh_function(sh, "do_update_finish")
+	marked = finish.index('write_marker "$VERSION" "$owed"')
+	pull = finish.index("compose pull")
+	backup = finish.index("backup_create before-update")
+	upgrade = finish.index("setup_core upgrade")
+	started = finish.index("do_start")
+	removed = finish.index('rm -f "$MARKER"')
+	assert marked < pull < backup < upgrade < started < removed
+	assert 'IMAGE_VERSION="$kept"' in finish
+	choose = sh_function(sh, "start_or_finish")
+	assert 'if [ -n "$(pending_update)" ]; then' in choose and "do_update_finish" in choose
+	assert "start) need_installed; start_or_finish; open_browser ;;" in sh
+	assert "3) ( COMMAND=start; need_installed; start_or_finish ) || true ;;" in sh
+	status = sh_function(sh, "do_status")
+	assert status.index('pending="$(pending_update)"') < status.index("need_docker")
+	assert "DIDN'T FINISH - run: sudo $BIN/netrollout.sh start" in status
+	uninstall = sh_function(sh, "do_uninstall")
+	assert 'rm -rf "$ENV_FILE" "$ROOT/config" "$ROOT/certs" "$ROOT/logs"\n\t\trm -f "$MARKER"' in uninstall
+
+
+def test_setup_and_the_manager_finish_an_unfinished_update():
+	"""Setup over the same version whose update didn't finish (.update-pending naming
+	it) doesn't say "nothing to update": it goes on (Resume) to a "Finish update" review
+	page, skips prepare-update (its check refuses the same version) but still closes the
+	install's Manager before the files, and runs `update` - the second half. The Manager
+	reads the same marker: the status says the update didn't finish and Start becomes
+	Finish update (`update -Yes`), in the window and the tray."""
+	text = iss_text()
+	pending = pascal(text, "function UpdatePending(")
+	assert "'.update-pending'" in pending and "Lines[I] = 'version=' + Version" in pending
+	newer = pascal(text, "function NewerThanInstalled:")
+	assert "if (This = Installed) and UpdatePending(InstalledDir, InstalledVersion) then\n\t\tResume := True" in newer
+	assert newer.index("Resume := True") < newer.index("is already installed in")
+	prepare = pascal(text, "function PrepareToInstall(")
+	assert prepare.index("if not Resume then") < prepare.index("prepare-update -Yes")
+	assert "'\\bin\\NetRollout Manager.exe', '--exit'" in prepare
+	page = pascal(text, "procedure CurPageChanged(")
+	assert "WizardForm.NextButton.Caption := 'Finish update';" in page
+	assert "if Resume then begin\n\t\tResult := 'Finish the update:'" in pascal(text, "function UpdateReadyMemo(")
+	assert "if UpdateMode or KeptUpdate then begin\n\t\tArgs := 'update -Yes -NoBrowser';" in pascal(text, "function RunSetUp(")
+	cs = (ROOT / "packaging" / "windows" / "manager" / "NetRolloutManager.cs").read_text(encoding="utf-8")
+	assert 'Value(Path.Combine(Root, ".update-pending"), "version", "")' in cs
+	assert "pending.Length > 0 && pending == Version ? pending : null" in cs
+	assert "\" didn't finish - click Finish update\")" in cs
+	assert 'Run("update -Yes", "Finishing the update to NetRollout "' in cs
+	assert 'startButton = AddButton("Start", delegate { StartOrFinish(); }, false);' in cs
+	assert 'startItem = menu.Items.Add("Start", null, delegate { ShowWindow(); StartOrFinish(); });' in cs
+	assert 'Install.PendingUpdate != null ? "Finish update" : "Start"' in cs

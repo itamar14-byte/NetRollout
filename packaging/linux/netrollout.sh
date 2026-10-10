@@ -24,6 +24,9 @@ UNIT="netrollout-port-$PROJECT"               # the port helper's systemd units
 APP_IMAGE="itamarweinstein/netrollout:$VERSION"
 IMAGE_VERSION=""      # compose's images of another version (a kept install's backup)
 ENV_FILE="$ROOT/.env"
+# an update's second half (update-finish) hasn't finished while this is here
+# (and names this folder's VERSION): start (and install) finish it
+MARKER="$ROOT/.update-pending"
 APP_UID=10001                                  # the app container's user
 # what a release brings: an update replaces these, an uninstall removes them
 RELEASE_ITEMS=(bin compose.yaml compose.http.yaml deploy VERSION LICENSE README.md)
@@ -60,7 +63,7 @@ INTERACTIVE=""; [ -t 0 ] && [ -z "$YES" ] && INTERACTIVE=1
 
 case "$COMMAND" in
 	install) do_install ;;
-	start) need_installed; do_start; open_browser ;;
+	start) need_installed; start_or_finish; open_browser ;;
 	stop) do_stop ;;
 	status) do_status ;;
 	open) need_installed; address; echo; open_browser force ;;
@@ -188,6 +191,29 @@ kept_version() {
 	printf '%s' "$v"
 }
 
+# The unfinished update this folder's files are for: its version - the
+# marker naming this VERSION; empty: none, or a stale one (an update stopped
+# before its files were replaced names a version not here)
+pending_update() {
+	local v=""
+	if [ -n "$VERSION" ] && [ -f "$MARKER" ]; then
+		v="$(sed -n 's/^version=//p' "$MARKER" | tail -1 | tr -d ' \r')"
+	fi
+	if [ "$v" = "$VERSION" ]; then printf '%s' "$v"; fi
+}
+
+# The marker, written before an update's second half can start: the version
+# it brings, and whether the kept data's backup is still owed.
+#   write_marker <version> [backup-first]
+write_marker() {
+	{
+		printf "# NetRollout's update to %s hasn't finished while this file is here:\n" "$1"
+		printf '# netrollout.sh start (or install.sh) finishes it\n'
+		printf 'version=%s\nstarted=%s\n' "$1" "$(date '+%Y-%m-%d %H:%M')"
+		if [ "${2:-}" = backup-first ]; then printf 'backup-first=yes\n'; fi
+	} > "$MARKER"
+}
+
 # Our two images of this version, pulled when this machine doesn't have them;
 # a release whose image isn't on Docker Hub is incomplete - exit 3, "report it".
 #   our_images [what to do after fixing the connection] [a last sentence]
@@ -260,6 +286,17 @@ do_start() {
 	else warn "NetRollout runs, but $(address) didn't answer from this machine yet - see: netrollout status"; fi
 }
 
+# start with an unfinished update here: the update's second half first (its
+# restart is the start) - never the new version without setup upgrade
+start_or_finish() {
+	if [ -n "$(pending_update)" ]; then
+		step "The update to NetRollout $VERSION didn't finish - finishing it first"
+		do_update_finish
+	else
+		do_start
+	fi
+}
+
 do_install() {
 	need_root
 	if [ -f "$ENV_FILE" ]; then
@@ -313,6 +350,11 @@ install_over_kept() {
 	kept="$(kept_version)"
 	[ ${#ANSWERS[@]} -eq 0 ] ||
 		warn "The answers given aren't applied to an existing install - change them in System Settings."
+	if [ -n "$(pending_update)" ]; then
+		step "The update to NetRollout $VERSION didn't finish - finishing it now"
+		do_update_finish
+		return
+	fi
 	if [ "$kept" = "$VERSION" ]; then
 		good "NetRollout's settings and data are already in $ROOT - starting it with them."
 		do_start
@@ -339,11 +381,9 @@ install_over_kept() {
 	else
 		warn "$ENV_FILE doesn't say which version set it up (an early install): taken as an older version and updated. The backup before the update is made by NetRollout $VERSION - it restores into $VERSION, not into the earlier version."
 	fi
-	set_owners
-	step "Backing up first"
-	IMAGE_VERSION="$kept"     # by the version that wrote the data (none known: this one)
-	backup_create before-update || fail "Couldn't back up - nothing was changed. Fix it (above), then run the install again."
-	IMAGE_VERSION=""
+	# the update's own steps, the backup by the kept version first; resumable
+	# (start or this install again) until its restart worked
+	write_marker "$VERSION" backup-first
 	do_update_finish
 }
 
@@ -557,6 +597,8 @@ do_update() {
 	step "Backing up first"
 	backup_create before-update || { rm -rf "$stage"; fail "Couldn't back up - nothing was changed. Fix it (above), then update again."; }
 	step "Putting NetRollout $new's files in place"
+	# from here on the update counts as unfinished until update-finish has run
+	write_marker "$new"
 	for item in "${RELEASE_ITEMS[@]}"; do
 		[ -e "$folder/$item" ] || continue
 		rm -rf "${ROOT:?}/$item"
@@ -568,21 +610,41 @@ do_update() {
 	exec "$ROOT/bin/netrollout.sh" update-finish --no-browser
 }
 
-# The new version's script, after update put its files in place: the new
-# images while the old version keeps running, .env up to date, the restart.
+# The new version's script, after update put its files in place (or install
+# over kept data of an older version): the new images while the old version
+# keeps running, the kept data's backup when owed, .env up to date, the
+# restart. Resumable: the marker says the update is unfinished until the
+# restart worked (start finishes it), and whether the backup is still owed.
 do_update_finish() {
 	need_installed; need_root; need_docker; CLEAR_STOP_NOW=1
-	local out back="The backup made before the update is in $ROOT/backups (...-before-update.zip)."
+	local out owed="" kept old back="The backup made before the update is in $ROOT/backups (...-before-update.zip)."
+	if [ -n "$(pending_update)" ] && grep -qx 'backup-first=yes' "$MARKER"; then owed=backup-first; fi
+	write_marker "$VERSION" "$owed"
 	step "Downloading NetRollout $VERSION (it keeps running meanwhile)"
 	# failures of others' images surface at the start; ours are checked here
 	compose pull --quiet --ignore-pull-failures >/dev/null 2>&1 || true
-	our_images ", then: sudo $BIN/netrollout.sh update-finish" "$back"
+	our_images ", then: sudo $BIN/netrollout.sh start (it finishes the update)" "$back"
+	if [ -n "$owed" ]; then
+		kept="$(kept_version)"
+		if [ -n "$kept" ]; then
+			old="itamarweinstein/netrollout:$kept"
+			docker image inspect "$old" >/dev/null 2>&1 || docker pull -q "$old" >/dev/null 2>&1 ||
+				fail "NetRollout $kept's image ($old) isn't on this machine and couldn't be downloaded - it makes the backup before the update. NetRollout wasn't started; its data is as NetRollout $kept left it. Check the internet connection, then: sudo $BIN/netrollout.sh start (it finishes the update)."
+		fi
+		set_owners
+		step "Backing up first (the data NetRollout ${kept:-had} left here)"
+		IMAGE_VERSION="$kept"     # by the version that wrote the data (none known: this one)
+		backup_create before-update || fail "Couldn't back up - NetRollout wasn't started and its data wasn't changed. Fix it (above), then: sudo $BIN/netrollout.sh start (it finishes the update)."
+		IMAGE_VERSION=""
+		write_marker "$VERSION"   # the backup is made: not again on a resume
+	fi
 	step "Updating the settings"
 	out="$(setup_core upgrade 2>&1)" || { show "$out"; fail "The update stopped before the restart - see above. $back"; }
 	show "$out"
 	confirm_rollouts update shown     # asked before the files were replaced
 	step "Restarting on the new version (about a minute; running rollouts finish first)"
 	do_start
+	rm -f "$MARKER"
 	rm -rf "$ROOT/.update"
 	good "Updated to NetRollout $VERSION. Everyone signs in again."
 }
@@ -722,13 +784,21 @@ do_apply() {
 }
 
 do_status() {
-	need_installed; need_root; need_docker
-	local states reach=no
+	need_installed; need_root
+	local states reach=no pending code=0
+	# first: the new version's image may not be here yet (the report needs it)
+	pending="$(pending_update)"
+	if [ -n "$pending" ]; then
+		printf '\033[33m%s\033[0m\n' "Update:       the update to NetRollout $pending DIDN'T FINISH - run: sudo $BIN/netrollout.sh start (it finishes the update, then starts)"
+	fi
+	need_docker
 	states="$(compose ps -a --format '{{.Service}}={{.State}}/{{.Health}}' 2>/dev/null | sed 's|/$||' | paste -sd, -)"
 	reachable && reach=yes
 	facts
 	ON_NETWORK=1 setup_core status --containers "$states" --reachable "$reach" \
-		--busy-ports "$(busy_ports)" "${FACTS[@]}"
+		--busy-ports "$(busy_ports)" "${FACTS[@]}" || code=$?
+	if [ -n "$pending" ] && [ "$code" -eq 0 ]; then code=1; fi
+	return "$code"
 }
 
 do_uninstall() {
@@ -757,6 +827,7 @@ do_uninstall() {
 	fi
 	if [ -n "$delete" ]; then
 		rm -rf "$ENV_FILE" "$ROOT/config" "$ROOT/certs" "$ROOT/logs"
+		rm -f "$MARKER"
 		if [ -n "$delete_backups" ]; then rm -rf "$ROOT/backups"; fi
 		if [ -d "$ROOT/backups" ]; then
 			good "NetRollout and its data are removed - the backups stay in $ROOT/backups"
@@ -832,7 +903,7 @@ show_menu() {
 			0) return 0 ;;
 			1) ( COMMAND=open; need_installed; say "$(address)"; open_browser force ) || true ;;
 			2) ( COMMAND=status; do_status ) || true ;;
-			3) ( COMMAND=start; need_installed; do_start ) || true ;;
+			3) ( COMMAND=start; need_installed; start_or_finish ) || true ;;
 			4) ( COMMAND=stop; do_stop ) || true ;;
 			5) ( COMMAND=logs; need_installed; need_docker; compose logs --tail 100 --no-log-prefix app ) || true ;;
 			6) ( COMMAND=backup; do_backup ) || true ;;

@@ -159,6 +159,9 @@ var
 	  older version - or one that doesn't say: updated, a backup first }
 	KeptUpdate: Boolean;
 	InstalledDir, InstalledVersion: String;
+	{ the same version installed, its update unfinished (.update-pending):
+	  Setup runs only the update's second half }
+	Resume: Boolean;
 	{ the folder holding kept data found at Setup's start (pre-selected), and
 	  the last folder CheckKept announced (not announced twice) }
 	KeptDir, AnnouncedDir: String;
@@ -204,6 +207,18 @@ begin
 	InstalledVersion := Trim(String(Version));
 	UpdateMode := True;
 	Reinstall := True;
+end;
+
+{ An update to Version that didn't finish in Dir: the marker manage.ps1
+  writes before an update's second half (removed once it worked) names it
+  ("version=X"; another version: a stale marker, nothing pending) }
+function UpdatePending(const Dir, Version: String): Boolean;
+var Lines: TArrayOfString; I: Integer;
+begin
+	Result := False;
+	if LoadStringsFromFile(AddBackslash(Dir) + '.update-pending', Lines) then
+		for I := 0 to GetArrayLength(Lines) - 1 do
+			if Lines[I] = 'version=' + Version then Result := True;
 end;
 
 { The digits at the start of S, as N (removed from S); False: none }
@@ -257,7 +272,9 @@ begin
 end;
 
 { Over an installed NetRollout only a newer Setup goes on (the update): the
-  same version or an older one says so before the first page. False: stop. }
+  same version or an older one says so before the first page. False: stop.
+  The same version whose update didn't finish goes on too: Setup finishes
+  it (Resume). }
 function NewerThanInstalled: Boolean;
 var Installed, This: String;
 begin
@@ -265,7 +282,9 @@ begin
 	Installed := VersionKey(InstalledVersion);
 	This := VersionKey('{#AppVersion}');
 	if (Installed = '') or (This = '') then exit;
-	if This = Installed then begin
+	if (This = Installed) and UpdatePending(InstalledDir, InstalledVersion) then
+		Resume := True
+	else if This = Installed then begin
 		SuppressibleMsgBox('NetRollout ' + InstalledVersion + ' is already installed in ' + InstalledDir +
 			' - this Setup is the same version. Nothing to update.', mbInformation, MB_OK, IDOK);
 		Result := False;
@@ -624,7 +643,13 @@ begin
 		WizardForm.ActiveControl := WizardForm.DirEdit;
 		WizardForm.DirEdit.SelectAll;
 	end;
-	if (CurPageID = wpReady) and UpdateMode then begin
+	if (CurPageID = wpReady) and Resume then begin
+		WizardForm.PageNameLabel.Caption := 'Ready to finish the update';
+		WizardForm.PageDescriptionLabel.Caption := 'The update to NetRollout {#AppVersion} didn''t finish';
+		WizardForm.ReadyLabel.Caption := 'Setup finishes it now: click Finish update. Its last steps run ' +
+			'again - the new version''s images, the settings, the restart (about a minute).';
+		WizardForm.NextButton.Caption := 'Finish update';
+	end else if (CurPageID = wpReady) and UpdateMode then begin
 		WizardForm.PageNameLabel.Caption := 'Ready to update';
 		WizardForm.PageDescriptionLabel.Caption := 'NetRollout ' + InstalledVersion + ' → {#AppVersion}';
 		WizardForm.ReadyLabel.Caption := 'Click Update. NetRollout keeps running while the new version ' +
@@ -759,6 +784,15 @@ function UpdateReadyMemo(Space, NewLine, MemoUserInfoInfo, MemoDirInfo, MemoType
 	MemoComponentsInfo, MemoGroupInfo, MemoTasksInfo: String): String;
 var Lines, Certificate, Shortcuts: String;
 begin
+	if Resume then begin
+		Result := 'Finish the update:' + NewLine + Space + 'NetRollout {#AppVersion} - its files are in place, ' +
+			'its last steps didn''t run' + NewLine + NewLine +
+			'Folder:' + NewLine + Space + InstalledDir + NewLine + NewLine +
+			'Runs again:' + NewLine + Space + 'the new images, the settings, the restart (and the backup, ' +
+			'if it wasn''t made yet)' + NewLine + NewLine +
+			'Downtime:' + NewLine + Space + 'about a minute (everyone signs in again)';
+		exit;
+	end;
 	if UpdateMode then begin
 		Result := 'Update:' + NewLine + Space + 'NetRollout ' + InstalledVersion + ' → {#AppVersion}' + NewLine + NewLine +
 			'Folder:' + NewLine + Space + InstalledDir + NewLine + NewLine +
@@ -895,7 +929,10 @@ begin
 		Args := 'update -Yes -NoBrowser';
 		{ over kept data: the backup prepare-update couldn't make (no files yet) }
 		if KeptUpdate then Args := Args + ' -BackupFirst';
-		WizardForm.StatusLabel.Caption := 'Updating NetRollout - downloading the new version, then a restart (about a minute)...';
+		if Resume then
+			WizardForm.StatusLabel.Caption := 'Finishing the update - the new version, then a restart (about a minute)...'
+		else
+			WizardForm.StatusLabel.Caption := 'Updating NetRollout - downloading the new version, then a restart (about a minute)...';
 		{ appended: the log of the preparation is in the same file }
 		Result := RunScript(Args, Log, True);
 		exit;
@@ -930,7 +967,9 @@ begin
 end;
 
 { An update, before any file is replaced: the direction (an older Setup is
-  refused) and a backup by the installed version. Non-empty: why Setup stops. }
+  refused) and a backup by the installed version - not when finishing an
+  unfinished one (Resume: checked and backed up already; its marker says
+  whether the backup is still owed). Non-empty: why Setup stops. }
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var Code: Integer; Log: String;
 begin
@@ -940,9 +979,12 @@ begin
 	Log := InstalledDir + '\logs\update.log';
 	{ kept data (no VERSION there): the script checks its version by its image;
 	  the backup follows once the files are in place (update -BackupFirst) }
-	Exec(ExpandConstant('{cmd}'), '/C powershell.exe ' +
-		PsArgs(ExpandConstant('{tmp}\manage.ps1'), 'prepare-update -Yes -InstallDir "' + InstalledDir +
-		'" -NewVersion {#AppVersion}') + ' > "' + Log + '" 2>&1', InstalledDir, SW_HIDE, ewWaitUntilTerminated, Code);
+	if not Resume then
+		Exec(ExpandConstant('{cmd}'), '/C powershell.exe ' +
+			PsArgs(ExpandConstant('{tmp}\manage.ps1'), 'prepare-update -Yes -InstallDir "' + InstalledDir +
+			'" -NewVersion {#AppVersion}') + ' > "' + Log + '" 2>&1', InstalledDir, SW_HIDE, ewWaitUntilTerminated, Code)
+	else
+		Code := 0;
 	if Code <> 0 then begin
 		if KeptUpdate then Result := 'Nothing was changed.'
 		else Result := 'Nothing was changed - NetRollout ' + InstalledVersion + ' keeps running.';
