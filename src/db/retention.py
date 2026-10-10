@@ -4,7 +4,6 @@ daily at 03:00 server time - on any PostgreSQL, nothing to install there. A
 time missed while NetRollout was off is caught up once when it's back; a
 failure is retried after an hour. The last outcome is kept in
 config/retention-status.json for System Settings."""
-import json
 from collections.abc import Callable
 from datetime import datetime, time as clock, timedelta
 from typing import Any
@@ -31,10 +30,7 @@ def due(now: datetime, last_run: datetime | None) -> bool:
 
 def read_status() -> dict[str, Any] | None:
 	"""{time, ok, counts | message} of the last run, or None (never ran)."""
-	try:
-		return json.loads((runtime.config_dir() / STATUS_FILE).read_text(encoding="utf-8"))
-	except (OSError, ValueError):
-		return None
+	return runtime.read_json(runtime.config_dir() / STATUS_FILE)
 
 
 def run_once(engine: Engine, now: datetime | None = None) -> dict[str, Any]:

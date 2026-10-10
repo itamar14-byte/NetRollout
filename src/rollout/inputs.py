@@ -63,19 +63,22 @@ def validate_platform(platform: str) -> bool:
 	return platform in SUPPORTED_PLATFORMS
 
 
-def tcp_reachable(ip: str, port: int = 22) -> bool:
-	"""Can the device be reached on its management (SSH) port? TCP_RETRIES
-	attempts, TCP_RETRY_DELAY seconds apart, TCP_TIMEOUT each.
+def tcp_reachable(ip: str, port: int = 22, attempts: int = TCP_RETRIES,
+                  timeout: float = TCP_TIMEOUT) -> bool:
+	"""Can the device be reached on its management (SSH) port? The one TCP
+	probe (the CLI, Test connection, the inventory's status hint): `attempts`
+	tries, TCP_RETRY_DELAY seconds apart, `timeout` each; the connection is
+	closed at once.
 
 	:returns: whether one of the attempts connected"""
-	for attempt in range(TCP_RETRIES):
+	for attempt in range(attempts):
 		# a fresh socket per attempt — reusing a failed one raises WinError
 		# 10056 on Windows; create_connection picks IPv4 or IPv6
 		try:
-			with socket.create_connection((ip, port), timeout=TCP_TIMEOUT):
+			with socket.create_connection((ip, port), timeout=timeout):
 				return True
-		except OSError:
-			if attempt < TCP_RETRIES - 1:
+		except (OSError, ValueError):
+			if attempt < attempts - 1:
 				time.sleep(TCP_RETRY_DELAY)
 	return False
 

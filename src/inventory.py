@@ -19,7 +19,6 @@ from __future__ import annotations   # type hints are never evaluated
 
 import hmac
 import json
-import socket
 import uuid
 from collections import Counter
 from collections.abc import Callable, Collection, Mapping, Sequence
@@ -40,6 +39,7 @@ from src.db.tables import (DeviceAttribute, Inventory, PropertyDefinition, Secur
                            VariableMapping)
 from src.encryption import decrypt, encrypt
 from src.rollout.engine import endpoint, mapping_resolvable, Device
+from src.rollout import inputs
 from src.rollout.inputs import InputParser
 from src.rollout.log import Tone
 
@@ -91,15 +91,15 @@ class Reach(TypedDict):
 
 
 def probe(ip: str, port: int, timeout: float = PROBE_TIMEOUT) -> bool:
-	"""One TCP connect, no retry.
+	"""One TCP connect, no retry (inputs.tcp_reachable once).
 
 	:param timeout: seconds before an unanswered connect counts as down
 	:returns: whether ip:port accepted the connection (closed at once)"""
 	try:
-		with socket.create_connection((ip, int(port)), timeout=timeout):
-			return True
-	except (OSError, ValueError):
+		number = int(port)
+	except ValueError:
 		return False
+	return inputs.tcp_reachable(ip, number, attempts=1, timeout=timeout)
 
 
 def _cache_key(target: Target) -> str:
