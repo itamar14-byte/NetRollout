@@ -252,7 +252,8 @@ class SessionStore:
 		return self._idle_seconds
 
 	def forget_idle_limit(self) -> None:
-		"""The next idle_seconds() reads the setting again."""
+		"""The next idle_seconds() reads the setting again - the tests' seam
+		(a changed setting otherwise applies within IDLE_LIMIT_CACHE_SECONDS)."""
 		self._idle_seconds = None
 
 	def _stored(self, client: redis.Redis) -> Iterator[tuple[bytes, Any]]:

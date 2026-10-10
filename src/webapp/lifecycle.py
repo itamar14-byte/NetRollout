@@ -63,11 +63,6 @@ class Shutdown:
 		self._restart: bool | None = None   # None: not begun
 
 	@property
-	def in_progress(self) -> bool:
-		""":returns: whether a stop or restart has begun"""
-		return self._restart is not None
-
-	@property
 	def restarting(self) -> bool:
 		""":returns: whether what has begun is a restart"""
 		return bool(self._restart)

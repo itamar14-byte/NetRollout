@@ -88,4 +88,4 @@ def test_a_second_stop_request_is_ignored(monkeypatch):
 	assert shutdown.begin(600, restart=False) is True
 	assert shutdown.begin(0, restart=True) is False
 	assert started == [(600, False)]
-	assert shutdown.in_progress and not shutdown.restarting
+	assert not shutdown.restarting
