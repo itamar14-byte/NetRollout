@@ -34,7 +34,7 @@ jobs:
       TEST_REDIS_URL: redis://:ci-redis@127.0.0.1:6379/15
       PYTHONDONTWRITEBYTECODE: "1"
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
@@ -72,7 +72,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: ShellCheck (preinstalled on the runner)
         run: |
           shellcheck --version
@@ -83,7 +83,7 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
