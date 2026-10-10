@@ -67,6 +67,56 @@ jobs:
       - name: Tests (unit + integration)
         run: python -m pytest -p no:cacheprovider
 
+  # A whole install from the release's files and the images by tag, checked
+  # from outside (tests/e2e). Informative: it reports, never fails the run,
+  # and isn't required by the branch protection.
+  e2e:
+    name: End-to-end (informative)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    continue-on-error: true
+    env:
+      NETROLLOUT_E2E: "1"
+      NETROLLOUT_E2E_TAG: e2e-local
+      NETROLLOUT_E2E_KEEP: "1"   # the containers and the folder, for the logs below
+      NETROLLOUT_E2E_DIR: ${{ runner.temp }}/netrollout-e2e
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+      - name: Install (pytest; the checks run on the host)
+        run: pip install -r requirements-dev.txt
+      - name: Build the images (the tag an install names)
+        run: |
+          docker build -t "itamarweinstein/netrollout:$NETROLLOUT_E2E_TAG" .
+          docker build -t "itamarweinstein/netrollout-nginx:$NETROLLOUT_E2E_TAG" deploy/nginx
+      - name: End-to-end checks
+        run: python -m pytest tests/e2e -p no:cacheprovider
+      - name: On a failure - the services and their logs
+        if: failure()
+        working-directory: ${{ env.NETROLLOUT_E2E_DIR }}
+        run: |
+          docker compose -p nre2e ps --all || true
+          for service in $(docker compose -p nre2e config --services); do
+            echo "::group::$service"
+            docker compose -p nre2e logs --no-color --tail 300 "$service" || true
+            echo "::endgroup::"
+          done
+          sudo cat config/nginx/status.json || true
+      - name: Clean up
+        if: always()
+        run: |
+          if [ -d "$NETROLLOUT_E2E_DIR" ]; then
+            (cd "$NETROLLOUT_E2E_DIR" && docker compose -p nre2e down -v --remove-orphans) || true
+            sudo rm -rf "$NETROLLOUT_E2E_DIR"
+          fi
+
   scripts:
     name: Shell scripts (ShellCheck)
     runs-on: ubuntu-24.04
