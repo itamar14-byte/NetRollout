@@ -32,6 +32,15 @@ def test_public_url_precedence():
 		"https://admin.corp:8443", "from System Settings")
 
 
+def test_without_a_hostname_the_address_names_a_port_other_than_443():
+	"""No hostname: https://localhost plus the serving port when it isn't 443
+	(the dev stack's nginx publishes 8443 - an install on the same computer
+	has 443)."""
+	assert resolve_public_url(None, 8443) == ("https://localhost:8443", startup.DEFAULT_SOURCE)
+	assert resolve_public_url(None, 443) == ("https://localhost", startup.DEFAULT_SOURCE)
+	assert resolve_public_url("https://admin.corp", 8443) == ("https://admin.corp", "from System Settings")
+
+
 # ── The probe, against real listeners ───────────────────────────────────────
 
 def serve(handler_body, tls=False, tmp_path=None):

@@ -26,6 +26,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
+from src.access.port import serving_port
 from src.runtime import VERSION, in_container
 
 INSTANCE_PATH = "/_netrollout/instance"
@@ -49,13 +50,13 @@ def new_instance_token() -> str:
 
 # ── Where the Public URL comes from ──────────────────────────────────────────
 
-def resolve_public_url(setting: str | None = None) -> tuple[str, str]:
+def resolve_public_url(setting: str | None = None, port: int = 443) -> tuple[str, str]:
 	"""(url, source). The URL built from System Settings (hostname + HTTPS
 	port; install values are seeded into those rows) — or, while no hostname
-	is set, https://localhost."""
+	is set, https://localhost on `port` (the dev stack's nginx: 8443)."""
 	if setting:
 		return setting.rstrip("/"), "from System Settings"
-	return DEFAULT_PUBLIC_URL, DEFAULT_SOURCE
+	return DEFAULT_PUBLIC_URL + ("" if port == 443 else f":{port}"), DEFAULT_SOURCE
 
 
 # ── Probing ──────────────────────────────────────────────────────────────────
@@ -242,7 +243,7 @@ def start_announcer(token: str, app_port: int,
 			setting = public_setting() if public_setting else None
 		except Exception:   # settings unavailable (e.g. DB down) — use the rest
 			setting = None
-		url, source = resolve_public_url(setting)
+		url, source = resolve_public_url(setting, serving_port())
 		local = public = None
 		if url:
 			local, public = check_proxy(url, token)

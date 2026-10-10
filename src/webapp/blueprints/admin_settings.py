@@ -213,7 +213,7 @@ def settings_test_access(data: dict[str, Any]) -> ResponseReturnValue:
 		port = cast(int, SETTINGS["https_port"].parse(data.get("port", 443)))
 	except ValueError as e:
 		return err(str(e), 422)
-	url, source = resolve_public_url(public_url(hostname, port))
+	url, source = resolve_public_url(public_url(hostname, port), port)
 	if in_container():
 		# From inside the container the published port isn't reliably
 		# reachable: a probe here would report working setups as broken —

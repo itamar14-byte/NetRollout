@@ -14,6 +14,11 @@ services:
     profiles: [app-container]   # not started: the app runs from the IDE
 
   nginx:
+    # 8443 / 8081, not 443 / 80: an installed NetRollout on the same computer
+    # publishes those, and whichever starts second would get none
+    ports: !override
+      - "${HTTPS_PORT:-8443}:443"
+      - "8081:80"
     environment:
       APP_UPSTREAM: host.docker.internal:8080   # resolved by Docker Desktop's DNS
     extra_hosts:

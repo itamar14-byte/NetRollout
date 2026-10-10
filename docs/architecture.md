@@ -513,7 +513,7 @@ In a container nothing is probed: its console isn't watched and the published po
 1. **Locally:** it connects to the local nginx, presenting the public hostname (SNI/Host).
 2. **Publicly:** it tries the public URL.
 
-The public URL comes from the *Hostname* / *HTTPS port* settings; with no hostname set, it is `https://localhost` (the old auto-detect from `docs/nginx/nginx.conf` was retired in stage 8 with that file). The check confirms that nginx forwards to *this* process, then prints the address people should use, with a message that fits the case (proxy missing, wrong upstream, DNS, …). On a desktop launch it opens that address in the browser (`NETROLLOUT_OPEN_BROWSER=0` disables this).
+The public URL comes from the *Hostname* / *HTTPS port* settings; with no hostname set, it is `https://localhost` (plus the serving port when it isn't 443 — the dev stack's 8443) (the old auto-detect from `docs/nginx/nginx.conf` was retired in stage 8 with that file). The check confirms that nginx forwards to *this* process, then prints the address people should use, with a message that fits the case (proxy missing, wrong upstream, DNS, …). On a desktop launch it opens that address in the browser (`NETROLLOUT_OPEN_BROWSER=0` disables this).
 
 ### `build.py` — app factory
 `launch_app(backend=None)` is the composition root (tests pass their own `BackendServices`).

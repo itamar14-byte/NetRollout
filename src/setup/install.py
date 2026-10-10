@@ -299,7 +299,8 @@ def install_dev(now: datetime.datetime | None = None) -> list[str]:
 	         "# The dev stack's services; the app runs from the repo (config/runtime.env).",
 	         "NETROLLOUT_VERSION=dev",
 	         *(f"{k}={v}" for k, v in keys.items()),
-	         "HTTPS_PORT=443", "TZ=UTC",
+	         # not 443/80: an installed NetRollout on this computer has those
+	         "HTTPS_PORT=8443", "TZ=UTC",
 	         "COMPOSE_PROFILES=monitoring", "COMPOSE_PATH_SEPARATOR=,",
 	         f"COMPOSE_FILE={DEV_COMPOSE}", ""]
 	_write_new(env_path(), "\n".join(lines))
@@ -312,8 +313,9 @@ def install_dev(now: datetime.datetime | None = None) -> list[str]:
 	       "DATABASE_URL=",
 	       "REDIS_HOST=127.0.0.1", "REDIS_PORT=6379",
 	       f"REDIS_PASSWORD={keys['REDIS_PASSWORD']}", "REDIS_URL=",
-	       "# the app runs on the host, so compose can't pass this (the Grafana link)",
-	       "NETROLLOUT_MONITORING=monitoring", ""]
+	       "# the app runs on the host, so compose can't pass these: the Grafana",
+	       "# link, and the port the dev stack's nginx publishes (.env HTTPS_PORT)",
+	       "NETROLLOUT_MONITORING=monitoring", "NETROLLOUT_HTTPS_PORT=8443", ""]
 	runtime_env.parent.mkdir(parents=True, exist_ok=True)
 	_write_new(runtime_env, "\n".join(app))
 	done.append(f"app settings: {runtime_env}")
