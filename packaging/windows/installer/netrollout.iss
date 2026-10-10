@@ -791,6 +791,59 @@ begin
 		RegWriteExpandStringValue(HKCU, 'Environment', 'Path', NewPath);
 end;
 
+{ The current step, live under the progress bar: while the script runs (Exec
+  waits, and keeps the wizard's messages flowing), a timer shows its newest
+  step line ("-> ...", manage.ps1's Step) written to the log after line
+  WatchFrom. Display only: the script and its log are as without it. }
+function SetTimer(Wnd, IDEvent, Elapse, TimerFunc: LongWord): LongWord;
+	external 'SetTimer@user32.dll stdcall';
+function KillTimer(Wnd, IDEvent: LongWord): BOOL;
+	external 'KillTimer@user32.dll stdcall';
+
+var
+	WatchLog: String;
+	WatchFrom: Integer;
+
+procedure ShowStep(Wnd, Msg, IDEvent, Time: LongWord);
+var Lines: TArrayOfString; I: Integer;
+begin
+	{ the script holds the log open for writing; unreadable now: the last step stays }
+	if not LoadStringsFromLockedFile(WatchLog, Lines) then exit;
+	for I := GetArrayLength(Lines) - 1 downto WatchFrom do
+		if Pos('-> ', Lines[I]) = 1 then begin
+			WizardForm.StatusLabel.Caption := Copy(Lines[I], 4, Length(Lines[I])) + '...';
+			exit;
+		end;
+end;
+
+{ manage.ps1 Args, its output into Log (appended: Append), the steps shown
+  live; the exit code }
+function RunScript(const Args, Log: String; Append: Boolean): Integer;
+var Redirect: String; Lines: TArrayOfString; Timer: LongWord;
+begin
+	WatchLog := Log;
+	WatchFrom := 0;
+	if Append then begin
+		Redirect := ' >> "';
+		{ only this run's steps: the preparation's are in the same file }
+		if LoadStringsFromLockedFile(Log, Lines) then WatchFrom := GetArrayLength(Lines);
+	end else begin
+		Redirect := ' > "';
+		{ a new log: an earlier attempt's steps can't show }
+		DeleteFile(Log);
+	end;
+	WizardForm.ProgressGauge.Style := npbstMarquee;
+	Timer := SetTimer(0, 0, 500, CreateCallback(@ShowStep));
+	try
+		Exec(ExpandConstant('{cmd}'), '/C powershell.exe ' +
+			PsArgs(ExpandConstant('{app}\bin\manage.ps1'), Args) + Redirect + Log + '" 2>&1',
+			ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, Result);
+	finally
+		KillTimer(0, Timer);
+		WizardForm.ProgressGauge.Style := npbstNormal;
+	end;
+end;
+
 { One attempt: set NetRollout up, update it, or (set up already) start it;
   the exit code }
 function RunSetUp(const Log: String): Integer;
@@ -801,12 +854,8 @@ begin
 		{ over kept data: the backup prepare-update couldn't make (no files yet) }
 		if KeptUpdate then Args := Args + ' -BackupFirst';
 		WizardForm.StatusLabel.Caption := 'Updating NetRollout - downloading the new version, then a restart (about a minute)...';
-		WizardForm.ProgressGauge.Style := npbstMarquee;
 		{ appended: the log of the preparation is in the same file }
-		Exec(ExpandConstant('{cmd}'), '/C powershell.exe ' +
-			PsArgs(ExpandConstant('{app}\bin\manage.ps1'), Args) + ' >> "' + Log + '" 2>&1',
-			ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, Result);
-		WizardForm.ProgressGauge.Style := npbstNormal;
+		Result := RunScript(Args, Log, True);
 		exit;
 	end;
 	if Reinstall or HasSettings then
@@ -823,11 +872,7 @@ begin
 			TimezoneIds[TimezoneBox.ItemIndex] + '"';
 	end;
 	WizardForm.StatusLabel.Caption := 'Setting up and starting NetRollout - the first time downloads it (a few minutes)...';
-	WizardForm.ProgressGauge.Style := npbstMarquee;
-	Exec(ExpandConstant('{cmd}'), '/C powershell.exe ' +
-		PsArgs(ExpandConstant('{app}\bin\manage.ps1'), Args) + ' > "' + Log + '" 2>&1',
-		ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, Result);
-	WizardForm.ProgressGauge.Style := npbstNormal;
+	Result := RunScript(Args, Log, False);
 end;
 
 { The last lines of the log: the script's own explanation and advice }
