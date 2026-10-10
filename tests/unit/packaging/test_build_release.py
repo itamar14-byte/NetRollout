@@ -1,4 +1,4 @@
-"""The release build (tools/build_release.py): the Linux zip to its contract,
+"""The release build (packaging/build_release.py): the Linux zip to its contract,
 one list of shipped files that the installer and compose agree with, the
 sums, a feed the update code reads."""
 import importlib.util
@@ -14,7 +14,7 @@ from src.setup import update
 
 
 ROOT = Path(__file__).resolve().parents[3]
-spec = importlib.util.spec_from_file_location("build_release", ROOT / "tools" / "build_release.py")
+spec = importlib.util.spec_from_file_location("build_release", ROOT / "packaging" / "build_release.py")
 build = importlib.util.module_from_spec(spec)
 
 spec.loader.exec_module(build)
@@ -22,9 +22,9 @@ VERSION = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
 
 
 def release_items():
-	""":returns: what an update replaces - linux/netrollout.sh's RELEASE_ITEMS
+	""":returns: what an update replaces - packaging/linux/netrollout.sh's RELEASE_ITEMS
 	 (the script is the list's one home: bash can't import Python)"""
-	script = (ROOT / "linux" / "netrollout.sh").read_text(encoding="utf-8")
+	script = (ROOT / "packaging" / "linux" / "netrollout.sh").read_text(encoding="utf-8")
 	(items,) = re.findall(r"^RELEASE_ITEMS=\(([^)]*)\)", script, flags=re.MULTILINE)
 	return items.split()
 
@@ -55,7 +55,7 @@ def test_the_linux_zip_keeps_the_contract(tmp_path):
 def test_installers_ship_the_same_files():
 	"""The Windows installer's {#Root} files go to the same relative folders and are
 	exactly SHIPPED (plus VERSION)."""
-	iss = (ROOT / "windows" / "installer" / "netrollout.iss").read_text(encoding="utf-8")
+	iss = (ROOT / "packaging" / "windows" / "installer" / "netrollout.iss").read_text(encoding="utf-8")
 	from_root = set()
 	for source, dest in re.findall(r'^Source: "\{#Root\}\\([^"]+)"; DestDir: "\{app\}([^"]*)"', iss, re.M):
 		name = source.replace("\\", "/")

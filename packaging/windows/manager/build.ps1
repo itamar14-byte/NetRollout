@@ -1,16 +1,17 @@
 <#
-Builds "NetRollout Manager.exe" into windows\ with the C# compiler that ships
+Builds "NetRollout Manager.exe" into packaging\windows\ with the C# compiler that ships
 with Windows (.NET Framework 4.8) — no SDK. CI and the release build run it;
 the .exe isn't committed.
 
-  powershell -ExecutionPolicy Bypass -File windows\manager\build.ps1
+  powershell -ExecutionPolicy Bypass -File packaging\windows\manager\build.ps1
 #>
 $ErrorActionPreference = "Stop"
 $here = $PSScriptRoot
 $windows = Split-Path -Parent $here
 $csc = Join-Path $env:WINDIR "Microsoft.NET\Framework64\v4.0.30319\csc.exe"
 if (-not (Test-Path $csc)) { throw "The .NET Framework 4 C# compiler isn't here: $csc" }
-$version = (Get-Content -Raw (Join-Path (Split-Path -Parent $windows) "VERSION")).Trim()
+$repo = Split-Path -Parent (Split-Path -Parent $windows)   # packaging\windows -> the repo root
+$version = (Get-Content -Raw (Join-Path $repo "VERSION")).Trim()
 # the file version needs numbers: 1.0.0.dev0 -> 1.0.0.0
 $numeric = (($version -replace "[^0-9.].*$", "").TrimEnd(".") -split "\.") + @("0", "0", "0", "0")
 $fileVersion = ($numeric[0..3]) -join "."

@@ -1,8 +1,8 @@
 ; NetRollout-Setup-<version>.exe — the Windows installer (Inno Setup 6), the
 ; only way NetRollout is installed on Windows.
 ;
-;   iscc windows\installer\netrollout.iss      (from the repo root; build the
-;                                               Manager first: windows\manager\build.ps1)
+;   iscc packaging\windows\installer\netrollout.iss      (from the repo root; build the
+;                                               Manager first: packaging\windows\manager\build.ps1)
 ;
 ; The wizard asks; bin\manage.ps1 does the work (install -Yes with the
 ; answers as parameters). The installed folder: bin\ (the Manager, the engine,
@@ -16,7 +16,7 @@
 ; images while the old version runs, brings .env up to date and restarts.
 ; NetRollout Manager's Update runs it with /SILENT (and opens again after it).
 
-#define Root AddBackslash(SourcePath) + "..\.."
+#define Root AddBackslash(SourcePath) + "..\..\.."
 #define AppVersion Trim(FileRead(FileOpen(Root + "\VERSION")))
 #define Repo "https://github.com/itamar14-byte/NetRollout"
 ; The install's identity: Windows finds it by this id (Settings -> Apps, the

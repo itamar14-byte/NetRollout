@@ -1,7 +1,7 @@
 # PyInstaller recipe for netrollout-cli.exe — the headless rollout tool as
 # one Windows executable (Python, Netmiko and the rest bundled inside).
 #
-#   pyinstaller --clean --noconfirm netrollout-cli.spec      (repo root, dev venv)
+#   pyinstaller --clean --noconfirm packaging/netrollout-cli.spec      (repo root, dev venv)
 #   → dist/netrollout-cli.exe
 #
 # The web app's stack is excluded on purpose: the CLI never loads it (guarded
@@ -9,6 +9,8 @@
 # .exe fails at once instead of quietly growing.
 # Netmiko's ntc_templates data isn't bundled: it's only used for TextFSM
 # parsing, which NetRollout never asks for.
+
+import os
 
 WEB_STACK = [
 	"flask", "flask_login", "flask_session", "flask_wtf", "flask_limiter",
@@ -19,9 +21,9 @@ WEB_STACK = [
 ]
 
 a = Analysis(
-	["src/cli.py"],
-	pathex=["."],                 # "src" is imported as a package
-	datas=[("VERSION", ".")],     # the version (src/runtime.py reads it)
+	["../src/cli.py"],            # relative to this file (packaging/), as datas
+	pathex=[os.path.dirname(SPECPATH)],   # the repo root: "src" is imported as a package
+	datas=[("../VERSION", ".")],  # the version (src/runtime.py reads it)
 	excludes=WEB_STACK,
 	noarchive=False,
 )

@@ -1,7 +1,7 @@
 """Build NetRollout's release files - what stage 10's release job publishes
 and what a person can verify first (stage 9.9). From the repo root:
 
-  python tools/build_release.py --version 1.0.0 [--out DIR] [--linux] [--windows]
+  python packaging/build_release.py --version 1.0.0 [--out DIR] [--linux] [--windows]
                                 [--feed-base URL] [--notes FILE]
 
   netrollout-<v>-linux.zip      the Linux install / update (src/setup/update.py's contract)
@@ -45,7 +45,8 @@ SHIPPED = {
 	"deploy/grafana/provisioning/datasources/netrollout.yml":
 		"deploy/grafana/provisioning/datasources/netrollout.yml",
 }
-LINUX_BIN = {"bin/install.sh": "linux/install.sh", "bin/netrollout.sh": "linux/netrollout.sh"}
+LINUX_BIN = {"bin/install.sh": "packaging/linux/install.sh",
+             "bin/netrollout.sh": "packaging/linux/netrollout.sh"}
 
 
 def linux_zip_name(version: str) -> str:
@@ -97,11 +98,11 @@ def _iscc() -> None:
 	Windows runner), else its container."""
 	for candidate in (shutil.which("iscc"), r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe"):
 		if candidate and Path(candidate).exists():
-			_run(candidate, ROOT / "windows" / "installer" / "netrollout.iss")
+			_run(candidate, ROOT / "packaging" / "windows" / "installer" / "netrollout.iss")
 			return
 	repo = subprocess.run(["cmd", "/c", "cd"], capture_output=True, text=True, cwd=ROOT).stdout.strip()
 	_run("docker", "run", "--rm", "-v", f"{repo}:/work", "amake/innosetup",
-	     "windows/installer/netrollout.iss")
+	     "packaging/windows/installer/netrollout.iss")
 
 
 def build_windows(version: str, out: Path) -> list[Path]:
@@ -112,12 +113,13 @@ def build_windows(version: str, out: Path) -> list[Path]:
 	if sys.platform != "win32":
 		raise SystemExit("The Windows files are built on Windows (the Manager uses Windows' C# compiler).")
 	_run("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
-	     ROOT / "windows" / "manager" / "build.ps1")
+	     ROOT / "packaging" / "windows" / "manager" / "build.ps1")
 	_iscc()
 	built = ROOT / "dist" / f"NetRollout-Setup-{version}.exe"
 	setup = out / setup_name(version)
 	shutil.move(built, setup)
-	_run(sys.executable, "-m", "PyInstaller", "--clean", "--noconfirm", "netrollout-cli.spec")
+	_run(sys.executable, "-m", "PyInstaller", "--clean", "--noconfirm",
+	     ROOT / "packaging" / "netrollout-cli.spec")
 	cli = out / cli_name(version)
 	shutil.copy2(ROOT / "dist" / "netrollout-cli.exe", cli)
 	return [setup, cli]

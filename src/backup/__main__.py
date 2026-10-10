@@ -1,5 +1,5 @@
 """python -m src.backup create | check | restore - the scripts' backup and restore
-(windows/manage.ps1, linux/netrollout.sh)."""
+(packaging/windows/manage.ps1, packaging/linux/netrollout.sh)."""
 import argparse
 import sys
 from enum import IntEnum
