@@ -205,11 +205,13 @@ class DatabaseMove:
 			message = f"The move failed: {e} - NetRollout stays on its database."
 		finally:
 			maintenance.end()
+			# audited before the move is shown as over: whoever sees it failed
+			# (the page, a test) finds its audit row
+			if outcome != MoveState.DONE:
+				self._audit_failure(outcome, message, actor_id, actor)
 			self._status.state, self._status.step = outcome, ""
 			self._status.message, self._status.finished = message, _now()
 			print(f"[NetRollout] database move: {outcome} - {message}", flush=True)
-			if outcome != MoveState.DONE:
-				self._audit_failure(outcome, message, actor_id, actor)
 
 	def _audit_failure(self, outcome: MoveState, message: str,
 	                   actor_id: uuid.UUID | None, actor: str) -> None:
