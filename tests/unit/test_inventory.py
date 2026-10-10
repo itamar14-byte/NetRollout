@@ -21,7 +21,7 @@ from tests.unit.webapp.test_analytics import sql
 
 
 class FakeRedis:
-	"""An in-memory stand-in for the cache's Redis (mget, pipelined setex); down
+	"""An in-memory stand-in for the cache's Redis (mget, pipelined set with ex); down
 	makes every call raise ConnectionError."""
 	def __init__(self, down=False):
 		self.store, self.down = {}, down
@@ -42,7 +42,7 @@ class FakeRedis:
 			def __init__(self):
 				self.ops = []
 
-			def setex(self, key, ttl, value):
+			def set(self, key, value, ex=None):
 				self.ops.append((key, value))
 
 			def execute(self):

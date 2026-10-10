@@ -176,7 +176,7 @@ class ReachabilityChecker:
 		try:
 			pipe = self._redis().pipeline()
 			for t, r in results.items():
-				pipe.setex(_cache_key(t), ttl, json.dumps(r))
+				pipe.set(_cache_key(t), json.dumps(r), ex=ttl)
 			pipe.execute()
 		except REDIS_UNAVAILABLE:
 			pass
