@@ -23,6 +23,9 @@
 ; install record Setup reads for an update) - never change it
 #define AppGuid "6C1F0E52-9B47-4E1B-A7D3-5E2C8F41B0A9"
 #define DefaultDir "C:\NetRollout"
+; where the uninstaller records the folder whose data it kept (value KeptData);
+; the Manager keeps its own settings in the Manager subkey
+#define OurKey "Software\NetRollout"
 
 [Setup]
 AppId={{{#AppGuid}}
@@ -40,6 +43,9 @@ DisableDirPage=no
 DisableProgramGroupPage=yes
 DisableReadyPage=no
 UsePreviousAppDir=yes
+; a folder holding NetRollout's kept data is announced in our own words
+; (CheckKept); any other existing folder is fine to install into
+DirExistsWarning=no
 ; per user: no UAC prompt for NetRollout itself (Docker Desktop's installer
 ; asks for its own)
 PrivilegesRequired=lowest
@@ -152,6 +158,9 @@ var
 	  older version - or one that doesn't say: updated, a backup first }
 	KeptUpdate: Boolean;
 	InstalledDir, InstalledVersion: String;
+	{ the folder holding kept data found at Setup's start (pre-selected), and
+	  the last folder CheckKept announced (not announced twice) }
+	KeptDir, AnnouncedDir: String;
 
 { powershell.exe's arguments: run Script with CommandLine }
 function PsArgs(const Script, CommandLine: String): String;
@@ -237,9 +246,9 @@ begin
 end;
 
 { A version newer than this Setup: no downgrades (the data may be upgraded) }
-procedure SayDowngrade(const Installed: String);
+procedure SayDowngrade(const Installed, Dir: String);
 begin
-	SuppressibleMsgBox('NetRollout ' + Installed + ' is installed - newer than this Setup ' +
+	SuppressibleMsgBox('NetRollout ' + Installed + ' is installed in ' + Dir + ' - newer than this Setup ' +
 		'({#AppVersion}). Downgrades aren''t supported.' + #13#10#13#10 +
 		'To run an earlier version: uninstall NetRollout, then run that version''s Setup - with your ' +
 		'data from a backup made by that version (the current data may already be upgraded).',
@@ -256,11 +265,11 @@ begin
 	This := VersionKey('{#AppVersion}');
 	if (Installed = '') or (This = '') then exit;
 	if This = Installed then begin
-		SuppressibleMsgBox('NetRollout ' + InstalledVersion + ' is already installed - this Setup is the same ' +
-			'version. Nothing to update.', mbInformation, MB_OK, IDOK);
+		SuppressibleMsgBox('NetRollout ' + InstalledVersion + ' is already installed in ' + InstalledDir +
+			' - this Setup is the same version. Nothing to update.', mbInformation, MB_OK, IDOK);
 		Result := False;
 	end else if This < Installed then begin
-		SayDowngrade(InstalledVersion);
+		SayDowngrade(InstalledVersion, InstalledDir);
 		Result := False;
 	end;
 end;
@@ -289,33 +298,74 @@ begin
 	if Updated <> '' then Result := Updated else Result := Header;
 end;
 
-{ A folder holding the data an uninstall kept (.env): the same version is
+{ A folder holding the data an uninstall kept (.env), announced in words
+  naming the folder (once per folder: AnnouncedDir): the same version is
   started as it is; an older one (or one .env doesn't name) is updated -
   KeptUpdate; a newer one is refused, nothing changed. False: refused. }
 function CheckKept(const Dir: String): Boolean;
-var Kept, Key, This: String;
+var Kept, Key, This, Held: String;
 begin
 	Result := True;
 	KeptUpdate := False;
 	Kept := KeptVersion(Dir);
 	Key := VersionKey(Kept);
 	This := VersionKey('{#AppVersion}');
-	if (Kept = '{#AppVersion}') or ((Key <> '') and (Key = This)) then exit;
+	if Kept <> '' then Held := Dir + ' holds NetRollout ' + Kept + ' data kept by an uninstall'
+	else Held := Dir + ' holds NetRollout data kept by an uninstall (an early ' +
+		'version - it doesn''t say which)';
+	if (Kept = '{#AppVersion}') or ((Key <> '') and (Key = This)) then begin
+		if CompareText(Dir, AnnouncedDir) <> 0 then
+			SuppressibleMsgBox(Held + '. It will be started as it was.', mbInformation, MB_OK, IDOK);
+		AnnouncedDir := Dir;
+		exit;
+	end;
 	if (Key <> '') and (This <> '') and (Key > This) then begin
-		SayDowngrade(Kept);
+		SuppressibleMsgBox(Held + ' - newer than this Setup ({#AppVersion}). Downgrades aren''t supported.' + #13#10#13#10 +
+			'To start it again, run the Setup of NetRollout ' + Kept + ' (or a newer one).', mbError, MB_OK, IDOK);
 		Result := False;
 		exit;
 	end;
 	{ older, or not one of ours: the script's check-update decides (refused there
 	  before any file is replaced) }
+	if CompareText(Dir, AnnouncedDir) <> 0 then
+		SuppressibleMsgBox(Held + '. It will be updated to {#AppVersion} - a backup is made first.',
+			mbInformation, MB_OK, IDOK);
+	AnnouncedDir := Dir;
 	KeptUpdate := True;
 	InstalledDir := Dir;
 	if Kept <> '' then InstalledVersion := Kept else InstalledVersion := 'an earlier version';
 end;
 
+{ The data an uninstall kept: the folder the uninstaller recorded, wherever
+  it is, else the default folder; '' when neither holds it (.env) }
+function FindKept: String;
+var Dir: String;
+begin
+	Result := '';
+	if RegQueryStringValue(HKCU, '{#OurKey}', 'KeptData', Dir) then begin
+		Dir := RemoveBackslashUnlessRoot(Dir);
+		if (Dir <> '') and FileExists(AddBackslash(Dir) + '.env') then begin
+			Result := Dir;
+			exit;
+		end;
+	end;
+	if FileExists(AddBackslash('{#DefaultDir}') + '.env') then Result := '{#DefaultDir}';
+end;
+
+{ The record of kept data in Dir is dropped: Dir is installed again (the
+  install record takes over) or its data was deleted }
+procedure ForgetKept(const Dir: String);
+var Recorded: String;
+begin
+	if RegQueryStringValue(HKCU, '{#OurKey}', 'KeptData', Recorded) and
+			(CompareText(RemoveBackslashUnlessRoot(Recorded), RemoveBackslashUnlessRoot(Dir)) = 0) then
+		RegDeleteValue(HKCU, '{#OurKey}', 'KeptData');
+end;
+
 { Before the first page: Windows Server, or virtualization off -> say so and
-  stop; over an install, only a newer Setup goes on - and over the data an
-  uninstall kept in the default folder, never an older Setup }
+  stop; over an install, only a newer Setup goes on; over the data an
+  uninstall kept (wherever it is) it is announced, its folder pre-selected
+  (InitializeWizard), and never an older Setup goes on }
 function InitializeSetup: Boolean;
 var Problem: String;
 begin
@@ -327,7 +377,10 @@ begin
 	else begin
 		FindInstalled;
 		if UpdateMode then Result := NewerThanInstalled
-		else if FileExists('{#DefaultDir}\.env') then Result := CheckKept('{#DefaultDir}');
+		else begin
+			KeptDir := FindKept;
+			if KeptDir <> '' then Result := CheckKept(KeptDir);
+		end;
 	end;
 end;
 
@@ -448,6 +501,8 @@ end;
 procedure InitializeWizard;
 var Busy80: String;
 begin
+	{ kept data found at the start: the install is built there (unless /DIR= says otherwise) }
+	if (KeptDir <> '') and (ExpandConstant('{param:DIR}') = '') then WizardForm.DirEdit.Text := KeptDir;
 	ShowFullLicence;
 	DockerPage := CreateCustomPage(wpLicense, 'Docker Desktop', 'NetRollout runs in Docker containers.');
 	DockerState := MakeLabel(DockerPage, '', 0, True);
@@ -577,7 +632,8 @@ begin
 	if CurPageID = wpSelectDir then begin
 		{ NetRollout's data already there (an uninstall that kept it): its
 		  settings stay, the Settings page is skipped; its version decides
-		  (the same: started; older: updated; newer: refused) }
+		  (the same: started; older: updated; newer: refused) - announced
+		  unless it's the folder announced at the start }
 		Reinstall := FileExists(AddBackslash(WizardDirValue) + '.env');
 		KeptUpdate := False;
 		if Reinstall then Result := CheckKept(RemoveBackslashUnlessRoot(WizardDirValue));
@@ -819,6 +875,8 @@ procedure CurStepChanged(CurStep: TSetupStep);
 var Log, Text: String;
 begin
 	if CurStep <> ssPostInstall then exit;
+	{ an install again: Windows' install record takes over from the kept-data record }
+	ForgetKept(ExpandConstant('{app}'));
 	if WizardIsTaskSelected('addtopath') then SetOurPath(True);
 	ForceDirectories(ExpandConstant('{app}\logs'));
 	if UpdateMode or KeptUpdate then Log := ExpandConstant('{app}\logs\update.log')
@@ -863,4 +921,10 @@ begin
 	end;
 	Exec('powershell.exe', PsArgs(ExpandConstant('{app}\bin\manage.ps1'), 'uninstall -Yes ' + Data),
 		ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, Code);
+	{ the data kept (whatever was asked - .env decides): recorded, so the next
+	  Setup finds it wherever this folder is; deleted: the record goes }
+	if FileExists(ExpandConstant('{app}\.env')) then
+		RegWriteStringValue(HKCU, '{#OurKey}', 'KeptData', ExpandConstant('{app}'))
+	else
+		ForgetKept(ExpandConstant('{app}'));
 end;
