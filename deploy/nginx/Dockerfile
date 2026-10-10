@@ -12,7 +12,7 @@
 # Mounts: /etc/nginx/certs (fullchain.pem + privkey.pem),
 #         /etc/nginx/netrollout/shared (site.env in, status.json out)
 
-FROM nginx:1.30-alpine
+FROM nginx:1.31-alpine
 
 ENV NETROLLOUT_HOSTNAME="" \
     NETROLLOUT_HTTPS_PORT=443 \
