@@ -22,7 +22,7 @@ click==8.3.3
     # via
     #   -r requirements.in
     #   flask
-cryptography==46.0.7
+cryptography==50.0.0
     # via
     #   -r requirements.in
     #   paramiko
