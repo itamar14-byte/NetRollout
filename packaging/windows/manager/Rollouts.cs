@@ -64,7 +64,8 @@ namespace NetRollout
 		}
 
 		// manage.ps1, hidden, its output captured; -1 when it didn't finish in time
-		static int RunScript(string command, out string output)
+		// (PortCheck too)
+		internal static int RunScript(string command, out string output)
 		{
 			var info = new ProcessStartInfo("powershell.exe", Install.PsArgs(command))
 			{

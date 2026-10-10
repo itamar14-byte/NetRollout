@@ -170,7 +170,83 @@ function Get-BusyPorts([int[]]$Ours = @()) {
 		}
 		$names[$port] = ($who -replace "[,=]", " ")
 	}
+	# Docker's: the container publishing it, by name (asked only then -
+	# before Docker is installed there is no docker command)
+	if ($names.Values -contains "Docker (another container)") {
+		$containers = Get-OtherContainerPorts
+		foreach ($port in @($names.Keys)) {
+			if ($names[$port] -eq "Docker (another container)" -and $containers.ContainsKey($port)) {
+				$names[$port] = $containers[$port]
+			}
+		}
+	}
 	return ($names.Keys | Sort-Object | ForEach-Object { "$_=$($names[$_])" }) -join ","
+}
+
+# The host ports other containers publish (not this NetRollout's):
+# port -> "<name> (another Docker container)"
+function Get-OtherContainerPorts {
+	$found = @{}
+	$r = Invoke-Native "docker" @("ps", "--format", "{{.Names}}|{{.Labels}}|{{.Ports}}")
+	if ($r.Code -ne 0) { return $found }
+	$ours = "(^|,)com\.docker\.compose\.project=$([regex]::Escape($Project))(,|$)"
+	foreach ($line in ($r.Output -split "`n")) {
+		$parts = $line.Trim() -split "\|", 3
+		if ($parts.Count -lt 3 -or $parts[1] -match $ours) { continue }
+		foreach ($m in [regex]::Matches($parts[2], ":(\d+)->")) {
+			$port = [int]$m.Groups[1].Value
+			if (-not $found.ContainsKey($port)) {
+				$found[$port] = "$($parts[0] -replace '[,=]', ' ') (another Docker container)"
+			}
+		}
+	}
+	return $found
+}
+
+# Whether nginx holds the HTTPS port in use - Docker's own answer: its
+# container running with 443/tcp published on HTTPS_PORT. A taken port
+# leaves it Created (Docker refused to start it), or - seen once on Docker
+# Desktop - running without the binding
+function Test-HttpsPublished {
+	$port = Read-EnvValue "HTTPS_PORT" "443"
+	$ids = @((Compose @("ps", "-a", "-q", "nginx")).Output -split "`n" |
+		ForEach-Object { $_.Trim() } | Where-Object { $_ -match "^[0-9a-f]{12,64}$" })
+	if (-not $ids) { return $false }
+	$r = Invoke-Native "docker" @("inspect", "--format", "{{.State.Running}}|{{json .NetworkSettings.Ports}}", $ids[0])
+	if ($r.Code -ne 0) { return $false }
+	$running, $json = ($r.Output.Trim() -split "\|", 2)
+	if ($running -ne "true" -or -not $json) { return $false }
+	try { $bound = ($json | ConvertFrom-Json).'443/tcp' } catch { return $false }
+	foreach ($b in @($bound)) {
+		if ($b -and "$($b.HostPort)" -eq $port) { return $true }
+	}
+	return $false
+}
+
+# nginx and its HTTPS port: @{Port; Published; Owner} - Owner: who holds it
+# instead ("" when nothing else does)
+function Get-PortCheck {
+	$port = Read-EnvValue "HTTPS_PORT" "443"
+	$published = Test-HttpsPublished
+	$owner = ""
+	if (-not $published) { $owner = Get-PortOwner $port (Get-BusyPorts (Get-OurPorts)) }
+	return @{ Port = $port; Published = $published; Owner = $owner }
+}
+
+# Who holds $Port in Get-BusyPorts' list ("" when nobody does)
+function Get-PortOwner([string]$Port, [string]$Busy) {
+	foreach ($item in ($Busy -split ",")) {
+		if ($item -match "^$Port=(.*)$") {
+			if ($Matches[1].Trim()) { return $Matches[1].Trim() }
+			return "another program"
+		}
+	}
+	return ""
+}
+
+# The words for a taken HTTPS port (status says the same: src/setup/manage.py)
+function Get-PortTakenText([string]$Port, [string]$Owner) {
+	return "Port $Port is in use by $Owner - NetRollout can't publish it. Stop that, then: netrollout start"
 }
 
 function Get-ServerIPs {
@@ -423,6 +499,11 @@ function Start-NetRollout {
 	Step "Checking the ports"
 	$busy = Get-BusyPorts (Get-OurPorts)
 	Invoke-Setup (@("prepare-start", "--busy-ports", $busy) + (Get-Facts)) | Out-Null
+	# something else on the HTTPS port: Docker would refuse nginx (or, on
+	# Docker Desktop once, run it without the port) - say who, start nothing
+	$port = Read-EnvValue "HTTPS_PORT" "443"
+	$owner = Get-PortOwner $port $busy
+	if ($owner) { Fail (Get-PortTakenText $port $owner) }
 	if ((Invoke-Native "docker" @("image", "inspect", $AppImage)).Code -eq 0) { Step "Starting NetRollout" }
 	else { Step "Starting NetRollout (the first time takes a few minutes: the images are downloaded)" }
 	$r = Compose @("up", "-d", "--wait", "--wait-timeout", "600")
@@ -430,7 +511,24 @@ function Start-NetRollout {
 		Write-Host $r.Output
 		$logs = Compose @("logs", "--tail", "30", "app")
 		Write-Host $logs.Output
+		$owner = Get-PortOwner $port (Get-BusyPorts (Get-OurPorts))
+		if ($owner) { Fail (Get-PortTakenText $port $owner) }
 		Fail "NetRollout didn't start - above: what Docker said and the app's last lines."
+	}
+	# a container whose start failed on a taken port runs without the
+	# binding when it's started again, even once the port is free (Docker
+	# 29: start / restart keep it so) - only a new container gets it
+	if (-not (Test-HttpsPublished)) {
+		$owner = Get-PortOwner $port (Get-BusyPorts (Get-OurPorts))
+		if ($owner) { Fail (Get-PortTakenText $port $owner) }
+		Step "nginx runs without port $port - recreating it"
+		$r = Compose @("up", "-d", "--no-deps", "--force-recreate", "--wait", "--wait-timeout", "120", "nginx")
+		if ($r.Code -ne 0) { Write-Host $r.Output }
+		if (-not (Test-HttpsPublished)) {
+			$owner = Get-PortOwner $port (Get-BusyPorts (Get-OurPorts))
+			if ($owner) { Fail (Get-PortTakenText $port $owner) }
+			Fail "NetRollout's nginx runs without port $port (Docker didn't publish it) - above: what Docker said."
+		}
 	}
 	if (Test-Reachable) { Good "NetRollout is running: $(Get-Address)" }
 	else { Warn "NetRollout runs, but $(Get-Address) didn't answer from this computer yet - see: netrollout status" }
@@ -509,8 +607,9 @@ function Invoke-Status {
 	Confirm-Docker
 	$reachable = if (Test-Reachable) { "yes" } else { "no" }
 	$busy = Get-BusyPorts (Get-OurPorts)
+	$published = if (Test-HttpsPublished) { "yes" } else { "no" }
 	$code = Invoke-Setup (@("status", "--containers", (Get-ContainerStates), "--reachable", $reachable,
-		"--busy-ports", $busy) + (Get-Facts)) -OnNetwork
+		"--https-published", $published, "--busy-ports", $busy) + (Get-Facts)) -OnNetwork
 	if ($pending -and $code -eq 0) { return 1 }
 	return $code
 }
@@ -1139,6 +1238,7 @@ function Show-Help {
 	Say "  netrollout restore <file>   put NetRollout back to a backup (asks first)"
 	Say "  netrollout apply            apply an HTTPS port saved in System Settings (the helper does it by itself)"
 	Say "  netrollout rollouts         the rollouts running or queued (-Json: as JSON)"
+	Say "  netrollout port-check       does nginx hold its HTTPS port? if not, who does (-Json: as JSON)"
 	Say "  netrollout stop-now         a stop under way (or one within 15 minutes) cancels them at once"
 	Say ""
 	Say "  -NoBrowser   don't open the browser"
@@ -1163,6 +1263,22 @@ function Invoke-NrCommand([string]$Name) {
 			if ($null -eq $list) { return 1 }
 			if ($Json -and -not $list) { return 1 }
 			if ($list) { Write-Host $list } elseif (-not $Json) { Say "No rollout running or queued." }
+			return 0
+		}
+		"port-check" {
+			# NetRollout Manager (-Json): whether nginx holds its HTTPS port, else who does
+			Assert-Installed
+			if (-not (Test-DockerReady)) { return 1 }
+			$check = Get-PortCheck
+			if ($Json) {
+				Write-Host (ConvertTo-Json -Compress @{ port = $check.Port; published = $check.Published; owner = $check.Owner })
+			} elseif ($check.Published) {
+				Good "Port $($check.Port): published by NetRollout's nginx."
+			} elseif ($check.Owner) {
+				Warn (Get-PortTakenText $check.Port $check.Owner)
+			} else {
+				Warn "Port $($check.Port): not published (NetRollout isn't running)."
+			}
 			return 0
 		}
 		"stop-now" {

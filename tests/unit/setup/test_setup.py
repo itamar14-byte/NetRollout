@@ -449,6 +449,65 @@ def test_status_through_the_cli(home, monkeypatch):
 	assert "nginx EXITED" in text and "does NOT answer" in text
 
 
+
+DEV_NGINX = "netrollout-dev-nginx-1 (another Docker container)"
+
+
+def test_status_names_what_holds_the_https_port(home):
+	"""nginx not publishing 443 while another container holds it: a Port 443 line naming
+	that container, the advice to stop it and then start (not "Start it", not the DNS /
+	firewall advice), and the address that answered isn't called NetRollout's."""
+	installed(home)
+	created = ALL_UP.replace("nginx=running/healthy", "nginx=created")
+	seen = manage.Observed(manage.parse_containers(created), reachable=True,
+	                       busy={443: DEV_NGINX}, https_published=False)
+	lines, well = manage.status(seen, HEALTHY)
+	text = "\n".join(lines)
+	assert not well
+	assert f"Port 443:     NOT published - in use by {DEV_NGINX}" in lines
+	assert (f"  - Port 443 is in use by {DEV_NGINX} - NetRollout can't publish it. "
+	        "Stop that, then: netrollout start") in lines
+	assert "Start it:" not in text and "DNS" not in text
+	assert "From here:    https://nr01.corp.local isn't NetRollout's (its port isn't published)" in lines
+
+
+def test_status_when_nginx_runs_without_its_port(home):
+	"""nginx running but not publishing its port, nothing else listed on it: NOT
+	published, and the way back is a start (it recreates nginx) - no DNS / firewall advice even
+	though the address doesn't answer."""
+	installed(home)
+	seen = manage.Observed(manage.parse_containers(ALL_UP), reachable=False,
+	                       https_published=False)
+	lines, well = manage.status(seen, HEALTHY)
+	assert not well
+	assert "Port 443:     NOT published" in lines
+	assert "  - nginx runs without port 443: netrollout start (it recreates nginx)" in lines
+	assert not any("DNS" in l for l in lines)
+
+
+def test_status_shows_the_https_port_published(home):
+	"""nginx publishing the port in use: "Port 443: ok", all well; an earlier script that
+	doesn't say (None) gets no such line."""
+	installed(home)
+	seen = manage.Observed(manage.parse_containers(ALL_UP), reachable=True,
+	                       https_published=True)
+	lines, well = manage.status(seen, HEALTHY)
+	assert well and "Port 443:     ok (published by nginx)" in lines
+	lines, _ = manage.status(manage.Observed(manage.parse_containers(ALL_UP), reachable=True),
+	                         HEALTHY)
+	assert not any(l.startswith("Port 443:") for l in lines)
+
+
+def test_status_through_the_cli_passes_the_published_port(home, monkeypatch):
+	"""`status --https-published no --busy-ports 443=X` reports the port as X's."""
+	installed(home)
+	monkeypatch.setattr(manage, "fetch_health",
+	                    lambda url=manage.HEALTH_URL, timeout=4.0: HEALTHY)
+	code, out = run(["status", "--containers", ALL_UP, "--reachable", "no",
+	                 "--https-published", "no", "--busy-ports", f"443={DEV_NGINX}"])
+	assert code == 1 and f"Port 443:     NOT published - in use by {DEV_NGINX}" in out
+
+
 # ── after a restore ──
 
 def test_restore_key_puts_the_backups_key_into_env_and_removes_the_handover(home):

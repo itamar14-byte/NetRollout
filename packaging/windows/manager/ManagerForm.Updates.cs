@@ -43,6 +43,7 @@ namespace NetRollout
 					if (Updates.Announced == today) return;
 					Updates.Announced = today;
 					announced = release;
+					portBalloon = false;
 					trayIcon.ShowBalloonTip(10000, "NetRollout " + release.Version + " is available",
 						"You have " + Install.Version + ". Click to see what's new and update.", ToolTipIcon.Info);
 				});

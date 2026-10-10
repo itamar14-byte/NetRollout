@@ -646,3 +646,63 @@ def test_starting_fresh_deletes_the_kept_data_first_never_silently():
 	assert running < removes < left < files
 	assert "backups" not in forget[files:forget.index("Remove-UpdateMarker")]
 	assert "Remove-UpdateMarker" in forget[files:]
+
+
+def test_start_and_status_check_that_nginx_holds_its_https_port():
+	"""Seen on rc1: another container held 443 and the installed nginx ran without its
+	port; status blamed DNS and the firewall. Both scripts ask Docker (the nginx
+	container running, 443/tcp bound on HTTPS_PORT) and tell status (--https-published);
+	another container on a port is named (docker ps, this project left out). start
+	refuses before `up` while something else holds the port, naming it in status's
+	words, and recreates an nginx running without its binding (Docker keeps a container
+	whose start failed on a taken port so, even once the port is free)."""
+	ps1 = (ROOT / "packaging" / "windows" / "manage.ps1").read_text(encoding="utf-8")
+	published = ps1_function(ps1, "Test-HttpsPublished")
+	assert '"{{.State.Running}}|{{json .NetworkSettings.Ports}}"' in published
+	assert "'443/tcp'" in published and '"$($b.HostPort)" -eq $port' in published
+	others = ps1_function(ps1, "Get-OtherContainerPorts")
+	assert '"{{.Names}}|{{.Labels}}|{{.Ports}}"' in others
+	assert "com\\.docker\\.compose\\.project=$([regex]::Escape($Project))" in others
+	assert "(another Docker container)" in others
+	assert "$containers = Get-OtherContainerPorts" in ps1_function(ps1, "Get-BusyPorts")
+	words = "Port $Port is in use by $Owner - NetRollout can't publish it. Stop that, then: netrollout start"
+	assert words in ps1_function(ps1, "Get-PortTakenText")
+	start = ps1_function(ps1, "Start-NetRollout")
+	refuse = start.index("if ($owner) { Fail (Get-PortTakenText $port $owner) }")
+	assert start.index("prepare-start") < refuse < start.index('Compose @("up", "-d", "--wait"')
+	assert '@("up", "-d", "--no-deps", "--force-recreate", "--wait", "--wait-timeout", "120", "nginx")' in start
+	assert start.index("--force-recreate") < start.index("Test-Reachable")
+	assert '"--https-published", $published' in ps1_function(ps1, "Invoke-Status")
+	assert '"port-check" {' in ps1 and "published = $check.Published; owner = $check.Owner" in ps1
+
+	sh = (ROOT / "packaging" / "linux" / "netrollout.sh").read_text(encoding="utf-8")
+	assert '{{if eq $p "443/tcp"}}{{range $b}}{{.HostPort}} {{end}}' in sh_function(sh, "https_published")
+	assert '*",com.docker.compose.project=$PROJECT,"*) continue' in sh_function(sh, "other_container_ports")
+	busy = sh_function(sh, "busy_ports")
+	assert 'docker-proxy|dockerd) who="${named[$port]:-Docker (another container)}"' in busy
+	assert 'for port in "${!named[@]}"; do' in busy        # no listener: userland proxy off
+	assert "is in use by %s - NetRollout can't publish it. Stop that, then:" in sh_function(sh, "port_taken")
+	start = sh_function(sh, "do_start")
+	refuse = start.index('[ -z "$owner" ] || fail "$(port_taken "$port" "$owner")"')
+	assert start.index("prepare-start") < refuse < start.index("compose up -d --wait")
+	assert "compose up -d --no-deps --force-recreate --wait --wait-timeout 120 nginx" in start
+	assert '--https-published "$published"' in sh_function(sh, "do_status")
+
+
+def test_the_manager_names_what_holds_the_https_port():
+	"""NetRollout Manager asks manage.ps1 port-check -Json (the one lookup) through the
+	same hidden runner as the rollouts list - when its state changes, else every minute
+	(5 while running) - shows "Port 443 is taken by X - stop it, then Start" whatever
+	answers there, and notifies from the tray once per appearance; the build compiles
+	it."""
+	manager = ROOT / "packaging" / "windows" / "manager"
+	check = (manager / "PortCheck.cs").read_text(encoding="utf-8")
+	assert 'Rollouts.RunScript("port-check -Json", out output)' in check
+	assert '"Port " + port + " is taken by " + owner + " - stop it, then Start"' in check
+	assert "internal static int RunScript(" in (manager / "Rollouts.cs").read_text(encoding="utf-8")
+	form = (manager / "NetRolloutManager.cs").read_text(encoding="utf-8")
+	assert "string blocker = PortBlocker(health.Item1);" in form
+	assert "health = Tuple.Create(State.Attention, PortCheck.Words(Install.Port, blocker));" in form
+	assert "TimeSpan.FromMinutes(now == State.Running ? 5 : 1)" in form
+	assert "if (blocker == portAnnounced) return;" in form
+	assert '(Join-Path $here "PortCheck.cs")' in (manager / "build.ps1").read_text(encoding="utf-8")

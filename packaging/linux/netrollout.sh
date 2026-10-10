@@ -126,20 +126,76 @@ Then run this again."
 	fi
 }
 
-# port=who for every listening TCP port; NetRollout's own published ports left out
+# port=who for every listening TCP port; NetRollout's own published ports
+# left out. Another container's port names it (also one with no listener
+# here: Docker's userland proxy off)
 busy_ports() {
-	local ours out="" port who
+	local ours out="" port who line
+	local -A named=()
 	ours=" $(our_ports) "
+	while IFS='=' read -r port who; do
+		[ -n "$port" ] && named[$port]="$who"
+	done < <(other_container_ports)
 	while read -r line; do
 		port="$(printf '%s' "$line" | awk '{print $4}' | sed 's/.*://')"
 		[ -n "$port" ] || continue
 		case "$ours" in *" $port "*) continue ;; esac
 		case ",$out," in *",$port="*) continue ;; esac
 		who="$(printf '%s' "$line" | sed -n 's/.*users:(("\([^"]*\)".*/\1/p')"
-		case "$who" in docker-proxy|dockerd) who="Docker (another container)" ;; esac
+		case "$who" in docker-proxy|dockerd) who="${named[$port]:-Docker (another container)}" ;; esac
 		out="$out${out:+,}$port=${who//[,=]/ }"
 	done < <(ss -Htlnp 2>/dev/null || true)
+	for port in "${!named[@]}"; do
+		case "$ours" in *" $port "*) continue ;; esac
+		case ",$out," in *",$port="*) continue ;; esac
+		out="$out${out:+,}$port=${named[$port]}"
+	done
 	printf '%s' "$out"
+}
+
+# port=<name> (another Docker container), one per line: the host ports the
+# other containers publish (not this NetRollout's)
+other_container_ports() {
+	command -v docker >/dev/null 2>&1 || return 0
+	local name labels ports port
+	docker ps --format '{{.Names}}|{{.Labels}}|{{.Ports}}' 2>/dev/null |
+	while IFS='|' read -r name labels ports; do
+		case ",$labels," in *",com.docker.compose.project=$PROJECT,"*) continue ;; esac
+		for port in $(printf '%s' "$ports" | grep -o ':[0-9]*->' | sed 's/[^0-9]//g' | sort -u); do
+			printf '%s=%s (another Docker container)\n' "$port" "${name//[,=]/ }"
+		done
+	done
+}
+
+# Whether nginx holds the HTTPS port in use - Docker's own answer: its
+# container running with 443/tcp published on HTTPS_PORT. A taken port
+# leaves it Created (Docker refused to start it); started again later it
+# runs without the binding, even once the port is free (Docker 29)
+https_published() {
+	local id port seen
+	port="$(env_value HTTPS_PORT)"; port="${port:-443}"
+	id="$(compose ps -a -q nginx 2>/dev/null | head -1)"
+	[ -n "$id" ] || return 1
+	seen="$(docker inspect --format '{{.State.Running}}|{{range $p, $b := .NetworkSettings.Ports}}{{if eq $p "443/tcp"}}{{range $b}}{{.HostPort}} {{end}}{{end}}{{end}}' "$id" 2>/dev/null)" || return 1
+	[ "${seen%%|*}" = true ] || return 1
+	case " ${seen#*|} " in *" $port "*) return 0 ;; esac
+	return 1
+}
+
+# Who holds port $1 in busy_ports' list $2 (nothing when nobody does)
+port_owner() {
+	local item IFS=,
+	for item in $2; do
+		if [ "${item%%=*}" = "$1" ]; then
+			if [ -n "${item#*=}" ]; then printf '%s' "${item#*=}"; else printf 'another program'; fi
+			return 0
+		fi
+	done
+}
+
+# The words for a taken HTTPS port (status says the same: src/setup/manage.py)
+port_taken() {
+	printf "Port %s is in use by %s - NetRollout can't publish it. Stop that, then: sudo %s/netrollout.sh start" "$1" "$2" "$BIN"
 }
 
 our_ports() {
@@ -273,14 +329,35 @@ do_start() {
 	port_helper_on
 	step "Checking the ports"
 	facts
-	setup_core prepare-start --busy-ports "$(busy_ports)" "${FACTS[@]}" | sed 's/^/   /'
+	local busy port owner out
+	busy="$(busy_ports)"
+	setup_core prepare-start --busy-ports "$busy" "${FACTS[@]}" | sed 's/^/   /'
+	# something else on the HTTPS port: Docker would refuse nginx - say who,
+	# start nothing
+	port="$(env_value HTTPS_PORT)"; port="${port:-443}"
+	owner="$(port_owner "$port" "$busy")"
+	[ -z "$owner" ] || fail "$(port_taken "$port" "$owner")"
 	if docker image inspect "$APP_IMAGE" >/dev/null 2>&1; then step "Starting NetRollout"
 	else step "Starting NetRollout (the first time takes a few minutes: the images are downloaded)"; fi
-	local out
 	if ! out="$(compose up -d --wait --wait-timeout 600 2>&1)"; then
 		printf '%s\n' "$out"
+		owner="$(port_owner "$port" "$(busy_ports)")"
+		[ -z "$owner" ] || fail "$(port_taken "$port" "$owner")"
 		compose logs --tail 30 app 2>&1 || true
 		fail "NetRollout didn't start - above: what Docker said and the app's last lines."
+	fi
+	# a container whose start failed on a taken port runs without the
+	# binding when started again - only a new container gets it
+	if ! https_published; then
+		owner="$(port_owner "$port" "$(busy_ports)")"
+		[ -z "$owner" ] || fail "$(port_taken "$port" "$owner")"
+		step "nginx runs without port $port - recreating it"
+		out="$(compose up -d --no-deps --force-recreate --wait --wait-timeout 120 nginx 2>&1)" || show "$out"
+		if ! https_published; then
+			owner="$(port_owner "$port" "$(busy_ports)")"
+			[ -z "$owner" ] || fail "$(port_taken "$port" "$owner")"
+			fail "NetRollout's nginx runs without port $port (Docker didn't publish it) - above: what Docker said."
+		fi
 	fi
 	if reachable; then good "NetRollout is running: $(address)"
 	else warn "NetRollout runs, but $(address) didn't answer from this machine yet - see: netrollout status"; fi
@@ -785,7 +862,7 @@ do_apply() {
 
 do_status() {
 	need_installed; need_root
-	local states reach=no pending code=0
+	local states reach=no published=no pending code=0
 	# first: the new version's image may not be here yet (the report needs it)
 	pending="$(pending_update)"
 	if [ -n "$pending" ]; then
@@ -794,9 +871,10 @@ do_status() {
 	need_docker
 	states="$(compose ps -a --format '{{.Service}}={{.State}}/{{.Health}}' 2>/dev/null | sed 's|/$||' | paste -sd, -)"
 	reachable && reach=yes
+	if https_published; then published=yes; fi
 	facts
 	ON_NETWORK=1 setup_core status --containers "$states" --reachable "$reach" \
-		--busy-ports "$(busy_ports)" "${FACTS[@]}" || code=$?
+		--https-published "$published" --busy-ports "$(busy_ports)" "${FACTS[@]}" || code=$?
 	if [ -n "$pending" ] && [ "$code" -eq 0 ]; then code=1; fi
 	return "$code"
 }

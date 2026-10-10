@@ -52,6 +52,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 	seen.add_argument("--reachable", choices=("yes", "no"),
 	                  help="the address answered from this computer")
 	seen.add_argument("--health-url", default=manage.HEALTH_URL)
+	seen.add_argument("--https-published", choices=("yes", "no"),
+	                  help="nginx publishes the HTTPS port in use (Docker says)")
 	p.add_argument("--defaults", action="store_true",
 	               help="never ask: defaults for what isn't given")
 	check_update = p.add_argument_group("check-update (run with the installed version's image)")
@@ -225,7 +227,9 @@ def _status(args: argparse.Namespace, facts: install.Facts, _read: install.Read,
 	seen = manage.Observed(containers=manage.parse_containers(args.containers),
 	                       reachable=None if args.reachable is None
 	                       else args.reachable == "yes",
-	                       busy=facts.busy_ports)
+	                       busy=facts.busy_ports,
+	                       https_published=None if args.https_published is None
+	                       else args.https_published == "yes")
 	lines, well = manage.status(seen, manage.fetch_health(args.health_url))
 	for line in lines:
 		write(line)

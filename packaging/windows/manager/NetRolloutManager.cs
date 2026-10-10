@@ -445,6 +445,7 @@ namespace NetRollout
 			updateTimer.Start();
 			trayIcon.BalloonTipClicked += delegate
 			{
+				if (portBalloon) { ShowWindow(); return; }
 				if (announced == null) return;
 				ShowWindow();
 				OfferUpdate(announced);
@@ -757,8 +758,51 @@ namespace NetRollout
 			ThreadPool.QueueUserWorkItem(delegate
 			{
 				var health = Install.Health();
-				if (IsHandleCreated) BeginInvoke((Action)delegate { ShowState(health.Item1, health.Item2); });
+				// another program on the HTTPS port: named, whatever answers
+				// there (the dev stack's own app answers 200 on 443)
+				string blocker = PortBlocker(health.Item1);
+				if (blocker.Length > 0)
+					health = Tuple.Create(State.Attention, PortCheck.Words(Install.Port, blocker));
+				if (IsHandleCreated) BeginInvoke((Action)delegate
+				{
+					ShowState(health.Item1, health.Item2);
+					AnnouncePortBlocker(blocker, health.Item2);
+				});
 			});
+		}
+
+		// manage.ps1 port-check takes a few seconds: asked when the state
+		// changes, else every minute (every 5 while running); the last answer
+		// meanwhile
+		readonly object portLock = new object();
+		string portBlocker = "", portAnnounced = "";
+		bool portBalloon;                   // the last notification was the port's
+		State portCheckedIn = State.Checking;
+		DateTime portCheckedAt = DateTime.MinValue;
+
+		string PortBlocker(State now)
+		{
+			if (!Install.Installed || Install.PendingUpdate != null) return "";
+			lock (portLock)
+			{
+				var every = TimeSpan.FromMinutes(now == State.Running ? 5 : 1);
+				if (now == portCheckedIn && DateTime.Now - portCheckedAt < every) return portBlocker;
+				string found = PortCheck.Blocker();
+				portCheckedIn = now;
+				portCheckedAt = DateTime.Now;
+				if (found != null) portBlocker = found;
+				return portBlocker;
+			}
+		}
+
+		// once when the port is found taken (again after it was free), not at every check
+		void AnnouncePortBlocker(string blocker, string words)
+		{
+			if (blocker.Length == 0) { portAnnounced = ""; return; }
+			if (blocker == portAnnounced) return;
+			portAnnounced = blocker;
+			portBalloon = true;
+			trayIcon.ShowBalloonTip(10000, "NetRollout can't use port " + Install.Port, words, ToolTipIcon.Warning);
 		}
 
 		void ShowState(State s, string detail)

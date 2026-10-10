@@ -93,6 +93,17 @@ class Observed:
 	containers: dict[str, str] = field(default_factory=dict)  # service → state[/health]
 	reachable: bool | None = None       # the address answered from this computer
 	busy: dict[int, str] = field(default_factory=dict)
+	# nginx publishes the HTTPS port in use (Docker's own answer); None: not
+	# told (an earlier script)
+	https_published: bool | None = None
+
+
+def port_owner(port: str, busy: dict[int, str]) -> str:
+	""":returns: who holds the HTTPS port when something else does (`busy`
+	 leaves NetRollout's own published ports out); empty when nothing does"""
+	if not port.isdigit() or int(port) not in busy:
+		return ""
+	return busy[int(port)] or "another program"
 
 
 def parse_containers(text: str) -> dict[str, str]:
@@ -150,7 +161,13 @@ def status(seen: Observed, health: dict[str, Any] | None,
 		if not good:
 			down.append(name)
 	lines.append("Containers:   " + ", ".join(states))
-	if down:
+	# nginx can't publish its port while something else holds it: starting
+	# again doesn't help until that stops
+	blocker = port_owner(port, seen.busy) if seen.https_published is False else ""
+	if blocker:
+		todo.append(f"Port {port} is in use by {blocker} - NetRollout can't publish it. "
+		            "Stop that, then: netrollout start")
+	elif down:
 		todo.append("Start it: netrollout start  (if it stays down: netrollout logs "
 		            f"{down[0]})")
 
@@ -171,7 +188,10 @@ def status(seen: Observed, health: dict[str, Any] | None,
 		if bad:
 			todo.append("Check the database / Redis: netrollout logs postgres  /  netrollout logs redis")
 
-	if seen.reachable is not None:
+	if seen.reachable is not None and seen.https_published is False:
+		# what answers there (if anything) isn't this NetRollout
+		lines.append(f"From here:    {url} isn't NetRollout's (its port isn't published)")
+	elif seen.reachable is not None:
 		lines.append(f"From here:    {url} " + ("answers" if seen.reachable
 		                                         else "does NOT answer"))
 		if not seen.reachable and not down:
@@ -193,6 +213,17 @@ def status(seen: Observed, health: dict[str, Any] | None,
 			lines.append(f"nginx:        {state} ({when})")
 
 	lines.append("Certificate:  " + _certificate(now, todo))
+
+	if seen.https_published is not None:
+		label = f"Port {port}:"
+		if seen.https_published:
+			lines.append(f"{label:<14}ok (published by nginx)")
+		else:
+			why = (f" - in use by {blocker}" if blocker
+			       else " - nginx isn't running" if "nginx" in down else "")
+			lines.append(f"{label:<14}NOT published{why}")
+			if not blocker and "nginx" not in down:
+				todo.append(f"nginx runs without port {port}: netrollout start (it recreates nginx)")
 
 	compose = compose_files(env)
 	if COMPOSE_HTTP in compose:
