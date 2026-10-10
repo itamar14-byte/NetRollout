@@ -1,17 +1,17 @@
 """The database's set-up at every start (install: migrations, the factory
-admin, the settings' rows) and what NetRollout's data needs around it: the
-nightly clean-up's statements, Grafana's read access."""
+admin, the settings' rows) and what NetRollout's data needs around it:
+Grafana's read access."""
 import os
 from typing import TYPE_CHECKING
 
 from alembic import command as alembic_command
 from alembic.config import Config as AlembicConfig
 from sqlalchemy import text
-from sqlalchemy.engine import Connection, Engine
+from sqlalchemy.engine import Connection
 from sqlalchemy.exc import SQLAlchemyError
 from werkzeug.security import generate_password_hash
 
-from src.db.settings import seed_settings, sql_value
+from src.db.settings import seed_settings
 from src.db.tables import User, Role
 if TYPE_CHECKING:
 	from src.db.connections import PostgresConnection
@@ -31,47 +31,6 @@ def alembic_config(conn: Connection | None = None) -> AlembicConfig:
 	if conn is not None:
 		cfg.attributes["connection"] = conn
 	return cfg
-
-
-def _older_than(column: str, setting: str) -> str:
-	"""SQL: `column` is older than the setting's number of days (read from
-	system_settings when the statement runs)."""
-	return f"{column} < NOW() - make_interval(days => {sql_value(setting)})"
-
-
-RETENTION_STATEMENTS = {
-	"device_result_retention":
-		f"DELETE FROM device_results "
-		f"WHERE {_older_than('completed_at', 'job_retention_days')}",
-	# created_at is submission time, results age from completion — only
-	# delete metadata once the job's results are gone, so both expire together
-	"job_metadata_retention":
-		f"DELETE FROM job_metadata m "
-		f"WHERE {_older_than('m.created_at', 'job_retention_days')} "
-		f"AND NOT EXISTS (SELECT 1 FROM device_results r "
-		f"WHERE r.job_id = m.job_id)",
-	# clear the payload, keep the row (status/analytics survive)
-	"device_result_config_retention":
-		f"UPDATE device_results SET fetched_config = NULL "
-		f"WHERE fetched_config IS NOT NULL AND "
-		f"{_older_than('completed_at', 'config_snapshot_retention_days')}",
-	"audit_log_retention":
-		f"DELETE FROM audit_log "
-		f"WHERE {_older_than('timestamp', 'audit_retention_days')}",
-}
-
-
-def run_retention(engine: Engine) -> dict[str, int]:
-	"""The retention statements, once, in one transaction (the app runs them
-	daily: src/db/retention.py). Each reads its period from
-	system_settings.
-
-	:param engine: the database NetRollout uses
-	:returns: the rows each statement touched, by its name
-	:raises sqlalchemy.exc.SQLAlchemyError: the database failed - nothing changed"""
-	with engine.begin() as conn:
-		return {name: conn.execute(text(statement)).rowcount
-		        for name, statement in RETENTION_STATEMENTS.items()}
 
 
 # ── Grafana's read access ────────────────────────────────────────────────────

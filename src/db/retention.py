@@ -8,17 +8,59 @@ from collections.abc import Callable
 from datetime import datetime, time as clock, timedelta
 from typing import Any
 
+from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
 from src import runtime
 from src.db.connections import BackendServices
-from src.db.install import run_retention
+from src.db.settings import sql_value
 
 
 RUN_AT = clock(3, 0)
 CHECK_SECONDS = 60
 RETRY = timedelta(hours=1)
 STATUS_FILE = "retention-status.json"
+
+
+def _older_than(column: str, setting: str) -> str:
+	"""SQL: `column` is older than the setting's number of days (read from
+	system_settings when the statement runs)."""
+	return f"{column} < NOW() - make_interval(days => {sql_value(setting)})"
+
+
+RETENTION_STATEMENTS = {
+	"device_result_retention":
+		f"DELETE FROM device_results "
+		f"WHERE {_older_than('completed_at', 'job_retention_days')}",
+	# created_at is submission time, results age from completion — only
+	# delete metadata once the job's results are gone, so both expire together
+	"job_metadata_retention":
+		f"DELETE FROM job_metadata m "
+		f"WHERE {_older_than('m.created_at', 'job_retention_days')} "
+		f"AND NOT EXISTS (SELECT 1 FROM device_results r "
+		f"WHERE r.job_id = m.job_id)",
+	# clear the payload, keep the row (status/analytics survive)
+	"device_result_config_retention":
+		f"UPDATE device_results SET fetched_config = NULL "
+		f"WHERE fetched_config IS NOT NULL AND "
+		f"{_older_than('completed_at', 'config_snapshot_retention_days')}",
+	"audit_log_retention":
+		f"DELETE FROM audit_log "
+		f"WHERE {_older_than('timestamp', 'audit_retention_days')}",
+}
+
+
+def run_retention(engine: Engine) -> dict[str, int]:
+	"""The retention statements, once, in one transaction (NightlyCleanUp runs
+	them daily). Each reads its period from
+	system_settings.
+
+	:param engine: the database NetRollout uses
+	:returns: the rows each statement touched, by its name
+	:raises sqlalchemy.exc.SQLAlchemyError: the database failed - nothing changed"""
+	with engine.begin() as conn:
+		return {name: conn.execute(text(statement)).rowcount
+		        for name, statement in RETENTION_STATEMENTS.items()}
 
 
 def due(now: datetime, last_run: datetime | None) -> bool:

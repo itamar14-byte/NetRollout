@@ -16,7 +16,8 @@ from werkzeug.security import generate_password_hash
 
 import src.encryption as enc
 from src.db.connections import PostgresConfig, PostgresConnection
-from src.db.install import RETENTION_STATEMENTS, _grant_grafana_read, GRAFANA_TABLES, install
+from src.db.install import _grant_grafana_read, GRAFANA_TABLES, install
+from src.db.retention import RETENTION_STATEMENTS
 from src.db.settings import SETTINGS
 from src.db.tables import SecurityProfile
 from src.webapp.build import init_app_encryption
