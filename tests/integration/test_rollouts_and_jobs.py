@@ -1,6 +1,7 @@
 """Rollout routes (captured, never executed), cancel, SSE stream, rollback,
 results / Verify Diff / log download, dashboards, operator analytics."""
 import datetime as dt
+import io
 import itertools
 import json
 import os
@@ -65,6 +66,21 @@ def test_single_platform_rollout_is_submitted(operator, client_for,
 	assert call.commands == ["hostname r9"]
 	assert call.params.verify is True and call.comment == "chg-1"
 	assert [d.ip for d in call.devices] == ["10.0.0.1"]
+
+
+def test_a_commands_file_saved_with_a_bom_sends_the_clean_first_command(
+		operator, client_for, captured_submits):
+	"""A commands file saved as "UTF-8 with BOM" (Windows Notepad) is read like
+	the CLI reads it: the BOM is not part of the first command, blank lines
+	are dropped."""
+	resp = client_for(operator.user).post("/rollout/start", data={
+		"device_ids": [str(operator.ios)],
+		"commands_file": (io.BytesIO("hostname r9\r\n\r\nntp server 1.1.1.1\r\n"
+		                             .encode("utf-8-sig")), "cmds.txt")},
+		content_type="multipart/form-data")
+	assert resp.status_code == 302 and "/active_jobs?new=" in resp.headers["Location"]
+	(call,) = captured_submits
+	assert call.commands == ["hostname r9", "ntp server 1.1.1.1"]
 
 
 def test_multi_platform_rollout_submits_one_job_per_platform(

@@ -19,7 +19,7 @@ from src.inventory import InventoryView, partition_devices
 from src.jobs import QUEUED_LINE, Draining
 from src.results import JobResults
 from src.rollout.engine import Device, RolloutOptions, missing_value
-from src.rollout.inputs import InputParser
+from src.rollout.inputs import InputParser, command_lines, read_commands
 from src.webapp.app import current_app
 from src.webapp.http import Refused, ok, err, with_form, with_json, Caller, viewer
 
@@ -52,14 +52,11 @@ def parse_commands() -> tuple[list[str] | None, dict[str, str], bool]:
 		if not commands_file.filename.lower().endswith(".txt"):
 			raise Refused("Command file must be a .txt file.")
 		try:
-			commands = [
-				line for raw_line in commands_file.readlines()
-				if (line := raw_line.decode("utf-8").strip())
-			]
+			commands = read_commands(commands_file.read())
 		except UnicodeDecodeError:
 			raise Refused("Command file must be valid UTF-8 text.") from None
 	else:
-		commands = [l.strip() for l in manual_commands.splitlines() if l.strip()]
+		commands = command_lines(manual_commands)
 
 	if not commands:
 		raise Refused("Provide commands by pasting text or uploading a command file.")
@@ -149,11 +146,6 @@ def unresolved_message(devices: list[Device], commands_of: Callable[[Device], li
 	        f"devices out.")
 
 
-def platform_lines(text: str) -> list[str]:
-	""":returns: a platform's command text as the commands it runs (blank lines out)"""
-	return [line.strip() for line in text.splitlines() if line.strip()]
-
-
 def submit_jobs(devices: list[Device], commands: list[str] | None,
                 platform_commands_map: dict[str, str], is_multi_platform: bool,
                 options: RolloutOptions,
@@ -180,7 +172,7 @@ def submit_jobs(devices: list[Device], commands: list[str] | None,
 	devices.sort(key=lambda d: d.device_type)
 	jobs: list[tuple[list[Device], list[str]]] = []
 	for platform, group in groupby(devices, key=lambda d: d.device_type):
-		curr_commands = platform_lines(platform_commands_map.get(platform, ""))
+		curr_commands = command_lines(platform_commands_map.get(platform, ""))
 		if not curr_commands:
 			raise Refused(f"No commands provided for {platform}.")
 		jobs.append((list(group), curr_commands))
@@ -312,7 +304,7 @@ def start_rollout() -> tuple[uuid.UUID, list[Device], str | None]:
 	if unreachable := unreachable_devices(devices):
 		raise Refused(unreachable_message(unreachable))
 
-	if blocked := unresolved_message(devices, lambda d: platform_lines(
+	if blocked := unresolved_message(devices, lambda d: command_lines(
 			platform_commands_map.get(d.device_type, "")) if is_multi_platform
 			else commands or []):
 		raise Refused(blocked)

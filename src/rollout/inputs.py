@@ -80,6 +80,23 @@ def tcp_reachable(ip: str, port: int = 22) -> bool:
 	return False
 
 
+def command_lines(text: str) -> list[str]:
+	"""The commands of a commands text - a commands file, the pasted box, one
+	platform's box: one per line, stripped, blank lines dropped.
+
+	:returns: the commands, in order"""
+	return [line for raw in text.splitlines() if (line := raw.strip())]
+
+
+def read_commands(data: bytes) -> list[str]:
+	"""The commands of a commands file's bytes (the CLI's file, the web
+	upload): UTF-8 - utf-8-sig, so the BOM Windows Notepad writes doesn't
+	stick to the first command -, then command_lines.
+
+	:raises UnicodeDecodeError: not UTF-8 text"""
+	return command_lines(data.decode("utf-8-sig"))
+
+
 def token_problem(token: str) -> str | None:
 	"""A variable mapping's token, without its $$ marks.
 
@@ -238,19 +255,16 @@ class InputParser:
 			for row in raw_devices]
 
 	def parse_commands(self, commands_path: str) -> list[str]:
-		"""The commands of a commands file: UTF-8, one per line, stripped,
-		blank lines dropped.
+		"""The commands of a commands file (read_commands: the web upload's
+		rules).
 
 		:returns: the commands; [] when the file is missing or unreadable (the
 		 reason is logged)"""
 		commands_path = commands_path.strip('"')
 		if self.validator.validate_file_extension(commands_path,"txt"):
 			try:
-				# Same rules as the web path: UTF-8 (utf-8-sig drops a BOM
-				# that would otherwise stick to the first command), lines
-				# stripped, blank lines dropped
-				with open(commands_path, "r", encoding="utf-8-sig") as file:
-					commands = [line for raw in file if (line := raw.strip())]
+				with open(commands_path, "rb") as file:
+					commands = read_commands(file.read())
 				self.logger.notify(
 					f"Commands file successfully processed\n"
 					f"{len(commands)} commands will be executed",
