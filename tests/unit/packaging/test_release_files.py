@@ -315,3 +315,23 @@ def test_the_windows_install_folder_is_the_installing_accounts_only():
 	# Restrict: inheritance off, then Administrators, SYSTEM and the installing account
 	assert re.search(r'"/inheritance:r", "/grant:r", "\*S-1-5-32-544:\$f",\s*"\*S-1-5-18:\$f", '
 	                 r'"\$\{env:USERDOMAIN\}\\\$\{env:USERNAME\}:\$f"', ps1)
+
+
+def test_the_windows_script_finds_docker_whoever_started_it():
+	"""manage.ps1 refreshes PATH from the registry (Machine + User, the session's own
+	entries kept) before any command runs, and Wait-Docker uses the same helper; the
+	Docker CLI check falls back to Docker Desktop's resources\\bin (then put on PATH).
+	Setup launched from a browser that was open before Docker was installed inherited
+	the browser's PATH, so the Docker page said "isn't installed" over a running Docker
+	(rc1) - and Next would have installed it again."""
+	ps1 = (ROOT / "packaging" / "windows" / "manage.ps1").read_text(encoding="utf-8")
+	refresh = ps1[ps1.index("function Update-SessionPath {"):ps1.index("function Test-DockerCli {")]
+	assert '[Environment]::GetEnvironmentVariable("Path", "Machine")' in refresh
+	assert '[Environment]::GetEnvironmentVariable("Path", "User"), $env:Path' in refresh
+	main = ps1[ps1.index("# ── main ──"):]
+	assert main.index("Update-SessionPath") < main.index("Invoke-NrCommand $Command")
+	wait = ps1[ps1.index("function Wait-Docker("):ps1.index("function Install-DockerDesktop")]
+	assert "Update-SessionPath" in wait and "GetEnvironmentVariable" not in wait
+	cli = ps1[ps1.index("function Test-DockerCli {"):ps1.index("function Test-DockerRunning")]
+	assert 'Join-Path $DockerCliDir "docker.exe"' in cli and '$env:Path = "$env:Path;$DockerCliDir"' in cli
+	assert r'$DockerCliDir = Join-Path $DockerDir "resources\bin"' in ps1

@@ -52,7 +52,10 @@ $AppImage = "itamarweinstein/netrollout:$Version"
 $ImageVersion = ""
 $EnvFile = Join-Path $Root ".env"
 $Interactive = [Environment]::UserInteractive -and -not $Yes
-$DockerDesktopExe = Join-Path $env:ProgramFiles "Docker\Docker\Docker Desktop.exe"
+# Docker Desktop's own folder: 64-bit Program Files even from a 32-bit caller
+$DockerDir = Join-Path $(if ($env:ProgramW6432) { $env:ProgramW6432 } else { $env:ProgramFiles }) "Docker\Docker"
+$DockerDesktopExe = Join-Path $DockerDir "Docker Desktop.exe"
+$DockerCliDir = Join-Path $DockerDir "resources\bin"
 $IssuesUrl = "https://github.com/itamar14-byte/NetRollout/issues"
 
 # ── output ──────────────────────────────────────────────────────────────────
@@ -239,7 +242,28 @@ function Get-ContainerStates {
 
 # ── Docker ────────────────────────────────────────────────────────────────────
 
-function Test-DockerCli { return [bool](Get-Command docker -ErrorAction SilentlyContinue) }
+# PATH as Windows has it now (Machine + User), then whatever this session
+# added: a process started by a program that was running before Docker was
+# installed (NetRollout Setup launched from a browser) inherits that
+# program's old PATH, without docker on it
+function Update-SessionPath {
+	$entries = @()
+	foreach ($path in [Environment]::GetEnvironmentVariable("Path", "Machine"),
+	                  [Environment]::GetEnvironmentVariable("Path", "User"), $env:Path) {
+		foreach ($entry in "$path" -split ";") {
+			if ($entry.Trim() -and $entries -notcontains $entry) { $entries += $entry }
+		}
+	}
+	$env:Path = $entries -join ";"
+}
+
+# docker on PATH - else in Docker Desktop's folder, then put on this session's PATH
+function Test-DockerCli {
+	if (Get-Command docker -ErrorAction SilentlyContinue) { return $true }
+	if (-not (Test-Path (Join-Path $DockerCliDir "docker.exe"))) { return $false }
+	$env:Path = "$env:Path;$DockerCliDir"
+	return $true
+}
 function Test-DockerRunning { return (Invoke-Native "docker" @("info")).Code -eq 0 }
 function Test-DockerReady { return (Test-DockerCli) -and (Test-DockerRunning) }
 
@@ -255,8 +279,7 @@ function Wait-Docker([int]$Seconds, [string]$Waiting) {
 		Write-Host "." -NoNewline
 		Start-Sleep -Seconds 5
 		# a fresh install puts docker on PATH for new windows only
-		$env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" +
-			[Environment]::GetEnvironmentVariable("Path", "User")
+		Update-SessionPath
 	}
 	Write-Host ""
 	return $false
@@ -1055,6 +1078,7 @@ function Invoke-NrCommand([string]$Name) {
 if ($MyInvocation.InvocationName -eq ".") { return }
 $exit = 0
 try {
+	Update-SessionPath
 	if ($Command) { $exit = Invoke-NrCommand $Command } else { Show-Help }
 } catch [System.OperationCanceledException] {
 	$exit = [int]$_.Exception.Message
