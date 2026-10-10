@@ -26,6 +26,7 @@ if [ "$mode" != env-only ] && [ -f "$shared/site.env" ]; then
 fi
 
 fail() { echo "$*" >&2; exit 1; }
+# shellcheck disable=SC2018,SC2019  # hostnames are ASCII: [:upper:] would depend on the locale
 host=$(printf '%s' "$host" | tr 'A-Z' 'a-z' | sed 's/\.$//')
 label='[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?'
 if [ -n "$host" ] && ! printf '%s' "$host" | grep -Eq "^$label(\.$label)*\$"; then
@@ -51,6 +52,7 @@ NR_APP_UPSTREAM="$upstream"
 export NR_CANONICAL NR_CANONICAL_KEY NR_REDIRECT_OTHER_NAMES \
        NR_HTTPS_HOST_DEFAULT NR_PORT_SUFFIX NR_APP_UPSTREAM
 
+# shellcheck disable=SC2016  # literal ${...}: the names envsubst may replace
 envsubst '${NR_CANONICAL} ${NR_CANONICAL_KEY} ${NR_REDIRECT_OTHER_NAMES} ${NR_HTTPS_HOST_DEFAULT} ${NR_PORT_SUFFIX} ${NR_APP_UPSTREAM}' \
     < /etc/nginx/netrollout/site.conf.template > "$out/site.conf"
 echo "hostname=${host:-(none)} https_port=$port app=$upstream"
