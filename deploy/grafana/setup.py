@@ -13,7 +13,12 @@ Idempotent.
                              never read, changed or deleted here
 
 Every Grafana user is a NetRollout admin (nginx lets nobody else through) and
-an Editor. Why folders can't separate admins from operators — free Grafana lets
+an Editor - enforced on every run: a Grafana server admin is demoted, any other
+organisation role made Editor. The one exception is Grafana's own
+administrator, which this service signs in as: named netrollout-grafana-admin,
+a name NetRollout refuses for its accounts (src/accounts/users.py). Before
+1.0.0rc1 it was "admin" - NetRollout's factory account, which Grafana then
+signed in as its administrator; an install from then has it renamed. Why folders can't separate admins from operators — free Grafana lets
 anyone signed in query every datasource — is in docs/workplan.md (post-v1).
 
 The files are dashboard v2 resources: one subfolder of the dashboards folder
@@ -48,6 +53,11 @@ FOLDER_ANNOTATION = "grafana.app/folder"
 RUNTIME_ENV = Path(os.environ.get("RUNTIME_ENV", "/data/config/runtime.env"))
 CHECK_SECONDS = 5
 
+# Grafana's own administrator (compose: GF_SECURITY_ADMIN_USER) - and its name
+# in installs from before 1.0.0rc1, NetRollout's factory account's name
+ADMIN = os.environ.get("GRAFANA_ADMIN_USER", "netrollout-grafana-admin")
+LEGACY_ADMIN = "admin"
+
 DATASOURCE_UID = "cfjxoedixn7r4d"           # the dashboards' reference
 DATASOURCE_NAME = "NetRollout database"
 # The bundled database, as the containers see it
@@ -71,16 +81,17 @@ def log(message: str) -> None:
 
 
 def call(method: str, path: str, body: Any = None,
-         ok: tuple[int, ...] = (200,)) -> tuple[int, Any]:
-	"""One Grafana API call as its admin.
+         ok: tuple[int, ...] = (200,), login: str = ADMIN) -> tuple[int, Any]:
+	"""One Grafana API call as its administrator.
 
 	:param path: under Grafana's address, e.g. /api/folders
 	:param body: sent as JSON; None: no body
 	:param ok: the statuses that aren't a failure
+	:param login: the administrator's name (LEGACY_ADMIN while renaming it)
 	:returns: (status, the parsed body - None when empty)
 	:raises RuntimeError: another status"""
 	auth = base64.b64encode(
-		f"admin:{os.environ['GRAFANA_ADMIN_PASSWORD']}".encode()).decode()
+		f"{login}:{os.environ['GRAFANA_ADMIN_PASSWORD']}".encode()).decode()
 	request = urllib.request.Request(
 		GRAFANA + path, method=method,
 		data=json.dumps(body).encode() if body is not None else None,
@@ -179,6 +190,42 @@ def wait_for_grafana(seconds: float = 180) -> None:
 	raise RuntimeError("Grafana didn't become ready")
 
 
+def ensure_admin() -> None:
+	"""Grafana's administrator under ADMIN. An install from before 1.0.0rc1 has
+	it as LEGACY_ADMIN - NetRollout's factory account's name, so Grafana signed
+	that person in as its administrator: it is renamed (Grafana creates its
+	administrator only in a new database). The NetRollout admin gets an
+	ordinary Editor account of their own at their next visit.
+
+	:raises RuntimeError: the password works for neither name"""
+	if call("GET", "/api/user", ok=(200, 401))[0] == 200:
+		return
+	status, me = call("GET", "/api/user", ok=(200, 401), login=LEGACY_ADMIN)
+	if status != 200:
+		raise RuntimeError(f"Grafana refused its administrator ({ADMIN}, or {LEGACY_ADMIN} "
+		                   f"before 1.0.0rc1) with GRAFANA_ADMIN_PASSWORD")
+	call("PUT", f"/api/users/{me['id']}",
+	     {"login": ADMIN, "email": me.get("email") or f"{ADMIN}@localhost",
+	      "name": me.get("name") or ADMIN}, login=LEGACY_ADMIN)
+	log(f"Grafana's administrator renamed {LEGACY_ADMIN} -> {ADMIN}: NetRollout's "
+	    f"factory account had its name")
+
+
+def enforce_roles() -> None:
+	"""Every user signed in through NetRollout is an Editor and no Grafana
+	server admin (whatever was changed by hand); Grafana's own administrator
+	keeps its rights."""
+	_, users = call("GET", "/api/users?perpage=1000&page=1")
+	for user in users or []:
+		if user["login"] != ADMIN and user.get("isAdmin"):
+			call("PUT", f"/api/admin/users/{user['id']}/permissions", {"isGrafanaAdmin": False})
+			log(f"{user['login']} was a Grafana server admin: now an Editor like every NetRollout admin")
+	_, members = call("GET", "/api/org/users")
+	for member in members or []:
+		if member["login"] != ADMIN and member.get("role") != "Editor":
+			call("PATCH", f"/api/org/users/{member['userId']}", {"role": "Editor"})
+
+
 def ensure_folder(uid: str, title: str, parent: str | None = None) -> None:
 	"""The folder exists with this title under this parent - created, or put
 	back when moved or renamed by hand.
@@ -243,6 +290,7 @@ def apply() -> None:
 
 	:raises RuntimeError: Grafana not ready, or a call refused"""
 	wait_for_grafana()
+	ensure_admin()
 	where = ensure_datasource()
 	ensure_folder(ROOT, "NetRollout")
 	for title, uid in SUBFOLDERS.items():
@@ -260,6 +308,7 @@ def apply() -> None:
 	for uid in [ROOT, *SUBFOLDERS.values()]:
 		set_permissions(uid, VIEW_ONLY)
 	set_permissions(CUSTOM, EDITABLE)
+	enforce_roles()
 	if not DONE_FILE.exists():   # say it once, not every REAPPLY_SECONDS
 		log(f"done: {len(shipped)} dashboards in NetRollout; Custom untouched; "
 		    f"data from {where}")

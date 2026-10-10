@@ -8,7 +8,7 @@ from flask.typing import ResponseReturnValue
 from flask_login import login_required
 
 from src.accounts.ldap import Directory
-from src.accounts.users import Accounts
+from src.accounts.users import Accounts, is_reserved
 from src.audit import AuditAction
 from src.db.tables import LDAPServer, LDAPGroup, BindType
 from src.encryption import encrypt
@@ -243,8 +243,9 @@ def admin_server_ldap_import(server_id: uuid.UUID) -> ResponseReturnValue:
 				skipped += 1
 				continue
 			if item["type"] == "user":
-				# usernames are compared as sign-in compares them: whatever the case
-				if accounts.by_name_ci(item["username"]):
+				# usernames are compared as sign-in compares them: whatever the case;
+				# the reserved name is never an account
+				if accounts.by_name_ci(item["username"]) or is_reserved(item["username"]):
 					skipped += 1
 					continue
 				accounts.new_ldap(item["username"], server_id)

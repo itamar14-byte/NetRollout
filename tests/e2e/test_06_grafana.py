@@ -130,12 +130,12 @@ def test_the_shipped_folders_are_read_only_and_custom_is_editable(install, secon
 		assert answer.status == 403, (found["uid"], answer.status)
 
 
-@pytest.mark.xfail(strict=True, reason=(
-	"Known bug (found by these checks, 2026-10-10): the factory account is "
-	"named admin, and so is Grafana's own server administrator - proxy auth "
-	"signs it in as that one (isGrafanaAdmin, org role Admin), and Grafana's "
-	"folder API grants it edit / delete on the shipped view-only folders"))
 def test_the_factory_admin_is_an_editor_like_every_other_admin(install, admin):
+	"""NetRollout's factory account "admin" is an ordinary Editor in Grafana,
+	like every other NetRollout admin: no Grafana server admin, org role
+	Editor, the shipped folders view-only. (Found by these checks: Grafana's
+	own administrator was also named admin, and Grafana signed this account in
+	as it; the administrator is netrollout-grafana-admin now.)"""
 	me = grafana_user(admin)
 	assert me["login"] == "admin"
 	assert me["isGrafanaAdmin"] is False

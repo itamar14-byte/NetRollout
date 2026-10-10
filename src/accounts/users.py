@@ -91,6 +91,19 @@ class AccountError(ValueError):
 	"""Why the account isn't made - in words for the person."""
 
 
+# Grafana's own administrator (compose.yaml GF_SECURITY_ADMIN_USER; the
+# grafana-setup service signs in as it). Grafana trusts the username nginx hands
+# it, so a NetRollout account with this name would be signed in to Grafana as
+# its administrator: no account may carry it, in any capitals.
+GRAFANA_ADMIN_USERNAME = "netrollout-grafana-admin"
+RESERVED_USERNAME = "That username is reserved for NetRollout's own use - choose another."
+
+
+def is_reserved(username: str) -> bool:
+	""":returns: whether no NetRollout account may have this name"""
+	return username.strip().lower() == GRAFANA_ADMIN_USERNAME
+
+
 class Accounts:
 	"""NetRollout's accounts in a session (the caller commits): a new local
 	account (Request access, an admin's Add user) or directory account (the
@@ -157,7 +170,10 @@ class Accounts:
 
 		:param role: the mapped group's; None: the default (operator)
 		:param details: {email, full_name} as the directory gave them; None:
-		 none"""
+		 none
+		:raises AccountError: the name is reserved (the callers check first)"""
+		if is_reserved(username):
+			raise AccountError(RESERVED_USERNAME)
 		extra: dict[str, Any] = {"role": role} if role is not None else {}
 		user = User(username=username, auth_type=AuthType.LDAP, ldap_server_id=server_id,
 		            is_approved=True, is_active=True, password_hash=None,
@@ -171,8 +187,8 @@ class Accounts:
 	               position: str | None, password: str | None) -> None:
 		""":raises AccountError: a missing or too long field, a username with
 		other characters than letters, digits, . _ -, an email without @, the
-		password rule (when a password is given), a username (in any case) or
-		email in use"""
+		password rule (when a password is given), the reserved username, a
+		username (in any case) or email in use"""
 		fields = {"username": username, "email": email, "full_name": full_name}
 		labels = {"username": "Username", "email": "Email", "full_name": "Full name",
 		          "position": "Position"}
@@ -189,6 +205,8 @@ class Accounts:
 			raise AccountError("That email address isn't valid.")
 		if password is not None and (problem := password_problem(password, username)):
 			raise AccountError(problem)
+		if is_reserved(username):      # its own words: not "taken"
+			raise AccountError(RESERVED_USERNAME)
 		# "Dana" next to "dana" would be two accounts for one name
 		if self.by_name_ci(username):
 			raise AccountError("That username is taken.")

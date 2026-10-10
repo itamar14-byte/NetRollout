@@ -170,6 +170,10 @@ services:
     profiles: [monitoring]
     image: grafana/grafana:13.0.1
     environment:
+      # Grafana's own administrator (grafana-setup signs in as it): a name no
+      # NetRollout account may have - nginx hands Grafana the NetRollout username,
+      # and one named like the administrator would be signed in as it
+      GF_SECURITY_ADMIN_USER: netrollout-grafana-admin
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}   # maintenance + grafana-setup
       GF_SERVER_ROOT_URL: "%(protocol)s://%(domain)s:%(http_port)s/grafana/"
       GF_SERVER_SERVE_FROM_SUB_PATH: "true"
@@ -213,6 +217,7 @@ services:
     image: itamarweinstein/netrollout:${NETROLLOUT_VERSION}
     command: ["python", "/app/grafana/setup.py"]
     environment:
+      GRAFANA_ADMIN_USER: netrollout-grafana-admin    # as Grafana's GF_SECURITY_ADMIN_USER
       GRAFANA_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
       GRAFANA_DB_PASSWORD: ${GRAFANA_DB_PASSWORD}   # the database data source's login
       DASHBOARDS_DIR: /app/grafana/dashboards

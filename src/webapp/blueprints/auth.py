@@ -19,7 +19,8 @@ from sqlalchemy.orm import Session
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from src.accounts.ldap import Directory, LdapUnavailable
-from src.accounts.users import RULE, password_problem, LIMITS, AccountError, Accounts
+from src.accounts.users import (RESERVED_USERNAME, RULE, password_problem, LIMITS, AccountError,
+                                Accounts, is_reserved)
 from src.audit import AuditAction
 from src.db.tables import LDAPServer, LDAPGroup, User, AuthType
 from src.encryption import decrypt, encrypt
@@ -39,6 +40,7 @@ _LOGIN_FAIL_MESSAGES = {
 	"pending_approval": "User still pending admin approval",
 	"ldap_bind_failed": "Invalid credentials",
 	"ldap_unavailable": "LDAP authentication service unavailable",
+	"reserved_username": RESERVED_USERNAME,
 }
 
 
@@ -181,6 +183,9 @@ def login_ldap_group(username: str, password: str,
 	"""An unknown username: if the active directory accepts the password and
 	the user is in one of its mapped groups, the account is created (approved,
 	active, the group's role) and signed in; else invalid credentials."""
+	if is_reserved(username):
+		# no account may have this name: refused before the directory is asked
+		return login_fail(username, "reserved_username")
 	ldap_server = db_session.query(LDAPServer).filter_by(is_active=True).first()
 	if ldap_server:
 		groups = db_session.query(LDAPGroup).filter_by(

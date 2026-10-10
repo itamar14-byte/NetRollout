@@ -121,3 +121,83 @@ def test_healthy_means_the_last_run_succeeded(setup, monkeypatch, tmp_path):
 	with pytest.raises(SystemExit):
 		setup.main()
 	assert not setup.DONE_FILE.exists()
+
+
+class FakeUsers:
+	"""Grafana's user API as grafana-setup sees it: who may sign in with the
+	administrator's password (`password_works_for`), the server's users and the
+	organisation's members; every write recorded."""
+
+	def __init__(self, password_works_for, users, members):
+		self.password_works_for = password_works_for
+		self.users, self.members = users, members
+		self.writes = []
+
+	def __call__(self, method, path, body=None, ok=(200,), login="netrollout-grafana-admin"):
+		# login: as setup.call's default, the administrator's name
+		if path == "/api/user":
+			if login == self.password_works_for:
+				return 200, {"id": 1, "login": login, "email": "admin@localhost", "name": "admin"}
+			return 401, None
+		if method == "GET" and path.startswith("/api/users"):
+			return 200, self.users
+		if method == "GET" and path == "/api/org/users":
+			return 200, self.members
+		self.writes.append((method, path, body, login))
+		if method == "PUT" and path == "/api/users/1":
+			self.password_works_for = body["login"]
+		return 200, {}
+
+
+def test_an_install_from_before_has_its_grafana_administrator_renamed(setup, monkeypatch):
+	"""Grafana's administrator was named admin - like NetRollout's factory
+	account, which Grafana then signed in as its administrator. When the new
+	name is refused and admin is accepted, that account is renamed to
+	netrollout-grafana-admin (email and name kept); then the new name works."""
+	grafana = FakeUsers("admin", users=[], members=[])
+	monkeypatch.setattr(setup, "call", grafana)
+	setup.ensure_admin()
+	assert grafana.writes == [("PUT", "/api/users/1", {"login": "netrollout-grafana-admin",
+	                                                    "email": "admin@localhost", "name": "admin"},
+	                           "admin")]
+	assert grafana.password_works_for == "netrollout-grafana-admin"
+
+
+def test_an_administrator_already_renamed_is_left_alone(setup, monkeypatch):
+	"""A new install's administrator (or one renamed earlier) signs in under the
+	new name: nothing is written."""
+	grafana = FakeUsers("netrollout-grafana-admin", users=[], members=[])
+	monkeypatch.setattr(setup, "call", grafana)
+	setup.ensure_admin()
+	assert grafana.writes == []
+
+
+def test_neither_name_signing_in_is_an_error(setup, monkeypatch):
+	"""The password works for neither name (a wrong GRAFANA_ADMIN_PASSWORD): a
+	readable error, nothing written."""
+	grafana = FakeUsers("someone-else", users=[], members=[])
+	monkeypatch.setattr(setup, "call", grafana)
+	with pytest.raises(RuntimeError, match="administrator"):
+		setup.ensure_admin()
+	assert grafana.writes == []
+
+
+def test_every_user_signed_in_through_netrollout_is_an_editor_and_no_server_admin(setup, monkeypatch):
+	"""Everyone but Grafana's own administrator: a Grafana server admin is
+	demoted, and an organisation role other than Editor (Admin, Viewer) becomes
+	Editor; users already right, and the administrator, are left alone."""
+	grafana = FakeUsers(
+		"netrollout-grafana-admin",
+		users=[{"id": 1, "login": "netrollout-grafana-admin", "isAdmin": True},
+		       {"id": 2, "login": "admin", "isAdmin": True},
+		       {"id": 3, "login": "dana", "isAdmin": False}],
+		members=[{"userId": 1, "login": "netrollout-grafana-admin", "role": "Admin"},
+		         {"userId": 2, "login": "admin", "role": "Admin"},
+		         {"userId": 3, "login": "dana", "role": "Editor"},
+		         {"userId": 4, "login": "eve", "role": "Viewer"}])
+	monkeypatch.setattr(setup, "call", grafana)
+	setup.enforce_roles()
+	writes = [(m, p, b) for m, p, b, _ in grafana.writes]
+	assert writes == [("PUT", "/api/admin/users/2/permissions", {"isGrafanaAdmin": False}),
+	                  ("PATCH", "/api/org/users/2", {"role": "Editor"}),
+	                  ("PATCH", "/api/org/users/4", {"role": "Editor"})]
