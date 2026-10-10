@@ -104,21 +104,29 @@ def device_label(labels: dict[Target, str], row: DeviceResult) -> str:
 	                  else endpoint(row.device_ip, row.device_port))
 
 
+def by_job(results: Iterable[DeviceResult]) -> list[tuple[uuid.UUID, list[DeviceResult]]]:
+	""":returns: the results grouped by job, in job id order"""
+	ordered = sorted(results, key=lambda r: r.job_id)
+	return [(job_id, list(rows)) for job_id, rows in groupby(ordered, key=lambda r: r.job_id)]
+
+
+def job_values(rows: Sequence[DeviceResult]) -> dict[str, Any]:
+	""":param rows: one job's device results
+	:returns: the job in numbers, as every list shows it: completed_at,
+	 device_count, commands_sent, status, action_needed (any device's)"""
+	return {
+		"completed_at": max(r.completed_at for r in rows),
+		"device_count": len(rows),
+		"commands_sent": rows[0].commands_sent,
+		"status": job_status(rows),
+		"action_needed": any(r.action_needed for r in rows),
+	}
+
+
 def build_job_summaries(results: Iterable[DeviceResult]) -> list[dict[str, Any]]:
 	""":returns: one summary per job (completed_at, device_count,
 	 commands_sent, status, action_needed), newest first"""
-	sorted_results = sorted(results, key=lambda x: x.job_id)
-	summaries: list[dict[str, Any]] = []
-	for job_id, group in groupby(sorted_results, key=lambda x: x.job_id):
-		rows = list(group)
-		summaries.append({
-			"job_id": job_id,
-			"completed_at": max(r.completed_at for r in rows),
-			"device_count": len(rows),
-			"commands_sent": rows[0].commands_sent,
-			"status": job_status(rows),
-			"action_needed": any(r.action_needed for r in rows),
-		})
+	summaries = [{"job_id": job_id, **job_values(rows)} for job_id, rows in by_job(results)]
 	summaries.sort(key=lambda x: x["completed_at"], reverse=True)
 	return summaries
 
@@ -134,20 +142,14 @@ def build_jobs(result_rows: Iterable[DeviceResult],
 	:param snapshot_days: the config snapshot retention (to say a snapshot
 	 expired)
 	:param job_owner: the owner's username, shown on other users' jobs"""
-	sorted_rows = sorted(result_rows, key=lambda x: x.job_id)
 	out: list[dict[str, Any]] = []
-	for job_id, group in groupby(sorted_rows, key=lambda x: x.job_id):
-		rows = list(group)
+	for job_id, rows in by_job(result_rows):
 		meta = metadata_by_job.get(job_id)
 		entry: dict[str, Any] = {
 			"job_id": str(job_id),
 			"has_log": log_file(job_id) is not None,
 			"started_at": min(r.started_at for r in rows),
-			"completed_at": max(r.completed_at for r in rows),
-			"device_count": len(rows),
-			"commands_sent": rows[0].commands_sent,
-			"status": job_status(rows),
-			"action_needed": any(r.action_needed for r in rows),
+			**job_values(rows),
 			"comment": meta.comment if meta else None,
 			"commands": meta.commands if meta else [],
 			"devices": [
@@ -356,7 +358,7 @@ class JobResults:
 			return None
 		# an admin names devices as on Results (anyone's inventory)
 		labels = self.device_labels(rows)
-		meta = self.session.query(JobMetadata).filter_by(job_id=job_id).first()
+		meta = self.metadata([job_id]).get(job_id)
 		counts: dict[str, int] = {}
 		for r in rows:
 			counts[r.status] = counts.get(r.status, 0) + 1
@@ -381,7 +383,7 @@ class JobResults:
 			return None
 		if row.fetched_config is None:
 			return ConfigSnapshot(config=None, commands=[], device_type=row.device_type)
-		meta = self.session.query(JobMetadata).filter_by(job_id=job_id).first()
+		meta = self.metadata([job_id]).get(job_id)
 		return ConfigSnapshot(config=row.fetched_config,
 		                      commands=meta.commands if meta else [],
 		                      device_type=row.device_type)
@@ -403,14 +405,12 @@ class JobResults:
 		 device spoils it, as on Results; None without a job),
 		 most_common_platform (None without results), total_commands"""
 		rows = self.session.query(DeviceResult).filter(DeviceResult.user_id == user_id).all()
-		by_job: dict[uuid.UUID, list[DeviceResult]] = defaultdict(list)
-		for r in rows:
-			by_job[r.job_id].append(r)
-		successful = sum(1 for job in by_job.values() if job_status(job) == DeviceStatus.SUCCESS)
+		jobs = by_job(rows)
+		successful = sum(1 for _, job in jobs if job_status(job) == DeviceStatus.SUCCESS)
 		return {
-			"total_rollouts": len(by_job),
+			"total_rollouts": len(jobs),
 			"total_devices": len(rows),
-			"success_rate": round(successful / len(by_job) * 100) if by_job else None,
+			"success_rate": round(successful / len(jobs) * 100) if jobs else None,
 			"most_common_platform": (Counter(r.device_type for r in rows).most_common(1)[0][0]
 			                         if rows else None),
 			"total_commands": sum(r.commands_sent for r in rows),
