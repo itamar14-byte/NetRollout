@@ -1,0 +1,100 @@
+# Download counts, daily: every release file's downloads (GitHub keeps only a
+# running total per file) and each image's Docker Hub pulls, appended as dated
+# rows to downloads.csv on the `stats` branch - so the history is kept. The
+# counts include updates (NetRollout Manager and the Linux update download the
+# same files): copies fetched, not new users. Runnable by hand too.
+name: Download stats
+
+on:
+  schedule:
+    - cron: "17 3 * * *"     # 03:17 UTC daily
+  workflow_dispatch:
+
+permissions:
+  contents: write            # the stats branch
+
+concurrency:
+  group: stats
+  cancel-in-progress: false
+
+jobs:
+  count:
+    name: Count downloads
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: The stats branch (made on the first run)
+        run: |
+          if git ls-remote --exit-code --heads origin stats >/dev/null; then
+            git switch -q -c stats origin/stats
+          else
+            git switch -q --orphan stats
+            git rm -rfq . >/dev/null
+            printf '%s\n' \
+              "# NetRollout download counts" "" \
+              "\`downloads.csv\`, a row per day and file, added by \`.github/workflows/stats.yml\` on master:" "" \
+              "- \`date\`: the day counted (UTC)" \
+              "- \`source\`: \`github\` (a release file's downloads) or \`dockerhub\` (an image's pulls)" \
+              "- \`name\`: \`<tag>/<file>\`, or the image" \
+              "- \`count\`: the running total that day - a day's downloads are the difference from the day before" "" \
+              "The counts include updates (NetRollout Manager and the Linux update download the same files)." > README.md
+          fi
+      - name: Count
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          python3 - <<'EOF'
+          import csv, datetime, json, os, urllib.error, urllib.request
+
+          def get(url, token=None):
+              headers = {"Accept": "application/json", "User-Agent": "netrollout-stats"}
+              if token:
+                  headers["Authorization"] = f"Bearer {token}"
+              with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=30) as r:
+                  return json.load(r)
+
+          today = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
+          rows = []
+          page = 1
+          while True:      # every release's files
+              releases = get(f"https://api.github.com/repos/{os.environ['REPO']}/releases"
+                             f"?per_page=100&page={page}", os.environ["GH_TOKEN"])
+              for release in releases:
+                  for asset in release["assets"]:
+                      rows.append((today, "github", f"{release['tag_name']}/{asset['name']}",
+                                   asset["download_count"]))
+              if len(releases) < 100:
+                  break
+              page += 1
+          for image in ("netrollout", "netrollout-nginx"):   # Docker Hub pulls
+              try:
+                  data = get(f"https://hub.docker.com/v2/repositories/itamarweinstein/{image}/")
+                  rows.append((today, "dockerhub", f"itamarweinstein/{image}", data["pull_count"]))
+              except urllib.error.HTTPError as e:
+                  print(f"{image}: not on Docker Hub yet ({e.code})")
+
+          kept = []        # a rerun the same day replaces that day's rows
+          if os.path.exists("downloads.csv"):
+              with open("downloads.csv", newline="", encoding="utf-8") as f:
+                  kept = [r for r in csv.reader(f)][1:]
+              kept = [r for r in kept if r and r[0] != today]
+          with open("downloads.csv", "w", newline="", encoding="utf-8") as f:
+              out = csv.writer(f)
+              out.writerow(["date", "source", "name", "count"])
+              out.writerows(kept + [list(r) for r in rows])
+          for r in rows:
+              print(*r)
+          print(f"{len(rows)} counts for {today}")
+          EOF
+      - name: Commit to the stats branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md downloads.csv
+          if git diff --cached --quiet; then echo "no change"; exit 0; fi
+          git commit -q -m "Download counts $(date -u +%F)"
+          git push -q origin stats

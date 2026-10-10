@@ -1,0 +1,25 @@
+name: Something else
+description: A question, a documentation mistake, or anything the other forms don't cover.
+body:
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What kind?
+      options:
+        - A question
+        - Documentation
+        - Installation or update
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: Tell us
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: NetRollout version
+      description: If it's about a running NetRollout - at the bottom of every page.

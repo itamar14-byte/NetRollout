@@ -1,0 +1,34 @@
+name: Feature request
+description: An idea for NetRollout - a new platform, a missing option, a better way to do something.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What would you like to do?
+      description: The task or problem, in your own words - what you're trying to achieve matters more than how.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: How do you picture it?
+      description: Optional - how it could work, or how you do it today.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - A new device platform
+        - Rollouts (push, verify, rollback)
+        - Inventory, profiles, mappings
+        - Results, analytics, monitoring
+        - Users and sign-in
+        - Installing, updating, backups
+        - The CLI
+        - Something else
+  - type: input
+    id: platform
+    attributes:
+      label: For a new platform - which one?
+      placeholder: "Netmiko device type and OS, e.g. huawei_vrp, VRP 8"

@@ -1,0 +1,7 @@
+# Every issue goes through a form (four: a bug, a platform confirmation, a
+# feature request, something else); security issues privately, never as an issue.
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/itamar14-byte/NetRollout/security/advisories/new
+    about: Privately, to the maintainer - please don't open a public issue for a vulnerability.

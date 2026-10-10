@@ -1,0 +1,88 @@
+name: Bug report
+description: Something in NetRollout doesn't work as it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! A good report says what you did, what you expected, and what happened instead.
+        **Security issue?** Please don't file it here - use *Report a security vulnerability* on the issue page instead.
+  - type: input
+    id: version
+    attributes:
+      label: NetRollout version
+      description: At the bottom of every NetRollout page, in `netrollout status`, or `netrollout-cli --version`.
+      placeholder: "1.0.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where did it happen?
+      options:
+        - Web app
+        - CLI (netrollout-cli)
+        - Installing or updating
+        - NetRollout Manager (Windows)
+        - Monitoring (Grafana)
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How is NetRollout installed?
+      options:
+        - Windows (NetRollout Setup)
+        - Linux (install.sh)
+        - From source
+        - CLI only
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Device platform
+      description: If the problem involves a device. Platforms not listed aren't supported yet - a feature request is the place for those.
+      options:
+        - Not about a device
+        - arista_eos
+        - aruba_aoscx
+        - checkpoint_gaia
+        - cisco_ios
+        - cisco_nxos
+        - cisco_xe
+        - cisco_xr
+        - fortinet
+        - hp_comware
+        - hp_procurve
+        - juniper_junos
+        - paloalto_panos
+        - other
+    validations:
+      required: true
+  - type: input
+    id: device-os
+    attributes:
+      label: Device OS version
+      placeholder: "IOS XE 17.9.4, Junos 23.2R1, PAN-OS 11.1 ..."
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did (the commands you pushed, if any), what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: The job log
+      description: |
+        From Results -> Download log, or the CLI's `logs` folder. NetRollout replaces passwords, secrets, keys and communities with `<redacted>` - still, glance over it before posting.
+      render: text
+  - type: checkboxes
+    id: sensitive
+    attributes:
+      label: Before posting
+      options:
+        - label: I removed anything I don't want public (addresses, device names, company details).
+          required: true

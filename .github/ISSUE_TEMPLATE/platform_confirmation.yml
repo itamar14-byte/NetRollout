@@ -1,0 +1,57 @@
+name: Platform confirmation
+description: It works on your devices - tell us, and the platform goes on the tested list.
+title: "Works on: "
+labels: [platform-confirmed]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        NetRollout supports 12 platforms, but not all of them have been tried on real devices. Every confirmation helps the next person - thank you!
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Device platform
+      options:
+        - arista_eos
+        - aruba_aoscx
+        - checkpoint_gaia
+        - cisco_ios
+        - cisco_nxos
+        - cisco_xe
+        - cisco_xr
+        - fortinet
+        - hp_comware
+        - hp_procurve
+        - juniper_junos
+        - paloalto_panos
+    validations:
+      required: true
+  - type: input
+    id: device-os
+    attributes:
+      label: Device model and OS version
+      placeholder: "Catalyst 9300, IOS XE 17.9.4"
+    validations:
+      required: true
+  - type: checkboxes
+    id: tried
+    attributes:
+      label: What did you try?
+      options:
+        - label: A push
+        - label: A push with Verify
+        - label: A command the device rejected (it was reported as rejected)
+        - label: A rollback
+        - label: The CLI (netrollout-cli)
+  - type: input
+    id: version
+    attributes:
+      label: NetRollout version
+      description: At the bottom of every NetRollout page, or `netrollout-cli --version`.
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything worth knowing?
+      description: Quirks, prompts, settings you needed - optional.
