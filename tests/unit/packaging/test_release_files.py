@@ -400,3 +400,27 @@ def test_no_setup_message_assumes_the_default_folder():
 	code = text[text.index("[Code]"):]
 	for message in re.findall(r"SuppressibleMsgBox\((.*?)\);", code, re.S):
 		assert "{#DefaultDir}" not in message
+
+
+def test_setup_shows_the_scripts_current_step_live():
+	"""Install, start and update run manage.ps1 through RunScript: Exec still waits for
+	the exit code (Retry, exit 3 and the log tail unchanged), while a timer (killed in a
+	finally) shows the newest step line - manage.ps1's Step writes "-> " - of this run
+	under the progress bar; the update appends to the preparation's log, so only the
+	lines after it count; the install starts a new log."""
+	text = iss_text()
+	ps1 = (ROOT / "packaging" / "windows" / "manage.ps1").read_text(encoding="utf-8")
+	assert 'function Step([string]$Text) { Write-Host "-> $Text"' in ps1
+	show = pascal(text, "procedure ShowStep(")
+	assert "LoadStringsFromLockedFile(WatchLog, Lines)" in show
+	assert "downto WatchFrom do" in show and "if Pos('-> ', Lines[I]) = 1 then" in show
+	assert "WizardForm.StatusLabel.Caption :=" in show
+	run = pascal(text, "function RunScript(")
+	start = run.index("Timer := SetTimer(0, 0, 500, CreateCallback(@ShowStep));")
+	waits = run.index("SW_HIDE, ewWaitUntilTerminated, Result);")
+	stop = run.index("finally\n\t\tKillTimer(0, Timer);")
+	assert start < waits < stop
+	assert "WatchFrom := GetArrayLength(Lines)" in run and "DeleteFile(Log);" in run
+	setup = pascal(text, "function RunSetUp(")
+	assert setup.count("RunScript(") == 2 and "ewWaitUntilTerminated" not in setup
+	assert "Result := RunScript(Args, Log, True);" in setup and "Result := RunScript(Args, Log, False);" in setup
