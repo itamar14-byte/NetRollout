@@ -126,14 +126,20 @@ class AuditTrail:
 		:param action: what happened (its value is the row's action)
 		:raises sqlalchemy.exc.SQLAlchemyError: it couldn't be written"""
 		with self._postgres().get_session() as db_session:
-			db_session.add(AuditLog(
-				actor_id=actor.user_id,
-				actor_username=actor.username,
-				action=action,
-				object_type=object_type,
-				object_id=object_id,
-				object_label=object_label,
-				success=success,
-				ip_address=actor.ip,
-				detail=detail,
-			))
+			db_session.add(AuditLog(**self.row(
+				actor, action, object_type=object_type, object_id=object_id,
+				object_label=object_label, detail=detail, success=success)))
+
+	@staticmethod
+	def row(actor: Actor, action: AuditAction, *, object_type: str | None = None,
+	        object_id: uuid.UUID | str | None = None, object_label: str | None = None,
+	        detail: dict[str, Any] | None = None, success: bool = True) -> dict[str, Any]:
+		"""An audit row's column values - the one place they are spelled. For a
+		row that must land in the caller's own transaction (a restore, a
+		database move's copy): insert these values there instead of record().
+
+		:returns: the audit_log columns, by name"""
+		return {"actor_id": actor.user_id, "actor_username": actor.username,
+		        "action": action, "object_type": object_type, "object_id": object_id,
+		        "object_label": object_label, "success": success,
+		        "ip_address": actor.ip, "detail": detail}

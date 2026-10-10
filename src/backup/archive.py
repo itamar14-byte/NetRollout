@@ -57,7 +57,7 @@ from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.exc import SQLAlchemyError
 
 from src import runtime
-from src.audit import AuditAction
+from src.audit import Actor, AuditAction, AuditTrail
 from src.db.connections import ENCRYPTED_COLUMNS, FERNET_PREFIX
 from src.db.install import alembic_config
 from src.db.tables import AuditLog, Base, SystemSetting
@@ -697,10 +697,9 @@ def _restore_database(engine: Engine, zf: zipfile.ZipFile, manifest: Manifest,
 			conn.execute(update(settings).where(settings.c.key == "https_port")
 			             .values(value=https_port))
 		action, detail = audit
-		conn.execute(insert(cast(Table, AuditLog.__table__)).values(
-			actor_username="netrollout", action=action,
-			object_type="backup", object_label=name, success=True,
-			detail=detail))
+		conn.execute(insert(cast(Table, AuditLog.__table__)).values(**AuditTrail.row(
+			Actor.system("netrollout"), action, object_type="backup", object_label=name,
+			detail=detail)))
 
 
 def _reset_sequences(conn: Connection, meta: MetaData) -> None:
