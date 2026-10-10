@@ -325,7 +325,7 @@ def organisation_pair(tmp_path, name):
 
 def test_an_organisation_certificate_that_cant_be_written_changes_nothing(
 		home, tmp_path, monkeypatch):
-	"""install_certificate: the key is written, then the certificate's write raises
+	"""CertificateStore.install: the key is written, then the certificate's write raises
 	OSError -> the previous files are put back (the key, the certificate, the
 	self-signed marker) and ProxyError "NetRollout couldn't write <file>: <reason>.
 	Nothing was changed."."""
@@ -349,7 +349,7 @@ def test_an_organisation_certificate_that_cant_be_written_changes_nothing(
 
 
 def test_an_organisation_certificate_is_installed_without_the_marker(home, tmp_path):
-	"""install_certificate with a valid pair: written in place of the self-signed
+	"""CertificateStore.install with a valid pair: written in place of the self-signed
 	one, the marker and old-names file removed; the undo puts the self-signed
 	files back."""
 	certs.selfsigned("a.lab", [], home / "certs")

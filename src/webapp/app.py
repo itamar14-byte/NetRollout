@@ -23,7 +23,7 @@ class NetRolloutApp(Flask):
 	"""Flask with NetRollout's services, one of each per process."""
 	backend: "BackendServices"            # Postgres, Redis, the settings
 	orchestrator: "RolloutOrchestrator"   # the rollouts running and queued
-	web: "WebServices"                    # the pages' database helpers, the audit
+	web: "WebServices"                    # the audit trail, the reachability checks
 	shutdown: "Shutdown"                  # stop / restart with a drain
 	maintenance: "Maintenance"            # a database move's pause and lock
 	db_move: "DatabaseMove"               # Server Management's database move

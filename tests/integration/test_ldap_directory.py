@@ -127,7 +127,7 @@ def test_non_member_and_bad_password_do_not_match(ldap_server_config):
 # ── Admin tools ──────────────────────────────────────────────────────────────
 
 def test_user_details_and_tree(ldap_server_config):
-	"""fetch_user_details returns jdoe's email and full name and None for `*`;
+	"""Directory.user_details returns jdoe's email and full name and None for `*`;
 	walk_tree under ou=Groups lists the one netops group."""
 	details = ldap.Directory(ldap_server_config).user_details("jdoe")
 	assert details == {"email": "jdoe@corp.test", "full_name": "John Doe"}

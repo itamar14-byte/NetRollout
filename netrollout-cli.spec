@@ -15,7 +15,7 @@ WEB_STACK = [
 	"werkzeug", "jinja2", "waitress", "sqlalchemy", "alembic", "psycopg2",
 	"redis", "prometheus_client", "prometheus_flask_exporter", "ldap3",
 	"pyotp", "qrcode", "PIL", "src.webapp", "src.db", "src.jobs", "src.inventory",
-	"src.accounts", "src.access", "src.backup",
+	"src.accounts", "src.access", "src.backup", "src.audit", "src.results",
 ]
 
 a = Analysis(

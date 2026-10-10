@@ -1,6 +1,5 @@
 """Server Management -> Database: the move's routes (the move itself, on real
 databases, is test_db_move.py)."""
-import time
 import uuid
 
 import pytest
