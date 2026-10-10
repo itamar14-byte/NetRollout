@@ -34,7 +34,7 @@
         <div class="input-group">
           <input type="password" class="form-control login-input" id="password"
                  name="password" placeholder="Enter password" required>
-          <button class="btn btn-outline-secondary toggle-password login-toggle" type="button">👁</button>
+          <button class="btn btn-outline-secondary toggle-password login-toggle" type="button" title="Show password" aria-label="Show password"><i class="bi bi-eye" aria-hidden="true"></i></button>
         </div>
       </div>
       <div class="d-grid">
@@ -244,8 +244,12 @@
   document.querySelectorAll(".toggle-password").forEach(btn => {
     btn.addEventListener("click", function () {
       const input = this.previousElementSibling;
-      input.type = input.type === "password" ? "text" : "password";
-      this.textContent = input.type === "password" ? "👁" : "🙈";
+      const show = input.type === 'password';
+      input.type = show ? 'text' : 'password';
+      const icon = this.querySelector('i');
+      icon.className = show ? 'bi bi-eye-slash' : 'bi bi-eye';
+      this.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+      this.title = show ? 'Hide password' : 'Show password';
     });
   });
 

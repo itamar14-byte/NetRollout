@@ -300,7 +300,7 @@
                             <input type="password" class="form-control" id="addPassword" name="password"
                                    placeholder="Password" required autocomplete="new-password"
                                    style="padding-right:2.5rem;">
-                            <button type="button" class="pw-toggle" onclick="togglePw('addPassword', this)">👁</button>
+                            <button type="button" class="pw-toggle" onclick="togglePw('addPassword', this)" title="Show password" aria-label="Show password"><i class="bi bi-eye" aria-hidden="true"></i></button>
                         </div>
                         <div class="field-error">Password is required.</div>
                     </div>
@@ -311,7 +311,7 @@
                             <input type="password" class="form-control" id="addEnableSecret" name="enable_secret"
                                    placeholder="Leave blank if not required" autocomplete="new-password"
                                    style="padding-right:2.5rem;">
-                            <button type="button" class="pw-toggle" onclick="togglePw('addEnableSecret', this)">👁</button>
+                            <button type="button" class="pw-toggle" onclick="togglePw('addEnableSecret', this)" title="Show password" aria-label="Show password"><i class="bi bi-eye" aria-hidden="true"></i></button>
                         </div>
                     </div>
 
@@ -364,7 +364,7 @@
                             <input type="password" class="form-control" id="editPassword" name="password"
                                    placeholder="Leave blank to keep current" autocomplete="new-password"
                                    style="padding-right:2.5rem;">
-                            <button type="button" class="pw-toggle" onclick="togglePw('editPassword', this)">👁</button>
+                            <button type="button" class="pw-toggle" onclick="togglePw('editPassword', this)" title="Show password" aria-label="Show password"><i class="bi bi-eye" aria-hidden="true"></i></button>
                         </div>
                     </div>
 
@@ -374,7 +374,7 @@
                             <input type="password" class="form-control" id="editEnableSecret" name="enable_secret"
                                    placeholder="Leave blank to keep current" autocomplete="new-password"
                                    style="padding-right:2.5rem;">
-                            <button type="button" class="pw-toggle" onclick="togglePw('editEnableSecret', this)">👁</button>
+                            <button type="button" class="pw-toggle" onclick="togglePw('editEnableSecret', this)" title="Show password" aria-label="Show password"><i class="bi bi-eye" aria-hidden="true"></i></button>
                         </div>
                     </div>
 
@@ -549,10 +549,12 @@ const VENDOR_LOGOS = {{ VENDOR_LOGOS | tojson }};
 // ── Show/hide password toggle ──
 function togglePw(inputId, btn) {
     const input = document.getElementById(inputId);
-    const isHidden = input.type === 'password';
-    input.type = isHidden ? 'text' : 'password';
-    btn.querySelector('i').className = '';
-    btn.textContent = isHidden ? '🙈' : '👁';
+    const show = input.type === 'password';
+    input.type = show ? 'text' : 'password';
+    const icon = btn.querySelector('i');
+    icon.className = show ? 'bi bi-eye-slash' : 'bi bi-eye';
+    btn.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+    btn.title = show ? 'Hide password' : 'Show password';
 }
 
 // ── Wire up card buttons ──

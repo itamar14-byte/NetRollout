@@ -60,7 +60,7 @@
           <input type="password" class="form-control" id="password" name="password"
                  placeholder="Enter password" autocomplete="new-password">
           <button class="btn btn-outline-secondary toggle-password" type="button"
-                  data-target="password">👁</button>
+                  data-target="password" title="Show password" aria-label="Show password"><i class="bi bi-eye" aria-hidden="true"></i></button>
         </div>
         <div class="invalid-feedback d-block" id="passwordError" style="display:none !important;"></div>
       </div>
@@ -71,7 +71,7 @@
           <input type="password" class="form-control" id="confirm_password"
                  placeholder="Repeat password" autocomplete="new-password">
           <button class="btn btn-outline-secondary toggle-password" type="button"
-                  data-target="confirm_password">👁</button>
+                  data-target="confirm_password" title="Show password" aria-label="Show password"><i class="bi bi-eye" aria-hidden="true"></i></button>
         </div>
         <div class="invalid-feedback d-block" id="confirmError" style="display:none !important;"></div>
       </div>
@@ -226,15 +226,13 @@
 
   document.querySelectorAll(".toggle-password").forEach(btn => {
     btn.addEventListener("click", function () {
-      const targetId = this.dataset.target;
-      const input = document.getElementById(targetId);
-      if (input.type === "password") {
-        input.type = "text";
-        this.textContent = "🙈";
-      } else {
-        input.type = "password";
-        this.textContent = "👁";
-      }
+      const input = document.getElementById(this.dataset.target);
+      const show = input.type === 'password';
+      input.type = show ? 'text' : 'password';
+      const icon = this.querySelector('i');
+      icon.className = show ? 'bi bi-eye-slash' : 'bi bi-eye';
+      this.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+      this.title = show ? 'Hide password' : 'Show password';
     });
   });
 </script>
