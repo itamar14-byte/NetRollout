@@ -271,7 +271,7 @@ def token_states(devices: list[Inventory], values: dict[uuid.UUID, dict[str, Any
 
 	:param devices: rows with their mappings loaded (every user's)
 	:param values: each device's attribute values as the user sees them
-	 (inventory.attributes - never another user's)
+	 (InventoryView.attributes - never another user's)
 	:returns: {device id: {token: None when it resolves, else the reason}};
 	 devices without the user's mappings left out"""
 	states: dict[str, dict[str, str | None]] = {}

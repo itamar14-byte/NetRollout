@@ -95,7 +95,7 @@ def token_problem(token: str) -> str | None:
 
 def property_name_problem(property_name: str, allowed: set[str]) -> str | None:
 	""":param allowed: the user's property names — system defaults plus
-	 their own definitions (webapp: get_property_defs)
+	 their own definitions (webapp: InventoryView.property_defs)
 	:returns: what's wrong with it (for the page), None when it's valid"""
 	if property_name.strip().lower() not in allowed:
 		return f"Property name {property_name} is not valid"
@@ -230,7 +230,7 @@ class InputParser:
 
 		:param user_id: who rolls out - only their own variable mappings apply
 		:param attributes: each device's attribute values as that user sees
-		 them, by device id (the web app: src/inventory.attributes); None:
+		 them, by device id (the web app: InventoryView.attributes); None:
 		 the rows' own (var_maps)
 		:raises ValueError: a device without a security profile"""
 		return [Device.from_inventory(

@@ -172,7 +172,7 @@
 <div class="row g-3">
     {% for mapping in mappings %}
 
-    {# Build assigned device list with the values this user sees (var_maps: inventory.attributes) for JS #}
+    {# Build assigned device list with the values this user sees (var_maps: InventoryView.attributes) for JS #}
     {% set ns = namespace(devs=[]) %}
     {% for d in mapping.devices %}
         {% set ns.devs = ns.devs + [{"id": d.id|string, "label": d.label, "ip": d.ip, "device_type": d.device_type, "var_maps": attributes.get(d.id, {}), "is_global": d.is_global}] %}

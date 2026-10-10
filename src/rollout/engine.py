@@ -223,7 +223,7 @@ class Device:
 		:param user_id: who rolls out - only their own mappings apply (the
 		 join table is shared across users through global devices)
 		:param attributes: the device's attribute values as that user sees
-		 them (the web app: src/inventory.attributes - the device's system
+		 them (the web app: InventoryView.attributes - the device's system
 		 values and the user's own custom ones); None: the row's var_maps
 		:raises ValueError: the device has no security profile"""
 		profile = row.security_profile

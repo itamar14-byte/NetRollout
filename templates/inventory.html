@@ -350,7 +350,7 @@
     and the security profile id is exposed to editors only — viewers see
     the label, never an id they could attach to a device of their own.
     var_maps: the values this user sees - the device's system values and
-    the user's own custom ones (inventory.attributes). -#}
+    the user's own custom ones (InventoryView.attributes). -#}
 {% macro device_card(device) %}
     {% set editable = device.user_id == current_user.id or (device.is_global and is_admin) %}
     {% set logo_url = VENDOR_LOGOS.get(device.device_type, '') %}

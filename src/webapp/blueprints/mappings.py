@@ -250,7 +250,7 @@ def mappings_bulk_assign() -> ResponseReturnValue:
 	For each device to assign, three checks are enforced before appending:
 	  1. Visibility — the device must belong to current_user or be global
 	  2. Eligibility — the device's values as the user sees them
-	     (inventory.attributes) must contain mapping.property_name
+	     (InventoryView.attributes) must contain mapping.property_name
 	  3. Duplicate — the device must not already be assigned to this mapping
 	Invalid or ineligible device IDs are silently skipped.
 	The mapping ownership check is done once before the loop.
