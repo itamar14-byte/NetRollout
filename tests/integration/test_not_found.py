@@ -13,7 +13,7 @@ def test_a_missing_page_is_answered_like_a_router(client_for, make_user):
 	page = resp.get_data(as_text=True)
 	assert resp.status_code == 404
 	assert "show page /admin/setings" in page
-	assert "% Invalid input detected at &#39;^&#39; marker." in page
+	assert "% Invalid input detected at '^' marker." in page
 	assert 'href="/dashboard"' in page
 
 
