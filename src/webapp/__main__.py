@@ -12,7 +12,7 @@ from src.access.port import serving_port
 from src.backup.schedule import start_backup_schedule
 from src.db.retention import start_retention
 from src.db.settings import public_url
-from src.rollout.log import start_log_pruning, utf8_console
+from src.rollout.log import LogPruner, utf8_console
 from src.runtime import StartupError, drain_seconds, in_container, server_threads
 from src.webapp.build import create_app
 from src.webapp.startup import container_announcement, start_announcer
@@ -32,7 +32,7 @@ except StartupError as e:
 signal.signal(signal.SIGTERM, lambda signum, frame: app.shutdown.begin(
 	drain_seconds(), restart=False))
 
-start_log_pruning(lambda: app.backend.settings.get("log_retention_days"))
+LogPruner(lambda: app.backend.settings.get("log_retention_days")).start()
 # previous hostnames leave the self-signed certificate
 CertificateUpkeep(app.access.certificates).start()
 

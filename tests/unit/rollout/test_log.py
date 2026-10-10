@@ -10,7 +10,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from src.rollout.log import LOG_RETENTION_DAYS, RolloutLogger, prune_once, prune_logs, utf8_console
+from src import runtime
+from src.rollout.log import (LOG_PRUNE_INTERVAL_HOURS, LOG_RETENTION_DAYS, LogPruner, RolloutLogger,
+                            prune_once, prune_logs, utf8_console)
 
 
 # ---------------------------------------------------------------------------
@@ -382,3 +384,18 @@ def test_prune_once_uses_the_setting_and_survives_its_failure(tmp_path):
 		raise ConnectionError("db down")
 	# settings unreachable: prune with the default rather than skip the pass
 	assert prune_once(unreachable, str(tmp_path)) == (LOG_RETENTION_DAYS, 0)
+
+
+def test_log_pruner_is_a_periodic_task_running_prune_once(tmp_path, monkeypatch):
+	"""LogPruner is a runtime.PeriodicTask named "log-pruner": no first wait,
+	then every LOG_PRUNE_INTERVAL_HOURS; a turn prunes the logs folder with
+	the setting (10 days: a 20-day-old log removed, a 5-day-old one kept)."""
+	monkeypatch.setenv(runtime.HOME_ENV, str(tmp_path))
+	(tmp_path / "logs").mkdir()
+	old = log_file(tmp_path / "logs", "rollout_a.log", 20)
+	fresh = log_file(tmp_path / "logs", "rollout_b.log", 5)
+	pruner = LogPruner(lambda: 10)
+	assert isinstance(pruner, runtime.PeriodicTask)
+	assert (pruner.name, pruner.interval, pruner.first_delay) == 		("log-pruner", LOG_PRUNE_INTERVAL_HOURS * 3600, None)
+	pruner.run_once()
+	assert not old.exists() and fresh.exists()

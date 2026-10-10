@@ -77,18 +77,20 @@ def prune_once(retention_days: Callable[[], int] | None = None,
 	return days, removed
 
 
-def start_log_pruning(retention_days: Callable[[], int] | None = None) -> None:
-	"""Prune now, then every LOG_PRUNE_INTERVAL_HOURS from a daemon thread -
-	a server that never restarts still cleans up. Called by the web app's
-	entry point.
+class LogPruner(runtime.PeriodicTask):
+	"""The logs folder's clean-up loop: prune_once() now, then every
+	LOG_PRUNE_INTERVAL_HOURS - a server that never restarts still cleans up.
+	Started by the web app's entry point (the CLI prunes once, prune_logs)."""
+	FAILURE = f"The log clean-up failed: {{error}} (tried again in {LOG_PRUNE_INTERVAL_HOURS} hours)"
 
-	:param retention_days: read on every run (the System Setting), so a
-	 change applies at the next run; the default when it fails"""
-	def loop() -> None:
-		while True:
-			prune_once(retention_days)
-			time.sleep(LOG_PRUNE_INTERVAL_HOURS * 3600)
-	threading.Thread(target=loop, name="log-pruner", daemon=True).start()
+	def __init__(self, retention_days: Callable[[], int] | None = None) -> None:
+		""":param retention_days: read on every run (the System Setting), so a
+		 change applies at the next run; the default when it fails"""
+		super().__init__("log-pruner", LOG_PRUNE_INTERVAL_HOURS * 3600)
+		self.retention_days = retention_days
+
+	def run_once(self) -> None:
+		prune_once(self.retention_days)
 
 
 def utf8_console() -> None:
