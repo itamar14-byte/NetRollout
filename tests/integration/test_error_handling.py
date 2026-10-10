@@ -118,16 +118,16 @@ def test_csrf_failure_redirects_home_or_returns_json(app, client_for,
 def test_logger_publishes_history_and_live_messages(app):
 	"""RolloutLogger over real Redis: important messages and errors (escaped,
 	in red) go to the history and to pub/sub in the same order, others don't;
-	redis_cleanup removes the history."""
+	closing the live log removes the history."""
 	client = app.backend.redis.client
 	logger = RolloutLogger(webapp=True, verbose=False, job_id="job-int",
 	                       redis_client=client)
-	pubsub = logger.subscribe()
+	pubsub = logger.live_log.subscribe()
 	pubsub.get_message(timeout=1)  # subscribe confirmation
 	logger.notify("device up", "green")          # not important: not streamed
 	logger.notify("rollout started", important=True)
 	logger.notify("boom <script>", "red")        # errors always streamed
-	history = logger.get_history()
+	history = logger.live_log.history()
 	assert history[0] == "rollout started"
 	assert history[1] == '<div class="text-danger">boom &lt;script&gt;</div>'
 	live = []
@@ -138,6 +138,6 @@ def test_logger_publishes_history_and_live_messages(app):
 			live.append(msg["data"].decode())
 	# each published with its place in the history ("<n>\t<line>")
 	assert live == [f"{n}\t{line}" for n, line in enumerate(history, 1)]
-	logger.redis_cleanup()
+	logger.live_log.close()
 	assert client.exists("job:job-int:history") == 0
 	pubsub.close()

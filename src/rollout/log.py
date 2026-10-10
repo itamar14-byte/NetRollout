@@ -330,7 +330,6 @@ class RolloutLogger:
 		self.live_log = LiveLog(redis_client, job_id) \
 			if job_id and redis_client is not None else None
 		self._echo: Echo | None = self.live_log if webapp else Console()
-		self._dress = LiveLog.dress if webapp else Console.dress
 
 	def _log(self, message: str) -> None:
 		"""Append a timestamped line to the log file (threads take turns)."""
@@ -338,13 +337,6 @@ class RolloutLogger:
 			with open(self.logfile, "a", encoding="utf-8") as file:
 				timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 				file.write(f"{timestamp}\t{message}\n")
-
-	def _msg(self, message: str, color: str = Tone.INFO) -> str:
-		"""The message dressed for where it's shown: an HTML <div> with the
-		page's colour class (the text escaped), or ANSI colours for a console.
-
-		:param color: a Tone (its colour name); Tone.INFO for none"""
-		return self._dress(message, color)
 
 	def notify(self, message: str, color: str = Tone.INFO, important: bool = False) -> \
 			None:
@@ -360,25 +352,3 @@ class RolloutLogger:
 		self._log(message)
 		if self._echo is not None and (important or self._verbose or color == Tone.ERROR):
 			self._echo.show(message, color)
-
-	def get_history(self) -> list[str]:
-		""":returns: the live log so far (LiveLog.history); [] without one"""
-		return self.live_log.history() if self.live_log else []
-
-	def subscribe(self) -> "PubSub":
-		"""LiveLog.subscribe.
-
-		:raises RuntimeError: this logger has no live log (no Redis client or
-		 job id) - there is nothing to subscribe to"""
-		if self.live_log is None:
-			raise RuntimeError("this logger has no live log (no Redis client or job id)")
-		return self.live_log.subscribe()
-
-	def follow(self, over: Callable[[], bool], wait: float = 0.5) -> Iterator[str | None]:
-		"""LiveLog.follow; nothing without a live log."""
-		return self.live_log.follow(over, wait) if self.live_log else iter(())
-
-	def redis_cleanup(self) -> None:
-		"""The job is over: LiveLog.close (nothing without a live log)."""
-		if self.live_log:
-			self.live_log.close()

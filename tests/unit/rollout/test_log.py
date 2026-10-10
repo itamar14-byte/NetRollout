@@ -11,7 +11,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from src import runtime
-from src.rollout.log import (LOG_PRUNE_INTERVAL_HOURS, LOG_RETENTION_DAYS, LogPruner, RolloutLogger,
+from src.rollout.log import (LOG_PRUNE_INTERVAL_HOURS, LOG_RETENTION_DAYS, Console, LiveLog,
+                            LogPruner, RolloutLogger,
                             prune_once, prune_logs, utf8_console)
 
 
@@ -23,46 +24,39 @@ class TestMsg(unittest.TestCase):
 
 	def test_no_color_terminal(self):
 		"""On the console, a message without a colour is returned unchanged."""
-		logger = RolloutLogger(webapp=False, verbose=False)
-		self.assertEqual(logger._msg("hello"), "hello")
+		self.assertEqual(Console.dress("hello"), "hello")
 
 	def test_red_terminal(self):
 		"""On the console, red wraps the message in ANSI escape codes."""
-		logger = RolloutLogger(webapp=False, verbose=False)
-		result = logger._msg("error", "red")
+		result = Console.dress("error", "red")
 		self.assertIn("error", result)
 		self.assertIn("\033[", result)
 
 	def test_green_terminal(self):
 		"""On the console, green wraps the message in ANSI escape codes."""
-		logger = RolloutLogger(webapp=False, verbose=False)
-		result = logger._msg("ok", "green")
+		result = Console.dress("ok", "green")
 		self.assertIn("ok", result)
 		self.assertIn("\033[", result)
 
 	def test_webapp_red(self):
 		"""In the web app, red wraps the message in the text-danger class."""
-		logger = RolloutLogger(webapp=True, verbose=False)
-		result = logger._msg("error", "red")
+		result = LiveLog.dress("error", "red")
 		self.assertIn("text-danger", result)
 		self.assertIn("error", result)
 
 	def test_webapp_green(self):
 		"""In the web app, green wraps the message in the text-success class."""
-		logger = RolloutLogger(webapp=True, verbose=False)
-		result = logger._msg("ok", "green")
+		result = LiveLog.dress("ok", "green")
 		self.assertIn("text-success", result)
 		self.assertIn("ok", result)
 
 	def test_webapp_no_color(self):
 		"""In the web app, a message without a colour is returned unchanged."""
-		logger = RolloutLogger(webapp=True, verbose=False)
-		self.assertEqual(logger._msg("plain"), "plain")
+		self.assertEqual(LiveLog.dress("plain"), "plain")
 
 	def test_unknown_color_returns_plain(self):
 		"""An unknown colour name ("purple") leaves the message plain."""
-		logger = RolloutLogger(webapp=False, verbose=False)
-		self.assertEqual(logger._msg("hello", "purple"), "hello")
+		self.assertEqual(Console.dress("hello", "purple"), "hello")
 
 
 class TestLog(unittest.TestCase):
@@ -253,7 +247,7 @@ def test_follow_skips_a_line_both_in_the_history_and_published():
 	follow sends it once, then the newer lines, and ends at the done message."""
 	logger, ps = _following(["one", "two"],
 	                        [_message("2\ttwo"), _message("3\tthree"), _message("__done__")])
-	assert list(logger.follow(lambda: False)) == ["one", "two", "three"]
+	assert list(logger.live_log.follow(lambda: False)) == ["one", "two", "three"]
 	assert ps.closed
 
 
@@ -272,7 +266,7 @@ def test_follow_subscribes_before_reading_the_history():
 		return reply
 	ps.get_message = get_message
 	client.lrange.side_effect = lambda *_: order.append("history") or [b"one"]
-	assert list(logger.follow(lambda: False)) == ["one"]
+	assert list(logger.live_log.follow(lambda: False)) == ["one"]
 	assert order == ["subscribed", "history"]
 
 
@@ -281,13 +275,13 @@ def test_follow_sends_heartbeats_until_the_job_is_over():
 	over, and ends once it is."""
 	logger, _ = _following([], [])
 	over = iter([False, False, True])
-	assert list(logger.follow(lambda: next(over), wait=0.01)) == [None, None]
+	assert list(logger.live_log.follow(lambda: next(over), wait=0.01)) == [None, None]
 
 
 def test_follow_keeps_a_multi_line_message_whole():
 	"""A published line with newlines in it comes out as one line."""
 	logger, _ = _following([], [_message("1\tfirst\nsecond"), _message("__done__")])
-	assert list(logger.follow(lambda: False)) == ["first\nsecond"]
+	assert list(logger.live_log.follow(lambda: False)) == ["first\nsecond"]
 
 
 def cp1252_stream():
