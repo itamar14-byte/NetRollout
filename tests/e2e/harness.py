@@ -108,6 +108,11 @@ class ScratchInstall:
 		self.folder = folder
 		self.certificate = folder / ".e2e" / "fullchain.pem"   # the CA to trust
 
+	def is_scratch(self) -> bool:
+		""":returns: the folder is missing, empty, or one these checks made -
+		 the only kinds they may clear (never a real install by mistake)"""
+		return not self.folder.exists() or not any(self.folder.iterdir()) 			or self.certificate.parent.is_dir()
+
 	# ── making it ──
 
 	def create(self) -> None:
@@ -117,6 +122,7 @@ class ScratchInstall:
 		folders' owners as its set_owners sets them (Linux), and port 80
 		swapped for HTTP_PORT."""
 		self.folder.mkdir(parents=True, exist_ok=True)
+		self.certificate.parent.mkdir(exist_ok=True)   # also the mark: ours (is_scratch)
 		for target, source in shipped().items():
 			path = self.folder / target
 			path.parent.mkdir(parents=True, exist_ok=True)
@@ -194,7 +200,6 @@ class ScratchInstall:
 		that run's passwords), then waited for: every service healthy."""
 		self.compose("down", "-v", "--remove-orphans")
 		self.compose("up", "-d", "--wait", "--wait-timeout", "600", timeout=900)
-		self.certificate.parent.mkdir(exist_ok=True)
 		self.certificate.write_bytes(self.read("/data/certs/fullchain.pem"))
 
 	def down(self) -> None:

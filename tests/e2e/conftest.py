@@ -11,7 +11,8 @@ needs no Docker.
                         itamarweinstein/netrollout:<tag>, .../netrollout-nginx:<tag>
   NETROLLOUT_E2E_BUILD  1: build both images with that tag first (else they
                         must exist - a missing one fails the run, not skips it)
-  NETROLLOUT_E2E_DIR    the scratch install folder (default: a new temp folder)
+  NETROLLOUT_E2E_DIR    the scratch install folder (default: a new temp folder);
+                        new, empty or an earlier run's - any other is refused
   NETROLLOUT_E2E_KEEP   1: leave the containers and the folder after the run
                         (debugging; CI prints their logs on a failure)
 
@@ -65,6 +66,10 @@ def install(images):
 	folder = Path(given) if given else Path(tempfile.mkdtemp(prefix="netrollout-e2e-"))
 	scratch = ScratchInstall(folder)
 	if given:
+		if not scratch.is_scratch():
+			pytest.fail(f"NETROLLOUT_E2E_DIR={folder} holds files these checks didn't "
+			            f"make - refusing to clear it (name a new or empty folder)",
+			            pytrace=False)
 		scratch.down()
 		scratch.remove()
 	keep = os.environ.get("NETROLLOUT_E2E_KEEP") == "1"

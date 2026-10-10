@@ -133,8 +133,8 @@ def test_the_shipped_folders_are_read_only_and_custom_is_editable(install, secon
 @pytest.mark.xfail(strict=True, reason=(
 	"Known bug (found by these checks, 2026-10-10): the factory account is "
 	"named admin, and so is Grafana's own server administrator - proxy auth "
-	"signs it in as that one (isGrafanaAdmin, org role Admin), so it can edit "
-	"and delete the shipped view-only folders' dashboards"))
+	"signs it in as that one (isGrafanaAdmin, org role Admin), and Grafana's "
+	"folder API grants it edit / delete on the shipped view-only folders"))
 def test_the_factory_admin_is_an_editor_like_every_other_admin(install, admin):
 	me = grafana_user(admin)
 	assert me["login"] == "admin"
