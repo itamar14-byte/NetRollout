@@ -12,7 +12,6 @@ from alembic.script import ScriptDirectory
 from cryptography.fernet import Fernet
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import make_url
-from werkzeug.security import generate_password_hash
 
 import src.encryption as enc
 from src.db.connections import PostgresConfig, PostgresConnection
@@ -44,49 +43,6 @@ def test_device_results_are_indexed_for_results_and_a_job(test_db_url):
 	           for ix in inspect(create_engine(test_db_url)).get_indexes("device_results")}
 	assert indexes.get("ix_device_results_user_id_job_id") == ["user_id", "job_id"]
 	assert indexes.get("ix_device_results_job_id") == ["job_id"]
-
-
-def test_must_change_password_migration_flags_only_a_factory_admin(
-		test_db_url):
-	"""An install upgraded from the v1.0.0 baseline: its admin still on "admin" gets
-	must_change_password, one that changed it (and anyone else, even on "admin")
-	doesn't. Run on a database of its own, downgraded between the two cases."""
-	name = f"rollout_mig_{uuid.uuid4().hex[:6]}"
-	admin_url = test_db_url.rsplit("/", 1)[0] + "/postgres"
-	url = test_db_url.rsplit("/", 1)[0] + "/" + name
-	admin = create_engine(admin_url, isolation_level="AUTOCOMMIT")
-	alembic = lambda *args: subprocess.run(
-		[sys.executable, "-m", "alembic", *args], cwd=ROOT / "src" / "db",
-		capture_output=True, text=True, env=dict(os.environ, DATABASE_URL=url))
-	with admin.connect() as c:
-		c.execute(text(f'CREATE DATABASE "{name}"'))
-	engine = create_engine(url)
-	try:
-		for passwords in ({"admin": "admin", "bob": "admin"},
-		                  {"admin": "Changed-123"}):
-			assert alembic("upgrade", "v1_0_0_baseline").returncode == 0
-			with engine.begin() as c:
-				c.execute(text("delete from users"))
-				for username, password in passwords.items():
-					c.execute(text(
-						"insert into users (id, username, password_hash, role,"
-						" is_active, is_approved, created_at, auth_type) values"
-						" (:i, :u, :h, 'admin', true, true, now(), 'local')"),
-						{"i": uuid.uuid4(), "u": username,
-						 "h": generate_password_hash(password)})
-			assert alembic("upgrade", "head").returncode == 0
-			with engine.connect() as c:
-				flags = dict(c.execute(text(
-					"select username, must_change_password from users")).all())
-			expected = {u: (u == "admin" and p == "admin")
-			            for u, p in passwords.items()}
-			assert flags == expected
-			assert alembic("downgrade", "v1_0_0_baseline").returncode == 0
-	finally:
-		engine.dispose()
-		with admin.connect() as c:
-			c.execute(text(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)'))
-		admin.dispose()
 
 
 def test_baseline_round_trips_and_sets_server_defaults(test_db_url):
@@ -413,7 +369,6 @@ def test_grafana_grant_is_skipped_without_the_role(app):
 		assert _grant_grafana_read(c, "nr_no_such_role") is False
 
 
-
 # ── Encryption canary + health ───────────────────────────────────────────────
 
 def test_encrypted_sample_finds_fernet_values_only(app, make_user):
@@ -450,55 +405,3 @@ def test_startup_canary_refuses_mismatched_key_against_real_db(app, make_user):
 def test_health_reports_each_service(app):
 	"""health() reports Postgres and Redis both up."""
 	assert app.backend.health() == {"POSTGRES": True, "REDIS": True}
-
-
-def test_role_migration_renames_user_to_operator(test_db_url):
-	"""An install from before the rename: its operators (and LDAP group rules)
-	stored as "user" become "operator"; admins stay; downgrade reverses it."""
-	name = f"rollout_mig_{uuid.uuid4().hex[:6]}"
-	admin_url = test_db_url.rsplit("/", 1)[0] + "/postgres"
-	url = test_db_url.rsplit("/", 1)[0] + "/" + name
-	admin = create_engine(admin_url, isolation_level="AUTOCOMMIT")
-	alembic = lambda *args: subprocess.run(
-		[sys.executable, "-m", "alembic", *args], cwd=ROOT / "src" / "db",
-		capture_output=True, text=True, env=dict(os.environ, DATABASE_URL=url))
-	with admin.connect() as c:
-		c.execute(text(f'CREATE DATABASE "{name}"'))
-	engine = create_engine(url)
-
-	def roles():
-		with engine.connect() as c:
-			return (dict(c.execute(text("select username, role from users")).all()),
-			        dict(c.execute(text("select label, role from ldap_groups")).all()))
-	try:
-		assert alembic("upgrade", "device_results_action_needed").returncode == 0
-		server = uuid.uuid4()
-		with engine.begin() as c:
-			for username, role in (("ops", "user"), ("boss", "admin")):
-				c.execute(text(
-					"insert into users (id, username, password_hash, role, is_active,"
-					" is_approved, created_at, auth_type, must_change_password)"
-					" values (:i, :u, 'x', :r, true, true, now(), 'local', false)"),
-					{"i": uuid.uuid4(), "u": username, "r": role})
-			c.execute(text(
-				"insert into ldap_servers (id, name, host, port, base_dn,"
-				" cn_identifier, bind_type, use_ssl, is_active) values"
-				" (:i, 'dc', 'dc.local', 389, 'dc=x', 'uid', 'anonymous', false, true)"),
-				{"i": server})
-			for label, role in (("netops", "user"), ("leads", "admin")):
-				c.execute(text(
-					"insert into ldap_groups (id, group_dn, label, role, is_active,"
-					" ldap_server_id) values (:i, :d, :l, :r, true, :s)"),
-					{"i": uuid.uuid4(), "d": f"cn={label}", "l": label, "r": role,
-					 "s": server})
-		assert alembic("upgrade", "head").returncode == 0
-		assert roles() == ({"ops": "operator", "boss": "admin"},
-		                   {"netops": "operator", "leads": "admin"})
-		assert alembic("downgrade", "device_results_action_needed").returncode == 0
-		assert roles() == ({"ops": "user", "boss": "admin"},
-		                   {"netops": "user", "leads": "admin"})
-	finally:
-		engine.dispose()
-		with admin.connect() as c:
-			c.execute(text(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)'))
-		admin.dispose()

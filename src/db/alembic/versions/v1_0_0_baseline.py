@@ -1,15 +1,19 @@
 """v1.0.0 baseline
 
-The whole schema as of v1.0.0, squashing the development history (8
-migrations, e87bf2cef6ca → 421574478cb2). Databases created by that history
-were stamped to this revision (`alembic stamp --purge v1_0_0_baseline`).
+The whole schema as of v1.0.0, squashing the development history - the 8
+early migrations (e87bf2cef6ca → 421574478cb2) and the 5 made during
+packaging (must_change_password, device_results_action_needed,
+role_user_to_operator, device_results_indexes, device_attributes). Databases
+created by that history were stamped to this revision
+(`alembic stamp --purge v1_0_0_baseline`).
 
 From v1.0.0 on, released migrations are never edited or squashed: every schema
 change is a new revision on top of this one.
 
-`device_results.device_port` and `inventory.is_global` are the last columns of
-their tables, where the development history added them, so a fresh install
-and a stamped database have the same schema.
+Columns the development history added later are the last of their tables,
+where it added them (`users.must_change_password`, `device_results.device_port`
+then `device_results.action_needed`, `inventory.is_global`), so a fresh
+install and a stamped database have the same schema.
 
 Revision ID: v1_0_0_baseline
 Revises:
@@ -73,6 +77,8 @@ def upgrade() -> None:
         sa.Column('otp_secret', sa.String(length=255), nullable=True),
         sa.Column('auth_type', sa.String(length=20), nullable=False),
         sa.Column('ldap_server_id', sa.Uuid(), nullable=True),
+        sa.Column('must_change_password', sa.Boolean(),
+                  server_default=sa.false(), nullable=False),
         sa.ForeignKeyConstraint(['ldap_server_id'], ['ldap_servers.id'],
                                 ondelete='SET NULL'),
         sa.PrimaryKeyConstraint('id'),
@@ -116,9 +122,13 @@ def upgrade() -> None:
         sa.Column('user_id', sa.Uuid(), nullable=False),
         sa.Column('device_port', sa.Integer(), server_default='22',
                   nullable=False),
+        sa.Column('action_needed', sa.Text(), nullable=True),
         sa.ForeignKeyConstraint(['user_id'], ['users.id']),
         sa.PrimaryKeyConstraint('id'),
     )
+    op.create_index('ix_device_results_user_id_job_id', 'device_results',
+                    ['user_id', 'job_id'])
+    op.create_index('ix_device_results_job_id', 'device_results', ['job_id'])
     op.create_table(
         'job_metadata',
         sa.Column('id', sa.Uuid(), nullable=False),
@@ -199,10 +209,28 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(['mapping_id'], ['variable_mappings.id']),
         sa.PrimaryKeyConstraint('mapping_id', 'device_id'),
     )
+    op.create_table(
+        'device_attributes',
+        sa.Column('id', sa.Uuid(), nullable=False),
+        sa.Column('device_id', sa.Uuid(), nullable=False),
+        sa.Column('user_id', sa.Uuid(), nullable=False),
+        sa.Column('name', sa.String(length=64), nullable=False),
+        sa.Column('value', sa.JSON(), nullable=False),
+        sa.ForeignKeyConstraint(['device_id'], ['inventory.id'],
+                                ondelete='CASCADE'),
+        sa.ForeignKeyConstraint(['user_id'], ['users.id'],
+                                ondelete='CASCADE'),
+        sa.PrimaryKeyConstraint('id'),
+        sa.UniqueConstraint('device_id', 'user_id', 'name'),
+    )
+    op.create_index(op.f('ix_device_attributes_user_id'), 'device_attributes',
+                    ['user_id'], unique=False)
 
 
 def downgrade() -> None:
     """Downgrade schema: back to an empty database."""
+    op.drop_index(op.f('ix_device_attributes_user_id'), table_name='device_attributes')
+    op.drop_table('device_attributes')
     op.drop_table('var_mapping_to_devices')
     op.drop_table('inventory')
     op.drop_table('variable_mappings')
@@ -210,6 +238,8 @@ def downgrade() -> None:
     op.drop_table('security_profiles')
     op.drop_table('property_definition')
     op.drop_table('job_metadata')
+    op.drop_index('ix_device_results_job_id', table_name='device_results')
+    op.drop_index('ix_device_results_user_id_job_id', table_name='device_results')
     op.drop_table('device_results')
     op.drop_index(op.f('ix_audit_log_timestamp'), table_name='audit_log')
     op.drop_index(op.f('ix_audit_log_action'), table_name='audit_log')

@@ -115,7 +115,7 @@ TypedDict returned per device by `RolloutEngine.run()`. Fields: `device_ip`, `de
 
 ## 3. ORM Models (`src/db/tables.py`)
 
-All models use UUID primary keys except `SystemSetting`, whose key is the setting name. The schema is managed by Alembic (`src/db/alembic/versions`: the `v1_0_0_baseline` revision, then `must_change_password`, `device_results_action_needed`; from v1.0.0 on, schema changes are new revisions on top); the app applies migrations itself at every start.
+All models use UUID primary keys except `SystemSetting`, whose key is the setting name. The schema is managed by Alembic (`src/db/alembic/versions`: one revision, `v1_0_0_baseline` - the whole schema, the development history squashed before 1.0.0rc1; from v1.0.0 on, schema changes are new revisions on top, never edits); the app applies migrations itself at every start.
 
 ### `User`
 
@@ -126,7 +126,7 @@ All models use UUID primary keys except `SystemSetting`, whose key is the settin
 | `password_hash` | `str(255)` | Nullable — null for LDAP users |
 | `email` | `str(120)` | Unique, nullable |
 | `full_name` | `str(120)` | Nullable |
-| `role` | `str(40)` | `"operator"` or `"admin"` (the app only checks for `"admin"`; stored as `"user"` before the `role_user_to_operator` migration) |
+| `role` | `str(40)` | `"operator"` or `"admin"` (the app only checks for `"admin"`) |
 | `position` | `str(64)` | Nullable |
 | `is_active` | `bool` | Default False |
 | `is_approved` | `bool` | Default False |
