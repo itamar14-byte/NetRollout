@@ -18,10 +18,9 @@ from src.backup.schedule import schedule_state
 from src.db import retention
 from src.db.settings import (SETTINGS, Change, SettingsError, public_url,
                              rules_for_client)
-from src.db.tables import Role
 from src.runtime import in_container
 from src.webapp.app import current_app
-from src.webapp.http import err, ok, require_admin, with_json
+from src.webapp.http import err, ok, require_admin, viewer, with_json
 from src.webapp.startup import check_proxy, resolve_public_url
 
 
@@ -72,7 +71,7 @@ def restart_pending_for_admin_pages() -> dict[str, Any]:
 	restart-only setting differs from what this process runs with — decided
 	on the server, so it survives page loads."""
 	if not (request.path.startswith("/admin") and current_user.is_authenticated
-	        and current_user.role == Role.ADMIN):
+	        and viewer().is_admin):
 		return {}
 	try:
 		pending = current_app.backend.settings.restart_pending(

@@ -26,11 +26,11 @@ from src.accounts.users import (ABSOLUTE_SESSION_HOURS, LAST_ACTIVE, NO_SESSION_
                                 SIGNED_IN_AT, seconds_left)
 from src.audit import AuditAction
 from src.db.connections import BackendServices
-from src.db.tables import User, Role
+from src.db.tables import User
 from src.encryption import ENV_VAR, KEY_FILE, InvalidEncryptionKeyError, \
 	key_source
 from src.webapp.app import NetRolloutApp, current_app
-from src.webapp.http import Caller, err, is_background
+from src.webapp.http import Caller, err, is_background, viewer
 
 
 # ── The request's session ──
@@ -199,8 +199,7 @@ def register_handlers(app: Flask, backend: BackendServices) -> None:
 		      f"  Don't generate a new key.", file=sys.stderr, flush=True)
 		if Caller.JSON_BODY.wants_json():
 			return err("Encryption key invalid", 500)
-		is_admin = (current_user.is_authenticated
-		            and current_user.role == Role.ADMIN)
+		is_admin = current_user.is_authenticated and viewer().is_admin
 		# a POST can't be retried by a link: go back to where it came from
 		retry = request.path if request.method == "GET" \
 			else (request.referrer or "/")

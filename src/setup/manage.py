@@ -248,7 +248,7 @@ def _certificate(now: datetime.datetime, todo: list[str]) -> str:
 	# the hostname only for a certificate to check: a missing one is reported
 	# without site.env
 	check = certs.validate(cert_pem, key_pem, site_env.read().get(site_env.HOSTNAME) or None)
-	kind = "self-signed" if store.selfsigned else "your organisation's"
+	kind = "self-signed" if store.is_selfsigned else "your organisation's"
 	if not check.not_after:
 		todo.append("The certificate can't be read: upload it again in Server Management")
 		return f"{kind}, unreadable"

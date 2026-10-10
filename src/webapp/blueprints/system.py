@@ -7,9 +7,9 @@ from flask import Blueprint, Response, jsonify
 from flask.typing import ResponseReturnValue
 from flask_login import current_user
 
-from src.db.tables import Role
 from src.runtime import VERSION
 from src.webapp.app import current_app
+from src.webapp.http import viewer
 from src.webapp.lifecycle import during_maintenance
 from src.webapp.startup import GRAFANA_AUTH_PATH, HEALTH_PATH, INSTANCE_PATH
 
@@ -28,7 +28,7 @@ def grafana_auth() -> Response:
 	# is User.is_active)
 	if not current_user.is_authenticated:
 		return Response(status=401)       # nginx sends them to sign in
-	if current_user.role != Role.ADMIN or current_user.must_change_password:
+	if not viewer().is_admin or current_user.must_change_password:
 		return Response(status=403)
 	return Response(status=204,
 	                headers={"X-NetRollout-User": current_user.username})

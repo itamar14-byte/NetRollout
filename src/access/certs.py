@@ -376,7 +376,7 @@ class CertificateStore:
 		return runtime.certs_dir()
 
 	@property
-	def selfsigned(self) -> bool:
+	def is_selfsigned(self) -> bool:
 		""":returns: whether NetRollout made the certificate in use (its marker)"""
 		return is_selfsigned(self.folder())
 
@@ -385,7 +385,7 @@ class CertificateStore:
 		folder = self.folder()
 		if not (folder / CERT_FILE).is_file():
 			return None
-		return SelfSigned(self) if is_selfsigned(folder) else Organisation(self)
+		return SelfSigned(self) if self.is_selfsigned else Organisation(self)
 
 	def pair(self, require_key: bool = True) -> tuple[bytes, bytes]:
 		"""The certificate in use and its key, as read.
@@ -427,7 +427,7 @@ class CertificateStore:
 		return {
 			"names": check.names,
 			"not_after": check.not_after.isoformat() if check.not_after else None,
-			"selfsigned": self.selfsigned,
+			"selfsigned": self.is_selfsigned,
 			"problems": check.problems, "warnings": check.warnings,
 			"old_names": [{"name": n, "until": old[n]} for n in check.names if n in old]}
 
