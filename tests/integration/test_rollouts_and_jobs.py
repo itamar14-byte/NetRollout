@@ -209,11 +209,14 @@ class FakeRunningJob:
 		self.user_id = user_id
 		self.started_at = dt.datetime.now()
 		self.cancelled = threading.Event()
+		self._cancel_flag = self.cancelled   # what RolloutJob.status reads
 		self._messages = list(messages)
 		self._heartbeats = heartbeats
 		self._on_end = on_end
 
 	claim = RolloutJob.claim   # the real one: a cancel claims through the job
+	status = RolloutJob.status   # the real ones: the pages' rows come from the job
+	row = RolloutJob.row
 
 	def cancel(self):
 		self.cancelled.set()
