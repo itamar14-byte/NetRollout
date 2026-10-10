@@ -1,5 +1,7 @@
-"""NetRollout's users: local accounts (one set of checks for Request access
-and an admin's Add user), the one password rule (registration, a change, an
+"""NetRollout's users: who the data layer's rules are about (Viewer), the
+accounts (Accounts: local ones - one set of checks for Request access and an
+admin's Add user - and directory ones, the name lookups), the one password
+rule (registration, a change, an
 admin reset's temporary password; the pages mirror it in
 templates/_password_rule_script.html), and who is signed in and for how
 long - the sessions in Redis (SessionStore), their idle and absolute limits,
@@ -11,6 +13,7 @@ import string
 import time
 import uuid
 from collections.abc import Callable, Iterator, Mapping
+from dataclasses import dataclass
 from typing import Any, Protocol, cast
 
 import redis
@@ -60,6 +63,22 @@ def temporary_password(username: str | None = None) -> str:
 			return candidate
 
 
+@dataclass(frozen=True)
+class Viewer:
+	"""Who the data layer's rules are about: a user's id and whether they're
+	an admin. The web app builds the signed-in user's once per request
+	(webapp/http.viewer(); nothing here knows of a request). A rule about
+	another user - a job owner's devices, an admin's look at someone's
+	numbers - gets that user's: visibility doesn't depend on is_admin."""
+	id: uuid.UUID
+	is_admin: bool = False
+
+	@classmethod
+	def of(cls, user: User) -> "Viewer":
+		""":returns: the user's viewer (their id, admin or not)"""
+		return cls(user.id, user.role == Role.ADMIN)
+
+
 ROLES = (Role.OPERATOR, Role.ADMIN)
 # the columns' sizes (src/db/tables.py) - longer input is refused in words,
 # not by a database error
@@ -72,64 +91,102 @@ class AccountError(ValueError):
 	"""Why the account isn't made - in words for the person."""
 
 
-def check_new_user(db_session: Session, username: str, email: str, full_name: str,
-                   position: str | None, password: str | None) -> None:
-	""":raises AccountError: a missing or too long field, a username with
-	other characters than letters, digits, . _ -, an email without @, the
-	password rule (when a password is given), a username (in any case) or
-	email in use"""
-	fields = {"username": username, "email": email, "full_name": full_name}
-	labels = {"username": "Username", "email": "Email", "full_name": "Full name",
-	          "position": "Position"}
-	for key, value in fields.items():
-		if not value:
-			raise AccountError(f"{labels[key]} is required.")
-	for key, value in {**fields, "position": position or ""}.items():
-		if len(value) > LIMITS[key]:
-			raise AccountError(f"{labels[key]} is too long (at most {LIMITS[key]} characters).")
-	if not USERNAME_RE.fullmatch(username):
-		raise AccountError("A username may contain letters, digits, . _ and - "
-		                   "(starting with a letter or digit).")
-	if "@" not in email:
-		raise AccountError("That email address isn't valid.")
-	if password is not None and (problem := password_problem(password, username)):
-		raise AccountError(problem)
-	# "Dana" next to "dana" would be two accounts for one name
-	if db_session.query(User.id).filter(
-			func.lower(User.username) == username.lower()).first():
-		raise AccountError("That username is taken.")
-	if db_session.query(User.id).filter(User.email == email).first():
-		raise AccountError("That email address is already in use.")
+class Accounts:
+	"""NetRollout's accounts in a session (the caller commits): a new local
+	account (Request access, an admin's Add user) or directory account (the
+	first sign-in of a mapped group's member, the admin page's import), the
+	one case-insensitive name lookup, the access requests waiting, and the
+	users an admin picks from."""
 
+	def __init__(self, session: Session) -> None:
+		self.session = session
 
-def new_local_user(db_session: Session, *, username: str, email: str, full_name: str,
-                   position: str | None, password: str, role: str = Role.OPERATOR,
-                   approved: bool = False, must_change_password: bool = False) -> User:
-	"""The account, added to the session (checked first; the caller commits).
+	def by_name(self, username: str) -> User | None:
+		""":returns: the account with exactly this name; None: none"""
+		return self.session.query(User).filter_by(username=username).first()
 
-	:param password: the person's own, or (must_change_password) a temporary
-	 one - not held to the password rule, the person replaces it at once
-	:param approved: approved and active at once (an admin's Add user);
-	 False: an access request
-	:raises AccountError: refused, and why"""
-	username, email, full_name = username.strip(), email.strip(), full_name.strip()
-	position = (position or "").strip() or None
-	if role not in ROLES:
-		raise AccountError("The role is operator or admin.")
-	check_new_user(db_session, username, email, full_name, position,
-	               None if must_change_password else password)
-	user = User(username=username, email=email, full_name=full_name, position=position,
-	            password_hash=generate_password_hash(password), role=role,
-	            is_approved=approved, is_active=approved,
-	            must_change_password=must_change_password, auth_type=AuthType.LOCAL)
-	db_session.add(user)
-	db_session.flush()
-	return user
+	def by_name_ci(self, username: str) -> list[User]:
+		""":returns: the accounts with this name in any case - as a directory
+		 matches names ("Alice" is "alice")"""
+		return self.session.query(User).filter(
+			func.lower(User.username) == username.lower()).all()
 
+	def pending_count(self) -> int:
+		"""Access requests waiting for an admin (the sidebar's count)."""
+		return self.session.query(User.id).filter(User.is_approved.is_(False)).count()
 
-def pending_requests(db_session: Session) -> int:
-	"""Access requests waiting for an admin (the sidebar's count)."""
-	return db_session.query(User.id).filter(User.is_approved.is_(False)).count()
+	def for_admin_picker(self) -> list[User]:
+		""":returns: every account, by name - the users an admin picks from"""
+		return self.session.query(User).order_by(User.username).all()
+
+	def new_local(self, *, username: str, email: str, full_name: str,
+	              position: str | None, password: str, role: str = Role.OPERATOR,
+	              approved: bool = False, must_change_password: bool = False) -> User:
+		"""A local account, added to the session (checked first).
+
+		:param password: the person's own, or (must_change_password) a temporary
+		 one - not held to the password rule, the person replaces it at once
+		:param approved: approved and active at once (an admin's Add user);
+		 False: an access request
+		:raises AccountError: refused, and why"""
+		username, email, full_name = username.strip(), email.strip(), full_name.strip()
+		position = (position or "").strip() or None
+		if role not in ROLES:
+			raise AccountError("The role is operator or admin.")
+		self._check_new(username, email, full_name, position,
+		                None if must_change_password else password)
+		user = User(username=username, email=email, full_name=full_name, position=position,
+		            password_hash=generate_password_hash(password), role=role,
+		            is_approved=approved, is_active=approved,
+		            must_change_password=must_change_password, auth_type=AuthType.LOCAL)
+		self.session.add(user)
+		self.session.flush()
+		return user
+
+	def new_ldap(self, username: str, server_id: uuid.UUID, role: str | None = None,
+	             details: Mapping[str, str | None] | None = None) -> User:
+		"""A directory user's account, added to the session: approved and
+		active, no password (the directory checks it).
+
+		:param role: the mapped group's; None: the default (operator)
+		:param details: {email, full_name} as the directory gave them; None:
+		 none"""
+		extra: dict[str, Any] = {"role": role} if role is not None else {}
+		user = User(username=username, auth_type=AuthType.LDAP, ldap_server_id=server_id,
+		            is_approved=True, is_active=True, password_hash=None,
+		            email=(details or {}).get("email"),
+		            full_name=(details or {}).get("full_name"), **extra)
+		self.session.add(user)
+		self.session.flush()
+		return user
+
+	def _check_new(self, username: str, email: str, full_name: str,
+	               position: str | None, password: str | None) -> None:
+		""":raises AccountError: a missing or too long field, a username with
+		other characters than letters, digits, . _ -, an email without @, the
+		password rule (when a password is given), a username (in any case) or
+		email in use"""
+		fields = {"username": username, "email": email, "full_name": full_name}
+		labels = {"username": "Username", "email": "Email", "full_name": "Full name",
+		          "position": "Position"}
+		for key, value in fields.items():
+			if not value:
+				raise AccountError(f"{labels[key]} is required.")
+		for key, value in {**fields, "position": position or ""}.items():
+			if len(value) > LIMITS[key]:
+				raise AccountError(f"{labels[key]} is too long (at most {LIMITS[key]} characters).")
+		if not USERNAME_RE.fullmatch(username):
+			raise AccountError("A username may contain letters, digits, . _ and - "
+			                   "(starting with a letter or digit).")
+		if "@" not in email:
+			raise AccountError("That email address isn't valid.")
+		if password is not None and (problem := password_problem(password, username)):
+			raise AccountError(problem)
+		# "Dana" next to "dana" would be two accounts for one name
+		if self.by_name_ci(username):
+			raise AccountError("That username is taken.")
+		if self.session.query(User.id).filter(User.email == email).first():
+			raise AccountError("That email address is already in use.")
 
 
 SESSION_PREFIX = "redis_session:"

@@ -3,19 +3,22 @@ their device results (an admin may look at any user's)."""
 import uuid
 from collections import Counter, defaultdict
 from collections.abc import Callable
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any
 
 from flask import Blueprint, render_template, request, jsonify, Response
 from flask.typing import ResponseReturnValue
-from flask_login import current_user, login_required
+from flask_login import login_required
 from sqlalchemy import ColumnElement, and_, false, or_, true
 
-from src.db.tables import DeviceResult, Inventory, User, AuditLog, Role
+from src.accounts.users import Accounts, Viewer
+from src.db.tables import DeviceResult, AuditLog
+from src.inventory import InventoryView, LabelScope
 from src.jobs import build_kpi
+from src.results import JobResults
 from src.rollout.engine import DeviceStatus
 from src.webapp.app import current_app
-from src.webapp.http import err, with_json, ok, require_admin
+from src.webapp.http import err, with_json, ok, require_admin, viewer
 
 
 bp = Blueprint('analytics', __name__, url_prefix='/analytics')
@@ -49,32 +52,14 @@ DEVICE_RESULT_COLUMNS = ["job_id", "device_ip", "device_port", "device_type",
 def analytics() -> str:
 	"""The analytics page: KPIs and top platforms over 30 days, for the user
 	- or, for an admin, ?user=<id>."""
-	selected_user = "me"
-	scope_user_id = current_user.id
-
-	if current_user.role == Role.ADMIN:
-		param = request.args.get("user", "me").strip()
-		if param != "me":
-			try:
-				scope_user_id = uuid.UUID(param)
-				selected_user = param
-			except ValueError:
-				pass
-
 	with current_app.backend.postgres.get_session() as db_session:
-		cutoff = datetime.now() - timedelta(days=30)
-		results_30d = db_session.query(DeviceResult).filter(
-			DeviceResult.started_at >= cutoff,
-			DeviceResult.user_id == scope_user_id,
-		).all()
+		history = JobResults(db_session, viewer())
+		scope_user_id, selected_user = history.scope_user(request.args.get("user"))
+		results_30d = history.recent(scope_user_id)
 
-		inv_label_map = {
-			row.ip: row.label
-			for row in db_session.query(Inventory.ip, Inventory.label)
-			.filter(Inventory.user_id == scope_user_id).all()
-		}
-		users = db_session.query(User).order_by(User.username).all() \
-			if current_user.role == Role.ADMIN else []
+		inv_label_map = InventoryView(db_session, Viewer(scope_user_id)).label_map(
+			LabelScope.OWN)
+		users = Accounts(db_session).for_admin_picker() if viewer().is_admin else []
 		db_session.expunge_all()
 
 	kpi = build_kpi(results_30d, inv_label_map)
@@ -101,14 +86,6 @@ def analytics_query(data: dict[str, Any]) -> ResponseReturnValue:
 	newest first): JSON {rules, user?}.
 
 	:returns: {columns, rows} or an error (a field or operator not allowed)"""
-	scope_user_id = current_user.id
-	if current_user.role == Role.ADMIN:
-		param = str(data.get("user", "me")).strip()
-		if param != "me":
-			try:
-				scope_user_id = uuid.UUID(param)
-			except ValueError:
-				pass
 	rules = data.get("rules")
 	if not isinstance(rules, dict):
 		return err("Invalid query: the rules are missing or incomplete")
@@ -119,11 +96,9 @@ def analytics_query(data: dict[str, Any]) -> ResponseReturnValue:
 	except TypeError:
 		return err("Invalid query: a rule is malformed")
 	with current_app.backend.postgres.get_session() as db_session:
-		query = db_session.query(DeviceResult).filter(
-			DeviceResult.user_id == scope_user_id).filter(filters)
-
-		rows_raw = query.order_by(DeviceResult.started_at.desc()).limit(
-			200).all()
+		history = JobResults(db_session, viewer())
+		scope_user_id, _ = history.scope_user(str(data.get("user", "me")))
+		rows_raw = history.matching(scope_user_id, filters)
 		columns = DEVICE_RESULT_COLUMNS
 		rows = [{col: getattr(r, col) for col in columns} for r in rows_raw]
 	return jsonify({"columns": columns, "rows": _json_rows(rows)})
@@ -227,12 +202,9 @@ def admin_analytics() -> str:
 	"""The organisation's last 30 days: KPIs, the 10 most active users, the
 	10 devices that failed most."""
 	with current_app.backend.postgres.get_session() as db_session:
-		cutoff = datetime.now() - timedelta(days=30)
-		results_30d = db_session.query(DeviceResult).filter(
-			DeviceResult.started_at >= cutoff
-		).all()
+		results_30d = JobResults(db_session, viewer()).recent(None)   # everyone's
 
-		all_users = db_session.query(User).order_by(User.username).all()
+		all_users = Accounts(db_session).for_admin_picker()
 		total_users = len(all_users)
 		active_user_ids = {r.user_id for r in results_30d}
 		total_ops = len(results_30d)
@@ -279,14 +251,8 @@ def admin_analytics() -> str:
 				fail_counts[r.device_ip]["device_type"] = r.device_type
 				fail_counts[r.device_ip]["count"] += 1
 
-		failed_ips = set(fail_counts.keys())
-		inv_rows = (
-			db_session.query(Inventory.ip, Inventory.label)
-			.filter(Inventory.ip.in_(failed_ips))
-			.all()
-			if failed_ips else []
-		)
-		label_map = {row.ip: row.label for row in inv_rows}
+		label_map = InventoryView(db_session, viewer()).label_map(
+			LabelScope.ANYONE, ips=set(fail_counts.keys()))
 
 		failed_devices_rows = sorted(
 			[

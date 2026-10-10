@@ -5,41 +5,42 @@ import json
 import uuid
 from collections.abc import Callable, Iterator
 from itertools import groupby
-from typing import Any, cast
+from typing import Any
 from urllib.parse import urlsplit
 
 from flask import Blueprint, render_template, request, flash, redirect, url_for, Response
 from flask.typing import ResponseReturnValue
 from flask_login import current_user, login_required
-from werkzeug.wrappers import Response as BaseResponse
 
 from src.audit import AuditAction
-from src.db.tables import DeviceResult, Inventory, JobMetadata, User, Role
-from src.inventory import attributes, visible_devices_clause, query_visible_devices, partition_devices
+from src.accounts.users import Viewer
+from src.db.tables import Inventory, JobMetadata, User
+from src.inventory import InventoryView, partition_devices
 from src.jobs import QUEUED_LINE, Draining
-from src.rollout.engine import Device, DeviceStatus, RolloutOptions, missing_value
+from src.results import JobResults
+from src.rollout.engine import Device, RolloutOptions, missing_value
 from src.rollout.inputs import InputParser
 from src.webapp.app import current_app
-from src.webapp.http import ok, err, with_form, with_json, Caller
+from src.webapp.http import Refused, ok, err, with_form, with_json, Caller, viewer
 
 bp = Blueprint('rollout', __name__, url_prefix='/rollout')
 
 
-def parse_commands() -> tuple[list[str] | None, dict[str, str], bool] | BaseResponse:
+def parse_commands() -> tuple[list[str] | None, dict[str, str], bool]:
 	"""The start form's commands. The page sends "platform_commands" (JSON:
 	platform → command text) when the devices are of several platforms;
 	else a commands file or pasted text.
 
 	:returns: (commands - None for several platforms, platform → command
-	 text, several platforms); or the way back to the form, the reason flashed"""
+	 text, several platforms)
+	:raises Refused: no usable commands - the reason"""
 	raw_platform_commands = request.form.get("platform_commands", "").strip()
 	if raw_platform_commands:
 		# Multi-platform: parse the JSON map of the platform → command text.
 		try:
 			platform_commands_map = json.loads(raw_platform_commands)
 		except json.JSONDecodeError:
-			flash("Invalid platform commands format.", "danger")
-			return redirect(url_for("rollout.new_rollout"))
+			raise Refused("Invalid platform commands format.") from None
 		# commands is unused in multi-platform mode — each platform has its own
 		return None, platform_commands_map, True
 
@@ -49,70 +50,57 @@ def parse_commands() -> tuple[list[str] | None, dict[str, str], bool] | BaseResp
 
 	if commands_file and commands_file.filename:
 		if not commands_file.filename.lower().endswith(".txt"):
-			flash("Command file must be a .txt file.", "danger")
-			return redirect(url_for("rollout.new_rollout"))
+			raise Refused("Command file must be a .txt file.")
 		try:
 			commands = [
 				line for raw_line in commands_file.readlines()
 				if (line := raw_line.decode("utf-8").strip())
 			]
 		except UnicodeDecodeError:
-			flash("Command file must be valid UTF-8 text.", "danger")
-			return redirect(url_for("rollout.new_rollout"))
+			raise Refused("Command file must be valid UTF-8 text.") from None
 	else:
 		commands = [l.strip() for l in manual_commands.splitlines() if l.strip()]
 
 	if not commands:
-		flash("Provide commands by pasting text or uploading a command file.",
-		      "danger")
-		return redirect(url_for("rollout.new_rollout"))
+		raise Refused("Provide commands by pasting text or uploading a command file.")
 
 	return commands, {}, False
 
 
-def load_devices(selected_ids: list[uuid.UUID]) -> list[Device] | BaseResponse:
+def load_devices(selected_ids: list[uuid.UUID]) -> list[Device]:
 	"""The selected devices the user may see (own and global), as rollout
 	targets with their credentials.
 
-	:returns: the devices; or the way back to the form, the reason flashed
-	 (none found, some missing, one without a security profile)"""
+	:returns: the devices
+	:raises Refused: none found, some missing, one without a security
+	 profile"""
 	with current_app.backend.postgres.get_session() as db_session:
-		selected_rows = (
-			db_session.query(Inventory)
-			.filter(visible_devices_clause(current_user.id),
-			        Inventory.id.in_(selected_ids))
-			.all()
-		)
-		# Preload relationships needed for runtime device construction.
-		_ = [row.security_profile for row in selected_rows]
-		_ = [row.var_mappings for row in selected_rows]
-		values = attributes(db_session, selected_rows, current_user.id)
+		view = InventoryView(db_session, viewer())
+		# relationships preloaded for runtime device construction
+		selected_rows = view.visible_ids(selected_ids)
+		values = view.attributes(selected_rows)
 		db_session.expunge_all()
 
 	# 7) Validate the selected devices.
 	if not selected_rows:
-		flash("No valid devices selected.", "danger")
-		return redirect(url_for("rollout.new_rollout"))
+		raise Refused("No valid devices selected.")
 
 	if len(selected_rows) != len(selected_ids):
-		flash("One or more selected devices were not found.", "danger")
-		return redirect(url_for("rollout.new_rollout"))
+		raise Refused("One or more selected devices were not found.")
 
 	# 8) Ensure every device has a security profile.
 	missing_profiles = [row.label or row.ip for row in selected_rows
 	                    if not row.security_profile]
 	if missing_profiles:
-		flash("These devices have no security profile assigned: "
-		      + ", ".join(missing_profiles), "danger")
-		return redirect(url_for("rollout.new_rollout"))
+		raise Refused("These devices have no security profile assigned: "
+		              + ", ".join(missing_profiles))
 
 	# 9) Convert ORM inventory rows into runtime Device objects.
 	try:
 		return InputParser.import_from_inventory(selected_rows, current_user.id,
 		                                         values)
 	except ValueError as e:
-		flash(str(e), "danger")
-		return redirect(url_for("rollout.new_rollout"))
+		raise Refused(str(e)) from None
 
 
 def duplicate_targets(devices: list[Device]) -> dict[str, list[str]]:
@@ -169,15 +157,15 @@ def platform_lines(text: str) -> list[str]:
 def submit_jobs(devices: list[Device], commands: list[str] | None,
                 platform_commands_map: dict[str, str], is_multi_platform: bool,
                 options: RolloutOptions,
-                audit_comment: str | None) -> uuid.UUID | BaseResponse:
+                audit_comment: str | None) -> uuid.UUID:
 	"""Queue the rollout: one job, or one per platform with its own commands -
 	all of them or none: every platform's commands are checked before the
 	first job is queued, and if queuing one fails (NetRollout starts
 	stopping or pauses for a database move between two platforms, a service
 	fails), the jobs already queued are cancelled.
 
-	:returns: the (first) job's id; or the way back to the form, the reason
-	 flashed
+	:returns: the (first) job's id
+	:raises Refused: the platforms or their commands don't fit - the reason
 	:raises Draining: NetRollout is stopping, or paused for a database move"""
 	if not is_multi_platform:
 		assert commands is not None   # parse_commands gives them for one platform
@@ -187,16 +175,14 @@ def submit_jobs(devices: list[Device], commands: list[str] | None,
 	# Backend enforces multi-platform — never trust the frontend alone.
 	actual_platforms = {d.device_type for d in devices}
 	if len(actual_platforms) < 2:
-		flash("Expected multiple platforms but only one found.", "danger")
-		return redirect(url_for("rollout.new_rollout"))
+		raise Refused("Expected multiple platforms but only one found.")
 
 	devices.sort(key=lambda d: d.device_type)
 	jobs: list[tuple[list[Device], list[str]]] = []
 	for platform, group in groupby(devices, key=lambda d: d.device_type):
 		curr_commands = platform_lines(platform_commands_map.get(platform, ""))
 		if not curr_commands:
-			flash(f"No commands provided for {platform}.", "danger")
-			return redirect(url_for("rollout.new_rollout"))
+			raise Refused(f"No commands provided for {platform}.")
 		jobs.append((list(group), curr_commands))
 
 	queued: list[uuid.UUID] = []
@@ -236,7 +222,7 @@ def cancel_rollout(data: Any) -> ResponseReturnValue:
 	except ValueError:
 		return refused("invalid job_id", 422)
 	job = current_app.orchestrator.get_job(job_id)
-	if not job or (job.user_id != current_user.id and current_user.role != Role.ADMIN):
+	if not job or (job.user_id != current_user.id and not viewer().is_admin):
 		return refused("job not found", 404)
 	queued = job.started_at is None        # it ends at once, nothing pushed
 	current_app.orchestrator.cancel(job_id)
@@ -263,9 +249,9 @@ def _back() -> str:
 def new_rollout() -> str:
 	"""The new rollout page: the devices the user may roll out to."""
 	with current_app.backend.postgres.get_session() as db_session:
-		devices = query_visible_devices(db_session, current_user.id)
-		tokens = token_states(devices, attributes(db_session, devices, current_user.id),
-		                      current_user.id)
+		view = InventoryView(db_session, viewer())
+		devices = view.visible()
+		tokens = token_states(devices, view.attributes(devices), current_user.id)
 		db_session.expunge_all()
 	global_devices, my_devices = partition_devices(devices)
 
@@ -296,54 +282,40 @@ def token_states(devices: list[Inventory], values: dict[uuid.UUID, dict[str, Any
 			states[str(device.id)] = own
 	return states
 
-@bp.route("/start", methods=["POST"])
-@login_required
-def new_start_rollout() -> ResponseReturnValue:
-	"""Start a rollout from the page's form: the devices (none twice, all
-	reachable), the commands, verify / verbose, a comment. Audited
-	(rollout.start).
+def start_rollout() -> tuple[uuid.UUID, list[Device], str | None]:
+	"""The start form's checks, in order, then the rollout queued
+	(submit_jobs).
 
-	:returns: the way to Active Jobs; or back to the form, the reason flashed"""
+	:returns: the (first) job's id, the devices, the comment
+	:raises Refused: a check refused it - the reason
+	:raises Draining: NetRollout is stopping, or paused for a database move"""
 	# before the reachability checks: stopping, or paused for a database move
 	if refused := current_app.orchestrator.refusal():
-		flash(refused, "danger")
-		return redirect(url_for("rollout.new_rollout"))
+		raise Refused(refused)
 	raw_device_ids = request.form.getlist("device_ids")
 	if not raw_device_ids:
-		flash("Select at least one device.", "danger")
-		return redirect(url_for("rollout.new_rollout"))
+		raise Refused("Select at least one device.")
 
 	try:
 		selected_ids = list({uuid.UUID(did) for did in raw_device_ids})
 	except ValueError:
-		flash("Invalid device selection.", "danger")
-		return redirect(url_for("rollout.new_rollout"))
+		raise Refused("Invalid device selection.") from None
 
-	result = parse_commands()
-	if isinstance(result, BaseResponse):
-		return result
-	commands, platform_commands_map, is_multi_platform = result
-
+	commands, platform_commands_map, is_multi_platform = parse_commands()
 	devices = load_devices(selected_ids)
-	if isinstance(devices, BaseResponse):
-		return devices
 
 	if duplicates := duplicate_targets(devices):
-		flash("The same target was selected more than once — select only one "
-		      "of: " + "; ".join(f"{' / '.join(labels)} ({ep})"
-		                         for ep, labels in duplicates.items()),
-		      "danger")
-		return redirect(url_for("rollout.new_rollout"))
+		raise Refused("The same target was selected more than once — select only one "
+		              "of: " + "; ".join(f"{' / '.join(labels)} ({ep})"
+		                                 for ep, labels in duplicates.items()))
 
 	if unreachable := unreachable_devices(devices):
-		flash(unreachable_message(unreachable), "danger")
-		return redirect(url_for("rollout.new_rollout"))
+		raise Refused(unreachable_message(unreachable))
 
 	if blocked := unresolved_message(devices, lambda d: platform_lines(
 			platform_commands_map.get(d.device_type, "")) if is_multi_platform
 			else commands or []):
-		flash(blocked, "danger")
-		return redirect(url_for("rollout.new_rollout"))
+		raise Refused(blocked)
 
 	options = RolloutOptions(
 		verify=bool(request.form.get("_verify", "")),
@@ -352,15 +324,24 @@ def new_start_rollout() -> ResponseReturnValue:
 		max_workers=current_app.backend.settings.get("device_parallelism")
 	)
 	audit_comment = request.form.get("comment", "").strip() or None
+	job_id = submit_jobs(devices, commands, platform_commands_map,
+	                     is_multi_platform, options, audit_comment)
+	return job_id, devices, audit_comment
 
+
+@bp.route("/start", methods=["POST"])
+@login_required
+def new_start_rollout() -> ResponseReturnValue:
+	"""Start a rollout from the page's form: the devices (none twice, all
+	reachable), the commands, verify / verbose, a comment. Audited
+	(rollout.start).
+
+	:returns: the way to Active Jobs; or back to the form, the reason flashed"""
 	try:
-		job_id = submit_jobs(devices, commands, platform_commands_map,
-		                     is_multi_platform, options, audit_comment)
-	except Draining as e:   # stopping, or paused for a database move
+		job_id, devices, audit_comment = start_rollout()
+	except (Refused, Draining) as e:   # Draining: stopping, or paused for a database move
 		flash(str(e), "danger")
 		return redirect(url_for("rollout.new_rollout"))
-	if isinstance(job_id, BaseResponse):
-		return job_id
 
 	current_app.web.audit(AuditAction.ROLLOUT_START, object_id=job_id,
 	                      detail={"device_count": len(devices),
@@ -384,10 +365,10 @@ def rollout_stream(job_id: uuid.UUID) -> Response:
 	if job is None:
 		with current_app.backend.postgres.get_session() as db_session:
 			owner = db_session.query(JobMetadata.user_id).filter_by(job_id=job_id).scalar()
-		if owner is None or (owner != current_user.id and current_user.role != Role.ADMIN):
+		if owner is None or (owner != current_user.id and not viewer().is_admin):
 			return Response(status=404)
 		return _event_stream(iter([DONE_EVENT]))
-	if job.user_id != current_user.id and current_user.role != Role.ADMIN:
+	if job.user_id != current_user.id and not viewer().is_admin:
 		return Response(status=404)
 	followed = job
 
@@ -438,23 +419,17 @@ def rollback(job_id: uuid.UUID, data: dict[str, Any]) -> ResponseReturnValue:
 	:returns: {"status": "ok", job_id}; 404 when the job has no results (yet)
 	 or isn't the user's; or another error"""
 	with current_app.backend.postgres.get_session() as db_session:
-		first = db_session.query(DeviceResult.user_id).filter_by(
-			job_id=job_id).first()
-		if first is None or (current_user.role != Role.ADMIN
-		                     and first.user_id != current_user.id):
+		history = JobResults(db_session, viewer())
+		owner_id = history.get_accessible(job_id)
+		if owner_id is None:
 			return err("Not found", 404)
-		owner_id = first.user_id
 		owner = db_session.get(User, owner_id)
 		owner_name = owner.username if owner else None
-		result = db_session.query(DeviceResult).filter_by(
-			user_id=owner_id,
-			job_id=job_id,
-			status=DeviceStatus.SUCCESS.value).all()
-		successful = {(r.device_ip, r.device_port) for r in result}
+		# the owner's devices and values, as they see them
+		owner_view = InventoryView(db_session, Viewer.of(owner) if owner else Viewer(owner_id))
+		successful = history.successful_endpoints(job_id, owner_id)
 
-		candidates = db_session.query(Inventory).filter(
-			visible_devices_clause(owner_id),
-			Inventory.ip.in_({ip for ip, _ in successful})).all()
+		candidates = owner_view.visible(ips={ip for ip, _ in successful})
 		# Match on ip:port (the target), not IP alone — devices behind one
 		# NAT address differ by port. The owner's own entry and a global
 		# entry can still describe the same target: keep one per ip:port,
@@ -470,9 +445,7 @@ def rollback(job_id: uuid.UUID, data: dict[str, Any]) -> ResponseReturnValue:
 		if not rows:
 			return err("No successfully configured devices found for this job.")
 
-		_ = [row.security_profile for row in rows]
-		_ = [row.var_mappings for row in rows]
-		values = attributes(db_session, rows, owner_id)   # the owner's values
+		values = owner_view.attributes(rows)   # the owner's values (relationships preloaded)
 		db_session.expunge_all()
 
 	commands = [l.strip() for l in data["commands"].splitlines() if l.strip()]

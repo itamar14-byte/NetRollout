@@ -9,22 +9,17 @@ from typing import Any
 from flask import Blueprint, render_template, request, redirect, flash, url_for
 from flask.typing import ResponseReturnValue
 from flask_login import current_user, login_required
-from sqlalchemy.orm import Session
 
 from src.audit import AuditAction
-from src.db.tables import VariableMapping, Inventory, SecurityProfile, Role
-from src.inventory import (attributes, attributes_of, can_edit_device, drop_other_users_values,
-                           form_values, import_csv,
-                           partition_devices, query_visible_devices, same_endpoint_devices,
-                           same_endpoint_warning, set_custom_values, set_system_values,
-                           visible_devices_clause)
+from src.inventory import (DeviceFields, InventoryView, RuleRefused, SecurityProfiles,
+                           form_values, import_csv, partition_devices)
 from src.rollout import inputs
-from src.rollout.engine import endpoint, mapping_resolvable
+from src.rollout.engine import endpoint
 from src.rollout.inputs import InputParser, Validator
 from src.rollout.log import RolloutLogger, Tone
 from src.webapp.app import current_app
 from src.webapp.hooks import signed_in_user
-from src.webapp.http import ok, err, with_form, with_json, flash_redirect
+from src.webapp.http import ok, err, with_form, with_json, flash_redirect, viewer
 
 bp = Blueprint('inventory', __name__, url_prefix='/inventory')
 
@@ -34,44 +29,10 @@ def parse_mapping_ids(raw_ids: list[str]) -> list[uuid.UUID]:
 	return [uuid.UUID(mid) for mid in raw_ids]
 
 
-def set_user_mappings(device: Inventory, user_id: uuid.UUID,
-                      mapping_ids: list[uuid.UUID], db_session: Session) -> list[str]:
-	"""The device's bindings to the user's mappings become `mapping_ids`. The
-	join table is shared across users: only this user's bindings are
-	replaced, others' on a global device stay. A mapping the device can't
-	resolve with the user's values (attribute missing, list index out of
-	range) isn't bound.
-
-	:returns: the tokens not bound, for the caller to tell the user"""
-	selected = db_session.query(VariableMapping).filter(
-		VariableMapping.id.in_(mapping_ids),
-		VariableMapping.user_id == user_id
-	).all() if mapping_ids else []
-	values = attributes_of(db_session, device, user_id) if selected else {}
-	eligible = [m for m in selected if mapping_resolvable(
-		values, m.property_name, m.index)]
-	device.var_mappings = [m for m in device.var_mappings
-	                       if m.user_id != user_id] + eligible
-	return sorted(m.token for m in selected if m not in eligible)
-
-
 def flash_skipped_mappings(skipped: list[str]) -> None:
 	if skipped:
 		flash(f"Not bound — the device has no value for their attribute: "
 		      f"{', '.join(skipped)}", "warning")
-
-
-def profile_allowed(profile_id: uuid.UUID | None, db_session: Session,
-                    current_profile_id: uuid.UUID | None = None) -> bool:
-	"""A device may only carry a profile the current user owns — otherwise a
-	user could attach another user's (e.g. an admin's global) credentials to
-	a device they control. Keeping the device's profile unchanged is always
-	allowed (an admin saving another admin's global device); None (no
-	profile) too."""
-	if profile_id is None or profile_id == current_profile_id:
-		return True
-	return db_session.query(SecurityProfile).filter_by(
-		id=profile_id, user_id=current_user.id).first() is not None
 
 
 def device_problem(ip: str, port: str, device_type: str) -> str | None:
@@ -97,10 +58,11 @@ def inventory() -> str:
 	"""The inventory page: the user's devices and the global ones, with
 	their profiles, mappings, properties and the attribute values the user
 	sees."""
-	sys_props, user_props = current_app.web.get_property_defs(current_user.id)
 	with current_app.backend.postgres.get_session() as db_session:
-		devices = query_visible_devices(db_session, current_user.id)
-		values = attributes(db_session, devices, current_user.id)
+		view = InventoryView(db_session, viewer())
+		sys_props, user_props = view.property_defs()
+		devices = view.visible()
+		values = view.attributes(devices)
 		user = signed_in_user(db_session)
 		profiles = user.security_profiles
 		var_mappings = user.variable_mappings
@@ -109,7 +71,7 @@ def inventory() -> str:
 	return render_template("inventory.html",
 	                       global_devices=global_devices,
 	                       my_devices=my_devices,
-	                       is_admin=current_user.role == Role.ADMIN,
+	                       is_admin=viewer().is_admin,
 	                       profiles=profiles,
 	                       mappings=var_mappings,
 	                       sys_props=sys_props,
@@ -137,37 +99,20 @@ def inventory_create(data: Any) -> ResponseReturnValue:
 		parsed_sec_id = uuid.UUID(sec_profile_id) if sec_profile_id else None
 	except ValueError:
 		return err("Invalid security profile ID", 422)
-	# Only admins may publish a device globally; the field is ignored otherwise
-	is_global = current_user.role == Role.ADMIN and data.get("is_global") == "on"
-	if is_global and not parsed_sec_id:
-		return flash_redirect("A global device needs a security profile — "
-		                      "users can't assign their own to it.",
-		                      "inventory.inventory", "danger")
-
-	with current_app.backend.postgres.get_session() as db_session:
-		if not profile_allowed(parsed_sec_id, db_session):
-			return flash_redirect("Security profile not found.",
-			                      "inventory.inventory", "danger")
-		duplicate = same_endpoint_warning(
-			same_endpoint_devices(db_session, current_user.id, ip, port),
-			ip, port)
-		row = Inventory(
-			user_id=current_user.id,
-			label=label,
-			ip=ip,
-			port=int(port),
-			device_type=device_type,
-			sec_profile_id=parsed_sec_id,
-			is_global=is_global
-		)
-		db_session.add(row)
+	fields = DeviceFields(ip=ip, port=int(port), device_type=device_type, label=label,
+	                      profile_id=parsed_sec_id, make_global=data.get("is_global") == "on")
+	try:
+		with current_app.backend.postgres.get_session() as db_session:
+			saved = InventoryView(db_session, viewer()).save_device(None, fields)
+	except RuleRefused as e:
+		return flash_redirect(str(e), "inventory.inventory", "danger")
 
 	current_app.web.audit(AuditAction.INVENTORY_CREATE, object_type="Inventory",
 	                      object_label=label,
-	                      detail={"is_global": is_global})
+	                      detail={"is_global": saved.is_global})
 	flash(f"{label} added to inventory.", "success")
-	if duplicate:
-		flash(duplicate, "warning")
+	if saved.shared_endpoint:
+		flash(saved.shared_endpoint, "warning")
 	return redirect(url_for("inventory.inventory"))
 
 
@@ -207,9 +152,8 @@ def inventory_reachability(data: dict[str, Any]) -> ResponseReturnValue:
 	except ValueError:
 		return err("Invalid device ID", 422)
 	with current_app.backend.postgres.get_session() as db_session:
-		rows = db_session.query(Inventory.id, Inventory.ip, Inventory.port) \
-			.filter(Inventory.id.in_(ids),
-			        visible_devices_clause(current_user.id)).all()
+		rows = InventoryView(db_session, viewer()).visible_ids(ids)
+		db_session.expunge_all()
 	results = current_app.web.reachability.check(
 		[(r.ip, r.port) for r in rows], refresh=bool(data.get("refresh")))
 	return ok(statuses={str(r.id): results[(r.ip, int(r.port))] for r in rows})
@@ -222,79 +166,49 @@ def inventory_edit(device_id: uuid.UUID) -> ResponseReturnValue:
 	attribute values, and the editor's own custom values and mapping
 	bindings (other users' are never touched) - by its owner, or an admin
 	for a global one. Making a global device local drops other users'
-	bindings."""
-	def _edit(device: Inventory, db_session: Session) -> ResponseReturnValue:
-		# Validate everything before mutating — get_session commits on a
-		# normal return, so an early error must not leave a half-applied edit.
-		ip = request.form.get("ip", "").strip()
-		port = request.form.get("port", "22").strip()
-		device_type = request.form.get("device_type", "").strip()
-		if problem := device_problem(ip, port, device_type):
-			return flash_redirect(problem, "inventory.inventory", "danger")
-		ip = inputs.normalize_ip(ip)
-		sec_profile_id = request.form.get("sec_profile_id", "").strip()
-		try:
-			parsed_sec_id = uuid.UUID(sec_profile_id) if sec_profile_id else None
-			mapping_ids = parse_mapping_ids(request.form.getlist("mapping_ids"))
-		except ValueError:
-			return err("Invalid security profile or mapping ID", 422)
-		if not profile_allowed(parsed_sec_id, db_session,
-		                       device.sec_profile_id):
-			return flash_redirect("Security profile not found.",
-			                      "inventory.inventory", "danger")
-		was_global = device.is_global
-		# Only admins may change global status; the field is ignored otherwise
-		is_global = (request.form.get("is_global") == "on"
-		             if current_user.role == Role.ADMIN else was_global)
-		if is_global and not parsed_sec_id:
-			return flash_redirect("A global device needs a security profile — "
-			                      "users can't assign their own to it.",
-			                      "inventory.inventory", "danger")
+	bindings (InventoryView.save_device: the rules, all checked before
+	anything changes)."""
+	ip = request.form.get("ip", "").strip()
+	port = request.form.get("port", "22").strip()
+	device_type = request.form.get("device_type", "").strip()
+	sec_profile_id = request.form.get("sec_profile_id", "").strip()
+	try:
+		with current_app.backend.postgres.get_session() as db_session:
+			view = InventoryView(db_session, viewer())
+			device = view.get_editable(device_id)
+			if device is None:
+				return device_not_found()
+			if problem := device_problem(ip, port, device_type):
+				return flash_redirect(problem, "inventory.inventory", "danger")
+			ip = inputs.normalize_ip(ip)
+			try:
+				parsed_sec_id = uuid.UUID(sec_profile_id) if sec_profile_id else None
+				mapping_ids = parse_mapping_ids(request.form.getlist("mapping_ids"))
+			except ValueError:
+				return err("Invalid security profile or mapping ID", 422)
+			sys_props, user_props = view.property_defs()
+			saved = view.save_device(
+				device, DeviceFields(ip=ip, port=int(port), device_type=device_type,
+				                     label=request.form.get("label", "").strip() or ip,
+				                     profile_id=parsed_sec_id,
+				                     make_global=request.form.get("is_global") == "on"),
+				values=form_values(request.form, sys_props + user_props),
+				own=[p["name"] for p in user_props], mapping_ids=mapping_ids)
+	except RuleRefused as e:
+		return flash_redirect(str(e), "inventory.inventory", "danger")
 
-		old_endpoint = (device.ip, device.port)
-		device.label = request.form.get("label", "").strip() or ip
-		device.ip = ip
-		device.port = int(port)
-		# Warn only when the endpoint changed — not on every save
-		duplicate = None
-		if (device.ip, device.port) != old_endpoint:
-			duplicate = same_endpoint_warning(same_endpoint_devices(
-				db_session, current_user.id, device.ip, device.port,
-				exclude_id=device.id), device.ip, device.port)
-		device.device_type = device_type
-		device.sec_profile_id = parsed_sec_id
-		device.is_global = is_global
-		sys_props, user_props = current_app.web.get_property_defs(
-			current_user.id)
-		values = form_values(request.form, sys_props + user_props)
-		set_system_values(device, values)
-		set_custom_values(db_session, device, current_user.id, values,
-		                  [p["name"] for p in user_props])
-		flash_skipped_mappings(
-			set_user_mappings(device, current_user.id, mapping_ids, db_session))
-		if was_global and not is_global:
-			# Other users can no longer see this device — drop their bindings
-			# rather than leave invisible orphans in the join table.
-			device.var_mappings = [m for m in device.var_mappings
-			                       if m.user_id == device.user_id]
-			drop_other_users_values(db_session, device)
-		current_app.web.audit(AuditAction.INVENTORY_EDIT, object_type="Inventory",
-		                      object_id=device_id, object_label=device.label,
-		                      detail={"is_global": is_global})
-		if is_global != was_global:
-			current_app.web.audit(
-				AuditAction.INVENTORY_GLOBALIZE if is_global else AuditAction.INVENTORY_LOCALIZE,
-				object_type="Inventory", object_id=device_id,
-				object_label=device.label)
-		flash(f"{device.label} updated.", "success")
-		if duplicate:
-			flash(duplicate, "warning")
-		return redirect(url_for("inventory.inventory"))
-
-	return current_app.web.act_on_db_obj(
-		Inventory, device_id, _edit,
-		can_access=lambda d: can_edit_device(d, current_user),
-		on_missing=device_not_found)
+	flash_skipped_mappings(saved.unbound)
+	current_app.web.audit(AuditAction.INVENTORY_EDIT, object_type="Inventory",
+	                      object_id=device_id, object_label=saved.label,
+	                      detail={"is_global": saved.is_global})
+	if saved.is_global != saved.was_global:
+		current_app.web.audit(
+			AuditAction.INVENTORY_GLOBALIZE if saved.is_global else AuditAction.INVENTORY_LOCALIZE,
+			object_type="Inventory", object_id=device_id, object_label=saved.label)
+	flash(f"{saved.label} updated.", "success")
+	if saved.shared_endpoint:
+		flash(saved.shared_endpoint, "warning")
+	return redirect(url_for("inventory.inventory"))
 
 
 @bp.route("/<uuid:device_id>/attributes", methods=["POST"])
@@ -311,38 +225,37 @@ def inventory_attributes(device_id: uuid.UUID) -> ResponseReturnValue:
 	except ValueError:
 		return flash_redirect("Invalid mapping ID.", "inventory.inventory",
 		                      "danger")
-	_, user_props = current_app.web.get_property_defs(current_user.id)
-
-	def _set_mine(device: Inventory, db_session: Session) -> ResponseReturnValue:
-		set_custom_values(db_session, device, current_user.id,
-		                  form_values(request.form, user_props),
-		                  [p["name"] for p in user_props])
-		flash_skipped_mappings(
-			set_user_mappings(device, current_user.id, mapping_ids, db_session))
-		current_app.web.audit(AuditAction.INVENTORY_ATTRIBUTES, object_type="Inventory",
-		                      object_id=device_id, object_label=device.label,
-		                      detail={"mapping_count": len(mapping_ids)})
-		return flash_redirect(f"Your attributes and mappings saved for "
-		                      f"{device.label}.", "inventory.inventory")
-
-	return current_app.web.act_on_db_obj(
-		Inventory, device_id, _set_mine,
-		can_access=lambda d: d.user_id == current_user.id or d.is_global)
+	with current_app.backend.postgres.get_session() as db_session:
+		view = InventoryView(db_session, viewer())
+		device = view.get_visible(device_id)
+		if device is None:
+			return err("Not found", 404)
+		_, user_props = view.property_defs()
+		view.set_custom_values(device, form_values(request.form, user_props),
+		                       [p["name"] for p in user_props])
+		unbound = view.bind_mappings(device, mapping_ids)
+		label = device.label
+	flash_skipped_mappings(unbound)
+	current_app.web.audit(AuditAction.INVENTORY_ATTRIBUTES, object_type="Inventory",
+	                      object_id=device_id, object_label=label,
+	                      detail={"mapping_count": len(mapping_ids)})
+	return flash_redirect(f"Your attributes and mappings saved for "
+	                      f"{label}.", "inventory.inventory")
 
 
 @bp.route("/<uuid:device_id>/delete", methods=["POST"])
 @login_required
 def inventory_delete(device_id: uuid.UUID) -> ResponseReturnValue:
 	"""Delete a device - its owner, or an admin for a global one."""
-	return current_app.web.act_on_db_obj(
-		Inventory, device_id,
-		current_app.web.delete_op(AuditAction.INVENTORY_DELETE,
-		                          on_success=lambda label: flash_redirect(
-			                          f"{label} removed from inventory.",
-			                          "inventory.inventory")),
-		can_access=lambda d: can_edit_device(d, current_user),
-		on_missing=device_not_found
-	)
+	with current_app.backend.postgres.get_session() as db_session:
+		device = InventoryView(db_session, viewer()).get_editable(device_id)
+		if device is None:
+			return device_not_found()
+		label = device.label
+		db_session.delete(device)
+	current_app.web.audit(AuditAction.INVENTORY_DELETE, object_type="Inventory",
+	                      object_id=device_id, object_label=label)
+	return flash_redirect(f"{label} removed from inventory.", "inventory.inventory")
 
 
 @bp.route("/import_csv", methods=["POST"])
@@ -363,7 +276,6 @@ def inventory_import_csv() -> ResponseReturnValue:
 
 	label = request.form.get("label", "").strip() or None
 	create_profiles = request.form.get("create_profiles") == "on"
-	sys_props, user_props = current_app.web.get_property_defs(current_user.id)
 
 	# Save upload to a temp file — csv_to_inventory takes a path, not a file object
 	with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as tmp:
@@ -378,10 +290,10 @@ def inventory_import_csv() -> ResponseReturnValue:
 		parser = InputParser(validator, logger)
 
 		with current_app.backend.postgres.get_session() as db_session:
+			view = InventoryView(db_session, viewer())
+			sys_props, user_props = view.property_defs()
 			# endpoints already in use, read before the import adds rows
-			in_use = {(d.ip, d.port) for d in db_session.query(
-				Inventory.ip, Inventory.port).filter(
-				visible_devices_clause(current_user.id))}
+			in_use = view.visible_endpoints()
 			report = import_csv(
 				parser, tmp_path, current_user.id, db_session, label=label,
 				properties=sys_props + user_props,
@@ -465,9 +377,9 @@ def inventory_bulk_assign() -> ResponseReturnValue:
 		important=True)
 
 	with current_app.backend.postgres.get_session() as db_session:
+		view = InventoryView(db_session, viewer())
 		if parsed_profile_id:
-			profile = db_session.query(SecurityProfile).filter_by(
-				id=parsed_profile_id, user_id=current_user.id).first()
+			profile = SecurityProfiles(db_session, viewer()).owned(parsed_profile_id)
 			if not profile:
 				logger.notify("Bulk assign failed: profile not found", Tone.ERROR,
 				              important=True)
@@ -480,17 +392,15 @@ def inventory_bulk_assign() -> ResponseReturnValue:
 			except (ValueError, TypeError):
 				skipped += 1
 				continue
-			device = db_session.get(Inventory, parsed_device_id)
-			if device and not can_edit_device(device, current_user):
-				device = None        # the edit rule: owners, admins on global devices
-			if device and device.is_global and not parsed_profile_id:
+			# the edit rule: owners, admins on global devices
+			device = view.get_editable(parsed_device_id)
+			if device and not view.assign_profile(device, parsed_profile_id):
 				# same rule as create/edit: a global device must keep a
 				# profile — other users can't give it one
 				logger.notify(f"{device.label} ({device.ip}): global device "
 				              f"must keep a profile", Tone.WARNING)
 				skipped += 1
 			elif device:
-				device.sec_profile_id = parsed_profile_id
 				logger.notify(f"{device.label} ({device.ip}): "
 				              f"{'assigned' if parsed_profile_id else 'unassigned'}",
 				              Tone.SUCCESS)

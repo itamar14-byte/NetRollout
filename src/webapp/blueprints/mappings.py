@@ -9,47 +9,50 @@ from flask import Blueprint, render_template, request, redirect, flash, url_for
 from flask.typing import ResponseReturnValue
 from flask_login import current_user, login_required
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
 
 from src.audit import AuditAction
-from src.db.tables import VariableMapping, Inventory, PropertyDefinition
-from src.inventory import (SYSTEM_PROPERTIES, attributes, attributes_of, delete_property_values,
-                           partition_devices, query_visible_devices, visible_devices_clause)
+from src.db.tables import VariableMapping, PropertyDefinition
+from src.inventory import SYSTEM_NAMES, InventoryView, PropertyDef, partition_devices
 from src.rollout import inputs
 from src.rollout.engine import mapping_resolvable
 from src.rollout.log import RolloutLogger, Tone
 from src.webapp.app import current_app
 from src.webapp.hooks import signed_in_user
-from src.webapp.http import ok, err, with_form, with_json, flash_redirect
+from src.webapp.http import (NotFound, Refused, ok, err, with_form, with_json, flash_redirect,
+                             load_owned, viewer)
 
 
 bp = Blueprint('mappings', __name__, url_prefix='/mappings')
 
 
+def property_defs() -> tuple[list[PropertyDef], list[PropertyDef]]:
+	""":returns: (the system properties, the signed-in user's own)
+	 (InventoryView.property_defs)"""
+	with current_app.backend.postgres.get_session() as db_session:
+		return InventoryView(db_session, viewer()).property_defs()
+
+
 def property_rules() -> tuple[set[str], set[str]]:
 	"""(allowed names, list names), from the same definitions the pages show:
 	the system's and the user's own properties."""
-	sys_props, user_props = current_app.web.get_property_defs(current_user.id)
+	sys_props, user_props = property_defs()
 	props = sys_props + user_props
 	return ({p["name"] for p in props},
 	        {p["name"] for p in props if p["is_list"]})
 
 
 def validate_mapping_fields(index: int | None, property_name: str,
-                            inner_token: str) -> ResponseReturnValue | None:
+                            inner_token: str) -> None:
 	"""Check a mapping from the page's form: the token, the property, the
 	index (only a list property takes one).
 
-	:returns: None when valid; else the way back to the page, the reason
-	 flashed"""
+	:raises Refused: one isn't valid - the first problem"""
 	allowed, list_props = property_rules()
 	for problem in (inputs.token_problem(inner_token),
 	                inputs.property_name_problem(property_name, allowed),
 	                inputs.index_problem(index, property_name, list_props)):
 		if problem:
-			flash(problem, "danger")
-			return redirect(url_for("mappings.mappings"))
-	return None
+			raise Refused(problem)
 
 
 def parse_index(raw: object) -> int | None:
@@ -66,22 +69,20 @@ def parse_index(raw: object) -> int | None:
 		raise ValueError("The index is a number.") from None
 
 
-def parse_mapping_input(data: Any) -> ResponseReturnValue | dict[str, Any]:
+def parse_mapping_input(data: Any) -> dict[str, Any]:
 	"""The page's mapping form, checked.
 
-	:returns: {label, property_name, index, token ($$...$$)}; or, invalid,
-	 the way back to the page"""
+	:returns: {label, property_name, index, token ($$...$$)}
+	:raises Refused: it isn't valid - the reason"""
 	label = data.get("label", "").strip() or None
 	inner_token = data["token_inner"].strip().upper()
 	property_name = data["property_name"]
 	try:
 		index = parse_index(data.get("index"))
 	except ValueError as e:
-		flash(str(e), "danger")
-		return redirect(url_for("mappings.mappings"))
+		raise Refused(str(e)) from None
 
-	if invalid := validate_mapping_fields(index, property_name, inner_token):
-		return invalid
+	validate_mapping_fields(index, property_name, inner_token)
 
 	return {"label": label, "property_name": property_name, "index": index,
 	        "token": f"$${inner_token}$$"}
@@ -93,16 +94,17 @@ def mappings() -> str:
 	"""The mappings page: the user's mappings with their devices, and the
 	devices they may assign, with the attribute values the user sees."""
 	with current_app.backend.postgres.get_session() as db_session:
+		view = InventoryView(db_session, viewer())
 		user = signed_in_user(db_session)
 		var_binds = user.variable_mappings
 		_ = [m.devices for m in var_binds]
-		devices = query_visible_devices(db_session, current_user.id)
+		devices = view.visible()
 		# a mapping's devices are visible ones (binding checks it)
-		values = attributes(db_session, devices, current_user.id)
+		values = view.attributes(devices)
+		sys_props, user_props = view.property_defs()
 		db_session.expunge_all()
 	global_devices, my_devices = partition_devices(devices)
 
-	sys_props, user_props = current_app.web.get_property_defs(current_user.id)
 	return render_template("variable_mappings.html", mappings=var_binds,
 	                       global_devices=global_devices,
 	                       my_devices=my_devices, sys_props=sys_props,
@@ -115,9 +117,10 @@ def mappings() -> str:
 @with_form("token_inner", "property_name")
 def mappings_create(data: Any) -> ResponseReturnValue:
 	"""A new mapping from the page's form (a token already used is refused)."""
-	parsed_data = parse_mapping_input(data)
-	if not isinstance(parsed_data, dict):
-		return parsed_data
+	try:
+		parsed_data = parse_mapping_input(data)
+	except Refused as e:
+		return flash_redirect(str(e), "mappings.mappings", "danger")
 
 	token = parsed_data["token"]
 	row = VariableMapping(
@@ -189,21 +192,15 @@ def mappings_quick_create(data: dict[str, Any]) -> ResponseReturnValue:
 @with_form("token_inner", "property_name")
 def mappings_edit(mapping_id: uuid.UUID, data: Any) -> ResponseReturnValue:
 	"""Change one of the user's mappings from the page's form."""
-	parsed_data = parse_mapping_input(data)
-	if not isinstance(parsed_data, dict):
-		return parsed_data
+	try:
+		parsed_data = parse_mapping_input(data)
+	except Refused as e:
+		return flash_redirect(str(e), "mappings.mappings", "danger")
 	token = parsed_data["token"]
 
 	try:
 		with current_app.backend.postgres.get_session() as db_session:
-			mapping = db_session.query(VariableMapping).filter_by(
-				id=mapping_id, user_id=current_user.id
-			).first()
-
-			if not mapping:
-				flash("Mapping not found.", "danger")
-				return redirect(url_for("mappings.mappings"))
-
+			mapping = load_owned(db_session, VariableMapping, mapping_id)
 			mapping.label = parsed_data["label"]
 			mapping.token = token
 			mapping.property_name = parsed_data["property_name"]
@@ -212,6 +209,8 @@ def mappings_edit(mapping_id: uuid.UUID, data: Any) -> ResponseReturnValue:
 		current_app.web.audit(AuditAction.MAPPING_EDIT, object_type="VariableMapping",
 		                      object_id=mapping_id, object_label=token)
 		flash("Mapping updated.", "success")
+	except NotFound:
+		flash("Mapping not found.", "danger")
 	except IntegrityError:
 		current_app.web.audit(AuditAction.MAPPING_EDIT, success=False,
 		                      detail={"reason": "duplicate_token",
@@ -225,16 +224,16 @@ def mappings_edit(mapping_id: uuid.UUID, data: Any) -> ResponseReturnValue:
 @login_required
 def mappings_delete(mapping_id: uuid.UUID) -> ResponseReturnValue:
 	"""Delete one of the user's mappings (its device bindings go with it)."""
-	return current_app.web.act_on_db_obj(
-		VariableMapping, mapping_id,
-		current_app.web.delete_op(AuditAction.MAPPING_DELETE,
-		                          label_func=lambda m: m.token,
-		                          on_success=lambda _: flash_redirect(
-			                          "Mapping deleted.",
-			                          "mappings.mappings")),
-		user_id=current_user.id,
-		on_missing=lambda: redirect(url_for("mappings.mappings"))
-	)
+	try:
+		with current_app.backend.postgres.get_session() as db_session:
+			mapping = load_owned(db_session, VariableMapping, mapping_id)
+			token = mapping.token
+			db_session.delete(mapping)
+	except NotFound:
+		return redirect(url_for("mappings.mappings"))
+	current_app.web.audit(AuditAction.MAPPING_DELETE, object_type="VariableMapping",
+	                      object_id=mapping_id, object_label=token)
+	return flash_redirect("Mapping deleted.", "mappings.mappings")
 
 
 @bp.route("/bulk_assign", methods=["POST"])
@@ -284,6 +283,7 @@ def mappings_bulk_assign() -> ResponseReturnValue:
 		return err("Invalid mapping ID")
 
 	with current_app.backend.postgres.get_session() as db_session:
+		view = InventoryView(db_session, viewer())
 		# Ownership check on mapping — done once before the loop
 		mapping = db_session.query(VariableMapping).filter_by(
 			id=parsed_mapping_id, user_id=current_user.id).first()
@@ -316,9 +316,7 @@ def mappings_bulk_assign() -> ResponseReturnValue:
 		for device_id_str in device_ids:
 			# Parse each device UUID — skip silently if malformed
 			try:
-				device: Inventory | None = db_session.query(Inventory).filter(
-					Inventory.id == uuid.UUID(str(device_id_str)),
-					visible_devices_clause(current_user.id)).first()
+				device = view.get_visible(uuid.UUID(str(device_id_str)))
 			except (ValueError, TypeError):
 				skipped += 1
 				continue
@@ -331,7 +329,7 @@ def mappings_bulk_assign() -> ResponseReturnValue:
 			# and the value must be truthy (empty string/list would produce
 			# garbage substitution at rollout time)
 			if not mapping_resolvable(
-					attributes_of(db_session, device, current_user.id),
+					view.attributes([device])[device.id],
 					mapping.property_name, mapping.index):
 				logger.notify(
 					f"{device.label} ({device.ip}): ineligible — missing attribute '{mapping.property_name}'",
@@ -367,7 +365,7 @@ properties_bp = Blueprint('properties', __name__, url_prefix='/properties')
 @login_required
 def properties() -> str:
 	"""The properties page: the system properties and the user's own."""
-	sys_props, user_props = current_app.web.get_property_defs(current_user.id)
+	sys_props, user_props = property_defs()
 	return render_template("properties.html", sys_props=sys_props,
 	                       user_props=user_props, active_section="properties")
 
@@ -419,8 +417,7 @@ def properties_create() -> ResponseReturnValue:
 		if existing:
 			return err("Property name already exists.")
 		# Also block shadowing system property names
-		sys_names = {p["name"] for p in SYSTEM_PROPERTIES}
-		if name in sys_names:
+		if name in SYSTEM_NAMES:
 			return err("Cannot shadow a system property.")
 		prop = PropertyDefinition(name=name, label=label, icon=icon,
 		                          is_list=is_list, user_id=current_user.id)
@@ -444,13 +441,16 @@ def properties_edit(prop_id: uuid.UUID) -> ResponseReturnValue:
 		return err("Label is required.")
 	if problem := property_problem(label, icon):
 		return err(problem)
-	return current_app.web.act_on_db_obj(
-		PropertyDefinition, prop_id,
-		current_app.web.update_op({"label": label, "icon": icon, "is_list":
-			is_list},
-		                          AuditAction.PROPERTY_EDIT, label_func=lambda p: p.name),
-		user_id=current_user.id
-	)
+	try:
+		with current_app.backend.postgres.get_session() as db_session:
+			prop = load_owned(db_session, PropertyDefinition, prop_id)
+			prop.label, prop.icon, prop.is_list = label, icon, is_list
+			name = prop.name
+	except NotFound:
+		return err("Not found", 404)
+	current_app.web.audit(AuditAction.PROPERTY_EDIT, object_type="PropertyDefinition",
+	                      object_id=prop_id, object_label=name)
+	return ok()
 
 
 @properties_bp.route("/<uuid:prop_id>/delete", methods=["POST"])
@@ -458,12 +458,14 @@ def properties_edit(prop_id: uuid.UUID) -> ResponseReturnValue:
 def properties_delete(prop_id: uuid.UUID) -> ResponseReturnValue:
 	"""Delete one of the user's properties, and their values of it on every
 	device."""
-	delete = current_app.web.delete_op(AuditAction.PROPERTY_DELETE,
-	                                   label_func=lambda p: p.name)
-
-	def _delete(prop: PropertyDefinition, db_session: Session) -> ResponseReturnValue:
-		delete_property_values(db_session, prop.user_id, prop.name)
-		return delete(prop, db_session)
-
-	return current_app.web.act_on_db_obj(
-		PropertyDefinition, prop_id, _delete, user_id=current_user.id)
+	try:
+		with current_app.backend.postgres.get_session() as db_session:
+			prop = load_owned(db_session, PropertyDefinition, prop_id)
+			name = prop.name
+			InventoryView(db_session, viewer()).delete_property_values(name)
+			db_session.delete(prop)
+	except NotFound:
+		return err("Not found", 404)
+	current_app.web.audit(AuditAction.PROPERTY_DELETE, object_type="PropertyDefinition",
+	                      object_id=prop_id, object_label=name)
+	return ok()

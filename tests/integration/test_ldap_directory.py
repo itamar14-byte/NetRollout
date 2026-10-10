@@ -45,7 +45,7 @@ def with_(cfg, **changes):
 
 def test_nested_user_resolves_to_real_dn(ldap_server_config):
 	"""A user in a nested OU signs in and resolves to the real DN found by search."""
-	assert ldap.authenticate(ldap_server_config, "jdoe", JDOE_PW) == JDOE_DN
+	assert ldap.Directory(ldap_server_config).authenticate("jdoe", JDOE_PW) == JDOE_DN
 
 
 def test_constructed_dn_cannot_reach_nested_users(ldap_server_config):
@@ -53,8 +53,8 @@ def test_constructed_dn_cannot_reach_nested_users(ldap_server_config):
 	uid=jdoe,<base_dn>, which isn't where jdoe lives, so the sign-in fails
 	(None)."""
 	no_service = with_(ldap_server_config, bind_type="simple")
-	assert ldap.constructed_dn(no_service, "jdoe") == f"uid=jdoe,{LDAP_BASE}"
-	assert ldap.authenticate(no_service, "jdoe", JDOE_PW) is None
+	assert ldap.Directory(no_service).constructed_dn("jdoe") == f"uid=jdoe,{LDAP_BASE}"
+	assert ldap.Directory(no_service).authenticate("jdoe", JDOE_PW) is None
 
 
 @pytest.mark.parametrize("username,password", [
@@ -70,13 +70,13 @@ def test_rejected_logins_return_none_not_errors(ldap_server_config, username,
 	"""A wrong password, unknown user, empty password, wildcard or injected
 	filter as username, or a uid shared by two entries returns None, never
 	raises."""
-	assert ldap.authenticate(ldap_server_config, username, password) is None
+	assert ldap.Directory(ldap_server_config).authenticate(username, password) is None
 
 
 def test_user_bind_wrapper(ldap_server_config):
 	"""user_bind is True for the right password and False for a wrong one."""
-	assert ldap.user_bind(ldap_server_config, "alice", ALICE_PW) is True
-	assert ldap.user_bind(ldap_server_config, "alice", "nope") is False
+	assert ldap.Directory(ldap_server_config).user_bind("alice", ALICE_PW) is True
+	assert ldap.Directory(ldap_server_config).user_bind("alice", "nope") is False
 
 
 # ── Availability errors are distinct from bad credentials ────────────────────
@@ -87,7 +87,7 @@ def test_wrong_service_account_password_is_unavailable(ldap_server_config):
 	broken = with_(ldap_server_config,
 	               bind_password=enc.encrypt("not-the-svc-password"))
 	with pytest.raises(LdapUnavailable):
-		ldap.authenticate(broken, "jdoe", JDOE_PW)
+		ldap.Directory(broken).authenticate("jdoe", JDOE_PW)
 
 
 def test_directory_down_is_unavailable_and_fast(ldap_server_config):
@@ -96,7 +96,7 @@ def test_directory_down_is_unavailable_and_fast(ldap_server_config):
 	down = with_(ldap_server_config, port=1)  # nothing listens here
 	start = time.monotonic()
 	with pytest.raises(LdapUnavailable):
-		ldap.authenticate(down, "jdoe", JDOE_PW)
+		ldap.Directory(down).authenticate("jdoe", JDOE_PW)
 	assert time.monotonic() - start < ldap.CONNECT_TIMEOUT + 3
 
 
@@ -104,24 +104,24 @@ def test_directory_down_is_unavailable_and_fast(ldap_server_config):
 
 def test_group_member_matches(ldap_server_config):
 	"""A member of the mapped group matches it, with the group's role."""
-	assert ldap.check_group_membership(
-		ldap_server_config, "jdoe", JDOE_PW, GROUPS) == (LDAP_GROUP_DN, "operator")
+	assert ldap.Directory(
+		ldap_server_config).check_group_membership("jdoe", JDOE_PW, GROUPS) == (LDAP_GROUP_DN, "operator")
 
 
 def test_member_dn_with_comma_matches(ldap_server_config):
 	"""A member whose DN holds an escaped comma ("cn=Smith\\, Bob") matches: it
 	must be escaped inside the (member=...) filter."""
-	assert ldap.check_group_membership(
-		ldap_server_config, "bsmith", BOB_PW, GROUPS) == (LDAP_GROUP_DN, "operator")
+	assert ldap.Directory(
+		ldap_server_config).check_group_membership("bsmith", BOB_PW, GROUPS) == (LDAP_GROUP_DN, "operator")
 
 
 def test_non_member_and_bad_password_do_not_match(ldap_server_config):
 	"""A user outside the group, and a member with a wrong password, match no
 	group (None)."""
-	assert ldap.check_group_membership(
-		ldap_server_config, "alice", ALICE_PW, GROUPS) is None
-	assert ldap.check_group_membership(
-		ldap_server_config, "jdoe", "wrong", GROUPS) is None
+	assert ldap.Directory(
+		ldap_server_config).check_group_membership("alice", ALICE_PW, GROUPS) is None
+	assert ldap.Directory(
+		ldap_server_config).check_group_membership("jdoe", "wrong", GROUPS) is None
 
 
 # ── Admin tools ──────────────────────────────────────────────────────────────
@@ -129,10 +129,10 @@ def test_non_member_and_bad_password_do_not_match(ldap_server_config):
 def test_user_details_and_tree(ldap_server_config):
 	"""fetch_user_details returns jdoe's email and full name and None for `*`;
 	walk_tree under ou=Groups lists the one netops group."""
-	details = ldap.fetch_user_details(ldap_server_config, "jdoe")
+	details = ldap.Directory(ldap_server_config).user_details("jdoe")
 	assert details == {"email": "jdoe@corp.test", "full_name": "John Doe"}
-	assert ldap.fetch_user_details(ldap_server_config, "*") is None
-	tree = ldap.walk_tree(ldap_server_config, f"ou=Groups,{LDAP_BASE}")
+	assert ldap.Directory(ldap_server_config).user_details("*") is None
+	tree = ldap.Directory(ldap_server_config).walk_tree(f"ou=Groups,{LDAP_BASE}")
 	assert tree["entries"] == [{"type": "group", "dn": LDAP_GROUP_DN,
 	                            "label": "netops", "username": None}]
 
@@ -140,11 +140,11 @@ def test_user_details_and_tree(ldap_server_config):
 def test_connection_and_user_test_tools(ldap_server_config):
 	"""The admin's connection and user tests report ok against the directory
 	and error when it's down."""
-	assert ldap.test_connection(ldap_server_config)["status"] == "ok"
-	assert ldap.test_user(ldap_server_config, "jdoe", JDOE_PW)["status"] == "ok"
+	assert ldap.Directory(ldap_server_config).test_connection()["status"] == "ok"
+	assert ldap.Directory(ldap_server_config).test_user("jdoe", JDOE_PW)["status"] == "ok"
 	down = with_(ldap_server_config, port=1)
-	assert ldap.test_connection(down)["status"] == "error"
-	assert ldap.test_user(down, "jdoe", JDOE_PW)["status"] == "error"
+	assert ldap.Directory(down).test_connection()["status"] == "error"
+	assert ldap.Directory(down).test_user("jdoe", JDOE_PW)["status"] == "error"
 
 
 def test_simple_bind_type_tools(ldap_server_config):
@@ -153,41 +153,41 @@ def test_simple_bind_type_tools(ldap_server_config):
 	down; the user test of a user found at the constructed DN fails with "User
 	<name> failed" (jdoe isn't directly under the base DN)."""
 	simple = with_(ldap_server_config, bind_type="simple")
-	assert ldap.test_connection(simple) == {"status": "ok",
+	assert ldap.Directory(simple).test_connection() == {"status": "ok",
 	                                        "message": "Connection established"}
-	assert ldap.test_connection(with_(simple, port=1))["status"] == "error"
-	assert ldap.test_user(simple, "jdoe", JDOE_PW) == {"status": "error",
+	assert ldap.Directory(with_(simple, port=1)).test_connection()["status"] == "error"
+	assert ldap.Directory(simple).test_user("jdoe", JDOE_PW) == {"status": "error",
 	                                                   "message": "User jdoe failed"}
 
 
 def test_user_test_answers(ldap_server_config):
 	"""The admin's user test: "User <name> connected" for the right password,
 	"User <name> failed" for a wrong one."""
-	assert ldap.test_user(ldap_server_config, "jdoe", JDOE_PW) == \
+	assert ldap.Directory(ldap_server_config).test_user("jdoe", JDOE_PW) == \
 	       {"status": "ok", "message": "User jdoe connected"}
-	assert ldap.test_user(ldap_server_config, "jdoe", "wrong") == \
+	assert ldap.Directory(ldap_server_config).test_user("jdoe", "wrong") == \
 	       {"status": "error", "message": "User jdoe failed"}
 
 
 def test_base_dn_is_the_directorys_naming_context(ldap_server_config):
 	"""OpenLDAP has no defaultNamingContext: the base DN is its naming context;
 	a directory that's down is an error."""
-	assert ldap.fetch_base_dn(ldap_server_config) == {"status": "ok",
+	assert ldap.Directory(ldap_server_config).fetch_base_dn() == {"status": "ok",
 	                                                  "base_dn": LDAP_BASE}
-	assert ldap.fetch_base_dn(with_(ldap_server_config, port=1))["status"] == "error"
+	assert ldap.Directory(with_(ldap_server_config, port=1)).fetch_base_dn()["status"] == "error"
 
 
 def test_user_details_fall_back_to_the_common_name(ldap_server_config):
 	"""A user without mail or displayName: no email, the cn as the full name."""
-	assert ldap.fetch_user_details(ldap_server_config, "alice") == \
+	assert ldap.Directory(ldap_server_config).user_details("alice") == \
 	       {"email": None, "full_name": "Alice Brown"}
-	assert ldap.fetch_user_details(ldap_server_config, "nobody") is None
+	assert ldap.Directory(ldap_server_config).user_details("nobody") is None
 
 
 def test_tree_at_the_base_lists_the_ous(ldap_server_config):
 	"""walk_tree with no DN looks at the base DN: its organizational units, each
 	type "ou" with no username."""
-	tree = ldap.walk_tree(ldap_server_config)
+	tree = ldap.Directory(ldap_server_config).walk_tree()
 	assert tree["status"] == "ok"
 	assert sorted((e["type"], e["dn"], e["username"]) for e in tree["entries"]) == [
 		("ou", f"ou={ou},{LDAP_BASE}", None) for ou in ("Groups", "Service", "Users")]
@@ -196,9 +196,9 @@ def test_tree_at_the_base_lists_the_ous(ldap_server_config):
 def test_ous_are_labelled_by_their_name(ldap_server_config):
 	"""An OU (which has no cn) is labelled by its ou value - at the base and
 	nested - never by an empty attribute list ("[]")."""
-	base = ldap.walk_tree(ldap_server_config)["entries"]
+	base = ldap.Directory(ldap_server_config).walk_tree()["entries"]
 	assert sorted(e["label"] for e in base) == ["Groups", "Service", "Users"]
-	nested = ldap.walk_tree(ldap_server_config, f"ou=Users,{LDAP_BASE}")["entries"]
+	nested = ldap.Directory(ldap_server_config).walk_tree(f"ou=Users,{LDAP_BASE}")["entries"]
 	assert [e for e in nested if e["type"] == "ou"] == [
 		{"type": "ou", "dn": f"ou=Network,ou=Users,{LDAP_BASE}", "label": "Network",
 		 "username": None}]
@@ -242,7 +242,7 @@ def test_tree_lists_people_groups_and_ous(ldap_server_config, browse_entries):
 	cn_identifier (uid) as username, falling back to the cn without one; a
 	groupOfNames is type "group" with no username; an entry that is neither
 	(a device) isn't listed."""
-	tree = ldap.walk_tree(ldap_server_config, BROWSE_OU)
+	tree = ldap.Directory(ldap_server_config).walk_tree(BROWSE_OU)
 	assert tree["status"] == "ok"
 	assert sorted(tree["entries"], key=lambda e: e["dn"]) == [
 		{"type": "user", "dn": f"cn=Carol White,{BROWSE_OU}", "label": "Carol White",
@@ -291,7 +291,7 @@ def test_tree_lists_users_by_their_stored_classes(ldap_server_config,
 	their superclasses): inetOrgPerson-only, organizationalPerson-only and
 	posixAccount users are all listed as type "user" - labelled by cn, the
 	uid as username (the cn without one)."""
-	users = [e for e in ldap.walk_tree(ldap_server_config, f"ou=Users,{LDAP_BASE}")
+	users = [e for e in ldap.Directory(ldap_server_config).walk_tree(f"ou=Users,{LDAP_BASE}")
 	         ["entries"] if e["type"] == "user"]
 	assert sorted(users, key=lambda e: e["dn"]) == [
 		{"type": "user", "dn": ALICE_DN, "label": "Alice Brown", "username": "alice"},
@@ -301,7 +301,7 @@ def test_tree_lists_users_by_their_stored_classes(ldap_server_config,
 		{"type": "user", "dn": rf"cn=Smith\2C Bob,ou=Users,{LDAP_BASE}",
 		 "label": "Smith, Bob", "username": "bsmith"},
 	]
-	people = ldap.walk_tree(ldap_server_config, PEOPLE_OU)["entries"]
+	people = ldap.Directory(ldap_server_config).walk_tree(PEOPLE_OU)["entries"]
 	assert sorted(people, key=lambda e: e["dn"]) == [
 		{"type": "user", "dn": f"cn=Dan Grey,{PEOPLE_OU}", "label": "Dan Grey",
 		 "username": "Dan Grey"},
@@ -313,10 +313,10 @@ def test_tree_lists_users_by_their_stored_classes(ldap_server_config,
 def test_tree_errors_are_reported(ldap_server_config):
 	"""walk_tree reports status error (with the directory's message) for a DN that
 	doesn't exist and for a service account that can't bind."""
-	missing = ldap.walk_tree(ldap_server_config, f"ou=Nowhere,{LDAP_BASE}")
+	missing = ldap.Directory(ldap_server_config).walk_tree(f"ou=Nowhere,{LDAP_BASE}")
 	assert missing["status"] == "error" and missing["message"]
 	broken = with_(ldap_server_config, bind_password=enc.encrypt("not-the-svc-password"))
-	answer = ldap.walk_tree(broken)
+	answer = ldap.Directory(broken).walk_tree()
 	assert answer["status"] == "error" and answer["message"]
 
 
@@ -326,9 +326,9 @@ def test_the_first_matching_group_wins(ldap_server_config):
 	mapped -> None."""
 	groups = [SimpleNamespace(group_dn=LDAP_GROUP_DN, role="admin"),
 	          SimpleNamespace(group_dn=LDAP_GROUP_DN, role="operator")]
-	assert ldap.check_group_membership(ldap_server_config, "jdoe", JDOE_PW, groups) == \
+	assert ldap.Directory(ldap_server_config).check_group_membership("jdoe", JDOE_PW, groups) == \
 	       (LDAP_GROUP_DN, "admin")
-	assert ldap.check_group_membership(ldap_server_config, "jdoe", JDOE_PW, []) is None
+	assert ldap.Directory(ldap_server_config).check_group_membership("jdoe", JDOE_PW, []) is None
 
 
 def test_a_mapped_group_that_does_not_exist_is_skipped(ldap_server_config, capsys,
@@ -341,13 +341,13 @@ def test_a_mapped_group_that_does_not_exist_is_skipped(ldap_server_config, capsy
 	gone = f"cn=gone,ou=Groups,{LDAP_BASE}"
 	groups = [SimpleNamespace(group_dn=gone, role="admin"),
 	          SimpleNamespace(group_dn=LDAP_GROUP_DN, role="operator")]
-	assert ldap.check_group_membership(ldap_server_config, "jdoe", JDOE_PW, groups) == \
+	assert ldap.Directory(ldap_server_config).check_group_membership("jdoe", JDOE_PW, groups) == \
 	       (LDAP_GROUP_DN, "operator")
 	assert capsys.readouterr().out == (
 		f"[NetRollout] ACTION NEEDED - the LDAP group {gone} mapped to role admin "
 		f"doesn't exist in the directory: sign-ins skip it until the mapping is "
 		f"fixed or removed\n")
-	assert ldap.check_group_membership(ldap_server_config, "alice", ALICE_PW,
+	assert ldap.Directory(ldap_server_config).check_group_membership("alice", ALICE_PW,
 	                                   groups) is None
 	assert capsys.readouterr().out == ""
 
