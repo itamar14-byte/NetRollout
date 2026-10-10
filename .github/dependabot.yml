@@ -1,0 +1,24 @@
+# Dependabot: a pull request when a dependency has a newer release - CI tests
+# it before anything is merged. Security fixes come as they're published;
+# ordinary updates weekly, grouped so they arrive as one pull request.
+version: 2
+updates:
+  - package-ecosystem: pip          # requirements.in and the requirements.txt pip-compile makes of it, together
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      python:
+        patterns: ["*"]
+  - package-ecosystem: docker       # the app image's base (Dockerfile)
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker       # nginx's image
+    directory: /deploy/nginx
+    schedule:
+      interval: weekly
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

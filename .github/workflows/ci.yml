@@ -1,0 +1,112 @@
+# Every push and pull request: the test suite, the type gate, the migrations
+# against the models, the scripts' linters and the Manager's build.
+name: CI
+
+on:
+  push:            # every branch: green before it is merged
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:   # a newer push to the same branch cancels the older run
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: Tests (Linux)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17-bookworm
+        env:
+          POSTGRES_PASSWORD: ci-postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+      redis:
+        image: redis:8.6-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      TEST_PG_ADMIN_URL: postgresql+psycopg2://postgres:ci-postgres@127.0.0.1:5432/postgres
+      TEST_REDIS_URL: redis://127.0.0.1:6379/15
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+      - name: Install (the image's exact pins, then the dev tools)
+        run: pip install -r requirements-dev.txt
+      - name: Type gate (mypy)
+        run: python -m mypy
+      - name: The migrations match the models (alembic check)
+        working-directory: src/db
+        env:
+          DATABASE_URL: postgresql+psycopg2://postgres:ci-postgres@127.0.0.1:5432/postgres
+        run: |
+          python -m alembic upgrade head
+          python -m alembic check
+          python -m alembic downgrade base
+      - name: The LDAP tests' image
+        run: docker pull alpine:latest
+      - name: Tests (unit + integration)
+        run: python -m pytest -p no:cacheprovider
+
+  scripts:
+    name: Shell scripts (ShellCheck)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: ShellCheck (preinstalled on the runner)
+        run: |
+          shellcheck --version
+          shellcheck packaging/linux/*.sh deploy/initdb/*.sh deploy/nginx/*.sh
+
+  windows:
+    name: Windows (unit tests, PSScriptAnalyzer, the Manager's build)
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+      - name: Install
+        run: pip install -r requirements-dev.txt
+      - name: Unit tests (hermetic - the dev PC's, the CLI's and the Manager's OS)
+        run: python -m pytest tests/unit -p no:cacheprovider
+      - name: PSScriptAnalyzer on manage.ps1 (errors fail the run)
+        shell: pwsh
+        run: |
+          if (-not (Get-Module -ListAvailable PSScriptAnalyzer)) {
+            Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
+          }
+          $all = foreach ($file in "packaging/windows/manage.ps1", "packaging/windows/manager/build.ps1") {
+            Invoke-ScriptAnalyzer -Path $file
+          }
+          $all | Sort-Object Severity, ScriptName, Line | Format-Table Severity, ScriptName, Line, RuleName, Message -AutoSize -Wrap
+          $errors = @($all | Where-Object Severity -eq "Error")
+          Write-Host "PSScriptAnalyzer: $($errors.Count) error(s), $(@($all).Count - $errors.Count) warning(s)/information"
+          if ($errors) { exit 1 }   # warnings are shown, not failed
+      - name: Build NetRollout Manager (Windows' own C# compiler)
+        shell: powershell
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File packaging\windows\manager\build.ps1
+          if (-not (Test-Path "packaging\windows\NetRollout Manager.exe")) { exit 1 }
