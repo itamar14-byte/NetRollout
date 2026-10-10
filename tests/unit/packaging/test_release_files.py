@@ -689,6 +689,53 @@ def test_start_and_status_check_that_nginx_holds_its_https_port():
 	assert '--https-published "$published"' in sh_function(sh, "do_status")
 
 
+def test_linux_kept_data_is_recorded_and_locks_other_folders():
+	"""Before rc2 a Linux install from another folder over data an uninstall kept was a
+	fresh install on the project's old Docker volumes - new passwords and key on the old
+	database. Now `uninstall` keeping the data records its folder (/etc/netrollout/
+	kept-data; deleting it drops the record, a start in that folder clears it), and
+	`install` - before the licence, before anything is created - refuses (exit 2) while
+	the record's folder still holds .env, or while the project's volumes exist (an rc1
+	uninstall left no record), naming the folder and the way out."""
+	sh = (ROOT / "packaging" / "linux" / "netrollout.sh").read_text(encoding="utf-8")
+	assert "KEPT_RECORD=/etc/netrollout/kept-data" in sh
+	uninstall = sh_function(sh, "do_uninstall")
+	assert uninstall.index("clear_record") < uninstall.index("write_record")   # delete / keep branches
+	assert 'if [ "$(record_value folder)" = "$ROOT" ]; then rm -f "$KEPT_RECORD"; fi' in sh_function(sh, "clear_record")
+	assert "clear_record" in sh_function(sh, "do_start")
+	install = sh_function(sh, "do_install")
+	fresh, kept = install.index("start_fresh"), install.index("install_over_kept")
+	refuse = install.index("refuse_over_kept")
+	assert fresh < kept < refuse < install.index("Type yes to accept")
+	assert install.index("need_docker") < refuse
+	check = sh_function(sh, "refuse_over_kept")
+	assert ('fail "NetRollout\'s data is kept in $folder${version:+ (version $version)}. Run the install '
+	        'there to update it, or start fresh: sudo $BIN/install.sh --start-fresh (deletes the kept '
+	        'data; its backups are kept)." 2') in check
+	assert 'NetRollout\'s data is kept in Docker volumes from an earlier install' in check
+	assert '[ -n "$(project_volumes)" ]' in check
+	assert 'docker volume ls -q --filter "label=com.docker.compose.project=$PROJECT"' in sh
+
+
+def test_linux_start_fresh_deletes_the_kept_data_only_when_asked():
+	"""install --start-fresh asks "can't be undone" (unless --yes; --yes alone never
+	deletes - refuse_over_kept stops it), refuses while the project's containers run,
+	removes its containers, volumes and network by compose's label, then - only once no
+	volume is left - .env, config, certs, logs and the update marker of the kept folders,
+	never backups/; the record goes."""
+	sh = (ROOT / "packaging" / "linux" / "netrollout.sh").read_text(encoding="utf-8")
+	assert "--start-fresh) START_FRESH=1 ;;" in sh
+	fresh = sh_function(sh, "start_fresh")
+	running = fresh.index('docker container ls -q --filter "$label"')
+	asked = fresh.index("This can't be undone. Delete it? [y/N]")
+	assert 'if [ -z "$YES" ]; then' in fresh[running:asked]
+	removed = fresh.index('docker container rm -f "${ids[@]}"')
+	left = fresh.index('if [ -n "$(project_volumes)" ]; then', removed)
+	files = fresh.index('rm -rf "${dir:?}/.env" "$dir/config" "$dir/certs" "$dir/logs" "$dir/.update-pending"')
+	assert running < asked < removed < fresh.index('docker volume rm "${ids[@]}"') < left < files
+	assert "backups" not in fresh[files:fresh.index('rm -f "$KEPT_RECORD"')]
+
+
 def test_the_manager_names_what_holds_the_https_port():
 	"""NetRollout Manager asks manage.ps1 port-check -Json (the one lookup) through the
 	same hidden runner as the rollouts list - when its state changes, else every minute

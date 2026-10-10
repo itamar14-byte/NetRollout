@@ -27,6 +27,9 @@ ENV_FILE="$ROOT/.env"
 # an update's second half (update-finish) hasn't finished while this is here
 # (and names this folder's VERSION): start (and install) finish it
 MARKER="$ROOT/.update-pending"
+# the folder whose data an uninstall kept (the volumes are the project's,
+# not the folder's: an install elsewhere would reuse them)
+KEPT_RECORD=/etc/netrollout/kept-data
 APP_UID=10001                                  # the app container's user
 # what a release brings: an update replaces these, an uninstall removes them
 RELEASE_ITEMS=(bin compose.yaml compose.http.yaml deploy VERSION LICENSE README.md)
@@ -34,7 +37,7 @@ RELEASE_ITEMS=(bin compose.yaml compose.http.yaml deploy VERSION LICENSE README.
 # ── options ──────────────────────────────────────────────────────────────────
 COMMAND="${1:-}"; [ $# -gt 0 ] && shift
 SERVICE="" YES="" NO_BROWSER="" DELETE_DATA="" KEEP_DATA="" NO_SAFETY_BACKUP=""
-DELETE_BACKUPS="" REMOVE_FILES=""
+DELETE_BACKUPS="" REMOVE_FILES="" START_FRESH=""
 CHECK="" WANTED="" FROM_ZIP="" FEED=""
 ANSWERS=()
 while [ $# -gt 0 ]; do
@@ -45,6 +48,7 @@ while [ $# -gt 0 ]; do
 		--keep-data) KEEP_DATA=1 ;;
 		--delete-backups) DELETE_BACKUPS=1 ;;
 		--remove-files) REMOVE_FILES=1 ;;
+		--start-fresh) START_FRESH=1 ;;
 		--no-safety-backup) NO_SAFETY_BACKUP=1 ;;
 		--check) CHECK=1 ;;
 		--version|--from|--feed)
@@ -270,6 +274,94 @@ write_marker() {
 	} > "$MARKER"
 }
 
+# The kept-data record: write_record (uninstall --keep-data), record_value
+# folder|version, clear_record (only when it names this folder)
+write_record() {
+	local v=""
+	[ -f "$ENV_FILE" ] && v="$(kept_version)"
+	mkdir -p "$(dirname "$KEPT_RECORD")"
+	printf "# NetRollout's data is kept here (netrollout.sh uninstall --keep-data)\nfolder=%s\nversion=%s\n" \
+		"$ROOT" "${v:-$VERSION}" > "$KEPT_RECORD"
+}
+record_value() { [ -f "$KEPT_RECORD" ] && sed -n "s/^$1=//p" "$KEPT_RECORD" | tail -1; return 0; }
+clear_record() {
+	if [ "$(record_value folder)" = "$ROOT" ]; then rm -f "$KEPT_RECORD"; fi
+	return 0
+}
+
+project_volumes() { docker volume ls -q --filter "label=com.docker.compose.project=$PROJECT" 2>/dev/null || true; }
+
+# The folders the project's containers (running or not) were started from
+project_folders() {
+	docker ps -a --filter "label=com.docker.compose.project=$PROJECT" \
+		--format '{{.Label "com.docker.compose.project.working_dir"}}' 2>/dev/null | sed '/^$/d' | sort -u || true
+}
+
+# A fresh install here, over data kept for another folder (the record's,
+# while that folder still holds .env; else the project's Docker volumes - an
+# rc1 uninstall left no record, or NetRollout is installed elsewhere): it
+# would put new passwords and a new key on the old database. Refused, exit
+# 2, nothing created; --start-fresh deletes it first, --yes alone never does.
+refuse_over_kept() {
+	local folder version dirs
+	folder="$(record_value folder)"; version="$(record_value version)"
+	if [ -n "$folder" ] && [ "$folder" != "$ROOT" ] && [ -f "$folder/.env" ]; then
+		fail "NetRollout's data is kept in $folder${version:+ (version $version)}. Run the install there to update it, or start fresh: sudo $BIN/install.sh --start-fresh (deletes the kept data; its backups are kept)." 2
+	fi
+	if [ -n "$(project_volumes)" ]; then
+		dirs="$(project_folders | paste -sd' ' -)"
+		fail "NetRollout's data is kept in Docker volumes from an earlier install${dirs:+ (in $dirs)} (docker volume ls: ${PROJECT}_*). Install it there again to use it, or start fresh: sudo $BIN/install.sh --start-fresh (deletes the kept data; its backups are kept)." 2
+	fi
+	# a record whose data is gone (deleted by hand) says nothing any more
+	if [ -n "$folder" ]; then rm -f "$KEPT_RECORD"; fi
+	return 0
+}
+
+# install --start-fresh: the kept data deleted first (asked unless --yes) -
+# what Windows' Setup "Start fresh" deletes: the project's containers,
+# volumes and network by compose's label, then - only once no volume is
+# left - .env, config, certs, logs and the update marker of the folders it
+# was kept for (the record's, the containers', this one). The backups stay.
+# Refused, nothing deleted, while any of the project's containers runs.
+start_fresh() {
+	local label="label=com.docker.compose.project=$PROJECT" folders dir a="" record
+	local -a ids
+	need_docker
+	record="$(record_value folder)"
+	folders="$( { printf '%s\n' "$record"; project_folders; } | sed '/^$/d' | sort -u | paste -sd' ' -)"
+	if [ -f "$ENV_FILE" ]; then folders="$folders $ROOT"; fi
+	if [ -z "$(project_volumes)" ] && [ -z "$folders" ]; then
+		good "No kept data - installing fresh."
+		return 0
+	fi
+	if [ -n "$(docker container ls -q --filter "$label")" ]; then
+		fail "NetRollout's containers are running (Docker project $PROJECT${folders:+, in $folders}) - nothing was deleted. Stop that NetRollout first (sudo <its folder>/bin/netrollout.sh stop)." 2
+	fi
+	if [ -z "$YES" ]; then
+		say ""
+		say "Start fresh: NetRollout's kept data is deleted - the database and the other volumes${folders:+, and .env, config, certs and logs in $folders}. Its backups are kept."
+		read -r -p "This can't be undone. Delete it? [y/N] " a || true
+		case "$a" in y|Y|yes) ;; *) fail "Nothing was deleted - nothing was installed." 1 ;; esac
+	fi
+	step "Deleting NetRollout's kept data (the database and the other volumes)"
+	mapfile -t ids < <(docker container ls -aq --filter "$label")
+	[ ${#ids[@]} -eq 0 ] || docker container rm -f "${ids[@]}" >/dev/null || true
+	mapfile -t ids < <(docker volume ls -q --filter "$label")
+	[ ${#ids[@]} -eq 0 ] || docker volume rm "${ids[@]}" >/dev/null || true
+	mapfile -t ids < <(docker network ls -q --filter "$label")
+	[ ${#ids[@]} -eq 0 ] || docker network rm "${ids[@]}" >/dev/null || true
+	# the volumes are the data: still there -> the files stay too
+	if [ -n "$(project_volumes)" ]; then
+		show "$(project_volumes)"
+		fail "Docker didn't delete all of NetRollout's volumes (above) - nothing else was deleted, nothing was installed." 1
+	fi
+	for dir in $folders; do
+		rm -rf "${dir:?}/.env" "$dir/config" "$dir/certs" "$dir/logs" "$dir/.update-pending"
+	done
+	rm -f "$KEPT_RECORD"
+	good "The kept data is deleted - backups stay in their folders' backups/."
+}
+
 # Our two images of this version, pulled when this machine doesn't have them;
 # a release whose image isn't on Docker Hub is incomplete - exit 3, "report it".
 #   our_images [what to do after fixing the connection] [a last sentence]
@@ -359,6 +451,7 @@ do_start() {
 			fail "NetRollout's nginx runs without port $port (Docker didn't publish it) - above: what Docker said."
 		fi
 	fi
+	clear_record
 	if reachable; then good "NetRollout is running: $(address)"
 	else warn "NetRollout runs, but $(address) didn't answer from this machine yet - see: netrollout status"; fi
 }
@@ -376,10 +469,13 @@ start_or_finish() {
 
 do_install() {
 	need_root
+	if [ -n "$START_FRESH" ]; then start_fresh; fi
 	if [ -f "$ENV_FILE" ]; then
 		install_over_kept
 		return
 	fi
+	need_docker
+	refuse_over_kept
 	if [ -z "$YES" ]; then
 		cat <<'NOTICE'
 
@@ -906,6 +1002,7 @@ do_uninstall() {
 	if [ -n "$delete" ]; then
 		rm -rf "$ENV_FILE" "$ROOT/config" "$ROOT/certs" "$ROOT/logs"
 		rm -f "$MARKER"
+		clear_record
 		if [ -n "$delete_backups" ]; then rm -rf "$ROOT/backups"; fi
 		if [ -d "$ROOT/backups" ]; then
 			good "NetRollout and its data are removed - the backups stay in $ROOT/backups"
@@ -914,6 +1011,7 @@ do_uninstall() {
 			good "NetRollout and its data are removed."
 		fi
 	else
+		write_record
 		good "NetRollout is removed. Its data stays (the database volumes, and .env, config, certs,"
 		good "logs, backups in $ROOT): installing again in this folder picks it up."
 	fi
@@ -945,6 +1043,8 @@ show_help() {
 	say ""
 	say "  --yes   unattended (accepts the licence, defaults); with install also"
 	say "          --hostname --https-port --monitoring y/n --org-certificate y/n --timezone"
+	say "  install --start-fresh: delete the data an uninstall kept (elsewhere or here) first;"
+	say "          the backups stay (asks; --yes alone never deletes it)"
 	say "  --no-browser   --no-safety-backup (restore)"
 	say "  uninstall: --delete-data / --keep-data, --delete-backups (with --delete-data; else kept),"
 	say "             --remove-files (the scripts and compose files too)"
