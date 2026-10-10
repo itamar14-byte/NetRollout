@@ -910,3 +910,14 @@ def test_a_refused_profile_delete_keeps_the_profile(client_for, make_user, make_
 	client.post(f"/security/{profile}/delete")
 	assert flashes(client)[-1].startswith("Cannot delete 'in-use'")
 	assert db_get(SecurityProfile, profile).label == "in-use"
+
+
+def test_an_empty_inventory_says_so_and_offers_both_ways_in(client_for, make_user):
+	"""A user with no devices sees the empty state - "No devices yet." and its
+	line - with Import CSV and Add your first device."""
+	html = client_for(make_user()).get("/inventory").get_data(as_text=True)
+	assert "No devices yet." in html
+	assert "Even the best rollout needs somewhere to roll." in html
+	empty = html[html.index('class="empty-state"'):]
+	assert 'data-bs-target="#importCsvModal"' in empty[:1500]
+	assert "Add your first device" in empty[:1500]

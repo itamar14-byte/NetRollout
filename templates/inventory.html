@@ -272,7 +272,8 @@
     text-align: center;
     padding: 4rem 2rem;
 }
-.empty-state i { font-size: 3rem; margin-bottom: 1rem; display: block; color: #1e1e1e; }
+.empty-state i { font-size: 3rem; margin-bottom: 1rem; display: block; color: #3a4044; }
+.empty-state .empty-title { font-size: 1rem; color: var(--nr-text); margin-bottom: 0.35rem; }
 .empty-state p { font-size: 0.88rem; color: var(--nr-text-muted); margin-bottom: 1.5rem; }
 
 /* Platform select error state */
@@ -444,11 +445,17 @@
 
 <!-- Empty state -->
 <div class="empty-state">
-    <i class="bi bi-server"></i>
-    <p>No devices in inventory.<br>Add your first device to get started.</p>
-    <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addDeviceModal">
-        <i class="bi bi-plus-lg me-1"></i>Add First Device
-    </button>
+    <i class="bi bi-hdd-network"></i>
+    <div class="empty-title">No devices yet.</div>
+    <p>Even the best rollout needs somewhere to roll.</p>
+    <div class="d-flex gap-2 justify-content-center">
+        <button class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#importCsvModal">
+            <i class="bi bi-filetype-csv me-1"></i>Import CSV
+        </button>
+        <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addDeviceModal">
+            <i class="bi bi-plus-lg me-1"></i>Add your first device
+        </button>
+    </div>
 </div>
 
 {% else %}

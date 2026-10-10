@@ -1029,7 +1029,7 @@ def test_results_status_filter_before_paging(operator, client_for,
 	assert html.count('class="job-row"') == 0
 	assert ">0 cancelled jobs</span>" in html
 	assert "No cancelled jobs." in html
-	assert "No completed jobs yet" not in html  # the filter bar stays
+	assert "Nothing pushed yet." not in html  # the filter bar stays
 
 
 def test_results_count_says_it_is_filtered(make_user, client_for,
@@ -1465,3 +1465,11 @@ def test_a_rollback_with_a_token_that_cant_be_filled_is_refused(
 	                                      json={"commands": "no ntp server $$NTP$$"})
 	assert resp.status_code == 409 and captured_submits == []
 	assert "$$NTP$$: no mapping on this device" in resp.json["message"]
+
+
+def test_results_without_jobs_invite_a_rollout(client_for, make_user):
+	"""No jobs at all: Results says "Nothing pushed yet." and links to New Rollout."""
+	html = client_for(make_user()).get("/results").get_data(as_text=True)
+	assert "Nothing pushed yet." in html
+	assert "The change window is open" in html
+	assert 'href="/rollout/new"' in html

@@ -601,8 +601,11 @@
 <div class="nr-card">
     <div class="nr-card-body empty-state">
         <i class="bi bi-inbox"></i>
-        <div style="font-size:1rem; color:var(--nr-text-muted); margin-bottom:6px;">No completed jobs yet</div>
-        <div style="font-size:0.82rem; color:var(--nr-text-muted);">Start a rollout to see results here.</div>
+        <div style="font-size:1rem; color:var(--nr-text); margin-bottom:6px;">Nothing pushed yet.</div>
+        <div style="font-size:0.82rem; color:var(--nr-text-muted); margin-bottom:1.25rem;">The change window is open &mdash; a rollout's results show up here.</div>
+        <a href="{{ url_for('rollout.new_rollout') }}" class="btn btn-primary btn-sm">
+            <i class="bi bi-rocket-takeoff me-1"></i>Start a rollout
+        </a>
     </div>
 </div>
 {% endif %}
