@@ -1394,6 +1394,14 @@ def test_new_rollout_page_has_reachability_ui(operator, client_for):
 	assert f'data-device-id="{operator.ios}"' in html
 
 
+def test_new_rollout_starts_with_verify_ticked(operator, client_for):
+	"""Verify after push starts ticked (the safer default; it can still be
+	unticked per rollout)."""
+	html = client_for(operator.user).get("/rollout/new").get_data(as_text=True)
+	box = re.search(r'<input[^>]*name="_verify"[^>]*>', html)
+	assert box and re.search(r"\bchecked\b", box.group(0))
+
+
 # ── Tokens that can't be filled in block rollouts ─────────────────────────────
 
 def _flashed(client):
