@@ -9,6 +9,7 @@ client in, typed by what is used of it (KeyValueStore)."""
 import datetime
 import html
 import os
+import re
 import sys
 import threading
 import time
@@ -27,6 +28,80 @@ if TYPE_CHECKING:   # annotations only: the CLI (.exe) has no Redis
 # troubleshooting — the settings rules keep it >= the job retention.
 LOG_RETENTION_DAYS = 60
 LOG_PRUNE_INTERVAL_HOURS = 24
+
+# ── Redaction: job logs are safe to share (decision 16) ──
+# A secret's value follows one of these words, in any platform's syntax
+# (username … password, enable secret, snmp-server community, psksecret,
+# Junos encrypted-password, PAN-OS phash, Gaia password-hash, …)
+_SECRET_WORDS = frozenset({
+	"password", "passwd", "secret", "community", "community-string",
+	"pre-shared-key", "psksecret", "key-string", "authentication-key",
+	"message-digest-key", "encrypted-password", "password-hash", "phash"})
+# ordinary words too ("crypto key generate", "key chain"): a secret only
+# with a type before the value, or a quoted value
+_SECRET_IF_TYPED = frozenset({"key", "auth", "priv"})
+# the next word is always the secret (ProCurve "… plaintext <secret>")
+_SECRET_AFTER = frozenset({"plaintext", "ciphertext"})
+# what may stand between the word and the value - kept, it helps debugging:
+# an encryption type or key id, an algorithm, Comware's read / write
+_TYPE_WORDS = frozenset({
+	"simple", "cipher", "plaintext", "ciphertext", "hash", "encrypted", "enc",
+	"md5", "sha", "sha1", "sha256", "sha512", "aes", "aes128", "aes-128",
+	"des", "3des", "128", "192", "256", "read", "write"})
+_TOKEN = re.compile(r'"[^"]*"|\S+')
+REDACTED = "<redacted>"
+
+
+def _word(token: str) -> str:
+	""":returns: the token as a keyword: lower case, without the quotes or
+	 punctuation a log line wraps a command in"""
+	return token.strip("'\"(),;:").lower()
+
+
+def _is_type(token: str) -> bool:
+	""":returns: whether the token is an encryption type / key id / algorithm"""
+	word = _word(token)
+	return word in _TYPE_WORDS or (word.isdigit() and len(word) <= 2)
+
+
+def redact(text: str) -> str:
+	"""A log line without its secrets: the value after a secret-bearing word
+	becomes <redacted>; the word, an encryption type and the rest of the line
+	stay. Used on every log line (RolloutLogger.notify) and on what a person
+	must do (RunReport.action_needed), so a job log can be attached to a bug
+	report as it is. The commands as typed (job_metadata) aren't touched.
+
+	:returns: the line, its secret values replaced"""
+	tokens = list(_TOKEN.finditer(text))
+	spans: list[tuple[int, int]] = []
+	i = 0
+	while i < len(tokens):
+		word = _word(tokens[i].group())
+		if word not in _SECRET_WORDS | _SECRET_IF_TYPED | _SECRET_AFTER:
+			i += 1
+			continue
+		j = i + 1
+		# "pre-shared-key key <value>": the last keyword names the value
+		while j < len(tokens) and _word(tokens[j].group()) in _SECRET_WORDS | _SECRET_IF_TYPED:
+			j += 1
+		typed = word in _SECRET_AFTER
+		while j < len(tokens) and _is_type(tokens[j].group()):
+			typed = True
+			j += 1
+		if j >= len(tokens):
+			break
+		value = tokens[j]
+		if word in _SECRET_IF_TYPED and not typed and not value.group().startswith('"'):
+			i += 1
+			continue
+		start, end = value.span()
+		if not value.group().startswith('"'):
+			end = start + len(value.group().rstrip("'\"),;"))   # the quote that closes a quoted command stays
+		spans.append((start, end))
+		i = j + 1
+	for start, end in reversed(spans):
+		text = text[:start] + REDACTED + text[end:]
+	return text
 
 
 def prune_logs(retention_days: int = LOG_RETENTION_DAYS,
@@ -349,6 +424,7 @@ class RolloutLogger:
 
 		:param color: a Tone - ERROR (always shown), WARNING, SUCCESS; INFO for none
 		:param important: shown even when not verbose"""
+		message = redact(message)   # before the file, the live log and the console
 		self._log(message)
 		if self._echo is not None and (important or self._verbose or color == Tone.ERROR):
 			self._echo.show(message, color)

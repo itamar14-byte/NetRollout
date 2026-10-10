@@ -1,5 +1,6 @@
 """RolloutLogger (src/rollout/log.py): message colouring, the log file, the
 console and the live log, and log pruning."""
+import html
 import io
 import os
 import sys
@@ -13,7 +14,7 @@ import pytest
 from src import runtime
 from src.rollout.log import (LOG_PRUNE_INTERVAL_HOURS, LOG_RETENTION_DAYS, Console, LiveLog,
                             LogPruner, RolloutLogger,
-                            prune_once, prune_logs, utf8_console)
+                            prune_once, prune_logs, redact, utf8_console)
 
 
 # ---------------------------------------------------------------------------
@@ -393,3 +394,102 @@ def test_log_pruner_is_a_periodic_task_running_prune_once(tmp_path, monkeypatch)
 	assert (pruner.name, pruner.interval, pruner.first_delay) == 		("log-pruner", LOG_PRUNE_INTERVAL_HOURS * 3600, None)
 	pruner.run_once()
 	assert not old.exists() and fresh.exists()
+
+
+# ---------------------------------------------------------------------------
+# redaction: no secret in a log (decision 16 - job logs are safe to share)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("line, expected", [
+	# Cisco IOS / IOS-XE / NX-OS / Arista
+	("username ops privilege 15 password 0 S3cret!",
+	 "username ops privilege 15 password 0 <redacted>"),
+	("enable secret 9 $9$abcDEF$xyz", "enable secret 9 <redacted>"),
+	("username ops secret sha512 $6$salt$hash", "username ops secret sha512 <redacted>"),
+	("snmp-server community Pr1vate RO", "snmp-server community <redacted> RO"),
+	("tacacs-server key 7 0822455D0A16", "tacacs-server key 7 <redacted>"),
+	(" key-string 7 0507030E", " key-string 7 <redacted>"),
+	("ip ospf message-digest-key 1 md5 OspfPass", "ip ospf message-digest-key 1 md5 <redacted>"),
+	("snmp-server user mon grp v3 auth sha AuthPass1 priv aes 128 PrivPass2",
+	 "snmp-server user mon grp v3 auth sha <redacted> priv aes 128 <redacted>"),
+	# IOS-XR
+	("username ops secret 10 $6$x$y", "username ops secret 10 <redacted>"),
+	# Junos (quoted values, spaces kept inside the quotes)
+	('set system login user ops authentication encrypted-password "$6$a$b"',
+	 "set system login user ops authentication encrypted-password <redacted>"),
+	('set protocols ospf area 0 interface ge-0/0/0 authentication md5 1 key "two words"',
+	 "set protocols ospf area 0 interface ge-0/0/0 authentication md5 1 key <redacted>"),
+	('set snmp community "Pr1v ate" authorization read-only',
+	 "set snmp community <redacted> authorization read-only"),
+	# PAN-OS
+	("set network ike gateway gw1 authentication pre-shared-key key Psk123",
+	 "set network ike gateway gw1 authentication pre-shared-key key <redacted>"),
+	("set mgt-config users ops phash $1$salt$hash", "set mgt-config users ops phash <redacted>"),
+	# FortiOS
+	("set psksecret ENC abc123==", "set psksecret ENC <redacted>"),
+	("set passwd Forti123", "set passwd <redacted>"),
+	('set key "RadKey1"', "set key <redacted>"),
+	# Comware
+	("password cipher $c$3$abc", "password cipher <redacted>"),
+	("snmp-agent community read simple Pr1v", "snmp-agent community read simple <redacted>"),
+	# Aruba CX / ProCurve
+	("user ops group administrators password plaintext Aruba1",
+	 "user ops group administrators password plaintext <redacted>"),
+	("password manager user-name admin plaintext Proc1",
+	 "password <redacted> user-name admin plaintext <redacted>"),
+	# Check Point Gaia
+	("set user ops password-hash $6$a$b", "set user ops password-hash <redacted>"),
+	# a device's complaint echoing the command, mid-line
+	("R1(config)#username ops password 0 S3cret % Invalid input",
+	 "R1(config)#username ops password 0 <redacted> % Invalid input"),
+	# a log line quoting the command in single quotes
+	("10.0.0.1:22: 'username ops password 0 S3cret' rejected - % Invalid input",
+	 "10.0.0.1:22: 'username ops password 0 <redacted>' rejected - % Invalid input"),
+])
+def test_redact_hides_the_secret_and_keeps_the_rest(line, expected):
+	"""Each platform family's secret-bearing line keeps its keyword, the
+	encryption type and everything else; only the value becomes <redacted>."""
+	assert redact(line) == expected
+
+
+@pytest.mark.parametrize("line", [
+	"crypto key generate rsa modulus 2048",
+	"key chain BGP-KEYS",
+	"password-policy min-length 8",
+	"no password",
+	"no enable secret",
+	"description reset the password",
+	"show running-config | include password",
+	"connecting to 10.0.0.1:22",
+	"Configuration rollout complete: 3 succeeded",
+	"",
+])
+def test_redact_leaves_lines_without_a_secret_alone(line):
+	"""Lines with no secret value - a keyword with nothing after it, key as an
+	ordinary word, ordinary log lines - come back unchanged."""
+	assert redact(line) == line
+
+
+def test_no_secret_reaches_the_file_the_live_log_or_the_console(tmp_path, capsys):
+	"""A rejected secret command logged through RolloutLogger.notify: the log
+	file (also what Download Log serves), the live log's history and its
+	published line, and the CLI console carry <redacted>, never the secret."""
+	client = MagicMock()
+	client.rpush.return_value = 1
+	web = RolloutLogger(webapp=True, verbose=False, job_id="job-1", redis_client=client)
+	web.logfile = str(tmp_path / "web.log")
+	cli = RolloutLogger(webapp=False, verbose=True)
+	cli.logfile = str(tmp_path / "cli.log")
+	line = "10.0.0.1:22: 'username ops password 0 S3cret' rejected - % Invalid input"
+	for logger in (web, cli):
+		logger.notify(line, "red")
+
+	for name in ("web.log", "cli.log"):
+		text = (tmp_path / name).read_text(encoding="utf-8")
+		assert "<redacted>" in text and "S3cret" not in text
+	(_key, pushed), _ = client.rpush.call_args
+	(_channel, published), _ = client.publish.call_args
+	# the live log carries the line HTML-escaped (the page shows it as text)
+	assert "S3cret" not in pushed + published and "<redacted>" in html.unescape(pushed)
+	console = capsys.readouterr().out
+	assert "<redacted>" in console and "S3cret" not in console

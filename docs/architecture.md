@@ -331,6 +331,8 @@ The web import is `import_csv(parser, path, user_id, …)` → `ImportReport` (`
 
 ### `RolloutLogger` (`src/rollout/log.py`)
 Owns the logging I/O for one rollout job. It is constructed as `RolloutLogger(webapp, verbose, prefix="rollout", job_id=None, redis_client=None)`.
+
+**Job logs are safe to share** (decision 16): every line passes `redact()` in `notify` before the file (also what Download Log serves), the live log and the console, and `RunReport.action_needed` redacts the text it keeps for the database. The value after a secret-bearing word (`password`, `secret`, `community`, `pre-shared-key`, `psksecret`, `key-string`, `authentication-key`, Junos `encrypted-password`, PAN-OS `phash`, Gaia `password-hash`, …; `key` / `auth` / `priv` only with a type or a quoted value) becomes `<redacted>`; the keyword and the encryption type stay. Not redacted: the commands as typed (`job_metadata.commands` - Results shows them to the owner and admins, a rollback needs them) and config snapshots (`fetched_config`, the device's own text, kept 7 days for Verify Diff).
 - **Log file:** it always writes one, `logs/{prefix}_{timestamp}_{job_id}.log` (threads take turns).
 - **Where notable messages are shown** — errors, `important` ones, all of them when verbose: one `Echo` strategy, chosen at construction — `Console` (the CLI: ANSI colours) or, for a web job with a Redis client, `LiveLog` (HTML-escaped, appended to the Redis list `job:{id}:history` and published on `job:{id}:logs`; best-effort: a Redis error never fails the rollout). A web logger without a Redis client shows nothing.
 - **`notify(message, color, important)`** — `color` is a `Tone` (ERROR, WARNING, SUCCESS, INFO). The engine and the sessions see it only as the `Notifier` Protocol (`session.py`).

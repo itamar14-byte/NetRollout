@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, NamedTuple, Protocol
 
 import netmiko
 
-from src.rollout.log import Tone
+from src.rollout.log import Tone, redact
 from src.rollout.platforms import FETCH_TIMEOUT, PLATFORMS, ConfigSession, Platform, Target, rejection
 if TYPE_CHECKING:   # annotations only: engine.py imports this module
 	from src.rollout.engine import Device
@@ -42,7 +42,10 @@ class RunReport:
 
 	def action_needed(self, device: Target, what: str) -> None:
 		"""Something only a person can do on the device: one unmistakable
-		line (live log, log file, CLI console), counted in the summary."""
+		line (live log, log file, CLI console), counted in the summary - its
+		text kept for the database (Results, the summary) redacted, as the
+		log line is."""
+		what = redact(what)
 		self.needs_action.setdefault(device.endpoint, []).append(what)
 		self.notify(f"ACTION NEEDED — {device.endpoint}: {what}", Tone.ERROR,
 		            important=True)

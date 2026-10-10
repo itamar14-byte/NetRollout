@@ -912,3 +912,16 @@ def test_no_security_profile_raises():
 	("no security profiles")."""
 	with pytest.raises(ValueError, match="no security profiles"):
 		Device.from_inventory(global_row(security_profile=None), USER_A)
+
+
+def test_an_action_needed_text_is_kept_redacted(tmp_path):
+	"""RunReport.action_needed keeps the text for the database (Results, the
+	summary) with the secret redacted, as the log line is."""
+	logger = RolloutLogger(webapp=False, verbose=False)
+	logger.logfile = str(tmp_path / "rollout.log")
+	report = RunReport(logger)
+	device = make_device(ip="10.0.0.1", device_type="fortinet")
+	report.action_needed(device, "stopped answering after 'set psksecret ENC abc123=='")
+	assert report.actions("10.0.0.1:22") == \
+		"stopped answering after 'set psksecret ENC <redacted>'"
+	assert "abc123" not in (tmp_path / "rollout.log").read_text(encoding="utf-8")
