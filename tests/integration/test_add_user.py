@@ -121,3 +121,19 @@ def test_the_sidebar_counts_the_requests_waiting(admin, client_for, make_user):
 	assert '<span class="adm-sb-count" id="pendingRequests"' in page
 	assert "2 access requests waiting" in page
 	assert ">2</span>" in page
+
+
+@pytest.mark.parametrize("name", ["netrollout-grafana-admin", "NetRollout-Grafana-Admin"])
+def test_the_reserved_username_is_refused_in_its_own_words(admin, client_for, session_scope, name):
+	"""Grafana's own administrator's name can't be a NetRollout account (Grafana
+	would sign that person in as its administrator): Add user and Request access
+	refuse it, in any capitals, saying it's reserved - not that it's taken - and
+	create no account."""
+	resp = add(client_for(admin, xhr=True), username=name, email="g@corp.example")
+	assert resp.status_code == 422
+	assert "reserved" in resp.json["message"] and "taken" not in resp.json["message"]
+	resp = client_for().post("/register", data={**FORM, "username": name, "email": "g2@y.io",
+	                                            "password": "Str0ng-pass"}, follow_redirects=True)
+	assert b"reserved" in resp.data and b"taken" not in resp.data
+	with session_scope() as s:
+		assert s.query(User).filter(User.username.ilike(name)).count() == 0

@@ -103,6 +103,20 @@ def test_ldap_import_skips_a_user_that_exists_in_another_case(
 	assert names.count("alice") == 1 and names.count("bob") == 1
 
 
+def test_ldap_import_skips_the_reserved_username(admin, client_for, session_scope):
+	"""Importing a directory user named like Grafana's own administrator (any
+	capitals) skips it - no NetRollout account may carry that name."""
+	c = client_for(admin)
+	c.post("/admin/server/ldap/new", data=LDAP_FORM)
+	sid = only_server(session_scope).id
+	resp = c.post(f"/admin/server/ldap/{sid}/import", json=[
+		{"type": "user", "username": "NetRollout-Grafana-Admin"},
+		{"type": "user", "username": "carol"}])
+	assert (resp.json["users_created"], resp.json["skipped"]) == (1, 1)
+	with session_scope() as s:
+		assert s.query(User).filter(User.username.ilike("netrollout-grafana-admin")).count() == 0
+
+
 def test_ldap_directory_calls_are_delegated(admin, client_for, session_scope):
 	"""The LDAP test, test-user, fetch-DN and explore routes hand off to the
 	directory functions; an unknown server is 404."""

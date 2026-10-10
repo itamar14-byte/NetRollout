@@ -753,3 +753,22 @@ def test_get_login_shows_the_form_and_spends_no_sign_in_attempt(client_for, make
 	resp = login(client, user.username)
 	assert resp.status_code == 302 and resp.headers["Location"] == "/otp_enroll"
 	assert pre_auth_user(client) == str(user.id)
+
+
+def test_a_directory_user_with_the_reserved_name_is_refused(client_for, ldap_server,
+                                                            session_scope):
+	"""A directory account named like Grafana's own administrator, in a mapped
+	group, is refused at sign-in with the reserved-name message (the directory
+	isn't even asked) and no NetRollout account is created."""
+	with session_scope() as s:
+		s.add(LDAPGroup(group_dn="cn=netops,dc=corp", label="netops",
+		                role="admin", ldap_server_id=ldap_server))
+	c = client_for()
+	with patch("src.accounts.ldap.Directory.check_group_membership",
+	           return_value=("cn=netops,dc=corp", "admin")) as asked:
+		resp = login(c, "netrollout-grafana-admin", "directory-pass")
+	assert resp.headers["Location"] == "/"
+	assert not asked.called
+	assert b"reserved" in c.get("/").data
+	with session_scope() as s:
+		assert s.query(User).filter(User.username.ilike("netrollout-grafana-admin")).count() == 0
