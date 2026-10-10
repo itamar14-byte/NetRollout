@@ -335,3 +335,68 @@ def test_the_windows_script_finds_docker_whoever_started_it():
 	cli = ps1[ps1.index("function Test-DockerCli {"):ps1.index("function Test-DockerRunning")]
 	assert 'Join-Path $DockerCliDir "docker.exe"' in cli and '$env:Path = "$env:Path;$DockerCliDir"' in cli
 	assert r'$DockerCliDir = Join-Path $DockerDir "resources\bin"' in ps1
+
+
+def iss_text():
+	return (ROOT / "packaging" / "windows" / "installer" / "netrollout.iss").read_text(encoding="utf-8")
+
+
+def pascal(text, header):
+	"""The [Code] routine starting with `header`, up to its closing `end;`."""
+	return re.search(re.escape(header) + r".*?\nend;", text, re.S)[0]
+
+
+def test_kept_data_is_recorded_by_the_uninstaller_and_found_by_setup():
+	"""The uninstaller records the folder whose data it kept (.env still there after
+	manage.ps1 uninstall - a silent uninstall keeps it too) in HKCU\\Software\\NetRollout
+	KeptData and drops the record when the data was deleted; Setup's start reads it
+	(the folder must still hold .env), else the default folder, announces it and
+	pre-selects it; an install into that folder drops the record (the install record
+	takes over). The Manager's subkey under the same key is never deleted."""
+	text = iss_text()
+	assert r'#define OurKey "Software\NetRollout"' in text
+	uninstall = pascal(text, "procedure CurUninstallStepChanged(")
+	run = uninstall.index("'uninstall -Yes ' + Data")
+	record = uninstall.index("RegWriteStringValue(HKCU, '{#OurKey}', 'KeptData', ExpandConstant('{app}'))")
+	assert run < record
+	assert r"if FileExists(ExpandConstant('{app}\.env')) then" in uninstall[run:record]
+	assert "ForgetKept(ExpandConstant('{app}'))" in uninstall[record:]
+	forget = pascal(text, "procedure ForgetKept(")
+	assert "RegDeleteValue(HKCU, '{#OurKey}', 'KeptData')" in forget
+	assert "RegDeleteKey" not in text
+	find = pascal(text, "function FindKept:")
+	assert "RegQueryStringValue(HKCU, '{#OurKey}', 'KeptData', Dir)" in find
+	assert find.index("'KeptData'") < find.index("'{#DefaultDir}'")
+	assert "FileExists(AddBackslash(Dir) + '.env')" in find
+	start = pascal(text, "function InitializeSetup:")
+	assert "KeptDir := FindKept;" in start and "CheckKept(KeptDir)" in start
+	assert start.index("if UpdateMode then Result := NewerThanInstalled") < start.index("FindKept")
+	assert "WizardForm.DirEdit.Text := KeptDir" in pascal(text, "procedure InitializeWizard;")
+	post = pascal(text, "procedure CurStepChanged(")
+	assert "ForgetKept(ExpandConstant('{app}'));" in post
+
+
+def test_kept_data_is_announced_in_setups_own_words_naming_the_folder():
+	"""Inno's generic "folder exists" warning is off; CheckKept announces the kept data
+	with the folder it is in - updated (a backup first), started as it was, or refused
+	(newer) - once per folder, at the start and on the folder page. rc1 said nothing
+	(it only announced a downgrade), so the developer got Inno's warning instead."""
+	text = iss_text()
+	assert re.search(r"^DirExistsWarning=no$", text, re.M)
+	check = pascal(text, "function CheckKept(")
+	assert "Held := Dir + ' holds NetRollout ' + Kept + ' data kept by an uninstall'" in check
+	assert "'. It will be updated to {#AppVersion} - a backup is made first.'" in check
+	assert "'. It will be started as it was.'" in check
+	assert "Downgrades aren''t supported." in check
+	assert check.count("if CompareText(Dir, AnnouncedDir) <> 0 then") == 2
+	assert "CheckKept(RemoveBackslashUnlessRoot(WizardDirValue))" in pascal(text, "function NextButtonClick(")
+
+
+def test_no_setup_message_assumes_the_default_folder():
+	"""C:\\NetRollout appears only in the DefaultDir define: every message names the
+	folder actually involved (kept data can be anywhere)."""
+	text = iss_text()
+	assert [line for line in text.splitlines() if r"C:\NetRollout" in line] == [r'#define DefaultDir "C:\NetRollout"']
+	code = text[text.index("[Code]"):]
+	for message in re.findall(r"SuppressibleMsgBox\((.*?)\);", code, re.S):
+		assert "{#DefaultDir}" not in message
