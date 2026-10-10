@@ -387,12 +387,11 @@ class CertificateStore:
 			return None
 		return SelfSigned(self) if is_selfsigned(folder) else Organisation(self)
 
-	def check(self, hostname: str | None, require_key: bool = True) -> CertCheck:
-		"""The certificate in use and its key, validated against `hostname`
-		(validate).
+	def pair(self, require_key: bool = True) -> tuple[bytes, bytes]:
+		"""The certificate in use and its key, as read.
 
-		:param require_key: an unreadable key raises; else it's checked as
-		 missing (validate reports it)
+		:param require_key: an unreadable key raises; else it's b"" (validate
+		 reports it as missing)
 		:raises FileNotFoundError: there is no certificate
 		:raises OSError: it - or a required key - can't be read"""
 		folder = self.folder()
@@ -403,7 +402,14 @@ class CertificateStore:
 			if require_key:
 				raise
 			key_pem = b""
-		return validate(cert_pem, key_pem, hostname or None)
+		return cert_pem, key_pem
+
+	def check(self, hostname: str | None, require_key: bool = True) -> CertCheck:
+		"""The certificate in use and its key (pair()), validated against
+		`hostname` (validate).
+
+		:raises OSError: as pair()"""
+		return validate(*self.pair(require_key), hostname or None)
 
 	def summary(self, hostname: str | None) -> dict[str, Any] | None:
 		"""What the Access card shows about the certificate, checked against

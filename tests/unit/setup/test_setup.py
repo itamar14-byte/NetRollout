@@ -393,6 +393,19 @@ def test_status_warns_before_the_certificate_expires(home):
 	assert not well and any("EXPIRES SOON" in l for l in lines)
 
 
+def test_a_missing_certificate_is_reported_without_reading_site_env(home, monkeypatch):
+	"""With no certificate files the Certificate line is MISSING with its next step
+	even when site.env can't be read (PermissionError) - the hostname is only read
+	for a certificate to check, so nothing raises."""
+	def unreadable():
+		raise PermissionError(13, "Permission denied")
+	monkeypatch.setattr(site_env, "read", unreadable)
+	todo = []
+	assert manage._certificate(datetime.datetime.now(datetime.timezone.utc), todo) == "MISSING"
+	assert todo == ["No certificate: upload one in Server Management, or generate a "
+	                "self-signed one there"]
+
+
 def test_status_shows_nginx_rejecting_and_a_pending_port(home):
 	"""nginx's rejected verdict is shown with its message and time, and a requested port
 	with the one in use and `netrollout apply`."""

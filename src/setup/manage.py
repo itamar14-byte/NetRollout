@@ -239,13 +239,15 @@ def _certificate(now: datetime.datetime, todo: list[str]) -> str:
 	:param todo: what to do; missing, unreadable, a problem or expiring soon
 	 add to it"""
 	store = certs.CertificateStore()
-	hostname = site_env.read().get(site_env.HOSTNAME) or None
 	try:
-		check = store.check(hostname)
+		cert_pem, key_pem = store.pair()
 	except OSError:
 		todo.append("No certificate: upload one in Server Management, or generate a "
 		            "self-signed one there")
 		return "MISSING"
+	# the hostname only for a certificate to check: a missing one is reported
+	# without site.env
+	check = certs.validate(cert_pem, key_pem, site_env.read().get(site_env.HOSTNAME) or None)
 	kind = "self-signed" if store.selfsigned else "your organisation's"
 	if not check.not_after:
 		todo.append("The certificate can't be read: upload it again in Server Management")
