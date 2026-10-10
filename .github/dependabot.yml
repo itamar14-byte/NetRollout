@@ -14,10 +14,16 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    ignore:   # Python 3.12 on purpose (the dev venv, the CLI .exe, the pins): a new Python is a decision, not a bump
+      - dependency-name: python
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
   - package-ecosystem: docker       # nginx's image
     directory: /deploy/nginx
     schedule:
       interval: weekly
+    ignore:   # nginx's even minors are stable (1.30), odd ones mainline (1.31): stay on stable, take its patches
+      - dependency-name: nginx
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
