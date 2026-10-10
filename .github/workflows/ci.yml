@@ -79,7 +79,7 @@ jobs:
       NETROLLOUT_E2E: "1"
       NETROLLOUT_E2E_TAG: e2e-local
       NETROLLOUT_E2E_KEEP: "1"   # the containers and the folder, for the logs below
-      NETROLLOUT_E2E_DIR: ${{ runner.temp }}/netrollout-e2e
+      NETROLLOUT_E2E_DIR: /tmp/netrollout-e2e   # (the runner context is not available here)
       PYTHONDONTWRITEBYTECODE: "1"
     steps:
       - uses: actions/checkout@v7
