@@ -420,6 +420,7 @@ _Feature set is complete as of 2026-04-28. Remaining work is cleanup, packaging,
 | 3 — 4.0b | BYO Postgres / Redis | ✅ Done — Grafana BYO post-v1.0 |
 | 3b | System settings + startup reverse-proxy check (the plan `docs/plans/system-settings.md`, done — removed 2026-10-08, in git history) | ✅ Parts A + B done (2026-09-30) — Part C (nginx follows the Access settings) is Phase 4 stage 8 |
 | 4 — Phase 4 | Packaging v1.0.0 — `docs/plans/phase-4.md` (approved 2026-09-30, branch `phase-4-packaging`): hygiene + migration squash, paths/config, container runtime, forced password change, **platform profiles (push commit + verify on all 12 platforms)**, CLI `.exe`, images, compose, Part C + certificate upload, installer + scripts, CI, docs | 🔄 In progress — stage 1 (hygiene + migration squash to the `v1_0_0_baseline` revision) stage 2 (`src/runtime.py`, `config/runtime.env` precedence) done 2026-09-30; stage 3 (container runtime: secrets fail-fast, drain on stop/Restart, health endpoint, sessions follow a Redis switch) done 2026-10-01; stage 4 (passwords: forced change for the seeded admin, self-service change, admin reset with a temporary password, one password rule) done 2026-10-01; stage 4b (push finishes per platform — commit for Junos/PAN-OS/IOS-XR; verify over Netmiko on all 12 platforms; NAPALM dropped; `src/runtime.py`) done 2026-10-02; stage 5 (standalone `netrollout-cli.exe`: the CLI cut loose from the web stack, PyInstaller spec, `--version`) done 2026-10-02; stage 6 (images: app — non-root, health check, version stamped from the tag, footer links this version's source; `src/certs.py`; Postgres + pg_cron with a non-superuser app role, retention at 03:00 local, Grafana reads 3 tables; nginx with a validated site template and a test-then-reload watcher) done 2026-10-03; stage 7 (compose: `compose.yaml` + port-80 / build / dev overlays, `.env.example`, dev runs on the stack; monitoring fixed and moved to `deploy/`, promtail → Alloy; Grafana behind NetRollout's sign-in, admins only, nested read-only baseline + `Custom`; full-stack run with real rollouts, stop/Restart drain; also: role `operator`, sign-in returns to `?next=`, sign-out after inactivity + 12 h, verify-unreadable → ACTION NEEDED) done 2026-10-04; stage 8 (Part C: a saved hostname applies live through nginx, all or nothing — self-signed reissued with the previous names kept 7 days, an uncovering organisation certificate refused; the HTTPS port goes to a host-side port helper as a confirm-or-roll-back trial (app side done, helper in stage 9); the Access card and Server Management → TLS Certificate show nginx's verdict and the certificate; certificate upload / generate self-signed with rollback on nginx's refusal; `docs/nginx/nginx.conf` + the startup auto-detect retired) done 2026-10-04; next: stage 9 |
+| 4b — OOP | The OOP redesign before rc1 (replaces Phase 5 below): objects where a real thing holds state, one owner per rule, types instead of loose dicts and strings — behaviour unchanged, in seven steps (0 characterization tests … 7 documentation) | ✅ Done (2026-10-09/10) — `docs/architecture.md` §11 |
 | 5 — release | v1.0.0 — release gates in `docs/plans/phase-4.md` (EVE-NG round against the built image, backup/restore, upgrade) | ⬜ |
 
 ### Step 1 — 4.9c Codebase cleanup ✅ COMPLETE
@@ -629,31 +630,16 @@ Approved 2026-09-30, branch `phase-4-packaging`. Replaces the earlier Steps 4–
 
 ---
 
-### Phase 5 — Core layer refactor (post-v1.0)
+### Phase 5 — Core layer refactor ✅ replaced by the OOP redesign (2026-10-09/10, before rc1)
 
-Critics are right that `Device` and `InputParser` mix concerns. Goal: each class has one reason to change.
+The planned post-v1.0 refactor was done before rc1 as the OOP redesign (approved 2026-10-09; steps 0–7: characterization tests first, then one area per step, behaviour unchanged; the object model as built is `docs/architecture.md` §11). **Built:** the rollout core split by concern — `Device` (a target and its substitution: `unresolved()` / `commands_for()`), `NetmikoSession` (one device's SSH conversation, `src/rollout/session.py`) with `RunReport`, the `Finish` ABC family (`SaveConfig` / `Commit` / `RunCommand` / `NoFinish`) replacing the per-platform branches, and Protocols for what isn't ours (`ConfigSession` = Netmiko, `KeyValueStore` = Redis, `Echo`, `Notifier`); `RolloutLogger` with one `Echo` strategy (`Console` / `LiveLog`); the jobs' `ResultRecorder` and `RolloutJob.claim()`; per-area domain services working in the caller's session — `InventoryView`, `SecurityProfiles`, `JobResults` (`src/results.py`, the one owner-or-admin rule), `Accounts`, `SessionStore`, LDAP's `Directory`, `AuditTrail` (`src/audit.py`) — which raise, the routes catching outside their session block (no more half-committed changes); `ServiceConnection` (a template method: bundled-or-yours and the live switch written once for Postgres and Redis) with an injectable `RuntimeEnv`; the `Setting` kinds; `BackupFolder`; the `Certificate` kinds (`SelfSigned` / `Organisation`) under `CertificateStore`, `Nginx.apply`, and the `Access` facade for the multi-system saves; `Maintenance` and `DatabaseMove` as objects; `runtime.PeriodicTask` for every background loop; enums for every closed value set that crosses a boundary (statuses, roles, audit actions, exit codes, …); a typed `NetRolloutApp`.
 
-**Class splits:**
-- `Device` → `DeviceConfig` (pure value object, no I/O) + `DeviceConnector` (owns the Netmiko operations)
-- `InputParser` → `CSVParser` + `FormParser` (each returns plain data) + `DeviceFactory` (constructs `DeviceConfig` from parsed data)
-
-**OOP patterns with genuine use cases:**
-
-*Polymorphism via ABC:*
-- `BaseConnector(ABC)` — declares `push_config()` and `verify()` as `@abstractmethod`
-- `NetmikoConnector(BaseConnector)` — Netmiko implementation, driven by the per-platform profiles introduced in Phase 4 (how to finish a push, how to fetch the config, which matcher)
-- A future backend (e.g. an API-based vendor) is another `BaseConnector` — `RolloutEngine` receives a `BaseConnector`, so backends swap without touching engine logic
-- (NAPALM was dropped in Phase 4 — it was only used to fetch configs for verify)
-- Python duck typing means polymorphism works without ABC, but ABC makes the contract explicit and raises `TypeError` at instantiation if a subclass is incomplete
-
-*Factory:*
-- `ConnectorFactory.build(device_config)` — picks the connector and platform profile for a `device_type`
-
-*Template Method:*
-- `RolloutEngine` defines a fixed execution skeleton (`push → optionally verify → record result`)
-- Steps are overridable if a future engine variant needs different behaviour
-
-**Approach:** write tests for the current behaviour first, then refactor. The public interface of `RolloutEngine.run()` should not change — internals only.
+**Deliberately not built** (the reasons are in §11 too):
+- **`BaseConnector` ABC + `ConnectorFactory`** — one backend (Netmiko); an interface with nothing to choose between. Both come the day a second backend is being written (one file then).
+- **Template-method `RolloutEngine`** — needs a second kind of rollout (a dry run, a staged rollout) to be worth it.
+- **`Repository[T]` + unit of work** — SQLAlchemy's Session already is the unit of work; generic repositories would only re-wrap it, and in-memory fakes don't apply when the tests run on a real Postgres. The per-area services give each query and rule one home instead.
+- **The State pattern** (jobs, maintenance, the move, the port helper) — linear flows; an enum fits, and jobs must keep "claimed counts as running".
+- **Splitting `InputParser`** into CSV and form parsers (+ a `DeviceFactory`) — no form path uses it; the web app builds devices from inventory rows (`Device.from_inventory`).
 
 ---
 

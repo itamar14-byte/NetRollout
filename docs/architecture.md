@@ -1,5 +1,5 @@
 # NetRollout — Architecture Document
-_Written: 2026-04-07 — Updated: 2026-10-02 (Phase 4 stages 3–4b: container runtime, drain, health; passwords; per-platform push + verify)_
+_Written: 2026-04-07 — Updated: 2026-10-10 (the OOP redesign: the classes as built, §11 the object model)_
 
 Deployment and packaging (Docker images, compose, the installers, releases) are described in §8–9 and CLAUDE.md; what's still ahead (stage 10, CI and the release) is planned in `docs/plans/phase-4.md`.
 
@@ -16,16 +16,16 @@ NetRollout is structured around six layers:
 5. **DB layer** — connection management, session lifecycle, hot-reload, install/seed, System Settings
 6. **Webapp layer** — Flask app factory, extensions, blueprints, shared helpers, startup check
 
-**Where the code lives** — (one module = one whole concern)
-- `src/rollout/` — the engine, shared by the CLI and the web app and free of the web stack: `engine.py` (Device, RolloutEngine, classify), `inputs.py` (checks, the devices CSV / commands file: InputParser, Validator), `platforms.py`, `log.py` (RolloutLogger).
-- `src/jobs.py` — a web rollout's life: the orchestrator, JobStore (its Redis keys), job_status, build_kpi, clear_stale_jobs. `src/inventory.py` — the device inventory's rules: visibility, shared endpoints, reachability, the CSV import (`import_csv`).
-- `src/db/` — `connections.py` (Postgres, Redis, BackendServices), `tables.py`, `install.py` (migrations, grants, seeds, retention SQL), `retention.py` (the nightly run), `settings.py`, `move.py`.
-- `src/accounts/` — `users.py` (local accounts, the password rule, sessions and their lifetime), `ldap.py`.
-- `src/access/` — how NetRollout is reached: `site_env.py` (config/nginx/site.env), `nginx.py` (hostname, certificate, nginx's verdict), `port.py` (the HTTPS port request), `certs.py`.
-- `src/backup/` — `archive.py` (the zip), `schedule.py`, `__main__.py` (`python -m src.backup`).
+**Where the code lives** — (one module = one whole concern; the classes and why they are classes: §11)
+- `src/rollout/` — the engine, shared by the CLI and the web app and free of the web stack: `engine.py` (`Device`, `RolloutEngine`, `classify`), `session.py` (`NetmikoSession`: one device's SSH conversation; `RunReport`), `platforms.py` (`PLATFORMS`, the `Finish` family, verify), `inputs.py` (the input checks; the devices CSV / commands file: `InputParser`, `Validator`), `log.py` (`RolloutLogger`, its `Echo`: `Console` / `LiveLog`; the log pruner).
+- `src/jobs.py` — a web rollout's life: `RolloutOrchestrator`, `RolloutJob`, `JobStore` (its Redis keys), `ResultRecorder`, job_status, build_kpi, clear_stale_jobs. `src/results.py` — finished jobs as the viewer may see them (`JobResults`). `src/inventory.py` — the device inventory's rules (`InventoryView`, `SecurityProfiles`), reachability, the CSV import (`import_csv`). `src/audit.py` — `AuditAction`, `AuditTrail`, `Actor`.
+- `src/db/` — `connections.py` (`PostgresConnection` / `RedisConnection` over the `ServiceConnection` ABC, `RuntimeEnv`, `BackendServices`), `tables.py`, `install.py` (migrations, grants, seeds, retention SQL), `retention.py` (the nightly run), `settings.py` (the `Setting` kinds, `SettingsStore`), `move.py`.
+- `src/accounts/` — `users.py` (`Viewer`, `Accounts`, `SessionStore`, the password rule), `ldap.py` (`Directory`).
+- `src/access/` — how NetRollout is reached: `site_env.py` (config/nginx/site.env), `nginx.py` (`Nginx`: its verdicts and the changes it must accept), `port.py` (the HTTPS port request), `certs.py` (`CertificateStore`, the `Certificate` kinds), `service.py` (`Access`, the facade the pages use).
+- `src/backup/` — `archive.py` (the zip, `BackupFolder`), `schedule.py` (`BackupScheduler`), `__main__.py` (`python -m src.backup`).
 - `src/setup/` — the setup core the scripts call (`python -m src.setup`): `install.py`, `env.py` (.env), `update.py` (releases, upgrade), `manage.py`, `port.py`.
-- `src/webapp/` — `build.py` (create_app), `app.py`, `hooks.py`, `http.py`, `lifecycle.py`, `db_move.py` (with maintenance mode), `startup.py`; `blueprints/` one file per page (a merged page keeps its own Blueprint: `admin_settings.py` + backups, `analytics.py` + the admins' analytics, `mappings.py` + properties).
-- `src/runtime.py` (folders, version, read_json / write_json), `src/encryption.py`, `src/cli.py`. Tests mirror it under `tests/unit/`; integration tests go by page.
+- `src/webapp/` — `build.py` (`launch_app`, create_app), `app.py` (`NetRolloutApp`), `hooks.py`, `http.py`, `lifecycle.py` (`Shutdown`, `Maintenance`), `db_move.py` (`DatabaseMove`, the Redis switch), `startup.py`; `blueprints/` one file per page (a merged page keeps its own Blueprint: `admin_settings.py` + backups, `analytics.py` + the admins' analytics, `mappings.py` + properties).
+- `src/runtime.py` (folders, version, read_json / write_json / `write_atomic`, `PeriodicTask`), `src/encryption.py`, `src/cli.py`. Tests mirror it under `tests/unit/`; integration tests go by page.
 
 **Ownership.**
 - Per-user data belongs to a `User` through a foreign key: devices, security profiles, variable mappings, property definitions, results and job metadata.
@@ -39,7 +39,7 @@ At runtime, `RolloutOrchestrator` is the concurrency manager.
 
 The **CLI** (`src/cli.py`) uses the same `RolloutEngine` directly, from a devices CSV and a commands file. It has no database, no Redis and no orchestrator — and doesn't even import them: the DB models and Redis are imported for type checking only (`src/rollout/`); the web-only CSV import lives in `src/inventory.py`. An import-isolation test guards it. It ships as a standalone `netrollout-cli.exe` (PyInstaller, `netrollout-cli.spec`, the web stack excluded; logs next to the exe via `runtime.logs_dir()`).
 
-**Configuration** comes from env vars. `config/runtime.env` (under the NetRollout home, `src/runtime.py`) is loaded with override by `BackendServices` at startup; it holds only what a Server Management switch wrote, so it wins over the container environment (the installer's `.env`), which wins over the defaults.
+**Configuration** comes from env vars. `config/runtime.env` (under the NetRollout home, `src/runtime.py`; `RuntimeEnv`, `src/db/connections.py`) is loaded with override by `BackendServices` at startup; it holds only what a Server Management switch wrote, so it wins over the container environment (the installer's `.env`), which wins over the defaults.
 
 | Variable | Purpose |
 |---|---|
@@ -77,7 +77,7 @@ Configuration flags for a rollout run. Pure data, no behavior.
 |---|---|---|
 | `verify` | `bool` | Run post-push verification |
 | `verbose` | `bool` | Print progress to console (CLI mode) |
-| `webapp` | `bool` | Publish log messages to Redis for the SSE stream |
+| `webapp` | `bool` | Log for the page (HTML, the live log in Redis) rather than a console |
 | `max_workers` | `int` | Devices pushed in parallel within this job (default 10; the web app passes the *Devices in parallel per job* System Setting) |
 
 ### `Device`
@@ -93,19 +93,23 @@ Represents a single network device at runtime. The web app builds it from an `In
 | `secret` | `str` | Enable secret (decrypted, hidden from `repr`) |
 | `port` | `int` | SSH port |
 | `var_map_subs` | `dict` | `$$TOKEN$$` → `(property_name, index)` — only the rolling-out user's mappings |
-| `extra` | `dict` | Per-device attribute values for substitution, as the rolling-out user sees them (`src/inventory.attributes`) |
+| `extra` | `dict` | Per-device attribute values for substitution, as the rolling-out user sees them (`InventoryView.attributes`) |
 
 `endpoint` (property) — `ip:port`. This is what identifies a target: with NAT or port forwarding, several devices share one IP.
 
 **Public methods:**
 | Method | Signature | Description |
 |---|---|---|
-| `from_inventory` | `cls(row: Inventory, user_id) -> Device` | Factory. Decrypts the assigned SecurityProfile's credentials. It raises if the device has no profile |
-| `netmiko_connector` | `() -> dict` | Builds the Netmiko `ConnectHandler` params |
-| `fetch_config` | `(logger) -> str \| None` | The running config over Netmiko (the push's SSH: the device's port and credentials), printed by the platform's `show_config` command(s) in the syntax engineers type. None if it can't be fetched (logged) |
+| `from_inventory` | `cls(row: Inventory, user_id, attributes=None) -> Device` | Factory. Decrypts the assigned SecurityProfile's credentials; only `user_id`'s mappings apply. It raises `ValueError` if the device has no profile |
+| `unresolved` | `(commands) -> list[str]` | Why the commands can't be filled in on this device: one line per `$$TOKEN$$` without a mapping here or whose value is missing — checked by the launch and rollback routes before queueing, and again at the push |
+| `commands_for` | `(commands) -> list[str]` | The commands with the device's tokens replaced; `SubstitutionError` when `unresolved()` finds anything |
+
+The device's SSH is not the `Device`'s: `NetmikoSession` (`src/rollout/session.py`) holds the conversation — `connect(device)` (a context manager, also the connection tests'), `push(commands)`, `fetch_config()`.
 
 ### `DeviceResultDict`
-TypedDict returned per device by `RolloutEngine.run()`. Fields: `device_ip`, `device_port`, `device_type`, `commands_sent`, `commands_verified`, `fetched_config`, `status`.
+TypedDict returned per device by `RolloutEngine.run()`. Fields: `device_ip`, `device_port`, `device_type`, `commands_sent`, `commands_verified`, `fetched_config`, `status` (a `DeviceStatus`), `action_needed`.
+
+`VerifyResult` (NamedTuple: how verify went on one device) and `PushResult` (`session.py`: how the push went) feed `classify(push, verify, total, configuring)`, the status rules.
 
 ---
 
@@ -152,7 +156,7 @@ The factory account `admin`/`admin` is seeded at startup if missing (`src/db/ins
 
 **Relationships:** `var_mappings` (many-to-many via `var_mapping_to_devices`), `security_profile`, `user`, `custom_attributes`
 
-What a user's mappings and rollouts substitute is `src/inventory.attributes(session, devices, user_id)`: the system values plus that user's own custom values.
+What a user's mappings and rollouts substitute is `InventoryView(session, viewer).attributes(devices)` (`src/inventory.py`): the system values plus that viewer's own custom values.
 
 Several devices may share an `ip:port` (e.g. entries by different users). Inventory and New Rollout show a warning; nothing is blocked.
 
@@ -303,8 +307,8 @@ The runtime value of each System Setting (§6). There is one row per registered 
 
 ## 4. Service Classes
 
-### `Validator` (`src/rollout/inputs.py`)
-Wraps input validation. It is logger-injected for user-facing errors, and the pure computation methods are static: IP, port, platform and file extension checks, plus a TCP port test. `SUPPORTED_PLATFORMS` is the list of supported Netmiko device types:
+### Input checks and `Validator` (`src/rollout/inputs.py`)
+The pure checks are module functions, shared by the CLI, the import and the pages: `validate_ip` / `normalize_ip` (IPv4 and IPv6), `validate_port`, `validate_platform`, `tcp_reachable`, and the mapping checks `token_problem`, `property_name_problem`, `index_problem`. `Validator(logger)` checks only the CLI / import files (`validate_file_extension`, `validate_device_data`), reporting each problem through the logger. `SUPPORTED_PLATFORMS` is the list of supported Netmiko device types (derived from `PLATFORMS`):
 - `cisco_ios`, `cisco_xe`, `cisco_nxos`, `cisco_xr`;
 - `juniper_junos`, `arista_eos`, `fortinet`, `paloalto_panos`;
 - `aruba_aoscx`, `checkpoint_gaia`, `hp_procurve`, `hp_comware`.
@@ -313,7 +317,7 @@ Wraps input validation. It is logger-injected for user-facing errors, and the pu
 One CSV format is shared by the CLI and web import. Required columns are `ip`, `device_type` and `port`. Optional columns are `label`, the credentials (`username`, `password`, `secret`), and attribute columns named after a property (by name or label).
 
 **Methods:**
-- `prepare_devices(raw_devices)` → `(devices, errors)` — CLI path; credentials required.
+- `prepare_devices(raw_devices, require_credentials=True, check_reachable=True)` → `(devices, errors)` — CLI path; credentials required.
 - `parse_commands(path)`.
 - Static `import_from_inventory(rows, user_id, attributes)` → `Device`s (`attributes`: each device's values as that user sees them).
 
@@ -327,19 +331,20 @@ The web import is `import_csv(parser, path, user_id, …)` → `ImportReport` (`
 
 ### `RolloutLogger` (`src/rollout/log.py`)
 Owns the logging I/O for one rollout job. It is constructed as `RolloutLogger(webapp, verbose, prefix="rollout", job_id=None, redis_client=None)`.
-- **Log file:** it always writes one, `logs/{prefix}_{timestamp}_{job_id}.log`.
-- **With `webapp`:** it also appends each message to the Redis list `job:{id}:history` and publishes it on the channel `job:{id}:logs`.
-- **Methods:** `notify(message, color, important)`, `get_history()`, `subscribe()` and `redis_cleanup()`.
+- **Log file:** it always writes one, `logs/{prefix}_{timestamp}_{job_id}.log` (threads take turns).
+- **Where notable messages are shown** — errors, `important` ones, all of them when verbose: one `Echo` strategy, chosen at construction — `Console` (the CLI: ANSI colours) or, for a web job with a Redis client, `LiveLog` (HTML-escaped, appended to the Redis list `job:{id}:history` and published on `job:{id}:logs`; best-effort: a Redis error never fails the rollout). A web logger without a Redis client shows nothing.
+- **`notify(message, color, important)`** — `color` is a `Tone` (ERROR, WARNING, SUCCESS, INFO). The engine and the sessions see it only as the `Notifier` Protocol (`session.py`).
+- **`live_log`** — the `LiveLog`, which the job reads: `history()`, `follow(over)` (the page's stream), `close()` (readers get "done", the keys go). Redis is typed by what is used of it, the `KeyValueStore` Protocol, so this module never imports redis (the CLI `.exe`).
 
-Log files are pruned by a daily background task in the web app, using the *Log files* retention (default 60 days).
+Log files are pruned by `LogPruner` (a `PeriodicTask`, started by the web app's entry point: at start, then every 24 h), using the *Log files* retention (default 60 days); the CLI prunes once per run (`prune_logs`).
 
 ### `ReachabilityChecker` (`src/inventory.py`)
 Probes TCP reachability of `ip:port` targets in parallel and caches results in Redis for the *Reachability cache* period (a callable TTL, so a settings change applies immediately). Inventory uses it for the live status dots, and New Rollout uses it to flag unreachable devices.
 
 ### LDAP (`src/accounts/ldap.py`)
-Module functions:
-- `authenticate` binds as the user, using a DN constructed from `cn_identifier` or one found by a service-bind search;
-- `check_group_membership`, `fetch_user_details`, `fetch_base_dn` and `walk_tree` (for the explorer UI), `test_connection`, `test_user`.
+`Directory(server)` — one configured directory server (an `LDAPServer` row):
+- `authenticate` / `user_bind` bind as the user, using a DN constructed from `cn_identifier` or one found by a service-account search (`find_dn`; with the "regular" bind type — "simple" binds only as the user signing in);
+- `check_group_membership`, `user_details`, `fetch_base_dn` and `walk_tree` (for the explorer UI), `test_connection`, `test_user`.
 
 Error handling:
 - bad credentials (`LDAPBindError`, `LDAPInvalidCredentialsResult`) are a normal "no";
@@ -347,21 +352,21 @@ Error handling:
 
 ---
 
-## 5. Job Execution Classes (`src/rollout/engine.py`, `src/rollout/platforms.py`, `src/jobs.py`)
+## 5. Job Execution Classes (`src/rollout/engine.py`, `session.py`, `platforms.py`, `src/jobs.py`)
 
-`src/rollout/platforms.py` holds what NetRollout knows per platform, with no I/O (`PLATFORMS`, `rejection()`, the config parser, `verify_commands()`); `src/rollout/engine.py` holds the engine that does the SSH, and `classify(push, verify)` — the status rules; `src/jobs.py` owns the Redis job keys.
+`src/rollout/platforms.py` holds what NetRollout knows per platform, with no I/O of its own (`PLATFORMS`: each `Platform` row names its `Finish`; `rejection()`, the config parser, `verify_commands()`); `src/rollout/session.py` holds one device's SSH conversation (`NetmikoSession`) and the rollout's `RunReport`; `src/rollout/engine.py` runs the devices in parallel and holds `classify(push, verify, …)` — the status rules; `src/jobs.py` owns the Redis job keys.
 
 ### `RolloutEngine`
-Pure pipeline object: `RolloutEngine(param: RolloutOptions, devices: list[Device], commands: list[str])`. `run(cancel_flag, logger) -> list[DeviceResultDict]`:
+Pure pipeline object: `RolloutEngine(param: RolloutOptions, devices: list[Device], commands: list[str])`. `run(cancel_flag, logger) -> list[DeviceResultDict]` (`logger`: any `Notifier`, wrapped in a `RunReport` that also collects what only a person can resolve, per device):
 1. **Per device, in parallel** (`ThreadPoolExecutor(max_workers)`):
-   - it substitutes `$$TOKEN$$`s;
-   - it pushes over Netmiko, one `send_config_set(…, enter_config_mode=False)` per command after entering config mode once — exactly as typed (Netmiko's default re-checks config mode per call, and Aruba CX's driver only recognises `(config)#`, so inside a section it failed); a typed `end` followed by more config commands is refused as on the device; a refused command (`rejection()`: one list of vendor error strings, the command's own echo skipped) is logged with the device's reply and the rest are still sent;
-   - it **finishes the way the platform needs** (`PLATFORMS` in `platforms.py`): `save_config()` after leaving config mode (Cisco IOS/IOS-XE/NX-OS, Arista, Aruba CX, HP ProCurve/Comware); `commit()` *before* leaving it (Junos, PAN-OS, IOS-XR — leaving discards uncommitted changes; up to `COMMIT_TIMEOUT` = 300 s; a failed commit is a failure, Junos then `rollback 0`, PAN-OS keeps the candidate and the log says so); `save config` (Check Point Gaia); nothing (FortiOS, after closing any open config block with `end`);
+   - it substitutes `$$TOKEN$$`s (`Device.commands_for`);
+   - `NetmikoSession(device, report).push(commands)` pushes over Netmiko, one `send_config_set(…, enter_config_mode=False)` per command after entering config mode once — exactly as typed (Netmiko's default re-checks config mode per call, and Aruba CX's driver only recognises `(config)#`, so inside a section it failed); a typed `end` followed by more config commands is refused as on the device; a refused command (`rejection()`: one list of vendor error strings, the command's own echo skipped) is logged with the device's reply and the rest are still sent;
+   - it **finishes the way the platform needs** — the platform's `Finish` (`platforms.py`), acting on the session it is handed (`before_leave` / `after_leave` / `in_new_session`): `SaveConfig` — `save_config()` after leaving config mode (Cisco IOS/IOS-XE/NX-OS, Arista, Aruba CX, HP ProCurve/Comware); `Commit` — `commit()` *before* leaving it (Junos, PAN-OS, IOS-XR — leaving discards uncommitted changes; up to `COMMIT_TIMEOUT` = 300 s; a failed commit is a failure, Junos then `rollback 0`, PAN-OS keeps the candidate and the log says so); `RunCommand("save config")` (Check Point Gaia); `NoFinish` (FortiOS, after closing any open config block with `end`);
    - per-platform details, checked against the vendor documentation and Netmiko 4.6.0's source (2026-10-02): Junos configures with **`configure private`** (our commit can't take another admin's pending shared edits along, and our `rollback 0` can't wipe them; Junos refuses private mode while someone has uncommitted shared edits — that device then fails with the reason); PAN-OS discards a failed commit with `revert config`, else `load config from running-config.xml` (only if both are refused does the log ask to discard on the device); FortiOS checks `cfg-save` after the push and runs `execute cfg save` when it is manual or revert (else the change is lost at reboot / undone after the revert timeout); Check Point Gaia switches an account that lands in expert (bash) to clish (`clish`) for both the push and the config fetch — bash would silently swallow every `set …` — and refuses only if that fails; Aruba CX sends `end` before leaving config mode (Netmiko only recognises `(config)#`, so from `(config-if)#` its exit did nothing);
    - a prompt that changes mid-push (e.g. a new hostname) ends that session: the save then runs from a fresh one ("applied, and saved from a new session"), or the log says it wasn't saved;
    - the session is always closed; the cancel flag is honoured between devices.
    - **Only a person can resolve** (another admin's work, or the device's state is unknown): Junos refusing `configure private` while someone has uncommitted shared edits; a save refused (e.g. a Gaia config lock held by another session); a commit still running after `COMMIT_TIMEOUT`; PAN-OS changes left in the candidate when both discards are refused; Gaia stuck in expert even after `clish`; FortiOS `execute cfg save` refused. With Verify on, a device whose config couldn't be read keeps the status of its push (couldn't verify ≠ not configured) but is flagged — the change was applied and nobody checked it. Each is logged as one red `ACTION NEEDED — <ip:port>: <what to do>` line (live log, log file, CLI console), and the rollout summary ends with `ACTION NEEDED on N devices (…)`. The web app also stores it per device (`device_results.action_needed`): when a live log ends, Active Jobs shows a completion card (job note + `[id]`, status, counts, the action-needed instructions, *View in Results*); the Results page shows a badge on the job and the instructions in it; the Dashboard's Recent Jobs mark it — so it doesn't depend on anyone reading the log; the CLI prints it on the console.
-2. **Verify** (if on, only on devices the push applied to): `fetch_config()`, then `verify_commands(device_type, config, commands)` — one verdict per command: *verified*, *not configured*, *still configured* (a removal that didn't take), *not verifiable* (navigation like `exit`/`end`/`next`, operational like `write memory`/`commit`), *variable* (an unresolved `$$TOKEN$$`, only on the Verify Diff page).
+2. **Verify** (if on, only on devices the push applied to): `NetmikoSession.fetch_config()`, then `verify_commands(device_type, config, commands)` — one verdict per command: *verified*, *not configured*, *still configured* (a removal that didn't take), *not verifiable* (navigation like `exit`/`end`/`next`, operational like `write memory`/`commit`), *variable* (an unresolved `$$TOKEN$$`, only on the Verify Diff page).
    - **Indented configs** (Cisco-style, FortiOS): a plain indentation parser; typed commands are flat (the device tracks the mode), so each is placed in its section from the config's own structure — a typed line that is a section there opens it, `exit`/`next`/`exit-…` close one (`end` too on FortiOS, all on Cisco), a command found only at an outer level leaves the section, one found nowhere stays put. A command must exist at its place; `no`/`undo`/`unset`/`delete X` passes when `X` is gone.
    - **Flat configs** (Junos `display set`, PAN-OS set format, Gaia): one line per setting; `edit`/`up`/`top` move the prefix relative `set`/`delete` extend; `delete X` passes when no `set X…`/`add X…` line remains.
    - A config that can't be fetched means "couldn't verify", not "failed".
@@ -371,8 +376,8 @@ Pure pipeline object: `RolloutEngine(param: RolloutOptions, devices: list[Device
 Known limits (Phase 5b: Deep Diff with hier_config + netutils): typed abbreviations (`int gi1`), values the device rewrites (hashed secrets, normalised values like Junos `area 0` → `0.0.0.0`, Comware VLAN ranges `101 to 102`, hidden defaults — FortiOS `show` omits values equal to their default), "already there before the rollout", multi-line banners; PAN-OS prints one setting per line, so a compound typed `set … from x to y action allow` never matches (type one setting per line); Junos `up` is taken as leaving the whole last `edit` (it really goes up one statement level). The Verify Diff route (`/results/config_diff`) returns the same verdicts, so the page can't disagree with the rollout.
 
 ### `RolloutJob`
-Lifecycle owner, constructed as `RolloutJob(job_id, user_id, engine, options, redis_client)`. It owns the thread, cancel flag, engine and logger.
-- **Methods:** `start(on_complete)`, `cancel()`, `cancel_before_start(reason)` and `is_over()`, plus `follow_log(over)` (the live log for the stream) and `log_cleanup`.
+Lifecycle owner, constructed as `RolloutJob(job_id, user_id, engine, options, redis_client)`. It owns the thread, cancel flag, engine, logger and its live log.
+- **Methods:** `claim()` (a queued job is claimed once, under the orchestrator's lock: by the dispatcher to start it, or by a cancel / the drain to record it), `start(on_complete)`, `cancel()`, `cancel_before_start(reason)` and `is_over()`, plus `follow_log(over)` (the live log for the stream) and `log_cleanup()`.
 - **Completion:** `on_complete` always fires, even if the engine raises, so an orchestrator slot is never leaked.
 
 ### `RolloutOrchestrator`
@@ -394,13 +399,14 @@ _dispatcher thread (permanent, started in __init__)
       outside the lock;  meta status=active, started_at;  pending−1, active+1
 
 job thread finishes → _cleanup(job_id)
-  → _finalize: DeviceResult rows to Postgres; DEL meta, SREM user_jobs, active−1; log keys cleaned
+  → _finalize: DeviceResult rows to Postgres (ResultRecorder: retried, else logs/unsaved-results-<job>.json);
+              DEL meta, SREM user_jobs, active−1; log keys cleaned
   → release the slot (always, in finally)
 ```
 
 `cancel(job_id)` sets the job's cancel flag and meta `status=cancelling`.
 
-**Drain** (`drain(deadline)`, run by `lifecycle.Shutdown` on SIGTERM or the admin Restart): `submit()` raises `Draining` from then on (the routes show `DRAINING_MESSAGE`); queued jobs are recorded as cancelled, device by device, with the reason in their log (a job's definition lives only in this process, so it could never run after the restart); running jobs may finish for `deadline` seconds, then are cancelled and given up to 60 s to record — a job still running after that is cut off by the exit and leaves no result record (its log file remains). `counts()` returns running/queued from memory (the health endpoint, the Restart choice). A crash or `SIGKILL` still loses queued jobs silently.
+**Drain** (`drain(deadline)`, run by `lifecycle.Shutdown` on SIGTERM or the admin Restart): `submit()` raises `Draining` from then on (the routes show `DRAINING_MESSAGE`); queued jobs are recorded as cancelled, device by device, with the reason in their log (a job's definition lives only in this process, so it could never run after the restart); running jobs may finish for `deadline` seconds, then are cancelled and given up to 60 s to record — a job still running after that is cut off by the exit and leaves no result record (its log file remains). `counts()` returns running/queued from memory (the health endpoint, the Restart choice). **Pause** (`pause()` / `idle()` / `resume()`, a database move): `submit()` raises `Paused` (a `Draining`), nothing is cancelled; `idle()` is true once no job is queued, running or still being recorded (`ResultRecorder.busy()`). A crash or `SIGKILL` still loses queued jobs silently.
  The Active Jobs page and the admin views read job state from the Redis `job:*:meta` hashes. The Prometheus collector reads `netrollout:active_count` and `netrollout:pending_count`.
 
 ---
@@ -408,44 +414,42 @@ job thread finishes → _cleanup(job_id)
 ## 6. DB Layer (`src/db/`)
 
 ### `PostgresConfig` / `RedisConfig`
-Frozen dataclasses built from env vars (the URL form, or the individual `PG_*` / `REDIS_*` vars). `get_url()` returns the connection string, and `to_env_dict()` returns what to write to `config/runtime.env` (every key of the service, blank when unused — URL, password, schema — so nothing inherited from the container environment can override the switch). A new config object is created for each hot-reload.
+Frozen dataclasses built from env vars (`unload_env()`: the URL form, or the individual `PG_*` / `REDIS_*` vars). `get_url()` returns the connection string, `place()` where the data is whatever the login (Postgres: host, port, database, schema; Redis: host, port, db), `describe()` the same for people (no password), and `to_env_dict()` returns what to write to `config/runtime.env` (every key of the service, blank when unused — URL, password, schema — so nothing inherited from the container environment can override the switch). A new config object is created for each hot-reload.
 
-### `PostgresConnection`
-Wraps a SQLAlchemy engine.
+### `ServiceConnection` → `PostgresConnection`, `RedisConnection`
+`ServiceConnection` (an ABC, a template method) is the rule both services share: `mode(env)` — bundled or an organisation's (`ServiceMode`): by host (the compose names, localhost) until a switch remembered the bundled one's address, then by the whole place; `bundled_config(env)`; `switch_to(config, env)` — `swap()` the live connection, then write `config/runtime.env` (every key of the service, blank when unused; leaving the bundled service its URL, `NETROLLOUT_BUNDLED_DATABASE_URL` / `_REDIS_URL`), `undo()` on a failure after the swap. The subclasses supply the hooks: `config_from_url`, `live_host`, `own_url`, `swap`, `after_swap`, `undo`.
+
+`PostgresConnection` wraps a SQLAlchemy engine (`build_engine(config)`, `pool_pre_ping=True`; a schema becomes the connection's `search_path`).
 - **`get_session()`:** a context manager that commits on a clean exit and rolls back on an exception.
-- **Pooling:** `pool_pre_ping=True`.
-- **`reload_db(config)`:** atomically swaps the engine, and raises `RuntimeError` if the new server is unreachable.
+- **`reload_db(config, install_flag=True)`:** atomically swaps the engine, and raises `RuntimeError` if the new server is unreachable (nothing changed).
 
-### `RedisConnection`
-Wraps a `redis.Redis` client, with the same `reload_db(config)` pattern. `REDIS_UNAVAILABLE` (connection errors plus timeouts) is the exception tuple that callers catch. There is no module singleton: the client is always reached through `app.backend.redis.client`, so a hot swap is picked up.
+`RedisConnection` wraps a `redis.Redis` client, with the same `reload_db(config)` pattern. `REDIS_UNAVAILABLE` (connection errors plus timeouts) is the exception tuple that callers catch. There is no module singleton: the client is always reached through `app.backend.redis.client`, so a hot swap is picked up.
 
 ### `BackendServices` (`src/db/connections.py`)
 The composition root for infrastructure. It is constructed once in `launch_app()` and attached to `app.backend`.
 
 ```python
-BackendServices()        # no arguments:
-#   load config/runtime.env (override) → PostgresConnection() → install() → RedisConnection()
+BackendServices(env=None)   # env: the RuntimeEnv (tests pass their own); None: config/runtime.env
+#   load it (override) → PostgresConnection() → install() → RedisConnection()
 # app.backend.postgres   →  PostgresConnection
 # app.backend.redis      →  RedisConnection
-# app.backend.settings   →  SettingsStore (System Settings)
+# app.backend.settings   →  SettingsStore (System Settings; built on first use)
 ```
 
 **`health()`:** returns `{"POSTGRES": bool, "REDIS": bool}`. Each service is checked independently, so one failure doesn't mask the other.
 
-**`reload_postgres(config)` / `reload_redis(config)`:** hot-reload without a restart, from the Server Management UI.
-- Both write the new values to `config/runtime.env` (atomically, owner-only).
-- Switching Postgres also runs `install()` on the new database.
+**`move_postgres(config)`:** the database move's last step (`src/webapp/db_move.py`, after the data was copied): `switch_to` the copy — reconnect, then `install_extras` (Grafana's read grants; **never** `install()`, which would seed the factory admin into the copy) — anything failing after the reconnect puts the connection back on the old database. **`reload_redis(config)`:** the live Redis switch (`db_move.switch_redis`). `bundled_postgres()` / `bundled_redis()`: where the way back goes. Both write `config/runtime.env` atomically, owner-only.
 
-**`connection_modes()`:** `bundled` or `external` per service, from the host of the live connection: `localhost`/`127.0.0.1` or the compose service name (`postgres`, `redis`) is bundled.
+**`connection_modes()`:** `bundled` or `external` per service (`ServiceConnection.mode`).
 
 **`encrypted_sample()`:** returns one stored Fernet token, for the startup key check.
 
 ### `install()` (`src/db/install.py`)
-Runs at every start, and again after a Postgres switch. It is idempotent.
+Runs at every start (not after a database move: the copy already holds the data and its seeds). It is idempotent.
 1. **Migrations:** `alembic upgrade head` on the app's own connection.
 2. **Factory admin:** seeds `admin`/`admin` if missing.
 3. **Settings:** seeds any missing System Setting rows.
-4. **Grafana's read access** (`install_extras`, also after a database move).
+4. **Grafana's read access** (`install_extras`, also run alone by a database move).
 
 The nightly clean-up (`src/db/retention.py`, in the app — no pg_cron since 9.9a), daily at 03:00 server time; its last outcome is shown on System Settings → Retention. Each statement reads its period from `system_settings` when it runs, so a change applies at the next run without a restart:
 
@@ -459,7 +463,7 @@ The nightly clean-up (`src/db/retention.py`, in the app — no pg_cron since 9.9
 ### System Settings (`src/db/settings.py`)
 Admin-editable runtime settings. The `system_settings` table is the **only runtime source**.
 
-**The registry `SETTINGS`:** each `Setting` has a key, label, help text, card, default, range and kind. It also has an `applies` value, which says when a change takes effect. It can optionally name an install-time env var, and it marks whether the retention statements read it via SQL.
+**The registry `SETTINGS`:** each setting is one of the `Setting` kinds (an ABC: `IntSetting` — a range, and `sql_value()` for the retention statements —, `TextSetting` — trimmed, optionally a format and a length —, `ChoiceSetting` — one of a fixed list, a dropdown on the page: `BackupSchedule`, `Weekday`), with a key, label, help text, card and default; `parse()` checks a typed value, `coerce()` a stored one. It also has an `applies` value, which says when a change takes effect. It can optionally name an install-time env var, and it marks whether the retention statements read it via SQL.
 
 | Setting | Card | Default | Range | A change applies |
 |---|---|---|---|---|
@@ -470,8 +474,13 @@ Admin-editable runtime settings. The `system_settings` table is the **only runti
 | Concurrent rollout jobs (`orchestrator_workers`) | Rollouts | 4 | 1–32 | after restart (seed: `ORCHESTRATOR_WORKERS`) |
 | Devices in parallel per job (`device_parallelism`) | Rollouts | 10 | 1–64 | next rollout |
 | Reachability cache (`reachability_cache_seconds`) | Rollouts | 60 | 10–3600 | immediately |
-| Hostname (`public_hostname`) | Access | "" (auto-detect) | — | next start (seed: `NETROLLOUT_PUBLIC_HOSTNAME`) |
-| HTTPS port (`https_port`) | Access | 443 | 1–65535 | next start (seed: `NETROLLOUT_HTTPS_PORT`) |
+| Hostname (`public_hostname`) | Access | "" (no canonical name) | — | immediately (seed: `NETROLLOUT_PUBLIC_HOSTNAME`) |
+| HTTPS port (`https_port`) | Access | 443 | 1–65535 | once confirmed on the new port (seed: `NETROLLOUT_HTTPS_PORT`) |
+| Sign out after inactivity (`session_idle_minutes`) | Sessions | 15 | 5–480 | within 30 s |
+| Scheduled backup (`backup_schedule`) | Backups | daily | off / daily / weekly | next scheduled time |
+| At (`backup_time`) | Backups | 02:00 | HH:MM | next scheduled time |
+| On (`backup_weekday`) | Backups | Sunday | a weekday | next scheduled time |
+| Keep (`backup_keep`) | Backups | 14 | 1–365 | next scheduled backup |
 
 - **Seeding:** `install()` inserts a row for every missing setting. The value is the env seed if it is set and valid, else the default. Existing rows are **never overwritten**, and env vars are ignored after that.
 - **Rules:** cross-setting rules are declarative `RULES`, sent to the page as data (`rules_for_client()`) and enforced on both server and client:
@@ -480,11 +489,11 @@ Admin-editable runtime settings. The `system_settings` table is the **only runti
 - **`SettingsStore`:**
   - `get(key)` coerces a bad stored value to the nearest valid one and never raises;
   - `values()` and `list_for_display()`;
-  - `update(values, user_id)` is all-or-nothing, runs range and rule checks, and returns the changes, which are audited;
+  - `plan(values)` validates without writing (the changes it would make); `update(values, user_id)` is all-or-nothing, runs range and rule checks, and returns the changes (`Change`), which are audited — a failure raises `SettingsError` ({key: message});
   - `reset(key)` writes the default;
   - `restart_only_values()` / `restart_pending()` drive the "restart pending" marker.
-- **`sql_value(key)`:** gives the retention statements a `COALESCE((SELECT value …), default)` expression.
-- **The hostname and HTTPS port reach nginx** (Phase 4 stage 8, `src/access/nginx.py` / `port.py`): a saved hostname applies live — the app writes values (`config/nginx/site.env`), never nginx syntax; nginx's watcher validates, renders and reloads; a refused change is rolled back. A new HTTPS port goes to the host-side port helper (stage 9) as a confirm-or-roll-back trial; without it, `netrollout apply`.
+- **`sql_value(key)`** (`IntSetting.sql_value`): gives the retention statements a `COALESCE((SELECT value …), default)` expression.
+- **The hostname and HTTPS port reach nginx** (Phase 4 stage 8, `src/access/`; the pages save them through `Access.save`, `service.py`): a saved hostname applies live — the app writes values (`config/nginx/site.env`), never nginx syntax; nginx's watcher validates, renders and reloads; a refused change is rolled back. A new HTTPS port goes to the host-side port helper (stage 9) as a confirm-or-roll-back trial; without it, `netrollout apply`.
 
 ---
 
@@ -493,7 +502,7 @@ Admin-editable runtime settings. The `system_settings` table is the **only runti
 ### `__main__.py` — entry point (`python -m src.webapp`)
 1. **App:** `create_app()`. A `StartupError` (missing secret in a container, encryption key problem) exits with a readable message.
 2. **SIGTERM:** `app.shutdown.begin(drain_seconds(), restart=False)` — drain, then exit (`docker stop`, `netrollout stop` / `update`).
-3. **Background:** starts the daily log pruning.
+3. **Background** (each a `runtime.PeriodicTask`): `LogPruner` (daily), `CertificateUpkeep` (hourly: previous hostnames leave the self-signed certificate), `BackupScheduler` and `NightlyCleanUp` — the last two wait (`hold`) while a database move runs.
 4. **Announcer:** in development, the startup announcer below; in a container, one line with the expected URL (`container_announcement`) — the host-side check is the installer and `netrollout status` calling `/_netrollout/health`.
 5. **Serve:** Waitress `serve()` on `0.0.0.0:$PORT` (default 8080).
 
@@ -504,28 +513,30 @@ In a container nothing is probed: its console isn't watched and the published po
 
 The public URL comes from the *Hostname* / *HTTPS port* settings; with no hostname set, it is `https://localhost` (the old auto-detect from `docs/nginx/nginx.conf` was retired in stage 8 with that file). The check confirms that nginx forwards to *this* process, then prints the address people should use, with a message that fits the case (proxy missing, wrong upstream, DNS, …). On a desktop launch it opens that address in the browser (`NETROLLOUT_OPEN_BROWSER=0` disables this).
 
-### `setup.py` — app factory
-`launch_app()` is the composition root.
-1. **Backend and encryption:** resolves `SECRET_KEY` first (fail fast), builds `BackendServices`, then runs the encryption key check.
-2. **Settings:** reads the restart-only settings; these become `SETTINGS_STARTED_WITH`.
-3. **Services:** creates the orchestrator and `WebServices`, then the Flask app (`template_folder='../../templates'`, `static_folder='../static'`).
-4. **Configuration:** sets the instance token, the config, extensions and handlers, and the Prometheus collector.
-5. **Sessions:** clears the old `redis_session:*` sessions, so every restart logs everyone out.
+### `build.py` — app factory
+`launch_app(backend=None)` is the composition root (tests pass their own `BackendServices`).
+1. **Secrets:** resolves `SECRET_KEY` first and requires the encryption key in a container (fail fast); seeds the hostname from `site.env` (the installer's) before the settings are seeded.
+2. **Backend and encryption:** builds `BackendServices` (unless given), then runs the encryption key check.
+3. **Settings:** reads the restart-only settings; these become `app.settings_started_with`.
+4. **Services:** the orchestrator, `Maintenance`, `WebServices`, then the Flask app (`NetRolloutApp`, `template_folder='../../templates'`, `static_folder='../static'`), with `Shutdown`, `Access` and `DatabaseMove`.
+5. **Configuration:** the instance token, the config, the maintenance gate (the first request hook), extensions and handlers, the Prometheus collector.
+6. **Sessions:** `app.sessions` (`SessionStore`) clears every `redis_session:*`, so every restart logs everyone out; leftover job state is cleared (`clear_stale_jobs`); nginx gets the saved hostname (`sync_at_start`).
 
-Blueprints are registered in `create_app()` (`src/webapp/build.py`).
+Blueprints are registered in `create_app()`.
 
 ```python
 app.backend       →  BackendServices
-app.web           →  WebServices
+app.web           →  WebServices (the audit, the reachability checks)
 app.orchestrator  →  RolloutOrchestrator
 app.shutdown      →  lifecycle.Shutdown (drain, then exit; relaunch in dev)
+app.maintenance   →  lifecycle.Maintenance (a database move's pause and lock)
+app.db_move       →  db_move.DatabaseMove
+app.access        →  access.service.Access (hostname, HTTPS port, certificate)
+app.sessions      →  accounts.users.SessionStore
+app.instance_token, app.settings_started_with, app.app_port   (typed on NetRolloutApp)
 ```
 
-- **Sessions:** server-side in Redis via Flask-Session, prefix `redis_session:`, not permanent. The cookie is `Secure`, `HttpOnly`, `SameSite=Lax`. A session ends after `session_idle_minutes` (System Settings, default 15) without user activity — background requests (`X-NR-Background: 1`, `?_bg=1`, the live log stream) don't count but are checked — and after 12 hours regardless; the page warns a minute ahead (`_idle_timeout.html`) and returns to the page after signing in again (`?next=`). Every app start clears all sessions on purpose (a restart / update / reboot starts clean, like a firewall's management plane; rollouts don't depend on sessions).
-- **`_SafeRedisSessionInterface`:** catches `REDIS_UNAVAILABLE` on open and save and returns an empty session instead of crashing. Its `client` is looked up per request from `backend.redis`, so a Server Management Redis switch keeps sign-ins working. It is the app's only session interface, set in `launch_app()` (Flask-Session's `Session(app)` isn't used: it would build one only to be replaced).
-- **Proxy headers:** `ProxyFix(x_for=1, x_proto=1, x_host=1)` sits behind nginx.
-- **Drain banner:** a context processor gives every template `server_draining`; `_drain_banner.html` (in both base templates) says new rollouts are paused and reloads the page when a new instance answers. The Restart modal and script are shared includes too (`_restart_modal.html`, `_restart_script.html`).
-- **Vendor logos:** `VENDOR_LOGOS` (device_type → Simple Icons CDN URL) is a Jinja global.
+`src/webapp/app.py` types these: `NetRolloutApp(Flask)` declares them, and the pages import its `current_app` (the same proxy, typed), so `current_app.backend.postgres` is checked like any other attribute.
 
 ### `hooks.py` — module-level Flask extensions and the request hooks
 Extensions are created at module level so blueprints can import them at definition time.
@@ -537,26 +548,28 @@ csrf = CSRFProtect()
 ```
 
 - **`register_extensions(app)`:** calls `init_app()` on each and initializes `PrometheusMetrics` (`/metrics`).
-- **`register_auth(app)`:** registers the user loader and the session checks (the session's lifetime: `src/accounts/users.py`).
+- **`register_auth(app)`:** registers the user loader and the session checks (`enforce_session_lifetime`, the forced password change; the limits: `src/accounts/users.py`).
+- **The request's side of the sessions** (the store is `app.sessions`): `session_seconds_left`, `mark_signed_in`, `signed_in_user(db_session)`, `end_user_sessions` (→ `SessionStore.end_for`), `signed_in_users` (→ `SessionStore.signed_in`).
 - **`register_handlers(app, backend)`:**
   - CSRF error handler;
   - service-unavailable (503) handler for Postgres `OperationalError` and Redis connection/timeout errors, which renders a page saying which service is down;
   - invalid-encryption-key handler, which renders `key_error.html` explaining what to do.
 
 ### `http.py` — shared web helpers
-**`WebServices(backend)`**, attached to `app.web`. It has helpers used by two or more blueprints:
-- `audit(action, *, object_type, object_id, object_label, success, detail)` — writes one `AuditLog` row in its own session
-- `act_on_db_obj(model, obj_id, func, user_id, many, …)` — generic load-check-act dispatcher, with the ownership check
-- `update_op(...)`, `delete_op(...)` — operation factories for `act_on_db_obj`; `get_label(obj)`
-- `build_security_profile(...)` — encrypts and builds a profile
-- `get_property_defs(user_id)` — system and user property definitions
+**`WebServices(backend, maintenance)`**, attached to `app.web`:
+- `audit(action, *, object_type, object_id, object_label, detail, success, username, actor_id)` — the request's audit row through `AuditTrail.record` (`src/audit.py`: its own session, an `AuditAction`, an `Actor`); printed instead while maintenance blocks writes
+- `audit_trail` — the `AuditTrail` (also for the database move and the scheduler, which have no request)
 - `reachability` — the shared `ReachabilityChecker`
 
-**Module functions:**
+**Module functions and types:**
 - responses and decorators: `ok()`, `err()`, `require_admin`, `with_json`, `with_form`, `flash_redirect`;
-- elsewhere: device visibility and duplicate endpoints (`visible_devices_clause`, `query_visible_devices`, `can_edit_device`, `same_endpoint_devices`, `same_endpoint_warning`, `partition_devices`) in `src/inventory.py`; `compile_query_rules(node, allowed_fields)` (jQuery QueryBuilder → SQLAlchemy expression) with `QUERY_OPS` in the analytics blueprint; `build_kpi(results_30d, label_map)` and `job_status` in `src/jobs.py`.
+- `is_background()` (a page's own request: `X-NR-Background: 1`, `?_bg=1`, the live log) and `Caller` — an enum whose members are the signs that make a request a script's in each situation (`SCRIPT`, `SESSION_CHECK`, `JSON_BODY`, `STREAM_AWARE`), asked with `wants_json()`;
+- `viewer()` — the signed-in user as the data layer's rules see them (`Viewer`, built once per request);
+- `load_owned(session, model, obj_id, can_access=None)` — a row the request may act on, else `NotFound` (none and not yours are the same answer); `Refused` — a refusal in words; both raised in the session block and caught by the route outside it.
 
-**Constants:** `SYSTEM_PROPERTIES`. The analytics field and column lists live in `analytics.py`. `validate_mapping_fields` lives in `mappings.py`, and `user_owns_job` in the jobs blueprint.
+The domain rules live in the services, not here: device visibility, edit rights and shared endpoints in `InventoryView` (`src/inventory.py`), the jobs' owner-or-admin rule in `JobResults` (`src/results.py`); `compile_query_rules(node, allowed_fields)` (jQuery QueryBuilder → SQLAlchemy expression) with `QUERY_OPS` in the analytics blueprint; `build_kpi(results_30d, label_map)` and `job_status` in `src/jobs.py`.
+
+**Constants:** `SYSTEM_PROPERTIES` (`src/inventory.py`). The analytics field and column lists live in `analytics.py`, `validate_mapping_fields` in `mappings.py`.
 
 ### `blueprints/`
 Each blueprint owns its routes and route-specific helpers. Blueprints reach `app.web`, `app.backend` and `app.orchestrator` through `current_app` inside routes, never at module level. Every route except the public ones requires login, and every `/admin` route requires the admin role. This is enforced for all routes by `tests/integration/test_route_matrix.py`.
@@ -572,11 +585,11 @@ Each blueprint owns its routes and route-specific helpers. Blueprints reach `app
 | `properties` (in `mappings.py`) | `/properties` | list, `/create` + `/quick_create`, `/<id>/edit`, `/<id>/delete` |
 | `analytics` | `/analytics` | KPI page, `/query` (POST, own results) |
 | `admin_users` | `/admin` | admin home, `/users`, `/users/<id>/<action>` (approve, enable, disable, promote, demote, delete, reset_2fa, terminate_session), `/users/<id>/reset_password` (JSON: a temporary password, shown once), `/users/bulk/<action>`, `/sessions`, `/sessions/<id>/kick` |
-| `admin_servers` | `/admin/server` | Server Management page; `/postgres/{test,save}`, `/redis/{test,save}`; `/restart` (with rollouts running or queued: 409 unless `mode` is `when_finished` (drain) or `now` (cancel)) |
+| `admin_servers` | `/admin/server` | Server Management page; `/database/{sql,prepare,check,move,move-back,move/status,move/cancel}`; `/redis/{test,save,back}`; `/certificate` (upload), `/certificate/selfsigned`; `/rollouts`; `/restart` (with rollouts running or queued: 409 unless `mode` is `when_finished` (drain) or `now` (cancel)) |
 | `admin_ldap` | `/admin/server` | the 12 LDAP routes: `/ldap`, new, save, delete, test, test_user, fetch_dn, explore, import, groups list/toggle/delete |
 | `admin_observability` (in `analytics.py`) | `/admin` | `/analytics`, `/analytics/query` (the audit log's query builder), `/active_job_count` |
 | `admin_audit` | `/admin` | `/audit` (the audit log) |
-| `admin_settings` | `/admin/settings` | page, save (POST), `/<key>/reset`, `/test` (public URL check) |
+| `admin_settings` | `/admin/settings` | page, save (POST), `/<key>/reset`, `/port` (status), `/port/confirm`, `/port/retry`, `/test` (public URL check) |
 | `admin_backups` (in `admin_settings.py`) | `/admin/backups` | list, POST = back up now, `/<name>` download, `/<name>/delete` |
 | `system` | — | `/_netrollout/instance` (public; no session written), `/_netrollout/health` (public; Postgres/Redis up, rollout counts, draining, version; 200 or 503) |
 
@@ -587,8 +600,8 @@ Plus `/metrics` (Prometheus; `404` at nginx, scraped from the app directly).
 POST /login
   local user  →  check_password_hash → approval/active gates → start_otp_flow()
                  (the factory "admin" account skips 2FA)
-  ldap user   →  user_bind() → approval/active gates → complete_login()   (no 2FA)
-  unknown     →  login_ldap_group() → check_group_membership() → auto-provision → complete_login()
+  ldap user   →  Directory.user_bind() → approval/active gates → complete_login()   (no 2FA)
+  unknown     →  login_ldap_group() → Directory.check_group_membership() → Accounts.new_ldap() → complete_login()
 
 start_otp_flow()
   → session["pre_auth_user_id"] = user.id
@@ -605,7 +618,7 @@ Admins can reset a user's 2FA; the user re-enrols at the next login.
 
 **Signing a user out everywhere** (`src/accounts/users.py`, `SessionStore.end_for`; the pages call `webapp/hooks.end_user_sessions`): every `redis_session:*` is decoded with flask-session's serializer and the user's (`_user_id`) are deleted — complete and cheap at this scale; a per-user index would be faster but miss existing sessions and need expiry cleanup (the earlier `user_session:<id>` pointer, latest sign-in only, was dropped in the 2026-10 clean-up: nothing read it). Live Sessions and the Users page read the sessions the same way (`SessionStore.signed_in`).
 
-**Real-time logs:** `/rollout/stream/<job_id>` is Server-Sent Events. It subscribes to the pub/sub channel `job:<id>:logs`, then replays `job:<id>:history` (LRANGE) and tails the channel, skipping a numbered message (`<n>	<line>`) the history already held; a heartbeat comment every 0.5 s; a queued job's stream first says it's queued. The response sets `X-Accel-Buffering: no` so nginx doesn't buffer.
+**Real-time logs:** `/rollout/stream/<job_id>` is Server-Sent Events (`RolloutJob.follow_log` → `LiveLog.follow`). It subscribes to the pub/sub channel `job:<id>:logs`, then replays `job:<id>:history` (LRANGE) and tails the channel, skipping a numbered message (`<n>	<line>`) the history already held; a heartbeat comment every 0.5 s; a queued job's stream first says it's queued. The response sets `X-Accel-Buffering: no` so nginx doesn't buffer.
 
 ---
 
@@ -688,3 +701,99 @@ Custom              the admins' own (Save as, new dashboards, subfolders) — ne
 | `AuditLog.actor_username` | Denormalized | Audit records survive user deletion; no orphaned FK |
 | `reload_db()` | Raises `RuntimeError` if the new server is unreachable | Silent failure would leave the app pointing at a broken connection |
 | Startup proxy check | Per-run token fetched through nginx | Proves the proxy reaches *this* process (not a stale one) and tells the operator the right URL |
+| Domain services | `Service(session, viewer)` per area; raise, the route catches outside its session block | One home per rule and query; a refused change rolls back instead of committing half (§11) |
+| Multi-system changes | The `Access` facade (settings, certificate, `site.env`, the port request) | One all-or-nothing call instead of undo steps written by hand in each route |
+
+---
+
+## 11. The object model
+
+Built in the OOP redesign before rc1 (2026-10-09/10; behaviour unchanged). The rules it follows:
+- **A class only for a real thing with state and behaviour** — a rule without state stays a function (the input checks, `classify`, `job_status`, the file protocol of `site.env` / `status.json`).
+- **An ABC** when we own the whole family and the base shares code: an incomplete variant fails when it's created, not in production. **A Protocol** when the implementer is foreign (Netmiko, redis-py, flask-session) or a test fake stands in: structural, checked by mypy, nothing shared. **A `Callable`** for a one-call contract (`hold`, `retention_days`, the per-call `postgres` / Redis lookups that follow a database move or a Redis switch).
+- **An enum** when a closed set of values is spelled twice or crosses a boundary (Redis, a file, the database, JSON, a script's exit code); its values are what those places hold, so they never change — a new value is a new member.
+- **`isinstance` only to validate external data** (JSON from a file, a request or an API, Redis bytes), never to choose behaviour.
+- **One file = one concern**; a name says what it is, not how it's used.
+- **Services raise, routes catch outside the session block.** A domain service works in the caller's session (the caller commits) and raises its refusal; the route catches it after the `with` block, so the session rolls back — a route that returned an error from inside its block used to commit half a change.
+
+### Rollout core (`src/rollout/`)
+| Class | Kind | Owns |
+|---|---|---|
+| `Device` | dataclass | where a target is, its credentials (decrypted), its mappings and the values they read: `unresolved()`, `commands_for()`, `from_inventory()` (the one decryption boundary) |
+| `RolloutEngine` | class | one rollout's devices, commands and options; `run()` pushes in parallel, verifies, classifies |
+| `NetmikoSession` | class | one device's SSH conversation: `connect()`, `push()` (into the CLI shell and config mode, line by line, then the platform's finish), `fetch_config()` |
+| `RunReport` | class | what a rollout tells: the log lines (through its `Notifier`) and what only a person can resolve, per endpoint |
+| `Finish` → `SaveConfig`, `Commit`, `RunCommand`, `NoFinish` | ABC (strategy) | how a pushed change takes effect and is kept: `before_leave`, `after_leave`, `in_new_session`; defaults shared in the base. A `Platform` row in `PLATFORMS` names one |
+| `ConfigSession`, `Target`, `Report` | Protocols | what a finish needs: Netmiko's connection methods (the tests' mocks fit), a device's endpoint, where it reports |
+| `Notifier` | Protocol | what the engine and sessions need from a logger (`notify`) |
+| `RolloutLogger` | class | one rollout's log file and its one `Echo` |
+| `Echo` → `Console`, `LiveLog` | Protocol (strategy) | where notable messages are shown and how they're dressed (ANSI / HTML); `LiveLog` also is the live log's history, channel, `follow()` and `close()` |
+| `KeyValueStore` | Protocol | the Redis client as NetRollout uses it — so `src/rollout/` never imports redis (the CLI `.exe`) |
+| `LogPruner` | `PeriodicTask` | the logs folder's daily clean-up |
+| `RolloutOptions`, `VerifyResult`, `PushResult`, `DeviceResultDict` | values | how a rollout runs, how push and verify went, a device's row |
+| `DeviceStatus`, `Tone` | enums | a device's outcome (the `device_results.status` values), a message's tone |
+
+`InputParser` and `Validator` (`inputs.py`) read the CLI / import files; the checks themselves are functions.
+
+### Jobs and results (`src/jobs.py`, `src/results.py`, `src/audit.py`)
+| Class | Owns |
+|---|---|
+| `RolloutOrchestrator` | the web app's rollouts: submit, cancel, the dispatcher, drain (stop / restart), pause (a database move) |
+| `RolloutJob` | one rollout: its engine, logger and live log, thread, cancel flag and results; `claim()` — claimed once, by the dispatcher to start it or by a cancel / the drain to record it |
+| `JobStore` | the job keys in Redis — the one place that spells them (a `KeyValueStore` client) |
+| `ResultRecorder` | finished jobs' results into Postgres — retried, else a JSON file in `logs/`; `busy()` while saving (a move and a stop wait for it) |
+| `JobMeta`, `RolloutRow`, `JobStatus` | a job's hash typed, a waiting list's row (the JSON the scripts and the Manager parse), a job's status |
+| `JobResults` | finished jobs as the viewer may see them: the one owner-or-admin rule (`may_see`; a job someone may not see is answered as one that doesn't exist), Results' pages (`JobPage`, `JobScope`), summaries, config snapshots (`ConfigSnapshot`), the admin `?user=` scope, the last 30 days |
+| `AuditTrail`, `Actor`, `AuditAction` | the one writer of audit rows (its own session), who did it (a user or the server itself), every action a row can record |
+
+### Inventory and accounts (`src/inventory.py`, `src/accounts/`)
+| Class | Owns |
+|---|---|
+| `InventoryView(session, viewer)` | the inventory as one user sees it: visibility and edit rights, shared endpoints, label maps (`LabelScope` VISIBLE / OWN / ANYONE), property definitions and attribute values, mapping bindings, the device-saving rules (`save_device(DeviceFields)` → `SavedDevice`, `RuleRefused`) |
+| `SecurityProfiles(session, viewer)` | the viewer's profiles — their secrets are encrypted here, in one place |
+| `ReachabilityChecker` | TCP probes in parallel, cached in Redis |
+| `Viewer` | who the rules are about: an id and whether an admin (built once per request; a rollback uses the job owner's) |
+| `Accounts(session)` | one way to make a local account (Request access, Add user) or a directory one, the case-insensitive lookups, the access requests waiting |
+| `SessionStore` | the signed-in sessions in Redis: whose, signing a user out everywhere, who is signed in, the clean start, the idle limit (cached); `SessionSerializer` (Protocol) is flask-session's — no Flask import in `users.py` |
+| `Directory(server)` | one configured LDAP server: sign-in, groups, details, the admin page's tools — the bind type is its own business |
+
+### Database, settings, backups (`src/db/`, `src/backup/`, `src/runtime.py`)
+| Class | Kind | Owns |
+|---|---|---|
+| `BackendServices` | facade | Postgres, Redis and the settings, one of each per process; a move's and a switch's entry points; its `RuntimeEnv` injectable |
+| `ServiceConnection` → `PostgresConnection`, `RedisConnection` | ABC (template method) | the bundled-or-yours rule and the live switch written once; each service supplies only its hooks |
+| `RuntimeEnv` | class | `config/runtime.env`: loading it, merging a switch's keys, the remembered bundled addresses |
+| `Setting` → `IntSetting`, `TextSetting`, `ChoiceSetting` | ABC | a setting's rules (`parse`, `coerce`), its page fields, its seed |
+| `SettingsStore` | class | reading and changing the settings — always the table; `plan()` / `update()` all or nothing |
+| `BackupFolder`, `BackupLock` | classes | the backups in the folder (`entries()`), the scheduled ones' retention (`prune`), one backup or restore at a time (`lock()`), the last scheduled outcome |
+| `PeriodicTask` → `NightlyCleanUp`, `BackupScheduler`, `CertificateUpkeep`, `LogPruner` | ABC | a daemon loop: an optional first wait, `run_once()` every interval, a failure reported (`failed()`, may arrange a retry), `hold()` for "not now" |
+| `ServiceMode`, `Role`, `AuthType`, `BindType`, `BackupKind`, `BackupSchedule`, `Weekday` | enums | values stored in the database, `runtime.env` or a backup's name |
+
+### Access (`src/access/`)
+| Class | Owns |
+|---|---|
+| `Access` | facade (`app.access`): saving the hostname and port with nginx and the port helper following them, the certificate upload / self-signed — every multi-system change all or nothing (`SaveResult`) |
+| `Nginx` | nginx from the app's side: whether one reports here (`managed`), its verdicts (`Verdict`, `VerdictState`), `apply(change)` — a change it must accept, undone when rejected; `change_hostname`, `overview` |
+| `CertificateStore` | the certs folder: the pair nginx serves, the self-signed marker, the previous names' deadlines; every change under one lock from a snapshot, its undo putting back only what no later change replaced |
+| `Certificate` → `SelfSigned`, `Organisation` | ABC (strategy, `CertificateStore.current()` the factory): what a new hostname (`rename_to`) and the upkeep (`drop_expired`) do to it — reissue, or refuse / nothing |
+| `ApplyStatus`, `ApplyState`, `PortPageState` | the port helper's answer typed, its states, what the page shows |
+
+The file protocols themselves (`site_env.py`, `nginx.write_site` / `read_status`, `port.request_port` / `confirm`) stay functions: no state of their own.
+
+### Web app (`src/webapp/`)
+| Class | Owns |
+|---|---|
+| `NetRolloutApp` | Flask with the typed services (`app.*`, §7) |
+| `WebServices` | the request's audit row and the reachability checks |
+| `Shutdown` | this process's stop or restart: at most one, begun once, the drain |
+| `Maintenance` (+ `MaintenanceState`) | a database move's waiting and lock: the gate that answers 503, the requests under way counted, the writes held |
+| `DatabaseMove` (+ `MoveStatus`, `MoveState`) | one database move at a time, in the background: wait, lock, copy, switch; cancel; its outcome for the page |
+| `Caller` | an enum used as a light strategy: which signs make a request a script's in each situation |
+| `NotFound`, `Refused` | a route's refusals, raised in its session block |
+
+### Deliberately not built
+- **`BaseConnector` ABC + `ConnectorFactory`** (the old Phase 5 plan): one backend (Netmiko); with one there is nothing to choose between. Both come the day a second backend is being written — one file then.
+- **A template-method engine:** needs a second kind of rollout (a dry run, a staged rollout) to be worth it.
+- **`Repository[T]` + unit of work:** SQLAlchemy's `Session` already is the unit of work and the mapped classes the data mapper; generic repositories would only re-wrap `session.get` / `add`, and their usual payoff (in-memory fakes) doesn't apply when the tests run on a real Postgres. The per-area services give every query and rule one home instead.
+- **The State pattern** (jobs, maintenance, the move, the port helper): linear flows; an enum fits, and jobs must keep "claimed counts as running".
+- **Observer for the finalize steps:** a fixed, ordered sequence with step-specific error handling; a subscriber list would hide the order.
