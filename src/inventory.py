@@ -269,7 +269,6 @@ def set_system_values(device: Inventory,
 class LabelScope(StrEnum):
 	"""Whose devices name the IPs in a label map (InventoryView.label_map)."""
 	VISIBLE = "visible"   # the viewer's own and the global ones - their own win
-	OWN = "own"           # the viewer's own only
 	ANYONE = "anyone"     # anyone's inventory (what an admin is shown)
 
 
@@ -420,8 +419,6 @@ class InventoryView:
 		""":returns: the query limited to the scope's devices"""
 		if scope is LabelScope.VISIBLE:
 			return query.filter(visible_devices_clause(self.viewer.id))
-		if scope is LabelScope.OWN:
-			return query.filter(Inventory.user_id == self.viewer.id)
 		return query
 
 	# ── properties and attribute values ──

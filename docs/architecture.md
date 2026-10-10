@@ -749,7 +749,7 @@ Built in the OOP redesign before rc1 (2026-10-09/10; behaviour unchanged). The r
 ### Inventory and accounts (`src/inventory.py`, `src/accounts/`)
 | Class | Owns |
 |---|---|
-| `InventoryView(session, viewer)` | the inventory as one user sees it: visibility and edit rights, shared endpoints, label maps (`LabelScope` VISIBLE / OWN / ANYONE), property definitions and attribute values, mapping bindings, the device-saving rules (`save_device(DeviceFields)` → `SavedDevice`, `RuleRefused`) |
+| `InventoryView(session, viewer)` | the inventory as one user sees it: visibility and edit rights, shared endpoints, label maps (`LabelScope` VISIBLE / ANYONE), property definitions and attribute values, mapping bindings, the device-saving rules (`save_device(DeviceFields)` → `SavedDevice`, `RuleRefused`) |
 | `SecurityProfiles(session, viewer)` | the viewer's profiles — their secrets are encrypted here, in one place |
 | `ReachabilityChecker` | TCP probes in parallel, cached in Redis |
 | `Viewer` | who the rules are about: an id and whether an admin (built once per request; a rollback uses the job owner's) |

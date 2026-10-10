@@ -58,7 +58,7 @@ def analytics() -> str:
 		results_30d = history.recent(scope_user_id)
 
 		inv_label_map = InventoryView(db_session, Viewer(scope_user_id)).label_map(
-			LabelScope.OWN)
+			LabelScope.VISIBLE)
 		users = Accounts(db_session).for_admin_picker() if viewer().is_admin else []
 		db_session.expunge_all()
 

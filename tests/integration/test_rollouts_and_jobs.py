@@ -1285,6 +1285,19 @@ def test_analytics_query_is_scoped_and_allowlisted(operator, client_for,
 	assert client.get("/analytics").status_code == 200
 
 
+def test_analytics_names_a_failed_global_device_by_its_label(
+		operator, client_for, session_scope, make_user, make_profile, make_device):
+	"""The operator's Analytics names the most-failed device from the devices
+	they can see - a global device by its label, as the dashboard does."""
+	admin = make_user(role="admin")
+	make_device(admin, ip="10.9.9.9", label="CORE-GLOBAL", is_global=True,
+	            profile_id=make_profile(admin))
+	add_result(session_scope, operator.user, uuid.uuid4(), ip="10.9.9.9",
+	           status="failed")
+	page = client_for(operator.user).get("/analytics").get_data(as_text=True)
+	assert "CORE-GLOBAL" in page
+
+
 def test_admin_analytics_query_with_a_user_that_is_not_a_string(client_for,
                                                                 session_scope,
                                                                 make_user):
