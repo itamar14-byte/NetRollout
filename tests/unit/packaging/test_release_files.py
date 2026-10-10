@@ -584,3 +584,65 @@ def test_a_failed_update_is_told_retry_now_or_setup_again_later():
 	backup = ps1_function(ps1, "Backup-KeptData")
 	assert backup.count("run Setup again, or netrollout start (both finish the update)") == 2
 	assert "then Retry (or run Setup again)" not in ps1
+
+
+def test_kept_data_locks_the_folder_unless_starting_fresh():
+	"""Kept data found at Setup's start (the KeptData record or the default folder) locks
+	the folder page to its folder - even over /DIR= - and says why, naming the folder and
+	the version: updated (a backup first) or started as it was. Before rc2 another folder
+	could be picked: a fresh install on the kept Docker volumes (they belong to the
+	project, not the folder), with new passwords on the old database - broken. "Start
+	fresh instead" unlocks it after one explicit confirmation ("can't be undone", the
+	backups kept), then it is a new install (Settings page, `install`), never into
+	another folder holding kept data; the review page says the data goes first."""
+	text = iss_text()
+	start = pascal(text, "procedure InitializeWizard;")
+	assert "if KeptDir <> '' then begin\n\t\tWizardForm.DirEdit.Text := KeptDir;\n\t\tKeptFolderPage;" in start
+	assert "{param:DIR}" not in start
+	page = pascal(text, "procedure KeptFolderPage;")
+	assert ("'NetRollout''s data is kept in ' + KeptDir + ' (version ' + Version + '), so NetRollout is ' +\n"
+	        "\t\t'installed there - ' + What") in page
+	assert "'your data is updated to {#AppVersion} (a backup is made first).'" in page
+	assert "'it''s started as it was.'" in page
+	assert "FreshBox.Caption := 'Start fresh instead - delete the kept data';" in page
+	assert "your backups in ' +\n\t\tAddBackslash(KeptDir) + 'backups are kept)'" in page
+	click = pascal(text, "procedure FreshClick(")
+	assert "WizardForm.DirEdit.Enabled := FreshBox.Checked;" in click
+	assert "WizardForm.DirBrowseButton.Enabled := FreshBox.Checked;" in click
+	assert "if not FreshBox.Checked then WizardForm.DirEdit.Text := KeptDir;" in click
+	assert "(CurPageID = wpSelectDir) and WizardForm.DirEdit.Enabled" in pascal(text, "procedure CurPageChanged(")
+	nxt = pascal(text, "function NextButtonClick(")
+	fresh = nxt[nxt.index("if (KeptDir <> '') and FreshBox.Checked then begin"):nxt.index("Reinstall := FileExists(")]
+	assert "holds NetRollout data too" in fresh
+	assert "'This can''t be undone." in fresh and "MB_YESNO or MB_DEFBUTTON2, IDNO) <> IDYES" in fresh
+	assert "FreshStart := True;\n\t\t\tReinstall := False;\n\t\t\tKeptUpdate := False;" in fresh
+	assert "the data kept in ' + KeptDir + ' is deleted" in pascal(text, "function UpdateReadyMemo(")
+
+
+def test_starting_fresh_deletes_the_kept_data_first_never_silently():
+	"""Before any file: Setup's temporary manage.ps1 forget-kept (never in a silent run;
+	a failure installs nothing) deletes what the uninstaller's "delete the data" deletes
+	- the kept folder has no compose files any more, so the containers, volumes and
+	network go by the Docker project's label - then .env, config, certs, logs and the
+	update marker, never the backups; the files only once no volume is left (the volumes
+	are the data). Refused, nothing deleted, without -Yes, over an install (VERSION) or
+	while any of the project's containers runs. Then the KeptData record goes."""
+	text = iss_text()
+	prepare = pascal(text, "function PrepareToInstall(")
+	fresh = prepare[prepare.index("if FreshStart and not WizardSilent then begin"):prepare.index("if not (UpdateMode or KeptUpdate) then exit;")]
+	assert "'forget-kept -Yes -InstallDir \"' + KeptDir + '\"'" in fresh
+	assert "nothing was ' +\n\t\t\t\t'installed.'" in fresh
+	assert fresh.index("forget-kept") < fresh.index("ForgetKept(KeptDir);")
+	ps1 = (ROOT / "packaging" / "windows" / "manage.ps1").read_text(encoding="utf-8")
+	assert '"forget-kept" { Invoke-ForgetKept; return 0 }' in ps1
+	forget = ps1_function(ps1, "Invoke-ForgetKept")
+	assert 'if (-not $Yes -or -not $InstallDir) { Fail' in forget
+	assert "if (Test-Path $VersionFile) {" in forget
+	assert '$label = "label=com.docker.compose.project=$Project"' in forget
+	running = forget.index('@("container", "ls", "-q", "--filter", $label)')
+	removes = forget.index('foreach ($kind in "container", "volume", "network") {')
+	left = forget.index('$left = Invoke-Native "docker" @("volume", "ls", "-q", "--filter", $label)')
+	files = forget.index('foreach ($name in ".env", "config", "certs", "logs") {')
+	assert running < removes < left < files
+	assert "backups" not in forget[files:forget.index("Remove-UpdateMarker")]
+	assert "Remove-UpdateMarker" in forget[files:]

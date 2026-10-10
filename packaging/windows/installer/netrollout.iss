@@ -165,6 +165,11 @@ var
 	{ the folder holding kept data found at Setup's start (pre-selected), and
 	  the last folder CheckKept announced (not announced twice) }
 	KeptDir, AnnouncedDir: String;
+	{ the folder page over kept data: its note, "Start fresh instead", and
+	  whether that was chosen (and confirmed): the kept data is deleted first }
+	KeptNote, FreshHint: TNewStaticText;
+	FreshBox: TNewCheckBox;
+	FreshStart: Boolean;
 
 { powershell.exe's arguments: run Script with CommandLine }
 function PsArgs(const Script, CommandLine: String): String;
@@ -518,11 +523,64 @@ begin
 	WizardForm.LicenseMemo.SelStart := 0;
 end;
 
+{ The folder page over kept data: the folder locked, unless "Start fresh
+  instead" is ticked (then any folder; the kept one again when unticked) }
+procedure FreshClick(Sender: TObject);
+begin
+	WizardForm.DirEdit.Enabled := FreshBox.Checked;
+	WizardForm.DirBrowseButton.Enabled := FreshBox.Checked;
+	if not FreshBox.Checked then WizardForm.DirEdit.Text := KeptDir;
+end;
+
+{ The kept data's folder, version and what happens to it, below the folder;
+  "Start fresh instead" below that }
+procedure KeptFolderPage;
+var Version, What: String;
+begin
+	Version := KeptVersion(KeptDir);
+	if Version = '' then Version := 'an early version';
+	if KeptUpdate then What := 'your data is updated to {#AppVersion} (a backup is made first).'
+	else What := 'it''s started as it was.';
+	KeptNote := TNewStaticText.Create(WizardForm);
+	KeptNote.Parent := WizardForm.SelectDirPage;
+	KeptNote.AutoSize := False;
+	KeptNote.WordWrap := True;
+	KeptNote.Caption := 'NetRollout''s data is kept in ' + KeptDir + ' (version ' + Version + '), so NetRollout is ' +
+		'installed there - ' + What;
+	KeptNote.SetBounds(WizardForm.DirEdit.Left, WizardForm.DirEdit.Top + WizardForm.DirEdit.Height + ScaleY(16),
+		WizardForm.DirBrowseButton.Left + WizardForm.DirBrowseButton.Width - WizardForm.DirEdit.Left, ScaleY(30));
+	WizardForm.AdjustLabelHeight(KeptNote);
+	{ a check box's caption is one line: what is deleted, and kept, below it }
+	FreshBox := TNewCheckBox.Create(WizardForm);
+	FreshBox.Parent := WizardForm.SelectDirPage;
+	FreshBox.Caption := 'Start fresh instead - delete the kept data';
+	FreshBox.SetBounds(KeptNote.Left, KeptNote.Top + KeptNote.Height + ScaleY(12), KeptNote.Width, ScaleY(20));
+	FreshBox.OnClick := @FreshClick;
+	FreshHint := TNewStaticText.Create(WizardForm);
+	FreshHint.Parent := WizardForm.SelectDirPage;
+	FreshHint.AutoSize := False;
+	FreshHint.WordWrap := True;
+	FreshHint.Caption := '(the database, settings, certificates and logs; your backups in ' +
+		AddBackslash(KeptDir) + 'backups are kept)';
+	FreshHint.SetBounds(KeptNote.Left + ScaleX(20), FreshBox.Top + FreshBox.Height + ScaleY(2),
+		KeptNote.Width - ScaleX(20), ScaleY(30));
+	WizardForm.AdjustLabelHeight(FreshHint);
+	{ "at least N MB of free space": room for the two, and not what matters here }
+	WizardForm.DiskSpaceLabel.Visible := False;
+	FreshClick(nil);
+end;
+
 procedure InitializeWizard;
 var Busy80: String;
 begin
-	{ kept data found at the start: the install is built there (unless /DIR= says otherwise) }
-	if (KeptDir <> '') and (ExpandConstant('{param:DIR}') = '') then WizardForm.DirEdit.Text := KeptDir;
+	{ kept data found at the start: the install is built there - even with
+	  /DIR= (a silent install elsewhere would start fresh on the kept
+	  database volumes, with new passwords: broken); another folder only by
+	  "Start fresh instead", which deletes the kept data first }
+	if KeptDir <> '' then begin
+		WizardForm.DirEdit.Text := KeptDir;
+		KeptFolderPage;
+	end;
 	ShowFullLicence;
 	DockerPage := CreateCustomPage(wpLicense, 'Docker Desktop', 'NetRollout runs in Docker containers.');
 	DockerState := MakeLabel(DockerPage, '', 0, True);
@@ -647,10 +705,12 @@ begin
 	ManagerBox.SetBounds(WizardForm.FinishedLabel.Left, Top, WizardForm.FinishedLabel.Width, ScaleY(20));
 end;
 
-{ The install-location page: the default selected, so typing replaces it }
+{ The install-location page: the default selected, so typing replaces it
+  (not while it's locked to the kept data's folder: a disabled control
+  can't take the focus) }
 procedure CurPageChanged(CurPageID: Integer);
 begin
-	if CurPageID = wpSelectDir then begin
+	if (CurPageID = wpSelectDir) and WizardForm.DirEdit.Enabled then begin
 		WizardForm.ActiveControl := WizardForm.DirEdit;
 		WizardForm.DirEdit.SelectAll;
 	end;
@@ -708,6 +768,29 @@ var Code, Port: Integer; Who: String;
 begin
 	Result := True;
 	if CurPageID = wpSelectDir then begin
+		FreshStart := False;
+		{ "Start fresh instead": asked once more, then nothing of the kept data
+		  counts - a new install (Settings page); the data is deleted first
+		  (PrepareToInstall). Never into another folder with kept data. }
+		if (KeptDir <> '') and FreshBox.Checked then begin
+			if (CompareText(RemoveBackslashUnlessRoot(WizardDirValue), KeptDir) <> 0) and
+					FileExists(AddBackslash(WizardDirValue) + '.env') then begin
+				SuppressibleMsgBox(RemoveBackslashUnlessRoot(WizardDirValue) + ' holds NetRollout data too. Choose ' +
+					'another folder.', mbError, MB_OK, IDOK);
+				Result := False; exit;
+			end;
+			if SuppressibleMsgBox('Delete the data NetRollout kept in ' + KeptDir + ' - the database, settings, ' +
+					'certificates and logs - and install NetRollout {#AppVersion} fresh in ' +
+					RemoveBackslashUnlessRoot(WizardDirValue) + '?' + #13#10#13#10 + 'This can''t be undone. The ' +
+					'backups in ' + AddBackslash(KeptDir) + 'backups are kept (a new install can restore one).',
+					mbConfirmation, MB_YESNO or MB_DEFBUTTON2, IDNO) <> IDYES then begin
+				Result := False; exit;
+			end;
+			FreshStart := True;
+			Reinstall := False;
+			KeptUpdate := False;
+			exit;
+		end;
 		{ NetRollout's data already there (an uninstall that kept it): its
 		  settings stay, the Settings page is skipped; its version decides
 		  (the same: started; older: updated; newer: refused) - announced
@@ -813,6 +896,9 @@ begin
 		exit;
 	end;
 	Lines := 'Install folder:' + NewLine + Space + WizardDirValue + NewLine + NewLine;
+	if FreshStart then
+		Lines := Lines + 'First:' + NewLine + Space + 'the data kept in ' + KeptDir + ' is deleted (the backups ' +
+			'there are kept)' + NewLine + NewLine;
 	if Reinstall then begin
 		Lines := Lines + 'Settings:' + NewLine + Space + 'kept from the NetRollout already in this folder' + NewLine + NewLine;
 		if KeptUpdate then
@@ -985,6 +1071,23 @@ function PrepareToInstall(var NeedsRestart: Boolean): String;
 var Code: Integer; Log: String;
 begin
 	Result := '';
+	{ "Start fresh instead" (confirmed; never in a silent run): the kept data
+	  goes as the uninstaller's "delete the data" - the folder has no compose
+	  files any more, so by the Docker project's label (forget-kept) }
+	if FreshStart and not WizardSilent then begin
+		Log := ExpandConstant('{tmp}\forget-kept.log');
+		Exec(ExpandConstant('{cmd}'), '/C powershell.exe ' +
+			PsArgs(ExpandConstant('{tmp}\manage.ps1'), 'forget-kept -Yes -InstallDir "' + KeptDir + '"') +
+			' > "' + Log + '" 2>&1', KeptDir, SW_HIDE, ewWaitUntilTerminated, Code);
+		if Code <> 0 then begin
+			Result := 'The data kept in ' + KeptDir + ' wasn''t deleted (or not all of it) - nothing was ' +
+				'installed.' + #13#10#13#10 + LogTail(Log);
+			exit;
+		end;
+		{ deleted: no record of it any more (the uninstaller drops it the same way) }
+		ForgetKept(KeptDir);
+		exit;
+	end;
 	if not (UpdateMode or KeptUpdate) then exit;
 	ForceDirectories(InstalledDir + '\logs');
 	Log := InstalledDir + '\logs\update.log';
