@@ -1,6 +1,6 @@
 """python -m src.setup init | check | prepare-start | status | restore-key |
 check-update | upgrade | release | port-ready | port-next | port-open |
-port-trying | port-close - see src/setup/__init__.py."""
+port-trying | port-close | port-set | port-setting - see src/setup/__init__.py."""
 import argparse
 import sys
 from collections.abc import Callable
@@ -8,6 +8,7 @@ from enum import IntEnum
 from pathlib import Path
 
 from packaging.version import Version
+from sqlalchemy.exc import SQLAlchemyError
 
 from src import runtime
 from src.setup import install, manage, port, update
@@ -73,6 +74,10 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 	ph.add_argument("--message", default="", help="port-close: why (rollback, failed)")
 	ph.add_argument("--timed-out", action="store_true",
 	                help="port-close: the trial's time ran out (the script's stopwatch)")
+	by_hand = p.add_argument_group("port-set / port-setting (netrollout port N: the port by hand)")
+	by_hand.add_argument("--wanted", help="the new port, as typed")
+	by_hand.add_argument("--previous", action="store_true",
+	                     help="port-set: the previous port put back (not checked against busy ports)")
 	p.add_argument("--dev", action="store_true",
 	               help="a developer's .env + config/runtime.env (repo)")
 	return p.parse_args(argv)
@@ -291,6 +296,34 @@ def _release(args: argparse.Namespace, _facts: install.Facts, _read: install.Rea
 	return SetupExit.OK
 
 
+def _port_by_hand(args: argparse.Namespace, facts: install.Facts, _read: install.Read,
+                  write: install.Write) -> int:
+	"""port-set (the files; prints previous=<port>) and port-setting (System
+	Settings, inside the app's container - no .env there).
+
+	:returns: the exit code: INVALID refused or failed, nothing changed"""
+	if args.command == "port-setting":
+		try:
+			port.save_setting(int(args.wanted))
+		except (TypeError, ValueError) as e:      # SettingsError too
+			write(f"The HTTPS port setting refused {args.wanted!r}: {e}")
+			return SetupExit.INVALID
+		except SQLAlchemyError as e:
+			write(f"The database didn't answer - the HTTPS port setting wasn't changed "
+			      f"({type(e).__name__}).")
+			return SetupExit.INVALID
+		return SetupExit.OK
+	if not _installed(write):
+		return SetupExit.INVALID
+	try:
+		previous = port.set_by_hand(args.wanted, None if args.previous else facts.busy_ports)
+	except port.PortRefused as e:
+		write(str(e))
+		return SetupExit.INVALID
+	write(f"previous={previous}")
+	return SetupExit.OK
+
+
 # Each command's handler: (args, facts, read, write) -> the exit code
 Handler = Callable[[argparse.Namespace, install.Facts, install.Read, install.Write], int]
 COMMANDS: dict[str, Handler] = {
@@ -298,6 +331,7 @@ COMMANDS: dict[str, Handler] = {
 	"restore-key": _restore_key, "check-update": _check_update, "upgrade": _upgrade,
 	"release": _release, "port-ready": _port, "port-next": _port, "port-open": _port,
 	"port-trying": _port, "port-close": _port,
+	"port-set": _port_by_hand, "port-setting": _port_by_hand,
 }
 
 

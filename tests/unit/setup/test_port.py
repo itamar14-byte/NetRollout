@@ -4,8 +4,10 @@ install in a scratch folder - and that the app's side of the contract
 import json
 
 import pytest
+from sqlalchemy.exc import OperationalError
 
 from src.access import site_env, port as port_apply
+from src.db.settings import SettingsError
 from src.setup import port
 from src.setup.env import env_read
 from tests.unit.setup.test_setup import home, installed, run  # noqa: F401 - fixture
@@ -185,3 +187,93 @@ def test_a_helper_announces_itself_before_the_first_change(install):
 	assert (recorded["state"], recorded["port"], recorded["id"]) == ("applied", 8443, "")
 	assert port.ready() is False                      # never over a real status
 	assert port.next_step({}, NOW).action == "try"    # the request still goes through
+
+
+# ── netrollout port N ──
+
+def test_a_port_set_by_hand_is_the_port_in_use_everywhere(install):
+	"""port-set --wanted 9443 (the port in use blocked, the app out of reach): .env's
+	HTTPS_PORT and site.env's port are 9443, a pending request is dropped and the
+	helper's status says applied on 9443 - so the helper has nothing to do and the
+	page serves 9443; it prints the previous port for the script to put back."""
+	request(10443)
+	assert run(["port-set", "--wanted", "9443", "--busy-ports", "8443=dev"]) == (0, ["previous=8443"])
+	assert env()["HTTPS_PORT"] == "9443"
+	values = site_env.read()
+	assert values[site_env.PORT_IN_USE] == "9443"
+	assert site_env.PORT_REQUEST not in values and site_env.PORT_REQUEST_ID not in values
+	recorded = json.loads(port.status_path().read_text())
+	assert (recorded["state"], recorded["port"], recorded["id"]) == ("applied", 9443, "")
+	assert port.next_step({}, NOW).action == "none"
+	assert port_apply.serving_port() == 9443
+
+
+@pytest.mark.parametrize("wanted, busy, says", [
+	("80", "", "'80' isn't a usable HTTPS port (1-65535, not 80)."),
+	("abc", "", "'abc' isn't a usable HTTPS port (1-65535, not 80)."),
+	("70000", "", "'70000' isn't a usable HTTPS port (1-65535, not 80)."),
+	("8443", "", "Port 8443 is the port in use already."),
+	("9443", "9443=netrollout-dev-nginx-1 (another Docker container)",
+	 "Port 9443 is in use by netrollout-dev-nginx-1 (another Docker container) - pick another one."),
+	("9443", "9443=", "Port 9443 is in use by another program - pick another one."),
+])
+def test_a_port_set_by_hand_is_refused_with_why(install, wanted, busy, says):
+	"""Not a port, port 80, the port in use, or a taken one (named): exit 1 with the
+	reason, nothing changed."""
+	assert run(["port-set", "--wanted", wanted, "--busy-ports", busy]) == (1, [says])
+	assert env()["HTTPS_PORT"] == "8443" and not port.status_path().exists()
+
+
+def test_a_port_set_by_hand_waits_for_a_running_trial(install):
+	"""While a System Settings port change is being tried (the helper's lock is the
+	scripts'; the trial is the core's), port-set refuses and changes nothing."""
+	request(9443)
+	port.open_trial(9443)
+	port.trying(9443, "r1", now=NOW)
+	code, out = run(["port-set", "--wanted", "10443"])
+	assert code == 1 and "is being tried" in out[0]
+	assert env()["HTTPS_PORT"] == "8443"
+
+
+def test_the_previous_port_is_put_back_unchecked(install):
+	"""port-set --previous puts the old port back after a failed change, whatever
+	holds it now (it was blocked - that's why it changed)."""
+	run(["port-set", "--wanted", "9443"])
+	assert run(["port-set", "--wanted", "8443", "--previous", "--busy-ports", "8443=dev"]) == \
+		(0, ["previous=9443"])
+	assert env()["HTTPS_PORT"] == "8443" and site_env.read()[site_env.PORT_IN_USE] == "8443"
+
+
+def test_the_setting_follows_through_the_settings_own_rules(install, monkeypatch):
+	"""port-setting (inside the app's container) saves System Settings' https_port
+	through SettingsStore.update as the system (no user); a refusal or a database
+	error exits 1 saying so."""
+	saved = []
+
+	class Store:
+		def __init__(self, postgres):
+			pass
+
+		def update(self, raw, user_id):
+			saved.append((raw, user_id))
+			if raw["https_port"] == 1:
+				raise SettingsError({"https_port": "HTTPS port must be at least 2"})
+
+	class Connection:
+		class engine:
+			@staticmethod
+			def dispose():
+				pass
+
+	monkeypatch.setattr(port, "SettingsStore", Store)
+	monkeypatch.setattr(port, "PostgresConnection", Connection)
+	assert run(["port-setting", "--wanted", "9443"]) == (0, [])
+	assert saved == [({"https_port": 9443}, None)]
+	code, out = run(["port-setting", "--wanted", "1"])
+	assert code == 1 and out == ["The HTTPS port setting refused '1': HTTPS port must be at least 2"]
+
+	def down(port_):
+		raise OperationalError("SELECT 1", {}, Exception("refused"))
+	monkeypatch.setattr(port, "save_setting", down)
+	code, out = run(["port-setting", "--wanted", "9443"])
+	assert code == 1 and "The database didn't answer" in out[0]

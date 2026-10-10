@@ -466,7 +466,8 @@ def test_status_names_what_holds_the_https_port(home):
 	assert not well
 	assert f"Port 443:     NOT published - in use by {DEV_NGINX}" in lines
 	assert (f"  - Port 443 is in use by {DEV_NGINX} - NetRollout can't publish it. "
-	        "Stop that, then: netrollout start") in lines
+	        "Stop that, then: netrollout start - or move NetRollout to another port: "
+	        "netrollout port <N>") in lines
 	assert "Start it:" not in text and "DNS" not in text
 	assert "From here:    https://nr01.corp.local isn't NetRollout's (its port isn't published)" in lines
 

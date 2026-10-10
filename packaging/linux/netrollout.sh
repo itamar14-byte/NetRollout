@@ -77,6 +77,7 @@ case "$COMMAND" in
 	update) do_update ;;
 	update-finish) do_update_finish ;;     # the new script, run by update
 	apply) do_apply ;;
+	port) do_port_by_hand ;;
 	uninstall) do_uninstall ;;
 	help|-h|--help) show_help ;;
 	"") show_menu ;;
@@ -199,7 +200,7 @@ port_owner() {
 
 # The words for a taken HTTPS port (status says the same: src/setup/manage.py)
 port_taken() {
-	printf "Port %s is in use by %s - NetRollout can't publish it. Stop that, then: sudo %s/netrollout.sh start" "$1" "$2" "$BIN"
+	printf "Port %s is in use by %s - NetRollout can't publish it. Stop that, then: sudo %s/netrollout.sh start - or move NetRollout to another port: sudo %s/netrollout.sh port <N>" "$1" "$2" "$BIN" "$BIN"
 }
 
 our_ports() {
@@ -956,6 +957,69 @@ do_apply() {
 	done
 }
 
+# ── netrollout.sh port N: the HTTPS port by hand ─────────────────────────────
+# For when the port in use is blocked (another program holds it) and System
+# Settings can't be reached. .env, site.env and the System Settings HTTPS
+# port all name the new port afterwards (so neither the port helper nor the
+# next start undoes it); any step failing puts the previous port back in
+# all three. Not while a System Settings port change is applied (its lock).
+
+# System Settings' HTTPS port, through the app's own settings rules: in the
+# running app's container, else a one-off one next to the database
+set_port_setting() {
+	local out code=0
+	if app_running; then
+		out="$(compose exec -T app python -m src.setup port-setting --wanted "$1" 2>&1)" || code=$?
+	else
+		out="$(compose up -d --wait postgres 2>&1)" || { show "$out"; return 1; }
+		out="$(compose run --rm --no-deps -T app python -m src.setup port-setting --wanted "$1" 2>&1)" || code=$?
+	fi
+	[ "$code" -eq 0 ] || show "$out"
+	return "$code"
+}
+
+# The previous port back in all three, NetRollout started on it (it may be
+# blocked still - then start says by whom)
+restore_previous_port() {
+	local out
+	warn "Putting port $1 back"
+	out="$(setup_core port-set --wanted "$1" --previous 2>&1)" || show "$out"
+	set_port_setting "$1" || warn "The System Settings HTTPS port couldn't be put back - set it to $1 there."
+	( do_start ) || true
+}
+
+do_port_by_hand() {
+	need_installed; need_root; need_docker
+	local wanted="$SERVICE" current out previous a="" i
+	[ -n "$wanted" ] || fail "Which port? sudo $BIN/netrollout.sh port <N>  (e.g. port 8443)"
+	exec 9>"$ROOT/config/.port-helper.lock"
+	flock -n 9 || fail "A port change from System Settings is being applied - try again in a few minutes. Nothing was changed."
+	current="$(env_value HTTPS_PORT)"; current="${current:-443}"
+	if [ -n "$INTERACTIVE" ]; then
+		read -r -p "NetRollout restarts on port $wanted (running rollouts finish first; everyone signs in again). Change the port from $current to $wanted? [y/N] " a || true
+		case "$a" in y|Y|yes) ;; *) say "Nothing was changed."; return 0 ;; esac
+	fi
+	step "Checking port $wanted"
+	if ! out="$(setup_core port-set --wanted "$wanted" --busy-ports "$(busy_ports)" 2>&1)" ||
+		! previous="$(printf '%s\n' "$out" | sed -n 's/^previous=\([0-9]*\).*/\1/p' | head -1)" || [ -z "$previous" ]; then
+		show "$out"
+		fail "Nothing was changed - NetRollout stays on port $current."
+	fi
+	step "Saving port $wanted in System Settings"
+	if ! set_port_setting "$wanted"; then
+		restore_previous_port "$previous"
+		fail "The System Settings HTTPS port couldn't be saved (above) - NetRollout is back on port $previous."
+	fi
+	if ( do_start ); then
+		for i in $(seq 1 20); do reachable && break; sleep 3; done
+	fi
+	if ! reachable; then
+		restore_previous_port "$previous"
+		fail "NetRollout didn't answer on port $wanted (above) - it's back on port $previous."
+	fi
+	good "NetRollout now uses port $wanted - $(address)"
+}
+
 do_status() {
 	need_installed; need_root
 	local states reach=no published=no pending code=0
@@ -1038,6 +1102,7 @@ show_help() {
 	say "  sudo $BIN/netrollout.sh restore <file>  put NetRollout back to a backup (asks first)"
 	say "  sudo $BIN/netrollout.sh update          update to the latest release (asks first; --check only looks)"
 	say "  sudo $BIN/netrollout.sh apply           apply an HTTPS port saved in System Settings (systemd does it by itself)"
+	say "  sudo $BIN/netrollout.sh port <N>        move NetRollout to port N when its port is taken (else: System Settings)"
 	say "  sudo $BIN/netrollout.sh uninstall       remove it (asks whether to delete the data too)"
 	say "  sudo $BIN/netrollout.sh                 the menu"
 	say ""
@@ -1072,6 +1137,7 @@ show_menu() {
 		say "  6  Back up"
 		say "  7  Restore a backup"
 		say "  8  Update"
+		say "  9  Change the HTTPS port (when its port is taken)"
 		say "  0  Exit"
 		say ""
 		local choice=""
@@ -1093,6 +1159,11 @@ show_menu() {
 			     [ -n "$SERVICE" ] || exit 0
 			     do_restore ) || true ;;
 			8) ( COMMAND=update; do_update ) || true ;;
+			9) ( COMMAND=port
+			     need_installed
+			     read -r -p " The new HTTPS port (Enter: back to the menu): " SERVICE || exit 0
+			     [ -n "$SERVICE" ] || exit 0
+			     do_port_by_hand ) || true ;;
 			*) continue ;;
 		esac
 		say ""

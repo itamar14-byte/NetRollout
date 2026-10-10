@@ -739,13 +739,14 @@ def test_linux_start_fresh_deletes_the_kept_data_only_when_asked():
 def test_the_manager_names_what_holds_the_https_port():
 	"""NetRollout Manager asks manage.ps1 port-check -Json (the one lookup) through the
 	same hidden runner as the rollouts list - when its state changes, else every minute
-	(5 while running) - shows "Port 443 is taken by X - stop it, then Start" whatever
-	answers there, and notifies from the tray once per appearance; the build compiles
-	it."""
+	(5 while running) - shows "Port 443 is taken by X. Close it and click Start - or
+	click Change port..." whatever answers there, and notifies from the tray once per
+	appearance; the build compiles it."""
 	manager = ROOT / "packaging" / "windows" / "manager"
 	check = (manager / "PortCheck.cs").read_text(encoding="utf-8")
 	assert 'Rollouts.RunScript("port-check -Json", out output)' in check
-	assert '"Port " + port + " is taken by " + owner + " - stop it, then Start"' in check
+	assert ('"Port " + port + " is taken by " + owner + ". Close it and click Start - " +\n'
+	        '\t\t\t\t"or click Change port... to use another port for NetRollout."') in check
 	assert "internal static int RunScript(" in (manager / "Rollouts.cs").read_text(encoding="utf-8")
 	form = (manager / "NetRolloutManager.cs").read_text(encoding="utf-8")
 	assert "string blocker = PortBlocker(health.Item1);" in form
@@ -753,3 +754,48 @@ def test_the_manager_names_what_holds_the_https_port():
 	assert "TimeSpan.FromMinutes(now == State.Running ? 5 : 1)" in form
 	assert "if (blocker == portAnnounced) return;" in form
 	assert '(Join-Path $here "PortCheck.cs")' in (manager / "build.ps1").read_text(encoding="utf-8")
+
+
+def test_the_port_can_be_changed_by_hand_while_it_is_taken():
+	"""netrollout port N (Windows `port -Port N`, Linux `port N` + menu 9): under the
+	port helper's lock (refused, not waited for, while a System Settings change is
+	applied), port-set checks N (free, named otherwise) and writes .env + site.env,
+	port-setting saves System Settings' port inside the app's container (exec, else
+	run next to the database), then a start on N that must answer - any failure puts
+	the previous port back in all three. The Manager's Change port... is enabled only
+	while the port is taken (a hint where to change it otherwise) and runs it with
+	-Yes after asking."""
+	ps1 = (ROOT / "packaging" / "windows" / "manage.ps1").read_text(encoding="utf-8")
+	assert '[Alias("Port")][string]$NewPort = ""' in ps1 and '"port" { Invoke-PortByHand; return 0 }' in ps1
+	by_hand = ps1_function(ps1, "Invoke-PortByHand")
+	lock = by_hand.index('[IO.File]::Open($lockPath, "OpenOrCreate", "ReadWrite", "None")')
+	files = by_hand.index('@("port-set", "--wanted", $wanted, "--busy-ports", (Get-BusyPorts (Get-OurPorts)))')
+	setting = by_hand.index("if (-not (Set-PortSetting $wanted)) {")
+	start = by_hand.index("try { Start-NetRollout; $started = $true }")
+	assert lock < files < setting < start
+	assert by_hand.count("Restore-PreviousPort $previous") == 2
+	assert "(Test-Reachable)" in by_hand[start:]
+	back = ps1_function(ps1, "Restore-PreviousPort")
+	assert '@("port-set", "--wanted", $Previous, "--previous")' in back and "Set-PortSetting $Previous" in back
+	setting_fn = ps1_function(ps1, "Set-PortSetting")
+	assert '"exec", "-T", "app", "python", "-m", "src.setup", "port-setting", "--wanted", $Port' in setting_fn
+	assert '"run", "--rm", "--no-deps", "-T", "app", "python", "-m", "src.setup", "port-setting"' in setting_fn
+
+	sh = (ROOT / "packaging" / "linux" / "netrollout.sh").read_text(encoding="utf-8")
+	assert "port) do_port_by_hand ;;" in sh and "9  Change the HTTPS port" in sh
+	by_hand = sh_function(sh, "do_port_by_hand")
+	lock = by_hand.index('flock -n 9 || fail "A port change from System Settings is being applied')
+	files = by_hand.index('setup_core port-set --wanted "$wanted" --busy-ports "$(busy_ports)"')
+	setting = by_hand.index('if ! set_port_setting "$wanted"; then')
+	start = by_hand.index("if ( do_start ); then")
+	assert lock < files < setting < start
+	assert by_hand.count('restore_previous_port "$previous"') == 2
+	assert 'setup_core port-set --wanted "$1" --previous' in sh_function(sh, "restore_previous_port")
+	assert "python -m src.setup port-setting --wanted" in sh_function(sh, "set_port_setting")
+
+	form = (ROOT / "packaging" / "windows" / "manager" / "NetRolloutManager.cs").read_text(encoding="utf-8")
+	assert "changePortButton.Enabled = running == null && portBlocker.Length > 0;" in form
+	assert "hint.Show(PortCheck.Hint, buttons, e.X, e.Y + 22);" in form
+	assert 'Run("port -Port " + port + " -Yes"' in form
+	check = (ROOT / "packaging" / "windows" / "manager" / "PortCheck.cs").read_text(encoding="utf-8")
+	assert 'Hint = "Change the port in System Settings -> HTTPS port"' in check

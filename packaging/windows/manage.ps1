@@ -34,7 +34,9 @@ param(
 	[string]$NewVersion = "",
 	# update over data an uninstall kept: back it up first (prepare-update
 	# couldn't - the folder had no compose file yet)
-	[switch]$BackupFirst
+	[switch]$BackupFirst,
+	# port: the new HTTPS port (netrollout port 8443, or -Port 8443)
+	[Alias("Port")][string]$NewPort = ""
 )
 
 Set-StrictMode -Version 2
@@ -246,7 +248,7 @@ function Get-PortOwner([string]$Port, [string]$Busy) {
 
 # The words for a taken HTTPS port (status says the same: src/setup/manage.py)
 function Get-PortTakenText([string]$Port, [string]$Owner) {
-	return "Port $Port is in use by $Owner - NetRollout can't publish it. Stop that, then: netrollout start"
+	return "Port $Port is in use by $Owner - NetRollout can't publish it. Stop that, then: netrollout start - or move NetRollout to another port: netrollout port <N>"
 }
 
 function Get-ServerIPs {
@@ -1114,6 +1116,80 @@ function Invoke-Apply {
 }
 
 # What the Setup wizard pre-fills (an ini file: it reads those natively)
+# ── netrollout port N: the HTTPS port by hand ────────────────────────────────
+# For when the port in use is blocked (another program holds it) and System
+# Settings can't be reached. .env, site.env and the System Settings HTTPS
+# port all name the new port afterwards (so neither the port helper nor the
+# next start undoes it); any step failing puts the previous port back in
+# all three. Not while a System Settings port change is applied (its lock).
+
+# System Settings' HTTPS port, through the app's own settings rules: in the
+# running app's container, else a one-off one next to the database
+function Set-PortSetting([string]$Port) {
+	if (Test-AppRunning) {
+		$r = Compose @("exec", "-T", "app", "python", "-m", "src.setup", "port-setting", "--wanted", $Port)
+	} else {
+		$up = Compose @("up", "-d", "--wait", "postgres")
+		if ($up.Code -ne 0) { Show-Output $up.Output; return $false }
+		$r = Compose @("run", "--rm", "--no-deps", "-T", "app", "python", "-m", "src.setup", "port-setting", "--wanted", $Port)
+	}
+	if ($r.Code -ne 0) { Show-Output $r.Output }
+	return $r.Code -eq 0
+}
+
+# The previous port back in all three, NetRollout started on it (it may be
+# blocked still - then start says by whom)
+function Restore-PreviousPort([string]$Previous) {
+	Warn "Putting port $Previous back"
+	$r = Get-SetupAnswer @("port-set", "--wanted", $Previous, "--previous")
+	if ($r.Code -ne 0) { Show-Output $r.Output }
+	if (-not (Set-PortSetting $Previous)) { Warn "The System Settings HTTPS port couldn't be put back - set it to $Previous there." }
+	try { Start-NetRollout } catch [System.OperationCanceledException] { }
+}
+
+function Invoke-PortByHand {
+	Assert-Installed -Setup
+	$wanted = if ($NewPort) { $NewPort } else { $Service }
+	if (-not $wanted) { Fail "Which port? netrollout port <N>  (e.g. netrollout port 8443)" }
+	Confirm-Docker
+	$lockPath = Join-Path $Root "config\.port-helper.lock"
+	try { $lock = [IO.File]::Open($lockPath, "OpenOrCreate", "ReadWrite", "None") }
+	catch { Fail "A port change from System Settings is being applied - try again in a few minutes. Nothing was changed." }
+	try {
+		$current = Read-EnvValue "HTTPS_PORT" "443"
+		if ($Interactive) {
+			$a = Read-Host ("NetRollout restarts on port $wanted (running rollouts finish first; everyone signs " +
+			                "in again). Change the port from $current to ${wanted}? [y/N]")
+			if ($a -notmatch "^(y|yes)$") { Say "Nothing was changed."; return }
+		}
+		Step "Checking port $wanted"
+		$r = Get-SetupAnswer @("port-set", "--wanted", $wanted, "--busy-ports", (Get-BusyPorts (Get-OurPorts)))
+		$found = @($r.Output -split "`n" | Where-Object { $_ -match "^previous=\d+" })
+		if ($r.Code -ne 0 -or -not $found) {
+			Show-Output $r.Output
+			Fail "Nothing was changed - NetRollout stays on port $current."
+		}
+		$previous = ($found[0].Trim() -split "=")[1]
+		Step "Saving port $wanted in System Settings"
+		if (-not (Set-PortSetting $wanted)) {
+			Restore-PreviousPort $previous
+			Fail "The System Settings HTTPS port couldn't be saved (above) - NetRollout is back on port $previous."
+		}
+		$started = $false
+		try { Start-NetRollout; $started = $true } catch [System.OperationCanceledException] { }
+		$clock = [Diagnostics.Stopwatch]::StartNew()
+		while ($started -and -not (Test-Reachable) -and $clock.Elapsed.TotalSeconds -lt 60) { Start-Sleep -Seconds 3 }
+		if (-not $started -or -not (Test-Reachable)) {
+			Restore-PreviousPort $previous
+			Fail "NetRollout didn't answer on port $wanted (above) - it's back on port $previous."
+		}
+		Start-PortHelper
+		Good "NetRollout now uses port $wanted - $(Get-Address)"
+	} finally {
+		$lock.Dispose()
+	}
+}
+
 function Write-Defaults {
 	if (-not $Out) { Fail "defaults needs -Out <file>" }
 	$busy = @{}
@@ -1237,6 +1313,7 @@ function Show-Help {
 	Say "  netrollout backup           back up now (into the backups folder)"
 	Say "  netrollout restore <file>   put NetRollout back to a backup (asks first)"
 	Say "  netrollout apply            apply an HTTPS port saved in System Settings (the helper does it by itself)"
+	Say "  netrollout port <N>         move NetRollout to port N when its port is taken (else: System Settings)"
 	Say "  netrollout rollouts         the rollouts running or queued (-Json: as JSON)"
 	Say "  netrollout port-check       does nginx hold its HTTPS port? if not, who does (-Json: as JSON)"
 	Say "  netrollout stop-now         a stop under way (or one within 15 minutes) cancels them at once"
@@ -1256,6 +1333,7 @@ function Invoke-NrCommand([string]$Name) {
 		"prepare-update" { Invoke-PrepareUpdate; return 0 }
 		"update" { Invoke-Update; return 0 }
 		"apply" { Invoke-Apply; return 0 }
+		"port" { Invoke-PortByHand; return 0 }
 		"rollouts" {
 			Assert-Installed
 			if (-not (Test-DockerReady)) { return 1 }

@@ -166,7 +166,8 @@ def status(seen: Observed, health: dict[str, Any] | None,
 	blocker = port_owner(port, seen.busy) if seen.https_published is False else ""
 	if blocker:
 		todo.append(f"Port {port} is in use by {blocker} - NetRollout can't publish it. "
-		            "Stop that, then: netrollout start")
+		            "Stop that, then: netrollout start - or move NetRollout to another "
+		            "port: netrollout port <N>")
 	elif down:
 		todo.append("Start it: netrollout start  (if it stays down: netrollout logs "
 		            f"{down[0]})")

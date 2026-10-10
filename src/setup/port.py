@@ -33,9 +33,12 @@ import datetime
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
+
 from src import runtime
 from src.access import site_env
 from src.access.port import ApplyState, ApplyStatus
+from src.db.connections import PostgresConnection, load_config
+from src.db.settings import SettingsStore
 from src.setup.env import PUBLISHED_PORT, compose_files, env_read, env_set, published_port
 
 STATUS_FILE = "apply-status.json"          # src/access/port.py reads it
@@ -206,3 +209,62 @@ def close(outcome: str, id_: str, message: str = "",
 	                               StepAction.ROLLBACK: ApplyState.ROLLED_BACK}
 	state = ends.get(outcome, ApplyState.FAILED)
 	return write_status(id_, state, current_port(), message=message, now=now)
+
+
+# ── netrollout port N: the port changed by hand ──
+# For when the port in use is blocked (another program holds it) and the
+# app can't be reached to change it in System Settings. The script runs
+# set_by_hand (the files), then save_setting inside the app's container (the
+# database), then starts NetRollout on the new port; any step failing puts
+# the previous port back in all three.
+
+class PortRefused(ValueError):
+	"""The port can't be set by hand now (the message says why)."""
+
+
+def set_by_hand(wanted: str | None, busy: dict[int, str] | None) -> int:
+	"""`wanted` becomes the port in use: .env's HTTPS_PORT and site.env's,
+	a pending request dropped and the helper's status "applied" - so neither
+	the port helper nor the next start undoes it.
+
+	:param wanted: the port, as typed
+	:param busy: the ports listening on this computer (NetRollout's own left
+	 out); None: not checked (the previous port put back)
+	:returns: the previous port
+	:raises PortRefused: not a usable port, the port in use already, taken,
+	 or a System Settings port change is being tried"""
+	port = _wanted(wanted)
+	if port is None:
+		raise PortRefused(f"{wanted!r} isn't a usable HTTPS port (1-65535, not 80).")
+	status = read_status()
+	if (status and status.state == ApplyState.TRYING) or TRIAL_ENTRY in compose_files(env_read()):
+		raise PortRefused("A port change from System Settings is being tried - wait until it "
+		                  "ends (2 minutes at most), then try again.")
+	previous = current_port()
+	if busy is not None:
+		if port == previous:
+			raise PortRefused(f"Port {port} is the port in use already.")
+		if port in busy:
+			raise PortRefused(f"Port {port} is in use by {busy[port] or 'another program'} "
+			                  f"- pick another one.")
+	env_set({PUBLISHED_PORT: str(port)})
+	site_env.update({site_env.PORT_IN_USE: str(port), site_env.PORT_REQUEST: None,
+	                 site_env.PORT_REQUEST_ID: None, site_env.PORT_REQUESTED_AT: None,
+	                 site_env.PORT_CONFIRMED: None})
+	write_status("", ApplyState.APPLIED, port, message="set with netrollout port")
+	return previous
+
+
+def save_setting(port: int) -> None:
+	"""System Settings' HTTPS port := `port`, through the settings' own rules
+	(run inside the app's container: its database, config/runtime.env over
+	the environment, as the app resolves it).
+
+	:raises SettingsError: the setting refuses it
+	:raises SQLAlchemyError: the database didn't answer"""
+	load_config(runtime.runtime_env())
+	connection = PostgresConnection()
+	try:
+		SettingsStore(lambda: connection).update({"https_port": port}, None)
+	finally:
+		connection.engine.dispose()

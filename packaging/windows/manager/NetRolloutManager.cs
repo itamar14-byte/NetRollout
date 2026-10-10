@@ -322,6 +322,9 @@ namespace NetRollout
 		ToolStripMenuItem dailyItem;
 		// Start, or Finish update while an update is unfinished (ShowState)
 		Button startButton;
+		// only while the HTTPS port is taken (normal times: System Settings)
+		Button changePortButton;
+		readonly ToolTip hint = new ToolTip();
 		ToolStripItem startItem;
 		readonly bool startInTray;
 
@@ -371,6 +374,24 @@ namespace NetRollout
 			AddButton("Open NetRollout", delegate { OpenNetRollout(); }, true);
 			startButton = AddButton("Start", delegate { StartOrFinish(); }, false);
 			AddButton("Stop", delegate { StopNetRollout(); }, false);
+			changePortButton = AddButton("Change port...", delegate { ChangePort(); }, false);
+			changePortButton.Enabled = false;
+			// a disabled button gets no tooltip of its own: the panel shows it
+			buttons.MouseMove += delegate (object s, MouseEventArgs e)
+			{
+				bool over = !changePortButton.Enabled && changePortButton.Bounds.Contains(e.Location);
+				if (over && hint.Tag == null)
+				{
+					hint.Show(PortCheck.Hint, buttons, e.X, e.Y + 22);
+					hint.Tag = changePortButton;
+				}
+				else if (!over && hint.Tag != null)
+				{
+					hint.Hide(buttons);
+					hint.Tag = null;
+				}
+			};
+			buttons.MouseLeave += delegate { hint.Hide(buttons); hint.Tag = null; };
 			AddButton("Status", delegate { Run("status", "Checking everything..."); }, false);
 			AddButton("Logs", delegate { Run("logs", "Recent log lines of the app:"); }, false);
 			AddButton("Back up", delegate { Run("backup", "Backing up..."); }, false);
@@ -743,7 +764,37 @@ namespace NetRollout
 		{
 			foreach (Control c in buttons.Controls)
 				if (c.Text != "Open NetRollout") c.Enabled = !busy;
+			UpdateChangePort();
 			UseWaitCursor = busy;
+		}
+
+		void UpdateChangePort()
+		{
+			changePortButton.Enabled = running == null && portBlocker.Length > 0;
+		}
+
+		// another port for NetRollout while its own is taken: asked, confirmed,
+		// manage.ps1 port (all three places agree, or the old port comes back)
+		void ChangePort()
+		{
+			int port;
+			using (var dialog = new PortDialog(Install.Port))
+			{
+				if (dialog.ShowDialog(this) != DialogResult.OK) return;
+				port = dialog.Port;
+			}
+			if (MessageBox.Show(this, "Move NetRollout to port " + port + "?\n\n" +
+					"NetRollout restarts on it (running rollouts finish first) and everyone signs in again. " +
+					"Its address becomes https://<name>:" + port + ". If it doesn't answer there, port " +
+					Install.Port + " comes back.",
+					"Change the HTTPS port", MessageBoxButtons.YesNo, MessageBoxIcon.Question,
+					MessageBoxDefaultButton.Button2) != DialogResult.Yes)
+				return;
+			Run("port -Port " + port + " -Yes", "Moving NetRollout to port " + port + "...", delegate
+			{
+				lock (portLock) portCheckedAt = DateTime.MinValue;    // ask again at once
+				RefreshStatus();
+			});
 		}
 
 		void Say(string line) { output.AppendText(line + Environment.NewLine); }
@@ -815,6 +866,7 @@ namespace NetRollout
 			string start = Install.PendingUpdate != null ? "Finish update" : "Start";
 			startButton.Text = start;
 			startItem.Text = start;
+			UpdateChangePort();
 			light.Invalidate();
 			trayIcon.Text = "NetRollout - " + stateLabel.Text;
 			trayIcon.Icon = TrayIcon(LightColor(s));
