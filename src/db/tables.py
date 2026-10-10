@@ -6,7 +6,6 @@ import uuid
 from datetime import datetime
 from enum import StrEnum
 
-from flask_login import UserMixin
 from sqlalchemy import (DateTime, String, Boolean, Integer, Uuid, Text,
                         ForeignKey, Index, JSON, Table, Column, UniqueConstraint,
                         false)
@@ -47,7 +46,7 @@ var_mapping_to_devices = Table("var_mapping_to_devices",
                                )
 
 
-class User(UserMixin, Base):
+class User(Base):
 	"""A person who signs in: local (a password, 2FA) or from LDAP (the
 	directory checks the password). Owns their devices, profiles, mappings,
 	properties and rollouts."""
@@ -101,6 +100,29 @@ class User(UserMixin, Base):
 		passive_deletes=True)
 	ldap_server: Mapped["LDAPServer | None"] = relationship(
 		back_populates="users")
+
+	# What Flask-Login asks of a user - as its UserMixin had it, without the
+	# models importing Flask: signed in only while active, equal by id.
+	__hash__ = object.__hash__
+
+	@property
+	def is_authenticated(self) -> bool:
+		""":returns: whether the user may be signed in (the is_active column)"""
+		return self.is_active
+
+	@property
+	def is_anonymous(self) -> bool:
+		""":returns: False - a User is always someone"""
+		return False
+
+	def get_id(self) -> str:
+		""":returns: the id the session keeps"""
+		return str(self.id)
+
+	def __eq__(self, other: object) -> bool:
+		if isinstance(other, User):
+			return self.get_id() == other.get_id()
+		return NotImplemented
 
 
 class SecurityProfile(Base):
