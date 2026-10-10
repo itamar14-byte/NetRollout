@@ -156,14 +156,24 @@ def register_auth(app: NetRolloutApp) -> None:
 
 
 def register_handlers(app: Flask, backend: BackendServices) -> None:
-	"""The answers to a stale form (CSRF), an unavailable Postgres or Redis,
-	and stored data the encryption key can't decrypt."""
+	"""The answers to a stale form (CSRF), a page that isn't there (404), an
+	unavailable Postgres or Redis, and stored data the encryption key can't
+	decrypt."""
 
 	@app.errorhandler(csrf_err.CSRFError)
 	def handle_csrf_error(_: Exception) -> ResponseReturnValue:
 		if Caller.JSON_BODY.wants_json():
 			return err("Session expired")
 		return redirect(url_for("auth.home"))
+
+	# A page that isn't there: a person gets 404.html (signed in or not; it
+	# needs no database), a script its JSON
+	@app.errorhandler(404)
+	def handle_not_found(_: Exception) -> ResponseReturnValue:
+		if Caller.SCRIPT.wants_json():
+			return err("Not found", 404)
+		return render_template("404.html", path=request.path,
+		                       signed_in=current_user.is_authenticated), 404
 
 	# Unreachable (vs refusing) Redis hosts raise TimeoutError, which is not
 	# a ConnectionError subclass
