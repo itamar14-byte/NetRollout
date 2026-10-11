@@ -499,6 +499,7 @@
     // a reset turns it off) — LDAP users don't use it
     Reset2FA: sel => {
       if (!sel.length) return "No users selected";
+      if (sel.some(u => u.is_factory && u.is_self)) return "Turn your own two-factor sign-in off on My Account";
       const none = sel.filter(u => !u.has_2fa).length;
       return none ? `${none} user(s) have no 2FA set up` : null;
     },

@@ -116,3 +116,18 @@ def test_the_users_page_lets_the_factory_admin_be_ticked(admin, factory, client_
 	page = client_for(admin).get("/admin/users").get_data(as_text=True)
 	assert f'class="form-check-input row-cb" style="margin:0; cursor:pointer;" value="{factory.id}"' in page
 	assert '"is_factory": true' in page
+
+
+def test_the_factory_admin_cant_reset_its_own_2fa_here(factory, client_for, db_get,
+                                                       session_scope):
+	"""Signed in as the factory admin, Reset 2FA on itself - single or bulk -
+	is refused (single: told to use My Account, which asks for proof); its
+	authenticator stays."""
+	with session_scope() as s:
+		s.get(User, factory.id).otp_secret = encrypt("JBSWY3DPEHPK3PXP")
+	c = client_for(factory)
+	c.post(f"/admin/users/{factory.id}/reset_2fa")
+	assert flashes(c) == ["Turn your own two-factor sign-in off on My Account - it asks for "
+	                      "your password and a code."]
+	c.post("/admin/users/bulk/reset_2fa", data={"user_ids": str(factory.id)})
+	assert db_get(User, factory.id).otp_secret is not None

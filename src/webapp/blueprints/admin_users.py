@@ -30,6 +30,14 @@ USER_ACTIONS = frozenset({"approve", "enable", "disable", "promote", "demote",
 FACTORY_ACTIONS = frozenset({"enable", "disable", "reset_2fa"})
 # the actions that take an administrator away (Accounts.check_admins_left)
 REMOVES_ADMIN = frozenset({"disable", "demote", "delete"})
+# the factory admin turns its own 2FA off on My Account, proved by its
+# password and a code - never by a Reset 2FA on itself here
+OWN_2FA = "Turn your own two-factor sign-in off on My Account - it asks for your password and a code."
+
+
+def _own_factory_2fa(user: User, action: str) -> bool:
+	""":returns: whether this is the signed-in factory admin resetting its own 2FA"""
+	return action == "reset_2fa" and is_factory_admin(user) and user.id == current_user.id
 
 
 @bp.app_context_processor
@@ -105,7 +113,8 @@ def admin_users() -> str:
 @require_admin
 def admin_user_action(user_id: uuid.UUID, action: str) -> ResponseReturnValue:
 	"""One action on one user (user_action_factory), audited as
-	user.<action>. On the factory admin only FACTORY_ACTIONS; an admin can't
+	user.<action>. On the factory admin only FACTORY_ACTIONS (its own Reset
+	2FA neither: My Account's turn-off asks for proof); an admin can't
 	disable or delete their own account; none may take away the last
 	administrator who can sign in (refused in words)."""
 	if action not in USER_ACTIONS:
@@ -118,6 +127,9 @@ def admin_user_action(user_id: uuid.UUID, action: str) -> ResponseReturnValue:
 			user = db_session.query(User).filter_by(id=user_id).first()
 
 			if not user or (is_factory_admin(user) and action not in FACTORY_ACTIONS):
+				return redirect(url_for("admin_users.admin_users"))
+			if _own_factory_2fa(user, action):
+				flash(OWN_2FA, "danger")
 				return redirect(url_for("admin_users.admin_users"))
 			if action in REMOVES_ADMIN:
 				Accounts(db_session).check_admins_left({user.id})
@@ -201,8 +213,8 @@ def admin_add_user(data: dict[str, Any]) -> ResponseReturnValue:
 @require_admin
 def admin_bulk_action(action: str) -> ResponseReturnValue:
 	"""One action on the users ticked (form user_ids, comma separated) - the
-	factory admin (but for FACTORY_ACTIONS) and, for disable / delete, the
-	admin's own account skipped; refused as a whole when it would take away
+	factory admin (but for FACTORY_ACTIONS, and its own Reset 2FA) and, for
+	disable / delete, the admin's own account skipped; refused as a whole when it would take away
 	the last administrator who can sign in. One audit row:
 	user.bulk_<action> with the names."""
 	if action not in USER_ACTIONS:
@@ -220,6 +232,8 @@ def admin_bulk_action(action: str) -> ResponseReturnValue:
 			for uid in user_ids:
 				user = db_session.get(User, uid)
 				if not user or (is_factory_admin(user) and action not in FACTORY_ACTIONS):
+					continue
+				if _own_factory_2fa(user, action):
 					continue
 				if action in ("disable", "delete") and uid == current_user.id:
 					continue
