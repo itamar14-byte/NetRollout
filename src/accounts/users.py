@@ -7,6 +7,7 @@ templates/_password_rule_script.html), and who is signed in and for how
 long - the sessions in Redis (SessionStore), their idle and absolute limits,
 signing a user out everywhere, and the clean start (everyone signed out).
 No request here: the web app's side is in webapp/hooks.py."""
+import math
 import re
 import secrets
 import string
@@ -14,15 +15,17 @@ import time
 import uuid
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass
+from datetime import datetime, timedelta
+from enum import Enum
 from typing import Any, Protocol, cast
 
 import redis
-from sqlalchemy import func
+from sqlalchemy import func, update
 from sqlalchemy.orm import Session
 from werkzeug.security import generate_password_hash
 
 from src.db.connections import REDIS_UNAVAILABLE
-from src.db.tables import User, AuthType, Role
+from src.db.tables import FACTORY_USERNAME, User, AuthType, Role
 
 
 MIN_LENGTH = 8
@@ -104,12 +107,59 @@ def is_reserved(username: str) -> bool:
 	return username.strip().lower() == GRAFANA_ADMIN_USERNAME
 
 
+def is_factory_admin(user: User) -> bool:
+	""":returns: whether this is the factory admin account"""
+	return user.username == FACTORY_USERNAME and user.auth_type == AuthType.LOCAL
+
+
+def needs_second_factor(user: User) -> bool:
+	"""Whether signing in asks a 2FA code after the password: every local
+	account - except the factory admin, unless it turned 2FA on for itself
+	(it has an authenticator). LDAP users: the directory checks them.
+
+	:returns: True: the code (or enrolment) follows the password"""
+	if user.auth_type != AuthType.LOCAL:
+		return False
+	return not is_factory_admin(user) or user.otp_secret is not None
+
+
+# ── Account lockout ──
+# Wrong passwords in a row on a local account: the MAX_FAILED_PASSWORDS-th
+# disables it (an admin's Enable brings it back) - the factory admin is
+# locked for FACTORY_LOCK_MINUTES instead, never disabled by it. A right
+# password starts the count again. LDAP accounts aren't counted: the
+# directory's own lockout policy applies.
+MAX_FAILED_PASSWORDS = 5
+FACTORY_LOCK_MINUTES = 15
+
+
+class Lockout(Enum):
+	"""What a wrong password did to the account (Accounts.password_failed)."""
+	COUNTED = "counted"       # one more in a row, nothing else
+	DISABLED = "disabled"     # the last one allowed: the account is disabled
+	LOCKED = "locked"         # the last one allowed: the factory admin is locked
+
+
+def lock_message(minutes: int) -> str:
+	""":returns: what the sign-in page says while the factory admin is locked"""
+	return (f"Too many failed sign-ins. Try again in {minutes} "
+	        f"minute{'s' if minutes != 1 else ''}.")
+
+
+def clear_lockout(user: User) -> None:
+	"""The count of wrong passwords back to none and any lock lifted - an
+	admin's Enable / Approve / Promote / Reset Password, netrollout
+	reset-admin."""
+	user.failed_sign_ins = 0
+	user.locked_until = None
+
+
 class Accounts:
 	"""NetRollout's accounts in a session (the caller commits): a new local
 	account (Request access, an admin's Add user) or directory account (the
 	first sign-in of a mapped group's member, the admin page's import), the
-	one case-insensitive name lookup, the access requests waiting, and the
-	users an admin picks from."""
+	one case-insensitive name lookup, the access requests waiting, the users
+	an admin picks from, and the lockout's count of wrong passwords."""
 
 	def __init__(self, session: Session) -> None:
 		self.session = session
@@ -138,6 +188,56 @@ class Accounts:
 		wanted = set(ids)
 		return {row.id: row.username for row in self.session.query(User.id, User.username)
 		        .filter(User.id.in_(wanted))} if wanted else {}
+
+	def lock_minutes_left(self, user: User, now: datetime) -> int | None:
+		"""The factory admin's lock (Accounts.password_failed): while it holds,
+		no password is checked. One that has run out is lifted here, and the
+		count starts again.
+
+		:param now: the time (aware)
+		:returns: the minutes left, rounded up; None: not locked"""
+		if user.locked_until is None:
+			return None
+		left = (user.locked_until - now).total_seconds()
+		if left <= 0:
+			clear_lockout(user)
+			self.session.flush()     # a sign-in detaches the user next
+			return None
+		return math.ceil(left / 60)
+
+	def password_ok(self, user: User) -> None:
+		"""A right password: the count of wrong ones starts again (written
+		now: the sign-in detaches the user next)."""
+		if user.failed_sign_ins:
+			user.failed_sign_ins = 0
+			self.session.flush()
+
+	def password_failed(self, user: User, now: datetime) -> Lockout:
+		"""A wrong password on a local account, counted in the database itself
+		(sign-ins from several places at once each count). Only an approved,
+		active account is counted - one that can't sign in has nothing to
+		lose. The MAX_FAILED_PASSWORDS-th in a row disables the account, or
+		locks the factory admin for FACTORY_LOCK_MINUTES (the count starts
+		again then).
+
+		:param now: the time (aware)
+		:returns: what it did"""
+		if user.auth_type != AuthType.LOCAL or not (user.is_approved and user.is_active):
+			return Lockout.COUNTED
+		count = self.session.execute(
+			update(User).where(User.id == user.id)
+			.values(failed_sign_ins=User.failed_sign_ins + 1)
+			.returning(User.failed_sign_ins)
+			.execution_options(synchronize_session=False)).scalar_one()
+		user.failed_sign_ins = count
+		if count < MAX_FAILED_PASSWORDS:
+			return Lockout.COUNTED
+		if is_factory_admin(user):
+			user.locked_until = now + timedelta(minutes=FACTORY_LOCK_MINUTES)
+			user.failed_sign_ins = 0
+			return Lockout.LOCKED
+		user.is_active = False
+		return Lockout.DISABLED
 
 	def new_local(self, *, username: str, email: str, full_name: str,
 	              position: str | None, password: str, role: str = Role.OPERATOR,

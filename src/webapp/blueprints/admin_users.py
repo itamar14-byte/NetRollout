@@ -12,7 +12,8 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 from werkzeug.security import generate_password_hash
 
-from src.accounts.users import temporary_password, AccountError, Accounts
+from src.accounts.users import (AccountError, Accounts, clear_lockout, is_factory_admin,
+                                temporary_password)
 from src.audit import AuditAction
 from src.db.tables import User, AuthType, Role
 from src.webapp.app import current_app
@@ -45,14 +46,18 @@ def user_action_factory(user: User, action: str, db_session: Session) -> None:
 	if action == "approve":
 		user.is_approved = True
 		user.is_active = True
+		clear_lockout(user)
 	elif action == "enable":
+		# also after too many wrong passwords: the count starts again
 		user.is_active = True
+		clear_lockout(user)
 	elif action == "disable":
 		user.is_active = False
 	elif action == "promote":
 		user.role = Role.ADMIN
 		user.is_approved = True
 		user.is_active = True
+		clear_lockout(user)
 	elif action == "demote":
 		user.role = Role.OPERATOR
 	elif action == "delete":
@@ -103,7 +108,7 @@ def admin_user_action(user_id: uuid.UUID, action: str) -> ResponseReturnValue:
 	with current_app.backend.postgres.get_session() as db_session:
 		user = db_session.query(User).filter_by(id=user_id).first()
 
-		if not user or user.username == "admin":
+		if not user or is_factory_admin(user):
 			return redirect(url_for("admin_users.admin_users"))
 
 		target_username = user.username
@@ -129,13 +134,14 @@ def admin_reset_password(user_id: uuid.UUID) -> ResponseReturnValue:
 		user = db_session.get(User, user_id)
 		if not user:
 			return err("User not found", 404)
-		if user.username == "admin":
+		if is_factory_admin(user):
 			return err("The factory admin's password can't be reset", 400)
 		if user.auth_type != AuthType.LOCAL:
 			return err("LDAP passwords are managed in the directory", 400)
 		temporary = temporary_password(user.username)
 		user.password_hash = generate_password_hash(temporary)
 		user.must_change_password = True
+		clear_lockout(user)
 		username = user.username
 	ended = current_app.sessions.end_for(user_id)
 	current_app.web.audit(AuditAction.USER_RESET_PASSWORD, object_type="User",
@@ -195,7 +201,7 @@ def admin_bulk_action(action: str) -> ResponseReturnValue:
 	with current_app.backend.postgres.get_session() as db_session:
 		for uid in user_ids:
 			user = db_session.get(User, uid)
-			if not user or user.username == "admin":
+			if not user or is_factory_admin(user):
 				continue
 			if action in ("disable", "delete") and uid == current_user.id:
 				continue

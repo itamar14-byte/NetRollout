@@ -12,7 +12,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from werkzeug.security import generate_password_hash
 
 from src.db.settings import seed_settings
-from src.db.tables import User, Role
+from src.db.tables import FACTORY_USERNAME, User, Role
 if TYPE_CHECKING:
 	from src.db.connections import PostgresConnection
 
@@ -77,8 +77,8 @@ def install(postgres: "PostgresConnection") -> None:
 			alembic_command.upgrade(alembic_cfg, "head")
 
 		with postgres.get_session() as session:
-			if not session.query(User).filter_by(username="admin").first():
-				user = User(username="admin",
+			if not session.query(User).filter_by(username=FACTORY_USERNAME).first():
+				user = User(username=FACTORY_USERNAME,
 				            password_hash=generate_password_hash("admin"),
 				            email="example@test.com",
 				            full_name="Net Rollout",

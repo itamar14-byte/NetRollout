@@ -9,6 +9,7 @@ import textwrap
 
 import pytest
 from alembic import command as alembic_command
+from alembic.script import ScriptDirectory
 from cryptography.fernet import Fernet
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import Session
@@ -24,12 +25,13 @@ pytestmark = [pytest.mark.postgres]
 
 SOURCE_DB, TARGET_DB = "rollout_backup_src", "rollout_backup_dst"
 ROLE, ROLE_PASSWORD, SCHEMA = "nr_backup_byo", "Byo-pass-1", "nrapp"
-# a throwaway revision on top of the baseline, written only for the test of
-# an older backup (released history has one level until 1.1 adds one)
+# the newest level of the real history, and a throwaway revision on top of
+# it, written only for the test of an older backup
+RELEASED = ScriptDirectory.from_config(alembic_config()).get_current_head()
 NEWER = "test_newer_level"
 NEWER_REVISION = textwrap.dedent('''
 	revision = "test_newer_level"
-	down_revision = "v1_0_0_baseline"
+	down_revision = "%s"
 	branch_labels = None
 	depends_on = None
 
@@ -44,7 +46,7 @@ NEWER_REVISION = textwrap.dedent('''
 
 	def downgrade():
 	    op.drop_column("users", "note")
-''')
+''') % RELEASED
 
 
 def _url(db, user="postgres", password=None):
@@ -108,7 +110,7 @@ def migrate(engine, revision="head"):
 
 @pytest.fixture
 def newer_level(tmp_path, monkeypatch):
-	""":returns: Alembic's configuration with NEWER on top of the baseline (its
+	""":returns: Alembic's configuration with NEWER on top of the real history (its
 	 file in a temporary folder next to the real versions) - the restore uses it
 	 too"""
 	folder = tmp_path / "versions_newer"
@@ -209,14 +211,14 @@ def test_an_older_backup_restores_and_the_app_migrates_it_forward(
 	revision on the restored rows (it gives alice her note)."""
 	source, target = databases
 	key = Fernet.generate_key()
-	migrate(source)                           # the released level: the baseline
+	migrate(source)                           # the released level
 	populate(source, key)
 	path = archive.create(source, "manual", places, key=key)
 	with target.begin() as conn:              # the target is already newer
 		alembic_command.upgrade(newer_level(conn), NEWER)
 
 	archive.restore(path, target, places)
-	assert revision_of(target) == "v1_0_0_baseline"
+	assert revision_of(target) == RELEASED
 	with target.begin() as conn:              # what the app does at its start
 		alembic_command.upgrade(newer_level(conn), "head")
 	assert revision_of(target) == NEWER

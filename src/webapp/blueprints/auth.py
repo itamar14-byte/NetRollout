@@ -4,6 +4,7 @@ verification for local users, access requests, the password change, the
 session's time left and the Account page."""
 import base64
 import uuid
+from datetime import datetime, timezone
 from io import BytesIO
 from typing import Any, cast
 from urllib.parse import urlparse, urlsplit
@@ -19,8 +20,9 @@ from sqlalchemy.orm import Session
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from src.accounts.ldap import Directory, LdapUnavailable
-from src.accounts.users import (RESERVED_USERNAME, RULE, password_problem, LIMITS, AccountError,
-                                Accounts, is_reserved)
+from src.accounts.users import (FACTORY_LOCK_MINUTES, MAX_FAILED_PASSWORDS, RESERVED_USERNAME,
+                                RULE, LIMITS, AccountError, Accounts, Lockout, is_reserved,
+                                lock_message, needs_second_factor, password_problem)
 from src.audit import AuditAction
 from src.db.tables import LDAPServer, LDAPGroup, User, AuthType
 from src.encryption import decrypt, encrypt
@@ -41,6 +43,7 @@ _LOGIN_FAIL_MESSAGES = {
 	"ldap_bind_failed": "Invalid credentials",
 	"ldap_unavailable": "LDAP authentication service unavailable",
 	"reserved_username": RESERVED_USERNAME,
+	"locked": "Too many failed sign-ins - try again later.",   # lock_message() says when
 }
 
 
@@ -84,14 +87,15 @@ def after_login(user: User) -> ResponseReturnValue:
 	return redirect(session.pop(NEXT_KEY, None) or url_for("jobs.dashboard"))
 
 
-def login_fail(username: str, reason: str,
-               actor_id: uuid.UUID | None = None) -> ResponseReturnValue:
+def login_fail(username: str, reason: str, actor_id: uuid.UUID | None = None,
+               message: str | None = None) -> ResponseReturnValue:
 	"""Every failed sign-in ends here: the message for the person, a failed
 	audit row with the reason (a key of _LOGIN_FAIL_MESSAGES), and any
 	half-done 2FA state cleared so a stale pre_auth_user_id can't be replayed.
 
+	:param message: what the person reads instead of the reason's message
 	:returns: the way back to the sign-in page"""
-	flash(_LOGIN_FAIL_MESSAGES.get(reason, "Login failed"), "danger")
+	flash(message or _LOGIN_FAIL_MESSAGES.get(reason, "Login failed"), "danger")
 	current_app.web.audit(AuditAction.AUTH_LOGIN, success=False, username=username,
 	           actor_id=actor_id, detail={"reason": reason})
 	session.pop("pre_auth_user_id", None)
@@ -100,7 +104,8 @@ def login_fail(username: str, reason: str,
 
 def complete_login(user: User, db_session: Session,
                    **audit_detail: Any) -> ResponseReturnValue:
-	"""Sign the user in (no second factor: the factory admin, LDAP users) and
+	"""Sign the user in without a second factor (needs_second_factor: LDAP
+	users, the factory admin unless it turned 2FA on) and
 	audit it. The user is detached first, so Flask-Login holds no live ORM
 	object across requests; the session is indexed at once (Live Sessions).
 
@@ -142,17 +147,41 @@ def start_otp_flow(user: User) -> ResponseReturnValue:
 	return redirect(url_for("auth.otp_enroll"))
 
 def login_local(user: User, password: str, db_session: Session) -> ResponseReturnValue:
-	"""A local account's sign-in: the password, then approved, then active;
-	then 2FA - except the factory admin, who must stay reachable for
-	recovery."""
+	"""A local account's sign-in: the factory admin's lock (no password is
+	checked while it holds), the password - a wrong one counted
+	(Accounts.password_failed: the 5th in a row disables the account, or
+	locks the factory admin) -, then approved, then active; then 2FA where
+	the account uses it (needs_second_factor)."""
 	assert user.password_hash is not None   # every local account has one
+	accounts = Accounts(db_session)
+	now = datetime.now(timezone.utc)
+	minutes = accounts.lock_minutes_left(user, now)
+	if minutes is not None:
+		return login_fail(user.username, "locked", user.id, lock_message(minutes))
 	if not check_password_hash(user.password_hash, password):
+		outcome = accounts.password_failed(user, now)
+		if outcome is Lockout.DISABLED:
+			current_app.web.audit(AuditAction.AUTH_ACCOUNT_LOCKED, success=False,
+			                      username=user.username, actor_id=user.id,
+			                      object_type="User", object_id=user.id,
+			                      object_label=user.username,
+			                      detail={"failed_passwords": MAX_FAILED_PASSWORDS})
+		elif outcome is Lockout.LOCKED:
+			current_app.web.audit(AuditAction.AUTH_ACCOUNT_LOCK_TIMED, success=False,
+			                      username=user.username, actor_id=user.id,
+			                      object_type="User", object_id=user.id,
+			                      object_label=user.username,
+			                      detail={"failed_passwords": MAX_FAILED_PASSWORDS,
+			                              "minutes": FACTORY_LOCK_MINUTES})
+			return login_fail(user.username, "invalid_credentials", user.id,
+			                  lock_message(FACTORY_LOCK_MINUTES))
 		return login_fail(user.username, "invalid_credentials", user.id)
+	accounts.password_ok(user)
 	if not user.is_approved:
 		return login_fail(user.username, "pending_approval", user.id)
 	if not user.is_active:
 		return login_fail(user.username, "account_disabled", user.id)
-	if user.username == "admin":
+	if not needs_second_factor(user):
 		return complete_login(user, db_session)
 	return start_otp_flow(user)
 

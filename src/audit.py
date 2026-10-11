@@ -25,6 +25,8 @@ class AuditAction(StrEnum):
 	AUTH_PASSWORD_CHANGE = "auth.password_change"
 	AUTH_REGISTER = "auth.register"
 	AUTH_SESSION_EXPIRED = "auth.session_expired"
+	AUTH_ACCOUNT_LOCKED = "auth.account_locked"            # disabled: too many wrong passwords
+	AUTH_ACCOUNT_LOCK_TIMED = "auth.account_lock_timed"    # the factory admin's lock
 	# an admin on users (user.<action> / user.bulk_<action>: admin_users.USER_ACTIONS)
 	USER_CREATED = "user.created"
 	USER_RESET_PASSWORD = "user.reset_password"

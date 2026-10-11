@@ -46,6 +46,12 @@ var_mapping_to_devices = Table("var_mapping_to_devices",
                                )
 
 
+# The account every install starts with (src/db/install.py seeds it): the
+# break-glass way in - never locked out for good, 2FA only when it turns it on
+# (src/accounts/users.py: is_factory_admin)
+FACTORY_USERNAME = "admin"
+
+
 class User(Base):
 	"""A person who signs in: local (a password, 2FA) or from LDAP (the
 	directory checks the password). Owns their devices, profiles, mappings,
@@ -69,7 +75,8 @@ class User(Base):
 	                                          nullable=False)
 	created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now,
 	                                             nullable=False)
-	# encrypted; None until 2FA is enrolled (LDAP users and the factory admin never)
+	# encrypted; None until 2FA is enrolled (LDAP users never; the factory
+	# admin only when it turned 2FA on for itself)
 	otp_secret: Mapped[str | None] = mapped_column(String(255), nullable=True)
 	# The seeded admin and a user after an admin reset: every page redirects
 	# to the change-password page until they pick their own password
@@ -80,6 +87,13 @@ class User(Base):
 	                                       nullable=False)
 	ldap_server_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey(
 		"ldap_servers.id", ondelete="SET NULL"), nullable=True)
+	# Wrong passwords in a row (local accounts; src/accounts/users.py): the
+	# MAX_FAILED_PASSWORDS-th disables the account - the factory admin is
+	# locked until locked_until instead
+	failed_sign_ins: Mapped[int] = mapped_column(Integer, default=0, server_default="0",
+	                                             nullable=False)
+	locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True),
+	                                                      nullable=True)
 
 	security_profiles: Mapped[list["SecurityProfile"]] = relationship(
 		back_populates="user", cascade="all, delete-orphan")
