@@ -4,6 +4,7 @@ This guide is for the network engineers who use NetRollout's web app day to day.
 
 ## Contents
 
+- [How it fits together](#how-it-fits-together)
 - [Signing in](#signing-in)
 - [Finding your way around](#finding-your-way-around)
 - [The dashboard](#the-dashboard)
@@ -18,6 +19,45 @@ This guide is for the network engineers who use NetRollout's web app day to day.
 - [Analytics](#analytics)
 - [Your account](#your-account)
 - [Supported platforms](#supported-platforms)
+
+## How it fits together
+
+A rollout is built from a few blocks. Each one is a page in the sidebar, and each is explained in depth below.
+
+```mermaid
+flowchart LR
+    profile["Security profile<br/>(username, password,<br/>enable secret)"] -->|"assigned to"| device["Device<br/>(Inventory: IP, port,<br/>platform, label)"]
+    property["Property<br/>(system or custom)"] -->|"has a value on each device:<br/>an attribute"| device
+    mapping["Variable mapping<br/>token → property"] -->|"reads"| property
+    mapping -->|"assigned to"| device
+    commands["Commands<br/>with tokens"] --> rollout
+    device -->|"ticked in"| rollout["Rollout<br/>(one push per device)"]
+    rollout --> results["Results, logs,<br/>Verify, rollback"]
+```
+
+1. **A device** (Inventory) is a target: IP address, SSH port, platform and a label.
+2. **A security profile** holds the credentials a device logs in with. One profile serves many devices. A device without one can't be rolled out to.
+3. **A property** is a kind of per-device value, such as `hostname` or `loopback_ip`. Its value on one device is an **attribute** of that device.
+4. **A variable mapping** binds a token, such as `$$LOOPBACK$$`, to a property, and is assigned to the devices it applies to.
+5. **A rollout** sends your commands to the devices you tick. On each device, every `$$TOKEN$$` is replaced by that device's value, through your mapping. If a token can't be filled in on a device, the rollout won't start until you fix it.
+6. **Results** keep each device's outcome, the log, what Verify found, and a way to roll back.
+
+Commands without tokens need only devices and security profiles. Properties and mappings matter only when the same commands must carry different values per device.
+
+### Who sees and edits what
+
+| Item | Whose is it | Who sees it | Who edits it |
+|---|---|---|---|
+| Your own device | Yours | You | You |
+| Global device | Shared by an administrator | Everyone | Administrators |
+| Security profile | Yours | You | You |
+| System property (`hostname`, `vrfs`, ...) | Built in | Everyone | Nobody (built in) |
+| A system property's value on a device | The device's | Everyone who sees the device | Whoever may edit the device |
+| Custom property, and its values | Yours | You | You, on any device you see, global devices included |
+| Variable mapping | Yours | You | You |
+| Rollout and its results | Yours | You and administrators | Administrators can also cancel it or roll it back |
+
+A global device always has a security profile chosen by an administrator. You use it as it is: you can't assign your own profile to it.
 
 ## Signing in
 
@@ -275,11 +315,26 @@ NetRollout runs a limited number of rollouts at once: 4 unless your administrato
 
 ### Verify
 
-With **Verify after push**, NetRollout reads each device's running configuration after the push. It looks up every command in the section it was typed in:
+With **Verify after push**, NetRollout checks the change on each device after the push has finished (and been saved or committed):
 
-- A configuration command must be present.
-- A removal (`no`, `undo`, `delete`, `unset`) must be gone.
-- Navigation and operational commands, such as `exit`, `write memory` and `commit`, are marked not verifiable and don't count against the device.
+1. It reads the device's configuration back over SSH, with the platform's own command (for example `show configuration | display set` on JunOS).
+2. It places each command you typed in its section. A command typed under `interface GigabitEthernet0/1` is looked for under that interface, not anywhere in the file.
+3. It checks each command:
+   - A configuration command must be present.
+   - A removal (`no`, `undo`, `delete`, `unset`) must be gone.
+   - Navigation and operational commands, such as `exit`, `write memory` and `commit`, are marked not verifiable and don't count against the device.
+
+Each device is checked against its own commands, with its tokens filled in. Only devices the push applied to are verified. If you cancel the rollout, nothing is verified. If a device's configuration can't be read, its status comes from the push alone, and it's marked **ACTION NEEDED**: the change was applied but not verified, so check it on the device.
+
+How the result shows:
+
+- The device's **Verified** count in Results is the number of commands confirmed (commands that can't be checked are counted as accounted for).
+- Every checkable command confirmed, and none refused: `success`.
+- None confirmed: `failed`.
+- Some confirmed: `partial`.
+- Where something didn't verify, NetRollout keeps the configuration it read, and **Verify Diff** in Results shows it with the verdict for each command. The rollout log lists each command not found too.
+
+Without Verify, the status comes only from what the device said while the commands were sent: no refusals is `success`, every configuring command refused is `failed`, anything between is `partial`.
 
 Verify compares text, so it can be wrong in two ways:
 
@@ -295,15 +350,30 @@ Select **Cancel** on the dashboard or on Active Jobs:
 
 ## Active Jobs and the live log
 
-**Active Jobs** lists the rollouts running or queued, with **Running**, **Queued** and **Devices in flight** counts. Administrators also see other users' jobs.
+When you select **Launch Rollout**, NetRollout takes you to **Active Jobs**, with your new job highlighted.
+
+**Active Jobs** lists the rollouts running or queued, with **Running**, **Queued** and **Devices in flight** counts. The page refreshes itself every 15 seconds while jobs are active (not while a log is open). Administrators also see other users' jobs, under **Other Users**.
 
 For each job:
 
-- **Log** opens the live log, which streams the job's log lines as they happen. A queued job's log starts with "Queued — waiting for a free slot" and waits.
+- **Log** opens the live log under the job's row. It streams the job's log lines as they happen: each device connecting, each command refused, the save or commit, Verify's findings, any **ACTION NEEDED** line and the final summary. Opening it later shows the lines so far first. A queued job's log starts with "Queued — waiting for a free slot" and waits for it to start.
 - **Cancel** cancels it (see [Cancelling](#cancelling)).
-- **Rollback** becomes available when the rollout finishes, from Results.
+- **Rollback** is greyed while the rollout runs.
 
-The live log is a convenience. If it drops, the job carries on, and the full log is in Results (**Download Log**).
+When the rollout ends with its log open, a card shows the outcome: the job's status, the count per status, any **Action needed** devices with what to do, **Rollback** (when at least one device succeeded) and **View in Results**.
+
+The **dashboard** also shows your running or queued rollout, with its elapsed time and **Cancel**, but not its log.
+
+The live log is a convenience. If it drops ("Stream ended."), the job carries on, and the full log is kept: see [Logs](#logs).
+
+### Logs
+
+Every rollout writes a log file on the server, whether or not you watch it live.
+
+- **Download Log**, on the job in Results, downloads it. It's the same text as the live log: every device's connection, the commands refused and the device's replies, the save or commit, Verify's verdict on each command that didn't verify, the **ACTION NEEDED** lines and the summary. **Verbose logging** adds more detail.
+- Secrets are redacted. The value after words such as `password`, `secret`, `community`, `key-string` or `psksecret` is written as `<redacted>`, in the file and in the live log, so a log is safe to attach to a ticket.
+- You can download the logs of your own jobs; administrators can download any job's.
+- Log files are kept 60 days by default. Administrators find them in the server's `logs` folder; see [Logs](admin-guide.md#logs) in the admin guide.
 
 ## Results
 
@@ -356,14 +426,22 @@ Job records are kept for 30 days unless your administrator changed it.
 
 ## Rolling back
 
-NetRollout doesn't guess how to undo a change. A rollback is a new rollout of the commands you give, sent to the devices that were configured successfully in the original job.
+NetRollout doesn't guess how to undo a change, and it doesn't restore a saved configuration. A rollback is a new rollout of **compensatory commands that you write**, sent to the devices the original job configured **successfully**.
 
-1. In Results, select **Rollback** on the job. It's offered only when at least one device succeeded.
-2. Enter the compensatory commands, for example `no ntp server 192.0.2.123`.
-3. Choose **Verify after push** and **Verbose** as for any rollout.
+1. Select **Rollback** on the job in Results, or on the completion card in Active Jobs. It's offered only when at least one device ended `success`.
+2. Enter the compensatory commands, one per line. For a job that added `ntp server 192.0.2.123`, that's `no ntp server 192.0.2.123`. You can use tokens.
+3. Choose **Verify after push** and **Verbose**, as for any rollout.
 4. Select **Execute Rollback**.
 
-The rollback uses the original job owner's devices, credentials and variable values. Values are read when you start the rollback, not taken from the original job, so check they still match the network. The rollback is a new job of yours, shown in Active Jobs and Results.
+What it does exactly:
+
+- **Which devices**: those that ended `success` in the original job, matched by `ip:port` among the devices the job's owner can see today (their own entry preferred over a global one with the same address). Devices that ended `partial`, `failed` or `cancelled` are left out, because what they hold is uncertain: check and fix them by hand, or with a new rollout. A device deleted since the job is left out.
+- **Which commands**: the same commands to every one of those devices, whatever their platform.
+- **Whose view**: the job owner's. Their credentials (the devices' security profiles) log in, and their mappings and values fill in the tokens. Values are read when you start the rollback, not taken from the original job, so check they still reflect the network.
+- **Checks first**: as for any rollout, every device must be reachable, have a security profile, and resolve every token, or the rollback is refused with the reason.
+- **Whose job**: the rollback is a new job of yours, shown in Active Jobs and Results. The audit log records it against the original job.
+
+You can roll back your own jobs. Administrators can roll back anyone's.
 
 ## Analytics
 

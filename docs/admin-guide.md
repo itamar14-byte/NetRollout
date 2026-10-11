@@ -1,0 +1,663 @@
+# NetRollout admin guide
+
+This guide is for whoever runs a NetRollout installation day to day: starting and stopping it, updating it, backing it up, and managing users, settings, certificates, monitoring and the database. It assumes NetRollout is already installed. To install it, see the [installation guide](install.md). For using NetRollout to configure devices, see the [user guide](user-guide.md).
+
+## Contents
+
+- [The moving parts](#the-moving-parts)
+- [NetRollout Manager (Windows)](#netrollout-manager-windows)
+- [The command line](#the-command-line)
+- [Manager and command line side by side](#manager-and-command-line-side-by-side)
+- [The Admin Panel](#the-admin-panel)
+- [Updating NetRollout](#updating-netrollout)
+- [Backups](#backups)
+- [Restoring a backup](#restoring-a-backup)
+- [The HTTPS port](#the-https-port)
+- [Hostname and certificates](#hostname-and-certificates)
+- [Users and sign-in](#users-and-sign-in)
+- [System Settings reference](#system-settings-reference)
+- [Monitoring with Grafana](#monitoring-with-grafana)
+- [Moving the database](#moving-the-database)
+- [Switching Redis](#switching-redis)
+- [Restart, stop and maintenance](#restart-stop-and-maintenance)
+- [Retention](#retention)
+- [Logs](#logs)
+- [The audit log](#the-audit-log)
+- [Troubleshooting](#troubleshooting)
+
+## The moving parts
+
+NetRollout runs as a set of Docker containers, managed with Docker Compose under the project name `netrollout`. Only nginx publishes ports on the host.
+
+```mermaid
+flowchart LR
+    browser([Browser]) -->|"HTTPS (443 or your port)<br/>80 redirects to HTTPS"| nginx
+    nginx --> app["app<br/>(NetRollout)"]
+    nginx -->|"/grafana/ (admins)"| grafana
+    app --> postgres[(PostgreSQL)]
+    app --> redis[(Redis)]
+    app -->|SSH| devices([Network devices])
+    subgraph monitoring ["monitoring profile (optional)"]
+        prometheus -->|"/metrics"| app
+        alloy -->|"logs/ folder"| loki
+        grafana --> prometheus
+        grafana --> loki
+        grafana --> postgres
+    end
+```
+
+| Container | What it does |
+|---|---|
+| `nginx` | Serves NetRollout over HTTPS on your port, redirects port 80 to HTTPS (when port 80 was free at install), and serves Grafana at `/grafana/` to admins. |
+| `app` | NetRollout itself: the web app and the rollout engine. |
+| `postgres` | PostgreSQL 17: users, inventory, credentials (encrypted), results, settings and the audit log. |
+| `redis` | Sessions, the rollout queue and the live state of running rollouts. Nothing in it needs a backup. |
+| `prometheus`, `loki`, `alloy`, `grafana`, `grafana-setup` | Monitoring, when it's turned on. See [Monitoring with Grafana](#monitoring-with-grafana). |
+
+### Where the data lives
+
+Everything that belongs to an installation is in its install folder (`C:\NetRollout` by default on Windows; the folder you unpacked into on Linux) and in Docker volumes:
+
+| Location | What's in it |
+|---|---|
+| `.env` | Every secret of the installation: the database, Redis and Grafana passwords, the session key, and **the encryption key for stored device credentials**. Hidden on Windows; readable by root only on Linux. Don't edit it: settings live in System Settings and the scripts keep the rest up to date. |
+| `config/` | Files the app writes: `runtime.env` (only after a database move or Redis switch), `nginx/site.env` (hostname and port for nginx), port-change state. |
+| `certs/` | The TLS certificate and key nginx serves. |
+| `logs/` | Rollout logs, and on Windows the install, update and port helper logs. |
+| `backups/` | Backups, scheduled and manual. |
+| Docker volumes `netrollout_postgres`, `netrollout_redis`, `netrollout_grafana`, `netrollout_prometheus`, `netrollout_loki`, `netrollout_alloy` | The database, Redis, and the monitoring data. |
+
+The install folder is locked down: on Windows only Administrators, SYSTEM and the account that installed NetRollout can open it; on Linux `.env` is root's and the other folders belong to the app container's user. Both are set again at every start.
+
+> [!IMPORTANT]
+> `.env` and every backup hold the encryption key. Anyone with either can decrypt the stored device credentials. Keep them as safe as the server itself.
+
+## NetRollout Manager (Windows)
+
+NetRollout Manager is the Windows app for running NetRollout. Open it from the Start Menu, the desktop shortcut, the tray, or **Win+R** → `netrollout`.
+
+![NetRollout Manager](images/manager.png)
+
+### The status light
+
+The Manager checks NetRollout's health every 15 seconds.
+
+| Light | State | Typical message below it |
+|---|---|---|
+| Green | **Running** | `Ready`, or `2 rollouts running` |
+| Amber | **Needs attention** | `The database or Redis isn't reachable - see Status`; `Answers with an error (502) - see Status`; `The update to 1.0.1 didn't finish - click Finish update`; or `Port 443 is taken by <program>. Close it and click Start - or click Change port... to use another port for NetRollout.` |
+| Red | **Stopped** | `Not running`, or `Not installed here - run NetRollout Setup` |
+| Grey | **Checking...** | |
+
+The address under the message opens NetRollout in your browser.
+
+### The buttons
+
+| Button | What it does |
+|---|---|
+| **Open NetRollout** | Opens NetRollout in your browser. |
+| **Start** | Starts NetRollout (`netrollout start`). Greyed while it's already running. If an update didn't finish, the button reads **Finish update** and finishes it first. |
+| **Stop** | Stops NetRollout (`netrollout stop`). Greyed while it's stopped. If rollouts are running, it lists them and asks: **Wait for them** (up to 10 minutes; new rollouts are paused meanwhile), **Cancel all now** (devices not reached yet are skipped; a device being configured finishes), or **Don't stop**. |
+| **Change port...** | Moves NetRollout to another HTTPS port. Enabled only while another program holds NetRollout's port. Otherwise, change the port in System Settings → HTTPS port (hover over the greyed button to see this). See [The HTTPS port](#the-https-port). |
+| **Status** | Checks everything and says what to do about any problem (`netrollout status`). |
+| **Logs** | Shows the app's recent log lines. |
+| **Back up** | Makes a backup now (`netrollout backup`). |
+| **Restore...** | Picks a backup in the `backups` folder, asks for confirmation, and restores it (`netrollout restore`). See [Restoring a backup](#restoring-a-backup). |
+| **Update** | Checks for a newer NetRollout and offers to update. See [Updating NetRollout](#updating-netrollout). |
+
+Hover over a greyed **Start** or **Stop** to see why it's greyed. The panel below the buttons shows the output of each action. Only one action runs at a time.
+
+### The tray
+
+The Manager keeps an icon in the notification area, with the status light as a dot. Click it to open the window. Its menu has **Open NetRollout**, **Show NetRollout Manager**, **Start**, **Stop**, **Check for updates**, **Check for updates daily**, **Uninstall NetRollout...** and **Exit**.
+
+If you ticked "tray at sign-in" during Setup, the Manager starts hidden in the tray when you sign in to Windows (`NetRollout Manager.exe --tray`). Starting the Manager again brings the running one's window forward; there is one Manager per install folder.
+
+### Update checks and their settings
+
+The Manager checks for a newer version a minute after it starts and then once a day, and announces one in the tray once a day. Turn this off with **Check for updates daily** in the tray menu or the update window.
+
+Its settings are in the registry, under `HKEY_CURRENT_USER\Software\NetRollout\Manager`:
+
+| Value | Type | Meaning |
+|---|---|---|
+| `DailyCheck` | DWORD | `1` checks daily (the default), `0` doesn't. |
+| `UpdateFeed` | String | Where to look for releases instead of GitHub: an `http(s)` URL or a file path, holding release JSON in the same format as GitHub's releases API (one release, or a list). The download links in it may be `http(s)` or `file`. Use it for an internal mirror. |
+| `Announced` | String | The last version announced in the tray. Written by the Manager. |
+
+### The port helper
+
+The same program also runs headless as the port helper (`NetRollout Manager.exe --helper`), started at Windows sign-in, at the end of Setup and by `netrollout start`. It applies an HTTPS port saved in System Settings. It never shows a window; it writes to `logs\port-helper.log`. See [The HTTPS port](#the-https-port).
+
+## The command line
+
+### Windows: `netrollout`
+
+On Windows, `bin\netrollout.bat` in the install folder runs `bin\manage.ps1`. If you ticked "add to PATH" in Setup, `netrollout` works in any new terminal; otherwise run `C:\NetRollout\bin\netrollout.bat`. Run `netrollout help` for the list.
+
+| Command | What it does |
+|---|---|
+| `netrollout start` | Starts NetRollout and opens it in the browser. Checks Docker and the ports first; if another program holds the HTTPS port, it names it and starts nothing. If NetRollout is already running and healthy, it says so. If an update didn't finish, it finishes it first. Also repairs a half-started installation. |
+| `netrollout stop` | Stops NetRollout. Running rollouts finish first (up to 10 minutes). If rollouts are running, it lists them and asks: **[W]ait**, **[C]ancel them all now**, or **[D]on't stop**. |
+| `netrollout status` | Checks the containers, the address, the HTTPS port and the backups, and says what to do about anything wrong. Exit code 0 when all is well. |
+| `netrollout open` | Opens NetRollout in the browser. |
+| `netrollout logs [service]` | The last 100 log lines of a container: `app` (the default), `nginx`, `postgres`, `redis`, `grafana`, `grafana-setup`, `prometheus`, `loki`, `alloy`. |
+| `netrollout backup` | Makes a backup now, into `backups\`. |
+| `netrollout restore <file>` | Restores a backup, after asking. Add `-NoSafetyBackup` to skip the backup of the current state. See [Restoring a backup](#restoring-a-backup). |
+| `netrollout apply` | Applies an HTTPS port saved in System Settings. The port helper does this by itself; run it by hand only if the helper isn't running. |
+| `netrollout port <N>` | Moves NetRollout to port N, when its current port is taken by another program and you can't reach System Settings. Asks first. |
+| `netrollout rollouts` | Lists the rollouts running or queued, with their owners. `-Json` prints one line of JSON. |
+| `netrollout stop-now` | Makes a stop that is under way, or one in the next 15 minutes, cancel the running rollouts at once instead of waiting for them. |
+| `netrollout port-check` | Says whether NetRollout's nginx holds its HTTPS port, and if not, which program does. `-Json` prints JSON. |
+
+Add `-NoBrowser` to `start` to skip opening the browser.
+
+Installing, updating and uninstalling are done by NetRollout Setup and by Windows' **Settings → Apps**, not by these commands. The script has further commands that Setup and the Manager run; they aren't meant to be run by hand.
+
+### Linux: `netrollout.sh`
+
+On Linux, run the script from the install folder as root:
+
+```bash
+sudo ./bin/netrollout.sh <command> [options]
+```
+
+Run it with no command for a numbered menu:
+
+```text
+  1  Open (the address)
+  2  Status
+  3  Start
+  4  Stop
+  5  Logs
+  6  Back up
+  7  Restore a backup
+  8  Update
+  9  Change the HTTPS port (when its port is taken)
+  0  Exit
+```
+
+| Command | What it does |
+|---|---|
+| `start` | Starts NetRollout. As on Windows: checks Docker and the ports, says if it's already running, finishes an unfinished update first. |
+| `stop` | Stops NetRollout. Running rollouts finish first; if there are any, it lists them and asks **[W]ait**, **[C]ancel them all now** or **[D]on't stop**. |
+| `status` | Checks everything and says what to do about any problem. |
+| `open` | Prints the address, and opens the browser on a desktop. |
+| `logs [service]` | The last 100 log lines of a container (`app` by default). |
+| `backup` | Makes a backup now, into `backups/`. |
+| `restore <file>` | Restores a backup, after asking. `--no-safety-backup` skips the backup of the current state. |
+| `update` | Updates to the newest release. See [Updating NetRollout](#updating-netrollout). |
+| `apply` | Applies an HTTPS port saved in System Settings. A systemd path unit does this by itself; run it by hand on a system without systemd. |
+| `port <N>` | Moves NetRollout to port N, when its port is taken. |
+| `uninstall` | Removes NetRollout. See below. |
+| `help` | The list of commands and options. |
+
+Options:
+
+| Option | Applies to | Meaning |
+|---|---|---|
+| `--yes` | any | Unattended: no questions. With `stop` and `update`, running rollouts are waited for. |
+| `--no-browser` | `start` | Don't open the browser. |
+| `--no-safety-backup` | `restore` | Don't back up the current state first. |
+| `--delete-data`, `--keep-data` | `uninstall` | Delete or keep the data without asking. |
+| `--delete-backups` | `uninstall` | With `--delete-data`, delete the backups too. Otherwise they're kept. |
+| `--remove-files` | `uninstall` | Remove the scripts and compose files too. |
+| `--version X`, `--from <zip>`, `--feed <url\|file>`, `--check` | `update` | See [Updating on Linux](#updating-on-linux). |
+
+The Linux script has no `rollouts` or `stop-now` command; `stop` and `update` show the rollouts and ask instead.
+
+To uninstall on Windows, or for what an uninstall keeps, see [Uninstalling](install.md#uninstalling).
+
+## Manager and command line side by side
+
+Everything NetRollout Manager does runs `manage.ps1` underneath, so each button has a command. Linux has no Manager; its script has the same commands where they apply.
+
+| NetRollout Manager (Windows) | Windows command | Linux command | What it does |
+|---|---|---|---|
+| **Open NetRollout**, the address link, tray **Open NetRollout** | `netrollout open` | `sudo ./bin/netrollout.sh open` | Opens NetRollout in the browser (Linux: prints the address, and opens a browser on a desktop). |
+| **Start**, tray **Start** | `netrollout start` | `sudo ./bin/netrollout.sh start` | Starts NetRollout; finishes an unfinished update first. |
+| **Finish update** (the **Start** button while an update is unfinished) | `netrollout start` | `sudo ./bin/netrollout.sh start` | Finishes the update, then starts. |
+| **Stop**, tray **Stop** | `netrollout stop` | `sudo ./bin/netrollout.sh stop` | Stops NetRollout; running rollouts finish first, or are cancelled if you choose. |
+| **Status** | `netrollout status` | `sudo ./bin/netrollout.sh status` | Checks everything and says what to do. |
+| **Logs** | `netrollout logs [service]` | `sudo ./bin/netrollout.sh logs [service]` | Recent log lines. The Manager shows the app's only; the command takes any container. |
+| **Back up** | `netrollout backup` | `sudo ./bin/netrollout.sh backup` | Makes a backup now. |
+| **Restore...** | `netrollout restore <file>` | `sudo ./bin/netrollout.sh restore <file>` | Restores a backup. The Manager offers a file picker in `backups\` and always backs up the current state first. |
+| **Update**, tray **Check for updates** | None: run the newer NetRollout Setup | `sudo ./bin/netrollout.sh update` | Updates to a newer release. On Windows, the Manager downloads and runs Setup. |
+| **Change port...** | `netrollout port <N>` | `sudo ./bin/netrollout.sh port <N>` | Moves NetRollout to another HTTPS port while its own is taken. |
+| Status light (port taken) | `netrollout port-check` | None (`status` reports it) | Whether nginx holds the HTTPS port, and if not, who does. |
+| The rollouts list shown by **Stop** and **Update** | `netrollout rollouts` | None (`stop` and `update` show it) | The rollouts running or queued. |
+| **Cancel all now** in that list | `netrollout stop-now` | None (answer **C** at `stop` or `update`) | Cancels the running rollouts at once during a stop. |
+| None: the port helper runs it | `netrollout apply` | `sudo ./bin/netrollout.sh apply` | Applies an HTTPS port saved in System Settings. |
+| Tray **Uninstall NetRollout...** | None: Windows **Settings → Apps** | `sudo ./bin/netrollout.sh uninstall` | Removes NetRollout, keeping or deleting the data. |
+| Tray **Check for updates daily** | None (registry value `DailyCheck`) | None | The daily update check. |
+| None | None | The menu: `sudo ./bin/netrollout.sh` | A numbered menu of the common commands. |
+
+## The Admin Panel
+
+Administrators open the Admin Panel from the user menu (**Admin Panel**). **← Home** goes back to the dashboard. Its sidebar has three groups:
+
+| Group | Page | What it shows | What you can do there |
+|---|---|---|---|
+| Access | **User Management** | Every account: username, full name, email, role, position, member since, status (Active, Inactive, Pending). LDAP accounts and the factory account are marked. The sidebar badge counts access requests waiting. Also the LDAP **Group Rules**. | **Add user**, and for selected users **Approve**, **Enable**, **Disable**, **Promote**, **Demote**, **Terminate Session**, **Reset Password**, **Reset 2FA**, **Delete**. Turn group rules on or off, or delete them. See [Users and sign-in](#users-and-sign-in). |
+| Access | **Live Sessions** | Who is signed in now, local and LDAP, with role and how long ago they signed in. | **Kick** one user's sessions, or **Kick All** in the local or the LDAP table (everyone there but you). A kicked user is signed out everywhere. |
+| Observability | **Audit Logs** | The audit log, newest first. | Filter by actor, action and outcome; **View Detail**; **Copy Row**. See [The audit log](#the-audit-log). |
+| Observability | **Analytics** | The organisation's last 30 days: active users, success rate, total jobs, device operations, the most active operators and the most failed devices. | Query the audit log (**Audit Log Query**) and **Export CSV**. |
+| Observability | **Monitoring** | Shown only when monitoring is on. Opens Grafana in a new tab. | See [Monitoring with Grafana](#monitoring-with-grafana). |
+| System | **Server Management** | **Database Services**: PostgreSQL and Redis, connected or not, bundled or your own server, and where. **TLS Certificate**: the certificate in use. **LDAP / Active Directory**: the directory servers. | Move the database or move it back, switch Redis or switch back, upload a certificate or generate a self-signed one, add and edit LDAP servers and import from them. See [Moving the database](#moving-the-database), [Switching Redis](#switching-redis), [Hostname and certificates](#hostname-and-certificates) and [LDAP / Active Directory](#ldap--active-directory). |
+| System | **System Settings** | Cards: **Retention** (with the last nightly clean-up), **Rollouts**, **Access** (hostname, HTTPS port, nginx's last answer and the certificate's check, the read-only internal app port), **Sessions**, **Backups** (the schedule and the list of backups). | Change any setting (**Save changes** / **Discard**, or **reset to default** per setting), **Test access**, **Back up now**, download or delete a backup. See [System Settings reference](#system-settings-reference) and [Backups](#backups). |
+
+Below the groups, **Restart server** restarts NetRollout. See [Restart, stop and maintenance](#restart-stop-and-maintenance). When a changed setting needs a restart, the sidebar says **Restart required** and names it.
+
+## Updating NetRollout
+
+Every update follows the same steps:
+
+1. **Check the version.** The installed version decides whether the new one is newer. The same version or an older one is refused, and nothing changes. Downgrades aren't supported.
+2. **Back up.** A `before-update` backup is made by the installed version, so you can restore it into that version if you need to go back.
+3. **Replace the files** (scripts, compose files, `deploy/`, `VERSION`).
+4. **Download the new images** while the old version keeps running.
+5. **Update the settings** in `.env` with anything the new version needs.
+6. **Restart** on the new version. This takes about a minute. Running rollouts finish first, and everyone signs in again.
+
+### Which releases you're offered
+
+An installation follows the channel of the version it runs:
+
+- A **release** (for example `1.0.0`) is offered only releases. Pre-releases are never offered.
+- A **pre-release** (for example `1.0.0rc1`) is offered the newest version including pre-releases. A pre-release installation moves on to the final release when it's published.
+
+Versions compare as Python versions do: `1.0.0.dev0` < `1.0.0rc1` < `1.0.0rc2` < `1.0.0`.
+
+### Updating on Windows
+
+Use either:
+
+- **NetRollout Manager → Update** (or **Check for updates** in the tray). If a newer version exists, a window shows its release notes, a **View release on GitHub** link and what will happen. Select **Update now**. The Manager downloads the new NetRollout Setup to your temporary folder, checks it against the release's `SHA256SUMS` (a mismatch is deleted), and runs it silently. If rollouts are running, it first asks whether to wait for them or cancel them. The Manager closes during the update and opens again when it's done, showing the last line of `logs\update.log`.
+- **Run the newer NetRollout Setup yourself.** It finds the installation and shows "Ready to update" with the two versions. Select **Update**.
+
+The update's log is `logs\update.log` in the install folder.
+
+### Updating on Linux
+
+```bash
+sudo ./bin/netrollout.sh update [--version X] [--from <zip>] [--feed <url|file>] [--check] [--yes]
+```
+
+| Option | Meaning |
+|---|---|
+| (none) | Update to the newest release on your channel, from GitHub. |
+| `--version X` | Update to version X instead of the newest. |
+| `--from <zip>` | Update from a `netrollout-<version>-linux.zip` you downloaded, for a server without internet access to GitHub. If a `SHA256SUMS` file sits next to the zip, the zip is checked against it. |
+| `--feed <url\|file>` | Look for releases in a mirror's JSON (GitHub's release format: one release or a list) instead of GitHub. A file must be inside the install folder. |
+| `--check` | Only say what's available. Nothing changes. |
+| `--yes` | Don't ask. |
+
+The script downloads the release zip and `SHA256SUMS`, checks the zip, asks for confirmation, makes the `before-update` backup, replaces the files and hands over to the new version's script to finish.
+
+> [!NOTE]
+> An update also needs the new version's Docker images, `itamarweinstein/netrollout` and `itamarweinstein/netrollout-nginx`, which it pulls from Docker Hub. A server that can't reach Docker Hub needs them loaded beforehand, for example with `docker save` and `docker load`.
+
+### An update that didn't finish
+
+If an update stops after its files were replaced (for example the images couldn't be downloaded), NetRollout records it as unfinished and never starts the new version half-updated:
+
+- `netrollout status` says the update didn't finish.
+- On Windows, the Manager shows **Needs attention** and its **Start** button reads **Finish update**.
+- Running `netrollout start` (Windows) or `sudo ./bin/netrollout.sh start` (Linux), or running Setup again, finishes the update. Steps already done, such as the backup, aren't repeated.
+
+Fix the cause the update reported, then finish it.
+
+## Backups
+
+A backup is one zip file in the `backups` folder, named `netrollout-<version>-<YYYYMMDD-HHMMSS>-<kind>.zip`. It holds:
+
+- `manifest.json`: the version, the database migration level and the row counts
+- `db/`: every NetRollout table as CSV, from one consistent snapshot
+- `grafana.db`: Grafana's database, with your custom dashboards (when monitoring is on)
+- `certs/`: the TLS certificate and key
+- the rollout logs
+- `encryption.key`: the key that decrypts the stored credentials
+
+> [!WARNING]
+> A backup is as secret as `.env`: it holds the encryption key and the encrypted credentials. Keep downloaded copies somewhere safe. Keep a copy off the server too, because a backup on the same disk doesn't survive losing that disk.
+
+The backup runs through the app's own database connection, so it works whether NetRollout uses the bundled database or your own server.
+
+### Kinds of backup
+
+| Kind | Made by | Deleted automatically? |
+|---|---|---|
+| `scheduled` | The schedule in System Settings | Yes: only the newest **Keep** are kept |
+| `manual` | **Back up now**, the Manager's **Back up**, `netrollout backup` | No |
+| `before-restore` | A restore, of the state it replaces | No |
+| `before-update` | An update, of the version it replaces | No |
+| `before-move` | A database move, of the data it copies | No |
+
+### The schedule
+
+In **Admin Panel → System Settings → Backups**:
+
+- **Scheduled backup**: **Off**, **Daily** (the default) or **Weekly**.
+- **At**: the server's local time, 24-hour (default `02:00`).
+- **On**: the day of a weekly backup (default Sunday).
+- **Keep**: how many scheduled backups to keep (default 14).
+
+A backup missed while the server was off is made once when it's back. A failed scheduled backup is recorded in the audit log (`backup.failed`), shown on the Backups card and in `netrollout status`, and tried again after an hour.
+
+### Back up now, download, delete
+
+The **Backups** card in System Settings lists the backups with their size and kind. Select **Back up now** to make one. Each backup has a download and a delete button. All of these are recorded in the audit log.
+
+From the server: the Manager's **Back up**, `netrollout backup`, or `sudo ./bin/netrollout.sh backup`. A backup works whether NetRollout is running or stopped.
+
+## Restoring a backup
+
+A restore stops NetRollout, so it's done on the server, not in the web app:
+
+- **Windows**: NetRollout Manager → **Restore...**, or `netrollout restore <file>`
+- **Linux**: `sudo ./bin/netrollout.sh restore <file>`, or menu item 7
+
+The file can be in the `backups` folder (give its name) or anywhere else (give its path).
+
+What happens:
+
+1. The backup is checked. A backup from a newer version, or an incomplete one, is refused, and nothing changes.
+2. You're asked to confirm. Everything since the backup is replaced.
+3. The current state is backed up (`before-restore`), unless you used `-NoSafetyBackup` / `--no-safety-backup`. Use that only when the current state can't be backed up, for example a damaged database.
+4. NetRollout stops. Running rollouts finish first.
+5. The database is restored in one transaction: if anything fails, it's rolled back and NetRollout starts again as it was.
+6. The certificate, the rollout logs and Grafana's data are put back, and the backup's encryption key is written into `.env`.
+7. NetRollout starts. Everyone signs in again.
+
+A backup from an older version is migrated forward when NetRollout starts.
+
+What a restore keeps from this machine:
+
+- `.env`: this installation's own passwords stay. Only the encryption key is taken from the backup.
+- `config/`
+- The HTTPS port this installation uses.
+
+So you can restore a backup from one server onto a fresh installation on another: the new server takes over the data, the credentials and the dashboards, and keeps its own passwords and port.
+
+## The HTTPS port
+
+Change the port people use in **Admin Panel → System Settings → HTTPS port**. Changing it doesn't cut you off:
+
+1. When you save, NetRollout opens the new port **next to** the current one. NetRollout is unavailable for a few seconds while nginx restarts.
+2. The page says, for example, "Port 8443 is open next to port 443" and links to NetRollout on the new port. If your browser can reach it, it goes there by itself.
+3. The page served on the new port confirms it. The new port is kept and the old one closes.
+4. If the new port isn't confirmed within 120 seconds, for example because a firewall blocks it, NetRollout goes back to the current port. The page says why and offers **Try again**.
+
+The port helper does the Docker part on the server:
+
+- **Windows**: NetRollout Manager in helper mode (see [The port helper](#the-port-helper)). If Docker isn't running, it retries after 15, 60, 120 and 240 seconds, then every 5 minutes. Its log is `logs\port-helper.log`.
+- **Linux**: a systemd path unit (`netrollout-port-netrollout.path`) that watches `config/nginx/site.env`. Without systemd, the page says to run `sudo ./bin/netrollout.sh apply` on the server.
+
+**When another program takes the port**, NetRollout can't start and you can't reach System Settings. NetRollout Manager names the program and enables **Change port...**. From the command line, `netrollout port <N>` (Windows) or `sudo ./bin/netrollout.sh port <N>` (Linux) moves NetRollout to port N: it checks the port, asks, saves it in all three places (`.env`, nginx and System Settings) and restarts on it. If NetRollout doesn't answer on the new port within a minute, the old port is put back.
+
+## Hostname and certificates
+
+### The hostname
+
+**Admin Panel → System Settings → Access → Hostname** is the name people use, such as `netrollout.corp.local`. It's a DNS name or an IPv4 address, without `https://`, port or path. Other names that reach the server redirect to it. IP addresses and `localhost` are always served.
+
+Saving the hostname is all or nothing:
+
+1. The certificate must cover the new name. A self-signed certificate is reissued for it. An organisation's certificate is never reissued: if it doesn't cover the new name, the change is refused.
+2. nginx is told the new name and must accept it.
+3. If anything fails, the setting, nginx and the certificate are all put back, and the page shows why.
+
+After a self-signed certificate is reissued for a new name, it keeps covering the old names for 7 days, so bookmarks keep working while people move over.
+
+The **Access** card shows nginx's last answer (applied or rejected, with nginx's message) and the certificate in use: its names, its expiry, whether it's self-signed, and any problems. **Test access** checks a hostname and port, saved or not.
+
+If NetRollout runs behind your own reverse proxy instead, update that proxy yourself.
+
+### The TLS certificate
+
+**Admin Panel → Server Management → TLS Certificate**:
+
+- **Upload and apply** your organisation's certificate. **Certificate**: PEM, the server's certificate first, then each issuer. **Private key**: PEM, without a password. It's checked first: the key must match, the dates must be valid, and it must cover the saved hostname. A certificate with any problem is refused.
+- **Generate self-signed certificate** makes a new one for the saved hostname and the server's IP addresses (ECDSA P-256, valid for 825 days).
+
+Either way, nginx applies the new certificate within seconds, without a restart. If nginx can't use it, the previous certificate stays. Both are recorded in the audit log; the key never is.
+
+Browsers warn about a self-signed certificate. For production, upload one from your organisation's CA.
+
+## Users and sign-in
+
+### Roles
+
+| Role | Can |
+|---|---|
+| **Operator** | Use NetRollout: their own inventory, profiles, mappings, properties and rollouts, plus the global devices. See only their own results. |
+| **Admin** | Everything an operator can, plus the Admin Panel: users, sessions, audit logs, analytics, monitoring, System Settings and Server Management. Create and edit global devices. See and cancel everyone's rollouts and results. |
+
+### The factory admin account
+
+A new installation has one account: `admin` with the password `admin`. At the first sign-in you must choose a new password. The `admin` account signs in without two-factor authentication, so that it stays available for recovery. Give it a strong password, and give each administrator a personal account.
+
+### Local accounts
+
+There are two ways in:
+
+- **Add user** (Admin Panel → **User Management**): the account is approved and active at once, as an operator or an admin. You get a temporary password, shown once, to hand over privately. The user chooses their own at the first sign-in.
+- **Request access**: anyone who can reach the sign-in page can ask for an account. It waits for an administrator to **Approve** it. The User Management link in the sidebar shows how many requests are waiting.
+
+**The password rule** for local accounts: at least 8 characters, at least 2 of letters / digits / special characters, ASCII only, and not containing the username.
+
+**Two-factor authentication** (TOTP) is required for every local account except `admin`. Users enrol with an authenticator app at their first sign-in. After 5 wrong codes in a row, they must give their password again.
+
+On **User Management**, select users and use:
+
+| Action | Effect |
+|---|---|
+| **Approve** | Lets a requested account sign in. |
+| **Enable** / **Disable** | Allows or blocks sign-in. |
+| **Promote** / **Demote** | Makes an operator an admin, or an admin an operator. |
+| **Terminate Session** | Signs the user out everywhere. |
+| **Reset Password** | Gives a temporary password (shown once) and signs the user out. They choose their own at the next sign-in. |
+| **Reset 2FA** | The user's authenticator stops working; they enrol a new one at the next sign-in. |
+| **Delete** | Deletes the users and everything they own: inventory, security profiles, rollout history and results. You confirm by typing the number of users. |
+
+> [!NOTE]
+> The name `netrollout-grafana-admin` is reserved for Grafana's own administrator. No NetRollout account can have it.
+
+### LDAP / Active Directory
+
+Add a directory in **Admin Panel → Server Management → LDAP / Active Directory → Add Server**:
+
+| Field | Meaning |
+|---|---|
+| **Name** | A label, such as `Corp AD`. |
+| **Host**, **Port**, **LDAPS** | Where the directory is, and whether to use LDAPS. |
+| **Base DN** | Where users are searched, such as `DC=corp,DC=com`. |
+| **CN Identifier** | The attribute that holds the username, such as `sAMAccountName`. |
+| **Bind Type** | **Simple**: no stored service credentials. **Regular**: a service account (**Bind DN**, **Bind Password**), which enables the directory browser and group rules. |
+| **Active** | Whether the server is used. |
+
+The bind password is stored encrypted.
+
+Directory users sign in with their directory password. They don't use NetRollout's two-factor authentication, and their password is changed in the directory, not in NetRollout. There are two ways to give them access:
+
+- **Import them.** With a Regular bind, the **LDAP EXPLORER** browses the directory. Select users and groups, then **Import Selected**. Users become approved, active accounts. Groups become group rules.
+- **Group rules.** A user who isn't yet known to NetRollout, but is a member of an active group rule, gets an account at their first sign-in. Group rules are listed under **Group Rules** in User Management, where you can turn each on or off or delete it. Accounts created this way are operators; promote them in User Management.
+
+### Sessions
+
+- A session ends after a period without activity: **Sign out after inactivity** in System Settings, 15 minutes by default (5 to 480). Users get a warning a minute before. Automatic refreshes and live logs don't count as activity.
+- However active, everyone signs in again after 12 hours.
+- **Every restart or update of NetRollout signs everyone out.**
+- **Admin Panel → Live Sessions** lists who is signed in, local and LDAP (**Remote Sessions**). **Kick** signs one user out everywhere; **Kick All** does it for everyone in that table except you.
+
+## System Settings reference
+
+**Admin Panel → System Settings**. Each setting shows its default and when a change takes effect. Every change is recorded in the audit log.
+
+| Card | Setting | Default | Range | What it does | Takes effect |
+|---|---|---|---|---|---|
+| Retention | **Job records** | 30 days | 1 – 3650 | How long a rollout's results and commands are kept (Results, Download Log). | Next nightly clean-up |
+| Retention | **Config snapshots** | 7 days | 1 – 3650 | How long the configurations fetched by Verify are kept (Verify Diff). | Next nightly clean-up |
+| Retention | **Audit log** | 90 days | 7 – 3650 | How long audit log entries are kept. | Next nightly clean-up |
+| Retention | **Log files** | 60 days | 1 – 3650 | How long files in `logs/` are kept. | Next daily log clean-up |
+| Rollouts | **Concurrent rollout jobs** | 4 | 1 – 32 | How many rollouts run at the same time; more wait in the queue. | After restart |
+| Rollouts | **Devices in parallel per job** | 10 | 1 – 64 | How many devices one rollout configures at the same time. | Next rollout |
+| Rollouts | **Reachability cache** | 60 s | 10 – 3600 | How long a device's up/down status is reused before it's probed again. | Immediately |
+| Access | **Hostname** | (empty) | a hostname or IPv4 address | The name people use; other names redirect to it. See [Hostname and certificates](#hostname-and-certificates). | Immediately |
+| Access | **HTTPS port** | 443 (or the port chosen at install) | 1 – 65535 | The port people use. See [The HTTPS port](#the-https-port). | Once confirmed on the new port |
+| Sessions | **Sign out after inactivity** | 15 min | 5 – 480 | Minutes without activity before a session ends. | Within 30 s |
+| Backups | **Scheduled backup** | Daily | Off / Daily / Weekly | Whether scheduled backups are made. | Next scheduled time |
+| Backups | **At** | 02:00 | 24-hour time | The server's local time for the backup. | Next scheduled time |
+| Backups | **On** | Sunday | a weekday | The day of a weekly backup. | Next scheduled time |
+| Backups | **Keep** | 14 | 1 – 365 | How many scheduled backups are kept. | Next scheduled backup |
+
+Two rules keep the retention settings consistent:
+
+- **Log files** must be kept at least as long as **Job records**, because Download Log needs the file while the job exists.
+- **Config snapshots** can't be kept longer than **Job records**.
+
+A changed setting that applies after a restart shows **Restart required** in the Admin Panel, with a **Restart server** button.
+
+The **Internal app port** is shown read-only: it's set at install.
+
+## Monitoring with Grafana
+
+Monitoring is optional; you choose it at install. It adds:
+
+- **Prometheus**, which collects NetRollout's metrics (kept 30 days).
+- **Loki** and **Alloy**: Alloy ships the files in `logs/` to Loki (kept 60 days).
+- **Grafana**, with dashboards over the metrics, the logs and NetRollout's database.
+
+Open Grafana from **Admin Panel → Monitoring**, or at `https://<your address>/grafana/`. Only signed-in NetRollout admins can open it: Grafana trusts NetRollout's sign-in and has no login form of its own. Every admin is a Grafana Editor.
+
+Grafana's dashboards are in the **NetRollout** folder:
+
+| Folder | Dashboards |
+|---|---|
+| **Operations** | Operations Overview, Job Analytics |
+| **Jobs** | Job Details |
+| **Security** | Audit & Security |
+| **Custom** | Yours. Create, edit and nest dashboards here. |
+
+The shipped dashboards are view-only, and NetRollout puts them back every 5 minutes, so changes to them don't last. To change one, save a copy in **Custom**. NetRollout never touches **Custom**, and backups include it.
+
+Grafana reads NetRollout's database through a read-only login that can see only three tables: job results, job metadata and the audit log. It never sees users, credentials or settings.
+
+**Turning monitoring on or off after install (advanced).** In `.env`, set `COMPOSE_PROFILES=monitoring` to turn it on, or `COMPOSE_PROFILES=` (empty) to turn it off. Then run `netrollout start` (Windows) or `sudo ./bin/netrollout.sh start` (Linux).
+
+## Moving the database
+
+NetRollout can move its data from the bundled PostgreSQL to your own PostgreSQL server, and back. It needs PostgreSQL 13 or later, with no extensions and no special server settings.
+
+Go to **Admin Panel → Server Management → PostgreSQL → Move to another PostgreSQL server**.
+
+**Step 1: Prepare the database.** Choose how:
+
+- **Your database administrator prepares it** (recommended). NetRollout shows what to ask for and the SQL to hand over, with new passwords filled in. NetRollout never needs an administrator password. What to ask for:
+  - a database for NetRollout (it can be shared with other applications, in a schema of its own)
+  - a login NetRollout uses every day, owning that schema. It needs no administrator rights: no superuser, no CREATEDB, no CREATEROLE.
+  - a read-only login for Grafana's dashboards (`grafana_reader`). NetRollout grants it SELECT on exactly three tables: job results, job metadata and the audit log.
+  - network access from the NetRollout server to the database server's port
+- **I have an administrator login.** NetRollout creates the database and logins itself. The login is used once and never stored.
+
+**Step 2: Check.** Enter the server, port, database, schema, NetRollout's login and password, then select **Check**. NetRollout connects and reports whether the target is usable: reachable, PostgreSQL 13 or later, and the login can create tables there. If the target already holds NetRollout's data, you must tick **Replace the NetRollout data already there with this server's**. Tables that aren't NetRollout's are left alone, unless one has the same name as a NetRollout table, which is refused.
+
+**Step 3: Move.** Select **Move NetRollout's data**:
+
+1. NetRollout enters maintenance mode. New rollouts are paused, and running ones finish. The page lists them, with **Cancel rollout** for each. After 30 minutes of waiting, the move is given up and rollouts resume.
+2. Once nothing is running, NetRollout is locked for a few minutes. Every page shows "NetRollout is under maintenance" and reloads by itself when it's over.
+3. A `before-move` backup is made, restored into the new database, and the row counts are compared.
+4. NetRollout switches to the new database.
+
+If anything fails, or you cancel the move, NetRollout stays on the database it was using, unchanged. The bundled database keeps running, untouched.
+
+**Moving back.** While NetRollout is on your own server, **Move back to the bundled database** copies the data from your server into the bundled database (replacing what it held) and switches to it, with the same steps.
+
+## Switching Redis
+
+Redis holds only sessions and the live state of running rollouts, so switching it copies nothing and needs no restart.
+
+In **Admin Panel → Server Management → Redis**, enter **Host**, **Port**, **DB** and the password (optional). Select **Test Connection**, then **Save Configuration**.
+
+- It's refused while rollouts are running.
+- It signs everyone else out. You stay signed in.
+- **Switch back to the bundled Redis** returns to the bundled Redis, which kept running. It also signs everyone else out.
+
+## Restart, stop and maintenance
+
+### Restart from the web app
+
+**Restart server**, in the Admin Panel sidebar, restarts NetRollout. If rollouts are running, it lists them, with **Cancel** for each, and asks:
+
+- **Restart when finished**: new rollouts are paused and running ones complete first. Everyone sees a notice until NetRollout is back.
+- **Restart now**: running rollouts are cancelled. Devices already being configured get up to a minute to finish; the rest are left unchanged.
+
+Either way, queued rollouts that haven't started are cancelled, and everyone is signed out.
+
+### Stopping from the server
+
+`netrollout stop` (and the Manager's **Stop**) drains the same way. New rollouts are refused, and every page shows a banner. Queued rollouts are recorded as cancelled. Running rollouts get up to 10 minutes to finish, then are cancelled. To cancel them at once instead, answer **Cancel all now**, or run `netrollout stop-now` (Windows).
+
+When a rollout is cancelled, devices it hasn't reached are skipped, devices being configured finish, and the results are recorded.
+
+### Maintenance mode
+
+A database move puts NetRollout in maintenance mode: first **waiting** (new rollouts paused, running ones finish), then **locked** (every request answered with a maintenance page, nothing written). It ends when the move ends. A restart also ends it.
+
+## Retention
+
+The **nightly clean-up** runs inside NetRollout at 03:00 server time, on whichever database it's connected to. It deletes:
+
+| Data | Kept for (default) | Setting |
+|---|---|---|
+| Job records (results, metadata) | 30 days | **Job records** |
+| Configuration snapshots from Verify | 7 days | **Config snapshots** |
+| Audit log entries | 90 days | **Audit log** |
+
+A clean-up missed while the server was off runs once when it's back; a failed one is retried after an hour. The Retention card in System Settings shows the last clean-up and what it removed.
+
+Files in `logs/` are deleted separately, once a day, after 60 days by default (**Log files**).
+
+The server's timezone for both is the one chosen at install (`TZ` in `.env`).
+
+## Logs
+
+| What | Where |
+|---|---|
+| A container's output | `netrollout logs [service]` (Windows) or `sudo ./bin/netrollout.sh logs [service]` (Linux): the last 100 lines. `app` by default. |
+| Each rollout's log | `logs/rollout_<YYYYMMDD>_<HHMMSS>_<job id>.log`, also available as **Download Log** in Results. |
+| Results that couldn't be saved to the database | `logs/unsaved-results-<job id>.json`, with an `ACTION NEEDED` line in the app's output. |
+| Windows Setup | `logs\install.log`, `logs\update.log` |
+| Windows port helper | `logs\port-helper.log` |
+
+Rollout logs are redacted: values after words such as `password`, `secret` or `community` are written as `<redacted>`.
+
+With monitoring on, the rollout logs are also searchable in Grafana (Loki).
+
+## The audit log
+
+**Admin Panel → Audit Logs** lists who did what and when, with the outcome and the IP address. Filter by actor, action and outcome. **View Detail** shows an entry's full detail as JSON. **Admin Panel → Analytics** has an **Audit Log Query** builder with CSV export.
+
+Recorded actions include:
+
+| Area | Actions |
+|---|---|
+| Sign-in | Sign-in (success and failure, with the reason), sign-out, password accepted before 2FA, password change, access request, session expiry |
+| Users | Create, approve, enable, disable, promote, demote, delete, reset password, reset 2FA, terminate session (one user or many), session kick |
+| LDAP | Server saved or deleted, import, group rule toggled or deleted |
+| Inventory | Device created, edited, deleted, made global or local, attributes set, CSV import, bulk profile assignment |
+| Profiles, mappings, properties | Created, edited, deleted; mapping bulk assignment |
+| Rollouts | Started, cancelled, rolled back |
+| Settings and server | Setting changed or reset, HTTPS port confirmed, restart, Redis switched, certificate uploaded or generated |
+| Backups | Created, downloaded, deleted, failed, restored |
+| Database | Prepared (or failed), move started, moved, move failed, move cancelled |
+
+Audit entries are kept 90 days by default.
+
+## Troubleshooting
+
+Start with `netrollout status` (or the Manager's **Status**, or `sudo ./bin/netrollout.sh status`). It checks every container, the address and the HTTPS port, and says what to do.
+
+For problems at install, NetRollout that can't be found, busy ports, and a `netrollout` command that isn't recognised, see [Troubleshooting](install.md#troubleshooting) in the installation guide.
+
+To report a bug, open an issue at [github.com/itamar14-byte/NetRollout/issues](https://github.com/itamar14-byte/NetRollout/issues). Include the output of `netrollout status` and the relevant log lines; rollout logs are already redacted.
