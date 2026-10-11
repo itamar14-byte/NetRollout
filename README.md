@@ -3,9 +3,9 @@
 **Push config. Verify. Done.**
 
 [![CI](https://github.com/itamar14-byte/NetRollout/actions/workflows/ci.yml/badge.svg?branch=master&event=push)](https://github.com/itamar14-byte/NetRollout/actions/workflows/ci.yml?query=branch%3Amaster)
-[![Release](https://img.shields.io/github/v/release/itamar14-byte/NetRollout?include_prereleases&sort=semver)](https://github.com/itamar14-byte/NetRollout/releases)
+[![Release](https://img.shields.io/github/v/release/itamar14-byte/NetRollout?include_prereleases&sort=semver&cacheSeconds=21600)](https://github.com/itamar14-byte/NetRollout/releases)
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
-[![Docker Hub](https://img.shields.io/docker/v/itamarweinstein/netrollout?sort=semver&label=docker%20hub)](https://hub.docker.com/r/itamarweinstein/netrollout)
+[![Docker Hub](https://img.shields.io/badge/docker%20hub-itamarweinstein%2Fnetrollout-2496ED?logo=docker&logoColor=white)](https://hub.docker.com/r/itamarweinstein/netrollout)
 
 NetRollout pushes configuration snippets to many network devices at once over SSH, reads each device's configuration back to verify the change, and records every result. You run it as a web app on your own server (Windows or Linux, with Docker), or as a single command-line program for a one-off rollout from a CSV file.
 
