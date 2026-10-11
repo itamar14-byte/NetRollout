@@ -1,6 +1,6 @@
 # NetRollout
 
-The application image of [NetRollout](https://github.com/itamar14-byte/NetRollout): push configuration snippets to many network devices at once over SSH, verify each device's configuration afterwards, and record every result. A web app for network engineers, supporting 12 platforms (Cisco, Juniper, Arista, Aruba, HPE, Palo Alto, Check Point, Fortinet).
+The application image of [NetRollout](https://github.com/itamar14-byte/NetRollout): push configuration snippets to many network devices at once over SSH, verify each device's configuration afterwards, and record every result. A web app for network engineers, supporting 12 platforms (Cisco, Juniper, Arista, Aruba, HP, Palo Alto, Check Point, Fortinet).
 
 ## How to use this image
 

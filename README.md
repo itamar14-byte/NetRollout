@@ -14,7 +14,7 @@ It is for network engineers who want a bulk change done and checked without writ
 ![The NetRollout dashboard](docs/images/dashboard.png)
 
 > [!IMPORTANT]
-> NetRollout is at release candidate stage (1.0.0rc1). Try it on a lab device before you point it at production.
+> NetRollout is at release candidate stage. Try it on a lab device before you point it at production.
 
 ## Contents
 
@@ -29,7 +29,7 @@ It is for network engineers who want a bulk change done and checked without writ
 ## Features
 
 - **Bulk push.** Send the same commands to many devices in parallel, with per-job and per-device concurrency limits.
-- **12 platforms.** Cisco, Juniper, Arista, Aruba, HPE, Palo Alto, Check Point and Fortinet, through [Netmiko](https://github.com/ktbyers/netmiko). Each platform saves or commits the change in its own way.
+- **12 platforms.** Cisco, Juniper, Arista, Aruba, HP, Palo Alto, Check Point and Fortinet, through [Netmiko](https://github.com/ktbyers/netmiko). Each platform saves or commits the change in its own way.
 - **Verify.** After the push, NetRollout reads each device's configuration and checks every command, including `no` / `undo` / `delete` / `unset` removals. Verify is on by default in the web app.
 - **Live log.** Watch a rollout as it runs, device by device. Cancel a queued or running job.
 - **Results and rollback.** Every device's outcome is stored, with a status, the log, a configuration snapshot and a Verify Diff. Cases that need a person are flagged as `ACTION NEEDED`. You can roll back a finished job from its results.
@@ -37,7 +37,7 @@ It is for network engineers who want a bulk change done and checked without writ
 - **Variable mappings.** A `$$TOKEN$$` in your commands is filled in per device from a device property, so one snippet fits many devices.
 - **Accounts.** Operator and admin roles, local accounts with approval, LDAP sign-in, and two-factor authentication (TOTP).
 - **Audit log.** Sign-ins, rollouts, setting changes and admin actions are recorded.
-- **Analytics.** Success rates and trends for your own rollouts; admins see everyone's.
+- **Analytics.** Success rate, device pushes, commands pushed, the devices that fail most and the top platforms over 30 days, for your own rollouts; admins can view any user's, and an organisation overview.
 - **Safe-to-share logs.** Passwords, secrets and SNMP communities in job logs are replaced with `<redacted>`.
 - **Backups.** Scheduled and on-demand backups of the database, certificates, logs and dashboards; restore from the command line.
 - **Monitoring.** Optional Prometheus, Loki and Grafana, with ready-made dashboards for admins.
@@ -53,14 +53,14 @@ Most platforms were implemented from vendor documentation and have not yet been 
 | Vendor / OS | `device_type` | How a push is finished | Status |
 | --- | --- | --- | --- |
 | Cisco IOS | `cisco_ios` | Save the configuration | Tested in a lab (Cisco IOL on EVE-NG) |
-| Cisco IOS XE | `cisco_xe` | Save the configuration | Not yet confirmed |
+| Cisco IOS-XE | `cisco_xe` | Save the configuration | Not yet confirmed |
 | Cisco NX-OS | `cisco_nxos` | Save the configuration | Not yet confirmed |
-| Cisco IOS XR | `cisco_xr` | Commit (a failed commit reverts by itself) | Not yet confirmed |
+| Cisco IOS-XR | `cisco_xr` | Commit (a failed commit reverts by itself) | Not yet confirmed |
 | Arista EOS | `arista_eos` | Save the configuration | Not yet confirmed |
 | Aruba AOS-CX | `aruba_aoscx` | Save the configuration | Not yet confirmed |
-| HPE ProCurve / Aruba AOS-S | `hp_procurve` | Save the configuration | Not yet confirmed |
-| HPE Comware | `hp_comware` | Save the configuration | Not yet confirmed |
-| Juniper Junos | `juniper_junos` | Commit, in `configure private` (a failed commit is discarded with `rollback 0`) | Not yet confirmed |
+| HP ProCurve | `hp_procurve` | Save the configuration | Not yet confirmed |
+| HP Comware | `hp_comware` | Save the configuration | Not yet confirmed |
+| Juniper JunOS | `juniper_junos` | Commit, in `configure private` (a failed commit is discarded with `rollback 0`) | Not yet confirmed |
 | Palo Alto PAN-OS | `paloalto_panos` | Commit (a failed commit is discarded with `revert config`) | Not yet confirmed |
 | Check Point Gaia | `checkpoint_gaia` | `save config` (switches from expert mode to clish first) | Not yet confirmed |
 | Fortinet FortiOS | `fortinet` | None: the change is live as typed | Not yet confirmed |
@@ -85,7 +85,7 @@ NetRollout Manager (Start Menu, desktop, tray) starts, stops, updates and backs 
 You need Docker Engine with the compose plugin. Download `netrollout-<version>-linux.zip` from the [Releases page](https://github.com/itamar14-byte/NetRollout/releases), then:
 
 ```bash
-unzip netrollout-<version>-linux.zip -d /opt
+sudo unzip netrollout-<version>-linux.zip -d /opt
 cd /opt/netrollout
 sudo ./bin/install.sh
 ```

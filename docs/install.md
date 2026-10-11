@@ -34,7 +34,7 @@ NetRollout itself installs per user, without an administrator prompt.
 
 - A 64-bit Linux server with **Docker Engine** and the **Docker Compose plugin** (`docker compose`). The installer checks both and explains how to get them, but never installs Docker itself. See [Docker's install guide](https://docs.docker.com/engine/install/).
 - `root` (run the scripts with `sudo`).
-- `unzip`, to extract the release.
+- `unzip`, to extract the release, and `curl`, which the scripts use to check that NetRollout answers. Without `curl`, `start` and `status` report that NetRollout doesn't answer even when it runs.
 - Internet access during install and update.
 
 The scripts were verified on Ubuntu 24.04. They use `ss`, `ip` and, when present, `systemd` and `timedatectl`.
