@@ -1158,7 +1158,7 @@ sequenceDiagram
     S->>C: up: the app starts, runs the migrations, serves
 ```
 
-Details: [§10.12](#1012-netrollout-setup-and-netrollout-manager-windows) and the admin guide's [updating section](admin-guide.md#updates).
+Details: [§10.12](#1012-netrollout-setup-and-netrollout-manager-windows) and the admin guide's [updating section](admin-guide.md#updating-netrollout).
 
 ### A database move
 
