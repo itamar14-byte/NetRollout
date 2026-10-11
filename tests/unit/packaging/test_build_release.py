@@ -52,6 +52,28 @@ def test_the_linux_zip_keeps_the_contract(tmp_path):
 			assert b"\r\n" not in zf.read(name), name               # LF, whatever the checkout
 
 
+def test_the_linux_zip_has_the_install_folders_own_readme(tmp_path):
+	"""The zip's README.md (an update replaces it: RELEASE_ITEMS) is the install
+	folder's (LINUX_README), not the repo's: its links all absolute - a relative one
+	(docs/..., an image) is dead inside an install - pointing at the repo, the
+	install and admin guides; it names the scripts' main commands and the licence."""
+	assert "README.md" in release_items()
+	path = build.build_linux_zip(VERSION, tmp_path)
+	with zipfile.ZipFile(path) as zf:
+		readme = zf.read("netrollout/README.md").decode()
+	assert readme == (ROOT / build.LINUX_README).read_text(encoding="utf-8").replace("\r\n", "\n")
+	assert readme != (ROOT / "README.md").read_text(encoding="utf-8").replace("\r\n", "\n")
+	links = re.findall(r"\]\(([^)]+)\)|(https?://\S+)", readme)
+	assert not [m for m, _ in links if m], "markdown links: only absolute addresses, written out"
+	urls = {u for _, u in links}
+	repo = build.REPO_URL
+	assert {repo, f"{repo}/blob/master/docs/install.md",
+	        f"{repo}/blob/master/docs/admin-guide.md", f"{repo}/releases"} <= urls
+	for command in ("sudo ./bin/install.sh", "sudo ./bin/netrollout.sh ",
+	                "sudo ./bin/netrollout.sh update", "LICENSE"):
+		assert command in readme, command
+
+
 def test_installers_ship_the_same_files():
 	"""The Windows installer's {#Root} files go to the same relative folders and are
 	exactly SHIPPED (plus VERSION)."""

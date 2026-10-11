@@ -38,6 +38,7 @@ From this release on, an installed release candidate also finds newer release ca
 
 ### Changed
 
+- The Linux release zip's `README.md` is now a short guide to the install folder (install, the main commands, links to the documentation on GitHub) instead of the repository's README, whose links didn't work inside an install.
 - **Verify after push** starts ticked on New Rollout. You can still untick it per rollout. The CLI keeps `-vf` opt-in.
 - The CLI refuses a commands file that uses variables (`$$TOKEN$$`) before it checks or connects to any device, with exit code 2 and a message saying why. Before, it skipped every device and counted each as failed.
 - NetRollout Manager and the Linux `update` follow the installed version's channel: a release candidate looks at pre-releases too, a final release only at final releases. A mirror feed (`UpdateFeed`, `--feed`) may now be a list of releases.

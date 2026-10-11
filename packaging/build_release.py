@@ -47,6 +47,9 @@ SHIPPED = {
 }
 LINUX_BIN = {"bin/install.sh": "packaging/linux/install.sh",
              "bin/netrollout.sh": "packaging/linux/netrollout.sh"}
+# the Linux zip's README.md: the install folder's own, its links absolute (the
+# repo's README links docs/ and images relatively - dead in an install)
+LINUX_README = "packaging/linux/README-install.md"
 
 
 def linux_zip_name(version: str) -> str:
@@ -69,11 +72,9 @@ def build_linux_zip(version: str, out: Path) -> Path:
 	:param out: the folder it's written to
 	:returns: its path"""
 	path = out / linux_zip_name(version)
-	readme = ROOT / "README.md"
 	members = {**{k: (ROOT / v).read_bytes() for k, v in {**SHIPPED, **LINUX_BIN}.items()},
 	           "VERSION": f"{version}\n".encode(),
-	           "README.md": readme.read_bytes() if readme.exists() else
-	           f"NetRollout {version}\n\nInstall: sudo ./bin/install.sh\nMore: {REPO_URL}\n".encode()}
+	           "README.md": (ROOT / LINUX_README).read_bytes()}
 	with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
 		for name in sorted(members):
 			info = zipfile.ZipInfo(f"netrollout/{name}", date_time=(2026, 1, 1, 0, 0, 0))
