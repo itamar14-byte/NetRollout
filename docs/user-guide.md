@@ -372,7 +372,7 @@ For each job:
 
 When the rollout ends with its log open, a card shows the outcome: the job's status, the count per status, any **Action needed** devices with what to do, **Rollback** (when at least one device succeeded) and **View in Results**.
 
-The **dashboard** also shows your running or queued rollout, with its elapsed time and **Cancel**, but not its log.
+The **dashboard** also shows your running or queued rollout, with its elapsed time, **Cancel** and **▶ Watch live**, which opens Active Jobs with that rollout's live log already open.
 
 The live log is a convenience. If it drops ("Stream ended."), the job carries on, and the full log is kept: see [Logs](#logs).
 

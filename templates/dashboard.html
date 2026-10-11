@@ -76,6 +76,15 @@
 }
 
 /* ── Terminal text ── */
+.watch-live {
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.35rem;
+    min-width: 7.5rem; padding: 0.75rem 1rem; border-radius: 8px;
+    border: 1px solid rgba(0,188,212,0.35); background: rgba(0,188,212,0.06);
+    color: #00bcd4; text-decoration: none; font-size: 0.8rem; font-weight: 600; letter-spacing: 0.02em;
+    transition: background 0.15s, border-color 0.15s;
+}
+.watch-live i { font-size: 1.9rem; line-height: 1; }
+.watch-live:hover, .watch-live:focus-visible { background: rgba(0,188,212,0.14); border-color: #00bcd4; color: #00bcd4; }
 .term {
     font-family: 'JetBrains Mono', monospace;
     font-size: 0.78rem;
@@ -175,6 +184,8 @@
                     </form>
                 </div>
 
+                <div class="d-flex gap-3 align-items-stretch">
+                <div class="flex-grow-1" style="min-width:0;">
                 <div class="row g-3">
                     <div class="col-6 col-md-3">
                         <div class="nr-label">Job ID</div>
@@ -204,6 +215,14 @@
                     </div>
                 </div>
                 {% endif %}
+                </div>
+                <!-- Watch live: Active Jobs with this job's log open -->
+                <a class="watch-live" href="{{ url_for('jobs.active_jobs', watch=active_job.job_id) }}"
+                   title="Open this rollout's live log">
+                    <i class="bi bi-play-fill" aria-hidden="true"></i>
+                    <span>Watch live</span>
+                </a>
+                </div>
             </div>
         </div>
 

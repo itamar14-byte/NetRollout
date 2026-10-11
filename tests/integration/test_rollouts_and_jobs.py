@@ -1211,6 +1211,23 @@ def test_dashboard_active_rollout_card_names_its_job(app, operator, client_for,
 	assert 'const jobStart = new Date("2026-10-08T09:30:00");' in html
 
 
+def test_the_dashboard_card_offers_watch_live(app, operator, client_for, monkeypatch):
+	"""The active rollout card has a Watch live box linking to Active Jobs with
+	that job (?watch=<id>), and Active Jobs opens that job's log on arrival."""
+	job = FakeRunningJob(operator.user.id)
+	job.started_at = dt.datetime.now()
+	job.get_device_count = lambda: 1
+	monkeypatch.setitem(app.orchestrator._jobs, job.job_id, job)
+	_register_job_meta(app, operator.user, job.job_id)
+	client = client_for(operator.user)
+	dashboard = client.get("/dashboard").get_data(as_text=True)
+	assert f'<a class="watch-live" href="/active_jobs?watch={job.job_id}"' in dashboard
+	assert "Watch live" in dashboard and "bi-play-fill" in dashboard
+	active = client.get(f"/active_jobs?watch={job.job_id}").get_data(as_text=True)
+	assert 'new URLSearchParams(window.location.search).get("watch")' in active
+	assert "toggleLog(watchBtn)" in active
+
+
 def test_active_jobs_lists_running_job(app, operator, client_for, monkeypatch):
 	"""Active Jobs lists a running job of the user."""
 	job = FakeRunningJob(operator.user.id)

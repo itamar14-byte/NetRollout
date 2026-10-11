@@ -684,6 +684,16 @@
         body.style.display = open ? "" : "none";
     };
 
+    /* ── Arrived to watch one rollout (the dashboard's Watch live): its log open ── */
+    const watchId = new URLSearchParams(window.location.search).get("watch");
+    if (watchId) {
+        const watchBtn = document.querySelector(`.btn-log[data-job-id="${CSS.escape(watchId)}"]`);
+        if (watchBtn && !watchBtn.classList.contains("active")) {
+            toggleLog(watchBtn);
+            watchBtn.closest("tr").scrollIntoView({block: "center"});
+        }
+    }
+
 })();
 </script>
 

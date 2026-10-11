@@ -17,6 +17,7 @@ From this release on, an installed release candidate also finds newer release ca
 
 ### Added
 
+- The dashboard's running-rollout card has **Watch live**: it opens Active Jobs with that rollout's live log already open.
 - `netrollout port <N>` (Windows) and `netrollout.sh port <N>` (Linux) move NetRollout to another HTTPS port when its current port is taken by another program, so System Settings can't be reached. The port is checked before you are asked, and the change is audited. NetRollout Manager offers the same as **Change port...** while the port is taken.
 - The HTTPS port is checked at every start: when another program or container holds it, `start`, `status` and NetRollout Manager name the holder (also inside a published port range) and say what to do.
 - `manage.ps1 port-check` reports whether nginx holds its HTTPS port, and who does if not.
