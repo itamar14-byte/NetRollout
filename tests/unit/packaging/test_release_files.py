@@ -636,12 +636,12 @@ def test_starting_fresh_deletes_the_kept_data_first_never_silently():
 	ps1 = (ROOT / "packaging" / "windows" / "manage.ps1").read_text(encoding="utf-8")
 	assert '"forget-kept" { Invoke-ForgetKept; return 0 }' in ps1
 	forget = ps1_function(ps1, "Invoke-ForgetKept")
-	assert 'if (-not $Yes -or -not $InstallDir) { Fail' in forget
+	assert 'if (-not $Yes -or -not ($InstallDir -or $VolumesOnly)) { Fail' in forget
 	assert "if (Test-Path $VersionFile) {" in forget
 	assert '$label = "label=com.docker.compose.project=$Project"' in forget
 	running = forget.index('@("container", "ls", "-q", "--filter", $label)')
 	removes = forget.index('foreach ($kind in "container", "volume", "network") {')
-	left = forget.index('$left = Invoke-Native "docker" @("volume", "ls", "-q", "--filter", $label)')
+	left = forget.index('$left = Get-ProjectVolumes')
 	files = forget.index('foreach ($name in ".env", "config", "certs", "logs") {')
 	assert running < removes < left < files
 	assert "backups" not in forget[files:forget.index("Remove-UpdateMarker")]
@@ -814,19 +814,6 @@ def test_the_manager_forgets_the_ports_owner_when_docker_does_not_answer():
 	assert 'if (blocker.Length == 0) { portAnnounced = ""; return; }' in form
 
 
-def test_the_manager_forgets_the_ports_owner_when_docker_does_not_answer():
-	"""rc2 round 3 kept the last owner when port-check couldn't answer (Docker quit): the
-	"taken by X" line stayed and Change port... stayed enabled. No answer now clears it -
-	the status shows Docker's state, the button greys - and the cleared state re-arms the
-	tray notification for the next time the port is found taken."""
-	form = (ROOT / "packaging" / "windows" / "manager" / "NetRolloutManager.cs").read_text(encoding="utf-8")
-	blocker = form[form.index("string PortBlocker(State now)"):form.index("void AnnouncePortBlocker(")]
-	assert "portBlocker = found ?? \"\";" in blocker
-	assert "if (found != null) portBlocker = found;" not in blocker
-	assert 'lock (portLock) portBlocker = "";' in blocker          # not installed / update pending
-	assert 'if (blocker.Length == 0) { portAnnounced = ""; return; }' in form
-
-
 def test_a_failed_port_change_says_truthfully_where_it_left_netrollout():
 	"""After netrollout port N failed and the previous port P was put back, both scripts
 	said "back on port P" even when P was still taken. Now: back on P only when nginx
@@ -871,3 +858,100 @@ def test_another_container_publishing_a_port_range_is_named():
 	assert 'for port in $(seq "${range%-*}" "${range#*-}"); do' in others
 	ranges = {m.lstrip(":").removesuffix("->") for m in re.findall(r":[0-9]+(?:-[0-9]+)?->", ports)}
 	assert ranges == {"18440-18450", "8443"}
+
+
+def test_volumes_are_found_by_label_and_by_name_never_the_dev_stacks():
+	"""forget-kept (Windows), --start-fresh and the kept-data checks (Linux) found the
+	project's volumes only by compose's label. Now also by name - netrollout_* exactly,
+	never the dev stack's netrollout-dev_* - each once."""
+	names = ["netrollout_postgres", "netrollout-dev_postgres", "netrollout-dev_redis", "netrollout_dev",
+	         "my-netrollout_x", "NETROLLOUT_x", "netrollout"]
+	expected = ["netrollout_postgres", "netrollout_dev"]
+
+	ps1 = (ROOT / "packaging" / "windows" / "manage.ps1").read_text(encoding="utf-8")
+	volumes = ps1_function(ps1, "Get-ProjectVolumes")
+	assert '@("volume", "ls", "-q", "--filter", "label=com.docker.compose.project=$Project")' in volumes
+	assert '$prefix = "^$([regex]::Escape($Project))_"' in volumes
+	assert "$_.Trim() -cmatch $prefix" in volumes                  # case-sensitive, as Docker's names
+	assert "-not $names.Contains($name)" in volumes                # each once
+	prefix = "^" + re.escape("netrollout") + "_"
+	assert [n for n in names if re.match(prefix, n)] == expected
+	forget = ps1_function(ps1, "Invoke-ForgetKept")
+	assert forget.count("Get-ProjectVolumes") == 2                 # what's removed, what's left
+	assert "kept_volumes=" in ps1_function(ps1, "Write-Defaults")
+
+	sh = (ROOT / "packaging" / "linux" / "netrollout.sh").read_text(encoding="utf-8")
+	volumes = sh_function(sh, "project_volumes")
+	assert 'docker volume ls -q --filter "label=com.docker.compose.project=$PROJECT"' in volumes
+	assert 'docker volume ls -q 2>/dev/null | grep -E "^${PROJECT}_"' in volumes
+	assert "} | sort -u" in volumes
+	assert [n for n in names if re.match("^netrollout_", n)] == expected
+	assert "mapfile -t ids < <(project_volumes)" in sh_function(sh, "start_fresh")
+
+
+def test_volumes_left_without_their_folder_are_never_installed_over():
+	"""The folder deleted by hand after an uninstall that kept the data: its volumes stay
+	in Docker, no .env anywhere, and a fresh install landed on them (new passwords on the
+	old database). Setup's start - or the Docker page, once Docker answers - asks (Yes
+	deletes them before any file through forget-kept -VolumesOnly, which touches no file;
+	No closes Setup; a silent run refuses), and install itself refuses over them. Linux's
+	refusal says the same."""
+	text = iss_text()
+	ask = pascal(text, "function AskLeftVolumes:")
+	assert "if UpdateMode or (KeptDir <> '') or LeftVolumes or (GetDefault('kept_volumes', '') = '') then exit;" in ask
+	assert ("'NetRollout''s database from an earlier install is still in Docker (its folder is gone, so its ' +\n"
+	        "\t\t'passwords and key are lost - it can''t be used).'") in ask
+	assert "' Setup deletes it and installs fresh - your backups, if any, are in ' +" in ask
+	silent = ask[ask.index("if WizardSilent then begin"):ask.index("Result := SuppressibleMsgBox(")]
+	assert "Result := False;" in silent and "never deletes it" in silent
+	assert "MB_YESNO or MB_DEFBUTTON2, IDNO) = IDYES;" in ask
+	assert "else Result := AskLeftVolumes;" in pascal(text, "function InitializeSetup:")
+	nxt = pascal(text, "function NextButtonClick(")
+	assert "end else if not AskLeftVolumes then begin" in nxt
+	assert "QuietClose := True;\n\t\t\t\t\tWizardForm.Close;" in nxt
+	assert "if Reinstall then LeftVolumes := False;" in nxt       # its folder chosen: used, not deleted
+	assert "if QuietClose then Confirm := False;" in pascal(text, "procedure CancelButtonClick(")
+	prepare = pascal(text, "function PrepareToInstall(")
+	assert "if LeftVolumes and not WizardSilent then begin" in prepare
+	assert "RunPreparation('forget-kept -Yes -VolumesOnly', ExpandConstant('{tmp}'), Log," in prepare
+	assert "NetRollout''s database left in Docker by an earlier install" in pascal(text, "function UpdateReadyMemo(")
+
+	ps1 = (ROOT / "packaging" / "windows" / "manage.ps1").read_text(encoding="utf-8")
+	assert "[switch]$VolumesOnly," in ps1
+	forget = ps1_function(ps1, "Invoke-ForgetKept")
+	only = forget.index("if ($VolumesOnly) {")
+	assert "if ($InstallDir -or (Test-Installed) -or (Test-Path $VersionFile)) {" in forget[only:]
+	assert forget.index('Good "NetRollout\'s old database is deleted from Docker."; return }') < forget.index(
+		'foreach ($name in ".env", "config", "certs", "logs") {')
+	install = ps1_function(ps1, "Invoke-Install")
+	refuse = install.index("$volumes = Get-ProjectVolumes")
+	assert install.index("Confirm-Docker -OfferInstall") < refuse < install.index('Step "Getting NetRollout $Version"')
+	assert "run NetRollout Setup again - it offers to delete it.\") 2" in install
+
+	sh = (ROOT / "packaging" / "linux" / "netrollout.sh").read_text(encoding="utf-8")
+	check = sh_function(sh, "refuse_over_kept")
+	assert ("NetRollout's database from an earlier install is still in Docker (its folder is gone, so its "
+	        "passwords and key are lost - it can't be used).") in check
+	assert 'for dir in $dirs; do [ -f "$dir/.env" ] && usable=1; done' in check
+
+
+def test_the_preparation_shows_its_steps_live():
+	"""The update's preparation (the backup, or kept data's version check) and the
+	deletions before a fresh install ran with nothing moving: PrepareToInstall runs on
+	the Preparing page, which has no progress bar. RunPreparation shows a progress page
+	(hidden in a finally) with a marquee and the newest step line, the same timer as
+	RunScript; Exec still waits for the exit code."""
+	text = iss_text()
+	run = pascal(text, "function RunPreparation(")
+	show = run.index("PreparePage.Show;")
+	timer = run.index("Timer := SetTimer(0, 0, 500, CreateCallback(@ShowStep));")
+	waits = run.index("Dir, SW_HIDE, ewWaitUntilTerminated, Result);")
+	stop = run.index("finally\n\t\tKillTimer(0, Timer);")
+	assert show < timer < waits < stop < run.index("PreparePage.Hide;")
+	assert "PreparePage.ProgressBar.Style := npbstMarquee;" in run
+	assert "DeleteFile(Log);" in run and "WatchFrom := 0;" in run
+	assert "if Preparing then PreparePage.Msg2Label.Caption := Line" in pascal(text, "procedure ShowStep(")
+	prepare = pascal(text, "function PrepareToInstall(")
+	assert "Exec(" not in prepare[:prepare.index("{ this install's Manager")]
+	assert "RunPreparation('prepare-update -Yes -InstallDir \"' + InstalledDir + '\" -NewVersion {#AppVersion}'," in prepare
+	assert "PreparePage := CreateOutputProgressPage(" in pascal(text, "procedure InitializeWizard;")

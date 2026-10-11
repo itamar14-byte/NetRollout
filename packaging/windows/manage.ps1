@@ -35,6 +35,9 @@ param(
 	# update over data an uninstall kept: back it up first (prepare-update
 	# couldn't - the folder had no compose file yet)
 	[switch]$BackupFirst,
+	# forget-kept with no folder (it was deleted by hand): the project's
+	# Docker volumes, containers and network only - no file is touched
+	[switch]$VolumesOnly,
 	# port: the new HTTPS port (netrollout port 8443, or -Port 8443)
 	[Alias("Port")][string]$NewPort = ""
 )
@@ -207,6 +210,24 @@ function Get-OtherContainerPorts {
 		}
 	}
 	return $found
+}
+
+# The project's Docker volumes (the data): by compose's project label, and
+# by name - compose names them <project>_<volume>, and one made or copied
+# outside compose has only the name. Each once; an empty list when there are
+# none, $null when Docker didn't answer. The name must start with the
+# project and "_" exactly: netrollout-dev_* (the dev stack's) never matches.
+function Get-ProjectVolumes {
+	$labelled = Invoke-Native "docker" @("volume", "ls", "-q", "--filter", "label=com.docker.compose.project=$Project")
+	$all = Invoke-Native "docker" @("volume", "ls", "-q")
+	if ($labelled.Code -ne 0 -or $all.Code -ne 0) { return $null }
+	$prefix = "^$([regex]::Escape($Project))_"
+	$names = New-Object System.Collections.Generic.List[string]
+	foreach ($name in @($labelled.Output -split "`n") + @(($all.Output -split "`n") | Where-Object { $_.Trim() -cmatch $prefix })) {
+		$name = $name.Trim()
+		if ($name -and -not $names.Contains($name)) { $names.Add($name) }
+	}
+	return ,$names.ToArray()
 }
 
 # Whether nginx holds the HTTPS port in use - Docker's own answer: its
@@ -577,6 +598,15 @@ function Invoke-Install {
 	$problem = Get-HostProblem
 	if ($problem) { Fail $problem }
 	Confirm-Docker -OfferInstall
+	# a fresh install on volumes an earlier install left (Setup asks about
+	# them; it can't when Docker wasn't running at its start) would put new
+	# passwords and a new key on the old database
+	$volumes = Get-ProjectVolumes
+	if ($volumes) {
+		Fail ("NetRollout's database from an earlier install is still in Docker ($($volumes -join ', ')) - " +
+		      "no folder holds its passwords and key, so it can't be used. Nothing was installed: " +
+		      "run NetRollout Setup again - it offers to delete it.") 2
+	}
 	Step "Getting NetRollout $Version"
 	foreach ($image in "netrollout", "netrollout-nginx") { Get-OurImage "itamarweinstein/${image}:$Version" }
 	Step "Setting up"
@@ -1215,9 +1245,13 @@ function Write-Defaults {
 	foreach ($p in 443, 8443, 9443, 10443, 11443) { if (-not $busy.ContainsKey($p)) { $port = $p; break } }
 	$name = $env:COMPUTERNAME.ToLower()
 	if ($name -notmatch "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$") { $name = "netrollout" }
+	$docker = if (Test-DockerReady) { "running" } elseif (Test-DockerCli) { "installed" } else { "missing" }
+	# the project's volumes (only when Docker answers): Setup asks about them
+	# when no folder holds their .env any more
+	$volumes = if ($docker -eq "running") { Get-ProjectVolumes } else { $null }
 	$lines = @("[defaults]", "hostname=$name", "https_port=$port",
 		"timezone=$((Get-TimeZone).Id)", "port80_busy=$(if ($busy.ContainsKey(80)) { $busy[80] } else { '' })",
-		"docker=$(if (Test-DockerReady) { 'running' } elseif (Test-DockerCli) { 'installed' } else { 'missing' })",
+		"docker=$docker", "kept_volumes=$(if ($volumes) { $volumes -join ' ' } else { '' })",
 		"problem=$((Get-HostProblem) -replace '[\r\n]', ' ')",
 		"", "[busy]")
 	foreach ($p in ($busy.Keys | Sort-Object)) { $lines += "$p=$(if ($busy[$p]) { $busy[$p] } else { 'another program' })" }
@@ -1272,15 +1306,25 @@ function Invoke-Uninstall {
 # NetRollout Setup's "Start fresh instead" over the data an uninstall kept
 # (from Setup's temporary copy, -InstallDir the kept folder; Setup asked):
 # what the uninstaller's "delete the data" deletes, without its compose
-# files (the uninstall removed them) - the project's containers, volumes and
-# network by compose's project label, then .env, config, certs, logs and the
-# update marker. The backups stay. Refused, nothing deleted, while NetRollout
-# is installed there (VERSION) or any of the project's containers runs.
+# files (the uninstall removed them) - the project's containers and network
+# by compose's project label, its volumes by the label or their name
+# (Get-ProjectVolumes), then .env, config, certs, logs and the update marker.
+# The backups stay. Refused, nothing deleted, while NetRollout is installed
+# there (VERSION) or any of the project's containers runs.
+# -VolumesOnly instead of -InstallDir: volumes left in Docker whose folder
+# was deleted by hand - the Docker part only, no file anywhere ($Root is only
+# where this copy runs: Setup's temporary folder)
 function Invoke-ForgetKept {
-	if (-not $Yes -or -not $InstallDir) { Fail "forget-kept is NetRollout Setup's (its folder page asks first)." }
-	Assert-Installed
-	if (Test-Path $VersionFile) {
-		Fail "NetRollout is installed in $Root (not only its kept data) - nothing was deleted. Uninstall it in Settings -> Apps instead."
+	if (-not $Yes -or -not ($InstallDir -or $VolumesOnly)) { Fail "forget-kept is NetRollout Setup's (its folder page asks first)." }
+	if ($VolumesOnly) {
+		if ($InstallDir -or (Test-Installed) -or (Test-Path $VersionFile)) {
+			Fail "forget-kept -VolumesOnly is for volumes whose folder is gone - NetRollout's files are in $Root. Nothing was deleted."
+		}
+	} else {
+		Assert-Installed
+		if (Test-Path $VersionFile) {
+			Fail "NetRollout is installed in $Root (not only its kept data) - nothing was deleted. Uninstall it in Settings -> Apps instead."
+		}
 	}
 	Confirm-Docker
 	$label = "label=com.docker.compose.project=$Project"
@@ -1289,13 +1333,19 @@ function Invoke-ForgetKept {
 	if ($running.Output.Trim()) {
 		Fail "NetRollout's containers are running (Docker project $Project) - nothing was deleted. Stop that NetRollout first."
 	}
-	Step "Deleting the data NetRollout kept in $Root (the database and the other volumes)"
+	if ($VolumesOnly) { Step "Deleting NetRollout's database left in Docker (the database and the other volumes)" }
+	else { Step "Deleting the data NetRollout kept in $Root (the database and the other volumes)" }
 	foreach ($kind in "container", "volume", "network") {
-		$list = @("ls", "-q", "--filter", $label)
-		if ($kind -eq "container") { $list += "-a" }
-		$found = Invoke-Native "docker" (@($kind) + $list)
-		if ($found.Code -ne 0) { Write-Host $found.Output; Fail "Docker didn't list NetRollout's ${kind}s - nothing more was deleted." }
-		$ids = @($found.Output -split "`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+		if ($kind -eq "volume") {
+			$ids = Get-ProjectVolumes
+			if ($null -eq $ids) { Fail "Docker didn't list NetRollout's volumes - nothing more was deleted." }
+		} else {
+			$list = @("ls", "-q", "--filter", $label)
+			if ($kind -eq "container") { $list += "-a" }
+			$found = Invoke-Native "docker" (@($kind) + $list)
+			if ($found.Code -ne 0) { Write-Host $found.Output; Fail "Docker didn't list NetRollout's ${kind}s - nothing more was deleted." }
+			$ids = @($found.Output -split "`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+		}
 		if (-not $ids) { continue }
 		$remove = if ($kind -eq "container") { @("rm", "-f") } else { @("rm") }
 		$r = Invoke-Native "docker" (@($kind) + $remove + $ids)
@@ -1303,11 +1353,13 @@ function Invoke-ForgetKept {
 	}
 	# the volumes are the data: still there -> the files stay too (a fresh
 	# install's new passwords on the old database would break it)
-	$left = Invoke-Native "docker" @("volume", "ls", "-q", "--filter", $label)
-	if ($left.Code -ne 0 -or $left.Output.Trim()) {
-		Write-Host $left.Output
+	$left = Get-ProjectVolumes
+	if ($null -eq $left -or $left.Count) {
+		if ($left) { Write-Host ($left -join "`n") }
+		if ($VolumesOnly) { Fail "Docker didn't delete all of NetRollout's volumes (above). Close what uses them (Docker Desktop -> Volumes), then try again." }
 		Fail "Docker didn't delete all of NetRollout's volumes (above) - its settings in $Root were kept. Close what uses them (Docker Desktop -> Volumes), then try again."
 	}
+	if ($VolumesOnly) { Good "NetRollout's old database is deleted from Docker."; return }
 	foreach ($name in ".env", "config", "certs", "logs") {
 		Remove-Item -Recurse -Force -ErrorAction SilentlyContinue (Join-Path $Root $name)
 	}

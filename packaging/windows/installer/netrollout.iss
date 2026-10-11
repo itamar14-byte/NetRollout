@@ -170,6 +170,15 @@ var
 	KeptNote, FreshHint: TNewStaticText;
 	FreshBox: TNewCheckBox;
 	FreshStart: Boolean;
+	{ the project's Docker volumes with no folder holding their .env (it was
+	  deleted by hand after an uninstall that kept the data): asked about
+	  (AskLeftVolumes); Yes deletes them first (PrepareToInstall) }
+	LeftVolumes: Boolean;
+	{ Setup closes without its "Exit Setup?" question (No to the volumes) }
+	QuietClose: Boolean;
+	{ the update's preparation, shown while it runs (the Preparing page has no
+	  progress bar of its own) }
+	PreparePage: TOutputProgressWizardPage;
 
 { powershell.exe's arguments: run Script with CommandLine }
 function PsArgs(const Script, CommandLine: String): String;
@@ -387,6 +396,37 @@ begin
 		RegDeleteValue(HKCU, '{#OurKey}', 'KeptData');
 end;
 
+{ NetRollout's volumes in Docker (the script's defaults: kept_volumes, only
+  when Docker answered) while no folder holds their .env - its passwords and
+  key are gone with the folder, and a fresh install on them would put new
+  ones on the old database. Asked once: Yes - they're deleted before
+  anything is installed (PrepareToInstall); No - Setup closes, nothing
+  changed. A silent run never deletes: refused. False: Setup stops. }
+function AskLeftVolumes: Boolean;
+var Folder, Said: String;
+begin
+	Result := True;
+	if UpdateMode or (KeptDir <> '') or LeftVolumes or (GetDefault('kept_volumes', '') = '') then exit;
+	{ where its backups were: the folder the uninstaller recorded, else the default one }
+	if not RegQueryStringValue(HKCU, '{#OurKey}', 'KeptData', Folder) or (Folder = '') then
+		Folder := '{#DefaultDir}';
+	Folder := RemoveBackslashUnlessRoot(Folder);
+	Said := 'NetRollout''s database from an earlier install is still in Docker (its folder is gone, so its ' +
+		'passwords and key are lost - it can''t be used).';
+	if WizardSilent then begin
+		SuppressibleMsgBox(Said + ' A silent Setup never deletes it - nothing was installed. Run Setup without ' +
+			'/SILENT to delete it and install fresh - your backups, if any, are in ' + AddBackslash(Folder) +
+			'backups if that folder still exists.', mbError, MB_OK, IDOK);
+		Result := False;
+		exit;
+	end;
+	Result := SuppressibleMsgBox(Said + ' Setup deletes it and installs fresh - your backups, if any, are in ' +
+		AddBackslash(Folder) + 'backups if that folder still exists.' + #13#10#13#10 + 'Delete it and install ' +
+		'NetRollout {#AppVersion} fresh? This can''t be undone. No closes Setup - nothing is changed.',
+		mbConfirmation, MB_YESNO or MB_DEFBUTTON2, IDNO) = IDYES;
+	LeftVolumes := Result;
+end;
+
 { Before the first page: Windows Server, or virtualization off -> say so and
   stop; over an install, only a newer Setup goes on; over the data an
   uninstall kept (wherever it is) it is announced, its folder pre-selected
@@ -404,7 +444,8 @@ begin
 		if UpdateMode then Result := NewerThanInstalled
 		else begin
 			KeptDir := FindKept;
-			if KeptDir <> '' then Result := CheckKept(KeptDir);
+			if KeptDir <> '' then Result := CheckKept(KeptDir)
+			else Result := AskLeftVolumes;
 		end;
 	end;
 end;
@@ -620,6 +661,8 @@ begin
 	KeyButton.OnClick := @BrowseFile;
 	OrgCertClick(nil);
 
+	PreparePage := CreateOutputProgressPage('Preparing', 'Nothing is installed or replaced until this is done.');
+
 	{ the finished page's choices: shown and placed by FinishBoxes }
 	BrowserBox := TNewCheckBox.Create(WizardForm);
 	BrowserBox.Parent := WizardForm.FinishedPage;
@@ -797,6 +840,9 @@ begin
 		  unless it's the folder announced at the start }
 		Reinstall := FileExists(AddBackslash(WizardDirValue) + '.env');
 		KeptUpdate := False;
+		{ the folder the volumes Setup was about to delete belong to: kept data
+		  after all (its .env is here) - used, not deleted }
+		if Reinstall then LeftVolumes := False;
 		if Reinstall then Result := CheckKept(RemoveBackslashUnlessRoot(WizardDirValue));
 	end else if CurPageID = DockerPage.ID then begin
 		if GetDefault('docker', 'missing') <> 'running' then begin
@@ -811,6 +857,14 @@ begin
 					'restart, then run this Setup again. Otherwise start Docker Desktop and click Next.',
 					mbError, MB_OK, IDOK);
 				Result := False;
+			end else if not AskLeftVolumes then begin
+				{ Docker answers only now: the volumes Setup's start couldn't see.
+				  No: Setup closes, as at the start (a silent run exits on False) }
+				Result := False;
+				if not WizardSilent then begin
+					QuietClose := True;
+					WizardForm.Close;
+				end;
 			end;
 		end;
 	end else if CurPageID = SettingsPage.ID then begin
@@ -833,6 +887,11 @@ begin
 			Result := False; exit;
 		end;
 	end;
+end;
+
+procedure CancelButtonClick(CurPageID: Integer; var Cancel, Confirm: Boolean);
+begin
+	if QuietClose then Confirm := False;
 end;
 
 function ShouldSkipPage(PageID: Integer): Boolean;
@@ -899,6 +958,9 @@ begin
 	if FreshStart then
 		Lines := Lines + 'First:' + NewLine + Space + 'the data kept in ' + KeptDir + ' is deleted (the backups ' +
 			'there are kept)' + NewLine + NewLine;
+	if LeftVolumes then
+		Lines := Lines + 'First:' + NewLine + Space + 'NetRollout''s database left in Docker by an earlier install ' +
+			'is deleted' + NewLine + NewLine;
 	if Reinstall then begin
 		Lines := Lines + 'Settings:' + NewLine + Space + 'kept from the NetRollout already in this folder' + NewLine + NewLine;
 		if KeptUpdate then
@@ -976,15 +1038,19 @@ function KillTimer(Wnd, IDEvent: LongWord): BOOL;
 var
 	WatchLog: String;
 	WatchFrom: Integer;
+	{ the preparation runs (PreparePage shows the step, not the status label) }
+	Preparing: Boolean;
 
 procedure ShowStep(Wnd, Msg, IDEvent, Time: LongWord);
-var Lines: TArrayOfString; I: Integer;
+var Lines: TArrayOfString; I: Integer; Line: String;
 begin
 	{ the script holds the log open for writing; unreadable now: the last step stays }
 	if not LoadStringsFromLockedFile(WatchLog, Lines) then exit;
 	for I := GetArrayLength(Lines) - 1 downto WatchFrom do
 		if Pos('-> ', Lines[I]) = 1 then begin
-			WizardForm.StatusLabel.Caption := Copy(Lines[I], 4, Length(Lines[I])) + '...';
+			Line := Copy(Lines[I], 4, Length(Lines[I])) + '...';
+			if Preparing then PreparePage.Msg2Label.Caption := Line
+			else WizardForm.StatusLabel.Caption := Line;
 			exit;
 		end;
 end;
@@ -1014,6 +1080,33 @@ begin
 	finally
 		KillTimer(0, Timer);
 		WizardForm.ProgressGauge.Style := npbstNormal;
+	end;
+end;
+
+{ Before any file (PrepareToInstall): Setup's temporary manage.ps1 Args, run
+  in Dir, its output into Log (a new one: an earlier run's steps can't
+  show). The Preparing page has no progress bar, so PreparePage shows What,
+  a marquee and the newest step line live, as RunScript does; the exit code }
+function RunPreparation(const Args, Dir, Log, What: String): Integer;
+var Timer: LongWord;
+begin
+	WatchLog := Log;
+	WatchFrom := 0;
+	DeleteFile(Log);
+	PreparePage.SetText(What, '');
+	PreparePage.SetProgress(0, 100);
+	PreparePage.Show;
+	PreparePage.ProgressBar.Style := npbstMarquee;
+	Preparing := True;
+	Timer := SetTimer(0, 0, 500, CreateCallback(@ShowStep));
+	try
+		Exec(ExpandConstant('{cmd}'), '/C powershell.exe ' +
+			PsArgs(ExpandConstant('{tmp}\manage.ps1'), Args) + ' > "' + Log + '" 2>&1',
+			Dir, SW_HIDE, ewWaitUntilTerminated, Result);
+	finally
+		KillTimer(0, Timer);
+		Preparing := False;
+		PreparePage.Hide;
 	end;
 end;
 
@@ -1066,9 +1159,11 @@ end;
 { An update, before any file is replaced: the direction (an older Setup is
   refused) and a backup by the installed version - not when finishing an
   unfinished one (Resume: checked and backed up already; its marker says
-  whether the backup is still owed). Non-empty: why Setup stops. }
+  whether the backup is still owed); or the kept data / the volumes left in
+  Docker deleted first (Start fresh / AskLeftVolumes). Each shown live
+  (RunPreparation). Non-empty: why Setup stops. }
 function PrepareToInstall(var NeedsRestart: Boolean): String;
-var Code: Integer; Log: String;
+var Code: Integer; Log, What: String;
 begin
 	Result := '';
 	{ "Start fresh instead" (confirmed; never in a silent run): the kept data
@@ -1076,9 +1171,8 @@ begin
 	  files any more, so by the Docker project's label (forget-kept) }
 	if FreshStart and not WizardSilent then begin
 		Log := ExpandConstant('{tmp}\forget-kept.log');
-		Exec(ExpandConstant('{cmd}'), '/C powershell.exe ' +
-			PsArgs(ExpandConstant('{tmp}\manage.ps1'), 'forget-kept -Yes -InstallDir "' + KeptDir + '"') +
-			' > "' + Log + '" 2>&1', KeptDir, SW_HIDE, ewWaitUntilTerminated, Code);
+		Code := RunPreparation('forget-kept -Yes -InstallDir "' + KeptDir + '"', KeptDir, Log,
+			'Deleting the data kept in ' + KeptDir + ' (the backups stay)');
 		if Code <> 0 then begin
 			Result := 'The data kept in ' + KeptDir + ' wasn''t deleted (or not all of it) - nothing was ' +
 				'installed.' + #13#10#13#10 + LogTail(Log);
@@ -1088,15 +1182,27 @@ begin
 		ForgetKept(KeptDir);
 		exit;
 	end;
+	{ NetRollout's volumes with no folder (AskLeftVolumes: Yes): the Docker
+	  part only - there are no files (never in a silent run: it refuses first) }
+	if LeftVolumes and not WizardSilent then begin
+		Log := ExpandConstant('{tmp}\forget-kept.log');
+		Code := RunPreparation('forget-kept -Yes -VolumesOnly', ExpandConstant('{tmp}'), Log,
+			'Deleting NetRollout''s database left in Docker');
+		if Code <> 0 then
+			Result := 'NetRollout''s database left in Docker wasn''t deleted (or not all of it) - nothing was ' +
+				'installed.' + #13#10#13#10 + LogTail(Log);
+		exit;
+	end;
 	if not (UpdateMode or KeptUpdate) then exit;
 	ForceDirectories(InstalledDir + '\logs');
 	Log := InstalledDir + '\logs\update.log';
 	{ kept data (no VERSION there): the script checks its version by its image;
 	  the backup follows once the files are in place (update -BackupFirst) }
+	if KeptUpdate then What := 'Checking the kept data''s version'
+	else What := 'Backing up NetRollout ' + InstalledVersion + ' before the update - nothing is replaced yet';
 	if not Resume then
-		Exec(ExpandConstant('{cmd}'), '/C powershell.exe ' +
-			PsArgs(ExpandConstant('{tmp}\manage.ps1'), 'prepare-update -Yes -InstallDir "' + InstalledDir +
-			'" -NewVersion {#AppVersion}') + ' > "' + Log + '" 2>&1', InstalledDir, SW_HIDE, ewWaitUntilTerminated, Code)
+		Code := RunPreparation('prepare-update -Yes -InstallDir "' + InstalledDir + '" -NewVersion {#AppVersion}',
+			InstalledDir, Log, What)
 	else
 		Code := 0;
 	if Code <> 0 then begin

@@ -293,7 +293,16 @@ clear_record() {
 	return 0
 }
 
-project_volumes() { docker volume ls -q --filter "label=com.docker.compose.project=$PROJECT" 2>/dev/null || true; }
+# The project's Docker volumes (the data), each once: by compose's project
+# label, and by name - compose names them <project>_<volume>, and one made or
+# copied outside compose has only the name. The name must start with the
+# project and "_" exactly: netrollout-dev_* (the dev stack's) never matches.
+project_volumes() {
+	{
+		docker volume ls -q --filter "label=com.docker.compose.project=$PROJECT" 2>/dev/null
+		docker volume ls -q 2>/dev/null | grep -E "^${PROJECT}_"
+	} | sort -u || true
+}
 
 # The folders the project's containers (running or not) were started from
 project_folders() {
@@ -307,14 +316,20 @@ project_folders() {
 # would put new passwords and a new key on the old database. Refused, exit
 # 2, nothing created; --start-fresh deletes it first, --yes alone never does.
 refuse_over_kept() {
-	local folder version dirs
+	local folder version dirs dir usable=""
 	folder="$(record_value folder)"; version="$(record_value version)"
 	if [ -n "$folder" ] && [ "$folder" != "$ROOT" ] && [ -f "$folder/.env" ]; then
 		fail "NetRollout's data is kept in $folder${version:+ (version $version)}. Run the install there to update it, or start fresh: sudo $BIN/install.sh --start-fresh (deletes the kept data; its backups are kept)." 2
 	fi
 	if [ -n "$(project_volumes)" ]; then
 		dirs="$(project_folders | paste -sd' ' -)"
-		fail "NetRollout's data is kept in Docker volumes from an earlier install${dirs:+ (in $dirs)} (docker volume ls: ${PROJECT}_*). Install it there again to use it, or start fresh: sudo $BIN/install.sh --start-fresh (deletes the kept data; its backups are kept)." 2
+		for dir in $dirs; do [ -f "$dir/.env" ] && usable=1; done
+		if [ -n "$usable" ]; then
+			fail "NetRollout's data is kept in Docker volumes from an earlier install (in $dirs) (docker volume ls: ${PROJECT}_*). Install it there again to use it, or start fresh: sudo $BIN/install.sh --start-fresh (deletes the kept data; its backups are kept)." 2
+		fi
+		# no folder holds its .env (deleted by hand): Windows' Setup says the same
+		dir="${folder:-${dirs%% *}}"
+		fail "NetRollout's database from an earlier install is still in Docker (its folder is gone, so its passwords and key are lost - it can't be used). Nothing was installed. Start fresh: sudo $BIN/install.sh --start-fresh deletes it - your backups, if any, are in ${dir:-the old install folder}/backups if that folder still exists." 2
 	fi
 	# a record whose data is gone (deleted by hand) says nothing any more
 	if [ -n "$folder" ]; then rm -f "$KEPT_RECORD"; fi
@@ -350,7 +365,7 @@ start_fresh() {
 	step "Deleting NetRollout's kept data (the database and the other volumes)"
 	mapfile -t ids < <(docker container ls -aq --filter "$label")
 	[ ${#ids[@]} -eq 0 ] || docker container rm -f "${ids[@]}" >/dev/null || true
-	mapfile -t ids < <(docker volume ls -q --filter "$label")
+	mapfile -t ids < <(project_volumes)
 	[ ${#ids[@]} -eq 0 ] || docker volume rm "${ids[@]}" >/dev/null || true
 	mapfile -t ids < <(docker network ls -q --filter "$label")
 	[ ${#ids[@]} -eq 0 ] || docker network rm "${ids[@]}" >/dev/null || true
