@@ -25,3 +25,9 @@ docs/credentials
 .Rhistory
 # the developer's Obsidian settings (docs/plans opened as a vault)
 docs/plans/.obsidian/
+
+# Private working notes - kept locally, not part of the public repository
+CLAUDE.md
+templates/CLAUDE.md
+docs/workplan.md
+docs/plans/

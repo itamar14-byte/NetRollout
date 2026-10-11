@@ -19,7 +19,7 @@ administrator, which this service signs in as: named netrollout-grafana-admin,
 a name NetRollout refuses for its accounts (src/accounts/users.py). Before
 1.0.0rc1 it was "admin" - NetRollout's factory account, which Grafana then
 signed in as its administrator; an install from then has it renamed. Why folders can't separate admins from operators — free Grafana lets
-anyone signed in query every datasource — is in docs/workplan.md (post-v1).
+anyone signed in query every datasource — is in docs/roadmap.md ("Grafana for operators").
 
 The files are dashboard v2 resources: one subfolder of the dashboards folder
 per NetRollout subfolder; a dashboard's metadata.name is its stable id.
