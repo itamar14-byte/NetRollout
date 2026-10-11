@@ -137,6 +137,23 @@ Never tracked: `build/` and `dist/` (build outputs), `.env`, `config/`, `certs/`
 
 ---
 
+### Entry points
+
+Where each way into NetRollout starts. Every one is a `python -m` command, run from the repository root (or inside the app image, whose working folder is the same).
+
+| Command | File | Run by |
+|---|---|---|
+| `python -m src.webapp` | `src/webapp/__main__.py` | **The app.** The Docker image's command (and development's): builds the app through `launch_app()` in `src/webapp/build.py` (connections, migrations, the factory admin, the services, the blueprints), starts the background tasks (log pruning, certificate upkeep, scheduled backups, the nightly clean-up), handles SIGTERM with a drain, and serves with Waitress on port 8080. |
+| `python -m src.cli` | `src/cli.py` | A one-off rollout from files; `netrollout-cli.exe` is built from it with PyInstaller. Uses `src/rollout/` only. |
+| `python -m src.setup <command>` | `src/setup/__main__.py` | The install scripts (`manage.ps1`, `netrollout.sh`), through `docker run` with the app image: `init`, `prepare-start`, `status`, `check-update`, `upgrade`, `release`, the port helper's steps, `restore-key`. See [§9](#9-installation-the-setup-core-and-the-port-helper). |
+| `python -m src.backup create \| check \| restore` | `src/backup/__main__.py` | The scripts' backup and restore (`docker compose exec app …`, or a one-off container while the app is stopped). |
+| `python -m src.jobs rollouts \| stop-now` | `src/jobs.py` | `netrollout stop`, `rollouts`, `stop-now`: asks the running app's Redis which rollouts run. |
+| `python -m src.accounts reset-admin` | `src/accounts/__main__.py` | `netrollout reset-admin`: the factory admin re-enabled, its 2FA and lockout cleared. |
+| `python -m src.access.certs selfsigned \| validate` | `src/access/certs.py` | Making or checking TLS certificates (the setup core and by hand). |
+| `python deploy/grafana/setup.py` | `deploy/grafana/setup.py` | The `grafana-setup` container (the same app image): keeps Grafana's folders, dashboards and data source. |
+
+The installers aren't Python. A Windows install runs: NetRollout Setup (Inno Setup) → `bin\manage.ps1 install` → `docker run … python -m src.setup init` (writes `.env` and the certificate) → `docker compose up` → the `app` container runs `python -m src.webapp`. Linux's `install.sh` / `netrollout.sh` follow the same chain.
+
 ## 4. Packages and modules
 
 One module holds one whole concern. This section lists every module in `src/` with its job and its main classes; [§6](#6-the-object-model) explains why each class is a class.
