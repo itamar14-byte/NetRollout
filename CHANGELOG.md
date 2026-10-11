@@ -60,6 +60,7 @@ From this release on, an installed release candidate also finds newer release ca
 - The password eye on the sign-in page could toggle the wrong element when a browser extension added one next to the field.
 - NetRollout Manager's **Check for updates** and the Linux `update` failed with a 404 while only pre-releases were published.
 - Docker volumes created outside compose (with NetRollout's project name but no label) were missed by the kept-data checks.
+- Setup refused a damaged install's kept data of a newer version as "data kept by an uninstall". It now says the folder holds data of that newer version, and which Setup to run.
 - The Linux `update --check` and the update's confirmation didn't show the release notes. They now show the first 30 lines and a link to the full notes on the release's page.
 
 ### Security

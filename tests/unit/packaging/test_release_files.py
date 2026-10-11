@@ -479,6 +479,21 @@ def test_kept_data_is_announced_in_setups_own_words_naming_the_folder():
 	assert "CheckKept(RemoveBackslashUnlessRoot(WizardDirValue))" in pascal(text, "function NextButtonClick(")
 
 
+def test_newer_kept_data_is_refused_in_words_true_for_a_damaged_install_too():
+	"""rc2 test: a damaged install's data kept (AskDamaged -> Yes -> CheckKept) from a
+	version newer than this Setup was refused as "data kept by an uninstall" - untrue
+	there. The refusal names the folder, the data's version and this Setup's, without
+	saying how the data was kept, and which Setup to run instead."""
+	check = pascal(iss_text(), "function CheckKept(")
+	newer = check[check.index("(Key > This)"):]
+	newer = newer[:newer.index("Result := False;")]
+	assert ("SuppressibleMsgBox(Dir + ' holds data of NetRollout ' + Kept + ', newer than this Setup ' +\n"
+	        "\t\t\t'({#AppVersion}). Downgrades aren''t supported.' + #13#10#13#10 +\n"
+	        "\t\t\t'To start it again, run the Setup of NetRollout ' + Kept + ' (or a newer one).'") in newer
+	assert "Held" not in newer and "uninstall" not in newer
+	assert "Result := CheckKept(DamagedDir);" in pascal(iss_text(), "function AskDamaged:")
+
+
 def test_no_setup_message_assumes_the_default_folder():
 	"""C:\\NetRollout appears only in the DefaultDir define: every message names the
 	folder actually involved (kept data can be anywhere)."""

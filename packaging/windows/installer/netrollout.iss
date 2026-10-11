@@ -411,7 +411,8 @@ begin
 	if Updated <> '' then Result := Updated else Result := Header;
 end;
 
-{ A folder holding the data an uninstall kept (.env), announced in words
+{ A folder holding the data an uninstall kept (.env) - or a damaged
+  install's, kept (AskDamaged: already said, AnnouncedDir) -, announced in words
   naming the folder (once per folder: AnnouncedDir): the same version is
   started as it is; an older one (or one .env doesn't name) is updated -
   KeptUpdate; a newer one is refused, nothing changed. False: refused. }
@@ -432,8 +433,11 @@ begin
 		AnnouncedDir := Dir;
 		exit;
 	end;
+	{ newer: said without "kept by an uninstall" - a damaged install's data
+	  kept (AskDamaged) is refused here too }
 	if (Key <> '') and (This <> '') and (Key > This) then begin
-		SuppressibleMsgBox(Held + ' - newer than this Setup ({#AppVersion}). Downgrades aren''t supported.' + #13#10#13#10 +
+		SuppressibleMsgBox(Dir + ' holds data of NetRollout ' + Kept + ', newer than this Setup ' +
+			'({#AppVersion}). Downgrades aren''t supported.' + #13#10#13#10 +
 			'To start it again, run the Setup of NetRollout ' + Kept + ' (or a newer one).', mbError, MB_OK, IDOK);
 		Result := False;
 		exit;
