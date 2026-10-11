@@ -812,3 +812,62 @@ def test_the_manager_forgets_the_ports_owner_when_docker_does_not_answer():
 	assert "if (found != null) portBlocker = found;" not in blocker
 	assert 'lock (portLock) portBlocker = "";' in blocker          # not installed / update pending
 	assert 'if (blocker.Length == 0) { portAnnounced = ""; return; }' in form
+
+
+def test_the_manager_forgets_the_ports_owner_when_docker_does_not_answer():
+	"""rc2 round 3 kept the last owner when port-check couldn't answer (Docker quit): the
+	"taken by X" line stayed and Change port... stayed enabled. No answer now clears it -
+	the status shows Docker's state, the button greys - and the cleared state re-arms the
+	tray notification for the next time the port is found taken."""
+	form = (ROOT / "packaging" / "windows" / "manager" / "NetRolloutManager.cs").read_text(encoding="utf-8")
+	blocker = form[form.index("string PortBlocker(State now)"):form.index("void AnnouncePortBlocker(")]
+	assert "portBlocker = found ?? \"\";" in blocker
+	assert "if (found != null) portBlocker = found;" not in blocker
+	assert 'lock (portLock) portBlocker = "";' in blocker          # not installed / update pending
+	assert 'if (blocker.Length == 0) { portAnnounced = ""; return; }' in form
+
+
+def test_a_failed_port_change_says_truthfully_where_it_left_netrollout():
+	"""After netrollout port N failed and the previous port P was put back, both scripts
+	said "back on port P" even when P was still taken. Now: back on P only when nginx
+	holds it (Docker's answer), else who holds it ("stop that, then ... start"), else that
+	it didn't start."""
+	ps1 = (ROOT / "packaging" / "windows" / "manage.ps1").read_text(encoding="utf-8")
+	back = ps1_function(ps1, "Get-PortBackText")
+	assert back.index("if (Test-HttpsPublished)") < back.index("Get-PortOwner $Previous")
+	assert '"NetRollout is back on port $Previous."' in back
+	assert "but $Previous is taken by ${owner}: stop that, then netrollout start." in back
+	by_hand = ps1_function(ps1, "Invoke-PortByHand")
+	assert by_hand.count("(above) - $(Get-PortBackText $previous)\"") == 2
+	assert "back on port $previous" not in by_hand
+
+	sh = (ROOT / "packaging" / "linux" / "netrollout.sh").read_text(encoding="utf-8")
+	back = sh_function(sh, "port_back_text")
+	assert back.index("if https_published; then") < back.index('port_owner "$1" "$(busy_ports)"')
+	assert "but %s is taken by %s: stop that, then sudo %s/netrollout.sh start." in back
+	by_hand = sh_function(sh, "do_port_by_hand")
+	assert by_hand.count('(above) - $(port_back_text "$previous")"') == 2
+	assert "back on port $previous" not in by_hand
+
+
+def test_another_container_publishing_a_port_range_is_named():
+	"""docker ps shows a published range as "0.0.0.0:8000-8010->8000-8010/tcp"; the owner
+	lookup read only single ports, so a port inside a range wasn't named. Both scripts
+	now take every port of a range."""
+	ports = "0.0.0.0:18440-18450->18440-18450/tcp, [::]:18440-18450->18440-18450/tcp, 0.0.0.0:8443->443/tcp"
+	ps1 = (ROOT / "packaging" / "windows" / "manage.ps1").read_text(encoding="utf-8")
+	others = ps1_function(ps1, "Get-OtherContainerPorts")
+	pattern = re.search(r'\[regex\]::Matches\(\$parts\[2\], "(.*?)"\)', others)[1]
+	assert pattern == r":(\d+)(?:-(\d+))?->"
+	found = set()
+	for m in re.finditer(pattern, ports):
+		found.update(range(int(m[1]), int(m[2] or m[1]) + 1))
+	assert found == set(range(18440, 18451)) | {8443}
+	assert "foreach ($port in $first..$last) {" in others
+
+	sh = (ROOT / "packaging" / "linux" / "netrollout.sh").read_text(encoding="utf-8")
+	others = sh_function(sh, "other_container_ports")
+	assert "grep -oE ':[0-9]+(-[0-9]+)?->' | sed 's/^://; s/->$//'" in others
+	assert 'for port in $(seq "${range%-*}" "${range#*-}"); do' in others
+	ranges = {m.lstrip(":").removesuffix("->") for m in re.findall(r":[0-9]+(?:-[0-9]+)?->", ports)}
+	assert ranges == {"18440-18450", "8443"}

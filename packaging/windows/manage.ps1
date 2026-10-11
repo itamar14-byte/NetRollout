@@ -186,7 +186,8 @@ function Get-BusyPorts([int[]]$Ours = @()) {
 }
 
 # The host ports other containers publish (not this NetRollout's):
-# port -> "<name> (another Docker container)"
+# port -> "<name> (another Docker container)" - every port of a published
+# range too ("0.0.0.0:8000-8010->8000-8010/tcp")
 function Get-OtherContainerPorts {
 	$found = @{}
 	$r = Invoke-Native "docker" @("ps", "--format", "{{.Names}}|{{.Labels}}|{{.Ports}}")
@@ -195,10 +196,13 @@ function Get-OtherContainerPorts {
 	foreach ($line in ($r.Output -split "`n")) {
 		$parts = $line.Trim() -split "\|", 3
 		if ($parts.Count -lt 3 -or $parts[1] -match $ours) { continue }
-		foreach ($m in [regex]::Matches($parts[2], ":(\d+)->")) {
-			$port = [int]$m.Groups[1].Value
-			if (-not $found.ContainsKey($port)) {
-				$found[$port] = "$($parts[0] -replace '[,=]', ' ') (another Docker container)"
+		foreach ($m in [regex]::Matches($parts[2], ":(\d+)(?:-(\d+))?->")) {
+			$first = [int]$m.Groups[1].Value
+			$last = if ($m.Groups[2].Success) { [int]$m.Groups[2].Value } else { $first }
+			foreach ($port in $first..$last) {
+				if (-not $found.ContainsKey($port)) {
+					$found[$port] = "$($parts[0] -replace '[,=]', ' ') (another Docker container)"
+				}
 			}
 		}
 	}
@@ -1147,6 +1151,16 @@ function Restore-PreviousPort([string]$Previous) {
 	try { Start-NetRollout } catch [System.OperationCanceledException] { }
 }
 
+# Where Restore-PreviousPort left NetRollout, in words (after "... - "):
+# back on the port; or put back, but another program holds it (named); or
+# put back, but it didn't start there for another reason
+function Get-PortBackText([string]$Previous) {
+	if (Test-HttpsPublished) { return "NetRollout is back on port $Previous." }
+	$owner = Get-PortOwner $Previous (Get-BusyPorts (Get-OurPorts))
+	if ($owner) { return "it's put back to port $Previous - but $Previous is taken by ${owner}: stop that, then netrollout start." }
+	return "it's put back to port $Previous - but it didn't start there (above): see netrollout status."
+}
+
 function Invoke-PortByHand {
 	Assert-Installed -Setup
 	$wanted = if ($NewPort) { $NewPort } else { $Service }
@@ -1173,7 +1187,7 @@ function Invoke-PortByHand {
 		Step "Saving port $wanted in System Settings"
 		if (-not (Set-PortSetting $wanted)) {
 			Restore-PreviousPort $previous
-			Fail "The System Settings HTTPS port couldn't be saved (above) - NetRollout is back on port $previous."
+			Fail "The System Settings HTTPS port couldn't be saved (above) - $(Get-PortBackText $previous)"
 		}
 		$started = $false
 		try { Start-NetRollout; $started = $true } catch [System.OperationCanceledException] { }
@@ -1181,7 +1195,7 @@ function Invoke-PortByHand {
 		while ($started -and -not (Test-Reachable) -and $clock.Elapsed.TotalSeconds -lt 60) { Start-Sleep -Seconds 3 }
 		if (-not $started -or -not (Test-Reachable)) {
 			Restore-PreviousPort $previous
-			Fail "NetRollout didn't answer on port $wanted (above) - it's back on port $previous."
+			Fail "NetRollout didn't answer on port $wanted (above) - $(Get-PortBackText $previous)"
 		}
 		Start-PortHelper
 		Good "NetRollout now uses port $wanted - $(Get-Address)"

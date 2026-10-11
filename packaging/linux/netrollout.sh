@@ -159,15 +159,18 @@ busy_ports() {
 }
 
 # port=<name> (another Docker container), one per line: the host ports the
-# other containers publish (not this NetRollout's)
+# other containers publish (not this NetRollout's) - every port of a
+# published range too ("0.0.0.0:8000-8010->8000-8010/tcp")
 other_container_ports() {
 	command -v docker >/dev/null 2>&1 || return 0
-	local name labels ports port
+	local name labels ports range port
 	docker ps --format '{{.Names}}|{{.Labels}}|{{.Ports}}' 2>/dev/null |
 	while IFS='|' read -r name labels ports; do
 		case ",$labels," in *",com.docker.compose.project=$PROJECT,"*) continue ;; esac
-		for port in $(printf '%s' "$ports" | grep -o ':[0-9]*->' | sed 's/[^0-9]//g' | sort -u); do
-			printf '%s=%s (another Docker container)\n' "$port" "${name//[,=]/ }"
+		for range in $(printf '%s' "$ports" | grep -oE ':[0-9]+(-[0-9]+)?->' | sed 's/^://; s/->$//' | sort -u); do
+			for port in $(seq "${range%-*}" "${range#*-}"); do
+				printf '%s=%s (another Docker container)\n' "$port" "${name//[,=]/ }"
+			done
 		done
 	done
 }
@@ -988,6 +991,20 @@ restore_previous_port() {
 	( do_start ) || true
 }
 
+# Where restore_previous_port left NetRollout, in words (after "... - "):
+# back on the port; or put back, but another program holds it (named); or
+# put back, but it didn't start there for another reason
+port_back_text() {
+	local owner
+	if https_published; then printf 'NetRollout is back on port %s.' "$1"; return 0; fi
+	owner="$(port_owner "$1" "$(busy_ports)")"
+	if [ -n "$owner" ]; then
+		printf "it's put back to port %s - but %s is taken by %s: stop that, then sudo %s/netrollout.sh start." "$1" "$1" "$owner" "$BIN"
+	else
+		printf "it's put back to port %s - but it didn't start there (above): see sudo %s/netrollout.sh status." "$1" "$BIN"
+	fi
+}
+
 do_port_by_hand() {
 	need_installed; need_root; need_docker
 	local wanted="$SERVICE" current out previous a="" i
@@ -1008,14 +1025,14 @@ do_port_by_hand() {
 	step "Saving port $wanted in System Settings"
 	if ! set_port_setting "$wanted"; then
 		restore_previous_port "$previous"
-		fail "The System Settings HTTPS port couldn't be saved (above) - NetRollout is back on port $previous."
+		fail "The System Settings HTTPS port couldn't be saved (above) - $(port_back_text "$previous")"
 	fi
 	if ( do_start ); then
 		for i in $(seq 1 20); do reachable && break; sleep 3; done
 	fi
 	if ! reachable; then
 		restore_previous_port "$previous"
-		fail "NetRollout didn't answer on port $wanted (above) - it's back on port $previous."
+		fail "NetRollout didn't answer on port $wanted (above) - $(port_back_text "$previous")"
 	fi
 	good "NetRollout now uses port $wanted - $(address)"
 }
