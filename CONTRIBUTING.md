@@ -336,6 +336,10 @@ flowchart LR
 
 A failure before the Publish job publishes nothing. A failure inside it (Docker Hub or GitHub unavailable, an expired token) leaves at most a draft and pushed images: run the failed job again. It replaces the draft and pushes the same images again; a release that is already published is never overwritten.
 
+### The Docker Hub overviews
+
+Each image's page on Docker Hub shows `packaging/dockerhub/<image>.md`. A change to those files on `master` updates Docker Hub by itself (`.github/workflows/dockerhub.yml`, also runnable by hand from Actions). It uses a third-party action pinned to a commit, which Dependabot keeps current, and never fails a build: if Docker Hub refuses (the token needs the *Read, Write, Delete* scope to edit a description), the run ends with a warning.
+
 ## Code of conduct
 
 Everyone taking part is expected to follow the [Code of Conduct](CODE_OF_CONDUCT.md).

@@ -1,0 +1,58 @@
+# Docker Hub: each image's overview (packaging/dockerhub/<image>.md) and short
+# description, pushed when those files change on master - or by hand
+# (Actions -> Docker Hub overview -> Run workflow). The texts describe the
+# product, not one version, so they follow master, not the releases.
+name: Docker Hub overview
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "packaging/dockerhub/**"
+      - ".github/workflows/dockerhub.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dockerhub-overview
+  cancel-in-progress: false
+
+jobs:
+  overview:
+    name: "Overview: ${{ matrix.image }}"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: netrollout
+            short: "NetRollout's web app: push config to many network devices over SSH, verify, record."
+          - image: netrollout-nginx
+            short: "NetRollout's nginx: TLS in front of the NetRollout web app, applying its settings live."
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Update the overview on Docker Hub
+        id: update
+        # Third-party code that gets the Docker Hub token: pinned to the commit
+        # of its release (a tag can be moved to other code, a commit can't).
+        # Dependabot updates the pin and the version comment together.
+        uses: peter-evans/dockerhub-description@1b9a80c056b620d92cedb9d9b5a223409c68ddfa # v5.0.0
+        continue-on-error: true      # a Docker Hub hiccup or a token without the scope never fails anything
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: itamarweinstein/${{ matrix.image }}
+          short-description: ${{ matrix.short }}
+          readme-filepath: packaging/dockerhub/${{ matrix.image }}.md
+          enable-url-completion: true   # relative links become absolute GitHub links
+
+      - name: Say so when it wasn't updated
+        if: steps.update.outcome == 'failure'
+        run: >-
+          echo "::warning title=Docker Hub overview not updated::itamarweinstein/${{ matrix.image }}:
+          see the step above. Editing a repository's description needs a Docker Hub token
+          with the Read, Write, Delete scope (the DOCKERHUB_TOKEN secret)."

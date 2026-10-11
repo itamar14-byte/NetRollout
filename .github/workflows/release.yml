@@ -19,6 +19,7 @@ on:
     paths:                       # (not evaluated for tags: every version tag runs)
       - ".github/workflows/release.yml"
       - "packaging/**"
+      - "!packaging/dockerhub/**"     # the Docker Hub texts: their own workflow (dockerhub.yml)
       - "Dockerfile"
       - ".dockerignore"
       - "deploy/**"
@@ -29,6 +30,7 @@ on:
     paths:
       - ".github/workflows/release.yml"
       - "packaging/**"
+      - "!packaging/dockerhub/**"     # the Docker Hub texts: their own workflow (dockerhub.yml)
       - "Dockerfile"
       - ".dockerignore"
       - "deploy/**"
