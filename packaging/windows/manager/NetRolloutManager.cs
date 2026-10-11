@@ -833,7 +833,11 @@ namespace NetRollout
 
 		string PortBlocker(State now)
 		{
-			if (!Install.Installed || Install.PendingUpdate != null) return "";
+			if (!Install.Installed || Install.PendingUpdate != null)
+			{
+				lock (portLock) portBlocker = "";
+				return "";
+			}
 			lock (portLock)
 			{
 				var every = TimeSpan.FromMinutes(now == State.Running ? 5 : 1);
@@ -841,7 +845,10 @@ namespace NetRollout
 				string found = PortCheck.Blocker();
 				portCheckedIn = now;
 				portCheckedAt = DateTime.Now;
-				if (found != null) portBlocker = found;
+				// no answer (Docker quit, or isn't running): nothing is known
+				// to hold the port any more - the status says Docker's state,
+				// Change port... greys, and a blocker found later is announced again
+				portBlocker = found ?? "";
 				return portBlocker;
 			}
 		}

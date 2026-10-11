@@ -799,3 +799,16 @@ def test_the_port_can_be_changed_by_hand_while_it_is_taken():
 	assert 'Run("port -Port " + port + " -Yes"' in form
 	check = (ROOT / "packaging" / "windows" / "manager" / "PortCheck.cs").read_text(encoding="utf-8")
 	assert 'Hint = "Change the port in System Settings -> HTTPS port"' in check
+
+
+def test_the_manager_forgets_the_ports_owner_when_docker_does_not_answer():
+	"""rc2 round 3 kept the last owner when port-check couldn't answer (Docker quit): the
+	"taken by X" line stayed and Change port... stayed enabled. No answer now clears it -
+	the status shows Docker's state, the button greys - and the cleared state re-arms the
+	tray notification for the next time the port is found taken."""
+	form = (ROOT / "packaging" / "windows" / "manager" / "NetRolloutManager.cs").read_text(encoding="utf-8")
+	blocker = form[form.index("string PortBlocker(State now)"):form.index("void AnnouncePortBlocker(")]
+	assert "portBlocker = found ?? \"\";" in blocker
+	assert "if (found != null) portBlocker = found;" not in blocker
+	assert 'lock (portLock) portBlocker = "";' in blocker          # not installed / update pending
+	assert 'if (blocker.Length == 0) { portAnnounced = ""; return; }' in form
