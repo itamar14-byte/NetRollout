@@ -1107,7 +1107,12 @@ def test_a_damaged_install_is_cleared_and_installed_again():
 	assert "What := 'clear-damaged -Yes -InstallDir \"' + DamagedDir + '\"';" in clear
 	assert "if DamagedKeep and not FreshStart then What := What + ' -KeepData';" in clear
 	assert "RunPreparation(What, ExpandConstant('{tmp}'), Log," in clear
-	assert clear.index("if Code <> 0 then begin") < clear.index("ForgetDamaged(DamagedDir);")
+	assert clear.index("if Code <> 0 then begin") < clear.index("ForgetDamaged(DamagedDir, DamagedKeep and not FreshStart);")
+	# cleared with its data kept, an update refused after it: the next Setup still finds
+	# the data (recorded as an uninstall that kept it) and isn't told "nothing was changed"
+	update = prepare[prepare.index("if Code <> 0 then begin", prepare.index("RunPreparation('prepare-update")):]
+	assert update.index("if Damaged then Result := 'The damaged install in ' + DamagedDir + ' was cleared") < update.index(
+		"else if KeptUpdate then Result := 'Nothing was changed.'")
 	assert "nothing was ' +\n\t\t\t\t'installed.'" in clear
 	forget = pascal(text, "procedure ForgetDamaged(")
 	assert "RegDeleteKeyIncludingSubkeys(HKCU, InstallRecord);" in forget
@@ -1116,7 +1121,8 @@ def test_a_damaged_install_is_cleared_and_installed_again():
 	                 r"{autodesktop}\NetRollout Manager.lnk", r"{autodesktop}\NetRollout.url",
 	                 r"{autoprograms}\NetRollout\NetRollout Manager.lnk", r"{autoprograms}\NetRollout\NetRollout.url"):
 		assert f"DeleteFile(ExpandConstant('{shortcut}'));" in forget
-	assert "SetPathEntry(AddBackslash(Dir) + 'bin', False);" in forget and "ForgetKept(Dir);" in forget
+	assert "SetPathEntry(AddBackslash(Dir) + 'bin', False);" in forget
+	assert "if Keep then RegWriteStringValue(HKCU, '{#OurKey}', 'KeptData', Dir)\n\telse ForgetKept(Dir);" in forget
 	assert "'the damaged install in ' + DamagedDir + ' is cleared" in pascal(text, "function UpdateReadyMemo(")
 
 	ps1 = (ROOT / "packaging" / "windows" / "manage.ps1").read_text(encoding="utf-8")

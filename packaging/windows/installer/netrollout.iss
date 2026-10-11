@@ -1311,9 +1311,12 @@ end;
 { What Setup put outside a damaged install's folder, once clear-damaged
   cleared the folder: Windows' record of the install (this AppId's only),
   Win+R's App Paths entry when it names that folder, the shortcuts (the
-  Icons and INI sections'), the PATH entry, the kept-data record - nothing points at a folder
-  that isn't there any more; the install that follows writes its own }
-procedure ForgetDamaged(const Dir: String);
+  Icons and INI sections'), the PATH entry - nothing points at a folder that
+  isn't there any more; the install that follows writes its own. Its data
+  kept (Keep): recorded as an uninstall that kept it records it, so a later
+  Setup finds it should this one stop before installing (an older version's
+  update refused); deleted: the record goes }
+procedure ForgetDamaged(const Dir: String; Keep: Boolean);
 var AppPaths, Named: String;
 begin
 	RegDeleteKeyIncludingSubkeys(HKCU, InstallRecord);
@@ -1329,7 +1332,8 @@ begin
 	DeleteFile(ExpandConstant('{autoprograms}\NetRollout\NetRollout.url'));
 	RemoveDir(ExpandConstant('{autoprograms}\NetRollout'));
 	SetPathEntry(AddBackslash(Dir) + 'bin', False);
-	ForgetKept(Dir);
+	if Keep then RegWriteStringValue(HKCU, '{#OurKey}', 'KeptData', Dir)
+	else ForgetKept(Dir);
 end;
 
 { The current step, live under the progress bar: while the script runs (Exec
@@ -1488,7 +1492,7 @@ begin
 				'installed.' + #13#10#13#10 + LogTail(Log);
 			exit;
 		end;
-		ForgetDamaged(DamagedDir);
+		ForgetDamaged(DamagedDir, DamagedKeep and not FreshStart);
 		if FreshStart then exit;
 	end;
 	{ "Start fresh instead" (confirmed; never in a silent run): the kept data
@@ -1531,7 +1535,10 @@ begin
 	else
 		Code := 0;
 	if Code <> 0 then begin
-		if KeptUpdate then Result := 'Nothing was changed.'
+		{ a damaged install was cleared before: not "nothing was changed" }
+		if Damaged then Result := 'The damaged install in ' + DamagedDir + ' was cleared - its data is kept ' +
+			'there - but the update didn''t start. Fix it (below), then run Setup again.'
+		else if KeptUpdate then Result := 'Nothing was changed.'
 		else Result := 'Nothing was changed - NetRollout ' + InstalledVersion + ' keeps running.';
 		Result := Result + #13#10#13#10 + LogTail(Log) + #13#10 + 'The whole log: ' + Log;
 		exit;
