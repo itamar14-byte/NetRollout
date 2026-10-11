@@ -205,7 +205,8 @@ def register_handlers(app: Flask, backend: BackendServices) -> None:
 		      f"restart.\n"
 		      f"  If it's lost: re-enter security profile passwords and the "
 		      f"LDAP bind password; for 2FA, Admin -> Users -> Reset 2FA (the "
-		      f"factory admin account signs in without 2FA).\n"
+		      f"factory admin account signs in without 2FA unless it was turned "
+		      f"on for it - then run netrollout reset-admin on the server first).\n"
 		      f"  Don't generate a new key.", file=sys.stderr, flush=True)
 		if Caller.JSON_BODY.wants_json():
 			return err("Encryption key invalid", 500)
