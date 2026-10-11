@@ -1,7 +1,8 @@
 """account lockout: users.failed_sign_ins and users.locked_until
 
-Wrong passwords in a row (failed_sign_ins): the 5th disables a local account,
-or locks the factory admin for 15 minutes (locked_until) - src/accounts/users.py.
+Wrong passwords in a row (failed_sign_ins): the 5th locks a local account for
+15 minutes (locked_until), the 10th disables it - the factory admin is only
+ever locked - src/accounts/users.py.
 
 Revision ID: v1_0_0_account_lockout
 Revises: v1_0_0_baseline

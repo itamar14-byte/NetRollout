@@ -124,24 +124,29 @@ def needs_second_factor(user: User) -> bool:
 
 
 # ── Account lockout ──
-# Wrong passwords in a row on a local account: the MAX_FAILED_PASSWORDS-th
-# disables it (an admin's Enable brings it back) - the factory admin is
-# locked for FACTORY_LOCK_MINUTES instead, never disabled by it. A right
-# password starts the count again. LDAP accounts aren't counted: the
-# directory's own lockout policy applies.
+# Wrong passwords in a row on a local account (users.failed_sign_ins, since
+# the last right one): the MAX_FAILED_PASSWORDS-th locks it for LOCK_MINUTES
+# (users.locked_until; no password is checked meanwhile); once the lock has
+# run out, DISABLE_AFTER in a row (5 more) disable it - an admin's Enable
+# brings it back. The factory admin is never disabled: it is locked again at
+# every MAX_FAILED_PASSWORDS-th. A right password starts the count again. LDAP
+# accounts aren't counted: the directory's own lockout policy applies.
 MAX_FAILED_PASSWORDS = 5
-FACTORY_LOCK_MINUTES = 15
+LOCK_MINUTES = 15
+DISABLE_AFTER = 2 * MAX_FAILED_PASSWORDS
 
 
 class Lockout(Enum):
 	"""What a wrong password did to the account (Accounts.password_failed)."""
 	COUNTED = "counted"       # one more in a row, nothing else
-	DISABLED = "disabled"     # the last one allowed: the account is disabled
-	LOCKED = "locked"         # the last one allowed: the factory admin is locked
+	LOCKED = "locked"         # the MAX_FAILED_PASSWORDS-th: locked for LOCK_MINUTES
+	DISABLED = "disabled"     # the DISABLE_AFTER-th: the account is disabled
 
 
 def lock_message(minutes: int) -> str:
-	""":returns: what the sign-in page says while the factory admin is locked"""
+	""":returns: what the sign-in page says while the factory admin is locked
+	 (any other account's lock reads "Invalid credentials": its name isn't
+	 public, and the page must not tell that it exists)"""
 	return (f"Too many failed sign-ins. Try again in {minutes} "
 	        f"minute{'s' if minutes != 1 else ''}.")
 
@@ -248,9 +253,9 @@ class Accounts:
 		return user, temporary
 
 	def lock_minutes_left(self, user: User, now: datetime) -> int | None:
-		"""The factory admin's lock (Accounts.password_failed): while it holds,
-		no password is checked. One that has run out is lifted here, and the
-		count starts again.
+		"""The account's lock (Accounts.password_failed): while it holds, no
+		password is checked. One that has run out is lifted here; the count of
+		wrong passwords goes on (the next ones lead to the disable).
 
 		:param now: the time (aware)
 		:returns: the minutes left, rounded up; None: not locked"""
@@ -258,7 +263,7 @@ class Accounts:
 			return None
 		left = (user.locked_until - now).total_seconds()
 		if left <= 0:
-			clear_lockout(user)
+			user.locked_until = None
 			self.session.flush()     # a sign-in detaches the user next
 			return None
 		return math.ceil(left / 60)
@@ -274,9 +279,10 @@ class Accounts:
 		"""A wrong password on a local account, counted in the database itself
 		(sign-ins from several places at once each count). Only an approved,
 		active account is counted - one that can't sign in has nothing to
-		lose. The MAX_FAILED_PASSWORDS-th in a row disables the account, or
-		locks the factory admin for FACTORY_LOCK_MINUTES (the count starts
-		again then).
+		lose. The MAX_FAILED_PASSWORDS-th in a row locks the account for
+		LOCK_MINUTES; the DISABLE_AFTER-th (5 more, after the lock ran out)
+		disables it. The factory admin is locked at each MAX_FAILED_PASSWORDS-th
+		instead (its count starts again then), never disabled.
 
 		:param now: the time (aware)
 		:returns: what it did"""
@@ -288,14 +294,17 @@ class Accounts:
 			.returning(User.failed_sign_ins)
 			.execution_options(synchronize_session=False)).scalar_one()
 		user.failed_sign_ins = count
-		if count < MAX_FAILED_PASSWORDS:
-			return Lockout.COUNTED
 		if is_factory_admin(user):
-			user.locked_until = now + timedelta(minutes=FACTORY_LOCK_MINUTES)
+			if count < MAX_FAILED_PASSWORDS:
+				return Lockout.COUNTED
 			user.failed_sign_ins = 0
-			return Lockout.LOCKED
-		user.is_active = False
-		return Lockout.DISABLED
+		elif count >= DISABLE_AFTER:
+			user.is_active = False
+			return Lockout.DISABLED
+		elif count != MAX_FAILED_PASSWORDS:
+			return Lockout.COUNTED
+		user.locked_until = now + timedelta(minutes=LOCK_MINUTES)
+		return Lockout.LOCKED
 
 	def new_local(self, *, username: str, email: str, full_name: str,
 	              position: str | None, password: str, role: str = Role.OPERATOR,

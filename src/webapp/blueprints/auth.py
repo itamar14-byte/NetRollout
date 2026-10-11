@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from src.accounts.ldap import Directory, LdapUnavailable
-from src.accounts.users import (FACTORY_LOCK_MINUTES, MAX_FAILED_PASSWORDS, RESERVED_USERNAME,
+from src.accounts.users import (DISABLE_AFTER, LOCK_MINUTES, MAX_FAILED_PASSWORDS, RESERVED_USERNAME,
                                 RULE, LIMITS, AccountError, Accounts, Lockout, is_factory_admin,
                                 is_reserved, lock_message, needs_second_factor,
                                 password_problem)
@@ -157,17 +157,25 @@ def start_otp_flow(user: User) -> ResponseReturnValue:
 	return redirect(url_for("auth.otp_enroll"))
 
 def login_local(user: User, password: str, db_session: Session) -> ResponseReturnValue:
-	"""A local account's sign-in: the factory admin's lock (no password is
-	checked while it holds), the password - a wrong one counted
-	(Accounts.password_failed: the 5th in a row disables the account, or
-	locks the factory admin) -, then approved, then active; then 2FA where
-	the account uses it (needs_second_factor)."""
+	"""A local account's sign-in: its lock (no password is checked while it
+	holds), the password - a wrong one counted (Accounts.password_failed: the
+	5th in a row locks the account for 15 minutes, 5 more after that disable
+	it; the factory admin is only ever locked) -, then approved, then active;
+	then 2FA where the account uses it (needs_second_factor).
+
+	Only the factory admin's lock is said ("Too many failed sign-ins. Try
+	again in N minutes."): its name is public. Any other account's lock, and
+	every wrong password, reads "Invalid credentials" - as for a name with no
+	account."""
 	assert user.password_hash is not None   # every local account has one
 	accounts = Accounts(db_session)
 	now = datetime.now(timezone.utc)
+	factory = is_factory_admin(user)
 	minutes = accounts.lock_minutes_left(user, now)
 	if minutes is not None:
-		return login_fail(user.username, "locked", user.id, lock_message(minutes))
+		return login_fail(user.username, "locked", user.id,
+		                  lock_message(minutes) if factory else "Invalid credentials",
+		                  detail={"minutes_left": minutes})
 	if not check_password_hash(user.password_hash, password):
 		outcome = accounts.password_failed(user, now)
 		if outcome is Lockout.DISABLED:
@@ -175,16 +183,17 @@ def login_local(user: User, password: str, db_session: Session) -> ResponseRetur
 			                      username=user.username, actor_id=user.id,
 			                      object_type="User", object_id=user.id,
 			                      object_label=user.username,
-			                      detail={"failed_passwords": MAX_FAILED_PASSWORDS})
+			                      detail={"failed_passwords": DISABLE_AFTER})
 		elif outcome is Lockout.LOCKED:
 			current_app.web.audit(AuditAction.AUTH_ACCOUNT_LOCK_TIMED, success=False,
 			                      username=user.username, actor_id=user.id,
 			                      object_type="User", object_id=user.id,
 			                      object_label=user.username,
 			                      detail={"failed_passwords": MAX_FAILED_PASSWORDS,
-			                              "minutes": FACTORY_LOCK_MINUTES})
-			return login_fail(user.username, "invalid_credentials", user.id,
-			                  lock_message(FACTORY_LOCK_MINUTES))
+			                              "minutes": LOCK_MINUTES})
+			if factory:
+				return login_fail(user.username, "invalid_credentials", user.id,
+				                  lock_message(LOCK_MINUTES))
 		return login_fail(user.username, "invalid_credentials", user.id)
 	accounts.password_ok(user)
 	if not user.is_approved:

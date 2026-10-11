@@ -84,9 +84,13 @@ The page tells you what's wrong as soon as you leave the field. A directory (LDA
 
 ### Wrong passwords
 
-After 5 wrong passwords in a row, a local account is disabled. Every wrong password gets the same "Invalid credentials" message, so you won't be told when it happens. Signing in with the right password afterwards says "User disabled, please check with administrator": ask an administrator to enable your account again. A right password before the 5th starts the count again. Wrong 2FA codes don't count here.
+After 5 wrong passwords in a row, a local account is locked for 15 minutes. During those 15 minutes even the right password gets "Invalid credentials". If your password is refused right after a few wrong tries, wait 15 minutes, or ask an administrator to **Enable** your account, which lifts the lock.
 
-The factory `admin` account is never disabled this way. After 5 wrong passwords it is locked for 15 minutes, and the sign-in page says "Too many failed sign-ins. Try again in N minutes."
+If the next 5 passwords after the lock are wrong too (10 in a row), the account is disabled. Signing in with the right password afterwards says "User disabled, please check with administrator": ask an administrator to enable your account again.
+
+You aren't told when either happens: every wrong password, and every try during the lock, gets the same "Invalid credentials" message, so the page never reveals whether a username exists. A right password, before the 5th or after the lock, starts the count again. Wrong 2FA codes don't count here.
+
+The factory `admin` account is never disabled this way. After every 5 wrong passwords it is locked for 15 minutes, and the sign-in page says "Too many failed sign-ins. Try again in N minutes."
 
 Directory (LDAP) accounts follow the directory's own lockout rules.
 

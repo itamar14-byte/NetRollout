@@ -521,7 +521,7 @@ A new installation has one account: `admin` with the password `admin`. At the fi
 `admin` is the break-glass account, the way back in when other sign-ins fail:
 
 - **Two-factor sign-in is optional** for it, and off by default. To turn it on, sign in as `admin`, open **My Account** and choose **Set up two-factor sign-in**: scan the QR code and confirm with a code. From then on, its sign-in asks for a code. **Turn off two-factor sign-in** on the same page asks for the password and a current code. Another admin's **Reset 2FA** in User Management also turns it off.
-- **Wrong passwords lock it for 15 minutes**, never disable it: after 5 wrong passwords in a row, the sign-in page says "Too many failed sign-ins. Try again in N minutes." and no password is checked until then.
+- **Wrong passwords lock it for 15 minutes**, never disable it: after every 5 wrong passwords in a row, the sign-in page says "Too many failed sign-ins. Try again in N minutes." and no password is checked until then.
 - **You can disable it** in User Management, for example once directory or personal admin accounts exist. NetRollout refuses when that would leave no administrator who can sign in. It can't be deleted or demoted, and its password can't be reset from the web app.
 
 If no administrator can sign in (`admin` disabled, locked, its authenticator lost or its password forgotten), run **`netrollout reset-admin`** on the server (Linux: `sudo ./bin/netrollout.sh reset-admin`). It enables `admin`, turns its two-factor sign-in off, clears its failed sign-ins and lock, and signs it out everywhere. With `-NewPassword` (Linux: `--new-password`) it also prints a temporary password, once, that must be changed at the next sign-in. It is recorded in the audit log as done "on the server". NetRollout Manager has no button for it.
@@ -537,14 +537,14 @@ There are two ways in:
 
 **Two-factor authentication** (TOTP) is required for every local account except `admin` (optional there, see above). Users enrol with an authenticator app at their first sign-in. After 5 wrong codes in a row, they must give their password again. Wrong codes don't count towards the lockout.
 
-**Account lockout**: after 5 wrong passwords in a row, a local account is disabled. Each wrong password, the 5th included, gets the same "Invalid credentials" message; the right password afterwards gets "User disabled, please check with administrator". It's recorded in the audit log (`auth.account_locked`). To let the user in again, **Enable** the account; **Reset Password** also starts the count again. A right password resets the count. `admin` is locked for 15 minutes instead (see above). Directory accounts aren't counted: the directory's own lockout policy applies.
+**Account lockout**: after 5 wrong passwords in a row, a local account is locked for 15 minutes (`auth.account_lock_timed`). No password is checked while it lasts. User Management shows a **Locked** badge next to **Active**. Once the lock has run out, 5 more wrong passwords in a row (10 in all) disable the account (`auth.account_locked`). The user isn't told either: every wrong password, and every try during the lock (the right password included), gets "Invalid credentials", the same as a username that doesn't exist. Only the right password on a disabled account gets "User disabled, please check with administrator". To let the user in at once, **Enable** the account: it lifts a lock as well as a disable. **Approve**, **Promote** and **Reset Password** also clear the count and any lock, and so does the user's own right password. `admin` is only ever locked, never disabled (see above). Directory accounts aren't counted: the directory's own lockout policy applies.
 
 On **User Management**, select users and use:
 
 | Action | Effect |
 |---|---|
 | **Approve** | Lets a requested account sign in. |
-| **Enable** / **Disable** | Allows or blocks sign-in. Enable also clears a lockout. Works on `admin` too. |
+| **Enable** / **Disable** | Allows or blocks sign-in. Enable also clears a lockout, including a 15-minute lock on an account that is still active. Works on `admin` too. |
 | **Promote** / **Demote** | Makes an operator an admin, or an admin an operator. |
 | **Terminate Session** | Signs the user out everywhere. |
 | **Reset Password** | Gives a temporary password (shown once) and signs the user out. They choose their own at the next sign-in. |
@@ -743,7 +743,7 @@ Recorded actions include:
 
 | Area | Actions |
 |---|---|
-| Sign-in | Sign-in (success and failure, with the reason), sign-out, password accepted before 2FA, password change, access request, session expiry, account locked out (disabled, or `admin` locked for 15 minutes), `admin`'s two-factor sign-in turned on or off |
+| Sign-in | Sign-in (success and failure, with the reason), sign-out, password accepted before 2FA, password change, access request, session expiry, account locked out (locked for 15 minutes, or disabled), `admin`'s two-factor sign-in turned on or off |
 | Users | Create, approve, enable, disable, promote, demote, delete, reset password, reset 2FA, terminate session (one user or many), session kick, `netrollout reset-admin` |
 | LDAP | Server saved or deleted, import, group rule toggled or deleted |
 | Inventory | Device created, edited, deleted, made global or local, attributes set, CSV import, bulk profile assignment |

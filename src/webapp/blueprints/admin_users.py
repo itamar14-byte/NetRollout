@@ -3,6 +3,7 @@ demote, delete, reset 2FA or a password, end a user's sessions, add a user;
 the sessions signed in now. Admins only; every action audited."""
 import time
 import uuid
+from datetime import datetime, timezone
 from typing import Any
 
 from flask import Blueprint, render_template, request, redirect, url_for, flash
@@ -97,13 +98,17 @@ def admin_panel() -> ResponseReturnValue:
 @login_required
 @require_admin
 def admin_users() -> str:
-	"""The Users page: every account, and who has a session."""
+	"""The Users page: every account, who is locked after wrong passwords
+	(Enable lifts it), and who has a session."""
 	with current_app.backend.postgres.get_session() as db_session:
 		users = db_session.query(User).order_by(User.created_at).all()
 		db_session.expunge_all()
+	now = datetime.now(timezone.utc)
 
 	return render_template("admin_users.html", users=users,
 	                       factory_ids={u.id for u in users if is_factory_admin(u)},
+	                       locked_ids={u.id for u in users
+	                                   if u.locked_until is not None and u.locked_until > now},
 	                       active_section="users",
 	                       session_user_ids=set(current_app.sessions.signed_in(time.time())))
 

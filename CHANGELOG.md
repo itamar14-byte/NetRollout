@@ -26,7 +26,7 @@ From this release on, an installed release candidate also finds newer release ca
 - Setup finds NetRollout's data left in Docker when its folder is unknown, and asks whether you still have that folder, instead of assuming it is gone.
 - **Start fresh instead** on Setup's folder page, and `install.sh --start-fresh` on Linux, delete kept data before a fresh install. Backups are kept.
 - Linux records where an uninstall kept the data (`/etc/netrollout/kept-data`), as Windows does.
-- Account lockout: 5 wrong passwords in a row disable a local account until an admin enables it; the factory `admin` is locked for 15 minutes instead. Audited as `auth.account_locked` and `auth.account_lock_timed`.
+- Account lockout: 5 wrong passwords in a row lock a local account for 15 minutes; once the lock has run out, 5 more disable it until an admin enables it. The factory `admin` is only ever locked, never disabled. The sign-in page answers "Invalid credentials" throughout (only `admin`'s lock is announced), so it doesn't reveal which usernames exist. User Management marks a locked account, and **Enable** lifts the lock. Audited as `auth.account_lock_timed` and `auth.account_locked`.
 - The factory `admin` can turn two-factor sign-in on for itself on **My Account**, and off again with its password and a code. It stays off by default.
 - Admins can disable the factory `admin` in User Management. Disable, Demote and Delete are refused when no administrator who can sign in would be left.
 - `netrollout reset-admin` (Windows) and `netrollout.sh reset-admin` (Linux) make the factory `admin` usable again from the server when no administrator can sign in: enabled, 2FA off, failed sign-ins and lock cleared, signed out everywhere, and optionally a temporary password.

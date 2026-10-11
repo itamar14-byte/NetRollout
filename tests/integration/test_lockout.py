@@ -1,7 +1,9 @@
-"""Account lockout: wrong passwords in a row disable a local account (the
-5th), lock the factory admin for 15 minutes instead, and never count for
-LDAP accounts; a right password, an admin's Enable / Reset Password start
-the count again."""
+"""Account lockout: wrong passwords in a row lock a local account for 15
+minutes (the 5th) and, once the lock has run out, disable it (5 more) - the
+factory admin is locked again instead, never disabled; LDAP accounts are
+never counted; a right password, an admin's Enable / Reset Password start
+the count again. An ordinary account's page never tells: every answer is
+"Invalid credentials", as for a name with no account."""
 import datetime as dt
 from unittest.mock import patch
 
@@ -9,6 +11,7 @@ import pytest
 
 from src.accounts import users
 from src.db.tables import AuditLog, LDAPServer, User
+from src.webapp.hooks import conn_limit
 from tests.integration.conftest import TEST_PASSWORD
 
 pytestmark = [pytest.mark.postgres, pytest.mark.redis]
@@ -20,6 +23,9 @@ def admin(make_user):
 
 
 def login(client, username, password=TEST_PASSWORD):
+	"""One sign-in. The per-address rate limit (10 a minute) is reset first:
+	these tests are about the per-account count, and take more tries."""
+	conn_limit.reset()
 	return client.post("/login", data={"username": username, "password": password})
 
 
@@ -45,24 +51,95 @@ def wrong(client, username, times):
 	return shown
 
 
-def test_the_fifth_wrong_password_disables_a_local_account(
+def expire_lock(session_scope, user_id):
+	"""The account's lock ran out a second ago."""
+	with session_scope() as s:
+		s.get(User, user_id).locked_until = (
+			dt.datetime.now(dt.timezone.utc) - dt.timedelta(seconds=1))
+
+
+def test_the_fifth_wrong_password_locks_a_local_account_for_15_minutes(
 		client_for, make_user, db_get, session_scope):
-	"""Four wrong passwords count; the 5th disables the account (audited
-	auth.account_locked) - every one of them answered "Invalid credentials",
-	so the page tells nobody the account exists or is disabled. The right
-	password afterwards is told the account is disabled."""
+	"""Four wrong passwords count; the 5th locks the account for 15 minutes
+	(audited auth.account_lock_timed), it stays active. Every answer is
+	"Invalid credentials" - the same as for a name with no account. While
+	locked no password is checked: the right one is refused alike and a
+	wrong one isn't counted."""
 	user = make_user()
 	client = client_for()
 	shown = wrong(client, user.username, 4)
 	assert db_get(User, user.id).failed_sign_ins == 4
+	assert db_get(User, user.id).locked_until is None
+	shown += wrong(client, user.username, 1)
+	unknown = wrong(client, "nobody-has-this-name", 5)
+	assert shown == unknown == [["Invalid credentials"]] * 5
+	row = db_get(User, user.id)
+	assert row.is_active is True and row.failed_sign_ins == 5
+	left = row.locked_until - dt.datetime.now(dt.timezone.utc)
+	assert dt.timedelta(minutes=14) < left <= dt.timedelta(minutes=15)
+	assert actions(session_scope, "auth.account_lock_timed") == [
+		(user.username, False, {"failed_passwords": 5, "minutes": 15})]
+	resp = login(client, user.username)
+	assert resp.headers["Location"] == "/"
+	assert flashes(client) == ["Invalid credentials"]
+	wrong(client, user.username, 3)
+	assert db_get(User, user.id).failed_sign_ins == 5
 	assert db_get(User, user.id).is_active is True
+
+
+def test_five_more_after_the_lock_disable_the_account(
+		client_for, make_user, db_get, session_scope):
+	"""Once the lock has run out, the count goes on: four more wrong passwords
+	leave the account active, the 5th more (10th in a row) disables it
+	(audited auth.account_locked) - all answered "Invalid credentials". The
+	right password afterwards is told the account is disabled."""
+	user = make_user()
+	client = client_for()
+	wrong(client, user.username, 5)
+	expire_lock(session_scope, user.id)
+	shown = wrong(client, user.username, 4)
+	row = db_get(User, user.id)
+	assert row.is_active is True and row.failed_sign_ins == 9 and row.locked_until is None
 	shown += wrong(client, user.username, 1)
 	assert shown == [["Invalid credentials"]] * 5
 	assert db_get(User, user.id).is_active is False
 	assert actions(session_scope, "auth.account_locked") == [
-		(user.username, False, {"failed_passwords": 5})]
+		(user.username, False, {"failed_passwords": 10})]
 	login(client, user.username)
 	assert flashes(client) == ["User disabled, please check with administrator"]
+
+
+def test_a_right_password_after_the_lock_starts_again(
+		client_for, make_user, db_get, session_scope):
+	"""After the lock has run out, the right password signs in (on to 2FA) and
+	the count is 0: five more wrong passwords lock the account again, they
+	don't disable it."""
+	user = make_user()
+	client = client_for()
+	wrong(client, user.username, 5)
+	expire_lock(session_scope, user.id)
+	assert login(client, user.username).headers["Location"] == "/otp_enroll"
+	row = db_get(User, user.id)
+	assert row.failed_sign_ins == 0 and row.locked_until is None
+	wrong(client_for(), user.username, 5)
+	row = db_get(User, user.id)
+	assert row.is_active is True and row.locked_until is not None
+
+
+def test_the_users_page_shows_a_lock_that_enable_lifts(
+		admin, client_for, make_user, db_get):
+	"""User Management marks a locked account (a Locked badge, "locked" for the
+	page's checks, so Enable is offered); the admin's Enable lifts the lock
+	and the user signs in."""
+	user = make_user()
+	wrong(client_for(), user.username, 5)
+	page = client_for(admin).get("/admin/users").get_data(as_text=True)
+	(row,) = [line for line in page.splitlines() if f'"username": "{user.username}"' in line]
+	assert '"locked": true' in row
+	assert ">Locked</span>" in page
+	client_for(admin).post(f"/admin/users/{user.id}/enable")
+	assert db_get(User, user.id).locked_until is None
+	assert login(client_for(), user.username).headers["Location"] == "/otp_enroll"
 
 
 def test_a_right_password_starts_the_count_again(client_for, make_user, db_get):

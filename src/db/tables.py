@@ -88,8 +88,8 @@ class User(Base):
 	ldap_server_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey(
 		"ldap_servers.id", ondelete="SET NULL"), nullable=True)
 	# Wrong passwords in a row (local accounts; src/accounts/users.py): the
-	# MAX_FAILED_PASSWORDS-th disables the account - the factory admin is
-	# locked until locked_until instead
+	# MAX_FAILED_PASSWORDS-th locks the account until locked_until, the
+	# DISABLE_AFTER-th disables it - the factory admin is only ever locked
 	failed_sign_ins: Mapped[int] = mapped_column(Integer, default=0, server_default="0",
 	                                             nullable=False)
 	locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True),
