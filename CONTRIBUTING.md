@@ -240,7 +240,7 @@ CI runs on every push and pull request. These checks are **required** before a m
 
 "End-to-end (informative)" also runs, but it never fails the run and isn't required.
 
-The maintainer reviews and merges the pull request, keeping your commits.
+The maintainer reviews the pull request and merges it by rebasing it onto `master` (a fast-forward), so the history stays linear and your commits keep their messages and authorship. Keep each commit meaningful on its own: what changed and why.
 
 ## Building things locally
 
