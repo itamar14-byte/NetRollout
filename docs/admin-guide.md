@@ -295,7 +295,73 @@ sudo ./bin/netrollout.sh update [--version X] [--from <zip>] [--feed <url|file>]
 The script downloads the release zip and `SHA256SUMS`, checks the zip, asks for confirmation, makes the `before-update` backup, replaces the files and hands over to the new version's script to finish.
 
 > [!NOTE]
-> An update also needs the new version's Docker images, `itamarweinstein/netrollout` and `itamarweinstein/netrollout-nginx`, which it pulls from Docker Hub. A server that can't reach Docker Hub needs them loaded beforehand, for example with `docker save` and `docker load`.
+> An update also needs the new version's Docker images, `itamarweinstein/netrollout` and `itamarweinstein/netrollout-nginx`, which it pulls from Docker Hub. A server that can't reach Docker Hub needs them loaded beforehand: see [Updating from an internal mirror](#updating-from-an-internal-mirror).
+
+### Updating from an internal mirror
+
+NetRollout needs the internet only to download releases. In a network without access to GitHub or Docker Hub, you provide both from inside. There are three parts: the release files, a feed that describes them, and the Docker images.
+
+**1. The release files.** On a computer with internet access, download from the release's GitHub page the files your servers use: `NetRollout-Setup-<version>.exe` (Windows), `netrollout-<version>-linux.zip` (Linux), and always `SHA256SUMS`. Put them, unchanged, on an internal web server or a file share. NetRollout checks every download against `SHA256SUMS` and deletes a file that doesn't match.
+
+**2. The feed.** A JSON file that describes the release the way GitHub's API does. The easiest way to make one is to save GitHub's own description and point its download links at your copies:
+
+```bash
+curl -s https://api.github.com/repos/itamar14-byte/NetRollout/releases/tags/v<version> -o feed.json
+```
+
+Then, in `feed.json`, replace each asset's `browser_download_url` with the address of your copy, for example `https://mirror.corp.local/netrollout/SHA256SUMS` or `file:///srv/mirror/netrollout/SHA256SUMS`. NetRollout reads only these fields; a feed you write by hand needs no others:
+
+```json
+{
+  "tag_name": "v1.0.0",
+  "body": "The release notes, shown in the update window.",
+  "html_url": "https://mirror.corp.local/netrollout/",
+  "draft": false,
+  "assets": [
+    {"name": "NetRollout-Setup-1.0.0.exe", "browser_download_url": "https://mirror.corp.local/netrollout/NetRollout-Setup-1.0.0.exe"},
+    {"name": "netrollout-1.0.0-linux.zip", "browser_download_url": "https://mirror.corp.local/netrollout/netrollout-1.0.0-linux.zip"},
+    {"name": "SHA256SUMS", "browser_download_url": "https://mirror.corp.local/netrollout/SHA256SUMS"}
+  ]
+}
+```
+
+`html_url` is optional (it becomes the **View release on GitHub** link). The file may also hold a list of releases, like GitHub's list of releases: NetRollout then picks the newest on its channel and skips drafts. Put `feed.json` next to the files.
+
+**3. Point NetRollout at the feed.**
+
+- **Windows:** set the `UpdateFeed` value for the user who runs NetRollout Manager. It takes a URL or a file path:
+
+  ```powershell
+  New-Item -Path HKCU:\Software\NetRollout\Manager -Force | Out-Null
+  Set-ItemProperty -Path HKCU:\Software\NetRollout\Manager -Name UpdateFeed -Value "https://mirror.corp.local/netrollout/feed.json"
+  ```
+
+  From then on, **Update** and the daily check look there instead of GitHub. Remove the value to go back to GitHub.
+- **Linux:** pass the feed to each update. A file must be inside the install folder:
+
+  ```bash
+  sudo ./bin/netrollout.sh update --feed https://mirror.corp.local/netrollout/feed.json
+  ```
+
+  For a single update without a feed, `update --from <zip>` with `SHA256SUMS` next to the zip does the same.
+
+**4. The Docker images.** Each release names exact image versions. List them from the new release's compose files, with the version set:
+
+```bash
+NETROLLOUT_VERSION=<version> docker compose -f compose.yaml -f compose.http.yaml --profile monitoring config --images
+```
+
+For 1.0.0rc1 that's `itamarweinstein/netrollout`, `itamarweinstein/netrollout-nginx`, `postgres`, `redis`, and with monitoring `grafana/grafana`, `grafana/loki`, `grafana/alloy` and `prom/prometheus`. Provide them in one of two ways:
+
+- **A registry mirror.** If your organisation runs a pull-through cache for Docker Hub (Harbor, Nexus or Artifactory, for example), add it to Docker's `registry-mirrors` setting (Docker Desktop: **Settings → Docker Engine**; Linux: `/etc/docker/daemon.json`). Docker then fetches every image through it, and nothing else changes.
+- **Offline.** On a computer with internet access, pull each image and save them to one file, then load it on the server before the update:
+
+  ```bash
+  docker save -o netrollout-images.tar <image> <image> ...   # on the connected computer, after docker pull
+  docker load -i netrollout-images.tar                       # on the NetRollout server
+  ```
+
+  NetRollout uses an image that is already on the server instead of downloading it.
 
 ### An update that didn't finish
 

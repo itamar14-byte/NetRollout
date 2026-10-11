@@ -329,11 +329,12 @@ flowchart LR
 3. **Images:** both images built and tagged with the version (the app image also has it stamped in), then the end-to-end tests run against those exact images.
 4. **Linux install:** the Linux zip is built and installed unattended with those images; NetRollout must answer healthy with this version.
 5. **Windows files:** NetRollout Manager, NetRollout Setup and the CLI are built; the CLI must report this version.
-6. **Publish**, only after everything above passed:
+6. **Publish**, only after everything above passed, in three steps:
+   - A **draft** GitHub release is created with the release files, their `SHA256SUMS` and the CHANGELOG section as its notes (a pre-release is marked as one). A draft is invisible to users.
    - Both images are pushed to Docker Hub (`itamarweinstein/netrollout`, `itamarweinstein/netrollout-nginx`) with the version tag. A final release also moves `latest`; a pre-release never does.
-   - The release files and their `SHA256SUMS` are attached to a new GitHub release, with the CHANGELOG section as its notes. A pre-release is marked as a pre-release.
+   - The draft is published.
 
-A failure before the Publish job publishes nothing. Inside Publish, the images reach Docker Hub before the GitHub release is created, so a failure there can leave the images published without a release.
+A failure before the Publish job publishes nothing. A failure inside it (Docker Hub or GitHub unavailable, an expired token) leaves at most a draft and pushed images: run the failed job again. It replaces the draft and pushes the same images again; a release that is already published is never overwritten.
 
 ## Code of conduct
 

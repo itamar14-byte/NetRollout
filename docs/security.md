@@ -29,7 +29,7 @@ To report a vulnerability, follow [SECURITY.md](../SECURITY.md). Don't open a pu
 
 ## Threat model in brief
 
-**Who uses it.** Network engineers (operators) and administrators inside an organisation, through a browser on the internal network. It is not designed to be exposed to the internet.
+**Who uses it.** Network engineers (operators) and administrators inside an organisation, through a browser on the internal network. NetRollout is built to run inside your network: apart from downloading its images and updates (which can also come from an [internal mirror](admin-guide.md#updating-from-an-internal-mirror)), it needs no internet access, and it is meant to be reached from inside the network, not published to the internet.
 
 **What it holds that an attacker would want.** SSH credentials for network devices (security profiles), and the ability to push configuration to those devices. Secondary: an LDAP bind password, users' TOTP secrets, device inventory and configuration snapshots, and the audit trail.
 

@@ -41,6 +41,11 @@ In no particular order.
 - **Isolated networks**: the web pages' third-party assets (Bootstrap, fonts, icons) served from the image instead of a CDN, and moving the images in offline.
 - **Phones, read-only** (if people ask for it): sign-in, the dashboard, Active Jobs, the live log and Results usable on a phone, for watching a rollout on call. Editing stays desktop-only.
 
+**Security**
+
+- **Device host keys**: verify each device's SSH host key (trust on first use, with a page to see, accept and reset them), so a device that changes its key is noticed. Today NetRollout connects without checking it, like most automation built on Netmiko.
+- **Content-Security-Policy and asset integrity**: a Content-Security-Policy header and integrity hashes for every script and stylesheet, which pairs with serving the third-party assets from the image (see *Isolated networks*).
+
 **Code**
 
 - **Frontend assets in files**: the pages' inline CSS and JavaScript moved to `static/css/` and `static/js/`.
