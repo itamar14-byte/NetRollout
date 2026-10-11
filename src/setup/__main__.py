@@ -61,7 +61,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 	check_update.add_argument("--installed", help="the installed version")
 	check_update.add_argument("--new", help="the version about to be installed")
 	rel = p.add_argument_group("release (Linux's update; run with the installed version's image)")
-	rel.add_argument("--check", action="store_true", help="only say whether a newer one exists")
+	rel.add_argument("--check", action="store_true",
+	                 help="release: only say whether a newer one exists; port-set: only the checks, nothing changed")
 	rel.add_argument("--release-version", help="this version, not the latest")
 	rel.add_argument("--feed", help="a mirror's release JSON (URL or file: one release, or a list - the newest on this version's channel) instead of GitHub")
 	rel.add_argument("--from-zip", help="a release zip given by hand (offline)")
@@ -316,7 +317,8 @@ def _port_by_hand(args: argparse.Namespace, facts: install.Facts, _read: install
 	if not _installed(write):
 		return SetupExit.INVALID
 	try:
-		previous = port.set_by_hand(args.wanted, None if args.previous else facts.busy_ports)
+		previous = port.set_by_hand(args.wanted, None if args.previous else facts.busy_ports,
+		                            check_only=args.check)
 	except port.PortRefused as e:
 		write(str(e))
 		return SetupExit.INVALID

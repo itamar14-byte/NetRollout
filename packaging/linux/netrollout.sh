@@ -1027,11 +1027,17 @@ do_port_by_hand() {
 	exec 9>"$ROOT/config/.port-helper.lock"
 	flock -n 9 || fail "A port change from System Settings is being applied - try again in a few minutes. Nothing was changed."
 	current="$(env_value HTTPS_PORT)"; current="${current:-443}"
+	# checked before the question: an unusable, current or taken port is said
+	# at once, never "Change the port from 7443 to 7443?"
+	step "Checking port $wanted"
+	if ! out="$(setup_core port-set --wanted "$wanted" --busy-ports "$(busy_ports)" --check 2>&1)"; then
+		show "$out"
+		fail "Nothing was changed - NetRollout stays on port $current."
+	fi
 	if [ -n "$INTERACTIVE" ]; then
 		read -r -p "NetRollout restarts on port $wanted (running rollouts finish first; everyone signs in again). Change the port from $current to $wanted? [y/N] " a || true
 		case "$a" in y|Y|yes) ;; *) say "Nothing was changed."; return 0 ;; esac
 	fi
-	step "Checking port $wanted"
 	if ! out="$(setup_core port-set --wanted "$wanted" --busy-ports "$(busy_ports)" 2>&1)" ||
 		! previous="$(printf '%s\n' "$out" | sed -n 's/^previous=\([0-9]*\).*/\1/p' | head -1)" || [ -z "$previous" ]; then
 		show "$out"

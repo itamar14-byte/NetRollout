@@ -369,6 +369,18 @@ def test_an_empty_option_value_reaches_the_setup_core():
 	assert '@($AppImage, "python", "-m", "src.setup") + $joined' in build
 
 
+def test_netrollout_port_checks_before_it_asks():
+	"""Both scripts run port-set --check before "Change the port from A to B? [y/N]":
+	an unusable, current or taken port is said at once (the rc2 test run asked
+	"Change the port from 7443 to 7443?" and refused only after "y")."""
+	ps1 = (ROOT / "packaging" / "windows" / "manage.ps1").read_text(encoding="utf-8")
+	body = ps1[ps1.index("function Invoke-PortByHand {"):ps1.index("function Write-Defaults {")]
+	assert body.index('"--check")') < body.index("Change the port from $current")
+	sh = (ROOT / "packaging" / "linux" / "netrollout.sh").read_text(encoding="utf-8")
+	body = sh[sh.index("do_port_by_hand() {"):]
+	assert body.index("--check 2>&1") < body.index("Change the port from $current")
+
+
 def iss_text():
 	return (ROOT / "packaging" / "windows" / "installer" / "netrollout.iss").read_text(encoding="utf-8")
 

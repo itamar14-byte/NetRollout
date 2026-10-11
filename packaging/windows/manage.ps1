@@ -1212,12 +1212,19 @@ function Invoke-PortByHand {
 	catch { Fail "A port change from System Settings is being applied - try again in a few minutes. Nothing was changed." }
 	try {
 		$current = Read-EnvValue "HTTPS_PORT" "443"
+		# checked before the question: an unusable, current or taken port is
+		# said at once, never "Change the port from 7443 to 7443?"
+		Step "Checking port $wanted"
+		$check = Get-SetupAnswer @("port-set", "--wanted", $wanted, "--busy-ports", (Get-BusyPorts (Get-OurPorts)), "--check")
+		if ($check.Code -ne 0) {
+			Show-Output $check.Output
+			Fail "Nothing was changed - NetRollout stays on port $current."
+		}
 		if ($Interactive) {
 			$a = Read-Host ("NetRollout restarts on port $wanted (running rollouts finish first; everyone signs " +
 			                "in again). Change the port from $current to ${wanted}? [y/N]")
 			if ($a -notmatch "^(y|yes)$") { Say "Nothing was changed."; return }
 		}
-		Step "Checking port $wanted"
 		$r = Get-SetupAnswer @("port-set", "--wanted", $wanted, "--busy-ports", (Get-BusyPorts (Get-OurPorts)))
 		$found = @($r.Output -split "`n" | Where-Object { $_ -match "^previous=\d+" })
 		if ($r.Code -ne 0 -or -not $found) {

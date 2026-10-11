@@ -224,6 +224,18 @@ def test_a_port_set_by_hand_is_refused_with_why(install, wanted, busy, says):
 	assert env()["HTTPS_PORT"] == "8443" and not port.status_path().exists()
 
 
+def test_a_port_checked_by_hand_changes_nothing(install):
+	"""port-set --check (the scripts run it before asking "Change the port from A to
+	B?"): a usable port answers as a change would (exit 0, the previous port) but
+	nothing is written; a refused one gives the same reason as without --check."""
+	request(10443)
+	assert run(["port-set", "--wanted", "9443", "--busy-ports", "", "--check"]) == (0, ["previous=8443"])
+	assert env()["HTTPS_PORT"] == "8443" and not port.status_path().exists()
+	assert site_env.read()[site_env.PORT_REQUEST] == "10443"
+	assert run(["port-set", "--wanted", "8443", "--busy-ports", "", "--check"]) == (
+		1, ["Port 8443 is the port in use already."])
+
+
 def test_a_port_set_by_hand_waits_for_a_running_trial(install):
 	"""While a System Settings port change is being tried (the helper's lock is the
 	scripts'; the trial is the core's), port-set refuses and changes nothing."""

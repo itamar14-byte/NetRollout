@@ -223,7 +223,7 @@ class PortRefused(ValueError):
 	"""The port can't be set by hand now (the message says why)."""
 
 
-def set_by_hand(wanted: str | None, busy: dict[int, str] | None) -> int:
+def set_by_hand(wanted: str | None, busy: dict[int, str] | None, check_only: bool = False) -> int:
 	"""`wanted` becomes the port in use: .env's HTTPS_PORT and site.env's,
 	a pending request dropped and the helper's status "applied" - so neither
 	the port helper nor the next start undoes it.
@@ -231,6 +231,8 @@ def set_by_hand(wanted: str | None, busy: dict[int, str] | None) -> int:
 	:param wanted: the port, as typed
 	:param busy: the ports listening on this computer (NetRollout's own left
 	 out); None: not checked (the previous port put back)
+	:param check_only: only the checks, nothing written (the scripts ask
+	 "Change the port?" only for a port that can be used)
 	:returns: the previous port
 	:raises PortRefused: not a usable port, the port in use already, taken,
 	 or a System Settings port change is being tried"""
@@ -248,6 +250,8 @@ def set_by_hand(wanted: str | None, busy: dict[int, str] | None) -> int:
 		if port in busy:
 			raise PortRefused(f"Port {port} is in use by {busy[port] or 'another program'} "
 			                  f"- pick another one.")
+	if check_only:
+		return previous
 	env_set({PUBLISHED_PORT: str(port)})
 	site_env.update({site_env.PORT_IN_USE: str(port), site_env.PORT_REQUEST: None,
 	                 site_env.PORT_REQUEST_ID: None, site_env.PORT_REQUESTED_AT: None,
