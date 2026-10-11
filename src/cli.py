@@ -15,7 +15,7 @@ from enum import IntEnum
 from typing import NoReturn
 
 from src import runtime
-from src.rollout.engine import DeviceResultDict, DeviceStatus, RolloutEngine, RolloutOptions
+from src.rollout.engine import TOKEN_IN_COMMAND, DeviceResultDict, DeviceStatus, RolloutEngine, RolloutOptions
 from src.rollout.inputs import InputParser, Validator
 from src.rollout.log import RolloutLogger, Tone, prune_logs, utf8_console
 
@@ -99,11 +99,20 @@ def rollout(args: argparse.Namespace) -> NoReturn:
 	except Exception as e:
 		abort(logger, f"Failed to read device file: {e}")
 
+	# The commands first: refusing them shouldn't wait for the devices'
+	# reachability probes
+	commands = parser.parse_commands(commands_path)
+	if tokens := variables_in(commands):
+		abort(logger, f"The commands use variables ({', '.join(tokens)}) - "
+		              "variables are filled in per device by the web app's "
+		              "variable mappings; the CLI sends commands exactly as "
+		              "written. Remove the variables, or run this rollout "
+		              "from the web app.")
+
 	devices, errors  = parser.prepare_devices(raw_devices)
 	for msg in errors:
 		logger.notify(msg, Tone.ERROR)
 
-	commands = parser.parse_commands(commands_path)
 	if not devices or not commands:
 		abort(logger, "Aborting — no devices or commands to process.")
 
@@ -158,6 +167,15 @@ def ask_path(prompt: str) -> str:
 		if os.path.isfile(path):
 			return path
 		print(f"File not found: {path or '(nothing entered)'} — try again.")
+
+
+def variables_in(commands: list[str]) -> list[str]:
+	"""The $$TOKEN$$s the commands use - only the web app's variable mappings
+	fill them in, so the CLI refuses a rollout with any.
+
+	:returns: each token once, in the order first used; [] when none"""
+	return list(dict.fromkeys(token for command in commands
+	                          for token in TOKEN_IN_COMMAND.findall(command)))
 
 
 def pause() -> None:

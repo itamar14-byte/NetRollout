@@ -39,6 +39,7 @@ From this release on, an installed release candidate also finds newer release ca
 ### Changed
 
 - **Verify after push** starts ticked on New Rollout. You can still untick it per rollout. The CLI keeps `-vf` opt-in.
+- The CLI refuses a commands file that uses variables (`$$TOKEN$$`) before it checks or connects to any device, with exit code 2 and a message saying why. Before, it skipped every device and counted each as failed.
 - NetRollout Manager and the Linux `update` follow the installed version's channel: a release candidate looks at pre-releases too, a final release only at final releases. A mirror feed (`UpdateFeed`, `--feed`) may now be a list of releases.
 - Kept data decides the install folder: Setup's folder page is locked to the folder holding kept data, and Linux refuses to install in another folder while data is kept, so a new install can't land on an old database with new passwords.
 - The uninstall questions are both "Delete ... too?", with Yes and No spelled out and No the default.

@@ -204,6 +204,33 @@ def test_empty_commands_file_exits_2(files, run_cli):
 	assert code == 2 and not engine.called
 
 
+def test_commands_with_variables_are_refused_before_any_device(
+		files, run_cli, monkeypatch, capsys):
+	"""Commands using $$TOKEN$$s exit 2 before the devices are checked
+	(no reachability probe) and without a rollout, naming each token once,
+	in order: the CLI has no variable mappings to fill them in."""
+	devices, commands = files(
+		commands="interface $$UPLINK$$\nip address $$LOOPBACK$$ 255.255.255.255\n"
+		         "description to $$UPLINK$$\n")
+	prepare = MagicMock(name="prepare_devices")
+	monkeypatch.setattr(cli.InputParser, "prepare_devices", prepare)
+	code, engine, _ = run_cli(["-d", devices, "-c", commands])
+	assert code == 2 and not engine.called and not prepare.called
+	assert ("The commands use variables ($$UPLINK$$, $$LOOPBACK$$) - variables "
+	        "are filled in per device by the web app's variable mappings; the "
+	        "CLI sends commands exactly as written. Remove the variables, or "
+	        "run this rollout from the web app.") in capsys.readouterr().out
+
+
+def test_a_lone_dollar_pair_is_not_a_variable(files, run_cli):
+	"""A $$ that isn't a $$TOKEN$$ (e.g. in a banner) is sent as written: the
+	run goes ahead."""
+	devices, commands = files(commands="banner motd $$ maintenance $$\n")
+	code, engine, _ = run_cli(["-d", devices, "-c", commands])
+	assert code == 0
+	assert engine_args(engine)["commands"] == ["banner motd $$ maintenance $$"]
+
+
 # ── Exit code reflects the outcome ───────────────────────────────────────────
 
 @pytest.mark.parametrize("statuses,expected", [

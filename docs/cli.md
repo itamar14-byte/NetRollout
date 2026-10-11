@@ -99,7 +99,7 @@ One row per device, with a header row. The file is read as UTF-8; a byte-order m
 Any other column is ignored by the CLI.
 
 > [!IMPORTANT]
-> The CLI has no variable mappings. If a command contains a `$$TOKEN$$`, the CLI can't fill it in on any device. Each device is then skipped (`<ip:port> skipped — $$TOKEN$$: no mapping on this device`) and counted as failed. Extra attribute columns, such as `hostname`, are not substituted into commands. Use the web app for per-device values.
+> The CLI has no variable mappings. Extra attribute columns, such as `hostname`, are not substituted into commands, and a commands file that uses variables is refused (see [Variables](#variables)). Use the web app for per-device values.
 
 This is the same CSV format the web app's **Import CSV** takes. The web app doesn't require credentials, and it turns extra columns into device attributes. See [Import CSV](user-guide.md#importing-devices-from-a-csv).
 
@@ -139,9 +139,19 @@ ntp server 192.0.2.123
 
 The same file is pushed to every device in the CSV. If your devices run different platforms, run the CLI once per platform with its own commands file. The web app can take one command set per platform in a single rollout.
 
+### Variables
+
+The CLI sends commands exactly as written. Variables such as `$$LOOPBACK$$` are filled in per device only by the web app's variable mappings. If any command uses one, the CLI stops before it checks or connects to any device, with exit code 2:
+
+```text
+The commands use variables ($$LOOPBACK$$, $$UPLINK$$) - variables are filled in per device by the web app's variable mappings; the CLI sends commands exactly as written. Remove the variables, or run this rollout from the web app.
+```
+
+A `$$` that isn't part of a variable, such as `banner motd $$ maintenance $$`, is sent as written.
+
 ## What happens during a run
 
-1. **Read and check.** The CLI reads the CSV and checks every row (see above). It also probes each device's SSH port with a TCP connection: up to 3 attempts, 5 seconds each, a second apart. Unreachable devices are dropped before anything is pushed and reported as `<ip:port> is not reachable`. If no devices or no commands are left, the run stops with `Aborting — no devices or commands to process.` and exit code 2.
+1. **Read and check.** The CLI reads the commands file first and stops if it uses [variables](#variables). It then reads the CSV and checks every row (see above). It also probes each device's SSH port with a TCP connection: up to 3 attempts, 5 seconds each, a second apart. Unreachable devices are dropped before anything is pushed and reported as `<ip:port> is not reachable`. If no devices or no commands are left, the run stops with `Aborting — no devices or commands to process.` and exit code 2.
 2. **Push.** Up to 10 devices are configured at the same time. On each one, NetRollout enters configuration mode, sends every command, reports any command the device refuses (and still sends the rest), then saves or commits.
 3. **Verify** (with `-vf`). NetRollout reads the configuration of each device the push applied to. It looks for every command in the section where it was typed. A command must be present, and a removal (`no`, `undo`, `delete`, `unset`) must be gone. Navigation and operational commands, such as `exit`, are counted as not verifiable. Verify can mark a command as not configured when it is in fact there, for example a typed abbreviation (`int gi1`), a hashed secret, or a value the device normalises. It can also mark a command as verified because it was already there before the rollout.
 4. **Summary.** Each device gets a status:
@@ -165,7 +175,7 @@ The same file is pushed to every device in the CSV. If your devices run differen
 |---|---|---|
 | `0` | OK | Every device succeeded. |
 | `1` | Mixed | At least one device succeeded or was partial, and at least one wasn't a success. |
-| `2` | Nothing applied | No device succeeded or was partial. Also used when the run stopped before the push: a missing file, no valid devices or commands left, a "no" at the confirmation, or the input ending at a question. |
+| `2` | Nothing applied | No device succeeded or was partial. Also used when the run stopped before the push: a missing file, commands that use variables, no valid devices or commands left, a "no" at the confirmation, or the input ending at a question. |
 | `130` | Interrupted | Ctrl+C. |
 
 In a script, treat anything other than `0` as needing a look at the log.
