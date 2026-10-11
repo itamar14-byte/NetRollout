@@ -97,7 +97,8 @@ def newest(releases: list[Any], prereleases: bool) -> dict[str, Any] | None:
 	:returns: that release's object, or None when the list has none"""
 	best: tuple[Version, dict[str, Any]] | None = None
 	for item in releases:
-		if not isinstance(item, dict) or item.get("draft") is True 				or not isinstance(item.get("tag_name"), str):
+		if (not isinstance(item, dict) or item.get("draft") is True
+				or not isinstance(item.get("tag_name"), str)):
 			continue
 		try:
 			v = Version(item["tag_name"].removeprefix("v"))
