@@ -59,7 +59,7 @@ NetRollout doesn't enforce a minimum. As guidance for a virtual machine: about 4
 
 NetRollout Setup (`NetRollout-Setup-<version>.exe`) is the only way to install NetRollout on Windows. Download it from the [Releases page](https://github.com/itamar14-byte/NetRollout/releases). While NetRollout is at release candidate stage, the newest release is marked "Pre-release".
 
-![NetRollout Setup's review page: every choice before Install](images/setup.png)
+![NetRollout Setup's Settings page](images/setup.png)
 
 ### Before the first page
 
