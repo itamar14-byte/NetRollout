@@ -24,7 +24,7 @@ param(
 	[string]$TimeZone = "",
 	[string]$Out = "",              # defaults: the file to write them to
 	[switch]$DeleteData,            # uninstall: delete the data too (no question)
-	[switch]$KeepData,              # uninstall: keep it (no question)
+	[switch]$KeepData,              # uninstall: keep it (no question); clear-damaged: .env, config, certs, logs stay
 	[switch]$DeleteBackups,         # uninstall with -DeleteData: the backups too (else kept)
 	[switch]$NoSafetyBackup,        # restore: without backing up the current state
 	[switch]$Json,                  # rollouts: one line of JSON (NetRollout Manager)
@@ -1401,6 +1401,120 @@ function Invoke-ForgetKept {
 	Good "The kept data is deleted - the backups stay in $(Join-Path $Root 'backups')."
 }
 
+# NetRollout's own files in an install folder, by name - what a clearing
+# deletes there, never anything else in the folder (-Data: .env, config,
+# certs and logs too; the backups never). The uninstaller and its data file
+# (unins000.exe, .dat: Inno numbers them) by their pattern.
+function Get-InstallItems([switch]$Data) {
+	$names = @("bin", "deploy", "compose.yaml", "compose.http.yaml", "VERSION", "LICENSE", "README.md",
+		".update-pending", ".update")
+	if ($Data) { $names += @(".env", "config", "certs", "logs") }
+	$items = @($names | ForEach-Object { Join-Path $Root $_ } | Where-Object { Test-Path -LiteralPath $_ })
+	if (Test-Path -LiteralPath $Root) {
+		$items += @(Get-ChildItem -LiteralPath $Root -Force -File -Filter "unins*" |
+			Where-Object { $_.Name -match "^unins\d+\.(exe|dat|msg)$" } | ForEach-Object { $_.FullName })
+	}
+	return ,$items
+}
+
+# The processes running from the install folder (NetRollout Manager: the
+# window, the tray, the port helper) - by their path under "$Root\", never
+# by name: another install's Manager (or a test's) is left alone
+function Get-FolderProcesses {
+	$prefix = $Root.TrimEnd("\") + "\"
+	return ,@(Get-Process | Where-Object {
+		$path = $null
+		try { $path = $_.Path } catch { }
+		$path -and $path.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)
+	})
+}
+
+# The install's NetRollout Manager closed: asked first (--exit, its tray icon
+# goes properly), then whatever still runs from the folder ended
+function Stop-FolderProcesses {
+	if (-not (Get-FolderProcesses).Count) { return }
+	Step "Closing NetRollout Manager (the tray and the port helper) of $Root"
+	$manager = Join-Path $Root "bin\NetRollout Manager.exe"
+	if (Test-Path -LiteralPath $manager) { Invoke-Native $manager @("--exit") | Out-Null }
+	$left = Get-FolderProcesses
+	if ($left.Count) {
+		$left | Stop-Process -Force -ErrorAction SilentlyContinue
+		$left | Wait-Process -Timeout 10 -ErrorAction SilentlyContinue
+	}
+	$left = Get-FolderProcesses
+	if ($left.Count) {
+		Write-Host (($left | ForEach-Object { "$($_.Path) (process $($_.Id))" }) -join "`n")
+		Fail "These programs from $Root couldn't be closed (above) - nothing more was changed. End them in Task Manager, then run Setup again."
+	}
+}
+
+# NetRollout Setup over a damaged install: Windows' record of it names $Root,
+# but the folder lacks the uninstaller, VERSION or compose.yaml - or .env
+# while Docker holds the data (Setup asked). From Setup's temporary copy
+# (-InstallDir the folder): nothing here needs NetRollout's own files, they
+# may be gone. What's left is cleared so Setup can install again: the
+# folder's NetRollout Manager closed (Stop-FolderProcesses), the project's
+# containers removed - running ones too - and its network, by compose's
+# project label; without -KeepData its volumes too (Get-ProjectVolumes:
+# netrollout_* exactly, never the dev stack's), all of them or no file is
+# touched; then NetRollout's files in the folder, by name
+# (Get-InstallItems) - -KeepData keeps .env, config, certs and logs: the
+# folder then holds kept data, as after an uninstall that kept it. The
+# backups always stay. Refused, nothing changed, over a healthy install.
+function Invoke-ClearDamaged {
+	if (-not $Yes -or -not $InstallDir) { Fail "clear-damaged is NetRollout Setup's (it asks first)." }
+	$uninstaller = @((Get-InstallItems) | Where-Object { $_ -match "\\unins\d+\.exe$" })
+	if ((Test-Installed) -and (Test-Path $VersionFile) -and (Test-Path (Join-Path $Root "compose.yaml")) -and $uninstaller.Count) {
+		Fail "NetRollout in $Root isn't damaged - nothing was changed. Uninstall it in Settings -> Apps instead."
+	}
+	Stop-FolderProcesses
+	Confirm-Docker
+	Step "Removing NetRollout's containers (Docker project $Project)"
+	$label = "label=com.docker.compose.project=$Project"
+	foreach ($kind in "container", "network") {
+		$list = @($kind, "ls", "-q", "--filter", $label)
+		if ($kind -eq "container") { $list += "-a" }
+		$found = Invoke-Native "docker" $list
+		if ($found.Code -ne 0) { Write-Host $found.Output; Fail "Docker didn't list NetRollout's ${kind}s - nothing more was changed." }
+		$ids = @($found.Output -split "`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+		if (-not $ids) { continue }
+		$remove = if ($kind -eq "container") { @("rm", "-f") } else { @("rm") }
+		$r = Invoke-Native "docker" (@($kind) + $remove + $ids)
+		if ($r.Code -ne 0) { Write-Host $r.Output; Fail "Docker couldn't remove NetRollout's ${kind}s (above) - nothing more was changed." }
+	}
+	if (-not $KeepData) {
+		Step "Deleting NetRollout's data in Docker (the database and the other volumes)"
+		$ids = Get-ProjectVolumes
+		if ($null -eq $ids) { Fail "Docker didn't list NetRollout's volumes - nothing more was changed." }
+		if ($ids) {
+			$r = Invoke-Native "docker" (@("volume", "rm") + $ids)
+			if ($r.Code -ne 0) { Write-Host $r.Output }
+		}
+		# the volumes are the data: still there -> the files stay too
+		$left = Get-ProjectVolumes
+		if ($null -eq $left -or $left.Count) {
+			if ($left) { Write-Host ($left -join "`n") }
+			Fail "Docker didn't delete all of NetRollout's volumes (above) - no file in $Root was deleted. Close what uses them (Docker Desktop -> Volumes), then run Setup again."
+		}
+	}
+	Step "Deleting NetRollout's files in $Root$(if ($KeepData) { ' (its data stays)' })"
+	$failed = @()
+	foreach ($item in (Get-InstallItems -Data:(-not $KeepData))) {
+		Remove-Item -LiteralPath $item -Recurse -Force -ErrorAction SilentlyContinue
+		if (Test-Path -LiteralPath $item) { $failed += $item }
+	}
+	if ($failed) {
+		Write-Host ($failed -join "`n")
+		Fail "These couldn't be deleted (above) - close what uses them, then run Setup again."
+	}
+	if ((Test-Path -LiteralPath $Root) -and -not (Get-ChildItem -LiteralPath $Root -Force)) {
+		Remove-Item -LiteralPath $Root -Force -ErrorAction SilentlyContinue
+	}
+	if ($KeepData) { Good "The damaged install is cleared - its data stays in $Root." }
+	elseif (Test-Path -LiteralPath (Join-Path $Root "backups")) { Good "The damaged install is cleared - the backups stay in $(Join-Path $Root 'backups')." }
+	else { Good "The damaged install is cleared." }
+}
+
 function Show-Help {
 	Say "NetRollout $Version - $Root"
 	Say ""
@@ -1465,6 +1579,7 @@ function Invoke-NrCommand([string]$Name) {
 		}
 		"uninstall" { Invoke-Uninstall; return 0 }
 		"forget-kept" { Invoke-ForgetKept; return 0 }
+		"clear-damaged" { Invoke-ClearDamaged; return 0 }
 		"ensure-docker" { Confirm-Docker -OfferInstall; Good "Docker is running."; return 0 }
 		"defaults" { Write-Defaults; return 0 }
 		"status" { return (Invoke-Status) }

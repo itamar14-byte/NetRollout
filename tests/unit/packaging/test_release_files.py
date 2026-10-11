@@ -433,7 +433,10 @@ def test_kept_data_is_recorded_by_the_uninstaller_and_found_by_setup():
 	assert "ForgetKept(ExpandConstant('{app}'))" in uninstall[record:]
 	forget = pascal(text, "procedure ForgetKept(")
 	assert "RegDeleteValue(HKCU, '{#OurKey}', 'KeptData')" in forget
-	assert "RegDeleteKey" not in text
+	# keys are deleted only when a damaged install is cleared: Windows' record of it and
+	# Win+R's App Paths entry - never our own key (the Manager's settings live under it)
+	assert re.findall(r"RegDeleteKey\w*\(HKCU, (\w+)\)", text) == ["InstallRecord", "AppPaths"]
+	assert text.count("RegDeleteKey") == 2
 	find = pascal(text, "function FindKept:")
 	assert "RegQueryStringValue(HKCU, '{#OurKey}', 'KeptData', Dir)" in find
 	assert find.index("'KeptData'") < find.index("'{#DefaultDir}'")
@@ -1050,3 +1053,87 @@ def test_the_preparation_shows_its_steps_live():
 	assert "Exec(" not in prepare[:prepare.index("{ this install's Manager")]
 	assert "RunPreparation('prepare-update -Yes -InstallDir \"' + InstalledDir + '\" -NewVersion {#AppVersion}'," in prepare
 	assert "PreparePage := CreateOutputProgressPage(" in pascal(text, "procedure InitializeWizard;")
+
+
+def test_a_damaged_install_is_cleared_and_installed_again():
+	"""rc2 test: an installed NetRollout's folder deleted by hand (only bin\\ left, held by
+	the running Manager; no uninstaller, .env, VERSION) deadlocked - Setup went the update
+	way or refused, nothing could remove it. Now Setup's start (and the Docker page, once
+	Docker answers) finds a damaged install: Windows' record names a folder without the
+	uninstaller the record names, VERSION or compose.yaml - or without .env while Docker
+	holds the project's volumes (no .env and no volumes is a set-up that never finished:
+	installed again as before). One question the buttons answer - clear it and install
+	again (OK) or close Setup (Cancel, the default) - then, with .env still there, keep
+	its data (Yes, the default: the kept-data way, CheckKept) or delete it (No); a silent
+	run refuses. Nothing is cleared before the review page: PrepareToInstall runs
+	manage.ps1 clear-damaged from Setup's temporary folder (-KeepData unless the data
+	goes), then removes what Setup put outside the folder."""
+	text = iss_text()
+	find = pascal(text, "function FindDamaged:")
+	assert "RegQueryStringValue(HKCU, InstallRecord, 'InstallLocation', Dir)" in find
+	assert "RegQueryStringValue(HKCU, InstallRecord, 'UninstallString', Uninstaller)" in find
+	assert "if not FileExists(Uninstaller) then AddWord(Missing, 'its uninstaller');" in find
+	assert "'VERSION') then AddWord(Missing, 'its VERSION file');" in find
+	assert "'compose.yaml') then AddWord(Missing, 'its compose.yaml');" in find
+	assert ("EnvLost := not FileExists(AddBackslash(Dir) + '.env') and (GetDefault('kept_volumes', '') <> '');"
+	        in find)
+	assert "'its folder is gone'" in find
+	start = pascal(text, "function InitializeSetup:")
+	assert "else if FindDamaged then\n\t\tResult := AskDamaged" in start
+	assert start.index("FindDamaged") < start.index("FindInstalled;") < start.index("FindKept")
+
+	ask = pascal(text, "function AskDamaged:")
+	silent = ask[ask.index("if WizardSilent then begin"):ask.index("HasData := ")]
+	assert "A silent Setup never deletes anything - nothing was changed." in silent and "exit;" in silent
+	assert "'Clear what''s left of it and install NetRollout {#AppVersion} again?'" in ask
+	assert "'OK - clear it and install again.'" in ask and "'Cancel - close Setup, nothing is changed.'" in ask
+	assert "mbConfirmation, MB_OKCANCEL or MB_DEFBUTTON2, IDCANCEL) <> IDOK then exit;" in ask
+	assert "so its data can''t be used and is deleted too" in ask
+	assert "'Keep its data?'" in ask and "'No - delete it. This can''t be undone.'" in ask
+	assert "MB_YESNOCANCEL or MB_DEFBUTTON1, IDCANCEL);" in ask
+	assert ask.index("Damaged := True;") > ask.index("<> IDOK then exit;")
+	keep = ask[ask.index("if DamagedKeep then begin"):]
+	assert "KeptDir := DamagedDir;" in keep and "Result := CheckKept(DamagedDir);" in keep
+	assert "if Damaged then exit;" in pascal(text, "function AskLeftVolumes:")
+	nxt = pascal(text, "function NextButtonClick(")
+	assert nxt.index("end else if DamagedCancelled then begin") < nxt.index("end else if not AskLeftVolumes then begin")
+	assert "if FindDamaged then Result := not AskDamaged;" in pascal(text, "function DamagedCancelled:")
+	gone = nxt[nxt.index("if Damaged and not DamagedKeep then begin"):nxt.index("if Reinstall then LeftVolumes := False;")]
+	assert "Reinstall := False" in gone and "holds NetRollout data too" in gone
+
+	prepare = pascal(text, "function PrepareToInstall(")
+	clear = prepare[prepare.index("if Damaged and not WizardSilent then begin"):prepare.index(
+		"if FreshStart and not WizardSilent then begin")]
+	assert "What := 'clear-damaged -Yes -InstallDir \"' + DamagedDir + '\"';" in clear
+	assert "if DamagedKeep and not FreshStart then What := What + ' -KeepData';" in clear
+	assert "RunPreparation(What, ExpandConstant('{tmp}'), Log," in clear
+	assert clear.index("if Code <> 0 then begin") < clear.index("ForgetDamaged(DamagedDir);")
+	assert "nothing was ' +\n\t\t\t\t'installed.'" in clear
+	forget = pascal(text, "procedure ForgetDamaged(")
+	assert "RegDeleteKeyIncludingSubkeys(HKCU, InstallRecord);" in forget
+	assert "(CompareText(RemoveBackslashUnlessRoot(Named), AddBackslash(Dir) + 'bin') = 0) then" in forget
+	for shortcut in (r"{userstartup}\NetRollout Manager.lnk", r"{userstartup}\NetRollout port helper.lnk",
+	                 r"{autodesktop}\NetRollout Manager.lnk", r"{autodesktop}\NetRollout.url",
+	                 r"{autoprograms}\NetRollout\NetRollout Manager.lnk", r"{autoprograms}\NetRollout\NetRollout.url"):
+		assert f"DeleteFile(ExpandConstant('{shortcut}'));" in forget
+	assert "SetPathEntry(AddBackslash(Dir) + 'bin', False);" in forget and "ForgetKept(Dir);" in forget
+	assert "'the damaged install in ' + DamagedDir + ' is cleared" in pascal(text, "function UpdateReadyMemo(")
+
+	ps1 = (ROOT / "packaging" / "windows" / "manage.ps1").read_text(encoding="utf-8")
+	assert '"clear-damaged" { Invoke-ClearDamaged; return 0 }' in ps1
+	clear = ps1_function(ps1, "Invoke-ClearDamaged")
+	assert 'if (-not $Yes -or -not $InstallDir) { Fail' in clear
+	assert "isn't damaged - nothing was changed." in clear
+	steps = [clear.index(s) for s in ("Stop-FolderProcesses", "Confirm-Docker", '"container", "network"',
+	                                  "if (-not $KeepData) {", "$left = Get-ProjectVolumes",
+	                                  "Get-InstallItems -Data:(-not $KeepData)")]
+	assert steps == sorted(steps)
+	assert '$remove = if ($kind -eq "container") { @("rm", "-f") }' in clear       # running ones too
+	items = ps1_function(ps1, "Get-InstallItems")
+	assert "backups" not in items
+	assert 'if ($Data) { $names += @(".env", "config", "certs", "logs") }' in items
+	assert '"^unins\\d+\\.(exe|dat|msg)$"' in items
+	processes = ps1_function(ps1, "Get-FolderProcesses")
+	assert '$prefix = $Root.TrimEnd("\\") + "\\"' in processes
+	assert "$path.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)" in processes
+	assert "-Name" not in processes and "-Name" not in ps1_function(ps1, "Stop-FolderProcesses")

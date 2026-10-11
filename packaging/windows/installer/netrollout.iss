@@ -184,6 +184,11 @@ var
 	{ the update's preparation, shown while it runs (the Preparing page has no
 	  progress bar of its own) }
 	PreparePage: TOutputProgressWizardPage;
+	{ a damaged install (FindDamaged) Setup clears before installing again
+	  (AskDamaged: OK), its folder, what's missing there in words, and whether
+	  its data is kept (AskDamaged: Yes) }
+	Damaged, DamagedKeep: Boolean;
+	DamagedDir, DamageWords: String;
 
 { Windows PowerShell by its full path: Setup may be started with a PATH that
   lacks its folder (a program launched before an install changed PATH, or a
@@ -219,6 +224,66 @@ end;
 function GetDefault(const Key, Fallback: String): String;
 begin
 	Result := GetIniString('defaults', Key, Fallback, DefaultsFile);
+end;
+
+{ Windows' record of the install (this AppId's): where it is, its uninstaller }
+function InstallRecord: String;
+begin
+	Result := 'Software\Microsoft\Windows\CurrentVersion\Uninstall\' + '{{#AppGuid}}_is1';
+end;
+
+{ Words as a list: "a", "a and b", "a, b and c" }
+function JoinWords(const Words: TArrayOfString): String;
+var I, N: Integer;
+begin
+	Result := '';
+	N := GetArrayLength(Words);
+	for I := 0 to N - 1 do
+		if I = 0 then Result := Words[I]
+		else if I = N - 1 then Result := Result + ' and ' + Words[I]
+		else Result := Result + ', ' + Words[I];
+end;
+
+procedure AddWord(var Words: TArrayOfString; const Word: String);
+begin
+	SetArrayLength(Words, GetArrayLength(Words) + 1);
+	Words[GetArrayLength(Words) - 1] := Word;
+end;
+
+{ An install Windows has a record of, its folder damaged - files deleted by
+  hand (the rc2 test: only bin\ was left, held by the running Manager): no
+  uninstaller, no script, so it could be neither updated nor removed. What a
+  healthy install always has: its folder, the uninstaller the record names,
+  VERSION and compose.yaml - and .env once it's set up: without it while
+  Docker holds the project's volumes (kept_volumes, known only when Docker
+  answers) the data lost its passwords and key. No .env and no volumes is a
+  set-up that never finished: installed again as usual. DamagedDir and
+  DamageWords (what's missing, in words) say which. }
+function FindDamaged: Boolean;
+var Dir, Uninstaller: String; Missing: TArrayOfString; EnvLost: Boolean;
+begin
+	Result := False;
+	if not RegQueryStringValue(HKCU, InstallRecord, 'InstallLocation', Dir) then exit;
+	Dir := RemoveBackslashUnlessRoot(Dir);
+	if Dir = '' then exit;
+	if not DirExists(Dir) then
+		DamageWords := 'its folder is gone'
+	else begin
+		if not RegQueryStringValue(HKCU, InstallRecord, 'UninstallString', Uninstaller) then
+			Uninstaller := AddBackslash(Dir) + 'unins000.exe';
+		Uninstaller := RemoveQuotes(Uninstaller);
+		if not FileExists(Uninstaller) then AddWord(Missing, 'its uninstaller');
+		if not FileExists(AddBackslash(Dir) + 'VERSION') then AddWord(Missing, 'its VERSION file');
+		if not FileExists(AddBackslash(Dir) + 'compose.yaml') then AddWord(Missing, 'its compose.yaml');
+		EnvLost := not FileExists(AddBackslash(Dir) + '.env') and (GetDefault('kept_volumes', '') <> '');
+		if EnvLost then AddWord(Missing, 'its settings file (.env)');
+		if GetArrayLength(Missing) = 0 then exit;
+		if GetArrayLength(Missing) = 1 then DamageWords := Missing[0] + ' is missing'
+		else DamageWords := JoinWords(Missing) + ' are missing';
+		if EnvLost then DamageWords := DamageWords + ', while its data is still in Docker';
+	end;
+	DamagedDir := Dir;
+	Result := True;
 end;
 
 { An installed NetRollout: where (Windows' record of the install) and which
@@ -434,6 +499,8 @@ function AskLeftVolumes: Boolean;
 var Recorded, Default, Where, Said: String; Answer: Integer;
 begin
 	Result := True;
+	{ a damaged install's volumes: its own (AskDamaged decided about them) }
+	if Damaged then exit;
 	if UpdateMode or (KeptDir <> '') or LeftVolumes or LeftSearch or (GetDefault('kept_volumes', '') = '') then exit;
 	Default := '{#DefaultDir}';
 	if RegQueryStringValue(HKCU, '{#OurKey}', 'KeptData', Recorded) then
@@ -463,10 +530,78 @@ begin
 	Result := Answer <> IDCANCEL;
 end;
 
+{ A damaged install (FindDamaged): one question the buttons answer - clear
+  what's left and install again (OK) or close Setup (Cancel, the default) -
+  then, while its .env is there (the data can still be used), a second: keep
+  its data (Yes, the default: installed again with it - CheckKept, so a
+  newer one is still refused) or delete it (No); without .env the data
+  can't be used (its passwords and key were in it): said, and deleted. The
+  backups always stay. Nothing is done here: PrepareToInstall clears it,
+  after the review page. A silent run never deletes: refused, nothing
+  changed. False: Setup closes. }
+function AskDamaged: Boolean;
+var Said, Backups, Data: String; HasData: Boolean; Answer: Integer;
+begin
+	Result := False;
+	Said := 'NetRollout''s installation in ' + DamagedDir + ' is damaged (' + DamageWords + ').';
+	Backups := 'Backups in ' + AddBackslash(DamagedDir) + 'backups are kept.';
+	if WizardSilent then begin
+		SuppressibleMsgBox(Said + ' A silent Setup never deletes anything - nothing was changed. Run Setup ' +
+			'without /SILENT: it clears what''s left of that install and installs NetRollout {#AppVersion} again.',
+			mbError, MB_OK, IDOK);
+		exit;
+	end;
+	HasData := FileExists(AddBackslash(DamagedDir) + '.env');
+	if HasData then
+		Data := 'Its data can be kept - Setup asks next.'
+	else
+		Data := 'Its settings file (.env) is gone - it held the database''s passwords and the key to the saved ' +
+			'credentials - so its data can''t be used and is deleted too (the database and the other volumes ' +
+			'in Docker). This can''t be undone.';
+	if SuppressibleMsgBox(Said + #13#10#13#10 + 'Clear what''s left of it and install NetRollout {#AppVersion} again?' + #13#10#13#10 +
+			'Setup closes its NetRollout Manager and removes its containers, files, shortcuts and ' +
+			'Windows'' record of it - once you click Install, nothing before. ' + Data + ' ' + Backups + #13#10#13#10 +
+			'OK - clear it and install again.' + #13#10 + 'Cancel - close Setup, nothing is changed.',
+			mbConfirmation, MB_OKCANCEL or MB_DEFBUTTON2, IDCANCEL) <> IDOK then exit;
+	Damaged := True;
+	if HasData then begin
+		Answer := SuppressibleMsgBox('Keep its data?' + #13#10 + 'NetRollout''s database, settings, certificates and ' +
+			'logs (in ' + DamagedDir + ' and in Docker).' + #13#10#13#10 +
+			'Yes - keep it: NetRollout {#AppVersion} is installed again in ' + DamagedDir + ' with it (data of an ' +
+			'earlier version is updated - a backup first).' + #13#10 +
+			'No - delete it. This can''t be undone.' + #13#10 +
+			'Cancel - close Setup, nothing is changed.' + #13#10#13#10 + Backups,
+			mbConfirmation, MB_YESNOCANCEL or MB_DEFBUTTON1, IDCANCEL);
+		if Answer = IDCANCEL then exit;
+		DamagedKeep := Answer = IDYES;
+		if DamagedKeep then begin
+			{ the folder then holds kept data (the folder page locks it); its
+			  version decides, as for an uninstall's - already said, not
+			  announced as "kept by an uninstall" }
+			KeptDir := DamagedDir;
+			AnnouncedDir := DamagedDir;
+			Result := CheckKept(DamagedDir);
+			exit;
+		end;
+	end;
+	Result := True;
+end;
+
+{ The Docker page, Docker answering only now: a damaged install whose .env
+  is gone while Docker holds its data (FindDamaged needs Docker to see
+  that), asked as at the start. True: Setup closes (Cancel, a silent run) }
+function DamagedCancelled: Boolean;
+begin
+	Result := False;
+	if Damaged or UpdateMode or (KeptDir <> '') then exit;
+	if FindDamaged then Result := not AskDamaged;
+end;
+
 { Before the first page: Windows Server, or virtualization off -> say so and
-  stop; over an install, only a newer Setup goes on; over the data an
-  uninstall kept (wherever it is) it is announced, its folder pre-selected
-  (InitializeWizard), and never an older Setup goes on }
+  stop; a damaged install is asked about (AskDamaged); over an install, only
+  a newer Setup goes on; over the data an uninstall kept (wherever it is) it
+  is announced, its folder pre-selected (InitializeWizard), and never an
+  older Setup goes on }
 function InitializeSetup: Boolean;
 var Problem: String;
 begin
@@ -475,6 +610,8 @@ begin
 	Result := Problem = '';
 	if not Result then
 		SuppressibleMsgBox('NetRollout can''t run on this computer.' + #13#10#13#10 + Problem, mbCriticalError, MB_OK, IDOK)
+	else if FindDamaged then
+		Result := AskDamaged
 	else begin
 		FindInstalled;
 		if UpdateMode then Result := NewerThanInstalled
@@ -928,6 +1065,20 @@ begin
 		  unless it's the folder announced at the start }
 		Reinstall := FileExists(AddBackslash(WizardDirValue) + '.env');
 		KeptUpdate := False;
+		{ a damaged install whose data goes (AskDamaged): its .env is deleted
+		  first - a new install there; never into another folder holding
+		  NetRollout's data (the database deleted with the damaged install is
+		  the one that data needs) }
+		if Damaged and not DamagedKeep then begin
+			if CompareText(RemoveBackslashUnlessRoot(WizardDirValue), DamagedDir) = 0 then
+				Reinstall := False
+			else if Reinstall then begin
+				SuppressibleMsgBox(RemoveBackslashUnlessRoot(WizardDirValue) + ' holds NetRollout data too - its ' +
+					'database in Docker is the one deleted with the damaged install. Choose another folder.',
+					mbError, MB_OK, IDOK);
+				Result := False; exit;
+			end;
+		end;
 		{ the folder the volumes Setup was about to delete belong to: kept data
 		  after all (its .env is here) - used, not deleted }
 		if Reinstall then LeftVolumes := False;
@@ -967,6 +1118,14 @@ begin
 					'restart, then run this Setup again. Otherwise start Docker Desktop and click Next.',
 					mbError, MB_OK, IDOK);
 				Result := False;
+			end else if DamagedCancelled then begin
+				{ Docker answers only now: a damaged install's data in Docker, asked
+				  as at the start; Cancel closes Setup, nothing changed }
+				Result := False;
+				if not WizardSilent then begin
+					QuietClose := True;
+					WizardForm.Close;
+				end;
 			end else if not AskLeftVolumes then begin
 				{ Docker answers only now: the volumes Setup's start couldn't see,
 				  the same three ways. Cancel: Setup closes, as at the start (a
@@ -1067,7 +1226,14 @@ begin
 		exit;
 	end;
 	Lines := 'Install folder:' + NewLine + Space + WizardDirValue + NewLine + NewLine;
-	if FreshStart then
+	if Damaged then begin
+		Lines := Lines + 'First:' + NewLine + Space + 'the damaged install in ' + DamagedDir + ' is cleared - its ' +
+			'NetRollout Manager closed, its containers, files, shortcuts and Windows'' record removed; ';
+		if DamagedKeep and not FreshStart then Lines := Lines + 'its data kept'
+		else Lines := Lines + 'its data deleted (the database too)';
+		Lines := Lines + '; the backups stay' + NewLine + NewLine;
+	end;
+	if FreshStart and not Damaged then
 		Lines := Lines + 'First:' + NewLine + Space + 'the data kept in ' + KeptDir + ' is deleted (the backups ' +
 			'there are kept)' + NewLine + NewLine;
 	if LeftVolumes then
@@ -1115,10 +1281,9 @@ begin
 	end;
 end;
 
-procedure SetOurPath(Add: Boolean);
-var Path, Bin, NewPath: String; Entries: TArrayOfString; I: Integer; Found: Boolean;
+procedure SetPathEntry(const Bin: String; Add: Boolean);
+var Path, NewPath: String; Entries: TArrayOfString; I: Integer; Found: Boolean;
 begin
-	Bin := ExpandConstant('{app}\bin');
 	if not RegQueryStringValue(HKCU, 'Environment', 'Path', Path) then Path := '';
 	Entries := PathEntries(Path);
 	NewPath := ''; Found := False;
@@ -1136,6 +1301,35 @@ begin
 	end;
 	if NewPath <> Path then
 		RegWriteExpandStringValue(HKCU, 'Environment', 'Path', NewPath);
+end;
+
+procedure SetOurPath(Add: Boolean);
+begin
+	SetPathEntry(ExpandConstant('{app}\bin'), Add);
+end;
+
+{ What Setup put outside a damaged install's folder, once clear-damaged
+  cleared the folder: Windows' record of the install (this AppId's only),
+  Win+R's App Paths entry when it names that folder, the shortcuts (the
+  Icons and INI sections'), the PATH entry, the kept-data record - nothing points at a folder
+  that isn't there any more; the install that follows writes its own }
+procedure ForgetDamaged(const Dir: String);
+var AppPaths, Named: String;
+begin
+	RegDeleteKeyIncludingSubkeys(HKCU, InstallRecord);
+	AppPaths := 'Software\Microsoft\Windows\CurrentVersion\App Paths\netrollout.exe';
+	if RegQueryStringValue(HKCU, AppPaths, 'Path', Named) and
+			(CompareText(RemoveBackslashUnlessRoot(Named), AddBackslash(Dir) + 'bin') = 0) then
+		RegDeleteKeyIncludingSubkeys(HKCU, AppPaths);
+	DeleteFile(ExpandConstant('{userstartup}\NetRollout Manager.lnk'));
+	DeleteFile(ExpandConstant('{userstartup}\NetRollout port helper.lnk'));
+	DeleteFile(ExpandConstant('{autodesktop}\NetRollout Manager.lnk'));
+	DeleteFile(ExpandConstant('{autodesktop}\NetRollout.url'));
+	DeleteFile(ExpandConstant('{autoprograms}\NetRollout\NetRollout Manager.lnk'));
+	DeleteFile(ExpandConstant('{autoprograms}\NetRollout\NetRollout.url'));
+	RemoveDir(ExpandConstant('{autoprograms}\NetRollout'));
+	SetPathEntry(AddBackslash(Dir) + 'bin', False);
+	ForgetKept(Dir);
 end;
 
 { The current step, live under the progress bar: while the script runs (Exec
@@ -1278,6 +1472,25 @@ function PrepareToInstall(var NeedsRestart: Boolean): String;
 var Code: Integer; Log, What: String;
 begin
 	Result := '';
+	{ a damaged install (AskDamaged; never in a silent run - refused at the
+	  start): cleared first by Setup's temporary manage.ps1 (it needs none
+	  of the folder's files) - its data kept or deleted as answered ("Start
+	  fresh instead" deletes it too), the backups kept - then what Setup put
+	  outside the folder (ForgetDamaged); kept data then goes the kept-data
+	  way below (KeptUpdate) or is started after the files }
+	if Damaged and not WizardSilent then begin
+		Log := ExpandConstant('{tmp}\clear-damaged.log');
+		What := 'clear-damaged -Yes -InstallDir "' + DamagedDir + '"';
+		if DamagedKeep and not FreshStart then What := What + ' -KeepData';
+		Code := RunPreparation(What, ExpandConstant('{tmp}'), Log, 'Clearing the damaged install in ' + DamagedDir);
+		if Code <> 0 then begin
+			Result := 'The damaged install in ' + DamagedDir + ' wasn''t cleared (or not all of it) - nothing was ' +
+				'installed.' + #13#10#13#10 + LogTail(Log);
+			exit;
+		end;
+		ForgetDamaged(DamagedDir);
+		if FreshStart then exit;
+	end;
 	{ "Start fresh instead" (confirmed; never in a silent run): the kept data
 	  goes as the uninstaller's "delete the data" - the folder has no compose
 	  files any more, so by the Docker project's label (forget-kept) }
