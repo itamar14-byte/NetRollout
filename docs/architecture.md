@@ -246,7 +246,7 @@ What installing and running NetRollout decides and writes, once for Windows and 
 | `admin_settings.py` | `admin_settings` (`/admin/settings`), `admin_backups` (`/admin/backups`) | System Settings (save, reset, the HTTPS port's status, confirm and retry, the access test) and the Backups list (back up now, download, delete). |
 | `system.py` | `system` (none) | Not pages: `/_netrollout/health`, `/_netrollout/instance`, `/_netrollout/grafana-auth`. |
 
-`tests/integration/test_route_matrix.py` checks every route: all require sign-in except the public ones (sign-in, register, health, instance), and every `/admin` route requires the admin role.
+`tests/integration/test_route_matrix.py` checks every route: all require sign-in except the public ones (sign-in, Request access, the two 2FA pages, which work on the half-done sign-in in the session, sign-out, `/_netrollout/health`, `/_netrollout/instance` and `/metrics`), and every `/admin` route requires the admin role. `/_netrollout/grafana-auth` answers a bare 401 instead of the sign-in redirect, because its caller is nginx.
 
 ### `templates/`
 
@@ -281,5 +281,569 @@ What installing and running NetRollout decides and writes, once for Windows and 
 | `tests/unit/` | Hermetic tests, mirroring `src/` (`rollout/`, `db/`, `access/`, `setup/`, `packaging/`, …). No services needed. |
 | `tests/integration/` | Tests on a real PostgreSQL and Redis, organised by page or subsystem (`test_auth.py`, `test_db_move.py`, `test_route_matrix.py`, …). Skipped with a reason when a service is down. |
 | `tests/e2e/` | A scratch install from the release's files and the images by tag, checked from outside. Opt-in: `NETROLLOUT_E2E=1`. |
+
+---
+
+## 5. Layers and dependency rules
+
+The code is layered, and imports point downwards only:
+
+1. **Routes** (`src/webapp/blueprints/`): parse the request, call a service, answer. A route holds no business rule of its own.
+2. **Web infrastructure** (`src/webapp/` outside `blueprints/`): the app's construction, request hooks, shared helpers, the process's lifecycle, the database move's runner.
+3. **Domain services** (`inventory.py`, `results.py`, `accounts/`, `audit.py`, `access/`, `backup/`, `db/move.py`): every rule and query has one home here.
+4. **The rollout core** (`jobs.py` over `rollout/`): the web app's jobs on top of the engine the CLI also uses.
+5. **Data and infrastructure** (`db/` connections, tables, settings, install, retention) and the process basics (`runtime.py`, `encryption.py`).
+
+The setup core (`src/setup/`) and the CLI (`src/cli.py`) are separate entry points beside the web app: the setup core uses `access/`, `audit.py`, `backup/` and `db/`, never `webapp/`; the CLI uses `rollout/` only.
+
+```mermaid
+flowchart TB
+    subgraph web["src/webapp/"]
+        bp["blueprints/*<br/>parse, call a service, answer"]
+        core["build.py, app.py, hooks.py, http.py<br/>lifecycle.py, db_move.py, startup.py"]
+    end
+    subgraph svc["domain services"]
+        inv["inventory.py<br/>InventoryView, SecurityProfiles"]
+        res["results.py<br/>JobResults"]
+        acc["accounts/<br/>Accounts, SessionStore, Directory"]
+        aud["audit.py<br/>AuditTrail"]
+        acs["access/<br/>Access, Nginx, CertificateStore"]
+        bak["backup/<br/>BackupFolder, BackupScheduler"]
+        mv["db/move.py<br/>check, prepare, copy"]
+    end
+    jobs["jobs.py<br/>RolloutOrchestrator, JobStore"]
+    roll["rollout/<br/>RolloutEngine, NetmikoSession, RolloutLogger"]
+    data["db/<br/>connections, tables, settings, install, retention"]
+    base["runtime.py, encryption.py"]
+    setup["setup/<br/>the scripts' core"]
+    cli["cli.py"]
+
+    bp --> core
+    bp --> svc
+    bp --> jobs
+    core --> svc
+    core --> jobs
+    svc --> data
+    jobs --> roll
+    jobs --> data
+    roll --> base
+    data --> base
+    svc --> base
+    setup --> acs
+    setup --> aud
+    setup --> bak
+    setup --> data
+    cli --> roll
+```
+
+The rules that keep it this way:
+
+- **The CLI must not import the web stack.** `src/rollout/` imports the database models only under `TYPE_CHECKING`, and redis-py not at all: the Redis client is typed by the `KeyValueStore` Protocol. `tests/unit/test_cli.py` checks that importing the CLI loads no web module, and the PyInstaller spec excludes them.
+- **No import cycles.** Every module imports on its own. Where two modules need each other's types, one imports the other under `TYPE_CHECKING` only (for example `db/install.py` and `db/connections.py`).
+- **No module-level singletons for services.** Routes reach the services through the typed `current_app` (`app.backend`, `app.orchestrator`, `app.access`, …) inside a request, never at import time. A connection that can be switched at run time (a database move, a Redis switch) is looked up per call.
+- **Imports style.** All imports at the top, after the docstring: `from __future__` first, then the standard library, third-party packages and the project (`src` / `tests`), separated by a blank line; plain `import x` before `from x import …`, sorted by module. No import inside a function, except in `src/db/alembic/env.py`, which puts the project root on `sys.path` first.
+
+---
+
+## 6. The object model
+
+### Design rules
+
+- **A class only for a real thing with state and behaviour.** A rule without state stays a function: the input checks, `classify()`, `verify_commands()`, `job_status()`, the password rule, the backup schedule's `due()`, the port helper's `next_step()`, and the file protocols of `site.env` and nginx's `status.json`.
+- **An ABC when NetRollout owns the whole family and the base shares code** (`Finish`, `Certificate`, `Setting`, `ServiceConnection`, `PeriodicTask`). An incomplete subclass fails when it is created, not in production.
+- **A Protocol when the implementer is foreign or a test fake stands in**: `ConfigSession` (Netmiko's connection), `KeyValueStore` (redis-py), `SessionSerializer` (flask-session), `Echo`, `Notifier`. Structural, checked by mypy, nothing shared at run time.
+- **A `Callable` for a one-call contract**: `hold` (may a background task run now?), `retention_days`, and the per-call `postgres` / Redis lookups that follow a database move or a Redis switch.
+- **An enum when a closed set of values is spelled twice or crosses a boundary** (Redis, a file, the database, JSON, a script's exit code): `DeviceStatus`, `JobStatus`, `AuditAction`, `Role`, `ApplyState`, `BackupKind`, `SetupExit`, `CliExit`, and others. Its values are what those places hold, so they never change; a new value is a new member.
+- **`isinstance` only to validate external data** (JSON from a file, a request or an API, bytes from Redis), never to choose behaviour.
+- **One file is one concern**, and a name says what something is, not how it is used.
+- **Domain services work in the caller's session and raise.** `InventoryView`, `JobResults`, `Accounts` and `SecurityProfiles` are built as `Service(session, viewer)` (or `Service(session)`), work inside the session the route opened, and raise their refusal (`RuleRefused`, `AccountError`, `SettingsError`, `ProxyError`; the routes' own `NotFound` and `Refused`). The route catches the exception **outside** its `with get_session()` block, so the session rolls back and a refused change never commits half.
+
+### The four pillars, as applied
+
+- **Encapsulation: each piece of state and each rule has one owner.** `JobStore` is the only code that spells a Redis job key. `AuditTrail` is the only writer of audit rows. `SecurityProfiles` is the one place device secrets are encrypted, and `Device.from_inventory()` the one place they are decrypted. `site_env.update()` is the only writer of `site.env`.
+- **Abstraction: callers think in domain terms.** A route asks `InventoryView(session, viewer).get_editable(device_id)`, not for a query with the visibility filter written out. A page saves the hostname with `app.access.save(values, actor)`, not by renaming certificates and writing files.
+- **Information hiding: callers don't know how things are stored.** The pages read rollouts as `RolloutRow` and `JobMeta` values, not Redis hashes. The settings are `SettingsStore.get(key)`, whatever the table looks like.
+- **Polymorphism: a class per kind instead of "if it's this kind".** Each platform names its `Finish`; the engine calls `before_leave()`, `after_leave()` and `in_new_session()` without asking which. A certificate is `SelfSigned` or `Organisation`, and a new hostname is `rename_to()` on whichever it is: reissue, or refuse a name it doesn't cover.
+
+### Patterns used
+
+| Pattern | Where | Why |
+|---|---|---|
+| Strategy | `Finish` (how a platform's change takes effect), `Echo` (console or live log), `Certificate` (self-signed or organisation), the `Setting` kinds | Several real variants exist; the next one is a new class, not more branches. |
+| Template method | `ServiceConnection` (bundled or yours, the live switch, written once; each service supplies its hooks), `PeriodicTask` (the loop, first delay, failure reporting and `hold()`; each task supplies `run_once()`) | One algorithm instead of copies. |
+| Facade | `Access` (settings, certificates, `site.env`, the port request, nginx's verdict), `BackendServices` (PostgreSQL, Redis, settings) | A multi-system change behind one all-or-nothing call. |
+| Factory method | `Device.from_inventory()`, `CertificateStore.current()` | The right object from stored data, in one place. |
+| Service per area | `InventoryView`, `JobResults`, `Accounts`, `SecurityProfiles` | One home per rule and query. |
+| Value objects | `Viewer`, `JobMeta`, `RolloutRow`, `Verdict`, `ApplyStatus`, `MoveStatus`, the enums | Types instead of dicts and magic strings. |
+| Protocol (structural interface) | `ConfigSession`, `KeyValueStore`, `SessionSerializer`, `Notifier`, `Echo`, `Target`, `Report` | A typed contract for code NetRollout does not own, and for test fakes. |
+
+### Considered and rejected
+
+| Idea | Why not |
+|---|---|
+| `Repository[T]` and a unit of work | SQLAlchemy's `Session` already is the unit of work and the mapped classes the data mapper. Generic repositories would only re-wrap `session.get` and `add`, and their usual payoff (in-memory fakes) doesn't apply when the tests run on a real PostgreSQL. The per-area services give every query one home instead. |
+| A `BaseConnector` ABC and `ConnectorFactory` | There is one backend (Netmiko). With one, there is nothing to choose between. Both come the day a second backend is written. |
+| A template-method engine | Needs a second kind of rollout (a dry run, a staged rollout) to be worth it. |
+| The State pattern for jobs, maintenance, the move, the port helper | Linear flows; an enum fits, and jobs must keep "claimed counts as running". |
+| Observer for a job's finalize steps | A fixed, ordered sequence with step-specific error handling; a subscriber list would hide the order. |
+| Splitting `InputParser` into CSV and form parsers | No form uses it; the web app builds devices from inventory rows. |
+| A `Deployment` ABC, an OS strategy, a "Server" facade | Each would only forward to one-line decisions or to small classes that are already cohesive. |
+
+What stays procedural on purpose: route functions; pure rules and text algorithms (`classify`, `verify_commands`, `rejection`, the input checks, the password rule, `due`, `next_step`); data tables (`PLATFORMS`, `SETTINGS`, `RETENTION_STATEMENTS`); one-shot flows and entry points (`install()`, backup `create` and `restore`, the release download, `cli.py`, `python -m src.setup` and `python -m src.backup`, the migrations); single-purpose modules (`encryption.py`, `runtime.py`, `site_env.py`).
+
+### Class diagrams
+
+Stereotypes: `<<interface>>` is a `typing.Protocol`, `<<abstract>>` an ABC, `<<enumeration>>` a string or integer enum, `<<dataclass>>` a value type. A solid line with a hollow triangle is inheritance, a dashed one implements a Protocol, a filled diamond is ownership, an open diamond aggregation, a plain arrow uses. Only the public methods that matter for the design are shown.
+
+#### `src/rollout/`
+
+```mermaid
+classDiagram
+    direction LR
+    class RolloutEngine {
+        +device_count int
+        +run(cancel_flag, logger) list
+        +cancelled_results() list
+    }
+    class Device {
+        <<dataclass>>
+        +endpoint str
+        +unresolved(commands) list
+        +commands_for(commands) list
+        +from_inventory(row, user_id, attributes)$
+    }
+    class NetmikoSession {
+        +connect(device)$
+        +push(commands) PushResult
+        +fetch_config() str
+    }
+    class RunReport {
+        +notify(text, tone, important)
+        +action_needed(device, what)
+        +actions(endpoint) str
+    }
+    class Notifier {
+        <<interface>>
+        +notify(message, color, important)
+    }
+    class ConfigSession {
+        <<interface>>
+        +config_mode()
+        +send_config_set()
+        +commit()
+        +save_config()
+        +exit_config_mode()
+    }
+    class Platform {
+        <<dataclass>>
+        +finish Finish
+        +show_config tuple
+        +flat bool
+    }
+    class Finish {
+        <<abstract>>
+        +interruptible bool
+        +before_leave(conn, report, device) bool
+        +after_leave(conn)*
+        +in_new_session(connect)
+    }
+    class SaveConfig
+    class Commit {
+        +discard tuple
+        +reverts_on_failure bool
+    }
+    class RunCommand {
+        +text str
+    }
+    class NoFinish
+    class RolloutLogger {
+        +live_log LiveLog
+        +notify(message, color, important)
+    }
+    class Echo {
+        <<interface>>
+        +show(message, tone)
+    }
+    class Console
+    class LiveLog {
+        +append(line)
+        +history() list
+        +follow(over) Iterator
+        +close()
+    }
+    class KeyValueStore {
+        <<interface>>
+        +rpush()
+        +publish()
+        +hset()
+        +blpop()
+    }
+    class LogPruner
+    class PeriodicTask {
+        <<abstract>>
+    }
+    RolloutEngine o-- "1..*" Device
+    RolloutEngine ..> RunReport : creates per run
+    RolloutEngine ..> NetmikoSession : one per device
+    NetmikoSession --> Device
+    NetmikoSession --> RunReport
+    NetmikoSession --> Platform
+    NetmikoSession ..> ConfigSession : drives
+    RunReport --> Notifier
+    Platform *-- Finish
+    Finish <|-- SaveConfig
+    Finish <|-- Commit
+    Finish <|-- RunCommand
+    Finish <|-- NoFinish
+    RolloutLogger ..|> Notifier
+    RolloutLogger *-- Echo
+    Console ..|> Echo
+    LiveLog ..|> Echo
+    LiveLog --> KeyValueStore
+    PeriodicTask <|-- LogPruner
+```
+
+#### `src/jobs.py` and `src/results.py`
+
+```mermaid
+classDiagram
+    direction LR
+    class RolloutOrchestrator {
+        +draining bool
+        +paused bool
+        +submit(devices, commands, params, user_id, comment) UUID
+        +cancel(job_id)
+        +drain(deadline)
+        +pause()
+        +resume()
+        +idle() bool
+        +counts() dict
+        +jobs() list~RolloutRow~
+        +refusal() str
+    }
+    class RolloutJob {
+        +claim() bool
+        +start(on_complete)
+        +cancel()
+        +cancel_before_start(reason)
+        +is_over() bool
+        +follow_log(over)
+        +row() RolloutRow
+    }
+    class JobStore {
+        +add()
+        +enqueue()
+        +next_queued(timeout)
+        +started()
+        +finished()
+        +set_status()
+        +meta(job_id) JobMeta
+        +counts()
+        +rollouts() list~RolloutRow~
+        +request_stop_now()
+        +clear_stop_now()
+        +reset_stale()
+    }
+    class ResultRecorder {
+        +begin()
+        +busy() bool
+        +save(job)
+    }
+    class JobMeta {
+        <<dataclass>>
+        +user_id
+        +status
+        +device_count
+        +from_hash(fields)$
+    }
+    class RolloutRow {
+        <<dataclass>>
+        +job_id
+        +user_id
+        +devices
+        +state
+    }
+    class JobStatus {
+        <<enumeration>>
+        PENDING
+        ACTIVE
+        CANCELLING
+    }
+    class JobResults {
+        +may_see(owner_id) bool
+        +get_accessible(job_id)
+        +scope_user(raw)
+        +page()
+        +summary()
+        +config_snapshot()
+        +totals()
+    }
+    class Viewer {
+        <<dataclass>>
+        +id
+        +is_admin
+    }
+    RolloutOrchestrator *-- "0..*" RolloutJob
+    RolloutOrchestrator *-- JobStore
+    RolloutOrchestrator *-- ResultRecorder
+    RolloutJob *-- RolloutEngine
+    RolloutJob *-- RolloutLogger
+    JobStore --> KeyValueStore
+    JobStore ..> JobMeta
+    JobStore ..> RolloutRow
+    JobStore ..> JobStatus
+    JobResults --> Viewer
+```
+
+#### The data and domain layer: `db/`, `accounts/`, `inventory.py`, `audit.py`, `backup/`, `runtime.py`
+
+```mermaid
+classDiagram
+    direction LR
+    class BackendServices {
+        +env RuntimeEnv
+        +postgres PostgresConnection
+        +redis RedisConnection
+        +settings SettingsStore
+        +health() dict
+        +connection_modes() dict
+        +encrypted_sample()
+        +move_postgres(config)
+        +reload_redis(config)
+        +bundled_postgres()
+        +bundled_redis()
+    }
+    class RuntimeEnv {
+        +load()
+        +values() dict
+        +merge(updates)
+        +remembered_bundled(service)
+    }
+    class ServiceConnection {
+        <<abstract>>
+        +place()
+        +describe() str
+        +mode(env) ServiceMode
+        +bundled_config(env)
+        +switch_to(config, env)
+        +swap(config)*
+    }
+    class PostgresConnection {
+        +build_engine(config)$
+        +get_session()
+        +reload_db(config)
+    }
+    class RedisConnection {
+        +client
+        +reload_db(config)
+    }
+    class SettingsStore {
+        +get(key)
+        +values() dict
+        +plan(values)
+        +update(values, user_id) list
+        +reset(key)
+    }
+    class Setting {
+        <<abstract>>
+        +parse(raw)*
+        +coerce(value)
+        +seed_value()
+    }
+    class IntSetting {
+        +sql_value()
+    }
+    class TextSetting
+    class ChoiceSetting
+    class InventoryView {
+        +visible()
+        +get_visible(device_id)
+        +get_editable(device_id)
+        +attributes(devices) dict
+        +save_device(device, fields) SavedDevice
+        +label_map(scope)
+    }
+    class SecurityProfiles {
+        +create()
+        +owned()
+        +update()
+    }
+    class Viewer {
+        <<dataclass>>
+        +id
+        +is_admin
+        +of(user)$
+    }
+    class Accounts {
+        +new_local()
+        +new_ldap()
+        +by_name_ci(name)
+        +pending_count() int
+    }
+    class SessionStore {
+        +end_for(user_id)
+        +signed_in()
+        +clear_all()
+        +idle_seconds() int
+    }
+    class Directory {
+        +authenticate()
+        +user_bind(username, password)
+        +check_group_membership()
+        +user_details(username)
+        +walk_tree()
+    }
+    class AuditTrail {
+        +record(actor, action)
+    }
+    class BackupFolder {
+        +entries() list
+        +prune(keep)
+        +lock() BackupLock
+        +status()
+    }
+    class PeriodicTask {
+        <<abstract>>
+        +run_once()*
+        +hold() bool
+        +failed(error)
+        +start()
+    }
+    class NightlyCleanUp
+    class BackupScheduler
+    class CertificateUpkeep
+    class LogPruner
+    BackendServices *-- RuntimeEnv
+    BackendServices *-- PostgresConnection
+    BackendServices *-- RedisConnection
+    BackendServices *-- SettingsStore
+    ServiceConnection <|-- PostgresConnection
+    ServiceConnection <|-- RedisConnection
+    SettingsStore o-- "*" Setting
+    Setting <|-- IntSetting
+    Setting <|-- TextSetting
+    Setting <|-- ChoiceSetting
+    InventoryView --> Viewer
+    SecurityProfiles --> Viewer
+    Accounts ..> Directory
+    PeriodicTask <|-- NightlyCleanUp
+    PeriodicTask <|-- BackupScheduler
+    PeriodicTask <|-- CertificateUpkeep
+    PeriodicTask <|-- LogPruner
+```
+
+#### `src/access/` and `src/webapp/`
+
+```mermaid
+classDiagram
+    direction LR
+    class Access {
+        +settings SettingsStore
+        +certificates CertificateStore
+        +nginx Nginx
+        +save(values, actor) SaveResult
+        +reset(key, actor) SaveResult
+        +overview() dict
+        +port_state() dict
+        +confirm_port()
+        +retry_port()
+        +upload_certificate(cert_pem, key_pem)
+        +generate_selfsigned()
+    }
+    class CertificateStore {
+        +current() Certificate
+        +check(hostname)
+        +install(cert_pem, key_pem)
+        +rename(new)
+        +generate_selfsigned(hostname, server_ips)
+        +drop_expired(now)
+    }
+    class Certificate {
+        <<abstract>>
+        +rename_to(new)*
+        +drop_expired(now)*
+    }
+    class SelfSigned
+    class Organisation
+    class Nginx {
+        +managed bool
+        +status() Verdict
+        +overview()
+        +change_hostname(new)
+        +apply(change, hostname) Verdict
+    }
+    class Verdict {
+        <<dataclass>>
+        +state VerdictState
+        +rejected bool
+    }
+    class ApplyStatus {
+        <<dataclass>>
+        +state ApplyState
+        +port
+        +deadline
+    }
+    class NetRolloutApp {
+        +backend BackendServices
+        +orchestrator RolloutOrchestrator
+        +web WebServices
+        +access Access
+        +sessions SessionStore
+        +maintenance Maintenance
+        +shutdown Shutdown
+        +db_move DatabaseMove
+        +instance_token str
+    }
+    class WebServices {
+        +audit_trail AuditTrail
+        +reachability ReachabilityChecker
+        +audit(action)
+    }
+    class Caller {
+        <<enumeration>>
+        SCRIPT
+        SESSION_CHECK
+        JSON_BODY
+        STREAM_AWARE
+        +wants_json() bool
+    }
+    class Maintenance {
+        +state MaintenanceState
+        +active bool
+        +writes_blocked bool
+        +begin(what, actor_id) bool
+        +lock() bool
+        +enter()
+        +leave()
+        +end()
+    }
+    class Shutdown {
+        +restarting bool
+        +begin(deadline, restart) bool
+    }
+    class DatabaseMove {
+        +running bool
+        +start(target, actor_id, actor)
+        +cancel() bool
+        +status() dict
+    }
+    Access *-- CertificateStore
+    Access *-- Nginx
+    Access ..> ApplyStatus
+    Nginx --> CertificateStore
+    CertificateStore ..> Certificate : current()
+    Certificate <|-- SelfSigned
+    Certificate <|-- Organisation
+    Nginx ..> Verdict
+    NetRolloutApp *-- Access
+    NetRolloutApp *-- WebServices
+    NetRolloutApp *-- Maintenance
+    NetRolloutApp *-- Shutdown
+    NetRolloutApp *-- DatabaseMove
+    WebServices --> Maintenance
+    DatabaseMove --> Maintenance
+    Shutdown --> RolloutOrchestrator
+    Maintenance --> RolloutOrchestrator
+```
 
 <!-- CONTINUE -->
