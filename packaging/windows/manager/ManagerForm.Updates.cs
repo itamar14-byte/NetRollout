@@ -13,7 +13,8 @@ namespace NetRollout
 	{
 		// ── updates ─────────────────────────────────────────────────────────
 		// asked (the button, the tray menu): says what it found in the pane;
-		// the daily check: only a newer version, in the tray
+		// the daily check: only a newer version, in the tray (nothing on a
+		// problem, nothing newer or nothing published)
 		void CheckForUpdates(bool asked)
 		{
 			if (updating) return;
@@ -22,15 +23,15 @@ namespace NetRollout
 			{
 				Release release = null;
 				string problem = null;
-				try { release = Updates.Latest(); }
-				catch (Exception e) { problem = e.Message; }
+				try { release = Updates.Newest(Install.Version); }
+				catch (NothingPublishedException e) { problem = e.Message + "."; }
+				catch (Exception e) { problem = Updates.Problem(e); }
 				if (!IsHandleCreated) return;
 				BeginInvoke((Action)delegate
 				{
 					if (problem != null)
 					{
-						if (asked) Say("Couldn't check for updates (" + problem + "). Is this computer online? " +
-							"Releases: " + Install.Releases);
+						if (asked) Say(problem + " Releases: " + Install.Releases);
 						return;
 					}
 					if (!Updates.IsNewer(release.Version, Install.Version))
