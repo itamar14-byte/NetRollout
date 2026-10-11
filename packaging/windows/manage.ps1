@@ -127,7 +127,18 @@ function Get-SetupCommand([string[]]$Arguments, [switch]$OnNetwork, [switch]$AsR
 	if ($OnNetwork -and (Invoke-Native "docker" @("network", "inspect", "${Project}_default")).Code -eq 0) {
 		$run += @("--network", "${Project}_default")
 	}
-	return $run + @($AppImage, "python", "-m", "src.setup") + $Arguments
+	# an option with an empty value as one "--option=" argument: Windows
+	# PowerShell 5.1 drops an empty string passed to a program, and the next
+	# argument then became the option's value (status with no containers:
+	# "--containers: expected one argument")
+	$joined = @()
+	for ($i = 0; $i -lt $Arguments.Count; $i++) {
+		if ($Arguments[$i] -like "--*" -and $i + 1 -lt $Arguments.Count -and $Arguments[$i + 1] -eq "") {
+			$joined += "$($Arguments[$i])="
+			$i++
+		} else { $joined += $Arguments[$i] }
+	}
+	return $run + @($AppImage, "python", "-m", "src.setup") + $joined
 }
 
 # One of our images, pulled when this computer doesn't have it; a release

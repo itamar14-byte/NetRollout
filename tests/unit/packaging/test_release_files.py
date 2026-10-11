@@ -357,6 +357,18 @@ def test_setup_runs_powershell_by_its_full_path():
 	assert text.count("Exec(PowerShellExe,") == 3 and text.count("'/C ' + PowerShellExe + ' ' +") == 2
 
 
+def test_an_empty_option_value_reaches_the_setup_core():
+	"""Windows PowerShell 5.1 drops an empty string passed to a program: `status`
+	with no containers sent "--containers" with nothing after it and the setup core
+	refused ("expected one argument", the rc2 test run). Get-SetupCommand joins an
+	option and an empty value into one "--option=" argument."""
+	ps1 = (ROOT / "packaging" / "windows" / "manage.ps1").read_text(encoding="utf-8")
+	build = ps1[ps1.index("function Get-SetupCommand("):ps1.index("# The project's Docker volumes")]
+	assert '$Arguments[$i] -like "--*"' in build and '$Arguments[$i + 1] -eq ""' in build
+	assert '$joined += "$($Arguments[$i])="' in build
+	assert '@($AppImage, "python", "-m", "src.setup") + $joined' in build
+
+
 def iss_text():
 	return (ROOT / "packaging" / "windows" / "installer" / "netrollout.iss").read_text(encoding="utf-8")
 
