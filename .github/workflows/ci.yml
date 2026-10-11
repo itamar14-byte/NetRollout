@@ -16,9 +16,9 @@ on:
 permissions:
   contents: read
 
-concurrency:   # a newer push to the same branch cancels the older run (named per calling workflow: a release never cancels its own checks)
+concurrency:   # a newer push to the same branch cancels the older run (named per calling workflow: a release never cancels its own checks) - never on master, where each run is its commit's record (a cancelled one shows the README's badge as failing)
   group: ${{ github.workflow }}-checks-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
 
 jobs:
   tests:
