@@ -1220,6 +1220,8 @@ erDiagram
         bool is_approved
         string otp_secret "Fernet"
         bool must_change_password
+        int failed_sign_ins
+        datetime locked_until
         string auth_type "local or ldap"
         uuid ldap_server_id FK
     }
@@ -1314,7 +1316,7 @@ erDiagram
 
 | Table | What it holds |
 |---|---|
-| `users` | Accounts, local or directory. `role` is `operator` or `admin`; `is_approved` (Request access waits for an admin) and `is_active` gate sign-in; `otp_secret` is the encrypted TOTP secret (null: not enrolled); `must_change_password` gates every page to the password change (the factory `admin`, after an admin reset). Deleting a user deletes their devices, profiles, mappings, properties, attribute values, results and job metadata. |
+| `users` | Accounts, local or directory. `role` is `operator` or `admin`; `is_approved` (Request access waits for an admin) and `is_active` gate sign-in; `otp_secret` is the encrypted TOTP secret (null: not enrolled); `must_change_password` gates every page to the password change (the factory `admin`, after an admin reset); `failed_sign_ins` / `locked_until` are the lockout (5 wrong passwords disable a local account, or lock the factory admin for 15 minutes). Deleting a user deletes their devices, profiles, mappings, properties, attribute values, results and job metadata. |
 | `inventory` | Devices. `is_global` devices are visible to and usable by everyone, editable only by admins. `var_maps` holds the system properties' values (hostname, loopback_ip, asn, mgmt_vrf, mgmt_interface, site, domain, timezone, vrfs), shared by everyone who sees the device. Several devices may share an `ip:port`; the pages warn, nothing is blocked. |
 | `security_profiles` | The credentials devices are reached with: username in clear, password and enable secret encrypted. A profile can't be deleted while a device uses it. |
 | `variable_mappings` | A `$$TOKEN$$` bound to a property name (and an index for list properties), and the devices it applies to (`var_mapping_to_devices`). The join table is shared across users because of global devices, so a rollout applies only the rolling-out user's mappings. |
@@ -1340,6 +1342,8 @@ erDiagram
 | | `is_active`, `is_approved` | bool | Default false |
 | | `otp_secret` | string(255) | Fernet-encrypted TOTP secret; null until enrolled |
 | | `must_change_password` | bool | Default false |
+| | `failed_sign_ins` | int | Wrong passwords in a row (local accounts); the 5th disables the account, or locks the factory admin. Default 0 |
+| | `locked_until` | timestamptz | The factory admin's 15-minute lock after 5 wrong passwords; null: not locked |
 | | `auth_type` | string(20) | `local` or `ldap` |
 | | `ldap_server_id` | UUID | FK `ldap_servers`, ON DELETE SET NULL |
 | | `created_at` | datetime | |
