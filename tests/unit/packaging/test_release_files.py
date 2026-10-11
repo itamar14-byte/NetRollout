@@ -407,6 +407,20 @@ def test_start_and_stop_say_when_there_is_nothing_to_do():
 	assert "!c.Enabled && c.Visible && c.Bounds.Contains(e.Location) && GreyedHint(c) != null" in cs
 
 
+def test_every_uninstall_asks_delete_with_yes_deleting():
+	"""Setup's uninstaller, netrollout uninstall (Windows) and netrollout.sh uninstall
+	ask the same two questions the same way: "Delete ... too?", yes deletes, No the
+	default - the command lines asked "Keep the backups? [Y/n]", the opposite of the
+	first question and of Setup's (the developer's rc2 test notes)."""
+	ps1 = (ROOT / "packaging" / "windows" / "manage.ps1").read_text(encoding="utf-8")
+	sh = (ROOT / "packaging" / "linux" / "netrollout.sh").read_text(encoding="utf-8")
+	for script in (ps1, sh):
+		assert "Delete NetRollout's data too" in script and "Delete the backups too" in script
+		assert "Keep the backups" not in script and "[Y/n]" not in script
+	assert '$deleteBackups = $a -match "^(y|yes)$"' in ps1
+	assert 'case "$a" in y|Y|yes) delete_backups=1 ;; esac' in sh
+
+
 def iss_text():
 	return (ROOT / "packaging" / "windows" / "installer" / "netrollout.iss").read_text(encoding="utf-8")
 

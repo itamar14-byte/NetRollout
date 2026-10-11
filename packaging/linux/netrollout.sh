@@ -1099,12 +1099,13 @@ do_uninstall() {
 	local delete="$DELETE_DATA" delete_backups="$DELETE_BACKUPS" remove_files="$REMOVE_FILES"
 	if [ -z "$DELETE_DATA" ] && [ -z "$KEEP_DATA" ] && [ -n "$INTERACTIVE" ]; then
 		local a=""
-		read -r -p "Also delete NetRollout's data - the database, settings, certificates and logs? This can't be undone. [y/N] " a || true
+		# both questions: y always deletes, No the default (as Windows' uninstaller)
+		read -r -p "Delete NetRollout's data too - the database, settings, certificates and logs? y: delete it (can't be undone), N: keep it to install again later. [y/N] " a || true
 		case "$a" in y|Y|yes) delete=1 ;; esac
 		if [ -n "$delete" ]; then
 			a=""
-			read -r -p "Keep the backups ($ROOT/backups)? They're the last copy of the data. [Y/n] " a || true
-			case "$a" in n|N|no) delete_backups=1 ;; esac
+			read -r -p "Delete the backups too ($ROOT/backups)? They're the last copy of the data - a new install can restore one. y: delete them, N: keep them (recommended). [y/N] " a || true
+			case "$a" in y|Y|yes) delete_backups=1 ;; esac
 		fi
 		a=""
 		read -r -p "Remove NetRollout's files in $ROOT too (the scripts, compose files)? [y/N] " a || true

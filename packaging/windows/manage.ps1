@@ -1300,12 +1300,14 @@ function Invoke-Uninstall {
 	$delete = [bool]$DeleteData
 	$deleteBackups = [bool]$DeleteBackups
 	if (-not $DeleteData -and -not $KeepData -and $Interactive -and (Test-Installed)) {
-		$a = Read-Host ("Also delete NetRollout's data - the database, settings, certificates " +
-		                "and logs? This can't be undone. [y/N]")
+		# both questions: y always deletes, No the default (as Setup's uninstaller)
+		$a = Read-Host ("Delete NetRollout's data too - the database, settings, certificates and logs? " +
+		                "y: delete it (can't be undone), N: keep it to install again later. [y/N]")
 		$delete = $a -match "^(y|yes)$"
 		if ($delete) {
-			$a = Read-Host "Keep the backups (the backups folder)? They're the last copy of the data. [Y/n]"
-			$deleteBackups = $a -match "^(n|no)$"
+			$a = Read-Host ("Delete the backups too ($(Join-Path $Root 'backups'))? They're the last copy of the data - " +
+			                "a new install can restore one. y: delete them, N: keep them (recommended). [y/N]")
+			$deleteBackups = $a -match "^(y|yes)$"
 		}
 	}
 	if ((Test-Installed) -and (Test-DockerReady)) {
