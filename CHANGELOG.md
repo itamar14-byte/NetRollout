@@ -25,6 +25,11 @@ From this release on, an installed release candidate also finds newer release ca
 - Setup finds NetRollout's data left in Docker when its folder is unknown, and asks whether you still have that folder, instead of assuming it is gone.
 - **Start fresh instead** on Setup's folder page, and `install.sh --start-fresh` on Linux, delete kept data before a fresh install. Backups are kept.
 - Linux records where an uninstall kept the data (`/etc/netrollout/kept-data`), as Windows does.
+- Account lockout: 5 wrong passwords in a row disable a local account until an admin enables it; the factory `admin` is locked for 15 minutes instead. Audited as `auth.account_locked` and `auth.account_lock_timed`.
+- The factory `admin` can turn two-factor sign-in on for itself on **My Account**, and off again with its password and a code. It stays off by default.
+- Admins can disable the factory `admin` in User Management. Disable, Demote and Delete are refused when no administrator who can sign in would be left.
+- `netrollout reset-admin` (Windows) and `netrollout.sh reset-admin` (Linux) make the factory `admin` usable again from the server when no administrator can sign in: enabled, 2FA off, failed sign-ins and lock cleared, signed out everywhere, and optionally a temporary password.
+- Server Management → TLS Certificate → **Trusted CA certificates**: add or remove the CA certificates NetRollout trusts for LDAPS, on top of the operating system's. Backups include them.
 - Setup shows the current step live under the progress bar, and during an update's preparation.
 - A page that doesn't exist answers like a router console (`% Invalid input detected at '^' marker.`) with a link back, instead of a bare "Not Found".
 - Empty Inventory and Results pages say so and offer the way in.
@@ -52,6 +57,11 @@ From this release on, an installed release candidate also finds newer release ca
 - The password eye on the sign-in page could toggle the wrong element when a browser extension added one next to the field.
 - NetRollout Manager's **Check for updates** and the Linux `update` failed with a 404 while only pre-releases were published.
 - Docker volumes created outside compose (with NetRollout's project name but no label) were missed by the kept-data checks.
+
+### Security
+
+- LDAPS connections now verify the directory server's certificate and host name, always. Before, any certificate was accepted. A directory whose certificate comes from your organisation's own CA needs that CA under **Trusted CA certificates** first; the LDAP **Test** button says why a certificate is refused.
+- Wrong passwords are counted per account in the database, on top of the per-address rate limit (see Added: account lockout).
 
 ## [1.0.0rc1] - 2026-10-10
 

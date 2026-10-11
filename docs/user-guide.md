@@ -82,6 +82,14 @@ A local account's password must:
 
 The page tells you what's wrong as soon as you leave the field. A directory (LDAP) account's password is managed by the directory, not by NetRollout.
 
+### Wrong passwords
+
+After 5 wrong passwords in a row, a local account is disabled. Every wrong password gets the same "Invalid credentials" message, so you won't be told when it happens. Signing in with the right password afterwards says "User disabled, please check with administrator": ask an administrator to enable your account again. A right password before the 5th starts the count again. Wrong 2FA codes don't count here.
+
+The factory `admin` account is never disabled this way. After 5 wrong passwords it is locked for 15 minutes, and the sign-in page says "Too many failed sign-ins. Try again in N minutes."
+
+Directory (LDAP) accounts follow the directory's own lockout rules.
+
 ### Two-factor sign-in
 
 Local accounts sign in with a password and a 6-digit code from an authenticator app, such as Google Authenticator or Authy. Directory (LDAP) accounts sign in with the password only.
@@ -95,6 +103,8 @@ The first time you sign in, NetRollout shows **Authenticator Enrollment**:
 From then on, after your password you'll see **Two-Factor Auth**. Enter the current code and select **Verify**. After 5 wrong codes in a row, you start again from the password.
 
 If you lose your phone, ask an administrator to reset your two-factor sign-in. At your next sign-in you enrol again with a new QR code.
+
+The factory `admin` account signs in with its password alone unless it turns two-factor sign-in on for itself: **My Account → Set up two-factor sign-in**. See [The factory admin account](admin-guide.md#the-factory-admin-account).
 
 ### Changing your password
 

@@ -149,6 +149,7 @@ On Windows, `bin\netrollout.bat` in the install folder runs `bin\manage.ps1`. If
 | `netrollout rollouts` | Lists the rollouts running or queued, with their owners. `-Json` prints one line of JSON. |
 | `netrollout stop-now` | Makes a stop that is under way, or one in the next 15 minutes, cancel the running rollouts at once instead of waiting for them. |
 | `netrollout port-check` | Says whether NetRollout's nginx holds its HTTPS port, and if not, which program does. `-Json` prints JSON. |
+| `netrollout reset-admin` | When no administrator can sign in: enables the factory `admin`, turns its two-factor sign-in off, clears its failed sign-ins and lock, and signs it out everywhere. Asks first. Add `-NewPassword` to also get a temporary password, shown once, that must be changed at the next sign-in. See [The factory admin account](#the-factory-admin-account). |
 
 Add `-NoBrowser` to `start` to skip opening the browser.
 
@@ -189,6 +190,7 @@ Run it with no command for a numbered menu:
 | `update` | Updates to the newest release. See [Updating NetRollout](#updating-netrollout). |
 | `apply` | Applies an HTTPS port saved in System Settings. A systemd path unit does this by itself; run it by hand on a system without systemd. |
 | `port <N>` | Moves NetRollout to port N, when its port is taken. |
+| `reset-admin` | When no administrator can sign in: enables the factory `admin`, turns its 2FA off, clears its failed sign-ins and lock, and signs it out everywhere. Asks first. `--new-password` also sets a temporary password, shown once. Not in the menu. |
 | `uninstall` | Removes NetRollout. See below. |
 | `help` | The list of commands and options. |
 
@@ -199,6 +201,7 @@ Options:
 | `--yes` | any | Unattended: no questions. With `stop` and `update`, running rollouts are waited for. |
 | `--no-browser` | `start` | Don't open the browser. |
 | `--no-safety-backup` | `restore` | Don't back up the current state first. |
+| `--new-password` | `reset-admin` | Also set a temporary password for `admin`, shown once. |
 | `--delete-data`, `--keep-data` | `uninstall` | Delete or keep the data without asking. |
 | `--delete-backups` | `uninstall` | With `--delete-data`, delete the backups too. Otherwise they're kept. |
 | `--remove-files` | `uninstall` | Remove the scripts and compose files too. |
@@ -228,6 +231,7 @@ Everything NetRollout Manager does runs `manage.ps1` underneath, so each button 
 | The rollouts list shown by **Stop** and **Update** | `netrollout rollouts` | None (`stop` and `update` show it) | The rollouts running or queued. |
 | **Cancel all now** in that list | `netrollout stop-now` | None (answer **C** at `stop` or `update`) | Cancels the running rollouts at once during a stop. |
 | None: the port helper runs it | `netrollout apply` | `sudo ./bin/netrollout.sh apply` | Applies an HTTPS port saved in System Settings. |
+| None (host only) | `netrollout reset-admin` | `sudo ./bin/netrollout.sh reset-admin` | Makes the factory `admin` usable again when no administrator can sign in. |
 | Tray **Uninstall NetRollout...** | None: Windows **Settings → Apps** | `sudo ./bin/netrollout.sh uninstall` | Removes NetRollout, keeping or deleting the data. |
 | Tray **Check for updates daily** | None (registry value `DailyCheck`) | None | The daily update check. |
 | None | None | The menu: `sudo ./bin/netrollout.sh` | A numbered menu of the common commands. |
@@ -490,6 +494,15 @@ Either way, nginx applies the new certificate within seconds, without a restart.
 
 Browsers warn about a self-signed certificate. For production, upload one from your organisation's CA.
 
+### Trusted CA certificates
+
+The second part of the **TLS Certificate** card is for NetRollout's own connections to other servers: today, the LDAP servers over LDAPS. NetRollout always verifies a directory server's certificate. It must come from a CA that the server running NetRollout trusts (the operating system's CAs) or from one you add here, and it must name the host configured for the LDAP server.
+
+- **Add to trusted**: a PEM file with one or more certificates, such as your organisation's root and issuing CAs. A lab directory's own self-signed certificate works too. A file with a private key in it, a file that isn't PEM certificates, or an expired certificate is refused. A certificate that is already trusted is skipped.
+- The list shows each certificate's subject, issuer and expiry, with a warning when it has expired or expires within 30 days. **Remove** stops trusting one.
+
+Changes apply to the next connection, without a restart. They're recorded in the audit log, and backups include them (`certs/trusted-ca.pem`).
+
 ## Users and sign-in
 
 ### Roles
@@ -501,7 +514,15 @@ Browsers warn about a self-signed certificate. For production, upload one from y
 
 ### The factory admin account
 
-A new installation has one account: `admin` with the password `admin`. At the first sign-in you must choose a new password. The `admin` account signs in without two-factor authentication, so that it stays available for recovery. Give it a strong password, and give each administrator a personal account.
+A new installation has one account: `admin` with the password `admin`. At the first sign-in you must choose a new password. Give it a strong password, and give each administrator a personal account.
+
+`admin` is the break-glass account, the way back in when other sign-ins fail:
+
+- **Two-factor sign-in is optional** for it, and off by default. To turn it on, sign in as `admin`, open **My Account** and choose **Set up two-factor sign-in**: scan the QR code and confirm with a code. From then on, its sign-in asks for a code. **Turn off two-factor sign-in** on the same page asks for the password and a current code. Another admin's **Reset 2FA** in User Management also turns it off.
+- **Wrong passwords lock it for 15 minutes**, never disable it: after 5 wrong passwords in a row, the sign-in page says "Too many failed sign-ins. Try again in N minutes." and no password is checked until then.
+- **You can disable it** in User Management, for example once directory or personal admin accounts exist. NetRollout refuses when that would leave no administrator who can sign in. It can't be deleted or demoted, and its password can't be reset from the web app.
+
+If no administrator can sign in (`admin` disabled, locked, its authenticator lost or its password forgotten), run **`netrollout reset-admin`** on the server (Linux: `sudo ./bin/netrollout.sh reset-admin`). It enables `admin`, turns its two-factor sign-in off, clears its failed sign-ins and lock, and signs it out everywhere. With `-NewPassword` (Linux: `--new-password`) it also prints a temporary password, once, that must be changed at the next sign-in. It is recorded in the audit log as done "on the server". NetRollout Manager has no button for it.
 
 ### Local accounts
 
@@ -512,19 +533,23 @@ There are two ways in:
 
 **The password rule** for local accounts: at least 8 characters, at least 2 of letters / digits / special characters, ASCII only, and not containing the username.
 
-**Two-factor authentication** (TOTP) is required for every local account except `admin`. Users enrol with an authenticator app at their first sign-in. After 5 wrong codes in a row, they must give their password again.
+**Two-factor authentication** (TOTP) is required for every local account except `admin` (optional there, see above). Users enrol with an authenticator app at their first sign-in. After 5 wrong codes in a row, they must give their password again. Wrong codes don't count towards the lockout.
+
+**Account lockout**: after 5 wrong passwords in a row, a local account is disabled. Each wrong password, the 5th included, gets the same "Invalid credentials" message; the right password afterwards gets "User disabled, please check with administrator". It's recorded in the audit log (`auth.account_locked`). To let the user in again, **Enable** the account; **Reset Password** also starts the count again. A right password resets the count. `admin` is locked for 15 minutes instead (see above). Directory accounts aren't counted: the directory's own lockout policy applies.
 
 On **User Management**, select users and use:
 
 | Action | Effect |
 |---|---|
 | **Approve** | Lets a requested account sign in. |
-| **Enable** / **Disable** | Allows or blocks sign-in. |
+| **Enable** / **Disable** | Allows or blocks sign-in. Enable also clears a lockout. Works on `admin` too. |
 | **Promote** / **Demote** | Makes an operator an admin, or an admin an operator. |
 | **Terminate Session** | Signs the user out everywhere. |
 | **Reset Password** | Gives a temporary password (shown once) and signs the user out. They choose their own at the next sign-in. |
-| **Reset 2FA** | The user's authenticator stops working; they enrol a new one at the next sign-in. |
+| **Reset 2FA** | The user's authenticator stops working; they enrol a new one at the next sign-in. On `admin`, it turns its two-factor sign-in off. |
 | **Delete** | Deletes the users and everything they own: inventory, security profiles, rollout history and results. You confirm by typing the number of users. |
+
+Disable, Demote and Delete are refused when they would leave no administrator who can sign in: an approved, active admin, local or from an active LDAP server. The page says "No active administrator would be left" before you click.
 
 > [!NOTE]
 > The name `netrollout-grafana-admin` is reserved for Grafana's own administrator. No NetRollout account can have it.
@@ -544,7 +569,9 @@ Add a directory in **Admin Panel → Server Management → LDAP / Active Directo
 
 The bind password is stored encrypted.
 
-Directory users sign in with their directory password. They don't use NetRollout's two-factor authentication, and their password is changed in the directory, not in NetRollout. There are two ways to give them access:
+With **LDAPS**, NetRollout verifies the directory server's certificate: it must come from a trusted CA and name the **Host** as entered. If your directory's certificate comes from your organisation's own CA, add that CA under [Trusted CA certificates](#trusted-ca-certificates) first. **Test** says what's wrong when the certificate is refused: not trusted, a name it doesn't hold, expired, or not yet valid.
+
+Directory users sign in with their directory password. They don't use NetRollout's two-factor authentication or its account lockout (the directory's own lockout policy applies), and their password is changed in the directory, not in NetRollout. There are two ways to give them access:
 
 - **Import them.** With a Regular bind, the **LDAP EXPLORER** browses the directory. Select users and groups, then **Import Selected**. Users become approved, active accounts. Groups become group rules.
 - **Group rules.** A user who isn't yet known to NetRollout, but is a member of an active group rule, gets an account at their first sign-in. Group rules are listed under **Group Rules** in User Management, where you can turn each on or off or delete it. Accounts created this way are operators; promote them in User Management.
@@ -714,13 +741,13 @@ Recorded actions include:
 
 | Area | Actions |
 |---|---|
-| Sign-in | Sign-in (success and failure, with the reason), sign-out, password accepted before 2FA, password change, access request, session expiry |
-| Users | Create, approve, enable, disable, promote, demote, delete, reset password, reset 2FA, terminate session (one user or many), session kick |
+| Sign-in | Sign-in (success and failure, with the reason), sign-out, password accepted before 2FA, password change, access request, session expiry, account locked out (disabled, or `admin` locked for 15 minutes), `admin`'s two-factor sign-in turned on or off |
+| Users | Create, approve, enable, disable, promote, demote, delete, reset password, reset 2FA, terminate session (one user or many), session kick, `netrollout reset-admin` |
 | LDAP | Server saved or deleted, import, group rule toggled or deleted |
 | Inventory | Device created, edited, deleted, made global or local, attributes set, CSV import, bulk profile assignment |
 | Profiles, mappings, properties | Created, edited, deleted; mapping bulk assignment |
 | Rollouts | Started, cancelled, rolled back |
-| Settings and server | Setting changed or reset, HTTPS port confirmed, restart, Redis switched, certificate uploaded or generated |
+| Settings and server | Setting changed or reset, HTTPS port confirmed, restart, Redis switched, certificate uploaded or generated, trusted CA certificate added or removed |
 | Backups | Created, downloaded, deleted, failed, restored |
 | Database | Prepared (or failed), move started, moved, move failed, move cancelled |
 
