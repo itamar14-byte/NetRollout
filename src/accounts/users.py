@@ -20,12 +20,12 @@ from enum import Enum
 from typing import Any, Protocol, cast
 
 import redis
-from sqlalchemy import func, update
+from sqlalchemy import func, or_, update
 from sqlalchemy.orm import Session
 from werkzeug.security import generate_password_hash
 
 from src.db.connections import REDIS_UNAVAILABLE
-from src.db.tables import FACTORY_USERNAME, User, AuthType, Role
+from src.db.tables import FACTORY_USERNAME, LDAPServer, User, AuthType, Role
 
 
 MIN_LENGTH = 8
@@ -154,6 +154,10 @@ def clear_lockout(user: User) -> None:
 	user.locked_until = None
 
 
+NO_ADMIN_LEFT = ("That would leave no active administrator who can sign in. "
+                 "Enable or add another administrator first.")
+
+
 class Accounts:
 	"""NetRollout's accounts in a session (the caller commits): a new local
 	account (Request access, an admin's Add user) or directory account (the
@@ -188,6 +192,34 @@ class Accounts:
 		wanted = set(ids)
 		return {row.id: row.username for row in self.session.query(User.id, User.username)
 		        .filter(User.id.in_(wanted))} if wanted else {}
+
+	def admins_left(self, without: Iterable[uuid.UUID] = ()) -> int:
+		"""The administrators who can sign in: approved and active, local - or
+		from a directory that is configured and active.
+
+		:param without: leave these accounts out (about to be disabled,
+		 demoted or deleted)
+		:returns: how many"""
+		query = (self.session.query(User.id)
+		         .outerjoin(LDAPServer, User.ldap_server_id == LDAPServer.id)
+		         .filter(User.role == Role.ADMIN, User.is_active.is_(True),
+		                 User.is_approved.is_(True),
+		                 or_(User.auth_type == AuthType.LOCAL, LDAPServer.is_active.is_(True))))
+		leaving = set(without)
+		if leaving:
+			query = query.filter(User.id.notin_(leaving))
+		return query.count()
+
+	def check_admins_left(self, removing: Iterable[uuid.UUID]) -> None:
+		"""Refuse disabling, demoting or deleting these accounts when that
+		takes away the last administrator who can sign in (the factory admin
+		may be disabled too, but never the last one).
+
+		:raises AccountError: no administrator would be left"""
+		removing = set(removing)
+		after = self.admins_left(removing)
+		if after == 0 and self.admins_left() > after:
+			raise AccountError(NO_ADMIN_LEFT)
 
 	def lock_minutes_left(self, user: User, now: datetime) -> int | None:
 		"""The factory admin's lock (Accounts.password_failed): while it holds,

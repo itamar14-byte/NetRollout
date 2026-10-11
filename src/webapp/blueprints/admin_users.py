@@ -24,6 +24,12 @@ bp = Blueprint('admin_users', __name__, url_prefix='/admin')
 # what user_action_factory does - anything else is 404, and never audited
 USER_ACTIONS = frozenset({"approve", "enable", "disable", "promote", "demote",
                           "delete", "reset_2fa", "terminate_session"})
+# the actions an admin may take on the factory admin: it can be disabled (an
+# organisation signing in through LDAP or its own admins) and enabled again,
+# its 2FA turned off - never deleted, demoted or signed out by another
+FACTORY_ACTIONS = frozenset({"enable", "disable", "reset_2fa"})
+# the actions that take an administrator away (Accounts.check_admins_left)
+REMOVES_ADMIN = frozenset({"disable", "demote", "delete"})
 
 
 @bp.app_context_processor
@@ -64,8 +70,8 @@ def user_action_factory(user: User, action: str, db_session: Session) -> None:
 		db_session.delete(user)
 	elif action == "reset_2fa":
 		# They enroll a new authenticator at their next sign-in (start_otp_flow
-		# sends users without a secret to enrollment). Local users only —
-		# LDAP users and the factory admin don't use 2FA.
+		# sends users without a secret to enrollment); the factory admin's 2FA
+		# is turned off (it's optional there). LDAP users don't use 2FA.
 		user.otp_secret = None
 	elif action == "terminate_session":
 		current_app.sessions.end_for(user.id)
@@ -89,6 +95,7 @@ def admin_users() -> str:
 		db_session.expunge_all()
 
 	return render_template("admin_users.html", users=users,
+	                       factory_ids={u.id for u in users if is_factory_admin(u)},
 	                       active_section="users",
 	                       session_user_ids=set(current_app.sessions.signed_in(time.time())))
 
@@ -98,22 +105,29 @@ def admin_users() -> str:
 @require_admin
 def admin_user_action(user_id: uuid.UUID, action: str) -> ResponseReturnValue:
 	"""One action on one user (user_action_factory), audited as
-	user.<action>. Not on the factory admin; an admin can't disable or
-	delete their own account."""
+	user.<action>. On the factory admin only FACTORY_ACTIONS; an admin can't
+	disable or delete their own account; none may take away the last
+	administrator who can sign in (refused in words)."""
 	if action not in USER_ACTIONS:
 		return err("Unknown action", 404)
 	if action in ("disable", "delete") and user_id == current_user.id:
 		flash("You cannot perform this action on your own account.", "danger")
 		return redirect(url_for("admin_users.admin_users"))
-	with current_app.backend.postgres.get_session() as db_session:
-		user = db_session.query(User).filter_by(id=user_id).first()
+	try:
+		with current_app.backend.postgres.get_session() as db_session:
+			user = db_session.query(User).filter_by(id=user_id).first()
 
-		if not user or is_factory_admin(user):
-			return redirect(url_for("admin_users.admin_users"))
+			if not user or (is_factory_admin(user) and action not in FACTORY_ACTIONS):
+				return redirect(url_for("admin_users.admin_users"))
+			if action in REMOVES_ADMIN:
+				Accounts(db_session).check_admins_left({user.id})
 
-		target_username = user.username
-		target_id = user.id
-		user_action_factory(user, action, db_session)
+			target_username = user.username
+			target_id = user.id
+			user_action_factory(user, action, db_session)
+	except AccountError as e:
+		flash(str(e), "danger")
+		return redirect(url_for("admin_users.admin_users"))
 	current_app.web.audit(AuditAction(f"user.{action}"), object_type="User",
 	                      object_id=target_id, object_label=target_username)
 	return redirect(url_for("admin_users.admin_users"))
@@ -187,8 +201,10 @@ def admin_add_user(data: dict[str, Any]) -> ResponseReturnValue:
 @require_admin
 def admin_bulk_action(action: str) -> ResponseReturnValue:
 	"""One action on the users ticked (form user_ids, comma separated) - the
-	factory admin and, for disable / delete, the admin's own account
-	skipped. One audit row: user.bulk_<action> with the names."""
+	factory admin (but for FACTORY_ACTIONS) and, for disable / delete, the
+	admin's own account skipped; refused as a whole when it would take away
+	the last administrator who can sign in. One audit row:
+	user.bulk_<action> with the names."""
 	if action not in USER_ACTIONS:
 		return err("Unknown action", 404)
 	raw = request.form.get("user_ids", "")
@@ -198,15 +214,24 @@ def admin_bulk_action(action: str) -> ResponseReturnValue:
 	except ValueError:
 		return redirect(url_for("admin_users.admin_users"))
 	affected: list[str] = []
-	with current_app.backend.postgres.get_session() as db_session:
-		for uid in user_ids:
-			user = db_session.get(User, uid)
-			if not user or is_factory_admin(user):
-				continue
-			if action in ("disable", "delete") and uid == current_user.id:
-				continue
-			affected.append(user.username)
-			user_action_factory(user, action, db_session)
+	try:
+		with current_app.backend.postgres.get_session() as db_session:
+			chosen: list[User] = []
+			for uid in user_ids:
+				user = db_session.get(User, uid)
+				if not user or (is_factory_admin(user) and action not in FACTORY_ACTIONS):
+					continue
+				if action in ("disable", "delete") and uid == current_user.id:
+					continue
+				chosen.append(user)
+			if action in REMOVES_ADMIN:
+				Accounts(db_session).check_admins_left(u.id for u in chosen)
+			for user in chosen:
+				affected.append(user.username)
+				user_action_factory(user, action, db_session)
+	except AccountError as e:
+		flash(str(e), "danger")
+		return redirect(url_for("admin_users.admin_users"))
 	current_app.web.audit(AuditAction(f"user.bulk_{action}"),
 	                      detail={"count": len(affected), "users": affected})
 	return redirect(url_for("admin_users.admin_users"))

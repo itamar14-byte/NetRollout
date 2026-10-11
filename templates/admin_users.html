@@ -116,19 +116,15 @@
         {% set status = "pending" %}
       {% endif %}
       <tr data-status="{{ status }}"
-          data-user='{{ {"id": user.id|string, "username": user.username, "role": user.role, "approved": user.is_approved, "active": user.is_active, "is_self": (user.id == current_user.id), "is_factory": (user.username == "admin"), "has_session": (user.id|string in session_user_ids), "auth_type": user.auth_type, "has_2fa": user.otp_secret is not none}|tojson }}'>
+          data-user='{{ {"id": user.id|string, "username": user.username, "role": user.role, "approved": user.is_approved, "active": user.is_active, "is_self": (user.id == current_user.id), "is_factory": (user.id in factory_ids), "has_session": (user.id|string in session_user_ids), "auth_type": user.auth_type, "has_2fa": user.otp_secret is not none}|tojson }}'>
 
         <td style="padding-right:0;">
-          {% if user.username != "admin" %}
           <input type="checkbox" class="form-check-input row-cb" style="margin:0; cursor:pointer;" value="{{ user.id }}">
-          {% else %}
-          <span style="color:var(--nr-text-muted); font-size: 0.75rem; display:block; text-align:center;">—</span>
-          {% endif %}
         </td>
 
         <td style="font-family:'JetBrains Mono',monospace; font-size:0.83rem; color:#e0e0e0; font-weight:600;">
           {{ user.username }}
-          {% if user.username == "admin" %}
+          {% if user.id in factory_ids %}
             <span style="font-family:'Inter',sans-serif; font-size: 0.75rem; color:var(--nr-text-muted); font-weight:400; margin-left:0.35rem; letter-spacing:0.5px;">factory</span>
           {% elif user.auth_type == "ldap" %}
             <span style="font-family:'JetBrains Mono',monospace; font-size: 0.6875rem; font-weight:700; letter-spacing:1.5px; color:#80deea; background:rgba(0,188,212,0.08); border:1px solid rgba(0,188,212,0.2); border-radius:3px; padding:0.1rem 0.35rem; margin-left:0.4rem;">LDAP</span>
@@ -468,7 +464,8 @@
       if (!sel.length) return "No users selected";
       if (sel.some(u => u.is_self)) return "Cannot disable your own account";
       const n = sel.filter(u => !u.active).length;
-      return n ? `${n} user(s) already inactive` : null;
+      if (n) return `${n} user(s) already inactive`;
+      return noAdminLeft(sel);
     },
     Promote: sel => {
       if (!sel.length) return "No users selected";
@@ -477,9 +474,11 @@
     },
     Demote: sel => {
       if (!sel.length) return "No users selected";
+      if (sel.some(u => u.is_factory)) return "The factory admin can't be demoted";
       if (sel.some(u => u.is_self)) return "Cannot demote your own account";
       const n = sel.filter(u => u.role !== "admin").length;
-      return n ? `${n} user(s) are not admin` : null;
+      if (n) return `${n} user(s) are not admin`;
+      return noAdminLeft(sel);
     },
     TerminateSession: sel => {
       if (!sel.length) return "No users selected";
@@ -496,7 +495,8 @@
       if (u.auth_type !== "local") return "LDAP passwords are managed in the directory";
       return null;
     },
-    // Only local users enroll 2FA — LDAP users and the factory admin don't use it
+    // Only local users have 2FA (the factory admin only when it turned it on:
+    // a reset turns it off) — LDAP users don't use it
     Reset2FA: sel => {
       if (!sel.length) return "No users selected";
       const none = sel.filter(u => !u.has_2fa).length;
@@ -506,9 +506,20 @@
       if (!sel.length) return "No users selected";
       if (sel.some(u => u.is_factory)) return "Factory user cannot be deleted";
       if (sel.some(u => u.is_self))    return "Cannot delete your own account";
-      return null;
+      return noAdminLeft(sel);
     }
   };
+
+  // The server refuses taking away the last administrator who can sign in;
+  // the page says so before (approved, active admins - the server also
+  // leaves out directory admins whose LDAP server is off)
+  function noAdminLeft(sel) {
+    const leaving = new Set(sel.map(u => u.id));
+    const left = Array.from(document.querySelectorAll("tr[data-user]"))
+      .map(tr => JSON.parse(tr.dataset.user))
+      .filter(u => u.role === "admin" && u.approved && u.active && !leaving.has(u.id));
+    return left.length ? null : "No active administrator would be left";
+  }
 
   // ── Tooltip registry ──
   const tooltips = {};
