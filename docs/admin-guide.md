@@ -545,7 +545,7 @@ On **User Management**, select users and use:
 |---|---|
 | **Approve** | Lets a requested account sign in. |
 | **Enable** / **Disable** | Allows or blocks sign-in. Enable also clears a lockout, including a 15-minute lock on an account that is still active. Works on `admin` too. |
-| **Promote** / **Demote** | Makes an operator an admin, or an admin an operator. |
+| **Promote** / **Demote** | Makes an operator an admin, or an admin an operator. Refused for a directory user whose role comes from group rules (see [LDAP / Active Directory](#ldap--active-directory)). |
 | **Terminate Session** | Signs the user out everywhere. |
 | **Reset Password** | Gives a temporary password (shown once) and signs the user out. They choose their own at the next sign-in. |
 | **Reset 2FA** | The user's authenticator stops working; they enrol a new one at the next sign-in. On `admin`, it turns its two-factor sign-in off. |
@@ -576,7 +576,18 @@ With **LDAPS**, NetRollout verifies the directory server's certificate: it must 
 Directory users sign in with their directory password. They don't use NetRollout's two-factor authentication or its account lockout (the directory's own lockout policy applies), and their password is changed in the directory, not in NetRollout. When their directory is deactivated, removed or unreachable, they get "Invalid credentials", the same as a wrong password, so the page doesn't reveal which usernames exist. The **Audit Log** shows the real reason on the failed sign-in (`ldap_server_inactive`, `ldap_server_missing`, or `ldap_unavailable` with the directory's error, also printed to the app's log). There are two ways to give them access:
 
 - **Import them.** With a Regular bind, the **LDAP EXPLORER** browses the directory. Select users and groups, then **Import Selected**. Users become approved, active accounts. Groups become group rules.
-- **Group rules.** A user who isn't yet known to NetRollout, but is a member of an active group rule, gets an account at their first sign-in. Group rules are listed under **Group Rules** in User Management, where you can turn each on or off or delete it. Accounts created this way are operators; promote them in User Management.
+- **Group rules.** A user who isn't yet known to NetRollout, but is a member of an active group rule, gets an account at their first sign-in. Group rules are listed under **Group Rules** in User Management, where you can choose each rule's **Role** (**Operator** or **Admin**), turn it on or off, or delete it. Choosing **Admin** asks you to confirm.
+
+**A directory user's role comes from the group rules** whenever their server has a service account (Regular bind) and at least one active group rule:
+
+- It is decided at **every sign-in**: **Admin** if any active rule the user is a direct member of gives Admin, otherwise **Operator** (the highest role wins, whatever the order of the rules). The directory is the source of truth, so removing someone from the admin group in the directory makes them an operator at their next sign-in. A change to a rule (its role, turned off, deleted) also applies at each member's next sign-in, not at once.
+- **Promote** and **Demote** are refused for these users, with the message "The role of *name* comes from the directory's group rules (User Management -> Group Rules), set at each sign-in - change the rule, or the user's groups in the directory." The buttons are greyed out with "N user(s) get their role from directory group rules".
+- **Import Selected** gives imported users the same role their sign-in would. If the directory can't be asked for their groups, nothing is imported and the page says why.
+- A role changed at sign-in is recorded in the audit log as `user.role_from_directory`, with the old and new role and the rules matched.
+- **Never no administrator**: if a directory admin who lost the admin group is the last administrator who can sign in, they **stay an admin**. The audit row is marked failed (`kept: last_admin`) and the app's log says ACTION NEEDED. Enable or add another administrator; the demotion happens at their next sign-in after that. The factory `admin` counts as an administrator while it is enabled.
+- If the directory can't be asked for the groups after it accepted the password, the sign-in is refused ("LDAP authentication service unavailable"), so a removed admin can't keep the role through an outage.
+
+A server without a service account (Simple bind), or without any active group rule, can't tell a role: its users' roles are set with Promote and Demote as for local accounts. Turning off a server's last active rule therefore leaves its users with the role they have.
 
 ### Sessions
 
@@ -744,8 +755,8 @@ Recorded actions include:
 | Area | Actions |
 |---|---|
 | Sign-in | Sign-in (success and failure, with the reason), sign-out, password accepted before 2FA, password change, access request, session expiry, account locked out (locked for 15 minutes, or disabled), `admin`'s two-factor sign-in turned on or off |
-| Users | Create, approve, enable, disable, promote, demote, delete, reset password, reset 2FA, terminate session (one user or many), session kick, `netrollout reset-admin` |
-| LDAP | Server saved or deleted, import, group rule toggled or deleted |
+| Users | Create, approve, enable, disable, promote, demote, delete, reset password, reset 2FA, terminate session (one user or many), session kick, `netrollout reset-admin`, a directory user's role changed by the group rules at sign-in (`user.role_from_directory`) |
+| LDAP | Server saved or deleted, import, group rule's role changed, group rule toggled or deleted |
 | Inventory | Device created, edited, deleted, made global or local, attributes set, CSV import, bulk profile assignment |
 | Profiles, mappings, properties | Created, edited, deleted; mapping bulk assignment |
 | Rollouts | Started, cancelled, rolled back |

@@ -69,7 +69,7 @@ An account comes one of three ways:
 
 - **Your administrator adds you.** You get a username and a temporary password. At the first sign-in you choose your own password.
 - **You ask for one.** On the sign-in page, choose **Request access** and fill in **Username**, **Email**, **Full Name**, an optional **Position** and a password. Then select **Request Access**. An administrator must approve your request before you can sign in. Until then, signing in fails with a message that your account is pending approval.
-- **Your organisation's directory (LDAP / Active Directory).** If your administrator has set this up, sign in with your directory username and password. An account is created for you the first time.
+- **Your organisation's directory (LDAP / Active Directory).** If your administrator has set this up, sign in with your directory username and password. An account is created for you the first time. Your role (operator or admin) can come from your directory groups; it is then checked again every time you sign in.
 
 ### The password rule
 

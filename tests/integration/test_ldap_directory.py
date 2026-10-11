@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 from cryptography.fernet import Fernet
-from ldap3 import Connection, Server
+from ldap3 import MODIFY_DELETE, Connection, Server
 from ldap3.core.exceptions import LDAPException
 
 import src.encryption as enc
@@ -320,10 +320,10 @@ def test_tree_errors_are_reported(ldap_server_config):
 	assert answer["status"] == "error" and answer["message"]
 
 
-def test_the_first_matching_group_wins(ldap_server_config):
-	"""Groups are tried in order: the first mapped group the user is a member of
-	gives the role (a later mapping of the same group isn't looked at); no group
-	mapped -> None."""
+def test_an_admin_group_listed_first_gives_admin(ldap_server_config):
+	"""A user matching an admin rule and an operator rule (the admin one
+	first) gets admin, with that rule's DN; no group mapped -> None. (The
+	other order: test_the_highest_role_of_the_matching_groups_wins.)"""
 	groups = [SimpleNamespace(group_dn=LDAP_GROUP_DN, role="admin"),
 	          SimpleNamespace(group_dn=LDAP_GROUP_DN, role="operator")]
 	assert ldap.Directory(ldap_server_config).check_group_membership("jdoe", JDOE_PW, groups) == \
@@ -420,3 +420,124 @@ def test_directory_outage_shows_invalid_credentials_not_500(directory_in_db,
 		reasons = [(a.detail or {}).get("reason") for a in
 		           s.query(AuditLog).filter_by(actor_username="jdoe")]
 	assert "ldap_unavailable" in reasons
+
+
+def test_the_highest_role_of_the_matching_groups_wins(ldap_server_config):
+	"""A user matching an operator rule and an admin rule is an admin, whatever
+	their order (the highest role wins, not the first rule); the DN given is
+	the first rule granting it."""
+	groups = [SimpleNamespace(group_dn=LDAP_GROUP_DN, role="operator"),
+	          SimpleNamespace(group_dn=LDAP_GROUP_DN, role="admin")]
+	assert ldap.Directory(ldap_server_config).check_group_membership("jdoe", JDOE_PW, groups) == \
+	       (LDAP_GROUP_DN, "admin")
+
+
+# ── Group rules decide a directory user's role ───────────────────────────────
+
+ADMINS_DN = f"cn=netadmins,ou=Groups,{LDAP_BASE}"
+
+
+@pytest.fixture
+def admins_group(ldap_directory):
+	"""A directory group netadmins (jdoe and alice), added as the directory's
+	admin and removed afterwards; yields a function taking a member out."""
+	conn = Connection(Server("127.0.0.1", port=ldap_directory), LDAP_ADMIN_DN,
+	                  LDAP_ADMIN_PW, auto_bind=True, raise_exceptions=True)
+	conn.add(ADMINS_DN, ["groupOfNames"], {"cn": "netadmins", "member": [JDOE_DN, ALICE_DN]})
+
+	def remove(member_dn):
+		conn.modify(ADMINS_DN, {"member": [(MODIFY_DELETE, [member_dn])]})
+
+	try:
+		yield remove
+	finally:
+		try:
+			conn.delete(ADMINS_DN)
+		except LDAPException:
+			pass
+		conn.unbind()
+
+
+def map_group(app, server_id, group_dn, role):
+	"""A group rule on the test directory's server."""
+	with app.backend.postgres.get_session() as s:
+		s.add(LDAPGroup(group_dn=group_dn, label="rule", role=role,
+		                ldap_server_id=server_id))
+
+
+def role_changes(session_scope, username):
+	"""The user's user.role_from_directory audit rows, as (success, detail)."""
+	with session_scope() as s:
+		return [(a.success, a.detail) for a in
+		        s.query(AuditLog).filter_by(action="user.role_from_directory",
+		                                    object_label=username)]
+
+
+@pytest.mark.postgres
+@pytest.mark.redis
+def test_a_group_mapped_to_admin_makes_its_member_an_admin(
+		app, directory_in_db, admins_group, client_for, session_scope):
+	"""netops is mapped to operator, netadmins to admin: jdoe (in both) gets an
+	admin account at the first sign-in; bsmith (netops only) an operator one."""
+	map_group(app, directory_in_db, ADMINS_DN, "admin")
+	assert login(client_for(), "jdoe", JDOE_PW).headers["Location"] == "/dashboard"
+	assert login(client_for(), "bsmith", BOB_PW).headers["Location"] == "/dashboard"
+	with session_scope() as s:
+		roles = {u.username: u.role for u in s.query(User)}
+	assert roles == {"jdoe": "admin", "bsmith": "operator"}
+
+
+@pytest.mark.postgres
+@pytest.mark.redis
+def test_removed_from_the_admin_group_is_an_operator_at_the_next_sign_in(
+		app, directory_in_db, admins_group, client_for, session_scope, make_user):
+	"""A directory admin taken out of the admin group in the directory is an
+	operator at their next sign-in (audited user.role_from_directory, with the
+	rules still matched)."""
+	make_user(role="admin")              # another administrator who can sign in
+	map_group(app, directory_in_db, ADMINS_DN, "admin")
+	login(client_for(), "jdoe", JDOE_PW)
+	admins_group(JDOE_DN)
+	assert login(client_for(), "jdoe", JDOE_PW).headers["Location"] == "/dashboard"
+	with session_scope() as s:
+		assert s.query(User).filter_by(username="jdoe").one().role == "operator"
+	assert role_changes(session_scope, "jdoe") == [
+		(True, {"from": "admin", "to": "operator", "groups": [LDAP_GROUP_DN]})]
+
+
+@pytest.mark.postgres
+@pytest.mark.redis
+def test_the_last_admin_keeps_the_role_when_removed_from_the_group(
+		app, directory_in_db, admins_group, client_for, session_scope, capsys):
+	"""The only administrator who can sign in is a directory admin: taken out of
+	the admin group, they stay an admin at the next sign-in (never no admin),
+	audited as a failed user.role_from_directory (kept: last_admin), with an
+	ACTION NEEDED line."""
+	map_group(app, directory_in_db, ADMINS_DN, "admin")
+	login(client_for(), "jdoe", JDOE_PW)
+	admins_group(JDOE_DN)
+	capsys.readouterr()
+	assert login(client_for(), "jdoe", JDOE_PW).headers["Location"] == "/dashboard"
+	with session_scope() as s:
+		assert s.query(User).filter_by(username="jdoe").one().role == "admin"
+	assert role_changes(session_scope, "jdoe") == [
+		(False, {"from": "admin", "to": "operator", "groups": [LDAP_GROUP_DN],
+		         "kept": "last_admin"})]
+	assert "ACTION NEEDED - jdoe no longer matches an admin group rule" in capsys.readouterr().out
+
+
+@pytest.mark.postgres
+@pytest.mark.redis
+def test_the_import_gives_the_roles_of_the_group_rules(
+		app, directory_in_db, admins_group, client_for, session_scope, make_user):
+	"""Users imported from the directory browser get the role their group rules
+	give, as at sign-in: jdoe (netadmins -> admin) an admin, bsmith (netops ->
+	operator) an operator."""
+	admin = make_user(role="admin")
+	map_group(app, directory_in_db, ADMINS_DN, "admin")
+	resp = client_for(admin).post(f"/admin/server/ldap/{directory_in_db}/import", json=[
+		{"type": "user", "username": "jdoe"}, {"type": "user", "username": "bsmith"}])
+	assert resp.json["users_created"] == 2 and resp.json["admins"] == ["jdoe"]
+	with session_scope() as s:
+		roles = {u.username: u.role for u in s.query(User).filter_by(auth_type="ldap")}
+	assert roles == {"jdoe": "admin", "bsmith": "operator"}

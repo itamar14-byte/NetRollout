@@ -468,8 +468,9 @@ def test_an_ldap_user_typed_in_other_capitals_is_the_same_account(
 
 def test_an_ldap_user_in_other_capitals_keeps_their_role(client_for, make_user,
                                                          ldap_server, session_scope):
-	"""A demoted LDAP user (operator) signing in as "BOB" is the account "bob",
-	still an operator - not a new admin from a mapped group."""
+	"""An LDAP operator signing in as "BOB" is the account "bob", still an
+	operator (the directory says bob matches no rule) - not a new admin from
+	the mapped group a new account would come from."""
 	user = make_user(username="bob")
 	with session_scope() as s:
 		u = s.get(User, user.id)
@@ -477,7 +478,7 @@ def test_an_ldap_user_in_other_capitals_keeps_their_role(client_for, make_user,
 		s.add(LDAPGroup(group_dn="cn=admins,dc=corp", label="admins",
 		                role="admin", ldap_server_id=ldap_server))
 	with patch("src.accounts.ldap.Directory.user_bind", return_value=True), 			patch("src.accounts.ldap.Directory.check_group_membership",
-			      return_value=("cn=admins,dc=corp", "admin")), 			patch("src.accounts.ldap.Directory.user_details", return_value={}):
+			      return_value=("cn=admins,dc=corp", "admin")), 			patch("src.accounts.ldap.Directory.user_details", return_value={}), 			patch("src.accounts.ldap.Directory.matching_rules", return_value=[]):
 		client = client_for()
 		resp = login(client, "BOB", "directory-pass")
 	assert resp.headers["Location"] == "/dashboard"

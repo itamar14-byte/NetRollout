@@ -25,7 +25,7 @@ from sqlalchemy.orm import Session
 from werkzeug.security import generate_password_hash
 
 from src.db.connections import REDIS_UNAVAILABLE
-from src.db.tables import FACTORY_USERNAME, LDAPServer, User, AuthType, Role
+from src.db.tables import FACTORY_USERNAME, BindType, LDAPServer, User, AuthType, Role
 
 
 MIN_LENGTH = 8
@@ -159,6 +159,34 @@ def clear_lockout(user: User) -> None:
 	user.locked_until = None
 
 
+# ── A directory user's role ──
+# Where the directory can tell (its server has a service account and at least
+# one active group rule), a directory user's role is the directory's: decided
+# at each sign-in from the group rules they match - admin when any matching
+# active rule grants admin, else operator (ldap.highest_role) - and an admin's
+# Promote / Demote don't apply to them. A server without a service account,
+# or without an active rule, can't tell: the role is set in User Management.
+ROLE_FROM_DIRECTORY = ("The role of {name} comes from the directory's group rules "
+                       "(User Management -> Group Rules), set at each sign-in - change "
+                       "the rule, or the user's groups in the directory.")
+
+
+def directory_sets_role(user: User) -> bool:
+	""":returns: whether this account's role comes from its directory's group
+	 rules (above) rather than from an admin's Promote / Demote"""
+	server = user.ldap_server
+	return (user.auth_type == AuthType.LDAP and server is not None
+	        and server.bind_type == BindType.REGULAR
+	        and any(rule.is_active for rule in server.user_groups))
+
+
+class RoleChange(Enum):
+	"""What a sign-in's group rules did to a directory user's role
+	(Accounts.set_directory_role)."""
+	CHANGED = "changed"
+	KEPT = "kept"       # a demotion refused: no other administrator could sign in
+
+
 NO_ADMIN_LEFT = ("That would leave no active administrator who can sign in. "
                  "Enable or add another administrator first.")
 
@@ -225,6 +253,26 @@ class Accounts:
 		after = self.admins_left(removing)
 		if after == 0 and self.admins_left() > after:
 			raise AccountError(NO_ADMIN_LEFT)
+
+	def set_directory_role(self, user: User, role: str) -> RoleChange | None:
+		"""A directory user's role as their group rules give it at sign-in
+		(directory_sets_role). A demotion that would leave no administrator who
+		can sign in is refused - the user stays an admin until another one
+		exists (the never-no-admin rule holds at sign-in too).
+
+		:param role: the role the rules give (ldap.highest_role)
+		:returns: CHANGED, KEPT (the demotion refused), None: the role was
+		 already that"""
+		if user.role == role:
+			return None
+		if user.role == Role.ADMIN:
+			try:
+				self.check_admins_left({user.id})
+			except AccountError:
+				return RoleChange.KEPT
+		user.role = role
+		self.session.flush()
+		return RoleChange.CHANGED
 
 	def reset_factory_admin(self, new_password: bool = False) -> tuple[User, str | None]:
 		"""netrollout reset-admin, run on the server: the factory admin made

@@ -13,8 +13,8 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 from werkzeug.security import generate_password_hash
 
-from src.accounts.users import (AccountError, Accounts, clear_lockout, is_factory_admin,
-                                temporary_password)
+from src.accounts.users import (ROLE_FROM_DIRECTORY, AccountError, Accounts, clear_lockout,
+                                directory_sets_role, is_factory_admin, temporary_password)
 from src.audit import AuditAction
 from src.db.tables import User, AuthType, Role
 from src.webapp.app import current_app
@@ -31,6 +31,9 @@ USER_ACTIONS = frozenset({"approve", "enable", "disable", "promote", "demote",
 FACTORY_ACTIONS = frozenset({"enable", "disable", "reset_2fa"})
 # the actions that take an administrator away (Accounts.check_admins_left)
 REMOVES_ADMIN = frozenset({"disable", "demote", "delete"})
+# refused for a directory user whose role its group rules set
+# (users.directory_sets_role): the next sign-in would undo them
+ROLE_ACTIONS = frozenset({"promote", "demote"})
 # the factory admin turns its own 2FA off on My Account, proved by its
 # password and a code - never by a Reset 2FA on itself here
 OWN_2FA = "Turn your own two-factor sign-in off on My Account - it asks for your password and a code."
@@ -102,11 +105,13 @@ def admin_users() -> str:
 	(Enable lifts it), and who has a session."""
 	with current_app.backend.postgres.get_session() as db_session:
 		users = db_session.query(User).order_by(User.created_at).all()
+		from_directory = {u.id for u in users if directory_sets_role(u)}
 		db_session.expunge_all()
 	now = datetime.now(timezone.utc)
 
 	return render_template("admin_users.html", users=users,
 	                       factory_ids={u.id for u in users if is_factory_admin(u)},
+	                       from_directory_ids=from_directory,
 	                       locked_ids={u.id for u in users
 	                                   if u.locked_until is not None and u.locked_until > now},
 	                       active_section="users",
@@ -121,7 +126,8 @@ def admin_user_action(user_id: uuid.UUID, action: str) -> ResponseReturnValue:
 	user.<action>. On the factory admin only FACTORY_ACTIONS (its own Reset
 	2FA neither: My Account's turn-off asks for proof); an admin can't
 	disable or delete their own account; none may take away the last
-	administrator who can sign in (refused in words)."""
+	administrator who can sign in (refused in words); Promote / Demote are
+	refused for a directory user whose role its group rules set."""
 	if action not in USER_ACTIONS:
 		return err("Unknown action", 404)
 	if action in ("disable", "delete") and user_id == current_user.id:
@@ -135,6 +141,9 @@ def admin_user_action(user_id: uuid.UUID, action: str) -> ResponseReturnValue:
 				return redirect(url_for("admin_users.admin_users"))
 			if _own_factory_2fa(user, action):
 				flash(OWN_2FA, "danger")
+				return redirect(url_for("admin_users.admin_users"))
+			if action in ROLE_ACTIONS and directory_sets_role(user):
+				flash(ROLE_FROM_DIRECTORY.format(name=user.username), "danger")
 				return redirect(url_for("admin_users.admin_users"))
 			if action in REMOVES_ADMIN:
 				Accounts(db_session).check_admins_left({user.id})
@@ -220,7 +229,8 @@ def admin_bulk_action(action: str) -> ResponseReturnValue:
 	"""One action on the users ticked (form user_ids, comma separated) - the
 	factory admin (but for FACTORY_ACTIONS, and its own Reset 2FA) and, for
 	disable / delete, the admin's own account skipped; refused as a whole when it would take away
-	the last administrator who can sign in. One audit row:
+	the last administrator who can sign in, and Promote / Demote when a
+	directory user's role comes from its group rules. One audit row:
 	user.bulk_<action> with the names."""
 	if action not in USER_ACTIONS:
 		return err("Unknown action", 404)
@@ -243,6 +253,10 @@ def admin_bulk_action(action: str) -> ResponseReturnValue:
 				if action in ("disable", "delete") and uid == current_user.id:
 					continue
 				chosen.append(user)
+			if action in ROLE_ACTIONS:
+				from_directory = [u.username for u in chosen if directory_sets_role(u)]
+				if from_directory:
+					raise AccountError(ROLE_FROM_DIRECTORY.format(name=", ".join(from_directory)))
 			if action in REMOVES_ADMIN:
 				Accounts(db_session).check_admins_left(u.id for u in chosen)
 			for user in chosen:

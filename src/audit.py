@@ -41,6 +41,7 @@ class AuditAction(StrEnum):
 	USER_DELETE = "user.delete"
 	USER_RESET_2FA = "user.reset_2fa"
 	USER_TERMINATE_SESSION = "user.terminate_session"
+	USER_ROLE_FROM_DIRECTORY = "user.role_from_directory"   # set by group rules at sign-in
 	USER_BULK_APPROVE = "user.bulk_approve"
 	USER_BULK_ENABLE = "user.bulk_enable"
 	USER_BULK_DISABLE = "user.bulk_disable"
@@ -55,6 +56,7 @@ class AuditAction(StrEnum):
 	ADMIN_LDAP_SERVER_DELETE = "admin.ldap_server_delete"
 	ADMIN_LDAP_IMPORT = "admin.ldap_import"
 	ADMIN_LDAP_GROUP_TOGGLE = "admin.ldap_group_toggle"
+	ADMIN_LDAP_GROUP_ROLE = "admin.ldap_group_role"
 	ADMIN_LDAP_GROUP_DELETE = "admin.ldap_group_delete"
 	# the inventory and what goes with it
 	INVENTORY_CREATE = "inventory.create"

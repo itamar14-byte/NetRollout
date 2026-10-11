@@ -7,10 +7,10 @@ from flask import Blueprint, Request, Response, request, jsonify
 from flask.typing import ResponseReturnValue
 from flask_login import login_required
 
-from src.accounts.ldap import Directory
-from src.accounts.users import Accounts, is_reserved
+from src.accounts.ldap import Directory, LdapUnavailable, highest_role
+from src.accounts.users import ROLES, Accounts, directory_sets_role, is_reserved
 from src.audit import AuditAction
-from src.db.tables import LDAPServer, LDAPGroup, BindType
+from src.db.tables import LDAPServer, LDAPGroup, BindType, Role, User
 from src.encryption import encrypt
 from src.rollout import inputs
 from src.webapp.app import current_app
@@ -215,12 +215,15 @@ def admin_server_ldap_explore(server_id: uuid.UUID) -> ResponseReturnValue:
 @require_admin
 def admin_server_ldap_import(server_id: uuid.UUID) -> ResponseReturnValue:
 	"""Users and groups picked in the directory browser: users become LDAP
-	accounts (approved, active), groups become mappable groups; ones that
-	exist are skipped, and so are malformed items. JSON [{type: user | group,
-	username | dn, label}].
+	accounts (approved, active), groups become mappable groups (operator);
+	ones that exist are skipped, and so are malformed items. JSON [{type:
+	user | group, username | dn, label}]. Where the directory sets roles
+	(users.directory_sets_role) a new user gets the role their group rules
+	give, as at sign-in (the groups imported here included); else operator.
 
-	:returns: {users_created, groups_created, skipped}; 422 when the body
-	 isn't a list"""
+	:returns: {users_created, groups_created, skipped, admins}; 422 when the
+	 body isn't a list, 502 when the directory can't be asked for the new
+	 users' groups (nothing imported)"""
 	items = request.get_json(silent=True)
 	if items is None:
 		items = []
@@ -229,6 +232,7 @@ def admin_server_ldap_import(server_id: uuid.UUID) -> ResponseReturnValue:
 	users_created = 0
 	groups_created = 0
 	skipped = 0
+	created: list[User] = []
 
 	with current_app.backend.postgres.get_session() as db_session:
 		srv = db_session.query(LDAPServer).filter_by(id=server_id).first()
@@ -248,7 +252,7 @@ def admin_server_ldap_import(server_id: uuid.UUID) -> ResponseReturnValue:
 				if accounts.by_name_ci(item["username"]) or is_reserved(item["username"]):
 					skipped += 1
 					continue
-				accounts.new_ldap(item["username"], server_id)
+				created.append(accounts.new_ldap(item["username"], server_id))
 				users_created += 1
 
 			elif item["type"] == "group":
@@ -263,13 +267,40 @@ def admin_server_ldap_import(server_id: uuid.UUID) -> ResponseReturnValue:
 				))
 				groups_created += 1
 
+		db_session.flush()
+		try:
+			admins = _roles_from_directory(srv, created)
+		except LdapUnavailable as e:
+			db_session.rollback()
+			return err(f"The directory couldn't be asked for the users' groups - "
+			           f"nothing was imported: {e}", 502)
 		current_app.web.audit(AuditAction.ADMIN_LDAP_IMPORT, success=True,
 		                      detail={"users": users_created,
 		                              "groups": groups_created,
-		                              "skipped": skipped})
+		                              "skipped": skipped, "admins": admins})
 
 	return ok(users_created=users_created, groups_created=groups_created,
-	          skipped=skipped)
+	          skipped=skipped, admins=admins)
+
+
+def _roles_from_directory(server: LDAPServer, users: list[User]) -> list[str]:
+	"""New directory accounts' roles, as their sign-in would set them: where
+	the directory sets roles, admin when a matching active group rule grants
+	it (ldap.highest_role) - else they stay operators.
+
+	:returns: the usernames made admins
+	:raises LdapUnavailable: the directory couldn't be asked"""
+	if not users or not directory_sets_role(users[0]):
+		return []
+	directory = Directory(server)
+	rules = [rule for rule in server.user_groups if rule.is_active]
+	admins = []
+	for user in users:
+		role = highest_role(r.role for r in directory.matching_rules(user.username, rules))
+		user.role = role
+		if role == Role.ADMIN:
+			admins.append(user.username)
+	return admins
 
 
 @bp.route("/ldap/<uuid:server_id>/groups", methods=["GET"])
@@ -302,6 +333,31 @@ def admin_server_ldap_group_toggle(server_id: uuid.UUID,
 		                      object_label=g.label, success=True,
 		                      detail={"is_active": g.is_active})
 	return ok(is_active=new_state)
+
+
+@bp.route("/ldap/<uuid:server_id>/groups/<uuid:group_id>/role",
+          methods=["POST"])
+@login_required
+@require_admin
+@with_form("role")
+def admin_server_ldap_group_role(server_id: uuid.UUID, group_id: uuid.UUID,
+                                 data: Any) -> ResponseReturnValue:
+	"""The role a group rule gives its members: operator or admin. Directory
+	users' roles follow at their next sign-in (users.directory_sets_role)."""
+	role = data.get("role", "")
+	if role not in ROLES:
+		return err("The role is operator or admin.", 422)
+	with current_app.backend.postgres.get_session() as db_session:
+		g = db_session.query(LDAPGroup).filter_by(
+			id=group_id, ldap_server_id=server_id).first()
+		if not g:
+			return err("Group not found", 404)
+		before, g.role = g.role, role
+		current_app.web.audit(AuditAction.ADMIN_LDAP_GROUP_ROLE,
+		                      object_type="LDAPGroup", object_id=g.id,
+		                      object_label=g.label, success=True,
+		                      detail={"from": before, "to": role})
+	return ok(role=role)
 
 
 @bp.route("/ldap/<uuid:server_id>/groups/<uuid:group_id>/delete",

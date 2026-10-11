@@ -116,7 +116,7 @@
         {% set status = "pending" %}
       {% endif %}
       <tr data-status="{{ status }}"
-          data-user='{{ {"id": user.id|string, "username": user.username, "role": user.role, "approved": user.is_approved, "active": user.is_active, "is_self": (user.id == current_user.id), "is_factory": (user.id in factory_ids), "has_session": (user.id|string in session_user_ids), "auth_type": user.auth_type, "has_2fa": user.otp_secret is not none, "locked": (user.id in locked_ids)}|tojson }}'>
+          data-user='{{ {"id": user.id|string, "username": user.username, "role": user.role, "approved": user.is_approved, "active": user.is_active, "is_self": (user.id == current_user.id), "is_factory": (user.id in factory_ids), "has_session": (user.id|string in session_user_ids), "auth_type": user.auth_type, "has_2fa": user.otp_secret is not none, "locked": (user.id in locked_ids), "role_from_directory": (user.id in from_directory_ids)}|tojson }}'>
 
         <td style="padding-right:0;">
           <input type="checkbox" class="form-check-input row-cb" style="margin:0; cursor:pointer;" value="{{ user.id }}">
@@ -474,12 +474,15 @@
     Promote: sel => {
       if (!sel.length) return "No users selected";
       const n = sel.filter(u => u.role === "admin").length;
-      return n ? `${n} user(s) already admin` : null;
+      if (n) return `${n} user(s) already admin`;
+      return roleFromDirectory(sel);
     },
     Demote: sel => {
       if (!sel.length) return "No users selected";
       if (sel.some(u => u.is_factory)) return "The factory admin can't be demoted";
       if (sel.some(u => u.is_self)) return "Cannot demote your own account";
+      const fromDirectory = roleFromDirectory(sel);
+      if (fromDirectory) return fromDirectory;
       const n = sel.filter(u => u.role !== "admin").length;
       if (n) return `${n} user(s) are not admin`;
       return noAdminLeft(sel);
@@ -514,6 +517,13 @@
       return noAdminLeft(sel);
     }
   };
+
+  // A directory user whose role its group rules set (Group Rules below): the
+  // next sign-in decides it, so the server refuses Promote / Demote
+  function roleFromDirectory(sel) {
+    const n = sel.filter(u => u.role_from_directory).length;
+    return n ? `${n} user(s) get their role from directory group rules` : null;
+  }
 
   // The server refuses taking away the last administrator who can sign in;
   // the page says so before (approved, active admins - the server also
@@ -809,6 +819,10 @@
       Auto-enroll users matching LDAP group membership
     </span>
   </div>
+  <p class="nr-help-text" style="margin-bottom:0.75rem;">
+    A directory user's role is set at every sign-in from the rules they match: <strong>Admin</strong> if any active rule they match gives Admin, else <strong>Operator</strong>.
+    While a server has a service account and an active rule, Promote and Demote don't apply to its users: change the rule, or the user's groups in the directory.
+  </p>
   <div id="groupRulesContainer">
     <div style="color:var(--nr-text-muted); font-size:0.82rem; padding:0.5rem 0;">
       <span class="spinner-border spinner-border-sm text-secondary me-2"></span>Loading…
@@ -832,12 +846,10 @@
     font-family:'JetBrains Mono',monospace; font-size:0.72rem; color:var(--nr-text-muted);
     max-width:320px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
   }
-  .gr-role-badge {
-    font-family:'JetBrains Mono',monospace; font-size: 0.6875rem; letter-spacing:0.1em;
-    padding:0.15rem 0.45rem; border-radius:3px;
-  }
-  .gr-role-admin { background:rgba(239,83,80,0.1); color:#ef9a9a; border:1px solid rgba(239,83,80,0.2); }
-  .gr-role-operator { background:rgba(100,100,100,0.1); color:var(--nr-text-muted); border:1px solid #222; }
+  .gr-role { width:auto; display:inline-block; font-family:'JetBrains Mono',monospace; font-size:0.72rem; padding-top:0.15rem; padding-bottom:0.15rem; }
+  /* the colour only: the select keeps its arrow (background-image) */
+  .gr-role.gr-role-admin { background-color:rgba(239,83,80,0.1); color:#ef9a9a; border-color:rgba(239,83,80,0.2); }
+  .gr-role.gr-role-operator { background-color:rgba(100,100,100,0.1); color:var(--nr-text-muted); border-color:#222; }
   .gr-toggle {
     font-family:'JetBrains Mono',monospace; font-size: 0.6875rem; cursor:pointer;
     padding:0.18rem 0.5rem; border-radius:3px; border:1px solid;
@@ -890,15 +902,19 @@
     results.forEach(({ server, groups }) => {
       if (!groups.length) return;
       groups.forEach(g => {
-        const roleBadge = g.role === 'admin'
-          ? `<span class="gr-role-badge gr-role-admin">ADMIN</span>`
-          : `<span class="gr-role-badge gr-role-operator">OPERATOR</span>`;
+        const roleSelect = `<select class="form-select form-select-sm gr-role ${g.role === 'admin' ? 'gr-role-admin' : 'gr-role-operator'}"
+                  aria-label="Role for members of this group"
+                  data-server="${nrEscape(server.id)}" data-group="${nrEscape(g.id)}"
+                  data-role="${nrEscape(g.role)}" onchange="setGroupRole(this)">
+            <option value="operator"${g.role === 'admin' ? '' : ' selected'}>Operator</option>
+            <option value="admin"${g.role === 'admin' ? ' selected' : ''}>Admin</option>
+          </select>`;
         const toggleClass = g.is_active ? 'active' : 'inactive';
         const toggleLabel = g.is_active ? 'ACTIVE' : 'INACTIVE';
         html += `<tr id="gr-row-${g.id}">
           <td style="font-weight:500; color:#e0e0e0;">${nrEscape(g.label)}</td>
           <td><span class="gr-dn" title="${nrEscape(g.group_dn)}">${nrEscape(g.group_dn)}</span></td>
-          <td>${roleBadge}</td>
+          <td>${roleSelect}</td>
           <td style="font-family:'JetBrains Mono',monospace; font-size:0.72rem; color:var(--nr-text-muted);">
             ${nrEscape(server.name)}
           </td>
@@ -920,6 +936,33 @@
 
     html += '</tbody></table>';
     container.innerHTML = html;
+  }
+
+  // A rule's role: the members' roles follow at their next sign-in
+  function setGroupRole(el) {
+    const role = el.value;
+    if (role === 'admin' && !confirm('Members of this group become administrators at their next sign-in. Continue?')) {
+      el.value = el.dataset.role;
+      return;
+    }
+    const body = new URLSearchParams({ role });
+    fetch(`/admin/server/ldap/${el.dataset.server}/groups/${el.dataset.group}/role`, {
+      method: 'POST',
+      headers: { 'X-CSRFToken': CSRF_TOKEN },
+      body
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.status === 'ok') {
+        el.dataset.role = data.role;
+        el.classList.toggle('gr-role-admin', data.role === 'admin');
+        el.classList.toggle('gr-role-operator', data.role !== 'admin');
+      } else {
+        el.value = el.dataset.role;
+        alert(data.message || 'The role was not changed.');
+      }
+    })
+    .catch(() => { el.value = el.dataset.role; alert('The role was not changed.'); });
   }
 
   function toggleGroup(serverId, groupId, el) {

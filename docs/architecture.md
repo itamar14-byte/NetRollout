@@ -847,6 +847,7 @@ classDiagram
         +authenticate()
         +user_bind(username, password)
         +check_group_membership()
+        +matching_rules(username, groups)
         +user_details(username)
         +walk_tree()
     }
@@ -1105,10 +1106,14 @@ sequenceDiagram
         end
     else known directory account
         A->>DIR: user_bind(username, password)
+        opt the directory sets the role (service account + an active group rule)
+            A->>DIR: matching_rules(username, active rules)
+            A->>DB: Accounts.set_directory_role (the highest role; never the last admin away)
+        end
         A->>RS: new session id, signed in (no 2FA)
     else unknown username
         A->>DIR: check_group_membership against the active server's mapped groups
-        A->>DB: Accounts.new_ldap (approved, active, the group's role)
+        A->>DB: Accounts.new_ldap (approved, active, the highest role of the groups matched)
         A->>RS: new session id, signed in
     end
     A->>DB: audit auth.login (success or the reason)
@@ -1342,7 +1347,7 @@ erDiagram
 | `device_results` | One row per device per job: status (`success`, `partial`, `failed`, `cancelled`), commands sent and verified, `action_needed` (what only a person can resolve), and `fetched_config` (the running configuration Verify read, kept only when some commands didn't verify, for the Verify Diff). There is no job table: `job_id` groups the rows. |
 | `job_metadata` | One row per job: the commands as typed (before token substitution) and the comment. Deleted once its job's results are gone. |
 | `audit_log` | Who did what, when, from which address, with what outcome. `actor_username` and `object_label` are copied in, so a row survives the user's or the object's deletion. |
-| `ldap_servers`, `ldap_groups` | Directory servers (bind type `anonymous`, `simple` or `regular` with a service account; bind password encrypted) and the groups whose direct members are given an account on their first sign-in, with the group's role. |
+| `ldap_servers`, `ldap_groups` | Directory servers (bind type `anonymous`, `simple` or `regular` with a service account; bind password encrypted) and the groups whose direct members are given an account on their first sign-in; a group's `role` (operator or admin) decides its members' role at every sign-in (admin if any matching active rule gives it). |
 | `system_settings` | The runtime value of each System Setting (`key`, JSON `value`, who changed it and when). The only runtime source of the settings. |
 
 <details>

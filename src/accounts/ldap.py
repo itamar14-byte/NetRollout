@@ -11,6 +11,7 @@ system trusts or to one of the organisation's trusted CA certificates
 (Server Management -> TLS Certificate -> Trusted CA certificates;
 access.certs.TrustedCAs)."""
 import ssl
+from collections.abc import Iterable, Sequence
 from typing import Any
 
 from ldap3 import Server, Connection, Tls, ALL, SIMPLE, SUBTREE, LEVEL, BASE
@@ -21,7 +22,7 @@ from ldap3.utils.conv import escape_filter_chars
 from ldap3.utils.dn import escape_rdn, parse_dn
 
 from src.access.certs import TrustedCAs
-from src.db.tables import LDAPServer, LDAPGroup, BindType
+from src.db.tables import LDAPServer, LDAPGroup, BindType, Role
 from src.encryption import decrypt
 
 
@@ -140,6 +141,14 @@ def _close(conn: Connection | None) -> None:
 			pass
 
 
+def highest_role(roles: Iterable[str]) -> str:
+	"""The role a directory user's matching group rules give: admin when any of
+	them grants admin, else operator (the highest wins, whatever the order).
+
+	:param roles: the roles of the rules the user matches (none: operator)"""
+	return Role.ADMIN if Role.ADMIN in set(roles) else Role.OPERATOR
+
+
 def _report_missing_group(group: LDAPGroup) -> None:
 	"""Print, once per process, that a mapped group isn't in the directory."""
 	if group.group_dn in _reported_missing_groups:
@@ -256,22 +265,50 @@ class Directory:
 		return self.authenticate(username, password) is not None
 
 	def check_group_membership(self, username: str, password: str,
-	                           groups: list[LDAPGroup]) -> tuple[str, str] | None:
-		"""Which of the mapped groups lets this user in (a service account is
-		needed to look: without one, None).
+	                           groups: Sequence[LDAPGroup]) -> tuple[str, str] | None:
+		"""Whether the mapped groups let this user in, and with which role (a
+		service account is needed to look: without one, None).
 
-		:param groups: the groups mapped to roles, in order
-		:returns: (group DN, role) of the first group the authenticated user is
-		 a direct member of; None when not a member, or not authenticated. A
-		 mapped group that doesn't exist in the directory is one the user isn't
-		 a member of (reported once, ACTION NEEDED)
+		:param groups: the groups mapped to roles
+		:returns: (group DN, role): the highest role of the groups the
+		 authenticated user is a direct member of (highest_role) and the first
+		 such group granting it; None when not a member, or not authenticated
 		:raises LdapUnavailable: the directory couldn't be reached or used"""
 		if not self._has_service_account():
 			return None
 		dn = self.authenticate(username, password)
 		if dn is None:
 			return None
+		matched = self._member_of(dn, groups)
+		if not matched:
+			return None
+		role = highest_role(g.role for g in matched)
+		return next(g.group_dn for g in matched if g.role == role), role
+
+	def matching_rules(self, username: str, groups: Sequence[LDAPGroup]) -> list[LDAPGroup]:
+		"""The mapped groups a user is a direct member of, looked up with the
+		service account (no password: a known user's sign-in after their bind,
+		the admin page's import).
+
+		:returns: those groups, in order; none without a service account or
+		 when the user isn't found
+		:raises LdapUnavailable: the directory couldn't be reached or used"""
+		if not self._has_service_account():
+			return []
+		try:
+			dn = self.find_dn(username)
+		except LDAPException as e:
+			raise LdapUnavailable(explain(e, self.server.host)) from e
+		return [] if dn is None else self._member_of(dn, groups)
+
+	def _member_of(self, dn: str, groups: Sequence[LDAPGroup]) -> list[LDAPGroup]:
+		"""The groups the entry `dn` is a direct member of (service account). A
+		mapped group that doesn't exist in the directory is one it isn't a
+		member of (reported once, ACTION NEEDED).
+
+		:raises LdapUnavailable: the directory couldn't be reached or used"""
 		conn = None
+		matched = []
 		try:
 			conn = self.service_bind()
 			assert conn is not None   # a "regular" bind type always has the account
@@ -286,8 +323,8 @@ class Directory:
 					_report_missing_group(g)
 					continue
 				if conn.entries:
-					return g.group_dn, g.role
-			return None
+					matched.append(g)
+			return matched
 		except LDAPException as e:
 			raise LdapUnavailable(explain(e, self.server.host)) from e
 		finally:

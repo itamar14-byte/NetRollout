@@ -19,9 +19,10 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from src.accounts.ldap import Directory, LdapUnavailable
+from src.accounts.ldap import Directory, LdapUnavailable, highest_role
 from src.accounts.users import (DISABLE_AFTER, LOCK_MINUTES, MAX_FAILED_PASSWORDS, RESERVED_USERNAME,
-                                RULE, LIMITS, AccountError, Accounts, Lockout, is_factory_admin,
+                                RULE, LIMITS, AccountError, Accounts, Lockout, RoleChange,
+                                directory_sets_role, is_factory_admin,
                                 is_reserved, lock_message, needs_second_factor,
                                 password_problem)
 from src.audit import AuditAction
@@ -50,6 +51,8 @@ _LOGIN_FAIL_MESSAGES = {
 	"ldap_unavailable": "Invalid credentials",
 	"ldap_server_inactive": "Invalid credentials",
 	"ldap_server_missing": "Invalid credentials",
+	# after the directory accepted the password: the group rules couldn't be read
+	"ldap_groups_unavailable": "LDAP authentication service unavailable",
 	"reserved_username": RESERVED_USERNAME,
 	"locked": "Too many failed sign-ins - try again later.",   # lock_message() says when
 }
@@ -219,17 +222,22 @@ def ldap_unavailable(username: str, server: LDAPServer, error: LdapUnavailable,
 def login_ldap_existing(user: User, password: str,
                         db_session: Session) -> ResponseReturnValue:
 	"""A known LDAP user's sign-in: their directory must still be configured
-	and active; a bind with the password; then approved and active. Until the
-	bind succeeds every failure reads "Invalid credentials" - a directory
-	switched off, deleted or unreachable too (the audit row says which)."""
+	and active; a bind with the password; then approved and active; then,
+	where the directory sets the role (directory_sets_role), the role from the
+	group rules the user matches now. Until the bind succeeds every failure
+	reads "Invalid credentials" - a directory switched off, deleted or
+	unreachable too (the audit row says which). The group rules unreadable
+	after the bind refuse the sign-in: a removed admin must not keep the role
+	through an outage."""
 	ldap_server = user.ldap_server
 	if ldap_server is None:
 		return login_fail(user.username, "ldap_server_missing", user.id)
 	if not ldap_server.is_active:
 		return login_fail(user.username, "ldap_server_inactive", user.id,
 		                  detail={"ldap_server": ldap_server.name})
+	directory = Directory(ldap_server)
 	try:
-		bound = Directory(ldap_server).user_bind(user.username, password)
+		bound = directory.user_bind(user.username, password)
 	except LdapUnavailable as e:
 		return ldap_unavailable(user.username, ldap_server, e, user.id)
 	if not bound:
@@ -238,14 +246,48 @@ def login_ldap_existing(user: User, password: str,
 		return login_fail(user.username, "pending_approval", user.id)
 	if not user.is_active:
 		return login_fail(user.username, "account_disabled", user.id)
+	if directory_sets_role(user):
+		rules = [rule for rule in ldap_server.user_groups if rule.is_active]
+		try:
+			matched = directory.matching_rules(user.username, rules)
+		except LdapUnavailable as e:
+			return login_fail(user.username, "ldap_groups_unavailable", user.id,
+			                  detail={"ldap_server": ldap_server.name, "error": str(e)})
+		role_from_directory(user, highest_role(r.role for r in matched),
+		                    [r.group_dn for r in matched], db_session)
 	return complete_login(user, db_session, auth_type=AuthType.LDAP)
+
+
+def role_from_directory(user: User, role: str, groups: list[str],
+                        db_session: Session) -> None:
+	"""A directory user's role set from their group rules at sign-in, audited
+	as user.role_from_directory when it changes - or, when the demotion would
+	leave no administrator who can sign in, kept (failed, kept: last_admin)
+	with an ACTION NEEDED line.
+
+	:param groups: the DNs of the rules the user matches"""
+	before = user.role
+	change = Accounts(db_session).set_directory_role(user, role)
+	if change is None:
+		return
+	detail: dict[str, Any] = {"from": before, "to": role, "groups": groups}
+	if change is RoleChange.KEPT:
+		detail["kept"] = "last_admin"
+		print(f"[NetRollout] ACTION NEEDED - {user.username} no longer matches an admin "
+		      f"group rule but stays an admin: no other administrator could sign in. "
+		      f"Add or enable another administrator.", flush=True)
+	current_app.web.audit(AuditAction.USER_ROLE_FROM_DIRECTORY,
+	                      success=change is RoleChange.CHANGED,
+	                      username=user.username, actor_id=user.id, object_type="User",
+	                      object_id=user.id, object_label=user.username, detail=detail)
 
 
 def login_ldap_group(username: str, password: str,
                      db_session: Session) -> ResponseReturnValue:
 	"""An unknown username: if the active directory accepts the password and
 	the user is in one of its mapped groups, the account is created (approved,
-	active, the group's role) and signed in; else invalid credentials."""
+	active, the highest role of the groups they match: ldap.highest_role) and
+	signed in; else invalid credentials."""
 	if is_reserved(username):
 		# no account may have this name: refused before the directory is asked
 		return login_fail(username, "reserved_username")
@@ -265,8 +307,8 @@ def login_ldap_group(username: str, password: str,
 				group_dn, role = match
 				# Fetch display attributes from LDAP directory; tolerate failure.
 				details = directory.user_details(username)
-				# Auto-provisioned users are pre-approved and active; role comes
-				# from the matched group mapping.
+				# Auto-provisioned users are pre-approved and active; the role is
+				# the highest of the group rules they match.
 				user = Accounts(db_session).new_ldap(username, ldap_server.id, role, details)
 				# Commit (not just flush) before complete_login: its audit row is
 				# written in a separate session with actor_id -> this user, which
@@ -276,7 +318,7 @@ def login_ldap_group(username: str, password: str,
 				db_session.refresh(user)
 				return complete_login(user, db_session,
 				                      auth_type=AuthType.LDAP, auto_created=True,
-				                      group_dn=group_dn)
+				                      group_dn=group_dn, role=role)
 	# No server, no matching group, or bind failed — treat as bad credentials.
 	return login_fail(username, "invalid_credentials")
 
