@@ -230,21 +230,23 @@ What installing and running NetRollout decides and writes, once for Windows and 
 
 #### `src/webapp/blueprints/`: one file per page
 
-| File | Blueprint (prefix) | The page |
-|---|---|---|
-| `auth.py` | `auth` (none) | Sign-in (local, LDAP, 2FA enrol and verify), Request access, sign-out, the Account page, the password change, the session check. |
-| `jobs.py` | `jobs` (none) | Dashboard, Active Jobs, Results (with Verify Diff, the job summary card and Download Log). |
-| `rollout.py` | `rollout` (`/rollout`) | New rollout, start, cancel, the live log stream (SSE), rollback. |
-| `inventory.py` | `inventory` (`/inventory`) | Devices: create, edit, delete, the user's own attribute values, connection test, reachability, CSV import, bulk profile assignment. |
-| `security.py` | `security` (`/security`) | Security profiles (the credentials devices are reached with), their test. |
-| `mappings.py` | `mappings` (`/mappings`), `properties` (`/properties`) | Variable mappings (`$$TOKEN$$` bound to a property) and property definitions. |
-| `analytics.py` | `analytics` (`/analytics`), `admin_observability` (`/admin`) | The user's last 30 days and query builder; the admins' analytics over the audit log; the active job count. |
-| `admin_users.py` | `admin_users` (`/admin`) | Admin home, Users (approve, enable, promote, reset password or 2FA, add, bulk actions), Live Sessions. |
-| `admin_servers.py` | `admin_servers` (`/admin/server`) | Server Management: database move and move back, Redis switch, TLS certificate upload or self-signed, the running rollouts, Restart. |
-| `admin_ldap.py` | `admin_ldap` (`/admin/server`) | Directory servers and group mappings: add, edit, test, explore, import. |
-| `admin_audit.py` | `admin_audit` (`/admin`) | The audit log. |
-| `admin_settings.py` | `admin_settings` (`/admin/settings`), `admin_backups` (`/admin/backups`) | System Settings (save, reset, the HTTPS port's status, confirm and retry, the access test) and the Backups list (back up now, download, delete). |
-| `system.py` | `system` (none) | Not pages: `/_netrollout/health`, `/_netrollout/instance`, `/_netrollout/grafana-auth`. |
+| File | Blueprint (prefix) | The page | Routes |
+|---|---|---|---|
+| `auth.py` | `auth` (none) | Sign-in (local, LDAP, 2FA enrol and verify), Request access, sign-out, the Account page, the password change, the session check. | `/`, `/login` (GET, POST), `/register` (GET, POST), `/otp_enroll`, `/otp_verify`, `/logout`, `/account`, `/account/password` (forced or voluntary change), `/account/session` (the idle-timeout script's check) |
+| `jobs.py` | `jobs` (none) | Dashboard, Active Jobs, Results (with Verify Diff, the job summary card and Download Log). | `/dashboard`, `/active_jobs`, `/results` (`?job=<id>` opens that job), `/results/config_diff/<job_id>/<device_ip>`, `/results/summary/<job_id>`, `/results/download_log/<job_id>` |
+| `rollout.py` | `rollout` (`/rollout`) | New rollout, start, cancel, the live log stream (SSE), rollback. | `/new`, `/start`, `/cancel`, `/stream/<job_id>`, `/rollback/<job_id>` |
+| `inventory.py` | `inventory` (`/inventory`) | Devices: create, edit, delete, the user's own attribute values, connection test, reachability, CSV import, bulk profile assignment. | list, `/create`, `/test_connection`, `/reachability`, `/<id>/edit`, `/<id>/attributes`, `/<id>/delete`, `/import_csv`, `/bulk_assign` |
+| `security.py` | `security` (`/security`) | Security profiles (the credentials devices are reached with), their test. | list, `/create`, `/quick_create`, `/<id>/edit`, `/<id>/delete`, `/<id>/test` |
+| `mappings.py` | `mappings` (`/mappings`), `properties` (`/properties`) | Variable mappings (`$$TOKEN$$` bound to a property) and property definitions. | Mappings: list, `/create`, `/quick_create`, `/<id>/edit`, `/<id>/delete`, `/bulk_assign`. Properties: list, `/create`, `/quick_create`, `/<id>/edit`, `/<id>/delete` |
+| `analytics.py` | `analytics` (`/analytics`), `admin_observability` (`/admin`) | The user's last 30 days and query builder; the admins' analytics over the audit log; the active job count. | `/analytics`, `/analytics/query`; `/admin/analytics`, `/admin/analytics/query`, `/admin/active_job_count` |
+| `admin_users.py` | `admin_users` (`/admin`) | Admin home, Users (approve, enable, promote, reset password or 2FA, add, bulk actions), Live Sessions. | `/admin`, `/users`, `/users/new`, `/users/<id>/<action>` (approve, enable, disable, promote, demote, delete, reset_2fa, terminate_session), `/users/<id>/reset_password` (a temporary password, shown once), `/users/bulk/<action>`, `/sessions`, `/sessions/<id>/kick` |
+| `admin_servers.py` | `admin_servers` (`/admin/server`) | Server Management: database move and move back, Redis switch, TLS certificate upload or self-signed, the running rollouts, Restart. | the page, `/database/sql`, `/database/prepare`, `/database/check`, `/database/move`, `/database/move-back`, `/database/move/status`, `/database/move/cancel`, `/redis/test`, `/redis/save`, `/redis/back`, `/certificate`, `/certificate/selfsigned`, `/rollouts`, `/restart` (with rollouts running or queued: 409 unless `mode` is `when_finished` (drain) or `now` (cancel)) |
+| `admin_ldap.py` | `admin_ldap` (`/admin/server`) | Directory servers and group mappings: add, edit, test, explore, import. | `/ldap`, `/ldap/new`, `/ldap/<id>/save`, `/delete`, `/test`, `/test_user`, `/fetch_dn`, `/explore`, `/import`, `/groups`, `/groups/<group_id>/toggle`, `/groups/<group_id>/delete` |
+| `admin_audit.py` | `admin_audit` (`/admin`) | The audit log. | `/audit` |
+| `admin_settings.py` | `admin_settings` (`/admin/settings`), `admin_backups` (`/admin/backups`) | System Settings (save, reset, the HTTPS port's status, confirm and retry, the access test) and the Backups list (back up now, download, delete). | Settings: the page (GET, POST = save), `/<key>/reset`, `/port`, `/port/confirm`, `/port/retry`, `/test`. Backups: list (GET, POST = back up now), `/<name>` (download), `/<name>/delete` |
+| `system.py` | `system` (none) | Not pages. | `/_netrollout/health`, `/_netrollout/instance`, `/_netrollout/grafana-auth` |
+
+Prometheus' `/metrics` is added by prometheus-flask-exporter (nginx answers it with 404; Prometheus scrapes the app directly). Blueprints reach the services through `current_app` inside routes, never at module level, and `url_for` always names the blueprint (`"auth.home"`, `"jobs.dashboard"`).
 
 `tests/integration/test_route_matrix.py` checks every route: all require sign-in except the public ones (sign-in, Request access, the two 2FA pages, which work on the half-done sign-in in the session, sign-out, `/_netrollout/health`, `/_netrollout/instance` and `/metrics`), and every `/admin` route requires the admin role. `/_netrollout/grafana-auth` answers a bare 401 instead of the sign-in redirect, because its caller is nginx.
 
@@ -390,6 +392,144 @@ The rules that keep it this way:
 | A `Deployment` ABC, an OS strategy, a "Server" facade | Each would only forward to one-line decisions or to small classes that are already cohesive. |
 
 What stays procedural on purpose: route functions; pure rules and text algorithms (`classify`, `verify_commands`, `rejection`, the input checks, the password rule, `due`, `next_step`); data tables (`PLATFORMS`, `SETTINGS`, `RETENTION_STATEMENTS`); one-shot flows and entry points (`install()`, backup `create` and `restore`, the release download, `cli.py`, `python -m src.setup` and `python -m src.backup`, the migrations); single-purpose modules (`encryption.py`, `runtime.py`, `site_env.py`).
+
+### The main classes and how they work together
+
+For each area: what each class is responsible for, who creates it, who calls it, and what it depends on. The class diagrams below show the same structure; the sequence diagrams after this section and in [§7](#7-key-flows) show the objects collaborating.
+
+#### Rollout core (`src/rollout/`)
+
+| Class | Responsibility | Created by | Called by | Depends on |
+|---|---|---|---|---|
+| `RolloutEngine` | One rollout: pushes to its devices in a thread pool, verifies, classifies, logs the summary. Holds no state between runs: the cancel flag and the logger are arguments of `run()`. | `RolloutOrchestrator.submit()` (web), `cli.rollout()` (CLI) | `RolloutJob`'s thread, the CLI | `Device`, `NetmikoSession`, `RunReport`, `verify_commands()`, `classify()` |
+| `Device` | A target: address, platform, decrypted credentials, the rolling-out user's token mappings and the attribute values they read. `commands_for()` fills the tokens; `unresolved()` says what can't be filled. | `Device.from_inventory()` through `InputParser.import_from_inventory()` (web routes: New Rollout, rollback), `InputParser.prepare_devices()` (CLI) | `RolloutEngine`, `NetmikoSession`, the routes (unresolved tokens) | `encryption.decrypt()`, an `Inventory` row (type only) |
+| `NetmikoSession` | One device's SSH conversation: `connect()` (also used by the connection tests), `push()` into config mode line by line then the platform's finish, `fetch_config()`. | `RolloutEngine`, once for the push and once for verify, per device | `RolloutEngine` | Netmiko (as `ConfigSession`), `Platform` / `Finish` from `PLATFORMS`, `RunReport`, `rejection()` |
+| `RunReport` | What a rollout tells: forwards log lines (redacted) to its `Notifier`, and collects per endpoint what only a person can resolve. | `RolloutEngine.run()` | `NetmikoSession`, the `Finish` strategies (as `Report`) | a `Notifier` |
+| `Platform` + `Finish` (`SaveConfig`, `Commit`, `RunCommand`, `NoFinish`) | Platform knowledge with no I/O of its own: how a change takes effect (`before_leave`, `after_leave`, `in_new_session`, acting on the session they are handed), the show command, flat or indented config, shell quirks. | Module constant `PLATFORMS` | `NetmikoSession` | `ConfigSession`, `Report`, `Target` Protocols |
+| `RolloutLogger` | One rollout's log file, every line redacted; the notable lines also through its one `Echo`. Satisfies `Notifier`. | `RolloutJob` (web), `cli.rollout()`, and the CSV import / bulk-assign routes for their own reports | `RunReport`, `RolloutEngine`, `Validator`, `InputParser` | `Echo`, `redact()`, `runtime.logs_dir()` |
+| `Echo`: `Console`, `LiveLog` | Where notable lines are shown: `Console` with ANSI colours; `LiveLog` HTML-escaped into Redis (history list + pub/sub channel), and the reader's side, `follow()`, and `close()`. | `RolloutLogger` (a `LiveLog` only for a web job with a Redis client) | `RolloutLogger`; `RolloutJob.follow_log()` for the stream | `KeyValueStore` (redis-py, by Protocol) |
+| `InputParser`, `Validator` | The CLI's devices CSV and commands file (and the CSV import's rows): parse, check, build `Device`s, drop unreachable devices. | `cli.rollout()`, the inventory import route | the same | the input check functions, `RolloutLogger` |
+
+#### Jobs (`src/jobs.py`) and results (`src/results.py`)
+
+| Class | Responsibility | Created by | Called by | Depends on |
+|---|---|---|---|---|
+| `RolloutOrchestrator` | The web app's rollouts: submit, the dispatcher thread and its slots, cancel, finalize, drain, pause. Owns the in-memory jobs and the lock that makes claiming safe. | `launch_app()`, once | rollout routes (`submit`, `cancel`), Active Jobs, `Shutdown` (`drain`), `Maintenance` (`pause`, `idle`, `resume`), the health route (`counts`) | `JobStore`, `ResultRecorder`, `RolloutJob`, `BackendServices` |
+| `RolloutJob` | One rollout's life: its engine, logger and live log, thread, cancel flag, `claim()` once, `start()`, `on_complete` always called. | `RolloutOrchestrator.submit()` | the orchestrator; the stream route through `follow_log()` | `RolloutEngine`, `RolloutLogger` |
+| `JobStore` | The job state in Redis, and the only code that spells a job key: add, enqueue, next queued, status, counters, the stop-now mark, reading `JobMeta` and `RolloutRow`. | the orchestrator; also built on the fly by the job pages, the Prometheus collector, `clear_stale_jobs()` and `python -m src.jobs` | the same | `RedisConnection` (client looked up per call) |
+| `ResultRecorder` | Finished jobs' device results into PostgreSQL, retried, else a JSON file in `logs/`; `busy()` while saving, so a move or a stop waits. | the orchestrator | the orchestrator's finalize | `PostgresConnection` |
+| `JobResults` | Finished jobs as the viewer may see them: the owner-or-admin rule (`may_see`), Results' pages, summaries, config snapshots, totals, the admin's user scope. Reads only, in the caller's session. | routes, per request: `JobResults(session, viewer())` | jobs, rollout (rollback), analytics, account routes | `Viewer`, `InventoryView` (labels), `Accounts` (owner names) |
+
+#### Domain services
+
+| Class | Responsibility | Created by | Called by | Depends on |
+|---|---|---|---|---|
+| `Viewer` | Who the rules are about: a user id and whether an admin. A value. | `http.viewer()` once per request (`Viewer.of(current_user)`); `Viewer(user_id)` for another user's view (a rollback uses the job owner's) | every domain service | nothing |
+| `InventoryView` | The inventory as one user sees it: visibility and edit rights, shared endpoints, label maps, property definitions and attribute values, mapping bindings, the device-saving rules (`save_device()` raises `RuleRefused`). | routes: `InventoryView(session, viewer())`; `import_csv()`; `JobResults` | inventory, rollout, mappings, analytics, jobs, security routes | the session, `Viewer`, the tables |
+| `SecurityProfiles` | The viewer's security profiles; the one place device secrets are encrypted. | security and inventory routes, the CSV import | the same | the session, `Viewer`, `encryption` |
+| `Accounts` | Making accounts (local: Request access, Add user; directory: a mapped group's first sign-in, the LDAP import), the name lookups, the access requests waiting. Raises `AccountError`. | routes per request, `jobs.with_owners()`, `JobResults` | auth, admin users, admin LDAP, jobs | the session, the password rule |
+| `SessionStore` | The signed-in sessions in Redis: sign a user out everywhere (`end_for`), who is signed in, clear all at start, the idle limit. | `launch_app()` (`app.sessions`) | the request hooks, auth, admin users, Live Sessions, the Redis switch | a Redis client getter, flask-session's serializer (`SessionSerializer`), the settings getter |
+| `Directory` | One configured LDAP server: bind as the user, group membership, user details, the admin page's test / explore / import. | auth and admin LDAP routes, per use: `Directory(server_row)` | the same | ldap3, `encryption.decrypt()` for the bind password |
+| `AuditTrail` | The one writer of audit rows, each in its own session, independent of the caller's. | `WebServices`; `BackupScheduler`'s audit; the setup core's port-by-hand | `WebServices.audit()` (every route), `DatabaseMove`, backups | a `PostgresConnection` getter, `Actor`, `AuditAction` |
+
+#### Infrastructure (`src/db/`, `src/runtime.py`)
+
+| Class | Responsibility | Created by | Called by | Depends on |
+|---|---|---|---|---|
+| `BackendServices` | One PostgreSQL connection, one Redis connection and the settings per process; the move's and switch's entry points (`move_postgres`, `reload_redis`), `health()`, `connection_modes()`, the encryption sample. | `launch_app()` (tests pass their own) | everything that needs a connection, through `app.backend` | `RuntimeEnv`, `PostgresConnection`, `RedisConnection`, `install()`, `SettingsStore` |
+| `ServiceConnection` → `PostgresConnection`, `RedisConnection` | Template method: the bundled-or-yours rule (`mode`, `bundled_config`) and the live switch (`switch_to`: swap, write `runtime.env`, undo on failure) written once; each subclass supplies `config_from_url`, `live_host`, `own_url`, `swap`, `after_swap`, `undo`. `PostgresConnection.get_session()` commits on a clean exit and rolls back on an exception; `reload_db()` raises `RuntimeError` when the new server is unreachable, changing nothing. Redis errors callers catch are the `REDIS_UNAVAILABLE` tuple. | `BackendServices`; the setup core and `python -m src.backup` build a `PostgresConnection` of their own | every data access | `PostgresConfig` / `RedisConfig` (frozen, from the URL or the separate variables: `unload_env`, `get_url`, `place`, `describe`, `to_env_dict`) |
+| `RuntimeEnv` | `config/runtime.env`: loading it with override, merging a switch's keys, the remembered bundled addresses. | `BackendServices` | `ServiceConnection.switch_to`, `mode` | `python-dotenv`, `runtime.write_atomic` |
+| `SettingsStore` + `Setting` kinds (`IntSetting`, `TextSetting`, `ChoiceSetting`) | Reading and changing System Settings, always from the table; `plan()` / `update()` all or nothing, raising `SettingsError`. Each `Setting` parses a typed value, coerces a stored one, renders its page fields and gives its seed. | `BackendServices.settings` (a `PostgresConnection` getter, so a move is followed); `SETTINGS` registry | settings routes, `Access`, the orchestrator's start, the scheduler, the hooks | `SystemSetting` table, `RULES` |
+| `PeriodicTask` → `LogPruner`, `CertificateUpkeep`, `BackupScheduler`, `NightlyCleanUp` | A daemon loop: optional first delay, `run_once()` every interval, `failed()` reporting (may arrange a retry), `hold()` for "not now". | `src/webapp/__main__.py` | their own thread | each its own work |
+
+#### Access (`src/access/`)
+
+| Class | Responsibility | Created by | Called by | Depends on |
+|---|---|---|---|---|
+| `Access` | Facade (`app.access`): saving the hostname and HTTPS port, resetting a setting, confirming or retrying the port, uploading or generating a certificate; every multi-system change all or nothing (`SaveResult`). | `launch_app()` | System Settings and Server Management routes | `SettingsStore`, `CertificateStore`, `Nginx`, `access.port` |
+| `Nginx` | nginx from the app's side: `managed`, `status()`, `overview()`, `change_hostname()` (certificate then `site.env`, under the certificate lock, returning an undo), `apply(change)` (make it, await the verdict, undo on rejection). | `Access` | `Access` | `CertificateStore`, `site_env`, `write_site()`, `wait_for_status()`, `Verdict` |
+| `CertificateStore` + `Certificate` (`SelfSigned`, `Organisation`) | The certs folder; `current()` is the factory that returns the right kind; `rename()`, `install()`, `generate_selfsigned()`, `drop_expired()`, each under one lock with an undo. A `SelfSigned` certificate reissues itself for a new name; an `Organisation` one refuses a name it doesn't cover. | `Access` (the app); the setup core (install, status) | `Nginx`, `Access`, `CertificateUpkeep` | `certs.selfsigned()`, `certs.validate()`, cryptography |
+| `CertificateUpkeep` | Hourly: drops previous hostnames whose 7-day transition ended. | `src/webapp/__main__.py` with `app.access.certificates` | its thread | `CertificateStore` |
+| `ApplyStatus`, `ApplyState`, `PortPageState` | The port helper's answer typed, its states, and what the page shows. | `access.port.read_status()`, `state()` | `Access.port_state()`, the settings routes | `config/apply-status.json` |
+
+#### Backups (`src/backup/`)
+
+| Class | Responsibility | Created by | Called by | Depends on |
+|---|---|---|---|---|
+| `BackupFolder` + `BackupLock` | The backups folder: `entries()`, `prune(keep)` (scheduled ones only), the last scheduled outcome, and `lock()`, one backup or restore at a time, refreshed while held. | `archive.create()` / `restore()` / `check()`, the scheduler, the Backups page | the same | the folder, `runtime.write_json` |
+| `BackupScheduler` | A `PeriodicTask`: when a scheduled time passed, `archive.create(kind=scheduled)`, then prune; a failure audited and retried after an hour. | `start_backup_schedule()` from `__main__` with `hold` = "a move is running" | its thread | `BackendServices`, `archive`, `AuditTrail`, the settings |
+
+#### Web (`src/webapp/`)
+
+| Class | Responsibility | Created by | Called by | Depends on |
+|---|---|---|---|---|
+| `NetRolloutApp` | Flask with the typed services: `backend`, `orchestrator`, `web`, `shutdown`, `maintenance`, `db_move`, `access`, `sessions`, `instance_token`, `settings_started_with`, `app_port`. The pages import its typed `current_app`. | `launch_app()` | every route | all of the above |
+| `WebServices` | The request's audit row (`audit()`: who, from where, printed instead while maintenance blocks writes) and the shared `ReachabilityChecker`. | `launch_app()` (`app.web`) | every route that audits; inventory and rollout (reachability) | `AuditTrail`, `Maintenance`, `ReachabilityChecker` |
+| `Caller` | An enum used as a light strategy: which signs (a JSON body, the XHR header, a background request, a method other than GET, the live log stream) make a request a script's in each situation, so an error is answered as JSON or as a page. | enum members | hooks and error handlers (`wants_json()`) | the request |
+| `Shutdown` | This process's stop or restart: at most one, begun once, drain in the background, then exit (or relaunch in development). | `launch_app()` | the SIGTERM handler, the admin Restart route | `RolloutOrchestrator` |
+| `Maintenance` | A database move's waiting and lock: pauses the orchestrator, then the request gate (`register_maintenance`) answers 503; counts requests under way (`enter` / `leave`). | `launch_app()` | `DatabaseMove`, `WebServices`, the gate, the banner | `RolloutOrchestrator` |
+| `DatabaseMove` | One database move at a time, in a background thread: check, wait, lock, copy, switch; cancel; its status (`MoveStatus`) for the page. | `launch_app()` (`app.db_move`) | Server Management routes | `BackendServices`, `Maintenance`, `AuditTrail`, `db/move.py` |
+
+#### A CLI rollout
+
+```mermaid
+sequenceDiagram
+    actor E as Engineer
+    participant C as cli.rollout()
+    participant L as RolloutLogger (Console)
+    participant P as InputParser + Validator
+    participant R as RolloutEngine
+    participant N as NetmikoSession
+
+    E->>C: python -m src.cli -d devices.csv -c commands.txt -vf
+    C->>L: RolloutLogger(webapp=False), log file in logs/
+    C->>P: prepare_devices(rows): check each row, build Device objects
+    P->>P: tcp_reachable per device, unreachable ones dropped
+    C->>P: parse_commands(path)
+    C->>R: RolloutEngine(options, devices, commands)
+    C->>R: run(cancel_flag, logger)
+    loop each device, in parallel
+        R->>N: push(commands), then fetch_config() with Verify
+        N->>L: notify through RunReport (redacted)
+    end
+    R-->>C: one DeviceResultDict per device
+    C-->>E: summary, exit code 0, 1, 2 or 130
+```
+
+#### Saving the hostname through `Access`
+
+```mermaid
+sequenceDiagram
+    actor A as Admin
+    participant RT as admin_settings route
+    participant AC as Access
+    participant SS as SettingsStore
+    participant NG as Nginx
+    participant CS as CertificateStore
+    participant F as site.env and status.json
+    participant W as nginx watcher
+
+    A->>RT: POST System Settings (hostname)
+    RT->>AC: save(values, actor)
+    AC->>SS: plan(values): validate, nothing written
+    AC->>NG: apply(change, hostname)
+    NG->>NG: change()
+    NG->>CS: rename(new): SelfSigned reissues, Organisation must cover it
+    NG->>F: write_site(new)
+    AC->>SS: update(values, actor)
+    W->>F: sees the change, renders, nginx -t, reload
+    W->>F: status.json applied or rejected
+    NG->>F: wait_for_status for this hostname
+    alt rejected
+        NG->>NG: undo: settings, site.env and certificate put back
+        AC-->>RT: SettingsError with nginx's message
+    else applied, no nginx here, or no answer
+        AC-->>RT: SaveResult(changes, verdict)
+    end
+    RT->>RT: audit each change
+```
+
+The web rollout, sign-in and database move are drawn object by object in [§7](#7-key-flows).
 
 ### Class diagrams
 
@@ -1186,6 +1326,91 @@ erDiagram
 | `ldap_servers`, `ldap_groups` | Directory servers (bind type `anonymous`, `simple` or `regular` with a service account; bind password encrypted) and the groups whose direct members are given an account on their first sign-in, with the group's role. |
 | `system_settings` | The runtime value of each System Setting (`key`, JSON `value`, who changed it and when). The only runtime source of the settings. |
 
+<details>
+<summary>Column reference (every table)</summary>
+
+| Table | Column | Type | Notes |
+|---|---|---|---|
+| `users` | `id` | UUID | Primary key |
+| | `username` | string(64) | Unique, indexed |
+| | `password_hash` | string(255) | Null for directory users |
+| | `email` | string(120) | Unique, nullable |
+| | `full_name`, `position` | string(120), string(64) | Nullable |
+| | `role` | string(40) | `operator` (default) or `admin`; the app only checks for `admin` |
+| | `is_active`, `is_approved` | bool | Default false |
+| | `otp_secret` | string(255) | Fernet-encrypted TOTP secret; null until enrolled |
+| | `must_change_password` | bool | Default false |
+| | `auth_type` | string(20) | `local` or `ldap` |
+| | `ldap_server_id` | UUID | FK `ldap_servers`, ON DELETE SET NULL |
+| | `created_at` | datetime | |
+| `inventory` | `id`, `user_id` | UUID | `user_id`: the owner |
+| | `sec_profile_id` | UUID | FK `security_profiles`, nullable: a device without a profile can't be rolled out |
+| | `ip`, `device_type`, `label` | string(64) | `label` required |
+| | `port` | int | SSH port |
+| | `is_global` | bool | Visible to and usable by everyone; admins edit |
+| | `var_maps` | JSON | System property values, keyed by property name; list properties hold lists |
+| `security_profiles` | `id`, `user_id` | UUID | |
+| | `label` | string(64) | Nullable; the UI falls back to the username |
+| | `username` | string(64) | Clear text |
+| | `password_secret` | string(255) | Fernet |
+| | `enable_secret` | string(255) | Fernet, nullable |
+| `variable_mappings` | `id`, `user_id` | UUID | |
+| | `label` | string(64) | Nullable |
+| | `token` | string(64) | E.g. `$$HOSTNAME$$`; unique per user |
+| | `property_name` | string(64) | The attribute it reads |
+| | `index` | int | Null: the value as is; N: item N of a list property |
+| `var_mapping_to_devices` | `mapping_id`, `device_id` | UUID | Join table, shared across users |
+| `property_definition` | `id`, `user_id` | UUID | Unique `(name, user_id)` |
+| | `name`, `label`, `icon` | string(64) | `icon`: a Bootstrap Icons class |
+| | `is_list` | bool | A list value (enables index substitution) |
+| `device_attributes` | `id` | UUID | Unique `(device_id, user_id, name)` |
+| | `device_id`, `user_id` | UUID | Both ON DELETE CASCADE |
+| | `name` | string(64) | The property's name |
+| | `value` | JSON | A text or a list of texts |
+| `device_results` | `id`, `user_id` | UUID | |
+| | `job_id` | UUID | Soft reference, groups a job's rows |
+| | `started_at`, `completed_at` | datetime | |
+| | `device_ip`, `device_type` | string(64) | |
+| | `device_port` | int | Server default 22 |
+| | `commands_sent` | int | |
+| | `commands_verified` | int | Commands confirmed plus those that can't be checked (navigation, operational); null when Verify didn't run or the config couldn't be fetched |
+| | `status` | string(64) | `success`, `partial`, `failed`, `cancelled` |
+| | `action_needed` | text | Nullable |
+| | `fetched_config` | text | Nullable; cleared after *Config snapshots* (the page then says the Verify Diff expired) |
+| `job_metadata` | `id`, `user_id`, `job_id` | UUID | `job_id` a soft reference |
+| | `commands` | JSON | The command list before substitution |
+| | `comment` | string(255) | Nullable |
+| | `created_at` | datetime | |
+| `audit_log` | `id` | UUID | |
+| | `timestamp` | datetime | Indexed |
+| | `actor_id` | UUID | FK `users`, ON DELETE SET NULL |
+| | `actor_username` | string(64) | Copied: survives the user's deletion |
+| | `action` | string(64) | Dot-namespaced (`auth.login`, `inventory.create`, …), indexed |
+| | `object_type`, `object_id`, `object_label` | string(64), UUID, string(255) | The affected object; the label copied |
+| | `success` | bool | |
+| | `ip_address` | string(64) | The real client address (through `ProxyFix`) |
+| | `detail` | JSON | Machine-readable detail (reason, changes) |
+| `ldap_servers` | `id` | UUID | |
+| | `name` | string(64) | Display name |
+| | `host`, `base_dn` | string(255) | |
+| | `port` | int | Default 389 (the page suggests 636 for LDAPS) |
+| | `cn_identifier` | string(64) | Login attribute, default `sAMAccountName` (`uid` for OpenLDAP) |
+| | `bind_type` | string(20) | `anonymous` (default), `simple`, `regular` (service account) |
+| | `bind_dn` | string(255) | Service account DN, nullable |
+| | `bind_password` | string(255) | Fernet, nullable |
+| | `use_ssl`, `is_active` | bool | LDAPS; active (default true) |
+| `ldap_groups` | `id`, `ldap_server_id` | UUID | FK ON DELETE CASCADE |
+| | `group_dn` | string(512) | Matched against the user's groups (direct membership) |
+| | `label` | string(128) | |
+| | `role` | string(40) | Given to accounts created from this group |
+| | `is_active` | bool | |
+| `system_settings` | `key` | string(64) | Primary key: the setting's name |
+| | `value` | JSON | |
+| | `updated_at` | datetime | |
+| | `updated_by` | UUID | FK `users`, ON DELETE SET NULL; null: seeded, never changed by an admin |
+
+</details>
+
 Retention (System Settings, applied by the nightly clean-up): job records 30 days, config snapshots 7 days, audit log 90 days. See [§10.7](#107-retention).
 
 ### Redis keys
@@ -1328,6 +1553,15 @@ Everything that shows or redirects to an address uses `serving_port()` (the help
 
 **Adding a platform** is one `PLATFORMS` row in `src/rollout/platforms.py` (its `Finish`, show command, flat or indented, any shell or config-mode quirk) and a fixture in `tests/unit/rollout/test_platforms.py`. `SUPPORTED_PLATFORMS` is derived from `PLATFORMS`.
 
+**The engine's data types** (`src/rollout/engine.py`, runtime only, no database coupling):
+
+| Type | Fields |
+|---|---|
+| `RolloutOptions` | `verify` (run Verify after the push), `verbose` (show every message), `webapp` (log for the page as HTML, not a console), `max_workers` (devices at the same time, default 10) |
+| `Device` | `ip`, `label`, `username`, `password` and `secret` (decrypted, hidden from `repr`), `device_type`, `port`, `var_map_subs` (`$$TOKEN$$` to the property name and list index, the rolling-out user's mappings only), `extra` (the attribute values that user sees); `endpoint` is `ip:port`, which identifies a target (several devices can share an IP behind NAT) |
+| `DeviceResultDict` | `device_ip`, `device_port`, `device_type`, `commands_sent`, `commands_verified`, `fetched_config`, `status`, `action_needed`: a `device_results` row's fields |
+| `PushResult`, `VerifyResult` | How the push went (applied, commands sent, refusals, interrupted) and how Verify went (verified, checkable, the config kept when something didn't verify); `classify()` reads both |
+
 ### 10.2 Jobs and orchestration
 
 `RolloutOrchestrator(backend, max_concurrent)` is created once at app start; `max_concurrent` is the *Concurrent rollout jobs* setting as it was at start (a change applies after a restart).
@@ -1416,6 +1650,12 @@ The last outcome is in `config/retention-status.json`, shown on System Settings.
 
 **Start** (`launch_app`): resolve `SECRET_KEY` and require the encryption key in a container (fail fast); seed the hostname from the installer's `site.env`; build `BackendServices` (load `runtime.env`, connect PostgreSQL, run `install()`: migrations, the factory `admin` / `admin` account if missing, the missing settings, Grafana's grants; connect Redis); check the encryption key against a stored credential; build the orchestrator, `Maintenance`, `WebServices` and the Flask app; register the maintenance gate (the first request hook), the extensions, the session checks and the error handlers; then sign everyone out (`SessionStore.clear_all`), clear leftover job state and sync nginx's `site.env`. `__main__` then installs the SIGTERM handler, starts the background tasks (`LogPruner`, `CertificateUpkeep`, `BackupScheduler`, `NightlyCleanUp`) and serves with Waitress on `0.0.0.0:$PORT`.
 
+**The encryption key check** (`init_encryption`) refuses to start, with a readable message and no traceback (`EncryptionStartupError`, a `StartupError`), when the key is malformed, missing while encrypted data exists, missing while the database is unreachable (it can't tell whether data exists), or doesn't match the stored data. A key is generated only in development, on a reachable database with no encrypted data. A secret that fails to decrypt later, during a request, renders `key_error.html` (what to restore, for admins).
+
+**Error handlers** (`register_handlers` in `hooks.py`): a stale CSRF token (JSON for a script, else back to sign-in); 404 (`404.html` for a person, JSON for a script); PostgreSQL `OperationalError` and Redis connection or timeout errors (503, `db_error.html` saying which service is down and where it was looked for); and `InvalidEncryptionKeyError` (above). `Caller` decides between JSON and a page in each case.
+
+**The development startup check** (`startup.py`, not in a container: the console isn't watched there and the published port isn't reliably reachable from inside): each run serves a random token at `/_netrollout/instance`. Once Waitress answers, a background check fetches it through nginx twice: first by connecting to 127.0.0.1 while presenting the public hostname (SNI and Host), then through the public URL itself (the hostname and serving port from the settings, else `https://localhost` with the dev stack's port). It proves nginx forwards to *this* process, prints the address people should use with a message that fits the case (no proxy, wrong upstream, DNS), and opens it in the browser on a desktop launch (`NETROLLOUT_OPEN_BROWSER=0` disables that).
+
 **Stop and Restart** (`Shutdown`): at most one, begun once. SIGTERM (`docker stop`, `netrollout stop`, an update) and the admin Restart drain the orchestrator, then exit. In a container, Restart exits and Docker's restart policy brings the app back; compose's `stop_grace_period` (11 minutes) is longer than the drain. Every page shows a banner while it drains. With rollouts running, the Restart dialog lists them and asks: when they finish, or now.
 
 **Maintenance mode** (`Maintenance`, for the database move): **waiting** pauses the orchestrator (new rollouts refused, queued and running ones finish, nothing cancelled), with a banner on every page; then **locked**, once the orchestrator is idle and no request is being answered (the gate counts every request it lets through). While locked, every request gets 503 with `Retry-After` (a page for browsers, JSON otherwise), except views marked `@during_maintenance` (health, instance, Grafana's auth check, the move's status; none of them write), static files and `/metrics`. Audit rows are printed instead of written, and the scheduled backup and the clean-up wait (`hold`). Maintenance is in memory only, so a restart ends it. `tests/integration/test_maintenance.py` sweeps the whole URL map.
@@ -1424,7 +1664,7 @@ The last outcome is in `config/retention-status.json`, shown on System Settings.
 
 ### 10.9 Sessions and accounts
 
-- **Sessions** live in Redis (`redis_session:<sid>`), through `_SafeRedisSessionInterface` (Flask-Session's interface, made tolerant of a Redis outage). The cookie is `Secure`, `HttpOnly`, `SameSite=Lax`. A sign-in regenerates the session id. A session ends after `session_idle_minutes` without user activity and after 12 hours however active (`enforce_session_lifetime`); background requests (header `X-NR-Background: 1`, `?_bg=1`, the live log stream) are checked but don't extend it. Every page warns a minute before the idle limit and checks `/account/session` every 30 s, so a session ended elsewhere leaves the page within 30 s. `SessionStore.end_for(user_id)` signs a user out everywhere by decoding every session with flask-session's serializer; a password reset or Terminate Session does that, and a password change ends the user's other sessions. Every app start signs everyone out.
+- **Sessions** live in Redis (`redis_session:<sid>`), through `_SafeRedisSessionInterface` (Flask-Session's interface, made tolerant of a Redis outage). The cookie is `Secure`, `HttpOnly`, `SameSite=Lax`. A sign-in regenerates the session id. A session ends after `session_idle_minutes` without user activity and after 12 hours however active (`enforce_session_lifetime`); background requests (header `X-NR-Background: 1`, `?_bg=1`, the live log stream) are checked but don't extend it. Every page warns a minute before the idle limit and checks `/account/session` every 30 s, so a session ended elsewhere leaves the page within 30 s. `SessionStore.end_for(user_id)` signs a user out everywhere by decoding every session with flask-session's serializer; a password reset or Terminate Session does that, and a password change ends the user's other sessions. Scanning every session is complete and cheap at this scale; a per-user index would be faster but would miss sessions written before it and need its own expiry clean-up. Live Sessions and the Users page read sessions the same way (`SessionStore.signed_in`). Every app start signs everyone out.
 - **Accounts** (`Accounts`): one set of checks for both ways a local account is made (Request access, waiting for approval; an admin's Add user, active at once with a temporary password and `must_change_password`), and the directory accounts made at a mapped group member's first sign-in. Usernames are unique; directory sign-in matches names case-insensitively. `netrollout-grafana-admin` is reserved (`is_reserved`), because Grafana trusts the username nginx hands it.
 - **Passwords** (local accounts): `password_problem()` is the one rule, for registration, the password change and generated temporary passwords: at least 8 characters, at least 2 of letters, digits and special characters, ASCII only, not containing the username, and a change must differ from the current password. Hashes are Werkzeug's `generate_password_hash` (scrypt by default). `templates/_password_rule_script.html` mirrors the rule in the browser.
 - **Two-factor** (TOTP, pyotp) is required for every local account except the factory `admin` (which must stay reachable for recovery). Directory accounts sign in without it. Admins can reset a user's 2FA.
@@ -1457,7 +1697,16 @@ The `monitoring` compose profile (switched on by `COMPOSE_PROFILES=monitoring` i
 
 Grafana is served by nginx at `/grafana/` to signed-in NetRollout **admins only**: nginx's `auth_request` asks the app (`/_netrollout/grafana-auth`: 204 with `X-NetRollout-User`, 401, or 403), and Grafana runs in proxy-auth mode trusting `X-WEBAUTH-USER`, which nginx always sets from that answer. Every Grafana user is an Editor; there is no Grafana login form. Operators are excluded because free Grafana lets any signed-in user query every data source through its API, which would bypass the own-jobs-only rule.
 
-Dashboard folders: `NetRollout` → `Operations` (Operations Overview, Job Analytics), `Jobs` (Job Details), `Security` (Audit & Security), all view-only and replaced by updates; and `Custom`, the admins' own, never touched (backups include Grafana's database). The app's admin sidebar shows the Grafana link when `NETROLLOUT_MONITORING` contains `monitoring`. The app itself runs unaffected when the monitoring services are down.
+Dashboard folders: `NetRollout` → `Operations` (Operations Overview, Job Analytics), `Jobs` (Job Details), `Security` (Audit & Security), all view-only and replaced by updates; and `Custom`, the admins' own, never touched (backups include Grafana's database).
+
+| Dashboard | File (`deploy/grafana/dashboards/`) | Data sources | Shows |
+|---|---|---|---|
+| Operations Overview | `Operations/operations_overview.json` | Prometheus, PostgreSQL | Live job state, request rates and latency, recent outcomes |
+| Job Analytics | `Operations/job_analytics.json` | PostgreSQL, Prometheus | Historical outcomes, platform breakdown, durations |
+| Job Details | `Jobs/job_details.json` | PostgreSQL, Loki | One job (`$job_id`): its device results, commands and log stream |
+| Audit & Security | `Security/audit_security.json` | PostgreSQL | The audit trail, failure rates, top actors |
+
+The dashboards are Grafana dashboard v2 files, imported through Grafana's API. `tests/unit/packaging/test_monitoring_config.py` checks that every data source they reference exists (by uid, so keep the uids) and that every subfolder is one the setup imports. The app's admin sidebar shows the Grafana link when `NETROLLOUT_MONITORING` contains `monitoring`. The app itself runs unaffected when the monitoring services are down.
 
 ### 10.12 NetRollout Setup and NetRollout Manager (Windows)
 
@@ -1555,5 +1804,14 @@ Known bugs are recorded as strict `xfail` tests, so fixing one fails the test un
 | **The CLI shares the engine but none of the web stack.** | One rollout implementation, tested once; a small, standalone executable for one-off rollouts without a server. |
 | **Every start signs everyone out.** | A restart, update or reboot starts clean; sessions never outlive the process that issued them. |
 | **Server-rendered pages, no frontend build.** | One maintainer, one language on the server; per-page scripts inline in their template. Extracting shared assets is a later step. |
+| **`RolloutJob` owns the cancel flag; the engine gets its context as arguments.** | Cancelling is a lifecycle concern, not the logger's or the pipeline's. `RolloutEngine.run(cancel_flag, logger)` holds no state between calls. |
+| **Results are one row per device per job, identified by `ip:port`.** | Per-device analytics in plain SQL; devices behind NAT or port forwarding (one IP, several ports) stay distinct. |
+| **Credentials live in security profiles, apart from devices.** | Topology is separate from credentials; one profile serves many devices and is changed in one place. |
+| **Flask extensions at module level with `init_app()`; services on the app object.** | Blueprints import the extensions at definition time, before an app exists. The services are set on `NetRolloutApp` in `launch_app()` and reached through the typed `current_app`, which avoids circular imports and lets mypy check every use. |
+| **`url_for` always names the blueprint** (`"auth.home"`, `"jobs.dashboard"`). | No endpoint name collisions between pages. |
+| **`_SafeRedisSessionInterface` is the only session interface.** | Set in `launch_app()`; Flask-Session's `Session(app)` would only build an interface from config that this one replaces, so it isn't called. The subclass keeps a Redis outage from failing the response. |
+| **Directory group rules create accounts at first sign-in.** | No manual onboarding for directory users; the role comes from the mapped group. |
+| **Audit rows copy the actor's username and the object's label.** | A row survives the deletion of its user or object, with no dangling reference. |
+| **The development startup check uses a per-run token fetched through nginx.** | It proves the proxy reaches *this* process, not a stale one, and tells the developer the right address. |
 | **Bundled services by default, your own by choice.** | A new install works with nothing but Docker. An organisation can move the data to its own PostgreSQL (with a verified copy and a way back) or switch Redis live, from the UI. |
 
