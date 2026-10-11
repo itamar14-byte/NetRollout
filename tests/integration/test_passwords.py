@@ -352,3 +352,15 @@ def test_reset_is_admin_only(make_user, client_for, session_scope):
 	resp = reset(client_for(make_user(), xhr=True), target.id)
 	assert resp.status_code in (302, 403)
 	assert get_user(session_scope, target.id).must_change_password is False
+
+
+def test_the_sign_in_eye_finds_its_field_by_id(client_for):
+	"""The sign-in page's show/hide button names its field (data-target="password")
+	and the script looks it up by id - not as "the element before the button",
+	which a browser extension's injected element took: the click flipped that and
+	the password stayed masked (the rc2 test run; incognito, without extensions,
+	worked)."""
+	page = client_for().get("/").get_data(as_text=True)
+	assert 'data-target="password"' in page
+	assert "document.getElementById(this.dataset.target)" in page
+	assert "previousElementSibling" not in page

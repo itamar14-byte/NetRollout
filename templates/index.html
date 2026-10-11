@@ -34,7 +34,7 @@
         <div class="input-group">
           <input type="password" class="form-control login-input" id="password"
                  name="password" placeholder="Enter password" required>
-          <button class="btn btn-outline-secondary toggle-password login-toggle" type="button" title="Show password" aria-label="Show password"><i class="bi bi-eye" aria-hidden="true"></i></button>
+          <button class="btn btn-outline-secondary toggle-password login-toggle" type="button" data-target="password" title="Show password" aria-label="Show password"><i class="bi bi-eye" aria-hidden="true"></i></button>
         </div>
       </div>
       <div class="d-grid">
@@ -243,7 +243,9 @@
 <script>
   document.querySelectorAll(".toggle-password").forEach(btn => {
     btn.addEventListener("click", function () {
-      const input = this.previousElementSibling;
+      // by id, not "the element before the button": a browser extension may
+      // put its own element there, and the click then flipped that one
+      const input = document.getElementById(this.dataset.target);
       const show = input.type === 'password';
       input.type = show ? 'text' : 'password';
       const icon = this.querySelector('i');
