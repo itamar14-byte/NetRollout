@@ -206,7 +206,7 @@ Options:
 
 The Linux script has no `rollouts` or `stop-now` command; `stop` and `update` show the rollouts and ask instead.
 
-To uninstall on Windows, or for what an uninstall keeps, see [Uninstalling](install.md#uninstalling).
+To uninstall on Windows, or for what an uninstall keeps, see [Uninstalling](install.md#uninstall).
 
 ## Manager and command line side by side
 

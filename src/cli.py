@@ -34,7 +34,7 @@ def get_args() -> argparse.Namespace:
 		description="NetRollout — push configuration snippets to multiple network devices."
 	)
 	parser.add_argument("-d", "--devices",
-	                    help="Path to a CSV file. Required fields: ip, device_type, port, username, password, secret")
+	                    help="Path to a CSV file. Required fields: ip, device_type, port, username, password (secret: the enable password, when needed)")
 	parser.add_argument("-c", "--commands",
 	                    help="Path to a txt file containing commands to push, one per line")
 	parser.add_argument("-vf", "--verify",

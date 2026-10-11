@@ -100,7 +100,7 @@ Download `netrollout-cli-<version>.exe` from the [Releases page](https://github.
 netrollout-cli-<version>.exe -d devices.csv -c commands.txt -vf
 ```
 
-`devices.csv` needs the columns `ip`, `device_type`, `port`, `username`, `password` and `secret`. `commands.txt` holds one command per line. `-vf` verifies the change on every device. See the [CLI guide](docs/cli.md).
+`devices.csv` needs the columns `ip`, `device_type`, `port`, `username` and `password` (`secret`, the enable password, when the device needs one). `commands.txt` holds one command per line. `-vf` verifies the change on every device. See the [CLI guide](docs/cli.md).
 
 ## Requirements
 

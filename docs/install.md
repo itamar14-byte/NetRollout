@@ -288,7 +288,7 @@ A silent uninstall keeps everything. The shortcuts, the `PATH` entry and the Win
 sudo ./bin/netrollout.sh uninstall
 ```
 
-It asks whether to delete the data (default no), then, if you said yes, whether to keep the backups (default yes), and whether to remove NetRollout's files too (default no). Unattended:
+It asks whether to delete the data (default no), then, if you said yes, whether to delete the backups too (default no; they are the last copy of the data), and whether to remove NetRollout's files too (default no). Unattended:
 
 | Flag | Effect |
 | --- | --- |
