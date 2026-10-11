@@ -339,7 +339,7 @@ A failure before the Publish job publishes nothing. A failure inside it (Docker 
 
 ### The Docker Hub overviews
 
-Each image's page on Docker Hub shows `packaging/dockerhub/<image>.md`. A change to those files on `master` updates Docker Hub by itself (`.github/workflows/dockerhub.yml`, also runnable by hand from Actions). It uses a third-party action pinned to a commit, which Dependabot keeps current, and never fails a build: if Docker Hub refuses (the token needs the *Read, Write, Delete* scope to edit a description), the run ends with a warning.
+Each image's page on Docker Hub shows `packaging/dockerhub/<image>.md`. A change to those files on `master` updates Docker Hub by itself (`.github/workflows/dockerhub.yml`, also runnable by hand from Actions). It uses a third-party action pinned to a commit, which Dependabot keeps current, and never fails a build: it uses its own token, the `DOCKERHUB_ADMIN_TOKEN` secret, because editing a description needs Docker Hub's *Read, Write, Delete* scope, while the releases' `DOCKERHUB_TOKEN` only pushes images. If Docker Hub refuses, the run ends with a warning.
 
 ## Code of conduct
 

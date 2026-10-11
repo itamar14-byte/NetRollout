@@ -44,7 +44,9 @@ jobs:
         continue-on-error: true      # a Docker Hub hiccup or a token without the scope never fails anything
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          # Its own token: editing a description needs Docker Hub's Read, Write, Delete
+          # scope; the releases keep DOCKERHUB_TOKEN, which may only push images.
+          password: ${{ secrets.DOCKERHUB_ADMIN_TOKEN }}
           repository: itamarweinstein/${{ matrix.image }}
           short-description: ${{ matrix.short }}
           readme-filepath: packaging/dockerhub/${{ matrix.image }}.md
@@ -55,4 +57,4 @@ jobs:
         run: >-
           echo "::warning title=Docker Hub overview not updated::itamarweinstein/${{ matrix.image }}:
           see the step above. Editing a repository's description needs a Docker Hub token
-          with the Read, Write, Delete scope (the DOCKERHUB_TOKEN secret)."
+          with the Read, Write, Delete scope (the DOCKERHUB_ADMIN_TOKEN secret)."
