@@ -603,9 +603,9 @@ function Invoke-Install {
 	# passwords and a new key on the old database
 	$volumes = Get-ProjectVolumes
 	if ($volumes) {
-		Fail ("NetRollout's database from an earlier install is still in Docker ($($volumes -join ', ')) - " +
-		      "no folder holds its passwords and key, so it can't be used. Nothing was installed: " +
-		      "run NetRollout Setup again - it offers to delete it.") 2
+		Fail ("NetRollout's data from an earlier install is still in Docker ($($volumes -join ', ')), and " +
+		      "$Root doesn't hold its .env. Nothing was installed: run NetRollout Setup again and choose " +
+		      "the folder that holds its .env - or, if that folder is gone, let Setup delete the data.") 2
 	}
 	Step "Getting NetRollout $Version"
 	foreach ($image in "netrollout", "netrollout-nginx") { Get-OurImage "itamarweinstein/${image}:$Version" }

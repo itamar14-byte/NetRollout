@@ -890,26 +890,51 @@ def test_volumes_are_found_by_label_and_by_name_never_the_dev_stacks():
 
 
 def test_volumes_left_without_their_folder_are_never_installed_over():
-	"""The folder deleted by hand after an uninstall that kept the data: its volumes stay
-	in Docker, no .env anywhere, and a fresh install landed on them (new passwords on the
-	old database). Setup's start - or the Docker page, once Docker answers - asks (Yes
-	deletes them before any file through forget-kept -VolumesOnly, which touches no file;
-	No closes Setup; a silent run refuses), and install itself refuses over them. Linux's
-	refusal says the same."""
+	"""Volumes in Docker while Setup knows no folder holding their .env: a folder deleted
+	by hand after an uninstall that kept the data - or an rc1 install in a custom folder
+	(rc1's uninstaller recorded none). A fresh install landed on them (new passwords on the
+	old database). Setup never claims the folder is gone: it looks in the record, /DIR=
+	(so a silent /DIR=<folder> finds the kept data) and the default folder, then - at the
+	start, or on the Docker page once Docker answers - offers three ways, No (the safe one)
+	the default: No = it's in another folder (the folder page asks for it: one with .env
+	is kept data, one without is refused unless "Start fresh instead" is ticked and
+	confirmed); Yes = that folder is gone (deleted before any file through forget-kept
+	-VolumesOnly, which touches no file); Cancel closes Setup. A silent run refuses,
+	naming /DIR=; install itself refuses over them; Linux's refusal says the same."""
 	text = iss_text()
+	find = pascal(text, "function FindKept:")
+	assert find.index("'KeptData'") < find.index("ExpandConstant('{param:DIR|}')") < find.index("'{#DefaultDir}'")
 	ask = pascal(text, "function AskLeftVolumes:")
-	assert "if UpdateMode or (KeptDir <> '') or LeftVolumes or (GetDefault('kept_volumes', '') = '') then exit;" in ask
-	assert ("'NetRollout''s database from an earlier install is still in Docker (its folder is gone, so its ' +\n"
-	        "\t\t'passwords and key are lost - it can''t be used).'") in ask
-	assert "' Setup deletes it and installs fresh - your backups, if any, are in ' +" in ask
-	silent = ask[ask.index("if WizardSilent then begin"):ask.index("Result := SuppressibleMsgBox(")]
+	assert ("if UpdateMode or (KeptDir <> '') or LeftVolumes or LeftSearch or "
+	        "(GetDefault('kept_volumes', '') = '') then exit;") in ask
+	assert ("'NetRollout''s data from an earlier install is still in Docker, but Setup can''t find its folder (' +\n"
+	        "\t\tWhere + ').'") in ask
+	assert "Where := Default + ' has none, and no folder was recorded'" in ask
+	assert "gone, so" not in ask and "lost" not in ask
+	silent = ask[ask.index("if WizardSilent then begin"):ask.index("Answer := SuppressibleMsgBox(")]
 	assert "Result := False;" in silent and "never deletes it" in silent
-	assert "MB_YESNO or MB_DEFBUTTON2, IDNO) = IDYES;" in ask
+	assert "or with /DIR=<the folder that holds its .env>." in silent
+	assert "MB_YESNOCANCEL or MB_DEFBUTTON2, IDNO);" in ask
+	assert "'Is it in another folder? Click No, then choose that folder on the folder page" in ask
+	assert "'Is that folder gone? Click Yes: Setup deletes the data in Docker and installs fresh" in ask
+	assert "'Cancel closes Setup - nothing is changed.'" in ask
+	assert ("LeftVolumes := Answer = IDYES;\n\tLeftSearch := Answer = IDNO;\n"
+	        "\tResult := Answer <> IDCANCEL;") in ask
 	assert "else Result := AskLeftVolumes;" in pascal(text, "function InitializeSetup:")
+	assert "if LeftSearch then LeftFolderPage;" in pascal(text, "procedure InitializeWizard;")
+	page = pascal(text, "procedure LeftFolderPage;")
+	assert "FreshBox.Caption := 'Start fresh instead - delete the data left in Docker';" in page
+	assert "if KeptDir = '' then exit;" in pascal(text, "procedure FreshClick(")   # the folder stays free
 	nxt = pascal(text, "function NextButtonClick(")
 	assert "end else if not AskLeftVolumes then begin" in nxt
 	assert "QuietClose := True;\n\t\t\t\t\tWizardForm.Close;" in nxt
+	assert "end else if LeftSearch then\n\t\t\t\tLeftFolderPage;" in nxt
 	assert "if Reinstall then LeftVolumes := False;" in nxt       # its folder chosen: used, not deleted
+	search = nxt[nxt.index("if LeftSearch and not Reinstall then begin"):nxt.index(
+		"if Reinstall then Result := CheckKept(")]
+	assert "if not FreshBox.Checked then begin" in search and "doesn''t hold NetRollout''s ' +" in search
+	assert "MB_YESNO or MB_DEFBUTTON2, IDNO) <> IDYES then begin" in search
+	assert search.index("MB_YESNO or MB_DEFBUTTON2") < search.index("LeftVolumes := True;")
 	assert "if QuietClose then Confirm := False;" in pascal(text, "procedure CancelButtonClick(")
 	prepare = pascal(text, "function PrepareToInstall(")
 	assert "if LeftVolumes and not WizardSilent then begin" in prepare
@@ -926,12 +951,15 @@ def test_volumes_left_without_their_folder_are_never_installed_over():
 	install = ps1_function(ps1, "Invoke-Install")
 	refuse = install.index("$volumes = Get-ProjectVolumes")
 	assert install.index("Confirm-Docker -OfferInstall") < refuse < install.index('Step "Getting NetRollout $Version"')
-	assert "run NetRollout Setup again - it offers to delete it.\") 2" in install
+	assert "run NetRollout Setup again and choose \" +" in install
+	assert "if that folder is gone, let Setup delete the data.\") 2" in install
 
 	sh = (ROOT / "packaging" / "linux" / "netrollout.sh").read_text(encoding="utf-8")
 	check = sh_function(sh, "refuse_over_kept")
-	assert ("NetRollout's database from an earlier install is still in Docker (its folder is gone, so its "
-	        "passwords and key are lost - it can't be used).") in check
+	assert ("NetRollout's data from an earlier install is still in Docker, but no known folder holds its "
+	        ".env${folder:+ (not $folder)}.") in check
+	assert "If it's in another folder, run that folder's bin/install.sh" in check
+	assert "gone, so" not in check
 	assert 'for dir in $dirs; do [ -f "$dir/.env" ] && usable=1; done' in check
 
 

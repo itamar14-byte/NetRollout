@@ -174,6 +174,9 @@ var
 	  deleted by hand after an uninstall that kept the data): asked about
 	  (AskLeftVolumes); Yes deletes them first (PrepareToInstall) }
 	LeftVolumes: Boolean;
+	{ those volumes are in a folder Setup doesn't know (AskLeftVolumes: No):
+	  the folder page asks for it (LeftFolderPage) }
+	LeftSearch: Boolean;
 	{ Setup closes without its "Exit Setup?" question (No to the volumes) }
 	QuietClose: Boolean;
 	{ the update's preparation, shown while it runs (the Preparing page has no
@@ -383,6 +386,13 @@ begin
 			exit;
 		end;
 	end;
+	{ /DIR= naming it (an rc1 uninstall recorded no folder: a silent Setup
+	  finds kept data in a custom folder only so) }
+	Dir := RemoveBackslashUnlessRoot(ExpandConstant('{param:DIR|}'));
+	if (Dir <> '') and FileExists(AddBackslash(Dir) + '.env') then begin
+		Result := Dir;
+		exit;
+	end;
 	if FileExists(AddBackslash('{#DefaultDir}') + '.env') then Result := '{#DefaultDir}';
 end;
 
@@ -397,34 +407,49 @@ begin
 end;
 
 { NetRollout's volumes in Docker (the script's defaults: kept_volumes, only
-  when Docker answered) while no folder holds their .env - its passwords and
-  key are gone with the folder, and a fresh install on them would put new
-  ones on the old database. Asked once: Yes - they're deleted before
-  anything is installed (PrepareToInstall); No - Setup closes, nothing
-  changed. A silent run never deletes: refused. False: Setup stops. }
+  when Docker answered) while Setup knows no folder holding their .env -
+  the record and the default folder have none. Never assumed gone: an rc1
+  uninstall recorded no folder, so a custom one is found only by the user.
+  Three ways (No, the safe one, is the default):
+  - No, "it's in another folder": LeftSearch - the folder page asks for it
+    (a folder with .env is kept data; one without is refused unless "Start
+    fresh instead" is ticked there);
+  - Yes, "that folder is gone": LeftVolumes - deleted before anything is
+    installed (PrepareToInstall), then a fresh install;
+  - Cancel: Setup closes, nothing changed (False).
+  A silent run never deletes: refused (False) - /DIR= naming the folder
+  that holds the .env finds it as kept data instead (FindKept). }
 function AskLeftVolumes: Boolean;
-var Folder, Said: String;
+var Recorded, Default, Where, Said: String; Answer: Integer;
 begin
 	Result := True;
-	if UpdateMode or (KeptDir <> '') or LeftVolumes or (GetDefault('kept_volumes', '') = '') then exit;
-	{ where its backups were: the folder the uninstaller recorded, else the default one }
-	if not RegQueryStringValue(HKCU, '{#OurKey}', 'KeptData', Folder) or (Folder = '') then
-		Folder := '{#DefaultDir}';
-	Folder := RemoveBackslashUnlessRoot(Folder);
-	Said := 'NetRollout''s database from an earlier install is still in Docker (its folder is gone, so its ' +
-		'passwords and key are lost - it can''t be used).';
+	if UpdateMode or (KeptDir <> '') or LeftVolumes or LeftSearch or (GetDefault('kept_volumes', '') = '') then exit;
+	Default := '{#DefaultDir}';
+	if RegQueryStringValue(HKCU, '{#OurKey}', 'KeptData', Recorded) then
+		Recorded := RemoveBackslashUnlessRoot(Recorded)
+	else Recorded := '';
+	if (Recorded = '') or (CompareText(Recorded, Default) = 0) then
+		Where := Default + ' has none, and no folder was recorded'
+	else Where := 'neither ' + Recorded + ' nor ' + Default + ' has its .env';
+	Said := 'NetRollout''s data from an earlier install is still in Docker, but Setup can''t find its folder (' +
+		Where + ').';
 	if WizardSilent then begin
 		SuppressibleMsgBox(Said + ' A silent Setup never deletes it - nothing was installed. Run Setup without ' +
-			'/SILENT to delete it and install fresh - your backups, if any, are in ' + AddBackslash(Folder) +
-			'backups if that folder still exists.', mbError, MB_OK, IDOK);
+			'/SILENT, or with /DIR=<the folder that holds its .env>.', mbError, MB_OK, IDOK);
 		Result := False;
 		exit;
 	end;
-	Result := SuppressibleMsgBox(Said + ' Setup deletes it and installs fresh - your backups, if any, are in ' +
-		AddBackslash(Folder) + 'backups if that folder still exists.' + #13#10#13#10 + 'Delete it and install ' +
-		'NetRollout {#AppVersion} fresh? This can''t be undone. No closes Setup - nothing is changed.',
-		mbConfirmation, MB_YESNO or MB_DEFBUTTON2, IDNO) = IDYES;
-	LeftVolumes := Result;
+	Answer := SuppressibleMsgBox(Said + #13#10#13#10 +
+		'Is it in another folder? Click No, then choose that folder on the folder page - NetRollout is ' +
+		'updated or started there with its data.' + #13#10#13#10 +
+		'Is that folder gone? Click Yes: Setup deletes the data in Docker and installs fresh (its passwords ' +
+		'and key were in that folder, so it can''t be used without it). This can''t be undone - backups in a ' +
+		'folder you still have are kept.' + #13#10#13#10 +
+		'Cancel closes Setup - nothing is changed.',
+		mbConfirmation, MB_YESNOCANCEL or MB_DEFBUTTON2, IDNO);
+	LeftVolumes := Answer = IDYES;
+	LeftSearch := Answer = IDNO;
+	Result := Answer <> IDCANCEL;
 end;
 
 { Before the first page: Windows Server, or virtualization off -> say so and
@@ -568,6 +593,8 @@ end;
   instead" is ticked (then any folder; the kept one again when unticked) }
 procedure FreshClick(Sender: TObject);
 begin
+	{ the volumes' folder unknown (LeftFolderPage): the folder is always free }
+	if KeptDir = '' then exit;
 	WizardForm.DirEdit.Enabled := FreshBox.Checked;
 	WizardForm.DirBrowseButton.Enabled := FreshBox.Checked;
 	if not FreshBox.Checked then WizardForm.DirEdit.Text := KeptDir;
@@ -611,6 +638,38 @@ begin
 	FreshClick(nil);
 end;
 
+{ The volumes' folder unknown (LeftSearch): below the folder, what to choose
+  - and "Start fresh instead", which deletes the data in Docker (round 2's
+  box; NextButtonClick confirms it). Built once, at the start or when the
+  Docker page asks. }
+procedure LeftFolderPage;
+begin
+	if KeptNote <> nil then exit;
+	KeptNote := TNewStaticText.Create(WizardForm);
+	KeptNote.Parent := WizardForm.SelectDirPage;
+	KeptNote.AutoSize := False;
+	KeptNote.WordWrap := True;
+	KeptNote.Caption := 'NetRollout''s data from an earlier install is still in Docker. Choose the folder ' +
+		'that holds its .env - NetRollout is updated or started there with its data.';
+	KeptNote.SetBounds(WizardForm.DirEdit.Left, WizardForm.DirEdit.Top + WizardForm.DirEdit.Height + ScaleY(16),
+		WizardForm.DirBrowseButton.Left + WizardForm.DirBrowseButton.Width - WizardForm.DirEdit.Left, ScaleY(30));
+	WizardForm.AdjustLabelHeight(KeptNote);
+	FreshBox := TNewCheckBox.Create(WizardForm);
+	FreshBox.Parent := WizardForm.SelectDirPage;
+	FreshBox.Caption := 'Start fresh instead - delete the data left in Docker';
+	FreshBox.SetBounds(KeptNote.Left, KeptNote.Top + KeptNote.Height + ScaleY(12), KeptNote.Width, ScaleY(20));
+	FreshHint := TNewStaticText.Create(WizardForm);
+	FreshHint.Parent := WizardForm.SelectDirPage;
+	FreshHint.AutoSize := False;
+	FreshHint.WordWrap := True;
+	FreshHint.Caption := '(only if its folder is gone: the database can''t be used without it; backups in a ' +
+		'folder you still have are kept)';
+	FreshHint.SetBounds(KeptNote.Left + ScaleX(20), FreshBox.Top + FreshBox.Height + ScaleY(2),
+		KeptNote.Width - ScaleX(20), ScaleY(30));
+	WizardForm.AdjustLabelHeight(FreshHint);
+	WizardForm.DiskSpaceLabel.Visible := False;
+end;
+
 procedure InitializeWizard;
 var Busy80: String;
 begin
@@ -622,6 +681,7 @@ begin
 		WizardForm.DirEdit.Text := KeptDir;
 		KeptFolderPage;
 	end;
+	if LeftSearch then LeftFolderPage;
 	ShowFullLicence;
 	DockerPage := CreateCustomPage(wpLicense, 'Docker Desktop', 'NetRollout runs in Docker containers.');
 	DockerState := MakeLabel(DockerPage, '', 0, True);
@@ -843,6 +903,28 @@ begin
 		{ the folder the volumes Setup was about to delete belong to: kept data
 		  after all (its .env is here) - used, not deleted }
 		if Reinstall then LeftVolumes := False;
+		{ the volumes' folder unknown (AskLeftVolumes: No): a folder without
+		  .env is refused - a fresh install there would land on that data -
+		  unless "Start fresh instead" (confirmed) deletes the data first }
+		if LeftSearch and not Reinstall then begin
+			LeftVolumes := False;
+			if not FreshBox.Checked then begin
+				SuppressibleMsgBox(RemoveBackslashUnlessRoot(WizardDirValue) + ' doesn''t hold NetRollout''s ' +
+					'.env, and NetRollout''s data from an earlier install is still in Docker. Choose the folder ' +
+					'that holds its .env (NetRollout is updated or started there) - or, if that folder is gone, ' +
+					'tick "Start fresh instead" to delete that data and install fresh.', mbError, MB_OK, IDOK);
+				Result := False; exit;
+			end;
+			if SuppressibleMsgBox('Delete NetRollout''s data left in Docker by an earlier install - its database ' +
+					'and the other volumes - and install NetRollout {#AppVersion} fresh in ' +
+					RemoveBackslashUnlessRoot(WizardDirValue) + '?' + #13#10#13#10 + 'This can''t be undone. ' +
+					'Backups in a folder you still have are kept (a new install can restore one).',
+					mbConfirmation, MB_YESNO or MB_DEFBUTTON2, IDNO) <> IDYES then begin
+				Result := False; exit;
+			end;
+			LeftVolumes := True;
+			exit;
+		end;
 		if Reinstall then Result := CheckKept(RemoveBackslashUnlessRoot(WizardDirValue));
 	end else if CurPageID = DockerPage.ID then begin
 		if GetDefault('docker', 'missing') <> 'running' then begin
@@ -858,14 +940,16 @@ begin
 					mbError, MB_OK, IDOK);
 				Result := False;
 			end else if not AskLeftVolumes then begin
-				{ Docker answers only now: the volumes Setup's start couldn't see.
-				  No: Setup closes, as at the start (a silent run exits on False) }
+				{ Docker answers only now: the volumes Setup's start couldn't see,
+				  the same three ways. Cancel: Setup closes, as at the start (a
+				  silent run exits on False) }
 				Result := False;
 				if not WizardSilent then begin
 					QuietClose := True;
 					WizardForm.Close;
 				end;
-			end;
+			end else if LeftSearch then
+				LeftFolderPage;
 		end;
 	end else if CurPageID = SettingsPage.ID then begin
 		if not ValidHostname(HostnameEdit.Text) then begin

@@ -327,9 +327,9 @@ refuse_over_kept() {
 		if [ -n "$usable" ]; then
 			fail "NetRollout's data is kept in Docker volumes from an earlier install (in $dirs) (docker volume ls: ${PROJECT}_*). Install it there again to use it, or start fresh: sudo $BIN/install.sh --start-fresh (deletes the kept data; its backups are kept)." 2
 		fi
-		# no folder holds its .env (deleted by hand): Windows' Setup says the same
-		dir="${folder:-${dirs%% *}}"
-		fail "NetRollout's database from an earlier install is still in Docker (its folder is gone, so its passwords and key are lost - it can't be used). Nothing was installed. Start fresh: sudo $BIN/install.sh --start-fresh deletes it - your backups, if any, are in ${dir:-the old install folder}/backups if that folder still exists." 2
+		# no known folder holds its .env - never assumed gone (an rc1 uninstall
+		# recorded none): Windows' Setup says the same
+		fail "NetRollout's data from an earlier install is still in Docker, but no known folder holds its .env${folder:+ (not $folder)}. Nothing was installed. If it's in another folder, run that folder's bin/install.sh: NetRollout is updated or started there with its data. If that folder is gone, start fresh: sudo $BIN/install.sh --start-fresh deletes it (can't be undone; backups in a folder you still have are kept)." 2
 	fi
 	# a record whose data is gone (deleted by hand) says nothing any more
 	if [ -n "$folder" ]; then rm -f "$KEPT_RECORD"; fi
