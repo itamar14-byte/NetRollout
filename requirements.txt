@@ -76,7 +76,9 @@ markupsafe==3.0.4
 mdurl==0.1.2
     # via markdown-it-py
 msgspec==0.22.0
-    # via flask-session
+    # via
+    #   -r requirements.in
+    #   flask-session
 netmiko==4.8.0
     # via -r requirements.in
 ntc-templates==9.3.0

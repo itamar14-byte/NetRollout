@@ -28,6 +28,8 @@ itsdangerous~=2.2.0
 greenlet~=3.5.6
 psycopg2-binary~=2.9.11
 redis~=8.1.0
+# the stored sessions' encoding (flask-session's): netrollout reset-admin reads them
+msgspec~=0.22.0
 ldap3~=2.9.1
 tzlocal~=5.4.4
 # the timezone database where the OS has none (Windows); always, for the same answers everywhere
