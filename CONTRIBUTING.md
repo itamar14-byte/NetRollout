@@ -33,7 +33,7 @@ Every issue goes through a form on the [issue page](https://github.com/itamar14-
 |---|---|
 | **Bug report** | Something doesn't work as it should. Give the version (the footer of every page, `netrollout status`, or `netrollout-cli --version`), what you did, what you expected and what happened. Rollout logs are safe to attach: passwords, secrets and SNMP communities are replaced with `<redacted>`. The commands as typed and config snapshots are not redacted, so check those before you post them. |
 | **Feature request** | An idea: a new platform, a missing option, a better way to do something. Describe the task you're trying to do; that matters more than how. |
-| **Platform confirmation** | NetRollout worked (or didn't) on a real device of one of the 12 platforms. Confirmations move a platform from "not yet confirmed" to "tested on real devices". |
+| **Platform confirmation** | NetRollout worked on a real device of one of the 12 platforms. Confirmations move a platform from "not yet confirmed" to "tested on real devices". If it didn't work, use the bug report form. |
 | **Something else** | Questions, documentation mistakes, anything the other forms don't cover. |
 
 > [!IMPORTANT]
@@ -136,7 +136,7 @@ Two runs side by side need their own `TEST_PG_DBNAME` and Redis databases that d
 ```bash
 docker build -t itamarweinstein/netrollout:e2e-local .
 docker build -t itamarweinstein/netrollout-nginx:e2e-local deploy/nginx
-NETROLLOUT_E2E=1 python -m pytest tests/e2e
+NETROLLOUT_E2E=1 python -m pytest tests/e2e     # PowerShell: $env:NETROLLOUT_E2E = "1"; python -m pytest tests/e2e
 ```
 
 | Variable | Meaning |
@@ -326,14 +326,14 @@ flowchart LR
 
 1. **Version:** the tag must equal `VERSION`, and `CHANGELOG.md` must have that version's section. Decides whether this is a pre-release.
 2. **Tests:** the same checks as CI (without the informative end-to-end job).
-3. **Images:** both images built with the version stamped in, then the end-to-end tests run against those exact images.
+3. **Images:** both images built and tagged with the version (the app image also has it stamped in), then the end-to-end tests run against those exact images.
 4. **Linux install:** the Linux zip is built and installed unattended with those images; NetRollout must answer healthy with this version.
 5. **Windows files:** NetRollout Manager, NetRollout Setup and the CLI are built; the CLI must report this version.
 6. **Publish**, only after everything above passed:
    - Both images are pushed to Docker Hub (`itamarweinstein/netrollout`, `itamarweinstein/netrollout-nginx`) with the version tag. A final release also moves `latest`; a pre-release never does.
    - The release files and their `SHA256SUMS` are attached to a new GitHub release, with the CHANGELOG section as its notes. A pre-release is marked as a pre-release.
 
-A failure anywhere publishes nothing. Fix it, then delete the tag (locally and on GitHub) and tag again; or release the fix as the next version.
+A failure before the Publish job publishes nothing. Inside Publish, the images reach Docker Hub before the GitHub release is created, so a failure there can leave the images published without a release.
 
 ## Code of conduct
 
