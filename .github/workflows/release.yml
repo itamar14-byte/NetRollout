@@ -5,12 +5,36 @@
 # most a draft and pushed images - running the job again replaces the draft
 # and pushes the same images again; a published release is never overwritten.
 # Run by hand (Actions -> Release -> Run workflow) it's a dry run on the
-# VERSION file: every job but the publishing one.
+# VERSION file: every job but the publishing one. A push or pull request that
+# changes the release machinery (this file, packaging/, the images' sources,
+# the install's compose files) runs the same dry run by itself, so a broken
+# pipeline shows on the change that broke it, never at the tag. Only a pushed
+# version tag publishes.
 name: Release
 
 on:
   push:
     tags: ["v*"]
+    branches: ["**"]
+    paths:                       # (not evaluated for tags: every version tag runs)
+      - ".github/workflows/release.yml"
+      - "packaging/**"
+      - "Dockerfile"
+      - ".dockerignore"
+      - "deploy/**"
+      - "compose.yaml"
+      - "compose.http.yaml"
+      - "requirements.txt"
+  pull_request:
+    paths:
+      - ".github/workflows/release.yml"
+      - "packaging/**"
+      - "Dockerfile"
+      - ".dockerignore"
+      - "deploy/**"
+      - "compose.yaml"
+      - "compose.http.yaml"
+      - "requirements.txt"
   workflow_dispatch:
 
 permissions:
@@ -46,7 +70,10 @@ jobs:
           from packaging.version import Version
           version = open("VERSION", encoding="utf-8").read().strip()
           event, ref = os.environ["GITHUB_EVENT_NAME"], os.environ["GITHUB_REF_NAME"]
-          if event == "push" and ref != f"v{version}":
+          # only a pushed tag publishes; a branch push, a pull request or a
+          # run by hand is a dry run
+          tag = event == "push" and os.environ["GITHUB_REF_TYPE"] == "tag"
+          if tag and ref != f"v{version}":
               sys.exit(f"The tag {ref} doesn't match VERSION ({version}): tag v{version}, or change VERSION first.")
           prerelease = Version(version).is_prerelease
           # the release notes: this version's section of CHANGELOG.md - the
@@ -65,9 +92,9 @@ jobs:
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
               out.write(f"version={version}\n")
               out.write(f"prerelease={'true' if prerelease else 'false'}\n")
-              out.write(f"publish={'true' if event == 'push' else 'false'}\n")
+              out.write(f"publish={'true' if tag else 'false'}\n")
           print(f"NetRollout {version} - {'pre-release' if prerelease else 'final'}, "
-                f"{'published at the end' if event == 'push' else 'dry run: nothing published'}")
+                f"{'published at the end' if tag else 'dry run: nothing published'}")
           EOF
 
   tests:

@@ -303,7 +303,7 @@ Each major release has a **codename** from a networking alphabet, one letter per
 1. **The bump commit**, on `master`:
    - Set `VERSION` to the new version, without a `v` (for example `1.0.1`).
    - In `CHANGELOG.md`, turn the **Unreleased** section into the new version's section and start a new empty **Unreleased** above it. The heading must begin with `## ` followed by the version, `v<version>` or `[<version>]` (for example `## [1.0.1] - 2026-11-02`). The release is refused without it. That section becomes the release notes on the GitHub release page and in NetRollout Manager's Update window.
-2. **Optional dry run:** Actions → Release → *Run workflow*. It runs every job except publishing, on the `VERSION` file.
+2. **Dry run (usually automatic):** a push or pull request that changes the release machinery (`.github/workflows/release.yml`, `packaging/`, `Dockerfile`, `deploy/`, the install's compose files, `requirements.txt`) runs the release workflow by itself, without publishing - so a broken pipeline shows on the change that broke it. To run it by hand anyway: Actions → Release → *Run workflow*. Only a pushed version tag publishes.
 3. **Tag and push the tag:**
 
    ```bash
