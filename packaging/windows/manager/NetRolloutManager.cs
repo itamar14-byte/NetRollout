@@ -376,16 +376,20 @@ namespace NetRollout
 			stopButton = AddButton("Stop", delegate { StopNetRollout(); }, false);
 			changePortButton = AddButton("Change port...", delegate { ChangePort(); }, false);
 			changePortButton.Enabled = false;
-			// a disabled button gets no tooltip of its own: the panel shows it
+			// a disabled button gets no tooltip of its own: the panel shows why
+			// it's greyed (Change port..., and Start / Stop when there is
+			// nothing to do)
 			buttons.MouseMove += delegate (object s, MouseEventArgs e)
 			{
-				bool over = !changePortButton.Enabled && changePortButton.Bounds.Contains(e.Location);
-				if (over && hint.Tag == null)
+				Control over = null;
+				foreach (Control c in buttons.Controls)
+					if (!c.Enabled && c.Visible && c.Bounds.Contains(e.Location) && GreyedHint(c) != null) over = c;
+				if (over != null && hint.Tag != over)
 				{
-					hint.Show(PortCheck.Hint, buttons, e.X, e.Y + 22);
-					hint.Tag = changePortButton;
+					hint.Show(GreyedHint(over), buttons, e.X, e.Y + 22);
+					hint.Tag = over;
 				}
-				else if (!over && hint.Tag != null)
+				else if (over == null && hint.Tag != null)
 				{
 					hint.Hide(buttons);
 					hint.Tag = null;
@@ -781,6 +785,16 @@ namespace NetRollout
 			startItem.Enabled = start;
 			stopButton.Enabled = stop;
 			stopItem.Enabled = stop;
+		}
+
+		// why a greyed button is greyed (null: no hint - e.g. while an action runs)
+		string GreyedHint(Control c)
+		{
+			if (c == changePortButton) return PortCheck.Hint;
+			if (running != null) return null;
+			if (c == startButton) return "NetRollout is already running.";
+			if (c == stopButton) return "NetRollout isn't running.";
+			return null;
 		}
 
 		void UpdateChangePort()

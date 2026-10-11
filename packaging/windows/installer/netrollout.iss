@@ -177,6 +177,8 @@ var
 	{ those volumes are in a folder Setup doesn't know (AskLeftVolumes: No):
 	  the folder page asks for it (LeftFolderPage) }
 	LeftSearch: Boolean;
+	{ Inno's own Browse (LeftFolderPage replaces it while looking for a folder) }
+	InstallBrowse: TNotifyEvent;
 	{ Setup closes without its "Exit Setup?" question (No to the volumes) }
 	QuietClose: Boolean;
 	{ the update's preparation, shown while it runs (the Preparing page has no
@@ -448,16 +450,16 @@ begin
 		Result := False;
 		exit;
 	end;
-	Answer := SuppressibleMsgBox(Said + #13#10#13#10 +
-		'Is it in another folder? Click No, then choose that folder on the folder page - NetRollout is ' +
-		'updated or started there with its data.' + #13#10#13#10 +
-		'Is that folder gone? Click Yes: Setup deletes the data in Docker and installs fresh (its passwords ' +
-		'and key were in that folder, so it can''t be used without it). This can''t be undone - backups in a ' +
-		'folder you still have are kept.' + #13#10#13#10 +
-		'Cancel closes Setup - nothing is changed.',
-		mbConfirmation, MB_YESNOCANCEL or MB_DEFBUTTON2, IDNO);
-	LeftVolumes := Answer = IDYES;
-	LeftSearch := Answer = IDNO;
+	{ one question, the buttons its answers; Yes (keep looking) the default }
+	Answer := SuppressibleMsgBox(Said + #13#10#13#10 + 'Do you still have that folder?' + #13#10#13#10 +
+		'Yes - choose it on the folder page: NetRollout is updated or started there with its data.' + #13#10#13#10 +
+		'No - it''s gone: Setup deletes the data in Docker and installs fresh (its passwords ' +
+		'and key were in that folder, so the data can''t be used without it). This can''t be undone - ' +
+		'backups in a folder you still have are kept.' + #13#10#13#10 +
+		'Cancel - close Setup, nothing is changed.',
+		mbConfirmation, MB_YESNOCANCEL or MB_DEFBUTTON1, IDYES);
+	LeftSearch := Answer = IDYES;
+	LeftVolumes := Answer = IDNO;
 	Result := Answer <> IDCANCEL;
 end;
 
@@ -647,6 +649,21 @@ begin
 	FreshClick(nil);
 end;
 
+{ Browse while looking for the folder that holds the .env: that folder
+  itself - Inno's own Browse appends "\NetRollout", right for a new install
+  (and again when "Start fresh instead" is ticked: a new install) }
+procedure BrowseExisting(Sender: TObject);
+var Dir: String;
+begin
+	if FreshBox.Checked then begin
+		InstallBrowse(Sender);
+		exit;
+	end;
+	Dir := WizardForm.DirEdit.Text;
+	if BrowseForFolder('Choose the folder that holds NetRollout''s .env:', Dir, False) then
+		WizardForm.DirEdit.Text := Dir;
+end;
+
 { The volumes' folder unknown (LeftSearch): below the folder, what to choose
   - and "Start fresh instead", which deletes the data in Docker (round 2's
   box; NextButtonClick confirms it). Built once, at the start or when the
@@ -677,6 +694,8 @@ begin
 		KeptNote.Width - ScaleX(20), ScaleY(30));
 	WizardForm.AdjustLabelHeight(FreshHint);
 	WizardForm.DiskSpaceLabel.Visible := False;
+	InstallBrowse := WizardForm.DirBrowseButton.OnClick;
+	WizardForm.DirBrowseButton.OnClick := @BrowseExisting;
 end;
 
 procedure InitializeWizard;

@@ -401,6 +401,10 @@ def test_start_and_stop_say_when_there_is_nothing_to_do():
 	cs = (ROOT / "packaging" / "windows" / "manager" / "NetRolloutManager.cs").read_text(encoding="utf-8")
 	assert "bool start = idle && (state != State.Running || Install.PendingUpdate != null);" in cs
 	assert "bool stop = idle && state != State.Stopped;" in cs
+	# a greyed Start / Stop says why on hover (the developer's rc2 test notes)
+	assert 'if (c == startButton) return "NetRollout is already running.";' in cs
+	assert "if (c == stopButton) return \"NetRollout isn't running.\";" in cs
+	assert "!c.Enabled && c.Visible && c.Bounds.Contains(e.Location) && GreyedHint(c) != null" in cs
 
 
 def iss_text():
@@ -852,7 +856,7 @@ def test_the_port_can_be_changed_by_hand_while_it_is_taken():
 
 	form = (ROOT / "packaging" / "windows" / "manager" / "NetRolloutManager.cs").read_text(encoding="utf-8")
 	assert "changePortButton.Enabled = running == null && portBlocker.Length > 0;" in form
-	assert "hint.Show(PortCheck.Hint, buttons, e.X, e.Y + 22);" in form
+	assert "if (c == changePortButton) return PortCheck.Hint;" in form   # a greyed Change port... says where to change it
 	assert 'Run("port -Port " + port + " -Yes"' in form
 	check = (ROOT / "packaging" / "windows" / "manager" / "PortCheck.cs").read_text(encoding="utf-8")
 	assert 'Hint = "Change the port in System Settings -> HTTPS port"' in check
@@ -971,12 +975,18 @@ def test_volumes_left_without_their_folder_are_never_installed_over():
 	silent = ask[ask.index("if WizardSilent then begin"):ask.index("Answer := SuppressibleMsgBox(")]
 	assert "Result := False;" in silent and "never deletes it" in silent
 	assert "or with /DIR=<the folder that holds its .env>." in silent
-	assert "MB_YESNOCANCEL or MB_DEFBUTTON2, IDNO);" in ask
-	assert "'Is it in another folder? Click No, then choose that folder on the folder page" in ask
-	assert "'Is that folder gone? Click Yes: Setup deletes the data in Docker and installs fresh" in ask
-	assert "'Cancel closes Setup - nothing is changed.'" in ask
-	assert ("LeftVolumes := Answer = IDYES;\n\tLeftSearch := Answer = IDNO;\n"
+	# one question the buttons answer; Yes - keep looking, the safe one - the default
+	assert "'Do you still have that folder?'" in ask
+	assert "MB_YESNOCANCEL or MB_DEFBUTTON1, IDYES);" in ask
+	assert "'Yes - choose it on the folder page" in ask and "'No - it''s gone: Setup deletes the data" in ask
+	assert "'Cancel - close Setup, nothing is changed.'" in ask
+	assert ("LeftSearch := Answer = IDYES;\n\tLeftVolumes := Answer = IDNO;\n"
 	        "\tResult := Answer <> IDCANCEL;") in ask
+	# Browse picks the folder itself while looking (Inno's appends \NetRollout); a new install: Inno's
+	browse = pascal(text, "procedure BrowseExisting(")
+	assert "if FreshBox.Checked then begin\n\t\tInstallBrowse(Sender);" in browse
+	assert "BrowseForFolder('Choose the folder that holds NetRollout''s .env:', Dir, False)" in browse
+	assert "WizardForm.DirBrowseButton.OnClick := @BrowseExisting;" in pascal(text, "procedure LeftFolderPage;")
 	assert "else Result := AskLeftVolumes;" in pascal(text, "function InitializeSetup:")
 	assert "if LeftSearch then LeftFolderPage;" in pascal(text, "procedure InitializeWizard;")
 	page = pascal(text, "procedure LeftFolderPage;")
