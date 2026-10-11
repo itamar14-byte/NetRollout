@@ -32,6 +32,7 @@ class AuditAction(StrEnum):
 	# an admin on users (user.<action> / user.bulk_<action>: admin_users.USER_ACTIONS)
 	USER_CREATED = "user.created"
 	USER_RESET_PASSWORD = "user.reset_password"
+	USER_RESET_ADMIN = "user.reset_admin"     # netrollout reset-admin, on the server
 	USER_APPROVE = "user.approve"
 	USER_ENABLE = "user.enable"
 	USER_DISABLE = "user.disable"

@@ -4,7 +4,8 @@
 #
 #   sudo ./bin/install.sh                      install in this folder
 #   sudo ./bin/netrollout.sh start | stop | status | open | logs [service] |
-#                            backup | restore <file> | update | apply | uninstall | help
+#                            backup | restore <file> | update | apply | port <N> |
+#                            reset-admin [--new-password] | uninstall | help
 #   sudo ./bin/netrollout.sh                   the menu
 #
 # The install folder is this script's parent folder. The script does what
@@ -37,7 +38,7 @@ RELEASE_ITEMS=(bin compose.yaml compose.http.yaml deploy VERSION LICENSE README.
 # ── options ──────────────────────────────────────────────────────────────────
 COMMAND="${1:-}"; [ $# -gt 0 ] && shift
 SERVICE="" YES="" NO_BROWSER="" DELETE_DATA="" KEEP_DATA="" NO_SAFETY_BACKUP=""
-DELETE_BACKUPS="" REMOVE_FILES="" START_FRESH=""
+DELETE_BACKUPS="" REMOVE_FILES="" START_FRESH="" NEW_PASSWORD=""
 CHECK="" WANTED="" FROM_ZIP="" FEED=""
 ANSWERS=()
 while [ $# -gt 0 ]; do
@@ -50,6 +51,7 @@ while [ $# -gt 0 ]; do
 		--remove-files) REMOVE_FILES=1 ;;
 		--start-fresh) START_FRESH=1 ;;
 		--no-safety-backup) NO_SAFETY_BACKUP=1 ;;
+		--new-password) NEW_PASSWORD=1 ;;
 		--check) CHECK=1 ;;
 		--version|--from|--feed)
 			[ $# -ge 2 ] || fail "$1 needs a value"
@@ -78,6 +80,7 @@ case "$COMMAND" in
 	update-finish) do_update_finish ;;     # the new script, run by update
 	apply) do_apply ;;
 	port) do_port_by_hand ;;
+	reset-admin) do_reset_admin ;;
 	uninstall) do_uninstall ;;
 	help|-h|--help) show_help ;;
 	"") show_menu ;;
@@ -760,6 +763,33 @@ do_restore() {
 	fi
 }
 
+# ── netrollout.sh reset-admin: the factory admin back (python -m src.accounts) ─
+# When nobody can sign in as an administrator: the factory admin enabled, its
+# two-factor sign-in off, its failed sign-ins and lock cleared, signed out
+# everywhere - in the running app's container, else a one-off one next to the
+# database. --new-password: also a temporary password, shown once. Not in
+# the menu: rare, and deliberate.
+do_reset_admin() {
+	need_installed; need_root; need_docker
+	if [ -n "$INTERACTIVE" ]; then
+		local a="" extra=""
+		[ -n "$NEW_PASSWORD" ] && extra="; it gets a temporary password, shown once"
+		read -r -p "Reset the factory admin account (admin)? It's enabled, its two-factor sign-in turned off and its failed sign-ins cleared$extra. [y/N] " a || true
+		case "$a" in y|Y|yes) ;; *) say "Nothing was changed."; return 0 ;; esac
+	fi
+	local cli=(python -m src.accounts reset-admin) out code=0
+	[ -n "$NEW_PASSWORD" ] && cli+=(--new-password)
+	step "Resetting the factory admin"
+	if app_running; then
+		out="$(compose exec -T app "${cli[@]}" 2>&1)" || code=$?
+	else
+		out="$(compose up -d --wait postgres redis 2>&1)" || { show "$out"; fail "The database didn't start - see above. Nothing was changed."; }
+		out="$(compose run --rm --no-deps -T app "${cli[@]}" 2>&1)" || code=$?
+	fi
+	show "$out"
+	[ "$code" -eq 0 ] || fail "The factory admin wasn't reset - see above."
+}
+
 # ── update (the release: python -m src.setup release, in the app image) ─────
 # a feed file must be where the setup core sees it: inside this folder
 in_container() {
@@ -1158,6 +1188,8 @@ show_help() {
 	say "  sudo $BIN/netrollout.sh update          update to the newest release (asks first; --check only looks)"
 	say "  sudo $BIN/netrollout.sh apply           apply an HTTPS port saved in System Settings (systemd does it by itself)"
 	say "  sudo $BIN/netrollout.sh port <N>        move NetRollout to port N when its port is taken (else: System Settings)"
+	say "  sudo $BIN/netrollout.sh reset-admin     no administrator can sign in: the factory admin enabled, its 2FA off,"
+	say "                                          its failed sign-ins cleared (asks first; --new-password: a temporary one)"
 	say "  sudo $BIN/netrollout.sh uninstall       remove it (asks whether to delete the data too)"
 	say "  sudo $BIN/netrollout.sh                 the menu"
 	say ""
@@ -1165,7 +1197,7 @@ show_help() {
 	say "          --hostname --https-port --monitoring y/n --org-certificate y/n --timezone"
 	say "  install --start-fresh: delete the data an uninstall kept (elsewhere or here) first;"
 	say "          the backups stay (asks; --yes alone never deletes it)"
-	say "  --no-browser   --no-safety-backup (restore)"
+	say "  --no-browser   --no-safety-backup (restore)   --new-password (reset-admin)"
 	say "  uninstall: --delete-data / --keep-data, --delete-backups (with --delete-data; else kept),"
 	say "             --remove-files (the scripts and compose files too)"
 	say "  update: --version X (not the latest)  --from <zip> (offline; checked against a SHA256SUMS next to it)"

@@ -1157,3 +1157,40 @@ def test_a_damaged_install_is_cleared_and_installed_again():
 	assert '$prefix = $Root.TrimEnd("\\") + "\\"' in processes
 	assert "$path.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)" in processes
 	assert "-Name" not in processes and "-Name" not in ps1_function(ps1, "Stop-FolderProcesses")
+
+
+def test_reset_admin_runs_in_the_apps_container_and_asks_first():
+	"""netrollout reset-admin (Windows `reset-admin [-NewPassword]`, Linux
+	`reset-admin [--new-password]`): asks y/N unless -Yes / --yes, then runs
+	python -m src.accounts reset-admin in the running app's container (exec), else
+	a one-off one next to the database and Redis; the flag reaches the command, a
+	failure ends with its own words. Both helps list it; NetRollout Manager has no
+	button for it, the Linux menu no entry (host-only, deliberate)."""
+	ps1 = (ROOT / "packaging" / "windows" / "manage.ps1").read_text(encoding="utf-8")
+	assert '"reset-admin" { Invoke-ResetAdmin; return 0 }' in ps1
+	assert "[switch]$NewPassword," in ps1
+	fn = ps1_function(ps1, "Invoke-ResetAdmin")
+	ask = fn.index("if ($Interactive) {")
+	run = fn.index('$cli = @("python", "-m", "src.accounts", "reset-admin")')
+	assert ask < run
+	assert 'if ($NewPassword) { $cli += "--new-password" }' in fn
+	assert '$r = Compose (@("exec", "-T", "app") + $cli)' in fn
+	assert '$up = Compose @("up", "-d", "--wait", "postgres", "redis")' in fn
+	assert '$r = Compose (@("run", "--rm", "--no-deps", "-T", "app") + $cli)' in fn
+	assert "Fail \"The factory admin wasn't reset - see above.\"" in fn
+	assert 'Say "  netrollout reset-admin ' in ps1_function(ps1, "Show-Help")
+	manager = (ROOT / "packaging" / "windows" / "manager" / "NetRolloutManager.cs").read_text(encoding="utf-8")
+	assert "reset-admin" not in manager
+
+	sh = (ROOT / "packaging" / "linux" / "netrollout.sh").read_text(encoding="utf-8")
+	assert "reset-admin) do_reset_admin ;;" in sh and "--new-password) NEW_PASSWORD=1 ;;" in sh
+	fn = sh_function(sh, "do_reset_admin")
+	ask = fn.index('if [ -n "$INTERACTIVE" ]; then')
+	run = fn.index("local cli=(python -m src.accounts reset-admin)")
+	assert ask < run
+	assert '[ -n "$NEW_PASSWORD" ] && cli+=(--new-password)' in fn
+	assert 'compose exec -T app "${cli[@]}"' in fn
+	assert "compose up -d --wait postgres redis" in fn
+	assert 'compose run --rm --no-deps -T app "${cli[@]}"' in fn
+	assert "reset-admin" in sh_function(sh, "show_help")
+	assert "reset-admin" not in sh_function(sh, "show_menu")

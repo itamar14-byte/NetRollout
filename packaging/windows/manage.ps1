@@ -3,7 +3,8 @@ NetRollout's engine on Windows: NetRollout Setup, its uninstaller and
 NetRollout Manager run it; admins can too (bin\netrollout.bat):
 
   netrollout start | stop | status | open | logs [service] | backup |
-             restore <file> | apply | rollouts [-Json] | stop-now | help
+             restore <file> | apply | rollouts [-Json] | stop-now |
+             reset-admin [-NewPassword] | help
 
 Installing is NetRollout Setup's (it runs `install -Yes` with the answers of
 its pages). The install folder is this script's parent folder. The script does
@@ -27,6 +28,7 @@ param(
 	[switch]$KeepData,              # uninstall: keep it (no question); clear-damaged: .env, config, certs, logs stay
 	[switch]$DeleteBackups,         # uninstall with -DeleteData: the backups too (else kept)
 	[switch]$NoSafetyBackup,        # restore: without backing up the current state
+	[switch]$NewPassword,           # reset-admin: also a temporary password, shown once
 	[switch]$Json,                  # rollouts: one line of JSON (NetRollout Manager)
 	# NetRollout Setup, updating: the installed folder (this copy runs from
 	# Setup's temporary folder) and the version it brings
@@ -887,6 +889,35 @@ function Invoke-Restore {
 	}
 }
 
+# ── netrollout reset-admin: the factory admin back (python -m src.accounts) ──
+# When nobody can sign in as an administrator: the factory admin enabled, its
+# two-factor sign-in off, its failed sign-ins and lock cleared, signed out
+# everywhere - in the running app's container, else a one-off one next to the
+# database. -NewPassword: also a temporary password, shown once. No button in
+# NetRollout Manager: rare, and for whoever may run commands on this computer.
+function Invoke-ResetAdmin {
+	Assert-Installed
+	Confirm-Docker
+	if ($Interactive) {
+		$extra = if ($NewPassword) { "; it gets a temporary password, shown once" } else { "" }
+		$a = Read-Host ("Reset the factory admin account (admin)? It's enabled, its two-factor sign-in " +
+		                "turned off and its failed sign-ins cleared$extra. [y/N]")
+		if ($a -notmatch "^(y|yes)$") { Say "Nothing was changed."; return }
+	}
+	$cli = @("python", "-m", "src.accounts", "reset-admin")
+	if ($NewPassword) { $cli += "--new-password" }
+	Step "Resetting the factory admin"
+	if (Test-AppRunning) {
+		$r = Compose (@("exec", "-T", "app") + $cli)
+	} else {
+		$up = Compose @("up", "-d", "--wait", "postgres", "redis")
+		if ($up.Code -ne 0) { Show-Output $up.Output; Fail "The database didn't start - see above. Nothing was changed." }
+		$r = Compose (@("run", "--rm", "--no-deps", "-T", "app") + $cli)
+	}
+	Show-Output $r.Output
+	if ($r.Code -ne 0) { Fail "The factory admin wasn't reset - see above." }
+}
+
 # ── updates (NetRollout Setup over an install) ───────────────────────────────
 
 # Before Setup replaces any file - run from Setup's temporary folder with
@@ -1532,6 +1563,8 @@ function Show-Help {
 	Say "  netrollout rollouts         the rollouts running or queued (-Json: as JSON)"
 	Say "  netrollout port-check       does nginx hold its HTTPS port? if not, who does (-Json: as JSON)"
 	Say "  netrollout stop-now         a stop under way (or one within 15 minutes) cancels them at once"
+	Say "  netrollout reset-admin      no administrator can sign in: the factory admin enabled, its 2FA off,"
+	Say "                              its failed sign-ins cleared (asks first; -NewPassword: a temporary one)"
 	Say ""
 	Say "  -NoBrowser   don't open the browser"
 	Say "  Installing and uninstalling: NetRollout Setup / Settings -> Apps."
@@ -1549,6 +1582,7 @@ function Invoke-NrCommand([string]$Name) {
 		"update" { Invoke-Update; return 0 }
 		"apply" { Invoke-Apply; return 0 }
 		"port" { Invoke-PortByHand; return 0 }
+		"reset-admin" { Invoke-ResetAdmin; return 0 }
 		"rollouts" {
 			Assert-Installed
 			if (-not (Test-DockerReady)) { return 1 }

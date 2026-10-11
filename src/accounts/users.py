@@ -221,6 +221,32 @@ class Accounts:
 		if after == 0 and self.admins_left() > after:
 			raise AccountError(NO_ADMIN_LEFT)
 
+	def reset_factory_admin(self, new_password: bool = False) -> tuple[User, str | None]:
+		"""netrollout reset-admin, run on the server: the factory admin made
+		usable again - enabled (and an admin), its 2FA off, its wrong
+		passwords and any lock cleared.
+
+		:param new_password: also a temporary password, which must be
+		 replaced at the next sign-in (as after an admin's reset)
+		:returns: (the account, the temporary password - None without one)
+		:raises AccountError: the database has no factory admin account"""
+		user = self.by_name(FACTORY_USERNAME)
+		if user is None or not is_factory_admin(user):
+			raise AccountError(f"There is no factory admin account ({FACTORY_USERNAME}) "
+			                   f"in NetRollout's database.")
+		user.is_active = True
+		user.is_approved = True
+		user.role = Role.ADMIN
+		user.otp_secret = None
+		clear_lockout(user)
+		temporary = None
+		if new_password:
+			temporary = temporary_password(user.username)
+			user.password_hash = generate_password_hash(temporary)
+			user.must_change_password = True
+		self.session.flush()
+		return user, temporary
+
 	def lock_minutes_left(self, user: User, now: datetime) -> int | None:
 		"""The factory admin's lock (Accounts.password_failed): while it holds,
 		no password is checked. One that has run out is lifted here, and the
