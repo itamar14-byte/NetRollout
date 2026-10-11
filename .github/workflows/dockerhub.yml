@@ -36,12 +36,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Update the overview on Docker Hub
-        id: update
         # Third-party code that gets the Docker Hub token: pinned to the commit
         # of its release (a tag can be moved to other code, a commit can't).
         # Dependabot updates the pin and the version comment together.
         uses: peter-evans/dockerhub-description@1b9a80c056b620d92cedb9d9b5a223409c68ddfa # v5.0.0
-        continue-on-error: true      # a Docker Hub hiccup or a token without the scope never fails anything
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           # Its own token: editing a description needs Docker Hub's Read, Write, Delete
@@ -52,9 +50,3 @@ jobs:
           readme-filepath: packaging/dockerhub/${{ matrix.image }}.md
           enable-url-completion: true   # relative links become absolute GitHub links
 
-      - name: Say so when it wasn't updated
-        if: steps.update.outcome == 'failure'
-        run: >-
-          echo "::warning title=Docker Hub overview not updated::itamarweinstein/${{ matrix.image }}:
-          see the step above. Editing a repository's description needs a Docker Hub token
-          with the Read, Write, Delete scope (the DOCKERHUB_ADMIN_TOKEN secret)."
