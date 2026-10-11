@@ -1,3 +1,9 @@
 date,source,name,count
 2026-10-10,dockerhub,itamarweinstein/netrollout,0
 2026-10-10,dockerhub,itamarweinstein/netrollout-nginx,0
+2026-10-11,github,v1.0.0rc1/netrollout-1.0.0rc1-linux.zip,1
+2026-10-11,github,v1.0.0rc1/netrollout-cli-1.0.0rc1.exe,1
+2026-10-11,github,v1.0.0rc1/NetRollout-Setup-1.0.0rc1.exe,3
+2026-10-11,github,v1.0.0rc1/SHA256SUMS,1
+2026-10-11,dockerhub,itamarweinstein/netrollout,52
+2026-10-11,dockerhub,itamarweinstein/netrollout-nginx,42
