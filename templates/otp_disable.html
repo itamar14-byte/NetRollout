@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}Turn Off Two-Factor Sign-In — NetRollout{% endblock %}
+
+{% block content %}
+
+<!-- Flash messages -->
+{% with flash_class='mx-auto mb-3', flash_width=440 %}{% include '_flash.html' %}{% endwith %}
+
+<!-- Hero -->
+<div class="mb-4">
+  <div class="nr-badge">2FA</div>
+  <h2 class="nr-kpi-value">
+    Turn off two-factor sign-in
+  </h2>
+  <p class="nr-page-subtitle">
+    Confirm with your password and a code from your authenticator app.
+  </p>
+</div>
+
+<p class="nr-note mx-auto mb-3" style="max-width:440px;">
+  This is the factory <code>admin</code> account, NetRollout's way back in when other
+  sign-ins fail. Turning two-factor sign-in off returns it to signing in with its
+  password alone. You can turn it on again from My Account.
+</p>
+
+<div class="nr-card mx-auto mb-4" style="max-width:440px;">
+  <div class="nr-card-accent nr-accent-danger"></div>
+  <div class="nr-card-body">
+
+    <form method="POST" action="{{ url_for('auth.account_2fa_off') }}" id="otpForm">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+      <div class="mb-4 text-start">
+        <label for="password" class="nr-label">Password</label>
+        <input type="password" class="form-control" id="password" name="password"
+               autocomplete="current-password" required autofocus>
+      </div>
+
+      <!-- Timer -->
+      <div class="d-flex justify-content-center align-items-center mb-3 gap-3">
+        <div style="position: relative; width: 52px; height: 52px;">
+          <svg width="52" height="52" style="transform: rotate(-90deg);">
+            <circle cx="26" cy="26" r="22" fill="none" stroke="#1a1a1a" stroke-width="3"/>
+            <circle id="timerCircle" cx="26" cy="26" r="22" fill="none"
+                    stroke="#28a745" stroke-width="3"
+                    stroke-dasharray="138.2"
+                    stroke-dashoffset="0"
+                    stroke-linecap="round"
+                    style="transition: stroke-dashoffset 1s linear, stroke 0.5s;"/>
+          </svg>
+          <span id="timerText"
+                style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+                       font-family: 'JetBrains Mono', monospace; font-size: 0.9rem; font-weight: 700; color: #e0e0e0;">30</span>
+        </div>
+        <span style="color:var(--nr-text-muted); font-size:0.78rem;">seconds until refresh</span>
+      </div>
+
+      <div class="d-flex justify-content-center gap-2 mb-4" id="otpBoxes">
+        <input type="text" maxlength="1" class="otp-box form-control text-center fw-bold"
+               inputmode="numeric" pattern="[0-9]" autocomplete="off">
+        <input type="text" maxlength="1" class="otp-box form-control text-center fw-bold"
+               inputmode="numeric" pattern="[0-9]" autocomplete="off">
+        <input type="text" maxlength="1" class="otp-box form-control text-center fw-bold"
+               inputmode="numeric" pattern="[0-9]" autocomplete="off">
+        <input type="text" maxlength="1" class="otp-box form-control text-center fw-bold"
+               inputmode="numeric" pattern="[0-9]" autocomplete="off">
+        <input type="text" maxlength="1" class="otp-box form-control text-center fw-bold"
+               inputmode="numeric" pattern="[0-9]" autocomplete="off">
+        <input type="text" maxlength="1" class="otp-box form-control text-center fw-bold"
+               inputmode="numeric" pattern="[0-9]" autocomplete="off">
+      </div>
+      <input type="hidden" name="code" id="codeInput">
+      <div class="d-grid">
+        <button type="submit" class="btn btn-danger" id="submitBtn" disabled>Turn off two-factor sign-in</button>
+      </div>
+      <div class="mt-3">
+        <a href="{{ url_for('auth.account') }}" class="nr-muted" style="font-size:0.82rem;">Cancel - keep it on</a>
+      </div>
+    </form>
+
+  </div>
+</div>
+
+{% include "_otp_boxes.html" %}
+{% endblock %}

@@ -17,6 +17,17 @@
   </p>
 </div>
 
+{% if optional %}
+{# the factory admin turning its 2FA on, from the Account page #}
+<p class="nr-note mx-auto mb-3" style="max-width:440px;">
+  Optional for this account: the factory <code>admin</code> is NetRollout's way back in
+  when other sign-ins fail, so it signs in with its password alone unless you turn this on.
+  Once on, every sign-in asks for a code from your authenticator app.
+  If the app is lost, another administrator's <strong>Reset 2FA</strong> or
+  <code>netrollout reset-admin</code> on the server turns it off.
+</p>
+{% endif %}
+
 <div class="nr-card mx-auto mb-4" style="max-width:440px;">
   <div class="nr-card-accent"></div>
   <div class="nr-card-body">
@@ -55,7 +66,7 @@
     </div>
 
     <!-- OTP Input Form -->
-    <form method="POST" action="{{ url_for('auth.otp_enroll') }}" id="otpForm">
+    <form method="POST" action="{{ url_for('auth.account_2fa_setup') if optional else url_for('auth.otp_enroll') }}" id="otpForm">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <div class="d-flex justify-content-center gap-2 mb-4" id="otpBoxes">
         <input type="text" maxlength="1" class="otp-box form-control text-center fw-bold"
@@ -73,8 +84,13 @@
       </div>
       <input type="hidden" name="code" id="codeInput">
       <div class="d-grid">
-        <button type="submit" class="btn btn-primary" id="submitBtn" disabled>Confirm Enrollment</button>
+        <button type="submit" class="btn btn-primary" id="submitBtn" disabled>{{ "Turn on two-factor sign-in" if optional else "Confirm Enrollment" }}</button>
       </div>
+      {% if optional %}
+      <div class="mt-3">
+        <a href="{{ url_for('auth.account') }}" class="nr-muted" style="font-size:0.82rem;">Cancel - keep signing in with the password alone</a>
+      </div>
+      {% endif %}
     </form>
 
   </div>

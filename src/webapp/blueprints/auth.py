@@ -21,8 +21,9 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from src.accounts.ldap import Directory, LdapUnavailable
 from src.accounts.users import (FACTORY_LOCK_MINUTES, MAX_FAILED_PASSWORDS, RESERVED_USERNAME,
-                                RULE, LIMITS, AccountError, Accounts, Lockout, is_reserved,
-                                lock_message, needs_second_factor, password_problem)
+                                RULE, LIMITS, AccountError, Accounts, Lockout, is_factory_admin,
+                                is_reserved, lock_message, needs_second_factor,
+                                password_problem)
 from src.audit import AuditAction
 from src.db.tables import LDAPServer, LDAPGroup, User, AuthType
 from src.encryption import decrypt, encrypt
@@ -353,6 +354,15 @@ def _pending_user() -> User | None:
 		return user
 
 
+def _qr_png(secret: str, username: str) -> str:
+	""":returns: the QR code an authenticator app scans for this secret, as a
+	 base64 PNG"""
+	uri = pyotp.TOTP(secret).provisioning_uri(username, issuer_name="NetRollout")
+	buffer = BytesIO()
+	qrcode.make(uri).save(buffer, format="png")
+	return base64.b64encode(buffer.getvalue()).decode("utf8")
+
+
 def _wrong_code(user: User, retry_endpoint: str) -> ResponseReturnValue:
 	"""A wrong 2FA code: audited (a failed auth.login, wrong_code); the
 	MAX_WRONG_CODES-th in a row drops the half-done sign-in, so the password
@@ -393,14 +403,7 @@ def otp_enroll(data: Any) -> ResponseReturnValue:
 	if request.method == "GET":
 		secret = session.get("pending_totp_secret") or pyotp.random_base32()
 		session["pending_totp_secret"] = secret
-		uri = pyotp.TOTP(secret).provisioning_uri(user.username,
-		                                          issuer_name="NetRollout")
-		img = qrcode.make(uri)
-		buffer = BytesIO()
-		img.save(buffer, format="png")
-		buffer.seek(0)
-		qr_b64 = base64.b64encode(buffer.getvalue()).decode("utf8")
-		return render_template("otp_enroll.html", qr=qr_b64)
+		return render_template("otp_enroll.html", qr=_qr_png(secret, user.username))
 
 	otp_secret = session.get("pending_totp_secret")
 	if not otp_secret:                      # the QR page wasn't shown first
@@ -499,6 +502,98 @@ def change_password() -> ResponseReturnValue:
 	return redirect(session.pop(NEXT_KEY, None) or url_for("jobs.dashboard"))
 
 
+# ── The factory admin's own 2FA (optional) ──
+# Every other local account must use 2FA; the factory admin - the break-glass
+# account - signs in with its password alone unless it turns 2FA on here
+# (needs_second_factor). Another admin's Reset 2FA, or netrollout reset-admin
+# on the server, turns it off again.
+ACCOUNT_TOTP_KEY = "account_totp_secret"
+WRONG_CODE = "That code isn't right - try the one your app shows now."
+
+
+def _factory_only() -> ResponseReturnValue | None:
+	""":returns: the way back to the Account page for anyone but the factory
+	 admin (their 2FA isn't optional); None for the factory admin"""
+	if is_factory_admin(current_user):
+		return None
+	flash("Two-factor sign-in can be turned on or off only for the factory admin "
+	      "account.", "info")
+	return redirect(url_for("auth.account"))
+
+
+@bp.route("/account/2fa/setup", methods=["GET", "POST"])
+@login_required
+@conn_limit.limit(SIGN_IN_RATE, methods=["POST"])
+@with_form("code")
+def account_2fa_setup(data: Any) -> ResponseReturnValue:
+	"""The factory admin turns 2FA on: GET shows a new authenticator's QR code
+	(its secret waits in the session); POST checks a code from it and stores
+	the secret (encrypted) - from the next sign-in on, the code is asked.
+	Audited auth.2fa_enabled (a wrong code too, failed)."""
+	refused = _factory_only()
+	if refused is not None:
+		return refused
+	if current_user.otp_secret:
+		session.pop(ACCOUNT_TOTP_KEY, None)
+		return redirect(url_for("auth.account"))
+	if request.method == "GET":
+		secret = session.get(ACCOUNT_TOTP_KEY) or pyotp.random_base32()
+		session[ACCOUNT_TOTP_KEY] = secret
+		return render_template("otp_enroll.html", qr=_qr_png(secret, current_user.username),
+		                       optional=True)
+	secret = session.get(ACCOUNT_TOTP_KEY)
+	if not secret:                      # the QR page wasn't shown first
+		return redirect(url_for("auth.account_2fa_setup"))
+	if not pyotp.TOTP(secret).verify(data["code"], valid_window=1):
+		current_app.web.audit(AuditAction.AUTH_2FA_ENABLED, success=False,
+		                      detail={"reason": "wrong_code"})
+		flash(WRONG_CODE, "danger")
+		return redirect(url_for("auth.account_2fa_setup"))
+	with current_app.backend.postgres.get_session() as db_session:
+		signed_in_user(db_session).otp_secret = encrypt(secret)
+	session.pop(ACCOUNT_TOTP_KEY, None)
+	current_app.web.audit(AuditAction.AUTH_2FA_ENABLED)
+	flash("Two-factor sign-in is on: from your next sign-in, NetRollout asks for "
+	      "a code from your authenticator app after the password.", "success")
+	return redirect(url_for("auth.account"))
+
+
+@bp.route("/account/2fa/off", methods=["GET", "POST"])
+@login_required
+@conn_limit.limit(SIGN_IN_RATE, methods=["POST"])
+@with_form("password", "code")
+def account_2fa_off(data: Any) -> ResponseReturnValue:
+	"""The factory admin turns 2FA off - proved by its password and a current
+	code; it signs in with the password alone again. Audited
+	auth.2fa_disabled (a refusal too, failed, with its reason)."""
+	refused = _factory_only()
+	if refused is not None:
+		return refused
+	if not current_user.otp_secret:
+		return redirect(url_for("auth.account"))
+	if request.method == "GET":
+		return render_template("otp_disable.html")
+	reason: str | None = None
+	with current_app.backend.postgres.get_session() as db_session:
+		user = signed_in_user(db_session)
+		assert user.password_hash is not None and user.otp_secret is not None
+		if not check_password_hash(user.password_hash, data["password"]):
+			reason, problem = "wrong_password", "The password is incorrect."
+		elif not pyotp.TOTP(decrypt(user.otp_secret)).verify(data["code"], valid_window=1):
+			reason, problem = "wrong_code", WRONG_CODE
+		else:
+			user.otp_secret = None
+	if reason:
+		current_app.web.audit(AuditAction.AUTH_2FA_DISABLED, success=False,
+		                      detail={"reason": reason})
+		flash(problem, "danger")
+		return redirect(url_for("auth.account_2fa_off"))
+	current_app.web.audit(AuditAction.AUTH_2FA_DISABLED)
+	flash("Two-factor sign-in is off: this account signs in with its password alone.",
+	      "success")
+	return redirect(url_for("auth.account"))
+
+
 @bp.route("/account/session")
 @login_required
 def session_state() -> Response:
@@ -519,4 +614,5 @@ def account() -> str:
 		user = signed_in_user(db_session)
 		totals = JobResults(db_session, viewer()).totals(user.id)
 
-	return render_template("account.html", user=current_user, **totals)
+	return render_template("account.html", user=current_user,
+	                       is_factory=is_factory_admin(current_user), **totals)

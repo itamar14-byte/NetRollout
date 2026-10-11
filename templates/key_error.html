@@ -124,7 +124,8 @@ Request: {{ path }}</pre>
             They'll see the steps when they open this page, and the server log has them too.</li>
         {% if area == "2fa" %}
         <li><strong>Administrators:</strong> this happened at two-factor sign-in. Sign in with the
-            factory <code>admin</code> account (it doesn't use 2FA) to see the fix, or read it in the
+            factory <code>admin</code> account to see the fix (if two-factor sign-in was turned on
+            for it, run <code>netrollout reset-admin</code> on the server first), or read it in the
             server log (<code>docker logs</code> or the console NetRollout runs in).</li>
         {% endif %}
     </ol>

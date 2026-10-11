@@ -59,11 +59,32 @@
         </div>
 
         <div>
-          <div class="nr-label">2FA Status</div>
-          {% if user.otp_secret %}
+          <div class="nr-label">Two-factor sign-in</div>
+          {% if user.auth_type != "local" %}
+            <span style="font-size:0.82rem; color:var(--nr-text-muted);">Not used - your directory (LDAP) checks your sign-in</span>
+          {% elif user.otp_secret %}
             <span style="font-size:0.82rem; color:#a5d6a7;">
-              <i class="bi bi-shield-check me-1"></i>Enrolled
+              <i class="bi bi-shield-check me-1"></i>On
             </span>
+            {% if is_factory %}
+            <div class="mt-1">
+              <a href="{{ url_for('auth.account_2fa_off') }}" class="btn btn-outline-danger btn-sm">
+                <i class="bi bi-shield-x me-1"></i>Turn off two-factor sign-in
+              </a>
+            </div>
+            {% endif %}
+          {% elif is_factory %}
+            <span style="font-size:0.82rem; color:var(--nr-text-muted);">
+              <i class="bi bi-shield me-1"></i>Off - this account signs in with its password alone
+            </span>
+            <div class="mt-1">
+              <a href="{{ url_for('auth.account_2fa_setup') }}" class="btn btn-outline-info btn-sm">
+                <i class="bi bi-shield-lock me-1"></i>Set up two-factor sign-in
+              </a>
+            </div>
+            <div class="nr-help-text mt-1" style="font-size:0.75rem; color:var(--nr-text-muted);">
+              Optional for the factory admin: it's the way back in when other sign-ins fail.
+            </div>
           {% else %}
             <span style="font-size:0.82rem; color:#ef9a9a;">
               <i class="bi bi-shield-x me-1"></i>Not enrolled
