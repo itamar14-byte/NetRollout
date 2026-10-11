@@ -846,4 +846,379 @@ classDiagram
     Maintenance --> RolloutOrchestrator
 ```
 
+---
+
+## 7. Key flows
+
+### A web rollout
+
+From the New Rollout page to the results in PostgreSQL, with the live log on the side.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as Operator
+    participant R as rollout.py route
+    participant O as RolloutOrchestrator
+    participant S as JobStore (Redis)
+    participant PG as PostgreSQL
+    participant D as Dispatcher thread
+    participant J as RolloutJob thread
+    participant E as RolloutEngine
+    participant N as NetmikoSession
+    participant L as RolloutLogger / LiveLog
+
+    U->>R: POST /rollout/start (devices, commands, verify, comment)
+    R->>R: InventoryView: visible devices, Device.from_inventory, unresolved tokens refused
+    R->>O: submit(devices, commands, options, user_id, comment)
+    O->>S: add: job meta hash, user's job set, pending count
+    O->>PG: JobMetadata row (commands as typed, comment)
+    O->>S: enqueue job id
+    R-->>U: job id, Active Jobs opens the live log
+    D->>S: next_queued (BLPOP, 5 s timeout)
+    D->>D: wait for a free slot, claim the job under the lock
+    D->>S: started: status active, counters moved
+    D->>J: start(on_complete)
+    J->>E: run(cancel_flag, logger)
+    par each device, up to the parallelism setting
+        E->>N: push(commands for this device)
+        N->>N: config mode, one line at a time, refusals logged
+        N->>N: the platform's Finish: save, commit, command or nothing
+        opt Verify on
+            E->>N: fetch_config()
+            E->>E: verify_commands, then classify
+        end
+        N->>L: notify (log file, live log)
+    end
+    E-->>J: one result per device
+    J->>O: on_complete
+    O->>PG: ResultRecorder.save: DeviceResult rows (retried, else a JSON file in logs/)
+    O->>S: finished: keys removed, counters moved
+    O->>L: close: the live log ends
+```
+
+The live log, in parallel with the rollout:
+
+```mermaid
+sequenceDiagram
+    participant B as Browser (EventSource)
+    participant X as nginx
+    participant R as Stream route
+    participant Q as Redis
+    participant L as LiveLog (job thread)
+
+    B->>X: GET /rollout/stream/(job id)
+    X->>R: proxied unbuffered
+    R->>R: owner or admin, else 404
+    R->>Q: SUBSCRIBE to the job's logs channel (confirmed first)
+    R->>Q: LRANGE the job's history list
+    R-->>B: each line so far as SSE data (a queued job gets a Queued line first)
+    loop until the job is over
+        L->>Q: RPUSH to the history, PUBLISH the numbered line
+        Q-->>R: line number n
+        R-->>B: the line as SSE data, unless the history already had line n
+        R-->>B: a heartbeat comment every 0.5 s
+    end
+    R-->>B: the done event
+```
+
+### Sign-in
+
+```mermaid
+sequenceDiagram
+    actor U as User
+    participant A as auth.py
+    participant DB as PostgreSQL
+    participant DIR as Directory (LDAP)
+    participant RS as Redis sessions
+
+    U->>A: POST /login (username, password), 10 per minute per address
+    A->>A: Origin check (sign-in is exempt from the CSRF token)
+    A->>DB: find the user (exact name, else a directory account in any case)
+    alt local account
+        A->>A: check_password_hash, approved, active
+        alt the factory admin account
+            A->>RS: new session id, signed in
+        else every other local account
+            A->>RS: pre_auth_user_id in the session
+            A-->>U: /otp_verify, or /otp_enroll the first time
+            U->>A: 6-digit code (5 wrong codes drop the half-done sign-in)
+            A->>A: pyotp verify against the decrypted secret
+            A->>RS: new session id, signed in
+        end
+    else known directory account
+        A->>DIR: user_bind(username, password)
+        A->>RS: new session id, signed in (no 2FA)
+    else unknown username
+        A->>DIR: check_group_membership against the active server's mapped groups
+        A->>DB: Accounts.new_ldap (approved, active, the group's role)
+        A->>RS: new session id, signed in
+    end
+    A->>DB: audit auth.login (success or the reason)
+    A-->>U: the page asked for (?next=, local paths only), else the Dashboard
+```
+
+After sign-in, every request passes `enforce_session_lifetime` (idle limit from System Settings, 12 hours absolute) and, while `must_change_password` is set, `require_password_change`. See [§10.9](#109-sessions-and-accounts).
+
+### Changing the HTTPS port
+
+The port is Docker's mapping, so the app cannot apply it. It asks the host's port helper through files and confirms the new port from a browser.
+
+```mermaid
+sequenceDiagram
+    actor A as Admin
+    participant P as System Settings page
+    participant AC as Access (app)
+    participant F as config/nginx/site.env and config/apply-status.json
+    participant H as Port helper (host)
+    participant C as docker compose
+
+    A->>P: save HTTPS port P
+    P->>AC: save(values)
+    AC->>F: site.env: requested port P, a new request id, its time
+    AC->>AC: setting saved (the desired port)
+    H->>F: sees the request (file watch)
+    H->>H: python -m src.setup port-next: try P
+    H->>C: port-trial.yaml added to COMPOSE_FILE, nginx recreated on both ports
+    H->>F: apply-status.json: trying, deadline
+    P->>P: polls, then opens https://host:P
+    A->>P: the page served on port P confirms
+    P->>F: site.env: confirmed request id
+    alt confirmed within 120 s
+        H->>C: .env HTTPS_PORT = P, trial removed, nginx recreated on P only
+        H->>F: applied
+    else not confirmed in time
+        H->>C: trial removed, nginx back on the old port
+        H->>F: rolled_back (the page offers Try again)
+    end
+```
+
+### An update
+
+On Windows, NetRollout Manager (or the user) runs the new NetRollout Setup over the install. On Linux, `netrollout.sh update` does the same steps itself. Both refuse the same version and older versions before anything changes, and take a `before-update` backup with the installed version.
+
+```mermaid
+sequenceDiagram
+    participant M as Manager or netrollout.sh
+    participant G as GitHub release (or a feed)
+    participant S as Setup / the script
+    participant OLD as Installed app image
+    participant C as docker compose
+    participant NEW as New app image
+
+    M->>G: latest release, its assets and SHA256SUMS
+    M->>M: download, check the SHA-256 (a mismatch is deleted)
+    M->>S: Windows: run Setup /SILENT. Linux: unpack to .update/
+    S->>OLD: python -m src.setup check-update --installed X --new Y
+    OLD-->>S: update, or exit 2 (same or older version: nothing changed)
+    S->>OLD: python -m src.backup create --kind before-update
+    S->>S: replace the shipped files (bin, compose files, deploy, VERSION)
+    S->>C: pull the new images while the old version still runs
+    S->>NEW: python -m src.setup upgrade (.env gets the keys this version needs)
+    S->>C: up: the app starts, runs the migrations, serves
+```
+
+Details: [§10.12](#1012-netrollout-setup-and-netrollout-manager-windows) and the admin guide's [updating section](admin-guide.md#updates).
+
+### A database move
+
+```mermaid
+sequenceDiagram
+    actor A as Admin
+    participant P as Server Management
+    participant DM as DatabaseMove (thread)
+    participant MT as Maintenance
+    participant O as RolloutOrchestrator
+    participant MV as db/move.py
+    participant B as BackendServices
+
+    A->>P: Check, then Move (replace ticked if the target holds NetRollout)
+    P->>DM: start(target)
+    DM->>MV: check_target: reachable, PostgreSQL 13+, may create tables, no clash
+    DM->>MT: begin: waiting
+    MT->>O: pause: new rollouts refused, running ones finish
+    loop up to 30 minutes, cancellable
+        DM->>MT: lock()? only once idle and no request under way
+    end
+    MT-->>DM: locked: every other request answered 503
+    DM->>MV: copy: a before-move backup restored on the target, row counts compared
+    DM->>B: move_postgres: reconnect, Grafana's grants, runtime.env written
+    DM->>MT: end: rollouts resume
+    Note over DM,B: any failure leaves NetRollout on the old database, audited
+```
+
+---
+
+## 8. Data model
+
+### PostgreSQL tables
+
+The models are in `src/db/tables.py`; the schema is managed by Alembic (`src/db/alembic/versions/`). Every table has a UUID primary key, except `system_settings`, keyed by the setting's name. The history starts at the `v1_0_0_baseline` revision; from 1.0.0 on, released migrations are never edited, and every schema change is a new revision. The app applies migrations itself at every start.
+
+```mermaid
+erDiagram
+    users ||--o{ inventory : owns
+    users ||--o{ security_profiles : owns
+    users ||--o{ variable_mappings : owns
+    users ||--o{ property_definition : owns
+    users ||--o{ device_attributes : "sets own values"
+    users ||--o{ device_results : "ran"
+    users ||--o{ job_metadata : "ran"
+    users |o--o{ audit_log : "acted, SET NULL"
+    ldap_servers |o--o{ users : "signs in, SET NULL"
+    ldap_servers ||--o{ ldap_groups : maps
+    security_profiles |o--o{ inventory : "reaches"
+    inventory ||--o{ device_attributes : "has, CASCADE"
+    inventory }o--o{ variable_mappings : var_mapping_to_devices
+
+    users {
+        uuid id PK
+        string username UK
+        string password_hash "null for directory users"
+        string role "operator or admin"
+        bool is_active
+        bool is_approved
+        string otp_secret "Fernet"
+        bool must_change_password
+        string auth_type "local or ldap"
+        uuid ldap_server_id FK
+    }
+    inventory {
+        uuid id PK
+        uuid user_id FK
+        uuid sec_profile_id FK
+        string ip
+        int port
+        string device_type
+        string label
+        bool is_global
+        json var_maps "system property values"
+    }
+    security_profiles {
+        uuid id PK
+        uuid user_id FK
+        string label
+        string username
+        string password_secret "Fernet"
+        string enable_secret "Fernet"
+    }
+    variable_mappings {
+        uuid id PK
+        uuid user_id FK
+        string token "unique per user"
+        string property_name
+        int index "null for a plain value"
+    }
+    property_definition {
+        uuid id PK
+        uuid user_id FK
+        string name
+        string label
+        string icon
+        bool is_list
+    }
+    device_attributes {
+        uuid id PK
+        uuid device_id FK
+        uuid user_id FK
+        string name
+        json value
+    }
+    device_results {
+        uuid id PK
+        uuid user_id FK
+        uuid job_id "soft reference"
+        string device_ip
+        int device_port
+        string device_type
+        int commands_sent
+        int commands_verified
+        string status
+        text action_needed
+        text fetched_config
+    }
+    job_metadata {
+        uuid id PK
+        uuid user_id FK
+        uuid job_id "soft reference"
+        json commands "as typed"
+        string comment
+    }
+    audit_log {
+        uuid id PK
+        datetime timestamp
+        uuid actor_id FK
+        string actor_username
+        string action
+        string object_label
+        bool success
+        string ip_address
+        json detail
+    }
+    ldap_servers {
+        uuid id PK
+        string host
+        int port
+        string base_dn
+        string bind_type
+        string bind_password "Fernet"
+        bool use_ssl
+    }
+    ldap_groups {
+        uuid id PK
+        uuid ldap_server_id FK
+        string group_dn
+        string role
+    }
+```
+
+| Table | What it holds |
+|---|---|
+| `users` | Accounts, local or directory. `role` is `operator` or `admin`; `is_approved` (Request access waits for an admin) and `is_active` gate sign-in; `otp_secret` is the encrypted TOTP secret (null: not enrolled); `must_change_password` gates every page to the password change (the factory `admin`, after an admin reset). Deleting a user deletes their devices, profiles, mappings, properties, attribute values, results and job metadata. |
+| `inventory` | Devices. `is_global` devices are visible to and usable by everyone, editable only by admins. `var_maps` holds the system properties' values (hostname, loopback_ip, asn, mgmt_vrf, mgmt_interface, site, domain, timezone, vrfs), shared by everyone who sees the device. Several devices may share an `ip:port`; the pages warn, nothing is blocked. |
+| `security_profiles` | The credentials devices are reached with: username in clear, password and enable secret encrypted. A profile can't be deleted while a device uses it. |
+| `variable_mappings` | A `$$TOKEN$$` bound to a property name (and an index for list properties), and the devices it applies to (`var_mapping_to_devices`). The join table is shared across users because of global devices, so a rollout applies only the rolling-out user's mappings. |
+| `property_definition` | A user's own custom properties (name, label, icon, list or not). |
+| `device_attributes` | One user's value of one of their custom properties on one device. Unique per device, user and name; deleted with the device, the user or the property. |
+| `device_results` | One row per device per job: status (`success`, `partial`, `failed`, `cancelled`), commands sent and verified, `action_needed` (what only a person can resolve), and `fetched_config` (the running configuration Verify read, kept only when some commands didn't verify, for the Verify Diff). There is no job table: `job_id` groups the rows. |
+| `job_metadata` | One row per job: the commands as typed (before token substitution) and the comment. Deleted once its job's results are gone. |
+| `audit_log` | Who did what, when, from which address, with what outcome. `actor_username` and `object_label` are copied in, so a row survives the user's or the object's deletion. |
+| `ldap_servers`, `ldap_groups` | Directory servers (bind type `anonymous`, `simple` or `regular` with a service account; bind password encrypted) and the groups whose direct members are given an account on their first sign-in, with the group's role. |
+| `system_settings` | The runtime value of each System Setting (`key`, JSON `value`, who changed it and when). The only runtime source of the settings. |
+
+Retention (System Settings, applied by the nightly clean-up): job records 30 days, config snapshots 7 days, audit log 90 days. See [§10.7](#107-retention).
+
+### Redis keys
+
+Redis holds nothing that must survive: sessions, the job queue, live job state and the reachability cache. Every app start clears leftover job state and signs everyone out.
+
+| Key | Type | Written by | What it holds |
+|---|---|---|---|
+| `job:{id}:meta` | hash | `JobStore` | A running or queued job: `user_id`, `status` (`pending`, `active`, `cancelling`), `device_count`, `created_at`, `started_at`. |
+| `user_jobs:{user_id}` | set | `JobStore` | A user's job ids. |
+| `netrollout:job_queue` | list | `JobStore` | Job ids waiting for the dispatcher. |
+| `netrollout:pending_count`, `netrollout:active_count` | counters | `JobStore` | Queued and running jobs (the Prometheus gauges). |
+| `netrollout:stop_now` | string, 15-minute expiry | `JobStore` | Set from the host (`python -m src.jobs stop-now`): the stop under way cancels running rollouts at once instead of waiting. |
+| `job:{id}:history` | list | `LiveLog` | The live log's lines so far. |
+| `job:{id}:logs` | pub/sub channel | `LiveLog` | New lines, published as `<n>\t<line>`, and `__done__` at the end. |
+| `redis_session:{sid}` | string | Flask-Session (`_SafeRedisSessionInterface`) | A signed-in session. `SessionStore` reads them to list or end a user's sessions. |
+| `reach:{ip}:{port}` | string with expiry | `ReachabilityChecker` | A cached TCP reachability probe (the *Reachability cache* setting). |
+
+### Files on disk
+
+The NetRollout home is `NETROLLOUT_HOME` (`/data` in the image), else the executable's folder for the CLI, else the repository root. An install mounts its `config/`, `certs/`, `logs/` and `backups/` folders there.
+
+| Path | Written by | Read by | What it holds |
+|---|---|---|---|
+| `.env` (install folder) | The setup core | Docker Compose | The install's secrets and answers: database and Redis passwords, `SECRET_KEY`, `NETROLLOUT_ENCRYPTION_KEY`, Grafana's passwords, `HTTPS_PORT`, `COMPOSE_FILE`, `COMPOSE_PROFILES`, `TZ`, the version. |
+| `config/runtime.env` | The app (a database move or Redis switch only) | The app, grafana-setup | The connection settings an admin chose, overriding the environment. |
+| `config/nginx/site.env` | The app (`site_env.py`); the installer's first hostname | nginx's watcher, the port helper | Hostname and port in use; the port request, its id, time and confirmation. |
+| `config/nginx/status.json` | nginx's watcher | The app (`nginx.read_status`) | `applied` or `rejected` for the last change, with nginx's message. |
+| `config/apply-status.json` | The port helper (`src/setup/port.py`) | The app (`src/access/port.py`) | The port change's state: `trying`, `applied`, `rolled_back` or `failed`. |
+| `config/port-trial.yaml` | The port helper | Docker Compose (listed in `COMPOSE_FILE` during a trial) | The trial's extra port mapping. |
+| `config/retention-status.json` | The nightly clean-up | System Settings | The last clean-up's outcome. |
+| `certs/fullchain.pem`, `certs/privkey.pem` | The setup core, `CertificateStore` | nginx | The certificate nginx serves. `.selfsigned` marks a generated one; `.old-names.json` holds previous hostnames' deadlines. |
+| `logs/` | The rollout logger, the app, the scripts | Download Log, Alloy (Loki) | One file per rollout, `rollout_<time>_<job id>.log`; `unsaved-results-<job>.json` when results couldn't be saved; the scripts' install, update and port-helper logs. |
+| `backups/` | `src/backup` | Restore | `netrollout-<version>-<time>-<kind>.zip`; `.schedule-status.json`, the lock `.backup.lock`. |
+
 <!-- CONTINUE -->
