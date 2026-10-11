@@ -543,7 +543,13 @@ The shipped dashboards are view-only, and NetRollout puts them back every 5 minu
 
 Grafana reads NetRollout's database through a read-only login that can see only three tables: job results, job metadata and the audit log. It never sees users, credentials or settings.
 
-**Turning monitoring on or off after install (advanced).** In `.env`, set `COMPOSE_PROFILES=monitoring` to turn it on, or `COMPOSE_PROFILES=` (empty) to turn it off. Then run `netrollout start` (Windows) or `sudo ./bin/netrollout.sh start` (Linux).
+**Turning monitoring on or off after install (advanced).** Do it in this order:
+
+1. Stop NetRollout: `netrollout stop` (Windows) or `sudo ./bin/netrollout.sh stop` (Linux).
+2. In `.env`, set `COMPOSE_PROFILES=monitoring` to turn it on, or `COMPOSE_PROFILES=` (empty) to turn it off.
+3. Start NetRollout: `netrollout start` or `sudo ./bin/netrollout.sh start`.
+
+Stop first: `start` does nothing while everything that exists is already running, so a change made while NetRollout runs isn't picked up. Turning monitoring off keeps its data volumes, so turning it on again later picks up where it left off.
 
 ## Moving the database
 

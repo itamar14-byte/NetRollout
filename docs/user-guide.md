@@ -435,7 +435,7 @@ NetRollout doesn't guess how to undo a change, and it doesn't restore a saved co
 
 What it does exactly:
 
-- **Which devices**: those that ended `success` in the original job, matched by `ip:port` among the devices the job's owner can see today (their own entry preferred over a global one with the same address). Devices that ended `partial`, `failed` or `cancelled` are left out, because what they hold is uncertain: check and fix them by hand, or with a new rollout. A device deleted since the job is left out.
+- **Which devices**: those that ended `success` in the original job, matched by `ip:port` among the devices the job's owner can see today (their own entry preferred over a global one with the same address). Devices that ended `partial`, `failed` or `cancelled` are left out: check and fix them by hand, or with a new rollout. A device deleted since the job is left out.
 - **Which commands**: the same commands to every one of those devices, whatever their platform.
 - **Whose view**: the job owner's. Their credentials (the devices' security profiles) log in, and their mappings and values fill in the tokens. Values are read when you start the rollback, not taken from the original job, so check they still reflect the network.
 - **Checks first**: as for any rollout, every device must be reachable, have a security profile, and resolve every token, or the rollback is refused with the reason.
