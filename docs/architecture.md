@@ -1221,4 +1221,339 @@ The NetRollout home is `NETROLLOUT_HOME` (`/data` in the image), else the execut
 | `logs/` | The rollout logger, the app, the scripts | Download Log, Alloy (Loki) | One file per rollout, `rollout_<time>_<job id>.log`; `unsaved-results-<job>.json` when results couldn't be saved; the scripts' install, update and port-helper logs. |
 | `backups/` | `src/backup` | Restore | `netrollout-<version>-<time>-<kind>.zip`; `.schedule-status.json`, the lock `.backup.lock`. |
 
-<!-- CONTINUE -->
+---
+
+## 9. Installation, the setup core and the port helper
+
+### One decision-maker, two thin host scripts
+
+What installing and running NetRollout decides and writes lives once, in the **setup core** (`src/setup/`). It runs inside the app image with the install folder mounted: `python -m src.setup <command>`. The host scripts, `packaging/windows/manage.ps1` and `packaging/linux/netrollout.sh`, only do what needs the host: checks, Docker, file owners and permissions, auto-start, shortcuts. They call the setup core for everything else, so Windows and Linux make the same decisions.
+
+| Command | What it decides |
+|---|---|
+| `init`, `check` | The install's answers (hostname, HTTPS port, monitoring, an organisation's certificate, timezone), checked against the host's facts (busy ports, IP addresses, computer name); `init` writes `.env`, `config/nginx/site.env`, the folders and, unless the organisation's certificate is used, a self-signed one. `check` validates only. `init --dev` writes a developer's `.env`, `config/runtime.env` and a localhost certificate. |
+| `prepare-start` | Before a start: the ports are free, the server's addresses are current. |
+| `status` | The `netrollout status` report (services, health, backups, what to do). |
+| `restore-key` | After a restore: the backup's encryption key into `.env`. |
+| `check-update` | An update's direction, run with the *installed* image before any file is replaced: `update`, or exit 2 for the same version (nothing to update) or an older one (downgrades aren't supported). Versions compare by PEP 440, so `1.0.0.dev0 < 1.0.0rc1 < 1.0.0`. |
+| `upgrade` | After an update's files: `.env` gets the keys this version needs (a secret the data depends on is never made up: missing means refused) and an `# Updated to NetRollout X` line. |
+| `release` | Linux's update: find the release (GitHub's latest, a tag, or a feed), download it, check it against `SHA256SUMS`, unpack it. |
+| `port-ready`, `port-next`, `port-open`, `port-trying`, `port-close` | The port helper's steps (below). |
+| `port-set`, `port-setting` | `netrollout port <n>`: set the HTTPS port by hand, without a trial. |
+
+Exit codes are `SetupExit`: 0 done, 1 invalid input or a failed step (each reason on its own line), 2 refused.
+
+### Windows
+
+Windows installs only through **NetRollout Setup** (`packaging/windows/installer/netrollout.iss`, Inno Setup). Setup refuses Windows Server and a machine with virtualization off before its first page, checks or installs Docker Desktop, collects the answers on a settings page pre-filled by `manage.ps1 defaults`, and runs `manage.ps1 install -Yes` with them. Over an existing install it updates in place (see [§7](#an-update)); over the data an earlier uninstall kept, the version that data was last set up by decides between starting as before, updating, or refusing a downgrade. The installed folder holds `bin\` (NetRollout Manager, `manage.ps1`, `netrollout.bat`, the icon), `deploy\`, the compose files, `VERSION`, `LICENSE`, the uninstaller and, from the install, `.env` (hidden), `config\`, `certs\`, `logs\` and `backups\`. `manage.ps1` restricts the whole folder to Administrators, SYSTEM and the installing account (`icacls`), at install and at every start.
+
+### Linux
+
+`sudo ./bin/install.sh` asks the same questions (or takes them as flags with `--yes`), checks both images are published, and starts NetRollout; `bin/netrollout.sh` is the day-to-day script, with a numbered menu when run without a command. Docker Engine and the Compose plugin are checked and explained, never installed. As root it keeps `.env` at mode 600 owned by root, and `config/`, `certs/`, `logs/` and `backups/` at 700 owned by the app container's user (uid 10001), reset at every start. `netrollout.sh update` downloads and checks the release zip, asks, takes a `before-update` backup, replaces the shipped files and then runs the **new** script's `update-finish` (the whole script body is in `main`, read before it runs, so it can replace its own file). Both scripts run `docker compose` from the install folder, because compose reads `.env`'s `COMPOSE_FILE` relative to the folder it runs in.
+
+### A release
+
+`packaging/build_release.py --version <v>` builds `dist/release-<v>/`:
+
+- `netrollout-<v>-linux.zip`: the install folder under `netrollout/` (`bin/`, the compose files, `deploy/`, `VERSION`, `LICENSE`, a README), Unix modes and LF line endings;
+- `NetRollout-Setup-<v>.exe` and `netrollout-cli-<v>.exe` (built on Windows);
+- `SHA256SUMS` for all of them;
+- with `--feed-base`, a `release-feed.json` in the shape of GitHub's API, for a mirror or a test of the update.
+
+`SHIPPED` in `build_release.py` is the one list of files an install gets besides the images; a unit test checks that the installer ships the same files and that every file compose mounts is in it. The two images (`itamarweinstein/netrollout` and `itamarweinstein/netrollout-nginx`) are built, checked end to end and pushed to Docker Hub by the release workflow, then the GitHub release is published with the files. The version in `VERSION` must equal the tag; the image build fails if its `VERSION` build argument differs.
+
+### The port helper
+
+A new HTTPS port means a new Docker port mapping, so nginx must be recreated on the host; the app never does it (it has no Docker access). The app and the helper talk through two files:
+
+| File | Direction | Contents |
+|---|---|---|
+| `config/nginx/site.env` | app to helper | The port wanted, a new request id, its time; later the same id as confirmed, once an admin's browser reached NetRollout through the new port. |
+| `config/apply-status.json` | helper to app | `id`, `state` (`trying`, `applied`, `rolled_back`, `failed`), `port`, `trying`, `deadline`, `message`, `time`. |
+
+Each pass of the helper asks `python -m src.setup port-next` what to do:
+
+| Step | Action |
+|---|---|
+| `none` | Nothing to do (no request, handled already, or refused, then recorded as failed with the reason). |
+| `try P` | Open port P next to the current one: `config/port-trial.yaml` (a compose file publishing P) is listed in `.env`'s `COMPOSE_FILE`, nginx is recreated, the state becomes `trying`. nginx's own configuration never changes for a port: it always listens on 443 inside the container. |
+| `wait` | A trial is running, not confirmed yet, the deadline not passed. |
+| `keep` | Confirmed from the new port: `.env`'s `HTTPS_PORT` and `site.env`'s port in use become P, the trial file goes, nginx is recreated on P only. |
+| `rollback` | Not confirmed within 120 s, superseded, or left over from a helper that died: nginx goes back to the old port. A rolled-back request is never retried by itself; the page's Try again makes a new one. |
+
+The 120 s are timed by the script's own stopwatch, not by comparing clocks (Docker Desktop's VM clock can fall minutes behind the host's). The deadline in the status file is for the page's countdown, the app's confirmation check, and a trial whose helper died.
+
+Where the helper runs:
+
+- **Windows**: `NetRollout Manager.exe --helper`, headless, with its own single-instance lock, started at sign-in, by Setup and by `netrollout start`. It watches `site.env` and runs `manage.ps1 apply`. A request left pending (Docker stopped) is retried after 15 s, 60 s, 120 s, 240 s, then every 5 minutes. Its log is `logs\port-helper.log`.
+- **Linux**: a systemd path unit, `netrollout-port-<project>.path`, triggers `netrollout.sh apply --yes` when `site.env` changes. It is written at every start and removed by uninstall.
+- **Neither**: `netrollout apply` by hand. Where a helper runs, `port-ready` writes a first status, so the page waits for it instead of asking for the command.
+
+Everything that shows or redirects to an address uses `serving_port()` (the helper's status, else the published port), not the setting, which is the *desired* port.
+
+---
+
+## 10. Subsystems
+
+### 10.1 The rollout engine and platforms
+
+`RolloutEngine(options, devices, commands).run(cancel_flag, logger)` runs the devices in a thread pool (`max_workers` = the *Devices in parallel per job* setting for the web app). For each device:
+
+1. **Substitute tokens.** `Device.commands_for()` replaces each `$$TOKEN$$` from the user's variable mappings and the device's attribute values; `unresolved()` lists what can't be filled (the routes refuse such a rollout before queueing it, and the push checks again).
+2. **Push.** `NetmikoSession(device, report).push(commands)` enters the CLI shell and config mode once (Junos uses `configure private`), then sends one command at a time exactly as typed (`send_config_set(…, enter_config_mode=False)`). A refused command (`rejection()`: one list of vendor error strings, the command's own echo skipped) is logged with the device's reply, and the rest are still sent. A typed `end` followed by more config commands is refused, as on the device. A prompt that changes mid-push (a new hostname) ends that session; the finish then runs from a fresh one.
+3. **Finish the platform's way** (the `Finish` strategy on the platform's `PLATFORMS` row):
+
+| Finish | Platforms | What it does |
+|---|---|---|
+| `SaveConfig` | `cisco_ios`, `cisco_xe`, `cisco_nxos`, `arista_eos`, `aruba_aoscx`, `hp_procurve`, `hp_comware` | `save_config()` after leaving config mode. Aruba CX sends `end` first (Netmiko only recognises `(config)#`). |
+| `Commit` | `juniper_junos`, `paloalto_panos`, `cisco_xr` | `commit()` before leaving config mode (leaving discards uncommitted changes), up to 300 s. A failed commit is a failure; the candidate is discarded (Junos `rollback 0`; PAN-OS `revert config`, else `load config from running-config.xml`; IOS XR reverts by itself). |
+| `RunCommand("save config")` | `checkpoint_gaia` | Runs `save config` after leaving config mode. An account that lands in expert (bash) is switched to `clish` first, or the device is refused. |
+| `NoFinish` | `fortinet` | The change is live as typed. Any open config block is closed with `end`; `execute cfg save` runs when FortiOS is in manual or revert save mode. |
+
+4. **Verify** (optional, only on devices the push applied to): `fetch_config()` reads the configuration with the platform's show command, and `verify_commands(device_type, config, commands)` gives each command a verdict: verified, not configured, still configured (a removal that didn't take), or not verifiable (navigation such as `exit` or `end`, operational commands such as `write memory` or `commit`). Indented configurations (Cisco style, FortiOS) are parsed into sections, and each typed command is placed in its section from the configuration's own structure. Flat configurations (Junos `display set`, PAN-OS set format, Gaia) are matched line by line with the `edit` / `up` / `top` prefix. `no`, `undo`, `unset` and `delete` pass when the setting is gone. A configuration that can't be fetched means "couldn't verify", not "failed". The Verify Diff page uses the same function, so it can't disagree with the rollout.
+5. **Classify** (`classify()`):
+
+| Status | When |
+|---|---|
+| `cancelled` | The device never started (the rollout was cancelled first). |
+| `failed` | Nothing applied (no connection, a failed commit), or with Verify none of the checkable commands confirmed, or without Verify every configuring command refused. |
+| `partial` | Some commands confirmed or accepted, some not; or the device stopped answering mid-push. |
+| `success` | With Verify, every checkable command confirmed and none refused; without Verify, none refused. |
+
+**ACTION NEEDED.** What only a person can resolve is reported per device by `RunReport.action_needed()`: Junos refusing private mode while someone has uncommitted shared edits, a refused save (for example a Gaia configuration lock), a commit still running after the timeout, PAN-OS changes left in the candidate, Gaia stuck in expert mode, a refused FortiOS `execute cfg save`, or a device whose configuration couldn't be read for Verify. Each becomes one `ACTION NEEDED — <ip:port>: …` line in the log, is counted in the rollout's summary, and is stored in `device_results.action_needed` for the Results page, the completion card and the dashboard.
+
+**Redaction.** Every log line (the file, Download Log, the live log, the console) and every stored ACTION NEEDED text passes `rollout/log.redact()`: the value after a secret-bearing word (`password`, `secret`, `community`, `pre-shared-key`, `psksecret`, `key-string`, `authentication-key`, Junos `encrypted-password`, PAN-OS `phash`, Gaia `password-hash`, and others; `key`, `auth` and `priv` only with a type before the value or a quoted value) becomes `<redacted>`. The keyword and an encryption type stay. The commands as typed (`job_metadata.commands`) and config snapshots (`fetched_config`) are not redacted.
+
+**Known limits of Verify**: typed abbreviations (`int gi1`), values the device rewrites (hashed secrets, normalised values such as Junos `area 0` shown as `0.0.0.0`, Comware VLAN ranges, defaults FortiOS `show` omits), settings that were already there before the rollout, multi-line banners, and compound PAN-OS `set` lines (PAN-OS prints one setting per line). A structural diff is on the [roadmap](roadmap.md).
+
+**Adding a platform** is one `PLATFORMS` row in `src/rollout/platforms.py` (its `Finish`, show command, flat or indented, any shell or config-mode quirk) and a fixture in `tests/unit/rollout/test_platforms.py`. `SUPPORTED_PLATFORMS` is derived from `PLATFORMS`.
+
+### 10.2 Jobs and orchestration
+
+`RolloutOrchestrator(backend, max_concurrent)` is created once at app start; `max_concurrent` is the *Concurrent rollout jobs* setting as it was at start (a change applies after a restart).
+
+- **Submit** builds the `RolloutEngine` and `RolloutJob`, writes the job's Redis state and its `JobMetadata` row, and queues it. A submit that fails partway withdraws the job: nothing is left in memory or Redis.
+- **The dispatcher**, a permanent thread, takes job ids from the Redis queue (5 s blocking wait, so a switched Redis client is picked up), waits for one of `max_concurrent` slots, and claims the job under the lock before starting it. It survives any error reading the queue, with exponential backoff (1 to 30 s).
+- **Claiming** (`RolloutJob.claim()`): each queued job is claimed exactly once, by the dispatcher to start it or by a cancel or the drain to record it as cancelled.
+- **Cancel**: a queued job ends at once (recorded as cancelled, "Cancelled before it started"); a running one is asked to stop, and devices not reached yet are skipped.
+- **Finalize**, when a job ends (in this order, each step running even if another failed): results to PostgreSQL through `ResultRecorder` (retried; still failing, they go to `logs/unsaved-results-<job>.json` and an ACTION NEEDED line is printed), the Redis keys removed, the live log closed. A status is written only to a job's existing hash (a Lua HSET-if-exists), so a cancel racing the job's end leaves no phantom row.
+- **Drain** (`drain(deadline)`, on SIGTERM or the admin Restart): new rollouts are refused with `Draining`, queued ones are recorded as cancelled, running ones may finish within `NETROLLOUT_DRAIN_SECONDS` (default 600), then are cancelled. If `netrollout:stop_now` is set (by `netrollout stop` or an update choosing "Cancel all now"), running ones are cancelled at once.
+- **Pause** (`pause()` / `idle()` / `resume()`, for a database move): new rollouts are refused with `Paused`; nothing is cancelled. `idle()` is true once no job is queued, running or still being recorded.
+- **From the host**: `python -m src.jobs rollouts [--json]` lists the running app's rollouts with their owners, and `stop-now [--clear]` sets or clears the mark. The scripts run them with `docker compose exec -T app`.
+
+Jobs live only in the process that runs them. Every start clears leftover job state (`clear_stale_jobs`), live log histories included.
+
+### 10.3 Live logging
+
+`RolloutLogger` writes every message to the job's log file and shows the notable ones (errors, important messages, all of them when verbose) through its one `Echo`: `Console` (ANSI colours) for the CLI, `LiveLog` (HTML-escaped) for a web job. `LiveLog` appends each line to `job:{id}:history` and publishes `<n>\t<line>` on `job:{id}:logs`, where `n` is the history's length after the push. A reader (`LiveLog.follow`) subscribes first and waits for the confirmation, then reads the history, then follows the channel, skipping a line the history already held. `__done__` ends it. The live log is best-effort: the file is written first, and a Redis error never fails the rollout.
+
+The SSE route (`/rollout/stream/<job_id>`) sends each message as `data:` lines (a multi-line message whole), a heartbeat comment every 0.5 s, and a `done` event at the end. It sets `X-Accel-Buffering: no`, and nginx has its own unbuffered location for it. Waitress runs 32 threads by default (`NETROLLOUT_THREADS`, 4 to 256), because each open live log holds one for the whole rollout.
+
+### 10.4 Access: hostname, certificates and nginx
+
+**The nginx image** (`deploy/nginx/`) serves one site rendered from `site.conf.template` with values only: the hostname and port from `config/nginx/site.env`, else the container's environment. Values are validated; nginx syntax never comes from the app. Other names redirect to the canonical hostname (IP addresses and `localhost` are served as they are), port 80 redirects to HTTPS, `/rollout/stream/` is unbuffered, `/metrics` answers 404, and the app is resolved per request through Docker's DNS. `netrollout-watcher.sh` waits for the certificate at boot, then every 3 s checks `site.env` and the certificate; a change is rendered and tested with `nginx -t` in a staging folder, swapped in and reloaded, or else the last good site keeps serving. The outcome goes to `config/nginx/status.json`.
+
+**The app's side** (`src/access/`):
+
+- `nginx.write_site()` writes `site.env` atomically and only when it changes; every start syncs it (`sync_at_start`). `Nginx.apply(change)` makes a change, waits for nginx's verdict for that hostname, and undoes the change if nginx rejects it. `Nginx.managed` tells whether an nginx reports here at all (a deployment behind its own proxy has none).
+- **Saving the hostname** (`Access.save`) is all or nothing: `SettingsStore.plan()` validates without writing; `Nginx.change_hostname()` renames the certificate by its kind (`CertificateStore.rename` → `Certificate.rename_to`): a `SelfSigned` certificate is reissued for the new name, keeping its IP addresses and the previous names for a 7-day transition, and an `Organisation` certificate is never reissued and refuses a name it doesn't cover. Then `site.env` is written, the setting saved, and nginx's verdict awaited; a rejection puts the setting, `site.env` and the certificate back.
+- **Certificates**: `CertificateStore` owns the certs folder (`fullchain.pem`, `privkey.pem`, the `.selfsigned` marker, `.old-names.json`); every change runs under one lock from a snapshot, and its undo puts back only what no later change replaced. An uploaded certificate is validated first (`certs.validate`: the key matches, the key is not encrypted, the dates, the names cover the hostname, the chain order); any problem refuses it. A generated one is ECDSA P-256, valid 825 days, with the server's IP addresses (`NETROLLOUT_SERVER_IPS`) as extra names. `CertificateUpkeep` drops expired previous names hourly.
+- **The HTTPS port**: see [§9](#the-port-helper).
+
+### 10.5 Backups
+
+`python -m src.backup create [--kind manual|scheduled|before-restore|before-update]` writes `backups/netrollout-<version>-<YYYYMMDD-HHMMSS>-<kind>.zip` (the database move also makes a `before-move` one):
+
+- `manifest.json`: version, migration level, row counts;
+- `db/<table>.csv`: NetRollout's tables from one read-only REPEATABLE READ snapshot (`COPY … CSV HEADER`), through the app's own connection, never a superuser, so it works on the bundled database or an organisation's;
+- `grafana.db` (an SQLite online backup of Grafana's volume, mounted read-only into the app), `certs/`, the rollout logs, and `encryption.key`.
+
+The zip is as secret as `.env`, so it is written owner-only.
+
+**Restore** (`python -m src.backup restore <zip>`, with NetRollout stopped, from the host scripts) runs in one transaction: `alembic downgrade base` (NetRollout's own tables only; anything else in the schema survives), `upgrade` to the backup's migration level, `COPY` in foreign-key order, the sequences, a check that the backup's key decrypts a stored credential, this install's `https_port` kept, and an audit row `backup.restored`. Any failure rolls back. Then the certificates, logs and Grafana's database are put back. It refuses a backup from a newer version, an unknown migration level or an incomplete zip; an older backup is migrated forward by the app at its next start. The scripts then write the backup's key into `.env` (`python -m src.setup restore-key`, as root, because the handed-over key file is root's) and reset Grafana's admin password to the install's.
+
+`BackupFolder` (`archive.py`) is the folder: `entries()`, `prune(keep)` (deletes only the oldest *scheduled* backups), the last scheduled outcome, and `lock()`: one backup or restore at a time (`.backup.lock`, refreshed every 60 s while held, stale after 5 minutes without a refresh). **Scheduled backups**: `BackupScheduler`, a `PeriodicTask` (first check after 2 minutes, then every 30 s), backs up when a scheduled time passed since the newest scheduled backup (a missed one is caught up once), then prunes; a failure is audited (`backup.failed`) and retried after an hour.
+
+### 10.6 System Settings
+
+`src/db/settings.py`. The `system_settings` table is the only runtime source. `SETTINGS` registers each setting as a `Setting` kind (`IntSetting` with a range, `TextSetting` with an optional format, `ChoiceSetting` from a fixed list), with its card, label, help, default, when a change applies, and an optional install-time seed variable.
+
+| Setting | Card | Default | Range | A change applies |
+|---|---|---|---|---|
+| `job_retention_days` | Retention | 30 | 1–3650 | next nightly clean-up |
+| `config_snapshot_retention_days` | Retention | 7 | 1–3650 | next nightly clean-up |
+| `audit_retention_days` | Retention | 90 | 7–3650 | next nightly clean-up |
+| `log_retention_days` | Retention | 60 | 1–3650 | next daily log clean-up |
+| `orchestrator_workers` | Rollouts | 4 | 1–32 | after a restart (seed `ORCHESTRATOR_WORKERS`) |
+| `device_parallelism` | Rollouts | 10 | 1–64 | next rollout |
+| `reachability_cache_seconds` | Rollouts | 60 | 10–3600 | immediately |
+| `public_hostname` | Access | none | a hostname | immediately (seed `NETROLLOUT_PUBLIC_HOSTNAME`, or the installer's `site.env`) |
+| `https_port` | Access | 443 | 1–65535 | once confirmed on the new port (seed `NETROLLOUT_HTTPS_PORT`) |
+| `session_idle_minutes` | Sessions | 15 | 5–480 | within 30 s |
+| `backup_schedule` | Backups | daily | off, daily, weekly | next scheduled time |
+| `backup_time` | Backups | 02:00 | HH:MM | next scheduled time |
+| `backup_weekday` | Backups | Sunday | a weekday | next scheduled time |
+| `backup_keep` | Backups | 14 | 1–365 | next scheduled backup |
+
+- **Seeding**: at every start `install()` inserts a row for each missing setting, from its seed variable if set and valid, else the default. Existing rows are never overwritten; after that, environment variables are ignored.
+- **Cross-setting rules** (`RULES`) are declarative and sent to the page as data, so the same rules run on the server and in the browser: log files are kept at least as long as job records, and config snapshots no longer than their job record.
+- **`SettingsStore`**: `get(key)` coerces a bad stored value to the nearest valid one and never raises; `plan(values)` validates without writing; `update(values, user_id)` is all or nothing and returns the changes, which are audited; `reset(key)` writes the default. A setting that applies after a restart shows "restart pending" while the saved value differs from the one the process started with.
+
+### 10.7 Retention
+
+The nightly clean-up runs in the app (`src/db/retention.py`, `NightlyCleanUp`, a `PeriodicTask`): daily at 03:00 server time, on whatever database the app is connected to; a missed time is caught up once, and a failure is retried after an hour. `RETENTION_STATEMENTS` read their period from `system_settings` at run time, so a change applies at the next run.
+
+| Statement | Action | Setting (default) |
+|---|---|---|
+| `device_result_retention` | Delete old `device_results` rows | Job records (30 days) |
+| `job_metadata_retention` | Delete `job_metadata` rows whose job has no results left | Job records (30 days) |
+| `device_result_config_retention` | Set `fetched_config` to NULL, keep the row | Config snapshots (7 days) |
+| `audit_log_retention` | Delete old `audit_log` rows | Audit log (90 days) |
+
+The last outcome is in `config/retention-status.json`, shown on System Settings. Log files are pruned separately by `LogPruner` (daily, the *Log files* setting, default 60 days); the CLI prunes once per run.
+
+### 10.8 Lifecycle and maintenance mode
+
+**Start** (`launch_app`): resolve `SECRET_KEY` and require the encryption key in a container (fail fast); seed the hostname from the installer's `site.env`; build `BackendServices` (load `runtime.env`, connect PostgreSQL, run `install()`: migrations, the factory `admin` / `admin` account if missing, the missing settings, Grafana's grants; connect Redis); check the encryption key against a stored credential; build the orchestrator, `Maintenance`, `WebServices` and the Flask app; register the maintenance gate (the first request hook), the extensions, the session checks and the error handlers; then sign everyone out (`SessionStore.clear_all`), clear leftover job state and sync nginx's `site.env`. `__main__` then installs the SIGTERM handler, starts the background tasks (`LogPruner`, `CertificateUpkeep`, `BackupScheduler`, `NightlyCleanUp`) and serves with Waitress on `0.0.0.0:$PORT`.
+
+**Stop and Restart** (`Shutdown`): at most one, begun once. SIGTERM (`docker stop`, `netrollout stop`, an update) and the admin Restart drain the orchestrator, then exit. In a container, Restart exits and Docker's restart policy brings the app back; compose's `stop_grace_period` (11 minutes) is longer than the drain. Every page shows a banner while it drains. With rollouts running, the Restart dialog lists them and asks: when they finish, or now.
+
+**Maintenance mode** (`Maintenance`, for the database move): **waiting** pauses the orchestrator (new rollouts refused, queued and running ones finish, nothing cancelled), with a banner on every page; then **locked**, once the orchestrator is idle and no request is being answered (the gate counts every request it lets through). While locked, every request gets 503 with `Retry-After` (a page for browsers, JSON otherwise), except views marked `@during_maintenance` (health, instance, Grafana's auth check, the move's status; none of them write), static files and `/metrics`. Audit rows are printed instead of written, and the scheduled backup and the clean-up wait (`hold`). Maintenance is in memory only, so a restart ends it. `tests/integration/test_maintenance.py` sweeps the whole URL map.
+
+**Health**: `/_netrollout/health` (public) reports PostgreSQL and Redis up, running and queued rollouts, draining, maintenance, and the version; 200, or 503 when a service is down. The image's health check and the scripts' status use it.
+
+### 10.9 Sessions and accounts
+
+- **Sessions** live in Redis (`redis_session:<sid>`), through `_SafeRedisSessionInterface` (Flask-Session's interface, made tolerant of a Redis outage). The cookie is `Secure`, `HttpOnly`, `SameSite=Lax`. A sign-in regenerates the session id. A session ends after `session_idle_minutes` without user activity and after 12 hours however active (`enforce_session_lifetime`); background requests (header `X-NR-Background: 1`, `?_bg=1`, the live log stream) are checked but don't extend it. Every page warns a minute before the idle limit and checks `/account/session` every 30 s, so a session ended elsewhere leaves the page within 30 s. `SessionStore.end_for(user_id)` signs a user out everywhere by decoding every session with flask-session's serializer; a password reset or Terminate Session does that, and a password change ends the user's other sessions. Every app start signs everyone out.
+- **Accounts** (`Accounts`): one set of checks for both ways a local account is made (Request access, waiting for approval; an admin's Add user, active at once with a temporary password and `must_change_password`), and the directory accounts made at a mapped group member's first sign-in. Usernames are unique; directory sign-in matches names case-insensitively. `netrollout-grafana-admin` is reserved (`is_reserved`), because Grafana trusts the username nginx hands it.
+- **Passwords** (local accounts): `password_problem()` is the one rule, for registration, the password change and generated temporary passwords: at least 8 characters, at least 2 of letters, digits and special characters, ASCII only, not containing the username, and a change must differ from the current password. Hashes are Werkzeug's `generate_password_hash` (scrypt by default). `templates/_password_rule_script.html` mirrors the rule in the browser.
+- **Two-factor** (TOTP, pyotp) is required for every local account except the factory `admin` (which must stay reachable for recovery). Directory accounts sign in without it. Admins can reset a user's 2FA.
+- **Directory** (`Directory`): binds as the user with a DN constructed from the login attribute (`cn_identifier`) or found by a service-account search (bind type `regular`), checks group membership (direct members only; nested groups are not resolved), reads display details, and backs the admin page's test, explore and import tools. Bad credentials are a normal "no"; any other LDAP error is `LdapUnavailable`, so the sign-in page can tell a wrong password from a directory that is down.
+
+The security view of all this is in [security.md](security.md).
+
+### 10.10 Database move and Redis switch
+
+**Database move** (Server Management → PostgreSQL). `src/db/move.py` holds the steps, without Flask:
+
+- `check_target`: the database **and schema** named are reachable, PostgreSQL is 13 or later, the login may create tables there (a hidden schema is told apart from a missing one). Empty, or NetRollout's (a known Alembic revision: replaced only when the admin ticks "replace"), passes; a clash with one of NetRollout's table names is refused. Other tables are left alone.
+- `Plan`, `preparation_sql` and `ACCESS_NEEDED`: the SQL a DBA runs to prepare the target (passwords filled in, including Grafana's read-only login), and what to ask the DBA for, in words. `prepare_with_admin` does the same with an administrator login given once and never stored; it never takes over an existing login or database.
+- `copy`: a `before-move` backup restored onto the target with `backup.restore_database` (the `database.moved` audit row in the same transaction), row counts compared.
+
+`DatabaseMove` (`src/webapp/db_move.py`, `app.db_move`) runs it in a background thread: check, maintenance waiting (up to 30 minutes, cancellable), locked, copy, then `BackendServices.move_postgres` (reconnect, then `install_extras` for Grafana's grants; never `install()`, which would seed the factory admin into the copy; anything failing after the reconnect puts the connection back on the old database), and `config/runtime.env` written. Leaving the bundled database, its URL is remembered as `NETROLLOUT_BUNDLED_DATABASE_URL`, which enables Move back. Any failure or a cancel leaves NetRollout where it was, audited (`database.move_failed`, `database.move_cancelled`).
+
+**Redis switch**: a plain live switch, with no copy and no restart, because Redis holds nothing worth copying and every user of Redis looks the client up per call. `switch_redis` is refused while rollouts run; sessions and leftover job state are cleared in the Redis switched to; the switching admin stays signed in; leaving the bundled Redis remembers its URL (`NETROLLOUT_BUNDLED_REDIS_URL`) for Switch back. Audited as `server.redis_switched`.
+
+### 10.11 Monitoring
+
+The `monitoring` compose profile (switched on by `COMPOSE_PROFILES=monitoring` in `.env`) adds:
+
+| Service | Role |
+|---|---|
+| Prometheus | Scrapes the app's `/metrics` directly on the compose network (nginx answers `/metrics` with 404): Flask request rates and latencies, and the `netrollout_active_jobs` / `netrollout_pending_jobs` gauges (`RolloutSessionCollector`, read from Redis). Keeps 30 days. |
+| Loki + Alloy | Alloy ships the log files (labels `prefix` and `job_id` from the file name, continuation lines joined, local time); Loki keeps 60 days. |
+| Grafana | Dashboards over PostgreSQL (through the read-only `grafana_reader` login, which may read exactly `device_results`, `job_metadata` and `audit_log`), Prometheus and Loki. |
+| grafana-setup | Runs on the app image (`deploy/grafana/setup.py`) and stays running, re-applying every 5 minutes: the folders, the shipped dashboards (re-imported, view-only), the database data source (kept through Grafana's API from `config/runtime.env`, so it follows a database move), and the users' roles. |
+
+Grafana is served by nginx at `/grafana/` to signed-in NetRollout **admins only**: nginx's `auth_request` asks the app (`/_netrollout/grafana-auth`: 204 with `X-NetRollout-User`, 401, or 403), and Grafana runs in proxy-auth mode trusting `X-WEBAUTH-USER`, which nginx always sets from that answer. Every Grafana user is an Editor; there is no Grafana login form. Operators are excluded because free Grafana lets any signed-in user query every data source through its API, which would bypass the own-jobs-only rule.
+
+Dashboard folders: `NetRollout` → `Operations` (Operations Overview, Job Analytics), `Jobs` (Job Details), `Security` (Audit & Security), all view-only and replaced by updates; and `Custom`, the admins' own, never touched (backups include Grafana's database). The app's admin sidebar shows the Grafana link when `NETROLLOUT_MONITORING` contains `monitoring`. The app itself runs unaffected when the monitoring services are down.
+
+### 10.12 NetRollout Setup and NetRollout Manager (Windows)
+
+**NetRollout Setup** (Inno Setup 6, `packaging/windows/installer/netrollout.iss`, built to `NetRollout-Setup-<version>.exe`) is the only Windows install. It installs per user (no elevation for NetRollout itself), adds a Settings → Apps entry, Start Menu and desktop shortcuts, an optional tray icon at sign-in, an optional `bin` on the user's `PATH` (`netrollout status` in any terminal), and `netrollout` in Win+R. Its pages: the licence, Docker, the install location, Settings (pre-filled from `manage.ps1 defaults`), and a review page; then `manage.ps1 install` (output in `logs\install.log`). Over an install it is an updater: only the review page ("Ready to update X → Y"), `manage.ps1 prepare-update` from Setup's temporary copy before any file is replaced (`check-update` with the installed image, then a `before-update` backup), the files, then `manage.ps1 update -Yes` (pull while the old version runs, both images checked, `setup upgrade`, restart; `logs\update.log`). The uninstaller runs `manage.ps1 uninstall` and asks whether to keep the data.
+
+**NetRollout Manager** (`packaging/windows/manager/`, C# 5 on .NET Framework 4.8, built by `build.ps1` with Windows' own compiler): a status light from `/_netrollout/health` on 127.0.0.1 (a self-signed certificate accepted for 127.0.0.1 only), Start, Stop, Back up, Restore, Open, a tray icon, and **Update**: GitHub's latest release (or a mirror or test feed named by `HKCU\Software\NetRollout\Manager\UpdateFeed`), the release notes, then the Setup downloaded to `%TEMP%`, checked against the release's `SHA256SUMS` (a mismatch is deleted), and run silently; the Manager reopens afterwards and shows the update log's last line. A daily check (switchable off) announces a newer version in the tray. Stop and Update first list running rollouts (`manage.ps1 rollouts -Json`) and offer Wait, Cancel all now, or Don't. One instance runs per install folder. `--helper` runs the port helper headless; `--tray` starts in the tray. All actions run `manage.ps1` hidden.
+
+### 10.13 The CLI
+
+`python -m src.cli -d <devices.csv> -c <commands.txt> [-vf] [-v]` runs one rollout with the same `RolloutEngine`: missing paths are prompted for, credentials come from the CSV, unreachable devices are dropped before the push, and the exit code (`CliExit`) is 0 when every device succeeded, 1 for mixed results, 2 when nothing was applied, 130 on Ctrl+C. Logs go to `logs/` next to the executable. The standalone `netrollout-cli.exe` is one PyInstaller file (`pyinstaller --clean --noconfirm packaging/netrollout-cli.spec`), with the web stack excluded. The user-facing reference is [cli.md](cli.md).
+
+### 10.14 Configuration
+
+Folders (`src/runtime.py`, resolved per call): `NETROLLOUT_HOME` (the image sets `/data`), else the executable's folder when frozen, else the repository root; under it `logs/`, `config/`, `certs/`, `backups/`.
+
+Connection settings come from three places, in this order of precedence:
+
+1. `config/runtime.env`: written only by a Server Management switch (a database move, a Redis switch), loaded with override. A switch writes every key of that service, blank when unused, so nothing inherited can override it.
+2. The environment: in Docker, compose passes the install's `.env` values.
+3. The code's defaults.
+
+| Variable | Purpose |
+|---|---|
+| `DATABASE_URL`, or `PG_HOST` / `PG_PORT` / `PG_NAME` / `PG_USER` / `PG_PASSWORD` / `PG_SCHEMA` | PostgreSQL; the URL wins. A schema is a plain lowercase name (`^[a-z_][a-z0-9_]{0,62}$`). |
+| `REDIS_URL`, or `REDIS_HOST` / `REDIS_PORT` / `REDIS_DB` / `REDIS_PASSWORD` | Redis; the URL wins. |
+| `SECRET_KEY` | Signs the session cookies. Required in a container; in development a missing key becomes a random per-run key. |
+| `NETROLLOUT_ENCRYPTION_KEY` | The Fernet key for stored credentials. Required in a container; in development, else `~/.netrollout/encryption.key`. |
+| `PORT` | The app's internal port (default 8080). |
+| `NETROLLOUT_THREADS` | Waitress worker threads (default 32, 4–256). |
+| `NETROLLOUT_DRAIN_SECONDS` | How long a stop waits for running rollouts (default 600). |
+| `NETROLLOUT_HTTPS_PORT` | The published HTTPS port (compose passes it); seeds the setting at first start. |
+| `NETROLLOUT_SERVER_IPS` | The server's addresses, added to every generated self-signed certificate. |
+| `NETROLLOUT_MONITORING` | Contains `monitoring` when the profile runs (the Grafana link). |
+| `GRAFANA_DB_PASSWORD` | Grafana's read-only database login, for a database move's SQL. |
+| `ORCHESTRATOR_WORKERS`, `NETROLLOUT_PUBLIC_HOSTNAME` | Install-time seeds for the matching settings only. |
+| `NETROLLOUT_OPEN_BROWSER` | `0` stops a development start from opening the browser. |
+| `NETROLLOUT_DEPLOYMENT` | `docker` (set by the image) turns on container behaviour. |
+| `NETROLLOUT_HOME` | The base folder (above). |
+| `TZ` | The server's timezone (compose passes it to every service). |
+
+Runtime settings that admins change are System Settings ([§10.6](#106-system-settings)), not environment variables.
+
+### 10.15 Deployment modes
+
+| | Docker (`NETROLLOUT_DEPLOYMENT=docker`) | Development (the app on the host) |
+|---|---|---|
+| Secrets | `SECRET_KEY` and the encryption key required, never generated | A random per-run `SECRET_KEY`; a key file generated on a fresh database |
+| Restart | Exits; Docker's restart policy brings it back | Relaunches the process |
+| Startup check | One log line with the expected URL | Checks that nginx forwards to this process (a per-run token at `/_netrollout/instance`), prints the address, opens the browser |
+| Services | The install's compose project | The dev stack (`compose.dev.yaml`, project `netrollout-dev`): PostgreSQL and Redis on 127.0.0.1, nginx on 8443 forwarding to the host's 8080, monitoring |
+
+The image runs as the unprivileged user `netrollout` (uid 10001), with `NETROLLOUT_HOME=/data`, and its health check calls `/_netrollout/health`.
+
+---
+
+## 11. Testing strategy
+
+How to run the tests is in [CONTRIBUTING.md](../CONTRIBUTING.md). The strategy:
+
+| Level | Where | What it proves | Needs |
+|---|---|---|---|
+| Unit | `tests/unit/`, mirroring `src/` | Rules and algorithms in isolation: the platforms' verify and rejection fixtures, `classify`, the input checks, redaction, the settings registry, the setup core's decisions, the release contract, the CLI's import isolation. | Nothing: hermetic. |
+| Integration | `tests/integration/`, by page or subsystem | Routes, services and the database together, on a real PostgreSQL (a scratch `rollout_test` database) and Redis (a separate db number): every page, the route matrix (sign-in and admin rules on every route), maintenance mode over the whole URL map, real database moves on scratch databases, backups and restores, the Redis switch. LDAP tests start a throwaway OpenLDAP container. | PostgreSQL and Redis; tests are skipped with a reason when a service is down. |
+| End to end | `tests/e2e/` | An install the way it reaches people: a scratch folder from `SHIPPED`, the setup core's `init` and `prepare-start` as the Linux script runs them, the images by tag, `docker compose up --wait` with monitoring under the project `nre2e` (ports 18443 and 18080). Checked from outside with the standard library: health, TLS names, redirects, the unbuffered stream, the database logins' rights, the first sign-in's password gate, Grafana's admins-only access, nginx applying or refusing a changed `site.env` without a restart, the image's contents. | Docker; opt-in with `NETROLLOUT_E2E=1`. |
+
+Known bugs are recorded as strict `xfail` tests, so fixing one fails the test until the marker is removed.
+
+**Continuous integration** (`.github/workflows/ci.yml`, on every push and pull request):
+
+- **Tests (Linux)**: the type gate (`python -m mypy`), `alembic upgrade head` + `alembic check` + `downgrade base` (the migrations match the models), and the unit and integration tests against PostgreSQL 17 and Redis with a password.
+- **End-to-end (informative)**: builds both images and runs `tests/e2e`; it reports but never fails the run.
+- **Shell scripts**: ShellCheck on the Linux and container scripts.
+- **Windows**: the unit tests on Windows, PSScriptAnalyzer on `manage.ps1` (errors fail the run), and the Manager's build.
+
+**Release** (`.github/workflows/release.yml`, on a version tag): the tag must equal `VERSION`; the CI checks run on the tagged commit; both images are built and checked end to end; the real Linux zip installs unattended and must come up healthy at this version; the Windows files (Manager, Setup, CLI) are built and the CLI must report its version; then the images go to Docker Hub (`latest` only for a final release) and the GitHub release is published with the files, `SHA256SUMS` and the version's CHANGELOG section.
+
+---
+
+## 12. Design decisions
+
+| Decision | Why |
+|---|---|
+| **PostgreSQL for what lasts, Redis for what doesn't.** | Results, inventory, accounts and the audit log need durability and SQL (Results, Analytics, Grafana). The job queue, live state, live logs and sessions are short-lived, written often, and need pub/sub and blocking pops. Losing Redis loses nothing that must be kept: every start clears it anyway. |
+| **One process runs the jobs; Redis only describes them.** | A job's definition (devices with decrypted credentials) stays in the process's memory and never reaches Redis. The cost: a crash loses queued jobs, so a restart drains first and records queued jobs as cancelled. |
+| **No Docker socket in any container.** | Access to the Docker socket is root on the host. Everything that needs Docker (a port change, an update, a restore) is done by the host scripts, through files the app writes and the host reads. |
+| **nginx follows a values file and validates it itself.** | The app never writes nginx syntax and never reloads nginx. The watcher renders, tests with `nginx -t`, and swaps in only a configuration that passes, so a bad hostname can't take the site down; the app reads the verdict and undoes its change on a rejection. |
+| **The HTTPS port changes through a confirm-or-roll-back trial on the host.** | A wrong port would lock everyone out. The new port is opened next to the old one and kept only once a browser reached it; otherwise it rolls back by itself after 120 s. |
+| **Migrations run at every start.** | An update is "new image, start": no separate database step to forget. From 1.0.0 on, released migrations are never edited, so any older database can be brought forward. |
+| **The `system_settings` table is the only runtime source of settings.** | One truth, editable in the UI and readable by SQL (the retention statements); environment variables only seed it once and never silently override an admin's change. |
+| **The setup core decides, the host scripts act.** | Windows and Linux make the same decisions from one tested Python module, run inside the release's own image, so the host needs no Python. |
+| **One release is images, Setup, the CLI and a zip, with `SHA256SUMS`.** | The images carry the code; the shipped files are the same list (`SHIPPED`) for every channel; both update paths verify the download before running anything. |
+| **Credentials are encrypted with one Fernet key, checked at startup.** | A wrong or missing key stops the app at once instead of failing at a user's first rollout, and a new key is never generated over existing encrypted data. `Device.from_inventory()` is the single place secrets are decrypted. |
+| **Services raise, routes catch outside the session block.** | A refused change rolls back as a whole; a route that returned an error from inside its block used to commit half a change. |
+| **The `Access` facade for multi-system changes.** | A hostname change touches the settings, the certificate, `site.env` and nginx's verdict; one all-or-nothing call replaces undo steps written by hand in each route. |
+| **The CLI shares the engine but none of the web stack.** | One rollout implementation, tested once; a small, standalone executable for one-off rollouts without a server. |
+| **Every start signs everyone out.** | A restart, update or reboot starts clean; sessions never outlive the process that issued them. |
+| **Server-rendered pages, no frontend build.** | One maintainer, one language on the server; per-page scripts inline in their template. Extracting shared assets is a later step. |
+| **Bundled services by default, your own by choice.** | A new install works with nothing but Docker. An organisation can move the data to its own PostgreSQL (with a verified copy and a way back) or switch Redis live, from the UI. |
+
