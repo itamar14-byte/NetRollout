@@ -67,6 +67,7 @@ From this release on, an installed release candidate also finds newer release ca
 
 - LDAPS connections now verify the directory server's certificate and host name, always. Before, any certificate was accepted. A directory whose certificate comes from your organisation's own CA needs that CA under **Trusted CA certificates** first; the LDAP **Test** button says why a certificate is refused.
 - Wrong passwords are counted per account in the database, on top of the per-address rate limit (see Added: account lockout).
+- A directory account whose LDAP server is deactivated, removed or unreachable now gets "Invalid credentials", like a name with no account. Before, "LDAP auth service unavailable" told anyone that the username existed. The audit log keeps the real reason.
 
 ## [1.0.0rc1] - 2026-10-10
 

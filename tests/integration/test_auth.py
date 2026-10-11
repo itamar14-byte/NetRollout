@@ -10,6 +10,7 @@ import pyotp
 import pytest
 
 from src.accounts import users as _users
+from src.accounts.ldap import LdapUnavailable
 from src.db.settings import SETTINGS
 from src.db.tables import AuditLog, DeviceResult, LDAPGroup, LDAPServer, User
 from src.encryption import decrypt, encrypt
@@ -359,6 +360,60 @@ def test_ldap_bind_failure_is_rejected(client_for, make_user, ldap_server,
 	with patch("src.accounts.ldap.Directory.user_bind", return_value=False):
 		resp = login(client_for(), user.username, "bad")
 	assert resp.headers["Location"] == "/"
+
+
+def shown(client):
+	"""The messages waiting for the next page (and taken off it)."""
+	with client.session_transaction() as s:
+		return [m for _, m in s.pop("_flashes", [])]
+
+
+@pytest.mark.parametrize("directory", ["switched_off", "deleted"])
+def test_a_directory_switched_off_or_deleted_reads_like_an_unknown_name(
+		client_for, make_user, ldap_server, session_scope, directory):
+	"""A known LDAP user whose directory is switched off (or deleted) is
+	answered exactly as a name nobody has: "Invalid credentials" - not a
+	message that tells the account exists. The directory isn't asked; the
+	audit row says why (ldap_server_inactive / ldap_server_missing)."""
+	user = make_user()
+	with session_scope() as s:
+		u = s.get(User, user.id)
+		u.auth_type, u.ldap_server_id, u.password_hash = "ldap", ldap_server, None
+		if directory == "switched_off":
+			s.get(LDAPServer, ldap_server).is_active = False
+		else:
+			s.delete(s.get(LDAPServer, ldap_server))
+	client = client_for()
+	with patch("src.accounts.ldap.Directory.user_bind") as asked:
+		login(client, user.username, "directory-pass")
+		known = shown(client)
+		login(client, "nobody-at-all", "directory-pass")
+		unknown = shown(client)
+	assert not asked.called
+	assert known == unknown == ["Invalid credentials"]
+	reason = "ldap_server_inactive" if directory == "switched_off" else "ldap_server_missing"
+	assert audit_actions(session_scope, user.username) == [("auth.login", False, reason)]
+
+
+def test_an_unreachable_directory_reads_like_an_unknown_name(client_for, make_user,
+                                                             ldap_server, session_scope):
+	"""A known LDAP user whose active directory can't be reached: "Invalid
+	credentials", as for a local name or a name nobody has (the password
+	can't be proven) - the audit row keeps the reason and the directory's
+	error."""
+	user = make_user()
+	with session_scope() as s:
+		u = s.get(User, user.id)
+		u.auth_type, u.ldap_server_id, u.password_hash = "ldap", ldap_server, None
+	client = client_for()
+	with patch("src.accounts.ldap.Directory.user_bind",
+	           side_effect=LdapUnavailable("connection refused")):
+		login(client, user.username, "directory-pass")
+	assert shown(client) == ["Invalid credentials"]
+	with session_scope() as s:
+		(row,) = s.query(AuditLog).filter_by(actor_username=user.username).all()
+		assert row.detail == {"reason": "ldap_unavailable", "ldap_server": "corp",
+		                      "error": "connection refused"}
 
 
 def test_ldap_group_member_is_auto_provisioned(client_for, ldap_server,

@@ -402,11 +402,11 @@ def test_non_member_cannot_log_in(directory_in_db, client_for):
 
 @pytest.mark.postgres
 @pytest.mark.redis
-def test_directory_outage_shows_unavailable_not_500(directory_in_db,
-                                                    client_for, session_scope):
+def test_directory_outage_shows_invalid_credentials_not_500(directory_in_db,
+                                                            client_for, session_scope):
 	"""With the directory down the sign-in redirects back (no 500), flashes
-	"LDAP authentication service unavailable" and audits reason
-	ldap_unavailable."""
+	"Invalid credentials" - as for any name, since the password can't be
+	proven - and audits reason ldap_unavailable."""
 	with session_scope() as s:
 		s.get(LDAPServer, directory_in_db).port = 1  # directory "down"
 	client = client_for()
@@ -414,7 +414,7 @@ def test_directory_outage_shows_unavailable_not_500(directory_in_db,
 	assert resp.status_code == 302 and resp.headers["Location"] == "/"
 	with client.session_transaction() as sess:
 		# the Redis session store round-trips flashes as lists
-		assert ["danger", "LDAP authentication service unavailable"] in \
+		assert ["danger", "Invalid credentials"] in \
 		       [list(f) for f in sess["_flashes"]]
 	with session_scope() as s:
 		reasons = [(a.detail or {}).get("reason") for a in

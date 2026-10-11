@@ -37,12 +37,19 @@ from src.webapp.http import is_background, ok, viewer, with_form
 bp = Blueprint("auth", __name__)
 
 
+# Before the right password is proven, every failure reads "Invalid
+# credentials" - whatever the account (none, local, from a directory) and
+# whatever went wrong with its directory (switched off, deleted, unreachable):
+# nothing the page says may tell a known username from an unknown one. The
+# audit row keeps the real reason for the admins.
 _LOGIN_FAIL_MESSAGES = {
 	"invalid_credentials": "Invalid credentials",
 	"account_disabled": "User disabled, please check with administrator",
 	"pending_approval": "User still pending admin approval",
 	"ldap_bind_failed": "Invalid credentials",
-	"ldap_unavailable": "LDAP authentication service unavailable",
+	"ldap_unavailable": "Invalid credentials",
+	"ldap_server_inactive": "Invalid credentials",
+	"ldap_server_missing": "Invalid credentials",
 	"reserved_username": RESERVED_USERNAME,
 	"locked": "Too many failed sign-ins - try again later.",   # lock_message() says when
 }
@@ -89,16 +96,18 @@ def after_login(user: User) -> ResponseReturnValue:
 
 
 def login_fail(username: str, reason: str, actor_id: uuid.UUID | None = None,
-               message: str | None = None) -> ResponseReturnValue:
+               message: str | None = None,
+               detail: dict[str, Any] | None = None) -> ResponseReturnValue:
 	"""Every failed sign-in ends here: the message for the person, a failed
 	audit row with the reason (a key of _LOGIN_FAIL_MESSAGES), and any
 	half-done 2FA state cleared so a stale pre_auth_user_id can't be replayed.
 
 	:param message: what the person reads instead of the reason's message
+	:param detail: added to the audit row's detail (e.g. the directory's error)
 	:returns: the way back to the sign-in page"""
 	flash(message or _LOGIN_FAIL_MESSAGES.get(reason, "Login failed"), "danger")
 	current_app.web.audit(AuditAction.AUTH_LOGIN, success=False, username=username,
-	           actor_id=actor_id, detail={"reason": reason})
+	                      actor_id=actor_id, detail={"reason": reason, **(detail or {})})
 	session.pop("pre_auth_user_id", None)
 	return redirect(url_for("auth.home"))
 
@@ -187,18 +196,33 @@ def login_local(user: User, password: str, db_session: Session) -> ResponseRetur
 	return start_otp_flow(user)
 
 
+def ldap_unavailable(username: str, server: LDAPServer, error: LdapUnavailable,
+                     actor_id: uuid.UUID | None = None) -> ResponseReturnValue:
+	"""The directory couldn't be used before the password was proven: the
+	person reads "Invalid credentials" (as for any name), the audit row and
+	the console say what happened."""
+	print(f"[NetRollout] LDAP sign-in: the directory {server.name} couldn't be used: "
+	      f"{error}", flush=True)
+	return login_fail(username, "ldap_unavailable", actor_id,
+	                  detail={"ldap_server": server.name, "error": str(error)})
+
+
 def login_ldap_existing(user: User, password: str,
                         db_session: Session) -> ResponseReturnValue:
 	"""A known LDAP user's sign-in: their directory must still be configured
-	and active; a bind with the password; then approved and active."""
+	and active; a bind with the password; then approved and active. Until the
+	bind succeeds every failure reads "Invalid credentials" - a directory
+	switched off, deleted or unreachable too (the audit row says which)."""
 	ldap_server = user.ldap_server
-	if not ldap_server or not ldap_server.is_active:
-		flash("LDAP auth service unavailable", "danger")
-		return redirect(url_for("auth.home"))
+	if ldap_server is None:
+		return login_fail(user.username, "ldap_server_missing", user.id)
+	if not ldap_server.is_active:
+		return login_fail(user.username, "ldap_server_inactive", user.id,
+		                  detail={"ldap_server": ldap_server.name})
 	try:
 		bound = Directory(ldap_server).user_bind(user.username, password)
-	except LdapUnavailable:
-		return login_fail(user.username, "ldap_unavailable", user.id)
+	except LdapUnavailable as e:
+		return ldap_unavailable(user.username, ldap_server, e, user.id)
 	if not bound:
 		return login_fail(user.username, "ldap_bind_failed", user.id)
 	if not user.is_approved:
@@ -226,8 +250,8 @@ def login_ldap_group(username: str, password: str,
 			# if the user is a member of any mapped group, None otherwise.
 			try:
 				match = directory.check_group_membership(username, password, groups)
-			except LdapUnavailable:
-				return login_fail(username, "ldap_unavailable")
+			except LdapUnavailable as e:
+				return ldap_unavailable(username, ldap_server, e)
 			if match:
 				group_dn, role = match
 				# Fetch display attributes from LDAP directory; tolerate failure.
