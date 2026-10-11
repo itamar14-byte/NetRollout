@@ -271,8 +271,10 @@ def _port(args: argparse.Namespace, facts: install.Facts, _read: install.Read,
 
 def _release(args: argparse.Namespace, _facts: install.Facts, _read: install.Read,
              write: install.Write) -> int:
-	"""--check: whether a newer one exists; else downloaded (or given), checked
-	and unpacked under --out; prints version=… and folder=… for the script.
+	"""--check: whether a newer one exists, with its notes (update.notes_shown);
+	else downloaded (or given), checked and unpacked under --out, its notes in
+	--out's update.NOTES_FILE (a zip given by hand has none); prints version=…
+	and folder=… for the script.
 
 	:returns: the exit code"""
 	out = Path(args.out)
@@ -285,10 +287,17 @@ def _release(args: argparse.Namespace, _facts: install.Facts, _read: install.Rea
 				if Version(found.version) > Version(runtime.VERSION):
 					write(f"NetRollout {found.version} is available (you have "
 					      f"{runtime.VERSION}): sudo bin/netrollout.sh update")
+					if notes := update.notes_shown(found):
+						write("")
+						for line in notes:
+							write(line)
 				else:
 					write(f"You have the latest version ({runtime.VERSION}).")
 				return SetupExit.OK
 			folder, version = update.unpack(update.download(found, out), out)
+			if notes := update.notes_shown(found):
+				(out / update.NOTES_FILE).write_text("\n".join(notes) + "\n",
+				                                     encoding="utf-8")
 	except update.ReleaseError as e:
 		write(str(e))
 		return SetupExit.INVALID

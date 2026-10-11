@@ -293,10 +293,12 @@ sudo ./bin/netrollout.sh update [--version X] [--from <zip>] [--feed <url|file>]
 | `--version X` | Update to version X instead of the newest. |
 | `--from <zip>` | Update from a `netrollout-<version>-linux.zip` you downloaded, for a server without internet access to GitHub. If a `SHA256SUMS` file sits next to the zip, the zip is checked against it. |
 | `--feed <url\|file>` | Look for releases in a mirror's JSON (GitHub's release format: one release or a list) instead of GitHub. A file must be inside the install folder. |
-| `--check` | Only say what's available. Nothing changes. |
+| `--check` | Only say what's available, with its release notes. Nothing changes. |
 | `--yes` | Don't ask. |
 
-The script downloads the release zip and `SHA256SUMS`, checks the zip, asks for confirmation, makes the `before-update` backup, replaces the files and hands over to the new version's script to finish.
+The script downloads the release zip and `SHA256SUMS`, checks the zip, shows the release notes, asks for confirmation, makes the `before-update` backup, replaces the files and hands over to the new version's script to finish.
+
+The release notes are shown under `What's new in NetRollout <version>:`, up to their first 30 lines, followed by `Full notes: <link>` to the release's page when the release has one. An update `--from` a zip has no notes to show. Updating from 1.0.0rc1 shows none either: the installed version shows them, and 1.0.0rc1 didn't yet.
 
 > [!NOTE]
 > An update also needs the new version's Docker images, `itamarweinstein/netrollout` and `itamarweinstein/netrollout-nginx`, which it pulls from Docker Hub. A server that can't reach Docker Hub needs them loaded beforehand: see [Updating from an internal mirror](#updating-from-an-internal-mirror).

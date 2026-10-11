@@ -59,6 +59,7 @@ class Release:
 	notes: str
 	zip_url: str | None
 	sums_url: str | None
+	page: str | None = None     # its web page (GitHub's html_url): the full notes
 
 
 def zip_name(version: str) -> str:
@@ -157,8 +158,39 @@ def find(version: str | None = None, feed: str | None = None) -> Release:
 	found = data["tag_name"].removeprefix("v")
 	assets = {a.get("name"): a.get("browser_download_url")
 	          for a in data.get("assets") or [] if isinstance(a, dict)}
+	page = data.get("html_url")
 	return Release(found, data.get("body") or "", assets.get(zip_name(found)),
-	               assets.get("SHA256SUMS"))
+	               assets.get("SHA256SUMS"), page if isinstance(page, str) else None)
+
+
+# what update shows of a release's notes (its CHANGELOG section: long) - the
+# rest is on its page
+NOTES_LINES = 30
+NOTES_CHARS = 3000
+# the notes of a release `release` downloaded, in its --out folder, for the
+# script's confirmation
+NOTES_FILE = "release-notes.txt"
+
+
+def notes_shown(release: Release) -> list[str]:
+	"""The release's notes as update shows them: a heading, the notes' first
+	lines (up to NOTES_LINES lines / NOTES_CHARS characters, whole lines, then
+	how many more), and its page for the full notes when the feed gives one.
+
+	:returns: the lines; [] when it has neither notes nor a page"""
+	lines = release.notes.replace("\r\n", "\n").strip().splitlines()
+	shown: list[str] = []
+	chars = 0
+	for line in lines:
+		chars += len(line)
+		if len(shown) == NOTES_LINES or (shown and chars > NOTES_CHARS):
+			break
+		shown.append(line)
+	if more := len(lines) - len(shown):
+		shown.append(f"... ({more} more line{'s' if more != 1 else ''})")
+	if release.page:
+		shown.append(f"Full notes: {release.page}")
+	return [f"What's new in NetRollout {release.version}:", *shown] if shown else []
 
 
 def expected_sum(sums: str, name: str) -> str | None:

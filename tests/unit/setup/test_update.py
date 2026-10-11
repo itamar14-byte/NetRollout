@@ -27,8 +27,10 @@ def make_zip(path, version="1.0.1", extra=None, top=update.TOP):
 	return path
 
 
-def publish(folder, version="1.0.1", wrong_sum=False, with_zip=True):
-	"""A release as a mirror would serve it: the zip, SHA256SUMS, the JSON."""
+def publish(folder, version="1.0.1", wrong_sum=False, with_zip=True, notes="notes",
+            page=None):
+	"""A release as a mirror would serve it: the zip, SHA256SUMS, the JSON (with
+	`page` as its html_url when given)."""
 	folder.mkdir(parents=True, exist_ok=True)
 	name = update.zip_name(version)
 	assets = []
@@ -40,7 +42,10 @@ def publish(folder, version="1.0.1", wrong_sum=False, with_zip=True):
 		assets = [{"name": name, "browser_download_url": (folder / name).as_uri()},
 		          {"name": "SHA256SUMS", "browser_download_url": (folder / "SHA256SUMS").as_uri()}]
 	feed = folder / "release.json"
-	feed.write_text(json.dumps({"tag_name": f"v{version}", "body": "notes", "assets": assets}))
+	release = {"tag_name": f"v{version}", "body": notes, "assets": assets}
+	if page:
+		release["html_url"] = page
+	feed.write_text(json.dumps(release))
 	return feed
 
 
@@ -322,10 +327,69 @@ def test_the_cli_checks_and_fetches(tmp_path, monkeypatch):
 	monkeypatch.setattr(runtime, "VERSION", "1.0.0")
 	feed = str(publish(tmp_path / "mirror"))
 	assert run(["release", "--check", "--feed", feed]) == (0, [
-		"NetRollout 1.0.1 is available (you have 1.0.0): sudo bin/netrollout.sh update"])
+		"NetRollout 1.0.1 is available (you have 1.0.0): sudo bin/netrollout.sh update",
+		"", "What's new in NetRollout 1.0.1:", "notes"])
 	monkeypatch.setattr(runtime, "VERSION", "1.0.1")
 	assert run(["release", "--check", "--feed", feed]) == (0, ["You have the latest version (1.0.1)."])
 	code, out = run(["release", "--feed", feed, "--out", str(tmp_path / "up")])
 	assert code == 0 and out == ["version=1.0.1", f"folder={tmp_path / 'up' / 'netrollout'}"]
 	code, out = run(["release", "--from-zip", str(tmp_path / "nothing.zip"), "--out", str(tmp_path / "up")])
 	assert code == 1 and "isn't a zip" in out[0]
+
+
+# ── the release notes update shows ──
+
+PAGE = "https://github.com/itamar14-byte/NetRollout/releases/tag/v1.0.1"
+
+
+def test_the_release_page_is_taken_from_the_feed(tmp_path):
+	"""find() keeps the release's html_url as its page (the full notes); a feed
+	without one has none."""
+	assert update.find(feed=str(publish(tmp_path / "a", page=PAGE))).page == PAGE
+	assert update.find(feed=str(publish(tmp_path / "b"))).page is None
+
+
+def test_short_notes_are_shown_whole_with_the_page():
+	"""Notes within the limits are shown whole (CR LF read as lines, the blank
+	ends stripped) under a heading, then the page for the full notes."""
+	release = update.Release("1.0.1", "\r\n### Fixed\r\n\r\n- a bug\r\n", None, None, PAGE)
+	assert update.notes_shown(release) == [
+		"What's new in NetRollout 1.0.1:", "### Fixed", "", "- a bug", f"Full notes: {PAGE}"]
+
+
+def test_long_notes_are_trimmed_to_whole_lines_with_how_many_more():
+	"""Notes over NOTES_LINES lines show the first NOTES_LINES and how many more;
+	over NOTES_CHARS characters they stop at the last whole line within it."""
+	lines = [f"- change {n}" for n in range(update.NOTES_LINES + 5)]
+	shown = update.notes_shown(update.Release("1.0.1", "\n".join(lines), None, None, PAGE))
+	assert shown == ["What's new in NetRollout 1.0.1:", *lines[:update.NOTES_LINES],
+	                 "... (5 more lines)", f"Full notes: {PAGE}"]
+	wide = ["x" * (update.NOTES_CHARS // 2 - 1)] * 3
+	shown = update.notes_shown(update.Release("1.0.1", "\n".join(wide), None, None))
+	assert shown == ["What's new in NetRollout 1.0.1:", *wide[:2], "... (1 more line)"]
+
+
+def test_a_release_without_notes_or_page_shows_none():
+	"""No notes and no page: nothing to show; no notes but a page: the page."""
+	assert update.notes_shown(update.Release("1.0.1", "  \n", None, None)) == []
+	assert update.notes_shown(update.Release("1.0.1", "", None, None, PAGE)) == [
+		"What's new in NetRollout 1.0.1:", f"Full notes: {PAGE}"]
+
+
+def test_check_and_the_download_show_the_notes(tmp_path, monkeypatch):
+	"""`release --check` prints a newer release's notes and page under its line;
+	`release` (download) writes them to NOTES_FILE in --out, for the script's
+	confirmation; a zip given by hand has no notes, so no file."""
+	monkeypatch.setattr(runtime, "VERSION", "1.0.0")
+	feed = str(publish(tmp_path / "mirror", notes="- faster", page=PAGE))
+	assert run(["release", "--check", "--feed", feed]) == (0, [
+		"NetRollout 1.0.1 is available (you have 1.0.0): sudo bin/netrollout.sh update",
+		"", "What's new in NetRollout 1.0.1:", "- faster", f"Full notes: {PAGE}"])
+	code, _ = run(["release", "--feed", feed, "--out", str(tmp_path / "up")])
+	assert code == 0
+	assert (tmp_path / "up" / update.NOTES_FILE).read_text(encoding="utf-8") == (
+		f"What's new in NetRollout 1.0.1:\n- faster\nFull notes: {PAGE}\n")
+	(tmp_path / "given").mkdir()
+	zip_path = make_zip(tmp_path / "given" / update.zip_name("1.0.1"))
+	code, _ = run(["release", "--from-zip", str(zip_path), "--out", str(tmp_path / "offline")])
+	assert code == 0 and not (tmp_path / "offline" / update.NOTES_FILE).exists()

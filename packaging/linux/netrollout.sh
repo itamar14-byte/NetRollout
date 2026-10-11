@@ -826,6 +826,11 @@ do_update() {
 	code=0; out="$(docker run --rm "$APP_IMAGE" python -m src.setup check-update --installed "$VERSION" --new "$new" 2>&1)" || code=$?
 	if [ "$code" -eq 2 ]; then show "$out"; rm -rf "$stage"; fail "Nothing was changed." 2
 	elif [ "$code" -ne 0 ]; then warn "Couldn't compare the versions ($APP_IMAGE didn't run) - continuing."; fi
+	# the release's notes (setup core's release writes them; a zip given by
+	# hand has none)
+	if [ -s "$stage/release-notes.txt" ]; then
+		sed 's/^/   /' "$stage/release-notes.txt"
+	fi
 	if [ -n "$INTERACTIVE" ]; then
 		local a=""
 		read -r -p "Update to NetRollout $new? A backup is made first; then about a minute without NetRollout, and everyone signs in again. [y/N] " a || true
