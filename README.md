@@ -2,7 +2,7 @@
 
 **Push config. Verify. Done.**
 
-[![CI](https://github.com/itamar14-byte/NetRollout/actions/workflows/ci.yml/badge.svg)](https://github.com/itamar14-byte/NetRollout/actions/workflows/ci.yml)
+[![CI](https://github.com/itamar14-byte/NetRollout/actions/workflows/ci.yml/badge.svg?branch=master&event=push)](https://github.com/itamar14-byte/NetRollout/actions/workflows/ci.yml?query=branch%3Amaster)
 [![Release](https://img.shields.io/github/v/release/itamar14-byte/NetRollout?include_prereleases&sort=semver)](https://github.com/itamar14-byte/NetRollout/releases)
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
 [![Docker Hub](https://img.shields.io/docker/v/itamarweinstein/netrollout?sort=semver&label=docker%20hub)](https://hub.docker.com/r/itamarweinstein/netrollout)
