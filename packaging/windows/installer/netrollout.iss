@@ -1362,14 +1362,19 @@ begin
 		ewWaitUntilTerminated, Code);
 	{ a silent uninstall keeps everything }
 	Data := '-KeepData';
-	if not UninstallSilent and (MsgBox('Also delete NetRollout''s data - the database, settings, ' +
-		'certificates and logs?' + #13#10#13#10 + 'This can''t be undone. Keep it to install ' +
-		'again later with everything as it was.', mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES) then begin
+	{ both questions: Yes always deletes, each answer spelled out, No the default }
+	if not UninstallSilent and (MsgBox('Delete NetRollout''s data too?' + #13#10 +
+		'The database, settings, certificates and logs.' + #13#10#13#10 +
+		'Yes - delete it. This can''t be undone.' + #13#10 +
+		'No - keep it, to install again later with everything as it was.',
+		mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES) then begin
 		Data := '-DeleteData';
 		{ the backups are the last copy of the data: kept unless asked }
-		if MsgBox('Keep the backups (the backups folder)?' + #13#10#13#10 + 'They''re the last copy of ' +
-			'NetRollout''s data - a new install can restore one. They hold the key to the saved ' +
-			'credentials, so keep them as safe as the server.', mbConfirmation, MB_YESNO) = IDNO then
+		if MsgBox('Delete the backups too?' + #13#10 + 'They''re the last copy of NetRollout''s data - ' +
+			'a new install can restore one.' + #13#10#13#10 + 'Yes - delete them as well.' + #13#10 +
+			'No - keep them in ' + AddBackslash(ExpandConstant('{app}')) + 'backups (recommended). They ' +
+			'hold the key to the saved credentials: keep them as safe as the server.',
+			mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES then
 			Data := Data + ' -DeleteBackups';
 	end;
 	Exec(PowerShellExe, PsArgs(ExpandConstant('{app}\bin\manage.ps1'), 'uninstall -Yes ' + Data),

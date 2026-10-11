@@ -246,7 +246,8 @@ def test_uninstalling_keeps_the_backups_unless_asked():
 	leaves backups/ unless deleting them was asked for separately - they are the last
 	copy of the data."""
 	iss = (ROOT / "packaging" / "windows" / "installer" / "netrollout.iss").read_text(encoding="utf-8")
-	assert "Keep the backups (the backups folder)?" in iss and "Data := Data + ' -DeleteBackups'" in iss
+	backups = iss[iss.index("'Delete the backups too?"):iss.index("Data := Data + ' -DeleteBackups'")]
+	assert "mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES then" in backups   # Yes deletes; No, the default, keeps
 	ps1 = (ROOT / "packaging" / "windows" / "manage.ps1").read_text(encoding="utf-8")
 	assert '$gone = @(".env", "config", "certs", "logs")' in ps1 and 'if ($deleteBackups) { $gone += "backups" }' in ps1
 	sh = (ROOT / "packaging" / "linux" / "netrollout.sh").read_text(encoding="utf-8")
@@ -379,6 +380,27 @@ def test_netrollout_port_checks_before_it_asks():
 	sh = (ROOT / "packaging" / "linux" / "netrollout.sh").read_text(encoding="utf-8")
 	body = sh[sh.index("do_port_by_hand() {"):]
 	assert body.index("--check 2>&1") < body.index("Change the port from $current")
+
+
+def test_start_and_stop_say_when_there_is_nothing_to_do():
+	"""start when everything runs, is healthy and holds its port answers "already
+	running" (exit 0: scripts and Setup call it); anything off still gets the full
+	start, its repair. stop when nothing runs: "nothing to stop". The Manager greys
+	Start while green (not while it needs attention, nor Finish update) and Stop
+	while stopped (the developer's rc2 test notes)."""
+	ps1 = (ROOT / "packaging" / "windows" / "manage.ps1").read_text(encoding="utf-8")
+	start = ps1[ps1.index("function Invoke-Start {"):ps1.index("function Test-AllRunning {")]
+	assert start.index("Get-PendingUpdate") < start.index("Test-AllRunning") < start.index("Start-NetRollout;")
+	assert 'NetRollout is already running' in start
+	assert "(Test-HttpsPublished) -and (Test-Reachable)" in ps1
+	assert "\"NetRollout isn't running - nothing to stop.\"" in ps1
+	sh = (ROOT / "packaging" / "linux" / "netrollout.sh").read_text(encoding="utf-8")
+	finish = sh[sh.index("start_or_finish() {"):sh.index("all_running() {")]
+	assert finish.index("pending_update") < finish.index("all_running") < finish.index("do_start")
+	assert "https_published && reachable" in sh and "nothing to stop" in sh
+	cs = (ROOT / "packaging" / "windows" / "manager" / "NetRolloutManager.cs").read_text(encoding="utf-8")
+	assert "bool start = idle && (state != State.Running || Install.PendingUpdate != null);" in cs
+	assert "bool stop = idle && state != State.Stopped;" in cs
 
 
 def iss_text():

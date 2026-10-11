@@ -321,11 +321,11 @@ namespace NetRollout
 		Release announced;                  // the daily check's find, for a click on its notification
 		ToolStripMenuItem dailyItem;
 		// Start, or Finish update while an update is unfinished (ShowState)
-		Button startButton;
+		Button startButton, stopButton;
 		// only while the HTTPS port is taken (normal times: System Settings)
 		Button changePortButton;
 		readonly ToolTip hint = new ToolTip();
-		ToolStripItem startItem;
+		ToolStripItem startItem, stopItem;
 		readonly bool startInTray;
 
 		public ManagerForm(bool tray)
@@ -373,7 +373,7 @@ namespace NetRollout
 			buttons.Padding = new Padding(14, 6, 14, 6);
 			AddButton("Open NetRollout", delegate { OpenNetRollout(); }, true);
 			startButton = AddButton("Start", delegate { StartOrFinish(); }, false);
-			AddButton("Stop", delegate { StopNetRollout(); }, false);
+			stopButton = AddButton("Stop", delegate { StopNetRollout(); }, false);
 			changePortButton = AddButton("Change port...", delegate { ChangePort(); }, false);
 			changePortButton.Enabled = false;
 			// a disabled button gets no tooltip of its own: the panel shows it
@@ -434,7 +434,7 @@ namespace NetRollout
 			menu.Items.Add("Show NetRollout Manager", null, delegate { ShowWindow(); });
 			menu.Items.Add(new ToolStripSeparator());
 			startItem = menu.Items.Add("Start", null, delegate { ShowWindow(); StartOrFinish(); });
-			menu.Items.Add("Stop", null, delegate { ShowWindow(); StopNetRollout(); });
+			stopItem = menu.Items.Add("Stop", null, delegate { ShowWindow(); StopNetRollout(); });
 			menu.Items.Add(new ToolStripSeparator());
 			menu.Items.Add("Check for updates", null, delegate { ShowWindow(); CheckForUpdates(true); });
 			dailyItem = new ToolStripMenuItem("Check for updates daily") { Checked = Updates.Daily, CheckOnClick = true };
@@ -764,8 +764,23 @@ namespace NetRollout
 		{
 			foreach (Control c in buttons.Controls)
 				if (c.Text != "Open NetRollout") c.Enabled = !busy;
+			UpdateStartStop();
 			UpdateChangePort();
 			UseWaitCursor = busy;
+		}
+
+		// Start greyed while NetRollout runs and is well (green) - while it needs
+		// attention Start is the repair (it recreates what's off); Stop greyed
+		// while it's stopped. Finish update is always offered.
+		void UpdateStartStop()
+		{
+			bool idle = running == null;
+			bool start = idle && (state != State.Running || Install.PendingUpdate != null);
+			bool stop = idle && state != State.Stopped;
+			startButton.Enabled = start;
+			startItem.Enabled = start;
+			stopButton.Enabled = stop;
+			stopItem.Enabled = stop;
 		}
 
 		void UpdateChangePort()
@@ -873,6 +888,7 @@ namespace NetRollout
 			string start = Install.PendingUpdate != null ? "Finish update" : "Start";
 			startButton.Text = start;
 			startItem.Text = start;
+			UpdateStartStop();
 			UpdateChangePort();
 			light.Invalidate();
 			trayIcon.Text = "NetRollout - " + stateLabel.Text;

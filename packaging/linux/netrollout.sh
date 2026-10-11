@@ -481,9 +481,22 @@ start_or_finish() {
 	if [ -n "$(pending_update)" ]; then
 		step "The update to NetRollout $VERSION didn't finish - finishing it first"
 		do_update_finish
+	elif docker info >/dev/null 2>&1 && all_running; then
+		good "NetRollout is already running: $(address)"
 	else
 		do_start
 	fi
+}
+
+# Everything up, healthy and on its port: start has nothing to do. Anything
+# else (a container down or unhealthy, nginx without its port, no answer)
+# gets the full start - that is start's repair.
+all_running() {
+	local states
+	states="$(compose ps -a --format '{{.Service}}={{.State}}/{{.Health}}' 2>/dev/null | sed 's|/$||')"
+	[ -n "$states" ] || return 1
+	if printf '%s\n' "$states" | grep -Evq '=running(/healthy)?$'; then return 1; fi
+	https_published && reachable
 }
 
 do_install() {
@@ -624,6 +637,9 @@ confirm_rollouts() {
 do_stop() {
 	need_installed; need_root; CLEAR_STOP_NOW=1
 	if ! docker info >/dev/null 2>&1; then good "NetRollout isn't running (Docker isn't)."; return; fi
+	if ! compose ps --status running --services 2>/dev/null | grep -q .; then
+		good "NetRollout isn't running - nothing to stop."; return
+	fi
 	confirm_rollouts stop || { good "Not stopped - NetRollout keeps running."; return 0; }
 	step "Stopping NetRollout"
 	compose stop >/dev/null 2>&1 || fail "Docker couldn't stop it: $(compose stop 2>&1 | tail -3)"

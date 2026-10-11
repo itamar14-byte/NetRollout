@@ -735,6 +735,7 @@ function Invoke-Stop {
 	Invoke-ClearingStopNow {
 		Assert-Installed
 		if (-not (Test-DockerReady)) { Good "NetRollout isn't running (Docker isn't)."; return }
+		if ((Get-ContainerStates) -notmatch "=running") { Good "NetRollout isn't running - nothing to stop."; return }
 		if (-not (Confirm-Rollouts "stop")) { Good "Not stopped - NetRollout keeps running."; return }
 		Step "Stopping NetRollout"
 		$r = Compose @("stop")
@@ -1019,7 +1020,21 @@ function Invoke-Start {
 		Step "The update to NetRollout $($pending.Version) didn't finish - finishing it first"
 		Invoke-Update; Open-Browser; return
 	}
+	if ((Test-DockerReady) -and (Test-AllRunning)) {
+		Good "NetRollout is already running: $(Get-Address)"
+		Start-PortHelper; Open-Browser; return
+	}
 	Start-NetRollout; Start-PortHelper; Open-Browser
+}
+
+# Everything up, healthy and on its port: start has nothing to do. Anything
+# else (a container down or unhealthy, nginx without its port, no answer)
+# gets the full start - that is start's repair.
+function Test-AllRunning {
+	$states = @((Get-ContainerStates) -split "," | Where-Object { $_ })
+	if (-not $states) { return $false }
+	foreach ($s in $states) { if ($s -notmatch "=running(/healthy)?$") { return $false } }
+	return (Test-HttpsPublished) -and (Test-Reachable)
 }
 
 # ── the port helper (System Settings -> HTTPS port) ──────────────────────────
