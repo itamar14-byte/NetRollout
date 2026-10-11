@@ -19,6 +19,18 @@ Deep Diff compares the configuration **before and after** the push instead:
 - The comparison is hierarchy-aware, using [hier_config](https://github.com/netdevops/hier_config), with [netutils](https://github.com/networktocode/netutils) normalising names such as interface abbreviations. Junos can use its own commit diff (`show | compare rollback 1`).
 - The pass/fail result stays: a command that appears in the diff came from this push.
 
+## Notifications and ChatOps (a 1.x minor release)
+
+- **A notification engine**: every notable event (a rollout finished or failed, ACTION NEEDED, an access request, a failed backup) delivered reliably to the channels an admin sets up: email, signed webhooks (for ticketing and automation tools), and chat. Never lost, never sent twice, never slowing a rollout.
+- **Chat**: Telegram, Slack and Microsoft Teams. In Telegram and Slack you can also act from the chat (cancel a rollout, approve a change), over connections NetRollout opens itself, so the server is never exposed to the internet. Teams messages link into NetRollout's pages.
+
+## Change management (a 1.x minor release)
+
+- **Scheduled rollouts**: run a rollout at a set time.
+- **Change windows and protected devices**: an admin defines when changes may run (recurring or one-off windows, and change-freeze periods) and marks devices as protected. A rollout touching a protected device outside a window waits for the window, is scheduled into one, or is split (free devices now, protected ones later). Without windows, nothing changes.
+- **Break-glass**: an admin can run an urgent change outside the window, with a mandatory reason, recorded and announced.
+- **Change approval**: a rollout can require a second person's approval before it runs, from the web page or the chat.
+
 ## Later in 1.x
 
 In no particular order.
@@ -26,7 +38,7 @@ In no particular order.
 **Rollouts and results**
 
 - **"Explain this failure"** (optional): a small local AI model on the server that, on request, suggests what went wrong on a failed device. Advisory only: it never decides pass or fail, and nothing leaves the server.
-- **Email notifications**: one mail server setting (with a test button) for every notice: an access request waiting, a rollout finished or failed, ACTION NEEDED on a device, a failed scheduled backup or nightly clean-up. Never a password.
+- **Config drift detection**: an alert when a device's configuration changed outside NetRollout, with the difference (building on Deep Diff).
 
 **Monitoring**
 
@@ -39,7 +51,6 @@ In no particular order.
 - **Linux packages**: `.deb` and `.rpm` packages and a package repository, so NetRollout installs with `apt` / `dnf` and updates with the system. Today's zip and `install.sh` stay complete on their own.
 - **macOS hosts**: Docker Desktop for Mac runs the same stack; this needs multi-architecture images (amd64 and arm64, also useful for ARM Linux servers) and a portable Linux script.
 - **Isolated networks**: the web pages' third-party assets (Bootstrap, fonts, icons) served from the image instead of a CDN, and moving the images in offline.
-- **Phones, read-only** (if people ask for it): sign-in, the dashboard, Active Jobs, the live log and Results usable on a phone, for watching a rollout on call. Editing stays desktop-only.
 
 **Security**
 
