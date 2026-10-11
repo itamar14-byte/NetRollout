@@ -195,6 +195,7 @@ NETROLLOUT_E2E=1 python -m pytest tests/e2e     # PowerShell: $env:NETROLLOUT_E2
 - `requirements.txt` holds the exact pins, compiled by pip-tools. The image and CI install it. Don't edit it by hand.
 - `requirements-dev.txt` adds pytest, mypy, coverage, PyInstaller and pip-tools on top.
 - Dependabot opens pull requests that update both files together.
+- **GitHub Actions are pinned by commit hash**, never by a tag, with the version as a comment (`actions/checkout@3d3c42e… # v7.0.1`): a tag can be moved to other code, a commit can't. Dependabot updates the hash and the comment together; a new action follows the same rule.
 
 After changing `requirements.in`, compile on Linux: pip-compile resolves for the platform it runs on, and on Windows it would add Windows-only packages. Use a container:
 
