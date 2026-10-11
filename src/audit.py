@@ -87,6 +87,8 @@ class AuditAction(StrEnum):
 	SERVER_REDIS_SWITCHED = "server.redis_switched"
 	SERVER_CERTIFICATE_UPLOADED = "server.certificate_uploaded"
 	SERVER_CERTIFICATE_GENERATED = "server.certificate_generated"
+	SERVER_CA_ADDED = "server.ca_added"          # a trusted CA certificate (outgoing TLS)
+	SERVER_CA_REMOVED = "server.ca_removed"
 	BACKUP_CREATED = "backup.created"
 	BACKUP_DOWNLOADED = "backup.downloaded"
 	BACKUP_DELETED = "backup.deleted"

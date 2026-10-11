@@ -11,7 +11,7 @@ from flask_login import current_user, login_required
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 
-from src.access.certs import ProxyError
+from src.access.certs import CertificateRefused, ProxyError, TrustedCAs
 from src.access.nginx import Verdict
 from src.audit import AuditAction
 from src.db import move
@@ -70,7 +70,8 @@ def admin_server() -> str:
 	                       redis_host=current_app.backend.redis.config.host,
 	                       redis_port=current_app.backend.redis.config.port,
 	                       redis_db=current_app.backend.redis.config.db,
-	                       access=current_app.access.overview())
+	                       access=current_app.access.overview(),
+	                       trusted_cas=_trusted_cas())
 
 
 # ── Database: move to another server / back (src/db/move.py, db_move.py) ────
@@ -365,6 +366,63 @@ def certificate_selfsigned() -> ResponseReturnValue:
 		return err(str(e), 422)
 	return _certificate_applied(AuditAction.SERVER_CERTIFICATE_GENERATED, proxy,
 	                            {"names": names})
+
+
+# ── Trusted CA certificates (NetRollout's outgoing TLS: LDAPS) ──────────────
+
+def _trusted_cas() -> list[dict[str, Any]]:
+	""":returns: the trusted CA certificates, as the page lists them"""
+	return [entry.as_dict() for entry in TrustedCAs().entries()]
+
+
+@bp.route("/trusted-ca", methods=["POST"])
+@login_required
+@require_admin
+def trusted_ca_add() -> ResponseReturnValue:
+	"""Trust the CA certificates in the uploaded PEM file (one or several):
+	checked (TrustedCAs.add), each one added audited server.ca_added."""
+	upload = request.files.get("certificates")
+	if not upload or not upload.filename:
+		return err("Choose a PEM file with one or more CA certificates.")
+	data = upload.read(CERT_UPLOAD_MAX_BYTES + 1)
+	if len(data) > CERT_UPLOAD_MAX_BYTES:
+		return err("The file is too big for PEM certificates.")
+	try:
+		added = TrustedCAs().add(data)
+	except CertificateRefused as e:
+		return err(f"Not added: {e}", 422)
+	except OSError as e:
+		return err(f"NetRollout couldn't write the trusted certificates: {e.strerror or e}. "
+		           f"Nothing was added.", 500)
+	for entry in added:
+		current_app.web.audit(AuditAction.SERVER_CA_ADDED, object_type="Certificate",
+		                      object_label=entry.subject,
+		                      detail={"fingerprint": entry.fingerprint, "issuer": entry.issuer,
+		                              "not_after": entry.not_after.isoformat()})
+	if not added:
+		return ok("Already trusted - nothing was added.", trusted=_trusted_cas())
+	n = len(added)
+	return ok(f"Trusted {n} certificate{'s' if n != 1 else ''} - it applies to the next "
+	          f"connection.", trusted=_trusted_cas())
+
+
+@bp.route("/trusted-ca/<fingerprint>/remove", methods=["POST"])
+@login_required
+@require_admin
+def trusted_ca_remove(fingerprint: str) -> ResponseReturnValue:
+	"""Stop trusting one certificate (its SHA-256 fingerprint); audited
+	server.ca_removed."""
+	try:
+		entry = TrustedCAs().remove(fingerprint)
+	except LookupError:
+		return err("That certificate isn't trusted (any more).", 404)
+	except OSError as e:
+		return err(f"NetRollout couldn't write the trusted certificates: {e.strerror or e}. "
+		           f"Nothing was removed.", 500)
+	current_app.web.audit(AuditAction.SERVER_CA_REMOVED, object_type="Certificate",
+	                      object_label=entry.subject,
+	                      detail={"fingerprint": entry.fingerprint, "issuer": entry.issuer})
+	return ok("No longer trusted.", trusted=_trusted_cas())
 
 
 @bp.route("/rollouts")

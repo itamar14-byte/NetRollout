@@ -6,7 +6,7 @@ organisation's own).
     manifest.json   format, version, created, kind, migration level, tables
     db/<table>.csv  each NetRollout table, one consistent snapshot
     grafana.db      Grafana's database (the admins' Custom dashboards)
-    certs/          the certificate, its key, the markers
+    certs/          the certificate, its key, the markers, the trusted CAs
     logs/           the rollout log files
     encryption.key  decrypts the saved credentials (the zip is as secret as .env)
 
@@ -83,7 +83,8 @@ MANIFEST = "manifest.json"
 KEY_MEMBER = "encryption.key"
 GRAFANA_MEMBER = "grafana.db"
 # the certificate folder's files a backup carries (nothing else is there)
-CERT_FILES = ("fullchain.pem", "privkey.pem", ".selfsigned", ".old-names.json")
+CERT_FILES = ("fullchain.pem", "privkey.pem", ".selfsigned", ".old-names.json",
+              "trusted-ca.pem")
 LOG_RE = re.compile(r"^(rollout_.+\.log|unsaved-results-.+\.json)$")
 LOCK = ".backup.lock"
 # a backup from elsewhere, staged in the backups folder by the scripts

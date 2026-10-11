@@ -23,6 +23,7 @@ databases: its own and REDIS_OTHER_DB (test_redis_switch's, two below it, or
 two above when that would be the app's) - so two runs side by side on one
 server need dbs that don't overlap, e.g. /15 (+13) and /11 (+9), not /11 and /9.
 """
+import datetime
 import os
 import re
 import subprocess
@@ -34,7 +35,11 @@ from types import SimpleNamespace
 
 import pytest
 import redis as redis_lib
+from cryptography import x509
 from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.x509.oid import NameOID
 from dotenv import dotenv_values
 from redis.backoff import NoBackoff
 from redis.retry import Retry
@@ -457,6 +462,12 @@ LDAP_USERS = {  # uid -> (dn, password)
 	"alice": (f"cn=Alice Brown,ou=Users,{LDAP_BASE}", "alice-pass"),
 }
 
+# LDAPS: slapd also serves ldaps:// with a certificate for "localhost" (no
+# IP address: connecting to 127.0.0.1 is a name mismatch) issued by a test
+# CA - LDAP_TLS (made at the fixture's start) holds the CA's PEM
+_SLAPD_TLS = """TLSCertificateFile /tmp/server.crt
+TLSCertificateKeyFile /tmp/server.key
+"""
 _SLAPD_CONF = f"""include /etc/openldap/schema/core.schema
 include /etc/openldap/schema/cosine.schema
 include /etc/openldap/schema/inetorgperson.schema
@@ -574,19 +585,62 @@ def _remove_leftover_ldap_containers():
 		_docker("rm", "-f", *ids)
 
 
+def _pem(cert):
+	return cert.public_bytes(serialization.Encoding.PEM).decode()
+
+
+def _test_tls():
+	"""(CA certificate PEM, server certificate PEM, server key PEM): a test CA
+	and the directory's certificate it issued, for the DNS name localhost."""
+	now = datetime.datetime.now(datetime.timezone.utc)
+
+	def issue(name, key, issuer, issuer_key, ca, sans=None):
+		builder = (x509.CertificateBuilder()
+		           .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, name)]))
+		           .issuer_name(issuer)
+		           .public_key(key.public_key())
+		           .serial_number(x509.random_serial_number())
+		           .not_valid_before(now - datetime.timedelta(days=1))
+		           .not_valid_after(now + datetime.timedelta(days=30))
+		           .add_extension(x509.BasicConstraints(ca=ca, path_length=None), critical=True))
+		if sans:
+			builder = builder.add_extension(x509.SubjectAlternativeName(sans), critical=False)
+		return builder.sign(issuer_key, hashes.SHA256())
+
+	ca_key = ec.generate_private_key(ec.SECP256R1())
+	ca_name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "NetRollout Test CA")])
+	ca = issue("NetRollout Test CA", ca_key, ca_name, ca_key, True)
+	key = ec.generate_private_key(ec.SECP256R1())
+	server = issue("localhost", key, ca_name, ca_key, False, [x509.DNSName("localhost")])
+	key_pem = key.private_bytes(serialization.Encoding.PEM,
+	                            serialization.PrivateFormat.PKCS8,
+	                            serialization.NoEncryption()).decode()
+	return _pem(ca), _pem(server), key_pem
+
+
+# the test directory's LDAPS: {"port": host port of 636, "ca": the CA's PEM}
+LDAP_TLS: dict = {}
+
+
 @pytest.fixture(scope="session")
 def ldap_directory():
-	"""Ephemeral OpenLDAP server; yields its host port. Removed afterwards."""
+	"""Ephemeral OpenLDAP server; yields its host port (ldap://). It serves
+	ldaps:// too (LDAP_TLS). Removed afterwards."""
 	if LDAP_DOWN:
 		pytest.skip(LDAP_DOWN)
 	_remove_leftover_ldap_containers()
+	ca_pem, cert_pem, key_pem = _test_tls()
 	run = _docker(
 		"run", "-d", "--rm", "--label", LDAP_LABEL, "-p", "127.0.0.1::389",
-		"-e", f"SLAPD_CONF={_SLAPD_CONF}", LDAP_IMAGE, "sh", "-c",
+		"-p", "127.0.0.1::636",
+		"-e", f"SLAPD_CONF={_SLAPD_TLS}{_SLAPD_CONF}", "-e", f"TLS_CERT={cert_pem}",
+		"-e", f"TLS_KEY={key_pem}", LDAP_IMAGE, "sh", "-c",
 		"apk add --no-cache -q openldap openldap-back-mdb openldap-clients "
 		">/dev/null && mkdir -p /tmp/ldapdata && "
 		"printf '%s' \"$SLAPD_CONF\" > /tmp/slapd.conf && "
-		"exec slapd -f /tmp/slapd.conf -h ldap:/// -d 0", timeout=60)
+		"printf '%s' \"$TLS_CERT\" > /tmp/server.crt && "
+		"printf '%s' \"$TLS_KEY\" > /tmp/server.key && "
+		"exec slapd -f /tmp/slapd.conf -h 'ldap:/// ldaps:///' -d 0", timeout=60)
 	if run.returncode != 0:
 		pytest.skip(f"test directory failed to start: {run.stderr.strip()[:200]}")
 	container = run.stdout.strip()
@@ -606,6 +660,8 @@ def ldap_directory():
 		assert seeded.returncode == 0, f"seeding failed: {seeded.stderr}"
 		port = int(_docker("port", container, "389/tcp").stdout.strip()
 		           .rsplit(":", 1)[1])
+		LDAP_TLS.update(port=int(_docker("port", container, "636/tcp").stdout.strip()
+		                         .rsplit(":", 1)[1]), ca=ca_pem)
 		yield port
 	finally:
 		_docker("rm", "-f", container)

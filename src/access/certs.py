@@ -9,6 +9,9 @@ hostname, the upkeep that drops previous hostnames).
 The pair nginx serves is `fullchain.pem` + `privkey.pem` in the certs folder;
 a `.selfsigned` marker beside them means NetRollout made it and may replace
 it (e.g. for a new hostname) — an organisation's certificate is never touched.
+
+Beside them, `trusted-ca.pem` (TrustedCAs) holds the organisation's CA
+certificates NetRollout trusts for its own outgoing TLS (the LDAP servers).
 """
 import argparse
 import datetime
@@ -45,6 +48,8 @@ EXPIRY_WARNING_DAYS = 30
 # names this long, so people still typing one reach the redirect without a
 # name warning — then they're dropped (the deadlines: OLD_NAMES_FILE).
 OLD_NAMES_FILE = ".old-names.json"     # in the certs folder
+# the organisation's CA certificates NetRollout trusts (TrustedCAs)
+TRUSTED_CA_FILE = "trusted-ca.pem"
 NAME_TRANSITION_DAYS = 7
 UPKEEP_INTERVAL_SECONDS = 3600
 
@@ -580,6 +585,136 @@ class CertificateStore:
 					return
 				self._restore(saved)
 		return undo
+
+
+# ── Trusted CA certificates (NetRollout's outgoing TLS) ──────────────────────
+
+class CertificateRefused(ValueError):
+	"""Not added: why, in words for the page."""
+
+
+@dataclass(frozen=True)
+class TrustedCA:
+	"""One certificate NetRollout trusts, as the page lists it."""
+	fingerprint: str        # SHA-256, hex: names it for Remove
+	subject: str
+	issuer: str
+	not_after: datetime.datetime
+
+	def as_dict(self, now: datetime.datetime | None = None) -> dict[str, Any]:
+		""":returns: the page's row - with a warning when it has expired or
+		 expires within EXPIRY_WARNING_DAYS"""
+		now = now or datetime.datetime.now(datetime.timezone.utc)
+		warning = None
+		if self.not_after < now:
+			warning = (f"Expired on {self.not_after:%Y-%m-%d} - it no longer vouches for "
+			           f"any server. Remove it and add its renewed certificate.")
+		elif self.not_after - now < datetime.timedelta(days=EXPIRY_WARNING_DAYS):
+			warning = f"Expires on {self.not_after:%Y-%m-%d}."
+		return {"fingerprint": self.fingerprint, "subject": self.subject,
+		        "issuer": self.issuer, "not_after": self.not_after.isoformat(),
+		        "self_signed": self.subject == self.issuer, "warning": warning}
+
+
+def _trusted(cert: x509.Certificate) -> TrustedCA:
+	return TrustedCA(cert.fingerprint(hashes.SHA256()).hex(), cert.subject.rfc4514_string(),
+	                 cert.issuer.rfc4514_string(), cert.not_valid_after_utc)
+
+
+class TrustedCAs:
+	"""The organisation's CA certificates NetRollout trusts for its own
+	outgoing TLS connections - today its LDAP servers (LDAPS) -, next to
+	the operating system's: one PEM bundle (TRUSTED_CA_FILE) in the certs
+	folder, so it's backed up and restored with the certificate. A server's
+	own self-signed certificate may be one (a lab directory's anchor)."""
+	lock = threading.Lock()
+
+	def __init__(self, folder: Path | None = None) -> None:
+		""":param folder: the certs folder; the app's when None"""
+		self._folder = folder
+
+	@property
+	def path(self) -> Path:
+		return (self._folder or CertificateStore.folder()) / TRUSTED_CA_FILE
+
+	def pem(self) -> str | None:
+		""":returns: the bundle, for a TLS context's cadata; None: none (or
+		 it can't be read - the operating system's CAs alone then)"""
+		try:
+			text = self.path.read_text(encoding="ascii")
+		except (OSError, UnicodeDecodeError):
+			return None
+		return text if text.strip() else None
+
+	def _certificates(self) -> list[x509.Certificate]:
+		try:
+			return x509.load_pem_x509_certificates(self.path.read_bytes())
+		except (OSError, ValueError):
+			return []
+
+	def entries(self) -> list[TrustedCA]:
+		""":returns: the certificates trusted, in the file's order"""
+		return [_trusted(c) for c in self._certificates()]
+
+	def add(self, data: bytes, now: datetime.datetime | None = None) -> list[TrustedCA]:
+		"""Trust the certificates in `data` (one or several, PEM): each is
+		checked - a certificate, not a key, not expired - and one already
+		trusted is left as it is.
+
+		:returns: the ones added (none: all were trusted already)
+		:raises CertificateRefused: why nothing was added
+		:raises OSError: the bundle can't be written"""
+		now = now or datetime.datetime.now(datetime.timezone.utc)
+		if b"PRIVATE KEY-----" in data:
+			raise CertificateRefused("That file holds a private key. Upload certificates only - "
+			                         "never a key.")
+		try:
+			new = x509.load_pem_x509_certificates(data)
+		except ValueError:
+			raise CertificateRefused("That file isn't a PEM certificate (it starts with "
+			                         "-----BEGIN CERTIFICATE-----).") from None
+		for cert in new:
+			if cert.not_valid_after_utc < now:
+				raise CertificateRefused(f"{cert.subject.rfc4514_string()} expired on "
+				                         f"{cert.not_valid_after_utc:%Y-%m-%d} - it can't vouch "
+				                         f"for any server. Nothing was added.")
+		with self.lock:
+			kept = self._certificates()
+			known = {_trusted(c).fingerprint for c in kept}
+			added = []
+			for cert in new:
+				entry = _trusted(cert)
+				if entry.fingerprint not in known:
+					known.add(entry.fingerprint)
+					kept.append(cert)
+					added.append(entry)
+			if added:
+				self._write(kept)
+			return added
+
+	def remove(self, fingerprint: str) -> TrustedCA:
+		"""Stop trusting one certificate (the file goes with the last).
+
+		:returns: the one removed
+		:raises LookupError: no such certificate is trusted
+		:raises OSError: the bundle can't be written"""
+		with self.lock:
+			kept = self._certificates()
+			for cert in kept:
+				entry = _trusted(cert)
+				if entry.fingerprint == fingerprint:
+					kept.remove(cert)
+					self._write(kept)
+					return entry
+		raise LookupError(fingerprint)
+
+	def _write(self, certificates: list[x509.Certificate]) -> None:
+		if not certificates:
+			self.path.unlink(missing_ok=True)
+			return
+		self.path.parent.mkdir(parents=True, exist_ok=True)
+		runtime.write_atomic(self.path, b"".join(c.public_bytes(serialization.Encoding.PEM)
+		                                         for c in certificates), 0o644)
 
 
 class CertificateUpkeep(runtime.PeriodicTask):

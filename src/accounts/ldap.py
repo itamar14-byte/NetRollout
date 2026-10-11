@@ -3,16 +3,24 @@ configured server - a user's password checked by binding as them
 (search-then-bind with a service account), group membership for who may
 sign in and with which role, and the admin page's tools (test, base DN,
 browsing the tree). How it binds (with a service account or without) is
-its own business. ldap3 does the protocol."""
+its own business. ldap3 does the protocol.
+
+Every TLS connection to a directory (LDAPS) verifies the server's
+certificate and its name - always: it must chain to a CA the operating
+system trusts or to one of the organisation's trusted CA certificates
+(Server Management -> TLS Certificate -> Trusted CA certificates;
+access.certs.TrustedCAs)."""
+import ssl
 from typing import Any
 
-from ldap3 import Server, Connection, ALL, SIMPLE, SUBTREE, LEVEL, BASE
+from ldap3 import Server, Connection, Tls, ALL, SIMPLE, SUBTREE, LEVEL, BASE
 from ldap3.core.exceptions import (LDAPException, LDAPBindError,
                                    LDAPInvalidCredentialsResult,
                                    LDAPNoSuchObjectResult)
 from ldap3.utils.conv import escape_filter_chars
 from ldap3.utils.dn import escape_rdn, parse_dn
 
+from src.access.certs import TrustedCAs
 from src.db.tables import LDAPServer, LDAPGroup, BindType
 from src.encryption import decrypt
 
@@ -46,10 +54,74 @@ class LdapUnavailable(Exception):
 	entering wrong credentials, so login can say which one happened."""
 
 
+class VerifiedTls(Tls):
+	"""ldap3's TLS, verifying the directory server: its certificate must
+	chain to a CA the operating system trusts or to one in `cadata` (the
+	organisation's), and name the host NetRollout connects to (Python's own
+	check: DNS names and IP addresses). ldap3's Tls can't add CAs to the
+	operating system's (given a CA file it trusts only that), so the socket
+	is wrapped here; ldap3 calls this for LDAPS and for StartTLS alike."""
+
+	def __init__(self, cadata: str | None = None) -> None:
+		""":param cadata: PEM certificates trusted besides the operating
+		 system's; None: those alone"""
+		super().__init__(validate=ssl.CERT_REQUIRED)
+		self.cadata = cadata
+
+	def context(self) -> ssl.SSLContext:
+		""":returns: the TLS context: certificate and host name required"""
+		context = ssl.create_default_context()
+		if self.cadata:
+			context.load_verify_locations(cadata=self.cadata)
+		return context
+
+	def wrap_socket(self, connection: Any, do_handshake: bool = False) -> None:
+		"""ldap3's hook: the connection's socket wrapped in TLS, verified
+		during the handshake (a failure raises ssl.SSLError - ldap3 reports it
+		as an LDAPSocketOpenError carrying its message)."""
+		connection.socket = self.context().wrap_socket(
+			connection.socket, server_side=False, do_handshake_on_connect=do_handshake,
+			server_hostname=connection.server.host)
+
+
 def make_server(server: LDAPServer) -> Server:
-	""":returns: ldap3's description of the directory (not connected yet)"""
+	""":returns: ldap3's description of the directory (not connected yet), its
+	 TLS verifying the server (VerifiedTls: the operating system's CAs and the
+	 organisation's trusted ones, read now - a CA added applies at once)"""
 	return Server(host=server.host, port=server.port, use_ssl=server.use_ssl,
-	              get_info=ALL, connect_timeout=CONNECT_TIMEOUT)
+	              get_info=ALL, connect_timeout=CONNECT_TIMEOUT,
+	              tls=VerifiedTls(TrustedCAs().pem()))
+
+
+# What ssl says when a server's certificate fails, and what the admin page
+# says instead (the first that matches)
+TLS_PROBLEMS = (
+	(("Hostname mismatch", "IP address mismatch"),
+	 "The directory server's certificate doesn't name {host} - connect to it by a "
+	 "name its certificate holds, or ask for a certificate that names {host}."),
+	(("certificate has expired",),
+	 "The directory server's certificate has expired - its administrator must renew it."),
+	(("certificate is not yet valid",),
+	 "The directory server's certificate isn't valid yet - check the clocks of both "
+	 "servers."),
+	(("CERTIFICATE_VERIFY_FAILED",),
+	 "The directory server's certificate isn't trusted - add your organisation's CA "
+	 "certificate under Server Management -> TLS Certificate -> Trusted CA "
+	 "certificates."),
+)
+
+
+def explain(error: Exception, host: str) -> str:
+	"""An LDAP error in words for the admin page: a certificate the
+	verification refused is said plainly (TLS_PROBLEMS), anything else as
+	ldap3 says it.
+
+	:param host: the directory's host, as configured"""
+	message = str(error)
+	for markers, text in TLS_PROBLEMS:
+		if any(m in message for m in markers):
+			return text.format(host=host)
+	return message
 
 
 def _connection(ldap_server: Server, **kwargs: Any) -> Connection:
@@ -176,7 +248,7 @@ class Directory:
 			finally:
 				_close(conn)
 		except LDAPException as e:
-			raise LdapUnavailable(str(e)) from e
+			raise LdapUnavailable(explain(e, self.server.host)) from e
 
 	def user_bind(self, username: str, password: str) -> bool:
 		""":returns: whether the username and password are valid
@@ -217,7 +289,7 @@ class Directory:
 					return g.group_dn, g.role
 			return None
 		except LDAPException as e:
-			raise LdapUnavailable(str(e)) from e
+			raise LdapUnavailable(explain(e, self.server.host)) from e
 		finally:
 			_close(conn)
 
@@ -265,7 +337,7 @@ class Directory:
 				conn.open()
 			return {"status": "ok", "message": "Connection established"}
 		except LDAPException as e:
-			return {"status": "error", "message": str(e)}
+			return {"status": "error", "message": explain(e, self.server.host)}
 		finally:
 			_close(conn)
 
@@ -299,7 +371,7 @@ class Directory:
 				return {"status": "ok", "base_dn": dn}
 			return {"status": "error", "message": "Could not determine base DN"}
 		except LDAPException as e:
-			return {"status": "error", "message": str(e)}
+			return {"status": "error", "message": explain(e, self.server.host)}
 		finally:
 			_close(conn)
 
@@ -347,6 +419,6 @@ class Directory:
 					                "label": label, "username": username})
 			return {"status": "ok", "entries": results}
 		except LDAPException as e:
-			return {"status": "error", "message": str(e)}
+			return {"status": "error", "message": explain(e, self.server.host)}
 		finally:
 			_close(conn)

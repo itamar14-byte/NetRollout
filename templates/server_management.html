@@ -336,6 +336,41 @@
       </div>
     </form>
     <div id="certResult" class="cert-result" aria-live="polite"></div>
+
+    <hr>
+
+    <!-- Trusted CA certificates: NetRollout's own outgoing TLS (LDAPS) -->
+    <div class="d-flex align-items-center mb-2">
+      <i class="bi bi-patch-check nr-accent-icon"></i>
+      <span style="font-family:'Inter',sans-serif; font-weight:600; color:#e0e0e0; font-size:0.92rem; margin-left:0.5rem;">
+        Trusted CA certificates
+      </span>
+    </div>
+    <div class="cert-help">
+      For NetRollout's own connections to other servers - today the LDAP servers (LDAPS). Their certificates
+      must come from a CA this server trusts: the operating system's, or one you add here (your organisation's
+      CA, or a lab server's own self-signed certificate). Applies to the next connection, no restart.
+    </div>
+    <table class="table table-sm nr-ca-table mt-2" id="caTable" style="display:none;">
+      <thead><tr><th>Subject</th><th>Issuer</th><th>Expires</th><th></th></tr></thead>
+      <tbody id="caRows"></tbody>
+    </table>
+    <div id="caNone" class="cert-hint mt-2" style="display:none;">None added - only the operating system's CAs are trusted.</div>
+    <form id="caForm" class="cert-form" autocomplete="off">
+      <div class="cert-files">
+        <label class="cert-file">
+          <span class="nr-label">CA certificates</span>
+          <input type="file" name="certificates" class="form-control form-control-sm" accept=".pem,.crt,.cer">
+          <span class="cert-hint">PEM: one or more certificates (never a key)</span>
+        </label>
+      </div>
+      <div class="d-flex flex-wrap align-items-center gap-2 mt-3">
+        <button type="submit" id="caAddBtn" class="btn btn-primary btn-sm">
+          <i class="bi bi-plus-circle me-1"></i>Add to trusted
+        </button>
+      </div>
+    </form>
+    <div id="caResult" class="cert-result" aria-live="polite"></div>
   </div>
 </div>
 
@@ -618,6 +653,9 @@
   .cert-files { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:0.75rem 1.25rem; }
   .cert-file { display:flex; flex-direction:column; gap:0.3rem; }
   .cert-hint { font-size:0.72rem; color:var(--nr-text-muted); }
+  .nr-ca-table { font-size:0.78rem; }
+  .nr-ca-table td { vertical-align:middle; word-break:break-word; }
+  .nr-ca-table .ca-warning { color:#ffe082; font-size:0.72rem; }
   .cert-file input[type=file]::file-selector-button { background:#1e1e1e; color:#cfd8dc; border:0;
     border-right:1px solid #2a2a2a; padding:0.25rem 0.75rem; margin-right:0.6rem; cursor:pointer; }
   .cert-file input[type=file]:hover::file-selector-button { background:#262626; color:#80deea; }
@@ -689,6 +727,90 @@
         : "Replace your organisation's certificate with a self-signed one? Browsers will warn about it.";
       if (confirm(ask)) send('/admin/server/certificate/selfsigned', null, 'New self-signed certificate in use.');
     });
+  })();
+
+  /* ── Trusted CA certificates (TrustedCAs: LDAPS) ── */
+  (() => {
+    const form = document.getElementById('caForm');
+    const addBtn = document.getElementById('caAddBtn');
+    const result = document.getElementById('caResult');
+    const table = document.getElementById('caTable');
+    const rows = document.getElementById('caRows');
+    const none = document.getElementById('caNone');
+    const show = (kind, html) => { result.className = 'cert-result show ' + kind; result.innerHTML = html; };
+
+    function render(trusted) {
+      rows.replaceChildren();
+      trusted.forEach(ca => {
+        const tr = document.createElement('tr');
+        const subject = document.createElement('td');
+        subject.textContent = ca.subject;
+        if (ca.self_signed) {
+          const note = document.createElement('div');
+          note.className = 'cert-hint';
+          note.textContent = 'self-signed';
+          subject.appendChild(note);
+        }
+        const issuer = document.createElement('td');
+        issuer.textContent = ca.self_signed ? '—' : ca.issuer;
+        const expires = document.createElement('td');
+        expires.textContent = ca.not_after.slice(0, 10);
+        if (ca.warning) {
+          const warn = document.createElement('div');
+          warn.className = 'ca-warning';
+          warn.textContent = ca.warning;
+          expires.appendChild(warn);
+        }
+        const action = document.createElement('td');
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn btn-outline-danger btn-sm';
+        btn.textContent = 'Remove';
+        btn.dataset.fingerprint = ca.fingerprint;
+        btn.dataset.subject = ca.subject;
+        btn.addEventListener('click', () => remove(btn.dataset.fingerprint, btn.dataset.subject));
+        action.appendChild(btn);
+        tr.append(subject, issuer, expires, action);
+        rows.appendChild(tr);
+      });
+      table.style.display = trusted.length ? '' : 'none';
+      none.style.display = trusted.length ? 'none' : '';
+    }
+
+    async function post(url, body) {
+      addBtn.disabled = true;
+      let resp, data = {};
+      try {
+        resp = await fetch(url, {method: 'POST', headers: {'X-CSRFToken': CSRF_TOKEN}, body});
+        try { data = await resp.json(); } catch (_) {}
+      } catch (_) { resp = {ok: false, status: 0}; }
+      addBtn.disabled = false;
+      if (resp.ok && data.status === 'ok') {
+        render(data.trusted);
+        show('success', '<i class="bi bi-check-circle me-1"></i>' + nrEscape(data.message));
+        form.reset();
+      } else {
+        show('error', '<i class="bi bi-x-circle me-1"></i>' +
+          nrEscape(data.message || `Server error (${resp.status || 'no answer'}).`));
+      }
+    }
+
+    function remove(fingerprint, subject) {
+      if (confirm(`Stop trusting ${subject}? Directory servers whose certificates it vouches for can't be reached over LDAPS until it's added again.`)) {
+        post(`/admin/server/trusted-ca/${encodeURIComponent(fingerprint)}/remove`, null);
+      }
+    }
+
+    form.addEventListener('submit', e => {
+      e.preventDefault();
+      const file = form.elements.certificates.files[0];
+      if (!file) { show('error', '<i class="bi bi-x-circle me-1"></i>Choose a PEM file with one or more CA certificates.'); return; }
+      const body = new FormData();
+      body.append('certificates', file);
+      post('/admin/server/trusted-ca', body);
+    });
+
+    render({{ trusted_cas | tojson }});
   })();
 
   /* ── Service selector ─────────────────────────────────────── */
