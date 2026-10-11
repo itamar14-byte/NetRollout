@@ -63,7 +63,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 	rel = p.add_argument_group("release (Linux's update; run with the installed version's image)")
 	rel.add_argument("--check", action="store_true", help="only say whether a newer one exists")
 	rel.add_argument("--release-version", help="this version, not the latest")
-	rel.add_argument("--feed", help="a mirror's release JSON (URL or file) instead of GitHub")
+	rel.add_argument("--feed", help="a mirror's release JSON (URL or file: one release, or a list - the newest on this version's channel) instead of GitHub")
 	rel.add_argument("--from-zip", help="a release zip given by hand (offline)")
 	rel.add_argument("--out", default="/install/.update", help="where it's unpacked")
 	ph = p.add_argument_group("port-* (the port helper; src/setup/port.py)")

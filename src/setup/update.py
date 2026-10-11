@@ -1,7 +1,21 @@
-"""A NetRollout release for Linux's `update`: found (GitHub's latest, a
-version, or a mirror's feed in the same JSON), downloaded, checked against
-the release's SHA256SUMS and unpacked - or a zip given by hand (offline).
-Windows updates through NetRollout Setup instead (the Manager's Update).
+"""A NetRollout release for Linux's `update`: found (GitHub's newest on the
+installed version's channel, a version, or a mirror's feed in the same
+JSON), downloaded, checked against the release's SHA256SUMS and unpacked -
+or a zip given by hand (offline). Windows updates through NetRollout Setup
+instead (the Manager's Update, Updates.cs: the same rule).
+
+The channel follows what is installed:
+  a release (1.0.0)        GitHub's releases/latest - never a pre-release
+                           (GitHub's latest leaves them out); a 404 there is
+                           "no release published yet"
+  a pre-release (1.0.0rc1, GitHub's release list (releases?per_page=30, newest
+  1.0.1.dev0, a/b)         first): drafts and tags that aren't a version
+                           skipped, the newest by version (PEP 440: 1.0.0rc1
+                           < 1.0.0rc2 < 1.0.0), pre-releases included
+  --version X              releases/tags/vX, whatever is installed
+  --feed                   one release object in GitHub's JSON, used as
+                           given; or a list of them, picked as GitHub's list
+                           (a release installed: the newest release in it)
 
 The release contract (stage 10's pipeline makes it):
   netrollout-<version>-linux.zip   everything under netrollout/: bin/,
@@ -52,11 +66,48 @@ def zip_name(version: str) -> str:
 	return f"netrollout-{version}-linux.zip"
 
 
+NOTHING_PUBLISHED = "No NetRollout release is published on GitHub yet."
+
+
 def api(version: str | None = None) -> str:
 	""":returns: GitHub's API address for that release (None: the latest)"""
 	repo = runtime.SOURCE_REPO.removeprefix("https://github.com/")
 	base = f"https://api.github.com/repos/{repo}/releases"
 	return f"{base}/tags/v{version}" if version else f"{base}/latest"
+
+
+def api_list() -> str:
+	""":returns: GitHub's API address for the release list (newest first)"""
+	return api().removesuffix("/latest") + "?per_page=30"
+
+
+def is_prerelease(version: str) -> bool:
+	""":returns: whether `version` is a pre-release (dev, a, b, rc) - one that
+	can't be read counts as a release"""
+	try:
+		return Version(version).is_prerelease
+	except InvalidVersion:
+		return False
+
+
+def newest(releases: list[Any], prereleases: bool) -> dict[str, Any] | None:
+	"""The newest release in a list (GitHub's, or a feed's) by version: drafts
+	and tags that aren't a version skipped, pre-releases only when asked for.
+
+	:returns: that release's object, or None when the list has none"""
+	best: tuple[Version, dict[str, Any]] | None = None
+	for item in releases:
+		if not isinstance(item, dict) or item.get("draft") is True 				or not isinstance(item.get("tag_name"), str):
+			continue
+		try:
+			v = Version(item["tag_name"].removeprefix("v"))
+		except InvalidVersion:
+			continue
+		if v.is_prerelease and not prereleases:
+			continue
+		if best is None or v > best[0]:
+			best = (v, item)
+	return best[1] if best else None
 
 
 def _open(url: str) -> Any:
@@ -75,20 +126,31 @@ def _url(location: str) -> str:
 
 
 def find(version: str | None = None, feed: str | None = None) -> Release:
-	"""The release: `feed` (a mirror's JSON) if given, else GitHub's latest
-	or that version's. :raises ReleaseError: none, or unreachable"""
-	where = feed or api(version)
+	"""The release: `feed` (a mirror's JSON) if given, else that version's, else
+	the newest on the installed version's channel (the module's docstring).
+	:raises ReleaseError: none, or unreachable"""
+	prereleases = is_prerelease(runtime.VERSION)
+	github = not feed and not version
+	where = feed or (api_list() if github and prereleases else api(version))
 	try:
 		with _open(_url(where)) as r:
 			data = json.loads(r.read().decode())
 	except urllib.error.HTTPError as e:
 		if e.code == 404:
+			if github:           # GitHub's latest: no release (only pre-releases)
+				raise ReleaseError(NOTHING_PUBLISHED) from None
 			raise ReleaseError(f"No release {'v' + version if version else ''} "
 			                   f"at {where}.".replace("  ", " ")) from None
 		raise ReleaseError(f"{where} answered {e.code}.") from None
 	except (OSError, ValueError) as e:
 		raise ReleaseError(f"Couldn't reach {where} ({e}) - is this server online? "
 		                   f"Offline: update --from <zip>.") from None
+	if isinstance(data, list):
+		picked = newest(data, prereleases)
+		if picked is None:
+			raise ReleaseError(NOTHING_PUBLISHED if github else f"No NetRollout release in "
+			                   f"{where}{'' if prereleases else ' (a pre-release is offered only to a pre-release installed)'}.")
+		data = picked
 	if not isinstance(data, dict) or not isinstance(data.get("tag_name"), str):
 		raise ReleaseError(f"{where} didn't answer with a release.")
 	found = data["tag_name"].removeprefix("v")

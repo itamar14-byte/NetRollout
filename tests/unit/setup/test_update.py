@@ -86,14 +86,16 @@ def test_github_is_asked_as_it_requires_and_the_version_by_its_tag(monkeypatch):
 
 
 def test_what_github_answers_instead_of_a_release_is_said_in_words(monkeypatch):
-	"""A 404 is "no release" - naming the version when one was asked for, the address
-	either way; another HTTP error gives its code."""
+	"""A 404 on the latest release (a release installed) is "nothing published yet" -
+	GitHub's latest leaves pre-releases out; a 404 on a version asked for names it and
+	the address; another HTTP error gives its code."""
+	monkeypatch.setattr(runtime, "VERSION", "1.0.0")
 	latest, tagged = update.api(), update.api("9.9.9")
 	monkeypatch.setattr(update.urllib.request, "urlopen",
 	                    FakeGitHub({latest: 404, tagged: 404, update.api("1.0.2"): 500}))
 	with pytest.raises(update.ReleaseError) as e:
 		update.find()
-	assert str(e.value) == f"No release at {latest}."
+	assert str(e.value) == "No NetRollout release is published on GitHub yet."
 	with pytest.raises(update.ReleaseError) as e:
 		update.find("9.9.9")
 	assert str(e.value) == f"No release v9.9.9 at {tagged}."
@@ -106,11 +108,106 @@ def test_a_release_with_odd_assets_or_no_notes(monkeypatch):
 	"""Assets that aren't objects are passed over, a release without a body has empty
 	notes, and one whose assets don't include the Linux zip has no zip link (its
 	download then says so)."""
+	monkeypatch.setattr(runtime, "VERSION", "1.0.0")
 	monkeypatch.setattr(update.urllib.request, "urlopen", FakeGitHub({update.api(): {
 		"tag_name": "v1.0.1", "body": None,
 		"assets": ["junk", None, {"name": "SHA256SUMS", "browser_download_url": "https://x/S"}]}}))
 	found = update.find()
 	assert found == update.Release("1.0.1", "", None, "https://x/S")
+
+
+def gh_release(tag, draft=False, prerelease=None):
+	"""A release object as GitHub's list gives it."""
+	return {"tag_name": tag, "draft": draft, "body": f"notes {tag}",
+	        "prerelease": "rc" in tag if prerelease is None else prerelease, "assets": []}
+
+
+def test_a_release_installed_asks_github_for_its_latest_release(monkeypatch):
+	"""Installed a release (1.0.0): GitHub's releases/latest is asked - never the list,
+	so a pre-release is never offered."""
+	monkeypatch.setattr(runtime, "VERSION", "1.0.0")
+	fake = FakeGitHub({update.api(): gh_release("v1.0.1")})
+	monkeypatch.setattr(update.urllib.request, "urlopen", fake)
+	assert update.find().version == "1.0.1"
+	assert [r.full_url for r, _ in fake.requests] == [update.api()]
+
+
+@pytest.mark.parametrize("installed", ["1.0.0rc1", "1.0.0rc2", "1.0.1.dev0", "1.1.0b1"])
+def test_a_pre_release_installed_takes_the_newest_from_githubs_list(monkeypatch, installed):
+	"""Installed a pre-release: GitHub's release list is asked (latest 404s while only
+	pre-releases exist) and the newest by version wins, pre-releases included - not the
+	list's first; drafts and tags that aren't a version are skipped."""
+	monkeypatch.setattr(runtime, "VERSION", installed)
+	fake = FakeGitHub({update.api_list(): [
+		gh_release("v1.0.0rc1"), gh_release("v9.0.0", draft=True), gh_release("nightly"),
+		gh_release("v1.0.0rc3"), gh_release("v1.0.0rc2"), "junk"], update.api(): 404})
+	monkeypatch.setattr(update.urllib.request, "urlopen", fake)
+	found = update.find()
+	assert (found.version, found.notes) == ("1.0.0rc3", "notes v1.0.0rc3")
+	assert [r.full_url for r, _ in fake.requests] == [update.api_list()]
+	assert update.api_list() == update.api().removesuffix("/latest") + "?per_page=30"
+
+
+def test_a_pre_release_installed_is_offered_the_release_once_out(monkeypatch):
+	"""1.0.0 is newer than every 1.0.0 pre-release: an rc install finds it in the list."""
+	monkeypatch.setattr(runtime, "VERSION", "1.0.0rc2")
+	monkeypatch.setattr(update.urllib.request, "urlopen", FakeGitHub({update.api_list(): [
+		gh_release("v1.0.0rc2"), gh_release("v1.0.0", prerelease=False), gh_release("v1.0.0rc3")]}))
+	assert update.find().version == "1.0.0"
+
+
+@pytest.mark.parametrize("listed", [[], [gh_release("v1.0.0rc1", draft=True), gh_release("latest")]])
+def test_an_empty_list_is_nothing_published(monkeypatch, listed):
+	"""GitHub's list with no usable release (none, or only drafts and odd tags) says
+	nothing is published yet - not an error about being offline."""
+	monkeypatch.setattr(runtime, "VERSION", "1.0.0rc1")
+	monkeypatch.setattr(update.urllib.request, "urlopen", FakeGitHub({update.api_list(): listed}))
+	with pytest.raises(update.ReleaseError) as e:
+		update.find()
+	assert str(e.value) == "No NetRollout release is published on GitHub yet."
+
+
+def test_no_answer_from_github_asks_whether_the_server_is_online(monkeypatch):
+	"""A connection failure (DNS, refused, timeout) is the one case that asks whether the
+	server is online, and points to the offline way."""
+	monkeypatch.setattr(runtime, "VERSION", "1.0.0rc1")
+
+	def no_answer(request, timeout):
+		raise urllib.error.URLError("Name or service not known")
+	monkeypatch.setattr(update.urllib.request, "urlopen", no_answer)
+	with pytest.raises(update.ReleaseError) as e:
+		update.find()
+	assert str(e.value) == (f"Couldn't reach {update.api_list()} (<urlopen error Name or service not "
+	                        f"known>) - is this server online? Offline: update --from <zip>.")
+
+
+def test_a_version_asked_for_is_its_tag_on_either_channel(monkeypatch):
+	"""--version X asks releases/tags/vX, a pre-release installed or not."""
+	monkeypatch.setattr(runtime, "VERSION", "1.0.0rc1")
+	fake = FakeGitHub({update.api("1.0.0rc2"): gh_release("v1.0.0rc2")})
+	monkeypatch.setattr(update.urllib.request, "urlopen", fake)
+	assert update.find("1.0.0rc2").version == "1.0.0rc2"
+	assert [r.full_url for r, _ in fake.requests] == [update.api("1.0.0rc2")]
+
+
+def test_a_feed_may_be_one_release_or_a_list(tmp_path, monkeypatch):
+	"""A feed's single release is used as given (a pre-release too, a release installed);
+	a list is picked as GitHub's: the newest, pre-releases only for a pre-release
+	installed; a list with nothing on that channel names the feed."""
+	feed = tmp_path / "feed.json"
+	monkeypatch.setattr(runtime, "VERSION", "1.0.0")
+	feed.write_text(json.dumps(gh_release("v1.0.1rc1")))
+	assert update.find(feed=str(feed)).version == "1.0.1rc1"
+	feed.write_text(json.dumps([gh_release("v1.0.1"), gh_release("v1.0.2rc1"), gh_release("v1.0.0")]))
+	assert update.find(feed=str(feed)).version == "1.0.1"
+	monkeypatch.setattr(runtime, "VERSION", "1.0.1rc1")
+	assert update.find(feed=str(feed)).version == "1.0.2rc1"
+	monkeypatch.setattr(runtime, "VERSION", "1.0.0")
+	feed.write_text(json.dumps([gh_release("v1.0.2rc1")]))
+	with pytest.raises(update.ReleaseError) as e:
+		update.find(feed=str(feed))
+	assert str(e.value) == (f"No NetRollout release in {feed} (a pre-release is offered only to a "
+	                        f"pre-release installed).")
 
 
 def test_sums_that_dont_list_the_zip_are_refused(tmp_path):

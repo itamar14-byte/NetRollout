@@ -1132,7 +1132,7 @@ show_help() {
 	say "  sudo $BIN/netrollout.sh logs [service]  recent log lines (app, nginx, postgres, ...)"
 	say "  sudo $BIN/netrollout.sh backup          back up now (into $ROOT/backups)"
 	say "  sudo $BIN/netrollout.sh restore <file>  put NetRollout back to a backup (asks first)"
-	say "  sudo $BIN/netrollout.sh update          update to the latest release (asks first; --check only looks)"
+	say "  sudo $BIN/netrollout.sh update          update to the newest release (asks first; --check only looks)"
 	say "  sudo $BIN/netrollout.sh apply           apply an HTTPS port saved in System Settings (systemd does it by itself)"
 	say "  sudo $BIN/netrollout.sh port <N>        move NetRollout to port N when its port is taken (else: System Settings)"
 	say "  sudo $BIN/netrollout.sh uninstall       remove it (asks whether to delete the data too)"
@@ -1146,7 +1146,7 @@ show_help() {
 	say "  uninstall: --delete-data / --keep-data, --delete-backups (with --delete-data; else kept),"
 	say "             --remove-files (the scripts and compose files too)"
 	say "  update: --version X (not the latest)  --from <zip> (offline; checked against a SHA256SUMS next to it)"
-	say "          --feed <url|file> (a mirror's release JSON)  --check"
+	say "          --feed <url|file> (a mirror's release JSON: one release or a list)  --check"
 }
 
 show_menu() {
