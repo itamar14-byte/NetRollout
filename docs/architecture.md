@@ -74,7 +74,7 @@ flowchart LR
     helper <-->|config/nginx/site.env, config/apply-status.json| app
 ```
 
-- **Only nginx publishes ports**: the HTTPS port (443 by default) and, when port 80 is free at install, port 80, which redirects to HTTPS. PostgreSQL, Redis, the app and the monitoring services are reachable only on the compose network.
+- **Only nginx publishes ports**: the HTTPS port (443 by default) and, while port 80 is free on the host (checked at every start), port 80, which redirects to HTTPS. PostgreSQL, Redis, the app and the monitoring services are reachable only on the compose network.
 - **The app has no Docker access.** Whatever needs Docker (a new HTTPS port, an update, a backup restore) is done on the host by the scripts, through files the app writes and the host reads.
 - **nginx follows the app through files.** The app writes plain values (hostname, port) into `config/nginx/site.env`. A watcher inside the nginx container renders the site from its template, tests it with `nginx -t`, and reloads, or keeps the last good site and reports why.
 - **The CLI uses only `src/rollout/`**, the same engine the web app runs. An import test guards that it never loads the web stack.
@@ -360,7 +360,7 @@ The rules that keep it this way:
 
 ### The four pillars, as applied
 
-- **Encapsulation: each piece of state and each rule has one owner.** `JobStore` is the only code that spells a Redis job key. `AuditTrail` is the only writer of audit rows. `SecurityProfiles` is the one place device secrets are encrypted, and `Device.from_inventory()` the one place they are decrypted. `site_env.update()` is the only writer of `site.env`.
+- **Encapsulation: each piece of state and each rule has one owner.** `JobStore` is the only code that spells a Redis job key. `AuditTrail` is the only writer of audit rows. `SecurityProfiles` is the one place device secrets are encrypted, and `Device.from_inventory()` is where a rollout decrypts them. `site_env.update()` is the only writer of `site.env`.
 - **Abstraction: callers think in domain terms.** A route asks `InventoryView(session, viewer).get_editable(device_id)`, not for a query with the visibility filter written out. A page saves the hostname with `app.access.save(values, actor)`, not by renaming certificates and writing files.
 - **Information hiding: callers don't know how things are stored.** The pages read rollouts as `RolloutRow` and `JobMeta` values, not Redis hashes. The settings are `SettingsStore.get(key)`, whatever the table looks like.
 - **Polymorphism: a class per kind instead of "if it's this kind".** Each platform names its `Finish`; the engine calls `before_leave()`, `after_leave()` and `in_new_session()` without asking which. A certificate is `SelfSigned` or `Organisation`, and a new hostname is `rename_to()` on whichever it is: reissue, or refuse a name it doesn't cover.
@@ -1232,7 +1232,7 @@ What installing and running NetRollout decides and writes lives once, in the **s
 | Command | What it decides |
 |---|---|
 | `init`, `check` | The install's answers (hostname, HTTPS port, monitoring, an organisation's certificate, timezone), checked against the host's facts (busy ports, IP addresses, computer name); `init` writes `.env`, `config/nginx/site.env`, the folders and, unless the organisation's certificate is used, a self-signed one. `check` validates only. `init --dev` writes a developer's `.env`, `config/runtime.env` and a localhost certificate. |
-| `prepare-start` | Before a start: the ports are free, the server's addresses are current. |
+| `prepare-start` | Before a start: port 80's redirect is added to or dropped from `COMPOSE_FILE` as port 80 is free or busy, and the server's addresses are refreshed. |
 | `status` | The `netrollout status` report (services, health, backups, what to do). |
 | `restore-key` | After a restore: the backup's encryption key into `.env`. |
 | `check-update` | An update's direction, run with the *installed* image before any file is replaced: `update`, or exit 2 for the same version (nothing to update) or an older one (downgrades aren't supported). Versions compare by PEP 440, so `1.0.0.dev0 < 1.0.0rc1 < 1.0.0`. |
@@ -1549,7 +1549,7 @@ Known bugs are recorded as strict `xfail` tests, so fixing one fails the test un
 | **The `system_settings` table is the only runtime source of settings.** | One truth, editable in the UI and readable by SQL (the retention statements); environment variables only seed it once and never silently override an admin's change. |
 | **The setup core decides, the host scripts act.** | Windows and Linux make the same decisions from one tested Python module, run inside the release's own image, so the host needs no Python. |
 | **One release is images, Setup, the CLI and a zip, with `SHA256SUMS`.** | The images carry the code; the shipped files are the same list (`SHIPPED`) for every channel; both update paths verify the download before running anything. |
-| **Credentials are encrypted with one Fernet key, checked at startup.** | A wrong or missing key stops the app at once instead of failing at a user's first rollout, and a new key is never generated over existing encrypted data. `Device.from_inventory()` is the single place secrets are decrypted. |
+| **Credentials are encrypted with one Fernet key, checked at startup.** | A wrong or missing key stops the app at once instead of failing at a user's first rollout, and a new key is never generated over existing encrypted data. Secrets are decrypted only in memory, where they are used: a rollout's devices (`Device.from_inventory()`), a profile's connection test, the CSV import's profile matching, an LDAP bind, a 2FA check. |
 | **Services raise, routes catch outside the session block.** | A refused change rolls back as a whole; a route that returned an error from inside its block used to commit half a change. |
 | **The `Access` facade for multi-system changes.** | A hostname change touches the settings, the certificate, `site.env` and nginx's verdict; one all-or-nothing call replaces undo steps written by hand in each route. |
 | **The CLI shares the engine but none of the web stack.** | One rollout implementation, tested once; a small, standalone executable for one-off rollouts without a server. |
