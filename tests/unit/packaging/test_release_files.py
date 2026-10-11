@@ -346,6 +346,17 @@ def test_the_windows_script_finds_docker_whoever_started_it():
 	assert r'$DockerCliDir = Join-Path $DockerDir "resources\bin"' in ps1
 
 
+def test_setup_runs_powershell_by_its_full_path():
+	"""Setup starts Windows PowerShell as {sys}\\WindowsPowerShell\\v1.0\\powershell.exe,
+	never by bare name: started with a PATH that lacks PowerShell's folder, a bare
+	powershell.exe isn't found, no check runs and the Docker page said Docker was
+	missing (the rc2 test run). Every Exec and the cmd /C lines use PowerShellExe."""
+	text = (ROOT / "packaging" / "windows" / "installer" / "netrollout.iss").read_text(encoding="utf-8")
+	assert r"ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe')" in text
+	assert "Exec('powershell.exe'" not in text and "'/C powershell.exe" not in text
+	assert text.count("Exec(PowerShellExe,") == 3 and text.count("'/C ' + PowerShellExe + ' ' +") == 2
+
+
 def iss_text():
 	return (ROOT / "packaging" / "windows" / "installer" / "netrollout.iss").read_text(encoding="utf-8")
 

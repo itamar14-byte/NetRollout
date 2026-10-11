@@ -183,6 +183,15 @@ var
 	  progress bar of its own) }
 	PreparePage: TOutputProgressWizardPage;
 
+{ Windows PowerShell by its full path: Setup may be started with a PATH that
+  lacks its folder (a program launched before an install changed PATH, or a
+  stripped one) - a bare powershell.exe then isn't found and no check runs
+  (rc2 test: Docker reported missing). 64-bit mode: the sys constant is System32. }
+function PowerShellExe: String;
+begin
+	Result := ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe');
+end;
+
 { powershell.exe's arguments: run Script with CommandLine }
 function PsArgs(const Script, CommandLine: String): String;
 begin
@@ -201,7 +210,7 @@ var Code: Integer;
 begin
 	ExtractTemporaryFile('manage.ps1');
 	DefaultsFile := ExpandConstant('{tmp}\defaults.ini');
-	Exec('powershell.exe', Ps('defaults', '-Out "' + DefaultsFile + '"'), '', SW_HIDE,
+	Exec(PowerShellExe, Ps('defaults', '-Out "' + DefaultsFile + '"'), '', SW_HIDE,
 		ewWaitUntilTerminated, Code);
 end;
 
@@ -930,7 +939,7 @@ begin
 		if GetDefault('docker', 'missing') <> 'running' then begin
 			DockerHint.Caption := 'Getting Docker Desktop ready - this window waits (up to 15 minutes)...';
 			WizardForm.NextButton.Enabled := False;
-			Exec('powershell.exe', Ps('ensure-docker', '-Yes'), '', SW_HIDE, ewWaitUntilTerminated, Code);
+			Exec(PowerShellExe, Ps('ensure-docker', '-Yes'), '', SW_HIDE, ewWaitUntilTerminated, Code);
 			WizardForm.NextButton.Enabled := True;
 			LoadDefaults;
 			ShowDocker;
@@ -1158,7 +1167,7 @@ begin
 	WizardForm.ProgressGauge.Style := npbstMarquee;
 	Timer := SetTimer(0, 0, 500, CreateCallback(@ShowStep));
 	try
-		Exec(ExpandConstant('{cmd}'), '/C powershell.exe ' +
+		Exec(ExpandConstant('{cmd}'), '/C ' + PowerShellExe + ' ' +
 			PsArgs(ExpandConstant('{app}\bin\manage.ps1'), Args) + Redirect + Log + '" 2>&1',
 			ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, Result);
 	finally
@@ -1184,7 +1193,7 @@ begin
 	Preparing := True;
 	Timer := SetTimer(0, 0, 500, CreateCallback(@ShowStep));
 	try
-		Exec(ExpandConstant('{cmd}'), '/C powershell.exe ' +
+		Exec(ExpandConstant('{cmd}'), '/C ' + PowerShellExe + ' ' +
 			PsArgs(ExpandConstant('{tmp}\manage.ps1'), Args) + ' > "' + Log + '" 2>&1',
 			Dir, SW_HIDE, ewWaitUntilTerminated, Result);
 	finally
@@ -1363,7 +1372,7 @@ begin
 			'credentials, so keep them as safe as the server.', mbConfirmation, MB_YESNO) = IDNO then
 			Data := Data + ' -DeleteBackups';
 	end;
-	Exec('powershell.exe', PsArgs(ExpandConstant('{app}\bin\manage.ps1'), 'uninstall -Yes ' + Data),
+	Exec(PowerShellExe, PsArgs(ExpandConstant('{app}\bin\manage.ps1'), 'uninstall -Yes ' + Data),
 		ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, Code);
 	{ the data kept (whatever was asked - .env decides): recorded, so the next
 	  Setup finds it wherever this folder is; deleted: the record goes }
