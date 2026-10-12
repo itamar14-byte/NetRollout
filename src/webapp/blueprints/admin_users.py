@@ -1,6 +1,7 @@
 """Admin → Users and Live Sessions: approve, enable / disable, promote /
 demote, delete, reset 2FA or a password, end a user's sessions, add a user;
 the sessions signed in now. Admins only; every action audited."""
+import math
 import time
 import uuid
 from datetime import datetime, timezone
@@ -119,8 +120,10 @@ def admin_users() -> str:
 	return render_template("admin_users.html", users=users,
 	                       factory_ids={u.id for u in users if is_factory_admin(u)},
 	                       from_directory_ids=from_directory,
-	                       locked_ids={u.id for u in users
-	                                   if u.locked_until is not None and u.locked_until > now},
+	                       # locked accounts: the minutes left, rounded up (the badge's tooltip)
+	                       locked_minutes={u.id: math.ceil((u.locked_until - now).total_seconds() / 60)
+	                                       for u in users
+	                                       if u.locked_until is not None and u.locked_until > now},
 	                       active_section="users",
 	                       session_user_ids=set(current_app.sessions.signed_in(time.time())))
 

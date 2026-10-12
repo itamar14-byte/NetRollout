@@ -116,7 +116,7 @@
         {% set status = "pending" %}
       {% endif %}
       <tr data-status="{{ status }}"
-          data-user='{{ {"id": user.id|string, "username": user.username, "role": user.role, "approved": user.is_approved, "active": user.is_active, "is_self": (user.id == current_user.id), "is_factory": (user.id in factory_ids), "has_session": (user.id|string in session_user_ids), "auth_type": user.auth_type, "has_2fa": user.otp_secret is not none, "locked": (user.id in locked_ids), "role_from_directory": (user.id in from_directory_ids)}|tojson }}'>
+          data-user='{{ {"id": user.id|string, "username": user.username, "role": user.role, "approved": user.is_approved, "active": user.is_active, "is_self": (user.id == current_user.id), "is_factory": (user.id in factory_ids), "has_session": (user.id|string in session_user_ids), "auth_type": user.auth_type, "has_2fa": user.otp_secret is not none, "locked": (user.id in locked_minutes), "role_from_directory": (user.id in from_directory_ids)}|tojson }}'>
 
         <td style="padding-right:0;">
           <input type="checkbox" class="form-check-input row-cb" style="margin:0; cursor:pointer;" value="{{ user.id }}">
@@ -144,8 +144,9 @@
         <td>
           {% if status == "active" %}
             <span class="badge bg-success">Active</span>
-            {% if user.id in locked_ids %}
-              <span class="badge bg-warning text-dark" title="Locked for 15 minutes after 5 wrong passwords in a row - Enable lifts the lock">Locked</span>
+            {% if user.id in locked_minutes %}
+              {% set left = locked_minutes[user.id] %}
+              <span class="badge bg-warning text-dark" title="Locked after 5 wrong passwords in a row: {{ left }} minute{{ 's' if left != 1 }} left - Enable lifts the lock now">Locked</span>
             {% endif %}
           {% elif status == "inactive" %}
             <span class="badge bg-danger">Inactive</span>

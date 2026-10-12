@@ -152,6 +152,19 @@ def test_the_users_page_shows_a_lock_that_enable_lifts(
 	assert login(client_for(), user.username).headers["Location"] == "/otp_enroll"
 
 
+def test_the_locked_badge_says_the_time_left(admin, client_for, make_user, session_scope):
+	"""The Locked badge's tooltip gives the minutes left of the lock, rounded
+	up - not the lock's full length."""
+	user = make_user()
+	for left, words in ((dt.timedelta(minutes=3, seconds=30), "4 minutes left"),
+	                    (dt.timedelta(seconds=30), "1 minute left")):
+		with session_scope() as s:
+			s.get(User, user.id).locked_until = dt.datetime.now(dt.timezone.utc) + left
+		page = client_for(admin).get("/admin/users").get_data(as_text=True)
+		assert (f'title="Locked after 5 wrong passwords in a row: {words} - Enable lifts '
+		        f'the lock now">Locked</span>') in page
+
+
 def test_a_right_password_starts_the_count_again(client_for, make_user, db_get):
 	"""Four wrong, then the right one (the 2FA step starts): the count is 0, so
 	four more wrong ones leave the account active."""
