@@ -274,6 +274,23 @@ jobs:
               if keep:
                   lines.append(line)
           notes = chr(10).join(lines).strip()
+          # the downloads, after the notes: on GitHub they sit right above the
+          # Assets list; the updaters show the notes as text and Linux shows only
+          # the first lines, so the notes come first
+          if notes:
+              base = f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/download/v{version}/"
+              site = "https://itamar14-byte.github.io/NetRollout/"
+              notes += chr(10).join([
+                  "", "", "## Download", "",
+                  "| | File | |", "| --- | --- | --- |",
+                  f"| **Windows** | [NetRollout-Setup-{version}.exe]({base}NetRollout-Setup-{version}.exe) | Installs and updates NetRollout, Docker included |",
+                  f"| **Linux** | [netrollout-{version}-linux.zip]({base}netrollout-{version}-linux.zip) | Unzip, then `sudo ./bin/install.sh` |",
+                  f"| **CLI** | [netrollout-cli-{version}.exe]({base}netrollout-cli-{version}.exe) | One-off rollouts from a CSV, nothing to install |",
+                  "",
+                  f"Checksums are in [SHA256SUMS]({base}SHA256SUMS). Already installed? NetRollout Manager's **Update**, or `sudo ./bin/netrollout.sh update` on Linux, back up first and update in place.",
+                  "",
+                  f"[Installation guide]({site}docs/install/) and [website]({site}).",
+              ])
           open("release-notes.md", "w", encoding="utf-8").write(notes + chr(10) if notes else "")
           EOF
       - name: The GitHub Release, as a draft

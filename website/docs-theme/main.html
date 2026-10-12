@@ -1,0 +1,14 @@
+{#- The docs pages' link preview (Open Graph / Twitter card): the site's card
+    image, the page's own title and the site's description. -#}
+{% extends "base.html" %}
+{% block extrahead %}
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="NetRollout">
+  <meta property="og:title" content="{% if page and page.title and not page.is_homepage %}{{ page.title }} - {% endif %}NetRollout documentation">
+  <meta property="og:description" content="{{ config.site_description }}">
+  <meta property="og:url" content="{{ page.canonical_url if page else config.site_url }}">
+  <meta property="og:image" content="https://itamar14-byte.github.io/NetRollout/assets/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta name="twitter:card" content="summary_large_image">
+{% endblock %}
