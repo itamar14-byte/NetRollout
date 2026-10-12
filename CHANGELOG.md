@@ -6,6 +6,10 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ## [Unreleased]
 
+### Fixed
+
+- The Audit Log's **View Detail** showed no detail for any entry: the details (a failed sign-in's reason, a role change's from and to, ...) were stored but didn't reach the page whole.
+
 ### Changed
 
 - After 5 failed sign-ins in a row with the same username, the sign-in page now says "Too many failed sign-ins. Try again in N minutes." and stops that username for 15 minutes, instead of answering "Invalid credentials" throughout. It works the same for every username, an account or not (a made-up name gets the same message at the same moment), so it still doesn't reveal which usernames exist. Directory accounts get the same stop on the sign-in page. A local account's own lock and the disable after 10 wrong passwords are unchanged; an admin's **Enable**, a right password and `netrollout reset-admin` clear the stop too. User Management's **Locked** badge says how many minutes of the lock are left.

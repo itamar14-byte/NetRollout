@@ -1,5 +1,7 @@
 """Admin -> Audit log: the page and its filters; the rows AuditTrail writes."""
+import json
 import uuid
+from html.parser import HTMLParser
 
 from src.audit import Actor, AuditAction
 from src.backup.schedule import system_audit
@@ -19,6 +21,31 @@ def test_audit_page_filters(admin, client_for, make_user, session_scope):
 	html = c.get("/admin/audit?actor=alice").get_data(as_text=True)
 	assert "inventory.create" in html and "bob" not in html
 	assert "alice" not in c.get("/admin/audit?success=false").get_data(as_text=True)
+
+
+class _DetailAttributes(HTMLParser):
+	"""The data-detail attribute of every audit row, as a browser reads it."""
+	def __init__(self):
+		super().__init__()
+		self.details = []
+
+	def handle_starttag(self, tag, attrs):
+		attrs = dict(attrs)
+		if tag == "tr" and "data-detail" in attrs:
+			self.details.append(attrs["data-detail"])
+
+
+def test_a_rows_detail_reaches_the_page_whole(admin, client_for, session_scope):
+	"""View Detail reads the row's data-detail attribute: it holds the stored
+	detail as JSON, whole - quotes of either kind included - so the page can
+	show it."""
+	detail = {"reason": "ldap_bind_failed", "note": 'it\'s "quoted"'}
+	with session_scope() as s:
+		s.add(AuditLog(actor_username="alice", action="auth.login", success=False,
+		               detail=detail))
+	parser = _DetailAttributes()
+	parser.feed(client_for(admin).get("/admin/audit").get_data(as_text=True))
+	assert detail in [json.loads(d) for d in parser.details if d != "null"]
 
 
 def _columns(row):

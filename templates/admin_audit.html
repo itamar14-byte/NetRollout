@@ -56,7 +56,10 @@
         </thead>
         <tbody>
           {% for e in entries %}
-          <tr class="audit-row" data-detail="{{ e.detail | tojson | e }}"
+          {# single quotes: tojson's output is "safe" (| e won't touch it) and keeps
+             its double quotes, which would end a double-quoted attribute; it
+             escapes single quotes itself (the Users page's data-user does the same) #}
+          <tr class="audit-row" data-detail='{{ e.detail | tojson }}'
               data-id="{{ e.id }}" data-ts="{{ e.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}">
 
             <td style="font-family:'JetBrains Mono',monospace; font-size:0.75rem; color:var(--nr-text-muted); white-space:nowrap;">
