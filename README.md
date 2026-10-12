@@ -24,6 +24,7 @@ It is for network engineers who want a bulk change done and checked without writ
 - [Requirements](#requirements)
 - [Documentation](#documentation)
 - [Support and contributing](#support-and-contributing)
+- [About this project](#about-this-project)
 - [License](#license)
 
 ## Features
@@ -135,6 +136,26 @@ NetRollout is built and maintained by one person, Itamar Weinstein, on a best-ef
 - **Want something?** Open a feature request from the same [issue page](https://github.com/itamar14-byte/NetRollout/issues/new/choose).
 - **Found a vulnerability?** Report it privately, as described in [SECURITY.md](SECURITY.md). Don't open a public issue.
 - **Want to fix something?** Read [CONTRIBUTING.md](CONTRIBUTING.md). Fixes are even more welcome than reports.
+
+## About this project
+
+I'm Itamar Weinstein. For the past five years I've worked as a network and security engineer, specialising in enterprise networks of all sizes. On the larger ones especially, I kept finding myself deploying the same configuration task to a large set of devices, and the best I could do was paste it into Notepad and edit it for each device in turn, which, as I'm sure you know, is tedious, error-prone and overall depressing. I even considered the rich variety of automation tools you learn about in the CCNA, but the enterprise ones cost a fortune, the free ones take a ton of time and effort to actually learn, and I just hated working with them. I remember thinking, "there must be a better way". That, in six words, is why I built NetRollout.
+
+It started as a hobby project in the summer break after my junior year of a CS degree, when a client had me configure SNMP on 30 switches. I got sick of it halfway through and, in the true spirit of automation, decided to spend a week automating a day of work. It began as something very simple: a Python CLI script that took a text file of commands and a CSV of device details, and pushed every line to every device in a nested loop.
+
+Somewhere along the way, though, I realised this pain point is shared by many people, and that I could build something for the community that has always been there for me. So I planned a roadmap, and over the next year or so set out to build something more. The one-time CLI tool became a stateful web app:
+
+- **PostgreSQL** holds the devices, their credentials (encrypted, in security profiles) and the rollouts you build and launch.
+- **Redis** keeps the job queue and user sessions, so many rollouts run at once and every job's log streams live.
+- **A containerised monitoring stack** ships with the app, turning the database, the logs and the rollout metrics into full operational visibility.
+- **Verification** reads each device's running configuration back and checks it against what was requested.
+- **Rollback** sends compensatory commands to the devices a job changed.
+- **A Windows installer and a Linux script** set the whole thing up in Docker and keep it updated.
+- Underneath it all, an **object-oriented architecture** of 65 modules and some 19,000 lines of Python.
+
+The roadmap, the architecture and the design decisions are mine. For the later stages I brought in Claude Code, Anthropic's AI coding assistant, as a pair programmer: it took on much of the testing and the boilerplate, and was a second pair of eyes on my code, which left me free to focus on the design. Along the way, I learned a great deal about a long list of technologies I'd always been curious about, and about the thrill of building.
+
+If you found NetRollout useful or interesting, I'm always happy to talk: find me on [LinkedIn](https://www.linkedin.com/in/itamar-weinstein/). I'd be even happier to have other contributors on board who are excited about network automation.
 
 ## License
 
