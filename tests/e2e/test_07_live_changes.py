@@ -57,7 +57,10 @@ def originals(install):
 	install.write(KEY, key)
 	if changed:
 		verdict_after(install, before, "applied", f"hostname={HOSTNAME} ")
-	assert served(install, f"{HOSTNAME}:{HTTPS_PORT}") == 200
+	# the same graceful reload as in the checks: an old worker can still answer
+	# for a moment after the verdict, so the installed site is awaited, bounded
+	wait_for(lambda: served(install, f"{HOSTNAME}:{HTTPS_PORT}") == 200, 15,
+	         f"{HOSTNAME} served again after the files were put back", every=0.5)
 
 
 def test_a_new_hostname_is_applied_without_a_restart(install, originals):
