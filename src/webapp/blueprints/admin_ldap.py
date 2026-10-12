@@ -49,6 +49,23 @@ def unload_ldap_data(req: Request) -> dict[str, str]:
 	        }
 
 
+# A server's settings the audit log records (the bind password only as
+# "set" / "changed", never its value): where users' passwords go at sign-in
+AUDITED_SETTINGS = ("name", "host", "port", "use_ssl", "base_dn", "cn_identifier",
+                    "bind_type", "bind_dn", "is_active")
+
+
+def server_settings(server: LDAPServer) -> dict[str, Any]:
+	""":returns: the server's AUDITED_SETTINGS, by name"""
+	return {name: getattr(server, name) for name in AUDITED_SETTINGS}
+
+
+def settings_changed(before: dict[str, Any], after: dict[str, Any]) -> dict[str, dict[str, Any]]:
+	""":returns: each setting that differs, {name: {"from": old, "to": new}}"""
+	return {name: {"from": before[name], "to": after[name]}
+	        for name in AUDITED_SETTINGS if before[name] != after[name]}
+
+
 def ldap_problem(server_input: dict[str, str], new: bool) -> str | None:
 	"""The LDAP server form's check (the page's can be bypassed).
 
@@ -105,10 +122,14 @@ def admin_server_ldap_new() -> ResponseReturnValue:
 			if server_input["bind_password"] else None)
 
 		db_session.add(row)
-
+		db_session.flush()       # its id, for the audit row
+		created: dict[str, Any] = server_settings(row)
+		if row.bind_password:
+			created["bind_password"] = "set"
 		current_app.web.audit(AuditAction.ADMIN_LDAP_SERVER_SAVE,
-		                      object_type="LDAPServer",
-		                      object_label=server_input["label"], success=True)
+		                      object_type="LDAPServer", object_id=row.id,
+		                      object_label=row.name, success=True,
+		                      detail={"created": created})
 	return ok()
 
 
@@ -117,7 +138,9 @@ def admin_server_ldap_new() -> ResponseReturnValue:
 @require_admin
 def admin_server_ldap_save(server_id: uuid.UUID) -> ResponseReturnValue:
 	"""Change an LDAP server: a blank field keeps the stored value (the bind
-	password too); the port, SSL and active are always taken from the form."""
+	password too); the port, SSL and active are always taken from the form.
+	Audited with what changed, from and to (the bind password only as
+	"changed")."""
 	server_input = unload_ldap_data(request)
 	if problem := ldap_problem(server_input, new=False):
 		return err(problem, 422)
@@ -126,6 +149,7 @@ def admin_server_ldap_save(server_id: uuid.UUID) -> ResponseReturnValue:
 		srv = db_session.query(LDAPServer).filter_by(id=server_id).first()
 		if not srv:
 			return err("Server not found", 404)
+		before = server_settings(srv)
 		srv.name = server_input["label"] if server_input["label"] else srv.name
 		srv.host = server_input["ip"] if server_input["ip"] else srv.host
 		srv.port = int(server_input["port"])
@@ -141,9 +165,12 @@ def admin_server_ldap_save(server_id: uuid.UUID) -> ResponseReturnValue:
 		srv.is_active = server_input["is_active"].lower() == "true"
 		srv.bind_password = encrypt(server_input["bind_password"]) if \
 			server_input["bind_password"] else srv.bind_password
+		detail: dict[str, Any] = {"changes": settings_changed(before, server_settings(srv))}
+		if server_input["bind_password"]:
+			detail["bind_password"] = "changed"
 		current_app.web.audit(AuditAction.ADMIN_LDAP_SERVER_SAVE,
-		                      object_type="LDAPServer",
-		                      object_label=srv.name, success=True)
+		                      object_type="LDAPServer", object_id=srv.id,
+		                      object_label=srv.name, success=True, detail=detail)
 	return ok()
 
 

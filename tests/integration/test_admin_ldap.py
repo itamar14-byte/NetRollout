@@ -49,6 +49,32 @@ def test_ldap_server_crud_encrypts_bind_password(admin, client_for,
 		assert s.query(LDAPServer).count() == 0
 
 
+def test_saving_a_server_is_audited_with_what_changed(admin, client_for, session_scope):
+	"""A new server's row records its settings (the bind password as "set");
+	a save records each setting changed, from and to, and a new bind password
+	only as "changed" - its value nowhere; a save that changes nothing says so."""
+	c = client_for(admin)
+	c.post("/admin/server/ldap/new", data=LDAP_FORM)
+	srv = only_server(session_scope)
+	c.post(f"/admin/server/ldap/{srv.id}/save",
+	       data={**LDAP_FORM, "is_active": "false", "ip": "ldap2.test", "bind_password": "new-secret"})
+	c.post(f"/admin/server/ldap/{srv.id}/save", data={**LDAP_FORM, "is_active": "false",
+	                                                   "ip": "ldap2.test", "bind_password": ""})
+	with session_scope() as s:
+		rows = [(a.object_id, a.detail) for a in s.query(AuditLog)
+		        .filter_by(action="admin.ldap_server_save").order_by(AuditLog.timestamp)]
+	assert [object_id for object_id, _ in rows] == [srv.id] * 3
+	assert rows[0][1] == {"created": {
+		"name": "corp", "host": "ldap.test", "port": 389, "use_ssl": False, "base_dn": "dc=corp",
+		"cn_identifier": "sAMAccountName", "bind_type": "regular", "bind_dn": "cn=svc,dc=corp",
+		"is_active": True, "bind_password": "set"}}
+	assert rows[1][1] == {"changes": {"host": {"from": "ldap.test", "to": "ldap2.test"},
+	                                  "is_active": {"from": True, "to": False}},
+	                      "bind_password": "changed"}
+	assert rows[2][1] == {"changes": {}}
+	assert "secret" not in repr(rows)
+
+
 @pytest.mark.parametrize("bad, message", [
 	({"port": "abc"}, "The port is a number from 1 to 65535."),
 	({"port": "²2"}, "The port is a number from 1 to 65535."),
