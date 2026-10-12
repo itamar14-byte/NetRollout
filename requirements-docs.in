@@ -1,0 +1,7 @@
+# The documentation site (docs/ + website/, built by .github/workflows/pages.yml) -
+# not NetRollout itself. Edit this file; requirements-docs.txt is compiled from it
+# (the same pip-compile command as requirements.txt, with these two names).
+mkdocs-material~=9.7
+# MkDocs 2.0 is a rewrite that breaks Material and its theme (Material's own
+# warning): stay on 1.x until the site moves to Zensical, Material's successor
+mkdocs~=1.6

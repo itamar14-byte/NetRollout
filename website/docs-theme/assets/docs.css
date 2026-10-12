@@ -1,0 +1,31 @@
+/* The documentation site in the landing page's look: its fonts (served by the
+   site at /assets/fonts/; the system fonts when the docs run alone) and colours. */
+@font-face { font-family: "Archivo"; font-style: normal; font-weight: 100 900; font-stretch: 62% 125%; font-display: swap; src: url(../../assets/fonts/archivo-latin.woff2) format("woff2"); }
+@font-face { font-family: "IBM Plex Mono"; font-style: normal; font-weight: 400; font-display: swap; src: url(../../assets/fonts/plexmono-400-latin.woff2) format("woff2"); }
+@font-face { font-family: "IBM Plex Mono"; font-style: normal; font-weight: 500; font-display: swap; src: url(../../assets/fonts/plexmono-500-latin.woff2) format("woff2"); }
+
+:root {
+  --md-text-font-family: "Archivo", "Segoe UI", system-ui, sans-serif;
+  --md-code-font-family: "IBM Plex Mono", "Cascadia Mono", Consolas, monospace;
+}
+[data-md-color-primary="custom"] {
+  --md-primary-fg-color: #0e1a2b;
+  --md-primary-fg-color--light: #23324a;
+  --md-primary-fg-color--dark: #08111d;
+  --md-primary-bg-color: #ffffff;
+  --md-primary-bg-color--light: #ffffffb3;
+}
+[data-md-color-accent="custom"] {
+  --md-accent-fg-color: #00808f;
+  --md-accent-fg-color--transparent: #00808f1a;
+}
+[data-md-color-scheme="default"] { --md-typeset-a-color: #00808f; }
+[data-md-color-scheme="slate"] {
+  --md-default-bg-color: #0d141c;
+  --md-typeset-a-color: #2cc4d6;
+  --md-accent-fg-color: #2cc4d6;
+}
+[data-md-color-scheme="slate"][data-md-color-primary="custom"] { --md-primary-fg-color: #131c26; }
+.md-header__title, .md-typeset h1, .md-typeset h2 { font-stretch: 108%; letter-spacing: -.012em; }
+.md-typeset h1 { font-weight: 780; }
+.md-typeset h2 { font-weight: 720; }

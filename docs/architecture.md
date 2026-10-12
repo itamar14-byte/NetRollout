@@ -1108,7 +1108,7 @@ sequenceDiagram
         A->>DIR: user_bind(username, password)
         opt the directory sets the role (service account + an active group rule)
             A->>DIR: matching_rules(username, active rules)
-            A->>DB: Accounts.set_directory_role (the highest role; never the last admin away)
+            A->>DB: Accounts.set_directory_role (the highest role, never the last admin away)
         end
         A->>RS: new session id, signed in (no 2FA)
     else unknown username

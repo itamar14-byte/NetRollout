@@ -1,0 +1,429 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NetRollout</title>
+<meta name="description" content="Push configuration changes to many network devices over SSH, verify every command on every device, and keep a record. Self-hosted and open source.">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<style>
+/* Layout: a left-aligned 12-column page; the hero pairs the pitch with a switch faceplate + rollout console (the one moving thing); then the rollout as a sequence, screenshots, the platform table, features, self-hosting, downloads. */
+@font-face { font-family: "Archivo"; font-style: normal; font-weight: 100 900; font-stretch: 62% 125%; font-display: swap; src: url(assets/fonts/archivo-latin.woff2) format("woff2"); }
+@font-face { font-family: "IBM Plex Mono"; font-style: normal; font-weight: 400; font-display: swap; src: url(assets/fonts/plexmono-400-latin.woff2) format("woff2"); }
+@font-face { font-family: "IBM Plex Mono"; font-style: normal; font-weight: 500; font-display: swap; src: url(assets/fonts/plexmono-500-latin.woff2) format("woff2"); }
+
+:root {
+  --paper: #f5f7f8; --panel: #ffffff; --ink: #0e1a2b; --ink-2: #4a5768; --rule: #d9e0e5;
+  --cyan: #00808f; --cyan-ink: #ffffff; --cyan-soft: #e1f2f4;
+  --chassis: #1d2633; --chassis-2: #2a3544; --port: #0f151d; --console: #0f1720; --console-ink: #cfdae4; --console-dim: #6f8496;
+  --led-off: #34404f; --led-amber: #f0a020; --led-green: #3ccf6e; --led-red: #ef5350;
+  --ok: #1e7a3c; --warn: #9a5b00;
+  --f-sans: "Archivo", "Segoe UI", system-ui, sans-serif;
+  --f-mono: "IBM Plex Mono", "Cascadia Mono", Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) { :root {
+  --paper: #0d141c; --panel: #131c26; --ink: #e6edf3; --ink-2: #9aabbb; --rule: #243140;
+  --cyan: #2cc4d6; --cyan-ink: #04161a; --cyan-soft: #0f2f36;
+  --chassis: #1b2430; --chassis-2: #253140; --port: #0a0f15; --console: #0a1017;
+  --ok: #5fd38a; --warn: #f0b354;
+  color-scheme: dark; } }
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--paper); color: var(--ink); font: 400 1.0625rem/1.6 var(--f-sans); font-stretch: 100%; -webkit-font-smoothing: antialiased; }
+img { max-width: 100%; height: auto; display: block; }
+a { color: var(--cyan); text-underline-offset: .18em; }
+a:focus-visible, button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 3px; border-radius: 4px; }
+code, .mono { font-family: var(--f-mono); font-size: .88em; }
+.page { max-width: 1180px; margin: 0 auto; padding-inline: clamp(16px, 4vw, 40px); }
+
+/* header */
+.bar { position: sticky; top: 0; z-index: 10; background: color-mix(in srgb, var(--paper) 88%, transparent); backdrop-filter: blur(10px); border-bottom: 1px solid var(--rule); }
+.bar .page { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 60px; }
+.wordmark { display: flex; align-items: center; gap: 10px; color: var(--ink); text-decoration: none; font-weight: 750; font-stretch: 118%; font-size: 1.15rem; letter-spacing: -.01em; }
+.wordmark svg { width: 26px; height: 26px; }
+.bar nav { display: flex; gap: clamp(12px, 3vw, 28px); font-size: .95rem; }
+.bar nav a { color: var(--ink-2); text-decoration: none; }
+.bar nav a:hover { color: var(--ink); }
+
+/* hero */
+.hero { display: grid; grid-template-columns: minmax(0, 6fr) minmax(0, 7fr); gap: clamp(28px, 5vw, 64px); align-items: center; padding-block: clamp(40px, 7vw, 96px) clamp(40px, 6vw, 80px); }
+h1 { font-weight: 800; font-stretch: 112%; font-size: clamp(2.3rem, 4.6vw, 3.6rem); line-height: 1.02; letter-spacing: -.025em; margin: 0 0 22px; text-wrap: balance; }
+.lede { font-size: 1.15rem; color: var(--ink-2); max-width: 34em; margin: 0 0 30px; }
+.ctas { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.btn { display: inline-flex; align-items: center; gap: 10px; padding: 13px 20px; border-radius: 8px; font: 600 1rem var(--f-sans); text-decoration: none; border: 1px solid var(--rule); color: var(--ink); background: var(--panel); }
+.btn:hover { border-color: var(--ink-2); }
+.btn.primary { background: var(--cyan); border-color: var(--cyan); color: var(--cyan-ink); }
+.btn.primary:hover { filter: brightness(1.07); }
+.btn svg { width: 18px; height: 18px; flex: none; }
+.release-line { margin: 18px 0 0; font-size: .92rem; color: var(--ink-2); min-height: 1.5em; }
+.release-line .pre { color: var(--warn); }
+
+/* the faceplate + console */
+.device { background: var(--chassis); border-radius: 10px; padding: 14px; box-shadow: 0 24px 60px -30px rgba(10, 20, 35, .55); display: grid; gap: 12px; min-width: 0; }
+.faceplate { background: var(--chassis-2); border-radius: 6px; padding: 12px 14px; display: grid; grid-template-columns: auto 1fr; gap: 14px; align-items: center; }
+.faceplate .model { font: 500 .7rem/1.3 var(--f-mono); color: #8da2b5; letter-spacing: .02em; }
+.faceplate .model b { display: block; color: #d9e4ee; font-weight: 500; font-size: .78rem; }
+.ports { display: grid; grid-template-columns: repeat(24, minmax(0, 1fr)); gap: 4px; }
+.port { aspect-ratio: 1 / .82; background: var(--port); border-radius: 2px; position: relative; }
+.port::after { content: ""; position: absolute; left: 50%; top: 50%; width: 38%; aspect-ratio: 1; transform: translate(-50%, -50%); border-radius: 50%; background: var(--led-off); transition: background-color .25s, box-shadow .25s; }
+.port[data-s="push"]::after { background: var(--led-amber); box-shadow: 0 0 6px var(--led-amber); }
+.port[data-s="ok"]::after { background: var(--led-green); box-shadow: 0 0 6px var(--led-green); }
+.port[data-s="warn"]::after { background: var(--led-amber); box-shadow: 0 0 8px var(--led-amber); }
+.console { background: var(--console); border-radius: 6px; padding: 14px 16px; font: 400 .8rem/1.65 var(--f-mono); color: var(--console-ink); overflow-x: auto; min-height: 17.5em; }
+.console .line { white-space: pre; }
+.console .prompt { color: #4dd0e1; }
+.console .dim { color: var(--console-dim); }
+.console .ok { color: var(--led-green); }
+.console .warn { color: var(--led-amber); }
+.console .sum { margin-top: 8px; padding-top: 8px; border-top: 1px solid #1f2b38; }
+
+/* sections */
+section { padding-block: clamp(48px, 7vw, 96px); border-top: 1px solid var(--rule); }
+h2 { font-weight: 780; font-stretch: 108%; font-size: clamp(1.7rem, 3vw, 2.3rem); line-height: 1.1; letter-spacing: -.018em; margin: 0 0 14px; text-wrap: balance; max-width: 22em; }
+.intro { color: var(--ink-2); max-width: 40em; margin: 0 0 40px; }
+h3 { font-weight: 700; font-size: 1.1rem; line-height: 1.3; margin: 0 0 6px; letter-spacing: -.005em; }
+
+/* the rollout, as the sequence it is */
+.steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 28px; counter-reset: step; }
+.steps li { counter-increment: step; display: grid; gap: 10px; align-content: start; min-width: 0; }
+.steps li::before { content: counter(step); font: 500 .85rem var(--f-mono); color: var(--cyan); border: 1px solid var(--cyan); border-radius: 50%; width: 2em; height: 2em; display: grid; place-items: center; }
+.steps p { margin: 0; color: var(--ink-2); font-size: .98rem; }
+.snippet { background: var(--panel); border: 1px solid var(--rule); border-radius: 6px; padding: 10px 12px; font: 400 .8rem/1.55 var(--f-mono); color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; }
+.snippet .tok { color: var(--cyan); }
+
+/* screenshots */
+.shots { display: grid; gap: 28px; }
+.shots figure { margin: 0; display: grid; gap: 10px; min-width: 0; }
+.shots .pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 28px; }
+.shots img { border-radius: 8px; border: 1px solid var(--rule); box-shadow: 0 16px 40px -28px rgba(10, 20, 35, .5); }
+.shots figcaption { font-size: .9rem; color: var(--ink-2); }
+
+/* platforms */
+.platforms-wrap { overflow-x: auto; }
+table.platforms { border-collapse: collapse; width: 100%; min-width: 560px; font-size: .96rem; }
+.platforms th { text-align: left; font-weight: 600; font-size: .85rem; color: var(--ink-2); padding: 0 16px 10px 0; border-bottom: 1px solid var(--ink); }
+.platforms td { padding: 11px 16px 11px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+.platforms td:nth-child(2) { font-family: var(--f-mono); font-size: .86rem; color: var(--ink-2); white-space: nowrap; }
+.platforms .lab { color: var(--ok); font-weight: 600; }
+.note { font-size: .92rem; color: var(--ink-2); margin: 18px 0 0; max-width: 46em; }
+
+/* features */
+.features { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 34px 40px; }
+.features div { min-width: 0; }
+.features p { margin: 0; color: var(--ink-2); font-size: .98rem; }
+
+/* self-hosted */
+.own { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: clamp(28px, 5vw, 64px); align-items: start; }
+.own ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 16px; }
+.own li { padding-left: 22px; position: relative; color: var(--ink-2); }
+.own li::before { content: ""; position: absolute; left: 0; top: .62em; width: 8px; height: 8px; border-radius: 50%; background: var(--led-green); }
+.own li b { color: var(--ink); font-weight: 650; }
+
+/* downloads */
+.downloads { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; border: 1px solid var(--rule); border-radius: 10px; background: var(--panel); }
+.dl { padding: 26px; display: grid; gap: 12px; align-content: start; min-width: 0; }
+.dl + .dl { border-left: 1px solid var(--rule); }
+.dl p { margin: 0; color: var(--ink-2); font-size: .96rem; }
+.dl .file { font: 400 .82rem var(--f-mono); color: var(--ink-2); overflow-wrap: anywhere; }
+.dl .btn { justify-self: start; margin-top: 6px; }
+.dl-foot { display: flex; flex-wrap: wrap; gap: 8px 28px; margin: 18px 0 0; font-size: .94rem; color: var(--ink-2); }
+
+footer { border-top: 1px solid var(--rule); padding-block: 34px 48px; color: var(--ink-2); font-size: .92rem; }
+footer .page { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px 32px; }
+footer p { margin: 0; }
+
+@media (max-width: 960px) {
+  .hero, .own { grid-template-columns: minmax(0, 1fr); }
+  .steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .features { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 640px) {
+  .steps, .features, .downloads, .shots .pair { grid-template-columns: minmax(0, 1fr); }
+  .dl + .dl { border-left: 0; border-top: 1px solid var(--rule); }
+  .bar nav a.optional { display: none; }
+  .ports { gap: 3px; }
+  .faceplate { grid-template-columns: minmax(0, 1fr); }
+}
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .port::after { transition: none; }
+}
+</style>
+</head>
+<body>
+
+<header class="bar">
+  <div class="page">
+    <a class="wordmark" href="./" aria-label="NetRollout home">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><rect x="2" y="7" width="28" height="18" rx="3" fill="#1d2633"/><g fill="#3ccf6e"><circle cx="8" cy="16" r="2.2"/><circle cx="14" cy="16" r="2.2"/><circle cx="20" cy="16" r="2.2"/></g><circle cx="26" cy="16" r="2.2" fill="#2cc4d6"/></svg>
+      NetRollout
+    </a>
+    <nav aria-label="Site">
+      <a href="#how" class="optional">How it works</a>
+      <a href="docs/">Docs</a>
+      <a href="#download">Download</a>
+      <a href="https://github.com/itamar14-byte/NetRollout">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <div class="page">
+    <div class="hero">
+      <div>
+        <h1>Push one change to every device, and prove it landed.</h1>
+        <p class="lede">NetRollout sends configuration over SSH to many network devices at once, reads each device's configuration back to verify every command, and keeps a record of the result. Self-hosted and open source, for network engineers and their teams.</p>
+        <div class="ctas">
+          <a class="btn primary" id="heroDownload" href="#download">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v9m0 0-4-4m4 4 4-4M4 16h12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span id="heroDownloadText">Download</span>
+          </a>
+          <a class="btn" href="docs/">Read the docs</a>
+        </div>
+        <p class="release-line" id="releaseLine"></p>
+      </div>
+
+      <div class="device" role="img" aria-label="A 48-port switch whose port lights turn green one by one as a rollout verifies each device, above a console listing the results: 47 success, 1 partial with ACTION NEEDED.">
+        <div class="faceplate">
+          <div class="model"><b>access-stack-1</b>48 devices</div>
+          <div class="ports" id="ports"></div>
+        </div>
+        <div class="console" id="console" aria-hidden="true"></div>
+      </div>
+    </div>
+  </div>
+
+  <section id="how">
+    <div class="page">
+      <h2>One rollout, start to finish</h2>
+      <p class="intro">The same four steps whether it's three switches or three hundred, in the web app or from the command line.</p>
+      <ol class="steps">
+        <li>
+          <h3>Pick the devices</h3>
+          <p>From your inventory, by label or one by one. Credentials live in encrypted security profiles, never in the rollout.</p>
+        </li>
+        <li>
+          <h3>Write the change once</h3>
+          <p>Tokens fill in each device's own values, so one snippet fits the whole fleet.</p>
+          <div class="snippet">interface Loopback0
+ ip address <span class="tok">$$LO_IP$$</span> 255.255.255.255</div>
+        </li>
+        <li>
+          <h3>Push in parallel</h3>
+          <p>Devices run side by side within your limits, and each platform saves or commits in its own way. Watch it live, device by device.</p>
+        </li>
+        <li>
+          <h3>Verify and keep the record</h3>
+          <p>Each device's configuration is read back and every command checked, removals included. Results, logs and snapshots are stored; roll back from there.</p>
+        </li>
+      </ol>
+    </div>
+  </section>
+
+  <section aria-labelledby="shots-title">
+    <div class="page">
+      <h2 id="shots-title">What it looks like</h2>
+      <p class="intro">A web app your team signs in to, served from your own server.</p>
+      <div class="shots">
+        <figure>
+          <img src="docs/images/dashboard.png" alt="The NetRollout dashboard with a running rollout and recent results" loading="lazy" width="1440" height="900">
+          <figcaption>The dashboard: what's running, what needs attention, recent results.</figcaption>
+        </figure>
+        <div class="pair">
+          <figure>
+            <img src="docs/images/new-rollout.png" alt="The New Rollout page with devices selected and commands entered" loading="lazy" width="1440" height="900">
+            <figcaption>New Rollout: devices, commands, Verify.</figcaption>
+          </figure>
+          <figure>
+            <img src="docs/images/results.png" alt="The Results page listing finished rollouts and their statuses" loading="lazy" width="1440" height="900">
+            <figcaption>Results: every device's outcome, log and Verify Diff.</figcaption>
+          </figure>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="plat-title">
+    <div class="page">
+      <h2 id="plat-title">Twelve platforms, each finished its own way</h2>
+      <p class="intro">Built on Netmiko. A push isn't done until the change is permanent: saved, committed, or live as typed, depending on the platform.</p>
+      <div class="platforms-wrap">
+        <table class="platforms">
+          <thead><tr><th>Vendor / OS</th><th>device_type</th><th>How a push is finished</th></tr></thead>
+          <tbody>
+            <tr><td>Cisco IOS <span class="lab">(tested in a lab)</span></td><td>cisco_ios</td><td>Save the configuration</td></tr>
+            <tr><td>Cisco IOS-XE</td><td>cisco_xe</td><td>Save the configuration</td></tr>
+            <tr><td>Cisco NX-OS</td><td>cisco_nxos</td><td>Save the configuration</td></tr>
+            <tr><td>Cisco IOS-XR</td><td>cisco_xr</td><td>Commit; a failed commit reverts by itself</td></tr>
+            <tr><td>Arista EOS</td><td>arista_eos</td><td>Save the configuration</td></tr>
+            <tr><td>Aruba AOS-CX</td><td>aruba_aoscx</td><td>Save the configuration</td></tr>
+            <tr><td>HP ProCurve</td><td>hp_procurve</td><td>Save the configuration</td></tr>
+            <tr><td>HP Comware</td><td>hp_comware</td><td>Save the configuration</td></tr>
+            <tr><td>Juniper Junos</td><td>juniper_junos</td><td>Commit in <code>configure private</code>; a failed commit is discarded</td></tr>
+            <tr><td>Palo Alto PAN-OS</td><td>paloalto_panos</td><td>Commit; a failed commit is reverted</td></tr>
+            <tr><td>Check Point Gaia</td><td>checkpoint_gaia</td><td><code>save config</code>, from clish</td></tr>
+            <tr><td>Fortinet FortiOS</td><td>fortinet</td><td>Live as typed</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note">Verify covers all twelve. Most platforms were built from vendor documentation and are waiting for confirmation on real equipment. If you run one, <a href="https://github.com/itamar14-byte/NetRollout/issues/new?template=platform_confirmation.yml">tell us how it went</a>.</p>
+    </div>
+  </section>
+
+  <section aria-labelledby="feat-title">
+    <div class="page">
+      <h2 id="feat-title">Made for a team, not a laptop</h2>
+      <p class="intro">Everything around the push that a shared tool needs.</p>
+      <div class="features">
+        <div><h3>Accounts and sign-in</h3><p>Operator and admin roles, local accounts with approval, LDAP with group rules, two-factor sign-in, and lockout after repeated wrong passwords.</p></div>
+        <div><h3>Live logs, safe to share</h3><p>Follow every rollout as it runs. Passwords, secrets and SNMP communities are replaced with <code>&lt;redacted&gt;</code> in every log.</p></div>
+        <div><h3>Results and rollback</h3><p>Every device's status, log, configuration snapshot and Verify Diff. Cases only a person can fix are flagged ACTION NEEDED.</p></div>
+        <div><h3>Audit log</h3><p>Sign-ins, rollouts, setting changes and admin actions, recorded with who and when.</p></div>
+        <div><h3>Monitoring</h3><p>Optional Prometheus, Loki and Grafana, with ready-made dashboards for operations, jobs and security.</p></div>
+        <div><h3>Backups and updates</h3><p>Scheduled backups, one-step restore, and updates that back up first and can be finished if interrupted.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="own-title">
+    <div class="page own">
+      <div>
+        <h2 id="own-title">Yours, on your network</h2>
+        <p class="intro">NetRollout runs on a server you control, next to the devices it manages.</p>
+      </div>
+      <ul>
+        <li><b>Runs in Docker</b> on Windows or Linux. The installer sets it up: passwords, keys, a certificate, and a service that starts with the machine.</li>
+        <li><b>No internet needed</b> once it's installed, except to download updates. Nothing phones home.</li>
+        <li><b>Credentials are encrypted</b> at rest, and the app's logs are safe to share.</li>
+        <li><b>Free software</b> under the GNU AGPL v3. Read the code, change it, run it.</li>
+        <li><b>A CLI too</b>: one <code>.exe</code> for a one-off rollout from a CSV and a commands file, with no install at all.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="download" aria-labelledby="dl-title">
+    <div class="page">
+      <h2 id="dl-title">Download</h2>
+      <p class="intro" id="dlIntro">The newest release, straight from GitHub.</p>
+      <div class="downloads">
+        <div class="dl" id="dl-windows">
+          <h3>Windows</h3>
+          <p>NetRollout Setup installs and updates everything, Docker included, and adds NetRollout Manager to start, stop and update it.</p>
+          <span class="file" data-file>NetRollout-Setup-&lt;version&gt;.exe</span>
+          <a class="btn primary" data-link href="https://github.com/itamar14-byte/NetRollout/releases">Download for Windows</a>
+        </div>
+        <div class="dl" id="dl-linux">
+          <h3>Linux</h3>
+          <p>A zip with the install script. Needs Docker Engine and the compose plugin; unzip and run <code>sudo ./bin/install.sh</code>.</p>
+          <span class="file" data-file>netrollout-&lt;version&gt;-linux.zip</span>
+          <a class="btn" data-link href="https://github.com/itamar14-byte/NetRollout/releases">Download for Linux</a>
+        </div>
+        <div class="dl" id="dl-cli">
+          <h3>Command line</h3>
+          <p>A single Windows <code>.exe</code> for one-off rollouts from a devices CSV and a commands file. No database, no Docker.</p>
+          <span class="file" data-file>netrollout-cli-&lt;version&gt;.exe</span>
+          <a class="btn" data-link href="https://github.com/itamar14-byte/NetRollout/releases">Download the CLI</a>
+        </div>
+      </div>
+      <div class="dl-foot">
+        <a href="docs/install/">Installation guide</a>
+        <a id="sumsLink" href="https://github.com/itamar14-byte/NetRollout/releases">Checksums (SHA256SUMS)</a>
+        <a id="notesLink" href="https://github.com/itamar14-byte/NetRollout/releases">Release notes</a>
+        <a href="https://github.com/itamar14-byte/NetRollout/releases">All releases</a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="page">
+    <p>NetRollout is built by <a href="https://www.linkedin.com/in/itamar-weinstein/">Itamar Weinstein</a>. Version 1 is called Anycast.</p>
+    <p><a href="https://github.com/itamar14-byte/NetRollout">Source on GitHub</a>, licensed under the <a href="https://github.com/itamar14-byte/NetRollout/blob/master/LICENSE">GNU AGPL v3</a>.</p>
+  </div>
+</footer>
+
+<script>
+(() => {
+  // ── the hero: one rollout, played once ───────────────────────────────────
+  const N = 48, WARN = 37;
+  const portsEl = document.getElementById("ports");
+  const ports = Array.from({ length: N }, () => { const p = document.createElement("span"); p.className = "port"; portsEl.append(p); return p; });
+  const consoleEl = document.getElementById("console");
+  const types = ["cisco_ios", "cisco_ios", "arista_eos", "cisco_nxos", "juniper_junos", "hp_procurve", "aruba_aoscx", "cisco_xe"];
+  const ip = i => `10.20.${1 + Math.floor(i / 16)}.${11 + (i % 16)}:22`;
+  const row = i => {
+    const t = types[i % types.length];
+    const ep = ip(i).padEnd(15);
+    if (i === WARN) return `<span class="dim">${ep}</span> ${t.padEnd(14)} pushed 2/2    <span class="warn">partial ACTION NEEDED</span>`;
+    const fin = t === "juniper_junos" ? "committed " : "saved     ";
+    return `<span class="dim">${ep}</span> ${t.padEnd(14)} ${fin}  verified 2/2  <span class="ok">success</span>`;
+  };
+  const header = `<div class="line"><span class="prompt">NetRollout&gt;</span> rollout "NTP servers" to 48 devices, verify on</div>`;
+  const shown = [3, 4, 11, 20, 29, WARN, 44, 47];
+  const summary = `<div class="line sum">47 success   <span class="warn">1 partial</span>   0 failed   <span class="dim">done in 41 s</span></div>`;
+  const render = upto => {
+    consoleEl.innerHTML = header + shown.filter(i => i <= upto).map(i => `<div class="line">${row(i)}</div>`).join("") + (upto >= N - 1 ? summary : "");
+  };
+  const finalState = () => { ports.forEach((p, i) => p.dataset.s = i === WARN ? "warn" : "ok"); render(N - 1); };
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) { finalState(); }
+  else {
+    consoleEl.innerHTML = header;
+    let i = 0;
+    const tick = () => {
+      if (i < N) { ports[i].dataset.s = "push"; }
+      const done = i - 4;
+      if (done >= 0 && done < N) { ports[done].dataset.s = done === WARN ? "warn" : "ok"; render(done); }
+      i++;
+      if (done < N - 1) setTimeout(tick, 70);
+    };
+    setTimeout(tick, 500);
+  }
+
+  // ── downloads: the newest release from GitHub ────────────────────────────
+  const REPO = "itamar14-byte/NetRollout";
+  const linux = /linux/i.test(navigator.userAgent) && !/android/i.test(navigator.userAgent);
+  const heroText = document.getElementById("heroDownloadText");
+  heroText.textContent = linux ? "Download for Linux" : "Download for Windows";
+  const size = b => b >= 1e6 ? (b / 1e6).toFixed(1) + " MB" : Math.max(1, Math.round(b / 1e3)) + " kB";
+  const date = s => new Date(s).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+  const pick = list => {
+    const real = list.filter(r => !r.draft);
+    return real.find(r => !r.prerelease) || real[0] || null;   // the newest final release, else the newest pre-release
+  };
+  fetch(`https://api.github.com/repos/${REPO}/releases?per_page=20`, { headers: { Accept: "application/vnd.github+json" } })
+    .then(r => r.ok ? r.json() : Promise.reject(r.status))
+    .then(list => {
+      const rel = pick(list);
+      if (!rel) return;
+      const v = rel.tag_name.replace(/^v/, "");
+      const pre = rel.prerelease ? ` <span class="pre">release candidate</span>` : "";
+      document.getElementById("releaseLine").innerHTML = `Newest: NetRollout ${v}${pre}, ${date(rel.published_at)}.`;
+      document.getElementById("dlIntro").textContent = rel.prerelease
+        ? `NetRollout ${v} is a release candidate: ready to try, ahead of the final release.`
+        : `NetRollout ${v}, released ${date(rel.published_at)}.`;
+      const find = re => rel.assets.find(a => re.test(a.name));
+      const set = (id, re) => {
+        const a = find(re); if (!a) return;
+        const box = document.getElementById(id);
+        box.querySelector("[data-file]").textContent = `${a.name}, ${size(a.size)}`;
+        box.querySelector("[data-link]").href = a.browser_download_url;
+        return a;
+      };
+      const win = set("dl-windows", /^NetRollout-Setup-.*\.exe$/);
+      const lin = set("dl-linux", /-linux\.zip$/);
+      set("dl-cli", /^netrollout-cli-.*\.exe$/);
+      const sums = find(/^SHA256SUMS$/);
+      if (sums) document.getElementById("sumsLink").href = sums.browser_download_url;
+      document.getElementById("notesLink").href = rel.html_url;
+      const hero = linux ? lin : win;
+      if (hero) document.getElementById("heroDownload").href = hero.browser_download_url;
+    })
+    .catch(() => {
+      document.getElementById("dlIntro").textContent = "GitHub didn't answer, so these buttons open the releases page, where every version is listed.";
+    });
+})();
+</script>
+</body>
+</html>

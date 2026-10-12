@@ -1,0 +1,92 @@
+# The documentation site: docs/*.md as they are on GitHub, built with Material
+# for MkDocs under /docs/ of the project's site (the landing page, website/, is
+# the site's root). Built and published by .github/workflows/pages.yml; locally:
+#   pip install -r requirements-docs.txt && mkdocs serve
+site_name: NetRollout documentation
+site_url: https://itamar14-byte.github.io/NetRollout/docs/
+site_description: Install, run and use NetRollout - push configuration to many network devices, verify, record.
+site_author: Itamar Weinstein
+repo_url: https://github.com/itamar14-byte/NetRollout
+repo_name: itamar14-byte/NetRollout
+edit_uri: edit/master/docs/
+copyright: NetRollout is free software under the GNU AGPL v3.
+
+docs_dir: docs
+site_dir: build/site/docs
+exclude_docs: |
+  plans/
+  workplan.md
+
+nav:
+  - Home: index.md
+  - Installation: install.md
+  - Admin guide: admin-guide.md
+  - User guide: user-guide.md
+  - CLI: cli.md
+  - Security: security.md
+  - Architecture: architecture.md
+  - Roadmap: roadmap.md
+
+theme:
+  name: material
+  custom_dir: website/docs-theme
+  font: false                     # the site's own fonts (website/docs-theme), no Google request
+  favicon: assets/favicon.svg
+  logo: assets/favicon.svg
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: custom
+      accent: custom
+      toggle: { icon: material/weather-night, name: Dark theme }
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: custom
+      accent: custom
+      toggle: { icon: material/weather-sunny, name: Light theme }
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.action.edit
+
+extra_css:
+  - assets/docs.css
+
+extra:
+  homepage: https://itamar14-byte.github.io/NetRollout/
+  generator: false
+
+hooks:
+  - website/hooks.py
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+      # heading anchors spelled as GitHub spells them, so links work in both
+      slugify: !!python/object/apply:pymdownx.slugs.slugify
+        kwds: { case: lower }
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+
+validation:
+  links:
+    not_found: warn
+    anchors: warn
+    absolute_links: info
+    unrecognized_links: info
