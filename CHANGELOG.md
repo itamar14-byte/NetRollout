@@ -6,12 +6,14 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ## [Unreleased]
 
+## [1.0.0rc2] - 2026-10-12
+
 ### How to update from 1.0.0rc1
 
 The 1.0.0rc1 updater only looks for final releases, so it doesn't see this release candidate.
 
-- **Windows:** download the new `NetRollout-Setup-<version>.exe` from the [Releases page](https://github.com/itamar14-byte/NetRollout/releases) and run it. It updates the install in place, with a backup first.
-- **Linux:** run `sudo ./bin/netrollout.sh update --version <version>` in the install folder.
+- **Windows:** download `NetRollout-Setup-1.0.0rc2.exe` from the [Releases page](https://github.com/itamar14-byte/NetRollout/releases) and run it. It updates the install in place, with a backup first.
+- **Linux:** run `sudo ./bin/netrollout.sh update --version 1.0.0rc2` in the install folder.
 
 From this release on, an installed release candidate also finds newer release candidates by itself.
 
@@ -116,5 +118,6 @@ Anycast. The first public release.
 
 - `netrollout-cli` for one-off rollouts from a devices CSV and a commands file, with optional Verify. A standalone Windows `.exe`; no database or Docker needed.
 
-[Unreleased]: https://github.com/itamar14-byte/NetRollout/compare/v1.0.0rc1...HEAD
+[Unreleased]: https://github.com/itamar14-byte/NetRollout/compare/v1.0.0rc2...HEAD
+[1.0.0rc2]: https://github.com/itamar14-byte/NetRollout/compare/v1.0.0rc1...v1.0.0rc2
 [1.0.0rc1]: https://github.com/itamar14-byte/NetRollout/releases/tag/v1.0.0rc1
