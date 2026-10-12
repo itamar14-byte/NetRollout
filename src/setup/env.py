@@ -23,7 +23,7 @@ ENV_FILE = ".env"
 COMPOSE = "compose.yaml"
 COMPOSE_HTTP = "compose.http.yaml"
 # A developer's stack: built from the repo, the app on the host
-DEV_COMPOSE = "compose.yaml,compose.http.yaml,compose.build.yaml,compose.dev.yaml"
+DEV_COMPOSE = "compose.yaml,compose.http.yaml,compose.dev.yaml"
 # The HTTPS port Docker publishes (compose passes it to the app as
 # access.port.PUBLISHED_PORT_ENV; the port in use in site.env is
 # site_env.PORT_IN_USE)

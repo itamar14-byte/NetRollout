@@ -1,7 +1,12 @@
 # Development (repo only, never shipped): the product's stack with the app
-# running from the IDE on the host instead of in a container.
+# running from the IDE on the host instead of in a container, and NetRollout's
+# images (the app's, which grafana-setup runs too, and nginx's) built from
+# this repository instead of pulled - the working copy's code, unreleased
+# changes included.
 #
-#   docker compose -f compose.yaml -f compose.build.yaml -f compose.dev.yaml up -d --build
+#   docker compose -f compose.yaml -f compose.http.yaml -f compose.dev.yaml up -d --build
+#
+# (`.env`'s COMPOSE_FILE lists the three, so `docker compose up -d` does it.)
 #
 # Its own project (netrollout-dev): volumes separate from any install. The
 # repo's logs/, config/ and certs/ are the folders the host app uses, so
@@ -9,11 +14,24 @@
 # Postgres / Redis on localhost (config/runtime.env).
 name: netrollout-dev
 
+x-app-build: &app-build
+  context: .
+  args:
+    VERSION: ${BUILD_VERSION:-}   # optional: stamps a release version into the image
+
 services:
   app:
     profiles: [app-container]   # not started: the app runs from the IDE
+    build: *app-build
+    pull_policy: build
+
+  grafana-setup:            # the app image too (it only needs Python)
+    build: *app-build
+    pull_policy: build
 
   nginx:
+    build: ./deploy/nginx
+    pull_policy: build
     # 8443 / 8081, not 443 / 80: an installed NetRollout on the same computer
     # publishes those, and whichever starts second would get none
     ports: !override

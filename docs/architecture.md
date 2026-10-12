@@ -126,7 +126,7 @@ Versions are the major.minor in use at the time of writing; the exact pins are i
 | `packaging/` | How NetRollout is built and installed on a host: `windows/` (`manage.ps1`, `netrollout.bat`, the icon, `installer/` for Inno Setup, `manager/` for the Manager's C#), `linux/` (`install.sh`, `netrollout.sh`), `build_release.py`, `netrollout-cli.spec`. |
 | `compose.yaml` | The whole product: postgres, redis, app, nginx, and the monitoring profile. Shipped. |
 | `compose.http.yaml` | Port 80 (redirect to HTTPS), added through `COMPOSE_FILE` only when port 80 is free. Shipped. |
-| `compose.build.yaml`, `compose.dev.yaml` | Repository only: build the images locally; the development stack (the app runs on the host, PostgreSQL and Redis published on 127.0.0.1, nginx on 8443). |
+| `compose.dev.yaml` | Repository only: the development stack, its NetRollout images built from the working copy (the app runs on the host, PostgreSQL and Redis published on 127.0.0.1, nginx on 8443). |
 | `Dockerfile` | The app image. Its build context is whitelisted by `.dockerignore`. |
 | `pyproject.toml` | mypy and pytest settings. |
 | `requirements.in`, `requirements.txt`, `requirements-dev.txt` | Dependency ranges, the compiled exact pins, and the development tools. |
