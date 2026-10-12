@@ -772,9 +772,14 @@ do_restore() {
 do_reset_admin() {
 	need_installed; need_root; need_docker
 	if [ -n "$INTERACTIVE" ]; then
-		local a="" extra=""
-		[ -n "$NEW_PASSWORD" ] && extra="; it gets a temporary password, shown once"
-		read -r -p "Reset the factory admin account (admin)? It's enabled, its two-factor sign-in turned off and its failed sign-ins cleared$extra. [y/N] " a || true
+		local a="" password="keep its current password"
+		[ -n "$NEW_PASSWORD" ] && password="set a temporary password (shown once)"
+		say "This resets the factory admin account (admin). It will:"
+		say "  - enable it and lift any lock"
+		say "  - turn off its two-factor sign-in"
+		say "  - sign it out everywhere"
+		say "  - $password"
+		read -r -p "Reset admin now? [y/N] " a || true
 		case "$a" in y|Y|yes) ;; *) say "Nothing was changed."; return 0 ;; esac
 	fi
 	local cli=(python -m src.accounts reset-admin) out code=0

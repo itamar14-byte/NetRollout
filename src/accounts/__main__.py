@@ -68,18 +68,20 @@ def reset_admin(postgres: PostgresConnection, redis_conn: RedisConnection,
 		print(f"NetRollout's database didn't answer: {str(e).splitlines()[0]}. "
 		      f"Nothing was changed.", file=sys.stderr)
 		return AccountsExit.FAILED
-	print(f"The factory admin ({username}) is enabled, its two-factor sign-in is off "
-	      f"and its failed sign-ins are cleared.")
+	# what was done (past tense, once), then the password and the next step
+	done = f"Done: {username} is enabled and unlocked, and its two-factor sign-in is off"
+	if ended:
+		done += f"; it was signed out everywhere ({ended} session{'s' if ended != 1 else ''})"
+	print(done + ".")
 	if ended is None:
-		print("Its sessions couldn't be ended (Redis didn't answer) - they end at "
+		print("Its sessions couldn't be ended (Redis didn't answer); they end at "
 		      "NetRollout's next start.")
-	elif ended:
-		print(f"It was signed out everywhere ({ended} session{'s' if ended != 1 else ''}).")
 	if temporary:
 		print(f"Temporary password (shown once): {temporary}")
-		print(f"Sign in as {username} with it - NetRollout asks for a new password at once.")
+		print(f"Next: sign in as {username} with this password. NetRollout then asks you "
+		      f"to choose a new one.")
 	else:
-		print(f"Sign in as {username} with its password.")
+		print(f"Next: sign in as {username} with its current password.")
 	return AccountsExit.OK
 
 

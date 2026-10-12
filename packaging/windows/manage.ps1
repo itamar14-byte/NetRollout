@@ -899,9 +899,13 @@ function Invoke-ResetAdmin {
 	Assert-Installed
 	Confirm-Docker
 	if ($Interactive) {
-		$extra = if ($NewPassword) { "; it gets a temporary password, shown once" } else { "" }
-		$a = Read-Host ("Reset the factory admin account (admin)? It's enabled, its two-factor sign-in " +
-		                "turned off and its failed sign-ins cleared$extra. [y/N]")
+		$password = if ($NewPassword) { "set a temporary password (shown once)" } else { "keep its current password" }
+		Say "This resets the factory admin account (admin). It will:"
+		Say "  - enable it and lift any lock"
+		Say "  - turn off its two-factor sign-in"
+		Say "  - sign it out everywhere"
+		Say "  - $password"
+		$a = Read-Host "Reset admin now? [y/N]"
 		if ($a -notmatch "^(y|yes)$") { Say "Nothing was changed."; return }
 	}
 	$cli = @("python", "-m", "src.accounts", "reset-admin")

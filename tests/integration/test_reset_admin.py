@@ -45,8 +45,9 @@ def test_reset_admin_makes_the_factory_admin_usable(app, broken_factory, client_
 	assert audits == [("netrollout reset-admin (on the server)", None, broken_factory.id,
 	                   {"new_password": False, "sessions_ended": 1})]
 	out = capsys.readouterr().out
-	assert "The factory admin (admin) is enabled, its two-factor sign-in is off" in out
-	assert "It was signed out everywhere (1 session)." in out
+	assert ("Done: admin is enabled and unlocked, and its two-factor sign-in is off; "
+	        "it was signed out everywhere (1 session).") in out
+	assert "Next: sign in as admin with its current password." in out
 	assert "Temporary password" not in out
 
 
@@ -57,6 +58,8 @@ def test_reset_admin_with_a_new_password(app, broken_factory, db_get, capsys):
 	out = capsys.readouterr().out
 	line = next(l for l in out.splitlines() if l.startswith("Temporary password (shown once): "))
 	temporary = line.split(": ", 1)[1]
+	assert ("Next: sign in as admin with this password. NetRollout then asks you to "
+	        "choose a new one.") in out
 	row = db_get(User, broken_factory.id)
 	assert check_password_hash(row.password_hash, temporary)
 	assert row.must_change_password is True
