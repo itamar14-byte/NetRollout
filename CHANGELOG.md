@@ -6,6 +6,10 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ## [Unreleased]
 
+### Changed
+
+- When GitHub refuses an update check because its limit for requests without a sign-in is used up (60 an hour per internet address, shared by everything on that network), NetRollout Manager and the Linux `update` say so and when it resets, instead of only "answered 403".
+
 ## [1.0.0rc2] - 2026-10-12
 
 ### How to update from 1.0.0rc1

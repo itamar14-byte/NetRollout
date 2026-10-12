@@ -127,6 +127,26 @@ def _url(location: str) -> str:
 		else Path(location).resolve().as_uri()
 
 
+def rate_limited(error: urllib.error.HTTPError) -> str | None:
+	"""Why GitHub refused, when it's its limit for requests without a sign-in
+	(60 an hour per internet address, shared by everything behind it): it
+	answers 403 or 429 with X-RateLimit-Remaining 0 and the reset time in
+	X-RateLimit-Reset (seconds since the epoch).
+
+	:returns: the words, with the reset time when GitHub gives one; None for
+	 any other refusal"""
+	headers = error.headers
+	if error.code not in (403, 429) or headers is None or headers.get("X-RateLimit-Remaining") != "0":
+		return None
+	words = ("GitHub's limit for update checks from this network (60 an hour per internet "
+	         "address, shared by everything here that asks GitHub) is used up")
+	try:
+		reset = datetime.datetime.fromtimestamp(int(headers.get("X-RateLimit-Reset", "")))
+	except (TypeError, ValueError, OverflowError, OSError):
+		return f"{words}. Try again within the hour."
+	return f"{words}. It resets at {reset:%H:%M}: try again then."
+
+
 def find(version: str | None = None, feed: str | None = None) -> Release:
 	"""The release: `feed` (a mirror's JSON) if given, else that version's, else
 	the newest on the installed version's channel (the module's docstring).
@@ -143,6 +163,8 @@ def find(version: str | None = None, feed: str | None = None) -> Release:
 				raise ReleaseError(NOTHING_PUBLISHED) from None
 			raise ReleaseError(f"No release {'v' + version if version else ''} "
 			                   f"at {where}.".replace("  ", " ")) from None
+		if (limited := rate_limited(e)) is not None:
+			raise ReleaseError(limited) from None
 		raise ReleaseError(f"{where} answered {e.code}.") from None
 	except (OSError, ValueError) as e:
 		raise ReleaseError(f"Couldn't reach {where} ({e}) - is this server online? "

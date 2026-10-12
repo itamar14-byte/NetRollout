@@ -1,6 +1,7 @@
 """Linux's update source (src/setup/update.py): a release found through a
 feed in GitHub's JSON, downloaded, checked against SHA256SUMS and unpacked -
 all on local files (file:// links, as a mirror on disk would be)."""
+import datetime
 import hashlib
 import io
 import json
@@ -60,14 +61,14 @@ def test_the_release_comes_from_github_unless_a_feed_is_given():
 class FakeGitHub:
 	"""Stands in for urllib's urlopen: answers each URL with the JSON (or the HTTP
 	error code) it was given, and records every request."""
-	def __init__(self, answers):
-		self.answers, self.requests = answers, []
+	def __init__(self, answers, headers=None):
+		self.answers, self.requests, self.headers = answers, [], headers or {}
 
 	def __call__(self, request, timeout):
 		self.requests.append((request, timeout))
 		answer = self.answers[request.full_url]
 		if isinstance(answer, int):
-			raise urllib.error.HTTPError(request.full_url, answer, "error", {}, io.BytesIO(b"{}"))
+			raise urllib.error.HTTPError(request.full_url, answer, "error", self.headers, io.BytesIO(b"{}"))
 		return io.BytesIO(json.dumps(answer).encode())
 
 
@@ -107,6 +108,33 @@ def test_what_github_answers_instead_of_a_release_is_said_in_words(monkeypatch):
 	with pytest.raises(update.ReleaseError) as e:
 		update.find("1.0.2")
 	assert str(e.value) == f"{update.api('1.0.2')} answered 500."
+
+
+def test_githubs_rate_limit_is_named_with_when_it_resets(monkeypatch):
+	"""GitHub refusing because its limit for requests without a sign-in is used up
+	(403 or 429 with X-RateLimit-Remaining 0) is said in words with the reset time,
+	local; without a usable reset time, "within the hour"; a 403 that isn't the limit
+	keeps the plain "answered 403"."""
+	monkeypatch.setattr(runtime, "VERSION", "1.0.0")
+	reset = datetime.datetime(2026, 10, 12, 18, 31, 48)
+	for code in (403, 429):
+		monkeypatch.setattr(update.urllib.request, "urlopen", FakeGitHub(
+			{update.api(): code}, {"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": str(int(reset.timestamp()))}))
+		with pytest.raises(update.ReleaseError) as e:
+			update.find()
+		assert str(e.value) == ("GitHub's limit for update checks from this network (60 an hour per internet "
+		                        "address, shared by everything here that asks GitHub) is used up. "
+		                        "It resets at 18:31: try again then.")
+	monkeypatch.setattr(update.urllib.request, "urlopen", FakeGitHub(
+		{update.api(): 403}, {"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": "soon"}))
+	with pytest.raises(update.ReleaseError) as e:
+		update.find()
+	assert str(e.value).endswith("is used up. Try again within the hour.")
+	monkeypatch.setattr(update.urllib.request, "urlopen", FakeGitHub(
+		{update.api(): 403}, {"X-RateLimit-Remaining": "12"}))
+	with pytest.raises(update.ReleaseError) as e:
+		update.find()
+	assert str(e.value) == f"{update.api()} answered 403."
 
 
 def test_a_release_with_odd_assets_or_no_notes(monkeypatch):

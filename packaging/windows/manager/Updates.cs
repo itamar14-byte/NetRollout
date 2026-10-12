@@ -124,6 +124,9 @@ namespace NetRollout
 			if (web != null)
 			{
 				var http = web.Response as HttpWebResponse;
+				var limited = http == null ? null : RateLimited(http);
+				if (limited != null)
+					return "Couldn't check for updates: " + limited;
 				if (http != null)
 					return "Couldn't check for updates: " + (custom ?? "GitHub") + " answered " + (int)http.StatusCode +
 						" (" + http.StatusDescription + ").";
@@ -132,6 +135,25 @@ namespace NetRollout
 				return "Couldn't check for updates (" + web.Message + "). Is this computer online?";
 			}
 			return "Couldn't check for updates (" + e.Message + ").";
+		}
+
+		// GitHub's limit for requests without a sign-in (60 an hour per internet
+		// address, shared by everything behind it) in words: a 403 or 429 with
+		// X-RateLimit-Remaining 0, the reset time (seconds since the epoch) in
+		// X-RateLimit-Reset. null: another refusal. (src/setup/update.py's
+		// rate_limited says the same for Linux.)
+		static string RateLimited(HttpWebResponse http)
+		{
+			int code = (int)http.StatusCode;
+			if ((code != 403 && code != 429) || http.Headers["X-RateLimit-Remaining"] != "0")
+				return null;
+			const string words = "GitHub's limit for update checks from this network (60 an hour per internet " +
+				"address, shared by everything here that asks GitHub) is used up";
+			long seconds;
+			if (!long.TryParse(http.Headers["X-RateLimit-Reset"], out seconds))
+				return words + ". Try again within the hour.";
+			var reset = DateTimeOffset.FromUnixTimeSeconds(seconds).LocalDateTime;
+			return words + ". It resets at " + reset.ToString("HH:mm") + ": try again then.";
 		}
 
 		// The release an answer gives: one release object, used as given, or a
