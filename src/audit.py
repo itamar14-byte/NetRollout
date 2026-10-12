@@ -104,6 +104,65 @@ class AuditAction(StrEnum):
 	DATABASE_MOVE_CANCELLED = "database.move_cancelled"
 
 
+# A row's summary (summary()) is cut at this many characters: one line
+SUMMARY_LIMIT = 120
+
+
+def _shown(value: Any) -> str:
+	""":returns: a detail value in words: true / false, none, a list's first
+	 three items"""
+	if isinstance(value, bool):
+		return "true" if value else "false"
+	if value is None:
+		return "none"
+	if isinstance(value, (list, tuple)):
+		more = f" (+{len(value) - 3})" if len(value) > 3 else ""
+		return (", ".join(_shown(v) for v in value[:3]) + more) if value else "none"
+	return str(value)
+
+
+def summary(detail: Any) -> str:
+	"""A row's detail in one line, for the audit page: the parts that answer
+	"what happened" - a failed sign-in's reason, a change's from → to (one
+	value, a setting's old → new, or a server's changed settings), a lock -,
+	else the first few simple values. The full detail stays one click away.
+
+	:param detail: the row's detail (JSON from the database: any shape)
+	:returns: the line, cut at SUMMARY_LIMIT; "" for no detail"""
+	if not isinstance(detail, dict) or not detail:
+		return ""
+	parts: list[str] = []
+	if "reason" in detail:
+		reason = f"reason: {_shown(detail['reason'])}"
+		if "ldap_server" in detail:
+			reason += f" ({_shown(detail['ldap_server'])})"
+		parts.append(reason)
+	if "from" in detail and "to" in detail:
+		parts.append(f"{_shown(detail['from'])} → {_shown(detail['to'])}")
+	if {"key", "old", "new"} <= detail.keys():
+		parts.append(f"{detail['key']}: {_shown(detail['old'])} → {_shown(detail['new'])}")
+	changes = detail.get("changes")
+	if isinstance(changes, dict):
+		parts.append(", ".join(
+			f"{name}: {_shown(c.get('from'))} → {_shown(c.get('to'))}" if isinstance(c, dict)
+			else f"{name}: {_shown(c)}" for name, c in changes.items()) or "nothing changed")
+	if "created" in detail:
+		parts.append("created")
+	if detail.get("bind_password") == "changed":
+		parts.append("bind password changed")
+	if "failed_passwords" in detail:
+		parts.append(f"locked {_shown(detail['minutes'])} min after {_shown(detail['failed_passwords'])} "
+		             f"wrong passwords" if "minutes" in detail
+		             else f"disabled after {_shown(detail['failed_passwords'])} wrong passwords")
+	if "minutes_left" in detail:
+		parts.append(f"{_shown(detail['minutes_left'])} min left")
+	if not parts:
+		parts = [f"{name}: {_shown(value)}" for name, value in detail.items()
+		         if not isinstance(value, dict)][:3]
+	line = "; ".join(parts)
+	return line if len(line) <= SUMMARY_LIMIT else line[:SUMMARY_LIMIT - 1] + "…"
+
+
 @dataclass(frozen=True)
 class Actor:
 	"""Who an audit row names: a user (id, name as shown or typed), or the

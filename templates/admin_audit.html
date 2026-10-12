@@ -59,7 +59,7 @@
           {# single quotes: tojson's output is "safe" (| e won't touch it) and keeps
              its double quotes, which would end a double-quoted attribute; it
              escapes single quotes itself (the Users page's data-user does the same) #}
-          <tr class="audit-row" data-detail='{{ e.detail | tojson }}'
+          <tr class="audit-row" tabindex="0" title="Open the entry's detail" data-detail='{{ e.detail | tojson }}'
               data-id="{{ e.id }}" data-ts="{{ e.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}">
 
             <td style="font-family:'JetBrains Mono',monospace; font-size:0.75rem; color:var(--nr-text-muted); white-space:nowrap;">
@@ -77,6 +77,10 @@
               <span class="action-ns action-ns--{{ ns }}">{{ ns }}</span>
               {% if verb %}
                 <span class="action-verb action-verb--{{ verb }}">{{ verb }}</span>
+              {% endif %}
+              {% set summary = e.detail | audit_summary %}
+              {% if summary %}
+                <div class="audit-summary">{{ summary }}</div>
               {% endif %}
             </td>
 
@@ -247,8 +251,13 @@
   }
   .gear-menu-item:hover { background: rgba(0,188,212,0.08); color: #00bcd4; }
 
-  /* Row hover */
+  /* Row hover; the whole row opens its detail */
+  tr.audit-row { cursor: pointer; }
   tr.audit-row:hover td { background: rgba(255,255,255,0.02); }
+  tr.audit-row:focus-visible { outline: 1px solid rgba(0,188,212,0.5); outline-offset: -1px; }
+  /* The detail in one line, under the action (audit.summary) */
+  .audit-summary { margin-top: 0.2rem; font-family: 'JetBrains Mono', monospace; font-size: 0.72rem;
+                   color: var(--nr-text-muted); min-width: 22rem; max-width: 34rem; overflow-wrap: anywhere; }
 </style>
 
 <script>
@@ -268,6 +277,15 @@
     popover.style.top  = top  + 'px';
     popover.style.left = left + 'px';
   }
+
+  // A click anywhere on a row (or Enter on a focused one) opens its detail;
+  // the gear keeps its menu (it stops the click itself)
+  document.querySelectorAll('tr.audit-row').forEach(row => {
+    row.addEventListener('click', () => { _activeRow = row; viewDetail(); });
+    row.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { _activeRow = row; viewDetail(); }
+    });
+  });
 
   document.addEventListener('click', () => { popover.style.display = 'none'; });
   popover.addEventListener('click', e => e.stopPropagation());
@@ -306,7 +324,8 @@
       jsonEl.style.display = 'none';
     }
 
-    new bootstrap.Modal(document.getElementById('detailModal')).show();
+    // one instance, reused: rows open it often now (a new one per open stacks)
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('detailModal')).show();
   }
 
   function copyRow() {

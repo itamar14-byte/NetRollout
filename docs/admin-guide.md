@@ -244,7 +244,7 @@ Administrators open the Admin Panel from the user menu (**Admin Panel**). **← 
 |---|---|---|---|
 | Access | **User Management** | Every account: username, full name, email, role, position, member since, status (Active, Inactive, Pending). LDAP accounts and the factory account are marked. The sidebar badge counts access requests waiting. Also the LDAP **Group Rules**. | **Add user**, and for selected users **Approve**, **Enable**, **Disable**, **Promote**, **Demote**, **Terminate Session**, **Reset Password**, **Reset 2FA**, **Delete**. Turn group rules on or off, or delete them. See [Users and sign-in](#users-and-sign-in). |
 | Access | **Live Sessions** | Who is signed in now, local and LDAP, with role and how long ago they signed in. | **Kick** one user's sessions, or **Kick All** in the local or the LDAP table (everyone there but you). A kicked user is signed out everywhere. |
-| Observability | **Audit Logs** | The audit log, newest first. | Filter by actor, action and outcome; **View Detail**; **Copy Row**. See [The audit log](#the-audit-log). |
+| Observability | **Audit Logs** | The audit log, newest first, each entry's detail in one line. | Filter by actor, action and outcome; click an entry for its full detail; **Copy Row**. See [The audit log](#the-audit-log). |
 | Observability | **Analytics** | The organisation's last 30 days: active users, success rate, total jobs, device operations, the most active operators and the most failed devices. | Query the audit log (**Audit Log Query**) and **Export CSV**. |
 | Observability | **Monitoring** | Shown only when monitoring is on. Opens Grafana in a new tab. | See [Monitoring with Grafana](#monitoring-with-grafana). |
 | System | **Server Management** | **Database Services**: PostgreSQL and Redis, connected or not, bundled or your own server, and where. **TLS Certificate**: the certificate in use. **LDAP / Active Directory**: the directory servers. | Move the database or move it back, switch Redis or switch back, upload a certificate or generate a self-signed one, add and edit LDAP servers and import from them. See [Moving the database](#moving-the-database), [Switching Redis](#switching-redis), [Hostname and certificates](#hostname-and-certificates) and [LDAP / Active Directory](#ldap--active-directory). |
@@ -500,7 +500,7 @@ Browsers warn about a self-signed certificate. For production, upload one from y
 
 The second part of the **TLS Certificate** card is for NetRollout's own connections to other servers: today, the LDAP servers over LDAPS. NetRollout always verifies a directory server's certificate. It must come from a CA that the server running NetRollout trusts (the operating system's CAs) or from one you add here, and it must name the host configured for the LDAP server.
 
-- **Add to trusted**: a PEM file with one or more certificates, such as your organisation's root and issuing CAs. A lab directory's own self-signed certificate works too. A file with a private key in it, a file that isn't PEM certificates, or an expired certificate is refused. A certificate that is already trusted is skipped.
+- **Add to trusted**: a PEM file with one or more certificates, such as your organisation's root and issuing CAs. A lab directory's own self-signed certificate works too. A file with a private key in it, a file that isn't PEM certificates, or an expired certificate is refused. So is a server's own certificate issued by a CA (a common mistake: it can't vouch for anything); the message names the CA to upload instead. A certificate that is already trusted is skipped.
 - The list shows each certificate's subject, issuer and expiry, with a warning when it has expired or expires within 30 days. **Remove** stops trusting one.
 
 Changes apply to the next connection, without a restart. They're recorded in the audit log, and backups include them (`certs/trusted-ca.pem`).
@@ -750,7 +750,7 @@ With monitoring on, the rollout logs are also searchable in Grafana (Loki).
 
 ## The audit log
 
-**Admin Panel → Audit Logs** lists who did what and when, with the outcome and the IP address. Filter by actor, action and outcome. **View Detail** shows an entry's full detail as JSON. **Admin Panel → Analytics** has an **Audit Log Query** builder with CSV export.
+**Admin Panel → Audit Logs** lists who did what and when, with the outcome and the IP address. Filter by actor, action and outcome. Under each action, the entry's detail reads in one line: a failed sign-in's reason, a change's from → to, a lock. Click an entry (or press Enter on it) to see its full detail as JSON; the ⚙ menu also has **Copy Row**. **Admin Panel → Analytics** has an **Audit Log Query** builder with CSV export.
 
 Recorded actions include:
 
@@ -758,7 +758,7 @@ Recorded actions include:
 |---|---|
 | Sign-in | Sign-in (success and failure, with the reason), sign-out, password accepted before 2FA, password change, access request, session expiry, account locked out (locked for 15 minutes, or disabled), `admin`'s two-factor sign-in turned on or off |
 | Users | Create, approve, enable, disable, promote, demote, delete, reset password, reset 2FA, terminate session (one user or many), session kick, `netrollout reset-admin`, a directory user's role changed by the group rules at sign-in (`user.role_from_directory`) |
-| LDAP | Server saved or deleted, import, group rule's role changed, group rule toggled or deleted |
+| LDAP | Server saved (a new one with its settings; a change with each setting's from and to, the bind password only as "changed") or deleted, import, group rule's role changed, group rule toggled or deleted |
 | Inventory | Device created, edited, deleted, made global or local, attributes set, CSV import, bulk profile assignment |
 | Profiles, mappings, properties | Created, edited, deleted; mapping bulk assignment |
 | Rollouts | Started, cancelled, rolled back |

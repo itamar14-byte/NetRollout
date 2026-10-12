@@ -48,6 +48,18 @@ def test_a_rows_detail_reaches_the_page_whole(admin, client_for, session_scope):
 	assert detail in [json.loads(d) for d in parser.details if d != "null"]
 
 
+def test_each_row_shows_its_detail_in_one_line(admin, client_for, session_scope):
+	"""Under the action, a row with a detail shows it in one line
+	(audit.summary); a row without one shows none."""
+	with session_scope() as s:
+		s.add_all([AuditLog(actor_username="alice", action="auth.login", success=False,
+		                    detail={"reason": "ldap_server_inactive", "ldap_server": "Lab"}),
+		           AuditLog(actor_username="alice", action="auth.logout")])
+	html = client_for(admin).get("/admin/audit").get_data(as_text=True)
+	assert '<div class="audit-summary">reason: ldap_server_inactive (Lab)</div>' in html
+	assert html.count('class="audit-summary"') == 1
+
+
 def _columns(row):
 	return {c: getattr(row, c) for c in ("actor_id", "actor_username", "action",
 	                                     "object_type", "object_id", "object_label",

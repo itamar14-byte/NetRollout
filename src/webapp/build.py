@@ -18,6 +18,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from src.access.nginx import seed_hostname_from_site, sync_at_start
 from src.access.service import Access
 from src.accounts.users import SESSION_PREFIX, SessionStore, SignInThrottle
+from src.audit import summary as audit_summary
 from src.db.connections import BackendServices, REDIS_UNAVAILABLE, RedisConnection
 from src.encryption import init_encryption, require_key_in_container
 from src.jobs import JobStore, RolloutOrchestrator, clear_stale_jobs
@@ -139,6 +140,7 @@ def configure_app(app: Flask, secret_key: str) -> None:
 	app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)  # type: ignore[method-assign]
 	app.jinja_env.globals['VENDOR_LOGOS'] = VENDOR_LOGOS
 	app.jinja_env.filters['endpoint'] = endpoint     # {{ ip | endpoint(port) }}
+	app.jinja_env.filters['audit_summary'] = audit_summary   # an audit row's detail in one line
 	app.jinja_env.globals['NR_VERSION'] = VERSION        # the footer
 	app.jinja_env.globals['NR_CODENAME'] = CODENAME      # ... and its release name
 	app.jinja_env.globals['NR_SOURCE_URL'] = source_url()
