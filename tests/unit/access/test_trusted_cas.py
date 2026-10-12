@@ -67,6 +67,20 @@ def test_a_servers_own_self_signed_certificate_is_allowed(tmp_path):
 	assert entry.as_dict()["self_signed"] is True
 
 
+def test_a_servers_certificate_issued_by_a_ca_is_refused(tmp_path):
+	"""The common mistake: the directory's own certificate (not a CA, issued by
+	the organisation's CA) uploaded instead of the CA. It can't anchor
+	anything: refused in words naming the CA to upload, nothing added (the
+	CA next to it neither)."""
+	root, root_key = make_cert(("Corp Root CA",), ca=True)
+	server, _ = make_cert(("ldap.corp.local",), issuer=(root, root_key))
+	with pytest.raises(certs.CertificateRefused,
+	                   match=r"CN=ldap\.corp\.local is a server's own certificate, not a CA\. "
+	                         r"Upload the CA that issued it \(CN=Corp Root CA\)"):
+		store(tmp_path).add(pem(root) + pem(server))
+	assert store(tmp_path).entries() == []
+
+
 def test_removing_by_fingerprint_and_the_last_removes_the_file(tmp_path):
 	"""Remove takes one out by its fingerprint; an unknown one is a
 	LookupError; removing the last deletes the file."""

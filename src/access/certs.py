@@ -621,6 +621,16 @@ def _trusted(cert: x509.Certificate) -> TrustedCA:
 	                 cert.issuer.rfc4514_string(), cert.not_valid_after_utc)
 
 
+def _is_ca(cert: x509.Certificate) -> bool:
+	""":returns: True when the certificate says it's a CA (basic constraints
+	 CA:TRUE); one without that extension doesn't (an old version 1 root CA
+	 has none - it's self-signed, and those are allowed anyway)"""
+	try:
+		return bool(cert.extensions.get_extension_for_class(x509.BasicConstraints).value.ca)
+	except x509.ExtensionNotFound:
+		return False
+
+
 class TrustedCAs:
 	"""The organisation's CA certificates NetRollout trusts for its own
 	outgoing TLS connections - today its LDAP servers (LDAPS) -, next to
@@ -658,8 +668,10 @@ class TrustedCAs:
 
 	def add(self, data: bytes, now: datetime.datetime | None = None) -> list[TrustedCA]:
 		"""Trust the certificates in `data` (one or several, PEM): each is
-		checked - a certificate, not a key, not expired - and one already
-		trusted is left as it is.
+		checked - a certificate, not a key, not expired, a CA or self-signed
+		(a server's certificate issued by a CA can't anchor anything: the CA
+		that issued it is what's needed) - and one already trusted is left as
+		it is.
 
 		:returns: the ones added (none: all were trusted already)
 		:raises CertificateRefused: why nothing was added
@@ -678,6 +690,13 @@ class TrustedCAs:
 				raise CertificateRefused(f"{cert.subject.rfc4514_string()} expired on "
 				                         f"{cert.not_valid_after_utc:%Y-%m-%d} - it can't vouch "
 				                         f"for any server. Nothing was added.")
+			if not _is_ca(cert) and cert.issuer != cert.subject:
+				# a server's certificate issued by a CA - the common mistake: it
+				# can't anchor anything (a self-signed one is its own anchor)
+				raise CertificateRefused(
+					f"{cert.subject.rfc4514_string()} is a server's own certificate, not a CA. "
+					f"Upload the CA that issued it ({cert.issuer.rfc4514_string()}). "
+					f"Nothing was added.")
 		with self.lock:
 			kept = self._certificates()
 			known = {_trusted(c).fingerprint for c in kept}
