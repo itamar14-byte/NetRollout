@@ -2,14 +2,17 @@
 minutes (the 5th) and, once the lock has run out, disable it (5 more) - the
 factory admin is locked again instead, never disabled; LDAP accounts are
 never counted; a right password, an admin's Enable / Reset Password start
-the count again. An ordinary account's page never tells: every answer is
-"Invalid credentials", as for a name with no account."""
+the count again. What the page says comes from the typed name's count
+(SignInThrottle), the same for every name: "Invalid credentials", then at
+the 5th failure "Too many failed sign-ins. Try again in N minutes." - for a
+real account and a name with no account alike."""
 import datetime as dt
 from unittest.mock import patch
 
 import pytest
 
 from src.accounts import users
+from src.accounts.__main__ import reset_admin
 from src.db.tables import AuditLog, LDAPServer, User
 from src.webapp.hooks import conn_limit
 from tests.integration.conftest import TEST_PASSWORD
@@ -51,20 +54,25 @@ def wrong(client, username, times):
 	return shown
 
 
-def expire_lock(session_scope, user_id):
-	"""The account's lock ran out a second ago."""
+LOCKED = "Too many failed sign-ins. Try again in 15 minutes."
+
+
+def expire_lock(app, session_scope, user):
+	"""The lock ran out a second ago: the account's own, and the sign-in
+	page's stop for its name (both last 15 minutes from the 5th failure)."""
 	with session_scope() as s:
-		s.get(User, user_id).locked_until = (
+		s.get(User, user.id).locked_until = (
 			dt.datetime.now(dt.timezone.utc) - dt.timedelta(seconds=1))
+	app.signin_throttle.cleared(user.username)
 
 
 def test_the_fifth_wrong_password_locks_a_local_account_for_15_minutes(
 		client_for, make_user, db_get, session_scope):
 	"""Four wrong passwords count; the 5th locks the account for 15 minutes
-	(audited auth.account_lock_timed), it stays active. Every answer is
-	"Invalid credentials" - the same as for a name with no account. While
-	locked no password is checked: the right one is refused alike and a
-	wrong one isn't counted."""
+	(audited auth.account_lock_timed), it stays active. The answers are the
+	same as for a name with no account: "Invalid credentials" four times,
+	then the 15-minute stop's message. While locked no password is checked:
+	the right one is refused alike and a wrong one isn't counted."""
 	user = make_user()
 	client = client_for()
 	shown = wrong(client, user.username, 4)
@@ -72,7 +80,7 @@ def test_the_fifth_wrong_password_locks_a_local_account_for_15_minutes(
 	assert db_get(User, user.id).locked_until is None
 	shown += wrong(client, user.username, 1)
 	unknown = wrong(client, "nobody-has-this-name", 5)
-	assert shown == unknown == [["Invalid credentials"]] * 5
+	assert shown == unknown == [["Invalid credentials"]] * 4 + [[LOCKED]]
 	row = db_get(User, user.id)
 	assert row.is_active is True and row.failed_sign_ins == 5
 	left = row.locked_until - dt.datetime.now(dt.timezone.utc)
@@ -81,43 +89,45 @@ def test_the_fifth_wrong_password_locks_a_local_account_for_15_minutes(
 		(user.username, False, {"failed_passwords": 5, "minutes": 15})]
 	resp = login(client, user.username)
 	assert resp.headers["Location"] == "/"
-	assert flashes(client) == ["Invalid credentials"]
+	assert flashes(client) == [LOCKED]
 	wrong(client, user.username, 3)
 	assert db_get(User, user.id).failed_sign_ins == 5
 	assert db_get(User, user.id).is_active is True
 
 
 def test_five_more_after_the_lock_disable_the_account(
-		client_for, make_user, db_get, session_scope):
+		app, client_for, make_user, db_get, session_scope):
 	"""Once the lock has run out, the count goes on: four more wrong passwords
 	leave the account active, the 5th more (10th in a row) disables it
-	(audited auth.account_locked) - all answered "Invalid credentials". The
-	right password afterwards is told the account is disabled."""
+	(audited auth.account_locked) - answered "Invalid credentials" four times,
+	then the name's 15-minute stop, as for any name. Once that stop has run
+	out, the right password is told the account is disabled."""
 	user = make_user()
 	client = client_for()
 	wrong(client, user.username, 5)
-	expire_lock(session_scope, user.id)
+	expire_lock(app, session_scope, user)
 	shown = wrong(client, user.username, 4)
 	row = db_get(User, user.id)
 	assert row.is_active is True and row.failed_sign_ins == 9 and row.locked_until is None
 	shown += wrong(client, user.username, 1)
-	assert shown == [["Invalid credentials"]] * 5
+	assert shown == [["Invalid credentials"]] * 4 + [[LOCKED]]
 	assert db_get(User, user.id).is_active is False
 	assert actions(session_scope, "auth.account_locked") == [
 		(user.username, False, {"failed_passwords": 10})]
+	app.signin_throttle.cleared(user.username)     # the stop ran out
 	login(client, user.username)
 	assert flashes(client) == ["User disabled, please check with administrator"]
 
 
 def test_a_right_password_after_the_lock_starts_again(
-		client_for, make_user, db_get, session_scope):
+		app, client_for, make_user, db_get, session_scope):
 	"""After the lock has run out, the right password signs in (on to 2FA) and
 	the count is 0: five more wrong passwords lock the account again, they
 	don't disable it."""
 	user = make_user()
 	client = client_for()
 	wrong(client, user.username, 5)
-	expire_lock(session_scope, user.id)
+	expire_lock(app, session_scope, user)
 	assert login(client, user.username).headers["Location"] == "/otp_enroll"
 	row = db_get(User, user.id)
 	assert row.failed_sign_ins == 0 and row.locked_until is None
@@ -206,15 +216,16 @@ def test_the_factory_admin_is_locked_for_15_minutes_not_disabled(
 
 def test_the_factory_admins_lock_runs_out(client_for, make_user, db_get, session_scope):
 	"""A lock that has run out is lifted at the next sign-in: the right
-	password signs in, the lock and count are gone. One minute left reads
-	"1 minute"."""
+	password signs in, the lock and count are gone. The account's own lock
+	says nothing by itself ("Invalid credentials": the message comes from the
+	name's stop, which a lock set this way doesn't have)."""
 	factory = make_user(username="admin", role="admin")
 	with session_scope() as s:
 		s.get(User, factory.id).locked_until = (
 			dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=30))
 	client = client_for()
 	login(client, "admin")
-	assert flashes(client) == ["Too many failed sign-ins. Try again in 1 minute."]
+	assert flashes(client) == ["Invalid credentials"]
 	with session_scope() as s:
 		s.get(User, factory.id).locked_until = (
 			dt.datetime.now(dt.timezone.utc) - dt.timedelta(seconds=1))
@@ -224,8 +235,9 @@ def test_the_factory_admins_lock_runs_out(client_for, make_user, db_get, session
 
 
 def test_ldap_accounts_are_not_counted(client_for, make_user, db_get, session_scope):
-	"""A directory account's wrong passwords are the directory's business: no
-	count, no lockout, after six."""
+	"""A directory account's wrong passwords are the directory's business: the
+	account itself has no count and no lock after six (the sign-in page's
+	stop for the typed name applies to every name, and is tested apart)."""
 	with session_scope() as s:
 		server = LDAPServer(name="corp", host="ldap.test", port=389, use_ssl=False,
 		                    base_dn="dc=corp", bind_type="simple", cn_identifier="uid",
@@ -244,3 +256,44 @@ def test_lock_message_wording():
 	"""The minutes in words: one minute, several minutes."""
 	assert users.lock_message(1) == "Too many failed sign-ins. Try again in 1 minute."
 	assert users.lock_message(15) == "Too many failed sign-ins. Try again in 15 minutes."
+
+
+def test_any_name_is_stopped_after_five_failures_and_nothing_is_checked(
+		client_for, make_user, session_scope):
+	"""The 15-minute stop is per typed name, whatever is behind it: a directory
+	account and a name with no account read the stop's message at the 5th
+	failure, exactly as a local account does - and while a name is stopped the
+	directory isn't even asked. Capitals don't make another name."""
+	with session_scope() as s:
+		server = LDAPServer(name="corp", host="ldap.test", port=389, use_ssl=False,
+		                    base_dn="dc=corp", bind_type="simple", cn_identifier="uid",
+		                    is_active=True)
+		s.add(server)
+		s.flush()
+		server_id = server.id
+	user = make_user(auth_type="ldap", ldap_server_id=server_id)
+	client = client_for()
+	with patch("src.accounts.ldap.Directory.user_bind", return_value=False) as bind:
+		shown = wrong(client, user.username, 5)
+		assert bind.call_count == 5
+		assert wrong(client, user.username.upper(), 1) == [[LOCKED]]
+		assert bind.call_count == 5
+	assert shown == wrong(client, "no-such-person", 5) == [["Invalid credentials"]] * 4 + [[LOCKED]]
+
+
+def test_a_stop_says_the_minutes_left_rounded_up(app, client_for):
+	"""A stop with 30 seconds left reads "1 minute"."""
+	client = client_for()
+	wrong(client, "someone", 5)
+	app.backend.redis.client.expire(users.SignInThrottle._keys("someone")[1], 30)
+	assert wrong(client, "someone", 1) == [["Too many failed sign-ins. Try again in 1 minute."]]
+
+
+def test_reset_admin_lifts_the_stop_on_the_factory_admins_name(app, client_for, make_user):
+	"""netrollout reset-admin also ends the sign-in page's stop for "admin": the
+	right password signs in at once."""
+	make_user(username="admin", role="admin")
+	client = client_for()
+	assert wrong(client, "admin", 5)[-1] == [LOCKED]
+	reset_admin(app.backend.postgres, app.backend.redis, False)
+	assert login(client, "admin").headers["Location"] == "/dashboard"

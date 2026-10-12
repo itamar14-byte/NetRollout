@@ -12,7 +12,7 @@ import msgspec
 from sqlalchemy.exc import SQLAlchemyError
 
 from src import runtime
-from src.accounts.users import FACTORY_USERNAME, AccountError, Accounts, SessionStore
+from src.accounts.users import FACTORY_USERNAME, AccountError, Accounts, SessionStore, SignInThrottle
 from src.audit import Actor, AuditAction, AuditTrail
 from src.db.connections import (REDIS_UNAVAILABLE, PostgresConnection, RedisConnection,
                                 load_config)
@@ -55,6 +55,8 @@ def reset_admin(postgres: PostgresConnection, redis_conn: RedisConnection,
 			user, temporary = Accounts(session).reset_factory_admin(new_password)
 			user_id, username = user.id, user.username
 			ended = end_sessions(redis_conn, str(user_id))
+			# the sign-in page's 15-minute stop for the name, too (no-op without Redis)
+			SignInThrottle(lambda: redis_conn.client).cleared(username)
 			session.add(AuditLog(**AuditTrail.row(
 				Actor.system(BY_HAND_ACTOR), AuditAction.USER_RESET_ADMIN,
 				object_type="User", object_id=user_id, object_label=username,

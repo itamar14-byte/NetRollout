@@ -7,6 +7,7 @@ templates/_password_rule_script.html), and who is signed in and for how
 long - the sessions in Redis (SessionStore), their idle and absolute limits,
 signing a user out everywhere, and the clean start (everyone signed out).
 No request here: the web app's side is in webapp/hooks.py."""
+import hashlib
 import math
 import re
 import secrets
@@ -131,6 +132,9 @@ def needs_second_factor(user: User) -> bool:
 # brings it back. The factory admin is never disabled: it is locked again at
 # every MAX_FAILED_PASSWORDS-th. A right password starts the count again. LDAP
 # accounts aren't counted: the directory's own lockout policy applies.
+# What the sign-in page says comes from SignInThrottle (per typed name, the
+# same for every name), never from these columns: they mustn't tell which
+# accounts exist.
 MAX_FAILED_PASSWORDS = 5
 LOCK_MINUTES = 15
 DISABLE_AFTER = 2 * MAX_FAILED_PASSWORDS
@@ -144,11 +148,80 @@ class Lockout(Enum):
 
 
 def lock_message(minutes: int) -> str:
-	""":returns: what the sign-in page says while the factory admin is locked
-	 (any other account's lock reads "Invalid credentials": its name isn't
-	 public, and the page must not tell that it exists)"""
+	""":returns: what the sign-in page says while a name is stopped
+	 (SignInThrottle) - for every name alike, an account or not"""
 	return (f"Too many failed sign-ins. Try again in {minutes} "
 	        f"minute{'s' if minutes != 1 else ''}.")
+
+
+# The sign-in throttle's Redis keys: signin:fails:<hash> (failures in a row,
+# forgotten after LOCK_MINUTES without one) and signin:locked:<hash> (the
+# stop, LOCK_MINUTES); <hash> = sha256 of the name lower-cased
+THROTTLE_PREFIX = "signin:"
+
+
+class SignInThrottle:
+	"""Failed sign-ins per typed username, whatever is behind the name - no
+	account, a local one, one from a directory: the MAX_FAILED_PASSWORDS-th
+	failure in a row stops that name for LOCK_MINUTES, and the sign-in page
+	says so ("Too many failed sign-ins. Try again in N minutes."). Every name
+	is treated alike, so the message tells nothing about which accounts exist.
+	A local account's own lock and disable (Accounts.password_failed) apply
+	on top, silently.
+
+	In Redis; the names are kept only as a hash (a password typed into the
+	username field is never stored). Redis unreachable: nothing is stopped or
+	counted here - the accounts' own locks still hold."""
+
+	def __init__(self, client: Callable[[], redis.Redis]) -> None:
+		""":param client: returns the Redis client in use now (a Redis switch
+		 is followed)"""
+		self._client = client
+
+	@staticmethod
+	def _keys(name: str) -> tuple[str, str]:
+		digest = hashlib.sha256(name.strip().lower().encode()).hexdigest()
+		return f"{THROTTLE_PREFIX}fails:{digest}", f"{THROTTLE_PREFIX}locked:{digest}"
+
+	def minutes_left(self, name: str) -> int | None:
+		""":returns: the minutes the name is still stopped for, rounded up;
+		 None: it isn't"""
+		try:
+			left = self._client().ttl(self._keys(name)[1])
+		except REDIS_UNAVAILABLE:
+			return None
+		return math.ceil(left / 60) if left > 0 else None
+
+	def failed(self, name: str) -> int | None:
+		"""One more failure for the name.
+
+		:returns: LOCK_MINUTES when this one stops the name (the counted
+		 failures start again); None otherwise"""
+		fails, locked = self._keys(name)
+		try:
+			client = self._client()
+			pipe = client.pipeline()
+			pipe.incr(fails)
+			pipe.expire(fails, LOCK_MINUTES * 60)
+			count = cast(int, pipe.execute()[0])
+			if count < MAX_FAILED_PASSWORDS:
+				return None
+			pipe = client.pipeline()
+			pipe.set(locked, 1, ex=LOCK_MINUTES * 60)
+			pipe.delete(fails)
+			pipe.execute()
+		except REDIS_UNAVAILABLE:
+			return None
+		return LOCK_MINUTES
+
+	def cleared(self, name: str) -> None:
+		"""The name's failures and any stop forgotten: a right password, an
+		admin's Enable / Approve / Promote / Reset Password, netrollout
+		reset-admin."""
+		try:
+			self._client().delete(*self._keys(name))
+		except REDIS_UNAVAILABLE:
+			pass
 
 
 def clear_lockout(user: User) -> None:

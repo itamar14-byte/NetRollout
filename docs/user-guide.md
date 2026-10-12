@@ -84,15 +84,15 @@ The page tells you what's wrong as soon as you leave the field. A directory (LDA
 
 ### Wrong passwords
 
-After 5 wrong passwords in a row, a local account is locked for 15 minutes. During those 15 minutes even the right password gets "Invalid credentials". If your password is refused right after a few wrong tries, wait 15 minutes, or ask an administrator to **Enable** your account, which lifts the lock.
+A wrong password gets "Invalid credentials". After 5 failed sign-ins in a row with the same username, the sign-in page says **"Too many failed sign-ins. Try again in N minutes."** and stops that username for 15 minutes: nothing is checked until then, not even the right password. Wait for the time shown, or ask an administrator to **Enable** your account, which lifts it at once.
 
-If the next 5 passwords after the lock are wrong too (10 in a row), the account is disabled. Signing in with the right password afterwards says "User disabled, please check with administrator": ask an administrator to enable your account again.
+If the next 5 passwords after that are wrong too (10 in a row), a local account is disabled. Signing in with the right password afterwards says "User disabled, please check with administrator": ask an administrator to enable your account again.
 
-You aren't told when either happens: every wrong password, and every try during the lock, gets the same "Invalid credentials" message, so the page never reveals whether a username exists. A right password, before the 5th or after the lock, starts the count again. Wrong 2FA codes don't count here.
+The 15-minute stop works the same for every username, whether an account exists or not, so the page never reveals which usernames exist. A right password, before the 5th or after the stop, starts the count again. Wrong 2FA codes don't count here.
 
-The factory `admin` account is never disabled this way. After every 5 wrong passwords it is locked for 15 minutes, and the sign-in page says "Too many failed sign-ins. Try again in N minutes."
+The factory `admin` account is never disabled this way: after every 5 wrong passwords it is only stopped for 15 minutes.
 
-Directory (LDAP) accounts follow the directory's own lockout rules.
+Directory (LDAP) accounts get the same 15-minute stop on the sign-in page; beyond that, the directory's own lockout rules apply.
 
 ### Two-factor sign-in
 

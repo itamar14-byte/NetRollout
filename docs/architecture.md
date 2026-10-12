@@ -198,7 +198,7 @@ Shared by the CLI and the web app, and free of the web stack: it imports the dat
 
 | Module | Job | Main names |
 |---|---|---|
-| `users.py` | Who the data rules are about, local accounts, the password rule, and the signed-in sessions in Redis. No Flask import. | `Viewer`, `Accounts`, `AccountError`, `SessionStore`, the `SessionSerializer` Protocol, `password_problem()`, `temporary_password()`, `is_reserved()` |
+| `users.py` | Who the data rules are about, local accounts, the password rule, the signed-in sessions in Redis, and the sign-in page's per-name stop. No Flask import. | `Viewer`, `Accounts`, `AccountError`, `SessionStore`, `SignInThrottle`, the `SessionSerializer` Protocol, `password_problem()`, `temporary_password()`, `is_reserved()` |
 | `ldap.py` | Sign-in through one configured directory server (LDAP or Active Directory) and the admin page's tools. | `Directory`, `LdapUnavailable` |
 
 ### `src/access/`: how NetRollout is reached
@@ -446,6 +446,7 @@ For each area: what each class is responsible for, who creates it, who calls it,
 | `SecurityProfiles` | The viewer's security profiles; the one place device secrets are encrypted. | security and inventory routes, the CSV import | the same | the session, `Viewer`, `encryption` |
 | `Accounts` | Making accounts (local: Request access, Add user; directory: a mapped group's first sign-in, the LDAP import), the name lookups, the access requests waiting. Raises `AccountError`. | routes per request, `jobs.with_owners()`, `JobResults` | auth, admin users, admin LDAP, jobs | the session, the password rule |
 | `SessionStore` | The signed-in sessions in Redis: sign a user out everywhere (`end_for`), who is signed in, clear all at start, the idle limit. | `launch_app()` (`app.sessions`) | the request hooks, auth, admin users, Live Sessions, the Redis switch | a Redis client getter, flask-session's serializer (`SessionSerializer`), the settings getter |
+| `SignInThrottle` | Failed sign-ins per typed username, any name alike: the 5th in a row stops it for 15 minutes, and the sign-in page says so. The only source of the page's lock message, so the message never tells which usernames exist (the accounts' own lock columns are silent). | `launch_app()` (`app.signin_throttle`); `reset-admin` | auth (`login`, `login_fail`), admin users (`unlock`: Enable, Approve, Promote, Reset Password), `reset-admin` | a Redis client getter |
 | `Directory` | One configured LDAP server: bind as the user, group membership, user details, the admin page's test / explore / import. | auth and admin LDAP routes, per use: `Directory(server_row)` | the same | ldap3, `encryption.decrypt()` for the bind password |
 | `AuditTrail` | The one writer of audit rows, each in its own session, independent of the caller's. | `WebServices`; `BackupScheduler`'s audit; the setup core's port-by-hand | `WebServices.audit()` (every route), `DatabaseMove`, backups | a `PostgresConnection` getter, `Actor`, `AuditAction` |
 
@@ -1364,7 +1365,7 @@ erDiagram
 | | `is_active`, `is_approved` | bool | Default false |
 | | `otp_secret` | string(255) | Fernet-encrypted TOTP secret; null until enrolled |
 | | `must_change_password` | bool | Default false |
-| | `failed_sign_ins` | int | Wrong passwords in a row (local accounts); the 5th disables the account, or locks the factory admin. Default 0 |
+| | `failed_sign_ins` | int | Wrong passwords in a row (local accounts); the 5th locks the account for 15 minutes, the 10th disables it (the factory admin is locked again instead). Silent: what the sign-in page says comes from `SignInThrottle`. Default 0 |
 | | `locked_until` | timestamptz | The factory admin's 15-minute lock after 5 wrong passwords; null: not locked |
 | | `auth_type` | string(20) | `local` or `ldap` |
 | | `ldap_server_id` | UUID | FK `ldap_servers`, ON DELETE SET NULL |
@@ -1454,6 +1455,7 @@ Redis holds nothing that must survive: sessions, the job queue, live job state a
 | `job:{id}:logs` | pub/sub channel | `LiveLog` | New lines, published as `<n>\t<line>`, and `__done__` at the end. |
 | `redis_session:{sid}` | string | Flask-Session (`_SafeRedisSessionInterface`) | A signed-in session. `SessionStore` reads them to list or end a user's sessions. |
 | `reach:{ip}:{port}` | string with expiry | `ReachabilityChecker` | A cached TCP reachability probe (the *Reachability cache* setting). |
+| `signin:fails:{hash}`, `signin:locked:{hash}` | counter, 15-minute expiry; string, 15 minutes | `SignInThrottle` | Failed sign-ins in a row per typed username (any name, an account or not; `{hash}` = SHA-256 of the name lower-cased, so no typed text is stored), and the 15-minute stop the 5th one starts. |
 
 ### Files on disk
 

@@ -17,7 +17,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 from src.access.nginx import seed_hostname_from_site, sync_at_start
 from src.access.service import Access
-from src.accounts.users import SESSION_PREFIX, SessionStore
+from src.accounts.users import SESSION_PREFIX, SessionStore, SignInThrottle
 from src.db.connections import BackendServices, REDIS_UNAVAILABLE, RedisConnection
 from src.encryption import init_encryption, require_key_in_container
 from src.jobs import JobStore, RolloutOrchestrator, clear_stale_jobs
@@ -271,6 +271,7 @@ def launch_app(backend: BackendServices | None = None) -> NetRolloutApp:
 	app.sessions = SessionStore(
 		lambda: app.backend.redis.client, app.session_interface.serializer,
 		lambda: app.backend.settings.get("session_idle_minutes"))
+	app.signin_throttle = SignInThrottle(lambda: app.backend.redis.client)
 	app.sessions.clear_all()
 	clear_stale_jobs(app.backend.redis)
 	# nginx serves the saved hostname (deploy/nginx's watcher applies it)

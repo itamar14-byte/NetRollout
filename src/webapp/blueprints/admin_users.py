@@ -57,6 +57,13 @@ def pending_access_requests() -> dict[str, Any]:
 		return {}
 
 
+def unlock(user: User) -> None:
+	"""The account's wrong passwords forgotten and its lock lifted, and the
+	sign-in page's 15-minute stop for its name (SignInThrottle) with them."""
+	clear_lockout(user)
+	current_app.signin_throttle.cleared(user.username)
+
+
 def user_action_factory(user: User, action: str, db_session: Session) -> None:
 	"""Apply one admin action to a user (in the caller's session).
 
@@ -64,18 +71,18 @@ def user_action_factory(user: User, action: str, db_session: Session) -> None:
 	if action == "approve":
 		user.is_approved = True
 		user.is_active = True
-		clear_lockout(user)
+		unlock(user)
 	elif action == "enable":
 		# also after too many wrong passwords: the count starts again
 		user.is_active = True
-		clear_lockout(user)
+		unlock(user)
 	elif action == "disable":
 		user.is_active = False
 	elif action == "promote":
 		user.role = Role.ADMIN
 		user.is_approved = True
 		user.is_active = True
-		clear_lockout(user)
+		unlock(user)
 	elif action == "demote":
 		user.role = Role.OPERATOR
 	elif action == "delete":
@@ -181,7 +188,7 @@ def admin_reset_password(user_id: uuid.UUID) -> ResponseReturnValue:
 		temporary = temporary_password(user.username)
 		user.password_hash = generate_password_hash(temporary)
 		user.must_change_password = True
-		clear_lockout(user)
+		unlock(user)
 		username = user.username
 	ended = current_app.sessions.end_for(user_id)
 	current_app.web.audit(AuditAction.USER_RESET_PASSWORD, object_type="User",

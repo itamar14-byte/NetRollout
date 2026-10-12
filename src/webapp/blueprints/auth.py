@@ -54,8 +54,16 @@ _LOGIN_FAIL_MESSAGES = {
 	# after the directory accepted the password: the group rules couldn't be read
 	"ldap_groups_unavailable": "LDAP authentication service unavailable",
 	"reserved_username": RESERVED_USERNAME,
-	"locked": "Too many failed sign-ins - try again later.",   # lock_message() says when
+	"locked": "Invalid credentials",     # a local account's own lock: silent
+	"too_many_attempts": "Too many failed sign-ins - try again later.",   # lock_message() says when
 }
+# The failures before the password is proven: each counts for the typed name
+# (SignInThrottle) - whatever is behind it, so the 15-minute stop and its
+# message come alike for every name. After the proof (pending, disabled, the
+# group rules unreadable) nothing is counted; a try while the name is stopped
+# isn't either.
+_COUNTED_FAILURES = {"invalid_credentials", "locked", "ldap_bind_failed", "ldap_unavailable",
+                     "ldap_server_inactive", "ldap_server_missing", "reserved_username"}
 
 
 # Where to go after signing in. The sign-in page is opened with ?next=<path>
@@ -105,9 +113,18 @@ def login_fail(username: str, reason: str, actor_id: uuid.UUID | None = None,
 	audit row with the reason (a key of _LOGIN_FAIL_MESSAGES), and any
 	half-done 2FA state cleared so a stale pre_auth_user_id can't be replayed.
 
+	A failure before the password is proven is counted for the typed name
+	(_COUNTED_FAILURES, SignInThrottle): the one that stops the name reads
+	the stop's message instead.
+
 	:param message: what the person reads instead of the reason's message
 	:param detail: added to the audit row's detail (e.g. the directory's error)
 	:returns: the way back to the sign-in page"""
+	if reason in _COUNTED_FAILURES:
+		minutes = current_app.signin_throttle.failed(username)
+		if minutes is not None:
+			message = lock_message(minutes)
+			detail = {**(detail or {}), "name_stopped_minutes": minutes}
 	flash(message or _LOGIN_FAIL_MESSAGES.get(reason, "Login failed"), "danger")
 	current_app.web.audit(AuditAction.AUTH_LOGIN, success=False, username=username,
 	                      actor_id=actor_id, detail={"reason": reason, **(detail or {})})
@@ -166,19 +183,16 @@ def login_local(user: User, password: str, db_session: Session) -> ResponseRetur
 	it; the factory admin is only ever locked) -, then approved, then active;
 	then 2FA where the account uses it (needs_second_factor).
 
-	Only the factory admin's lock is said ("Too many failed sign-ins. Try
-	again in N minutes."): its name is public. Any other account's lock, and
-	every wrong password, reads "Invalid credentials" - as for a name with no
-	account."""
+	The account's own lock and count are silent: what the page says comes
+	from the typed name's count (login_fail, SignInThrottle) - "Invalid
+	credentials", then "Too many failed sign-ins. Try again in N minutes." at
+	the 5th, as for a name with no account."""
 	assert user.password_hash is not None   # every local account has one
 	accounts = Accounts(db_session)
 	now = datetime.now(timezone.utc)
-	factory = is_factory_admin(user)
 	minutes = accounts.lock_minutes_left(user, now)
 	if minutes is not None:
-		return login_fail(user.username, "locked", user.id,
-		                  lock_message(minutes) if factory else "Invalid credentials",
-		                  detail={"minutes_left": minutes})
+		return login_fail(user.username, "locked", user.id, detail={"minutes_left": minutes})
 	if not check_password_hash(user.password_hash, password):
 		outcome = accounts.password_failed(user, now)
 		if outcome is Lockout.DISABLED:
@@ -194,11 +208,9 @@ def login_local(user: User, password: str, db_session: Session) -> ResponseRetur
 			                      object_label=user.username,
 			                      detail={"failed_passwords": MAX_FAILED_PASSWORDS,
 			                              "minutes": LOCK_MINUTES})
-			if factory:
-				return login_fail(user.username, "invalid_credentials", user.id,
-				                  lock_message(LOCK_MINUTES))
 		return login_fail(user.username, "invalid_credentials", user.id)
 	accounts.password_ok(user)
+	current_app.signin_throttle.cleared(user.username)
 	if not user.is_approved:
 		return login_fail(user.username, "pending_approval", user.id)
 	if not user.is_active:
@@ -242,6 +254,7 @@ def login_ldap_existing(user: User, password: str,
 		return ldap_unavailable(user.username, ldap_server, e, user.id)
 	if not bound:
 		return login_fail(user.username, "ldap_bind_failed", user.id)
+	current_app.signin_throttle.cleared(user.username)
 	if not user.is_approved:
 		return login_fail(user.username, "pending_approval", user.id)
 	if not user.is_active:
@@ -304,6 +317,7 @@ def login_ldap_group(username: str, password: str,
 			except LdapUnavailable as e:
 				return ldap_unavailable(username, ldap_server, e)
 			if match:
+				current_app.signin_throttle.cleared(username)
 				group_dn, role = match
 				# Fetch display attributes from LDAP directory; tolerate failure.
 				details = directory.user_details(username)
@@ -356,6 +370,11 @@ def login(data: Any) -> ResponseReturnValue:
 			return redirect(url_for("auth.home"))
 	username = data["username"]
 	password = data["password"]
+	# a name stopped after too many failures: nothing is looked up or checked
+	minutes = current_app.signin_throttle.minutes_left(username)
+	if minutes is not None:
+		return login_fail(username, "too_many_attempts", message=lock_message(minutes),
+		                  detail={"minutes_left": minutes})
 	with current_app.backend.postgres.get_session() as db_session:
 		accounts = Accounts(db_session)
 		user = accounts.by_name(username)
