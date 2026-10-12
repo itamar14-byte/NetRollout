@@ -337,6 +337,15 @@ flowchart LR
 
 A failure before the Publish job publishes nothing. A failure inside it (Docker Hub or GitHub unavailable, an expired token) leaves at most a draft and pushed images: run the failed job again. It replaces the draft and pushes the same images again; a release that is already published is never overwritten.
 
+### The website
+
+The project's site on GitHub Pages is two parts: the landing page, `website/index.html` (plain HTML, its fonts and icon in `website/assets/`), and the documentation, built from `docs/*.md` by MkDocs with the Material theme (`mkdocs.yml`; the docs' look in `website/docs-theme/`). `.github/workflows/pages.yml` builds it on every pull request that touches them, and publishes it when they change on `master`. The build is strict: a broken link or heading anchor fails it.
+
+- **Write the docs for GitHub first.** They stay ordinary Markdown files; the site is built from the same files. Heading anchors are spelled as GitHub spells them, and links to files outside `docs/` (`../CONTRIBUTING.md`) are pointed at GitHub on the site by `website/hooks.py`.
+- **The download buttons need no update for a release.** The landing page asks GitHub's API for the newest release when it's opened: the newest final release, else the newest pre-release.
+- **To preview locally:** `pip install -r requirements-docs.txt`, then `mkdocs serve` for the docs alone, or `mkdocs build && cp -r website/index.html website/assets build/site/` and serve `build/site` for the whole site.
+- **MkDocs stays on 1.x** (`requirements-docs.in`): 2.0 breaks Material, which is in maintenance mode. Material's successor, Zensical, reads the same `mkdocs.yml`; the site moves to it once it's stable.
+
 ### The Docker Hub overviews
 
 Each image's page on Docker Hub shows `packaging/dockerhub/<image>.md`. A change to those files on `master` updates Docker Hub by itself (`.github/workflows/dockerhub.yml`, also runnable by hand from Actions). It uses a third-party action pinned to a commit, which Dependabot keeps current, and its own token, the `DOCKERHUB_ADMIN_TOKEN` secret, because editing a description needs Docker Hub's *Read, Write, Delete* scope, while the releases' `DOCKERHUB_TOKEN` only pushes images. If Docker Hub refuses, the run fails; it blocks nothing else.

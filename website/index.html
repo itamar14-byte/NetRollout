@@ -93,6 +93,15 @@ h3 { font-weight: 700; font-size: 1.1rem; line-height: 1.3; margin: 0 0 6px; let
 .snippet { background: var(--panel); border: 1px solid var(--rule); border-radius: 6px; padding: 10px 12px; font: 400 .8rem/1.55 var(--f-mono); color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; }
 .snippet .tok { color: var(--cyan); }
 
+/* the Verify band (from version B): dark, centred, the one statement */
+.band { background: var(--chassis); color: #e6edf3; border-top: 0; text-align: center; }
+.band h2 { color: #f2f6f9; margin-inline: auto; font-size: clamp(2rem, 4.4vw, 3.3rem); max-width: 16em; }
+.band .intro { color: #9fb0c0; margin-inline: auto; max-width: 38em; }
+.verify { margin: 0 auto; max-width: 820px; text-align: left; border-radius: 10px; background: var(--console); padding: 20px 22px; font: 400 .84rem/1.75 var(--f-mono); color: var(--console-ink); overflow-x: auto; }
+.verify .line { white-space: pre; }
+.verify .prompt { color: #4dd0e1; } .verify .dim { color: var(--console-dim); } .verify .ok { color: var(--led-green); } .verify .warn { color: var(--led-amber); }
+.verify .sum { margin-top: 10px; padding-top: 10px; border-top: 1px solid #1f2b38; }
+
 /* screenshots */
 .shots { display: grid; gap: 28px; }
 .shots figure { margin: 0; display: grid; gap: 10px; min-width: 0; }
@@ -162,6 +171,7 @@ footer p { margin: 0; }
     </a>
     <nav aria-label="Site">
       <a href="#how" class="optional">How it works</a>
+      <a href="#verify" class="optional">Verify</a>
       <a href="docs/">Docs</a>
       <a href="#download">Download</a>
       <a href="https://github.com/itamar14-byte/NetRollout">GitHub</a>
@@ -219,6 +229,22 @@ footer p { margin: 0; }
           <p>Each device's configuration is read back and every command checked, removals included. Results, logs and snapshots are stored; roll back from there.</p>
         </li>
       </ol>
+    </div>
+  </section>
+
+  <section id="verify" class="band" aria-labelledby="verify-title">
+    <div class="page">
+      <h2 id="verify-title">Not just sent. Verified.</h2>
+      <p class="intro">After the push, NetRollout reads each device's configuration back and checks every command you typed, in the section it belongs to. Removals are checked too. Anything not found is shown, never buried.</p>
+      <div class="verify" role="img" aria-label="Verify on one Cisco IOS device: three commands verified, including a removal checked as absent; one logging command not found, so the device is partial and its Verify Diff shows the configuration as read.">
+        <div class="line"><span class="prompt">NetRollout&gt;</span> verify 10.20.1.14:22 <span class="dim">(cisco_ios)</span></div>
+        <div class="line">interface Loopback0</div>
+        <div class="line"> ip address 192.0.2.11 255.255.255.255  <span class="dim">in interface Loopback0</span>  <span class="ok">verified</span></div>
+        <div class="line">ntp server 192.0.2.123                  <span class="dim">present</span>                 <span class="ok">verified</span></div>
+        <div class="line">no ntp server 192.0.2.9                 <span class="dim">absent, as asked</span>        <span class="ok">verified</span></div>
+        <div class="line">logging host 192.0.2.50                 <span class="dim">not found</span>               <span class="warn">not verified</span></div>
+        <div class="line sum">3 of 4 verified: <span class="warn">partial</span>  <span class="dim">Verify Diff shows the configuration as read</span></div>
+      </div>
     </div>
   </section>
 

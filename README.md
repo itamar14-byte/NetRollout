@@ -11,6 +11,8 @@ NetRollout pushes configuration snippets to many network devices at once over SS
 
 It is for network engineers who want a bulk change done and checked without writing playbooks.
 
+**Website and documentation:** [itamar14-byte.github.io/NetRollout](https://itamar14-byte.github.io/NetRollout/)
+
 ![The NetRollout dashboard](docs/images/dashboard.png)
 
 > [!IMPORTANT]
@@ -113,6 +115,8 @@ netrollout-cli-<version>.exe -d devices.csv -c commands.txt -vf
 The full list, including virtual machines and firewalls, is in the [installation guide](docs/install.md#requirements).
 
 ## Documentation
+
+The guides are also published as a searchable site: [itamar14-byte.github.io/NetRollout/docs](https://itamar14-byte.github.io/NetRollout/docs/).
 
 | Document | For | What it covers |
 | --- | --- | --- |
