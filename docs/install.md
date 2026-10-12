@@ -314,6 +314,24 @@ It asks whether to delete the data (default no), then, if you said yes, whether 
 
 If you typed `http://`, NetRollout redirects to HTTPS only when port 80 was free at install time. Use `https://` and include the port if it isn't 443.
 
+### Can't sign in
+
+**Forgot the `admin` password, or no administrator can sign in** (`admin` disabled or locked, its authenticator lost): on the server, run
+
+```powershell
+netrollout reset-admin -NewPassword
+```
+
+```bash
+sudo ./bin/netrollout.sh reset-admin --new-password
+```
+
+It asks first, then enables `admin`, turns its two-factor sign-in off, lifts any lock and prints a temporary password, once. Sign in as `admin` with it; NetRollout asks for a new password at once. It works only on the server, never from the web app, and the audit log records it. Without the flag, `admin` keeps its password. See [The factory admin account](admin-guide.md#the-factory-admin-account).
+
+**Another user forgot their password or lost their authenticator:** an administrator opens User Management and uses **Reset Password** (a temporary password, shown once) or **Reset 2FA** (the user enrols again at the next sign-in).
+
+**"Too many failed sign-ins. Try again in N minutes."**: 5 failed sign-ins in a row stop that username for 15 minutes. Wait for the time shown, or ask an administrator to **Enable** the account, which lifts it at once. See [Wrong passwords](user-guide.md#wrong-passwords).
+
 ### The HTTPS port is taken
 
 If another program or container holds NetRollout's HTTPS port, NetRollout can't publish it. `start` refuses and names the holder, for example:
