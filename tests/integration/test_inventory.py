@@ -633,7 +633,7 @@ def world(make_user, make_profile, make_device, make_mapping):
 	map_b = make_mapping(user_b)
 	map_c = make_mapping(user_c, devices=[core])
 	return type("World", (), dict(
-		admin=admin, b=user_b, c=user_c, admin_prof=admin_prof,
+		admin=admin, b=user_b, c=user_c, admin_prof=admin_prof, b_prof=b_prof,
 		core=core, b_local=b_local, map_b=map_b, map_c=map_c))
 
 
@@ -671,7 +671,7 @@ def test_admin_profile_id_never_exposed_to_users(world, client_for):
 
 
 def test_users_cannot_edit_delete_or_hijack_credentials(world, client_for,
-                                                        db_get, session_scope):
+                                                        db_get, session_scope, linked):
 	"""A user can't edit or delete a global device, nor attach the admin's profile to a
 	new or own device."""
 	client = client_for(world.b)
@@ -684,7 +684,11 @@ def test_users_cannot_edit_delete_or_hijack_credentials(world, client_for,
 	assert device_by_label(session_scope, "hijack") is None
 	client.post(f"/inventory/{world.b_local}/edit", data={
 		**FORM, "label": "B-LOCAL", "sec_profile_id": str(world.admin_prof)})
-	assert db_get(Inventory, world.b_local).sec_profile_id != world.admin_prof
+	assert linked(world.b_local, world.b) == world.b_prof
+	# nor link it to a global device for themselves
+	client.post(f"/inventory/{world.core}/attributes",
+	            data={"sec_profile_id": str(world.admin_prof)})
+	assert linked(world.core, world.b) is None
 
 
 def test_users_cannot_create_global_devices(world, client_for, session_scope):
@@ -714,12 +718,16 @@ def test_users_bind_own_mappings_without_touching_others(world, client_for,
 	       sorted([str(world.b.id), str(world.c.id)])
 
 
-def test_admin_must_attach_profile_to_global_device(world, client_for,
-                                                   session_scope):
-	"""An admin's global device without a profile is not created."""
-	client_for(world.admin).post("/inventory/create", data={
-		**FORM, "label": "g-noprof", "is_global": "on"})
-	assert device_by_label(session_scope, "g-noprof") is None
+def test_a_global_device_without_a_profile_is_created(world, client_for,
+                                                     session_scope):
+	"""An admin's global device without a profile of theirs is created (the
+	credentials are each user's own); their page then counts it among the
+	devices needing a profile of theirs."""
+	client = client_for(world.admin)
+	client.post("/inventory/create", data={**FORM, "label": "g-noprof", "is_global": "on"})
+	assert device_by_label(session_scope, "g-noprof").is_global is True
+	html = client.get("/inventory").get_data(as_text=True)
+	assert "1 device needs a security profile of yours" in html
 
 
 def test_localizing_drops_foreign_bindings_and_audits(world, client_for,
@@ -789,10 +797,10 @@ def test_inventory_cards_have_reachability_indicator(client_for, make_user,
 
 def test_visible_devices_load_in_a_constant_number_of_statements(
 		app, make_user, make_profile, make_device, make_mapping):
-	"""InventoryView.visible loads the devices with their security profiles and
-	mappings in the same number of SQL statements for 1 device as for 6 (no
-	query per device), and both relationships are there after the session
-	closes."""
+	"""InventoryView.visible + profiles load the devices, the user's security
+	profiles for them and their mappings in the same number of SQL statements
+	for 1 device as for 6 (no query per device), and all are there after the
+	session closes."""
 	def statements_to_load(user):
 		seen = []
 
@@ -803,11 +811,13 @@ def test_visible_devices_load_in_a_constant_number_of_statements(
 		event.listen(engine, "before_cursor_execute", listen)
 		try:
 			with app.backend.postgres.get_session() as s:
-				devices = InventoryView(s, Viewer(user.id)).visible()
+				view = InventoryView(s, Viewer(user.id))
+				devices = view.visible()
+				profiles = view.profiles(devices)
 				s.expunge_all()
 		finally:
 			event.remove(engine, "before_cursor_execute", listen)
-		assert all(d.security_profile is not None and len(d.var_mappings) == 1
+		assert all(profiles[d.id] is not None and len(d.var_mappings) == 1
 		           for d in devices)
 		return len(devices), len(seen)
 
@@ -831,34 +841,14 @@ def test_visible_devices_load_in_a_constant_number_of_statements(
 
 def device_state(session_scope, device_id):
 	"""What an edit could change on a device: its fields, its system values,
-	the custom values and mapping bindings on it."""
+	the profile links, custom values and mapping bindings on it."""
 	with session_scope() as s:
 		d = s.get(Inventory, device_id)
 		custom = sorted((str(a.user_id), a.name, str(a.value)) for a in
 		                s.query(DeviceAttribute).filter_by(device_id=device_id))
-		return (d.label, d.ip, d.port, d.device_type, d.sec_profile_id, d.is_global,
+		links = sorted((str(c.user_id), str(c.profile_id)) for c in d.credentials)
+		return (d.label, d.ip, d.port, d.device_type, links, d.is_global,
 		        d.var_maps, custom, sorted(str(m.id) for m in d.var_mappings))
-
-
-def test_a_global_device_without_a_profile_is_refused_whole(
-		client_for, make_user, make_device, make_mapping, session_scope):
-	"""An admin's edit that renames a device, moves it, sets a system and a
-	custom value and a mapping binding, but makes it global without a profile:
-	refused with the reason, and none of the other changes are saved."""
-	admin = make_user(role="admin")
-	dev = make_device(admin, ip="10.60.0.1", label="half-1",
-	                  var_maps={"hostname": "old"})
-	mapping = make_mapping(admin, token="HN", prop="hostname")
-	client = client_for(admin)
-	client.post("/properties/create", json={"name": "rack", "label": "Rack"})
-	before = device_state(session_scope, dev)
-	resp = client.post(f"/inventory/{dev}/edit", data={
-		**FORM, "label": "half-1-renamed", "ip": "10.60.0.2", "is_global": "on",
-		"attr_hostname": "new", "attr_rack": "R1", "mapping_ids": [str(mapping)]})
-	assert resp.headers["Location"] == "/inventory"
-	assert flashes(client)[-1] == ("A global device needs a security profile — "
-	                               "users can't assign their own to it.")
-	assert device_state(session_scope, dev) == before
 
 
 def test_another_users_profile_is_refused_whole(client_for, make_user, make_device,
@@ -902,16 +892,22 @@ def test_a_refused_mapping_edit_changes_nothing(client_for, make_user, make_mapp
 	assert (kept.label, kept.token, kept.index) == (None, "$$KEEP$$", None)
 
 
-def test_a_refused_profile_delete_keeps_the_profile(client_for, make_user, make_device,
-                                                    make_profile, db_get):
-	"""Deleting a profile a device uses is refused, and the profile stays."""
-	user = make_user()
-	profile = make_profile(user, label="in-use")
-	make_device(user, ip="10.60.2.1", profile_id=profile)
-	client = client_for(user)
+def test_deleting_a_profile_unlinks_its_devices(client_for, make_user, make_device,
+                                                make_profile, db_get, linked):
+	"""Deleting a profile its user has linked: the profile and those links go,
+	the devices stay (now ACTION NEEDED for that user), another user's link
+	on the same global device stays, and the flash says how many lost theirs."""
+	admin, other = make_user(role="admin"), make_user()
+	profile, others = make_profile(admin, label="in-use"), make_profile(other)
+	dev = make_device(admin, ip="10.60.2.1", profile_id=profile, is_global=True)
+	client_for(other).post("/inventory/bulk_assign",
+	                       json={"profile_id": str(others), "device_ids": [str(dev)]})
+	client = client_for(admin)
 	client.post(f"/security/{profile}/delete")
-	assert flashes(client)[-1].startswith("Cannot delete 'in-use'")
-	assert db_get(SecurityProfile, profile).label == "in-use"
+	assert flashes(client)[-1] == "Profile deleted. 1 device now needs a security profile of yours."
+	assert db_get(SecurityProfile, profile) is None
+	assert db_get(Inventory, dev).label == "dev-10.60.2.1"
+	assert (linked(dev, admin), linked(dev, other)) == (None, others)
 
 
 def test_an_empty_inventory_says_so_and_offers_both_ways_in(client_for, make_user):
