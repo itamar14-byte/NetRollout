@@ -472,6 +472,46 @@
   </div>
 </div>
 
+<!-- ── DELETE LDAP SERVER MODAL ───────────────────────────────── -->
+<div class="modal fade" id="ldapDeleteModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <div class="nr-badge" style="margin-bottom:0.3rem; color:#ef9a9a; border-color:rgba(239,83,80,0.3);">DELETE SERVER</div>
+          <h5 class="modal-title" style="color:#e0e0e0;" id="ldapDeleteTitle">Delete server</h5>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" style="font-size:0.82rem; color:var(--nr-text-muted);">
+        <p class="mb-2">Its group rules go with it, and its users can't sign in any more.</p>
+        <div id="ldapDeleteNoUsers" style="display:none;">No account signs in through this server.</div>
+        <div id="ldapDeleteUsersBox" style="display:none;">
+          <div class="nr-label mb-1">Its users (<span id="ldapDeleteCount">0</span>)</div>
+          <ul id="ldapDeleteUsers" style="max-height:180px; overflow-y:auto; margin:0 0 0.75rem; padding:0.4rem 0.6rem 0.4rem 1.6rem;
+              border:1px solid #222; border-radius:6px; background:#111; font-family:'JetBrains Mono',monospace; font-size:0.76rem; color:#ccc;"></ul>
+          <label style="display:flex; align-items:flex-start; gap:0.45rem; cursor:pointer; color:#e0e0e0;">
+            <input type="checkbox" id="ldapDeleteUsersCheck" style="accent-color:#ef5350; margin-top:0.2rem;">
+            <span>Also delete these users
+              <span id="ldapDeleteHint" style="display:block; color:var(--nr-text-muted); font-size:0.76rem;">
+                Unticked: they're kept but disabled, with their devices, profiles and results.
+              </span>
+            </span>
+          </label>
+        </div>
+        <div id="ldapDeleteError" style="display:none; margin-top:0.75rem; color:#ef9a9a; background:rgba(239,83,80,0.06);
+             border:1px solid rgba(239,83,80,0.2); border-radius:6px; padding:0.5rem 0.75rem;"></div>
+      </div>
+      <div class="modal-footer border-0 pt-1">
+        <button class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-danger btn-sm" id="ldapDeleteBtn" onclick="confirmDeleteServer()">
+          <i class="bi bi-trash3 me-1"></i>Delete server
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- ── EXPLORER MODAL ─────────────────────────────────────────── -->
 <div class="modal fade" id="explorerModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-xl modal-dialog-centered">
@@ -1435,23 +1475,66 @@
   }
 
   /* ── Delete server ── */
+  // Deleting a server: its users listed first, and whether they go too
+  let deletingServerId = null;
   function deleteServer(id) {
     const name = ldapServers[id]?.name || 'this server';
-    if (!confirm(`Delete "${name}"? This will remove all associated group rules and may affect LDAP users.`)) return;
+    fetch(`${LDAP_BASE}/${id}/users`, { headers: { 'X-NR-Background': '1' } })
+    .then(r => r.json())
+    .then(data => {
+      if (data.status !== 'ok') {
+        const res = document.getElementById(`e_${id}_result`);
+        if (res) { res.style.display = 'block'; res.innerHTML = `<span class="res-err">${nrEscape(data.message)}</span>`; }
+        return;
+      }
+      deletingServerId = id;
+      document.getElementById('ldapDeleteTitle').textContent = `Delete "${name}"?`;
+      const list = document.getElementById('ldapDeleteUsers');
+      list.replaceChildren(...data.users.map(u => {
+        const li = document.createElement('li');
+        li.textContent = u.username + (u.role === 'admin' ? ' (admin)' : '') + (u.is_active ? '' : ' - disabled');
+        return li;
+      }));
+      document.getElementById('ldapDeleteCount').textContent = data.users.length;
+      document.getElementById('ldapDeleteUsersBox').style.display = data.users.length ? '' : 'none';
+      document.getElementById('ldapDeleteNoUsers').style.display = data.users.length ? 'none' : '';
+      document.getElementById('ldapDeleteUsersCheck').checked = false;
+      updateDeleteHint();
+      document.getElementById('ldapDeleteError').style.display = 'none';
+      document.getElementById('ldapDeleteBtn').disabled = false;
+      bootstrap.Modal.getOrCreateInstance(document.getElementById('ldapDeleteModal')).show();
+    });
+  }
 
+  function updateDeleteHint() {
+    document.getElementById('ldapDeleteHint').textContent =
+      document.getElementById('ldapDeleteUsersCheck').checked
+        ? 'Ticked: deleted with their own devices, profiles, mappings and results. Global devices they added stay.'
+        : "Unticked: they're kept but disabled, with their devices, profiles and results.";
+  }
+  document.getElementById('ldapDeleteUsersCheck').addEventListener('change', updateDeleteHint);
+
+  function confirmDeleteServer() {
+    const id = deletingServerId;
+    const btn = document.getElementById('ldapDeleteBtn');
+    btn.disabled = true;
     fetch(`${LDAP_BASE}/${id}/delete`, {
       method: 'POST',
-      headers: { 'X-CSRFToken': CSRF_TOKEN }
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN },
+      body: JSON.stringify({ delete_users: document.getElementById('ldapDeleteUsersCheck').checked })
     })
     .then(r => r.json())
     .then(data => {
       if (data.status === 'ok') {
+        bootstrap.Modal.getInstance(document.getElementById('ldapDeleteModal')).hide();
         delete ldapServers[id];
         if (expandedId === id) expandedId = null;
         loadServers();
       } else {
-        const res = document.getElementById(`e_${id}_result`);
-        if (res) { res.style.display = 'block'; res.innerHTML = `<span class="res-err">${nrEscape(data.message)}</span>`; }
+        const box = document.getElementById('ldapDeleteError');
+        box.textContent = data.message || 'The server was not deleted.';
+        box.style.display = 'block';
+        btn.disabled = false;
       }
     });
   }

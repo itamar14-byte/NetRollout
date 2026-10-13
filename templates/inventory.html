@@ -112,12 +112,6 @@
 }
 .global-toggle-row i { color: #00bcd4; }
 .global-toggle-hint { font-size: 0.75rem; color: var(--nr-text-muted); margin-left: auto; }
-.global-profile-error {
-    display: none;
-    font-size: 0.75rem;
-    color: #ef5350;
-    margin-top: 0.35rem;
-}
 
 /* Read-only mode for global devices opened by non-admins:
    only the mapping multi-select and the user's own attributes stay interactive */
@@ -135,6 +129,23 @@
 }
 #editDeviceModal.is-readonly .readonly-banner { display: flex; }
 #editDeviceModal.is-readonly .nr-select { pointer-events: none; opacity: 0.55; }
+/* your own security profile stays yours to set, on any device you see */
+#editDeviceModal.is-readonly #editSecSelect { pointer-events: auto; opacity: 1; }
+
+/* A device without a security profile of yours: you can't roll out to it yet */
+.needs-profile-badge {
+    font-family: 'JetBrains Mono', monospace; font-size: 0.6rem; font-weight: 700;
+    letter-spacing: 0.08em; color: #ffb74d; border: 1px solid rgba(255,183,77,0.45);
+    background: rgba(255,183,77,0.08); border-radius: 4px; padding: 0.05rem 0.35rem;
+    white-space: nowrap;
+}
+.needs-profile-note {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.75rem;
+    margin: -0.75rem 0 1.25rem; padding: 0.55rem 0.8rem; border-radius: 8px;
+    border: 1px solid rgba(255,183,77,0.35); background: rgba(255,183,77,0.06);
+    font-size: 0.8rem; color: #ffe0b2;
+}
+.needs-profile-note a { color: #ffb74d; font-weight: 600; }
 #editDeviceModal.is-readonly input:disabled { opacity: 0.55; }
 #editDeviceModal.is-readonly .edit-only { display: none !important; }
 #editDeviceModal:not(.is-readonly) .readonly-only { display: none !important; }
@@ -355,7 +366,8 @@
 {% macro device_card(device) %}
     {% set editable = device.user_id == current_user.id or (device.is_global and is_admin) %}
     {% set logo_url = VENDOR_LOGOS.get(device.device_type, '') %}
-    {% set prof_label = (device.security_profile.label or device.security_profile.username) if device.security_profile else '' %}
+    {% set my_profile = my_profiles.get(device.id|string) %}
+    {% set prof_label = (my_profile.label or my_profile.username) if my_profile else '' %}
     {% set assigned_mappings = device.var_mappings | selectattr('user_id', 'equalto', current_user.id) | sort(attribute='token') %}
     {% set ns = namespace(am_list=[]) %}
     {% for m in assigned_mappings %}
@@ -370,7 +382,7 @@
                  "ip":                    device.ip,
                  "device_type":           device.device_type,
                  "port":                  device.port,
-                 "sec_profile_id":        device.sec_profile_id|string if (device.sec_profile_id and editable) else "",
+                 "sec_profile_id":        my_profile.id|string if my_profile else "",
                  "sec_profile_label":     prof_label,
                  "var_maps":              attributes.get(device.id, {}),
                  "assigned_mapping_ids":  ns.am_list | map(attribute='id') | list,
@@ -399,6 +411,11 @@
             </span>
             {% endif %}
 
+            {% if not my_profile %}
+            <span class="needs-profile-badge"
+                  title="No security profile of yours: link one to roll out to this device">ACTION NEEDED</span>
+            {% endif %}
+
             <!-- Reachability from NetRollout — filled in after load -->
             <span class="reach reach--checking" data-reach-for="{{ device.id }}"
                   aria-label="Checking reachability" title="Checking reachability…"><i class="bi bi-arrow-repeat"></i></span>
@@ -423,7 +440,7 @@
         <div class="nr-badge">INVENTORY</div>
         <h4 class="mb-0" style="font-weight:600; font-size:1.15rem;">Device Inventory</h4>
         <p class="mt-1 mb-0 nr-note">
-            {{ devices|length }} device{{ "s" if devices|length != 1 else "" }} configured
+            {{ devices|length }} device{{ "s" if devices|length != 1 else "" }} {{ "need a security profile of yours" if only_needing else "configured" }}
         </p>
     </div>
     <div class="d-flex gap-2" style="margin-top:0.2rem;">
@@ -441,7 +458,29 @@
 </div>
 
 
-{% if not devices %}
+{% if only_needing %}
+<div class="needs-profile-note" role="status">
+    <i class="bi bi-funnel"></i>
+    <span>Showing only the devices that need a security profile of yours.</span>
+    <a href="{{ url_for('inventory.inventory') }}">Show all devices</a>
+</div>
+{% elif needs_profile_count %}
+<div class="needs-profile-note" role="status">
+    <i class="bi bi-exclamation-triangle"></i>
+    <span>{{ needs_profile_count }} device{{ "s" if needs_profile_count != 1 else "" }} need{{ "s" if needs_profile_count == 1 else "" }} a security profile of yours before you can roll out to {{ "it" if needs_profile_count == 1 else "them" }}.</span>
+    <a href="{{ url_for('inventory.inventory', needs_profile=1) }}">Show {{ "it" if needs_profile_count == 1 else "them" }}</a>
+</div>
+{% endif %}
+
+{% if only_needing and not devices %}
+
+<div class="empty-state">
+    <i class="bi bi-shield-check"></i>
+    <div class="empty-title">Every device has a security profile of yours.</div>
+    <p><a href="{{ url_for('inventory.inventory') }}">Show all devices</a></p>
+</div>
+
+{% elif not devices %}
 
 <!-- Empty state -->
 <div class="empty-state">
@@ -584,8 +623,8 @@
                     </div>
 
                     <div class="mb-1">
-                        <label class="nr-label">SECURITY PROFILE
-                            <span class="nr-muted">(optional)</span>
+                        <label class="nr-label">YOUR SECURITY PROFILE
+                            <span class="nr-muted">(optional: NetRollout logs in with it when you roll out)</span>
                         </label>
                         <div class="nr-select" id="addSecSelect">
                             <div class="nr-select-trigger">
@@ -620,9 +659,6 @@
                                 </div>
                             </div>
                             <input type="hidden" name="sec_profile_id" value="">
-                        </div>
-                        <div class="global-profile-error" id="addGlobalProfileError">
-                            A global device needs a security profile — users can't assign their own.
                         </div>
                     </div>
 
@@ -674,7 +710,7 @@
 
                     <div class="readonly-banner">
                         <i class="bi bi-globe2"></i>
-                        <span>Global device, managed by an administrator. You can bind your own variable mappings and set your own attributes (only your mappings use them).</span>
+                        <span>Global device, managed by an administrator. You can link your own security profile, bind your own variable mappings and set your own attributes (only you use them).</span>
                     </div>
 
                     <div class="mb-3">
@@ -730,8 +766,8 @@
                     </div>
 
                     <div class="mb-1">
-                        <label class="nr-label">SECURITY PROFILE
-                            <span class="nr-muted">(optional)</span>
+                        <label class="nr-label">YOUR SECURITY PROFILE
+                            <span class="nr-muted">(NetRollout logs in with it when you roll out)</span>
                         </label>
                         <div class="nr-select" id="editSecSelect">
                             <div class="nr-select-trigger">
@@ -766,9 +802,6 @@
                                 </div>
                             </div>
                             <input type="hidden" name="sec_profile_id" value="">
-                        </div>
-                        <div class="global-profile-error" id="editGlobalProfileError">
-                            A global device needs a security profile — users can't assign their own.
                         </div>
                     </div>
 
@@ -1486,27 +1519,6 @@ document.getElementById('editDeviceModal').querySelector('form')
         }
     });
 
-// ════════════════════════════════════════
-//  Global toggle — a global device must carry a security profile,
-//  since users can't assign their own to it (enforced server-side too)
-// ════════════════════════════════════════
-function guardGlobalProfile(modalId, toggleId, selectId, errorId) {
-    const form   = document.getElementById(modalId).querySelector('form');
-    const toggle = document.getElementById(toggleId);
-    const error  = document.getElementById(errorId);
-    if (!toggle) return;  // toggle is rendered for admins only
-    toggle.addEventListener('change', () => { error.style.display = 'none'; });
-    form.addEventListener('submit', e => {
-        if (document.getElementById(modalId).classList.contains('is-readonly')) return;
-        const profile = document.querySelector('#' + selectId + ' input[name="sec_profile_id"]').value;
-        if (toggle.checked && !profile) {
-            e.preventDefault();
-            error.style.display = 'block';
-        }
-    });
-}
-guardGlobalProfile('addDeviceModal',  'addIsGlobal',  'addSecSelect',  'addGlobalProfileError');
-guardGlobalProfile('editDeviceModal', 'editIsGlobal', 'editSecSelect', 'editGlobalProfileError');
 
 
 // ════════════════════════════════════════
@@ -1634,7 +1646,6 @@ function openEdit(device) {
         '/inventory/' + device.id + (readonly ? '/attributes' : '/edit');
     const editIsGlobal = document.getElementById('editIsGlobal');
     if (editIsGlobal) editIsGlobal.checked = !!device.is_global;
-    document.getElementById('editGlobalProfileError').style.display = 'none';
 
     // Reset expand section
     document.getElementById('varAttrToggle').classList.remove('open');
@@ -1700,7 +1711,6 @@ document.getElementById('editDeviceModal').addEventListener('hidden.bs.modal', (
     const form = document.getElementById('editDeviceModal').querySelector('form');
     form.querySelectorAll('.nr-submitted').forEach(el => el.classList.remove('nr-submitted'));
     form.querySelectorAll('.field-error').forEach(el => el.style.display = '');
-    document.getElementById('editGlobalProfileError').style.display = 'none';
     resetEditTestBtn();
 });
 
@@ -1835,7 +1845,6 @@ document.getElementById('addDeviceModal').addEventListener('hidden.bs.modal', ()
     if (addPlatformSel) addPlatformSel.reset();
     form.querySelectorAll('.nr-submitted').forEach(el => el.classList.remove('nr-submitted'));
     form.querySelectorAll('.field-error').forEach(el => el.style.display = '');
-    document.getElementById('addGlobalProfileError').style.display = 'none';
     resetAddTestBtn();
 });
 

@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session
 from werkzeug.security import generate_password_hash
 
 from src.db.connections import REDIS_UNAVAILABLE
-from src.db.tables import FACTORY_USERNAME, BindType, LDAPServer, User, AuthType, Role
+from src.db.tables import FACTORY_USERNAME, BindType, Inventory, LDAPServer, User, AuthType, Role
 
 
 MIN_LENGTH = 8
@@ -326,6 +326,39 @@ class Accounts:
 		after = self.admins_left(removing)
 		if after == 0 and self.admins_left() > after:
 			raise AccountError(NO_ADMIN_LEFT)
+
+	def delete_user(self, user: User) -> None:
+		"""Delete an account and what is only theirs: their private devices,
+		security profiles (and so their links to any device), mappings,
+		properties, attribute values and results. The global devices they
+		created stay for everyone (the database clears their creator), as do
+		the audit rows (they keep the name). The one way an account is deleted:
+		one, many, or with its LDAP server; the caller checks the last
+		administrator first (check_admins_left)."""
+		for device in self.session.query(Inventory).filter(
+				Inventory.user_id == user.id, Inventory.is_global.is_(False)):
+			self.session.delete(device)
+		self.session.delete(user)
+
+	def delete_directory(self, server: LDAPServer, delete_users: bool) -> list[str]:
+		"""Delete an LDAP server. Its users can't sign in any more: they're
+		deleted with it (delete_user, each one), or kept but disabled - to be
+		enabled again only once they have a way in. Refused when that would
+		leave no administrator who can sign in.
+
+		:param delete_users: delete the server's users, else disable them
+		:returns: the usernames deleted or disabled
+		:raises AccountError: no administrator would be left"""
+		users = list(server.users)
+		self.check_admins_left(u.id for u in users)
+		names = sorted(u.username for u in users)
+		for user in users:
+			if delete_users:
+				self.delete_user(user)
+			else:
+				user.is_active = False
+		self.session.delete(server)
+		return names
 
 	def set_directory_role(self, user: User, role: str) -> RoleChange | None:
 		"""A directory user's role as their group rules give it at sign-in

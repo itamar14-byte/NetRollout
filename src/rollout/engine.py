@@ -20,7 +20,7 @@ from src.rollout.log import Tone
 from src.rollout.platforms import NOT_CONFIGURED, STILL_CONFIGURED, UNVERIFIABLE, VERIFIED, first_word, navigates, verify_commands
 from src.rollout.session import NetmikoSession, Notifier, PushResult, RunReport
 if TYPE_CHECKING:   # type hints only: the CLI (.exe) must not load the DB stack
-	from src.db.tables import Inventory
+	from src.db.tables import Inventory, SecurityProfile
 
 
 class SubstitutionError(ValueError):
@@ -217,19 +217,21 @@ class Device:
 
 	@classmethod
 	def from_inventory(cls, row: "Inventory", user_id: uuid.UUID,
+	                   profile: "SecurityProfile | None",
 	                   attributes: dict[str, Any] | None = None) -> "Device":
 		"""A rollout target from an inventory row, credentials decrypted.
 
-		:param user_id: who rolls out - only their own mappings apply (the
-		 join table is shared across users through global devices)
+		:param user_id: whose mappings apply - only their own (the join table
+		 is shared across users through global devices)
+		:param profile: the credentials to log in with: the profile of the
+		 person who rolls out (InventoryView.profiles - never anyone else's)
 		:param attributes: the device's attribute values as that user sees
 		 them (the web app: InventoryView.attributes - the device's system
 		 values and the user's own custom ones); None: the row's var_maps
-		:raises ValueError: the device has no security profile"""
-		profile = row.security_profile
+		:raises ValueError: no profile"""
 		mappings = [m for m in row.var_mappings if m.user_id == user_id]
-		if not profile:
-			raise ValueError(f"no security profiles assigned to {row.ip}")
+		if profile is None:
+			raise ValueError(f"no security profile of yours for {row.label or row.ip}")
 
 		parsed_mappings = {m.token: (m.property_name, m.index) for m in
 		                   mappings}

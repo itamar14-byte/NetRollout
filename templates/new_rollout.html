@@ -439,11 +439,12 @@
 {% macro device_row(device) %}
                             <label class="device-row disabled"
                                    data-device-id="{{ device.id }}"
-                                   data-no-profile="{{ '0' if device.security_profile else '1' }}"
+                                   {% set lacks_profile = (device.id|string) in no_profile %}
+                                   data-no-profile="{{ '1' if lacks_profile else '0' }}"
                                    data-label="{{ (device.label or device.ip)|lower }}"
                                    data-ip="{{ device.ip|lower }}"
                                    data-endpoint="{{ device.ip | endpoint(device.port) }}"
-                                   title="{% if not device.security_profile %}No security profile assigned — go to Inventory to assign one{% endif %}">
+                                   title="{% if lacks_profile %}No security profile of yours - link one in Inventory{% endif %}">
                                 <input type="checkbox"
                                        class="device-check device-cb"
                                        name="device_ids"
@@ -488,8 +489,8 @@
                                 <span class="reach reach--checking" aria-label="Checking reachability"
                                       title="Checking reachability…"><i class="bi bi-arrow-repeat"></i></span>
 
-                                {% if not device.security_profile %}
-                                <span class="no-profile-tip">No security profile — assign one in Inventory</span>
+                                {% if lacks_profile %}
+                                <span class="no-profile-tip">No security profile of yours - link one in Inventory</span>
                                 {% else %}
                                 <span class="no-profile-tip reach-tip">Checking reachability…</span>
                                 {% endif %}
@@ -572,10 +573,10 @@
                             <div class="no-profile-warning" id="dupWarning" role="status"></div>
                             <div class="no-profile-warning" id="tokenWarning" role="status"></div>
                             <div class="no-profile-warning" id="noProfileWarning">
-                                {% set missing = devices | selectattr('security_profile', 'none') | list | length %}
+                                {% set missing = no_profile | length %}
                                 {% if missing > 0 %}
-                                {{ missing }} device{{ 's' if missing != 1 }} unavailable —
-                                <a href="{{ url_for('inventory.inventory') }}">assign a security profile in Inventory</a>
+                                {{ missing }} device{{ 's' if missing != 1 }} unavailable: no security profile of yours -
+                                <a href="{{ url_for('inventory.inventory', needs_profile=1) }}">link one in Inventory</a>
                                 {% endif %}
                             </div>
                         </div>

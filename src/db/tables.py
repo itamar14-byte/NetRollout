@@ -1,14 +1,15 @@
 """NetRollout's database tables (SQLAlchemy models). The schema itself is
 the migrations' (src/db/alembic/versions) - a change here needs a new
 revision. Each user's devices, profiles, mappings and properties are their
-own; global devices are shared."""
+own; global devices are shared - their credentials never are: each user links
+one of their own profiles to a device (DeviceCredential)."""
 import uuid
 from datetime import datetime
 from enum import StrEnum
 
 from sqlalchemy import (DateTime, String, Boolean, Integer, Uuid, Text,
-                        ForeignKey, Index, JSON, Table, Column, UniqueConstraint,
-                        false)
+                        ForeignKey, ForeignKeyConstraint, Index, JSON, Table, Column,
+                        UniqueConstraint, false)
 from sqlalchemy.orm import Mapped, mapped_column, relationship, DeclarativeBase
 
 
@@ -97,8 +98,10 @@ class User(Base):
 
 	security_profiles: Mapped[list["SecurityProfile"]] = relationship(
 		back_populates="user", cascade="all, delete-orphan")
+	# a user's private devices go with them (accounts/users.delete_user); the
+	# global ones they created stay - the database clears their user_id
 	inventory: Mapped[list["Inventory"]] = relationship(
-		back_populates="user", cascade="all, delete-orphan")
+		back_populates="user", passive_deletes=True)
 	variable_mappings: Mapped[list["VariableMapping"]] = relationship(
 		back_populates="user", cascade="all, delete-orphan")
 	results: Mapped[list["DeviceResult"]] = relationship(
@@ -140,9 +143,12 @@ class User(Base):
 
 
 class SecurityProfile(Base):
-	"""Device login credentials, encrypted (password, enable secret), shared
-	by the devices assigned to it."""
+	"""One user's device login credentials, encrypted (password, enable
+	secret) - private: only its owner links it to devices (DeviceCredential)."""
 	__tablename__ = 'security_profiles'
+	# (id, user_id) is what a DeviceCredential points at: a link can only
+	# name its own user's profile
+	__table_args__ = (UniqueConstraint('id', 'user_id', name='uq_security_profiles_id_user'),)
 	id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True,
 	                                      default=uuid.uuid4)
 	# Optional: the UI falls back to the username when no label is given
@@ -155,15 +161,15 @@ class SecurityProfile(Base):
 	                                           nullable=False)
 
 	user: Mapped["User"] = relationship(back_populates="security_profiles")
-	inventory: Mapped[list["Inventory"]] = relationship(
-		back_populates="security_profile")
 
 
 class Inventory(Base):
-	"""A device: where it is (ip:port), what it is (Netmiko device type), its
-	login (a security profile) and its system attribute values for variable
-	mappings (var_maps: the system properties only, shared by everyone who
-	sees it; each user's custom values are DeviceAttribute rows)."""
+	"""A device: where it is (ip:port), what it is (Netmiko device type) and
+	its system attribute values for variable mappings (var_maps: the system
+	properties only, shared by everyone who sees it; each user's custom values
+	are DeviceAttribute rows). Its login is each user's own: DeviceCredential.
+	user_id is its owner (a private device) or creator (a global one: kept,
+	user_id cleared, when they're deleted)."""
 	__tablename__ = 'inventory'
 	id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True,
 	                                      default=uuid.uuid4)
@@ -179,20 +185,39 @@ class Inventory(Base):
 	                                        server_default=false(),
 	                                        nullable=False)
 
-	user_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id"),
-	                                           nullable=False)
-	sec_profile_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey(
-		"security_profiles.id"), nullable=True)
+	user_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey(
+		"users.id", ondelete="SET NULL"), nullable=True)
 
-	security_profile: Mapped["SecurityProfile | None"] = relationship(
-		back_populates="inventory")
-	user: Mapped["User"] = relationship(back_populates="inventory")
+	user: Mapped["User | None"] = relationship(back_populates="inventory")
+	# every user's link to it (the database deletes them with it)
+	credentials: Mapped[list["DeviceCredential"]] = relationship(
+		back_populates="device", cascade="all, delete-orphan", passive_deletes=True)
 	var_mappings: Mapped[list["VariableMapping"]] = \
 		relationship(secondary=var_mapping_to_devices, back_populates="devices")
 	# every user's custom values on it (the database deletes them with it)
 	custom_attributes: Mapped[list["DeviceAttribute"]] = relationship(
 		back_populates="device", cascade="all, delete-orphan",
 		passive_deletes=True)
+
+
+class DeviceCredential(Base):
+	"""One user's security profile for one device: the credentials NetRollout
+	logs in with when that user rolls out to it - theirs alone (a global
+	device has one per user who linked a profile). The composite foreign key
+	makes a link to another user's profile impossible. Deleted with the
+	device, the user or the profile."""
+	__tablename__ = 'device_credentials'
+	__table_args__ = (ForeignKeyConstraint(
+		['profile_id', 'user_id'], ['security_profiles.id', 'security_profiles.user_id'],
+		ondelete="CASCADE", name='device_credentials_profile_fkey'),)
+	device_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey(
+		"inventory.id", ondelete="CASCADE"), primary_key=True)
+	user_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey(
+		"users.id", ondelete="CASCADE"), primary_key=True, index=True)
+	profile_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False, index=True)
+
+	device: Mapped["Inventory"] = relationship(back_populates="credentials")
+	profile: Mapped["SecurityProfile"] = relationship(viewonly=True)
 
 
 class DeviceAttribute(Base):

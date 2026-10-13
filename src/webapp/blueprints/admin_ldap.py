@@ -5,10 +5,10 @@ from typing import Any
 
 from flask import Blueprint, Request, Response, request, jsonify
 from flask.typing import ResponseReturnValue
-from flask_login import login_required
+from flask_login import current_user, login_required
 
 from src.accounts.ldap import Directory, LdapUnavailable, highest_role
-from src.accounts.users import ROLES, Accounts, directory_sets_role, is_reserved
+from src.accounts.users import ROLES, AccountError, Accounts, directory_sets_role, is_reserved
 from src.audit import AuditAction
 from src.db.tables import LDAPServer, LDAPGroup, BindType, Role, User
 from src.encryption import encrypt
@@ -174,19 +174,49 @@ def admin_server_ldap_save(server_id: uuid.UUID) -> ResponseReturnValue:
 	return ok()
 
 
+@bp.route("/ldap/<uuid:server_id>/users")
+@login_required
+@require_admin
+def admin_server_ldap_users(server_id: uuid.UUID) -> ResponseReturnValue:
+	"""The accounts that sign in through a server - what deleting it asks
+	about: JSON users [{username, role, is_active}], by username."""
+	with current_app.backend.postgres.get_session() as db_session:
+		srv = db_session.get(LDAPServer, server_id)
+		if not srv:
+			return err("Server not found", 404)
+		users = [{"username": u.username, "role": u.role, "is_active": u.is_active}
+		         for u in sorted(srv.users, key=lambda u: u.username)]
+	return ok(users=users)
+
+
 @bp.route("/ldap/<uuid:server_id>/delete", methods=["POST"])
 @login_required
 @require_admin
 def admin_server_ldap_delete(server_id: uuid.UUID) -> ResponseReturnValue:
-	with current_app.backend.postgres.get_session() as db_session:
-		srv = db_session.query(LDAPServer).filter_by(id=server_id).first()
-		if not srv:
-			return err("Server not found", 404)
-		db_session.delete(srv)
-		current_app.web.audit(AuditAction.ADMIN_LDAP_SERVER_DELETE,
-		                      object_type="LDAPServer",
-		                      object_label=srv.name, success=True)
-	return ok()
+	"""Delete a server: JSON {delete_users} - true deletes its users with
+	only their own things (global devices stay), else (or no body) they're
+	kept but disabled. Refused when it would leave no administrator who can sign in,
+	or the admin deleting it signs in through it. Audited with the users
+	deleted or disabled."""
+	data = request.get_json(silent=True)
+	delete_users = isinstance(data, dict) and data.get("delete_users") is True
+	try:
+		with current_app.backend.postgres.get_session() as db_session:
+			srv = db_session.get(LDAPServer, server_id)
+			if not srv:
+				return err("Server not found", 404)
+			if any(u.id == current_user.id for u in srv.users):
+				return err("You sign in through this server. Sign in with another "
+				           "administrator account to delete it.", 409)
+			name = srv.name
+			names = Accounts(db_session).delete_directory(srv, delete_users)
+	except AccountError as e:
+		return err(str(e), 409)
+	current_app.web.audit(AuditAction.ADMIN_LDAP_SERVER_DELETE,
+	                      object_type="LDAPServer", object_id=server_id,
+	                      object_label=name, success=True,
+	                      detail={"users_deleted" if delete_users else "users_disabled": names})
+	return ok(users=names, deleted=delete_users)
 
 
 @bp.route("/ldap/<uuid:server_id>/test", methods=["POST"])

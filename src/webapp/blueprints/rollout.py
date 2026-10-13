@@ -14,8 +14,8 @@ from flask_login import current_user, login_required
 
 from src.audit import AuditAction
 from src.accounts.users import Viewer
-from src.db.tables import Inventory, JobMetadata, User
-from src.inventory import InventoryView, partition_devices
+from src.db.tables import Inventory, JobMetadata, SecurityProfile, User
+from src.inventory import InventoryView, RuleRefused, SecurityProfiles, partition_devices
 from src.jobs import QUEUED_LINE, Draining
 from src.results import JobResults
 from src.rollout.engine import Device, RolloutOptions, missing_value
@@ -64,18 +64,27 @@ def parse_commands() -> tuple[list[str] | None, dict[str, str], bool]:
 	return commands, {}, False
 
 
+def no_profile_message(labels: list[str]) -> str:
+	""":returns: why a rollout can't start: these devices have no security
+	 profile of the person launching it, and where to link one"""
+	return ("These devices have no security profile of yours: " + ", ".join(labels)
+	        + ". Link one of your security profiles to them (the device in Inventory, or "
+	          "Security Profiles) - NetRollout logs in with your own credentials only.")
+
+
 def load_devices(selected_ids: list[uuid.UUID]) -> list[Device]:
 	"""The selected devices the user may see (own and global), as rollout
-	targets with their credentials.
+	targets with the user's own credentials for each.
 
 	:returns: the devices
 	:raises Refused: none found, some missing, one without a security
-	 profile"""
+	 profile of the user's"""
 	with current_app.backend.postgres.get_session() as db_session:
 		view = InventoryView(db_session, viewer())
 		# relationships preloaded for runtime device construction
 		selected_rows = view.visible_ids(selected_ids)
 		values = view.attributes(selected_rows)
+		profiles = view.profiles(selected_rows)
 		db_session.expunge_all()
 
 	# 7) Validate the selected devices.
@@ -85,17 +94,16 @@ def load_devices(selected_ids: list[uuid.UUID]) -> list[Device]:
 	if len(selected_rows) != len(selected_ids):
 		raise Refused("One or more selected devices were not found.")
 
-	# 8) Ensure every device has a security profile.
+	# 8) Every device needs a security profile of the user's own.
 	missing_profiles = [row.label or row.ip for row in selected_rows
-	                    if not row.security_profile]
+	                    if profiles[row.id] is None]
 	if missing_profiles:
-		raise Refused("These devices have no security profile assigned: "
-		              + ", ".join(missing_profiles))
+		raise Refused(no_profile_message(missing_profiles))
 
 	# 9) Convert ORM inventory rows into runtime Device objects.
 	try:
 		return InputParser.import_from_inventory(selected_rows, current_user.id,
-		                                         values)
+		                                         profiles, values)
 	except ValueError as e:
 		raise Refused(str(e)) from None
 
@@ -244,6 +252,7 @@ def new_rollout() -> str:
 		view = InventoryView(db_session, viewer())
 		devices = view.visible()
 		tokens = token_states(devices, view.attributes(devices), current_user.id)
+		no_profile = {str(d.id) for d in view.without_profile(devices)}
 		db_session.expunge_all()
 	global_devices, my_devices = partition_devices(devices)
 
@@ -251,6 +260,7 @@ def new_rollout() -> str:
 	                       global_devices=global_devices,
 	                       my_devices=my_devices,
 	                       token_states=tokens,
+	                       no_profile=no_profile,     # ids of devices without a profile of the user's
 	                       active_section="rollout"
 	                       )
 
@@ -401,12 +411,19 @@ def _event_stream(events: Iterator[str]) -> Response:
 @with_json("commands")
 def rollback(job_id: uuid.UUID, data: dict[str, Any]) -> ResponseReturnValue:
 	"""A new rollout of the given commands (JSON {commands, verify?,
-	verbose?}) to the devices a finished job configured successfully - the
-	user's own job, or anyone's for an admin. The devices are the job
-	owner's: matched by ip:port among what the owner may see (their own
-	entry preferred), their variables resolved with the owner's mappings, so
-	the rollback targets what the job configured; the new job is the
-	signed-in user's. Audited (rollout.rollback, with the job's owner).
+	verbose?, profile_id?, link?}) to the devices a finished job configured
+	successfully - the user's own job, or anyone's for an admin. The devices
+	are the job owner's: matched by ip:port among what the owner may see
+	(their own entry preferred), their variables resolved with the owner's
+	mappings, so the rollback targets what the job configured. It logs in
+	with the signed-in user's own profiles - never the job owner's: a
+	device without one is answered 409 with needs_profile (the devices,
+	each linkable or not) and profiles (the user's, to pick from);
+	profile_id then names one of the user's profiles for those devices -
+	linked to the ones the user sees (global, or their own) when link is
+	true (the window's box), used for this rollback only on another user's
+	private devices. The new job is the signed-in user's. Audited
+	(rollout.rollback, with the job's owner).
 
 	:returns: {"status": "ok", job_id}; 404 when the job has no results (yet)
 	 or isn't the user's; or another error"""
@@ -438,11 +455,45 @@ def rollback(job_id: uuid.UUID, data: dict[str, Any]) -> ResponseReturnValue:
 			return err("No successfully configured devices found for this job.")
 
 		values = owner_view.attributes(rows)   # the owner's values (relationships preloaded)
+		# the credentials are the signed-in user's own, whoever owns the job
+		mine = InventoryView(db_session, viewer())
+		profiles = mine.profiles(rows)
+
+		def linkable(row: Inventory) -> bool:
+			# a device the user sees takes their link; another user's private
+			# device (an admin's rollback of their job) doesn't: its pick is
+			# for this rollback only
+			return row.is_global or row.user_id == current_user.id
+
+		missing = [row for row in rows if profiles[row.id] is None]
+		if missing and not data.get("profile_id"):
+			owned = (db_session.query(SecurityProfile)
+			         .filter_by(user_id=current_user.id).order_by(SecurityProfile.label).all())
+			return err(no_profile_message([row.label or row.ip for row in missing]), 409,
+			           needs_profile=[{"id": str(row.id), "label": row.label, "ip": row.ip,
+			                           "linkable": linkable(row)} for row in missing],
+			           profiles=[{"id": str(p.id), "label": p.label or p.username}
+			                     for p in owned])
+		if missing:
+			try:
+				picked = SecurityProfiles(db_session, viewer()).owned(uuid.UUID(str(data["profile_id"])))
+			except ValueError:
+				picked = None
+			if picked is None:
+				return err("Security profile not found.", 404)
+			for row in missing:
+				profiles[row.id] = picked
+				if linkable(row) and data.get("link") is True:
+					try:
+						mine.link_profile(row, picked.id)
+					except RuleRefused as e:
+						return err(str(e), 422)
+		db_session.flush()      # the links written before the rows are detached
 		db_session.expunge_all()
 
 	commands = [l.strip() for l in data["commands"].splitlines() if l.strip()]
 	try:
-		devices = InputParser.import_from_inventory(rows, owner_id, values)
+		devices = InputParser.import_from_inventory(rows, owner_id, profiles, values)
 	except ValueError as e:              # a device without a security profile
 		return err(f"Can't roll back: {e}.", 409)
 	if unreachable := unreachable_devices(devices):

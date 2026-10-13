@@ -245,7 +245,7 @@ class TestDeviceAccess:
 def saved_device(**kw):
 	"""A device row as save_device sees it (no session needed for the rules)."""
 	fields = dict(id=uuid.uuid4(), user_id=OWNER, is_global=False, label="old",
-	              ip="10.0.0.1", port=22, device_type="cisco_ios", sec_profile_id=None,
+	              ip="10.0.0.1", port=22, device_type="cisco_ios",
 	              var_maps=None, var_mappings=[])
 	fields.update(kw)
 	return SimpleNamespace(**fields)
@@ -260,18 +260,14 @@ def fields(**kw):
 
 class TestSaveDeviceRules:
 
-	def test_a_global_device_needs_a_profile_and_nothing_changes(self):
-		"""An admin making a device global without a profile: RuleRefused with
-		the reason, the device untouched, nothing added to the session."""
-		session = MagicMock()
-		device = saved_device()
-		before = dict(vars(device))
-		with pytest.raises(RuleRefused, match="needs a security profile"):
-			InventoryView(session, Viewer(OWNER, is_admin=True)).save_device(
-				device, fields(make_global=True), values={"hostname": "x"},
-				mapping_ids=[])
-		assert vars(device) == before
-		session.add.assert_not_called()
+	def test_a_global_device_without_a_profile_is_saved(self):
+		"""An admin making a device global without a profile of theirs: saved
+		global - credentials are each user's own, so a global device carries
+		none (users without a link see it as ACTION NEEDED)."""
+		device = saved_device(credentials=[])
+		saved = InventoryView(MagicMock(), Viewer(OWNER, is_admin=True)).save_device(
+			device, fields(make_global=True), values={"hostname": "x"}, mapping_ids=[])
+		assert (saved.is_global, device.is_global, device.label) == (True, True, "new")
 
 	def test_an_operators_global_request_is_ignored(self):
 		"""An operator asking to make a device global: the request is ignored

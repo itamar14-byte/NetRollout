@@ -10,6 +10,7 @@ from flask_login import login_required
 from netmiko import NetmikoAuthenticationException, NetmikoTimeoutException
 
 from src.audit import AuditAction
+from src.db.tables import DeviceCredential, Inventory
 from src.encryption import decrypt
 from src.inventory import InventoryView, SecurityProfiles
 from src.rollout import inputs
@@ -42,18 +43,28 @@ def create_profile(label: str | None, username: str, password: str,
 @bp.route("")
 @login_required
 def security() -> str:
-	"""The profiles page: the user's profiles, and their devices to test one
-	against."""
+	"""The profiles page: the user's profiles, each with the devices it's
+	linked to (by this user - their own and global ones), and the devices
+	they see, to link a profile to or test one against."""
 	with current_app.backend.postgres.get_session() as db_session:
 		user = signed_in_user(db_session)
 		profiles = user.security_profiles
-		_ = [p.inventory for p in profiles]
-		devices = user.inventory
+		view = InventoryView(db_session, viewer())
+		devices = view.visible()
+		mine = view.profiles(devices)
 		db_session.expunge_all()
+	linked: dict[str, list[Inventory]] = {str(p.id): [] for p in profiles}
+	for device in devices:
+		profile = mine[device.id]
+		if profile is not None:
+			linked[str(profile.id)].append(device)
 
 	return render_template("security.html",
 	                       profiles=profiles,
 	                       devices=devices,
+	                       linked=linked,
+	                       my_profile_ids={str(d.id): str(p.id) if p else ""
+	                                       for d in devices for p in [mine[d.id]]},
 	                       active_section="security")
 
 
@@ -115,20 +126,24 @@ def security_edit(profile_id: uuid.UUID) -> ResponseReturnValue:
 @bp.route("/<uuid:profile_id>/delete", methods=["POST"])
 @login_required
 def security_delete(profile_id: uuid.UUID) -> ResponseReturnValue:
-	"""Delete a profile - refused while devices use it."""
+	"""Delete a profile. The devices it was linked to need another profile
+	of the user's before they roll out to them again (ACTION NEEDED): the
+	links go with it."""
 	with current_app.backend.postgres.get_session() as db_session:
 		profile = SecurityProfiles(db_session, viewer()).owned(profile_id)
 		if profile is None:
 			return redirect(url_for("security.security"))
 		label = profile.label or profile.username
-		if profile.inventory:
-			return flash_redirect(
-				f"Cannot delete '{label}' — {len(profile.inventory)} device(s) "
-				f"assigned. Delete or reassign them first.",
-				"security.security", "danger")
+		unlinked = db_session.query(DeviceCredential).filter_by(profile_id=profile_id).count()
 		db_session.delete(profile)
 	current_app.web.audit(AuditAction.SECURITY_PROFILE_DELETE, object_type="SecurityProfile",
-	                      object_id=profile_id, object_label=label)
+	                      object_id=profile_id, object_label=label,
+	                      detail={"devices_unlinked": unlinked})
+	if unlinked:
+		return flash_redirect(
+			f"Profile deleted. {unlinked} device{'s' if unlinked != 1 else ''} now "
+			f"need{'s' if unlinked == 1 else ''} a security profile of yours.",
+			"security.security", "warning")
 	return flash_redirect("Profile deleted.", "security.security")
 
 
@@ -136,8 +151,8 @@ def security_delete(profile_id: uuid.UUID) -> ResponseReturnValue:
 @login_required
 @with_json()
 def security_test(profile_id: uuid.UUID, data: dict[str, Any]) -> ResponseReturnValue:
-	"""Sign in to one of the user's devices with the profile (SSH, then
-	disconnect): JSON {device_id}.
+	"""Sign in with the profile to a device the user sees - their own or a
+	global one (SSH, then disconnect): JSON {device_id}.
 
 	:returns: ok, or why not - 401 refused, 503 the port unreachable, 504
 	 timed out"""
@@ -151,8 +166,8 @@ def security_test(profile_id: uuid.UUID, data: dict[str, Any]) -> ResponseReturn
 
 	with current_app.backend.postgres.get_session() as db_session:
 		profile = SecurityProfiles(db_session, viewer()).owned(profile_id)
-		# the edit rule: owners, admins on global devices
-		device = InventoryView(db_session, viewer()).get_editable(device_id)
+		# any device the user sees: it's their own credentials being tried
+		device = InventoryView(db_session, viewer()).get_visible(device_id)
 		if not profile or not device:
 			return err("Profile or device not found", 404)
 		if not inputs.tcp_reachable(device.ip, device.port):

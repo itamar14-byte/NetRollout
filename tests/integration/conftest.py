@@ -49,7 +49,7 @@ from werkzeug.security import generate_password_hash
 import src.encryption as enc
 from src.db import connections
 from src.db.connections import PostgresConnection, PostgresConfig, RedisConnection, RedisConfig
-from src.db.tables import Base, User, SecurityProfile, Inventory, VariableMapping
+from src.db.tables import Base, DeviceCredential, User, SecurityProfile, Inventory, VariableMapping
 from src.encryption import decrypt, encrypt
 from src.webapp.build import create_app
 from src.webapp.hooks import conn_limit
@@ -379,15 +379,18 @@ def make_profile(app):
 @pytest.fixture
 def make_device(app):
 	"""make_device(owner, ...) adds an inventory device (cisco_ios on port 22 by
-	default) and returns its id."""
+	default) and returns its id; profile_id links that profile to it for the
+	profile's owner (credentials are per user: device_credentials)."""
 
 	def _make(owner, ip="10.0.0.1", label=None, profile_id=None,
 	          is_global=False, var_maps=None, device_type="cisco_ios", port=22):
 		with app.backend.postgres.get_session() as s:
 			d = Inventory(ip=ip, label=label or f"dev-{ip}", port=port,
 			              device_type=device_type, user_id=owner.id,
-			              sec_profile_id=profile_id, is_global=is_global,
-			              var_maps=var_maps)
+			              is_global=is_global, var_maps=var_maps)
+			if profile_id is not None:
+				d.credentials.append(DeviceCredential(
+					user_id=s.get(SecurityProfile, profile_id).user_id, profile_id=profile_id))
 			s.add(d)
 			s.flush()
 			return d.id
@@ -441,6 +444,18 @@ def db_get(app):
 			return obj
 
 	return _get
+
+
+@pytest.fixture
+def linked(app):
+	"""linked(device_id, user) - the id of the security profile `user` logs in
+	to the device with (their device_credentials link), or None."""
+	def _linked(device_id, user):
+		with app.backend.postgres.get_session() as s:
+			link = s.get(DeviceCredential, (device_id, user.id))
+			return link.profile_id if link else None
+
+	return _linked
 
 
 # ── Ephemeral OpenLDAP directory (tests only — never part of the deployment) ─

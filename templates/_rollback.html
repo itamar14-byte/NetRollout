@@ -50,6 +50,33 @@
                         Verbose
                     </label>
                 </div>
+                <!-- Shown when some devices have no security profile of yours: the
+                     rollback logs in with your own credentials, never the job owner's -->
+                <div id="rollbackProfile" style="display:none; margin-top:0.85rem; padding:0.7rem 0.8rem;
+                         border:1px solid rgba(255,183,77,0.35); background:rgba(255,183,77,0.06);
+                         border-radius:8px; font-size:0.78rem; color:#ffe0b2;">
+                    <div style="font-weight:600; color:#ffb74d; margin-bottom:0.3rem;">
+                        <i class="bi bi-shield-lock me-1"></i>Your credentials for these devices
+                    </div>
+                    <div style="color:var(--nr-text-muted); margin-bottom:0.5rem;">
+                        NetRollout logs in with your own security profile. Pick one of yours for:
+                        <span id="rollbackProfileDevices" style="font-family:'JetBrains Mono',monospace; color:#ffe0b2;"></span>
+                    </div>
+                    <label for="rollbackProfileSelect" class="visually-hidden">Your security profile</label>
+                    <select id="rollbackProfileSelect" class="form-select form-select-sm"
+                            style="background:#111; border-color:#333; color:#ddd; font-size:0.78rem;"></select>
+                    <div id="rollbackNoProfiles" style="display:none; margin-top:0.4rem;">
+                        You have no security profiles yet - create one in
+                        <a href="/security" style="color:#ffb74d;">Security Profiles</a> first.
+                    </div>
+                    <label id="rollbackLinkRow" style="display:none; margin-top:0.5rem; align-items:center; gap:0.4rem; cursor:pointer; color:var(--nr-text-muted);">
+                        <input type="checkbox" id="rollbackLink" checked style="accent-color:#00bcd4;">
+                        Link it to the device<span id="rollbackLinkPlural"></span> you see, so your next rollouts use it too
+                    </label>
+                    <div id="rollbackOnceNote" style="display:none; margin-top:0.35rem; color:var(--nr-text-muted);">
+                        For another user's own devices it's used for this rollback only.
+                    </div>
+                </div>
                 <input type="hidden" id="rollbackJobId">
             </div>
             <div class="modal-footer border-0 pt-1">
@@ -78,6 +105,7 @@
         const err = document.getElementById("rollbackError");
         err.style.display = "none";
         err.textContent = "";
+        document.getElementById("rollbackProfile").style.display = "none";
         if (!rollbackModal) {
             rollbackModal = new bootstrap.Modal(
                 document.getElementById("rollbackModal"));
@@ -92,29 +120,72 @@
             document.getElementById("rollbackCommands").focus();
             return;
         }
+        const body = {
+            commands,
+            verify: document.getElementById("rollbackVerify").checked,
+            verbose: document.getElementById("rollbackVerbose").checked
+        };
+        // the profile picked for devices without one of yours (asked below)
+        if (document.getElementById("rollbackProfile").style.display !== "none") {
+            const picked = document.getElementById("rollbackProfileSelect").value;
+            if (!picked) {
+                document.getElementById("rollbackProfileSelect").focus();
+                return;
+            }
+            body.profile_id = picked;
+            body.link = document.getElementById("rollbackLink").checked;
+        }
         fetch(`/rollout/rollback/${encodeURIComponent(jobId)}`, {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
                 "X-CSRFToken": CSRF_TOKEN
             },
-            body: JSON.stringify({
-                commands,
-                verify: document.getElementById("rollbackVerify").checked,
-                verbose: document.getElementById("rollbackVerbose").checked
-            })
+            body: JSON.stringify(body)
         })
         .then(r => r.json())
         .then(data => {
+            const err = document.getElementById("rollbackError");
             if (data.status === "ok") {
                 rollbackModal.hide();
                 window.location.href = `/active_jobs?new=${encodeURIComponent(data.job_id)}`;
+            } else if (data.needs_profile) {
+                err.style.display = "none";
+                askProfile(data.needs_profile, data.profiles || []);
             } else {
-                const err = document.getElementById("rollbackError");
                 err.textContent = data.message || "Rollback failed.";
                 err.style.display = "block";
             }
         });
     };
+
+    // Devices with no security profile of yours: pick one of yours (as text:
+    // labels and names are other people's input)
+    function askProfile(devices, profiles) {
+        document.getElementById("rollbackProfileDevices").textContent =
+            devices.map(d => d.label || d.ip).join(", ");
+        const select = document.getElementById("rollbackProfileSelect");
+        select.replaceChildren();
+        const prompt = document.createElement("option");
+        prompt.value = "";
+        prompt.textContent = profiles.length ? "Choose a profile of yours…" : "No profiles";
+        select.append(prompt);
+        profiles.forEach(p => {
+            const option = document.createElement("option");
+            option.value = p.id;
+            option.textContent = p.label;
+            select.append(option);
+        });
+        select.disabled = !profiles.length;
+        document.getElementById("rollbackNoProfiles").style.display = profiles.length ? "none" : "block";
+        const linkable = devices.filter(d => d.linkable).length;
+        document.getElementById("rollbackLinkRow").style.display = linkable ? "flex" : "none";
+        document.getElementById("rollbackLinkPlural").textContent = linkable === 1 ? "" : "s";
+        document.getElementById("rollbackLink").checked = true;
+        document.getElementById("rollbackOnceNote").style.display =
+            devices.some(d => !d.linkable) ? "block" : "none";
+        document.getElementById("rollbackProfile").style.display = "block";
+        if (profiles.length) select.focus();
+    }
 })();
 </script>

@@ -5,6 +5,11 @@ properties and attribute values, their mapping bindings and the rules for
 saving a device; and whether a device is reachable from the NetRollout
 server.
 
+Credentials: every user logs in to a device with their own security
+profile (DeviceCredential: one link per user per device) - a global device is
+shared, its credentials never are. InventoryView.profiles() is the one way to
+read them: what a rollout by that user connects with.
+
 Attributes: the system properties' values are the device's own (var_maps),
 shared by everyone who sees it and set by who may edit it; a custom
 property is one user's, and so are its values (DeviceAttribute rows) - any
@@ -35,8 +40,8 @@ from sqlalchemy.orm import Query, Session, selectinload
 
 from src.accounts.users import Viewer
 from src.db.connections import REDIS_UNAVAILABLE
-from src.db.tables import (DeviceAttribute, Inventory, PropertyDefinition, SecurityProfile,
-                           VariableMapping)
+from src.db.tables import (DeviceAttribute, DeviceCredential, Inventory, PropertyDefinition,
+                           SecurityProfile, VariableMapping)
 from src.encryption import decrypt, encrypt
 from src.rollout.engine import endpoint, mapping_resolvable, Device
 from src.rollout import inputs
@@ -277,10 +282,6 @@ class RuleRefused(ValueError):
 	raised before anything is changed (only InventoryView raises it)."""
 
 
-GLOBAL_NEEDS_PROFILE = ("A global device needs a security profile — users "
-                        "can't assign their own to it.")
-
-
 @dataclass(frozen=True)
 class DeviceFields:
 	"""A device's fields from the page's form, already checked (a valid IP,
@@ -289,7 +290,7 @@ class DeviceFields:
 	port: int
 	device_type: str
 	label: str
-	profile_id: uuid.UUID | None
+	profile_id: uuid.UUID | None   # the viewer's own, for their link
 	make_global: bool     # what the form asked; only an admin's request counts
 
 
@@ -326,8 +327,7 @@ class InventoryView:
 		query = self.session.query(Inventory).filter(visible_devices_clause(self.viewer.id))
 		if ips is not None:
 			query = query.filter(Inventory.ip.in_(ips))
-		return (query.options(selectinload(Inventory.security_profile),
-		                      selectinload(Inventory.var_mappings))
+		return (query.options(selectinload(Inventory.var_mappings))
 		        .order_by(Inventory.label)
 		        .all())
 
@@ -336,8 +336,7 @@ class InventoryView:
 		 preloaded); an id they can't see is left out, as a missing one"""
 		return (self.session.query(Inventory)
 		        .filter(visible_devices_clause(self.viewer.id), Inventory.id.in_(ids))
-		        .options(selectinload(Inventory.security_profile),
-		                 selectinload(Inventory.var_mappings))
+		        .options(selectinload(Inventory.var_mappings))
 		        .all())
 
 	def visible_endpoints(self) -> set[Target]:
@@ -420,6 +419,52 @@ class InventoryView:
 		if scope is LabelScope.VISIBLE:
 			return query.filter(visible_devices_clause(self.viewer.id))
 		return query
+
+	# ── the viewer's credentials ──
+
+	def profiles(self, devices: Iterable[Inventory]) -> dict[uuid.UUID, SecurityProfile | None]:
+		"""The viewer's own security profile for each device: what NetRollout
+		logs in with when they roll out to it - never another user's. One
+		query, however many devices.
+
+		:param devices: saved rows (they have ids)
+		:returns: {device id: their profile; None: they linked none}"""
+		found: dict[uuid.UUID, SecurityProfile | None] = {d.id: None for d in devices}
+		if found:
+			rows = (self.session.query(DeviceCredential.device_id, SecurityProfile)
+			        .join(SecurityProfile, SecurityProfile.id == DeviceCredential.profile_id)
+			        .filter(DeviceCredential.user_id == self.viewer.id,
+			                DeviceCredential.device_id.in_(list(found))))
+			for device_id, profile in rows:
+				found[device_id] = profile
+		return found
+
+	def link_profile(self, device: Inventory, profile_id: uuid.UUID | None) -> None:
+		"""The viewer's link to a device they see becomes one of their own
+		profiles (None: no link - the device then needs one before they can
+		roll out to it). Nobody else's link is touched.
+
+		:param device: a saved row, or one just added to the session
+		:raises RuleRefused: the profile isn't the viewer's - nothing changed"""
+		if profile_id is not None and not self.profile_allowed(profile_id):
+			raise RuleRefused("Security profile not found.")
+		link = (self.session.get(DeviceCredential, (device.id, self.viewer.id))
+		        if device.id is not None else None)
+		if profile_id is None:
+			if link is not None:
+				self.session.delete(link)
+		elif link is None:
+			device.credentials.append(DeviceCredential(user_id=self.viewer.id,
+			                                           profile_id=profile_id))
+		else:
+			link.profile_id = profile_id
+
+	def without_profile(self, devices: Iterable[Inventory]) -> list[Inventory]:
+		""":returns: the devices the viewer has no profile for - the ones that
+		 show ACTION NEEDED and that they can't roll out to yet"""
+		rows = list(devices)
+		mine = self.profiles(rows)
+		return [d for d in rows if mine[d.id] is None]
 
 	# ── properties and attribute values ──
 
@@ -513,14 +558,11 @@ class InventoryView:
 
 	# ── saving a device ──
 
-	def profile_allowed(self, profile_id: uuid.UUID | None,
-	                    current_profile_id: uuid.UUID | None = None) -> bool:
-		"""A device may only carry a profile the viewer owns — otherwise a
-		user could attach another user's (e.g. an admin's global) credentials
-		to a device they control. Keeping the device's profile unchanged is
-		always allowed (an admin saving another admin's global device); None
-		(no profile) too."""
-		if profile_id is None or profile_id == current_profile_id:
+	def profile_allowed(self, profile_id: uuid.UUID | None) -> bool:
+		"""A user links only a profile they own - nobody acts with another
+		user's credentials (the database refuses it too). None (no profile)
+		is always allowed."""
+		if profile_id is None:
 			return True
 		return self.session.query(SecurityProfile).filter_by(
 			id=profile_id, user_id=self.viewer.id).first() is not None
@@ -531,10 +573,10 @@ class InventoryView:
 	                mapping_ids: list[uuid.UUID] | None = None) -> SavedDevice:
 		"""Add a device (None) or save one the viewer may edit, with the
 		device-saving rules: only an admin makes a device global or local
-		(anyone else's request is ignored), a global device needs a security
-		profile, a device carries only a profile the viewer owns (or keeps
-		its own), and a device made local loses the other users' bindings and
-		values - nobody else sees it any more. Every rule is checked before
+		(anyone else's request is ignored), the profile is the viewer's own
+		link to the device (one of their profiles, or none), and a device made
+		local becomes the viewer's and loses the other users' links, bindings
+		and values - nobody else sees it any more. Every rule is checked before
 		anything changes. An ip:port another visible device uses already is
 		allowed, with a warning (on an edit: only when it changed).
 
@@ -547,10 +589,7 @@ class InventoryView:
 		:raises RuleRefused: a rule refused it - nothing changed"""
 		was_global = device.is_global if device is not None else False
 		is_global = fields.make_global if self.viewer.is_admin else was_global
-		if is_global and fields.profile_id is None:
-			raise RuleRefused(GLOBAL_NEEDS_PROFILE)
-		if not self.profile_allowed(fields.profile_id,
-		                            device.sec_profile_id if device is not None else None):
+		if not self.profile_allowed(fields.profile_id):
 			raise RuleRefused("Security profile not found.")
 
 		if device is None:
@@ -558,7 +597,7 @@ class InventoryView:
 			                               fields.ip, fields.port)
 			device = Inventory(user_id=self.viewer.id, label=fields.label, ip=fields.ip,
 			                   port=fields.port, device_type=fields.device_type,
-			                   sec_profile_id=fields.profile_id, is_global=is_global)
+			                   is_global=is_global)
 			self.session.add(device)
 		else:
 			old_endpoint = (device.ip, device.port)
@@ -571,32 +610,26 @@ class InventoryView:
 				shared = same_endpoint_warning(self.same_endpoint(
 					device.ip, device.port, exclude=device.id), device.ip, device.port)
 			device.device_type = fields.device_type
-			device.sec_profile_id = fields.profile_id
 			device.is_global = is_global
+		self.link_profile(device, fields.profile_id)
 
 		if values is not None:
 			set_system_values(device, values)
 			self.set_custom_values(device, values, own)
 		unbound = self.bind_mappings(device, mapping_ids) if mapping_ids is not None else []
 		if was_global and not is_global:
-			# Other users can no longer see this device — drop their bindings
-			# rather than leave invisible orphans in the join table.
+			# Other users can no longer see this device: it becomes the viewer's
+			# (who made it private), and the others' links, bindings and values
+			# go rather than stay as invisible orphans.
+			device.user_id = self.viewer.id
 			device.var_mappings = [m for m in device.var_mappings
 			                       if m.user_id == device.user_id]
 			self.drop_other_users_values(device)
+			self.session.query(DeviceCredential).filter(
+				DeviceCredential.device_id == device.id,
+				DeviceCredential.user_id != self.viewer.id).delete(synchronize_session=False)
 		return SavedDevice(label=device.label, is_global=is_global, was_global=was_global,
 		                   shared_endpoint=shared, unbound=unbound)
-
-	def assign_profile(self, device: Inventory, profile_id: uuid.UUID | None) -> bool:
-		"""Give a device the viewer may edit one of the viewer's profiles, or
-		none - except a global device, which keeps one (other users can't give
-		it theirs).
-
-		:returns: whether it was assigned (False: refused, nothing changed)"""
-		if device.is_global and profile_id is None:
-			return False
-		device.sec_profile_id = profile_id
-		return True
 
 
 class SecurityProfiles:
@@ -865,8 +898,10 @@ def import_csv(parser: InputParser, device_path: str, user_id: uuid.UUID,
 		view.set_custom_values(row, values, own)
 		if profiles:
 			if device.username and device.password:
-				row.security_profile = profiles.resolve(
-					device.username, device.password, device.secret)
+				profile = profiles.resolve(device.username, device.password, device.secret)
+				if profile.id is None:
+					db_session.flush()      # a new profile's id, for the link
+				row.credentials.append(DeviceCredential(user_id=user_id, profile_id=profile.id))
 			elif device.username or device.password:
 				half_credentials.append(row.label)
 		db_session.add(row)

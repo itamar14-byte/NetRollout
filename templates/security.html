@@ -188,7 +188,7 @@
 <div class="row g-3">
     {% for profile in profiles %}
     {% set ns = namespace(devs=[]) %}
-    {% for d in profile.inventory %}
+    {% for d in linked.get(profile.id|string, []) %}
       {% set ns.devs = ns.devs + [{"label": d.label, "ip": d.ip, "device_type": d.device_type}] %}
     {% endfor %}
     <div class="col-md-6 col-xl-4">
@@ -239,7 +239,8 @@
                 <div class="d-flex gap-3">
                     <button class="card-action-link devices-btn" title="View attached devices">
                         <i class="bi bi-server"></i>
-                        {{ profile.inventory|length }} device{{ "s" if profile.inventory|length != 1 else "" }}
+                        {% set n_linked = linked.get(profile.id|string, [])|length %}
+                        {{ n_linked }} device{{ "s" if n_linked != 1 else "" }}
                     </button>
                     <button class="card-action-link test-btn" title="Test connection">
                         <i class="bi bi-plug"></i>
@@ -468,7 +469,7 @@
             </div>
             <div class="modal-body">
                 <p style="font-size:0.82rem; color:var(--nr-text-muted); margin-bottom:1.2rem;">
-                    Select a device from your inventory to test this credential profile against.
+                    Select a device (yours or a global one) to test this credential profile against.
                     A full Netmiko connection will be attempted.
                 </p>
 
@@ -537,7 +538,7 @@ let activeProfileId = null;
 // All inventory devices — used for the split assign view
 {% set ns = namespace(all_devs=[]) %}
 {% for d in devices %}
-{% set ns.all_devs = ns.all_devs + [{"id": d.id|string, "label": d.label, "ip": d.ip, "device_type": d.device_type, "is_global": d.is_global, "sec_profile_id": d.sec_profile_id|string if d.sec_profile_id else ""}] %}
+{% set ns.all_devs = ns.all_devs + [{"id": d.id|string, "label": d.label, "ip": d.ip, "device_type": d.device_type, "is_global": d.is_global, "sec_profile_id": my_profile_ids.get(d.id|string, "")}] %}
 {% endfor %}
 const DEVICES_ALL = {{ ns.all_devs | tojson }};
 // Profile id → display name, to show which profile a device would move from
@@ -617,22 +618,18 @@ function openDevices(profile) {
         pool:     DEVICES_ALL.filter(d => !mine(d)).map(d => d.id),
         logos:    VENDOR_LOGOS,
         legend:   document.getElementById('boardLegend'),
-        // Where the device's credentials come from today
-        meta:     d => mine(d) ? '' : (PROFILE_LABELS[d.sec_profile_id] || 'no profile'),
-        // Server rule too: a global device must keep a profile (move it to
-        // another profile from that profile's board instead)
-        locked:   (d, isIn) => d.is_global && isIn && mine(d)
-            ? 'Global devices must keep a profile. Assign it to another profile instead.' : null,
-        emptyIn:  'Nothing assigned yet. Drag devices here, or click them.',
-        emptyOut: () => 'No other devices in your inventory.',
+        // Which of your profiles you log in to the device with today
+        meta:     d => mine(d) ? '' : (PROFILE_LABELS[d.sec_profile_id] || 'no profile of yours'),
+        emptyIn:  'Nothing linked yet. Drag devices here, or click them.',
+        emptyOut: () => 'No other devices you can see.',
         onChange: b => {
             nrBoardSaveLabel(document.getElementById('saveAssignBtn'), b);
             const n = b.removed().length;
             const warn = document.getElementById('unassignWarn');
             warn.style.display = n ? '' : 'none';
             warn.querySelector('span').textContent = n === 1
-                ? '1 device will be left without a security profile. New Rollout blocks it until it gets one.'
-                : n + ' devices will be left without a security profile. New Rollout blocks them until they get one.';
+                ? '1 device will be left without a security profile of yours. You can\'t roll out to it until you link one.'
+                : n + ' devices will be left without a security profile of yours. You can\'t roll out to them until you link one.';
         },
     });
 

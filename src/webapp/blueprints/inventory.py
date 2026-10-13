@@ -56,21 +56,28 @@ def device_not_found() -> ResponseReturnValue:
 @login_required
 def inventory() -> str:
 	"""The inventory page: the user's devices and the global ones, with
-	their profiles, mappings, properties and the attribute values the user
-	sees."""
+	the user's own profile on each (a device without one is marked ACTION
+	NEEDED; ?needs_profile=1 shows only those), their mappings, properties
+	and the attribute values the user sees."""
 	with current_app.backend.postgres.get_session() as db_session:
 		view = InventoryView(db_session, viewer())
 		sys_props, user_props = view.property_defs()
 		devices = view.visible()
 		values = view.attributes(devices)
+		my_profiles = view.profiles(devices)
 		user = signed_in_user(db_session)
 		profiles = user.security_profiles
 		var_mappings = user.variable_mappings
 		db_session.expunge_all()
-	global_devices, my_devices = partition_devices(devices)
+	needs_profile = [d for d in devices if my_profiles[d.id] is None]
+	only_needing = request.args.get("needs_profile") == "1"
+	global_devices, my_devices = partition_devices(needs_profile if only_needing else devices)
 	return render_template("inventory.html",
 	                       global_devices=global_devices,
 	                       my_devices=my_devices,
+	                       my_profiles={str(i): p for i, p in my_profiles.items()},
+	                       needs_profile_count=len(needs_profile),
+	                       only_needing=only_needing,
 	                       is_admin=viewer().is_admin,
 	                       profiles=profiles,
 	                       mappings=var_mappings,
@@ -84,9 +91,9 @@ def inventory() -> str:
 @login_required
 @with_form("ip", "device_type")
 def inventory_create(data: Any) -> ResponseReturnValue:
-	"""Add a device from the page's form. Only an admin may make it global,
-	and a global one needs a security profile; an ip:port in use already is
-	allowed, with a warning."""
+	"""Add a device from the page's form, with the creator's own profile
+	linked (or none: ACTION NEEDED until they link one). Only an admin may
+	make it global; an ip:port in use already is allowed, with a warning."""
 	ip = data.get("ip", "").strip()
 	port = data.get("port", "22").strip()
 	device_type = data.get("device_type", "").strip()
@@ -162,12 +169,12 @@ def inventory_reachability(data: dict[str, Any]) -> ResponseReturnValue:
 @bp.route("/<uuid:device_id>/edit", methods=["POST"])
 @login_required
 def inventory_edit(device_id: uuid.UUID) -> ResponseReturnValue:
-	"""Save a device from the page's form: its fields, profile, system
-	attribute values, and the editor's own custom values and mapping
+	"""Save a device from the page's form: its fields, system attribute
+	values, and the editor's own profile link, custom values and mapping
 	bindings (other users' are never touched) - by its owner, or an admin
-	for a global one. Making a global device local drops other users'
-	bindings (InventoryView.save_device: the rules, all checked before
-	anything changes)."""
+	for a global one. Making a global device local makes it the editor's
+	and drops other users' links and bindings (InventoryView.save_device:
+	the rules, all checked before anything changes)."""
 	ip = request.form.get("ip", "").strip()
 	port = request.form.get("port", "22").strip()
 	device_type = request.form.get("device_type", "").strip()
@@ -215,30 +222,40 @@ def inventory_edit(device_id: uuid.UUID) -> ResponseReturnValue:
 @login_required
 def inventory_attributes(device_id: uuid.UUID) -> ResponseReturnValue:
 	"""What anyone who sees a device sets on it for themselves - the page's
-	form for a device they can't edit: their own custom values (attr_<name>
-	fields for their own properties; a blank one removes the value, any
-	other field is ignored - the device itself never changes), then their
-	mapping bindings, checked against those values. A device the user
-	can't see: 404."""
+	form for a device they can't edit: their own security profile for it
+	(sec_profile_id: one of theirs, blank for none; left alone when not
+	sent), their own custom values (attr_<name> fields for their own
+	properties; a blank one removes the value, any other field is ignored -
+	the device itself never changes), then their mapping bindings, checked
+	against those values. A device the user can't see: 404."""
 	try:
 		mapping_ids = parse_mapping_ids(request.form.getlist("mapping_ids"))
+		raw_profile = request.form.get("sec_profile_id")
+		profile_id = uuid.UUID(raw_profile.strip()) if raw_profile and raw_profile.strip() else None
 	except ValueError:
-		return flash_redirect("Invalid mapping ID.", "inventory.inventory",
+		return flash_redirect("Invalid mapping or security profile ID.", "inventory.inventory",
 		                      "danger")
-	with current_app.backend.postgres.get_session() as db_session:
-		view = InventoryView(db_session, viewer())
-		device = view.get_visible(device_id)
-		if device is None:
-			return err("Not found", 404)
-		_, user_props = view.property_defs()
-		view.set_custom_values(device, form_values(request.form, user_props),
-		                       [p["name"] for p in user_props])
-		unbound = view.bind_mappings(device, mapping_ids)
-		label = device.label
+	try:
+		with current_app.backend.postgres.get_session() as db_session:
+			view = InventoryView(db_session, viewer())
+			device = view.get_visible(device_id)
+			if device is None:
+				return err("Not found", 404)
+			if raw_profile is not None:
+				view.link_profile(device, profile_id)
+			_, user_props = view.property_defs()
+			view.set_custom_values(device, form_values(request.form, user_props),
+			                       [p["name"] for p in user_props])
+			unbound = view.bind_mappings(device, mapping_ids)
+			label = device.label
+	except RuleRefused as e:
+		return flash_redirect(str(e), "inventory.inventory", "danger")
 	flash_skipped_mappings(unbound)
 	current_app.web.audit(AuditAction.INVENTORY_ATTRIBUTES, object_type="Inventory",
 	                      object_id=device_id, object_label=label,
-	                      detail={"mapping_count": len(mapping_ids)})
+	                      detail={"mapping_count": len(mapping_ids),
+	                              **({"profile_linked": profile_id is not None}
+	                                 if raw_profile is not None else {})})
 	return flash_redirect(f"Your attributes and mappings saved for "
 	                      f"{label}.", "inventory.inventory")
 
@@ -348,9 +365,10 @@ def inventory_import_csv() -> ResponseReturnValue:
 @bp.route("/bulk_assign", methods=["POST"])
 @login_required
 def inventory_bulk_assign() -> ResponseReturnValue:
-	"""Assign one of the user's security profiles to their devices, or none
-	(a global device keeps one): JSON {profile_id, device_ids}. Bad or
-	foreign ids are skipped, each one logged."""
+	"""Link one of the user's security profiles to devices they see - their
+	own and global ones (the link is theirs alone) - or unlink theirs (no
+	profile_id): JSON {profile_id, device_ids}. Bad or unseen ids are
+	skipped, each one logged."""
 	logger = RolloutLogger(webapp=False, verbose=False,
 	                       prefix="bulk_sec_assign",
 	                       job_id=str(uuid.uuid4())[:8])
@@ -392,15 +410,10 @@ def inventory_bulk_assign() -> ResponseReturnValue:
 			except (ValueError, TypeError):
 				skipped += 1
 				continue
-			# the edit rule: owners, admins on global devices
-			device = view.get_editable(parsed_device_id)
-			if device and not view.assign_profile(device, parsed_profile_id):
-				# same rule as create/edit: a global device must keep a
-				# profile — other users can't give it one
-				logger.notify(f"{device.label} ({device.ip}): global device "
-				              f"must keep a profile", Tone.WARNING)
-				skipped += 1
-			elif device:
+			# any device the user sees: the link is the user's own
+			device = view.get_visible(parsed_device_id)
+			if device:
+				view.link_profile(device, parsed_profile_id)
 				logger.notify(f"{device.label} ({device.ip}): "
 				              f"{'assigned' if parsed_profile_id else 'unassigned'}",
 				              Tone.SUCCESS)

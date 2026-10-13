@@ -18,7 +18,7 @@ from src.rollout.engine import Device, endpoint
 from src.rollout.log import RolloutLogger, Tone
 from src.rollout.platforms import PLATFORMS
 if TYPE_CHECKING:   # annotations only: the DB models load the web stack, which the CLI (.exe) must not
-	from src.db.tables import Inventory
+	from src.db.tables import Inventory, SecurityProfile
 
 
 # Netmiko device types NetRollout supports: those it knows how to finish a
@@ -244,17 +244,21 @@ class InputParser:
 
 	@staticmethod
 	def import_from_inventory(raw_devices: list[Inventory], user_id: uuid.UUID,
+	                          profiles: Mapping[uuid.UUID, SecurityProfile | None],
 	                          attributes: Mapping[uuid.UUID, dict[str, Any]] | None = None
 	                          ) -> list[Device]:
 		"""Inventory rows made Devices for a rollout (their profiles decrypted).
 
-		:param user_id: who rolls out - only their own variable mappings apply
+		:param user_id: whose variable mappings apply
+		:param profiles: the profile to log in with, by device id - the person
+		 rolling out's own (InventoryView.profiles)
 		:param attributes: each device's attribute values as that user sees
 		 them, by device id (the web app: InventoryView.attributes); None:
 		 the rows' own (var_maps)
-		:raises ValueError: a device without a security profile"""
+		:raises ValueError: a device without a profile"""
 		return [Device.from_inventory(
-			row, user_id, None if attributes is None else attributes.get(row.id, {}))
+			row, user_id, profiles.get(row.id),
+			None if attributes is None else attributes.get(row.id, {}))
 			for row in raw_devices]
 
 	def parse_commands(self, commands_path: str) -> list[str]:

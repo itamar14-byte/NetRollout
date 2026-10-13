@@ -87,7 +87,8 @@ def user_action_factory(user: User, action: str, db_session: Session) -> None:
 	elif action == "demote":
 		user.role = Role.OPERATOR
 	elif action == "delete":
-		db_session.delete(user)
+		# private things go, global devices stay (Accounts.delete_user)
+		Accounts(db_session).delete_user(user)
 	elif action == "reset_2fa":
 		# They enroll a new authenticator at their next sign-in (start_otp_flow
 		# sends users without a secret to enrollment); the factory admin's 2FA
