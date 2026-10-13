@@ -357,7 +357,7 @@ Then, in `feed.json`, replace each asset's `browser_download_url` with the addre
 NETROLLOUT_VERSION=<version> docker compose -f compose.yaml -f compose.http.yaml --profile monitoring config --images
 ```
 
-For 1.0.0rc2 that's `itamarweinstein/netrollout`, `itamarweinstein/netrollout-nginx`, `postgres`, `redis`, and with monitoring `grafana/grafana`, `grafana/loki`, `grafana/alloy` and `prom/prometheus`. Provide them in one of two ways:
+For 1.0.0rc3 that's `itamarweinstein/netrollout`, `itamarweinstein/netrollout-nginx`, `postgres`, `redis`, and with monitoring `grafana/grafana`, `grafana/loki`, `grafana/alloy` and `prom/prometheus`. Provide them in one of two ways:
 
 - **A registry mirror.** If your organisation runs a pull-through cache for Docker Hub (Harbor, Nexus or Artifactory, for example), add it to Docker's `registry-mirrors` setting (Docker Desktop: **Settings → Docker Engine**; Linux: `/etc/docker/daemon.json`). Docker then fetches every image through it, and nothing else changes.
 - **Offline.** On a computer with internet access, pull each image and save them to one file, then load it on the server before the update:

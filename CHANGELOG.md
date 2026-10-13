@@ -6,6 +6,15 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ## [Unreleased]
 
+## [1.0.0rc3] - 2026-10-13
+
+### How to update from 1.0.0rc2
+
+- **Windows:** NetRollout Manager → **Update**. It finds this release candidate by itself, downloads Setup, checks it against the release's checksums and updates the install in place, with a backup first. Or download `NetRollout-Setup-1.0.0rc3.exe` from the [Releases page](https://github.com/itamar14-byte/NetRollout/releases) and run it.
+- **Linux:** run `sudo ./bin/netrollout.sh update` in the install folder.
+
+After the update every device keeps the security profile it has today, as its owner's link. Anyone else who rolls out to a global device links one of their own profiles to it first: the device shows **ACTION NEEDED** until they do.
+
 ### Security
 
 - **Personal credentials by design.** NetRollout now logs in to a device only with the security profile of the person who launches the rollout, never anyone else's. A global device is shared, but each user links one of their own profiles to it (**Your security profile** on the device, or Security Profiles); before, it used its creator's credentials for everyone. A change on a device is attributable to the person in the device's own AAA logs, and each team works within its own rights. The database itself refuses a link to another user's profile. Updating keeps every device on the profile it has today, as its owner's link.
@@ -20,19 +29,16 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 - Deleting a user keeps the global devices they created, for everyone; only what is theirs alone goes (private devices, profiles, mappings, properties, results). Before, their global devices were deleted with them.
 - A security profile can be deleted while devices use it: those devices then show ACTION NEEDED until another profile of yours is linked.
-
-### Fixed
-
-- The Audit Log's **View Detail** showed no detail for any entry: the details (a failed sign-in's reason, a role change's from and to, ...) were stored but didn't reach the page whole.
-- A restore took the backup's hostname, so a backup from another server (or one with no hostname set) changed this installation's address, and Setup's **Open NetRollout in the browser** then opened `https://` with no name. A restore now keeps this installation's hostname, as it already kept its HTTPS port, and puts the backup's certificate back only when it serves that hostname. Setup falls back to this computer's name when no hostname is set.
-
-### Changed
-
 - The Audit Log shows each entry's detail in one line under its action (a failed sign-in's reason, a change's from and to, a lock), and a click on an entry (or Enter) opens its full detail.
 - Saving an LDAP server is audited with what changed, from and to (a new server with its settings); the bind password only as "changed", never its value. These settings decide where directory users' passwords go at sign-in.
 - Trusted CA certificates refuse a server's own certificate issued by a CA, a common mistake that can't work, and name the CA to upload instead.
 - After 5 failed sign-ins in a row with the same username, the sign-in page now says "Too many failed sign-ins. Try again in N minutes." and stops that username for 15 minutes, instead of answering "Invalid credentials" throughout. It works the same for every username, an account or not (a made-up name gets the same message at the same moment), so it still doesn't reveal which usernames exist. Directory accounts get the same stop on the sign-in page. A local account's own lock and the disable after 10 wrong passwords are unchanged; an admin's **Enable**, a right password and `netrollout reset-admin` clear the stop too. User Management's **Locked** badge says how many minutes of the lock are left.
 - When GitHub refuses an update check because its limit for requests without a sign-in is used up (60 an hour per internet address, shared by everything on that network), NetRollout Manager and the Linux `update` say so and when it resets, instead of only "answered 403".
+
+### Fixed
+
+- The Audit Log's **View Detail** showed no detail for any entry: the details (a failed sign-in's reason, a role change's from and to, ...) were stored but didn't reach the page whole.
+- A restore took the backup's hostname, so a backup from another server (or one with no hostname set) changed this installation's address, and Setup's **Open NetRollout in the browser** then opened `https://` with no name. A restore now keeps this installation's hostname, as it already kept its HTTPS port, and puts the backup's certificate back only when it serves that hostname. Setup falls back to this computer's name when no hostname is set.
 
 ## [1.0.0rc2] - 2026-10-12
 
@@ -146,6 +152,7 @@ Anycast. The first public release.
 
 - `netrollout-cli` for one-off rollouts from a devices CSV and a commands file, with optional Verify. A standalone Windows `.exe`; no database or Docker needed.
 
-[Unreleased]: https://github.com/itamar14-byte/NetRollout/compare/v1.0.0rc2...HEAD
+[Unreleased]: https://github.com/itamar14-byte/NetRollout/compare/v1.0.0rc3...HEAD
+[1.0.0rc3]: https://github.com/itamar14-byte/NetRollout/compare/v1.0.0rc2...v1.0.0rc3
 [1.0.0rc2]: https://github.com/itamar14-byte/NetRollout/compare/v1.0.0rc1...v1.0.0rc2
 [1.0.0rc1]: https://github.com/itamar14-byte/NetRollout/releases/tag/v1.0.0rc1
