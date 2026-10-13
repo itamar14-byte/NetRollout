@@ -581,37 +581,39 @@ def test_bulk_profile_assign_with_ids_that_are_not_strings(
 	assert linked(dev, user) == prof
 
 
-def test_bulk_profile_assign_follows_the_edit_rule(
-		client_for, make_user, make_profile, make_device, db_get):
-	"""Bulk assign touches the devices the user may edit: an admin assigns their profile
-	to another admin's global device (they may edit it; it was skipped as not theirs),
-	an operator can't assign to a global device nor to another user's device."""
+def test_bulk_profile_assign_links_for_the_user_alone(
+		client_for, make_user, make_profile, make_device, linked):
+	"""Bulk assign links the user's profile to the devices they see, for them
+	alone: an admin and an operator each link theirs to a global device beside
+	its creator's; another user's private device is skipped."""
 	owner, admin, operator = make_user(role="admin"), make_user(role="admin"), make_user()
-	glob = make_device(owner, ip="10.0.0.1", profile_id=make_profile(owner), is_global=True)
+	owners = make_profile(owner)
+	glob = make_device(owner, ip="10.0.0.1", profile_id=owners, is_global=True)
 	theirs = make_device(make_user(), ip="10.0.0.2")
-	admins = make_profile(admin)
+	admins, ops = make_profile(admin), make_profile(operator)
 	resp = client_for(admin).post("/inventory/bulk_assign",
 	                              json={"profile_id": str(admins), "device_ids": [str(glob)]})
-	assert resp.json["status"] == "ok" and db_get(Inventory, glob).sec_profile_id == admins
-	ops = make_profile(operator)
+	assert resp.json["status"] == "ok"
 	client_for(operator).post("/inventory/bulk_assign", json={
 		"profile_id": str(ops), "device_ids": [str(glob), str(theirs)]})
-	assert db_get(Inventory, glob).sec_profile_id == admins
-	assert db_get(Inventory, theirs).sec_profile_id is None
+	assert (linked(glob, owner), linked(glob, admin), linked(glob, operator)) == 	       (owners, admins, ops)
+	assert linked(theirs, operator) is None
 
 
-def test_bulk_unassign_keeps_global_devices_profile(
-		client_for, make_user, make_profile, make_device, db_get):
-	"""Bulk unassign clears a local device's profile but a global device keeps its own
-	(the same rule as create/edit: a global device must keep a profile)."""
-	admin = make_user(role="admin")
-	prof = make_profile(admin)
+def test_bulk_unassign_removes_only_the_users_link(
+		client_for, make_user, make_profile, make_device, linked):
+	"""Bulk unassign removes the user's own links - on a global device too (it
+	may have none now) - and leaves another user's link on it."""
+	admin, user = make_user(role="admin"), make_user()
+	prof, users = make_profile(admin), make_profile(user)
 	glob = make_device(admin, ip="10.0.0.1", profile_id=prof, is_global=True)
 	local = make_device(admin, ip="10.0.0.2", profile_id=prof)
+	client_for(user).post("/inventory/bulk_assign", json={
+		"profile_id": str(users), "device_ids": [str(glob)]})
 	client_for(admin).post("/inventory/bulk_assign", json={
 		"profile_id": None, "device_ids": [str(glob), str(local)]})
-	assert db_get(Inventory, glob).sec_profile_id == prof
-	assert db_get(Inventory, local).sec_profile_id is None
+	assert (linked(glob, admin), linked(local, admin)) == (None, None)
+	assert linked(glob, user) == users
 
 
 # ── Global devices ───────────────────────────────────────────────────────────
