@@ -13,7 +13,7 @@ from types import SimpleNamespace
 import pytest
 from sqlalchemy import select
 
-from src.db.tables import (DeviceAttribute, DeviceResult, Inventory, PropertyDefinition,
+from src.db.tables import (DeviceAttribute, DeviceCredential, DeviceResult, Inventory, PropertyDefinition,
                            User)
 
 pytestmark = [pytest.mark.postgres, pytest.mark.redis]
@@ -23,9 +23,11 @@ FORM = {"label": "CORE-X", "ip": "10.50.0.1", "port": "22",
 
 
 @pytest.fixture
-def world(make_user, make_profile, make_device, client_for):
+def world(make_user, make_profile, make_device, client_for, session_scope):
 	"""An admin's global device CORE-X (hostname core-x, a profile), operators b
-	and c each with their own property "rack", and b's private device."""
+	and c each with their own property "rack" and their own profile linked to
+	CORE-X (they roll out to it with their own credentials), and b's private
+	device."""
 	admin = make_user(role="admin")
 	b, c = make_user(), make_user()
 	prof = make_profile(admin)
@@ -36,6 +38,9 @@ def world(make_user, make_profile, make_device, client_for):
 	for user in (b, c):
 		client_for(user).post("/properties/create",
 		                      json={"name": "rack", "label": "Rack"})
+		own = make_profile(user)
+		with session_scope() as s:
+			s.add(DeviceCredential(device_id=core, user_id=user.id, profile_id=own))
 	return SimpleNamespace(admin=admin, b=b, c=c, prof=prof, core=core,
 	                       b_own=b_own)
 
@@ -202,7 +207,8 @@ def test_deleting_a_device_or_a_user_leaves_no_values(
 		world, client_for, session_scope, make_user, make_profile, make_device):
 	"""Deleting a device removes every user's values on it; deleting a user removes
 	theirs - and deleting an admin whose global device carries other users'
-	values removes the device and those values, nothing blocked."""
+	values keeps the device (its creator cleared) and those values, nothing
+	blocked."""
 	set_mine(client_for(world.b), world.b_own, rack="B-RACK-2")
 	set_mine(client_for(world.b), world.core, rack="B-RACK-1")
 	set_mine(client_for(world.c), world.core, rack="C-RACK-9")
@@ -217,9 +223,10 @@ def test_deleting_a_device_or_a_user_leaves_no_values(
 	client_for(world.admin).post(f"/admin/users/{world.b.id}/delete")
 	client_for(world.admin).post(f"/admin/users/{admin2.id}/delete")
 	with session_scope() as s:
-		assert s.get(User, admin2.id) is None and s.get(Inventory, other_global) is None
+		kept = s.get(Inventory, other_global)
+		assert s.get(User, admin2.id) is None and kept is not None and kept.user_id is None
 		rows = {(a.user_id, a.device_id) for a in s.query(DeviceAttribute)}
-	assert rows == {(world.c.id, world.core)}
+	assert rows == {(world.c.id, world.core), (world.c.id, other_global)}
 
 
 def test_making_a_device_local_drops_the_other_users_values(world, client_for,

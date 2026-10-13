@@ -137,18 +137,24 @@ def test_connection_test(client_for, make_user, make_profile, make_device,
 
 def test_connection_test_follows_the_edit_rule(client_for, make_user, make_profile,
                                                make_device):
-	"""An admin tests their profile against another admin's global device (a device they
-	may edit; it was "not found"); an operator can't test against a global device."""
+	"""An admin tests their profile against another admin's global device (it was "not
+	found"), and so does an operator: a profile is tested against any device its owner
+	sees - a global device's users link their own profiles to it. A device the user
+	doesn't see is "not found"."""
 	owner, admin, operator = make_user(role="admin"), make_user(role="admin"), make_user()
 	glob = make_device(owner, ip="10.0.0.1", profile_id=make_profile(owner), is_global=True)
+	private = make_device(owner, ip="10.0.0.2", profile_id=make_profile(owner))
 	with patch("src.rollout.inputs.tcp_reachable", return_value=True), \
 			patch("netmiko.ConnectHandler", return_value=MagicMock()):
 		mine = client_for(admin).post(f"/security/{make_profile(admin)}/test",
 		                              json={"device_id": str(glob)})
 		op = client_for(operator).post(f"/security/{make_profile(operator)}/test",
 		                               json={"device_id": str(glob)})
+		hidden = client_for(operator).post(f"/security/{make_profile(operator)}/test",
+		                                   json={"device_id": str(private)})
 	assert mine.status_code == 200
-	assert op.status_code == 404
+	assert op.status_code == 200
+	assert hidden.status_code == 404
 
 
 def with_enable_secret(session_scope, pid, secret):

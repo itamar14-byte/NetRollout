@@ -15,7 +15,7 @@ from sqlalchemy import event
 
 from src import runtime
 from src.db.settings import SETTINGS
-from src.db.tables import AuditLog, DeviceResult, JobMetadata
+from src.db.tables import AuditLog, DeviceCredential, DeviceResult, JobMetadata
 from src.jobs import Draining, RolloutJob
 from src.results import JOB_STATUSES, job_status
 
@@ -36,6 +36,12 @@ def operator(make_user, make_profile, make_device):
 	                  device_type="arista_eos")
 	bare = make_device(user, ip="10.0.0.3")  # no security profile
 	return SimpleNamespace(user=user, ios=ios, eos=eos, bare=bare)
+
+
+def link_profile(session_scope, device_id, user, profile_id):
+	"""Links the user's own profile to a device (device_credentials)."""
+	with session_scope() as s:
+		s.add(DeviceCredential(device_id=device_id, user_id=user.id, profile_id=profile_id))
 
 
 def add_result(session_scope, user, job_id, ip="10.0.0.1", status="success",
@@ -153,12 +159,15 @@ def test_invalid_rollouts_are_refused(operator, client_for, captured_submits,
 
 def test_same_target_selected_twice_is_refused(operator, client_for,
                                                make_user, make_profile,
-                                               make_device, captured_submits):
-	"""The operator's own entry and a global entry for the same box are refused
-	together: nothing submitted, the flash names the ip:port and the label."""
+                                               make_device, captured_submits,
+                                               session_scope):
+	"""The operator's own entry and a global entry for the same box (both with a
+	profile of theirs) are refused together: nothing submitted, the flash names
+	the ip:port and the label."""
 	admin = make_user(role="admin")
 	shared = make_device(admin, ip="10.0.0.1", label="CORE-GLOBAL",
 	                     is_global=True, profile_id=make_profile(admin))
+	link_profile(session_scope, shared, operator.user, make_profile(operator.user))
 	client = client_for(operator.user)
 	resp = client.post("/rollout/start", data={
 		"device_ids": [str(operator.ios), str(shared)],
@@ -548,10 +557,11 @@ def test_admin_rolls_back_another_users_job_on_the_owners_devices(
 	"""An admin's rollback of an operator's job targets the operator's device
 	(not the admin's own entry on the same ip:port) with the operator's
 	variable mappings (not the admin's), is submitted as the admin, and the
-	audit names the operator as the job's owner."""
+	audit names the operator as the job's owner. The admin logs in with a
+	profile of their own, picked for this rollback (credentials are personal)."""
 	admin = make_user(role="admin")
-	make_device(admin, ip="10.0.0.1", label="ADMIN-OWN",
-	            profile_id=make_profile(admin))
+	admin_prof = make_profile(admin)
+	make_device(admin, ip="10.0.0.1", label="ADMIN-OWN", profile_id=admin_prof)
 	make_mapping(operator.user, token="HOST", prop="hostname",
 	             devices=[operator.ios])
 	make_mapping(admin, token="ADM", prop="site", devices=[operator.ios])
@@ -559,7 +569,8 @@ def test_admin_rolls_back_another_users_job_on_the_owners_devices(
 	add_result(session_scope, operator.user, job, ip="10.0.0.1")
 	add_result(session_scope, operator.user, job, ip="10.0.0.2", status="failed")
 	resp = client_for(admin).post(f"/rollout/rollback/{job}",
-	                              json={"commands": "no hostname"})
+	                              json={"commands": "no hostname",
+	                                    "profile_id": str(admin_prof)})
 	assert resp.json["status"] == "ok"
 	(call,) = captured_submits
 	assert call.user_id == admin.id
