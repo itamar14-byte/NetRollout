@@ -8,7 +8,8 @@ import uuid
 import pytest
 from sqlalchemy.exc import IntegrityError
 
-from src.db.tables import AuditLog, DeviceCredential, Inventory, User
+from src.accounts.users import AccountError, Accounts
+from src.db.tables import AuditLog, DeviceCredential, Inventory, LDAPServer, User
 from tests.integration.test_rollouts_and_jobs import add_result
 
 pytestmark = [pytest.mark.postgres, pytest.mark.redis]
@@ -225,3 +226,88 @@ def test_a_rollback_with_another_users_profile_is_refused(
 		"commands": "no hostname", "profile_id": str(shared.b_prof), "link": True})
 	assert resp.status_code == 404
 	assert captured_submits == []
+
+
+# ── Deleting an LDAP server with its users ───────────────────────────────────
+
+@pytest.fixture
+def directory(session_scope, make_user, make_profile, make_device):
+	"""An LDAP server "corp" with two users: dir-op (a private device and a
+	global one they created, each linked to their profile) and dir-admin."""
+	with session_scope() as s:
+		server = LDAPServer(name="corp", host="ldap.test", port=389, use_ssl=False,
+		                    base_dn="dc=corp", bind_type="regular", cn_identifier="uid",
+		                    is_active=True)
+		s.add(server)
+		s.flush()
+		server_id = server.id
+	op = make_user(username="dir-op", auth_type="ldap", ldap_server_id=server_id)
+	adm = make_user(username="dir-admin", role="admin", auth_type="ldap", ldap_server_id=server_id)
+	prof = make_profile(op, label="op-prof")
+	private = make_device(op, ip="10.71.0.1", label="OP-PRIVATE", profile_id=prof)
+	shared_dev = make_device(op, ip="10.71.0.2", label="OP-GLOBAL", is_global=True, profile_id=prof)
+	return type("Dir", (), dict(server_id=server_id, op=op, adm=adm, private=private,
+	                            shared=shared_dev))
+
+
+def test_the_delete_dialog_lists_the_servers_users(directory, make_user, client_for):
+	"""Before deleting, the page asks who signs in through the server."""
+	resp = client_for(make_user(role="admin"), xhr=True).get(
+		f"/admin/server/ldap/{directory.server_id}/users")
+	assert [u["username"] for u in resp.json["users"]] == ["dir-admin", "dir-op"]
+
+
+def test_deleting_a_server_with_its_users_keeps_their_global_devices(
+		directory, make_user, client_for, session_scope):
+	"""delete_users: the server's users go with their private devices; a global
+	device one of them created stays, its creator cleared. Audited with the
+	users deleted."""
+	resp = client_for(make_user(role="admin"), xhr=True).post(
+		f"/admin/server/ldap/{directory.server_id}/delete", json={"delete_users": True})
+	assert resp.json["users"] == ["dir-admin", "dir-op"] and resp.json["deleted"] is True
+	with session_scope() as s:
+		assert s.query(User).filter(User.username.in_(["dir-op", "dir-admin"])).count() == 0
+		assert s.get(Inventory, directory.private) is None
+		kept = s.get(Inventory, directory.shared)
+		assert kept is not None and kept.is_global and kept.user_id is None
+		(row,) = s.query(AuditLog).filter_by(action="admin.ldap_server_delete").all()
+		assert row.detail == {"users_deleted": ["dir-admin", "dir-op"]}
+
+
+def test_deleting_a_server_without_its_users_disables_them(
+		directory, make_user, client_for, session_scope):
+	"""Without delete_users the users are kept, disabled and without a server;
+	their devices stay. Audited with the users disabled."""
+	resp = client_for(make_user(role="admin"), xhr=True).post(
+		f"/admin/server/ldap/{directory.server_id}/delete", json={})
+	assert resp.json["deleted"] is False
+	with session_scope() as s:
+		users = s.query(User).filter(User.username.in_(["dir-op", "dir-admin"])).all()
+		assert len(users) == 2 and all(not u.is_active and u.ldap_server_id is None for u in users)
+		assert s.get(Inventory, directory.private) is not None
+		(row,) = s.query(AuditLog).filter_by(action="admin.ldap_server_delete").all()
+		assert row.detail == {"users_disabled": ["dir-admin", "dir-op"]}
+
+
+def test_an_admin_cant_delete_the_server_they_sign_in_through(
+		directory, client_for, session_scope):
+	"""dir-admin signs in through corp: deleting it would lock them out -
+	refused, nothing changed."""
+	resp = client_for(directory.adm, xhr=True).post(
+		f"/admin/server/ldap/{directory.server_id}/delete", json={"delete_users": True})
+	assert resp.status_code == 409 and "You sign in through this server" in resp.json["message"]
+	with session_scope() as s:
+		assert s.query(User).filter_by(username="dir-op").count() == 1
+
+
+def test_deleting_the_only_administrators_directory_is_refused(directory, session_scope):
+	"""When every administrator who can sign in comes from the server, deleting
+	it (users kept or not) would leave none: refused, nothing changed."""
+	for delete_users in (True, False):
+		with session_scope() as s:
+			s.query(User).filter(User.role == "admin", User.username != "dir-admin").delete()
+			with pytest.raises(AccountError):
+				Accounts(s).delete_directory(s.get(LDAPServer, directory.server_id), delete_users)
+			s.rollback()
+		with session_scope() as s:
+			assert s.query(User).filter_by(username="dir-admin", is_active=True).count() == 1
