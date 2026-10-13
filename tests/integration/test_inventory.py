@@ -302,7 +302,7 @@ def test_csv_import_saves_attribute_columns(client_for, make_user,
 
 
 def test_csv_import_turns_credentials_into_profiles(client_for, make_user,
-                                                    make_profile, session_scope):
+                                                    make_profile, session_scope, linked):
 	"""Import credentials become profiles: an exact match reuses the existing one, new
 	credentials make one new profile shared by their rows (audited like a manual one),
 	no credentials no profile; the flashes count each."""
@@ -317,10 +317,10 @@ def test_csv_import_turns_credentials_into_profiles(client_for, make_user,
 	import_csv(client, csv)
 	devs = devices_of(session_scope, user)
 	profiles = profiles_of(session_scope, user)
-	assert devs["a"].sec_profile_id == core
-	assert devs["b"].sec_profile_id == devs["c"].sec_profile_id != core
-	assert devs["d"].sec_profile_id is None
-	new = profiles[devs["b"].sec_profile_id]
+	assert linked(devs["a"].id, user) == core
+	assert linked(devs["b"].id, user) == linked(devs["c"].id, user) != core
+	assert linked(devs["d"].id, user) is None
+	new = profiles[linked(devs["b"].id, user)]
 	assert new.label.startswith("admin · CSV import ")
 	assert (new.username, decrypt(new.password_secret),
 	        decrypt(new.enable_secret)) == ("admin", "admin", "en")
@@ -339,7 +339,7 @@ def test_csv_import_turns_credentials_into_profiles(client_for, make_user,
 
 
 def test_csv_import_warns_on_same_username_other_password(
-		client_for, make_user, make_profile, session_scope):
+		client_for, make_user, make_profile, session_scope, linked):
 	"""Same username with another password makes a new profile with a warning naming the
 	existing one (never changed); a second import that day gets a distinct label."""
 	user = make_user()
@@ -351,8 +351,8 @@ def test_csv_import_warns_on_same_username_other_password(
 	import_csv(client, csv)
 	devs = devices_of(session_scope, user)
 	profiles = profiles_of(session_scope, user)
-	assert devs["a"].sec_profile_id == core
-	new = profiles[devs["b"].sec_profile_id]
+	assert linked(devs["a"].id, user) == core
+	new = profiles[linked(devs["b"].id, user)]
 	assert decrypt(profiles[core].password_secret) == "admin"  # never changed
 	assert any(m.startswith(f"Created profile '{new.label}' — your profile "
 	                        f"'core' also uses username admin, with a "
@@ -361,12 +361,12 @@ def test_csv_import_warns_on_same_username_other_password(
 	import_csv(client, "ip,device_type,port,label,username,password\n"
 	                   "10.6.6.3,cisco_ios,22,c,admin,admin2\n")
 	third = profiles_of(session_scope, user)[
-		devices_of(session_scope, user)["c"].sec_profile_id]
+		linked(devices_of(session_scope, user)["c"].id, user)]
 	assert third.label == new.label + " (2)"
 
 
 def test_csv_import_without_profile_creation(client_for, make_user,
-                                             session_scope):
+                                             session_scope, linked):
 	"""With profile creation off, credentials are not imported (no profile) and a flash
 	says so."""
 	user = make_user()
@@ -374,21 +374,21 @@ def test_csv_import_without_profile_creation(client_for, make_user,
 	import_csv(client, "ip,device_type,port,label,username,password\n"
 	                   "10.7.7.1,cisco_ios,22,a,admin,admin\n",
 	           create_profiles=False)
-	assert devices_of(session_scope, user)["a"].sec_profile_id is None
+	assert linked(devices_of(session_scope, user)["a"].id, user) is None
 	assert profiles_of(session_scope, user) == {}
 	assert any("Credential columns were not imported" in m
 	           for m in flashes(client))
 
 
 def test_csv_import_partial_credentials_get_no_profile(client_for, make_user,
-                                                       session_scope):
+                                                       session_scope, linked):
 	"""A row with a username but no password is imported without a profile, named in a
 	flash."""
 	user = make_user()
 	client = client_for(user)
 	import_csv(client, "ip,device_type,port,label,username,password\n"
 	                   "10.8.8.1,cisco_ios,22,a,admin,\n")
-	assert devices_of(session_scope, user)["a"].sec_profile_id is None
+	assert linked(devices_of(session_scope, user)["a"].id, user) is None
 	assert profiles_of(session_scope, user) == {}
 	assert "1 device imported without a profile (username and password are " \
 	       "both needed): a" in flashes(client)
@@ -547,7 +547,7 @@ def test_drag_assign_with_ids_that_are_not_strings(client_for, make_user, make_d
 
 
 def test_bulk_profile_assign_only_own_profile_and_devices(
-		client_for, make_user, make_profile, make_device, db_get):
+		client_for, make_user, make_profile, make_device, db_get, linked):
 	"""Bulk assign of another user's profile is 404; the user's own profile is assigned."""
 	user, other = make_user(), make_user()
 	mine, theirs = make_profile(user), make_profile(other)
@@ -559,11 +559,11 @@ def test_bulk_profile_assign_only_own_profile_and_devices(
 	resp = client.post("/inventory/bulk_assign",
 	                   json={"profile_id": str(mine), "device_ids": [str(dev)]})
 	assert resp.json["status"] == "ok"
-	assert db_get(Inventory, dev).sec_profile_id == mine
+	assert linked(dev, user) == mine
 
 
 def test_bulk_profile_assign_with_ids_that_are_not_strings(
-		client_for, make_user, make_profile, make_device, db_get):
+		client_for, make_user, make_profile, make_device, db_get, linked):
 	"""Bulk profile assign with ids of another JSON type: a profile id that's a
 	number is 422 "Invalid profile ID"; a device id that's a number is skipped
 	like a malformed one while the valid devices are assigned - not a server
@@ -578,7 +578,7 @@ def test_bulk_profile_assign_with_ids_that_are_not_strings(
 	resp = client.post("/inventory/bulk_assign",
 	                   json={"profile_id": str(prof), "device_ids": [5, str(dev)]})
 	assert resp.status_code == 200 and resp.json["status"] == "ok"
-	assert db_get(Inventory, dev).sec_profile_id == prof
+	assert linked(dev, user) == prof
 
 
 def test_bulk_profile_assign_follows_the_edit_rule(
