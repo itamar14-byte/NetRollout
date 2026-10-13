@@ -1355,13 +1355,17 @@ function isIpAddress(v) {
     try { new URL('http://[' + v + ']/'); return true; } catch (e) { return false; }
 }
 // The IP fields take part in the forms' own validation (form.checkValidity):
-// checked as typed, and again just before a submit (the edit form is filled
-// in by script)
+// checked as typed, when a script fills one in (openEdit: no input event, so
+// the empty field's verdict from page load would stay), and again just
+// before a submit
+function checkIpField(field) {
+    field.setCustomValidity(
+        isIpAddress(field.value.trim()) ? '' : 'Enter a valid IPv4 or IPv6 address.');
+}
 ['addDevIp', 'editDevIp'].forEach(id => {
     const field = document.getElementById(id);
     if (!field) return;
-    const check = () => field.setCustomValidity(
-        isIpAddress(field.value.trim()) ? '' : 'Enter a valid IPv4 or IPv6 address.');
+    const check = () => checkIpField(field);
     field.addEventListener('input', check);
     field.form.addEventListener('submit', check, true);
     check();
@@ -1629,6 +1633,7 @@ function openEdit(device) {
     document.getElementById('editDevTitle').textContent = device.label;
     document.getElementById('editDevLabel').value       = device.label;
     document.getElementById('editDevIp').value          = device.ip;
+    checkIpField(document.getElementById('editDevIp'));
     document.getElementById('editDevPort').value        = device.port;
     if (editPlatformSel) editPlatformSel.setValue(device.device_type);
 

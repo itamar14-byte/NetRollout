@@ -6,6 +6,10 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ## [Unreleased]
 
+### Fixed
+
+- A device's Edit window opened with "Enter a valid IPv4 or IPv6 address." under a valid address. Saving worked; the field is now checked when the window fills it in.
+
 ## [1.0.0rc3] - 2026-10-13
 
 ### How to update from 1.0.0rc2
