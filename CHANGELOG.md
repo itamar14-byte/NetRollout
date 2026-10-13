@@ -6,6 +6,10 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ## [Unreleased]
 
+### Added
+
+- Inventory filters: by name and IP address as you type, and by platform from a list of the platforms you have. Sections with no match hide, and the page says how many devices it shows.
+
 ### Fixed
 
 - A device's Edit window opened with "Enter a valid IPv4 or IPv6 address." under a valid address. Saving worked; the field is now checked when the window fills it in.

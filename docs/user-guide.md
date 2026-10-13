@@ -172,6 +172,8 @@ You can use a global device in your own rollouts with **your own** security prof
 
 When some of your devices need a profile, Inventory says how many ("3 devices need your security profile") with **Show them**, which lists only those.
 
+Above the devices, three filters narrow the list as you type: **Name** and **IP address** match any part (`edge`, `10.1.`), and the platform list offers the platforms in your inventory. They work together; **Clear filters** shows everything again, and Escape empties the box you're in.
+
 ### Adding a device
 
 1. Select **Add Device**.

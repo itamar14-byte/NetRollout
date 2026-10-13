@@ -146,6 +146,40 @@
     font-size: 0.8rem; color: #ffe0b2;
 }
 .needs-profile-note a { color: #ffb74d; font-weight: 600; }
+
+/* ── Filters: name / IP as you type, platform from a list ── */
+.inv-filters {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem;
+    margin-bottom: 1.1rem;
+}
+.inv-filter {
+    display: flex; align-items: center; gap: 0.45rem;
+    flex: 1 1 180px; max-width: 260px; min-width: 0;
+    background: var(--nr-surface, #111); border: 1px solid #222; border-radius: 6px;
+    padding: 0 0.6rem; height: 31px;
+}
+/* the theme's focus ring goes around the whole field, not the bare input inside it */
+.inv-filter:has(input:focus-visible) { outline: 2px solid var(--nr-accent); outline-offset: 2px; }
+.inv-filter input:focus-visible { outline: none !important; }
+.inv-filter i { color: var(--nr-text-faint); font-size: 0.75rem; }
+.inv-filter input {
+    flex: 1; min-width: 0; background: transparent; border: none; outline: none;
+    color: #ddd; font-family: 'Inter', sans-serif; font-size: 0.8rem;
+}
+.inv-filter input::placeholder { color: var(--nr-text-muted); }
+.inv-filter input.mono { font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; }
+.inv-filter input::-webkit-search-cancel-button { display: none; }
+#filterPlatform { flex: 0 1 200px; width: auto; height: 31px; font-size: 0.8rem; }
+#filterPlatform.is-set { border-color: rgba(0,188,212,0.55); color: #00bcd4; }
+.inv-filter-count { font-size: 0.75rem; color: var(--nr-text-muted); white-space: nowrap; }
+.inv-filter-clear {
+    background: none; border: none; padding: 0; font-size: 0.75rem; font-weight: 600;
+    color: #00bcd4; cursor: pointer;
+}
+.inv-filter-clear:hover { text-decoration: underline; }
+@media (max-width: 575.98px) {
+    .inv-filter, #filterPlatform { flex: 1 1 100%; max-width: none; }
+}
 #editDeviceModal.is-readonly input:disabled { opacity: 0.55; }
 #editDeviceModal.is-readonly .edit-only { display: none !important; }
 #editDeviceModal:not(.is-readonly) .readonly-only { display: none !important; }
@@ -499,10 +533,32 @@
 
 {% else %}
 
+<!-- Filters: by name and IP as you type, by platform (only the platforms listed here) -->
+{% set present = devices | map(attribute='device_type') | unique | list %}
+<div class="inv-filters" role="search" aria-label="Filter devices">
+    <label class="inv-filter" title="Filter by name">
+        <i class="bi bi-search"></i>
+        <input type="search" id="filterName" placeholder="Name" aria-label="Filter by name" autocomplete="off" spellcheck="false">
+    </label>
+    <label class="inv-filter" title="Filter by IP address">
+        <i class="bi bi-hdd-network"></i>
+        <input type="search" id="filterIp" class="mono" placeholder="IP address" aria-label="Filter by IP address" autocomplete="off" spellcheck="false">
+    </label>
+    <select id="filterPlatform" class="form-select form-select-sm" aria-label="Filter by platform">
+        <option value="">All platforms</option>
+        {% for val, lbl in platforms if val in present %}
+        <option value="{{ val }}">{{ lbl }}</option>
+        {% endfor %}
+    </select>
+    <span class="inv-filter-count" id="filterCount" aria-live="polite"></span>
+    <button type="button" class="inv-filter-clear" id="filterClear" hidden>Clear filters</button>
+</div>
+
 <!-- Device card grid — split into sections only when both are non-empty -->
 {% set split = global_devices and my_devices %}
 {% for group_name, group_icon, group in [('Global Devices', 'bi-globe2', global_devices), ('My Devices', 'bi-hdd-stack', my_devices)] %}
 {% if group %}
+<div class="inv-group">
 {% if split %}
 <div class="nr-section-head{% if not loop.first %} mt-4{% endif %}">
     <i class="bi {{ group_icon }}"></i>{{ group_name }}
@@ -514,8 +570,15 @@
     {{ device_card(device) }}
     {% endfor %}
 </div>
+</div>
 {% endif %}
 {% endfor %}
+
+<div class="empty-state" id="filterEmpty" hidden>
+    <i class="bi bi-funnel"></i>
+    <div class="empty-title">No devices match these filters.</div>
+    <p><button type="button" class="inv-filter-clear" id="filterEmptyClear">Clear filters</button></p>
+</div>
 
 {% endif %}
 
@@ -1599,6 +1662,67 @@ async function refreshReachability(refresh = false) {
 document.getElementById('reachRecheck').addEventListener('click',
     () => refreshReachability(true));
 refreshReachability();
+
+
+// ════════════════════════════════════════
+//  Filters: name and IP as typed (case-insensitive, any part), platform exact;
+//  all three together. A section with no match hides, its count follows.
+// ════════════════════════════════════════
+(function () {
+    const nameIn = document.getElementById('filterName');
+    if (!nameIn) return;                     // no devices: no filter bar
+    const ipIn     = document.getElementById('filterIp');
+    const platIn   = document.getElementById('filterPlatform');
+    const countEl  = document.getElementById('filterCount');
+    const clearBtn = document.getElementById('filterClear');
+    const emptyEl  = document.getElementById('filterEmpty');
+    const cards = [...document.querySelectorAll('.inv-card')].map(card => {
+        const d = JSON.parse(card.dataset.device);
+        return { col: card.parentElement, label: (d.label || '').toLowerCase(),
+                 ip: (d.ip || '').toLowerCase(), type: d.device_type };
+    });
+
+    function apply() {
+        const name = nameIn.value.trim().toLowerCase();
+        const ip   = ipIn.value.trim().toLowerCase();
+        const plat = platIn.value;
+        const active = !!(name || ip || plat);
+        let shown = 0;
+        cards.forEach(c => {
+            const match = (!name || c.label.includes(name)) && (!ip || c.ip.includes(ip))
+                          && (!plat || c.type === plat);
+            c.col.hidden = !match;
+            if (match) shown++;
+        });
+        document.querySelectorAll('.inv-group').forEach(group => {
+            const visible = [...group.querySelectorAll('.inv-card')]
+                .filter(card => !card.parentElement.hidden).length;
+            group.hidden = visible === 0;
+            const count = group.querySelector('.nr-section-count');
+            if (count) count.textContent = visible;
+        });
+        platIn.classList.toggle('is-set', !!plat);
+        countEl.textContent = active ? `Showing ${shown} of ${cards.length}` : '';
+        clearBtn.hidden = !active;
+        emptyEl.hidden = !active || shown > 0;
+    }
+    function clearAll() {
+        nameIn.value = ''; ipIn.value = ''; platIn.value = '';
+        apply();
+        nameIn.focus();
+    }
+    [nameIn, ipIn].forEach(input => {
+        input.addEventListener('input', apply);
+        // Escape empties the box it's in (the browser's own "search" clear)
+        input.addEventListener('keydown', e => {
+            if (e.key === 'Escape' && input.value) { e.preventDefault(); input.value = ''; apply(); }
+        });
+    });
+    platIn.addEventListener('change', apply);
+    clearBtn.addEventListener('click', clearAll);
+    document.getElementById('filterEmptyClear').addEventListener('click', clearAll);
+    apply();   // a value the browser restored on Back
+})();
 
 
 // ════════════════════════════════════════
