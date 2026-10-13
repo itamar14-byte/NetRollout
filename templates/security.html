@@ -619,7 +619,7 @@ function openDevices(profile) {
         logos:    VENDOR_LOGOS,
         legend:   document.getElementById('boardLegend'),
         // Which of your profiles you log in to the device with today
-        meta:     d => mine(d) ? '' : (PROFILE_LABELS[d.sec_profile_id] || 'no profile of yours'),
+        meta:     d => mine(d) ? '' : (PROFILE_LABELS[d.sec_profile_id] || 'no profile'),
         emptyIn:  'Nothing linked yet. Drag devices here, or click them.',
         emptyOut: () => 'No other devices you can see.',
         onChange: b => {
@@ -628,8 +628,8 @@ function openDevices(profile) {
             const warn = document.getElementById('unassignWarn');
             warn.style.display = n ? '' : 'none';
             warn.querySelector('span').textContent = n === 1
-                ? '1 device will be left without a security profile of yours. You can\'t roll out to it until you link one.'
-                : n + ' devices will be left without a security profile of yours. You can\'t roll out to them until you link one.';
+                ? '1 device will be left without your security profile. You can\'t roll out to it until you link one.'
+                : n + ' devices will be left without your security profile. You can\'t roll out to them until you link one.';
         },
     });
 

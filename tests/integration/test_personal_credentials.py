@@ -71,7 +71,7 @@ def test_a_rollout_to_a_device_without_a_profile_of_yours_is_refused(
 	assert captured_submits == []
 	with client.session_transaction() as s:
 		(_, message), = s["_flashes"]
-	assert message.startswith("These devices have no security profile of yours: CORE.")
+	assert message.startswith("You have no security profile on these devices: CORE.")
 
 
 def test_new_rollout_marks_the_devices_without_a_profile_of_yours(shared, client_for):
@@ -79,8 +79,8 @@ def test_new_rollout_marks_the_devices_without_a_profile_of_yours(shared, client
 	(linked)."""
 	html_b = client_for(shared.b).get("/rollout/new").get_data(as_text=True)
 	html_admin = client_for(shared.admin).get("/rollout/new").get_data(as_text=True)
-	assert "No security profile of yours" in html_b
-	assert "No security profile of yours" not in html_admin
+	assert "You have no security profile on it" in html_b
+	assert "You have no security profile on it" not in html_admin
 
 
 # ── Inventory ────────────────────────────────────────────────────────────────
@@ -92,7 +92,7 @@ def test_inventory_counts_and_filters_the_devices_needing_a_profile(
 	make_device(shared.b, ip="10.70.0.2", label="B-OWN", profile_id=shared.b_prof)
 	client = client_for(shared.b)
 	html = client.get("/inventory").get_data(as_text=True)
-	assert "1 device needs a security profile of yours" in html
+	assert "1 device needs your security profile" in html
 	assert html.count('class="needs-profile-badge"') == 1
 	only = client.get("/inventory?needs_profile=1").get_data(as_text=True)
 	assert "CORE" in only and "B-OWN" not in only

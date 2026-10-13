@@ -67,7 +67,7 @@ def parse_commands() -> tuple[list[str] | None, dict[str, str], bool]:
 def no_profile_message(labels: list[str]) -> str:
 	""":returns: why a rollout can't start: these devices have no security
 	 profile of the person launching it, and where to link one"""
-	return ("These devices have no security profile of yours: " + ", ".join(labels)
+	return ("You have no security profile on these devices: " + ", ".join(labels)
 	        + ". Link one of your security profiles to them (the device in Inventory, or "
 	          "Security Profiles) - NetRollout logs in with your own credentials only.")
 

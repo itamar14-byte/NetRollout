@@ -50,7 +50,7 @@
                         Verbose
                     </label>
                 </div>
-                <!-- Shown when some devices have no security profile of yours: the
+                <!-- Shown when you have no security profile on some devices: the
                      rollback logs in with your own credentials, never the job owner's -->
                 <div id="rollbackProfile" style="display:none; margin-top:0.85rem; padding:0.7rem 0.8rem;
                          border:1px solid rgba(255,183,77,0.35); background:rgba(255,183,77,0.06);
@@ -59,7 +59,7 @@
                         <i class="bi bi-shield-lock me-1"></i>Your credentials for these devices
                     </div>
                     <div style="color:var(--nr-text-muted); margin-bottom:0.5rem;">
-                        NetRollout logs in with your own security profile. Pick one of yours for:
+                        NetRollout logs in with your own security profile. Pick one of your profiles for:
                         <span id="rollbackProfileDevices" style="font-family:'JetBrains Mono',monospace; color:#ffe0b2;"></span>
                     </div>
                     <label for="rollbackProfileSelect" class="visually-hidden">Your security profile</label>
@@ -125,7 +125,7 @@
             verify: document.getElementById("rollbackVerify").checked,
             verbose: document.getElementById("rollbackVerbose").checked
         };
-        // the profile picked for devices without one of yours (asked below)
+        // the profile picked for devices without your profile (asked below)
         if (document.getElementById("rollbackProfile").style.display !== "none") {
             const picked = document.getElementById("rollbackProfileSelect").value;
             if (!picked) {
@@ -159,7 +159,7 @@
         });
     };
 
-    // Devices with no security profile of yours: pick one of yours (as text:
+    // Devices without your security profile: pick one of your profiles (as text:
     // labels and names are other people's input)
     function askProfile(devices, profiles) {
         document.getElementById("rollbackProfileDevices").textContent =
@@ -168,7 +168,7 @@
         select.replaceChildren();
         const prompt = document.createElement("option");
         prompt.value = "";
-        prompt.textContent = profiles.length ? "Choose a profile of yours…" : "No profiles";
+        prompt.textContent = profiles.length ? "Choose one of your profiles…" : "No profiles";
         select.append(prompt);
         profiles.forEach(p => {
             const option = document.createElement("option");

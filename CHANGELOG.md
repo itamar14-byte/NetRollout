@@ -10,6 +10,7 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 - A device's Edit window opened with "Enter a valid IPv4 or IPv6 address." under a valid address. Saving worked; the field is now checked when the window fills it in.
 - The Add Device window called the security profile "optional". It's needed to roll out to the device (you can save without one and link it later), and the label now says so.
+- "A security profile of yours" now reads "your security profile" everywhere (Inventory, New Rollout, the rollback window, Security Profiles and the messages).
 
 ## [1.0.0rc3] - 2026-10-13
 

@@ -132,7 +132,7 @@
 /* your own security profile stays yours to set, on any device you see */
 #editDeviceModal.is-readonly #editSecSelect { pointer-events: auto; opacity: 1; }
 
-/* A device without a security profile of yours: you can't roll out to it yet */
+/* A device without your security profile: you can't roll out to it yet */
 .needs-profile-badge {
     font-family: 'JetBrains Mono', monospace; font-size: 0.6rem; font-weight: 700;
     letter-spacing: 0.08em; color: #ffb74d; border: 1px solid rgba(255,183,77,0.45);
@@ -413,7 +413,7 @@
 
             {% if not my_profile %}
             <span class="needs-profile-badge"
-                  title="No security profile of yours: link one to roll out to this device">ACTION NEEDED</span>
+                  title="You have no security profile on this device: link one to roll out to it">ACTION NEEDED</span>
             {% endif %}
 
             <!-- Reachability from NetRollout — filled in after load -->
@@ -440,7 +440,7 @@
         <div class="nr-badge">INVENTORY</div>
         <h4 class="mb-0" style="font-weight:600; font-size:1.15rem;">Device Inventory</h4>
         <p class="mt-1 mb-0 nr-note">
-            {{ devices|length }} device{{ "s" if devices|length != 1 else "" }} {{ "need a security profile of yours" if only_needing else "configured" }}
+            {{ devices|length }} device{{ "s" if devices|length != 1 else "" }} {{ "need your security profile" if only_needing else "configured" }}
         </p>
     </div>
     <div class="d-flex gap-2" style="margin-top:0.2rem;">
@@ -461,13 +461,13 @@
 {% if only_needing %}
 <div class="needs-profile-note" role="status">
     <i class="bi bi-funnel"></i>
-    <span>Showing only the devices that need a security profile of yours.</span>
+    <span>Showing only the devices that need your security profile.</span>
     <a href="{{ url_for('inventory.inventory') }}">Show all devices</a>
 </div>
 {% elif needs_profile_count %}
 <div class="needs-profile-note" role="status">
     <i class="bi bi-exclamation-triangle"></i>
-    <span>{{ needs_profile_count }} device{{ "s" if needs_profile_count != 1 else "" }} need{{ "s" if needs_profile_count == 1 else "" }} a security profile of yours before you can roll out to {{ "it" if needs_profile_count == 1 else "them" }}.</span>
+    <span>{{ needs_profile_count }} device{{ "s" if needs_profile_count != 1 else "" }} need{{ "s" if needs_profile_count == 1 else "" }} your security profile before you can roll out to {{ "it" if needs_profile_count == 1 else "them" }}.</span>
     <a href="{{ url_for('inventory.inventory', needs_profile=1) }}">Show {{ "it" if needs_profile_count == 1 else "them" }}</a>
 </div>
 {% endif %}
@@ -476,7 +476,7 @@
 
 <div class="empty-state">
     <i class="bi bi-shield-check"></i>
-    <div class="empty-title">Every device has a security profile of yours.</div>
+    <div class="empty-title">Every device has your security profile.</div>
     <p><a href="{{ url_for('inventory.inventory') }}">Show all devices</a></p>
 </div>
 

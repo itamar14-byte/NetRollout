@@ -913,7 +913,7 @@ def test_unresolvable_device_fails_alone_without_ssh(monkeypatch):
 def test_no_security_profile_raises():
 	"""from_inventory without a security profile of the person rolling out
 	raises ValueError naming the device."""
-	with pytest.raises(ValueError, match="^no security profile of yours for CORE-X$"):
+	with pytest.raises(ValueError, match="^you have no security profile on CORE-X$"):
 		Device.from_inventory(global_row(), USER_A, None)
 
 

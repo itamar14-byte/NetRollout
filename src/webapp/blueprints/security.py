@@ -142,7 +142,7 @@ def security_delete(profile_id: uuid.UUID) -> ResponseReturnValue:
 	if unlinked:
 		return flash_redirect(
 			f"Profile deleted. {unlinked} device{'s' if unlinked != 1 else ''} now "
-			f"need{'s' if unlinked == 1 else ''} a security profile of yours.",
+			f"need{'s' if unlinked == 1 else ''} your security profile.",
 			"security.security", "warning")
 	return flash_redirect("Profile deleted.", "security.security")
 

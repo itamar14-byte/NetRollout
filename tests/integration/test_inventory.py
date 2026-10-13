@@ -727,7 +727,7 @@ def test_a_global_device_without_a_profile_is_created(world, client_for,
 	client.post("/inventory/create", data={**FORM, "label": "g-noprof", "is_global": "on"})
 	assert device_by_label(session_scope, "g-noprof").is_global is True
 	html = client.get("/inventory").get_data(as_text=True)
-	assert "1 device needs a security profile of yours" in html
+	assert "1 device needs your security profile" in html
 
 
 def test_localizing_drops_foreign_bindings_and_audits(world, client_for,
@@ -904,7 +904,7 @@ def test_deleting_a_profile_unlinks_its_devices(client_for, make_user, make_devi
 	                       json={"profile_id": str(others), "device_ids": [str(dev)]})
 	client = client_for(admin)
 	client.post(f"/security/{profile}/delete")
-	assert flashes(client)[-1] == "Profile deleted. 1 device now needs a security profile of yours."
+	assert flashes(client)[-1] == "Profile deleted. 1 device now needs your security profile."
 	assert db_get(SecurityProfile, profile) is None
 	assert db_get(Inventory, dev).label == "dev-10.60.2.1"
 	assert (linked(dev, admin), linked(dev, other)) == (None, others)

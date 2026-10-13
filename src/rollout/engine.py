@@ -231,7 +231,7 @@ class Device:
 		:raises ValueError: no profile"""
 		mappings = [m for m in row.var_mappings if m.user_id == user_id]
 		if profile is None:
-			raise ValueError(f"no security profile of yours for {row.label or row.ip}")
+			raise ValueError(f"you have no security profile on {row.label or row.ip}")
 
 		parsed_mappings = {m.token: (m.property_name, m.index) for m in
 		                   mappings}

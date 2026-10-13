@@ -444,7 +444,7 @@
                                    data-label="{{ (device.label or device.ip)|lower }}"
                                    data-ip="{{ device.ip|lower }}"
                                    data-endpoint="{{ device.ip | endpoint(device.port) }}"
-                                   title="{% if lacks_profile %}No security profile of yours - link one in Inventory{% endif %}">
+                                   title="{% if lacks_profile %}You have no security profile on it - link one in Inventory{% endif %}">
                                 <input type="checkbox"
                                        class="device-check device-cb"
                                        name="device_ids"
@@ -490,7 +490,7 @@
                                       title="Checking reachability…"><i class="bi bi-arrow-repeat"></i></span>
 
                                 {% if lacks_profile %}
-                                <span class="no-profile-tip">No security profile of yours - link one in Inventory</span>
+                                <span class="no-profile-tip">You have no security profile on it - link one in Inventory</span>
                                 {% else %}
                                 <span class="no-profile-tip reach-tip">Checking reachability…</span>
                                 {% endif %}
@@ -575,7 +575,7 @@
                             <div class="no-profile-warning" id="noProfileWarning">
                                 {% set missing = no_profile | length %}
                                 {% if missing > 0 %}
-                                {{ missing }} device{{ 's' if missing != 1 }} unavailable: no security profile of yours -
+                                {{ missing }} device{{ 's' if missing != 1 }} unavailable: you have no security profile on {{ 'them' if missing != 1 else 'it' }} -
                                 <a href="{{ url_for('inventory.inventory', needs_profile=1) }}">link one in Inventory</a>
                                 {% endif %}
                             </div>
