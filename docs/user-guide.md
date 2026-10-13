@@ -180,7 +180,7 @@ When some of your devices need a profile, Inventory says how many ("3 devices ne
    - **IP ADDRESS**: IPv4 or IPv6, such as `192.168.1.1` or `2001:db8::1`.
    - **Port**: the SSH port, 1 to 65535.
    - **DEVICE TYPE**: the platform. See [Supported platforms](#supported-platforms).
-   - **SECURITY PROFILE** (optional): one of your profiles, which NetRollout logs in with when you roll out to the device. You can pick one or select **Create New Profile**. Without one, the device shows **ACTION NEEDED** and you can't roll out to it.
+   - **YOUR SECURITY PROFILE**: one of your profiles, which NetRollout logs in with when you roll out to the device. You can save the device without one and link it later. You can pick one or select **Create New Profile**. Without one, the device shows **ACTION NEEDED** and you can't roll out to it.
 3. Optionally, select **Test Connection** to check that NetRollout can log in.
 4. Save.
 
