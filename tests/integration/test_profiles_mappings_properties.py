@@ -86,15 +86,17 @@ def test_edit_keeps_password_when_left_blank(client_for, make_user,
 	assert p.label == "renamed" and decrypt(p.password_secret) == "original"
 
 
-def test_delete_blocked_while_devices_assigned(client_for, make_user,
-                                               make_profile, make_device,
-                                               db_get):
-	"""A profile with a device assigned isn't deleted; one without is."""
+def test_delete_with_devices_linked_unlinks_them(client_for, make_user,
+                                                make_profile, make_device,
+                                                db_get, linked):
+	"""A profile with a device linked is deleted with its link, the device kept
+	(without a profile of the user's); one without links is deleted too."""
 	user = make_user()
 	pid = make_profile(user)
-	make_device(user, profile_id=pid)
+	dev = make_device(user, profile_id=pid)
 	client_for(user).post(f"/security/{pid}/delete")
-	assert db_get(SecurityProfile, pid) is not None
+	assert db_get(SecurityProfile, pid) is None
+	assert db_get(Inventory, dev) is not None and linked(dev, user) is None
 	free = make_profile(user, label="free")
 	client_for(user).post(f"/security/{free}/delete")
 	assert db_get(SecurityProfile, free) is None
