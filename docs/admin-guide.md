@@ -438,7 +438,7 @@ What happens:
 3. The current state is backed up (`before-restore`), unless you used `-NoSafetyBackup` / `--no-safety-backup`. Use that only when the current state can't be backed up, for example a damaged database.
 4. NetRollout stops. Running rollouts finish first.
 5. The database is restored in one transaction: if anything fails, it's rolled back and NetRollout starts again as it was.
-6. The certificate, the rollout logs and Grafana's data are put back, and the backup's encryption key is written into `.env`.
+6. The rollout logs and Grafana's data are put back, and the backup's encryption key is written into `.env`. The backup's certificate is put back only when it serves this installation's hostname; otherwise this installation's own stays, and the restore says so.
 7. NetRollout starts. Everyone signs in again.
 
 A backup from an older version is migrated forward when NetRollout starts.
@@ -448,8 +448,10 @@ What a restore keeps from this machine:
 - `.env`: this installation's own passwords stay. Only the encryption key is taken from the backup.
 - `config/`
 - The HTTPS port this installation uses.
+- Its hostname (System Settings), unless none is set here: then the backup's is taken.
+- Its certificate, when the backup's doesn't serve that hostname.
 
-So you can restore a backup from one server onto a fresh installation on another: the new server takes over the data, the credentials and the dashboards, and keeps its own passwords and port.
+So you can restore a backup from one server onto a fresh installation on another: the new server takes over the data, the credentials and the dashboards, and keeps its own passwords, address and certificate.
 
 ## The HTTPS port
 

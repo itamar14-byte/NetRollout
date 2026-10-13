@@ -52,11 +52,12 @@ from alembic import command as alembic_command
 from alembic.script import ScriptDirectory
 from cryptography.fernet import Fernet, InvalidToken
 from packaging.version import InvalidVersion, Version
-from sqlalchemy import MetaData, Table, inspect, insert, text, update
+from sqlalchemy import MetaData, Table, insert, inspect, select, text, update
 from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.exc import SQLAlchemyError
 
 from src import runtime
+from src.access import certs
 from src.audit import Actor, AuditAction, AuditTrail
 from src.db.connections import ENCRYPTED_COLUMNS, FERNET_PREFIX
 from src.db.install import alembic_config
@@ -83,8 +84,10 @@ MANIFEST = "manifest.json"
 KEY_MEMBER = "encryption.key"
 GRAFANA_MEMBER = "grafana.db"
 # the certificate folder's files a backup carries (nothing else is there)
-CERT_FILES = ("fullchain.pem", "privkey.pem", ".selfsigned", ".old-names.json",
-              "trusted-ca.pem")
+# the certificate nginx serves, as one set: restored together or not at all
+SERVING_FILES = ("fullchain.pem", "privkey.pem", ".selfsigned", ".old-names.json")
+TRUSTED_FILES = ("trusted-ca.pem",)
+CERT_FILES = SERVING_FILES + TRUSTED_FILES
 LOG_RE = re.compile(r"^(rollout_.+\.log|unsaved-results-.+\.json)$")
 LOCK = ".backup.lock"
 # a backup from elsewhere, staged in the backups folder by the scripts
@@ -96,6 +99,8 @@ STALE_LOCK_SECONDS = 5 * 60
 # a backup being written (.<name>.partial); one older than this was killed
 PARTIAL_GLOB = ".*.partial"
 STALE_PARTIAL_SECONDS = 3600
+# the System Settings hostname: a restore keeps this install's
+HOSTNAME_SETTING = "public_hostname"
 # the last scheduled backup's outcome (src/backup/schedule.py writes it)
 SCHEDULE_STATUS_FILE = ".schedule-status.json"
 
@@ -181,10 +186,12 @@ class Entry:
 
 @dataclass
 class Restored:
-	"""What a restore did: the backup's manifest and key, the files written."""
+	"""What a restore did: the backup's manifest and key, the files written,
+	and anything kept from this install, in words."""
 	manifest: Manifest
 	key: bytes
 	files: list[str] = field(default_factory=list)
+	notes: list[str] = field(default_factory=list)
 
 
 # ── Create ───────────────────────────────────────────────────────────────────
@@ -579,6 +586,10 @@ def restore(path: Path, engine: Engine, places: Places | None = None, *,
 	with its key. Then the files - the certificate, the rollout logs,
 	Grafana's database - each tried even if another failed.
 
+	This install's hostname is kept, like its port: the backup may come from
+	another install. The backup's certificate is restored only when it
+	covers that hostname; otherwise this install's stays (a note says so).
+
 	:param places: the folders; the app's when None
 	:param https_port: the port this install serves on (the setting follows)
 	:param grafana_target: Grafana's data folder (Grafana stopped), if any
@@ -603,10 +614,11 @@ def restore(path: Path, engine: Engine, places: Places | None = None, *,
 			if key_out is not None:
 				key_out.write_bytes(key + b"\n")
 				owner_only(key_out)
-			_restore_database(engine, zf, manifest, cipher, https_port,
-			                  (AuditAction.BACKUP_RESTORED,
-			                   {"version": manifest.version, "created": manifest.created,
-			                    "kind": manifest.kind}), shown(path))
+			hostname = _restore_database(
+				engine, zf, manifest, cipher, https_port,
+				(AuditAction.BACKUP_RESTORED,
+				 {"version": manifest.version, "created": manifest.created,
+				  "kind": manifest.kind}), shown(path), keep_hostname=True)
 		except BaseException as e:
 			if key_out is not None:
 				key_out.unlink(missing_ok=True)
@@ -617,10 +629,13 @@ def restore(path: Path, engine: Engine, places: Places | None = None, *,
 				                  f"changed.") from None
 			raise
 		files: list[str] = []
+		notes: list[str] = []
 		failed: list[str] = []
 		steps: list[tuple[str, Callable[[], list[str]]]] = [
 			("the certificate", functools.partial(
-				_restore_files, zf, "certs", places.certs, set(CERT_FILES), replace_all=True)),
+				_restore_certificate, zf, places.certs, hostname, notes)),
+			("the trusted CA certificates", functools.partial(
+				_restore_files, zf, "certs", places.certs, set(TRUSTED_FILES), replace_all=True)),
 			("the rollout logs", functools.partial(
 				_restore_files, zf, "logs", places.logs, None)),
 		]
@@ -635,8 +650,8 @@ def restore(path: Path, engine: Engine, places: Places | None = None, *,
 		if failed:
 			raise FilesIncomplete(
 				f"The database was restored, but not every file - not restored: "
-				f"{'; '.join(failed)}.")
-	return Restored(manifest, key, files)
+				f"{'; '.join(failed)}." + "".join(f" {n}" for n in notes))
+	return Restored(manifest, key, files, notes)
 
 
 def restore_database(path: Path, engine: Engine, *, audit: tuple[AuditAction, dict[str, Any]],
@@ -661,7 +676,8 @@ def restore_database(path: Path, engine: Engine, *, audit: tuple[AuditAction, di
 
 def _restore_database(engine: Engine, zf: zipfile.ZipFile, manifest: Manifest,
                       cipher: Fernet, https_port: int | None,
-                      audit: tuple[AuditAction, dict[str, Any]], name: str) -> None:
+                      audit: tuple[AuditAction, dict[str, Any]], name: str,
+                      keep_hostname: bool = False) -> str | None:
 	"""The backup's tables into the database, in one transaction: NetRollout's
 	tables dropped and recreated at the backup's migration level, the rows
 	loaded, the sequences moved past them, the key checked.
@@ -671,9 +687,14 @@ def _restore_database(engine: Engine, zf: zipfile.ZipFile, manifest: Manifest,
 	 None: the backup's
 	:param audit: the (action, detail) row recorded with it
 	:param name: the backup's name, for the audit row
+	:param keep_hostname: the database's hostname setting is kept (a restore:
+	 it's this install's); a blank one never replaces the backup's
+	:returns: the hostname setting afterwards (None: none set)
 	:raises BackupError: the key doesn't match - nothing changed"""
+	settings = cast(Table, SystemSetting.__table__)
 	with engine.begin() as conn:
 		conn.execute(text("SET LOCAL lock_timeout = '15s'"))
+		kept = _hostname_setting(conn) if keep_hostname else None
 		cfg = alembic_config(conn)
 		# NetRollout's tables only, by its own migrations: anything else in
 		# this database (an organisation's schema) is never touched
@@ -694,13 +715,49 @@ def _restore_database(engine: Engine, zf: zipfile.ZipFile, manifest: Manifest,
 		_reset_sequences(conn, meta)
 		_check_key(conn, cipher)
 		if https_port is not None:
-			settings = cast(Table, SystemSetting.__table__)
 			conn.execute(update(settings).where(settings.c.key == "https_port")
 			             .values(value=https_port))
+		if kept:
+			conn.execute(update(settings).where(settings.c.key == HOSTNAME_SETTING)
+			             .values(value=kept))
 		action, detail = audit
 		conn.execute(insert(cast(Table, AuditLog.__table__)).values(**AuditTrail.row(
 			Actor.system("netrollout"), action, object_type="backup", object_label=name,
 			detail=detail)))
+		return _hostname_setting(conn)
+
+
+def _hostname_setting(conn: Connection) -> str | None:
+	""":returns: the database's hostname setting; None when it has no
+	 settings table (a new database), no such row or a blank one"""
+	if conn.execute(text("SELECT to_regclass('system_settings')")).scalar() is None:
+		return None
+	settings = cast(Table, SystemSetting.__table__)
+	value = conn.execute(select(settings.c.value)
+	                     .where(settings.c.key == HOSTNAME_SETTING)).scalar()
+	return value if isinstance(value, str) and value.strip() else None
+
+
+def _restore_certificate(zf: zipfile.ZipFile, folder: Path, hostname: str | None,
+                         notes: list[str]) -> list[str]:
+	"""The backup's serving certificate (with its markers), as one set - unless
+	it doesn't cover this install's hostname (another install's): then this
+	install's stays, and a note says so.
+
+	:param hostname: this install's hostname; None: not checked
+	:param notes: a note is added when this install's certificate is kept
+	:returns: what was written, as certs/name"""
+	if hostname:
+		try:
+			cert = zf.read(f"certs/{certs.CERT_FILE}")
+			key = zf.read(f"certs/{certs.KEY_FILE}")
+		except KeyError:
+			return []     # (a backup without certificates keeps this one's)
+		if certs.validate(cert, key, hostname).problems:
+			notes.append(f"This install's certificate was kept: the backup's doesn't "
+			             f"serve {hostname}.")
+			return []
+	return _restore_files(zf, "certs", folder, set(SERVING_FILES), replace_all=True)
 
 
 def _reset_sequences(conn: Connection, meta: MetaData) -> None:

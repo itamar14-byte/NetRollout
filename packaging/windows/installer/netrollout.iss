@@ -1202,6 +1202,9 @@ function Address(Param: String): String;
 var Host, Port: String;
 begin
 	Host := FileValue(ExpandConstant('{app}\config\nginx\site.env'), 'NETROLLOUT_HOSTNAME', HostnameEdit.Text);
+	{ none set (NETROLLOUT_HOSTNAME= blank): nginx serves any name - this computer's }
+	if Trim(Host) = '' then Host := HostnameEdit.Text;
+	if Trim(Host) = '' then Host := GetComputerNameString;
 	Port := FileValue(ExpandConstant('{app}\.env'), 'HTTPS_PORT', PortEdit.Text);
 	Result := 'https://' + Lowercase(Host);
 	if Port <> '443' then Result := Result + ':' + Port;

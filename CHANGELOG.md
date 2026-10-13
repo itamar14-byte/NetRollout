@@ -24,6 +24,7 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 ### Fixed
 
 - The Audit Log's **View Detail** showed no detail for any entry: the details (a failed sign-in's reason, a role change's from and to, ...) were stored but didn't reach the page whole.
+- A restore took the backup's hostname, so a backup from another server (or one with no hostname set) changed this installation's address, and Setup's **Open NetRollout in the browser** then opened `https://` with no name. A restore now keeps this installation's hostname, as it already kept its HTTPS port, and puts the backup's certificate back only when it serves that hostname. Setup falls back to this computer's name when no hostname is set.
 
 ### Changed
 

@@ -80,6 +80,8 @@ def main(argv: list[str] | None = None) -> BackupExit:
 				engine.dispose()
 			print(f"Restored: {shown(_resolve(args.backup))} "
 			      f"(NetRollout {done.manifest.version}, {done.manifest.created})")
+			for note in done.notes:
+				print(note)
 	except FilesIncomplete as e:
 		print(str(e), file=sys.stderr)
 		return BackupExit.FILES_INCOMPLETE

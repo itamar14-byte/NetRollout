@@ -14,6 +14,7 @@ from cryptography.fernet import Fernet
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import Session
 
+from src.access import certs
 from src.backup import archive
 from src.db.connections import PostgresConfig, PostgresConnection
 from src.db.install import alembic_config
@@ -279,3 +280,102 @@ def test_a_database_without_netrollout_tables_is_not_backed_up(databases, places
 	with pytest.raises(archive.BackupError, match="no NetRollout tables"):
 		archive.create(source, "manual", places, key=Fernet.generate_key())
 	assert not any(places.backups.iterdir())
+
+
+def set_hostname(engine, hostname):
+	with Session(engine) as s, s.begin():
+		s.merge(SystemSetting(key="public_hostname", value=hostname))
+
+
+def hostname_of(engine):
+	with Session(engine) as s:
+		return s.get(SystemSetting, "public_hostname").value
+
+
+def backup_of_install_a(source, places, key):
+	"""A backup of install A: hostname a.corp.test, its self-signed certificate."""
+	migrate(source)
+	populate(source, key)
+	set_hostname(source, "a.corp.test")
+	certs.selfsigned("a.corp.test", out_dir=places.certs)
+	return archive.create(source, "manual", places, key=key)
+
+
+def install_b(target, tmp_path):
+	""":returns: install B's Places - hostname b.corp.test in its database, its
+	 own self-signed certificate in its certs folder"""
+	migrate(target)
+	set_hostname(target, "b.corp.test")
+	b = archive.Places(tmp_path / "backups", tmp_path / "b-certs", tmp_path / "b-logs")
+	certs.selfsigned("b.corp.test", out_dir=b.certs)
+	return b
+
+
+def test_a_restore_keeps_this_installs_hostname_and_its_certificate(
+		databases, places, tmp_path):
+	"""Install A's backup restored onto install B: the hostname stays B's (as the
+	HTTPS port does), and A's certificate - which doesn't serve B's name - isn't
+	installed: B's stays, and the restore says so."""
+	source, target = databases
+	key = Fernet.generate_key()
+	path = backup_of_install_a(source, places, key)
+	b = install_b(target, tmp_path)
+	b_cert = (b.certs / "fullchain.pem").read_bytes()
+
+	done = archive.restore(path, target, b, https_port=8443)
+
+	assert hostname_of(target) == "b.corp.test"
+	assert (b.certs / "fullchain.pem").read_bytes() == b_cert
+	assert certs.validate((b.certs / "fullchain.pem").read_bytes(),
+	                      (b.certs / "privkey.pem").read_bytes(), "b.corp.test").ok
+	assert done.notes == ["This install's certificate was kept: the backup's doesn't "
+	                      "serve b.corp.test."]
+
+
+def test_a_restore_brings_back_a_certificate_that_serves_this_installs_hostname(
+		databases, places, tmp_path):
+	"""A backup whose certificate covers this install's hostname (the same server
+	rebuilt): its certificate is restored over the install's own."""
+	source, target = databases
+	key = Fernet.generate_key()
+	migrate(source)
+	populate(source, key)
+	set_hostname(source, "b.corp.test")
+	certs.selfsigned("b.corp.test", ["10.9.9.9"], places.certs)
+	backed_up = (places.certs / "fullchain.pem").read_bytes()
+	path = archive.create(source, "manual", places, key=key)
+	b = install_b(target, tmp_path)
+
+	done = archive.restore(path, target, b)
+
+	assert (b.certs / "fullchain.pem").read_bytes() == backed_up
+	assert done.notes == []
+
+
+def test_a_blank_hostname_here_takes_the_backups(databases, places, tmp_path):
+	"""This install has no hostname set: the backup's is taken, with its certificate."""
+	source, target = databases
+	key = Fernet.generate_key()
+	path = backup_of_install_a(source, places, key)
+	b = install_b(target, tmp_path)
+	set_hostname(target, "")
+
+	archive.restore(path, target, b)
+
+	assert hostname_of(target) == "a.corp.test"
+	assert certs.validate((b.certs / "fullchain.pem").read_bytes(),
+	                      (b.certs / "privkey.pem").read_bytes(), "a.corp.test").ok
+
+
+def test_a_database_move_takes_the_backups_hostname(databases, places, tmp_path):
+	"""The database move (restore_database: the same install, another database)
+	copies the hostname as it is - the target database's own is replaced."""
+	source, target = databases
+	key = Fernet.generate_key()
+	path = backup_of_install_a(source, places, key)
+	install_b(target, tmp_path)
+
+	archive.restore_database(path, target, audit=(archive.AuditAction.DATABASE_MOVED, {}),
+	                         places=places)
+
+	assert hostname_of(target) == "a.corp.test"
