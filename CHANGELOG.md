@@ -6,6 +6,21 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ## [Unreleased]
 
+### Security
+
+- **Personal credentials by design.** NetRollout now logs in to a device only with the security profile of the person who launches the rollout, never anyone else's. A global device is shared, but each user links one of their own profiles to it (**Your security profile** on the device, or Security Profiles); before, it used its creator's credentials for everyone. A change on a device is attributable to the person in the device's own AAA logs, and each team works within its own rights. The database itself refuses a link to another user's profile. Updating keeps every device on the profile it has today, as its owner's link.
+- A rollback logs in with the credentials of the person starting it, no longer the job owner's. For devices without a profile of theirs, the rollback window asks them to pick one of their own.
+
+### Added
+
+- **ACTION NEEDED** on any device without a security profile of yours, local or global, and a line on Inventory saying how many devices need one, with **Show them**. A rollout to such devices is refused before it starts, naming them.
+- Deleting an LDAP server lists the users who sign in through it and offers **Also delete these users**; otherwise they're kept but disabled. Refused when it would leave no administrator who can sign in, or when you sign in through that server yourself. Audited with the users deleted or disabled.
+
+### Changed
+
+- Deleting a user keeps the global devices they created, for everyone; only what is theirs alone goes (private devices, profiles, mappings, properties, results). Before, their global devices were deleted with them.
+- A security profile can be deleted while devices use it: those devices then show ACTION NEEDED until another profile of yours is linked.
+
 ### Fixed
 
 - The Audit Log's **View Detail** showed no detail for any entry: the details (a failed sign-in's reason, a role change's from and to, ...) were stored but didn't reach the page whole.

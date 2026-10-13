@@ -551,7 +551,7 @@ On **User Management**, select users and use:
 | **Terminate Session** | Signs the user out everywhere. |
 | **Reset Password** | Gives a temporary password (shown once) and signs the user out. They choose their own at the next sign-in. |
 | **Reset 2FA** | The user's authenticator stops working; they enrol a new one at the next sign-in. On `admin`, it turns its two-factor sign-in off. |
-| **Delete** | Deletes the users and everything they own: inventory, security profiles, rollout history and results. You confirm by typing the number of users. |
+| **Delete** | Deletes the users and everything that is only theirs: their private devices, security profiles (with their links to any device), mappings, properties, rollout history and results. Global devices they created stay for everyone. You confirm by typing the number of users. |
 
 Disable, Demote and Delete are refused when they would leave no administrator who can sign in: an approved, active admin, local or from an active LDAP server. The page says "No active administrator would be left" before you click.
 
@@ -590,6 +590,13 @@ Directory users sign in with their directory password. They don't use NetRollout
 - If the directory can't be asked for the groups after it accepted the password, the sign-in is refused ("LDAP authentication service unavailable"), so a removed admin can't keep the role through an outage.
 
 A server without a service account (Simple bind), or without any active group rule, can't tell a role: its users' roles are set with Promote and Demote as for local accounts. Turning off a server's last active rule therefore leaves its users with the role they have.
+
+**Deleting a server**: the confirmation lists the users who sign in through it, and offers **Also delete these users**:
+
+- **Ticked**: the users are deleted with only what is theirs (private devices, profiles, mappings, properties, results). Global devices they created stay for everyone. Their usernames become free again, for example for another directory.
+- **Not ticked**: the users are kept but **disabled**: they can't sign in through any server, and their usernames stay taken until you delete them. Keep them only while you need their data.
+- Refused when it would leave no administrator who can sign in, and when you sign in through that server yourself (sign in with another administrator account first).
+- Audited as `admin.ldap_server_delete`, with the usernames deleted or disabled.
 
 ### Sessions
 

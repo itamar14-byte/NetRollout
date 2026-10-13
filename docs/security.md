@@ -159,7 +159,7 @@ Two roles, `operator` and `admin` (`users.role`).
 
 | Data | Operator | Admin |
 |---|---|---|
-| Devices | Their own, plus global devices (use only, and their own custom attribute values) | All; only admins edit or delete global devices |
+| Devices | Their own, plus global devices (use only, with their own profile, mappings and custom attribute values) | Their own, plus global devices, which only admins edit or delete. Another user's private device is private for admins too |
 | Security profiles, variable mappings, properties | Their own | Their own |
 | Rollouts and results | Their own jobs | Every job (Results can be scoped to a user) |
 | Admin panel: users, sessions, LDAP, System Settings, Server Management, backups, audit log, admin analytics, Grafana | No | Yes |
@@ -167,7 +167,18 @@ Two roles, `operator` and `admin` (`users.role`).
 - The rules live in the domain services, not the routes: `InventoryView` (device visibility and edit rights, `src/inventory.py`), `SecurityProfiles`, and `JobResults` (the owner-or-admin rule for jobs, `src/results.py`).
 - A record a user may not see is answered exactly as one that doesn't exist (404), so its existence isn't revealed. This includes another user's live log stream.
 - Every `/admin` route requires the admin role, and every route except the public ones requires a session. `tests/integration/test_route_matrix.py` checks this for every registered route, so a new route without the right decorator fails the tests.
-- A rollback runs with the job owner's view of their devices and mappings, not the admin's.
+- A rollback targets what the job configured: the job owner's devices, and their mappings and values for the tokens. It logs in with the credentials of the person who starts it, never the owner's (see below).
+
+### Personal credentials by design
+
+NetRollout logs in to a device only with the security profile of the person who launched the rollout. No one's device credentials are ever used on someone else's behalf, and no credential is shared between users.
+
+- **Profiles are private** (`security_profiles.user_id`): only their owner sees, uses or edits them.
+- **A device's login is per user** (`device_credentials`: device, user, profile). A global device is shared, but each user links one of their own profiles to it. A composite foreign key to the profile's (`id`, `user_id`) makes a link to another user's profile impossible in the database itself, whatever the code does.
+- **Rollouts and rollbacks** read only the launching user's links (`InventoryView.profiles`). A device without one is refused before the job is queued, naming it. A rollback asks the user to pick one of their own profiles for such devices; on another user's private device (an admin rolling back that user's job) the pick is used for that rollback only and never stored.
+- **Why**: a change on a device is attributable to a person in the device's own AAA logs (TACACS / RADIUS) as well as in NetRollout's audit log; teams keep their own rights on a device (read-only, full); no account is loaned. This follows the expectation of personal accounts in PCI DSS, NIST SP 800-53 and ISO 27001.
+- **Deleting a user** removes their profiles and, with them, their links. Global devices stay for everyone; their creator is cleared.
+- **Not offered: shared service credentials.** If an organisation ever needs one, it would come as an explicit, admin-only, audited feature, never the default.
 
 ## Web application protections
 

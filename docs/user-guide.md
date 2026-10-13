@@ -36,7 +36,7 @@ flowchart LR
 ```
 
 1. **A device** (Inventory) is a target: IP address, SSH port, platform and a label.
-2. **A security profile** holds the credentials a device logs in with. One profile serves many devices. A device without one can't be rolled out to.
+2. **A security profile** holds *your* credentials for logging in to devices. One profile serves many devices. NetRollout always logs in with the profile of the person who rolls out, never someone else's, so a device without one of yours can't be rolled out to by you.
 3. **A property** is a kind of per-device value, such as `hostname` or `loopback_ip`. Its value on one device is an **attribute** of that device.
 4. **A variable mapping** binds a token, such as `$$LOOPBACK$$`, to a property, and is assigned to the devices it applies to.
 5. **A rollout** sends your commands to the devices you tick. On each device, every `$$TOKEN$$` is replaced by that device's value, through your mapping. If a token can't be filled in on a device, the rollout won't start until you fix it.
@@ -51,13 +51,18 @@ Commands without tokens need only devices and security profiles. Properties and 
 | Your own device | Yours | You | You |
 | Global device | Shared by an administrator | Everyone | Administrators |
 | Security profile | Yours | You | You |
+| Which of your profiles a device uses | Yours | You | You, on any device you see, global devices included |
 | System property (`hostname`, `vrfs`, ...) | Built in | Everyone | Nobody (built in) |
 | A system property's value on a device | The device's | Everyone who sees the device | Whoever may edit the device |
 | Custom property, and its values | Yours | You | You, on any device you see, global devices included |
 | Variable mapping | Yours | You | You |
 | Rollout and its results | Yours | You and administrators | Administrators can also cancel it or roll it back |
 
-A global device always has a security profile chosen by an administrator. You use it as it is: you can't assign your own profile to it.
+### Personal credentials
+
+Every user logs in to a device with **their own** security profile. A global device is shared, but its credentials never are: each person who uses it links one of their own profiles to it, and NetRollout logs in with that person's credentials when they roll out. The device's own login records (TACACS, RADIUS) and NetRollout's audit log both name who made a change, and each team works within its own rights on the device.
+
+A device without a profile of yours shows **ACTION NEEDED** in Inventory. Link one of your profiles to it (open the device, **Your security profile**, or **Security Profiles**) before you roll out to it.
 
 ## Signing in
 
@@ -161,9 +166,11 @@ It shows:
 There are two kinds of device:
 
 - **Your own devices.** Only you see them, and only you can edit or remove them.
-- **Global devices**, marked **GLOBAL**. An administrator creates them and shares them with everyone. Only an administrator can edit them. A global device always has a security profile set by the administrator.
+- **Global devices**, marked **GLOBAL**. An administrator creates them and shares them with everyone. Only an administrator can edit them.
 
-You can still use a global device in your own rollouts, bind your own variable mappings to it, and set your own values for your custom properties. Select the device to open it.
+You can use a global device in your own rollouts with **your own** security profile: open it and choose **Your security profile**. You can also bind your own variable mappings to it and set your own values for your custom properties. Until you link a profile, it shows **ACTION NEEDED**. If the person who created a global device leaves NetRollout, the device stays for everyone.
+
+When some of your devices need a profile, Inventory says how many ("3 devices need a security profile of yours") with **Show them**, which lists only those.
 
 ### Adding a device
 
@@ -173,7 +180,7 @@ You can still use a global device in your own rollouts, bind your own variable m
    - **IP ADDRESS**: IPv4 or IPv6, such as `192.168.1.1` or `2001:db8::1`.
    - **Port**: the SSH port, 1 to 65535.
    - **DEVICE TYPE**: the platform. See [Supported platforms](#supported-platforms).
-   - **SECURITY PROFILE** (optional): the credentials to log in with. You can pick one or select **Create New Profile**. A device without a profile can't be used in a rollout.
+   - **SECURITY PROFILE** (optional): one of your profiles, which NetRollout logs in with when you roll out to the device. You can pick one or select **Create New Profile**. Without one, the device shows **ACTION NEEDED** and you can't roll out to it.
 3. Optionally, select **Test Connection** to check that NetRollout can log in.
 4. Save.
 
@@ -229,10 +236,10 @@ On **Security Profiles**:
 - **Add Profile** creates one. The **LABEL** is optional, for example `Core Switches`.
 - **Edit profile** changes it. Leave the password blank to keep the current one. **Clear enable secret** removes the secret.
 - **Test connection** picks one of your devices and tries a full SSH login with the profile.
-- **View attached devices** shows which devices use the profile. Drag devices between **Assigned** and **Available**, or click one to move it. Nothing changes until you select **Save**.
-- **Delete profile** works only when no device uses the profile. Reassign or remove those devices first.
+- **View attached devices** shows which devices use the profile when you roll out: your own devices and global ones. Drag devices between **Assigned** and **Available**, or click one to move it. Nothing changes until you select **Save**. Linking a global device here changes only your own link; other users keep theirs.
+- **Delete profile** deletes it even while devices use it: those devices then show **ACTION NEEDED** until you link another profile of yours, and the message says how many.
 
-Profiles are yours. Other users don't see them. Passwords and secrets are encrypted in the database and are never shown again after you save them.
+Profiles are yours. Other users don't see them, and nobody else can log in with them. Passwords and secrets are encrypted in the database and are never shown again after you save them.
 
 ## Properties and variable mappings
 
@@ -304,7 +311,7 @@ Open **Launch Rollout**.
 
 ![The New Rollout page](images/new-rollout.png)
 
-1. **Select Devices.** Tick the devices, or use **Select all**. **Filter by label or IP** narrows the list. A device without a security profile can't be ticked; assign one in Inventory. **Recheck** probes reachability again.
+1. **Select Devices.** Tick the devices, or use **Select all**. **Filter by label or IP** narrows the list. A device without a security profile of yours can't be ticked; link one in Inventory. **Recheck** probes reachability again.
 2. **Commands.** Give the commands for the devices you ticked, one per line, as you would type them in configuration mode. Choose **Paste** to type them, or **File** to load a `.txt` file. Don't add `configure terminal`, `write memory` or `commit`: NetRollout enters configuration mode and saves or commits the way each platform needs. If you tick devices of more than one platform, you see **Multiple platforms selected**, and you give one command set per platform.
 3. **Rollout Note** (optional): up to 255 characters, such as a change or ticket number. It's shown in Results.
 4. **Options:**
@@ -451,8 +458,9 @@ What it does exactly:
 
 - **Which devices**: those that ended `success` in the original job, matched by `ip:port` among the devices the job's owner can see today (their own entry preferred over a global one with the same address). Devices that ended `partial`, `failed` or `cancelled` are left out: check and fix them by hand, or with a new rollout. A device deleted since the job is left out.
 - **Which commands**: the same commands to every one of those devices, whatever their platform.
-- **Whose view**: the job owner's. Their credentials (the devices' security profiles) log in, and their mappings and values fill in the tokens. Values are read when you start the rollback, not taken from the original job, so check they still reflect the network.
-- **Checks first**: as for any rollout, every device must be reachable, have a security profile, and resolve every token, or the rollback is refused with the reason.
+- **Whose credentials**: yours, never the job owner's. NetRollout logs in with your own profile on each device. If some devices have none of yours, the rollback window lists them and asks you to pick one of your profiles. **Link it to the device** (ticked by default) keeps it as your profile for those devices, for next time. An administrator rolling back someone else's job may hit that person's private devices: the profile picked is used for this rollback only, since you can't link to a device that isn't yours.
+- **Whose values**: the job owner's. Their mappings and values fill in the tokens, so the rollback targets what the job configured. Values are read when you start the rollback, not taken from the original job, so check they still reflect the network.
+- **Checks first**: as for any rollout, every device must be reachable and resolve every token, or the rollback is refused with the reason.
 - **Whose job**: the rollback is a new job of yours, shown in Active Jobs and Results. The audit log records it against the original job.
 
 You can roll back your own jobs. Administrators can roll back anyone's.

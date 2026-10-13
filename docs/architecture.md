@@ -1220,7 +1220,7 @@ The models are in `src/db/tables.py`; the schema is managed by Alembic (`src/db/
 
 ```mermaid
 erDiagram
-    users ||--o{ inventory : owns
+    users |o--o{ inventory : "owns or created, SET NULL"
     users ||--o{ security_profiles : owns
     users ||--o{ variable_mappings : owns
     users ||--o{ property_definition : owns
@@ -1230,7 +1230,9 @@ erDiagram
     users |o--o{ audit_log : "acted, SET NULL"
     ldap_servers |o--o{ users : "signs in, SET NULL"
     ldap_servers ||--o{ ldap_groups : maps
-    security_profiles |o--o{ inventory : "reaches"
+    users ||--o{ device_credentials : "logs in with, CASCADE"
+    inventory ||--o{ device_credentials : "per user, CASCADE"
+    security_profiles ||--o{ device_credentials : "its owner's only, CASCADE"
     inventory ||--o{ device_attributes : "has, CASCADE"
     inventory }o--o{ variable_mappings : var_mapping_to_devices
 
@@ -1250,14 +1252,18 @@ erDiagram
     }
     inventory {
         uuid id PK
-        uuid user_id FK
-        uuid sec_profile_id FK
+        uuid user_id FK "owner, or creator of a global device (nullable)"
         string ip
         int port
         string device_type
         string label
         bool is_global
         json var_maps "system property values"
+    }
+    device_credentials {
+        uuid device_id PK, FK
+        uuid user_id PK, FK
+        uuid profile_id FK "the same user's profile"
     }
     security_profiles {
         uuid id PK
@@ -1341,7 +1347,8 @@ erDiagram
 |---|---|
 | `users` | Accounts, local or directory. `role` is `operator` or `admin`; `is_approved` (Request access waits for an admin) and `is_active` gate sign-in; `otp_secret` is the encrypted TOTP secret (null: not enrolled); `must_change_password` gates every page to the password change (the factory `admin`, after an admin reset); `failed_sign_ins` / `locked_until` are the lockout (5 wrong passwords in a row lock a local account for 15 minutes, 10 disable it; the factory admin is only ever locked). Deleting a user deletes their devices, profiles, mappings, properties, attribute values, results and job metadata. |
 | `inventory` | Devices. `is_global` devices are visible to and usable by everyone, editable only by admins. `var_maps` holds the system properties' values (hostname, loopback_ip, asn, mgmt_vrf, mgmt_interface, site, domain, timezone, vrfs), shared by everyone who sees the device. Several devices may share an `ip:port`; the pages warn, nothing is blocked. |
-| `security_profiles` | The credentials devices are reached with: username in clear, password and enable secret encrypted. A profile can't be deleted while a device uses it. |
+| `security_profiles` | One user's device credentials: username in clear, password and enable secret encrypted. Private: only its owner links it to devices. |
+| `device_credentials` | Which of a user's profiles they log in to a device with: one row per user per device (a global device has one per user who linked a profile). A composite foreign key to the profile's (`id`, `user_id`) allows only the user's own profile. Deleted with the device, the user or the profile. |
 | `variable_mappings` | A `$$TOKEN$$` bound to a property name (and an index for list properties), and the devices it applies to (`var_mapping_to_devices`). The join table is shared across users because of global devices, so a rollout applies only the rolling-out user's mappings. |
 | `property_definition` | A user's own custom properties (name, label, icon, list or not). |
 | `device_attributes` | One user's value of one of their custom properties on one device. Unique per device, user and name; deleted with the device, the user or the property. |
@@ -1370,8 +1377,7 @@ erDiagram
 | | `auth_type` | string(20) | `local` or `ldap` |
 | | `ldap_server_id` | UUID | FK `ldap_servers`, ON DELETE SET NULL |
 | | `created_at` | datetime | |
-| `inventory` | `id`, `user_id` | UUID | `user_id`: the owner |
-| | `sec_profile_id` | UUID | FK `security_profiles`, nullable: a device without a profile can't be rolled out |
+| `inventory` | `id`, `user_id` | UUID | `user_id`: the owner of a private device, the creator of a global one; nullable, ON DELETE SET NULL (a global device outlives its creator; a user's private devices are deleted with them, `Accounts.delete_user`) |
 | | `ip`, `device_type`, `label` | string(64) | `label` required |
 | | `port` | int | SSH port |
 | | `is_global` | bool | Visible to and usable by everyone; admins edit |
