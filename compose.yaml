@@ -13,13 +13,22 @@
 
 name: netrollout
 
-x-restart: &restart
+# Every service: restarted unless stopped, and its console log (docker logs,
+# netrollout logs) capped - rolled over at 10 MB, 3 files kept (~30 MB a
+# service); Docker's default keeps it forever. NetRollout's own logs are the
+# logs/ folder, pruned by the app.
+x-service: &service
   restart: unless-stopped
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
 
 services:
 
   postgres:
-    <<: *restart
+    <<: *service
     # The official image (bookworm, as ever: another base could change text
     # sorting under an existing database's indexes); NetRollout needs no
     # extension. The first start (empty volume) creates its logins:
@@ -45,7 +54,7 @@ services:
     stop_grace_period: 60s
 
   redis:
-    <<: *restart
+    <<: *service
     image: redis:8.6-alpine
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD}
@@ -60,7 +69,7 @@ services:
       retries: 20
 
   app:
-    <<: *restart
+    <<: *service
     image: itamarweinstein/netrollout:${NETROLLOUT_VERSION}
     environment:
       DATABASE_URL: postgresql+psycopg2://netrollout:${NETROLLOUT_DB_PASSWORD}@postgres:5432/netrollout
@@ -99,7 +108,7 @@ services:
         condition: service_healthy
 
   nginx:
-    <<: *restart
+    <<: *service
     image: itamarweinstein/netrollout-nginx:${NETROLLOUT_VERSION}
     # The hostname and the port in use come from the app (site.env)
     ports:
@@ -122,7 +131,7 @@ services:
   # ── Monitoring (COMPOSE_PROFILES=monitoring) ─────────────────────────────
 
   prometheus:
-    <<: *restart
+    <<: *service
     profiles: [monitoring]
     image: prom/prometheus:v3.11.2
     command:
@@ -140,7 +149,7 @@ services:
       start_period: 30s
 
   loki:
-    <<: *restart
+    <<: *service
     profiles: [monitoring]
     image: grafana/loki:3.7.1
     command: ["-config.file=/etc/loki/loki-config.yml"]
@@ -149,7 +158,7 @@ services:
       - loki:/loki
 
   alloy:
-    <<: *restart
+    <<: *service
     profiles: [monitoring]
     image: grafana/alloy:v1.20.1
     command: ["run", "--storage.path=/var/lib/alloy/data", "/etc/alloy/config.alloy"]
@@ -166,7 +175,7 @@ services:
   # asks the app; Grafana trusts the user header nginx sets - proxy auth).
   # Every Grafana user is an admin -> Editor. No port of its own.
   grafana:
-    <<: *restart
+    <<: *service
     profiles: [monitoring]
     image: grafana/grafana:13.0.1
     environment:
@@ -212,7 +221,7 @@ services:
   # --wait` counts an exited container as a failure. Runs on the app image,
   # which carries the script and the dashboards (deploy/grafana/).
   grafana-setup:
-    <<: *restart
+    <<: *service
     profiles: [monitoring]
     image: itamarweinstein/netrollout:${NETROLLOUT_VERSION}
     command: ["python", "/app/grafana/setup.py"]

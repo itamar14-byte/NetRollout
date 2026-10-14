@@ -148,7 +148,7 @@ nginx tests every change with `nginx -t` before applying it, and keeps the last 
 
 - Sessions are stored server-side in Redis; the browser holds only a signed session id. The cookie is `Secure`, `HttpOnly` and `SameSite=Lax`, signed with `SECRET_KEY`.
 - A new session id is issued at every sign-in, so an id known before it is worthless after it.
-- A session ends after the *Sign out after inactivity* period (System Settings, default 15 minutes, 5 to 480) and after 12 hours however active. Background requests (a page polling by itself) don't count as activity. Pages warn a minute before the idle limit and notice within 30 s that a session was ended elsewhere.
+- A session ends after the *Sign out after inactivity* period (System Settings, default 15 minutes, 5 to 480) and after 12 hours however active. Background requests (a page polling by itself) don't count as activity. Pages warn a minute before the idle limit and notice within 5 s that a session was ended elsewhere (at once when you switch back to the tab).
 - A password change signs the user out of their other sessions; an admin's password reset or Terminate Session signs them out everywhere.
 - **Every start of the app signs everyone out.** A restart, update or reboot always starts clean.
 - Session expiry is audited (`auth.session_expired`).

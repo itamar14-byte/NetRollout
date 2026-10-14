@@ -10,6 +10,11 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 - Inventory filters: by name and IP address as you type, and by platform from a list of the platforms you have. Sections with no match hide, and the page says how many devices it shows.
 
+### Changed
+
+- A user signed out by an administrator (Terminate Session, a password reset, being disabled) leaves the page within 5 seconds instead of 30, and at once when they switch back to its tab.
+- The services' console logs (`netrollout logs`) are capped: each rolls over at 10 MB and keeps 3 files, about 30 MB a service. Before, Docker kept them forever, and nginx's grew with every request. NetRollout's own logs (`logs`) are unchanged.
+
 ### Fixed
 
 - A device's Edit window opened with "Enter a valid IPv4 or IPv6 address." under a valid address. Saving worked; the field is now checked when the window fills it in.

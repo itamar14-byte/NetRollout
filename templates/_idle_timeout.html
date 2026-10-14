@@ -61,8 +61,15 @@
     });
 
     // A session ended elsewhere (Terminate Session, a password reset) is
-    // noticed within 30 s, without waiting for a click
-    setInterval(() => { if (!leaving) ask(false); }, 30000);
+    // noticed within 5 s, without waiting for a click - and at once when a
+    // tab comes back into view (browsers slow the timers of hidden tabs) or
+    // a page is restored from the back/forward cache
+    const SESSION_CHECK_MS = 5000;
+    setInterval(() => { if (!leaving) ask(false); }, SESSION_CHECK_MS);
+    document.addEventListener('visibilitychange', () => {
+        if (!leaving && document.visibilityState === 'visible') ask(false);
+    });
+    window.addEventListener('pageshow', e => { if (!leaving && e.persisted) ask(false); });
 
     setInterval(async () => {
         if (leaving) return;
