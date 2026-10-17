@@ -73,3 +73,17 @@ date,source,name,count
 2026-10-16,github,v1.0.0rc1/SHA256SUMS,1
 2026-10-16,dockerhub,itamarweinstein/netrollout,134
 2026-10-16,dockerhub,itamarweinstein/netrollout-nginx,113
+2026-10-17,github,v1.0.0rc3/netrollout-1.0.0rc3-linux.zip,1
+2026-10-17,github,v1.0.0rc3/netrollout-cli-1.0.0rc3.exe,3
+2026-10-17,github,v1.0.0rc3/NetRollout-Setup-1.0.0rc3.exe,2
+2026-10-17,github,v1.0.0rc3/SHA256SUMS,3
+2026-10-17,github,v1.0.0rc2/netrollout-1.0.0rc2-linux.zip,1
+2026-10-17,github,v1.0.0rc2/netrollout-cli-1.0.0rc2.exe,2
+2026-10-17,github,v1.0.0rc2/NetRollout-Setup-1.0.0rc2.exe,3
+2026-10-17,github,v1.0.0rc2/SHA256SUMS,2
+2026-10-17,github,v1.0.0rc1/netrollout-1.0.0rc1-linux.zip,1
+2026-10-17,github,v1.0.0rc1/netrollout-cli-1.0.0rc1.exe,2
+2026-10-17,github,v1.0.0rc1/NetRollout-Setup-1.0.0rc1.exe,6
+2026-10-17,github,v1.0.0rc1/SHA256SUMS,1
+2026-10-17,dockerhub,itamarweinstein/netrollout,134
+2026-10-17,dockerhub,itamarweinstein/netrollout-nginx,113
