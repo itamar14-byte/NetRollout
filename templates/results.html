@@ -297,6 +297,43 @@
     cursor: default;
 }
 
+/* ── Filters (server-side: every job, not only the page shown) and the export ── */
+.res-filters {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem;
+    margin-bottom: 1.1rem;
+}
+.res-filter {
+    display: flex; align-items: center; gap: 0.45rem;
+    flex: 1 1 170px; max-width: 240px; min-width: 0;
+    background: var(--nr-surface, #111); border: 1px solid #222; border-radius: 6px;
+    padding: 0 0.6rem; height: 31px; margin: 0;
+}
+.res-filter.is-set { border-color: rgba(0,188,212,0.55); }
+/* the theme's focus ring goes around the whole field, not the bare input inside it */
+.res-filter:has(input:focus-visible) { outline: 2px solid var(--nr-accent); outline-offset: 2px; }
+.res-filter input:focus-visible { outline: none !important; }
+.res-filter i { color: var(--nr-text-faint); font-size: 0.75rem; }
+.res-filter input {
+    flex: 1; min-width: 0; background: transparent; border: none; outline: none;
+    color: #ddd; font-family: 'Inter', sans-serif; font-size: 0.8rem;
+}
+.res-filter input::placeholder { color: var(--nr-text-muted); }
+.res-filter input::-webkit-search-cancel-button { display: none; }
+.res-select { flex: 0 1 150px; width: auto; height: 31px; font-size: 0.8rem; }
+.res-select.is-set, .res-date input.is-set { border-color: rgba(0,188,212,0.55); color: #00bcd4; }
+.res-date {
+    display: flex; align-items: center; gap: 0.35rem; margin: 0;
+    font-size: 0.75rem; color: var(--nr-text-muted);
+}
+.res-date input { height: 31px; width: 138px; font-size: 0.78rem; color-scheme: dark; }
+.res-filter-clear { font-size: 0.75rem; font-weight: 600; color: #00bcd4; text-decoration: none; white-space: nowrap; }
+.res-filter-clear:hover { text-decoration: underline; color: #00bcd4; }
+.res-export { margin-left: auto; height: 31px; }
+@media (max-width: 575.98px) {
+    .res-filter, .res-select { flex: 1 1 100%; max-width: none; }
+    .res-export { margin-left: 0; }
+}
+
 {% endblock %}
 
 {% block operator_content %}
@@ -304,7 +341,7 @@
     <div class="nr-badge">RESULTS</div>
     <h4 class="mb-0" style="font-weight:600;">Job History</h4>
     <span style="color:var(--nr-text-muted); font-size:0.85rem;" id="jobCountLabel"
-          data-mine-total="{{ mine.total }}" data-all-total="{{ mine.total + others.total }}" data-filter="{{ status_filter or '' }}">{{ mine.total }} {{ status_filter ~ ' ' if status_filter }}job{{ 's' if mine.total != 1 }}</span>
+          data-mine-total="{{ mine.total }}" data-all-total="{{ mine.total + others.total }}" data-filter="{{ filter_word or '' }}">{{ mine.total }} {{ filter_word ~ ' ' if filter_word }}job{{ 's' if mine.total != 1 }}</span>
     {% if is_admin %}
     <div class="ms-auto">
         <button id="allUsersToggle" class="job-action-btn" onclick="toggleAllUsers()"
@@ -314,6 +351,60 @@
     </div>
     {% endif %}
 </div>
+
+{# The filters, for both of an admin's lists: the text fields apply as you
+   type (a pause reloads the page), the others when changed. Export CSV
+   downloads every job they let through - the view's: one's own, an admin's
+   all-users view everyone's. #}
+{% if mine.total or others.total or filtered %}
+<form class="res-filters" id="resultsFilters" method="get" action="{{ url_for('jobs.results') }}"
+      role="search" aria-label="Filter jobs">
+    <input type="hidden" name="view" value="all" id="filterView"{{ ' disabled' if not split_view }}>
+    {% if 'per_page' in request.args %}<input type="hidden" name="per_page" value="{{ per_page }}">{% endif %}
+    <label class="res-filter{{ ' is-set' if filters.note }}" title="Jobs whose note contains this">
+        <i class="bi bi-chat-left-text"></i>
+        <input type="search" name="note" value="{{ filters.note or '' }}" placeholder="Note"
+               aria-label="Filter by note" autocomplete="off" spellcheck="false">
+    </label>
+    <label class="res-filter{{ ' is-set' if filters.device }}" title="Jobs with a device whose name or IP contains this">
+        <i class="bi bi-hdd-network"></i>
+        <input type="search" name="device" value="{{ filters.device or '' }}" placeholder="Device name or IP"
+               aria-label="Filter by device name or IP" autocomplete="off" spellcheck="false">
+    </label>
+    <select name="status" class="form-select form-select-sm res-select{{ ' is-set' if filters.status }}"
+            aria-label="Filter by status">
+        <option value="">All statuses</option>
+        {% for value in job_statuses %}
+        <option value="{{ value }}"{{ ' selected' if value == filters.status }}>{{ value | capitalize }}</option>
+        {% endfor %}
+    </select>
+    {% if is_admin %}
+    <select name="user" id="filterUser" class="form-select form-select-sm res-select{{ ' is-set' if filters.owner }}"
+            aria-label="Filter by user"{{ ' hidden' if not split_view }}>
+        <option value="">All users</option>
+        {% for id, name in owners %}
+        <option value="{{ id }}"{{ ' selected' if id == filters.owner }}>{{ name }}</option>
+        {% endfor %}
+    </select>
+    {% endif %}
+    <label class="res-date" title="Jobs started on this day or later">From
+        <input type="date" name="from" value="{{ filters.since or '' }}"
+               class="form-control form-control-sm{{ ' is-set' if filters.since }}">
+    </label>
+    <label class="res-date" title="Jobs started on this day or earlier">To
+        <input type="date" name="to" value="{{ filters.until or '' }}"
+               class="form-control form-control-sm{{ ' is-set' if filters.until }}">
+    </label>
+    {% if filtered %}
+    <a class="res-filter-clear" href="{{ url_for('jobs.results', view='all' if split_view else none, per_page=request.args.get('per_page')) }}">Clear filters</a>
+    {% endif %}
+    <button type="button" class="job-action-btn res-export" id="exportCsv"
+            data-url="{{ url_for('jobs.results_export') }}"
+            title="Download every job these filters match as a CSV file - one row per device">
+        <i class="bi bi-filetype-csv"></i> Export CSV
+    </button>
+</form>
+{% endif %}
 
 {# ── Macro: renders job rows ── #}
 {% macro job_rows(job_list, show_owner=false) %}
@@ -489,25 +580,6 @@
 {% endfor %}
 {% endmacro %}
 
-{# ── Macro: the status filter (server-side: ?status=, one for both of an
-   admin's lists). Links keep ?per_page, start again at page 1 (?page /
-   ?other_page / ?job= dropped); split = the admin's all-users view. ── #}
-{% macro filter_href(value, split) -%}
-{%- set args = request.args.to_dict() -%}
-{%- for key in ('job', 'page', 'other_page', 'status') %}{% set _ = args.pop(key, None) %}{% endfor -%}
-{%- if split %}{% set _ = args.update({'view': 'all'}) %}{% else %}{% set _ = args.pop('view', None) %}{% endif -%}
-{%- if value %}{% set _ = args.update({'status': value}) %}{% endif -%}
-{{ url_for('jobs.results', **args) }}
-{%- endmacro %}
-{% macro filter_links(split=false) %}
-{% set cls = 'filter-btn-split' if split else 'filter-btn' %}
-<span style="color:var(--nr-text-muted); font-size:0.78rem; margin-right:4px;">Filter:</span>
-<a class="{{ cls }}{{ ' active' if not status_filter }}" href="{{ filter_href(none, split) }}">All</a>
-{% for value in job_statuses %}
-<a class="{{ cls }}{{ ' active' if value == status_filter }}" href="{{ filter_href(value, split) }}">{{ value | capitalize }}</a>
-{% endfor %}
-{% endmacro %}
-
 {# ── Macro: one list's pages. The entries-per-page choice shows once there are
    more jobs than the smallest choice, the page controls once they don't fit
    one page. Links keep the other query parameters (?job= dropped: it only
@@ -563,10 +635,9 @@
 
 {# ── Flat view (default) ── #}
 <div id="flat-view">
-{% if jobs or status_filter %}
-<!-- Filter bar -->
+{% if jobs or filtered %}
+<!-- Compare -->
 <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
-    {{ filter_links() }}
     <div class="ms-auto d-flex gap-2 align-items-center">
         <button id="diffModeBtn" class="filter-btn" onclick="toggleDiffMode()">
             <i class="bi bi-file-diff me-1"></i>Compare
@@ -592,7 +663,7 @@
 {{ job_rows(jobs) }}
 </div>
 {% if not jobs %}
-<div style="text-align:center; padding:1.5rem; color:var(--nr-text-muted); font-size:0.8rem;">No {{ status_filter }} jobs.</div>
+<div style="text-align:center; padding:1.5rem; color:var(--nr-text-muted); font-size:0.8rem;">No {{ filter_word ~ ' ' if filter_word }}jobs.</div>
 {% endif %}
 
 {{ pager(mine, 'page') }}
@@ -615,11 +686,6 @@
 {% if is_admin %}
 <div id="split-view" style="display:none;">
 
-    {# The status filter, for both lists #}
-    <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
-        {{ filter_links(split=true) }}
-    </div>
-
     {# My Jobs section #}
     <div class="section-divider open" onclick="toggleSection(this, 'my-jobs-body')">
         <i class="bi bi-chevron-down section-divider-chevron"></i>
@@ -641,7 +707,7 @@
         <div id="my-job-list">{{ job_rows(jobs) }}</div>
         {{ pager(mine, 'page', split=true) }}
         {% else %}
-        <div style="text-align:center; padding:1.5rem; color:var(--nr-text-muted); font-size:0.8rem;">No {{ status_filter ~ ' ' if status_filter }}jobs.</div>
+        <div style="text-align:center; padding:1.5rem; color:var(--nr-text-muted); font-size:0.8rem;">No {{ filter_word ~ ' ' if filter_word }}jobs.</div>
         {% endif %}
     </div>
 
@@ -666,7 +732,7 @@
         <div id="other-job-list">{{ job_rows(other_jobs, show_owner=true) }}</div>
         {{ pager(others, 'other_page', split=true) }}
         {% else %}
-        <div style="text-align:center; padding:1.5rem; color:var(--nr-text-muted); font-size:0.8rem;">No other users' {{ status_filter ~ ' ' if status_filter }}jobs.</div>
+        <div style="text-align:center; padding:1.5rem; color:var(--nr-text-muted); font-size:0.8rem;">No other users' {{ filter_word ~ ' ' if filter_word }}jobs.</div>
         {% endif %}
     </div>
 
@@ -968,11 +1034,62 @@ function toggleAllUsers() {
         const mine = parseInt(label.dataset.mineTotal);
         label.textContent = mine + ' ' + filter + 'job' + (mine !== 1 ? 's' : '');
     }
+    // the filters follow the view: the user filter is the all-users view's
+    // only (leaving it with one set reloads without it), the export the view's
+    const viewInput = document.getElementById('filterView');
+    const userFilter = document.getElementById('filterUser');
+    if (viewInput) viewInput.disabled = !on;
+    if (userFilter) userFilter.hidden = !on;
     // the view stays on a reload; its pages are its own
     const url = new URL(window.location.href);
     if (on) url.searchParams.set('view', 'all'); else url.searchParams.delete('view');
+    if (!on && url.searchParams.get('user')) {
+        url.searchParams.delete('user');
+        window.location.assign(url);
+        return;
+    }
     history.replaceState(null, '', url);
 }
+
+// ── Filters: server-side, so a change reloads the page. Typing applies after
+// a pause, and the field typed in keeps the focus across the reload. ──
+(() => {
+    const form = document.getElementById('resultsFilters');
+    if (!form) return;
+    const FOCUS_KEY = 'nr-results-filter-focus';
+    const apply = field => {
+        try { sessionStorage.setItem(FOCUS_KEY, field ? field.name : ''); } catch (e) { /* none */ }
+        // blank fields stay out of the address
+        form.querySelectorAll('input, select').forEach(f => { if (!f.value) f.disabled = true; });
+        form.submit();
+    };
+    let timer = null;
+    form.querySelectorAll('input[type=search]').forEach(field => {
+        field.addEventListener('input', () => {
+            clearTimeout(timer);
+            timer = setTimeout(() => apply(field), 600);
+        });
+        field.addEventListener('keydown', e => {
+            if (e.key === 'Enter') { e.preventDefault(); clearTimeout(timer); apply(field); }
+            if (e.key === 'Escape' && field.value) { e.preventDefault(); field.value = ''; clearTimeout(timer); apply(field); }
+        });
+    });
+    form.querySelectorAll('select, input[type=date]').forEach(field =>
+        field.addEventListener('change', () => apply(null)));
+    let focused = '';
+    try { focused = sessionStorage.getItem(FOCUS_KEY) || ''; sessionStorage.removeItem(FOCUS_KEY); } catch (e) { /* none */ }
+    const field = focused && form.querySelector(`input[name="${focused}"]`);
+    if (field) {
+        field.focus();
+        field.setSelectionRange(field.value.length, field.value.length);
+    }
+    // the export: what the form says now, in the view shown
+    document.getElementById('exportCsv').addEventListener('click', function () {
+        const params = new URLSearchParams([...new FormData(form)].filter(([, value]) => value));
+        params.delete('per_page');
+        window.location.href = this.dataset.url + (params.toString() ? '?' + params : '');
+    });
+})();
 {% if split_view %}toggleAllUsers();{% endif %}
 
 function toggleSection(header, bodyId) {

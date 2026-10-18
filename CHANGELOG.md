@@ -10,6 +10,9 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 - Inventory filters: by name and IP address as you type, and by platform from a list of the platforms you have. Sections with no match hide, and the page says how many devices it shows.
 - Unticking Global on a global device warns that the other users lose it, with their security profile, attribute values and variable mappings on it, and Save becomes a red Confirm.
+- Results filters: by note and by device name or IP as you type, by status, by the days a job started on, and in an administrator's All Users view by user. They cover every job, not only the page shown.
+- **Export CSV** on Results and the Audit Log: every job (one row per device) or entry the filters let through. Results exports your own jobs, or everyone's in an administrator's All Users view; it leaves out the commands and config snapshots. Cells a spreadsheet would run as a formula are quoted, and Excel reads the file as UTF-8. Each export is recorded in the audit log.
+- The Audit Log filters by day (From / To).
 - The Audit Log's entry for making a global device private says what the other users lost on it: how many users, and their security profile links, attribute values and variable mappings.
 
 ### Changed

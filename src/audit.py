@@ -96,6 +96,8 @@ class AuditAction(StrEnum):
 	BACKUP_DELETED = "backup.deleted"
 	BACKUP_FAILED = "backup.failed"
 	BACKUP_RESTORED = "backup.restored"
+	RESULTS_EXPORTED = "results.exported"   # a CSV of Results, with its filters
+	AUDIT_EXPORTED = "audit.exported"       # a CSV of the audit log, with its filters
 	DATABASE_PREPARED = "database.prepared"
 	DATABASE_PREPARE_FAILED = "database.prepare_failed"
 	DATABASE_MOVE_STARTED = "database.move_started"

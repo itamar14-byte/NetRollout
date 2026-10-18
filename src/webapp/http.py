@@ -6,6 +6,7 @@ audit log and the reachability checks."""
 import functools
 import uuid
 from collections.abc import Callable
+from datetime import date
 from enum import Enum
 from typing import TYPE_CHECKING, Any, TypeVar, cast
 
@@ -73,6 +74,15 @@ def picked_username(users: list[User], selected: str) -> str:
 	if selected == "me":
 		return "me"
 	return next((u.username for u in users if str(u.id) == selected), selected)
+
+
+def date_arg(name: str) -> date | None:
+	""":returns: the query parameter as a day (YYYY-MM-DD, a date field's
+	 value); None when missing or not a date"""
+	try:
+		return date.fromisoformat(request.args.get(name, "").strip())
+	except ValueError:
+		return None
 
 
 def viewer() -> Viewer:

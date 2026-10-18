@@ -12,7 +12,7 @@
         <h4 class="mt-2 mb-0" style="color:#e0e0e0; font-family:'Inter',sans-serif;">Audit Logs</h4>
       </div>
       <span style="font-family:'JetBrains Mono',monospace; font-size:0.72rem; color:var(--nr-text-muted);">
-        {{ entries|length }} result{% if entries|length != 1 %}s{% endif %}{% if entries|length == 500 %} (capped){% endif %}
+        {{ entries|length }} result{% if entries|length != 1 %}s{% endif %}{% if entries|length == page_limit %} shown (the newest {{ page_limit }} - Export CSV has them all){% endif %}
       </span>
     </div>
 
@@ -34,10 +34,27 @@
         <option value="false" {% if filter_success == 'false' %}selected{% endif %}>Failed</option>
       </select>
 
+      <label class="d-flex align-items-center gap-1 mb-0" style="font-size:0.75rem; color:var(--nr-text-muted);"
+             title="Entries from this day on">From
+        <input type="date" name="from" value="{{ filter_from }}" class="form-control form-control-sm"
+               style="width:138px; color-scheme:dark;">
+      </label>
+      <label class="d-flex align-items-center gap-1 mb-0" style="font-size:0.75rem; color:var(--nr-text-muted);"
+             title="Entries up to and including this day">To
+        <input type="date" name="to" value="{{ filter_to }}" class="form-control form-control-sm"
+               style="width:138px; color-scheme:dark;">
+      </label>
+
       <button type="submit" class="btn btn-primary btn-sm">Filter</button>
-      {% if filter_actor or filter_action or filter_success %}
+      {% if filter_actor or filter_action or filter_success or filter_from or filter_to %}
         <a href="{{ url_for('admin_audit.admin_audit') }}" class="btn btn-outline-secondary btn-sm">Clear</a>
       {% endif %}
+      {# every entry the filters let through, as the page shows them now (not
+         the fields' unapplied edits) #}
+      <a href="{{ url_for('admin_audit.admin_audit_export', **request.args) }}" class="btn btn-outline-secondary btn-sm ms-auto"
+         title="Download every entry these filters match as a CSV file">
+        <i class="bi bi-filetype-csv me-1"></i>Export CSV
+      </a>
     </form>
 
     <!-- Table -->

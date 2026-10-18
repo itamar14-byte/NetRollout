@@ -1,11 +1,15 @@
 """Admin -> Audit log: the page and its filters; the rows AuditTrail writes."""
+import csv
+import io
 import json
 import uuid
+from datetime import date, datetime, timedelta
 from html.parser import HTMLParser
 
 from src.audit import Actor, AuditAction
 from src.backup.schedule import system_audit
 from src.db.tables import AuditLog
+from src.webapp.blueprints.admin_audit import EXPORT_COLUMNS
 from tests.integration.test_admin_users import admin  # noqa: F401 - fixture
 
 
@@ -96,3 +100,46 @@ def test_the_audit_trail_writes_every_column(app, admin, session_scope):
 		                   "object_id": None, "object_label": None, "success": True,
 		                   "ip_address": None, "detail": None},
 	}
+
+
+def test_audit_page_filters_by_day(admin, client_for, session_scope):
+	"""?from= / ?to= keep the entries of those days, both included."""
+	now = datetime.now()
+	with session_scope() as s:
+		s.add_all([AuditLog(actor_username="day_old_actor", action="auth.login",
+		                    timestamp=now - timedelta(days=5)),
+		           AuditLog(actor_username="day_new_actor", action="auth.login", timestamp=now)])
+	c = client_for(admin)
+	today, five_ago = date.today(), date.today() - timedelta(days=5)
+	html = c.get(f"/admin/audit?from={today}").get_data(as_text=True)
+	assert "day_new_actor" in html and "day_old_actor" not in html
+	html = c.get(f"/admin/audit?from={five_ago}&to={five_ago}").get_data(as_text=True)
+	assert "day_old_actor" in html and "day_new_actor" not in html
+
+
+def test_audit_export_holds_every_entry_the_filters_let_through(admin, client_for, make_user,
+                                                                session_scope):
+	"""Export CSV holds every matching entry, past the page's 500, newest
+	first, the detail as JSON on one line; admins only. The export is itself
+	audited, after the file is made."""
+	now = datetime.now()
+	with session_scope() as s:
+		s.add_all(AuditLog(actor_username="bulk", action="inventory.create",
+		                   timestamp=now - timedelta(seconds=i)) for i in range(505))
+		s.add(AuditLog(actor_username="bulk", action="inventory.delete",
+		               timestamp=now + timedelta(seconds=1),
+		               object_type="Inventory", object_label="=core", success=False,
+		               detail={"why": "שלום"}))
+	c = client_for(admin)
+	assert c.get("/admin/audit?actor=bulk").get_data(as_text=True).count('class="audit-row"') == 500
+	resp = c.get("/admin/audit/export.csv?actor=bulk")
+	text = resp.get_data(as_text=True)
+	assert text.startswith("\ufeff")
+	rows = list(csv.reader(io.StringIO(text[1:])))
+	assert rows[0] == EXPORT_COLUMNS and len(rows) == 1 + 506
+	assert rows[1][2:] == ["inventory.delete", "Inventory", "'=core", "fail", "",
+	                       '{"why": "שלום"}']
+	with session_scope() as s:
+		entry = s.query(AuditLog).filter_by(action="audit.exported").one()
+		assert entry.detail == {"actor": "bulk", "rows": 506}
+	assert client_for(make_user()).get("/admin/audit/export.csv").status_code == 302

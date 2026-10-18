@@ -15,12 +15,12 @@ import uuid
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from enum import StrEnum
 from itertools import groupby
 from typing import Any
 
-from sqlalchemy import ColumnElement, and_, distinct, func, not_, or_
+from sqlalchemy import ColumnElement, and_, distinct, func, not_, or_, true, tuple_
 from sqlalchemy.orm import Session
 
 from src import runtime
@@ -223,6 +223,35 @@ class JobScope(StrEnum):
 	"""Whose jobs a Results list shows."""
 	MINE = "mine"       # the viewer's
 	OTHERS = "others"   # everyone else's (an admin's second list)
+	ALL = "all"         # every job the viewer may see (an admin's all-users export)
+
+
+@dataclass(frozen=True)
+class JobFilter:
+	"""Which jobs Results shows - and exports. A field left None doesn't
+	filter. A job is kept or left out whole, never some of its devices."""
+	status: str | None = None        # one of JOB_STATUSES, as job_status judges it
+	note: str | None = None          # part of the job's note, any case
+	device: str | None = None        # part of one of its devices' IP or name, any case
+	since: date | None = None        # it started on this day or later
+	until: date | None = None        # it started on this day or earlier
+	owner: uuid.UUID | None = None   # one user's jobs (an admin's all-users view)
+
+	def described(self) -> dict[str, str]:
+		""":returns: the filters set, as text (the export's audit entry)"""
+		return {name: str(value) for name, value in vars(self).items() if value is not None}
+
+
+def contains(text: str) -> str:
+	""":returns: an ILIKE pattern (escape: backslash) matching text anywhere,
+	 its % and _ taken literally"""
+	return "%" + text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+
+
+# Results' CSV: one row per device of each job (JobResults.export)
+EXPORT_COLUMNS = ["job_id", "note", "owner", "job_status", "started", "completed", "device",
+                  "ip", "port", "platform", "status", "commands_sent", "commands_verified",
+                  "action_needed"]
 
 
 @dataclass(frozen=True)
@@ -271,8 +300,57 @@ class JobResults:
 
 	# ── Results ──
 
+	def _where(self, scope: JobScope, filters: JobFilter) -> ColumnElement[bool]:
+		""":returns: the condition on device results that keeps the scope's
+		 jobs the filters let through - every device result of each"""
+		db = self.session
+		where: ColumnElement[bool]
+		if scope is JobScope.MINE or not self.viewer.is_admin:
+			where = DeviceResult.user_id == self.viewer.id
+		elif scope is JobScope.OTHERS:
+			where = DeviceResult.user_id != self.viewer.id
+		else:
+			where = true()
+		if filters.owner is not None:
+			where = and_(where, DeviceResult.user_id == filters.owner)
+		# judged on the whole job: its status from all its devices', its start
+		# from its first device's
+		whole_job: list[ColumnElement[bool]] = []
+		if filters.status is not None:
+			whole_job.append(job_status_condition(filters.status))
+		started = func.min(DeviceResult.started_at)
+		if filters.since is not None:
+			whole_job.append(started >= datetime.combine(filters.since, time()))
+		if filters.until is not None:
+			whole_job.append(started < datetime.combine(filters.until + timedelta(days=1), time()))
+		if whole_job:
+			where = and_(where, DeviceResult.job_id.in_(
+				db.query(DeviceResult.job_id).filter(where)
+				.group_by(DeviceResult.job_id).having(and_(*whole_job))))
+		if filters.note:
+			where = and_(where, DeviceResult.job_id.in_(
+				db.query(JobMetadata.job_id).filter(
+					JobMetadata.comment.ilike(contains(filters.note), escape="\\"))))
+		if filters.device:
+			match: ColumnElement[bool] = DeviceResult.device_ip.ilike(contains(filters.device), escape="\\")
+			named = self._endpoints_named(filters.device)
+			if named:
+				match = or_(match, tuple_(DeviceResult.device_ip,
+				                          DeviceResult.device_port).in_(named))
+			where = and_(where, DeviceResult.job_id.in_(
+				db.query(DeviceResult.job_id).filter(where, match)))
+		return where
+
+	def _endpoints_named(self, text: str) -> set[Target]:
+		""":returns: the endpoints of the devices whose name contains text, any
+		 case - named as Results names them (device_labels)"""
+		scope = LabelScope.ANYONE if self.viewer.is_admin else LabelScope.VISIBLE
+		labels = InventoryView(self.session, self.viewer).endpoint_labels(scope)
+		return {target for target, label in labels.items()
+		        if label and text.lower() in label.lower()}
+
 	def page(self, scope: JobScope, page: int, per_page: int,
-	         focus: uuid.UUID | None = None, status: str | None = None) -> JobPage:
+	         focus: uuid.UUID | None = None, filters: JobFilter = JobFilter()) -> JobPage:
 		"""One page of the scope's jobs, newest first (by their last device's
 		completion; the job id breaks ties, so pages stay stable). The
 		database pages the jobs (LIMIT/OFFSET), then only those jobs' device
@@ -282,20 +360,11 @@ class JobResults:
 		:param per_page: jobs per page
 		:param focus: a job to land on: when it is in scope, its page replaces
 		 page
-		:param status: only the jobs job_status gives this status (one of
-		 JOB_STATUSES; judged on all their device results, all of which are
-		 loaded); None: every job
+		:param filters: only the jobs these let through
 		:returns: the page's device results, the jobs' total, the page shown
 		 and the number of pages"""
-		where: ColumnElement[bool] = (DeviceResult.user_id == self.viewer.id
-		                              if scope is JobScope.MINE
-		                              else DeviceResult.user_id != self.viewer.id)
+		where = self._where(scope, filters)
 		db = self.session
-		if status is not None:
-			where = and_(where, DeviceResult.job_id.in_(
-				db.query(DeviceResult.job_id).filter(where)
-				.group_by(DeviceResult.job_id)
-				.having(job_status_condition(status))))
 		done = func.max(DeviceResult.completed_at).label("done")
 		total = db.query(func.count(distinct(DeviceResult.job_id)))\
 			.filter(where).scalar() or 0
@@ -320,6 +389,40 @@ class JobResults:
 		results = db.query(DeviceResult).filter(
 			where, DeviceResult.job_id.in_(job_ids)).all() if job_ids else []
 		return JobPage(results=results, total=total, page=page, pages=pages)
+
+	def export(self, scope: JobScope, filters: JobFilter) -> list[list[Any]]:
+		"""Every job of the scope the filters let through, as Results' CSV
+		rows (EXPORT_COLUMNS): one per device, the jobs newest first as on
+		the page, each job's devices by name. The commands and config
+		snapshots are left out: what was typed isn't redacted."""
+		rows = self.session.query(DeviceResult).filter(self._where(scope, filters)).all()
+		labels = self.device_labels(rows)
+		notes = {job_id: meta.comment for job_id, meta in
+		         self.metadata(r.job_id for r in rows).items()}
+		owners = self.owner_names(rows)
+		jobs = sorted(by_job(rows), key=lambda job: (max(r.completed_at for r in job[1]), job[0]),
+		              reverse=True)
+		stamp = "%Y-%m-%d %H:%M:%S"
+		out: list[list[Any]] = []
+		for job_id, devices in jobs:
+			status = job_status(devices)
+			for r in sorted(devices, key=lambda r: (device_label(labels, r), r.device_port)):
+				out.append([str(job_id), notes.get(job_id) or "", owners.get(r.user_id, ""),
+				            status.value, r.started_at.strftime(stamp),
+				            r.completed_at.strftime(stamp), device_label(labels, r), r.device_ip,
+				            r.device_port, r.device_type, r.status, r.commands_sent,
+				            r.commands_verified if r.commands_verified is not None else "",
+				            r.action_needed or ""])
+		return out
+
+	def owners(self) -> list[tuple[uuid.UUID, str]]:
+		""":returns: (id, username) of every user with a job, by name - an
+		 admin's choices for the user filter; anyone else: none"""
+		if not self.viewer.is_admin:
+			return []
+		ids = [row.user_id for row in self.session.query(DeviceResult.user_id).distinct()]
+		names = Accounts(self.session).usernames(ids)
+		return sorted(names.items(), key=lambda item: item[1].lower())
 
 	def device_labels(self, results: Iterable[DeviceResult]) -> dict[Target, str]:
 		"""(ip, port) → label for naming the devices of these results: an

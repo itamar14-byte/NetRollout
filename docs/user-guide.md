@@ -404,7 +404,11 @@ Every rollout writes a log file on the server, whether or not you watch it live.
 
 ![The Results page](images/results.png)
 
-Each row shows the job, its note, when it started, how long it took, the number of devices and commands, and the status. Filter by status with the buttons at the top, and choose how many jobs to show per page. Administrators can switch to **All Users**.
+Each row shows the job, its note, when it started, how long it took, the number of devices and commands, and the status. Choose how many jobs to show per page. Administrators can switch to **All Users**.
+
+The filters above the list cover every job, not only the page shown. **Note** and **Device name or IP** match any part as you type, and keep the whole job (all its devices). Pick a status, and a **From** / **To** day the job started on (both included). In **All Users**, administrators can also pick one user. **Clear filters** shows everything again, and Escape empties the box you're in.
+
+**Export CSV** downloads every job the filters let through, one row per device: the job, its note, owner and status, when the device started and finished, the device's name, IP, port and platform, its status, the commands sent and verified, and any ACTION NEEDED. It holds your own jobs, or everyone's in an administrator's **All Users** view. The commands typed and config snapshots aren't in it. Each export is recorded in the audit log.
 
 Open a job to see each device: IP and port, platform, commands **Sent**, commands **Verified** and the device's **Status**.
 

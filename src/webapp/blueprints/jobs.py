@@ -12,14 +12,16 @@ from flask.typing import ResponseReturnValue
 from flask_login import current_user, login_required
 
 from src.accounts.users import Accounts, Viewer
+from src.audit import AuditAction
 from src.db.tables import User
 from src.inventory import InventoryView, LabelScope
 from src.jobs import JobStore, RolloutJob
-from src.results import (JOB_STATUSES, JobPage, JobResults, JobScope, build_job_summaries,
-                         build_jobs, build_kpi, log_file)
+from src.results import (EXPORT_COLUMNS, JOB_STATUSES, JobFilter, JobPage, JobResults, JobScope,
+                         build_job_summaries, build_jobs, build_kpi, log_file)
 from src.rollout.platforms import PLATFORMS, verify_commands
 from src.webapp.app import current_app
-from src.webapp.http import ok, err, picked_username, viewer
+from src.webapp.csv_download import csv_download
+from src.webapp.http import date_arg, ok, err, picked_username, viewer
 
 
 bp = Blueprint('jobs', __name__)
@@ -43,6 +45,21 @@ def status_arg(raw: str | None) -> str | None:
 	""":returns: the job status asked for when it is one of JOB_STATUSES,
 	 else None (no filter)"""
 	return raw if raw in JOB_STATUSES else None
+
+
+def filter_args(is_admin: bool) -> JobFilter:
+	"""Results' filters from the query: ?status, ?note, ?device (part of an
+	IP or a name), ?from and ?to (days), and an admin's ?user (a user id)."""
+	owner = None
+	if is_admin:
+		try:
+			owner = uuid.UUID(request.args.get("user", ""))
+		except ValueError:
+			pass
+	return JobFilter(status=status_arg(request.args.get("status")),
+	                 note=request.args.get("note", "").strip() or None,
+	                 device=request.args.get("device", "").strip() or None,
+	                 since=date_arg("from"), until=date_arg("to"), owner=owner)
 
 
 def page_arg(raw: str | None) -> int:
@@ -210,13 +227,12 @@ def results() -> str:
 	with their owners - newest first, a page at a time: ?per_page= (one of
 	PER_PAGE_CHOICES, else 100), ?page= (the user's own jobs), ?other_page=
 	(an admin's other users' jobs), ?view=all (an admin's all-users view),
-	?status= (one of JOB_STATUSES: only those jobs, in both of an admin's
-	lists; else every job); ?job=<id> without ?page= lands on that job's
-	page - for an admin, another user's job without ?other_page= on its page
-	of the all-users view."""
+	the filters (filter_args: in both of an admin's lists); ?job=<id> without
+	?page= lands on that job's page - for an admin, another user's job
+	without ?other_page= on its page of the all-users view."""
 	is_admin = viewer().is_admin
 	per_page = per_page_arg(request.args.get("per_page"))
-	status = status_arg(request.args.get("status"))
+	filters = filter_args(is_admin)
 	focus = None
 	if "page" not in request.args:
 		try:
@@ -229,21 +245,23 @@ def results() -> str:
 	with current_app.backend.postgres.get_session() as db_session:
 		history = JobResults(db_session, viewer())
 		mine = history.page(JobScope.MINE, page_arg(request.args.get("page")), per_page,
-		                    focus, status)
+		                    focus, filters)
 		if is_admin:
 			# ?job= of another user's job (no ?other_page=): its page
 			other_focus = focus if ("other_page" not in request.args and focus
 			                        not in {r.job_id for r in mine.results}) \
 				else None
 			others = history.page(JobScope.OTHERS, page_arg(request.args.get("other_page")),
-			                      per_page, other_focus, status)
+			                      per_page, other_focus, filters)
 			focus_in_others = other_focus is not None and other_focus in {
 				r.job_id for r in others.results}
 			usernames = history.owner_names(others.results)
+			owners = history.owners()
 		else:
 			others = JobPage(results=[], total=0, page=1, pages=1)
 			focus_in_others = False
 			usernames = {}
+			owners = []
 		endpoint_labels = history.device_labels(mine.results + others.results)
 		metadata_by_job = history.metadata(r.job_id for r in mine.results + others.results)
 		db_session.expunge_all()
@@ -271,13 +289,41 @@ def results() -> str:
 	                       others=others,
 	                       per_page=per_page,
 	                       per_page_choices=PER_PAGE_CHOICES,
-	                       status_filter=status,
+	                       status_filter=filters.status,
+	                       filters=filters,
+	                       filtered=filters != JobFilter(),
+	                       # the count's word: the status alone names it, more filters "matching"
+	                       filter_word=(filters.status if filters == JobFilter(status=filters.status)
+	                                    else "matching"),
+	                       owners=owners,
 	                       job_statuses=JOB_STATUSES,
 	                       split_view=is_admin
 	                       and (request.args.get("view") == "all"
 	                            or focus_in_others),
 	                       is_admin=is_admin,
 	                       config_retention_days=snapshot_days)
+
+
+@bp.route("/results/export.csv")
+@login_required
+def results_export() -> ResponseReturnValue:
+	"""Results as a CSV file: every job the page's filters (filter_args) let
+	through, not only the page shown - one row per device. The viewer's own
+	jobs; an admin's all-users view (?view=all) everyone's. Audited with the
+	filters."""
+	me = viewer()
+	scope = JobScope.ALL if me.is_admin and request.args.get("view") == "all" else JobScope.MINE
+	filters = filter_args(me.is_admin)
+	with current_app.backend.postgres.get_session() as db_session:
+		rows = JobResults(db_session, me).export(scope, filters)
+		# the user filter by name, as the page showed it
+		described = filters.described()
+		if filters.owner is not None:
+			described["owner"] = Accounts(db_session).usernames([filters.owner]).get(
+				filters.owner, described["owner"])
+	current_app.web.audit(AuditAction.RESULTS_EXPORTED, detail={
+		"view": scope.value, **described, "rows": len(rows)})
+	return csv_download("results", EXPORT_COLUMNS, rows)
 
 
 @bp.route("/results/config_diff/<uuid:job_id>/<device_ip>")
