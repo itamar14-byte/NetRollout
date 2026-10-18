@@ -596,9 +596,13 @@ A server without a service account (Simple bind), or without any active group ru
 **Deleting a server**: the confirmation lists the users who sign in through it, and offers **Also delete these users**:
 
 - **Ticked**: the users are deleted with only what is theirs (private devices, profiles, mappings, properties, results). Global devices they created stay for everyone. Their usernames become free again, for example for another directory.
-- **Not ticked**: the users are kept but **disabled**: they can't sign in through any server, and their usernames stay taken until you delete them. Keep them only while you need their data.
+- **Not ticked**: the users are kept but **disabled**, with all their data. User Management marks them **NO DIRECTORY**: they can't sign in through any server, and Enable, Approve and Promote are refused until they're reconnected. Their usernames stay taken.
 - Refused when it would leave no administrator who can sign in, and when you sign in through that server yourself (sign in with another administrator account first).
 - Audited as `admin.ldap_server_delete`, with the usernames deleted or disabled.
+
+**Reconnecting kept users**: in User Management, tick accounts marked NO DIRECTORY and select **Reconnect**. Pick a server: it must be switched on and have a service account (Regular bind), because NetRollout checks that every name exists there. If any name isn't found, nothing is reconnected and the window names the missing ones. Reconnected accounts take the directory's email and display name (an email another account already uses is left as it was), and keep their devices, profiles and history. They **stay disabled**: enable them once you're sure they're the same people, since the same username in another directory can be someone else. Where the server sets roles from group rules, they get the role their groups give them now; otherwise they keep theirs, and the window names any administrators so you can demote first. Audited as `user.reconnected`.
+
+The LDAP explorer's import can do the same for a whole directory move: tick **Reconnect existing accounts with these names** before **Import Selected**. A picked name that belongs to an account with no directory is then reconnected (same checks, stays disabled) instead of skipped. A local account or another server's user with that name is never touched.
 
 ### Sessions
 
@@ -766,8 +770,8 @@ Recorded actions include:
 | Area | Actions |
 |---|---|
 | Sign-in | Sign-in (success and failure, with the reason), sign-out, password accepted before 2FA, password change, access request, session expiry, account locked out (locked for 15 minutes, or disabled), `admin`'s two-factor sign-in turned on or off |
-| Users | Create, approve, enable, disable, promote, demote, delete, reset password, reset 2FA, terminate session (one user or many), session kick, `netrollout reset-admin`, a directory user's role changed by the group rules at sign-in (`user.role_from_directory`) |
-| LDAP | Server saved (a new one with its settings; a change with each setting's from and to, the bind password only as "changed") or deleted, import, group rule's role changed, group rule toggled or deleted |
+| Users | Create, approve, enable, disable, promote, demote, delete, reset password, reset 2FA, terminate session (one user or many), session kick, `netrollout reset-admin`, a directory user's role changed by the group rules at sign-in (`user.role_from_directory`), accounts reconnected to another LDAP server (`user.reconnected`) |
+| LDAP | Server saved (a new one with its settings; a change with each setting's from and to, the bind password only as "changed") or deleted, import (with any accounts it reconnected), group rule's role changed, group rule toggled or deleted |
 | Inventory | Device created, edited, deleted, made global or local (made local: how many other users lost their profile links, attribute values and mappings on it), attributes set, CSV import, bulk profile assignment |
 | Profiles, mappings, properties | Created, edited, deleted; mapping bulk assignment |
 | Rollouts | Started, cancelled, rolled back |

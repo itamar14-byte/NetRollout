@@ -1,6 +1,7 @@
 """Admin → Users and Live Sessions: approve, enable / disable, promote /
-demote, delete, reset 2FA or a password, end a user's sessions, add a user;
-the sessions signed in now. Admins only; every action audited."""
+demote, delete, reset 2FA or a password, end a user's sessions, add a user,
+reconnect directory accounts whose LDAP server was deleted; the sessions
+signed in now. Admins only; every action audited."""
 import math
 import time
 import uuid
@@ -14,10 +15,12 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 from werkzeug.security import generate_password_hash
 
+from src.accounts.ldap import Directory, LdapUnavailable
 from src.accounts.users import (ROLE_FROM_DIRECTORY, AccountError, Accounts, clear_lockout,
-                                directory_sets_role, is_factory_admin, temporary_password)
+                                directory_sets_role, has_no_directory, is_factory_admin,
+                                refuse_without_directory, temporary_password)
 from src.audit import AuditAction
-from src.db.tables import User, AuthType, Role
+from src.db.tables import BindType, LDAPServer, User, AuthType, Role
 from src.webapp.app import current_app
 from src.webapp.http import ok, err, require_admin, with_json, viewer
 
@@ -35,6 +38,9 @@ REMOVES_ADMIN = frozenset({"disable", "demote", "delete"})
 # refused for a directory user whose role its group rules set
 # (users.directory_sets_role): the next sign-in would undo them
 ROLE_ACTIONS = frozenset({"promote", "demote"})
+# the actions that let an account sign in: refused for a directory account
+# without a directory (users.has_no_directory) - reconnect it first
+GIVES_ACCESS = frozenset({"approve", "enable", "promote"})
 # the factory admin turns its own 2FA off on My Account, proved by its
 # password and a code - never by a Reset 2FA on itself here
 OWN_2FA = "Turn your own two-factor sign-in off on My Account - it asks for your password and a code."
@@ -115,12 +121,21 @@ def admin_users() -> str:
 	with current_app.backend.postgres.get_session() as db_session:
 		users = db_session.query(User).order_by(User.created_at).all()
 		from_directory = {u.id for u in users if directory_sets_role(u)}
+		no_directory = {u.id for u in users if has_no_directory(u)}
+		# the servers an account can be reconnected to, and whether each can be
+		servers = [{"id": str(s.id), "name": s.name, "active": s.is_active,
+		            "service_account": s.bind_type == BindType.REGULAR,
+		            "sets_roles": s.bind_type == BindType.REGULAR
+		                          and any(g.is_active for g in s.user_groups)}
+		           for s in db_session.query(LDAPServer).order_by(LDAPServer.name)]
 		db_session.expunge_all()
 	now = datetime.now(timezone.utc)
 
 	return render_template("admin_users.html", users=users,
 	                       factory_ids={u.id for u in users if is_factory_admin(u)},
 	                       from_directory_ids=from_directory,
+	                       no_directory_ids=no_directory,
+	                       ldap_servers=servers,
 	                       # locked accounts: the minutes left, rounded up (the badge's tooltip)
 	                       locked_minutes={u.id: math.ceil((u.locked_until - now).total_seconds() / 60)
 	                                       for u in users
@@ -156,6 +171,8 @@ def admin_user_action(user_id: uuid.UUID, action: str) -> ResponseReturnValue:
 			if action in ROLE_ACTIONS and directory_sets_role(user):
 				flash(ROLE_FROM_DIRECTORY.format(name=user.username), "danger")
 				return redirect(url_for("admin_users.admin_users"))
+			if action in GIVES_ACCESS:
+				refuse_without_directory([user])
 			if action in REMOVES_ADMIN:
 				Accounts(db_session).check_admins_left({user.id})
 
@@ -268,6 +285,8 @@ def admin_bulk_action(action: str) -> ResponseReturnValue:
 				from_directory = [u.username for u in chosen if directory_sets_role(u)]
 				if from_directory:
 					raise AccountError(ROLE_FROM_DIRECTORY.format(name=", ".join(from_directory)))
+			if action in GIVES_ACCESS:
+				refuse_without_directory(chosen)
 			if action in REMOVES_ADMIN:
 				Accounts(db_session).check_admins_left(u.id for u in chosen)
 			for user in chosen:
@@ -279,6 +298,53 @@ def admin_bulk_action(action: str) -> ResponseReturnValue:
 	current_app.web.audit(AuditAction(f"user.bulk_{action}"),
 	                      detail={"count": len(affected), "users": affected})
 	return redirect(url_for("admin_users.admin_users"))
+
+
+@bp.route("/users/reconnect", methods=["POST"])
+@login_required
+@require_admin
+@with_json("user_ids", "server_id")
+def admin_users_reconnect(data: Any) -> ResponseReturnValue:
+	"""Directory accounts whose LDAP server was deleted linked to another one,
+	all or none (Accounts.reconnect: each name must exist there - looked up
+	with its service account; the directory's email and name; they stay
+	disabled), then their roles from its group rules where it sets roles.
+	JSON {user_ids: [id, ...], server_id}. Audited user.reconnected.
+
+	:returns: {users, admins, sets_roles}; 404 for an unknown server, 422
+	 when refused (in words; nothing changed), 502 when the directory can't
+	 be asked"""
+	try:
+		user_ids = [uuid.UUID(str(uid)) for uid in data["user_ids"]]
+		server_id = uuid.UUID(str(data["server_id"]))
+	except (TypeError, ValueError):
+		return err("Pick the users and a server.", 422)
+	if not user_ids:
+		return err("Pick the users and a server.", 422)
+	with current_app.backend.postgres.get_session() as db_session:
+		server = db_session.get(LDAPServer, server_id)
+		if server is None:
+			return err("LDAP server not found", 404)
+		users = db_session.query(User).filter(User.id.in_(user_ids)).all()
+		if len(users) != len(set(user_ids)):
+			return err("Some of these users no longer exist - reload the page.", 422)
+		directory = Directory(server)
+		try:
+			names = Accounts(db_session).reconnect(users, server, directory.find_user)
+			admins = directory.set_roles(users)
+		except AccountError as e:
+			db_session.rollback()
+			return err(f"{e} Nothing was reconnected.", 422)
+		except LdapUnavailable as e:
+			db_session.rollback()
+			return err(f"{server.name} couldn't be asked - nothing was reconnected: {e}", 502)
+		server_name = server.name
+		sets_roles = directory.has_service_account() and any(
+			g.is_active for g in server.user_groups)
+	current_app.web.audit(AuditAction.USER_RECONNECTED, object_type="LDAPServer",
+	                      object_id=server_id, object_label=server_name,
+	                      detail={"users": names, "admins": admins})
+	return ok(users=names, admins=admins, sets_roles=sets_roles)
 
 
 @bp.route("/sessions")

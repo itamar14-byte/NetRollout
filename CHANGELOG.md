@@ -8,6 +8,7 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ### Added
 
+- **Reconnect** in User Management: accounts kept when their LDAP server was deleted (now marked NO DIRECTORY) can be linked to another server. Every name must exist there, checked with its service account, or nothing changes; they take the directory's email and name, keep their data, and stay disabled until an administrator enables them. The LDAP explorer's import can do the same ("Reconnect existing accounts with these names"). Until then, Enable, Approve and Promote are refused on them: before, they could be enabled but never sign in.
 - Inventory filters: by name and IP address as you type, and by platform from a list of the platforms you have. Sections with no match hide, and the page says how many devices it shows.
 - Unticking Global on a global device warns that the other users lose it, with their security profile, attribute values and variable mappings on it, and Save becomes a red Confirm.
 - Results filters: by note and by device name or IP as you type, by status, by the days a job started on, and in an administrator's All Users view by user. They cover every job, not only the page shown.

@@ -42,6 +42,7 @@ class AuditAction(StrEnum):
 	USER_RESET_2FA = "user.reset_2fa"
 	USER_TERMINATE_SESSION = "user.terminate_session"
 	USER_ROLE_FROM_DIRECTORY = "user.role_from_directory"   # set by group rules at sign-in
+	USER_RECONNECTED = "user.reconnected"   # directory accounts linked to another LDAP server
 	USER_BULK_APPROVE = "user.bulk_approve"
 	USER_BULK_ENABLE = "user.bulk_enable"
 	USER_BULK_DISABLE = "user.bulk_disable"

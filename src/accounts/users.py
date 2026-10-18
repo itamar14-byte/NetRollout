@@ -253,6 +253,33 @@ def directory_sets_role(user: User) -> bool:
 	        and any(rule.is_active for rule in server.user_groups))
 
 
+def has_no_directory(user: User) -> bool:
+	""":returns: whether this is a directory account whose LDAP server was
+	 deleted (its users kept) - it can't sign in until it's reconnected
+	 (Accounts.reconnect)"""
+	return user.auth_type == AuthType.LDAP and user.ldap_server_id is None
+
+
+# Enable, Approve and Promote on such an account: it would still be refused at
+# every sign-in
+NO_DIRECTORY = ("{names} {verb} no directory and can't sign in: reconnect "
+                "{them} to an LDAP server first (User Management -> Reconnect).")
+
+
+def refuse_without_directory(users: Iterable[User]) -> None:
+	""":raises AccountError: any of them has no directory (has_no_directory)"""
+	names = sorted(u.username for u in users if has_no_directory(u))
+	if names:
+		one = len(names) == 1
+		raise AccountError(NO_DIRECTORY.format(names=", ".join(names), verb="has" if one else "have",
+		                                       them="it" if one else "them"))
+
+
+# Looks a username up in a directory: their {email, full_name}, None when
+# nobody there has it (Directory.find_user); raises when it can't tell
+UserLookup = Callable[[str], Mapping[str, str | None] | None]
+
+
 class RoleChange(Enum):
 	"""What a sign-in's group rules did to a directory user's role
 	(Accounts.set_directory_role)."""
@@ -359,6 +386,52 @@ class Accounts:
 				user.is_active = False
 		self.session.delete(server)
 		return names
+
+	def reconnect(self, users: Iterable[User], server: LDAPServer, lookup: UserLookup) -> list[str]:
+		"""Directory accounts without a directory (has_no_directory: their
+		server was deleted, the users kept) linked to another server, all or
+		none. Each name must exist there - the server's service account looks
+		it up, so a server without one can't be used. They take the
+		directory's email and full name (an email another account uses is
+		left as it was) and stay disabled: an admin enables them once sure
+		they are the same people. The role is the caller's (the group rules,
+		where the server sets roles).
+
+		:param lookup: the server's user lookup (Directory.find_user)
+		:returns: the usernames reconnected
+		:raises AccountError: an account that isn't without a directory, a
+		 server that is off or has no service account, names it doesn't
+		 have (all of them named) - nothing changed
+		:raises LdapUnavailable: (from lookup) the directory couldn't be
+		 asked - nothing changed"""
+		users = list(users)
+		taken = sorted(u.username for u in users if not has_no_directory(u))
+		if taken:
+			raise AccountError(f"Only accounts whose LDAP server was deleted can be "
+			                   f"reconnected - not {', '.join(taken)}.")
+		if not server.is_active:
+			raise AccountError(f"{server.name} is switched off: switch it on first.")
+		if server.bind_type != BindType.REGULAR:
+			raise AccountError(f"{server.name} has no service account, so NetRollout can't "
+			                   f"check the users exist there: add one, or pick another server.")
+		found = {u.id: lookup(u.username) for u in users}
+		missing = sorted(u.username for u in users if found[u.id] is None)
+		if missing:
+			raise AccountError(f"Not in {server.name}: {', '.join(missing)}.")
+		for user in users:
+			details = found[user.id] or {}
+			# kept as they were when the directory's don't fit the columns
+			email, full_name = details.get("email"), details.get("full_name")
+			if (email and len(email) <= LIMITS["email"]
+					and not self.session.query(User.id).filter(
+						User.email == email, User.id != user.id).first()):
+				user.email = email
+			if full_name and len(full_name) <= LIMITS["full_name"]:
+				user.full_name = full_name
+			user.ldap_server = server
+			user.is_active = False
+		self.session.flush()
+		return sorted(u.username for u in users)
 
 	def set_directory_role(self, user: User, role: str) -> RoleChange | None:
 		"""A directory user's role as their group rules give it at sign-in

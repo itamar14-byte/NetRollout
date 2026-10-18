@@ -78,6 +78,12 @@
       </button>
     </span>
 
+    <span class="tip-wrap" id="wrapReconnect">
+      <button class="tb-btn enable-tb" id="btnReconnect" disabled>
+        <i class="bi bi-plug me-1"></i>Reconnect
+      </button>
+    </span>
+
     <div class="tb-divider"></div>
 
     <span class="tip-wrap" id="wrapDelete">
@@ -116,7 +122,7 @@
         {% set status = "pending" %}
       {% endif %}
       <tr data-status="{{ status }}"
-          data-user='{{ {"id": user.id|string, "username": user.username, "role": user.role, "approved": user.is_approved, "active": user.is_active, "is_self": (user.id == current_user.id), "is_factory": (user.id in factory_ids), "has_session": (user.id|string in session_user_ids), "auth_type": user.auth_type, "has_2fa": user.otp_secret is not none, "locked": (user.id in locked_minutes), "role_from_directory": (user.id in from_directory_ids)}|tojson }}'>
+          data-user='{{ {"id": user.id|string, "username": user.username, "role": user.role, "approved": user.is_approved, "active": user.is_active, "is_self": (user.id == current_user.id), "is_factory": (user.id in factory_ids), "has_session": (user.id|string in session_user_ids), "auth_type": user.auth_type, "has_2fa": user.otp_secret is not none, "locked": (user.id in locked_minutes), "role_from_directory": (user.id in from_directory_ids), "no_directory": (user.id in no_directory_ids)}|tojson }}'>
 
         <td style="padding-right:0;">
           <input type="checkbox" class="form-check-input row-cb" style="margin:0; cursor:pointer;" value="{{ user.id }}">
@@ -128,6 +134,9 @@
             <span style="font-family:'Inter',sans-serif; font-size: 0.75rem; color:var(--nr-text-muted); font-weight:400; margin-left:0.35rem; letter-spacing:0.5px;">factory</span>
           {% elif user.auth_type == "ldap" %}
             <span style="font-family:'JetBrains Mono',monospace; font-size: 0.6875rem; font-weight:700; letter-spacing:1.5px; color:#80deea; background:rgba(0,188,212,0.08); border:1px solid rgba(0,188,212,0.2); border-radius:3px; padding:0.1rem 0.35rem; margin-left:0.4rem;">LDAP</span>
+            {% if user.id in no_directory_ids %}
+            <span class="no-directory-badge" title="Its LDAP server was deleted: it can't sign in until it's reconnected (Reconnect)">NO DIRECTORY</span>
+            {% endif %}
           {% endif %}
         </td>
         <td style="font-size:0.88rem;">{{ user.full_name }}</td>
@@ -176,6 +185,44 @@
 </form>
 
 <!-- Reset password: confirm, then show the temporary password once -->
+<!-- Reconnect: accounts whose LDAP server was deleted, linked to another one -->
+<div class="modal fade" id="reconnectModal" tabindex="-1" aria-hidden="true" aria-labelledby="reconnectTitle">
+  <div class="modal-dialog modal-dialog-centered" style="max-width:480px;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <div class="nr-badge" style="margin-bottom:0.3rem;">LDAP</div>
+          <h5 class="modal-title" id="reconnectTitle">Reconnect to a server</h5>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body" id="reconnectForm">
+        <p class="nr-note-tight" style="margin-bottom:0.7rem;">
+          Their LDAP server was deleted. NetRollout checks each name exists in the server you pick,
+          then links them to it with the directory's email and name. They stay disabled: enable
+          them when you're sure they're the same people.
+        </p>
+        <div id="reconnectUsers" class="reconnect-users"></div>
+        <label class="nr-label" for="reconnectServer" style="margin-top:0.9rem;">LDAP SERVER</label>
+        <select id="reconnectServer" class="form-select form-select-sm"></select>
+        <p class="nr-help-text" id="reconnectRoleNote" style="margin-top:0.5rem;"></p>
+        <div class="reconnect-error" id="reconnectError" role="alert" hidden></div>
+      </div>
+      <div class="modal-body" id="reconnectDone" hidden>
+        <p style="font-size:0.88rem; color:#ccc; margin-bottom:0.5rem;" id="reconnectDoneText"></p>
+        <p class="nr-warning-note"><i class="bi bi-exclamation-triangle me-1"></i>They stay disabled:
+          enable them when you're sure they're the same people.</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal" id="reconnectCancel">Cancel</button>
+        <button type="button" class="btn btn-primary btn-sm" id="reconnectGo">
+          <i class="bi bi-plug me-1"></i>Reconnect
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="modal fade" id="resetPwModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered" style="max-width:430px;">
     <div class="modal-content">
@@ -445,20 +492,44 @@
 
   /* Row highlight on check */
   tr.row-selected { background: rgba(0,188,212,0.04) !important; }
+
+  /* A directory account whose LDAP server was deleted (Reconnect) */
+  .no-directory-badge {
+    font-family:'JetBrains Mono',monospace; font-size:0.6875rem; font-weight:700; letter-spacing:1.5px;
+    color:#ffb74d; background:rgba(255,183,77,0.08); border:1px solid rgba(255,183,77,0.3);
+    border-radius:3px; padding:0.1rem 0.35rem; margin-left:0.3rem; cursor:help;
+  }
+  .reconnect-users { display:flex; flex-direction:column; gap:0.3rem; max-height:180px; overflow-y:auto; }
+  .reconnect-user {
+    display:flex; justify-content:space-between; gap:0.6rem; padding:0.35rem 0.6rem;
+    background:#111; border:1px solid #1e1e1e; border-radius:6px; font-size:0.82rem;
+  }
+  .reconnect-user .ru-name { font-family:'JetBrains Mono',monospace; color:#e0e0e0; font-weight:600; }
+  .reconnect-user .ru-role { color:var(--nr-text-muted); }
+  .reconnect-user .ru-role.is-admin { color:#ef9a9a; }
+  .reconnect-error {
+    margin-top:0.7rem; padding:0.5rem 0.7rem; border-radius:6px; font-size:0.82rem;
+    background:rgba(239,83,80,0.08); border:1px solid rgba(239,83,80,0.35); color:#f2b8b5;
+  }
 </style>
 
 <script>
   // ── Data ──
-  const ACTIONS = ["Approve","Enable","Disable","Promote","Demote","TerminateSession","ResetPassword","Reset2FA","Delete"];
+  const ACTIONS = ["Approve","Enable","Disable","Promote","Demote","TerminateSession","ResetPassword","Reset2FA","Reconnect","Delete"];
+  // the LDAP servers an account can be reconnected to: {id, name, active, service_account, sets_roles}
+  const LDAP_SERVERS = {{ ldap_servers | tojson }};
+  const usable = s => s.active && s.service_account;
 
   const rules = {
     Approve: sel => {
       if (!sel.length) return "No users selected";
       const n = sel.filter(u => u.approved).length;
-      return n ? `${n} user(s) already approved` : null;
+      return n ? `${n} user(s) already approved` : noDirectory(sel);
     },
     Enable: sel => {
       if (!sel.length) return "No users selected";
+      const lost = noDirectory(sel);
+      if (lost) return lost;
       const notApproved = sel.filter(u => !u.approved).length;
       if (notApproved) return `${notApproved} user(s) not yet approved`;
       // a locked account is active, but Enable lifts its lock
@@ -476,7 +547,7 @@
       if (!sel.length) return "No users selected";
       const n = sel.filter(u => u.role === "admin").length;
       if (n) return `${n} user(s) already admin`;
-      return roleFromDirectory(sel);
+      return noDirectory(sel) || roleFromDirectory(sel);
     },
     Demote: sel => {
       if (!sel.length) return "No users selected";
@@ -511,6 +582,14 @@
       const none = sel.filter(u => !u.has_2fa).length;
       return none ? `${none} user(s) have no 2FA set up` : null;
     },
+    // directory accounts whose LDAP server was deleted, to another server
+    Reconnect: sel => {
+      if (!sel.length) return "No users selected";
+      const n = sel.filter(u => !u.no_directory).length;
+      if (n) return `${n} user(s) aren't directory accounts whose LDAP server was deleted`;
+      return LDAP_SERVERS.some(usable) ? null
+        : "No LDAP server that's on and has a service account to check the names with";
+    },
     Delete: sel => {
       if (!sel.length) return "No users selected";
       if (sel.some(u => u.is_factory)) return "Factory user cannot be deleted";
@@ -518,6 +597,13 @@
       return noAdminLeft(sel);
     }
   };
+
+  // An account whose LDAP server was deleted can't sign in: enabling it
+  // waits until it's reconnected (the server refuses it too)
+  function noDirectory(sel) {
+    const n = sel.filter(u => u.no_directory).length;
+    return n ? `${n} user(s) have no directory - reconnect them first` : null;
+  }
 
   // A directory user whose role its group rules set (Group Rules below): the
   // next sign-in decides it, so the server refuses Promote / Demote
@@ -606,6 +692,94 @@
       document.getElementById("bulkForm").submit();
     });
   });
+
+  // ── Reconnect: the ticked accounts (their LDAP server was deleted) to a
+  // server that can check their names; refused names show here, nothing
+  // changed; after it, closing reloads the page ──
+  (() => {
+    const modalEl = document.getElementById("reconnectModal");
+    const serverSel = document.getElementById("reconnectServer");
+    const errorEl = document.getElementById("reconnectError");
+    const goBtn = document.getElementById("reconnectGo");
+    let picked = [], done = false;
+
+    function roleNote() {
+      const s = LDAP_SERVERS.find(x => x.id === serverSel.value);
+      const admins = picked.filter(u => u.role === "admin").map(u => u.username);
+      document.getElementById("reconnectRoleNote").textContent = !s ? "" : s.sets_roles
+        ? `${s.name} sets roles from its group rules: they get the role their groups give them now.`
+        : `${s.name} has no active group rules: they keep their roles.` +
+          (admins.length ? ` ${admins.join(", ")} ${admins.length === 1 ? "is an administrator" : "are administrators"} - demote first if that's wrong.` : "");
+    }
+
+    document.getElementById("btnReconnect").addEventListener("click", () => {
+      picked = getSelected();
+      done = false;
+      const list = document.getElementById("reconnectUsers");
+      list.replaceChildren(...picked.map(u => {
+        const row = document.createElement("div");
+        row.className = "reconnect-user";
+        const name = document.createElement("span");
+        name.className = "ru-name";
+        name.textContent = u.username;
+        const role = document.createElement("span");
+        role.className = "ru-role" + (u.role === "admin" ? " is-admin" : "");
+        role.textContent = u.role === "admin" ? "Admin" : "Operator";
+        row.append(name, role);
+        return row;
+      }));
+      serverSel.replaceChildren(...LDAP_SERVERS.map(s => {
+        const opt = document.createElement("option");
+        opt.value = s.id;
+        opt.disabled = !usable(s);
+        opt.textContent = s.name + (!s.active ? " - switched off"
+          : !s.service_account ? " - no service account to check names with" : "");
+        return opt;
+      }));
+      const first = LDAP_SERVERS.find(usable);
+      if (first) serverSel.value = first.id;
+      roleNote();
+      errorEl.hidden = true;
+      document.getElementById("reconnectForm").hidden = false;
+      document.getElementById("reconnectDone").hidden = true;
+      goBtn.hidden = false;
+      goBtn.disabled = false;
+      document.getElementById("reconnectCancel").textContent = "Cancel";
+      bootstrap.Modal.getOrCreateInstance(modalEl).show();
+    });
+    serverSel.addEventListener("change", () => { errorEl.hidden = true; roleNote(); });
+
+    goBtn.addEventListener("click", async () => {
+      goBtn.disabled = true;
+      errorEl.hidden = true;
+      try {
+        const resp = await fetch("/admin/users/reconnect", {
+          method: "POST",
+          headers: {"Content-Type": "application/json", "X-CSRFToken": CSRF_TOKEN},
+          body: JSON.stringify({user_ids: picked.map(u => u.id), server_id: serverSel.value})
+        });
+        const data = await resp.json();
+        if (!resp.ok || data.status !== "ok") throw new Error(data.message || `Not reconnected (${resp.status})`);
+        const server = serverSel.options[serverSel.selectedIndex].text;
+        let text = `Reconnected to ${server}: ${data.users.join(", ")}.`;
+        if (data.sets_roles) {
+          text += data.admins.length ? ` ${data.admins.join(", ")} ${data.admins.length === 1 ? "is an administrator" : "are administrators"} by the group rules.`
+                                     : " The group rules make them operators.";
+        }
+        document.getElementById("reconnectDoneText").textContent = text;
+        document.getElementById("reconnectForm").hidden = true;
+        document.getElementById("reconnectDone").hidden = false;
+        goBtn.hidden = true;
+        document.getElementById("reconnectCancel").textContent = "Close";
+        done = true;
+      } catch (e) {
+        errorEl.textContent = e.message;
+        errorEl.hidden = false;
+        goBtn.disabled = false;
+      }
+    });
+    modalEl.addEventListener("hidden.bs.modal", () => { if (done) window.location.reload(); });
+  })();
 
   // ── Reset password flow: confirm → POST → show the temporary password once ──
   let resetPwTarget = null, resetPwDone = false;

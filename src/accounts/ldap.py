@@ -22,7 +22,7 @@ from ldap3.utils.conv import escape_filter_chars
 from ldap3.utils.dn import escape_rdn, parse_dn
 
 from src.access.certs import TrustedCAs
-from src.db.tables import LDAPServer, LDAPGroup, BindType, Role
+from src.db.tables import LDAPServer, LDAPGroup, BindType, Role, User
 from src.encryption import decrypt
 
 
@@ -185,7 +185,9 @@ class Directory:
 
 	# ── binding ──
 
-	def _has_service_account(self) -> bool:
+	def has_service_account(self) -> bool:
+		""":returns: whether it binds with a service account (the "regular"
+		 bind type) - which can look users up"""
 		return self.server.bind_type == BindType.REGULAR
 
 	def service_bind(self) -> Connection | None:
@@ -194,7 +196,7 @@ class Directory:
 		:returns: the connection; None when the server has no service account
 		:raises LDAPException: the bind failed - also when no password is
 		 stored (ldap3 never sends an empty one in a simple bind)"""
-		if not self._has_service_account():
+		if not self.has_service_account():
 			return None
 		conn = _connection(make_server(self.server), user=self.server.bind_dn,
 		                   password=decrypt(self.server.bind_password),
@@ -274,7 +276,7 @@ class Directory:
 		 authenticated user is a direct member of (highest_role) and the first
 		 such group granting it; None when not a member, or not authenticated
 		:raises LdapUnavailable: the directory couldn't be reached or used"""
-		if not self._has_service_account():
+		if not self.has_service_account():
 			return None
 		dn = self.authenticate(username, password)
 		if dn is None:
@@ -293,13 +295,33 @@ class Directory:
 		:returns: those groups, in order; none without a service account or
 		 when the user isn't found
 		:raises LdapUnavailable: the directory couldn't be reached or used"""
-		if not self._has_service_account():
+		if not self.has_service_account():
 			return []
 		try:
 			dn = self.find_dn(username)
 		except LDAPException as e:
 			raise LdapUnavailable(explain(e, self.server.host)) from e
 		return [] if dn is None else self._member_of(dn, groups)
+
+	def set_roles(self, users: Iterable[User]) -> list[str]:
+		"""Accounts' roles as their sign-in would set them, where this server
+		sets roles (a service account and an active group rule: the accounts'
+		directory_sets_role): admin when a matching active rule grants it
+		(highest_role), else operator. Elsewhere they're left alone. For
+		accounts it gets without a sign-in: imported, reconnected.
+
+		:returns: the usernames made admins
+		:raises LdapUnavailable: the directory couldn't be asked"""
+		rules = [rule for rule in self.server.user_groups if rule.is_active]
+		if not (self.has_service_account() and rules):
+			return []
+		admins = []
+		for user in users:
+			role = highest_role(r.role for r in self.matching_rules(user.username, rules))
+			user.role = role
+			if role == Role.ADMIN:
+				admins.append(user.username)
+		return admins
 
 	def _member_of(self, dn: str, groups: Sequence[LDAPGroup]) -> list[LDAPGroup]:
 		"""The groups the entry `dn` is a direct member of (service account). A
@@ -335,11 +357,26 @@ class Directory:
 
 		:returns: {"email", "full_name"}; None when they can't be read (no service
 		 account, not found, the directory failing - the caller goes on without)"""
+		try:
+			return self.find_user(username)
+		except LdapUnavailable:
+			return None
+
+	def find_user(self, username: str) -> dict[str, str | None] | None:
+		"""A user looked up as the service account (whatever the name's case, as
+		the directory compares it) - to be sure they exist before an account is
+		reconnected to this directory (Accounts.reconnect).
+
+		:returns: their {"email", "full_name"}; None when nobody - or more than
+		 one entry - has the name
+		:raises LdapUnavailable: the server has no service account to look with,
+		 or the directory couldn't be used"""
 		conn = None
 		try:
 			conn = self.service_bind()
 			if conn is None:
-				return None
+				raise LdapUnavailable(f"the directory at {self.server.host} has no service "
+				                      f"account, so NetRollout can't look users up there")
 			conn.search(search_base=self.server.base_dn,
 			            search_filter=self.user_filter(username),
 			            search_scope=SUBTREE,
@@ -351,8 +388,8 @@ class Directory:
 			full_name = str(entry.displayName) if entry.displayName else str(
 				entry.cn) if entry.cn else username
 			return {"email": email, "full_name": full_name}
-		except LDAPException:
-			return None
+		except LDAPException as e:
+			raise LdapUnavailable(explain(e, self.server.host)) from e
 		finally:
 			_close(conn)
 

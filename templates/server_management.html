@@ -536,7 +536,12 @@
           </div>
           <div id="expSelectedPanel" style="flex:1; overflow-y:auto; min-height:0;"></div>
           <div id="expImportResult" style="display:none; margin-top:0.6rem; font-size:0.8rem;"></div>
-          <button class="btn btn-primary btn-sm mt-3" id="btnImport" onclick="importSelected()" disabled>
+          <label class="d-flex gap-2 align-items-start mt-3 mb-0" style="font-size:0.75rem; color:var(--nr-text-muted); cursor:pointer;"
+                 title="An account whose LDAP server was deleted, with a name picked here, is linked to this server (it stays disabled) instead of skipped">
+            <input type="checkbox" class="form-check-input mt-0" id="expReconnect" style="flex-shrink:0;">
+            <span>Reconnect existing accounts with these names (their server was deleted; they stay disabled)</span>
+          </label>
+          <button class="btn btn-primary btn-sm mt-2" id="btnImport" onclick="importSelected()" disabled>
             <i class="bi bi-download me-1"></i>Import Selected
           </button>
         </div>
@@ -1804,7 +1809,9 @@
     fetch(`${LDAP_BASE}/${explorerServerId}/import`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN },
-      body: JSON.stringify(items)
+      // ticked: names of accounts whose server was deleted reconnect to this one
+      body: JSON.stringify(document.getElementById('expReconnect').checked
+        ? {items, reconnect: true} : items)
     })
     .then(r => r.json())
     .then(data => {
@@ -1813,6 +1820,7 @@
         const parts = [];
         if (data.users_created)  parts.push(`${data.users_created} user${data.users_created !== 1 ? 's' : ''}`);
         if (data.groups_created) parts.push(`${data.groups_created} group rule${data.groups_created !== 1 ? 's' : ''}`);
+        if (data.reconnected)    parts.push(`${data.reconnected} reconnected (disabled - enable them in User Management)`);
         if (data.skipped)        parts.push(`${data.skipped} skipped`);
         res.innerHTML = `<span class="res-ok"><i class="bi bi-check-circle me-1"></i>Imported: ${parts.join(', ') || 'nothing new'}</span>`;
         explorerSelected = {};

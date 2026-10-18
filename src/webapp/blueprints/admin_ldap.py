@@ -7,10 +7,11 @@ from flask import Blueprint, Request, Response, request, jsonify
 from flask.typing import ResponseReturnValue
 from flask_login import current_user, login_required
 
-from src.accounts.ldap import Directory, LdapUnavailable, highest_role
-from src.accounts.users import ROLES, AccountError, Accounts, directory_sets_role, is_reserved
+from src.accounts.ldap import Directory, LdapUnavailable
+from src.accounts.users import (ROLES, AccountError, Accounts, directory_sets_role,
+                                has_no_directory, is_reserved)
 from src.audit import AuditAction
-from src.db.tables import LDAPServer, LDAPGroup, BindType, Role, User
+from src.db.tables import LDAPServer, LDAPGroup, BindType, User
 from src.encryption import encrypt
 from src.rollout import inputs
 from src.webapp.app import current_app
@@ -274,22 +275,29 @@ def admin_server_ldap_import(server_id: uuid.UUID) -> ResponseReturnValue:
 	"""Users and groups picked in the directory browser: users become LDAP
 	accounts (approved, active), groups become mappable groups (operator);
 	ones that exist are skipped, and so are malformed items. JSON [{type:
-	user | group, username | dn, label}]. Where the directory sets roles
-	(users.directory_sets_role) a new user gets the role their group rules
-	give, as at sign-in (the groups imported here included); else operator.
+	user | group, username | dn, label}], or {items: [...], reconnect: true}:
+	then a name whose account lost its directory (has_no_directory) is
+	reconnected to this one instead of skipped (Accounts.reconnect: it must
+	exist here, takes its email and name, stays disabled). Where the
+	directory sets roles (users.directory_sets_role) a new or reconnected
+	user gets the role their group rules give, as at sign-in (the groups
+	imported here included); else a new one is an operator.
 
-	:returns: {users_created, groups_created, skipped, admins}; 422 when the
-	 body isn't a list, 502 when the directory can't be asked for the new
-	 users' groups (nothing imported)"""
-	items = request.get_json(silent=True)
-	if items is None:
-		items = []
+	:returns: {users_created, groups_created, reconnected, skipped, admins};
+	 422 when the body is neither, or a name to reconnect isn't in the
+	 directory; 502 when the directory can't be asked (nothing imported)"""
+	body = request.get_json(silent=True)
+	if body is None:
+		body = []
+	reconnect = isinstance(body, dict) and body.get("reconnect") is True
+	items = body.get("items") if isinstance(body, dict) else body
 	if not isinstance(items, list):
 		return err("The import is a list of users and groups.", 422)
 	users_created = 0
 	groups_created = 0
 	skipped = 0
 	created: list[User] = []
+	to_reconnect: list[User] = []
 
 	with current_app.backend.postgres.get_session() as db_session:
 		srv = db_session.query(LDAPServer).filter_by(id=server_id).first()
@@ -306,7 +314,12 @@ def admin_server_ldap_import(server_id: uuid.UUID) -> ResponseReturnValue:
 			if item["type"] == "user":
 				# usernames are compared as sign-in compares them: whatever the case;
 				# the reserved name is never an account
-				if accounts.by_name_ci(item["username"]) or is_reserved(item["username"]):
+				existing = accounts.by_name_ci(item["username"])
+				if (reconnect and len(existing) == 1 and has_no_directory(existing[0])
+						and existing[0] not in to_reconnect):
+					to_reconnect.append(existing[0])
+					continue
+				if existing or is_reserved(item["username"]):
 					skipped += 1
 					continue
 				created.append(accounts.new_ldap(item["username"], server_id))
@@ -325,39 +338,26 @@ def admin_server_ldap_import(server_id: uuid.UUID) -> ResponseReturnValue:
 				groups_created += 1
 
 		db_session.flush()
+		directory = Directory(srv)
 		try:
-			admins = _roles_from_directory(srv, created)
+			reconnected = (accounts.reconnect(to_reconnect, srv, directory.find_user)
+			               if to_reconnect else [])
+			admins = directory.set_roles(created + to_reconnect)
+		except AccountError as e:
+			db_session.rollback()
+			return err(f"{e} Nothing was imported.", 422)
 		except LdapUnavailable as e:
 			db_session.rollback()
-			return err(f"The directory couldn't be asked for the users' groups - "
+			return err(f"The directory couldn't be asked about the users - "
 			           f"nothing was imported: {e}", 502)
 		current_app.web.audit(AuditAction.ADMIN_LDAP_IMPORT, success=True,
 		                      detail={"users": users_created,
 		                              "groups": groups_created,
+		                              "reconnected": reconnected,
 		                              "skipped": skipped, "admins": admins})
 
 	return ok(users_created=users_created, groups_created=groups_created,
-	          skipped=skipped, admins=admins)
-
-
-def _roles_from_directory(server: LDAPServer, users: list[User]) -> list[str]:
-	"""New directory accounts' roles, as their sign-in would set them: where
-	the directory sets roles, admin when a matching active group rule grants
-	it (ldap.highest_role) - else they stay operators.
-
-	:returns: the usernames made admins
-	:raises LdapUnavailable: the directory couldn't be asked"""
-	if not users or not directory_sets_role(users[0]):
-		return []
-	directory = Directory(server)
-	rules = [rule for rule in server.user_groups if rule.is_active]
-	admins = []
-	for user in users:
-		role = highest_role(r.role for r in directory.matching_rules(user.username, rules))
-		user.role = role
-		if role == Role.ADMIN:
-			admins.append(user.username)
-	return admins
+	          reconnected=len(reconnected), skipped=skipped, admins=admins)
 
 
 @bp.route("/ldap/<uuid:server_id>/groups", methods=["GET"])
