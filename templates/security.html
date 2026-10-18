@@ -406,7 +406,7 @@
 ══════════════════════════════════════ -->
 {% from "_delete_modal.html" import delete_modal %}
 {{ delete_modal("Delete Profile", "Delete credential profile", "deleteProfileName", "#ef9a9a",
-                 "This cannot be undone. Devices assigned to this profile will need to be reassigned before deletion is allowed.") }}
+                 "This cannot be undone.") }}
 
 
 <!-- ══════════════════════════════════════
@@ -564,7 +564,7 @@ document.querySelectorAll('.profile-card').forEach(card => {
     const devices = JSON.parse(card.dataset.devices);
 
     card.querySelector('.edit-btn').addEventListener('click', () => openEdit(profile));
-    card.querySelector('.delete-btn').addEventListener('click', () => openDelete(profile));
+    card.querySelector('.delete-btn').addEventListener('click', () => openDelete(profile, devices));
     card.querySelector('.devices-btn').addEventListener('click', () => openDevices(profile));
     card.querySelector('.test-btn').addEventListener('click', () => openTest(profile));
 });
@@ -590,9 +590,16 @@ function openEdit(profile) {
 }
 
 // ── Delete modal ──
-function openDelete(profile) {
+// The devices it's linked to lose it with it (security_delete unlinks them)
+function openDelete(profile, devices) {
     document.getElementById('deleteProfileName').textContent =
         profile.label || profile.username;
+    const n = devices.length;
+    document.getElementById('deleteModalNote').textContent = n
+        ? "This cannot be undone. It's linked to " + (n === 1 ? '1 device' : n + ' devices') +
+          ": you'll need another profile on " + (n === 1 ? 'it' : 'them') +
+          ' before you can roll out to ' + (n === 1 ? 'it' : 'them') + ' again.'
+        : 'This cannot be undone.';
     document.getElementById('deleteForm').action =
         '/security/' + profile.id + '/delete';
 

@@ -239,7 +239,7 @@ On **Security Profiles**:
 - **Edit profile** changes it. Leave the password blank to keep the current one. **Clear enable secret** removes the secret.
 - **Test connection** picks one of your devices and tries a full SSH login with the profile.
 - **View attached devices** shows which devices use the profile when you roll out: your own devices and global ones. Drag devices between **Assigned** and **Available**, or click one to move it. Nothing changes until you select **Save**. Linking a global device here changes only your own link; other users keep theirs.
-- **Delete profile** deletes it even while devices use it: those devices then show **ACTION NEEDED** until you link another of your profiles, and the message says how many.
+- **Delete profile** deletes it even while devices use it: those devices then show **ACTION NEEDED** until you link another of your profiles, and the Delete window says how many first.
 
 Profiles are yours. Other users don't see them, and nobody else can log in with them. Passwords and secrets are encrypted in the database and are never shown again after you save them.
 

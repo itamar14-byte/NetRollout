@@ -1,6 +1,6 @@
 {# The delete confirmation: "IRREVERSIBLE ACTION", the item's name in
-   #name_id (the page's script fills it and the form's action), Cancel /
-   Delete. #}
+   #name_id (the page's script fills it and the form's action), the note in
+   #deleteModalNote (a script may say more there), Cancel / Delete. #}
 {% macro delete_modal(title, prompt, name_id, name_color, note) %}
 <div class="modal fade" id="deleteModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered" style="max-width:420px;">
@@ -17,7 +17,7 @@
                     {{ prompt }}
                     <span id="{{ name_id }}" style="font-family:'JetBrains Mono',monospace; color:{{ name_color }}; font-weight:700;"></span>?
                 </p>
-                <p class="nr-note-tight">
+                <p class="nr-note-tight" id="deleteModalNote">
                     {{ note }}
                 </p>
             </div>
