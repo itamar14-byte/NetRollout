@@ -18,6 +18,7 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ### Fixed
 
+- A window opened over another one was dimmed and took no click, only Escape: **Create New Profile** (and the quick-create mapping) from Edit device froze the page. After a question had been asked over another window, the next question on that page froze the same way. Every window opened over another now goes above it.
 - On a phone, the page's title had no room next to the Operations | Administration switch, the administration pages hid it, and the NO DIRECTORY badge broke over two lines. The top bar now gives the title the room (the logo stays in the menu, and the user menu shows a person icon), and badges never break.
 - NetRollout Manager's **Logs** (and other script output it shows) garbled every character that isn't plain English, such as a dash in the app's log lines or a device label in another language: `manage.ps1` now writes UTF-8 and the Manager reads it so.
 
