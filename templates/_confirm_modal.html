@@ -9,7 +9,7 @@
    below for every window: one opened over another (these, Restart's
    rollout list, a quick-create profile over Edit device) goes above it and
    its dimmed backdrop, and the one beneath gets its keyboard focus back
-   after. #}
+   after - and Enter in a window clicks its main button. #}
 <div class="modal fade" id="nrConfirmModal" tabindex="-1" aria-hidden="true" aria-labelledby="nrConfirmTitle">
     <div class="modal-dialog modal-dialog-centered" style="max-width:440px;">
         <div class="modal-content">
@@ -88,6 +88,33 @@ document.addEventListener('show.bs.modal', e => {
         const backdrops = document.querySelectorAll('.modal-backdrop');
         if (backdrops.length) backdrops[backdrops.length - 1].style.zIndex = top === null ? '' : top + 5;
     });
+});
+// Enter in a window clicks its main (blue) button, as Escape closes it -
+// for the windows whose button isn't a form's submit (Create New Profile...;
+// in a form the browser already submits on Enter). A window whose first
+// step isn't blue marks it data-nr-enter (Add Device's Test Connection,
+// which then becomes the form's Confirm). Never a red one: a
+// destructive action takes a click. Left alone: Enter in a text area (a new
+// line), on a button or link (it clicks that one), in a list's search, while
+// typing in another script (IME), with a modifier key.
+document.addEventListener('keydown', e => {
+    if (e.key !== 'Enter' || e.defaultPrevented || e.isComposing
+        || e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return;
+    const open = [...document.querySelectorAll('.modal.show')];
+    if (!open.length) return;
+    const win = open.reduce((a, b) =>
+        (parseInt(getComputedStyle(b).zIndex, 10) || 0) >= (parseInt(getComputedStyle(a).zIndex, 10) || 0) ? b : a);
+    const t = e.target;
+    if (!win.contains(t) && t !== document.body) return;
+    if (t.closest && t.closest('textarea, button, a, select, [contenteditable], .nr-select-panel')) return;
+    const form = t.closest && t.closest('form');
+    if (form && form.querySelector('[type=submit]')) return;     // the browser submits it
+    const usable = btn => !btn.disabled && btn.offsetParent !== null && !btn.classList.contains('btn-danger');
+    const main = [...win.querySelectorAll('[data-nr-enter]')].filter(usable).pop()
+        || [...win.querySelectorAll('.modal-footer .btn-primary')].filter(usable).pop();
+    if (!main) return;
+    e.preventDefault();
+    main.click();
 });
 document.addEventListener('hidden.bs.modal', e => {
     e.target.style.zIndex = '';

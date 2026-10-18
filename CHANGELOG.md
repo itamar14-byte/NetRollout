@@ -6,6 +6,10 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ## [Unreleased]
 
+### Changed
+
+- **Enter** in a window does its main step, as Escape closes it: Create New Profile and the quick-create mapping create, Add Device tests the connection and then confirms, Edit property saves, and the same in the other windows. A red, destructive button still takes a click, and a risky question still starts on Cancel.
+
 ## [1.0.0rc5] - 2026-10-18
 
 ### Added

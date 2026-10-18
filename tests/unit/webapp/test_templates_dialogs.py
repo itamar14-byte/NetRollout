@@ -69,3 +69,18 @@ def test_every_page_stacks_windows_when_they_open_and_close():
 	assert "document.addEventListener('hidden.bs.modal'" in source
 	for skeleton in ("operator_base.html", "admin.html"):
 		assert "{% include '_confirm_modal.html' %}" in (TEMPLATES / skeleton).read_text(encoding="utf-8")
+
+
+def test_enter_clicks_a_windows_main_button_but_never_a_red_one():
+	"""Enter in a window clicks its main button (data-nr-enter, else its blue
+	one), as Escape closes it - never a red one, nor from a text area, a
+	button, a link or a list's search."""
+	source = (TEMPLATES / "_confirm_modal.html").read_text(encoding="utf-8")
+	handler = source[source.index("document.addEventListener('keydown'"):]
+	handler = handler[:handler.index("\n});") + 4]
+	assert "e.key !== 'Enter'" in handler
+	assert "!btn.classList.contains('btn-danger')" in handler
+	assert "t.closest('textarea, button, a, select, [contenteditable], .nr-select-panel')" in handler
+	assert "querySelectorAll('[data-nr-enter]')" in handler
+	inventory = (TEMPLATES / "inventory.html").read_text(encoding="utf-8")
+	assert 'id="addTestBtn" class="btn btn-secondary btn-sm" data-nr-enter' in inventory
