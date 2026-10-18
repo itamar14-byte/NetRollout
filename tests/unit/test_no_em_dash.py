@@ -5,7 +5,7 @@ from src import runtime
 
 
 BINARY = (".png", ".ico", ".exe", ".woff", ".woff2", ".zip", ".bmp")
-EM_DASH = "—".encode("utf-8")
+EM_DASH = "\u2014".encode("utf-8")   # written as a code: this file holds none either
 
 
 def test_no_tracked_text_file_has_an_em_dash():
