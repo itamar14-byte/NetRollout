@@ -6,6 +6,8 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ## [Unreleased]
 
+## [1.0.0rc5] - 2026-10-18
+
 ### Added
 
 - A device's address can be a **hostname** as well as an IP address: in the Inventory forms, the CSV import and the CLI's devices CSV (the column is still `ip`). A name alone, such as `core1`, gets the new **Device DNS suffix** in System Settings (`core1.corp.local`); the CLI uses the computer's own search domains. Names are looked up in the DNS the NetRollout server uses. Saving a name looks it up: one that doesn't resolve is saved with a warning, and the "already used by" warning also catches a name and an IP (or two names) of the same device. Every rollout looks its devices' names up again: a name and its IP are refused together in one rollout, and the address kept for each name follows DNS changes. A rollout or Test connection to a name that doesn't resolve says "can't resolve" instead of a timeout.
@@ -198,7 +200,8 @@ Anycast. The first public release.
 
 - `netrollout-cli` for one-off rollouts from a devices CSV and a commands file, with optional Verify. A standalone Windows `.exe`; no database or Docker needed.
 
-[Unreleased]: https://github.com/itamar14-byte/NetRollout/compare/v1.0.0rc4...HEAD
+[Unreleased]: https://github.com/itamar14-byte/NetRollout/compare/v1.0.0rc5...HEAD
+[1.0.0rc5]: https://github.com/itamar14-byte/NetRollout/compare/v1.0.0rc4...v1.0.0rc5
 [1.0.0rc4]: https://github.com/itamar14-byte/NetRollout/compare/v1.0.0rc3...v1.0.0rc4
 [1.0.0rc3]: https://github.com/itamar14-byte/NetRollout/compare/v1.0.0rc2...v1.0.0rc3
 [1.0.0rc2]: https://github.com/itamar14-byte/NetRollout/compare/v1.0.0rc1...v1.0.0rc2
