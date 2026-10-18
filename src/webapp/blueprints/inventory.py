@@ -347,15 +347,18 @@ def inventory_import_csv() -> ResponseReturnValue:
 				dns_suffix=current_app.web.dns_suffix())
 
 		devices = report.devices
-		# same ip:port as an existing visible device, or twice in the file:
-		# allowed (NAT, VRFs, labs), but say so
+		# same ip:port as an existing visible device, or twice in the file -
+		# a hostname also by the address it resolved to: allowed (NAT, VRFs,
+		# labs), but say so
 		seen: set[tuple[str, int]] = set()
 		shared: list[str] = []
 		for d in devices:
-			target = (d.ip, d.port)
-			if target in in_use or target in seen:
+			targets = {(d.ip, d.port)}
+			if d.ip in report.resolved:
+				targets.add((report.resolved[d.ip], d.port))
+			if targets & (in_use | seen):
 				shared.append(endpoint(d.ip, d.port))
-			seen.add(target)
+			seen |= targets
 		if shared:
 			unique = list(dict.fromkeys(shared))
 			report.notices.append(("warning",

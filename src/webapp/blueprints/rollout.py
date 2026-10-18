@@ -18,7 +18,8 @@ from src.db.tables import Inventory, JobMetadata, SecurityProfile, User
 from src.inventory import InventoryView, RuleRefused, SecurityProfiles, partition_devices
 from src.jobs import QUEUED_LINE, Draining
 from src.results import JobResults
-from src.rollout.engine import Device, RolloutOptions, missing_value
+from src.rollout.address import is_ip, resolve_many
+from src.rollout.engine import Device, RolloutOptions, endpoint, missing_value
 from src.rollout.inputs import InputParser, command_lines, read_commands
 from src.webapp.app import current_app
 from src.webapp.http import Refused, ok, err, with_form, with_json, Caller, viewer
@@ -111,14 +112,27 @@ def load_devices(selected_ids: list[uuid.UUID]) -> list[Device]:
 
 def duplicate_targets(devices: list[Device]) -> dict[str, list[str]]:
 	"""The same ip:port selected twice is the same box twice (e.g. an own
-	entry and a global entry for one router): the config would be pushed
-	twice. The same IP on different ports is fine - targets behind NAT.
+	entry and a global entry for one router, or one saved by name and one by
+	its IP): the config would be pushed twice. Names are looked up now (all
+	at once, a bounded wait), and devices sharing any address on the same
+	port are one target; a name that doesn't resolve is compared as written.
+	The same IP on different ports is fine - targets behind NAT.
 
 	:returns: ip:port → the labels selected for it, where more than one"""
-	by_endpoint: dict[str, list[str]] = {}
+	found = resolve_many(d.host for d in devices if not is_ip(d.host))
+	by_target: dict[tuple[str, int], list[Device]] = {}
 	for d in devices:
-		by_endpoint.setdefault(d.endpoint, []).append(d.label or d.ip)
-	return {ep: labels for ep, labels in by_endpoint.items() if len(labels) > 1}
+		addresses = [d.host] if is_ip(d.host) else (found.get(d.host) or [d.host])
+		for address in addresses:
+			by_target.setdefault((address, d.port), []).append(d)
+	duplicates: dict[str, list[str]] = {}
+	reported: set[frozenset[int]] = set()
+	for (address, port), shared in by_target.items():
+		group = frozenset(id(d) for d in shared)
+		if len(group) > 1 and group not in reported:     # a dual-stack name: once
+			reported.add(group)
+			duplicates[endpoint(address, port)] = [d.label or d.ip for d in shared]
+	return duplicates
 
 
 def unreachable_devices(devices: list[Device]) -> list[Device]:

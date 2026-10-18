@@ -1080,3 +1080,26 @@ def test_a_csv_import_takes_hostnames_and_names_the_ones_that_dont_resolve(
 	assert saved == [("core6.corp.local", "10.7.7.6"), ("ghost6.corp.local", None)]
 	assert ("1 hostname didn't resolve from this server (imported anyway; a rollout to them "
 	        "fails until they do): ghost6.corp.local") in flashes(client)
+
+
+def test_a_csv_import_warns_about_a_hostname_of_a_device_already_there(
+		client_for, make_user, make_device):
+	"""An imported name resolving to a device's IP already in the inventory,
+	and a name and its IP in the same file, share an ip:port: one warning
+	names them."""
+	user = make_user()
+	make_device(user, ip="10.7.8.1", label="by-ip")
+	csv = ("ip,device_type,port\n"
+	       "core7.corp.local,cisco_ios,22\n"
+	       "core8.corp.local,cisco_ios,22\n"
+	       "10.7.8.2,cisco_ios,22\n")
+	client = client_for(user)
+	with patch("src.inventory.resolve_many",
+	           side_effect=lambda hosts: {h: ["10.7.8.1" if h.startswith("core7") else "10.7.8.2"]
+	                                      for h in hosts}):
+		client.post("/inventory/import_csv", data={
+			"csv_file": (io.BytesIO(csv.encode()), "devices.csv")},
+			content_type="multipart/form-data")
+	(msg,) = dup_warnings(client)
+	assert msg.startswith("2 imported devices share an ip:port with another device: "
+	                      "core7.corp.local:22, 10.7.8.2:22.")

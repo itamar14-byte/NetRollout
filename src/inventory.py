@@ -377,9 +377,16 @@ class InventoryView:
 		        .all())
 
 	def visible_endpoints(self) -> set[Target]:
-		""":returns: the ip:port of every visible device"""
-		return {(ip, port) for ip, port in self.session.query(
-			Inventory.ip, Inventory.port).filter(visible_devices_clause(self.viewer.id))}
+		""":returns: the ip:port of every visible device - a hostname's twice:
+		 as saved, and with the address it resolved to when it was saved"""
+		endpoints: set[Target] = set()
+		for ip, resolved_ip, port in self.session.query(
+				Inventory.ip, Inventory.resolved_ip, Inventory.port).filter(
+				visible_devices_clause(self.viewer.id)):
+			endpoints.add((ip, port))
+			if resolved_ip:
+				endpoints.add((resolved_ip, port))
+		return endpoints
 
 	def get_visible(self, device_id: uuid.UUID) -> Inventory | None:
 		""":returns: the device; None when there's none - or the viewer can't
@@ -743,6 +750,8 @@ class ImportReport:
 	errors: list[str] = field(default_factory=list)
 	notices: list[tuple[str, str]] = field(default_factory=list)
 	created_profiles: list[tuple[uuid.UUID, str]] = field(default_factory=list)
+	# an imported hostname -> the address kept for it (those that resolved)
+	resolved: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -956,10 +965,11 @@ def import_csv(parser: InputParser, device_path: str, user_id: uuid.UUID,
 			f"{len(unresolved)} hostname{'s' if len(unresolved) != 1 else ''} didn't "
 			f"resolve from this server (imported anyway; a rollout to them fails until "
 			f"they do): {', '.join(unresolved[:5])}{', …' if len(unresolved) > 5 else ''}"))
+	report.resolved = {name: kept for name, host in names.items()
+	                   if (kept := primary(found[host] or [])) is not None}
 	for device in devices:
-		addresses = found.get(names[device.ip]) if device.ip in names else None
 		row = Inventory(user_id=user_id, ip=device.ip, port=device.port,
-		                resolved_ip=primary(addresses or []),
+		                resolved_ip=report.resolved.get(device.ip),
 		                device_type=device.device_type,
 		                label=label or device.label)  # form > row > IP
 		values = _cell_values(device.extra, columns)

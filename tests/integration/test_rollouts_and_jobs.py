@@ -180,6 +180,26 @@ def test_same_target_selected_twice_is_refused(operator, client_for,
 	assert "10.0.0.1:22" in message and "CORE-GLOBAL" in message
 
 
+def test_a_hostname_and_its_ip_are_refused_together(operator, client_for, make_profile,
+                                                   make_device, captured_submits,
+                                                   monkeypatch):
+	"""A device saved by name and the same box by IP (the name resolves to
+	it at launch) are one target: refused together, nothing submitted, the
+	flash names both. Looked up at launch, not as saved."""
+	by_name = make_device(operator.user, ip="core1.corp.local", label="CORE-BY-NAME",
+	                      profile_id=make_profile(operator.user, label="by-name"))
+	monkeypatch.setattr("src.webapp.blueprints.rollout.resolve_many",
+	                    lambda hosts: {h: ["10.0.0.1"] for h in hosts})
+	client = client_for(operator.user)
+	resp = client.post("/rollout/start", data={
+		"device_ids": [str(operator.ios), str(by_name)], "manual_commands": "hostname x"})
+	assert resp.headers["Location"] == "/rollout/new"
+	assert captured_submits == []
+	with client.session_transaction() as s:
+		(category, message), = s["_flashes"]
+	assert "10.0.0.1:22" in message and "CORE-BY-NAME" in message
+
+
 def test_same_ip_on_different_ports_is_allowed(operator, client_for,
                                                make_profile, make_device,
                                                captured_submits):
