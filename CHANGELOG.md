@@ -6,6 +6,8 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ## [Unreleased]
 
+## [1.0.0rc6] - 2026-10-18
+
 ### Changed
 
 - Upgrades no longer read rc4's names: from rc5 on, the backup before an upgrade is always `before-upgrade` and `.env` says `# Upgraded to NetRollout X`. Older `before-update` backups still show in the list and still restore.
@@ -210,7 +212,8 @@ Anycast. The first public release.
 
 - `netrollout-cli` for one-off rollouts from a devices CSV and a commands file, with optional Verify. A standalone Windows `.exe`; no database or Docker needed.
 
-[Unreleased]: https://github.com/itamar14-byte/NetRollout/compare/v1.0.0rc5...HEAD
+[Unreleased]: https://github.com/itamar14-byte/NetRollout/compare/v1.0.0rc6...HEAD
+[1.0.0rc6]: https://github.com/itamar14-byte/NetRollout/compare/v1.0.0rc5...v1.0.0rc6
 [1.0.0rc5]: https://github.com/itamar14-byte/NetRollout/compare/v1.0.0rc4...v1.0.0rc5
 [1.0.0rc4]: https://github.com/itamar14-byte/NetRollout/compare/v1.0.0rc3...v1.0.0rc4
 [1.0.0rc3]: https://github.com/itamar14-byte/NetRollout/compare/v1.0.0rc2...v1.0.0rc3
