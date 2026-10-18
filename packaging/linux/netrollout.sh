@@ -28,7 +28,6 @@ ENV_FILE="$ROOT/.env"
 # an upgrade's second half (upgrade-finish) hasn't finished while this is here
 # (and names this folder's VERSION): start (and install) finish it
 MARKER="$ROOT/.upgrade-pending"
-OLD_MARKER="$ROOT/.update-pending"   # BRIDGE(rc4): remove in rc6 - the marker rc4's script writes
 # the folder whose data an uninstall kept (the volumes are the project's,
 # not the folder's: an install elsewhere would reuse them)
 KEPT_RECORD=/etc/netrollout/kept-data
@@ -79,7 +78,6 @@ case "$COMMAND" in
 	restore) do_restore ;;
 	upgrade) do_update ;;
 	upgrade-finish) do_update_finish ;;    # the new script, run by upgrade
-	update-finish) do_update_finish ;;     # BRIDGE(rc4): remove in rc6 - rc4's update execs the new script so
 	apply) do_apply ;;
 	port) do_port_by_hand ;;
 	reset-admin) do_reset_admin ;;
@@ -255,28 +253,18 @@ env_value() { sed -n "s/^$1=//p" "$ENV_FILE" | tail -1; }
 # installer"; empty when it has neither (an early install)
 kept_version() {
 	local v
-	# BRIDGE(rc4): remove in rc6 - the second expression: rc4's "# Updated to NetRollout X" stamp
-	v="$(sed -n -e 's/^# Upgraded to NetRollout \([^ ]*\) .*/\1/p' \
-		-e 's/^# Updated to NetRollout \([^ ]*\) .*/\1/p' "$ENV_FILE" | tail -1)"
+	v="$(sed -n 's/^# Upgraded to NetRollout \([^ ]*\) .*/\1/p' "$ENV_FILE" | tail -1)"
 	[ -n "$v" ] || v="$(sed -n 's/^# NetRollout \([^ ]*\) .*written by the installer.*/\1/p' "$ENV_FILE" | tail -1)"
 	printf '%s' "$v"
-}
-
-# The marker in this folder, nothing when there is none
-marker_path() {
-	if [ -f "$MARKER" ]; then printf '%s' "$MARKER"
-	elif [ -f "$OLD_MARKER" ]; then printf '%s' "$OLD_MARKER"   # BRIDGE(rc4): remove in rc6
-	fi
 }
 
 # The unfinished upgrade this folder's files are for: its version - the
 # marker naming this VERSION; empty: none, or a stale one (an upgrade stopped
 # before its files were replaced names a version not here)
 pending_update() {
-	local v="" file
-	file="$(marker_path)"
-	if [ -n "$VERSION" ] && [ -n "$file" ]; then
-		v="$(sed -n 's/^version=//p' "$file" | tail -1 | tr -d ' \r')"
+	local v=""
+	if [ -n "$VERSION" ] && [ -f "$MARKER" ]; then
+		v="$(sed -n 's/^version=//p' "$MARKER" | tail -1 | tr -d ' \r')"
 	fi
 	if [ "$v" = "$VERSION" ]; then printf '%s' "$v"; fi
 }
@@ -291,7 +279,6 @@ write_marker() {
 		printf 'version=%s\nstarted=%s\n' "$1" "$(date '+%Y-%m-%d %H:%M')"
 		if [ "${2:-}" = backup-first ]; then printf 'backup-first=yes\n'; fi
 	} > "$MARKER"
-	rm -f "$OLD_MARKER"   # BRIDGE(rc4): remove in rc6 - rc4's marker, carried over above
 }
 
 # The kept-data record: write_record (uninstall --keep-data), record_value
@@ -392,7 +379,6 @@ start_fresh() {
 	fi
 	for dir in $folders; do
 		rm -rf "${dir:?}/.env" "$dir/config" "$dir/certs" "$dir/logs" "$dir/.upgrade-pending"
-		rm -f "$dir/.update-pending"   # BRIDGE(rc4): remove in rc6 - rc4's marker
 	done
 	rm -f "$KEPT_RECORD"
 	good "The kept data is deleted - backups stay in their folders' backups/."
@@ -681,19 +667,7 @@ backup_create() {
 		out="$(compose up -d --wait postgres 2>&1)" || { show "$out"; fail "The database didn't start - see above."; }
 		out="$(compose run --rm --no-deps app python -m src.backup create --kind "$1" 2>&1)" || code=$?
 	fi
-	# BRIDGE(rc4): remove in rc6 - before-upgrade refused (exit 2): an older version, asked again
-	if [ "$code" -ne 2 ] || [ "$1" != before-upgrade ]; then show "$out"; fi
-	return "$code"
-}
-
-# The backup before an upgrade: kind before-upgrade - an older NetRollout
-# (rc4 and before) doesn't know it (argparse: exit 2; create never exits 2
-# otherwise) and makes its before-update instead
-backup_before_upgrade() {
-	local code=0
-	backup_create before-upgrade || code=$?
-	# BRIDGE(rc4): remove in rc6 - rc4's kind
-	if [ "$code" -eq 2 ]; then code=0; backup_create before-update || code=$?; fi
+	show "$out"
 	return "$code"
 }
 
@@ -835,7 +809,7 @@ do_update() {
 	need_installed; need_root; need_docker; CLEAR_STOP_NOW=1
 	local stage="$ROOT/.upgrade" out code=0 new folder item
 	local args=(--out /install/.upgrade)
-	rm -rf "$stage" "$ROOT/.update"; mkdir -p "$stage"   # BRIDGE(rc4): remove in rc6 - .update: rc4's staging folder
+	rm -rf "$stage"; mkdir -p "$stage"
 	if [ -n "$FROM_ZIP" ]; then
 		[ -f "$FROM_ZIP" ] || fail "No such file: $FROM_ZIP"
 		cp -f "$FROM_ZIP" "$stage/"
@@ -869,7 +843,7 @@ do_update() {
 	fi
 	confirm_rollouts upgrade || { rm -rf "$stage"; fail "Nothing was changed." 2; }
 	step "Backing up first"
-	backup_before_upgrade || { rm -rf "$stage"; fail "Couldn't back up - nothing was changed. Fix it (above), then upgrade again."; }
+	backup_create before-upgrade || { rm -rf "$stage"; fail "Couldn't back up - nothing was changed. Fix it (above), then upgrade again."; }
 	step "Putting NetRollout $new's files in place"
 	# from here on the upgrade counts as unfinished until upgrade-finish has run
 	write_marker "$new"
@@ -892,7 +866,7 @@ do_update() {
 do_update_finish() {
 	need_installed; need_root; need_docker; CLEAR_STOP_NOW=1
 	local out owed="" kept old back="The backup made before the upgrade is in $ROOT/backups (...-before-upgrade.zip)."
-	if [ -n "$(pending_update)" ] && grep -qx 'backup-first=yes' "$(marker_path)"; then owed=backup-first; fi
+	if [ -n "$(pending_update)" ] && grep -qx 'backup-first=yes' "$MARKER"; then owed=backup-first; fi
 	write_marker "$VERSION" "$owed"
 	step "Downloading NetRollout $VERSION (it keeps running meanwhile)"
 	# failures of others' images surface at the start; ours are checked here
@@ -908,7 +882,7 @@ do_update_finish() {
 		set_owners
 		step "Backing up first (the data NetRollout ${kept:-had} left here)"
 		IMAGE_VERSION="$kept"     # by the version that wrote the data (none known: this one)
-		backup_before_upgrade || fail "Couldn't back up - NetRollout wasn't started and its data wasn't changed. Fix it (above), then: sudo $BIN/netrollout.sh start (it finishes the upgrade)."
+		backup_create before-upgrade || fail "Couldn't back up - NetRollout wasn't started and its data wasn't changed. Fix it (above), then: sudo $BIN/netrollout.sh start (it finishes the upgrade)."
 		IMAGE_VERSION=""
 		write_marker "$VERSION"   # the backup is made: not again on a resume
 	fi
@@ -918,8 +892,8 @@ do_update_finish() {
 	confirm_rollouts upgrade shown    # asked before the files were replaced
 	step "Restarting on the new version (about a minute; running rollouts finish first)"
 	do_start
-	rm -f "$MARKER" "$OLD_MARKER"             # BRIDGE(rc4): remove in rc6 - $OLD_MARKER
-	rm -rf "$ROOT/.upgrade" "$ROOT/.update"   # BRIDGE(rc4): remove in rc6 - .update
+	rm -f "$MARKER"
+	rm -rf "$ROOT/.upgrade"
 	good "Upgraded to NetRollout $VERSION. Everyone signs in again."
 }
 
@@ -1186,7 +1160,7 @@ do_uninstall() {
 	fi
 	if [ -n "$delete" ]; then
 		rm -rf "$ENV_FILE" "$ROOT/config" "$ROOT/certs" "$ROOT/logs"
-		rm -f "$MARKER" "$OLD_MARKER"   # BRIDGE(rc4): remove in rc6 - $OLD_MARKER
+		rm -f "$MARKER"
 		clear_record
 		if [ -n "$delete_backups" ]; then rm -rf "$ROOT/backups"; fi
 		if [ -d "$ROOT/backups" ]; then
@@ -1202,7 +1176,7 @@ do_uninstall() {
 	fi
 	if [ -n "$remove_files" ]; then
 		local item
-		for item in "${RELEASE_ITEMS[@]}" .upgrade .update; do   # BRIDGE(rc4): remove in rc6 - .update
+		for item in "${RELEASE_ITEMS[@]}" .upgrade; do
 			rm -rf "${ROOT:?}/$item"
 		done
 		if rmdir "$ROOT" 2>/dev/null; then good "$ROOT is removed."

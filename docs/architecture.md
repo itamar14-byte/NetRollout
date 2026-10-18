@@ -1159,7 +1159,7 @@ sequenceDiagram
 
 ### An upgrade
 
-On Windows, NetRollout Manager (or the user) runs the new NetRollout Setup over the install. On Linux, `netrollout.sh upgrade` does the same steps itself. Both refuse the same version and older versions before anything changes, and take a `before-upgrade` backup with the installed version (`before-update` when that version predates the name).
+On Windows, NetRollout Manager (or the user) runs the new NetRollout Setup over the install. On Linux, `netrollout.sh upgrade` does the same steps itself. Both refuse the same version and older versions before anything changes, and take a `before-upgrade` backup with the installed version.
 
 ```mermaid
 sequenceDiagram
@@ -1175,7 +1175,7 @@ sequenceDiagram
     M->>S: Windows: run Setup /SILENT. Linux: unpack to .upgrade/
     S->>OLD: python -m src.setup check-update --installed X --new Y
     OLD-->>S: update, or exit 2 (same or older version: nothing changed)
-    S->>OLD: python -m src.backup create --kind before-upgrade (an older image: before-update)
+    S->>OLD: python -m src.backup create --kind before-upgrade
     S->>S: replace the shipped files (bin, compose files, deploy, VERSION)
     S->>C: pull the new images while the old version still runs
     S->>NEW: python -m src.setup upgrade (.env gets the keys this version needs)
@@ -1496,7 +1496,7 @@ What installing and running NetRollout decides and writes lives once, in the **s
 | `status` | The `netrollout status` report (services, health, backups, what to do). |
 | `restore-key` | After a restore: the backup's encryption key into `.env`. |
 | `check-update` | An upgrade's direction, run with the *installed* image before any file is replaced: `update`, or exit 2 for the same version (nothing to upgrade) or an older one (downgrades aren't supported). Versions compare by PEP 440, so `1.0.0.dev0 < 1.0.0rc1 < 1.0.0`. |
-| `upgrade` | After an upgrade's files: `.env` gets the keys this version needs (a secret the data depends on is never made up: missing means refused) and an `# Upgraded to NetRollout X` line (an earlier version's `# Updated to NetRollout X` is read as the same). |
+| `upgrade` | After an upgrade's files: `.env` gets the keys this version needs (a secret the data depends on is never made up: missing means refused) and an `# Upgraded to NetRollout X` line. |
 | `release` | Linux's upgrade: find the release (GitHub's latest, a tag, or a feed), download it, check it against `SHA256SUMS`, unpack it. |
 | `port-ready`, `port-next`, `port-open`, `port-trying`, `port-close` | The port helper's steps (below). |
 | `port-set`, `port-setting` | `netrollout port <n>`: set the HTTPS port by hand, without a trial. |

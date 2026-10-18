@@ -406,9 +406,6 @@ begin
 		for I := 0 to GetArrayLength(Lines) - 1 do begin
 			if Pos('# Upgraded to NetRollout ', Lines[I]) = 1 then
 				Updated := FirstWord(Copy(Lines[I], 26, Length(Lines[I])))
-			// BRIDGE(rc4): remove in rc6 - the stamp rc4 and earlier wrote
-			else if Pos('# Updated to NetRollout ', Lines[I]) = 1 then
-				Updated := FirstWord(Copy(Lines[I], 25, Length(Lines[I])))
 			else if (Pos('# NetRollout ', Lines[I]) = 1) and (Pos('written by the installer', Lines[I]) > 0) then
 				Header := FirstWord(Copy(Lines[I], 14, Length(Lines[I])));
 		end;

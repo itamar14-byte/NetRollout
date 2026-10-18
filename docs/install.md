@@ -244,7 +244,7 @@ An upgrade has two halves: the files are replaced, then the new images are pulle
 - **Windows:** fix the cause, then click **Retry** in Setup's message. Or later: run the same Setup again (its review page then says "Ready to finish the upgrade" and its button is **Finish upgrade**), click **Finish upgrade** in NetRollout Manager, or run `netrollout start`.
 - **Linux:** `sudo ./bin/netrollout.sh start` (or the install again) finishes the upgrade first.
 
-To go back to the earlier version instead, install it and restore the `before-upgrade` backup (named `before-update` when an earlier version made it).
+To go back to the earlier version instead, install it and restore the `before-upgrade` backup.
 
 ### A damaged install
 

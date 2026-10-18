@@ -641,21 +641,6 @@ def test_upgrade_adds_what_is_missing_and_keeps_everything_else(home):
 	assert sum(l.startswith("TZ=") for l in again) == 1
 
 
-def test_upgrade_replaces_rc4s_updated_stamp(home):
-	"""An .env last stamped by rc4 or earlier ("# Updated to NetRollout X on ...") gets
-	the new "# Upgraded to NetRollout <v> on ..." stamp in that line's place (the
-	BRIDGE(rc4) in upgrade): one stamp line, not the old one left beside a new one."""
-	installed(home)
-	path = home / ".env"
-	lines = path.read_text(encoding="utf-8").splitlines(True)
-	lines.insert(1, "# Updated to NetRollout 1.0.0rc4 on 2026-10-18 10:15 UTC.\n")
-	path.write_text("".join(lines), encoding="utf-8")
-	assert _update.upgrade("1.0.1", datetime.datetime(2026, 11, 1, 9, 30)) == []
-	after = path.read_text(encoding="utf-8").splitlines()
-	assert after[1] == "# Upgraded to NetRollout 1.0.1 on 2026-11-01 09:30 UTC."
-	assert len(after) == len(lines)                                  # replaced, nothing added
-	assert not [l for l in after if l.startswith("# Updated to NetRollout ")]
-	assert sum(l.startswith("# Upgraded to NetRollout ") for l in after) == 1
 
 
 def test_upgrade_never_makes_up_a_secret_the_data_depends_on(home):

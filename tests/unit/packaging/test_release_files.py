@@ -178,7 +178,7 @@ def test_setup_over_an_install_upgrades_and_checks_first():
 	script = (ROOT / "packaging" / "windows" / "manage.ps1").read_text(encoding="utf-8")
 	assert '"prepare-upgrade" { Invoke-PrepareUpdate; return 0 }' in script
 	assert '"upgrade" { Invoke-Update; return 0 }' in script
-	assert '"check-update",' in script and '(Invoke-UpgradeBackup)' in script
+	assert '"check-update",' in script and '(Invoke-BackupCreate "before-upgrade")' in script
 	assert '(Invoke-Setup @("upgrade"))' in script
 
 
@@ -567,7 +567,7 @@ def test_an_unfinished_windows_update_is_finished_never_skipped():
 	assert "Set-Content -Encoding ASCII -Path $MarkerFile" in write
 	assert '"version=$Target"' in write and 'if ($BackupFirst) { $lines += "backup-first=yes" }' in write
 	prepare = ps1_function(ps1, "Invoke-PrepareUpdate")
-	assert prepare.index('(Invoke-UpgradeBackup)') < prepare.index("Write-UpdateMarker $NewVersion")
+	assert prepare.index('(Invoke-BackupCreate "before-upgrade")') < prepare.index("Write-UpdateMarker $NewVersion")
 	assert ps1_function(ps1, "Invoke-PrepareKept").count("Write-UpdateMarker $NewVersion -BackupFirst") == 2
 	update = ps1_function(ps1, "Invoke-Update")
 	assert "$owed = $BackupFirst -or ($pending -and $pending.BackupFirst)" in update
@@ -609,7 +609,7 @@ def test_an_unfinished_linux_update_is_finished_never_skipped():
 	finish = sh_function(sh, "do_update_finish")
 	marked = finish.index('write_marker "$VERSION" "$owed"')
 	pull = finish.index("compose pull")
-	backup = finish.index("backup_before_upgrade")
+	backup = finish.index("backup_create before-upgrade")
 	upgrade = finish.index("setup_core upgrade")
 	started = finish.index("do_start")
 	removed = finish.index('rm -f "$MARKER"')
@@ -1211,91 +1211,6 @@ def test_reset_admin_runs_in_the_apps_container_and_asks_first():
 	assert "reset-admin" not in sh_function(sh, "show_menu")
 
 
-# ── the rc4 bridges (update -> upgrade): an rc4 install upgrades to this version ──
-
-def test_linux_upgrade_finish_answers_to_rc4s_name_too():
-	"""rc4's `update` replaces the files, then execs the NEW script as `update-finish`:
-	netrollout.sh dispatches both upgrade-finish and update-finish (BRIDGE(rc4)) to
-	do_update_finish, and its own upgrade execs the new name."""
-	sh = (ROOT / "packaging" / "linux" / "netrollout.sh").read_text(encoding="utf-8")
-	assert re.search(r"^\tupgrade-finish\) do_update_finish ;;", sh, re.M)
-	assert re.search(r"^\tupdate-finish\) do_update_finish ;;\s+# BRIDGE\(rc4\): remove in rc6", sh, re.M)
-	update = sh_function(sh, "do_update")
-	assert 'exec "$ROOT/bin/netrollout.sh" upgrade-finish --no-browser' in update
-	assert "update-finish" not in update
-
-
-def test_linux_backup_before_an_upgrade_falls_back_to_rc4s_kind():
-	"""The backup before an upgrade asks for before-upgrade; an older image (rc4) doesn't
-	know the kind and refuses it with argparse's exit 2 - then it is asked again for
-	before-update (BRIDGE(rc4)), the first refusal not shown. Both pre-upgrade backups
-	(upgrade's, and upgrade-finish's for kept data) go through it, none asks for a kind
-	directly."""
-	sh = (ROOT / "packaging" / "linux" / "netrollout.sh").read_text(encoding="utf-8")
-	backup = sh_function(sh, "backup_before_upgrade")
-	first = backup.index("backup_create before-upgrade || code=$?")
-	again = backup.index('if [ "$code" -eq 2 ]; then code=0; backup_create before-update || code=$?; fi')
-	assert first < again
-	assert backup.index("# BRIDGE(rc4): remove in rc6") < again
-	assert sh.count("backup_create before-update") == 1 and sh.count("backup_create before-upgrade") == 1
-	create = sh_function(sh, "backup_create")
-	assert 'if [ "$code" -ne 2 ] || [ "$1" != before-upgrade ]; then show "$out"; fi' in create
-	update = sh_function(sh, "do_update")
-	assert 'backup_before_upgrade || { rm -rf "$stage"; fail "Couldn\'t back up' in update
-	finish = sh_function(sh, "do_update_finish")
-	assert "backup_before_upgrade || fail \"Couldn't back up - NetRollout wasn't started" in finish
-	assert "backup_create" not in update and "backup_create" not in finish
-
-
-def test_windows_backup_before_an_upgrade_falls_back_to_rc4s_kind():
-	"""manage.ps1's Invoke-UpgradeBackup does the same: before-upgrade (an exit 2 not
-	shown: -QuietUsage), then, on exit code 2, before-update (BRIDGE(rc4)); both
-	pre-upgrade backups - prepare-upgrade's (Invoke-PrepareUpdate) and kept data's
-	(Backup-KeptData) - use it."""
-	ps1 = (ROOT / "packaging" / "windows" / "manage.ps1").read_text(encoding="utf-8")
-	backup = ps1_function(ps1, "Invoke-UpgradeBackup")
-	first = backup.index('$code = Invoke-BackupCreate "before-upgrade" -QuietUsage')
-	again = backup.index('if ($code -eq 2) { $code = Invoke-BackupCreate "before-update" }')
-	assert first < backup.index("# BRIDGE(rc4): remove in rc6") < again
-	assert "return $code" in backup[again:]
-	assert ps1.count('Invoke-BackupCreate "before-update"') == 1
-	assert ps1.count('Invoke-BackupCreate "before-upgrade"') == 1
-	create = ps1_function(ps1, "Invoke-BackupCreate")
-	assert "if (-not ($QuietUsage -and $r.Code -eq 2)) { Show-Output $r.Output }" in create
-	assert "if ((Invoke-UpgradeBackup) -ne 0) {" in ps1_function(ps1, "Invoke-PrepareUpdate")
-	assert "try { $code = Invoke-UpgradeBackup } finally" in ps1_function(ps1, "Backup-KeptData")
-
-
-def test_setup_reads_both_env_stamps_of_the_kept_version():
-	"""Setup's KeptVersion reads the version after "# Upgraded to NetRollout " (from
-	position 26: the prefix is 25 characters) and, for rc4's .env (BRIDGE(rc4)), after
-	"# Updated to NetRollout " (from position 25: 24 characters)."""
-	kept = pascal(iss_text(), "function KeptVersion(")
-	assert len("# Upgraded to NetRollout ") + 1 == 26 and len("# Updated to NetRollout ") + 1 == 25
-	assert ("if Pos('# Upgraded to NetRollout ', Lines[I]) = 1 then\n"
-	        "\t\t\t\tUpdated := FirstWord(Copy(Lines[I], 26, Length(Lines[I])))") in kept
-	assert ("else if Pos('# Updated to NetRollout ', Lines[I]) = 1 then\n"
-	        "\t\t\t\tUpdated := FirstWord(Copy(Lines[I], 25, Length(Lines[I])))") in kept
-	assert kept.index("// BRIDGE(rc4): remove in rc6") < kept.index("'# Updated to NetRollout '")
-
-
-def test_the_scripts_read_both_env_stamps_of_the_kept_version():
-	"""manage.ps1's Get-KeptVersion and netrollout.sh's kept_version take the version
-	from "# Upgraded to NetRollout X on ..." and from rc4's "# Updated to NetRollout X
-	on ..." (BRIDGE(rc4)). The PowerShell pattern is run here on both stamps."""
-	ps1 = (ROOT / "packaging" / "windows" / "manage.ps1").read_text(encoding="utf-8")
-	kept = ps1_function(ps1, "Get-KeptVersion")
-	pattern = re.search(r'foreach \(\$pattern in "([^"]+)",', kept)[1]
-	assert pattern == r"^# (?:Upgraded|Updated) to NetRollout (\S+) "
-	for stamp in ("# Upgraded to NetRollout 1.0.1 on 2026-11-01 09:30 UTC.",
-	              "# Updated to NetRollout 1.0.0rc4 on 2026-10-18 10:15 UTC."):
-		assert re.match(pattern, stamp)[1] == stamp.split()[4]
-	sh = (ROOT / "packaging" / "linux" / "netrollout.sh").read_text(encoding="utf-8")
-	assert ("v=\"$(sed -n -e 's/^# Upgraded to NetRollout \\([^ ]*\\) .*/\\1/p' \\\n"
-	        "\t\t-e 's/^# Updated to NetRollout \\([^ ]*\\) .*/\\1/p' \"$ENV_FILE\" | tail -1)\"") in sh_function(
-		sh, "kept_version")
-
-
 def test_the_scripts_output_reaches_the_manager_as_utf8():
 	"""manage.ps1 sets [Console]::OutputEncoding to UTF-8 at the top, before anything
 	runs (Windows PowerShell 5.1 writes the console's legacy code page otherwise), and
@@ -1314,3 +1229,17 @@ def test_the_scripts_output_reaches_the_manager_as_utf8():
 		assert "RedirectStandardOutput = true, RedirectStandardError = true," in info, name
 		assert ("StandardOutputEncoding = System.Text.Encoding.UTF8, "
 		        "StandardErrorEncoding = System.Text.Encoding.UTF8") in info, name
+
+
+def test_no_rc4_bridge_is_left():
+	"""rc6 removed the rc4 -> rc5 bridge (every BRIDGE(rc4) part): no file NetRollout
+	ships names it, nor rc4's names (update-finish, .update-pending, the backup
+	kind before-update, the "# Updated to NetRollout" stamp)."""
+	files = [ROOT / "packaging" / "linux" / "netrollout.sh", ROOT / "packaging" / "windows" / "manage.ps1",
+	         ROOT / "packaging" / "windows" / "installer" / "netrollout.iss",
+	         ROOT / "src" / "setup" / "update.py", ROOT / "src" / "backup" / "archive.py",
+	         ROOT / "templates" / "admin_settings.html"]
+	left = {f.name: [s for s in ("BRIDGE(rc4)", "update-finish", ".update-pending", "before-update",
+	                             "Updated to NetRollout") if s in f.read_text(encoding="utf-8")]
+	        for f in files}
+	assert {name: found for name, found in left.items() if found} == {}

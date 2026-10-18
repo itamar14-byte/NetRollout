@@ -353,9 +353,7 @@ def upgrade(version: str = runtime.VERSION,
 		                 f"back (a copy of .env), then upgrade again.")
 	lines = text.splitlines()
 	stamp = f"# Upgraded to NetRollout {version} on {now:%Y-%m-%d %H:%M} UTC."
-	# BRIDGE(rc4): remove in rc6 - "# Updated to NetRollout " (rc4 and earlier's stamp)
-	stamped = [i for i, line in enumerate(lines)
-	           if line.startswith(("# Upgraded to NetRollout ", "# Updated to NetRollout "))]
+	stamped = [i for i, line in enumerate(lines) if line.startswith("# Upgraded to NetRollout ")]
 	if stamped:
 		lines[stamped[0]] = stamp
 	else:

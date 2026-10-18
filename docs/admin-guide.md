@@ -257,7 +257,7 @@ Below the groups, **Restart server** restarts NetRollout. See [Restart, stop and
 Every upgrade follows the same steps:
 
 1. **Check the version.** The installed version decides whether the new one is newer. The same version or an older one is refused, and nothing changes. Downgrades aren't supported.
-2. **Back up.** A `before-upgrade` backup is made by the installed version (`before-update` if that version predates the name), so you can restore it into that version if you need to go back.
+2. **Back up.** A `before-upgrade` backup is made by the installed version, so you can restore it into that version if you need to go back.
 3. **Replace the files** (scripts, compose files, `deploy/`, `VERSION`).
 4. **Download the new images** while the old version keeps running.
 5. **Update the settings** in `.env` with anything the new version needs.
@@ -403,7 +403,6 @@ The backup runs through the app's own database connection, so it works whether N
 | `manual` | **Back up now**, the Manager's **Back up**, `netrollout backup` | No |
 | `before-restore` | A restore, of the state it replaces | No |
 | `before-upgrade` | An upgrade, of the version it replaces | No |
-| `before-update` | The same, made by an earlier version of NetRollout (the name before `before-upgrade`) | No |
 | `before-move` | A database move, of the data it copies | No |
 
 ### The schedule

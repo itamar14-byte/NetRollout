@@ -74,7 +74,6 @@ class BackupKind(StrEnum):
 	SCHEDULED = "scheduled"            # src/backup/schedule.py - the only kind pruned
 	BEFORE_RESTORE = "before-restore"
 	BEFORE_UPGRADE = "before-upgrade"   # the scripts' backup before an upgrade
-	BEFORE_UPDATE = "before-update"     # BRIDGE(rc4): remove in rc6 - older images' / files' name
 	BEFORE_MOVE = "before-move"        # a database move's copy
 
 

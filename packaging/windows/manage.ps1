@@ -316,13 +316,12 @@ function Read-EnvValue([string]$Key, [string]$Default = "") {
 }
 
 # The version .env was last set up by: its "# Upgraded to NetRollout X on ..."
-# line (setup upgrade; older versions wrote "# Updated to ..."), else the
+# line (setup upgrade), else the
 # installer's "# NetRollout X - written by the installer" header; "" when it
 # has neither (an early install)
 function Get-KeptVersion {
 	$lines = @(Get-Content $EnvFile)
-	# BRIDGE(rc4): remove in rc6 - "Updated" is the stamp rc4 and earlier wrote
-	foreach ($pattern in "^# (?:Upgraded|Updated) to NetRollout (\S+) ", "^# NetRollout (\S+) .*written by the installer") {
+	foreach ($pattern in "^# Upgraded to NetRollout (\S+) ", "^# NetRollout (\S+) .*written by the installer") {
 		$found = ""
 		foreach ($line in $lines) { if ($line -match $pattern) { $found = $Matches[1] } }
 		if ($found) { return $found }
@@ -767,9 +766,8 @@ function Show-Output([string]$Text) {
 function Test-AppRunning { return (Get-ContainerStates) -match "(^|,)app=running" }
 
 # In the running app; when it isn't running, a one-off app container next to
-# the database (the same settings, folders and Grafana's data). -QuietUsage:
-# an argparse refusal (exit 2) isn't shown - the caller tries again.
-function Invoke-BackupCreate([string]$Kind, [switch]$QuietUsage) {
+# the database (the same settings, folders and Grafana's data)
+function Invoke-BackupCreate([string]$Kind) {
 	if (Test-AppRunning) {
 		$r = Compose @("exec", "-T", "app", "python", "-m", "src.backup", "create", "--kind", $Kind)
 	} else {
@@ -777,18 +775,8 @@ function Invoke-BackupCreate([string]$Kind, [switch]$QuietUsage) {
 		if ($up.Code -ne 0) { Write-Host $up.Output; Fail "The database didn't start - see above." }
 		$r = Compose @("run", "--rm", "--no-deps", "app", "python", "-m", "src.backup", "create", "--kind", $Kind)
 	}
-	if (-not ($QuietUsage -and $r.Code -eq 2)) { Show-Output $r.Output }
+	Show-Output $r.Output
 	return $r.Code
-}
-
-# The backup before an upgrade, by the image compose runs ($ImageVersion, else
-# this folder's version): kind before-upgrade; exit code as Invoke-BackupCreate
-function Invoke-UpgradeBackup {
-	$code = Invoke-BackupCreate "before-upgrade" -QuietUsage
-	# BRIDGE(rc4): remove in rc6 - an older NetRollout doesn't know the kind
-	# (argparse: exit 2; src.backup create never exits 2 otherwise)
-	if ($code -eq 2) { $code = Invoke-BackupCreate "before-update" }
-	return $code
 }
 
 function Invoke-Backup {
@@ -960,7 +948,7 @@ function Invoke-PrepareUpdate {
 		}
 		if (-not (Confirm-Rollouts "upgrade")) { Fail "Nothing was changed." 2 }
 		Step "Backing up first"
-		if ((Invoke-UpgradeBackup) -ne 0) {
+		if ((Invoke-BackupCreate "before-upgrade") -ne 0) {
 			Fail "Couldn't back up - nothing was changed. Fix it (above), then run Setup again."
 		}
 		# from here on the files are replaced: the upgrade counts as unfinished
@@ -1024,7 +1012,7 @@ function Backup-KeptData {
 	}
 	Step "Backing up first (the data NetRollout $(if ($kept) { $kept } else { 'had' }) left here)"
 	$script:ImageVersion = $kept
-	try { $code = Invoke-UpgradeBackup } finally { $script:ImageVersion = "" }
+	try { $code = Invoke-BackupCreate "before-upgrade" } finally { $script:ImageVersion = "" }
 	if ($code -ne 0) {
 		Fail ("Couldn't back up - NetRollout wasn't started and its data wasn't changed. Fix it (above), " +
 		      "then Retry - or later: run Setup again, or netrollout start (both finish the upgrade).")
@@ -1462,8 +1450,7 @@ function Invoke-ForgetKept {
 # (unins000.exe, .dat: Inno numbers them) by their pattern.
 function Get-InstallItems([switch]$Data) {
 	$names = @("bin", "deploy", "compose.yaml", "compose.http.yaml", "VERSION", "LICENSE", "README.md",
-		".upgrade-pending", ".upgrade",
-		".update-pending", ".update")      # BRIDGE(rc4): remove in rc6 - rc4's names
+		".upgrade-pending", ".upgrade")
 	if ($Data) { $names += @(".env", "config", "certs", "logs") }
 	$items = @($names | ForEach-Object { Join-Path $Root $_ } | Where-Object { Test-Path -LiteralPath $_ })
 	if (Test-Path -LiteralPath $Root) {

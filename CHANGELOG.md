@@ -8,6 +8,7 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ### Changed
 
+- Upgrades no longer read rc4's names: from rc5 on, the backup before an upgrade is always `before-upgrade` and `.env` says `# Upgraded to NetRollout X`. Older `before-update` backups still show in the list and still restore.
 - **Enter** in a window does its main step, as Escape closes it: Create New Profile and the quick-create mapping create, Add Device tests the connection and then confirms, Edit property saves, and the same in the other windows. A red, destructive button still takes a click, and a risky question still starts on Cancel.
 - Server Management: an open card (PostgreSQL, Redis, an LDAP server) closes on Escape, on a click outside it, or on its own button again. During a database move, PostgreSQL's stays open.
 

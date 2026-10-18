@@ -523,8 +523,7 @@
 
   // ── Backups: the list, Back up now, Download, Delete (admin_backups.py) ──
   const KIND = {manual: 'manual', scheduled: 'scheduled', 'before-restore': 'before restore',
-                'before-upgrade': 'before upgrade',
-                'before-update': 'before upgrade'};   // BRIDGE(rc4): remove in rc6 - 'before-update'
+                'before-upgrade': 'before upgrade'};
   const size = n => n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB';
   const when = iso => iso ? new Date(iso).toLocaleString([], {dateStyle: 'medium', timeStyle: 'short'}) : null;
   const rowOf = key => document.querySelector(`.set-row[data-key="${key}"]`);
