@@ -9,6 +9,11 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 ### Changed
 
 - **Enter** in a window does its main step, as Escape closes it: Create New Profile and the quick-create mapping create, Add Device tests the connection and then confirms, Edit property saves, and the same in the other windows. A red, destructive button still takes a click, and a risky question still starts on Cancel.
+- Server Management: an open card (PostgreSQL, Redis, an LDAP server) closes on Escape, on a click outside it, or on its own button again. During a database move, PostgreSQL's stays open.
+
+### Fixed
+
+- Add / Edit Device: the result of **Test Connection** was cut off next to the buttons ("TCP port 22 unreachable on 19"), and **Save Anyway** broke over two lines. The result now has its own line above the buttons.
 
 ## [1.0.0rc5] - 2026-10-18
 

@@ -866,7 +866,9 @@
   })();
 
   /* ── Service selector ─────────────────────────────────────── */
+  // svc null closes both; the open one's button closes it again
   function selectService(svc) {
+    if (svc && document.getElementById(`form-${svc}`).style.display === 'block') svc = null;
     ['postgres', 'redis'].forEach(s => {
       document.getElementById(`svc-${s}`).classList.toggle('selected', s === svc);
       document.getElementById(`form-${s}`).style.display = s === svc ? 'block' : 'none';
@@ -1244,6 +1246,32 @@
     document.getElementById(`row-${id}`).classList.remove('expanded');
     document.getElementById(`chev-${id}`).style.transform = '';
   }
+
+  // An open card - PostgreSQL's or Redis' form, an LDAP server's panel -
+  // closes on Escape or a click outside it, as a window does. Not while a
+  // window is open over the page (Escape and clicks are its own), nor while
+  // a database move runs (its progress is in PostgreSQL's card).
+  function closeOpenCards(e, escape) {
+    // from a window (Bootstrap closes it on Escape before this runs)
+    if (document.querySelector('.modal.show') || e.target.closest('.modal')) return;
+    const outside = sel => escape || !e.target.closest(sel);
+    const moving = document.getElementById('mvProgress').style.display !== 'none';
+    ['postgres', 'redis'].forEach(s => {
+      if (document.getElementById(`form-${s}`).style.display === 'block'
+          && !(s === 'postgres' && moving) && outside(`#form-${s}, #svc-${s}`)) selectService(null);
+    });
+    if (expandedId && outside(`#row-${expandedId}, #panel-${expandedId}`)) {
+      collapseServer(expandedId);
+      expandedId = null;
+    }
+  }
+  document.addEventListener('click', e => {
+    // a click that re-drew its own part of a card has left the page: not outside
+    if (document.contains(e.target) && e.target.closest) closeOpenCards(e, false);
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && e.target.closest) closeOpenCards(e, true);
+  });
 
   function expandServer(id) {
     const s = ldapServers[id];

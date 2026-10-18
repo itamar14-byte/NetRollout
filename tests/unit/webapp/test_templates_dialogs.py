@@ -84,3 +84,28 @@ def test_enter_clicks_a_windows_main_button_but_never_a_red_one():
 	assert "querySelectorAll('[data-nr-enter]')" in handler
 	inventory = (TEMPLATES / "inventory.html").read_text(encoding="utf-8")
 	assert 'id="addTestBtn" class="btn btn-secondary btn-sm" data-nr-enter' in inventory
+
+
+def test_server_management_cards_close_like_a_window():
+	"""An open card (PostgreSQL's or Redis' form, an LDAP server's panel)
+	closes on Escape or a click outside it - never from inside a window over
+	the page (Bootstrap closes that window on Escape first) - and its own
+	button closes it again."""
+	source = (TEMPLATES / "server_management.html").read_text(encoding="utf-8")
+	closer = source[source.index("function closeOpenCards"):source.index("function expandServer")]
+	assert "e.target.closest('.modal')" in closer
+	assert "document.addEventListener('click'" in closer and "e.key === 'Escape'" in closer
+	assert "#row-${expandedId}, #panel-${expandedId}" in closer
+	assert "!(s === 'postgres' && moving)" in closer
+	assert "style.display === 'block') svc = null;" in source
+
+
+def test_a_connection_tests_result_is_never_cut_off():
+	"""Add / Edit Device: the result takes its own line above the buttons and
+	wraps - it was cut at 240 px next to them ("unreachable on 19")."""
+	source = (TEMPLATES / "inventory.html").read_text(encoding="utf-8")
+	style = source[source.index(".conn-status {"):source.index(".conn-status.conn-ok")]
+	assert "flex: 1 0 100%;" in style and "max-width" not in style and "ellipsis" not in style
+	for status in ("addTestStatus", "editTestStatus"):
+		footer = source[:source.index(f'<div id="{status}"')].rsplit('<div class="modal-footer"', 1)[1]
+		assert "flex-wrap:wrap;" in footer and "<button" not in footer    # the footer's first item

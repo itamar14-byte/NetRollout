@@ -358,11 +358,12 @@
     display: flex;
     align-items: center;
     gap: 0.4rem;
-    max-width: 240px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    /* its own line above the buttons, the whole message (a long address or
+       reason wraps rather than being cut off) */
+    flex: 1 0 100%;
+    overflow-wrap: anywhere;
 }
+.modal-footer .btn { white-space: nowrap; }
 .conn-status.conn-ok {
     background: rgba(165,214,167,0.1);
     border: 1px solid rgba(165,214,167,0.25);
@@ -759,7 +760,7 @@
                     {% endif %}
 
                 </div>
-                <div class="modal-footer" style="justify-content:space-between; align-items:center; flex-wrap:nowrap;">
+                <div class="modal-footer" style="justify-content:space-between; align-items:center; flex-wrap:wrap;">
                     <div id="addTestStatus" class="conn-status" style="display:none;"></div>
                     <div class="d-flex gap-2 ms-auto">
                         <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
@@ -1010,7 +1011,8 @@
                     </div>
 
                 </div>
-                <div class="modal-footer" style="justify-content:space-between; align-items:center; flex-wrap:nowrap;">
+                <div class="modal-footer" style="justify-content:space-between; align-items:center; flex-wrap:wrap;">
+                    <div id="editTestStatus" class="conn-status" style="display:none;"></div>
                     <div class="d-flex gap-2 align-items-center" style="min-width:0;">
                         <button type="button" class="btn btn-secondary btn-sm"
                                 data-bs-dismiss="modal">Cancel</button>
@@ -1018,7 +1020,6 @@
                                 onclick="testEditConnection()">
                             <i class="bi bi-plug me-1"></i>Test Connection
                         </button>
-                        <div id="editTestStatus" class="conn-status" style="display:none;"></div>
                     </div>
                     <div class="d-flex gap-2">
                         <button type="submit" id="editSaveBtn" class="btn btn-primary btn-sm edit-only">
