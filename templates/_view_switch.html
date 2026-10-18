@@ -1,0 +1,56 @@
+{# Operations | Administration: an admin's one way between the two views, in
+   the top bar of operator_base.html and admin.html, the same place on every
+   page ({% with view="ops" %} or "admin": the view this page is in). Each
+   side remembers the last page of its view (this browser only), so
+   switching back returns there; the first time: the Dashboard, Users.
+   Administration is violet (--nr-admin, also admin.html's top bar line): a
+   colour nothing else uses, so it only ever means "you are in
+   Administration". Operators have one view: no switch. #}
+{% if current_user.role == "admin" %}
+<div class="nr-view-switch" role="group" aria-label="View">
+    <a href="{{ url_for('jobs.dashboard') }}" data-view="ops"
+       class="vs-ops{{ ' is-current' if view == 'ops' }}"{% if view == 'ops' %} aria-current="page"{% endif %}>
+        <span class="vs-long">Operations</span><span class="vs-short">Ops</span></a>
+    <a href="{{ url_for('admin_users.admin_panel') }}" data-view="admin"
+       class="vs-admin{{ ' is-current' if view == 'admin' }}"{% if view == 'admin' %} aria-current="page"{% endif %}>
+        <span class="vs-long">Administration</span><span class="vs-short">Admin</span></a>
+</div>
+<style>
+    .nr-view-switch {
+        display: flex; gap: 2px; padding: 3px; flex-shrink: 0;
+        border: 1px solid #2a2a2a; border-radius: 9px; background: #0d0d0d;
+    }
+    .nr-view-switch a {
+        padding: 0.35rem 0.95rem; border-radius: 6px; text-decoration: none; white-space: nowrap;
+        font-family: 'Inter', sans-serif; font-size: 0.8rem; font-weight: 500; color: #a8a8a8;
+        transition: color 0.15s, background 0.15s;
+    }
+    .nr-view-switch a:hover { color: #e0e0e0; background: #171717; }
+    .nr-view-switch a.vs-ops.is-current { color: #00bcd4; background: rgba(0,188,212,0.13); font-weight: 600; }
+    .nr-view-switch a.vs-admin.is-current { color: var(--nr-admin); background: rgba(179,136,255,0.14); font-weight: 600; }
+    .nr-view-switch .vs-short { display: none; }
+    @media (max-width: 767.98px) {
+        .nr-view-switch a { padding: 0.45rem 0.7rem; }
+        .nr-view-switch .vs-long { display: none; }
+        .nr-view-switch .vs-short { display: inline; }
+    }
+</style>
+<script>
+(() => {
+    // this page is the last of its view; the other side goes back to its last
+    // (a path on this site, of that view: never another host)
+    const here = {{ view | tojson }};
+    const ofView = (view, path) => typeof path === 'string' && path.startsWith('/') && !path.startsWith('//')
+        && (view === 'admin') === (path === '/admin' || path.startsWith('/admin/'));
+    try {
+        const url = new URL(window.location.href);
+        url.searchParams.delete('_bg');
+        localStorage.setItem('nr-view-last-' + here, url.pathname + url.search);
+        document.querySelectorAll('.nr-view-switch a[data-view]').forEach(a => {
+            const last = localStorage.getItem('nr-view-last-' + a.dataset.view);
+            if (a.dataset.view !== here && ofView(a.dataset.view, last)) a.href = last;
+        });
+    } catch (e) { /* no storage: the views' first pages */ }
+})();
+</script>
+{% endif %}

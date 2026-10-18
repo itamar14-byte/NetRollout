@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{% block title %}Admin Panel — NetRollout{% endblock %}</title>
+    <title>{% block title %}Administration — NetRollout{% endblock %}</title>
     <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='logo.svg') }}">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
@@ -29,7 +29,8 @@
             align-items: center;
             justify-content: space-between;
             padding: 0.75rem 2rem;
-            border-bottom: 1px solid #161616;
+            /* the Administration view's colour (_view_switch.html) */
+            border-bottom: 2px solid var(--nr-admin);
             background: rgba(13,13,13,0.6);
             backdrop-filter: blur(8px);
             position: sticky;
@@ -45,12 +46,11 @@
         }
 
         .adm-topbar-title {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 0.7rem;
-            font-weight: 700;
-            letter-spacing: 2px;
+            font-family: 'Inter', sans-serif;
+            font-size: 0.82rem;
+            font-weight: 500;
             color: var(--nr-text-muted);
-            text-transform: uppercase;
+            letter-spacing: 0.3px;
         }
 
         .adm-topbar-sep {
@@ -58,28 +58,6 @@
             height: 14px;
             background: #2a2a2a;
             flex-shrink: 0;
-        }
-
-        /* ── Home button ── */
-        .nr-back-btn {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.5rem;
-            font-family: 'Inter', sans-serif;
-            font-size: 0.78rem;
-            font-weight: 500;
-            color: #888 !important;
-            background: transparent !important;
-            border: 1px solid #242424 !important;
-            border-radius: 6px;
-            padding: 0.38rem 0.9rem;
-            text-decoration: none !important;
-            transition: border-color 0.2s, color 0.2s, background 0.2s;
-        }
-        .nr-back-btn:hover {
-            border-color: rgba(0,188,212,0.3) !important;
-            color: #00bcd4 !important;
-            background: rgba(0,188,212,0.04) !important;
         }
 
         /* ── Body layout ── */
@@ -265,7 +243,6 @@
             .adm-topbar { padding: 0.6rem 1rem; }
             .adm-topbar-left { gap: 0.6rem; }
             .adm-topbar-sep, .adm-topbar-title { display: none; }
-            .adm-topbar .nr-back-btn { white-space: nowrap; }
             .adm-content { padding: 1.1rem 1rem; }
             .nr-footer { padding: 1rem; }
             .nr-phone-menu {
@@ -301,11 +278,18 @@
     <div class="adm-topbar-left">
         <button type="button" class="nr-phone-menu" id="phoneMenu" aria-label="Menu"
                 aria-controls="adminSidebar">&#9776;</button>
-        <a href="{{ url_for('jobs.dashboard') }}" class="nr-back-btn">← Home</a>
+        <img src="{{ url_for('static', filename='logo.svg') }}" alt="NetRollout"
+             style="height:16px; width:auto; opacity:0.85;">
         <div class="adm-topbar-sep"></div>
-        <span class="adm-topbar-title">Administration</span>
+        <span class="adm-topbar-title">{{ {"users": "User Management", "sessions": "Live Sessions",
+                                            "audit": "Audit Log", "analytics": "Analytics",
+                                            "settings": "System Settings", "server": "Server Management"
+                                           }.get(active_section, "Administration") }}</span>
     </div>
-    {% include "_user_menu.html" %}
+    <div class="d-flex align-items-center gap-3">
+        {% with view="admin" %}{% include "_view_switch.html" %}{% endwith %}
+        {% include "_user_menu.html" %}
+    </div>
 </div>
 
 <!-- Body -->

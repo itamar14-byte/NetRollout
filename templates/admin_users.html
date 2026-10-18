@@ -1,5 +1,5 @@
 {% extends "admin.html" %}
-{% block title %}User Management — Admin Panel{% endblock %}
+{% block title %}User Management — Administration{% endblock %}
 
 {% block admin_content %}
 
@@ -1140,7 +1140,7 @@
     const role = el.value;
     if (role === 'admin' && !await nrConfirm({
           title: `Make ${el.dataset.label} administrators?`,
-          message: 'Members of this group become administrators at their next sign-in: they get the Admin Panel, '
+          message: 'Members of this group become administrators at their next sign-in: they get Administration, '
                  + "every user's rollouts and results, and System Settings and Server Management.",
           confirmLabel: 'Make administrators', danger: true})) {
       el.value = el.dataset.role;

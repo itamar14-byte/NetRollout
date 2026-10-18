@@ -139,7 +139,7 @@ The sidebar on the left holds every page:
 | **Management** | **Inventory**, **Security Profiles**, **Variable Mappings**, **Properties** |
 | **Observability** | **Dashboard**, **Results**, **Analytics** |
 
-The user menu (your username, top right) has **My Account** and **Logout**. Administrators also see **Admin Panel**.
+The user menu (your username, top right) has **My Account** and **Logout**. Administrators also have a switch next to it, **Operations | Administration**, to move between the day-to-day pages and the administration pages; each side returns to the last page open there.
 
 ## The dashboard
 

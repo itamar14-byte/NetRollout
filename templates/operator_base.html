@@ -381,14 +381,6 @@
             <span class="sb-label">Analytics</span>
         </a>
 
-        {% if current_user.role == "admin" %}
-        <a href="{{ url_for('admin_users.admin_panel') }}"
-           class="sb-link {% if active_section == 'admin' %}active{% endif %}"
-           title="Admin Panel">
-            <i class="bi bi-gear sb-icon"></i>
-            <span class="sb-label">Admin Panel</span>
-        </a>
-        {% endif %}
 
     </div>
 
@@ -430,7 +422,10 @@
                 {% block page_title %}{% endblock %}
             </div>
         </div>
-        {% with admin_icon="bi-gear" %}{% include "_user_menu.html" %}{% endwith %}
+        <div class="d-flex align-items-center gap-3">
+            {% with view="ops" %}{% include "_view_switch.html" %}{% endwith %}
+            {% include "_user_menu.html" %}
+        </div>
     </div>
 
     <!-- Flash messages -->

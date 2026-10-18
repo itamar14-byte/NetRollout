@@ -8,7 +8,7 @@ This guide is for whoever runs a NetRollout installation day to day: starting an
 - [NetRollout Manager (Windows)](#netrollout-manager-windows)
 - [The command line](#the-command-line)
 - [Manager and command line side by side](#manager-and-command-line-side-by-side)
-- [The Admin Panel](#the-admin-panel)
+- [Administration](#administration)
 - [Updating NetRollout](#updating-netrollout)
 - [Backups](#backups)
 - [Restoring a backup](#restoring-a-backup)
@@ -236,9 +236,9 @@ Everything NetRollout Manager does runs `manage.ps1` underneath, so each button 
 | Tray **Check for updates daily** | None (registry value `DailyCheck`) | None | The daily update check. |
 | None | None | The menu: `sudo ./bin/netrollout.sh` | A numbered menu of the common commands. |
 
-## The Admin Panel
+## Administration
 
-Administrators open the Admin Panel from the user menu (**Admin Panel**). **← Home** goes back to the dashboard. Its sidebar has three groups:
+Administrators move between the two views with the switch at the top right of every page: **Operations | Administration**. Administration's pages have a violet line under the top bar, so it's always clear which view you're in. Each side of the switch returns to the last page you had open in that view. Operators have only Operations, and no switch. Administration's sidebar has three groups:
 
 | Group | Page | What it shows | What you can do there |
 |---|---|---|---|
@@ -407,7 +407,7 @@ The backup runs through the app's own database connection, so it works whether N
 
 ### The schedule
 
-In **Admin Panel → System Settings → Backups**:
+In **Administration → System Settings → Backups**:
 
 - **Scheduled backup**: **Off**, **Daily** (the default) or **Weekly**.
 - **At**: the server's local time, 24-hour (default `02:00`).
@@ -455,7 +455,7 @@ So you can restore a backup from one server onto a fresh installation on another
 
 ## The HTTPS port
 
-Change the port people use in **Admin Panel → System Settings → HTTPS port**. Changing it doesn't cut you off:
+Change the port people use in **Administration → System Settings → HTTPS port**. Changing it doesn't cut you off:
 
 1. When you save, NetRollout opens the new port **next to** the current one. NetRollout is unavailable for a few seconds while nginx restarts.
 2. The page says, for example, "Port 8443 is open next to port 443" and links to NetRollout on the new port. If your browser can reach it, it goes there by itself.
@@ -473,7 +473,7 @@ The port helper does the Docker part on the server:
 
 ### The hostname
 
-**Admin Panel → System Settings → Access → Hostname** is the name people use, such as `netrollout.corp.local`. It's a DNS name or an IPv4 address, without `https://`, port or path. Other names that reach the server redirect to it. IP addresses and `localhost` are always served.
+**Administration → System Settings → Access → Hostname** is the name people use, such as `netrollout.corp.local`. It's a DNS name or an IPv4 address, without `https://`, port or path. Other names that reach the server redirect to it. IP addresses and `localhost` are always served.
 
 Saving the hostname is all or nothing:
 
@@ -489,7 +489,7 @@ If NetRollout runs behind your own reverse proxy instead, update that proxy your
 
 ### The TLS certificate
 
-**Admin Panel → Server Management → TLS Certificate**:
+**Administration → Server Management → TLS Certificate**:
 
 - **Upload and apply** your organisation's certificate. **Certificate**: PEM, the server's certificate first, then each issuer. **Private key**: PEM, without a password. It's checked first: the key must match, the dates must be valid, and it must cover the saved hostname. A certificate with any problem is refused.
 - **Generate self-signed certificate** makes a new one for the saved hostname and the server's IP addresses (ECDSA P-256, valid for 825 days).
@@ -514,7 +514,7 @@ Changes apply to the next connection, without a restart. They're recorded in the
 | Role | Can |
 |---|---|
 | **Operator** | Use NetRollout: their own inventory, profiles, mappings, properties and rollouts, plus the global devices. See only their own results. |
-| **Admin** | Everything an operator can, plus the Admin Panel: users, sessions, audit logs, analytics, monitoring, System Settings and Server Management. Create and edit global devices. See and cancel everyone's rollouts and results. |
+| **Admin** | Everything an operator can, plus Administration: users, sessions, audit logs, analytics, monitoring, System Settings and Server Management. Create and edit global devices. See and cancel everyone's rollouts and results. |
 
 ### The factory admin account
 
@@ -532,7 +532,7 @@ If no administrator can sign in (`admin` disabled, locked, its authenticator los
 
 There are two ways in:
 
-- **Add user** (Admin Panel → **User Management**): the account is approved and active at once, as an operator or an admin. You get a temporary password, shown once, to hand over privately. The user chooses their own at the first sign-in.
+- **Add user** (Administration → **User Management**): the account is approved and active at once, as an operator or an admin. You get a temporary password, shown once, to hand over privately. The user chooses their own at the first sign-in.
 - **Request access**: anyone who can reach the sign-in page can ask for an account. It waits for an administrator to **Approve** it. The User Management link in the sidebar shows how many requests are waiting.
 
 **The password rule** for local accounts: at least 8 characters, at least 2 of letters / digits / special characters, ASCII only, and not containing the username.
@@ -562,7 +562,7 @@ Disable, Demote and Delete are refused when they would leave no administrator wh
 
 ### LDAP / Active Directory
 
-Add a directory in **Admin Panel → Server Management → LDAP / Active Directory → Add Server**:
+Add a directory in **Administration → Server Management → LDAP / Active Directory → Add Server**:
 
 | Field | Meaning |
 |---|---|
@@ -609,11 +609,11 @@ The LDAP explorer's import can do the same for a whole directory move: tick **Re
 - A session ends after a period without activity: **Sign out after inactivity** in System Settings, 15 minutes by default (5 to 480). Users get a warning a minute before. Automatic refreshes and live logs don't count as activity.
 - However active, everyone signs in again after 12 hours.
 - **Every restart or update of NetRollout signs everyone out.**
-- **Admin Panel → Live Sessions** lists who is signed in, local and LDAP (**Remote Sessions**). **Kick** signs one user out everywhere; **Kick All** does it for everyone in that table except you.
+- **Administration → Live Sessions** lists who is signed in, local and LDAP (**Remote Sessions**). **Kick** signs one user out everywhere; **Kick All** does it for everyone in that table except you.
 
 ## System Settings reference
 
-**Admin Panel → System Settings**. Each setting shows its default and when a change takes effect. Every change is recorded in the audit log.
+**Administration → System Settings**. Each setting shows its default and when a change takes effect. Every change is recorded in the audit log.
 
 | Card | Setting | Default | Range | What it does | Takes effect |
 |---|---|---|---|---|---|
@@ -637,7 +637,7 @@ Two rules keep the retention settings consistent:
 - **Log files** must be kept at least as long as **Job records**, because Download Log needs the file while the job exists.
 - **Config snapshots** can't be kept longer than **Job records**.
 
-A changed setting that applies after a restart shows **Restart required** in the Admin Panel, with a **Restart server** button.
+A changed setting that applies after a restart shows **Restart required** in Administration, with a **Restart server** button.
 
 The **Internal app port** is shown read-only: it's set at install.
 
@@ -649,7 +649,7 @@ Monitoring is optional; you choose it at install. It adds:
 - **Loki** and **Alloy**: Alloy ships the files in `logs/` to Loki (kept 60 days).
 - **Grafana**, with dashboards over the metrics, the logs and NetRollout's database.
 
-Open Grafana from **Admin Panel → Monitoring**, or at `https://<your address>/grafana/`. Only signed-in NetRollout admins can open it: Grafana trusts NetRollout's sign-in and has no login form of its own. Every admin is a Grafana Editor.
+Open Grafana from **Administration → Monitoring**, or at `https://<your address>/grafana/`. Only signed-in NetRollout admins can open it: Grafana trusts NetRollout's sign-in and has no login form of its own. Every admin is a Grafana Editor.
 
 Grafana's dashboards are in the **NetRollout** folder:
 
@@ -676,7 +676,7 @@ Stop first: `start` does nothing while everything that exists is already running
 
 NetRollout can move its data from the bundled PostgreSQL to your own PostgreSQL server, and back. It needs PostgreSQL 13 or later, with no extensions and no special server settings.
 
-Go to **Admin Panel → Server Management → PostgreSQL → Move to another PostgreSQL server**.
+Go to **Administration → Server Management → PostgreSQL → Move to another PostgreSQL server**.
 
 **Step 1: Prepare the database.** Choose how:
 
@@ -704,7 +704,7 @@ If anything fails, or you cancel the move, NetRollout stays on the database it w
 
 Redis holds only sessions and the live state of running rollouts, so switching it copies nothing and needs no restart.
 
-In **Admin Panel → Server Management → Redis**, enter **Host**, **Port**, **DB** and the password (optional). Select **Test Connection**, then **Save Configuration**.
+In **Administration → Server Management → Redis**, enter **Host**, **Port**, **DB** and the password (optional). Select **Test Connection**, then **Save Configuration**.
 
 - It's refused while rollouts are running.
 - It signs everyone else out. You stay signed in.
@@ -714,7 +714,7 @@ In **Admin Panel → Server Management → Redis**, enter **Host**, **Port**, **
 
 ### Restart from the web app
 
-**Restart server**, in the Admin Panel sidebar, restarts NetRollout. If rollouts are running, it lists them, with **Cancel** for each, and asks:
+**Restart server**, in Administration's sidebar, restarts NetRollout. If rollouts are running, it lists them, with **Cancel** for each, and asks:
 
 - **Restart when finished**: new rollouts are paused and running ones complete first. Everyone sees a notice until NetRollout is back.
 - **Restart now**: running rollouts are cancelled. Devices already being configured get up to a minute to finish; the rest are left unchanged.
@@ -763,7 +763,7 @@ With monitoring on, the rollout logs are also searchable in Grafana (Loki).
 
 ## The audit log
 
-**Admin Panel → Audit Logs** lists who did what and when, with the outcome and the IP address. Filter by actor, action, outcome and day (**From** / **To**, both included). The page shows the newest 500; **Export CSV** downloads every entry the filters let through, the detail as JSON in one column. Under each action, the entry's detail reads in one line: a failed sign-in's reason, a change's from → to, a lock. Click an entry (or press Enter on it) to see its full detail as JSON; the ⚙ menu also has **Copy Row**. **Admin Panel → Analytics** has an **Audit Log Query** builder with CSV export.
+**Administration → Audit Logs** lists who did what and when, with the outcome and the IP address. Filter by actor, action, outcome and day (**From** / **To**, both included). The page shows the newest 500; **Export CSV** downloads every entry the filters let through, the detail as JSON in one column. Under each action, the entry's detail reads in one line: a failed sign-in's reason, a change's from → to, a lock. Click an entry (or press Enter on it) to see its full detail as JSON; the ⚙ menu also has **Copy Row**. **Administration → Analytics** has an **Audit Log Query** builder with CSV export.
 
 Recorded actions include:
 
