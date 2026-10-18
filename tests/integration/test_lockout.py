@@ -153,16 +153,17 @@ def test_the_users_page_shows_a_lock_that_enable_lifts(
 
 
 def test_the_locked_badge_says_the_time_left(admin, client_for, make_user, session_scope):
-	"""The Locked badge's tooltip gives the minutes left of the lock, rounded
-	up - not the lock's full length."""
+	"""The Locked badge's tooltip gives the time left of the lock as mm:ss
+	(the page counts it down from data-seconds) - not the lock's full length."""
 	user = make_user()
-	for left, words in ((dt.timedelta(minutes=3, seconds=30), "4 minutes left"),
-	                    (dt.timedelta(seconds=30), "1 minute left")):
+	for left, mmss in ((dt.timedelta(minutes=3, seconds=30), ("03:30", "03:29")),
+	                   (dt.timedelta(seconds=30), ("00:30", "00:29"))):
 		with session_scope() as s:
 			s.get(User, user.id).locked_until = dt.datetime.now(dt.timezone.utc) + left
 		page = client_for(admin).get("/admin/users").get_data(as_text=True)
-		assert (f'title="Locked after 5 wrong passwords in a row: {words} - Enable lifts '
-		        f'the lock now">Locked</span>') in page
+		# rendered this second or the next
+		assert any(f'title="Locked after 5 wrong passwords in a row: {t} left - Enable / Unlock '
+		           f'lifts it now">Locked</span>' in page for t in mmss)
 
 
 def test_a_right_password_starts_the_count_again(client_for, make_user, db_get):

@@ -34,7 +34,7 @@
 
     <span class="tip-wrap" id="wrapEnable">
       <button class="tb-btn enable-tb" id="btnEnable" disabled>
-        <i class="bi bi-unlock me-1"></i>Enable
+        <i class="bi bi-unlock me-1"></i><span id="enableLabel">Enable / Unlock</span>
       </button>
     </span>
 
@@ -122,7 +122,7 @@
         {% set status = "pending" %}
       {% endif %}
       <tr data-status="{{ status }}"
-          data-user='{{ {"id": user.id|string, "username": user.username, "role": user.role, "approved": user.is_approved, "active": user.is_active, "is_self": (user.id == current_user.id), "is_factory": (user.id in factory_ids), "has_session": (user.id|string in session_user_ids), "auth_type": user.auth_type, "has_2fa": user.otp_secret is not none, "locked": (user.id in locked_minutes), "role_from_directory": (user.id in from_directory_ids), "no_directory": (user.id in no_directory_ids)}|tojson }}'>
+          data-user='{{ {"id": user.id|string, "username": user.username, "role": user.role, "approved": user.is_approved, "active": user.is_active, "is_self": (user.id == current_user.id), "is_factory": (user.id in factory_ids), "has_session": (user.id|string in session_user_ids), "auth_type": user.auth_type, "has_2fa": user.otp_secret is not none, "locked": (user.id in locked_seconds), "role_from_directory": (user.id in from_directory_ids), "no_directory": (user.id in no_directory_ids)}|tojson }}'>
 
         <td style="padding-right:0;">
           <input type="checkbox" class="form-check-input row-cb" style="margin:0; cursor:pointer;" value="{{ user.id }}">
@@ -153,9 +153,9 @@
         <td>
           {% if status == "active" %}
             <span class="badge bg-success">Active</span>
-            {% if user.id in locked_minutes %}
-              {% set left = locked_minutes[user.id] %}
-              <span class="badge bg-warning text-dark" title="Locked after 5 wrong passwords in a row: {{ left }} minute{{ 's' if left != 1 }} left - Enable lifts the lock now">Locked</span>
+            {% if user.id in locked_seconds %}
+              {% set left = locked_seconds[user.id] %}
+              <span class="badge bg-warning text-dark lock-badge" data-seconds="{{ left }}" title="Locked after 5 wrong passwords in a row: {{ '%02d:%02d' % (left // 60, left % 60) }} left - Enable / Unlock lifts it now">Locked</span>
             {% endif %}
           {% elif status == "inactive" %}
             <span class="badge bg-danger">Inactive</span>
@@ -624,6 +624,19 @@
     return left.length ? null : "No active administrator would be left";
   }
 
+  // ── A Locked badge's tooltip counts the lock down (mm:ss); the badge goes
+  // when the lock ends ──
+  document.querySelectorAll(".lock-badge").forEach(badge => {
+    const end = Date.now() + Number(badge.dataset.seconds) * 1000;
+    const tick = () => {
+      const left = Math.max(0, Math.ceil((end - Date.now()) / 1000));
+      if (!left) { clearInterval(timer); badge.remove(); return; }
+      const mmss = `${String(Math.floor(left / 60)).padStart(2, "0")}:${String(left % 60).padStart(2, "0")}`;
+      badge.title = `Locked after 5 wrong passwords in a row: ${mmss} left - Enable / Unlock lifts it now`;
+    };
+    const timer = setInterval(tick, 1000);
+  });
+
   // ── Tooltip registry ──
   const tooltips = {};
 
@@ -634,6 +647,12 @@
 
   function updateToolbar() {
     const sel = getSelected();
+
+    // Enable lifts a lock too: the button says which it does for the users
+    // ticked - only locked ones (still active): Unlock; only disabled: Enable
+    document.getElementById("enableLabel").textContent =
+      sel.length && sel.every(u => u.active && u.locked) ? "Unlock"
+      : sel.length && sel.every(u => !u.active) ? "Enable" : "Enable / Unlock";
 
     // Selection info label
     const info = document.getElementById("selectionInfo");

@@ -136,8 +136,9 @@ def admin_users() -> str:
 	                       from_directory_ids=from_directory,
 	                       no_directory_ids=no_directory,
 	                       ldap_servers=servers,
-	                       # locked accounts: the minutes left, rounded up (the badge's tooltip)
-	                       locked_minutes={u.id: math.ceil((u.locked_until - now).total_seconds() / 60)
+	                       # locked accounts: the seconds left, rounded up (the badge's
+	                       # tooltip, mm:ss, counting down)
+	                       locked_seconds={u.id: math.ceil((u.locked_until - now).total_seconds())
 	                                       for u in users
 	                                       if u.locked_until is not None and u.locked_until > now},
 	                       active_section="users",

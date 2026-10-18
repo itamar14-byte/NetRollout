@@ -15,6 +15,7 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 - **Export CSV** on Results and the Audit Log: every job (one row per device) or entry the filters let through. Results exports your own jobs, or everyone's in an administrator's All Users view; it leaves out the commands and config snapshots. Cells a spreadsheet would run as a formula are quoted, and Excel reads the file as UTF-8. Each export is recorded in the audit log.
 - The Audit Log filters by day (From / To).
 - The sign-in page's stop after 5 failed sign-ins shows the time left as mm:ss and counts it down ("Try again in 14:59."), then says "You can try again now." It was in whole minutes, rounded up.
+- User Management: the Locked badge's tooltip counts the lock down in mm:ss, and the badge goes when the lock ends. The button that lifts a lock reads **Enable / Unlock**: just **Unlock** when every user ticked is only locked, just **Enable** when every one is disabled.
 - Every password field can show what's typed (the eye): also the LDAP bind and test-user passwords, the database move's and Redis' passwords, a quick-created security profile's, and turning 2FA off.
 - The Audit Log's entry for making a global device private says what the other users lost on it: how many users, and their security profile links, attribute values and variable mappings.
 
