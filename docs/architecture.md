@@ -1593,7 +1593,7 @@ Everything that shows or redirects to an address uses `serving_port()` (the help
 | Type | Fields |
 |---|---|
 | `RolloutOptions` | `verify` (run Verify after the push), `verbose` (show every message), `webapp` (log for the page as HTML, not a console), `max_workers` (devices at the same time, default 10) |
-| `Device` | `ip`, `label`, `username`, `password` and `secret` (decrypted, hidden from `repr`), `device_type`, `port`, `var_map_subs` (`$$TOKEN$$` to the property name and list index, the rolling-out user's mappings only), `extra` (the attribute values that user sees); `endpoint` is `ip:port`, which identifies a target (several devices can share an IP behind NAT) |
+| `Device` | `ip` (an IP or a hostname, as saved), `dns_suffix` and `host` (what's connected to: a bare name with the suffix), `label`, `username`, `password` and `secret` (decrypted, hidden from `repr`), `device_type`, `port`, `var_map_subs` (`$$TOKEN$$` to the property name and list index, the rolling-out user's mappings only), `extra` (the attribute values that user sees); `endpoint` is `ip:port`, which identifies a target (several devices can share an IP behind NAT) |
 | `DeviceResultDict` | `device_ip`, `device_port`, `device_type`, `commands_sent`, `commands_verified`, `fetched_config`, `status`, `action_needed`: a `device_results` row's fields |
 | `PushResult`, `VerifyResult` | How the push went (applied, commands sent, refusals, interrupted) and how Verify went (verified, checkable, the config kept when something didn't verify); `classify()` reads both |
 

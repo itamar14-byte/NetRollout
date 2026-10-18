@@ -808,6 +808,7 @@
                         <div class="col-8">
                             <label class="nr-label" for="editDevIp">ADDRESS</label>
                             <input type="text" class="form-control" id="editDevIp" name="ip" required
+                                   placeholder="192.168.1.1, 2001:db8::1 or core1.corp.local" autocomplete="off"
                                    maxlength="254" title="An IPv4 or IPv6 address, or a hostname">
                             <div class="field-error">Enter an IPv4 or IPv6 address, or a hostname.</div>
                         </div>
@@ -1096,7 +1097,8 @@
 
                     <p style="font-size:0.82rem; color:var(--nr-text-muted); margin-bottom:0.6rem;">
                         Required columns:
-                        <span style="font-family:'JetBrains Mono',monospace; color:var(--nr-accent-soft);">ip, device_type, port</span>.
+                        <span style="font-family:'JetBrains Mono',monospace; color:var(--nr-accent-soft);">ip, device_type, port</span>
+                        (<span class="nr-mono">ip</span>: an IP address or a hostname, such as core1.corp.local).
                         Optional:
                         <span class="nr-mono">label</span>,
                         credentials

@@ -26,7 +26,7 @@ A rollout is built from a few blocks. Each one is a page in the sidebar, and eac
 
 ```mermaid
 flowchart LR
-    profile["Security profile<br/>(username, password,<br/>enable secret)"] -->|"assigned to"| device["Device<br/>(Inventory: IP, port,<br/>platform, label)"]
+    profile["Security profile<br/>(username, password,<br/>enable secret)"] -->|"assigned to"| device["Device<br/>(Inventory: address, port,<br/>platform, label)"]
     property["Property<br/>(system or custom)"] -->|"has a value on each device:<br/>an attribute"| device
     mapping["Variable mapping<br/>token → property"] -->|"reads"| property
     mapping -->|"assigned to"| device
@@ -35,7 +35,7 @@ flowchart LR
     rollout --> results["Results, logs,<br/>Verify, rollback"]
 ```
 
-1. **A device** (Inventory) is a target: IP address, SSH port, platform and a label.
+1. **A device** (Inventory) is a target: an address (an IP or a hostname), SSH port, platform and a label.
 2. **A security profile** holds *your* credentials for logging in to devices. One profile serves many devices. NetRollout always logs in with the profile of the person who rolls out, never someone else's, so you can't roll out to a device until it has your profile.
 3. **A property** is a kind of per-device value, such as `hostname` or `loopback_ip`. Its value on one device is an **attribute** of that device.
 4. **A variable mapping** binds a token, such as `$$LOOPBACK$$`, to a property, and is assigned to the devices it applies to.
@@ -172,7 +172,7 @@ You can use a global device in your own rollouts with **your own** security prof
 
 When some of your devices need a profile, Inventory says how many ("3 devices need your security profile") with **Show them**, which lists only those.
 
-Above the devices, three filters narrow the list as you type: **Name** and **IP address** match any part (`edge`, `10.1.`), and the platform list offers the platforms in your inventory. They work together; **Clear filters** shows everything again, and Escape empties the box you're in.
+Above the devices, three filters narrow the list as you type: **Name** and **Address** match any part (`edge`, `10.1.`, `corp.local`), and the platform list offers the platforms in your inventory. They work together; **Clear filters** shows everything again, and Escape empties the box you're in.
 
 ### Adding a device
 
@@ -190,7 +190,7 @@ Administrators also see a **Global device** switch, which shares the device with
 
 To change a device, select its card. The **Edit Device** window also has the device's **VARIABLE MAPPINGS** and **VARIABLE ATTRIBUTES** (see [Properties and variable mappings](#properties-and-variable-mappings)). To delete it, use **Remove device** and confirm.
 
-Two devices can share an IP address if their ports differ, for example behind NAT. NetRollout identifies a device by `ip:port`.
+Two devices can share an address if their ports differ, for example behind NAT. NetRollout identifies a device by `address:port` (written `ip:port` in messages and the CSV). A device saved by a name and one saved by its IP are the same target: NetRollout warns when you save the second, and won't put both in one rollout.
 
 ### Reachability
 
@@ -205,7 +205,7 @@ Select **Import CSV** to add many devices at once. The file is the same devices 
 | `ip` | Yes | An IPv4 or IPv6 address, or a hostname (a name alone gets the Device DNS suffix). Names that don't resolve are imported and listed in a warning. |
 | `device_type` | Yes | A supported Netmiko device type, such as `cisco_ios` |
 | `port` | Yes | SSH port, 1 to 65535 |
-| `label` | No | The device's name. Defaults to the IP address. |
+| `label` | No | The device's name. Defaults to the address. |
 | `username`, `password`, `secret` | No | Credentials. See **Create security profiles** below. |
 | *a property's name or label* | No | An attribute value, for example `hostname`, `site` or `vrfs`. List values are comma-separated inside one quoted cell. |
 
@@ -321,7 +321,7 @@ Open **Launch Rollout**.
    - **Verbose logging**: more detail in the job's log.
 5. Select **Launch Rollout**.
 
-**Launch Rollout** stays disabled while no device is ticked, the same `ip:port` is ticked twice, or a token can't be filled in. When you launch, NetRollout also checks that every ticked device is reachable from the server. If any isn't, the rollout is refused and the message names the devices; select **Recheck** once they're back.
+**Launch Rollout** stays disabled while no device is ticked, the same `ip:port` is ticked twice, or a token can't be filled in. When you launch, a device ticked by its name and again by its IP (the name looked up then) is refused the same way. When you launch, NetRollout also checks that every ticked device is reachable from the server. If any isn't, the rollout is refused and the message names the devices; select **Recheck** once they're back.
 
 ### What happens on each device
 

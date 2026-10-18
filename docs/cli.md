@@ -94,7 +94,7 @@ One row per device, with a header row. The file is read as UTF-8; a byte-order m
 | `username` | Yes (CLI) | The SSH username. |
 | `password` | Yes (CLI) | The SSH password. |
 | `secret` | No | The enable secret, if the platform needs one. Leave it empty if not. |
-| `label` | No | A name for the device in the log. Defaults to the IP address. |
+| `label` | No | A name for the device in the log. Defaults to the address. |
 
 Any other column is ignored by the CLI.
 
@@ -116,7 +116,8 @@ ip,device_type,port,username,password,secret,label
 Each row is checked on its own. A bad row is reported and skipped, and the other rows still run. A row is rejected if:
 
 - `ip` or `port` is missing: `Row <n>: ip and port are required`
-- the IP, port or device type isn't valid: `Row <n> (<ip>): invalid ip, port or device type`
+- the address, port or device type isn't valid: `Row <n> (<ip>): invalid ip, port or device type`
+- a hostname doesn't resolve: `<ip:port>: can't resolve <name>`
 - `username` or `password` is empty: `Row <n> (<ip>): username and password are required`
 - the device isn't reachable: `<ip:port> is not reachable` (see below)
 
