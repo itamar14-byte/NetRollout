@@ -28,7 +28,8 @@ async function nrRestartClick() {
     const d = await nrRestartRollouts(false);
     // unknown: the server answers 409 if rollouts run
     if (!d || !(d.running + d.queued)) {
-        if (confirm('Restart NetRollout? Everyone will be signed out and sign in again.'))
+        if (await nrConfirm({title: 'Restart NetRollout?', danger: true, confirmLabel: 'Restart',
+                             message: 'Everyone will be signed out and sign in again.'}))
             nrFireRestart();
         return;
     }
@@ -160,7 +161,7 @@ async function nrFireRestart(mode) {
         nrSetRestartButton(false);
         const whenDone = document.getElementById('restartWhenDoneBtn');
         if (whenDone) whenDone.disabled = false;
-        alert(data.message || `Restart failed (${resp.status})`);
+        nrAlert(data.message || `Restart failed (${resp.status})`, 'Not restarted');
         return;
     }
     if (mode === 'when_finished' && (data.running || 0) > 0) nrShowRestartWaiting();

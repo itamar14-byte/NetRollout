@@ -433,6 +433,12 @@
 }
 .nr-panel-body { padding: 1.25rem; }
 
+/* A platform's commands missing (commandsError) */
+.cb-error {
+    margin-top: 0.6rem; padding: 0.5rem 0.7rem; border-radius: 6px; font-size: 0.82rem;
+    background: rgba(239,83,80,0.08); border: 1px solid rgba(239,83,80,0.35); color: #f2b8b5;
+}
+
 {% endblock %}
 
 {% block operator_content %}
@@ -1010,11 +1016,27 @@
         doSubmit();
     });
 
+    /* A platform's commands missing or unreadable: said in its own block (in
+       red, under the commands), which is scrolled to and focused; the next
+       Launch clears it */
+    function commandsError(block, message) {
+        const note = document.createElement("div");
+        note.className = "cb-error";
+        note.setAttribute("role", "alert");
+        note.innerHTML = '<i class="bi bi-exclamation-circle me-1"></i>';
+        note.append(message);
+        block.appendChild(note);
+        block.scrollIntoView({behavior: "smooth", block: "center"});
+        const field = block.querySelector("textarea, input[type=file]");
+        if (field) field.focus({preventScroll: true});
+    }
+
     async function doSubmit() {
         if (submitBtn.disabled) return;     // held: see updateLaunch
         const platforms = getSelectedPlatforms();
         const keys = Object.keys(platforms);
         const isMulti = keys.length > 1;
+        document.querySelectorAll(".cb-error").forEach(e => e.remove());
 
         if (isMulti) {
             /* Multi-platform: collect per-platform commands into JSON */
@@ -1030,7 +1052,7 @@
                 if (mode === "paste") {
                     const text = block.querySelector(`#${taId}`)?.value?.trim();
                     if (!text) {
-                        alert(`No commands provided for ${platform}.`);
+                        commandsError(block, `No commands provided for ${platform}.`);
                         valid = false;
                         break;
                     }
@@ -1039,7 +1061,7 @@
                     /* File mode: the file's text joins the JSON like pasted commands */
                     const fi = block.querySelector(`input[type="file"]`);
                     if (!fi.files[0]) {
-                        alert(`No command file selected for ${platform}.`);
+                        commandsError(block, `No command file selected for ${platform}.`);
                         valid = false;
                         break;
                     }
@@ -1047,12 +1069,12 @@
                     try {
                         text = (await fi.files[0].text()).trim();
                     } catch (err) {
-                        alert(`The command file for ${platform} could not be read.`);
+                        commandsError(block, `The command file for ${platform} could not be read.`);
                         valid = false;
                         break;
                     }
                     if (!text) {
-                        alert(`No commands provided for ${platform}.`);
+                        commandsError(block, `The command file for ${platform} is empty.`);
                         valid = false;
                         break;
                     }
@@ -1073,7 +1095,7 @@
 
             if (mode === "paste") {
                 const text = block.querySelector(`#${taId}`)?.value?.trim();
-                if (!text) { alert("No commands provided."); return; }
+                if (!text) { commandsError(block, "No commands provided."); return; }
                 /* Put text into a hidden textarea named manual_commands */
                 let mcField = form.querySelector("textarea[name='manual_commands']");
                 if (!mcField) {
@@ -1086,7 +1108,7 @@
             } else {
                 /* File mode: wire the file input into a proper form field */
                 const fi = block.querySelector(`input[type="file"]`);
-                if (!fi.files[0]) { alert("No command file selected."); return; }
+                if (!fi.files[0]) { commandsError(block, "No command file selected."); return; }
                 fi.name = "commands_file";
             }
         }

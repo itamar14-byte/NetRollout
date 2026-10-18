@@ -382,7 +382,7 @@
                 </button>
                 <form method="POST" action="{{ url_for('rollout.cancel_rollout') }}"
                       style="display:inline;"
-                      onsubmit="return confirm('Cancel this job? Devices mid-push may be left with partial config.');">
+                      onsubmit="event.preventDefault(); confirmCancel(this);">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="job_id" value="{{ job.id }}">
                     <button type="submit" class="job-action-btn btn-cancel">
@@ -547,6 +547,16 @@
         label.textContent = "idle";
         window._pauseRefresh  = function() {};
         window._resumeRefresh = function() {};
+    }
+
+    /* ── Cancel a job: asked first; no automatic reload while it asks ── */
+    async function confirmCancel(form) {
+        _pauseRefresh();
+        const yes = await nrConfirm({title: 'Cancel this job?', danger: true,
+            message: 'Devices mid-push may be left with partial config.',
+            confirmLabel: 'Cancel job'});
+        if (yes) form.submit();
+        else _resumeRefresh();
     }
 
     /* ── No automatic reload while the rollback dialog is open ── */

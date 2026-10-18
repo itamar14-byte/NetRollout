@@ -593,7 +593,8 @@
     const button = e.target.closest('[data-backup-delete]');
     if (!button) return;
     const name = button.dataset.backupDelete;
-    if (!confirm(`Delete the backup ${name}? This can't be undone.`)) return;
+    if (!await nrConfirm({title: 'Delete this backup?', danger: true, badge: 'IRREVERSIBLE ACTION',
+                          message: `${name}\nThis can't be undone.`, confirmLabel: 'Delete'})) return;
     clearAlert();
     const {resp, data} = await post(`/admin/backups/${encodeURIComponent(name)}/delete`);
     if (resp.ok && data.status === 'ok') {

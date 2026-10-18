@@ -1,8 +1,18 @@
-{# A question in NetRollout's own window instead of the browser's confirm():
+{# NetRollout's own question and message windows instead of the browser's
+   confirm() / alert() (which a browser lets people switch off for a page -
+   then confirm() answers No without asking):
    nrConfirm({title, message, confirmLabel, danger, badge}) → Promise<bool>,
    true only for the confirm button; Cancel, ×, Escape and a click outside
-   answer false. message is text (never HTML). Included by operator_base.html
-   and admin.html. #}
+   answer false. A risky question (danger) is red and starts on Cancel.
+   nrAlert(message, title) → Promise, closed by OK. message is text (never
+   HTML). Either may open over another window (Restart's rollout list): that
+   one is dimmed and gets its keyboard focus back after. Included by
+   operator_base.html and admin.html. #}
+<style>
+    /* over another open window: above it and its backdrop */
+    #nrConfirmModal { z-index: 1065; }
+    .modal-backdrop ~ .modal-backdrop { z-index: 1060; }
+</style>
 <div class="modal fade" id="nrConfirmModal" tabindex="-1" aria-hidden="true" aria-labelledby="nrConfirmTitle">
     <div class="modal-dialog modal-dialog-centered" style="max-width:440px;">
         <div class="modal-content">
@@ -11,22 +21,23 @@
                     <div class="nr-badge" id="nrConfirmBadge"></div>
                     <h5 class="modal-title" id="nrConfirmTitle"></h5>
                 </div>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cancel"></button>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
                 <p id="nrConfirmMessage" style="font-size:0.88rem; color:#ccc; margin:0; white-space:pre-line;"></p>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal" id="nrConfirmCancel">Cancel</button>
                 <button type="button" class="btn btn-sm" id="nrConfirmOk"></button>
             </div>
         </div>
     </div>
 </div>
 <script>
-function nrConfirm({title, message, confirmLabel = 'Continue', danger = false, badge = 'CONFIRM'}) {
+function _nrDialog({title, message, confirmLabel, danger, badge, cancel}) {
     const el = document.getElementById('nrConfirmModal');
     const ok = document.getElementById('nrConfirmOk');
+    const cancelBtn = document.getElementById('nrConfirmCancel');
     const badgeEl = document.getElementById('nrConfirmBadge');
     badgeEl.textContent = badge;
     badgeEl.classList.toggle('nr-badge-danger', danger);
@@ -36,6 +47,12 @@ function nrConfirm({title, message, confirmLabel = 'Continue', danger = false, b
     document.getElementById('nrConfirmMessage').textContent = message;
     ok.textContent = confirmLabel;
     ok.className = 'btn btn-sm ' + (danger ? 'btn-danger' : 'btn-primary');
+    cancelBtn.hidden = !cancel;
+    // Bootstrap keeps the focus inside an open window: the one beneath lets
+    // go while this is up (its focus trap, Bootstrap 5.3's), and takes it back
+    const under = [...document.querySelectorAll('.modal.show')].filter(m => m !== el)
+        .map(m => bootstrap.Modal.getInstance(m)).filter(Boolean);
+    under.forEach(m => m._focustrap && m._focustrap.deactivate());
     const modal = bootstrap.Modal.getOrCreateInstance(el);
     return new Promise(resolve => {
         let answer = false;
@@ -43,12 +60,26 @@ function nrConfirm({title, message, confirmLabel = 'Continue', danger = false, b
         ok.addEventListener('click', confirmed, {once: true});
         // a risky question starts on Cancel: Enter by reflex doesn't confirm it
         el.addEventListener('shown.bs.modal',
-            () => (danger ? el.querySelector('.modal-footer .btn-secondary') : ok).focus(), {once: true});
+            () => (danger && cancel ? cancelBtn : ok).focus(), {once: true});
         el.addEventListener('hidden.bs.modal', () => {
             ok.removeEventListener('click', confirmed);
+            if (under.length) {
+                // closing this one unlocked the page's scroll: still locked under the other
+                document.body.classList.add('modal-open');
+                document.body.style.overflow = 'hidden';
+                under.forEach(m => m._focustrap && m._focustrap.activate());
+            }
             resolve(answer);
         }, {once: true});
         modal.show();
     });
+}
+
+function nrConfirm({title, message, confirmLabel = 'Continue', danger = false, badge = 'CONFIRM'}) {
+    return _nrDialog({title, message, confirmLabel, danger, badge, cancel: true});
+}
+
+function nrAlert(message, title = 'Not done') {
+    return _nrDialog({title, message, confirmLabel: 'OK', danger: false, badge: 'NOTICE', cancel: false});
 }
 </script>

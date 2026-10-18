@@ -226,11 +226,13 @@
   }
 
   // everyone else in this list - never the admin's own row (Sign out ends that)
-  function kickAll(btn) {
+  async function kickAll(btn) {
     const table = btn.closest('.nr-card-body').querySelector('.session-table tbody');
     const rows = [...table.querySelectorAll('tr:not(.kicked):not([data-self])')];
     if (!rows.length) return;
-    if (!confirm(`End the sessions of ${rows.length} user${rows.length !== 1 ? 's' : ''}? They are signed out everywhere.`)) return;
+    if (!await nrConfirm({title: `End the sessions of ${rows.length} user${rows.length !== 1 ? 's' : ''}?`,
+                          message: 'They are signed out everywhere.', danger: true,
+                          confirmLabel: 'End sessions'})) return;
     rows.forEach(row => kick(row.id.replace('row-', '')));
   }
 

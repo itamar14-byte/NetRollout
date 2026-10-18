@@ -19,7 +19,7 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ### Changed
 
-- Making an LDAP group rule Admin asks in NetRollout's own window (which group, what its members get; Cancel is the default) instead of the browser's.
+- Every question and message is in NetRollout's own window, never the browser's: restarting, cancelling a job or rollout, deleting a backup, a group rule or a property, ending sessions, a self-signed certificate, no longer trusting a CA, moving the database, switching Redis back, and making an LDAP group rule Admin. A risky one is red and starts on Cancel. A browser can switch its own pop-ups off for a page, after which they answer No without asking, so those actions silently did nothing. New Rollout says missing commands in the platform's own box instead of a pop-up.
 - A user signed out by an administrator (Terminate Session, a password reset, being disabled) leaves the page within 5 seconds instead of 30, and at once when they switch back to its tab.
 - The services' console logs (`netrollout logs`) are capped: each rolls over at 10 MB and keeps 3 files, about 30 MB a service. Before, Docker kept them forever, and nginx's grew with every request. NetRollout's own logs (`logs`) are unchanged.
 

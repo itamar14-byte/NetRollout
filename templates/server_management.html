@@ -767,12 +767,15 @@
       send('/admin/server/certificate', body, 'Certificate in use.');
     });
 
-    selfBtn.addEventListener('click', () => {
+    selfBtn.addEventListener('click', async () => {
       const ours = access.certificate && access.certificate.selfsigned;
-      const ask = ours || !access.certificate
-        ? 'Generate a new self-signed certificate? Browsers warn about it until each one trusts it.'
-        : "Replace your organisation's certificate with a self-signed one? Browsers will warn about it.";
-      if (confirm(ask)) send('/admin/server/certificate/selfsigned', null, 'New self-signed certificate in use.');
+      const yes = await (ours || !access.certificate
+        ? nrConfirm({title: 'Generate a new self-signed certificate?', confirmLabel: 'Generate',
+                     message: 'Browsers warn about it until each one trusts it.'})
+        : nrConfirm({title: "Replace your organisation's certificate?", danger: true,
+                     confirmLabel: 'Replace with self-signed',
+                     message: 'It is replaced by a self-signed one: browsers will warn about it.'}));
+      if (yes) send('/admin/server/certificate/selfsigned', null, 'New self-signed certificate in use.');
     });
   })();
 
@@ -842,8 +845,9 @@
       }
     }
 
-    function remove(fingerprint, subject) {
-      if (confirm(`Stop trusting ${subject}? Directory servers whose certificates it vouches for can't be reached over LDAPS until it's added again.`)) {
+    async function remove(fingerprint, subject) {
+      if (await nrConfirm({title: 'Stop trusting this CA?', danger: true, confirmLabel: 'Stop trusting',
+                           message: `${subject}\nDirectory servers whose certificates it vouches for can't be reached over LDAPS until it's added again.`})) {
         post(`/admin/server/trusted-ca/${encodeURIComponent(fingerprint)}/remove`, null);
       }
     }
@@ -1011,17 +1015,20 @@
 
     // Step 3 / Move back: start, then follow
     async function start(url, body, question) {
-      if (!confirm(question)) return;
+      if (!await nrConfirm({title: question.title, message: question.message,
+                            confirmLabel: question.label, danger: true})) return;
       const d = await call(url, body);
       if (d.status !== 'ok') { showProgress({state: 'failed', message: d.message}); return; }
       follow(d.move);
     }
     $('mvMoveBtn').addEventListener('click', () => start(`${BASE}/move`, {...target(), replace: $('mvReplace').checked},
-      'Move NetRollout\'s data now?\n\nNew rollouts pause and running ones finish first; then NetRollout is ' +
-      'unavailable for a few minutes while the data is copied. Everyone stays signed in.'));
+      {title: "Move NetRollout's data now?", label: 'Move now',
+       message: 'New rollouts pause and running ones finish first; then NetRollout is ' +
+                'unavailable for a few minutes while the data is copied. Everyone stays signed in.'}));
     $('mvBackBtn')?.addEventListener('click', () => start(`${BASE}/move-back`, {},
-      'Move back to the bundled database?\n\nIts current contents are replaced by the data on your server. ' +
-      'New rollouts pause and running ones finish first; then NetRollout is unavailable for a few minutes.'));
+      {title: 'Move back to the bundled database?', label: 'Move back',
+       message: 'Its current contents are replaced by the data on your server. ' +
+                'New rollouts pause and running ones finish first; then NetRollout is unavailable for a few minutes.'}));
 
     const mmss = s => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
     // live: this page watched the move end (a result from before is only shown)
@@ -1159,7 +1166,8 @@
   }
 
   document.getElementById('rdBackBtn')?.addEventListener('click', async () => {
-    if (!confirm('Switch back to the bundled Redis? Everyone else is signed out.')) return;
+    if (!await nrConfirm({title: 'Switch back to the bundled Redis?', danger: true, confirmLabel: 'Switch back',
+                          message: 'Everyone else is signed out.'})) return;
     const btn = document.getElementById('rdBackBtn'), out = document.getElementById('rdBackResult');
     btn.disabled = true;
     let data = {};

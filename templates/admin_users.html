@@ -243,6 +243,7 @@
           password to hand over; at their next sign-in they must choose their own.
           Only reset when you've confirmed the request is genuine.
         </p>
+        <p class="nr-danger" id="resetPwError" role="alert" style="font-size:0.82rem; margin:0.6rem 0 0;" hidden></p>
       </div>
       <div class="modal-body" id="resetPwResult" style="display:none;">
         <p style="font-size:0.85rem; color:var(--nr-text-secondary); margin-bottom:0.5rem;">
@@ -808,7 +809,9 @@
       if (!resp.ok) throw new Error(data.message || `server error (${resp.status})`);
     } catch (e) {
       btn.disabled = false;
-      alert("Not reset: " + e.message);
+      const err = document.getElementById("resetPwError");
+      err.textContent = "Not reset: " + e.message;
+      err.hidden = false;
       return;
     }
     resetPwDone = true;
@@ -1138,10 +1141,10 @@
         el.classList.toggle('gr-role-operator', data.role !== 'admin');
       } else {
         el.value = el.dataset.role;
-        alert(data.message || 'The role was not changed.');
+        nrAlert(data.message || 'The role was not changed.', 'Role not changed');
       }
     })
-    .catch(() => { el.value = el.dataset.role; alert('The role was not changed.'); });
+    .catch(() => { el.value = el.dataset.role; nrAlert('The role was not changed.', 'Role not changed'); });
   }
 
   function toggleGroup(serverId, groupId, el) {
@@ -1158,8 +1161,9 @@
     });
   }
 
-  function deleteGroup(serverId, groupId) {
-    if (!confirm('Remove this group rule?')) return;
+  async function deleteGroup(serverId, groupId) {
+    if (!await nrConfirm({title: 'Remove this group rule?', danger: true, confirmLabel: 'Remove',
+                          message: "Its members' roles no longer come from it at their next sign-in."})) return;
     fetch(`/admin/server/ldap/${serverId}/groups/${groupId}/delete`, {
       method: 'POST',
       headers: { 'X-CSRFToken': CSRF_TOKEN }
