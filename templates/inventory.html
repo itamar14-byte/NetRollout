@@ -561,9 +561,9 @@
         <i class="bi bi-search"></i>
         <input type="search" id="filterName" placeholder="Name" aria-label="Filter by name" autocomplete="off" spellcheck="false">
     </label>
-    <label class="inv-filter" title="Filter by IP address">
+    <label class="inv-filter" title="Filter by address (IP or hostname)">
         <i class="bi bi-hdd-network"></i>
-        <input type="search" id="filterIp" class="mono" placeholder="IP address" aria-label="Filter by IP address" autocomplete="off" spellcheck="false">
+        <input type="search" id="filterIp" class="mono" placeholder="Address" aria-label="Filter by address (IP or hostname)" autocomplete="off" spellcheck="false">
     </label>
     <select id="filterPlatform" class="form-select form-select-sm" aria-label="Filter by platform">
         <option value="">All platforms</option>
@@ -607,7 +607,7 @@
 <!-- ── Shared hover tooltip ── -->
 <div id="invTooltip" class="inv-tooltip" aria-hidden="true">
     <div class="tt-row">
-        <span class="tt-key">IP</span>
+        <span class="tt-key">ADDRESS</span>
         <span class="tt-val cyan" id="ttIp">-</span>
     </div>
     <div class="tt-row">
@@ -662,11 +662,11 @@
 
                     <div class="row g-3 mb-3">
                         <div class="col-8">
-                            <label class="nr-label" for="addDevIp">IP ADDRESS</label>
+                            <label class="nr-label" for="addDevIp">ADDRESS</label>
                             <input type="text" class="form-control" id="addDevIp" name="ip"
-                                   placeholder="192.168.1.1 or 2001:db8::1" required autocomplete="off"
-                                   title="An IPv4 or IPv6 address">
-                            <div class="field-error">Enter a valid IPv4 or IPv6 address.</div>
+                                   placeholder="192.168.1.1, 2001:db8::1 or core1.corp.local" required autocomplete="off"
+                                   maxlength="254" title="An IPv4 or IPv6 address, or a hostname">
+                            <div class="field-error">Enter an IPv4 or IPv6 address, or a hostname.</div>
                         </div>
                         <div class="col-4">
                             <label class="nr-label" for="addDevPort">PORT</label>
@@ -806,10 +806,10 @@
 
                     <div class="row g-3 mb-3">
                         <div class="col-8">
-                            <label class="nr-label" for="editDevIp">IP ADDRESS</label>
+                            <label class="nr-label" for="editDevIp">ADDRESS</label>
                             <input type="text" class="form-control" id="editDevIp" name="ip" required
-                                   title="An IPv4 or IPv6 address">
-                            <div class="field-error">Enter a valid IPv4 or IPv6 address.</div>
+                                   maxlength="254" title="An IPv4 or IPv6 address, or a hostname">
+                            <div class="field-error">Enter an IPv4 or IPv6 address, or a hostname.</div>
                         </div>
                         <div class="col-4">
                             <label class="nr-label" for="editDevPort">PORT</label>
@@ -1438,12 +1438,23 @@ function initPlatformSelect(containerId, hiddenId, errorId) {
     };
 }
 
-// An IPv4 or IPv6 address (the server checks it too). IPv6 through the
-// browser's own URL parser: [address] is a valid host only for a valid one.
-function isIpAddress(v) {
+// An IPv4 or IPv6 address, or a hostname (the server checks it too:
+// src/rollout/address.py). IPv6 through the browser's own URL parser:
+// [address] is a valid host only for a valid one.
+function isAddress(v) {
     if (/^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/.test(v)) return true;
-    if (!v.includes(':') || /[\[\]/%]/.test(v)) return false;
+    if (!v.includes(':') || /[\[\]/%]/.test(v)) return isHostname(v);
     try { new URL('http://[' + v + ']/'); return true; } catch (e) { return false; }
+}
+// Labels of letters, digits and hyphens (1-63, no hyphen first or last),
+// 253 at most, a trailing dot allowed; an all-digits last label is a
+// mistyped IP (10.0.0), not a name
+function isHostname(v) {
+    const name = v.endsWith('.') ? v.slice(0, -1) : v;
+    if (!name || name.length > 253) return false;
+    const labels = name.split('.');
+    return labels.every(l => /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/i.test(l))
+        && !/^\d+$/.test(labels[labels.length - 1]);
 }
 // The IP fields take part in the forms' own validation (form.checkValidity):
 // checked as typed, when a script fills one in (openEdit: no input event, so
@@ -1451,7 +1462,7 @@ function isIpAddress(v) {
 // before a submit
 function checkIpField(field) {
     field.setCustomValidity(
-        isIpAddress(field.value.trim()) ? '' : 'Enter a valid IPv4 or IPv6 address.');
+        isAddress(field.value.trim()) ? '' : 'Enter an IPv4 or IPv6 address, or a hostname.');
 }
 ['addDevIp', 'editDevIp'].forEach(id => {
     const field = document.getElementById(id);
@@ -1499,7 +1510,7 @@ async function testAddConnection() {
     const status = document.getElementById('addTestStatus');
 
     // Client-side validation before sending
-    if (!isIpAddress(ip)) {
+    if (!isAddress(ip)) {
         ipEl.classList.add('is-invalid');
         return;
     }
@@ -1574,7 +1585,7 @@ async function testEditConnection() {
     const btn    = document.getElementById('editTestBtn');
     const status = document.getElementById('editTestStatus');
 
-    if (!isIpAddress(ip)) { ipEl.classList.add('is-invalid'); return; }
+    if (!isAddress(ip)) { ipEl.classList.add('is-invalid'); return; }
     const portNum = parseInt(port, 10);
     if (!port || isNaN(portNum) || portNum < 1 || portNum > 65535) {
         portEl.classList.add('is-invalid'); return;

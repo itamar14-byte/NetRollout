@@ -625,6 +625,7 @@ The LDAP explorer's import can do the same for a whole directory move: tick **Re
 | Rollouts | **Concurrent rollout jobs** | 4 | 1 – 32 | How many rollouts run at the same time; more wait in the queue. | After restart |
 | Rollouts | **Devices in parallel per job** | 10 | 1 – 64 | How many devices one rollout configures at the same time. | Next rollout |
 | Rollouts | **Reachability cache** | 60 s | 10 – 3600 | How long a device's up/down status is reused before it's probed again. | Immediately |
+| Rollouts | **Device DNS suffix** | (empty) | a domain, such as `corp.local` | Added to a device saved by a name alone: `core1` is reached as `core1.corp.local`. Full names and IP addresses are used as they are. Device names are looked up in the DNS the NetRollout server uses, so that DNS must know them. | Immediately |
 | Access | **Hostname** | (empty) | a hostname or IPv4 address | The name people use; other names redirect to it. See [Hostname and certificates](#hostname-and-certificates). | Immediately |
 | Access | **HTTPS port** | 443 (or the port chosen at install) | 1 – 65535 | The port people use. See [The HTTPS port](#the-https-port). | Once confirmed on the new port |
 | Sessions | **Sign out after inactivity** | 15 min | 5 – 480 | Minutes without activity before a session ends. | Within 30 s |

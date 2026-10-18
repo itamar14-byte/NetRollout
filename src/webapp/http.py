@@ -218,7 +218,13 @@ class WebServices:
 		# resolved per use: the Redis connection can be hot-swapped
 		self.reachability = ReachabilityChecker(
 			lambda: backend.redis.client,
-			ttl=lambda: backend.settings.get("reachability_cache_seconds"))
+			ttl=lambda: backend.settings.get("reachability_cache_seconds"),
+			dns_suffix=self.dns_suffix)
+
+	def dns_suffix(self) -> str:
+		""":returns: System Settings' DNS suffix - added to a device saved by a
+		 bare name when it's looked up or connected to ("" for none)"""
+		return str(self.backend.settings.get("dns_suffix"))
 
 	def audit(self, action: AuditAction, *, object_type: str | None = None,
 	          object_id: uuid.UUID | str | None = None,

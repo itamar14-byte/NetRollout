@@ -16,6 +16,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Any, NamedTuple, TypedDict
 
 from src import encryption
+from src.rollout.address import qualify
 from src.rollout.log import Tone
 from src.rollout.platforms import NOT_CONFIGURED, STILL_CONFIGURED, UNVERIFIABLE, VERIFIED, first_word, navigates, verify_commands
 from src.rollout.session import NetmikoSession, Notifier, PushResult, RunReport
@@ -163,6 +164,15 @@ class Device:
 		default_factory=dict)
 	# the attribute values the rolling-out user sees: text, or a list of texts
 	extra: dict[str, Any] = field(default_factory=dict)
+	# added to a bare name when connecting (System Settings; the CLI: none -
+	# the computer's own search domains apply)
+	dns_suffix: str = ""
+
+	@property
+	def host(self) -> str:
+		"""What is connected to: the address, a bare name with the DNS suffix
+		(`ip` stays as saved - logs, results and labels show it)."""
+		return qualify(self.ip, self.dns_suffix)
 
 	@property
 	def endpoint(self) -> str:
@@ -218,7 +228,8 @@ class Device:
 	@classmethod
 	def from_inventory(cls, row: "Inventory", user_id: uuid.UUID,
 	                   profile: "SecurityProfile | None",
-	                   attributes: dict[str, Any] | None = None) -> "Device":
+	                   attributes: dict[str, Any] | None = None,
+	                   dns_suffix: str = "") -> "Device":
 		"""A rollout target from an inventory row, credentials decrypted.
 
 		:param user_id: whose mappings apply - only their own (the join table
@@ -228,6 +239,7 @@ class Device:
 		:param attributes: the device's attribute values as that user sees
 		 them (the web app: InventoryView.attributes - the device's system
 		 values and the user's own custom ones); None: the row's var_maps
+		:param dns_suffix: added to a bare name when connecting
 		:raises ValueError: no profile"""
 		mappings = [m for m in row.var_mappings if m.user_id == user_id]
 		if profile is None:
@@ -242,7 +254,8 @@ class Device:
 		           secret=encryption.decrypt(profile.enable_secret) if
 		           profile.enable_secret else "",
 		           var_map_subs=parsed_mappings,
-		           extra=(row.var_maps or {}) if attributes is None else attributes)
+		           extra=(row.var_maps or {}) if attributes is None else attributes,
+		           dns_suffix=dns_suffix)
 
 
 class RolloutEngine:

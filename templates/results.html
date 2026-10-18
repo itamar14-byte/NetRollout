@@ -391,10 +391,10 @@
         <input type="search" name="note" value="{{ filters.note or '' }}" placeholder="Note"
                aria-label="Filter by note" autocomplete="off" spellcheck="false">
     </label>
-    <label class="res-filter{{ ' is-set' if filters.device }}" title="Jobs with a device whose name or IP contains this">
+    <label class="res-filter{{ ' is-set' if filters.device }}" title="Jobs with a device whose name or address contains this">
         <i class="bi bi-hdd-network"></i>
-        <input type="search" name="device" value="{{ filters.device or '' }}" placeholder="Device name or IP"
-               aria-label="Filter by device name or IP" autocomplete="off" spellcheck="false">
+        <input type="search" name="device" value="{{ filters.device or '' }}" placeholder="Device name or address"
+               aria-label="Filter by device name or address" autocomplete="off" spellcheck="false">
     </label>
     <select name="status" class="form-select form-select-sm res-select{{ ' is-set' if filters.status }}"
             aria-label="Filter by status">
@@ -571,7 +571,7 @@
         <table class="device-table">
             <thead>
                 <tr>
-                    <th>IP</th>
+                    <th>Address</th>
                     <th>Platform</th>
                     <th>Sent</th>
                     <th>Verified</th>

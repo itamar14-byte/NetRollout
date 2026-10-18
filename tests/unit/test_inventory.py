@@ -245,7 +245,7 @@ class TestDeviceAccess:
 def saved_device(**kw):
 	"""A device row as save_device sees it (no session needed for the rules)."""
 	fields = dict(id=uuid.uuid4(), user_id=OWNER, is_global=False, label="old",
-	              ip="10.0.0.1", port=22, device_type="cisco_ios",
+	              ip="10.0.0.1", resolved_ip=None, port=22, device_type="cisco_ios",
 	              var_maps=None, var_mappings=[])
 	fields.update(kw)
 	return SimpleNamespace(**fields)

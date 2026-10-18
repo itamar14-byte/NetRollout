@@ -6,6 +6,10 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ## [Unreleased]
 
+### Added
+
+- A device's address can be a **hostname** as well as an IP address: in the Inventory forms, the CSV import and the CLI's devices CSV (the column is still `ip`). A name alone, such as `core1`, gets the new **Device DNS suffix** in System Settings (`core1.corp.local`); the CLI uses the computer's own search domains. Names are looked up in the DNS the NetRollout server uses. Saving a name looks it up: one that doesn't resolve is saved with a warning, and the "already used by" warning also catches a name and an IP (or two names) of the same device. A rollout or Test connection to a name that doesn't resolve says "can't resolve" instead of a timeout.
+
 ### Changed
 
 - No em dashes anywhere: in the pages, messages, log lines, scripts, NetRollout Manager, Setup and the documentation, a spaced hyphen instead.

@@ -1,5 +1,5 @@
-"""What a rollout is given, checked: an IP / port / platform's validity,
-an address's standard spelling, whether a device answers on its port, and
+"""What a rollout is given, checked: an address (IP or hostname) / port /
+platform's validity, an address's standard spelling, whether a device answers on its port, and
 reading a devices CSV (the CLI's, and the web app's inventory import - one
 format for both) and a commands file into Devices. Writing an import into
 the inventory is src/inventory.py's (import_csv)."""
@@ -14,6 +14,7 @@ import uuid
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
+from src.rollout.address import is_hostname, resolve
 from src.rollout.engine import Device, endpoint
 from src.rollout.log import RolloutLogger, Tone
 from src.rollout.platforms import PLATFORMS
@@ -48,6 +49,26 @@ def normalize_ip(ip: str) -> str:
 	:returns: lower case, zeros compressed (2001:db8::1)
 	:raises ValueError: not an address (validate_ip first)"""
 	return str(ipaddress.ip_address(ip.strip()))
+
+
+def validate_address(address: str) -> bool:
+	""":returns: whether `address` is an IP (v4 or v6) or a hostname - full
+	 (core1.corp.local) or bare (core1: System Settings' DNS suffix is added)"""
+	return validate_ip(address) or is_hostname(address)
+
+
+def normalize_address(address: str) -> str:
+	"""An address in its one standard spelling (compared as text: duplicates,
+	rollback matching, labels): an IP as normalize_ip, a name in lower case
+	(DNS ignores case).
+
+	:raises ValueError: not an address (validate_address first)"""
+	address = address.strip()
+	if validate_ip(address):
+		return normalize_ip(address)
+	if not is_hostname(address):
+		raise ValueError(f"not an IP address or hostname: {address}")
+	return address.lower()
 
 
 def validate_port(port: str) -> bool:
@@ -158,10 +179,10 @@ class Validator:
 		return True
 
 	def validate_device_data(self, device: dict[str, str]) -> bool:
-		"""One row of a devices CSV: a valid IP, port and supported platform;
-		the first problem is reported."""
-		if not validate_ip(device["ip"]):
-			self._logger.notify(f"{device['ip']} is not a valid IP address",
+		"""One row of a devices CSV: a valid address (IP or hostname), port and
+		supported platform; the first problem is reported."""
+		if not validate_address(device["ip"]):
+			self._logger.notify(f"{device['ip']} is not a valid IP address or hostname",
 			                    Tone.ERROR)
 		elif not validate_port(device["port"]):
 			self._logger.notify(f"{device['port']} is not a valid port number",
@@ -217,11 +238,14 @@ class InputParser:
 				errors.append(f"Row {row_no} ({ip}): invalid ip, port or "
 				              f"device type")
 				continue
-			ip = normalize_ip(ip)
+			ip = normalize_address(ip)
 			if require_credentials and not (item.get("username") and
 			                                item.get("password")):
 				errors.append(f"Row {row_no} ({ip}): username and password "
 				              f"are required")
+				continue
+			if check_reachable and resolve(ip) is None:
+				errors.append(f"{endpoint(ip, port)}: can't resolve {ip}")
 				continue
 			if check_reachable and not tcp_reachable(ip, int(port)):
 				# returned like every other row error: the caller logs them
@@ -245,8 +269,8 @@ class InputParser:
 	@staticmethod
 	def import_from_inventory(raw_devices: list[Inventory], user_id: uuid.UUID,
 	                          profiles: Mapping[uuid.UUID, SecurityProfile | None],
-	                          attributes: Mapping[uuid.UUID, dict[str, Any]] | None = None
-	                          ) -> list[Device]:
+	                          attributes: Mapping[uuid.UUID, dict[str, Any]] | None = None,
+	                          dns_suffix: str = "") -> list[Device]:
 		"""Inventory rows made Devices for a rollout (their profiles decrypted).
 
 		:param user_id: whose variable mappings apply
@@ -255,10 +279,11 @@ class InputParser:
 		:param attributes: each device's attribute values as that user sees
 		 them, by device id (the web app: InventoryView.attributes); None:
 		 the rows' own (var_maps)
+		:param dns_suffix: added to a bare name when connecting (System Settings)
 		:raises ValueError: a device without a profile"""
 		return [Device.from_inventory(
 			row, user_id, profiles.get(row.id),
-			None if attributes is None else attributes.get(row.id, {}))
+			None if attributes is None else attributes.get(row.id, {}), dns_suffix)
 			for row in raw_devices]
 
 	def parse_commands(self, commands_path: str) -> list[str]:

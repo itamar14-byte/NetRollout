@@ -61,7 +61,7 @@ def test_create_edit_delete_own_device(client_for, make_user, session_scope):
 
 
 BAD_FIELDS = [
-	({"ip": "300.1.1.1"}, "Not a valid IP address: 300.1.1.1."),
+	({"ip": "300.1.1.1"}, "Not a valid IP address or hostname: 300.1.1.1."),
 	({"port": "abc"}, "The port is a number from 1 to 65535."),
 	({"port": "70000"}, "The port is a number from 1 to 65535."),
 	({"port": "²2"}, "The port is a number from 1 to 65535."),
@@ -168,14 +168,15 @@ def test_invalid_profile_id_is_rejected_without_partial_edit(
 
 
 def test_connection_test_endpoint(client_for, make_user):
-	"""The connection test answers ok for a reachable device and 400 for an invalid IP."""
+	"""The connection test answers ok for a reachable device and 400 for an
+	invalid address (an underscore: neither an IP nor a hostname)."""
 	client = client_for(make_user())
 	with patch("src.rollout.inputs.tcp_reachable", return_value=True):
 		ok = client.post("/inventory/test_connection",
 		                 json={"ip": "10.0.0.1", "port": "22"})
 	assert ok.json["status"] == "ok"
 	bad = client.post("/inventory/test_connection",
-	                  json={"ip": "not-an-ip", "port": "22"})
+	                  json={"ip": "not_an_ip", "port": "22"})
 	assert bad.status_code == 400
 
 
@@ -207,11 +208,12 @@ def test_csv_import_refuses_a_port_of_non_ascii_digits_as_its_row(
 
 
 def test_csv_import(client_for, make_user, session_scope):
-	"""A CSV import saves the valid row and skips the one with an invalid IP."""
+	"""A CSV import saves the valid row and skips the one with an invalid
+	address (an underscore: neither an IP nor a hostname)."""
 	user = make_user()
 	csv = ("ip,username,password,device_type,secret,port\n"
 	       "10.2.2.1,u,p,cisco_ios,s,22\n"
-	       "not-an-ip,u,p,cisco_ios,s,22\n")
+	       "not_an_ip,u,p,cisco_ios,s,22\n")
 	with patch("src.rollout.inputs.tcp_reachable", return_value=True):
 		client_for(user).post("/inventory/import_csv", data={
 			"csv_file": (io.BytesIO(csv.encode()), "devices.csv")},
@@ -944,3 +946,137 @@ def test_an_empty_inventory_says_so_and_offers_both_ways_in(client_for, make_use
 	empty = html[html.index('class="empty-state"'):]
 	assert 'data-bs-target="#importCsvModal"' in empty[:1500]
 	assert "Add your first device" in empty[:1500]
+
+
+# ── Hostnames: saved as typed, looked up for the "same device" warning ──────
+
+def dns(table):
+	"""A resolve() answering from `table` (name -> addresses); None for any
+	other name - patched where the inventory routes look names up."""
+	return patch("src.webapp.blueprints.inventory.resolve", side_effect=lambda host: table.get(host))
+
+
+def test_a_device_saved_by_hostname_keeps_the_name_and_its_address(client_for, make_user,
+                                                                   session_scope):
+	"""A full name is saved as typed (lower case); the address it resolved
+	to is kept for the warning, and no warning is shown."""
+	client = client_for(make_user())
+	with dns({"core1.corp.local": ["10.7.7.1"]}):
+		client.post("/inventory/create", data={**FORM, "label": "core1", "ip": "Core1.Corp.Local"})
+	dev = device_by_label(session_scope, "core1")
+	assert (dev.ip, dev.resolved_ip) == ("core1.corp.local", "10.7.7.1")
+	assert flashes(client) == ["core1 added to inventory."]
+
+
+def test_a_hostname_and_an_ip_of_the_same_device_are_warned_about(client_for, make_user,
+                                                                  make_device, session_scope):
+	"""The IP saved first, then a name resolving to it: the warning names
+	the device and the address the name resolved to."""
+	user = make_user()
+	make_device(user, ip="10.7.7.2", label="by-ip")
+	client = client_for(user)
+	with dns({"core2.corp.local": ["10.7.7.2"]}):
+		client.post("/inventory/create", data={**FORM, "label": "by-name", "ip": "core2.corp.local"})
+	assert device_by_label(session_scope, "by-name")       # saved anyway
+	(msg,) = dup_warnings(client)
+	assert msg.startswith("core2.corp.local:22 (10.7.7.2) is already used by by-ip.")
+
+
+def test_an_ip_after_a_hostname_of_the_same_device_is_warned_about(client_for, make_user,
+                                                                   session_scope):
+	"""The name saved first, then its IP: the IP meets the name's stored
+	address - its IPv4 one, also when the name answers IPv6 first."""
+	client = client_for(make_user())
+	with dns({"core3.corp.local": ["2001:db8::3", "10.7.7.3"]}):
+		client.post("/inventory/create", data={**FORM, "label": "by-name", "ip": "core3.corp.local"})
+		with client.session_transaction() as s:
+			s.pop("_flashes", None)
+		client.post("/inventory/create", data={**FORM, "label": "by-ip", "ip": "10.7.7.3"})
+	(msg,) = dup_warnings(client)
+	assert msg.startswith("10.7.7.3:22 is already used by by-name.")
+
+
+def test_two_names_of_the_same_device_are_warned_about(client_for, make_user, session_scope):
+	"""Two names resolving to one address (an alias): the second is warned
+	about. The suffix makes the bare name a full one for its lookup."""
+	user = make_user()
+	client = client_for(user)
+	app = client.application
+	app.backend.settings.update({"dns_suffix": "corp.local"}, None)
+	try:
+		with dns({"core4.corp.local": ["10.7.7.4"], "mgmt-core4.corp.local": ["10.7.7.4"]}):
+			client.post("/inventory/create", data={**FORM, "label": "a", "ip": "core4"})
+			with client.session_transaction() as s:
+				s.pop("_flashes", None)
+			client.post("/inventory/create", data={**FORM, "label": "b",
+			                                       "ip": "mgmt-core4.corp.local"})
+	finally:
+		app.backend.settings.update({"dns_suffix": ""}, None)
+	assert device_by_label(session_scope, "a").ip == "core4"      # the bare name, as typed
+	(msg,) = dup_warnings(client)
+	assert msg.startswith("mgmt-core4.corp.local:22 (10.7.7.4) is already used by a.")
+
+
+def test_a_hostname_that_doesnt_resolve_is_saved_with_a_warning(client_for, make_user,
+                                                                session_scope):
+	"""The inventory is a catalog: a name the server can't resolve now is
+	saved, and the page says what that means."""
+	client = client_for(make_user())
+	with dns({}):
+		client.post("/inventory/create", data={**FORM, "label": "ghost", "ip": "ghost.corp.local"})
+	dev = device_by_label(session_scope, "ghost")
+	assert (dev.ip, dev.resolved_ip) == ("ghost.corp.local", None)
+	assert flashes(client) == [
+		"ghost added to inventory.",
+		"ghost.corp.local doesn't resolve from this server right now - saved anyway; "
+		"a rollout to it fails until it does."]
+
+
+def test_editing_a_device_to_a_hostname_warns_about_its_twin(client_for, make_user,
+                                                             make_device, session_scope):
+	"""Edit looks the new name up too: a twin by address is named."""
+	user = make_user()
+	make_device(user, ip="10.7.7.5", label="twin")
+	dev_id = make_device(user, ip="10.9.9.9", label="moving")
+	client = client_for(user)
+	with dns({"core5.corp.local": ["10.7.7.5"]}):
+		client.post(f"/inventory/{dev_id}/edit", data={**FORM, "label": "moving",
+		                                               "ip": "core5.corp.local"})
+	assert device_by_label(session_scope, "moving").resolved_ip == "10.7.7.5"
+	(msg,) = dup_warnings(client)
+	assert msg.startswith("core5.corp.local:22 (10.7.7.5) is already used by twin.")
+
+
+def test_the_connection_test_names_a_hostname_that_doesnt_resolve(client_for, make_user):
+	"""Test connection on a name it can't resolve says so (not "unreachable"),
+	with the suffix it tried."""
+	client = client_for(make_user())
+	app = client.application
+	app.backend.settings.update({"dns_suffix": "corp.local"}, None)
+	try:
+		with dns({}):
+			resp = client.post("/inventory/test_connection", json={"ip": "ghost", "port": "22"})
+	finally:
+		app.backend.settings.update({"dns_suffix": ""}, None)
+	assert (resp.status_code, resp.json["message"]) == (400, "Can't resolve ghost.corp.local from this server")
+
+
+def test_a_csv_import_takes_hostnames_and_names_the_ones_that_dont_resolve(
+		client_for, make_user, session_scope):
+	"""An import saves hostnames with their addresses; the ones that don't
+	resolve are imported and listed in one warning."""
+	user = make_user()
+	csv = ("ip,device_type,port\n"
+	       "core6.corp.local,cisco_ios,22\n"
+	       "ghost6.corp.local,cisco_ios,22\n")
+	client = client_for(user)
+	with patch("src.inventory.resolve_many",
+	           side_effect=lambda hosts: {h: (["10.7.7.6"] if h.startswith("core6") else None) for h in hosts}):
+		client.post("/inventory/import_csv", data={
+			"csv_file": (io.BytesIO(csv.encode()), "devices.csv")},
+			content_type="multipart/form-data")
+	with session_scope() as s:
+		saved = sorted((d.ip, d.resolved_ip) for d in s.query(Inventory).filter_by(user_id=user.id))
+	assert saved == [("core6.corp.local", "10.7.7.6"), ("ghost6.corp.local", None)]
+	assert ("1 hostname didn't resolve from this server (imported anyway; a rollout to them "
+	        "fails until they do): ghost6.corp.local") in flashes(client)

@@ -103,7 +103,8 @@ def load_devices(selected_ids: list[uuid.UUID]) -> list[Device]:
 	# 9) Convert ORM inventory rows into runtime Device objects.
 	try:
 		return InputParser.import_from_inventory(selected_rows, current_user.id,
-		                                         profiles, values)
+		                                         profiles, values,
+		                                         current_app.web.dns_suffix())
 	except ValueError as e:
 		raise Refused(str(e)) from None
 
@@ -493,7 +494,8 @@ def rollback(job_id: uuid.UUID, data: dict[str, Any]) -> ResponseReturnValue:
 
 	commands = [l.strip() for l in data["commands"].splitlines() if l.strip()]
 	try:
-		devices = InputParser.import_from_inventory(rows, owner_id, profiles, values)
+		devices = InputParser.import_from_inventory(rows, owner_id, profiles, values,
+		                                            current_app.web.dns_suffix())
 	except ValueError as e:              # a device without a security profile
 		return err(f"Can't roll back: {e}.", 409)
 	if unreachable := unreachable_devices(devices):

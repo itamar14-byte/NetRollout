@@ -243,6 +243,17 @@ SETTINGS: dict[str, Setting] = {s.key: s for s in [
 	        "How long a device's up/down status is reused before it's probed "
 	        "again (seconds).",
 	        "Rollouts", 60, minimum=10, maximum=3600, applies="immediately"),
+	TextSetting("dns_suffix", "Device DNS suffix",
+	        "Added to a device saved by name alone: core1 is reached as "
+	        "core1.corp.local. Full names and IP addresses are used as they "
+	        "are. The names are looked up in the DNS this server uses. "
+	        "Empty: no suffix.",
+	        "Rollouts", "", applies="immediately",
+	        # a DNS domain: labels of letters, digits and hyphens
+	        pattern=r"[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+	                r"(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*",
+	        pattern_hint="must be a domain such as corp.local - no leading dot",
+	        placeholder="corp.local", max_length=200, lowercase=True),
 	# ── Access ──
 	TextSetting("public_hostname", "Hostname",
 	        "The name people use to open NetRollout, e.g. "

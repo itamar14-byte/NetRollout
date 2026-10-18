@@ -143,13 +143,13 @@ class TestValidateDeviceData(unittest.TestCase):
 		self.assertFalse(self.validator.validate_device_data(self._device(ip="bad_ip")))
 
 	def test_invalid_ip_is_reported_as_not_an_ip_address(self):
-		"""The report for a bad IP says "not a valid IP address" - not "IPv4":
-		an IPv6 address is accepted."""
+		"""The report for a bad address says "not a valid IP address or
+		hostname" - not "IPv4": an IPv6 address is accepted."""
 		told = []
 		with patch.object(self.validator._logger, "notify",
 		                  side_effect=lambda msg, *a, **k: told.append(msg)):
 			self.validator.validate_device_data(self._device(ip="bad_ip"))
-		self.assertEqual(told, ["bad_ip is not a valid IP address"])
+		self.assertEqual(told, ["bad_ip is not a valid IP address or hostname"])
 		self.assertTrue(self.validator.validate_device_data(self._device(ip="2001:db8::1")))
 
 	def test_invalid_port(self):
@@ -164,7 +164,7 @@ class TestValidateDeviceData(unittest.TestCase):
 		"""A web app logger gives the same verdicts: valid passes, a bad ip fails."""
 		validator_web = Validator(RolloutLogger(webapp=True, verbose=False))
 		self.assertTrue(validator_web.validate_device_data(self._device()))
-		self.assertFalse(validator_web.validate_device_data(self._device(ip="x")))
+		self.assertFalse(validator_web.validate_device_data(self._device(ip="300.1.1.1")))
 
 
 class TestValidateFileExtension(unittest.TestCase):
@@ -313,7 +313,7 @@ class TestPrepareDevices(unittest.TestCase):
 	def test_bad_row_is_reported_and_does_not_abort_the_rest(self, _):
 		"""Of four rows, the bad-ip row 2 and the empty ip/port row 3 are reported
 		by row number; rows 1 and 4 still become devices."""
-		rows = [self._raw(ip="10.0.0.1"), self._raw(ip="bad"),
+		rows = [self._raw(ip="10.0.0.1"), self._raw(ip="300.1.1.1"),
 				self._raw(ip="", port=""), self._raw(ip="10.0.0.4")]
 		devices, errors = self.parser.prepare_devices(rows)
 		self.assertEqual([d.ip for d in devices], ["10.0.0.1", "10.0.0.4"])

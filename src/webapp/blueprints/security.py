@@ -14,6 +14,7 @@ from src.db.tables import DeviceCredential, Inventory
 from src.encryption import decrypt
 from src.inventory import InventoryView, SecurityProfiles
 from src.rollout import inputs
+from src.rollout.address import is_ip, qualify, resolve
 from src.rollout.engine import Device
 from src.rollout.session import NetmikoSession
 from src.webapp.app import current_app
@@ -170,8 +171,12 @@ def security_test(profile_id: uuid.UUID, data: dict[str, Any]) -> ResponseReturn
 		device = InventoryView(db_session, viewer()).get_visible(device_id)
 		if not profile or not device:
 			return err("Profile or device not found", 404)
-		if not inputs.tcp_reachable(device.ip, device.port):
-			return err(f"TCP port {device.port} unreachable on {device.ip}",
+		suffix = current_app.web.dns_suffix()
+		host = qualify(device.ip, suffix)
+		if not is_ip(host) and resolve(host) is None:
+			return err(f"Can't resolve {host} from this server", 503)
+		if not inputs.tcp_reachable(host, device.port):
+			return err(f"TCP port {device.port} unreachable on {host}",
 			           503)
 		db_session.expunge_all()
 
@@ -182,8 +187,8 @@ def security_test(profile_id: uuid.UUID, data: dict[str, Any]) -> ResponseReturn
 	                    username=profile.username,
 	                    password=decrypt(profile.password_secret),
 	                    secret=decrypt(profile.enable_secret)
-	                    if profile.enable_secret else ""
-	                    )
+	                    if profile.enable_secret else "",
+	                    dns_suffix=suffix)
 	try:
 		with NetmikoSession.connect(device_obj):
 			pass

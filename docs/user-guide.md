@@ -179,7 +179,7 @@ Above the devices, three filters narrow the list as you type: **Name** and **IP 
 1. Select **Add Device**.
 2. Fill in:
    - **LABEL** (required): a name, such as `Core-SW-01`.
-   - **IP ADDRESS**: IPv4 or IPv6, such as `192.168.1.1` or `2001:db8::1`.
+   - **ADDRESS**: an IPv4 or IPv6 address, such as `192.168.1.1` or `2001:db8::1`, or a hostname, such as `core1.corp.local`. A name alone, such as `core1`, gets the **Device DNS suffix** your administrator set in System Settings. NetRollout looks names up in the DNS its server uses. A name that doesn't resolve is saved anyway, with a warning: a rollout to it fails until it does. If the address, or the address a name resolves to, is already used by another device you see on the same port, NetRollout says so.
    - **Port**: the SSH port, 1 to 65535.
    - **DEVICE TYPE**: the platform. See [Supported platforms](#supported-platforms).
    - **YOUR SECURITY PROFILE**: one of your profiles, which NetRollout logs in with when you roll out to the device. You can save the device without one and link it later. You can pick one or select **Create New Profile**. Without one, the device shows **ACTION NEEDED** and you can't roll out to it.
@@ -202,7 +202,7 @@ Select **Import CSV** to add many devices at once. The file is the same devices 
 
 | Column | Required | Description |
 |---|---|---|
-| `ip` | Yes | IPv4 or IPv6 address |
+| `ip` | Yes | An IPv4 or IPv6 address, or a hostname (a name alone gets the Device DNS suffix). Names that don't resolve are imported and listed in a warning. |
 | `device_type` | Yes | A supported Netmiko device type, such as `cisco_ios` |
 | `port` | Yes | SSH port, 1 to 65535 |
 | `label` | No | The device's name. Defaults to the IP address. |

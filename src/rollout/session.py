@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, NamedTuple, Protocol, cast
 
 import netmiko
 
+from src.rollout.address import is_ip, resolve
 from src.rollout.log import Tone, redact
 from src.rollout.platforms import FETCH_TIMEOUT, PLATFORMS, ConfigSession, Platform, Target, rejection
 if TYPE_CHECKING:   # annotations only: engine.py imports this module
@@ -70,7 +71,7 @@ class PushResult(NamedTuple):
 def _connect_args(device: Device) -> dict[str, str | int]:
 	""":returns: Netmiko's ConnectHandler arguments for this device"""
 	return {
-		"ip": device.ip,
+		"ip": device.host,     # Netmiko takes a name here too
 		"username": device.username,
 		"password": device.password,
 		"device_type": device.device_type,
@@ -155,6 +156,11 @@ class NetmikoSession:
 		 failed commit)"""
 		device, platform, report = self._device, self._platform, self._report
 		report.notify(f"connecting to {device.endpoint}", Tone.WARNING)
+		if not is_ip(device.host) and resolve(device.host) is None:
+			# said as it is - Netmiko would call it a timeout or a socket error
+			report.notify(f"{device.endpoint}: can't resolve {device.host} - check the "
+			              f"name and the DNS this server uses", Tone.ERROR)
+			return PushResult(applied=False, rejected=0)
 		commands_sent = False
 		sent = rejected = 0      # commands sent so far, and refused
 		try:

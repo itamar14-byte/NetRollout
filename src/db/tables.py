@@ -173,7 +173,11 @@ class Inventory(Base):
 	__tablename__ = 'inventory'
 	id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True,
 	                                      default=uuid.uuid4)
-	ip: Mapped[str] = mapped_column(String(64), nullable=False)
+	# an IP or a hostname (a bare one gets System Settings' DNS suffix)
+	ip: Mapped[str] = mapped_column(String(255), nullable=False)
+	# a hostname's address when it was saved - only for the "same device"
+	# warning (names and IPs compared); None for an IP or a name that didn't resolve
+	resolved_ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
 	device_type: Mapped[str] = mapped_column(String(64), nullable=False)
 	port: Mapped[int] = mapped_column(Integer, nullable=False)
 	label: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -278,7 +282,7 @@ class DeviceResult(Base):
 	job_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
 	started_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 	completed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
-	device_ip: Mapped[str] = mapped_column(String(64), nullable=False)
+	device_ip: Mapped[str] = mapped_column(String(255), nullable=False)   # IP or hostname
 	# ip:port identifies the target - several devices can share an IP
 	# (NAT / port forwarding). Rows from before this column default to SSH.
 	device_port: Mapped[int] = mapped_column(Integer, nullable=False,

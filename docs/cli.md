@@ -88,7 +88,7 @@ One row per device, with a header row. The file is read as UTF-8; a byte-order m
 
 | Column | Required | Description |
 |---|---|---|
-| `ip` | Yes | The management address, IPv4 or IPv6, such as `10.0.0.1` or `2001:db8::1`. |
+| `ip` | Yes | The management address: IPv4 or IPv6, such as `10.0.0.1` or `2001:db8::1`, or a hostname, such as `core1.corp.local`. The CLI looks names up like any program on the computer, so a name alone, such as `core1`, gets the computer's own DNS search domains. A name that doesn't resolve is reported as its row's error. |
 | `device_type` | Yes | The Netmiko device type. It must be one of the [supported platforms](#supported-platforms). |
 | `port` | Yes | The SSH port, 1 to 65535. Usually `22`. |
 | `username` | Yes (CLI) | The SSH username. |

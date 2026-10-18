@@ -43,6 +43,7 @@ from src.db.connections import REDIS_UNAVAILABLE
 from src.db.tables import (DeviceAttribute, DeviceCredential, Inventory, PropertyDefinition,
                            SecurityProfile, VariableMapping)
 from src.encryption import decrypt, encrypt
+from src.rollout.address import is_ip, primary, qualify, resolve_many
 from src.rollout.engine import endpoint, mapping_resolvable, Device
 from src.rollout import inputs
 from src.rollout.inputs import InputParser
@@ -117,15 +118,19 @@ class ReachabilityChecker:
 
 	def __init__(self, redis_client: Callable[[], redis.Redis],
 	             ttl: int | Callable[[], int] = CACHE_TTL,
-	             prober: Callable[[str, int], bool] = probe):
+	             prober: Callable[[str, int], bool] = probe,
+	             dns_suffix: Callable[[], str] = lambda: ""):
 		""":param redis_client: returns the client in use now - a Redis switch
 		 replaces it, so it's resolved on every use
 		:param ttl: seconds a result is reused - or a callable (the System
 		 Setting), read each time results are cached
-		:param prober: probes one target (a fake in tests)"""
+		:param prober: probes one target (a fake in tests)
+		:param dns_suffix: System Settings' DNS suffix, read once per check:
+		 a bare name is probed with it"""
 		self._redis = redis_client
 		self._ttl = ttl
 		self._probe = prober
+		self._dns_suffix = dns_suffix
 
 	def check(self, targets: Iterable[tuple[str, int | str]], refresh: bool = False,
 	          recheck_unreachable: bool = False) -> dict[Target, Reach]:
@@ -144,8 +149,9 @@ class ReachabilityChecker:
 		todo = sorted(t for t in wanted if t not in results)
 		if todo:
 			now = datetime.now(timezone.utc).isoformat()
+			suffix = self._current_suffix()
 			with ThreadPoolExecutor(max_workers=min(MAX_PARALLEL, len(todo))) as ex:
-				outcomes = ex.map(lambda t: self._probe(*t), todo)
+				outcomes = ex.map(lambda t: self._probe(qualify(t[0], suffix), t[1]), todo)
 				fresh: dict[Target, Reach] = {t: {"reachable": ok, "checked_at": now}
 				                              for t, ok in zip(todo, outcomes)}
 			self._store(fresh)
@@ -164,6 +170,13 @@ class ReachabilityChecker:
 		except REDIS_UNAVAILABLE:
 			return {}
 		return {t: json.loads(v) for t, v in zip(ordered, raw) if v}
+
+	def _current_suffix(self) -> str:
+		""":returns: the DNS suffix now ("" when the setting can't be read)"""
+		try:
+			return str(self._dns_suffix())
+		except Exception:   # settings unreachable: no suffix, not an error
+			return ""
 
 	def _current_ttl(self) -> int:
 		""":returns: seconds a result is reused now (the default when the
@@ -193,16 +206,20 @@ def visible_devices_clause(user_id: uuid.UUID) -> ColumnElement[bool]:
 
 
 def same_endpoint_warning(devices: Sequence[Inventory], ip: str,
-                          port: int | str) -> str | None:
-	"""One warning naming the devices that share ip:port. Build it while the
-	DB session is open (it reads labels); flash it after the success message.
+                          port: int | str, resolved: Sequence[str] = ()) -> str | None:
+	"""One warning naming the devices that share ip:port - also through DNS:
+	a hostname and an IP (or two names) that resolve to the same address.
+	Build it while the DB session is open (it reads labels); flash it after
+	the success message.
 
+	:param resolved: the addresses `ip` resolved to, when it's a name
 	:returns: the warning; None when no device shares it"""
 	if not devices:
 		return None
 	names = ", ".join(f"{d.label} (global)" if d.is_global else d.label
 	                  for d in devices[:5]) + (", …" if len(devices) > 5 else "")
-	return (f"{endpoint(ip, port)} is already used by {names}. That's fine for NAT, "
+	where = endpoint(ip, port) + (f" ({', '.join(resolved)})" if resolved else "")
+	return (f"{where} is already used by {names}. That's fine for NAT, "
 	        f"VRFs or port-forwarded labs, but they can't be in the same "
 	        f"rollout.")
 
@@ -284,14 +301,17 @@ class RuleRefused(ValueError):
 
 @dataclass(frozen=True)
 class DeviceFields:
-	"""A device's fields from the page's form, already checked (a valid IP,
-	port and platform; the label defaulted to the IP)."""
-	ip: str
+	"""A device's fields from the page's form, already checked (a valid
+	address, port and platform; the label defaulted to the address)."""
+	ip: str               # an IP or a hostname
 	port: int
 	device_type: str
 	label: str
 	profile_id: uuid.UUID | None   # the viewer's own, for their link
 	make_global: bool     # what the form asked; only an admin's request counts
+	# a hostname's addresses, looked up before saving (() for an IP, or a
+	# name that didn't resolve): the "same device" warning
+	resolved: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -378,15 +398,20 @@ class InventoryView:
 		return device if device is not None and self.can_edit(device) else None
 
 	def same_endpoint(self, ip: str, port: int | str,
-	                  exclude: uuid.UUID | None = None) -> list[Inventory]:
-		"""Visible devices (own + global) already using this ip:port. Overlap is
-		legitimate (NAT, VRFs, port-forwarded labs), so callers warn, never
-		block; other users' private devices are never considered.
+	                  exclude: uuid.UUID | None = None,
+	                  resolved: Collection[str] = ()) -> list[Inventory]:
+		"""Visible devices (own + global) already using this ip:port - by the
+		address as saved, or through DNS: a name and an IP (or two names) whose
+		addresses meet. Overlap is legitimate (NAT, VRFs, port-forwarded labs),
+		so callers warn, never block; other users' private devices are never
+		considered.
 
-		:param exclude: the device being edited (it doesn't clash with itself)"""
+		:param exclude: the device being edited (it doesn't clash with itself)
+		:param resolved: the addresses `ip` resolved to, when it's a name"""
+		addresses = {ip, *resolved}
 		query = self.session.query(Inventory).filter(
-			visible_devices_clause(self.viewer.id),
-			Inventory.ip == ip, Inventory.port == int(port))
+			visible_devices_clause(self.viewer.id), Inventory.port == int(port),
+			or_(Inventory.ip.in_(addresses), Inventory.resolved_ip.in_(addresses)))
 		if exclude is not None:
 			query = query.filter(Inventory.id != exclude)
 		return query.order_by(Inventory.label).all()
@@ -623,23 +648,27 @@ class InventoryView:
 		if not self.profile_allowed(fields.profile_id):
 			raise RuleRefused("Security profile not found.")
 
+		resolved_ip = primary(fields.resolved) if not is_ip(fields.ip) else None
 		if device is None:
-			shared = same_endpoint_warning(self.same_endpoint(fields.ip, fields.port),
-			                               fields.ip, fields.port)
+			shared = same_endpoint_warning(
+				self.same_endpoint(fields.ip, fields.port, resolved=fields.resolved),
+				fields.ip, fields.port, fields.resolved)
 			device = Inventory(user_id=self.viewer.id, label=fields.label, ip=fields.ip,
-			                   port=fields.port, device_type=fields.device_type,
-			                   is_global=is_global)
+			                   resolved_ip=resolved_ip, port=fields.port,
+			                   device_type=fields.device_type, is_global=is_global)
 			self.session.add(device)
 		else:
-			old_endpoint = (device.ip, device.port)
+			old_endpoint = (device.ip, device.port, device.resolved_ip)
 			device.label = fields.label
 			device.ip = fields.ip
+			device.resolved_ip = resolved_ip
 			device.port = fields.port
 			# warn only when the endpoint changed - not on every save
 			shared = None
-			if (device.ip, device.port) != old_endpoint:
+			if (device.ip, device.port, device.resolved_ip) != old_endpoint:
 				shared = same_endpoint_warning(self.same_endpoint(
-					device.ip, device.port, exclude=device.id), device.ip, device.port)
+					device.ip, device.port, exclude=device.id, resolved=fields.resolved),
+					device.ip, device.port, fields.resolved)
 			device.device_type = fields.device_type
 			device.is_global = is_global
 		self.link_profile(device, fields.profile_id)
@@ -859,14 +888,16 @@ def _name(profile: SecurityProfile) -> str:
 def import_csv(parser: InputParser, device_path: str, user_id: uuid.UUID,
                db_session: Session, label: str | None = None,
                properties: list[PropertyDef] | None = None,
-               create_profiles: bool = False) -> "ImportReport":
+               create_profiles: bool = False, dns_suffix: str = "") -> "ImportReport":
 	"""Import a devices CSV into the user's inventory (web app).
 	The same CSV the CLI takes: core columns make the device, attribute
 	columns that name one of the user's properties (system or custom, by
 	name or label) become its attribute values (a custom property's: the
 	importing user's own), and credential columns
 	become security profiles when `create_profiles` is set. Other columns
-	are reported, never dropped silently. No reachability check.
+	are reported, never dropped silently. No reachability check; hostnames
+	are looked up (all at once, a bounded wait) - one that doesn't resolve is
+	imported and named in a notice.
 	:param device_path: the uploaded CSV
 	:param user_id: whose inventory it goes into
 	:param db_session: the rows are added to it; the caller commits
@@ -874,6 +905,7 @@ def import_csv(parser: InputParser, device_path: str, user_id: uuid.UUID,
 	:param properties: the user's property definitions
 	 ({name, label, is_list}) - see InventoryView.property_defs
 	:param create_profiles: credential columns become security profiles
+	:param dns_suffix: added to a bare name for its lookup (System Settings)
 	:returns: what was imported, the rows' errors and notices for the page"""
 	report = ImportReport()
 	device_path = device_path.strip('"')
@@ -916,8 +948,18 @@ def import_csv(parser: InputParser, device_path: str, user_id: uuid.UUID,
 	half_credentials: list[str] = []
 	own = [p["name"] for p in properties or [] if p["name"] not in SYSTEM_NAMES]
 	view = InventoryView(db_session, Viewer(user_id))
+	names = {d.ip: qualify(d.ip, dns_suffix) for d in devices if not is_ip(d.ip)}
+	found = resolve_many(names.values())
+	unresolved = [name for name, host in names.items() if found[host] is None]
+	if unresolved:
+		report.notices.append(("warning",
+			f"{len(unresolved)} hostname{'s' if len(unresolved) != 1 else ''} didn't "
+			f"resolve from this server (imported anyway; a rollout to them fails until "
+			f"they do): {', '.join(unresolved[:5])}{', …' if len(unresolved) > 5 else ''}"))
 	for device in devices:
+		addresses = found.get(names[device.ip]) if device.ip in names else None
 		row = Inventory(user_id=user_id, ip=device.ip, port=device.port,
+		                resolved_ip=primary(addresses or []),
 		                device_type=device.device_type,
 		                label=label or device.label)  # form > row > IP
 		values = _cell_values(device.extra, columns)

@@ -14,6 +14,7 @@ from src.audit import AuditAction
 from src.inventory import (DeviceFields, InventoryView, RuleRefused, SecurityProfiles,
                            form_values, import_csv, partition_devices)
 from src.rollout import inputs
+from src.rollout.address import is_ip, qualify, resolve
 from src.rollout.engine import endpoint
 from src.rollout.inputs import InputParser, Validator
 from src.rollout.log import RolloutLogger, Tone
@@ -39,13 +40,29 @@ def device_problem(ip: str, port: str, device_type: str) -> str | None:
 	"""The server's check of a device's fields (the page's can be bypassed).
 
 	:returns: what's wrong, in words; None when they're valid"""
-	if not inputs.validate_ip(ip):
-		return f"Not a valid IP address: {ip}."
+	if not inputs.validate_address(ip):
+		return f"Not a valid IP address or hostname: {ip}."
 	if not inputs.validate_port(port):
 		return "The port is a number from 1 to 65535."
 	if not inputs.validate_platform(device_type):
 		return f"Unsupported device type: {device_type}."
 	return None
+
+
+def look_up(address: str) -> tuple[tuple[str, ...], str | None]:
+	"""A hostname looked up before it's saved (a bounded wait): its addresses
+	find the same device saved under another name or its IP.
+
+	:returns: (its addresses - () for an IP or a failed lookup, a warning
+	 for the page when it doesn't resolve - None otherwise)"""
+	if is_ip(address):
+		return (), None
+	host = qualify(address, current_app.web.dns_suffix())
+	found = resolve(host)
+	if found is None:
+		return (), (f"{host} doesn't resolve from this server right now - saved "
+		            f"anyway; a rollout to it fails until it does.")
+	return tuple(found), None
 
 
 def device_not_found() -> ResponseReturnValue:
@@ -99,7 +116,8 @@ def inventory_create(data: Any) -> ResponseReturnValue:
 	device_type = data.get("device_type", "").strip()
 	if problem := device_problem(ip, port, device_type):
 		return flash_redirect(problem, "inventory.inventory", "danger")
-	ip = inputs.normalize_ip(ip)
+	ip = inputs.normalize_address(ip)
+	resolved, unresolved = look_up(ip)
 	label = data.get("label", "").strip() or ip
 	sec_profile_id = data.get("sec_profile_id", "").strip()
 	try:
@@ -107,7 +125,8 @@ def inventory_create(data: Any) -> ResponseReturnValue:
 	except ValueError:
 		return err("Invalid security profile ID", 422)
 	fields = DeviceFields(ip=ip, port=int(port), device_type=device_type, label=label,
-	                      profile_id=parsed_sec_id, make_global=data.get("is_global") == "on")
+	                      profile_id=parsed_sec_id, make_global=data.get("is_global") == "on",
+	                      resolved=resolved)
 	try:
 		with current_app.backend.postgres.get_session() as db_session:
 			saved = InventoryView(db_session, viewer()).save_device(None, fields)
@@ -118,6 +137,8 @@ def inventory_create(data: Any) -> ResponseReturnValue:
 	                      object_label=label,
 	                      detail={"is_global": saved.is_global})
 	flash(f"{label} added to inventory.", "success")
+	if unresolved:
+		flash(unresolved, "warning")
 	if saved.shared_endpoint:
 		flash(saved.shared_endpoint, "warning")
 	return redirect(url_for("inventory.inventory"))
@@ -127,18 +148,22 @@ def inventory_create(data: Any) -> ResponseReturnValue:
 @login_required
 @with_json()
 def inventory_test_connection(data: dict[str, Any]) -> ResponseReturnValue:
-	"""Is the TCP port open from this server? JSON {ip, port}."""
+	"""Is the TCP port open from this server? JSON {ip, port} - the address
+	an IP or a hostname (a bare one with the DNS suffix)."""
 	ip = str(data.get("ip", "")).strip()
 	port = str(data.get("port", "")).strip()
 
-	if not inputs.validate_ip(ip):
-		return err("Invalid IP address")
+	if not inputs.validate_address(ip):
+		return err("Not a valid IP address or hostname")
 	if not inputs.validate_port(port):
 		return err("Port must be between 1 and 65535")
 
-	if inputs.tcp_reachable(ip, int(port)):
-		return ok(f"TCP port {port} reachable on {ip}")
-	return err(f"TCP port {port} unreachable on {ip}")
+	host = qualify(inputs.normalize_address(ip), current_app.web.dns_suffix())
+	if not is_ip(host) and resolve(host) is None:
+		return err(f"Can't resolve {host} from this server")
+	if inputs.tcp_reachable(host, int(port)):
+		return ok(f"TCP port {port} reachable on {host}")
+	return err(f"TCP port {port} unreachable on {host}")
 
 
 MAX_REACHABILITY_BATCH = 500
@@ -179,15 +204,17 @@ def inventory_edit(device_id: uuid.UUID) -> ResponseReturnValue:
 	port = request.form.get("port", "22").strip()
 	device_type = request.form.get("device_type", "").strip()
 	sec_profile_id = request.form.get("sec_profile_id", "").strip()
+	if problem := device_problem(ip, port, device_type):
+		return flash_redirect(problem, "inventory.inventory", "danger")
+	ip = inputs.normalize_address(ip)
+	# looked up before the database session: the wait holds no connection
+	resolved, unresolved = look_up(ip)
 	try:
 		with current_app.backend.postgres.get_session() as db_session:
 			view = InventoryView(db_session, viewer())
 			device = view.get_editable(device_id)
 			if device is None:
 				return device_not_found()
-			if problem := device_problem(ip, port, device_type):
-				return flash_redirect(problem, "inventory.inventory", "danger")
-			ip = inputs.normalize_ip(ip)
 			try:
 				parsed_sec_id = uuid.UUID(sec_profile_id) if sec_profile_id else None
 				mapping_ids = parse_mapping_ids(request.form.getlist("mapping_ids"))
@@ -198,7 +225,8 @@ def inventory_edit(device_id: uuid.UUID) -> ResponseReturnValue:
 				device, DeviceFields(ip=ip, port=int(port), device_type=device_type,
 				                     label=request.form.get("label", "").strip() or ip,
 				                     profile_id=parsed_sec_id,
-				                     make_global=request.form.get("is_global") == "on"),
+				                     make_global=request.form.get("is_global") == "on",
+				                     resolved=resolved),
 				values=form_values(request.form, sys_props + user_props),
 				own=[p["name"] for p in user_props], mapping_ids=mapping_ids)
 	except RuleRefused as e:
@@ -315,7 +343,8 @@ def inventory_import_csv() -> ResponseReturnValue:
 			report = import_csv(
 				parser, tmp_path, current_user.id, db_session, label=label,
 				properties=sys_props + user_props,
-				create_profiles=create_profiles)
+				create_profiles=create_profiles,
+				dns_suffix=current_app.web.dns_suffix())
 
 		devices = report.devices
 		# same ip:port as an existing visible device, or twice in the file:
