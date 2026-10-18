@@ -1243,3 +1243,21 @@ def test_no_rc4_bridge_is_left():
 	                             "Updated to NetRollout") if s in f.read_text(encoding="utf-8")]
 	        for f in files}
 	assert {name: found for name, found in left.items() if found} == {}
+
+
+def test_the_upgrade_window_shows_the_notes_formatted():
+	"""The Manager's Upgrade window shows the release notes formatted (headings,
+	bullets, bold, code: ReleaseNotes.cs's RTF) instead of their markdown, set
+	once the box exists (creating it applies the window's font, undoing the
+	formatting), and without the notes' Download section (it's for the web page).
+	ReleaseNotes.cs is plain ASCII: csc reads unicode escapes even in verbatim strings."""
+	manager = ROOT / "packaging" / "windows" / "manager"
+	notes = (manager / "ReleaseNotes.cs").read_bytes()
+	assert notes.isascii()
+	text = notes.decode("ascii")
+	assert r'@"^##\s+Download\b"' in text and "break;" in text
+	assert r"\bullet\tab" in text and r"\b " in text and r"{\f1\fs18 " in text
+	window = (manager / "Updates.cs").read_text(encoding="utf-8")
+	assert "new RichTextBox {" in window
+	assert window.index("notes.HandleCreated += delegate") < window.index("notes.Rtf = ReleaseNotes.ToRtf(release.Notes);")
+	assert '(Join-Path $here "ReleaseNotes.cs")' in (manager / "build.ps1").read_text(encoding="utf-8")

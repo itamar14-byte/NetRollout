@@ -317,10 +317,18 @@ namespace NetRollout
 				Font = new Font("Segoe UI Semibold", 13f), Location = new Point(16, 14) };
 			var current = new Label { Text = "You have " + Install.Version + ".", AutoSize = true,
 				ForeColor = Color.DimGray, Location = new Point(18, 44) };
-			var notes = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical,
-				Text = string.IsNullOrEmpty(release.Notes) ? "(no release notes)" : release.Notes.Replace("\r\n", "\n").Replace("\n", "\r\n"),
+			// the notes formatted: headings, bullets, bold (ReleaseNotes.cs)
+			var notes = new RichTextBox { ReadOnly = true, ScrollBars = RichTextBoxScrollBars.Vertical,
+				BorderStyle = BorderStyle.FixedSingle, DetectUrls = false, TabStop = false,
 				Location = new Point(18, 72), Size = new Size(524, 196), BackColor = Color.FromArgb(248, 249, 250),
 				Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom };
+			// once the box exists: creating it applies the window's font to all
+			// its text, which would undo the headings and bold
+			notes.HandleCreated += delegate
+			{
+				if (string.IsNullOrEmpty(release.Notes)) notes.Text = "(no release notes)";
+				else notes.Rtf = ReleaseNotes.ToRtf(release.Notes);
+			};
 			var what = new Label { AutoSize = false, Location = new Point(18, 278), Size = new Size(524, 60),
 				Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom,
 				Text = running + "A backup is made first. NetRollout keeps running while the new version downloads, " +
