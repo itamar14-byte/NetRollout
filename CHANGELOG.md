@@ -6,6 +6,8 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ## [Unreleased]
 
+## [1.0.0rc4] - 2026-10-18
+
 ### Added
 
 - **Reconnect** in User Management: accounts kept when their LDAP server was deleted (now marked NO DIRECTORY) can be linked to another server. Every name must exist there, checked with its service account, or nothing changes; they take the directory's email and name, keep their data, and stay disabled until an administrator enables them. The LDAP explorer's import can do the same ("Reconnect existing accounts with these names"). Until then, Enable, Approve and Promote are refused on them: before, they could be enabled but never sign in.
@@ -14,13 +16,13 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 - Results filters: by note and by device name or IP as you type, by status, by the days a job started on, and in an administrator's All Users view by user. They cover every job, not only the page shown.
 - **Export CSV** on Results and the Audit Log: every job (one row per device) or entry the filters let through. Results exports your own jobs, or everyone's in an administrator's All Users view; it leaves out the commands and config snapshots. Cells a spreadsheet would run as a formula are quoted, and Excel reads the file as UTF-8. Each export is recorded in the audit log.
 - The Audit Log filters by day (From / To).
-- The sign-in page's stop after 5 failed sign-ins shows the time left as mm:ss and counts it down ("Try again in 14:59."), then says "You can try again now." It was in whole minutes, rounded up.
-- User Management: the Locked badge's tooltip counts the lock down in mm:ss, and the badge goes when the lock ends. The button that lifts a lock reads **Enable / Unlock**: just **Unlock** when every user ticked is only locked, just **Enable** when every one is disabled.
 - Every password field can show what's typed (the eye): also the LDAP bind and test-user passwords, the database move's and Redis' passwords, a quick-created security profile's, and turning 2FA off.
 - The Audit Log's entry for making a global device private says what the other users lost on it: how many users, and their security profile links, attribute values and variable mappings.
 
 ### Changed
 
+- The sign-in page's stop after 5 failed sign-ins shows the time left as mm:ss and counts it down ("Try again in 14:59."), then says "You can try again now." It was in whole minutes, rounded up.
+- User Management: the Locked badge's tooltip counts the lock down in mm:ss, and the badge goes when the lock ends. The button that lifts a lock reads **Enable / Unlock**: just **Unlock** when every user ticked is only locked, just **Enable** when every one is disabled.
 - Administrators move between the day-to-day pages and the administration pages with one switch at the top right of every page, **Operations | Administration**. Each side returns to the last page open there, and the administration pages have a violet line under the top bar. It replaces the Admin Panel gear in the sidebar, the Admin Panel item in the user menu and the admin pages' **← Home**. **← Home** stays only on My Account and the sign-in pages, and the gear now means only System Settings.
 - Every question and message is in NetRollout's own window, never the browser's: restarting, cancelling a job or rollout, deleting a backup, a group rule or a property, ending sessions, a self-signed certificate, no longer trusting a CA, moving the database, switching Redis back, and making an LDAP group rule Admin. A risky one is red and starts on Cancel. A browser can switch its own pop-ups off for a page, after which they answer No without asking, so those actions silently did nothing. New Rollout says missing commands in the platform's own box instead of a pop-up.
 - A user signed out by an administrator (Terminate Session, a password reset, being disabled) leaves the page within 5 seconds instead of 30, and at once when they switch back to its tab.
@@ -180,7 +182,8 @@ Anycast. The first public release.
 
 - `netrollout-cli` for one-off rollouts from a devices CSV and a commands file, with optional Verify. A standalone Windows `.exe`; no database or Docker needed.
 
-[Unreleased]: https://github.com/itamar14-byte/NetRollout/compare/v1.0.0rc3...HEAD
+[Unreleased]: https://github.com/itamar14-byte/NetRollout/compare/v1.0.0rc4...HEAD
+[1.0.0rc4]: https://github.com/itamar14-byte/NetRollout/compare/v1.0.0rc3...v1.0.0rc4
 [1.0.0rc3]: https://github.com/itamar14-byte/NetRollout/compare/v1.0.0rc2...v1.0.0rc3
 [1.0.0rc2]: https://github.com/itamar14-byte/NetRollout/compare/v1.0.0rc1...v1.0.0rc2
 [1.0.0rc1]: https://github.com/itamar14-byte/NetRollout/releases/tag/v1.0.0rc1
