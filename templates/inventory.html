@@ -112,6 +112,20 @@
 }
 .global-toggle-row i { color: #00bcd4; }
 .global-toggle-hint { font-size: 0.75rem; color: var(--nr-text-muted); margin-left: auto; }
+/* A global device about to be made private: what the others lose */
+.private-warning {
+    display: flex;
+    gap: 0.6rem;
+    margin: -0.5rem 0 1rem;
+    padding: 0.6rem 0.75rem;
+    background: rgba(239,83,80,0.08);
+    border: 1px solid rgba(239,83,80,0.35);
+    border-radius: 8px;
+    font-size: 0.78rem;
+    color: #f2b8b5;
+    line-height: 1.45;
+}
+.private-warning i { color: #ef5350; margin-top: 1px; }
 
 /* Read-only mode for global devices opened by non-admins:
    only the mapping multi-select and the user's own attributes stay interactive */
@@ -878,6 +892,13 @@
                         Global device
                         <span class="global-toggle-hint">visible to all users</span>
                     </label>
+                    <div class="private-warning edit-only" id="editPrivateWarning" hidden>
+                        <i class="bi bi-exclamation-triangle-fill"></i>
+                        <span>Making it private hides it from every other user and deletes what they
+                            set on it: the security profile they log in with, their attribute values
+                            and their variable mappings. It becomes yours. Making it global again
+                            won't bring those back.</span>
+                    </div>
                     {% endif %}
 
                     <!-- Variable Mappings multi-select -->
@@ -1586,6 +1607,23 @@ document.getElementById('editDeviceModal').querySelector('form')
         }
     });
 
+// Unticking Global on a global device deletes the other users' links, values
+// and bindings on it (InventoryView.save_device): say so, and Save turns into
+// a red Confirm until it's ticked again
+let editWasGlobal = false;
+function updatePrivateWarning() {
+    const toggle = document.getElementById('editIsGlobal');
+    if (!toggle) return;
+    const losing = editWasGlobal && !toggle.checked;
+    const btn = document.getElementById('editSaveBtn');
+    document.getElementById('editPrivateWarning').hidden = !losing;
+    btn.className = 'btn btn-sm edit-only ' + (losing ? 'btn-danger' : 'btn-primary');
+    btn.innerHTML = losing
+        ? '<i class="bi bi-exclamation-triangle me-1"></i>Confirm'
+        : '<i class="bi bi-check-lg me-1"></i>Save';
+}
+document.getElementById('editIsGlobal')?.addEventListener('change', updatePrivateWarning);
+
 
 
 // ════════════════════════════════════════
@@ -1775,6 +1813,8 @@ function openEdit(device) {
         '/inventory/' + device.id + (readonly ? '/attributes' : '/edit');
     const editIsGlobal = document.getElementById('editIsGlobal');
     if (editIsGlobal) editIsGlobal.checked = !!device.is_global;
+    editWasGlobal = !!device.is_global;
+    updatePrivateWarning();
 
     // Reset expand section
     document.getElementById('varAttrToggle').classList.remove('open');

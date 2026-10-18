@@ -9,6 +9,7 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 ### Added
 
 - Inventory filters: by name and IP address as you type, and by platform from a list of the platforms you have. Sections with no match hide, and the page says how many devices it shows.
+- Unticking Global on a global device warns that the other users lose it, with their security profile, attribute values and variable mappings on it, and Save becomes a red Confirm.
 
 ### Changed
 

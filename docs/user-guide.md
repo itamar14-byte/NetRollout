@@ -186,7 +186,7 @@ Above the devices, three filters narrow the list as you type: **Name** and **IP 
 3. Optionally, select **Test Connection** to check that NetRollout can log in.
 4. Save.
 
-Administrators also see a **Global device** switch, which shares the device with all users.
+Administrators also see a **Global device** switch, which shares the device with all users. Switching it off on a global device makes it yours and hides it from everyone else. Their security profile, attribute values and variable mappings on it are deleted, and switching it on again doesn't bring them back. The window warns you, and Save becomes a red **Confirm**.
 
 To change a device, select its card. The **Edit Device** window also has the device's **VARIABLE MAPPINGS** and **VARIABLE ATTRIBUTES** (see [Properties and variable mappings](#properties-and-variable-mappings)). To delete it, use **Remove device** and confirm.
 
