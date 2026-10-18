@@ -437,8 +437,9 @@
         <div id="n_bind_fields" class="col-12" style="display:none;">
           <div class="row g-3">
             <div class="col-md-6">
-              <label class="nr-label">Bind DN</label>
+              <label class="nr-label" for="n_bdn">Bind DN <span class="nr-label-hint">(service account)</span></label>
               <input id="n_bdn" class="form-control form-control-sm" placeholder="CN=svc-ldap,DC=corp,DC=com">
+              <div class="nr-help-text">A full DN. Active Directory also takes <code>svc@corp.local</code> or <code>CORP\svc</code>, never the bare name.</div>
             </div>
             <div class="col-md-6">
               <label class="nr-label">Bind Password</label>
@@ -1313,9 +1314,10 @@
           <div id="e_${s.id}_bind_fields" class="col-12" style="display:${bfDisp};">
             <div class="row g-3">
               <div class="col-md-6">
-                <label class="nr-label">Bind DN</label>
+                <label class="nr-label" for="e_${s.id}_bdn">Bind DN <span class="nr-label-hint">(service account)</span></label>
                 <input id="e_${s.id}_bdn" class="form-control form-control-sm"
                        value="${nrEscape(s.bind_dn || '')}" placeholder="CN=svc-ldap,DC=corp,DC=com">
+                <div class="nr-help-text">A full DN. Active Directory also takes <code>svc@corp.local</code> or <code>CORP\\svc</code>, never the bare name.</div>
               </div>
               <div class="col-md-6">
                 <label class="nr-label">

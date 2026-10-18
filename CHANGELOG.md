@@ -6,6 +6,10 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ## [Unreleased]
 
+### Changed
+
+- The LDAP server form's **Bind DN** says it's the service account, and that Active Directory also takes `svc@corp.local` or `CORP\svc` (never the bare name).
+
 ## [1.0.0rc4] - 2026-10-18
 
 ### Added

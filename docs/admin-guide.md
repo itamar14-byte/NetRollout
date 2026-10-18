@@ -570,7 +570,7 @@ Add a directory in **Administration → Server Management → LDAP / Active Dire
 | **Host**, **Port**, **LDAPS** | Where the directory is, and whether to use LDAPS. |
 | **Base DN** | Where users are searched, such as `DC=corp,DC=com`. |
 | **CN Identifier** | The attribute that holds the username, such as `sAMAccountName`. |
-| **Bind Type** | **Simple**: no stored service credentials. **Regular**: a service account (**Bind DN**, **Bind Password**), which enables the directory browser and group rules. |
+| **Bind Type** | **Simple**: no stored service credentials. **Regular**: a service account (**Bind DN**, **Bind Password**), which enables the directory browser and group rules. The Bind DN is the service account's full DN (`CN=svc-ldap,OU=Service,DC=corp,DC=local`); Active Directory also takes `svc-ldap@corp.local` or `CORP\svc-ldap`, never the bare name. It's FortiGate's **Regular** bind **Username**. |
 | **Active** | Whether the server is used. |
 
 The bind password is stored encrypted.
