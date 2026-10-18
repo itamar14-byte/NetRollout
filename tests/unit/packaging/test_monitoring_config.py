@@ -1,6 +1,6 @@
 """deploy/grafana: the shipped dashboards (one subfolder per NetRollout
 folder, imported by setup.py) must only reference datasources the
-provisioning defines — a renamed datasource or a newly exported dashboard
+provisioning defines - a renamed datasource or a newly exported dashboard
 would otherwise leave panels empty with no error anywhere but Grafana."""
 import importlib.util
 import json

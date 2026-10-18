@@ -30,11 +30,11 @@ param(
 	[switch]$NoSafetyBackup,        # restore: without backing up the current state
 	[switch]$NewPassword,           # reset-admin: also a temporary password, shown once
 	[switch]$Json,                  # rollouts: one line of JSON (NetRollout Manager)
-	# NetRollout Setup, updating: the installed folder (this copy runs from
+	# NetRollout Setup, upgrading: the installed folder (this copy runs from
 	# Setup's temporary folder) and the version it brings
 	[string]$InstallDir = "",
 	[string]$NewVersion = "",
-	# update over data an uninstall kept: back it up first (prepare-update
+	# upgrade over data an uninstall kept: back it up first (prepare-upgrade
 	# couldn't - the folder had no compose file yet)
 	[switch]$BackupFirst,
 	# forget-kept with no folder (it was deleted by hand): the project's
@@ -46,6 +46,11 @@ param(
 
 Set-StrictMode -Version 2
 $ErrorActionPreference = "Stop"
+# UTF-8 both ways: Docker's output (the app's log lines, labels in any
+# language) is decoded as UTF-8, and this script's own output goes out as
+# UTF-8 (NetRollout Manager reads it so) - Windows PowerShell 5.1 uses the
+# console's legacy code page otherwise, which garbles anything not ASCII
+try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false } catch { }
 
 $Root = if ($InstallDir) { $InstallDir } else { Split-Path -Parent $PSScriptRoot }
 # (the Setup wizard runs some commands from a temporary copy, before
@@ -58,9 +63,9 @@ $AppImage = "itamarweinstein/netrollout:$Version"
 # compose's images of another version (a kept install's backup); "" = $Version
 $ImageVersion = ""
 $EnvFile = Join-Path $Root ".env"
-# An update's second half (update) hasn't finished while this is here (and
+# An upgrade's second half (upgrade) hasn't finished while this is here (and
 # names this folder's VERSION): Setup, the Manager and start finish it
-$MarkerFile = Join-Path $Root ".update-pending"
+$MarkerFile = Join-Path $Root ".upgrade-pending"
 $Interactive = [Environment]::UserInteractive -and -not $Yes
 # Docker Desktop's own folder: 64-bit Program Files even from a 32-bit caller
 $DockerDir = Join-Path $(if ($env:ProgramW6432) { $env:ProgramW6432 } else { $env:ProgramFiles }) "Docker\Docker"
@@ -310,12 +315,14 @@ function Read-EnvValue([string]$Key, [string]$Default = "") {
 	return $Default
 }
 
-# The version .env was last set up by: its "# Updated to NetRollout X on ..."
-# line (setup upgrade), else the installer's "# NetRollout X - written by the
-# installer" header; "" when it has neither (an early install)
+# The version .env was last set up by: its "# Upgraded to NetRollout X on ..."
+# line (setup upgrade; older versions wrote "# Updated to ..."), else the
+# installer's "# NetRollout X - written by the installer" header; "" when it
+# has neither (an early install)
 function Get-KeptVersion {
 	$lines = @(Get-Content $EnvFile)
-	foreach ($pattern in "^# Updated to NetRollout (\S+) ", "^# NetRollout (\S+) .*written by the installer") {
+	# BRIDGE(rc4): remove in rc6 - "Updated" is the stamp rc4 and earlier wrote
+	foreach ($pattern in "^# (?:Upgraded|Updated) to NetRollout (\S+) ", "^# NetRollout (\S+) .*written by the installer") {
 		$found = ""
 		foreach ($line in $lines) { if ($line -match $pattern) { $found = $Matches[1] } }
 		if ($found) { return $found }
@@ -323,9 +330,9 @@ function Get-KeptVersion {
 	return ""
 }
 
-# The update this folder's files are for, unfinished: @{Version; BackupFirst}
+# The upgrade this folder's files are for, unfinished: @{Version; BackupFirst}
 # - the marker naming the VERSION in place ($null: none, or a stale one: an
-# update cancelled before its files were replaced names a version not here)
+# upgrade cancelled before its files were replaced names a version not here)
 function Get-PendingUpdate {
 	if (-not $Version -or -not (Test-Path $MarkerFile)) { return $null }
 	$found = @{ Version = ""; BackupFirst = $false }
@@ -337,12 +344,12 @@ function Get-PendingUpdate {
 	return $found
 }
 
-# The marker, written before an update's second half can start: the version
+# The marker, written before an upgrade's second half can start: the version
 # it brings, and whether the kept data's backup is still owed (-BackupFirst).
 # ASCII key=value: Setup and the Manager read it (no BOM before the first key)
 function Write-UpdateMarker([string]$Target, [switch]$BackupFirst) {
-	$lines = @("# NetRollout's update to $Target hasn't finished while this file is here:",
-	           "# netrollout start (or Setup, or NetRollout Manager's Finish update) finishes it",
+	$lines = @("# NetRollout's upgrade to $Target hasn't finished while this file is here:",
+	           "# netrollout start (or Setup, or NetRollout Manager's Finish upgrade) finishes it",
 	           "version=$Target", "started=$((Get-Date).ToString('yyyy-MM-dd HH:mm'))")
 	if ($BackupFirst) { $lines += "backup-first=yes" }
 	Set-Content -Encoding ASCII -Path $MarkerFile -Value $lines
@@ -650,8 +657,8 @@ function Invoke-Status {
 	# first: the new version's image may not be here yet (the setup core's report needs it)
 	$pending = Get-PendingUpdate
 	if ($pending) {
-		Write-Host ("Update:       the update to NetRollout $($pending.Version) DIDN'T FINISH - run: netrollout start " +
-		            "(it finishes the update, then starts; NetRollout Manager: Finish update)") -ForegroundColor Yellow
+		Write-Host ("Upgrade:      the upgrade to NetRollout $($pending.Version) DIDN'T FINISH - run: netrollout start " +
+		            "(it finishes the upgrade, then starts; NetRollout Manager: Finish upgrade)") -ForegroundColor Yellow
 	}
 	Confirm-Docker
 	$reachable = if (Test-Reachable) { "yes" } else { "no" }
@@ -700,19 +707,19 @@ function Request-StopNow {
 	return $false
 }
 
-# The stop or update that may have asked for a stop now isn't happening: a
+# The stop or upgrade that may have asked for a stop now isn't happening: a
 # later stop waits for the rollouts again (nothing asked: nothing changes)
 function Clear-StopNow {
 	try { Compose @("exec", "-T", "app", "python", "-m", "src.jobs", "stop-now", "--clear") | Out-Null } catch { }
 }
 
-# Run a stop / update; when it fails, the stop now asked for (here, by the
-# Manager, or by prepare-update before Setup ran this) is cleared first
+# Run a stop / upgrade; when it fails, the stop now asked for (here, by the
+# Manager, or by prepare-upgrade before Setup ran this) is cleared first
 function Invoke-ClearingStopNow([scriptblock]$Body) {
 	try { & $Body } catch { Clear-StopNow; throw }
 }
 
-# Before a stop or an update's restart: the rollouts running or queued, and -
+# Before a stop or an upgrade's restart: the rollouts running or queued, and -
 # asked here, not with -Yes - wait for them (up to the drain deadline),
 # cancel them all now, or don't. $false: don't stop.
 function Confirm-Rollouts([string]$What) {
@@ -760,8 +767,9 @@ function Show-Output([string]$Text) {
 function Test-AppRunning { return (Get-ContainerStates) -match "(^|,)app=running" }
 
 # In the running app; when it isn't running, a one-off app container next to
-# the database (the same settings, folders and Grafana's data)
-function Invoke-BackupCreate([string]$Kind) {
+# the database (the same settings, folders and Grafana's data). -QuietUsage:
+# an argparse refusal (exit 2) isn't shown - the caller tries again.
+function Invoke-BackupCreate([string]$Kind, [switch]$QuietUsage) {
 	if (Test-AppRunning) {
 		$r = Compose @("exec", "-T", "app", "python", "-m", "src.backup", "create", "--kind", $Kind)
 	} else {
@@ -769,8 +777,18 @@ function Invoke-BackupCreate([string]$Kind) {
 		if ($up.Code -ne 0) { Write-Host $up.Output; Fail "The database didn't start - see above." }
 		$r = Compose @("run", "--rm", "--no-deps", "app", "python", "-m", "src.backup", "create", "--kind", $Kind)
 	}
-	Show-Output $r.Output
+	if (-not ($QuietUsage -and $r.Code -eq 2)) { Show-Output $r.Output }
 	return $r.Code
+}
+
+# The backup before an upgrade, by the image compose runs ($ImageVersion, else
+# this folder's version): kind before-upgrade; exit code as Invoke-BackupCreate
+function Invoke-UpgradeBackup {
+	$code = Invoke-BackupCreate "before-upgrade" -QuietUsage
+	# BRIDGE(rc4): remove in rc6 - an older NetRollout doesn't know the kind
+	# (argparse: exit 2; src.backup create never exits 2 otherwise)
+	if ($code -eq 2) { $code = Invoke-BackupCreate "before-update" }
+	return $code
 }
 
 function Invoke-Backup {
@@ -922,7 +940,7 @@ function Invoke-ResetAdmin {
 	if ($r.Code -ne 0) { Fail "The factory admin wasn't reset - see above." }
 }
 
-# ── updates (NetRollout Setup over an install) ───────────────────────────────
+# ── upgrades (NetRollout Setup over an install) ──────────────────────────────
 
 # Before Setup replaces any file - run from Setup's temporary folder with
 # -InstallDir: the direction (the installed version's image decides), then
@@ -930,38 +948,38 @@ function Invoke-ResetAdmin {
 function Invoke-PrepareUpdate {
 	Invoke-ClearingStopNow {
 		Assert-Installed
-		if (-not $NewVersion) { Fail "prepare-update needs -NewVersion" }
+		if (-not $NewVersion) { Fail "prepare-upgrade needs -NewVersion" }
 		Confirm-Docker
 		if (-not (Test-Path $VersionFile)) { Invoke-PrepareKept; return }
-		Step "Checking the update: NetRollout $Version -> $NewVersion"
+		Step "Checking the upgrade: NetRollout $Version -> $NewVersion"
 		$r = Invoke-Native "docker" @("run", "--rm", $AppImage, "python", "-m", "src.setup", "check-update",
 			"--installed", $Version, "--new", $NewVersion)
 		if ($r.Code -eq 2) { Show-Output $r.Output; Fail "Nothing was changed." 2 }
 		if ($r.Code -ne 0) {
 			Warn "Couldn't compare the versions ($AppImage didn't run) - continuing."
 		}
-		if (-not (Confirm-Rollouts "update")) { Fail "Nothing was changed." 2 }
+		if (-not (Confirm-Rollouts "upgrade")) { Fail "Nothing was changed." 2 }
 		Step "Backing up first"
-		if ((Invoke-BackupCreate "before-update") -ne 0) {
+		if ((Invoke-UpgradeBackup) -ne 0) {
 			Fail "Couldn't back up - nothing was changed. Fix it (above), then run Setup again."
 		}
-		# from here on the files are replaced: the update counts as unfinished
-		# until its second half (update) has run
+		# from here on the files are replaced: the upgrade counts as unfinished
+		# until its second half (upgrade) has run
 		Write-UpdateMarker $NewVersion
 	}
 }
 
-# prepare-update over data an uninstall kept (.env, config\, the volumes - no
+# prepare-upgrade over data an uninstall kept (.env, config\, the volumes - no
 # NetRollout files, so no VERSION): the version .env was last set up by
 # decides, by its own image (gone: the new one - versions compare the same
 # way). A newer one is refused (exit 2); an older one needs its image for the
-# backup, made by Invoke-Update -BackupFirst once the files are in place
+# backup, made by Invoke-Update -BackupFirst (upgrade) once the files are in place
 # (there's no compose file here yet). No version line: an older one.
 function Invoke-PrepareKept {
 	$kept = Get-KeptVersion
 	if (-not $kept) {
 		Warn ("$EnvFile doesn't say which version set it up (an early install): taken as an older version and " +
-		      "updated. The backup before the update is made by NetRollout $NewVersion - it restores into " +
+		      "upgraded. The backup before the upgrade is made by NetRollout $NewVersion - it restores into " +
 		      "$NewVersion, not into the earlier version.")
 		Say "   The backup is made once NetRollout $NewVersion's files are in place, before anything starts."
 		Write-UpdateMarker $NewVersion -BackupFirst
@@ -970,7 +988,7 @@ function Invoke-PrepareKept {
 	$old = "itamarweinstein/netrollout:$kept"
 	$haveOld = Test-Image $old
 	$judge = if ($haveOld) { $old } else { "itamarweinstein/netrollout:$NewVersion" }
-	Step "Checking the update: NetRollout $kept (its settings and data, kept in $Root) -> $NewVersion"
+	Step "Checking the upgrade: NetRollout $kept (its settings and data, kept in $Root) -> $NewVersion"
 	$r = Invoke-Native "docker" @("run", "--rm", $judge, "python", "-m", "src.setup", "check-update",
 		"--installed", $kept, "--new", $NewVersion)
 	if ($r.Code -eq 2 -and $r.Output -match "the same version") {
@@ -981,15 +999,15 @@ function Invoke-PrepareKept {
 	if ($r.Code -ne 0) { Show-Output $r.Output; Fail "Couldn't compare the versions ($judge didn't run) - nothing was changed." }
 	if (-not $haveOld) {
 		Fail ("NetRollout $kept's image ($old) isn't on this computer and couldn't be downloaded - it makes the " +
-		      "backup before the update (one NetRollout $kept can restore). Nothing was changed. Check this " +
+		      "backup before the upgrade (one NetRollout $kept can restore). Nothing was changed. Check this " +
 		      "computer's internet connection, then run Setup again.")
 	}
 	Say "   The backup (by NetRollout $kept) is made once NetRollout $NewVersion's files are in place, before anything starts."
-	# the backup is owed until the update's second half has made it
+	# the backup is owed until the upgrade's second half has made it
 	Write-UpdateMarker $NewVersion -BackupFirst
 }
 
-# Invoke-Update -BackupFirst: the backup prepare-update couldn't make for
+# Invoke-Update -BackupFirst: the backup prepare-upgrade couldn't make for
 # kept data - by the version that wrote it (no version line: this one)
 function Backup-KeptData {
 	$kept = Get-KeptVersion
@@ -997,28 +1015,28 @@ function Backup-KeptData {
 		$old = "itamarweinstein/netrollout:$kept"
 		if (-not (Test-Image $old)) {
 			Fail ("NetRollout $kept's image ($old) isn't on this computer and couldn't be downloaded - it makes " +
-			      "the backup before the update. NetRollout wasn't started; its data is as NetRollout $kept left it. " +
+			      "the backup before the upgrade. NetRollout wasn't started; its data is as NetRollout $kept left it. " +
 			      "Check this computer's internet connection, then Retry - or later: " +
-			      "run Setup again, or netrollout start (both finish the update).")
+			      "run Setup again, or netrollout start (both finish the upgrade).")
 		}
 	} else {
 		Warn "No version line in .env: the backup is made by NetRollout $Version (it restores into $Version, not into the earlier version)."
 	}
 	Step "Backing up first (the data NetRollout $(if ($kept) { $kept } else { 'had' }) left here)"
 	$script:ImageVersion = $kept
-	try { $code = Invoke-BackupCreate "before-update" } finally { $script:ImageVersion = "" }
+	try { $code = Invoke-UpgradeBackup } finally { $script:ImageVersion = "" }
 	if ($code -ne 0) {
 		Fail ("Couldn't back up - NetRollout wasn't started and its data wasn't changed. Fix it (above), " +
-		      "then Retry - or later: run Setup again, or netrollout start (both finish the update).")
+		      "then Retry - or later: run Setup again, or netrollout start (both finish the upgrade).")
 	}
 }
 
 # After Setup replaced the files (this is the new script): the new images
 # while the old version keeps running, .env brought up to date, the restart.
-# Resumable: the marker says the update is unfinished until the restart
-# worked, and whether the kept data's backup is still owed - so an update
+# Resumable: the marker says the upgrade is unfinished until the restart
+# worked, and whether the kept data's backup is still owed - so an upgrade
 # that failed halfway is finished by running this again (Setup, the
-# Manager's Finish update, start), never skipped.
+# Manager's Finish upgrade, start), never skipped.
 function Invoke-Update {
 	Invoke-ClearingStopNow {
 		Assert-Installed
@@ -1036,23 +1054,23 @@ function Invoke-Update {
 			Write-UpdateMarker $Version      # the backup is made: not again on a resume
 		}
 		Step "Updating the settings"
-		if ((Invoke-Setup @("upgrade")) -ne 0) { Fail "The update stopped before the restart - see above." }
-		Confirm-Rollouts "update" | Out-Null      # the files are in place: shown, never refused
+		if ((Invoke-Setup @("upgrade")) -ne 0) { Fail "The upgrade stopped before the restart - see above." }
+		Confirm-Rollouts "upgrade" | Out-Null      # the files are in place: shown, never refused
 		Step "Restarting on the new version (about a minute; running rollouts finish first)"
 		Start-NetRollout
 		Remove-UpdateMarker
 		Start-PortHelper
-		Good "Updated to NetRollout $Version. Everyone signs in again."
+		Good "Upgraded to NetRollout $Version. Everyone signs in again."
 	}
 }
 
-# start with an unfinished update here: the update's second half first (its
+# start with an unfinished upgrade here: the upgrade's second half first (its
 # restart is the start) - never the new version without setup upgrade
 function Invoke-Start {
 	Assert-Installed -Setup
 	$pending = Get-PendingUpdate
 	if ($pending) {
-		Step "The update to NetRollout $($pending.Version) didn't finish - finishing it first"
+		Step "The upgrade to NetRollout $($pending.Version) didn't finish - finishing it first"
 		Invoke-Update; Open-Browser; return
 	}
 	if ((Test-DockerReady) -and (Test-AllRunning)) {
@@ -1378,7 +1396,7 @@ function Invoke-Uninstall {
 # what the uninstaller's "delete the data" deletes, without its compose
 # files (the uninstall removed them) - the project's containers and network
 # by compose's project label, its volumes by the label or their name
-# (Get-ProjectVolumes), then .env, config, certs, logs and the update marker.
+# (Get-ProjectVolumes), then .env, config, certs, logs and the upgrade marker.
 # The backups stay. Refused, nothing deleted, while NetRollout is installed
 # there (VERSION) or any of the project's containers runs.
 # -VolumesOnly instead of -InstallDir: volumes left in Docker whose folder
@@ -1444,7 +1462,8 @@ function Invoke-ForgetKept {
 # (unins000.exe, .dat: Inno numbers them) by their pattern.
 function Get-InstallItems([switch]$Data) {
 	$names = @("bin", "deploy", "compose.yaml", "compose.http.yaml", "VERSION", "LICENSE", "README.md",
-		".update-pending", ".update")
+		".upgrade-pending", ".upgrade",
+		".update-pending", ".update")      # BRIDGE(rc4): remove in rc6 - rc4's names
 	if ($Data) { $names += @(".env", "config", "certs", "logs") }
 	$items = @($names | ForEach-Object { Join-Path $Root $_ } | Where-Object { Test-Path -LiteralPath $_ })
 	if (Test-Path -LiteralPath $Root) {
@@ -1582,8 +1601,8 @@ function Invoke-NrCommand([string]$Name) {
 		"stop" { Invoke-Stop; return 0 }
 		"backup" { Invoke-Backup; return 0 }
 		"restore" { Invoke-Restore; return 0 }
-		"prepare-update" { Invoke-PrepareUpdate; return 0 }
-		"update" { Invoke-Update; return 0 }
+		"prepare-upgrade" { Invoke-PrepareUpdate; return 0 }
+		"upgrade" { Invoke-Update; return 0 }
 		"apply" { Invoke-Apply; return 0 }
 		"port" { Invoke-PortByHand; return 0 }
 		"reset-admin" { Invoke-ResetAdmin; return 0 }

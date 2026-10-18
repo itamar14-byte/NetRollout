@@ -57,6 +57,16 @@
             box-shadow: none !important;
         }
         .nr-user-btn::after { opacity: 0.5; }
+        /* a phone shows the person icon, not the name (the top bar's room goes
+           to the page's title); the name stays in the button's label */
+        .nr-user-btn .nr-user-icon { display: none; font-size: 0.95rem; vertical-align: -2px; }
+        @media (max-width: 767.98px) {
+            .nr-user-btn { padding: 0.38rem 0.6rem; }
+            .nr-user-btn .nr-user-icon { display: inline; }
+            .nr-user-btn .nr-user-name { display: none; }
+        }
+        /* a badge moves to the next line whole, never broken inside */
+        .nr-badge, .no-directory-badge { white-space: nowrap; }
 
         /* ── Dropdown ── */
         .dropdown-menu {

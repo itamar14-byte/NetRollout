@@ -1,6 +1,6 @@
 """Backups through the app's own connection: a round trip into another
-database — through a role that isn't a superuser, in its own schema, next to
-another application's table (an organisation's database) — an older backup
+database - through a role that isn't a superuser, in its own schema, next to
+another application's table (an organisation's database) - an older backup
 migrating forward, a key that doesn't decrypt changing nothing, Grafana's
 database. Two scratch databases on the test Postgres; never the app's."""
 import os

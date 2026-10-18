@@ -1,10 +1,10 @@
-"""config/nginx/site.env — what NetRollout hands the components outside it.
+"""config/nginx/site.env - what NetRollout hands the components outside it.
 
 One file, one module writing it: keys are read and updated together under a
 lock and the file is replaced whole (atomically), so no reader ever sees half
 of a change. Each reader takes only its own keys:
 
-- nginx (deploy/nginx): HOSTNAME and PORT_IN_USE — never the port requested;
+- nginx (deploy/nginx): HOSTNAME and PORT_IN_USE - never the port requested;
   it validates them and ignores every other key
 - the port helper (host side, stage 9): the PORT_REQUEST keys
 - the app, at its first start: HOSTNAME, written by the installer, seeds the
@@ -58,7 +58,7 @@ def read() -> dict[str, str]:
 
 def update(values: Mapping[str, str | None]) -> bool:
 	"""Set keys (None removes one); the others are kept. True if the file
-	changed — an unchanged file isn't rewritten, so nginx isn't reloaded for
+	changed - an unchanged file isn't rewritten, so nginx isn't reloaded for
 	nothing. Raises OSError when the folder can't be written (the message
 	names site.env, not the temporary file)."""
 	with _lock:

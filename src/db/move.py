@@ -191,11 +191,11 @@ ACCESS_NEEDED = (
 	"A database for NetRollout (it may be shared with other applications, in "
 	"a schema of its own).",
 	"A login NetRollout uses every day, owning that schema: NetRollout creates "
-	"and upgrades its own tables there. It needs no administrator rights — no "
+	"and upgrades its own tables there. It needs no administrator rights - no "
 	"superuser, no CREATEDB, no CREATEROLE.",
 	f"A read-only login for Grafana's dashboards ({GRAFANA_ROLE}); NetRollout "
 	"itself grants it SELECT on exactly three tables (job results, job "
-	"metadata, the audit log) — never users, credentials or settings.",
+	"metadata, the audit log) - never users, credentials or settings.",
 	"Network access from this server to the database server's port.",
 )
 

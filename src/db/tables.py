@@ -66,7 +66,7 @@ class User(Base):
 	email: Mapped[str | None] = mapped_column(String(120), unique=True,
 	                                     nullable=True)
 	full_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
-	# a Role — the app only ever checks for Role.ADMIN
+	# a Role - the app only ever checks for Role.ADMIN
 	role: Mapped[str] = mapped_column(String(40), default=Role.OPERATOR.value,
 	                                  nullable=False)
 	position: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -279,7 +279,7 @@ class DeviceResult(Base):
 	started_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 	completed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 	device_ip: Mapped[str] = mapped_column(String(64), nullable=False)
-	# ip:port identifies the target — several devices can share an IP
+	# ip:port identifies the target - several devices can share an IP
 	# (NAT / port forwarding). Rows from before this column default to SSH.
 	device_port: Mapped[int] = mapped_column(Integer, nullable=False,
 	                                         server_default="22")
@@ -290,7 +290,7 @@ class DeviceResult(Base):
 	fetched_config: Mapped[str | None] = mapped_column(Text, nullable=True)
 	status: Mapped[str] = mapped_column(String(64), nullable=False)
 	# What only a person can resolve on the device (e.g. "the change is live
-	# but NOT saved — save it on the device"); shown on the Results page
+	# but NOT saved - save it on the device"); shown on the Results page
 	action_needed: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 	user_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id"),
@@ -326,7 +326,7 @@ class AuditLog(Base):
 	                                      default=uuid.uuid4)
 	timestamp: Mapped[datetime] = mapped_column(DateTime, default=datetime.now,
 	                                            nullable=False, index=True)
-	# Denormalized — survives user deletion (actor_id goes NULL, username stays)
+	# Denormalized - survives user deletion (actor_id goes NULL, username stays)
 	actor_id: Mapped[uuid.UUID | None] = mapped_column(
 		Uuid, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
 	actor_username: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -409,7 +409,7 @@ class LDAPGroup(Base):
 
 
 class SystemSetting(Base):
-	"""The runtime value of one system setting — the only runtime source.
+	"""The runtime value of one system setting - the only runtime source.
 	install() seeds a row for every setting at each start (install value from
 	the env if valid, else the default) and never overwrites one; admins
 	change it in System Settings (src/db/settings.py is the registry of what

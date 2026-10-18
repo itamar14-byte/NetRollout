@@ -137,7 +137,7 @@ def test_out_of_range_row_is_used_as_nearest_valid_and_reported(store,
 	with session_scope() as s:
 		problems = seed_settings(s)
 	assert problems == ["setting audit_retention_days: stored 1 must be at "
-	                    "least 7 — using 7"]
+	                    "least 7 - using 7"]
 
 
 def test_missing_row_falls_back_to_the_default(app, session_scope):

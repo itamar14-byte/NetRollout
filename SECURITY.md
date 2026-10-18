@@ -4,7 +4,7 @@ This file is for anyone who has found a security problem in NetRollout. It says 
 
 ## Supported versions
 
-Security fixes go into the latest release only. Update to it to receive them.
+Security fixes go into the latest release only. Upgrade to it to receive them.
 
 | Version | Supported |
 |---|---|

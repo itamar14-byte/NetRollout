@@ -1,5 +1,5 @@
 {% extends "admin.html" %}
-{% block title %}Analytics — NetRollout Admin{% endblock %}
+{% block title %}Analytics - NetRollout Admin{% endblock %}
 
 {% block admin_content %}
 
@@ -46,7 +46,7 @@
                 {% elif org_kpi.success_rate >= 80 %}#a5d6a7
                 {% elif org_kpi.success_rate >= 50 %}#ffe082
                 {% else %}#ef9a9a{% endif %};">
-        {% if org_kpi.success_rate is none %}—{% else %}{{ org_kpi.success_rate }}%{% endif %}
+        {% if org_kpi.success_rate is none %}-{% else %}{{ org_kpi.success_rate }}%{% endif %}
       </div>
       <div class="nr-help-spaced">across all operators</div>
     </div>
@@ -112,7 +112,7 @@
           <td><span style="font-family:'JetBrains Mono',monospace; font-size:0.8rem; color:#ccc;">{{ u.username }}</span></td>
           <td class="text-center"><span style="font-family:'JetBrains Mono',monospace; color:#e0e0e0;">{{ u.job_count }}</span></td>
           <td class="text-center"><span style="font-family:'JetBrains Mono',monospace; color:#e0e0e0;">{{ u.device_pushes }}</span></td>
-          <td><span class="nr-help-text">{{ u.last_job_at.strftime("%b %d, %H:%M") if u.last_job_at else '—' }}</span></td>
+          <td><span class="nr-help-text">{{ u.last_job_at.strftime("%b %d, %H:%M") if u.last_job_at else '-' }}</span></td>
         </tr>
         {% endfor %}
         </tbody>
@@ -287,7 +287,7 @@ $(function() {
           const opts = USERNAMES.map(u => `<option value="${nrEscape(u)}">${nrEscape(u)}</option>`).join('');
           return `
             <select class="actor-select" name="${name}" style="display:none;">
-              <option value="">— pick user —</option>${opts}
+              <option value="">- pick user -</option>${opts}
             </select>
             <input type="text" class="actor-text" name="${name}"
                    placeholder="username substring…" style="display:none;">`;
@@ -443,7 +443,7 @@ async function runQuery() {
     data.columns.map(c => {
       const val = row[c];
       let display = val === null || val === undefined
-        ? '<span style="color:var(--nr-text-muted);">—</span>' : nrEscape(val);
+        ? '<span style="color:var(--nr-text-muted);">-</span>' : nrEscape(val);
       if (c === 'success') {
         const ok = val === true || val === 'true';
         display = ok

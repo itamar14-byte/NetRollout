@@ -6,7 +6,7 @@
     <i class="bi bi-hourglass-split mt-1"></i>
     <div>
         <strong>NetRollout is {{ 'restarting' if server_restarting else 'stopping' }}.</strong>
-        New rollouts are paused{% if server_running_rollouts %} — waiting for
+        New rollouts are paused{% if server_running_rollouts %} - waiting for
         {{ server_running_rollouts }} running rollout{{ 's' if server_running_rollouts != 1 }}
         to finish{% endif %}.
         {% if server_restarting %}This page reloads when it's back.{% endif %}
@@ -23,7 +23,7 @@
             if (first === null) first = d.instance;
             else if (d.instance !== first) window.location.reload();
         })
-        .catch(() => {});   // down between the two instances — keep polling
+        .catch(() => {});   // down between the two instances - keep polling
     check();
     setInterval(check, 3000);
 })();

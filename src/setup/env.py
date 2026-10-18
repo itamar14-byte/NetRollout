@@ -1,7 +1,7 @@
 """The install's .env: what it holds (env_text: every line explained; the
 generated secrets; the compose files it lists) and how it is edited after
 the install - only the keys the scripts may change (SCRIPT_KEYS), the file
-rewritten whole; and what an update adds when a key is missing
+rewritten whole; and what an upgrade adds when a key is missing
 (UPGRADE_DEFAULTS)."""
 from __future__ import annotations   # Answers / Facts: annotations only
 
@@ -70,12 +70,12 @@ def env_text(answers: Answers, facts: Facts, keys: dict[str, str],
 	by = f" by {facts.account}" if facts.account else ""
 	files = COMPOSE + (f",{COMPOSE_HTTP}" if port80_free else "")
 	return f"""\
-# NetRollout {version} — written by the installer on {now:%Y-%m-%d %H:%M}{by}.
+# NetRollout {version} - written by the installer on {now:%Y-%m-%d %H:%M}{by}.
 # Licence terms accepted: NetRollout (AGPL-3.0){", Docker Desktop (Docker's terms), Windows licensing" if facts.os == "windows" else ", Docker Engine (Apache-2.0)"}.
 #
 # Don't edit this file: NetRollout's settings are in System Settings (web UI),
 # and the scripts keep the rest up to date. It holds every secret of this
-# installation — keep it private (backups include it).
+# installation - keep it private (backups include it).
 # Advanced (then `netrollout start`): COMPOSE_PROFILES= (empty) turns
 # monitoring off; TZ changes the containers' timezone.
 
@@ -106,13 +106,13 @@ NETROLLOUT_SERVER_IPS={",".join(facts.server_ips)}
 # Monitoring: "monitoring" on, empty off
 COMPOSE_PROFILES={"monitoring" if answers.monitoring else ""}
 # compose.http.yaml (port 80 → https) only while port 80 is free on this
-# computer — `netrollout start` turns it off and on
+# computer - `netrollout start` turns it off and on
 COMPOSE_PATH_SEPARATOR=,
 COMPOSE_FILE={files}
 """
 
 
-# Every key an install's .env has, and what an update does when one is
+# Every key an install's .env has, and what an upgrade does when one is
 # missing (manage.upgrade): None = it can't be made up - the data depends on
 # it (a new database password or encryption key would lock the data out);
 # else the value to add. A key a later version adds gets an entry here (a
@@ -154,7 +154,7 @@ def env_read() -> dict[str, str]:
 
 def env_set(updates: dict[str, str]) -> bool:
 	"""Change script-owned lines of .env in place (its comments, order and
-	permissions kept — the file is rewritten, not replaced).
+	permissions kept - the file is rewritten, not replaced).
 
 	:returns: whether it changed
 	:raises ValueError: a key the scripts don't own (nothing written)"""

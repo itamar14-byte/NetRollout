@@ -1,4 +1,4 @@
-# Whitespace-only commits — `git blame` skips them with:
+# Whitespace-only commits - `git blame` skips them with:
 #   git config blame.ignoreRevsFile .git-blame-ignore-revs
 # Review fix #7: indentation to tabs
 4ff02bbb04a9f06350096a3d783b2ff5effaa464

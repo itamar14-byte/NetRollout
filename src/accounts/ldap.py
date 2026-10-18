@@ -31,7 +31,7 @@ from src.encryption import decrypt
 CONNECT_TIMEOUT = 5
 RECEIVE_TIMEOUT = 10
 
-# A rejected bind — wrong password or unknown DN. Anything else raised by
+# A rejected bind - wrong password or unknown DN. Anything else raised by
 # ldap3 means the directory couldn't be used (down, timeout, bad config).
 _BAD_CREDENTIALS = (LDAPBindError, LDAPInvalidCredentialsResult)
 
@@ -51,7 +51,7 @@ _reported_missing_groups: set[str] = set()
 
 
 class LdapUnavailable(Exception):
-	"""The directory couldn't be reached or used — distinct from a user
+	"""The directory couldn't be reached or used - distinct from a user
 	entering wrong credentials, so login can say which one happened."""
 
 
@@ -242,7 +242,7 @@ class Directory:
 		 they aren't (an empty one never is)
 		:raises LdapUnavailable: the directory couldn't be reached or used"""
 		# Some servers treat a DN with an empty password as a *successful*
-		# unauthenticated bind — never send one
+		# unauthenticated bind - never send one
 		if not username or not password:
 			return None
 		try:
@@ -335,7 +335,7 @@ class Directory:
 			conn = self.service_bind()
 			assert conn is not None   # a "regular" bind type always has the account
 			for g in groups:
-				# The member value is a DN — it may contain filter metacharacters
+				# The member value is a DN - it may contain filter metacharacters
 				# (e.g. "cn=Smith\, Bob"), so it's escaped like any other value
 				try:
 					conn.search(search_base=g.group_dn,

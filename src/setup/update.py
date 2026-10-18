@@ -1,8 +1,8 @@
-"""A NetRollout release for Linux's `update`: found (GitHub's newest on the
+"""A NetRollout release for Linux's `upgrade`: found (GitHub's newest on the
 installed version's channel, a version, or a mirror's feed in the same
 JSON), downloaded, checked against the release's SHA256SUMS and unpacked -
-or a zip given by hand (offline). Windows updates through NetRollout Setup
-instead (the Manager's Update, Updates.cs: the same rule).
+or a zip given by hand (offline). Windows upgrades through NetRollout Setup
+instead (the Manager's Upgrade, Updates.cs: the same rule).
 
 The channel follows what is installed:
   a release (1.0.0)        GitHub's releases/latest - never a pre-release
@@ -49,7 +49,7 @@ TIMEOUT = 60
 
 
 class ReleaseError(Exception):
-	"""Why there's nothing to update to, in words."""
+	"""Why there's nothing to upgrade to, in words."""
 
 
 @dataclass
@@ -138,7 +138,7 @@ def rate_limited(error: urllib.error.HTTPError) -> str | None:
 	headers = error.headers
 	if error.code not in (403, 429) or headers is None or headers.get("X-RateLimit-Remaining") != "0":
 		return None
-	words = ("GitHub's limit for update checks from this network (60 an hour per internet "
+	words = ("GitHub's limit for upgrade checks from this network (60 an hour per internet "
 	         "address, shared by everything here that asks GitHub) is used up")
 	try:
 		reset = datetime.datetime.fromtimestamp(int(headers.get("X-RateLimit-Reset", "")))
@@ -168,7 +168,7 @@ def find(version: str | None = None, feed: str | None = None) -> Release:
 		raise ReleaseError(f"{where} answered {e.code}.") from None
 	except (OSError, ValueError) as e:
 		raise ReleaseError(f"Couldn't reach {where} ({e}) - is this server online? "
-		                   f"Offline: update --from <zip>.") from None
+		                   f"Offline: upgrade --from <zip>.") from None
 	if isinstance(data, list):
 		picked = newest(data, prereleases)
 		if picked is None:
@@ -185,17 +185,17 @@ def find(version: str | None = None, feed: str | None = None) -> Release:
 	               assets.get("SHA256SUMS"), page if isinstance(page, str) else None)
 
 
-# what update shows of a release's notes (its CHANGELOG section: long) - the
+# what upgrade shows of a release's notes (its CHANGELOG section: long) - the
 # rest is on its page
 NOTES_LINES = 30
 NOTES_CHARS = 3000
-# the notes of a release `release` downloaded, in its --out folder, for the
-# script's confirmation
+# the notes of a release `release` downloaded, in its --out folder (the
+# script's .upgrade/), for the script's confirmation
 NOTES_FILE = "release-notes.txt"
 
 
 def notes_shown(release: Release) -> list[str]:
-	"""The release's notes as update shows them: a heading, the notes' first
+	"""The release's notes as upgrade shows them: a heading, the notes' first
 	lines (up to NOTES_LINES lines / NOTES_CHARS characters, whole lines, then
 	how many more), and its page for the full notes when the feed gives one.
 
@@ -307,11 +307,11 @@ def unpack(zip_path: Path, dest: Path) -> tuple[Path, str]:
 	return target, version
 
 
-# ── an update ──
+# ── an upgrade ──
 
 def update_kind(installed: str, new: str) -> str:
 	"""Whether `new` may be installed over `installed`: only a newer version
-	(the same one has nothing to update; an older one is a downgrade - never:
+	(the same one has nothing to upgrade; an older one is a downgrade - never:
 	the database may be upgraded already).
 
 	:returns: "update"
@@ -323,7 +323,7 @@ def update_kind(installed: str, new: str) -> str:
 		raise ValueError(f"Can't compare the versions ({e}).") from None
 	if new_v == old_v:
 		raise ValueError(f"NetRollout {installed} is already installed - the same version. "
-		                 f"Nothing to update.")
+		                 f"Nothing to upgrade.")
 	if new_v < old_v:
 		raise ValueError(f"NetRollout {installed} is installed - newer than {new}. "
 		                 f"Downgrades aren't supported. Nothing was changed. To run an "
@@ -335,9 +335,9 @@ def update_kind(installed: str, new: str) -> str:
 
 def upgrade(version: str = runtime.VERSION,
             now: datetime.datetime | None = None) -> list[str]:
-	"""After an update's files are in place: .env gets what this version needs
+	"""After an upgrade's files are in place: .env gets what this version needs
 	(files.UPGRADE_DEFAULTS) - existing values and comments untouched - and a
-	line saying when it was updated (UTC: the setup core runs in a container
+	line saying when it was upgraded (UTC: the setup core runs in a container
 	on UTC). Returns what to say.
 	:raises ValueError: a key the data depends on is missing (nothing written)"""
 	now = now or datetime.datetime.now(datetime.timezone.utc)
@@ -349,18 +349,20 @@ def upgrade(version: str = runtime.VERSION,
 	if lost:
 		raise ValueError(f"{path} is missing {', '.join(lost)} - the data depends on "
 		                 f"{'it' if len(lost) == 1 else 'them'}, so NetRollout can't be "
-		                 f"updated or started. Put {'it' if len(lost) == 1 else 'them'} "
-		                 f"back (a copy of .env), then update again.")
+		                 f"upgraded or started. Put {'it' if len(lost) == 1 else 'them'} "
+		                 f"back (a copy of .env), then upgrade again.")
 	lines = text.splitlines()
-	stamp = f"# Updated to NetRollout {version} on {now:%Y-%m-%d %H:%M} UTC."
-	updated = [i for i, line in enumerate(lines) if line.startswith("# Updated to NetRollout ")]
-	if updated:
-		lines[updated[0]] = stamp
+	stamp = f"# Upgraded to NetRollout {version} on {now:%Y-%m-%d %H:%M} UTC."
+	# BRIDGE(rc4): remove in rc6 - "# Updated to NetRollout " (rc4 and earlier's stamp)
+	stamped = [i for i, line in enumerate(lines)
+	           if line.startswith(("# Upgraded to NetRollout ", "# Updated to NetRollout "))]
+	if stamped:
+		lines[stamped[0]] = stamp
 	else:
 		lines.insert(1 if lines and lines[0].startswith("#") else 0, stamp)
 	said = []
 	if missing:
-		lines += ["", f"# Added by the update to NetRollout {version}"]
+		lines += ["", f"# Added by the upgrade to NetRollout {version}"]
 		for k in missing:
 			make = UPGRADE_DEFAULTS[k]
 			assert make is not None   # those were refused above

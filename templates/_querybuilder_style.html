@@ -6,7 +6,7 @@
 {% macro querybuilder_style(rgb, color, line, soft, hover, pill_hover) %}
 <style>
 
-/* ── QueryBuilder — linear row layout ───────────────────── */
+/* ── QueryBuilder - linear row layout ───────────────────── */
 .query-builder { font-family: 'Inter', sans-serif; }
 
 .query-builder .rules-group-container,
@@ -24,7 +24,7 @@
   display: flex; align-items: center; justify-content: flex-end; gap: 6px;
   margin-bottom: 6px; padding-bottom: 0; border-bottom: none;
 }
-/* AND/OR hidden from header — shown inline between rules */
+/* AND/OR hidden from header - shown inline between rules */
 .query-builder .group-conditions { display: none !important; }
 
 .query-builder .group-actions { display: flex; gap: 4px; }
@@ -76,7 +76,7 @@
 }
 .nr-qb-pill:hover { background: rgba({{ rgb }},{{ pill_hover }}); border-color: rgba({{ rgb }},0.45); }
 
-/* Selects — custom arrow, no browser chrome */
+/* Selects - custom arrow, no browser chrome */
 .query-builder select {
   appearance: none !important; -webkit-appearance: none !important;
   background-color: rgba(255,255,255,0.04) !important;

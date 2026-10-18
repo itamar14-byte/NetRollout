@@ -1,5 +1,5 @@
 {% extends "admin.html" %}
-{% block title %}Live Sessions — Administration{% endblock %}
+{% block title %}Live Sessions - Administration{% endblock %}
 
 {% macro elapsed(secs) %}{% if secs < 60 %}just now{% elif secs < 3600 %}{{ secs // 60 }}m ago{% elif secs < 86400 %}{{ secs // 3600 }}h {{ (secs % 3600) // 60 }}m ago{% else %}24h+ ago{% endif %}{% endmacro %}
 

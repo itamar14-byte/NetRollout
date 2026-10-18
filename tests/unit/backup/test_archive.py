@@ -99,6 +99,21 @@ def test_the_list_is_newest_first_and_only_netrollout_backups(tmp_path):
 	assert entries[1].manifest is None and "isn't a NetRollout backup" in entries[1].problem
 
 
+def test_rc4s_before_update_backups_are_still_known(tmp_path):
+	"""The backup before an upgrade is now before-upgrade; before-update stays a kind
+	(BRIDGE(rc4): an older image asked by the scripts makes it, and rc4's files keep the
+	name): both are in KINDS (the CLI's --kind choices), and an rc4 file named
+	...-before-update.zip still matches NAME_RE and is listed with kind before-update."""
+	assert "before-upgrade" in archive.KINDS and "before-update" in archive.KINDS
+	name = "netrollout-1.0.0rc4-20261018-101500-before-update.zip"
+	match = archive.NAME_RE.match(name)
+	assert match is not None and match["kind"] == "before-update"
+	assert match["version"] == "1.0.0rc4" and match["stamp"] == "20261018-101500"
+	make_zip(tmp_path, name, version="1.0.0rc4")
+	[entry] = archive.BackupFolder(tmp_path).entries()
+	assert entry.name == name and entry.kind == "before-update" and entry.problem is None
+
+
 def test_retention_deletes_only_the_oldest_scheduled_backups(tmp_path):
 	"""prune(keep=2) deletes the two oldest of four scheduled backups and keeps
 	the older manual and before-restore ones."""

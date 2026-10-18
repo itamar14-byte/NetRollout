@@ -1,7 +1,7 @@
 {# Sign-out after inactivity: the page's side of enforce_session_lifetime
    (src/webapp/extensions.py). Included by operator_base.html, admin.html and
    base.html for signed-in users. The server is the judge; this only warns a
-   minute ahead and, at the end, asks the server before leaving — another tab
+   minute ahead and, at the end, asks the server before leaving - another tab
    may have kept the session alive. #}
 {% if NR_IDLE_SECONDS is defined %}
 <div class="modal fade" id="idleModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">

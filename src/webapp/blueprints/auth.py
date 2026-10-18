@@ -334,7 +334,7 @@ def login_ldap_group(username: str, password: str,
 				return complete_login(user, db_session,
 				                      auth_type=AuthType.LDAP, auto_created=True,
 				                      group_dn=group_dn, role=role)
-	# No server, no matching group, or bind failed — treat as bad credentials.
+	# No server, no matching group, or bind failed - treat as bad credentials.
 	return login_fail(username, "invalid_credentials")
 
 
@@ -360,7 +360,7 @@ def login_get() -> ResponseReturnValue:
 def login(data: Any) -> ResponseReturnValue:
 	"""Sign in (rate limited): a local account, a known LDAP user, or an LDAP
 	user in a mapped group."""
-	# Origin check replaces CSRF for login — blocks cross-origin POSTs without
+	# Origin check replaces CSRF for login - blocks cross-origin POSTs without
 	# depending on redis_session state, so it survives server restarts.
 	# Compare hostnames only: scheme/port vary under reverse proxy.
 	origin = request.headers.get("Origin") or request.headers.get("Referer", "")
@@ -545,11 +545,11 @@ def logout() -> ResponseReturnValue:
 @login_required
 @conn_limit.limit("10 per minute", methods=["POST"])
 def change_password() -> ResponseReturnValue:
-	"""Pick a new password: forced (must_change_password — the seeded admin,
+	"""Pick a new password: forced (must_change_password - the seeded admin,
 	or after an admin reset; the gate in extensions.py sends every page
 	here) or voluntary, from the Account page. Local accounts only."""
 	if current_user.auth_type != AuthType.LOCAL:
-		flash("Your password is managed by the directory (LDAP) — change it "
+		flash("Your password is managed by the directory (LDAP) - change it "
 		      "there.", "info")
 		return redirect(url_for("auth.account"))
 	forced = current_user.must_change_password
@@ -692,7 +692,7 @@ def account_2fa_off(data: Any) -> ResponseReturnValue:
 @bp.route("/account/session")
 @login_required
 def session_state() -> Response:
-	"""How long this session has left — for the page's warning. Asked with
+	"""How long this session has left - for the page's warning. Asked with
 	X-NR-Background it doesn't count as activity; without ("Stay signed in")
 	it does (the session gate extended it before this runs)."""
 	idle_left, absolute_left = session_seconds_left()

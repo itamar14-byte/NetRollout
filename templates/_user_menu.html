@@ -2,8 +2,8 @@
    between the views with the top bar's switch, _view_switch.html.) #}
 <div class="dropdown">
     <button class="btn nr-user-btn dropdown-toggle" type="button"
-            data-bs-toggle="dropdown" aria-expanded="false">
-        {{ current_user.username }}
+            data-bs-toggle="dropdown" aria-expanded="false" aria-label="Account menu: {{ current_user.username }}">
+        <i class="bi bi-person-circle nr-user-icon" aria-hidden="true"></i><span class="nr-user-name">{{ current_user.username }}</span>
     </button>
     <ul class="dropdown-menu dropdown-menu-end">
         <li><a class="dropdown-item" href="{{ url_for('auth.account') }}">

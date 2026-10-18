@@ -1,5 +1,5 @@
 {% extends "operator_base.html" %}
-{% block title %}Dashboard — NetRollout{% endblock %}
+{% block title %}Dashboard - NetRollout{% endblock %}
 {% block page_title %}Dashboard{% endblock %}
 
 {% block extra_style %}
@@ -153,7 +153,7 @@
 <div class="row g-3">
 
     <!-- ══════════════════════════════════════
-         LEFT COL — Active Job + Recent Jobs
+         LEFT COL - Active Job + Recent Jobs
     ══════════════════════════════════════ -->
     <div class="col-12 col-xl-8 d-flex flex-column gap-3">
 
@@ -168,7 +168,7 @@
                         {% if active_job.queued %}
                         <span class="status-dot cyan" aria-hidden="true"></span>
                         <span class="nr-badge" style="margin-bottom:0; border-color:rgba(0,188,212,0.35); color:#00bcd4;">QUEUED ROLLOUT</span>
-                        <span class="term cyan" style="font-size:0.75rem;">Queued — waiting for a free slot</span>
+                        <span class="term cyan" style="font-size:0.75rem;">Queued - waiting for a free slot</span>
                         {% else %}
                         <span class="status-dot active" aria-hidden="true"></span>
                         <span class="nr-badge" style="margin-bottom:0; border-color:rgba(76,175,80,0.35); color:#a5d6a7;">ACTIVE ROLLOUT</span>
@@ -201,7 +201,7 @@
                     </div>
                     <div class="col-6 col-md-3">
                         <div class="nr-label">Elapsed</div>
-                        <div class="term cyan" id="elapsedTimer">{{ '—' if active_job.queued else '00:00' }}</div>
+                        <div class="term cyan" id="elapsedTimer">{{ '-' if active_job.queued else '00:00' }}</div>
                     </div>
                 </div>
 
@@ -305,7 +305,7 @@
                         <td class="text-center">
                             <span class="status-pill {{ job.status }}">{{ job.status }}</span>
                             {% if job.action_needed %}
-                            <a href="{{ url_for('jobs.results', job=job.job_id) }}" title="Action needed — open the job"
+                            <a href="{{ url_for('jobs.results', job=job.job_id) }}" title="Action needed - open the job"
                                style="color:#ffb74d; margin-left:4px;"><i class="bi bi-exclamation-triangle-fill"></i></a>
                             {% endif %}
                         </td>
@@ -331,7 +331,7 @@
     </div>
 
     <!-- ══════════════════════════════════════
-         RIGHT COL — System Summary
+         RIGHT COL - System Summary
     ══════════════════════════════════════ -->
     <div class="col-12 col-xl-4 d-flex flex-column gap-3">
 
@@ -364,7 +364,7 @@
                     {% if last_status %}
                     <span class="status-pill {{ last_status }}">{{ last_status }}</span>
                     {% else %}
-                    <span class="term">—</span>
+                    <span class="term">-</span>
                     {% endif %}
                 </div>
 
@@ -433,7 +433,7 @@
 </div>
 
 <!-- ══════════════════════════════════════
-     PERFORMANCE STRIP — 30-day KPIs
+     PERFORMANCE STRIP - 30-day KPIs
 ══════════════════════════════════════ -->
 
 {% if current_user.role == 'admin' %}
@@ -443,7 +443,7 @@
         <span style="font-size:0.72rem; color:var(--nr-text-muted); font-family:'JetBrains Mono',monospace; letter-spacing:0.5px;">
             KPI SCOPE
             {% if selected_user != 'me' %}
-            — <span class="nr-accent">
+            - <span class="nr-accent">
                 {{ selected_username }}
               </span>
             {% endif %}
@@ -453,7 +453,7 @@
             style="background:#111; border:1px solid #2a2a2a; border-radius:6px;
                    color:#ccc; font-size:0.75rem; padding:0.25rem 0.55rem;
                    font-family:'JetBrains Mono',monospace; cursor:pointer; outline:none;">
-        <option value="me" {% if selected_user == 'me' %}selected{% endif %}>— my data —</option>
+        <option value="me" {% if selected_user == 'me' %}selected{% endif %}>- my data -</option>
         {% for u in users %}
         <option value="{{ u.id }}" {% if selected_user == u.id|string %}selected{% endif %}>{{ u.username }}</option>
         {% endfor %}
@@ -478,7 +478,7 @@
                       {% elif kpi.success_rate >= 80 %}#a5d6a7
                       {% elif kpi.success_rate >= 50 %}#ffe082
                       {% else %}#ef9a9a{% endif %};">
-                {% if kpi.success_rate is none %}—{% else %}{{ kpi.success_rate }}%{% endif %}
+                {% if kpi.success_rate is none %}-{% else %}{{ kpi.success_rate }}%{% endif %}
             </div>
             <div class="nr-help">
                 {{ kpi.jobs_30d }} job{{ 's' if kpi.jobs_30d != 1 }} total
@@ -535,7 +535,7 @@
                      onmouseenter="this.style.color='#00bcd4'" onmouseleave="this.style.color='var(--nr-text-muted)'">see results</a>
             </div>
             {% else %}
-            <div style="font-family:'JetBrains Mono',monospace; font-size:1.7rem; font-weight:700; line-height:1; color:var(--nr-text-muted);">—</div>
+            <div style="font-family:'JetBrains Mono',monospace; font-size:1.7rem; font-weight:700; line-height:1; color:var(--nr-text-muted);">-</div>
             <div class="nr-help">no failures</div>
             {% endif %}
         </div>

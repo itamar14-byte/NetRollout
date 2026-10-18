@@ -4,13 +4,13 @@ and what a person can verify first (stage 9.9). From the repo root:
   python packaging/build_release.py --version 1.0.0 [--out DIR] [--linux] [--windows]
                                 [--feed-base URL] [--notes FILE]
 
-  netrollout-<v>-linux.zip      the Linux install / update (src/setup/update.py's contract)
-  NetRollout-Setup-<v>.exe      the Windows install / update (Windows only: Inno Setup)
+  netrollout-<v>-linux.zip      the Linux install / upgrade (src/setup/update.py's contract)
+  NetRollout-Setup-<v>.exe      the Windows install / upgrade (Windows only: Inno Setup)
   netrollout-cli-<v>.exe        the headless CLI (Windows only: PyInstaller)
   SHA256SUMS                    "<sha256>  <name>" for each
   release-feed.json             with --feed-base: the release as GitHub's API describes it, the
                                 links under that base (http(s) or file) - a mirror, or a test of
-                                NetRollout Manager -> Update (UpdateFeed) and `netrollout update --feed`
+                                NetRollout Manager -> Upgrade (UpgradeFeed) and `netrollout upgrade --feed`
 
 The version must be the VERSION file's: the images, Setup and the footer all
 take it from there. The Docker images aren't built here: the release job builds and pushes them
@@ -147,7 +147,7 @@ def write_sums(files: list[Path], out: Path) -> Path:
 
 def write_feed(version: str, files: list[Path], base: str, notes: str, out: Path) -> Path:
 	"""A release feed, as GitHub's releases API answers (what the Manager and
-	`update` read) - for a mirror or a test.
+	`upgrade` read) - for a mirror or a test.
 
 	:param base: the address the files are served from
 	:param notes: the release notes

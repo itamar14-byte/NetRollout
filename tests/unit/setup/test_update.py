@@ -122,7 +122,7 @@ def test_githubs_rate_limit_is_named_with_when_it_resets(monkeypatch):
 			{update.api(): code}, {"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": str(int(reset.timestamp()))}))
 		with pytest.raises(update.ReleaseError) as e:
 			update.find()
-		assert str(e.value) == ("GitHub's limit for update checks from this network (60 an hour per internet "
+		assert str(e.value) == ("GitHub's limit for upgrade checks from this network (60 an hour per internet "
 		                        "address, shared by everything here that asks GitHub) is used up. "
 		                        "It resets at 18:31: try again then.")
 	monkeypatch.setattr(update.urllib.request, "urlopen", FakeGitHub(
@@ -211,7 +211,7 @@ def test_no_answer_from_github_asks_whether_the_server_is_online(monkeypatch):
 	with pytest.raises(update.ReleaseError) as e:
 		update.find()
 	assert str(e.value) == (f"Couldn't reach {update.api_list()} (<urlopen error Name or service not "
-	                        f"known>) - is this server online? Offline: update --from <zip>.")
+	                        f"known>) - is this server online? Offline: upgrade --from <zip>.")
 
 
 def test_a_version_asked_for_is_its_tag_on_either_channel(monkeypatch):
@@ -291,9 +291,9 @@ def test_a_release_without_its_zip_yet_says_so(tmp_path):
 
 
 def test_unreachable_or_not_a_release(tmp_path):
-	"""An unreachable feed points to `update --from <zip>`; JSON that isn't a release
+	"""An unreachable feed points to `upgrade --from <zip>`; JSON that isn't a release
 	(GitHub's rate-limit message) is refused as such."""
-	with pytest.raises(update.ReleaseError, match="Offline: update --from <zip>"):
+	with pytest.raises(update.ReleaseError, match="Offline: upgrade --from <zip>"):
 		update.find(feed=str(tmp_path / "missing.json"))
 	(tmp_path / "x.json").write_text('{"message": "rate limited"}')
 	with pytest.raises(update.ReleaseError, match="didn't answer with a release"):
@@ -355,7 +355,7 @@ def test_the_cli_checks_and_fetches(tmp_path, monkeypatch):
 	monkeypatch.setattr(runtime, "VERSION", "1.0.0")
 	feed = str(publish(tmp_path / "mirror"))
 	assert run(["release", "--check", "--feed", feed]) == (0, [
-		"NetRollout 1.0.1 is available (you have 1.0.0): sudo bin/netrollout.sh update",
+		"NetRollout 1.0.1 is available (you have 1.0.0): sudo bin/netrollout.sh upgrade",
 		"", "What's new in NetRollout 1.0.1:", "notes"])
 	monkeypatch.setattr(runtime, "VERSION", "1.0.1")
 	assert run(["release", "--check", "--feed", feed]) == (0, ["You have the latest version (1.0.1)."])
@@ -411,7 +411,7 @@ def test_check_and_the_download_show_the_notes(tmp_path, monkeypatch):
 	monkeypatch.setattr(runtime, "VERSION", "1.0.0")
 	feed = str(publish(tmp_path / "mirror", notes="- faster", page=PAGE))
 	assert run(["release", "--check", "--feed", feed]) == (0, [
-		"NetRollout 1.0.1 is available (you have 1.0.0): sudo bin/netrollout.sh update",
+		"NetRollout 1.0.1 is available (you have 1.0.0): sudo bin/netrollout.sh upgrade",
 		"", "What's new in NetRollout 1.0.1:", "- faster", f"Full notes: {PAGE}"])
 	code, _ = run(["release", "--feed", feed, "--out", str(tmp_path / "up")])
 	assert code == 0

@@ -392,8 +392,8 @@ def test_stream_of_a_queued_job_waits_for_it(app, operator, client_for, monkeypa
 	monkeypatch.setitem(app.orchestrator._jobs, job.job_id, job)
 	body = client_for(operator.user).get(
 		f"/rollout/stream/{job.job_id}").get_data(as_text=True)
-	assert body.startswith("data: Queued — waiting for a free slot\n\n")
-	assert body.count("Queued — waiting") == 1
+	assert body.startswith("data: Queued - waiting for a free slot\n\n")
+	assert body.count("Queued - waiting") == 1
 	assert body.count(": hb\n\n") == 3
 	assert body.endswith("event: done\ndata: \n\n")
 
@@ -725,7 +725,7 @@ def test_results_page_shows_what_needs_a_person(operator, client_for,
 		                   completed_at=now, device_ip="10.0.0.1", device_port=22,
 		                   device_type="checkpoint_gaia", commands_sent=1,
 		                   status="success",
-		                   action_needed="the change is live but NOT saved — "
+		                   action_needed="the change is live but NOT saved - "
 		                                 "save it on the device (config lock)"))
 	add_result(session_scope, operator.user, clean, ip="10.0.0.2")
 	html = client_for(operator.user).get("/results").get_data(as_text=True)
@@ -1346,7 +1346,7 @@ def test_active_jobs_lists_running_job(app, operator, client_for, monkeypatch):
 
 def test_the_jobs_screens_say_a_queued_job_is_queued(app, operator, client_for,
                                                      monkeypatch):
-	"""A queued job reads "Queued — waiting for a free slot" on Active Jobs and on
+	"""A queued job reads "Queued - waiting for a free slot" on Active Jobs and on
 	the dashboard's rollout card (no elapsed timer), not a bare "pending"."""
 	job = FakeRunningJob(operator.user.id)
 	job.started_at = None
@@ -1355,11 +1355,11 @@ def test_the_jobs_screens_say_a_queued_job_is_queued(app, operator, client_for,
 	app.backend.redis.client.hset(f"job:{job.job_id}:meta", "status", "pending")
 	client = client_for(operator.user)
 	jobs_page = client.get("/active_jobs").get_data(as_text=True)
-	assert ('<span class="status-pill pending queued">Queued — waiting for a free slot</span>'
+	assert ('<span class="status-pill pending queued">Queued - waiting for a free slot</span>'
 	        in jobs_page)
 	assert '<span class="status-pill pending">pending</span>' not in jobs_page
 	dashboard = client.get("/dashboard").get_data(as_text=True)
-	assert "QUEUED ROLLOUT" in dashboard and "Queued — waiting for a free slot" in dashboard
+	assert "QUEUED ROLLOUT" in dashboard and "Queued - waiting for a free slot" in dashboard
 	assert f'<input type="hidden" name="job_id" value="{job.job_id}">' in dashboard
 	assert "const jobStart" not in dashboard
 
@@ -1379,7 +1379,7 @@ def test_active_jobs_rollback_waits_for_the_job_to_finish(
 		r'<button type="button" class="job-action-btn btn-rollback" disabled>',
 		html)
 	assert wrapper is not None
-	assert wrapper.group(1) == ("Available when the rollout finishes — then "
+	assert wrapper.group(1) == ("Available when the rollout finishes - then "
 	                            "from the completion card or Results")
 	assert "openRollback('" not in html
 

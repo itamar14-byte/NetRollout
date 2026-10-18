@@ -41,7 +41,7 @@ def parse_commands() -> tuple[list[str] | None, dict[str, str], bool]:
 			platform_commands_map = json.loads(raw_platform_commands)
 		except json.JSONDecodeError:
 			raise Refused("Invalid platform commands format.") from None
-		# commands is unused in multi-platform mode — each platform has its own
+		# commands is unused in multi-platform mode - each platform has its own
 		return None, platform_commands_map, True
 
 	# 4) Single-platform: file upload or pasted text.
@@ -111,7 +111,7 @@ def load_devices(selected_ids: list[uuid.UUID]) -> list[Device]:
 def duplicate_targets(devices: list[Device]) -> dict[str, list[str]]:
 	"""The same ip:port selected twice is the same box twice (e.g. an own
 	entry and a global entry for one router): the config would be pushed
-	twice. The same IP on different ports is fine — targets behind NAT.
+	twice. The same IP on different ports is fine - targets behind NAT.
 
 	:returns: ip:port → the labels selected for it, where more than one"""
 	by_endpoint: dict[str, list[str]] = {}
@@ -133,7 +133,7 @@ def unreachable_devices(devices: list[Device]) -> list[Device]:
 def unreachable_message(devices: list[Device]) -> str:
 	""":returns: the refusal naming the unreachable devices"""
 	names = ", ".join(f"{d.label or d.ip} ({d.endpoint})" for d in devices)
-	return (f"Not reachable from NetRollout — rollout blocked: {names}. "
+	return (f"Not reachable from NetRollout - rollout blocked: {names}. "
 	        f"Recheck once they're back online.")
 
 
@@ -149,7 +149,7 @@ def unresolved_message(devices: list[Device], commands_of: Callable[[Device], li
 		return None
 	names = "; ".join(f"{d.label or d.ip} ({d.endpoint}): {', '.join(problems)}"
 	                  for d, problems in blocked)
-	return (f"Tokens that can't be filled in — rollout blocked: {names}. Fix the "
+	return (f"Tokens that can't be filled in - rollout blocked: {names}. Fix the "
 	        f"commands or the devices' attributes and mappings, or leave those "
 	        f"devices out.")
 
@@ -172,7 +172,7 @@ def submit_jobs(devices: list[Device], commands: list[str] | None,
 		return current_app.orchestrator.submit(devices, commands, options,
 		                                       current_user.id, audit_comment)
 
-	# Backend enforces multi-platform — never trust the frontend alone.
+	# Backend enforces multi-platform - never trust the frontend alone.
 	actual_platforms = {d.device_type for d in devices}
 	if len(actual_platforms) < 2:
 		raise Refused("Expected multiple platforms but only one found.")
@@ -307,7 +307,7 @@ def start_rollout() -> tuple[uuid.UUID, list[Device], str | None]:
 	devices = load_devices(selected_ids)
 
 	if duplicates := duplicate_targets(devices):
-		raise Refused("The same target was selected more than once — select only one "
+		raise Refused("The same target was selected more than once - select only one "
 		              "of: " + "; ".join(f"{' / '.join(labels)} ({ep})"
 		                                 for ep, labels in duplicates.items()))
 
@@ -439,7 +439,7 @@ def rollback(job_id: uuid.UUID, data: dict[str, Any]) -> ResponseReturnValue:
 		successful = history.successful_endpoints(job_id, owner_id)
 
 		candidates = owner_view.visible(ips={ip for ip, _ in successful})
-		# Match on ip:port (the target), not IP alone — devices behind one
+		# Match on ip:port (the target), not IP alone - devices behind one
 		# NAT address differ by port. The owner's own entry and a global
 		# entry can still describe the same target: keep one per ip:port,
 		# preferring the owner's own, so the box isn't pushed twice.

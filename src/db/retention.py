@@ -32,7 +32,7 @@ RETENTION_STATEMENTS = {
 	"device_result_retention":
 		f"DELETE FROM device_results "
 		f"WHERE {_older_than('completed_at', 'job_retention_days')}",
-	# created_at is submission time, results age from completion — only
+	# created_at is submission time, results age from completion - only
 	# delete metadata once the job's results are gone, so both expire together
 	"job_metadata_retention":
 		f"DELETE FROM job_metadata m "

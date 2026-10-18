@@ -1,10 +1,10 @@
-// NetRollout Manager — the Windows app for running NetRollout: a window with
+// NetRollout Manager - the Windows app for running NetRollout: a window with
 // the status, the address and the actions, and a tray icon. The actions run
 // bin\manage.ps1 (hidden) and show its output; the status comes from
-// NetRollout's health endpoint on this computer. Update: a newer release
-// (Updates.cs), its Setup downloaded, checked and run - it updates the install.
-// The port helper (--helper) is PortHelper.cs; the window's update part,
-// ManagerForm.Updates.cs; the update dialog, with the release, Updates.cs.
+// NetRollout's health endpoint on this computer. Upgrade: a newer release
+// (Updates.cs), its Setup downloaded, checked and run - it upgrades the install.
+// The port helper (--helper) is PortHelper.cs; the window's upgrade part,
+// ManagerForm.Updates.cs; the upgrade dialog, with the release, Updates.cs.
 //
 // C# 5 / .NET Framework 4.8 (built into Windows 10/11): build.ps1 compiles it
 // with Windows' own csc.exe, no SDK needed. Lives next to manage.ps1 in
@@ -192,14 +192,14 @@ namespace NetRollout
 			get { return File.Exists(Path.Combine(Root, ".env")); }
 		}
 
-		// The update this folder's files are for, unfinished: manage.ps1 writes
-		// .update-pending before an update's second half and removes it once
+		// The upgrade this folder's files are for, unfinished: manage.ps1 writes
+		// .upgrade-pending before an upgrade's second half and removes it once
 		// that worked; it names this VERSION (another: stale). null: none
 		public static string PendingUpdate
 		{
 			get
 			{
-				string pending = Value(Path.Combine(Root, ".update-pending"), "version", "");
+				string pending = Value(Path.Combine(Root, ".upgrade-pending"), "version", "");
 				return pending.Length > 0 && pending == Version ? pending : null;
 			}
 		}
@@ -263,10 +263,10 @@ namespace NetRollout
 		public static Tuple<State, string> Health()
 		{
 			if (!Installed) return Tuple.Create(State.Stopped, "Not installed here - run NetRollout Setup");
-			// first: Start would otherwise look like the way on (it finishes the update too)
+			// first: Start would otherwise look like the way on (it finishes the upgrade too)
 			string pending = PendingUpdate;
 			if (pending != null)
-				return Tuple.Create(State.Attention, "The update to " + pending + " didn't finish - click Finish update");
+				return Tuple.Create(State.Attention, "The upgrade to " + pending + " didn't finish - click Finish upgrade");
 			try
 			{
 				var request = (HttpWebRequest)WebRequest.Create(
@@ -320,7 +320,7 @@ namespace NetRollout
 		bool exiting, toldAboutTray, updating;
 		Release announced;                  // the daily check's find, for a click on its notification
 		ToolStripMenuItem dailyItem;
-		// Start, or Finish update while an update is unfinished (ShowState)
+		// Start, or Finish upgrade while an upgrade is unfinished (ShowState)
 		Button startButton, stopButton;
 		// only while the HTTPS port is taken (normal times: System Settings)
 		Button changePortButton;
@@ -400,7 +400,7 @@ namespace NetRollout
 			AddButton("Logs", delegate { Run("logs", "Recent log lines of the app:"); }, false);
 			AddButton("Back up", delegate { Run("backup", "Backing up..."); }, false);
 			AddButton("Restore...", delegate { RestoreBackup(); }, false);
-			AddButton("Update", delegate { CheckForUpdates(true); }, false);
+			AddButton("Upgrade", delegate { CheckForUpdates(true); }, false);
 
 			// what the actions say
 			output.Dock = DockStyle.Fill;
@@ -440,8 +440,8 @@ namespace NetRollout
 			startItem = menu.Items.Add("Start", null, delegate { ShowWindow(); StartOrFinish(); });
 			stopItem = menu.Items.Add("Stop", null, delegate { ShowWindow(); StopNetRollout(); });
 			menu.Items.Add(new ToolStripSeparator());
-			menu.Items.Add("Check for updates", null, delegate { ShowWindow(); CheckForUpdates(true); });
-			dailyItem = new ToolStripMenuItem("Check for updates daily") { Checked = Updates.Daily, CheckOnClick = true };
+			menu.Items.Add("Check for upgrades", null, delegate { ShowWindow(); CheckForUpdates(true); });
+			dailyItem = new ToolStripMenuItem("Check for upgrades daily") { Checked = Updates.Daily, CheckOnClick = true };
 			dailyItem.CheckedChanged += delegate { Updates.Daily = dailyItem.Checked; };
 			menu.Items.Add(dailyItem);
 			menu.Items.Add(new ToolStripSeparator());
@@ -501,14 +501,14 @@ namespace NetRollout
 			return b;
 		}
 
-		// An update whose second half didn't finish (Setup closed after a
-		// failure): Finish update runs that half again - the new images, the
+		// An upgrade whose second half didn't finish (Setup closed after a
+		// failure): Finish upgrade runs that half again - the new images, the
 		// settings, the restart - never the new version without them
 		void StartOrFinish()
 		{
 			string pending = Install.PendingUpdate;
 			if (pending == null) { Run("start", "Starting NetRollout..."); return; }
-			Run("update -Yes", "Finishing the update to NetRollout " + pending + "...");
+			Run("upgrade -Yes", "Finishing the upgrade to NetRollout " + pending + "...");
 		}
 
 		void ShowWindow()
@@ -672,11 +672,11 @@ namespace NetRollout
 					if (rows == null)
 					{
 						if (RolloutsRunning && MessageBox.Show(this, detailLabel.Text + ". They finish and are recorded first (up to 10 minutes). " +
-								(action == "update" ? "Update now?" : action == "uninstall" ? "Uninstall now?" : "Stop now?"),
-								action == "update" ? "Update NetRollout" : action == "uninstall" ? "Uninstall NetRollout" : "Stop NetRollout",
+								(action == "upgrade" ? "Upgrade now?" : action == "uninstall" ? "Uninstall now?" : "Stop now?"),
+								action == "upgrade" ? "Upgrade NetRollout" : action == "uninstall" ? "Uninstall NetRollout" : "Stop NetRollout",
 								MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
 						{
-							Say(action == "update" ? "Not updated." : action == "uninstall" ? "Not uninstalled." : "Not stopped - NetRollout keeps running.");
+							Say(action == "upgrade" ? "Not upgraded." : action == "uninstall" ? "Not uninstalled." : "Not stopped - NetRollout keeps running.");
 							return;
 						}
 						then(false);
@@ -691,7 +691,7 @@ namespace NetRollout
 					}
 					if (choice == RolloutChoice.DontStop)
 					{
-						Say(action == "update" ? "Not updated - update later (Update)." :
+						Say(action == "upgrade" ? "Not upgraded - upgrade later (Upgrade)." :
 							action == "uninstall" ? "Not uninstalled." : "Not stopped - NetRollout keeps running.");
 						return;
 					}
@@ -733,7 +733,9 @@ namespace NetRollout
 			var info = new ProcessStartInfo("powershell.exe", Install.PsArgs(command + " -NoBrowser"))
 			{
 				UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = Install.Root,
-				RedirectStandardOutput = true, RedirectStandardError = true
+				RedirectStandardOutput = true, RedirectStandardError = true,
+				// manage.ps1 writes UTF-8 (the app's log lines, labels in any language)
+				StandardOutputEncoding = System.Text.Encoding.UTF8, StandardErrorEncoding = System.Text.Encoding.UTF8
 			};
 			running = new Process { StartInfo = info, EnableRaisingEvents = true };
 			running.OutputDataReceived += delegate (object s, DataReceivedEventArgs a) { if (a.Data != null) SayLater(a.Data); };
@@ -775,7 +777,7 @@ namespace NetRollout
 
 		// Start greyed while NetRollout runs and is well (green) - while it needs
 		// attention Start is the repair (it recreates what's off); Stop greyed
-		// while it's stopped. Finish update is always offered.
+		// while it's stopped. Finish upgrade is always offered.
 		void UpdateStartStop()
 		{
 			bool idle = running == null;
@@ -899,7 +901,7 @@ namespace NetRollout
 				: s == State.Stopped ? "Stopped" : "Checking...";
 			detailLabel.Text = detail;
 			addressLink.Text = Install.Installed ? Install.Address : "";
-			string start = Install.PendingUpdate != null ? "Finish update" : "Start";
+			string start = Install.PendingUpdate != null ? "Finish upgrade" : "Start";
 			startButton.Text = start;
 			startItem.Text = start;
 			UpdateStartStop();

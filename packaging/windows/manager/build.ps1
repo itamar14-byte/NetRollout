@@ -1,6 +1,6 @@
 <#
 Builds "NetRollout Manager.exe" into packaging\windows\ with the C# compiler that ships
-with Windows (.NET Framework 4.8) — no SDK. CI and the release build run it;
+with Windows (.NET Framework 4.8) - no SDK. CI and the release build run it;
 the .exe isn't committed.
 
   powershell -ExecutionPolicy Bypass -File packaging\windows\manager\build.ps1

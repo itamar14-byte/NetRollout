@@ -1,17 +1,17 @@
-// NetRollout Manager's updates: is there a newer NetRollout, and its Setup
+// NetRollout Manager's upgrades: is there a newer NetRollout, and its Setup
 // downloaded and checked. The source is GitHub's releases - the installer is
 // published there (Docker Hub gets the images first, before an installer
-// exists) - on the installed version's channel, as Linux's update
+// exists) - on the installed version's channel, as Linux's upgrade
 // (src/setup/update.py): a release installed asks GitHub's latest release
 // (never a pre-release: GitHub's latest leaves them out; a 404 there = none
 // published yet); a pre-release installed (dev, a, b, rc) asks the release
 // list and takes the newest by version, pre-releases included (drafts and
 // tags that aren't a version skipped). An organisation's mirror (or a test)
-// can stand in: HKCU\Software\NetRollout\Manager, UpdateFeed = a URL or a
+// can stand in: HKCU\Software\NetRollout\Manager, UpgradeFeed = a URL or a
 // file with the same JSON - one release, used as given, or a list of them,
 // picked as GitHub's list - its download links http(s) or file.
 //
-// Running the downloaded Setup (it updates the install) is the window's job.
+// Running the downloaded Setup (it upgrades the install) is the window's job.
 
 using System;
 using System.Collections;
@@ -50,17 +50,17 @@ namespace NetRollout
 		public const string GitHubList = "https://api.github.com/repos/itamar14-byte/NetRollout/releases?per_page=30";
 		const string Key = @"Software\NetRollout\Manager";
 
-		// the organisation's mirror or a test feed (UpdateFeed); null: GitHub
+		// the organisation's mirror or a test feed (UpgradeFeed); null: GitHub
 		public static string CustomFeed
 		{
 			get
 			{
-				var feed = Registry.GetValue(@"HKEY_CURRENT_USER\" + Key, "UpdateFeed", null) as string;
+				var feed = Registry.GetValue(@"HKEY_CURRENT_USER\" + Key, "UpgradeFeed", null) as string;
 				return string.IsNullOrEmpty(feed) ? null : feed;
 			}
 		}
 
-		// the daily check (on unless switched off: the tray menu, the update window)
+		// the daily check (on unless switched off: the tray menu, the upgrade window)
 		public static bool Daily
 		{
 			get
@@ -126,15 +126,15 @@ namespace NetRollout
 				var http = web.Response as HttpWebResponse;
 				var limited = http == null ? null : RateLimited(http);
 				if (limited != null)
-					return "Couldn't check for updates: " + limited;
+					return "Couldn't check for upgrades: " + limited;
 				if (http != null)
-					return "Couldn't check for updates: " + (custom ?? "GitHub") + " answered " + (int)http.StatusCode +
+					return "Couldn't check for upgrades: " + (custom ?? "GitHub") + " answered " + (int)http.StatusCode +
 						" (" + http.StatusDescription + ").";
 				if (custom != null && !Regex.IsMatch(custom, "^https?://", RegexOptions.IgnoreCase))
-					return "Couldn't read the update feed " + custom + " (" + web.Message + ").";
-				return "Couldn't check for updates (" + web.Message + "). Is this computer online?";
+					return "Couldn't read the upgrade feed " + custom + " (" + web.Message + ").";
+				return "Couldn't check for upgrades (" + web.Message + "). Is this computer online?";
 			}
-			return "Couldn't check for updates (" + e.Message + ").";
+			return "Couldn't check for upgrades (" + e.Message + ").";
 		}
 
 		// GitHub's limit for requests without a sign-in (60 an hour per internet
@@ -147,7 +147,7 @@ namespace NetRollout
 			int code = (int)http.StatusCode;
 			if ((code != 403 && code != 429) || http.Headers["X-RateLimit-Remaining"] != "0")
 				return null;
-			const string words = "GitHub's limit for update checks from this network (60 an hour per internet " +
+			const string words = "GitHub's limit for upgrade checks from this network (60 an hour per internet " +
 				"address, shared by everything here that asks GitHub) is used up";
 			long seconds;
 			if (!long.TryParse(http.Headers["X-RateLimit-Reset"], out seconds))
@@ -171,7 +171,7 @@ namespace NetRollout
 				if (data == null)
 				{
 					if (github) throw new NothingPublishedException();
-					throw new InvalidDataException("the update feed lists no release" +
+					throw new InvalidDataException("the upgrade feed lists no release" +
 						(prereleases ? "" : " (a pre-release is offered only to a pre-release installed)"));
 				}
 			}
@@ -300,12 +300,12 @@ namespace NetRollout
 	}
 
 	// A newer version: what's new (and its page on GitHub), what happens,
-	// Update now (Enter) or Not now
+	// Upgrade now (Enter) or Not now
 	class UpdateDialog : Form
 	{
 		public UpdateDialog(Release release, string running)
 		{
-			Text = "Update NetRollout";
+			Text = "Upgrade NetRollout";
 			Icon = Install.AppIcon(32);
 			Font = new Font("Segoe UI", 9.5f);
 			ClientSize = new Size(560, 420);
@@ -325,10 +325,10 @@ namespace NetRollout
 				Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom,
 				Text = running + "A backup is made first. NetRollout keeps running while the new version downloads, " +
 				       "then restarts - about a minute without it, and everyone signs in again." };
-			var daily = new CheckBox { Text = "Check for updates daily", Checked = Updates.Daily, AutoSize = true,
+			var daily = new CheckBox { Text = "Check for upgrades daily", Checked = Updates.Daily, AutoSize = true,
 				Location = new Point(18, 346), Anchor = AnchorStyles.Left | AnchorStyles.Bottom };
 			daily.CheckedChanged += delegate { Updates.Daily = daily.Checked; };
-			var update = new Button { Text = "Update now", DialogResult = DialogResult.OK, Size = new Size(120, 32),
+			var update = new Button { Text = "Upgrade now", DialogResult = DialogResult.OK, Size = new Size(120, 32),
 				Location = new Point(290, 376), Anchor = AnchorStyles.Right | AnchorStyles.Bottom, FlatStyle = FlatStyle.System };
 			var later = new Button { Text = "Not now", DialogResult = DialogResult.Cancel, Size = new Size(120, 32),
 				Location = new Point(422, 376), Anchor = AnchorStyles.Right | AnchorStyles.Bottom, FlatStyle = FlatStyle.System };
@@ -346,7 +346,7 @@ namespace NetRollout
 				Controls.Add(page);    // first: its width in the window's font
 				page.Location = new Point(ClientSize.Width - 18 - page.PreferredWidth, 44);   // the notes' right edge
 			}
-			AcceptButton = update;     // Enter updates
+			AcceptButton = update;     // Enter upgrades
 			CancelButton = later;
 			Shown += delegate { update.Focus(); };
 		}

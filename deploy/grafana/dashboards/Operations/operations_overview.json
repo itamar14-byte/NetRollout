@@ -42,7 +42,7 @@
       }
     ],
     "cursorSync": "Off",
-    "description": "The main landing page — live state + recent activity",
+    "description": "The main landing page - live state + recent activity",
     "editable": true,
     "elements": {
       "panel-1": {

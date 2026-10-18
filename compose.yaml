@@ -1,9 +1,9 @@
-# NetRollout — the whole product. Settings come from .env (written by the
-# installer — python -m src.setup — which explains every line in it):
+# NetRollout - the whole product. Settings come from .env (written by the
+# installer - python -m src.setup - which explains every line in it):
 #
 #   docker compose up -d        start (or apply a changed .env)
 #   docker compose ps           what runs, and whether it's healthy
-#   docker compose stop         stop — running rollouts finish first (drain)
+#   docker compose stop         stop - running rollouts finish first (drain)
 #
 # Monitoring (Prometheus, Loki, Alloy, Grafana) is the "monitoring" profile,
 # switched on by COMPOSE_PROFILES=monitoring in .env; port 80 → 443 is

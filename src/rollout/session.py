@@ -47,7 +47,7 @@ class RunReport:
 		log line is."""
 		what = redact(what)
 		self.needs_action.setdefault(device.endpoint, []).append(what)
-		self.notify(f"ACTION NEEDED — {device.endpoint}: {what}", Tone.ERROR,
+		self.notify(f"ACTION NEEDED - {device.endpoint}: {what}", Tone.ERROR,
 		            important=True)
 
 	def actions(self, endpoint: str) -> str | None:
@@ -99,13 +99,13 @@ def _enter_cli_shell(conn: ConfigSession, platform: Platform) -> str | None:
 		if not wrong(conn.find_prompt()):
 			return None
 	return (f"the account logs in to the wrong shell and "
-	        f"'{platform.cli_shell or '?'}' didn't leave it — set its shell to "
+	        f"'{platform.cli_shell or '?'}' didn't leave it - set its shell to "
 	        f"clish")
 
 
 def _fortios_save_if_manual(conn: ConfigSession) -> tuple[bool, str | None]:
 	"""FortiOS saves changes automatically unless `cfg-save` is manual (lost
-	at reboot) or revert (undone after a timeout) — then save explicitly.
+	at reboot) or revert (undone after a timeout) - then save explicitly.
 	With VDOMs, the setting lives under `config global`.
 
 	:returns: (saved explicitly, the device's complaint if saving failed)"""
@@ -172,7 +172,7 @@ class NetmikoSession:
 							config_command=platform.config_command)
 					except (ValueError, netmiko.exceptions.ReadTimeout) as e:
 						report.action_needed(
-							device, f"'{platform.config_command}' was refused — "
+							device, f"'{platform.config_command}' was refused - "
 							f"usually another session has uncommitted changes in "
 							f"the shared configuration: commit or discard them "
 							f"(they're someone else's work), then rerun. Nothing "
@@ -194,7 +194,7 @@ class NetmikoSession:
 					if complaint := rejection(output, command.strip()):
 						rejected += 1
 						report.notify(f"{device.endpoint}: '{command.strip()}' "
-						              f"rejected — {complaint}", Tone.ERROR)
+						              f"rejected - {complaint}", Tone.ERROR)
 
 				applied = self._finish(net_connect)
 				return PushResult(applied=applied, rejected=rejected)
@@ -218,7 +218,7 @@ class NetmikoSession:
 					sent == len(commands):
 				# The last command changed the prompt (e.g. a new hostname):
 				# the commands were applied, but the finish couldn't run in this
-				# session — a fresh one learns the new prompt
+				# session - a fresh one learns the new prompt
 				self._finish_in_new_session()
 				return PushResult(applied=True, rejected=rejected)
 			if commands_sent and platform.finish.interruptible:
@@ -230,7 +230,7 @@ class NetmikoSession:
 					f"(command {sent} of {len(commands)}): "
 					+ (f"the {answered} before it {'is' if answered == 1 else 'are'} "
 					   f"live but NOT saved, " if answered else "")
-					+ f"the {len(commands) - sent} after it weren't sent — check "
+					+ f"the {len(commands) - sent} after it weren't sent - check "
 					  f"the device, then save the change or remove it"))
 				took_effect = answered - rejected > 0
 				return PushResult(applied=took_effect, rejected=rejected,
@@ -257,15 +257,15 @@ class NetmikoSession:
 					break
 				if complaint := rejection(conn.send_command_timing("end"), "end"):
 					report.notify(f"{device.endpoint}: closing a config block "
-					              f"failed — {complaint}", Tone.ERROR)
+					              f"failed - {complaint}", Tone.ERROR)
 			saved, complaint = _fortios_save_if_manual(conn)
 			if complaint:
 				report.action_needed(device, f"cfg-save is not automatic and "
-				                     f"saving failed — run 'execute cfg save' on "
+				                     f"saving failed - run 'execute cfg save' on "
 				                     f"the device, or the change is lost at reboot "
 				                     f"/ reverted ({complaint})")
 			elif saved:
-				report.notify(f"{device.endpoint}: cfg-save is not automatic — "
+				report.notify(f"{device.endpoint}: cfg-save is not automatic - "
 				              f"configuration saved", Tone.WARNING)
 		# Before leaving config mode: leaving discards uncommitted changes
 		if not platform.finish.before_leave(conn, report, device):
@@ -278,7 +278,7 @@ class NetmikoSession:
 		# lock held by another session) means it's lost at the next reboot
 		if command and isinstance(reply, str) and \
 				(complaint := rejection(reply, command)):
-			report.action_needed(device, f"the change is live but NOT saved — "
+			report.action_needed(device, f"the change is live but NOT saved - "
 			                     f"save it on the device ({complaint})")
 		return True
 
@@ -290,23 +290,23 @@ class NetmikoSession:
 				lambda: netmiko.ConnectHandler(**_connect_args(device)))
 			if outcome is None:
 				report.notify(f"{device.endpoint}: prompt changed after the push "
-				              f"(e.g. a new hostname) — applied", Tone.WARNING)
+				              f"(e.g. a new hostname) - applied", Tone.WARNING)
 				return
 			reply, command = outcome
 			if isinstance(reply, str) and (complaint := rejection(reply, command)):
 				raise RuntimeError(complaint)
 			report.notify(f"{device.endpoint}: prompt changed after the push (e.g. "
-			              f"a new hostname) — applied, and saved from a new "
+			              f"a new hostname) - applied, and saved from a new "
 			              f"session", Tone.WARNING)
 		except Exception as e:
-			report.action_needed(device, f"the change is live but NOT saved — "
+			report.action_needed(device, f"the change is live but NOT saved - "
 			                     f"save it on the device (the prompt changed "
 			                     f"after the push and saving from a new session "
 			                     f"failed: {e})")
 
 	def fetch_config(self) -> str | None:
 		"""The running config, printed in the syntax engineers type (see
-		PLATFORMS), over the same SSH as the push — the device's port and
+		PLATFORMS), over the same SSH as the push - the device's port and
 		credentials.
 
 		:returns: the config; None if it can't be fetched (reported in the log)"""

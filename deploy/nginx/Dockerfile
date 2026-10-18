@@ -5,7 +5,7 @@
 #   docker build -t netrollout-nginx deploy/nginx
 #
 # Environment (set by the installer; the app's shared/site.env overrides the
-# first two at run time — stage 8):
+# first two at run time - stage 8):
 #   NETROLLOUT_HOSTNAME     canonical name; other names redirect to it (IPs don't)
 #   NETROLLOUT_HTTPS_PORT   the port people type (published 443 by default)
 #   APP_UPSTREAM            the app, default app:8080

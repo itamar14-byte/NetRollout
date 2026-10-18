@@ -32,7 +32,7 @@ class FakeRedis:
 	def __init__(self, blpop_failures=0):
 		# Queues are created under a lock: a defaultdict's lazy creation isn't
 		# atomic, so the dispatcher thread and the test could each create
-		# their own Queue for the same key — the dispatcher then waits on an
+		# their own Queue for the same key - the dispatcher then waits on an
 		# orphan until its BLPOP timeout (a flaky test, not an app bug)
 		self._queues = {}
 		self._queues_lock = threading.Lock()
@@ -59,7 +59,7 @@ class FakeRedis:
 		q.put(value.encode() if isinstance(value, str) else value)
 		return q.qsize()           # redis-py: the list's length after the push
 
-	# Same signature as redis-py's hset — a permissive **kwargs here once hid
+	# Same signature as redis-py's hset - a permissive **kwargs here once hid
 	# a real bug (orchestrator passing a nonexistent `field=` argument)
 	def hset(self, name, key=None, value=None, mapping=None, items=None):
 		if self.fail_writes:
@@ -274,7 +274,7 @@ def test_engine_crash_releases_slot_and_next_job_runs(make_orchestrator):
 		orch.submit([], ["cmd"], options, uid)
 		orch.submit([], ["cmd"], options, uid)  # needs the single slot back
 		assert wait_for(lambda: not orch._jobs), \
-			"crashed job never cleaned up — slot leaked"
+			"crashed job never cleaned up - slot leaked"
 	assert orch._slots._value == 1
 
 

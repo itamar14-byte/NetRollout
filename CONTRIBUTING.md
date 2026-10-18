@@ -276,7 +276,7 @@ Replace `<repo>` with the repository's full path. The result is `dist\NetRollout
 python packaging/build_release.py --version <VERSION> [--linux | --windows] [--feed-base URL] [--notes FILE]
 ```
 
-This writes `dist/release-<version>/`: the Linux zip, and on Windows NetRollout Setup and the CLI, plus `SHA256SUMS`. With `--feed-base`, it also writes a `release-feed.json` in the format of GitHub's release API, which you can use to test updates from a mirror. The version must equal the `VERSION` file. It doesn't build or push the images.
+This writes `dist/release-<version>/`: the Linux zip, and on Windows NetRollout Setup and the CLI, plus `SHA256SUMS`. With `--feed-base`, it also writes a `release-feed.json` in the format of GitHub's release API, which you can use to test upgrades from a mirror. The version must equal the `VERSION` file. It doesn't build or push the images.
 
 ## Releasing (maintainers)
 
@@ -286,7 +286,7 @@ NetRollout uses [semantic versioning](https://semver.org/), written as [PEP 440]
 
 | Change | Example | Contains |
 |---|---|---|
-| Patch | 1.0.0 → 1.0.1 | Fixes only. Safe to update. |
+| Patch | 1.0.0 → 1.0.1 | Fixes only. Safe to upgrade. |
 | Minor | 1.0.x → 1.1.0 | New features, backwards compatible. |
 | Major | 1.x → 2.0.0 | Breaking changes. |
 
@@ -294,7 +294,7 @@ Pre-releases carry a PEP 440 suffix and sort before their release: `1.0.0rc1` < 
 
 Each major release has a **codename** from a networking alphabet, one letter per major. Minors and patches carry their major's name. 1.x is **Anycast**. The next major's name is added to `CODENAMES` in `src/runtime.py` when that major is planned; the footer shows it.
 
-**Update channels** follow the installed version:
+**Upgrade channels** follow the installed version:
 
 - A stable release installed (for example 1.0.0) sees only stable releases.
 - A pre-release installed (for example 1.0.0rc1) sees pre-releases too, and moves on to the final release when it comes out.
@@ -303,7 +303,7 @@ Each major release has a **codename** from a networking alphabet, one letter per
 
 1. **The bump commit**, on `master`:
    - Set `VERSION` to the new version, without a `v` (for example `1.0.1`).
-   - In `CHANGELOG.md`, turn the **Unreleased** section into the new version's section and start a new empty **Unreleased** above it. The heading must begin with `## ` followed by the version, `v<version>` or `[<version>]` (for example `## [1.0.1] - 2026-11-02`). The release is refused without it. That section becomes the release notes on the GitHub release page and in NetRollout Manager's Update window.
+   - In `CHANGELOG.md`, turn the **Unreleased** section into the new version's section and start a new empty **Unreleased** above it. The heading must begin with `## ` followed by the version, `v<version>` or `[<version>]` (for example `## [1.0.1] - 2026-11-02`). The release is refused without it. That section becomes the release notes on the GitHub release page and in NetRollout Manager's Upgrade window.
 2. **Dry run (usually automatic):** a push or pull request that changes the release machinery (`.github/workflows/release.yml`, `packaging/`, `Dockerfile`, `deploy/`, the install's compose files, `requirements.txt`) runs the release workflow by itself, without publishing - so a broken pipeline shows on the change that broke it. To run it by hand anyway: Actions → Release → *Run workflow*. Only a pushed version tag publishes.
 3. **Tag and push the tag:**
 

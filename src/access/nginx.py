@@ -1,10 +1,10 @@
 """What nginx serves, from the app's side.
 
-The app writes two values — the hostname (System Settings) and the HTTPS port
-that is actually published — into site.env in the folder it shares with nginx
+The app writes two values - the hostname (System Settings) and the HTTPS port
+that is actually published - into site.env in the folder it shares with nginx
 (config/nginx). The nginx image's watcher (deploy/nginx/) validates them,
-renders its own template, tests the result with `nginx -t` and reloads — or
-keeps serving the last good site — and reports in status.json. The app never
+renders its own template, tests the result with `nginx -t` and reloads - or
+keeps serving the last good site - and reports in status.json. The app never
 writes nginx syntax.
 
 Nginx is that contract seen from the app: whether a NetRollout nginx reports
@@ -92,7 +92,7 @@ def _site_values(hostname: str | None) -> dict[str, str]:
 def seed_hostname_from_site() -> None:
 	"""Before the first start's settings seed: the installer writes the
 	hostname into site.env (not .env), so it becomes the System Settings
-	hostname — unless the environment names one (non-Docker runs). Only a
+	hostname - unless the environment names one (non-Docker runs). Only a
 	missing setting is ever seeded, so later starts change nothing."""
 	try:
 		host = site_env.read().get(site_env.HOSTNAME, "")
@@ -119,7 +119,7 @@ def server_ips() -> list[str]:
 def read_status() -> dict[str, Any] | None:
 	"""The watcher's last verdict: {"state": "applied" | "rejected",
 	"message", "time"}. None when no nginx reports here (an external proxy,
-	or dev without the stack) — "not managed"."""
+	or dev without the stack) - "not managed"."""
 	try:
 		data = json.loads((site_env.folder() / STATUS_FILE).read_text(encoding="utf-8"))
 	except FileNotFoundError:
@@ -146,7 +146,7 @@ def wait_for_status(after: float, timeout: float = 8.0, poll: float = 0.5,
                     hostname: str | None = None) -> dict[str, Any] | None:
 	"""The first verdict the watcher writes at or after `after` (epoch
 	seconds; it checks every 3 s), or None if none comes within `timeout`.
-	With `hostname`: only a rejection, or the site applied for that name —
+	With `hostname`: only a rejection, or the site applied for that name -
 	not an earlier reload (e.g. of a reissued certificate alone)."""
 	deadline = time.monotonic() + timeout
 	while True:
@@ -187,7 +187,7 @@ class Nginx:
 		               status.get("message", ""), status.get("time"))
 
 	def overview(self, hostname: str | None) -> dict[str, Any]:
-		"""What the Access card shows, whenever an admin looks — not only right
+		"""What the Access card shows, whenever an admin looks - not only right
 		after a save: nginx's last verdict and the certificate in use, checked
 		against `hostname` (the saved one).
 		{"nginx": None (no NetRollout nginx reports here) | {"state", "message",
@@ -265,7 +265,7 @@ class Nginx:
 
 
 def sync_at_start(settings: SettingsStore) -> None:
-	"""At every start nginx gets the saved hostname — also after a change made
+	"""At every start nginx gets the saved hostname - also after a change made
 	while it was down, or a restore. Never stops the app from starting."""
 	try:
 		changed = write_site(settings.get("public_hostname"))

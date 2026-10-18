@@ -1,5 +1,5 @@
 {% extends "operator_base.html" %}
-{% block title %}Properties — NetRollout{% endblock %}
+{% block title %}Properties - NetRollout{% endblock %}
 {% block page_title %}Property Definitions{% endblock %}
 
 {% block extra_style %}
@@ -258,7 +258,7 @@ async function deleteProp(id, name) {
     document.getElementById('propCard-' + id)?.remove();
 }
 
-// Escape handling — same pattern as inventory
+// Escape handling - same pattern as inventory
 document.addEventListener('keydown', function(e) {
     if (e.key !== 'Escape') return;
     ['addPropModal','editPropModal'].forEach(id => {

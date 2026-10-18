@@ -1,4 +1,4 @@
-"""The password rule (src/accounts/users.py) — the server side of it; the pages
+"""The password rule (src/accounts/users.py) - the server side of it; the pages
 mirror it in templates/_password_rule_script.html."""
 import pytest
 

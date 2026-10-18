@@ -351,7 +351,7 @@ def test_grafana_reads_exactly_the_dashboard_tables(app):
 				return c.execute(text("SELECT has_table_privilege(:r, :t, "
 				                      "'SELECT')"), {"r": role, "t": table}).scalar()
 			assert all(can_read(t) for t in GRAFANA_TABLES)
-			# credentials, password hashes, LDAP, settings: never — also a
+			# credentials, password hashes, LDAP, settings: never - also a
 			# wider grant from before is taken back
 			for table in ("users", "security_profiles", "inventory",
 			              "ldap_servers", "system_settings"):

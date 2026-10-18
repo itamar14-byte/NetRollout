@@ -1,5 +1,5 @@
 """src/access/nginx.py: the values the app hands nginx (site.env) and
-the watcher's verdict it reads back (status.json). No nginx here — the files."""
+the watcher's verdict it reads back (status.json). No nginx here - the files."""
 import datetime
 import json
 import os

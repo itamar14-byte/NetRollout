@@ -75,7 +75,7 @@ flowchart LR
 ```
 
 - **Only nginx publishes ports**: the HTTPS port (443 by default) and, while port 80 is free on the host (checked at every start), port 80, which redirects to HTTPS. PostgreSQL, Redis, the app and the monitoring services are reachable only on the compose network.
-- **The app has no Docker access.** Whatever needs Docker (a new HTTPS port, an update, a backup restore) is done on the host by the scripts, through files the app writes and the host reads.
+- **The app has no Docker access.** Whatever needs Docker (a new HTTPS port, an upgrade, a backup restore) is done on the host by the scripts, through files the app writes and the host reads.
 - **nginx follows the app through files.** The app writes plain values (hostname, port) into `config/nginx/site.env`. A watcher inside the nginx container renders the site from its template, tests it with `nginx -t`, and reloads, or keeps the last good site and reports why.
 - **The CLI uses only `src/rollout/`**, the same engine the web app runs. An import test guards that it never loads the web stack.
 
@@ -228,7 +228,7 @@ What installing and running NetRollout decides and writes, once for Windows and 
 | `__main__.py` | The command line: `init`, `check`, `prepare-start`, `status`, `restore-key`, `check-update`, `upgrade`, `release`, `port-ready`, `port-next`, `port-open`, `port-trying`, `port-close`, `port-set`, `port-setting`. | `COMMANDS`, `SetupExit` |
 | `install.py` | The install's questions: what the host knows, what the admin answers, their checks and defaults; writing a new install (or a developer's). | `Facts`, `Answers`, `collect()`, `install()`, `install_dev()`, `check_hostname()`, `check_port()`, `check_timezone()` |
 | `env.py` | The install's `.env`: every line explained, the generated secrets, reading and updating keys. | `env_text()`, `generate_secrets()`, `env_read()`, `env_write()`, `env_set()`, `compose_files()` |
-| `update.py` | Releases: finding one (GitHub or a feed), downloading and checking it against `SHA256SUMS`, unpacking it; the update's direction; `.env`'s new keys after an update. | `Release`, `find()`, `download()`, `unpack()`, `update_kind()`, `upgrade()`, `ReleaseError` |
+| `update.py` | Releases: finding one (GitHub or a feed), downloading and checking it against `SHA256SUMS`, unpacking it; the upgrade's direction; `.env`'s new keys after an upgrade. | `Release`, `find()`, `download()`, `unpack()`, `update_kind()`, `upgrade()`, `ReleaseError` |
 | `manage.py` | What the scripts ask after the install: the checks before a start, the `netrollout status` report, a restored encryption key into `.env`. | `prepare_start()`, `status()`, `restore_key()` |
 | `port.py` | The port helper's decisions and records (the scripts do the Docker part). | `next_step()`, `StepAction`, `open_trial()`, `trying()`, `close()`, `set_by_hand()` |
 
@@ -287,8 +287,8 @@ Prometheus' `/metrics` is added by prometheus-flask-exporter (nginx answers it w
 | Path | What it is |
 |---|---|
 | `windows/manage.ps1`, `windows/netrollout.bat` | The Windows host script and its command-line wrapper (installed as `bin\`). |
-| `windows/installer/netrollout.iss` | NetRollout Setup (Inno Setup): install, update in place, uninstall. |
-| `windows/manager/*.cs`, `build.ps1` | NetRollout Manager (status, start and stop, backup and restore, updates, the port helper). |
+| `windows/installer/netrollout.iss` | NetRollout Setup (Inno Setup): install, upgrade in place, uninstall. |
+| `windows/manager/*.cs`, `build.ps1` | NetRollout Manager (status, start and stop, backup and restore, upgrades, the port helper). |
 | `linux/install.sh`, `linux/netrollout.sh` | The Linux install and host script. |
 | `build_release.py` | Builds a release's files into `dist/release-<version>/`. `SHIPPED` is the one list of files an install gets besides the images. |
 | `netrollout-cli.spec` | PyInstaller's spec for `netrollout-cli.exe` (the web stack excluded). |
@@ -1156,9 +1156,9 @@ sequenceDiagram
     end
 ```
 
-### An update
+### An upgrade
 
-On Windows, NetRollout Manager (or the user) runs the new NetRollout Setup over the install. On Linux, `netrollout.sh update` does the same steps itself. Both refuse the same version and older versions before anything changes, and take a `before-update` backup with the installed version.
+On Windows, NetRollout Manager (or the user) runs the new NetRollout Setup over the install. On Linux, `netrollout.sh upgrade` does the same steps itself. Both refuse the same version and older versions before anything changes, and take a `before-upgrade` backup with the installed version (`before-update` when that version predates the name).
 
 ```mermaid
 sequenceDiagram
@@ -1171,17 +1171,17 @@ sequenceDiagram
 
     M->>G: latest release, its assets and SHA256SUMS
     M->>M: download, check the SHA-256 (a mismatch is deleted)
-    M->>S: Windows: run Setup /SILENT. Linux: unpack to .update/
+    M->>S: Windows: run Setup /SILENT. Linux: unpack to .upgrade/
     S->>OLD: python -m src.setup check-update --installed X --new Y
     OLD-->>S: update, or exit 2 (same or older version: nothing changed)
-    S->>OLD: python -m src.backup create --kind before-update
+    S->>OLD: python -m src.backup create --kind before-upgrade (an older image: before-update)
     S->>S: replace the shipped files (bin, compose files, deploy, VERSION)
     S->>C: pull the new images while the old version still runs
     S->>NEW: python -m src.setup upgrade (.env gets the keys this version needs)
     S->>C: up: the app starts, runs the migrations, serves
 ```
 
-Details: [§10.12](#1012-netrollout-setup-and-netrollout-manager-windows) and the admin guide's [updating section](admin-guide.md#updating-netrollout).
+Details: [§10.12](#1012-netrollout-setup-and-netrollout-manager-windows) and the admin guide's [upgrading section](admin-guide.md#upgrading-netrollout).
 
 ### A database move
 
@@ -1477,7 +1477,7 @@ The NetRollout home is `NETROLLOUT_HOME` (`/data` in the image), else the execut
 | `config/port-trial.yaml` | The port helper | Docker Compose (listed in `COMPOSE_FILE` during a trial) | The trial's extra port mapping. |
 | `config/retention-status.json` | The nightly clean-up | System Settings | The last clean-up's outcome. |
 | `certs/fullchain.pem`, `certs/privkey.pem` | The setup core, `CertificateStore` | nginx | The certificate nginx serves. `.selfsigned` marks a generated one; `.old-names.json` holds previous hostnames' deadlines. |
-| `logs/` | The rollout logger, the app, the scripts | Download Log, Alloy (Loki) | One file per rollout, `rollout_<time>_<job id>.log`; `unsaved-results-<job>.json` when results couldn't be saved; the scripts' install, update and port-helper logs. |
+| `logs/` | The rollout logger, the app, the scripts | Download Log, Alloy (Loki) | One file per rollout, `rollout_<time>_<job id>.log`; `unsaved-results-<job>.json` when results couldn't be saved; the scripts' install, upgrade and port-helper logs. |
 | `backups/` | `src/backup` | Restore | `netrollout-<version>-<time>-<kind>.zip`; `.schedule-status.json`, the lock `.backup.lock`. |
 
 ---
@@ -1494,9 +1494,9 @@ What installing and running NetRollout decides and writes lives once, in the **s
 | `prepare-start` | Before a start: port 80's redirect is added to or dropped from `COMPOSE_FILE` as port 80 is free or busy, and the server's addresses are refreshed. |
 | `status` | The `netrollout status` report (services, health, backups, what to do). |
 | `restore-key` | After a restore: the backup's encryption key into `.env`. |
-| `check-update` | An update's direction, run with the *installed* image before any file is replaced: `update`, or exit 2 for the same version (nothing to update) or an older one (downgrades aren't supported). Versions compare by PEP 440, so `1.0.0.dev0 < 1.0.0rc1 < 1.0.0`. |
-| `upgrade` | After an update's files: `.env` gets the keys this version needs (a secret the data depends on is never made up: missing means refused) and an `# Updated to NetRollout X` line. |
-| `release` | Linux's update: find the release (GitHub's latest, a tag, or a feed), download it, check it against `SHA256SUMS`, unpack it. |
+| `check-update` | An upgrade's direction, run with the *installed* image before any file is replaced: `update`, or exit 2 for the same version (nothing to upgrade) or an older one (downgrades aren't supported). Versions compare by PEP 440, so `1.0.0.dev0 < 1.0.0rc1 < 1.0.0`. |
+| `upgrade` | After an upgrade's files: `.env` gets the keys this version needs (a secret the data depends on is never made up: missing means refused) and an `# Upgraded to NetRollout X` line (an earlier version's `# Updated to NetRollout X` is read as the same). |
+| `release` | Linux's upgrade: find the release (GitHub's latest, a tag, or a feed), download it, check it against `SHA256SUMS`, unpack it. |
 | `port-ready`, `port-next`, `port-open`, `port-trying`, `port-close` | The port helper's steps (below). |
 | `port-set`, `port-setting` | `netrollout port <n>`: set the HTTPS port by hand, without a trial. |
 
@@ -1504,11 +1504,11 @@ Exit codes are `SetupExit`: 0 done, 1 invalid input or a failed step (each reaso
 
 ### Windows
 
-Windows installs only through **NetRollout Setup** (`packaging/windows/installer/netrollout.iss`, Inno Setup). Setup refuses Windows Server and a machine with virtualization off before its first page, checks or installs Docker Desktop, collects the answers on a settings page pre-filled by `manage.ps1 defaults`, and runs `manage.ps1 install -Yes` with them. Over an existing install it updates in place (see [§7](#an-update)); over the data an earlier uninstall kept, the version that data was last set up by decides between starting as before, updating, or refusing a downgrade. The installed folder holds `bin\` (NetRollout Manager, `manage.ps1`, `netrollout.bat`, the icon), `deploy\`, the compose files, `VERSION`, `LICENSE`, the uninstaller and, from the install, `.env` (hidden), `config\`, `certs\`, `logs\` and `backups\`. `manage.ps1` restricts the whole folder to Administrators, SYSTEM and the installing account (`icacls`), at install and at every start.
+Windows installs only through **NetRollout Setup** (`packaging/windows/installer/netrollout.iss`, Inno Setup). Setup refuses Windows Server and a machine with virtualization off before its first page, checks or installs Docker Desktop, collects the answers on a settings page pre-filled by `manage.ps1 defaults`, and runs `manage.ps1 install -Yes` with them. Over an existing install it upgrades in place (see [§7](#an-upgrade)); over the data an earlier uninstall kept, the version that data was last set up by decides between starting as before, upgrading, or refusing a downgrade. The installed folder holds `bin\` (NetRollout Manager, `manage.ps1`, `netrollout.bat`, the icon), `deploy\`, the compose files, `VERSION`, `LICENSE`, the uninstaller and, from the install, `.env` (hidden), `config\`, `certs\`, `logs\` and `backups\`. `manage.ps1` restricts the whole folder to Administrators, SYSTEM and the installing account (`icacls`), at install and at every start.
 
 ### Linux
 
-`sudo ./bin/install.sh` asks the same questions (or takes them as flags with `--yes`), checks both images are published, and starts NetRollout; `bin/netrollout.sh` is the day-to-day script, with a numbered menu when run without a command. Docker Engine and the Compose plugin are checked and explained, never installed. As root it keeps `.env` at mode 600 owned by root, and `config/`, `certs/`, `logs/` and `backups/` at 700 owned by the app container's user (uid 10001), reset at every start. `netrollout.sh update` downloads and checks the release zip, asks, takes a `before-update` backup, replaces the shipped files and then runs the **new** script's `update-finish` (the whole script body is in `main`, read before it runs, so it can replace its own file). Both scripts run `docker compose` from the install folder, because compose reads `.env`'s `COMPOSE_FILE` relative to the folder it runs in.
+`sudo ./bin/install.sh` asks the same questions (or takes them as flags with `--yes`), checks both images are published, and starts NetRollout; `bin/netrollout.sh` is the day-to-day script, with a numbered menu when run without a command. Docker Engine and the Compose plugin are checked and explained, never installed. As root it keeps `.env` at mode 600 owned by root, and `config/`, `certs/`, `logs/` and `backups/` at 700 owned by the app container's user (uid 10001), reset at every start. `netrollout.sh upgrade` downloads and checks the release zip, asks, takes a `before-upgrade` backup, replaces the shipped files and then runs the **new** script's `upgrade-finish` (the whole script body is in `main`, read before it runs, so it can replace its own file). Both scripts run `docker compose` from the install folder, because compose reads `.env`'s `COMPOSE_FILE` relative to the folder it runs in.
 
 ### A release
 
@@ -1517,7 +1517,7 @@ Windows installs only through **NetRollout Setup** (`packaging/windows/installer
 - `netrollout-<v>-linux.zip`: the install folder under `netrollout/` (`bin/`, the compose files, `deploy/`, `VERSION`, `LICENSE`, a README), Unix modes and LF line endings;
 - `NetRollout-Setup-<v>.exe` and `netrollout-cli-<v>.exe` (built on Windows);
 - `SHA256SUMS` for all of them;
-- with `--feed-base`, a `release-feed.json` in the shape of GitHub's API, for a mirror or a test of the update.
+- with `--feed-base`, a `release-feed.json` in the shape of GitHub's API, for a mirror or a test of the upgrade.
 
 `SHIPPED` in `build_release.py` is the one list of files an install gets besides the images; a unit test checks that the installer ships the same files and that every file compose mounts is in it. The two images (`itamarweinstein/netrollout` and `itamarweinstein/netrollout-nginx`) are built, checked end to end and pushed to Docker Hub by the release workflow, then the GitHub release is published with the files. The version in `VERSION` must equal the tag; the image build fails if its `VERSION` build argument differs.
 
@@ -1579,7 +1579,7 @@ Everything that shows or redirects to an address uses `serving_port()` (the help
 | `partial` | Some commands confirmed or accepted, some not; or the device stopped answering mid-push. |
 | `success` | With Verify, every checkable command confirmed and none refused; without Verify, none refused. |
 
-**ACTION NEEDED.** What only a person can resolve is reported per device by `RunReport.action_needed()`: Junos refusing private mode while someone has uncommitted shared edits, a refused save (for example a Gaia configuration lock), a commit still running after the timeout, PAN-OS changes left in the candidate, Gaia stuck in expert mode, a refused FortiOS `execute cfg save`, or a device whose configuration couldn't be read for Verify. Each becomes one `ACTION NEEDED — <ip:port>: …` line in the log, is counted in the rollout's summary, and is stored in `device_results.action_needed` for the Results page, the completion card and the dashboard.
+**ACTION NEEDED.** What only a person can resolve is reported per device by `RunReport.action_needed()`: Junos refusing private mode while someone has uncommitted shared edits, a refused save (for example a Gaia configuration lock), a commit still running after the timeout, PAN-OS changes left in the candidate, Gaia stuck in expert mode, a refused FortiOS `execute cfg save`, or a device whose configuration couldn't be read for Verify. Each becomes one `ACTION NEEDED - <ip:port>: …` line in the log, is counted in the rollout's summary, and is stored in `device_results.action_needed` for the Results page, the completion card and the dashboard.
 
 **Redaction.** Every log line (the file, Download Log, the live log, the console) and every stored ACTION NEEDED text passes `rollout/log.redact()`: the value after a secret-bearing word (`password`, `secret`, `community`, `pre-shared-key`, `psksecret`, `key-string`, `authentication-key`, Junos `encrypted-password`, PAN-OS `phash`, Gaia `password-hash`, and others; `key`, `auth` and `priv` only with a type before the value or a quoted value) becomes `<redacted>`. The keyword and an encryption type stay. The commands as typed (`job_metadata.commands`) and config snapshots (`fetched_config`) are not redacted.
 
@@ -1605,7 +1605,7 @@ Everything that shows or redirects to an address uses `serving_port()` (the help
 - **Claiming** (`RolloutJob.claim()`): each queued job is claimed exactly once, by the dispatcher to start it or by a cancel or the drain to record it as cancelled.
 - **Cancel**: a queued job ends at once (recorded as cancelled, "Cancelled before it started"); a running one is asked to stop, and devices not reached yet are skipped.
 - **Finalize**, when a job ends (in this order, each step running even if another failed): results to PostgreSQL through `ResultRecorder` (retried; still failing, they go to `logs/unsaved-results-<job>.json` and an ACTION NEEDED line is printed), the Redis keys removed, the live log closed. A status is written only to a job's existing hash (a Lua HSET-if-exists), so a cancel racing the job's end leaves no phantom row.
-- **Drain** (`drain(deadline)`, on SIGTERM or the admin Restart): new rollouts are refused with `Draining`, queued ones are recorded as cancelled, running ones may finish within `NETROLLOUT_DRAIN_SECONDS` (default 600), then are cancelled. If `netrollout:stop_now` is set (by `netrollout stop` or an update choosing "Cancel all now"), running ones are cancelled at once.
+- **Drain** (`drain(deadline)`, on SIGTERM or the admin Restart): new rollouts are refused with `Draining`, queued ones are recorded as cancelled, running ones may finish within `NETROLLOUT_DRAIN_SECONDS` (default 600), then are cancelled. If `netrollout:stop_now` is set (by `netrollout stop` or an upgrade choosing "Cancel all now"), running ones are cancelled at once.
 - **Pause** (`pause()` / `idle()` / `resume()`, for a database move): new rollouts are refused with `Paused`; nothing is cancelled. `idle()` is true once no job is queued, running or still being recorded.
 - **From the host**: `python -m src.jobs rollouts [--json]` lists the running app's rollouts with their owners, and `stop-now [--clear]` sets or clears the mark. The scripts run them with `docker compose exec -T app`.
 
@@ -1630,7 +1630,7 @@ The SSE route (`/rollout/stream/<job_id>`) sends each message as `data:` lines (
 
 ### 10.5 Backups
 
-`python -m src.backup create [--kind manual|scheduled|before-restore|before-update]` writes `backups/netrollout-<version>-<YYYYMMDD-HHMMSS>-<kind>.zip` (the database move also makes a `before-move` one):
+`python -m src.backup create [--kind manual|scheduled|before-restore|before-upgrade]` writes `backups/netrollout-<version>-<YYYYMMDD-HHMMSS>-<kind>.zip` (the database move also makes a `before-move` one):
 
 - `manifest.json`: version, migration level, row counts;
 - `db/<table>.csv`: NetRollout's tables from one read-only REPEATABLE READ snapshot (`COPY … CSV HEADER`), through the app's own connection, never a superuser, so it works on the bundled database or an organisation's;
@@ -1690,7 +1690,7 @@ The last outcome is in `config/retention-status.json`, shown on System Settings.
 
 **The development startup check** (`startup.py`, not in a container: the console isn't watched there and the published port isn't reliably reachable from inside): each run serves a random token at `/_netrollout/instance`. Once Waitress answers, a background check fetches it through nginx twice: first by connecting to 127.0.0.1 while presenting the public hostname (SNI and Host), then through the public URL itself (the hostname and serving port from the settings, else `https://localhost` with the dev stack's port). It proves nginx forwards to *this* process, prints the address people should use with a message that fits the case (no proxy, wrong upstream, DNS), and opens it in the browser on a desktop launch (`NETROLLOUT_OPEN_BROWSER=0` disables that).
 
-**Stop and Restart** (`Shutdown`): at most one, begun once. SIGTERM (`docker stop`, `netrollout stop`, an update) and the admin Restart drain the orchestrator, then exit. In a container, Restart exits and Docker's restart policy brings the app back; compose's `stop_grace_period` (11 minutes) is longer than the drain. Every page shows a banner while it drains. With rollouts running, the Restart dialog lists them and asks: when they finish, or now.
+**Stop and Restart** (`Shutdown`): at most one, begun once. SIGTERM (`docker stop`, `netrollout stop`, an upgrade) and the admin Restart drain the orchestrator, then exit. In a container, Restart exits and Docker's restart policy brings the app back; compose's `stop_grace_period` (11 minutes) is longer than the drain. Every page shows a banner while it drains. With rollouts running, the Restart dialog lists them and asks: when they finish, or now.
 
 **Maintenance mode** (`Maintenance`, for the database move): **waiting** pauses the orchestrator (new rollouts refused, queued and running ones finish, nothing cancelled), with a banner on every page; then **locked**, once the orchestrator is idle and no request is being answered (the gate counts every request it lets through). While locked, every request gets 503 with `Retry-After` (a page for browsers, JSON otherwise), except views marked `@during_maintenance` (health, instance, Grafana's auth check, the move's status; none of them write), static files and `/metrics`. Audit rows are printed instead of written, and the scheduled backup and the clean-up wait (`hold`). Maintenance is in memory only, so a restart ends it. `tests/integration/test_maintenance.py` sweeps the whole URL map.
 
@@ -1731,7 +1731,7 @@ The `monitoring` compose profile (switched on by `COMPOSE_PROFILES=monitoring` i
 
 Grafana is served by nginx at `/grafana/` to signed-in NetRollout **admins only**: nginx's `auth_request` asks the app (`/_netrollout/grafana-auth`: 204 with `X-NetRollout-User`, 401, or 403), and Grafana runs in proxy-auth mode trusting `X-WEBAUTH-USER`, which nginx always sets from that answer. Every Grafana user is an Editor; there is no Grafana login form. Operators are excluded because free Grafana lets any signed-in user query every data source through its API, which would bypass the own-jobs-only rule.
 
-Dashboard folders: `NetRollout` → `Operations` (Operations Overview, Job Analytics), `Jobs` (Job Details), `Security` (Audit & Security), all view-only and replaced by updates; and `Custom`, the admins' own, never touched (backups include Grafana's database).
+Dashboard folders: `NetRollout` → `Operations` (Operations Overview, Job Analytics), `Jobs` (Job Details), `Security` (Audit & Security), all view-only and replaced by upgrades; and `Custom`, the admins' own, never touched (backups include Grafana's database).
 
 | Dashboard | File (`deploy/grafana/dashboards/`) | Data sources | Shows |
 |---|---|---|---|
@@ -1744,9 +1744,9 @@ The dashboards are Grafana dashboard v2 files, imported through Grafana's API. `
 
 ### 10.12 NetRollout Setup and NetRollout Manager (Windows)
 
-**NetRollout Setup** (Inno Setup 6, `packaging/windows/installer/netrollout.iss`, built to `NetRollout-Setup-<version>.exe`) is the only Windows install. It installs per user (no elevation for NetRollout itself), adds a Settings → Apps entry, Start Menu and desktop shortcuts, an optional tray icon at sign-in, an optional `bin` on the user's `PATH` (`netrollout status` in any terminal), and `netrollout` in Win+R. Its pages: the licence, Docker, the install location, Settings (pre-filled from `manage.ps1 defaults`), and a review page; then `manage.ps1 install` (output in `logs\install.log`). Over an install it is an updater: only the review page ("Ready to update X → Y"), `manage.ps1 prepare-update` from Setup's temporary copy before any file is replaced (`check-update` with the installed image, then a `before-update` backup), the files, then `manage.ps1 update -Yes` (pull while the old version runs, both images checked, `setup upgrade`, restart; `logs\update.log`). The uninstaller runs `manage.ps1 uninstall` and asks whether to keep the data.
+**NetRollout Setup** (Inno Setup 6, `packaging/windows/installer/netrollout.iss`, built to `NetRollout-Setup-<version>.exe`) is the only Windows install. It installs per user (no elevation for NetRollout itself), adds a Settings → Apps entry, Start Menu and desktop shortcuts, an optional tray icon at sign-in, an optional `bin` on the user's `PATH` (`netrollout status` in any terminal), and `netrollout` in Win+R. Its pages: the licence, Docker, the install location, Settings (pre-filled from `manage.ps1 defaults`), and a review page; then `manage.ps1 install` (output in `logs\install.log`). Over an install it upgrades it: only the review page ("Ready to upgrade X → Y"), `manage.ps1 prepare-upgrade` from Setup's temporary copy before any file is replaced (`check-update` with the installed image, then a `before-upgrade` backup), the files, then `manage.ps1 upgrade -Yes` (pull while the old version runs, both images checked, `setup upgrade`, restart; `logs\upgrade.log`). The uninstaller runs `manage.ps1 uninstall` and asks whether to keep the data.
 
-**NetRollout Manager** (`packaging/windows/manager/`, C# 5 on .NET Framework 4.8, built by `build.ps1` with Windows' own compiler): a status light from `/_netrollout/health` on 127.0.0.1 (a self-signed certificate accepted for 127.0.0.1 only), Start, Stop, Back up, Restore, Open, a tray icon, and **Update**: GitHub's latest release (or a mirror or test feed named by `HKCU\Software\NetRollout\Manager\UpdateFeed`), the release notes, then the Setup downloaded to `%TEMP%`, checked against the release's `SHA256SUMS` (a mismatch is deleted), and run silently; the Manager reopens afterwards and shows the update log's last line. A daily check (switchable off) announces a newer version in the tray. Stop and Update first list running rollouts (`manage.ps1 rollouts -Json`) and offer Wait, Cancel all now, or Don't. One instance runs per install folder. `--helper` runs the port helper headless; `--tray` starts in the tray. All actions run `manage.ps1` hidden.
+**NetRollout Manager** (`packaging/windows/manager/`, C# 5 on .NET Framework 4.8, built by `build.ps1` with Windows' own compiler): a status light from `/_netrollout/health` on 127.0.0.1 (a self-signed certificate accepted for 127.0.0.1 only), Start, Stop, Back up, Restore, Open, a tray icon, and **Upgrade**: GitHub's latest release (or a mirror or test feed named by `HKCU\Software\NetRollout\Manager\UpgradeFeed`), the release notes, then the Setup downloaded to `%TEMP%`, checked against the release's `SHA256SUMS` (a mismatch is deleted), and run silently; the Manager reopens afterwards and shows the upgrade log's last line. A daily check (switchable off) announces a newer version in the tray. Stop and Upgrade first list running rollouts (`manage.ps1 rollouts -Json`) and offer Wait, Cancel all now, or Don't. One instance runs per install folder. `--helper` runs the port helper headless; `--tray` starts in the tray. All actions run `manage.ps1` hidden.
 
 ### 10.13 The CLI
 
@@ -1825,18 +1825,18 @@ Known bugs are recorded as strict `xfail` tests, so fixing one fails the test un
 |---|---|
 | **PostgreSQL for what lasts, Redis for what doesn't.** | Results, inventory, accounts and the audit log need durability and SQL (Results, Analytics, Grafana). The job queue, live state, live logs and sessions are short-lived, written often, and need pub/sub and blocking pops. Losing Redis loses nothing that must be kept: every start clears it anyway. |
 | **One process runs the jobs; Redis only describes them.** | A job's definition (devices with decrypted credentials) stays in the process's memory and never reaches Redis. The cost: a crash loses queued jobs, so a restart drains first and records queued jobs as cancelled. |
-| **No Docker socket in any container.** | Access to the Docker socket is root on the host. Everything that needs Docker (a port change, an update, a restore) is done by the host scripts, through files the app writes and the host reads. |
+| **No Docker socket in any container.** | Access to the Docker socket is root on the host. Everything that needs Docker (a port change, an upgrade, a restore) is done by the host scripts, through files the app writes and the host reads. |
 | **nginx follows a values file and validates it itself.** | The app never writes nginx syntax and never reloads nginx. The watcher renders, tests with `nginx -t`, and swaps in only a configuration that passes, so a bad hostname can't take the site down; the app reads the verdict and undoes its change on a rejection. |
 | **The HTTPS port changes through a confirm-or-roll-back trial on the host.** | A wrong port would lock everyone out. The new port is opened next to the old one and kept only once a browser reached it; otherwise it rolls back by itself after 120 s. |
-| **Migrations run at every start.** | An update is "new image, start": no separate database step to forget. From 1.0.0 on, released migrations are never edited, so any older database can be brought forward. |
+| **Migrations run at every start.** | An upgrade is "new image, start": no separate database step to forget. From 1.0.0 on, released migrations are never edited, so any older database can be brought forward. |
 | **The `system_settings` table is the only runtime source of settings.** | One truth, editable in the UI and readable by SQL (the retention statements); environment variables only seed it once and never silently override an admin's change. |
 | **The setup core decides, the host scripts act.** | Windows and Linux make the same decisions from one tested Python module, run inside the release's own image, so the host needs no Python. |
-| **One release is images, Setup, the CLI and a zip, with `SHA256SUMS`.** | The images carry the code; the shipped files are the same list (`SHIPPED`) for every channel; both update paths verify the download before running anything. |
+| **One release is images, Setup, the CLI and a zip, with `SHA256SUMS`.** | The images carry the code; the shipped files are the same list (`SHIPPED`) for every channel; both upgrade paths verify the download before running anything. |
 | **Credentials are encrypted with one Fernet key, checked at startup.** | A wrong or missing key stops the app at once instead of failing at a user's first rollout, and a new key is never generated over existing encrypted data. Secrets are decrypted only in memory, where they are used: a rollout's devices (`Device.from_inventory()`), a profile's connection test, the CSV import's profile matching, an LDAP bind, a 2FA check. |
 | **Services raise, routes catch outside the session block.** | A refused change rolls back as a whole; a route that returned an error from inside its block used to commit half a change. |
 | **The `Access` facade for multi-system changes.** | A hostname change touches the settings, the certificate, `site.env` and nginx's verdict; one all-or-nothing call replaces undo steps written by hand in each route. |
 | **The CLI shares the engine but none of the web stack.** | One rollout implementation, tested once; a small, standalone executable for one-off rollouts without a server. |
-| **Every start signs everyone out.** | A restart, update or reboot starts clean; sessions never outlive the process that issued them. |
+| **Every start signs everyone out.** | A restart, upgrade or reboot starts clean; sessions never outlive the process that issued them. |
 | **Server-rendered pages, no frontend build.** | One maintainer, one language on the server; per-page scripts inline in their template. Extracting shared assets is a later step. |
 | **`RolloutJob` owns the cancel flag; the engine gets its context as arguments.** | Cancelling is a lifecycle concern, not the logger's or the pipeline's. `RolloutEngine.run(cancel_flag, logger)` holds no state between calls. |
 | **Results are one row per device per job, identified by `ip:port`.** | Per-device analytics in plain SQL; devices behind NAT or port forwarding (one IP, several ports) stay distinct. |

@@ -2,7 +2,7 @@
 
 The DB sample is passed in as a string (that's the function's input), so
 these tests need no database. KEY_FILE is redirected to a temp dir by
-tests/conftest.py — the real key is never touched.
+tests/conftest.py - the real key is never touched.
 """
 import os
 import subprocess

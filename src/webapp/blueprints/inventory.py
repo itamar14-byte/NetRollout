@@ -31,7 +31,7 @@ def parse_mapping_ids(raw_ids: list[str]) -> list[uuid.UUID]:
 
 def flash_skipped_mappings(skipped: list[str]) -> None:
 	if skipped:
-		flash(f"Not bound — the device has no value for their attribute: "
+		flash(f"Not bound - the device has no value for their attribute: "
 		      f"{', '.join(skipped)}", "warning")
 
 
@@ -284,7 +284,7 @@ def inventory_import_csv() -> ResponseReturnValue:
 	Saves the upload to a temp file and delegates to
 	InputParser.csv_to_inventory: attribute columns become variable
 	attributes, credential columns become security profiles (when the
-	checkbox is on), other columns are reported. No reachability check —
+	checkbox is on), other columns are reported. No reachability check -
 	Inventory shows it live. Row errors and notices are flashed.
 	"""
 	csv_file = request.files.get("csv_file")
@@ -295,7 +295,7 @@ def inventory_import_csv() -> ResponseReturnValue:
 	label = request.form.get("label", "").strip() or None
 	create_profiles = request.form.get("create_profiles") == "on"
 
-	# Save upload to a temp file — csv_to_inventory takes a path, not a file object
+	# Save upload to a temp file - csv_to_inventory takes a path, not a file object
 	with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as tmp:
 		tmp_path = tmp.name
 		csv_file.save(tmp_path)

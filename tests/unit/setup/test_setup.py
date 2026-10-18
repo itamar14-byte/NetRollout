@@ -246,7 +246,7 @@ def test_the_env_text_is_stable():
 	keys = {k: "x" for k in generate_secrets()}
 	text = env_text(answers, install.Facts(os="linux"), keys,
 	                      datetime.datetime(2026, 10, 5, 12, 0), "1.0.0", True)
-	assert text.startswith("# NetRollout 1.0.0 — written by the installer "
+	assert text.startswith("# NetRollout 1.0.0 - written by the installer "
 	                       "on 2026-10-05 12:00.\n")
 	assert "Docker Engine (Apache-2.0)" in text and "COMPOSE_PROFILES=\n" in text
 
@@ -577,11 +577,11 @@ def test_an_update_goes_forward(installed, new, kind):
 
 @pytest.mark.parametrize("installed, new", [("1.0.0", "1.0.0"), ("1.0.0.dev2", "1.0.0.dev2"),
                                             ("1.0.0", "v1.0.0")])
-def test_the_same_version_has_nothing_to_update(installed, new):
-	"""The same version again (Setup run twice, `update` to the installed release) is
-	refused - nothing to update - not offered as an update to itself."""
+def test_the_same_version_has_nothing_to_upgrade(installed, new):
+	"""The same version again (Setup run twice, `upgrade` to the installed release) is
+	refused - nothing to upgrade - not offered as an upgrade to itself."""
 	with pytest.raises(ValueError, match=f"NetRollout {installed} is already installed - the same "
-	                                     f"version. Nothing to update."):
+	                                     f"version. Nothing to upgrade."):
 		_update.update_kind(installed, new)
 
 
@@ -610,8 +610,8 @@ def test_check_update_through_the_cli():
 
 
 def test_upgrade_adds_what_is_missing_and_keeps_everything_else(home):
-	"""`upgrade` adds the missing keys with their defaults at the end and an "Updated to"
-	line under the header, keeping every other value; the next update replaces that
+	"""`upgrade` adds the missing keys with their defaults at the end and an "Upgraded to"
+	line under the header, keeping every other value; the next upgrade replaces that
 	line and adds nothing twice."""
 	installed(home)
 	path = home / ".env"
@@ -625,20 +625,37 @@ def test_upgrade_adds_what_is_missing_and_keeps_everything_else(home):
 	after = path.read_text(encoding="utf-8")
 	lines = after.splitlines()
 	assert lines[0] == before.splitlines()[0]                    # the install's header
-	assert lines[1] == "# Updated to NetRollout 1.0.1 on 2026-11-01 09:30 UTC."
-	assert after.endswith("# Added by the update to NetRollout 1.0.1\nTZ=UTC\n"
+	assert lines[1] == "# Upgraded to NetRollout 1.0.1 on 2026-11-01 09:30 UTC."
+	assert after.endswith("# Added by the upgrade to NetRollout 1.0.1\nTZ=UTC\n"
 	                      "NETROLLOUT_SERVER_IPS=\n")
 	env = env_read()
 	for key, value in dotenv(before).items():      # every value kept
 		if key not in ("TZ", "NETROLLOUT_SERVER_IPS"):
 			assert env[key] == value, key
 
-	# the next update: the stamp replaced, nothing added twice
+	# the next upgrade: the stamp replaced, nothing added twice
 	assert _update.upgrade("1.0.2", datetime.datetime(2026, 12, 1, 8, 0)) == []
 	again = path.read_text(encoding="utf-8").splitlines()
-	assert again[1] == "# Updated to NetRollout 1.0.2 on 2026-12-01 08:00 UTC."
-	assert sum(l.startswith("# Updated to") for l in again) == 1
+	assert again[1] == "# Upgraded to NetRollout 1.0.2 on 2026-12-01 08:00 UTC."
+	assert sum(l.startswith("# Upgraded to") for l in again) == 1
 	assert sum(l.startswith("TZ=") for l in again) == 1
+
+
+def test_upgrade_replaces_rc4s_updated_stamp(home):
+	"""An .env last stamped by rc4 or earlier ("# Updated to NetRollout X on ...") gets
+	the new "# Upgraded to NetRollout <v> on ..." stamp in that line's place (the
+	BRIDGE(rc4) in upgrade): one stamp line, not the old one left beside a new one."""
+	installed(home)
+	path = home / ".env"
+	lines = path.read_text(encoding="utf-8").splitlines(True)
+	lines.insert(1, "# Updated to NetRollout 1.0.0rc4 on 2026-10-18 10:15 UTC.\n")
+	path.write_text("".join(lines), encoding="utf-8")
+	assert _update.upgrade("1.0.1", datetime.datetime(2026, 11, 1, 9, 30)) == []
+	after = path.read_text(encoding="utf-8").splitlines()
+	assert after[1] == "# Upgraded to NetRollout 1.0.1 on 2026-11-01 09:30 UTC."
+	assert len(after) == len(lines)                                  # replaced, nothing added
+	assert not [l for l in after if l.startswith("# Updated to NetRollout ")]
+	assert sum(l.startswith("# Upgraded to NetRollout ") for l in after) == 1
 
 
 def test_upgrade_never_makes_up_a_secret_the_data_depends_on(home):

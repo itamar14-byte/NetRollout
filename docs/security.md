@@ -23,13 +23,13 @@ To report a vulnerability, follow [SECURITY.md](../SECURITY.md). Don't open a pu
 - [Audit log](#audit-log)
 - [Logs and redaction](#logs-and-redaction)
 - [Backups](#backups)
-- [Updates and supply chain](#updates-and-supply-chain)
+- [Upgrades and supply chain](#upgrades-and-supply-chain)
 - [Source availability (AGPL section 13)](#source-availability-agpl-section-13)
 - [Known limitations](#known-limitations)
 
 ## Threat model in brief
 
-**Who uses it.** Network engineers (operators) and administrators inside an organisation, through a browser on the internal network. NetRollout is built to run inside your network: apart from downloading its images and updates (which can also come from an [internal mirror](admin-guide.md#updating-from-an-internal-mirror)), it needs no internet access, and it is meant to be reached from inside the network, not published to the internet.
+**Who uses it.** Network engineers (operators) and administrators inside an organisation, through a browser on the internal network. NetRollout is built to run inside your network: apart from downloading its images and upgrades (which can also come from an [internal mirror](admin-guide.md#upgrading-from-an-internal-mirror)), it needs no internet access, and it is meant to be reached from inside the network, not published to the internet.
 
 **What it holds that an attacker would want.** SSH credentials for network devices (security profiles), and the ability to push configuration to those devices. Secondary: an LDAP bind password, users' TOTP secrets, device inventory and configuration snapshots, and the audit trail.
 
@@ -101,11 +101,11 @@ flowchart LR
 ```
 
 - **Only nginx publishes ports**: the HTTPS port (443 by default) and, while port 80 is free on the host (checked at every start), port 80, which only redirects to HTTPS (`compose.http.yaml`). PostgreSQL, Redis, the app's own port, Grafana, Prometheus and Loki are reachable only on the compose network. (The development stack publishes PostgreSQL and Redis on 127.0.0.1; installs don't.)
-- **No Docker socket** is mounted into any container. Everything that needs Docker (a new HTTPS port, an update, a restore) is done on the host by the scripts.
+- **No Docker socket** is mounted into any container. Everything that needs Docker (a new HTTPS port, an upgrade, a restore) is done on the host by the scripts.
 - **The app runs unprivileged**: user `netrollout`, uid 10001, in a `python:3.12-slim-bookworm` image; its code is precompiled and read-only at run time. It is added to group 0 (`group_add: ["0"]`) only so it can read Grafana's database file for backups, which is mounted read-only. One step of a restore runs a one-off app container as root (`--user 0`) to write files back with their original owners.
 - **Database logins**: the app uses the `netrollout` login, which owns its database and schema but is not a superuser. Grafana uses `grafana_reader`, granted `SELECT` on exactly `device_results`, `job_metadata` and `audit_log` (`src/db/install.py`, `GRAFANA_TABLES`), re-applied at every start.
 - **Redis** requires a password (`--requirepass`).
-- **Outbound connections**: the app connects to your devices over SSH (the port you give each device) and, if configured, to your LDAP server. The host scripts and NetRollout Manager contact GitHub (releases) and Docker Hub (images) for updates. The browser loads Bootstrap, Bootstrap Icons, jQuery, jQuery QueryBuilder and the fonts from public CDNs (jsDelivr, code.jquery.com, Google Fonts) and the vendor logos from Simple Icons and jsDelivr.
+- **Outbound connections**: the app connects to your devices over SSH (the port you give each device) and, if configured, to your LDAP server. The host scripts and NetRollout Manager contact GitHub (releases) and Docker Hub (images) for upgrades. The browser loads Bootstrap, Bootstrap Icons, jQuery, jQuery QueryBuilder and the fonts from public CDNs (jsDelivr, code.jquery.com, Google Fonts) and the vendor logos from Simple Icons and jsDelivr.
 - **Public endpoints**: `/_netrollout/health` (PostgreSQL and Redis up, running and queued rollout counts, draining or maintenance state, and the version) and `/_netrollout/instance` (a random per-run token) answer without a session. `/metrics` answers 404 through nginx; Prometheus scrapes it on the compose network.
 
 ## TLS
@@ -150,7 +150,7 @@ nginx tests every change with `nginx -t` before applying it, and keeps the last 
 - A new session id is issued at every sign-in, so an id known before it is worthless after it.
 - A session ends after the *Sign out after inactivity* period (System Settings, default 15 minutes, 5 to 480) and after 12 hours however active. Background requests (a page polling by itself) don't count as activity. Pages warn a minute before the idle limit and notice within 5 s that a session was ended elsewhere (at once when you switch back to the tab).
 - A password change signs the user out of their other sessions; an admin's password reset or Terminate Session signs them out everywhere.
-- **Every start of the app signs everyone out.** A restart, update or reboot always starts clean.
+- **Every start of the app signs everyone out.** A restart, upgrade or reboot always starts clean.
 - Session expiry is audited (`auth.session_expired`).
 
 ## Authorization
@@ -225,12 +225,12 @@ NetRollout never writes stored device credentials to its logs.
 - A restore refuses a backup from a newer version or an incomplete zip, checks that the backup's key decrypts a stored credential before committing, runs in one transaction, and first takes a safety backup of the current state (unless you opt out).
 - Store copies of backups somewhere as protected as the host itself.
 
-## Updates and supply chain
+## Upgrades and supply chain
 
 - **Python dependencies**: `requirements.in` holds the ranges; `requirements.txt` holds the exact pins (with who needs each), compiled by pip-tools. The image and CI install the exact pins. Dependabot proposes updates weekly (and security fixes as they are published) for the Python packages, the app and nginx base images, and the GitHub Actions; CI runs the full test suite on each.
 - **Images**: the app image is built from `python:3.12-slim-bookworm`, nginx's from `nginx:1.30-alpine`. Third-party service images (PostgreSQL, Redis, Grafana, Prometheus, Loki, Alloy) are pinned by version tag in `compose.yaml`, not by digest.
 - **Releases** are built and published by the release workflow (`.github/workflows/release.yml`) from a version tag: the tests run on the tagged commit, both images are built and checked end to end, a real Linux install from the release zip must come up healthy, and only then are the images pushed to Docker Hub and the files published on GitHub with a `SHA256SUMS` file.
-- **Download verification**: NetRollout Manager (Windows) and `netrollout.sh update` (Linux) download the release over HTTPS and check it against the release's `SHA256SUMS`; a file that doesn't match is deleted and nothing is run. An update refuses to go to the same or an older version, and takes a backup first. The checksums protect against a corrupted or swapped asset, not against a compromised release account.
+- **Download verification**: NetRollout Manager (Windows) and `netrollout.sh upgrade` (Linux) download the release over HTTPS and check it against the release's `SHA256SUMS`; a file that doesn't match is deleted and nothing is run. An upgrade refuses to go to the same or an older version, and takes a backup first. The checksums protect against a corrupted or swapped asset, not against a compromised release account.
 - **Unsigned executables**: `NetRollout-Setup-<version>.exe` and `netrollout-cli.exe` are not code-signed. Windows SmartScreen or Defender may warn about them. Verify them against `SHA256SUMS` from the GitHub release page.
 
 ## Source availability (AGPL section 13)

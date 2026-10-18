@@ -1,5 +1,5 @@
 {% extends "admin.html" %}
-{% block title %}User Management — Administration{% endblock %}
+{% block title %}User Management - Administration{% endblock %}
 
 {% block admin_content %}
 
@@ -148,7 +148,7 @@
             <span class="badge bg-secondary">Operator</span>
           {% endif %}
         </td>
-        <td style="color:var(--nr-text-muted); font-size:0.82rem;">{{ user.position or "—" }}</td>
+        <td style="color:var(--nr-text-muted); font-size:0.82rem;">{{ user.position or "-" }}</td>
         <td style="color:var(--nr-text-muted); font-size:0.78rem; font-family:'JetBrains Mono',monospace;">{{ user.created_at.strftime("%b %d, %Y") }}</td>
         <td>
           {% if status == "active" %}
@@ -254,7 +254,7 @@
           <button type="button" class="btn btn-outline-info btn-sm" id="resetPwCopy" title="Copy"><i class="bi bi-copy"></i></button>
         </div>
         <p class="nr-warning-note">
-          <i class="bi bi-exclamation-triangle me-1"></i>Shown only now — it isn't stored anywhere
+          <i class="bi bi-exclamation-triangle me-1"></i>Shown only now - it isn't stored anywhere
           you can see it again. Hand it over privately.
         </p>
       </div>
@@ -317,7 +317,7 @@
             <button type="button" class="btn btn-outline-info btn-sm" id="addUserCopy" title="Copy"><i class="bi bi-copy"></i></button>
           </div>
           <p class="nr-warning-note">
-            <i class="bi bi-exclamation-triangle me-1"></i>Shown only now — it isn't stored anywhere
+            <i class="bi bi-exclamation-triangle me-1"></i>Shown only now - it isn't stored anywhere
             you can see it again. Hand it over privately; they replace it at their first sign-in.
           </p>
         </div>
@@ -386,7 +386,7 @@
         </p>
         <p id="delNames" style="font-family:'JetBrains Mono',monospace; font-size:0.78rem; color:var(--nr-text-muted); margin-bottom:1rem; word-break:break-all;"></p>
         <p style="font-size:0.82rem; color:var(--nr-text-muted); margin-bottom:1.25rem;">
-          All associated data — inventory, security profiles, rollout history, and results — will be permanently removed. This cannot be undone.
+          All associated data - inventory, security profiles, rollout history, and results - will be permanently removed. This cannot be undone.
         </p>
         <div>
           <label style="font-size:0.75rem; color:var(--nr-text-muted); text-transform:uppercase; letter-spacing:0.8px; font-weight:600; margin-bottom:0.4rem; display:block;">
@@ -576,7 +576,7 @@
       return null;
     },
     // Only local users have 2FA (the factory admin only when it turned it on:
-    // a reset turns it off) — LDAP users don't use it
+    // a reset turns it off) - LDAP users don't use it
     Reset2FA: sel => {
       if (!sel.length) return "No users selected";
       if (sel.some(u => u.is_factory && u.is_self)) return "Turn your own two-factor sign-in off on My Account";
@@ -1089,7 +1089,7 @@
     const allGroups = results.flatMap(r => r.groups.map(g => ({ ...g, server: r.server })));
 
     if (!allGroups.length) {
-      container.innerHTML = '<div class="gr-empty">No group rules configured — use the LDAP Explorer to add groups</div>';
+      container.innerHTML = '<div class="gr-empty">No group rules configured - use the LDAP Explorer to add groups</div>';
       return;
     }
 

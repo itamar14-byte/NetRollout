@@ -5,7 +5,7 @@ NetRollout pushes configuration snippets to many network devices at once over SS
 | Guide | For | What it covers |
 | --- | --- | --- |
 | [Installation](install.md) | Admins | Requirements, Windows Setup, Linux install, first sign-in, certificates, uninstall, troubleshooting |
-| [Admin guide](admin-guide.md) | Admins | NetRollout Manager, the `netrollout` commands, updates, backups, users and sign-in, System Settings, monitoring |
+| [Admin guide](admin-guide.md) | Admins | NetRollout Manager, the `netrollout` commands, upgrades, backups, users and sign-in, System Settings, monitoring |
 | [User guide](user-guide.md) | Operators | Inventory, security profiles, variable mappings, rollouts, results, analytics |
 | [CLI](cli.md) | Engineers | `netrollout-cli` flags, input files, exit codes, logs |
 | [Security](security.md) | Reviewers | How NetRollout protects credentials, sessions and data |

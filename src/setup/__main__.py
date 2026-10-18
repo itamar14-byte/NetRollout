@@ -60,13 +60,13 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 	check_update = p.add_argument_group("check-update (run with the installed version's image)")
 	check_update.add_argument("--installed", help="the installed version")
 	check_update.add_argument("--new", help="the version about to be installed")
-	rel = p.add_argument_group("release (Linux's update; run with the installed version's image)")
+	rel = p.add_argument_group("release (Linux's upgrade; run with the installed version's image)")
 	rel.add_argument("--check", action="store_true",
 	                 help="release: only say whether a newer one exists; port-set: only the checks, nothing changed")
 	rel.add_argument("--release-version", help="this version, not the latest")
 	rel.add_argument("--feed", help="a mirror's release JSON (URL or file: one release, or a list - the newest on this version's channel) instead of GitHub")
 	rel.add_argument("--from-zip", help="a release zip given by hand (offline)")
-	rel.add_argument("--out", default="/install/.update", help="where it's unpacked")
+	rel.add_argument("--out", default="/install/.upgrade", help="where it's unpacked")
 	ph = p.add_argument_group("port-* (the port helper; src/setup/port.py)")
 	ph.add_argument("--port", type=int, help="port-open / port-trying: the new port")
 	ph.add_argument("--id", default="", help="the request id")
@@ -139,7 +139,7 @@ def _install(args: argparse.Namespace, facts: install.Facts, read: install.Read,
 	interactive = args.command == "init" and not args.defaults
 	if args.command == "init" and env_path().exists():
 		write(f"NetRollout is already installed here ({env_path()}) - "
-		      f"see `netrollout status`, or `netrollout update`.")
+		      f"see `netrollout status`, or `netrollout upgrade`.")
 		return SetupExit.REFUSED
 	if args.command == "init" and not args.licence_accepted:
 		write("The licence notice wasn't accepted - run the install script, "
@@ -286,7 +286,7 @@ def _release(args: argparse.Namespace, _facts: install.Facts, _read: install.Rea
 			if args.check:
 				if Version(found.version) > Version(runtime.VERSION):
 					write(f"NetRollout {found.version} is available (you have "
-					      f"{runtime.VERSION}): sudo bin/netrollout.sh update")
+					      f"{runtime.VERSION}): sudo bin/netrollout.sh upgrade")
 					if notes := update.notes_shown(found):
 						write("")
 						for line in notes:

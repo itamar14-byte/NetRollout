@@ -16,7 +16,7 @@ from cryptography.fernet import Fernet
 
 import src.encryption as enc
 import src.rollout.engine as engine_module
-# Import through the src package only — the app itself imports src.*, and a
+# Import through the src package only - the app itself imports src.*, and a
 # bare `import core` would load a second copy of every module (patches and
 # isinstance checks would then silently target the wrong one).
 from src.rollout import inputs
@@ -105,7 +105,7 @@ class TestIPv6(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# core.py — Device
+# core.py - Device
 # ---------------------------------------------------------------------------
 
 class TestDeviceNetmikoConnector(unittest.TestCase):
@@ -180,7 +180,7 @@ class TestDeviceFetchConfig(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# core.py — RolloutEngine._push_config
+# core.py - RolloutEngine._push_config
 # ---------------------------------------------------------------------------
 
 class TestRolloutEnginePushConfig(unittest.TestCase):
@@ -252,8 +252,8 @@ class TestRolloutEnginePushConfig(unittest.TestCase):
 
 	def test_devices_finishing_after_cancel_are_still_recorded(self):
 		"""A cancel stops devices that haven't connected yet; devices already
-		mid-push finish (config applied) and must be recorded as pushed —
-		not 'cancelled' — or rollback would skip them."""
+		mid-push finish (config applied) and must be recorded as pushed -
+		not 'cancelled' - or rollback would skip them."""
 		cancel = threading.Event()
 		b_connected = threading.Event()
 
@@ -338,7 +338,7 @@ class TestRolloutEnginePushConfig(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# core.py — RolloutEngine._verify
+# core.py - RolloutEngine._verify
 # ---------------------------------------------------------------------------
 
 class TestRolloutEngineVerify(unittest.TestCase):
@@ -410,7 +410,7 @@ class TestRolloutEngineVerify(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# core.py — RolloutEngine.run
+# core.py - RolloutEngine.run
 # ---------------------------------------------------------------------------
 
 class TestRolloutEngineRun(unittest.TestCase):
@@ -552,7 +552,7 @@ class TestRolloutEngineRun(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# Integration — full rollout + verification pipeline
+# Integration - full rollout + verification pipeline
 # ---------------------------------------------------------------------------
 
 class TestFullRolloutAndVerifyPipeline(unittest.TestCase):

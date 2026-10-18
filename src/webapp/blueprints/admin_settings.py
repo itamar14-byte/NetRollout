@@ -68,7 +68,7 @@ def _audit(action: AuditAction, change: Change, proxy: Verdict | None = None,
 @bp.app_context_processor
 def restart_pending_for_admin_pages() -> dict[str, Any]:
 	"""Every admin page's Restart button shows the orange dot while a
-	restart-only setting differs from what this process runs with — decided
+	restart-only setting differs from what this process runs with - decided
 	on the server, so it survives page loads."""
 	if not (request.path.startswith("/admin") and current_user.is_authenticated
 	        and viewer().is_admin):
@@ -127,7 +127,7 @@ def _saved(result: SaveResult, action: AuditAction) -> ResponseReturnValue:
 @require_admin
 @with_json("values")
 def settings_save(data: dict[str, Any]) -> ResponseReturnValue:
-	"""Save every edited field at once — all or nothing."""
+	"""Save every edited field at once - all or nothing."""
 	values = data["values"]
 	if not isinstance(values, dict):
 		return err("Invalid request")
@@ -165,7 +165,7 @@ def _reached_port() -> int:
 @login_required
 @require_admin
 def port_status() -> Response:
-	"""Where a port change stands — polled by the page (as a background
+	"""Where a port change stands - polled by the page (as a background
 	request: it must not keep a session alive)."""
 	return ok(port=current_app.access.port_state())
 
@@ -190,7 +190,7 @@ def port_confirm(data: dict[str, Any]) -> ResponseReturnValue:
 @login_required
 @require_admin
 def port_retry() -> ResponseReturnValue:
-	"""Ask the helper again for the saved port (after a rollback — e.g. the
+	"""Ask the helper again for the saved port (after a rollback - e.g. the
 	firewall was opened meanwhile)."""
 	try:
 		current_app.access.retry_port()
@@ -207,7 +207,7 @@ def port_retry() -> ResponseReturnValue:
 def settings_test_access(data: dict[str, Any]) -> ResponseReturnValue:
 	"""Run the startup reverse-proxy check against the hostname/port typed on
 	the page (saved or not). Admin-only: it makes the server fetch an address
-	the admin chose — https only, 2 s timeouts."""
+	the admin chose - https only, 2 s timeouts."""
 	try:
 		hostname = cast(str, SETTINGS["public_hostname"].parse(data.get("hostname", "")))
 		port = cast(int, SETTINGS["https_port"].parse(data.get("port", 443)))
@@ -216,7 +216,7 @@ def settings_test_access(data: dict[str, Any]) -> ResponseReturnValue:
 	url, source = resolve_public_url(public_url(hostname, port), port)
 	if in_container():
 		# From inside the container the published port isn't reliably
-		# reachable: a probe here would report working setups as broken —
+		# reachable: a probe here would report working setups as broken -
 		# what nginx itself last reported is shown instead
 		return ok(url=url, source=source, container=True,
 		          access=current_app.access.overview())
@@ -246,7 +246,7 @@ def backups_state() -> dict[str, Any]:
 
 
 def _file(name: str) -> Path | None:
-	"""A backup in the folder by its exact name — never a path elsewhere.
+	"""A backup in the folder by its exact name - never a path elsewhere.
 
 	:returns: its path; None: no such backup"""
 	if not archive.NAME_RE.match(name):

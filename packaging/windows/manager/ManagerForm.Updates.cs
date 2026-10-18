@@ -1,4 +1,4 @@
-// NetRollout Manager's window: its update part - checking for a newer
+// NetRollout Manager's window: its upgrade part - checking for a newer
 // release, offering it, running its Setup (Updates.cs finds and checks it).
 
 using System;
@@ -11,14 +11,14 @@ namespace NetRollout
 {
 	partial class ManagerForm
 	{
-		// ── updates ─────────────────────────────────────────────────────────
+		// ── upgrades ────────────────────────────────────────────────────────
 		// asked (the button, the tray menu): says what it found in the pane;
 		// the daily check: only a newer version, in the tray (nothing on a
 		// problem, nothing newer or nothing published)
 		void CheckForUpdates(bool asked)
 		{
 			if (updating) return;
-			if (asked) { output.Clear(); Say("Checking for updates..."); }
+			if (asked) { output.Clear(); Say("Checking for upgrades..."); }
 			ThreadPool.QueueUserWorkItem(delegate
 			{
 				Release release = null;
@@ -46,15 +46,15 @@ namespace NetRollout
 					announced = release;
 					portBalloon = false;
 					trayIcon.ShowBalloonTip(10000, "NetRollout " + release.Version + " is available",
-						"You have " + Install.Version + ". Click to see what's new and update.", ToolTipIcon.Info);
+						"You have " + Install.Version + ". Click to see what's new and upgrade.", ToolTipIcon.Info);
 				});
 			});
 		}
 
-		// opened again after an update (Update now): how it went, from its log
+		// opened again after an upgrade (Upgrade now): how it went, from its log
 		void SayRecentUpdate()
 		{
-			var log = Path.Combine(Install.Root, @"logs\update.log");
+			var log = Path.Combine(Install.Root, @"logs\upgrade.log");
 			try
 			{
 				if (!File.Exists(log) || (DateTime.Now - File.GetLastWriteTime(log)).TotalMinutes > 10) return;
@@ -74,10 +74,10 @@ namespace NetRollout
 			}
 			if (dailyItem != null) dailyItem.Checked = Updates.Daily;
 			if (state != State.Running && state != State.Attention) { InstallUpdate(release, false); return; }
-			AskAboutRollouts("update", delegate (bool cancelAll) { InstallUpdate(release, cancelAll); });
+			AskAboutRollouts("upgrade", delegate (bool cancelAll) { InstallUpdate(release, cancelAll); });
 		}
 
-		// cancelAll: the running rollouts are cancelled as the update restarts
+		// cancelAll: the running rollouts are cancelled as the upgrade restarts
 		// NetRollout - asked for once the Setup is downloaded and checked, so a
 		// failed download leaves nothing behind
 		void InstallUpdate(Release release, bool cancelAll)
@@ -101,12 +101,12 @@ namespace NetRollout
 					{
 						updating = false;
 						SetBusy(false);
-						Say("Not updated: " + problem + ".");
+						Say("Not upgraded: " + problem + ".");
 						return;
 					}
-					Say("Checked. Starting the update - NetRollout Manager closes now and opens again when it's done.");
+					Say("Checked. Starting the upgrade - NetRollout Manager closes now and opens again when it's done.");
 					// Setup closes the Manager to replace it; whatever the outcome,
-					// the Manager (the new one, if it's updated) opens afterwards
+					// the Manager (the new one, if it's upgraded) opens afterwards
 					var start = new ProcessStartInfo("cmd.exe", "/c \"\"" + setup + "\" /SILENT & start \"\" \"" +
 						Path.Combine(Install.BinDir, "NetRollout Manager.exe") + "\"\"")
 					{

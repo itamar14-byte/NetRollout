@@ -1,5 +1,5 @@
 {% extends "operator_base.html" %}
-{% block title %}Variable Mappings — NetRollout{% endblock %}
+{% block title %}Variable Mappings - NetRollout{% endblock %}
 {% block page_title %}Variable Mappings{% endblock %}
 {# ── sys_props / user_props injected by the mappings() route ── #}
 {% set ATTR_ICON_MAP = {} %}
@@ -512,7 +512,7 @@
 </div>
 
 <!-- ══════════════════════════════════════
-     QUICK CREATE — PROPERTY
+     QUICK CREATE - PROPERTY
 ══════════════════════════════════════ -->
 {% from "_property_modal.html" import property_modal %}
 {% call property_modal(modal_id="mappingQuickPropModal",
@@ -640,7 +640,7 @@ const editAttrSel = initAttrSelect('editAttrSelect', 'editAttrHidden', 'editInde
 //  EDIT MODAL
 // ══════════════════════════════════════
 function openEdit(mapping) {
-    document.getElementById('editModalTitle').textContent = 'Edit — ' + mapping.token;
+    document.getElementById('editModalTitle').textContent = 'Edit - ' + mapping.token;
     document.getElementById('editLabel').value      = mapping.label || '';
     // Strip outer $$ to show just the inner name
     document.getElementById('editTokenInner').value =
@@ -672,7 +672,7 @@ function openDevices(mapping, assignedDevices) {
     activeMappingIndex = mapping.index;
 
     document.getElementById('devicesModalTitle').textContent =
-        mapping.token + ' — Assignments';
+        mapping.token + ' - Assignments';
     document.getElementById('devicesError').style.display = 'none';
 
     // A bound device can be missing from DEVICES_ALL (no longer visible to
@@ -711,7 +711,7 @@ function isResolvable(device) {
     return Array.isArray(val) && activeMappingIndex >= 0 && activeMappingIndex < val.length;
 }
 
-// Why the Eligible column is empty — tells the user what to do instead of
+// Why the Eligible column is empty - tells the user what to do instead of
 // showing a blank column
 function emptyPoolText() {
     return DEVICES_ALL.some(isResolvable)
@@ -724,7 +724,7 @@ function emptyPoolText() {
 function getDeviceVal(device) {
     const vm  = device.var_maps || {};
     let   val = vm[activeMappingProp];
-    if (val === undefined || val === null) return '—';
+    if (val === undefined || val === null) return '-';
     if (Array.isArray(val)) {
         if (activeMappingIndex !== null && activeMappingIndex !== undefined) {
             const v = val[activeMappingIndex];

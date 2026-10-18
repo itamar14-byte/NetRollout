@@ -1,5 +1,5 @@
 """src/access/port.py: the app's side of the port helper contract.
-No helper here — the tests write its status file the way the contract says."""
+No helper here - the tests write its status file the way the contract says."""
 import json
 import time
 

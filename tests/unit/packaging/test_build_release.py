@@ -70,7 +70,7 @@ def test_the_linux_zip_has_the_install_folders_own_readme(tmp_path):
 	assert {repo, f"{repo}/blob/master/docs/install.md",
 	        f"{repo}/blob/master/docs/admin-guide.md", f"{repo}/releases"} <= urls
 	for command in ("sudo ./bin/install.sh", "sudo ./bin/netrollout.sh ",
-	                "sudo ./bin/netrollout.sh update", "LICENSE"):
+	                "sudo ./bin/netrollout.sh upgrade", "LICENSE"):
 		assert command in readme, command
 
 

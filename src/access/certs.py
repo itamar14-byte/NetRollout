@@ -8,7 +8,7 @@ hostname, the upkeep that drops previous hostnames).
 
 The pair nginx serves is `fullchain.pem` + `privkey.pem` in the certs folder;
 a `.selfsigned` marker beside them means NetRollout made it and may replace
-it (e.g. for a new hostname) — an organisation's certificate is never touched.
+it (e.g. for a new hostname) - an organisation's certificate is never touched.
 
 Beside them, `trusted-ca.pem` (TrustedCAs) holds the organisation's CA
 certificates NetRollout trusts for its own outgoing TLS (the LDAP servers).
@@ -46,7 +46,7 @@ SELFSIGNED_DAYS = 825
 EXPIRY_WARNING_DAYS = 30
 # A self-signed certificate reissued for a new hostname keeps the previous
 # names this long, so people still typing one reach the redirect without a
-# name warning — then they're dropped (the deadlines: OLD_NAMES_FILE).
+# name warning - then they're dropped (the deadlines: OLD_NAMES_FILE).
 OLD_NAMES_FILE = ".old-names.json"     # in the certs folder
 # the organisation's CA certificates NetRollout trusts (TrustedCAs)
 TRUSTED_CA_FILE = "trusted-ca.pem"
@@ -164,7 +164,7 @@ def validate(cert_pem: bytes, key_pem: bytes, hostname: str | None = None,
 	try:
 		key = serialization.load_pem_private_key(key_pem, password=None)
 	except TypeError:
-		check.problems.append("The private key is password-protected — nginx "
+		check.problems.append("The private key is password-protected - nginx "
 		                      "can't use it unattended. Export it without a "
 		                      "password.")
 		key = None
@@ -197,7 +197,7 @@ def validate(cert_pem: bytes, key_pem: bytes, hostname: str | None = None,
 
 	if not check.names:
 		check.problems.append("The certificate has no subject alternative "
-		                      "names — browsers ignore the common name.")
+		                      "names - browsers ignore the common name.")
 	elif hostname and not host_matches(hostname, dns_names, ips):
 		check.problems.append(f"The certificate doesn't cover {hostname} "
 		                      f"(it covers: {', '.join(check.names)}).")
@@ -358,7 +358,7 @@ class Organisation(Certificate):
 		if not host_matches(new, dns, ips):
 			covers = ", ".join([*dns, *map(str, ips)]) or "no names"
 			raise ProxyError(
-				f"The certificate in use covers {covers} — not {new}. Upload "
+				f"The certificate in use covers {covers} - not {new}. Upload "
 				f"a certificate for {new} first (Server Management → "
 				f"Certificate), then change the hostname.")
 

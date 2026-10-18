@@ -1,8 +1,8 @@
 """This process's states beside serving: a stop or restart (Shutdown) and
 maintenance (Maintenance).
 
-Shutdown: the one way this process stops on purpose — a SIGTERM (docker
-stop, netrollout stop / update) or the admin Restart: drain the
+Shutdown: the one way this process stops on purpose - a SIGTERM (docker
+stop, netrollout stop / upgrade) or the admin Restart: drain the
 orchestrator, then exit. In a container the restart policy (unless-stopped)
 brings a Restart back; in development the process relaunches itself.
 
@@ -68,7 +68,7 @@ class Shutdown:
 		return bool(self._restart)
 
 	def begin(self, deadline: float, restart: bool) -> bool:
-		"""Drain (up to `deadline` seconds for running rollouts), then exit —
+		"""Drain (up to `deadline` seconds for running rollouts), then exit -
 		in the background, so the app keeps serving pages (and the banner)
 		meanwhile.
 
@@ -78,7 +78,7 @@ class Shutdown:
 			if self._restart is not None:
 				return False
 			self._restart = restart
-		print(f"[NetRollout] {'Restart' if restart else 'Stop'} requested — "
+		print(f"[NetRollout] {'Restart' if restart else 'Stop'} requested - "
 		      f"new rollouts are paused", flush=True)
 		threading.Thread(target=self._run, args=(deadline, restart),
 		                 name="shutdown", daemon=True).start()

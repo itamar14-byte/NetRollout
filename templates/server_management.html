@@ -1,5 +1,5 @@
 {% extends "admin.html" %}
-{% block title %}Server Management — Administration{% endblock %}
+{% block title %}Server Management - Administration{% endblock %}
 
 {% block admin_content %}
 <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4">
@@ -111,7 +111,7 @@
       </style>
 
       <p class="mv-now">
-        NetRollout's data is in <code>{{ db_place }}</code> —
+        NetRollout's data is in <code>{{ db_place }}</code> -
         {{ 'the bundled database' if db_mode == 'bundled' else 'your own server' }}.
       </p>
 
@@ -122,7 +122,7 @@
         <div class="mv-step-head"><i class="bi bi-arrow-return-left" style="color:#00bcd4;"></i>
           <span class="mv-step-title">Move back to the bundled database</span></div>
         <p class="mv-intro mb-3">The bundled PostgreSQL kept running, untouched. Moving back copies NetRollout's
-          data from your server into it (replacing what it held) and switches to it — the same steps as a move.</p>
+          data from your server into it (replacing what it held) and switches to it - the same steps as a move.</p>
         <button class="btn btn-outline-primary btn-sm" id="mvBackBtn" type="button">
           <i class="bi bi-arrow-return-left me-1"></i>Move back to the bundled database</button>
       </div>
@@ -133,7 +133,7 @@
         <p class="mv-intro">All of NetRollout's data is copied there, then NetRollout switches to it. New rollouts
           pause and the running ones finish first (you can cancel them); then NetRollout is unavailable for a few
           minutes while the data is copied. {% if db_mode == 'bundled' %}The bundled database keeps running,
-          untouched — you can move back to it at any time.{% endif %}</p>
+          untouched - you can move back to it at any time.{% endif %}</p>
 
         <!-- Step 1 -->
         <section class="mv-step" aria-labelledby="mvStep1">
@@ -165,7 +165,7 @@
               <i class="bi bi-file-earmark-code me-1"></i>Show the SQL for your administrator</button>
             <div id="mvSqlOut" style="display:none;">
               <p class="mv-hint mb-0"><i class="bi bi-info-circle me-1"></i><strong>An example for a typical setup.</strong>
-                Your administrator may adapt it to their conventions — names, where the database lives, how logins are
+                Your administrator may adapt it to their conventions - names, where the database lives, how logins are
                 managed. What NetRollout needs is the list above; if they change a name or the password, enter theirs in step 2.</p>
               <div class="mv-sql"><pre id="mvSqlText"></pre>
                 <button class="btn btn-outline-secondary btn-sm" type="button" id="mvSqlCopy"><i class="bi bi-clipboard me-1"></i>Copy</button></div>
@@ -202,7 +202,7 @@
           <div class="mv-step-head"><span class="mv-num">2</span>
             <span class="mv-step-title" id="mvStep2">Connect and check</span></div>
           <p class="mv-hint mt-0 mb-3">The database NetRollout will use, with its own login (not the administrator's).
-            Filled in from step 1 — add the server once your administrator is done.</p>
+            Filled in from step 1 - add the server once your administrator is done.</p>
           <div class="row g-3">
             <div class="col-md-5"><label class="nr-label" for="mvHost">Server</label>
               <input type="text" id="mvHost" class="form-control" placeholder="db.example.com"></div>
@@ -243,11 +243,11 @@
     <div id="form-redis" style="display:none;">
       <div class="nr-warning mb-4" style="border-color:rgba(255,100,80,0.25); background:rgba(255,100,80,0.05);">
         <i class="bi bi-exclamation-triangle-fill me-2" style="color:#ff8a65;"></i>
-        Switching Redis <strong>signs everyone else out</strong> — sessions live there; you stay signed in. It's refused
+        Switching Redis <strong>signs everyone else out</strong> - sessions live there; you stay signed in. It's refused
         while rollouts run (their live state is there too). Nothing else is lost: NetRollout's data is in
         PostgreSQL. It applies at once, without a restart.
       </div>
-      <p class="mv-now">NetRollout uses Redis at <code>{{ redis_place }}</code> —
+      <p class="mv-now">NetRollout uses Redis at <code>{{ redis_place }}</code> -
         {{ 'the bundled Redis' if redis_mode == 'bundled' else 'your own server' }}.</p>
       {% if can_redis_back %}
       <div class="mv-step">
@@ -308,7 +308,7 @@
     </div>
     <div class="cert-help">
       The certificate nginx serves NetRollout with. A new one is checked first and applied within seconds,
-      without a restart — if nginx can't use it, the previous one stays.
+      without a restart - if nginx can't use it, the previous one stays.
     </div>
 
     <div id="certStatus" class="access-status" aria-live="polite"></div>
@@ -430,7 +430,7 @@
             </div>
             <div class="ldap-bind-option" onclick="newBindType('regular')" id="n_opt_regular">
               <div style="font-weight:600; font-size:0.84rem; color:#ccc;">Regular</div>
-              <div style="font-size: 0.75rem; color:var(--nr-text-muted); margin-top:0.15rem;">Service account — enables Explorer + group rules</div>
+              <div style="font-size: 0.75rem; color:var(--nr-text-muted); margin-top:0.15rem;">Service account - enables Explorer + group rules</div>
             </div>
           </div>
         </div>
@@ -731,11 +731,11 @@
     nrAccessStatus(status, access);
 
     const show = (kind, html) => { result.className = 'cert-result show ' + kind; result.innerHTML = html; };
-    // what nginx did with it — the reply of both buttons
+    // what nginx did with it - the reply of both buttons
     const NGINX = {
       applied: 'nginx applied it.',
-      not_managed: 'No NetRollout nginx reports here — with your own reverse proxy, give it the new files too.',
-      no_answer: "nginx didn't confirm within a few seconds — check <code>netrollout status</code> on the server.",
+      not_managed: 'No NetRollout nginx reports here - with your own reverse proxy, give it the new files too.',
+      no_answer: "nginx didn't confirm within a few seconds - check <code>netrollout status</code> on the server.",
     };
 
     async function send(url, body, label) {
@@ -803,7 +803,7 @@
           subject.appendChild(note);
         }
         const issuer = document.createElement('td');
-        issuer.textContent = ca.self_signed ? '—' : ca.issuer;
+        issuer.textContent = ca.self_signed ? '-' : ca.issuer;
         const expires = document.createElement('td');
         expires.textContent = ca.not_after.slice(0, 10);
         if (ca.warning) {
@@ -953,7 +953,7 @@
       sqlFor = sqlNames();
       $('mvSqlText').textContent = d.sql;
       $('mvSqlHint').innerHTML =
-        'It holds a new password for NetRollout\'s login — step 2 below is filled in with it, so keep this ' +
+        'It holds a new password for NetRollout\'s login - step 2 below is filled in with it, so keep this ' +
         'page open until the move (or keep the password). Hand the SQL over securely. Hiding and showing it keeps ' +
         'the same password; other names above write it again, with a new one.' +
         (d.grafana_known ? '' : '<br><i class="bi bi-info-circle me-1"></i>Grafana\'s password isn\'t known to this ' +
@@ -978,7 +978,7 @@
       if (d.status !== 'ok') { out.innerHTML = error(d.message); return; }
       $('mvAdPassword').value = '';            // not kept, not even in the page
       out.innerHTML = '<span class="res-ok"><i class="bi bi-check-circle me-1"></i>Ready: ' +
-        d.done.map(nrEscape).join('; ') + '. Step 2 is filled in — check it.</span>' +
+        d.done.map(nrEscape).join('; ') + '. Step 2 is filled in - check it.</span>' +
         (d.grafana_known ? '' : '<div class="mv-hint">Grafana\'s password isn\'t known to this server: its login wasn\'t created.</div>');
       fillStep2(d, body.host, body.port);
     });
@@ -1002,7 +1002,7 @@
       const r = d.report;
       const list = (items, cls) => items.length ? `<ul class="${cls}">${items.map(i => `<li>${nrEscape(i)}</li>`).join('')}</ul>` : '';
       out.innerHTML = (r.ok
-          ? `<span class="res-ok"><i class="bi bi-check-circle me-1"></i>Ready for the move — PostgreSQL ${nrEscape(r.server_version)}, schema ${nrEscape(r.schema)}, ${r.contents === 'empty' ? 'empty' : 'holding a NetRollout database'}.</span>`
+          ? `<span class="res-ok"><i class="bi bi-check-circle me-1"></i>Ready for the move - PostgreSQL ${nrEscape(r.server_version)}, schema ${nrEscape(r.schema)}, ${r.contents === 'empty' ? 'empty' : 'holding a NetRollout database'}.</span>`
           : `<span class="res-err"><i class="bi bi-x-circle me-1"></i>NetRollout can't move there yet:</span>${list(r.problems, 'res-err')}`)
         + list(r.notes, 'mv-hint');
       checked = r.ok ? r : null;
@@ -1056,7 +1056,7 @@
           Keep this page open; it updates by itself.</div>`;
       } else if (m.state === 'done') {
         html = `<strong class="res-ok"><i class="bi bi-check-circle me-1"></i>${nrEscape(m.message)}</strong>
-          <div class="mv-hint mt-1">Backup made before the move: ${nrEscape(m.backup || '—')}.${live ? ' This page reloads in a moment.' : ''}</div>`;
+          <div class="mv-hint mt-1">Backup made before the move: ${nrEscape(m.backup || '-')}.${live ? ' This page reloads in a moment.' : ''}</div>`;
         if (live) setTimeout(() => location.reload(), 4000);
       } else {
         html = `<strong class="res-err"><i class="bi bi-x-circle me-1"></i>${m.state === 'cancelled' ? 'The move was cancelled' : 'The move didn\'t happen'}</strong>
@@ -1307,7 +1307,7 @@
               <div class="ldap-bind-option ${isReg ? 'selected' : ''}"
                    onclick="setBindType('${s.id}', 'regular')" id="e_${s.id}_opt_regular">
                 <div style="font-weight:600; font-size:0.84rem; color:#ccc;">Regular</div>
-                <div style="font-size: 0.75rem; color:var(--nr-text-muted); margin-top:0.15rem;">Service account — enables Explorer + group rules</div>
+                <div style="font-size: 0.75rem; color:var(--nr-text-muted); margin-top:0.15rem;">Service account - enables Explorer + group rules</div>
               </div>
             </div>
           </div>
@@ -1323,7 +1323,7 @@
                 <label class="nr-label">
                   Bind Password
                   <span style="color:var(--nr-text-muted); font-size: 0.75rem; text-transform:none; letter-spacing:0;">
-                    — leave blank to keep current
+                    - leave blank to keep current
                   </span>
                 </label>
                 <input id="e_${s.id}_bpw" class="form-control form-control-sm"

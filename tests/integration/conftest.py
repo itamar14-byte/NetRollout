@@ -2,7 +2,7 @@
 
 Health: PostgreSQL and Redis are probed once at collection. Tests marked
 `postgres` / `redis` (every test in this directory is, via `pytestmark`)
-are skipped with the probe's reason when their service is down — `-ra`
+are skipped with the probe's reason when their service is down - `-ra`
 lists them. Unit tests are unaffected.
 
 Isolation (nothing here touches the developer's live data):
@@ -59,7 +59,7 @@ DEFAULT_TEST_DB = 15
 def _pg_admin_url() -> str:
 	"""A superuser login (it creates and drops the test database): the dev
 	stack's Postgres (compose.dev.yaml), with the superuser password from the
-	repo's .env — unless TEST_PG_ADMIN_URL says otherwise (e.g. CI)."""
+	repo's .env - unless TEST_PG_ADMIN_URL says otherwise (e.g. CI)."""
 	url = os.environ.get("TEST_PG_ADMIN_URL")
 	if url:
 		return url
@@ -297,7 +297,7 @@ def _no_real_rollouts(request, monkeypatch):
 	app = request.getfixturevalue("app")
 
 	def _refuse(*_, **__):
-		raise AssertionError("real orchestrator.submit reached — use the "
+		raise AssertionError("real orchestrator.submit reached - use the "
 		                     "captured_submits fixture")
 
 	monkeypatch.setattr(app.orchestrator, "submit", _refuse)
@@ -458,7 +458,7 @@ def linked(app):
 	return _linked
 
 
-# ── Ephemeral OpenLDAP directory (tests only — never part of the deployment) ─
+# ── Ephemeral OpenLDAP directory (tests only - never part of the deployment) ─
 #
 # Started from the locally present `alpine` image with Alpine's OpenLDAP
 # packages, seeded with an AD-shaped tree (users nested in OUs, a DN with a

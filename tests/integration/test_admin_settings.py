@@ -239,7 +239,7 @@ def test_restart_dot_shows_on_admin_pages_while_pending(admin, app, client_for):
 	assert 'id="restartPendingDot" style="display:none' in html
 	save(client, orchestrator_workers=started + 1)
 	html = client.get("/admin/users").get_data(as_text=True)
-	assert 'title="Restart required — Concurrent rollout jobs changed"' in html
+	assert 'title="Restart required - Concurrent rollout jobs changed"' in html
 	assert 'id="restartPendingDot" style="display:inline-block' in html
 
 
@@ -361,7 +361,7 @@ def test_one_that_does_not_cover_it_refuses_and_changes_nothing(
 	before = proxy.files()
 	resp = save(client_for(admin), public_hostname="other.example")
 	assert resp.status_code == 422
-	assert "covers nr01.corp.local — not other.example" in \
+	assert "covers nr01.corp.local - not other.example" in \
 	       resp.json["errors"]["public_hostname"]
 	assert hostname(app) == "" and proxy.files() == before
 
@@ -380,7 +380,7 @@ def test_a_file_that_cannot_be_written_changes_nothing(admin, app, client_for,
 	assert resp.status_code == 422
 	message = resp.json["errors"]["public_hostname"]
 	assert "couldn't write" in message and "Permission denied" in message
-	# the certificate was already reissued — and put back
+	# the certificate was already reissued - and put back
 	assert hostname(app) == "" and proxy.files() == before
 
 
@@ -449,8 +449,8 @@ def test_the_audit_says_what_nginx_did(admin, app, client_for, proxy,
 
 @pytest.fixture
 def port_files(app):
-	"""The contract files — site.env (the request, the confirmation) and the
-	helper's status — what was there comes back; the setting back to 443
+	"""The contract files - site.env (the request, the confirmation) and the
+	helper's status - what was there comes back; the setting back to 443
 	afterwards. `helper(...)` writes the helper's status the way the contract
 	says."""
 	status_file = _runtime.config_dir() / _pa.STATUS_FILE

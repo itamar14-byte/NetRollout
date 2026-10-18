@@ -21,7 +21,7 @@ FALLBACK_VERSION = "0.0.0.dev0"
 
 
 def _read_version() -> str:
-	"""The VERSION file at the repo root — the one source of the version: the
+	"""The VERSION file at the repo root - the one source of the version: the
 	image copies it next to src/, the CLI .exe bundles it (sys._MEIPASS).
 	Between releases it names the next one (1.0.1.dev0)."""
 	base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent))
@@ -86,7 +86,7 @@ def in_container() -> bool:
 
 
 # Waitress worker threads. A live rollout log holds one for the whole rollout,
-# and every Grafana request makes a quick sign-in check — with Waitress's
+# and every Grafana request makes a quick sign-in check - with Waitress's
 # default of 4, four open live logs stalled every other request. The threads
 # mostly wait (Redis, Postgres), so many cost little.
 THREADS_ENV = "NETROLLOUT_THREADS"

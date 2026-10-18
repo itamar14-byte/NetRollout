@@ -1,5 +1,5 @@
 """System settings registry (src/db/settings.py): definitions, parsing,
-coercion of stored values, seed values and the declarative rules — no
+coercion of stored values, seed values and the declarative rules - no
 database here (the store and seeding are tested in integration)."""
 import pytest
 

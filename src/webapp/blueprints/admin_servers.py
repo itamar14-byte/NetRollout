@@ -321,7 +321,7 @@ def _certificate_applied(action: AuditAction, proxy: Verdict,
 	"""After nginx's verdict: rejected (the previous files are back) → the
 	reason; otherwise audited and the new status returned."""
 	if proxy.rejected:
-		return err(f"nginx rejected the certificate: {proxy.message} — "
+		return err(f"nginx rejected the certificate: {proxy.message} - "
 		           f"the previous certificate is back.", 422)
 	current_app.web.audit(action, object_type="Certificate",
 	                      object_label=", ".join(detail.get("names", [])[:3]),
@@ -333,7 +333,7 @@ def _certificate_applied(action: AuditAction, proxy: Verdict,
 @login_required
 @require_admin
 def certificate_upload() -> ResponseReturnValue:
-	"""An organisation's certificate (+ chain) and key: checked, then used —
+	"""An organisation's certificate (+ chain) and key: checked, then used -
 	all or nothing, nginx's verdict included (Access.upload_certificate)."""
 	files: dict[str, bytes] = {}
 	for field in ("certificate", "key"):
@@ -443,15 +443,15 @@ def rollouts() -> Response:
 @require_admin
 def admin_restart() -> ResponseReturnValue:
 	"""Restart NetRollout. With rollouts running or queued the caller must
-	choose (409 otherwise): "when_finished" drains — new rollouts paused,
-	running ones finish (up to the drain deadline) — "now" cancels them.
+	choose (409 otherwise): "when_finished" drains - new rollouts paused,
+	running ones finish (up to the drain deadline) - "now" cancels them.
 	Queued rollouts are recorded as cancelled either way."""
 	mode = (request.get_json(silent=True) or {}).get("mode")
 	if mode not in (None, "when_finished", "now"):
 		return err("mode must be when_finished or now", 422)
 	counts = current_app.orchestrator.counts()
 	if (counts["running"] or counts["queued"]) and mode is None:
-		return err("Rollouts are running — restart when they finish, or now "
+		return err("Rollouts are running - restart when they finish, or now "
 		           "(cancels them)?", 409, **counts)
 	deadline = 0 if mode == "now" else drain_seconds()
 	if not current_app.shutdown.begin(deadline, restart=True):

@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-# Import through the src package only — the app itself imports src.*, and a
+# Import through the src package only - the app itself imports src.*, and a
 # bare `import core` would load a second copy of every module (patches and
 # isinstance checks would then silently target the wrong one).
 from src.rollout import inputs
@@ -239,7 +239,7 @@ class TestTcpPort(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# core.py — prepare_devices
+# core.py - prepare_devices
 # ---------------------------------------------------------------------------
 
 class TestPrepareDevices(unittest.TestCase):

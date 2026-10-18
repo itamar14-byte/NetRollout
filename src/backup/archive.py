@@ -1,4 +1,4 @@
-"""Backups: one zip that brings NetRollout back — on this computer or on a
+"""Backups: one zip that brings NetRollout back - on this computer or on a
 fresh install, whatever database it uses (the bundled one or the
 organisation's own).
 
@@ -14,7 +14,7 @@ The database goes through the app's own connection, never a superuser: the
 backup reads NetRollout's tables in one read-only snapshot; the restore, in
 one transaction, undoes NetRollout's migrations (its own tables only, nothing
 else in that database), migrates to the backup's level, loads the data and
-checks the key decrypts it — any failure leaves the database as it was. The
+checks the key decrypts it - any failure leaves the database as it was. The
 files come after the database's commit: one failing then is reported
 (FilesIncomplete), the database and its key stay restored. The app migrates to its own level at its next start, so an older backup restores
 onto a newer NetRollout; a newer one is refused.
@@ -73,7 +73,8 @@ class BackupKind(StrEnum):
 	MANUAL = "manual"                  # an admin, the scripts' backup
 	SCHEDULED = "scheduled"            # src/backup/schedule.py - the only kind pruned
 	BEFORE_RESTORE = "before-restore"
-	BEFORE_UPDATE = "before-update"
+	BEFORE_UPGRADE = "before-upgrade"   # the scripts' backup before an upgrade
+	BEFORE_UPDATE = "before-update"     # BRIDGE(rc4): remove in rc6 - older images' / files' name
 	BEFORE_MOVE = "before-move"        # a database move's copy
 
 
@@ -484,7 +485,7 @@ class BackupFolder:
 
 	def prune(self, keep: int) -> list[Path]:
 		"""Scheduled backups beyond the newest `keep` are deleted; the others
-		(manual, before a restore or update) only by a person. The .partial
+		(manual, before a restore or upgrade) only by a person. The .partial
 		files killed backups left go too.
 
 		:returns: the deleted backups"""
@@ -552,7 +553,7 @@ def check(path: Path, version: str = runtime.VERSION) -> Manifest:
 		newer = True
 	if newer:
 		raise BackupError(f"{shown(path)} was made by NetRollout {manifest.version}, "
-		                  f"newer than this one ({version}). Update NetRollout "
+		                  f"newer than this one ({version}). Upgrade NetRollout "
 		                  f"first, then restore.")
 	try:
 		known = ScriptDirectory.from_config(alembic_config()).get_revision(
@@ -841,7 +842,7 @@ def _restore_grafana(zf: zipfile.ZipFile, folder: Path) -> list[str]:
 
 def _write_like_folder(target: Path, data: bytes, folder: Path) -> None:
 	"""Atomically; run as root (the scripts' restore, so it can write into
-	Grafana's volume) the file gets the folder's owner — the service that
+	Grafana's volume) the file gets the folder's owner - the service that
 	uses it."""
 	tmp = target.with_name(f".{target.name}.restoring")
 	tmp.write_bytes(data)

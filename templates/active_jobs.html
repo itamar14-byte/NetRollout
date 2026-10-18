@@ -1,5 +1,5 @@
 {% extends "operator_base.html" %}
-{% block title %}Active Jobs — NetRollout{% endblock %}
+{% block title %}Active Jobs - NetRollout{% endblock %}
 {% block page_title %}Active Jobs{% endblock %}
 
 {% block extra_style %}
@@ -267,7 +267,7 @@
     <div class="d-flex align-items-center flex-wrap gap-3 text-nowrap">
         <div class="refresh-indicator" id="refreshIndicator">
             <span class="refresh-dot" id="refreshDot"></span>
-            <span id="refreshLabel">—</span>
+            <span id="refreshLabel">-</span>
         </div>
         {% if is_admin %}
         <button id="allUsersToggle" class="job-action-btn" onclick="toggleAllUsers()"
@@ -303,11 +303,11 @@
             <div class="stat-label">Queued</div>
         </div>
         <div class="stat-chip">
-            <div class="stat-val">{{ total_devices if total_devices != 0 else '—' }}</div>
+            <div class="stat-val">{{ total_devices if total_devices != 0 else '-' }}</div>
             <div class="stat-label">Devices in flight</div>
         </div>
         <div class="stat-chip" style="margin-left:auto; border-right:none; border-left:1px solid #1e1e1e;">
-            <div class="stat-val" style="font-size:0.95rem;" id="liveClock">—</div>
+            <div class="stat-val" style="font-size:0.95rem;" id="liveClock">-</div>
             <div class="stat-label">Local time</div>
         </div>
     </div>
@@ -351,7 +351,7 @@
             <div class="d-flex align-items-center gap-2">
                 <span class="status-dot {{ job.status }}" aria-hidden="true"></span>
                 {% if job.status == 'pending' %}
-                <span class="status-pill pending queued">Queued — waiting for a free slot</span>
+                <span class="status-pill pending queued">Queued - waiting for a free slot</span>
                 {% else %}
                 <span class="status-pill {{ job.status }}">{{ job.status }}</span>
                 {% endif %}
@@ -369,7 +369,7 @@
         <td>
             <span class="term cyan elapsed-timer"
                   data-started="{{ job.started_at_iso if job.started_at_iso else '' }}">
-                {{ '—' if not job.started_at_iso else '' }}
+                {{ '-' if not job.started_at_iso else '' }}
             </span>
         </td>
 
@@ -392,7 +392,7 @@
                 {# a rollback targets the devices the job configured: known
                    once it finishes (the completion card, or Results) #}
                 <span class="rollback-wait" tabindex="0"
-                      title="Available when the rollout finishes — then from the completion card or Results">
+                      title="Available when the rollout finishes - then from the completion card or Results">
                     <button type="button" class="job-action-btn btn-rollback" disabled>
                         <i class="bi bi-arrow-counterclockwise me-1"></i>Rollback
                     </button>
@@ -425,7 +425,7 @@
 {% else %}
 <div class="empty-wrap">
     <i class="bi bi-broadcast"></i>
-    <p>No active rollouts — system is idle</p>
+    <p>No active rollouts - system is idle</p>
     {% if not show_owner %}
     <a href="{{ url_for('rollout.new_rollout') }}" class="btn btn-outline-primary btn-sm"
        style="font-size:0.8rem;">
@@ -645,8 +645,8 @@
             .filter(s => data.counts[s]).map(s => `${data.counts[s]} ${s}`);
         let html =
             `<div class="d-flex align-items-center justify-content-between flex-wrap gap-2">` +
-            // which job — several can finish in parallel
-            `<span><strong>Rollout finished — ${data.comment ? nrEscape(data.comment) + ' ' : ''}` +
+            // which job - several can finish in parallel
+            `<span><strong>Rollout finished - ${data.comment ? nrEscape(data.comment) + ' ' : ''}` +
             `<span title="${nrEscape(data.job_id)}" style="font-family:'JetBrains Mono',monospace;">` +
             `[${nrEscape(data.job_id.slice(0, 8))}]</span></strong> ` +
             `<span class="status-pill ${nrEscape(data.status)}">${nrEscape(data.status)}</span> ` +

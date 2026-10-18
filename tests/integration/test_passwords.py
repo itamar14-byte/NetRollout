@@ -187,7 +187,7 @@ def test_a_change_signs_out_every_other_session(make_user, client_for, app):
 
 
 # (wrong_current moved to the voluntary change below: a forced change no
-# longer asks for the current password — approved 2026-10-04)
+# longer asks for the current password - approved 2026-10-04)
 @pytest.mark.parametrize("kwargs, reason", [
 	({"confirm": "Other-pass-42"}, "mismatch"),
 	({"new": "short1"}, "rule"),

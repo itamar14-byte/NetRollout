@@ -127,7 +127,7 @@ Changing your password signs you out everywhere else. The current browser stays 
 
 You're signed out after a period without activity: 15 minutes unless your administrator changed it. A minute before, a **Still there?** box counts down. Select **Stay signed in** to continue, or **Sign out**. Activity in another tab of NetRollout counts too. Automatic refreshes and an open live log don't count as activity.
 
-However active you are, you sign in again after 12 hours. When NetRollout restarts or is updated, everyone is signed out.
+However active you are, you sign in again after 12 hours. When NetRollout restarts or is upgraded, everyone is signed out.
 
 ## Finding your way around
 
@@ -150,7 +150,7 @@ The dashboard is the first page after you sign in.
 It shows:
 
 - **Active rollout**: your rollout that is running or queued, with **Cancel**. If none is running, **Launch Rollout** starts one.
-- **Recent activity**: your last 5 rollouts and their status. A job with a problem that needs a person is marked **Action needed — open the job**. **View all** opens Results.
+- **Recent activity**: your last 5 rollouts and their status. A job with a problem that needs a person is marked **Action needed - open the job**. **View all** opens Results.
 - **Summary**: how many devices, security profiles and variable mappings you have, your total rollouts and the last status.
 - **Your 30-day numbers**: success rate, device pushes, commands pushed, and the device with the most failures.
 - **Quick actions**: **Manage Inventory**, **View All Results**.
@@ -334,7 +334,7 @@ A rollout configures several devices in parallel: 10 at a time unless your admin
 
 ### The queue
 
-NetRollout runs a limited number of rollouts at once: 4 unless your administrator changed it. A rollout launched while all slots are busy waits in a queue and shows **Queued — waiting for a free slot** until one frees up.
+NetRollout runs a limited number of rollouts at once: 4 unless your administrator changed it. A rollout launched while all slots are busy waits in a queue and shows **Queued - waiting for a free slot** until one frees up.
 
 ### Verify
 
@@ -379,7 +379,7 @@ When you select **Launch Rollout**, NetRollout takes you to **Active Jobs**, wit
 
 For each job:
 
-- **Log** opens the live log under the job's row. It streams the job's log lines as they happen: each device connecting, each command refused, the save or commit, Verify's findings, any **ACTION NEEDED** line and the final summary. Opening it later shows the lines so far first. A queued job's log starts with "Queued — waiting for a free slot" and waits for it to start.
+- **Log** opens the live log under the job's row. It streams the job's log lines as they happen: each device connecting, each command refused, the save or commit, Verify's findings, any **ACTION NEEDED** line and the final summary. Opening it later shows the lines so far first. A queued job's log starts with "Queued - waiting for a free slot" and waits for it to start.
 - **Cancel** cancels it (see [Cancelling](#cancelling)).
 - **Rollback** is greyed while the rollout runs.
 
@@ -432,7 +432,7 @@ A job's status comes from its devices:
 
 ### ACTION NEEDED
 
-Some problems can only be fixed by a person on the device. NetRollout marks these **Action needed** in Results and on the dashboard, and writes them in the log as `ACTION NEEDED — <ip:port>: <what to do>`. The job lists each affected device with the action, for example:
+Some problems can only be fixed by a person on the device. NetRollout marks these **Action needed** in Results and on the dashboard, and writes them in the log as `ACTION NEEDED - <ip:port>: <what to do>`. The job lists each affected device with the action, for example:
 
 - The change is live but **not saved**: save it on the device, or it's lost at the next reboot.
 - A commit didn't finish in time: check on the device whether it went through.

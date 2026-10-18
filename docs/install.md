@@ -1,8 +1,8 @@
 # Installing NetRollout
 
-This guide is for the admin who installs NetRollout on a server: what the server needs, how to install on Windows and Linux, the first sign-in, certificates, updating over an existing install, uninstalling, and what to do when something goes wrong.
+This guide is for the admin who installs NetRollout on a server: what the server needs, how to install on Windows and Linux, the first sign-in, certificates, upgrading over an existing install, uninstalling, and what to do when something goes wrong.
 
-Running NetRollout day to day (NetRollout Manager, the `netrollout` commands, updates, backups, users) is in the [admin guide](admin-guide.md). If you only need the command-line tool, see the [CLI guide](cli.md); it needs no installation.
+Running NetRollout day to day (NetRollout Manager, the `netrollout` commands, upgrades, backups, users) is in the [admin guide](admin-guide.md). If you only need the command-line tool, see the [CLI guide](cli.md); it needs no installation.
 
 ## Contents
 
@@ -11,7 +11,7 @@ Running NetRollout day to day (NetRollout Manager, the `netrollout` commands, up
 - [Install on Linux](#install-on-linux)
 - [First sign-in](#first-sign-in)
 - [Certificates and the hostname](#certificates-and-the-hostname)
-- [Updating an existing install](#updating-an-existing-install)
+- [Upgrading an existing install](#upgrading-an-existing-install)
 - [Kept data and starting fresh](#kept-data-and-starting-fresh)
 - [Uninstall](#uninstall)
 - [Running on a virtual machine](#running-on-a-virtual-machine)
@@ -26,7 +26,7 @@ NetRollout runs as a set of Docker containers: the app, nginx in front of it, Po
 - Windows 10 or 11, 64-bit. **Not Windows Server**: Docker Desktop doesn't support it, and Setup refuses it.
 - Virtualization turned on (Intel VT-x or AMD-V in the BIOS/UEFI; on a virtual machine, nested virtualization). Setup refuses to start without it and says how to turn it on.
 - Docker Desktop. If it is missing, Setup installs it (through `winget`, or Docker's own installer if `winget` fails). Docker Desktop's installer asks for administrator rights and may ask you to restart Windows.
-- Internet access during install and update, to download Docker Desktop, the images and new releases.
+- Internet access during install and upgrade, to download Docker Desktop, the images and new releases.
 
 NetRollout itself installs per user, without an administrator prompt.
 
@@ -35,7 +35,7 @@ NetRollout itself installs per user, without an administrator prompt.
 - A 64-bit Linux server with **Docker Engine** and the **Docker Compose plugin** (`docker compose`). The installer checks both and explains how to get them, but never installs Docker itself. See [Docker's install guide](https://docs.docker.com/engine/install/).
 - `root` (run the scripts with `sudo`).
 - `unzip`, to extract the release, and `curl`, which the scripts use to check that NetRollout answers. Without `curl`, `start` and `status` report that NetRollout doesn't answer even when it runs.
-- Internet access during install and update.
+- Internet access during install and upgrade.
 
 The scripts were verified on Ubuntu 24.04. They use `ss`, `ip` and, when present, `systemd` and `timedatectl`.
 
@@ -68,7 +68,7 @@ Setup checks the computer first. It stops with a reason if:
 - the computer runs Windows Server, or
 - virtualization is turned off.
 
-It also looks for an existing NetRollout: an install (Setup then [updates it](#updating-an-existing-install)), data kept by an earlier uninstall (see [Kept data](#kept-data-and-starting-fresh)), or a [damaged install](#a-damaged-install).
+It also looks for an existing NetRollout: an install (Setup then [upgrades it](#upgrading-an-existing-install)), data kept by an earlier uninstall (see [Kept data](#kept-data-and-starting-fresh)), or a [damaged install](#a-damaged-install).
 
 ### The wizard, page by page
 
@@ -111,7 +111,7 @@ Setup restricts the install folder to Administrators, SYSTEM and your account. T
 
 ### Finding NetRollout afterwards
 
-- **NetRollout Manager**: Start Menu, desktop, or the tray icon. Its status light shows whether NetRollout runs; it starts, stops, opens, updates and backs up NetRollout.
+- **NetRollout Manager**: Start Menu, desktop, or the tray icon. Its status light shows whether NetRollout runs; it starts, stops, opens, upgrades and backs up NetRollout.
 - **Win+R**, type `netrollout`: opens NetRollout Manager. This works even if you didn't add the command to `PATH`.
 - **A terminal**: `netrollout status`, `netrollout open`, `netrollout help`. Open a **new** terminal after the install: a terminal opened before it doesn't see the new `PATH`. Without `PATH`, use the full path, for example `C:\NetRollout\bin\netrollout.bat status`.
 
@@ -209,53 +209,53 @@ Requests to another name than the configured hostname are redirected to it. Requ
 
 After the install, change the hostname in **System Settings** and the certificate in **Server Management > TLS Certificate** (upload one, or generate a new self-signed one). Both take effect without a restart. See the [admin guide](admin-guide.md).
 
-## Updating an existing install
+## Upgrading an existing install
 
-Every update makes a backup (`...-before-update.zip` in `backups`) before it changes anything. Downgrades aren't supported: an older Setup or release is refused, and nothing is changed. While an update runs, running rollouts finish first, NetRollout is down for about a minute, and everyone signs in again afterwards.
+Every upgrade makes a backup (`...-before-upgrade.zip` in `backups`) before it changes anything. Downgrades aren't supported: an older Setup or release is refused, and nothing is changed. While an upgrade runs, running rollouts finish first, NetRollout is down for about a minute, and everyone signs in again afterwards.
 
 ### Windows
 
-Run the new version's NetRollout Setup, or click **Update** in NetRollout Manager, which downloads Setup, checks it against the release's `SHA256SUMS` and runs it for you.
+Run the new version's NetRollout Setup, or click **Upgrade** in NetRollout Manager, which downloads Setup, checks it against the release's `SHA256SUMS` and runs it for you.
 
-Over an install, Setup shows only the review page, "Ready to update", with the versions (for example `1.0.0rc1 → 1.0.0rc2`), the folder, what is kept and the backup made first. The Docker page appears only if Docker isn't running. Click **Update**. The old version keeps running while the new images download; then NetRollout restarts. The output is in `logs\update.log`.
+Over an install, Setup shows only the review page, "Ready to upgrade", with the versions (for example `1.0.0rc1 → 1.0.0rc2`), the folder, what is kept and the backup made first. The Docker page appears only if Docker isn't running. Click **Upgrade**. The old version keeps running while the new images download; then NetRollout restarts. The output is in `logs\upgrade.log`.
 
 Setup refuses before its first page if the same version or a newer one is installed.
 
 > [!NOTE]
-> The 1.0.0rc1 NetRollout Manager can't see pre-releases. To update from 1.0.0rc1 to a later release candidate, download the new NetRollout Setup from the [Releases page](https://github.com/itamar14-byte/NetRollout/releases) and run it.
+> The 1.0.0rc1 NetRollout Manager can't see pre-releases. To upgrade from 1.0.0rc1 to a later release candidate, download the new NetRollout Setup from the [Releases page](https://github.com/itamar14-byte/NetRollout/releases) and run it.
 
 ### Linux
 
 ```bash
-sudo ./bin/netrollout.sh update            # the newest release, asks first
-sudo ./bin/netrollout.sh update --check    # only look
-sudo ./bin/netrollout.sh update --version 1.0.0rc2
-sudo ./bin/netrollout.sh update --from /path/netrollout-<version>-linux.zip   # offline
+sudo ./bin/netrollout.sh upgrade            # the newest release, asks first
+sudo ./bin/netrollout.sh upgrade --check    # only look
+sudo ./bin/netrollout.sh upgrade --version 1.0.0rc2
+sudo ./bin/netrollout.sh upgrade --from /path/netrollout-<version>-linux.zip   # offline
 ```
 
-An installed release candidate looks for the newest release including pre-releases; a final release looks for final releases only. The 1.0.0rc1 script only knows GitHub's latest final release, so from 1.0.0rc1 give the version: `update --version 1.0.0rc2`.
+An installed release candidate looks for the newest release including pre-releases; a final release looks for final releases only. The 1.0.0rc1 script only knows GitHub's latest final release, so from 1.0.0rc1 give the version: `upgrade --version 1.0.0rc2`.
 
-Mirrors and offline updates are covered in the [admin guide](admin-guide.md).
+Mirrors and offline upgrades are covered in the [admin guide](admin-guide.md).
 
-### An update that didn't finish
+### An upgrade that didn't finish
 
-An update has two halves: the files are replaced, then the new images are pulled, the settings are brought up to date, and NetRollout restarts. If the second half fails, NetRollout remembers it (a `.update-pending` file in the install folder) and never starts the new version without finishing it:
+An upgrade has two halves: the files are replaced, then the new images are pulled, the settings are brought up to date, and NetRollout restarts. If the second half fails, NetRollout remembers it (a `.upgrade-pending` file in the install folder) and never starts the new version without finishing it:
 
-- **Windows:** fix the cause, then click **Retry** in Setup's message. Or later: run the same Setup again (its review page then says "Ready to finish the update" and its button is **Finish update**), click **Finish update** in NetRollout Manager, or run `netrollout start`.
-- **Linux:** `sudo ./bin/netrollout.sh start` (or the install again) finishes the update first.
+- **Windows:** fix the cause, then click **Retry** in Setup's message. Or later: run the same Setup again (its review page then says "Ready to finish the upgrade" and its button is **Finish upgrade**), click **Finish upgrade** in NetRollout Manager, or run `netrollout start`.
+- **Linux:** `sudo ./bin/netrollout.sh start` (or the install again) finishes the upgrade first.
 
-To go back to the earlier version instead, install it and restore the `before-update` backup.
+To go back to the earlier version instead, install it and restore the `before-upgrade` backup (named `before-update` when an earlier version made it).
 
 ### A damaged install
 
-If an install's folder was partly deleted by hand (its uninstaller, `VERSION` or `compose.yaml` missing, or its `.env` gone while Docker still holds its data), NetRollout can be neither updated nor uninstalled normally. Setup notices this before its first page and asks: **Clear what's left of it and install NetRollout again?** If the install's `.env` is still there, it then asks whether to keep its data. Without `.env`, the data can't be used and is deleted. The backups are always kept. Nothing is cleared before you click **Install** on the review page.
+If an install's folder was partly deleted by hand (its uninstaller, `VERSION` or `compose.yaml` missing, or its `.env` gone while Docker still holds its data), NetRollout can be neither upgraded nor uninstalled normally. Setup notices this before its first page and asks: **Clear what's left of it and install NetRollout again?** If the install's `.env` is still there, it then asks whether to keep its data. Without `.env`, the data can't be used and is deleted. The backups are always kept. Nothing is cleared before you click **Install** on the review page.
 
 ## Kept data and starting fresh
 
 Uninstalling can keep NetRollout's data: the database (in Docker volumes), `.env` with its passwords and encryption key, settings, certificates and logs. The next install picks it up:
 
 - the **same version** starts as it was,
-- an **older version** is updated, with a backup first,
+- an **older version** is upgraded, with a backup first,
 - a **newer version** is refused (downgrades aren't supported).
 
 The data belongs to the Docker project `netrollout`, not to a folder, and it only works with the `.env` it was created with. So NetRollout installs where the kept data is:
@@ -365,7 +365,7 @@ Open a new terminal: one opened before the install doesn't have the new `PATH`. 
 | Log | Where |
 | --- | --- |
 | Setup's install | `<folder>\logs\install.log` |
-| An update | `<folder>\logs\update.log` |
+| An upgrade | `<folder>\logs\upgrade.log` |
 | The containers | `netrollout logs [service]`, for example `netrollout logs app` (Linux: `sudo ./bin/netrollout.sh logs app`) |
 | The port helper (Windows) | `<folder>\logs\port-helper.log` |
 

@@ -1,5 +1,5 @@
 {% extends "admin.html" %}
-{% block title %}System Settings — Administration{% endblock %}
+{% block title %}System Settings - Administration{% endblock %}
 
 {% block extra_style %}
 /* inside admin.html's <style> element */
@@ -92,7 +92,7 @@
         <div class="set-help" id="help-{{ s.key }}">{{ s.help }}</div>
         <div class="set-meta">
           <span class="set-chip applies">applies: {{ s.applies }}</span>
-          <span>default: {{ s.default if s.default not in (None, '') else '—' }}</span>
+          <span>default: {{ s.default if s.default not in (None, '') else '-' }}</span>
           <span class="set-chip changed" data-marker="changed" {% if not s.changed or s.from_install %}hidden{% endif %}>changed</span>
           <span class="set-chip install" data-marker="install" title="Set by the installer, or on the server itself (netrollout port) - the audit log says which" {% if not s.from_install %}hidden{% endif %}>set on the server</span>
           <button type="button" class="set-reset" data-reset="{{ s.key }}" {% if not s.changed %}hidden{% endif %}>reset to default</button>
@@ -128,7 +128,7 @@
     {# the nightly clean-up's last run (src/webapp/retention.py) #}
     <div class="set-note" id="cleanupLast">
       {% if not cleanup %}
-        <i class="bi bi-clock me-1"></i>The clean-up runs daily at 03:00 (server time) — it hasn't run yet.
+        <i class="bi bi-clock me-1"></i>The clean-up runs daily at 03:00 (server time) - it hasn't run yet.
       {% elif cleanup.ok %}
         {% set c = cleanup.counts %}
         <i class="bi bi-check-circle me-1" style="color:#a5d6a7;"></i>Last clean-up {{ cleanup.time | replace('T', ' ') }}:
@@ -139,7 +139,7 @@
         Daily at 03:00 (server time).
       {% else %}
         <span style="color:#ffcc80;"><i class="bi bi-exclamation-triangle me-1"></i>The clean-up at
-        {{ cleanup.time | replace('T', ' ') }} failed: {{ cleanup.message }} — it's tried again within the hour.</span>
+        {{ cleanup.time | replace('T', ' ') }} failed: {{ cleanup.message }} - it's tried again within the hour.</span>
       {% endif %}
     </div>
     {% endif %}
@@ -158,12 +158,12 @@
       <i class="bi bi-info-circle me-1"></i>
       Restoring stops NetRollout for a moment, so it's done on the server: NetRollout Manager → <b>Restore…</b>,
       or <code>netrollout restore &lt;file&gt;</code>. A backup holds the key that decrypts the saved device
-      credentials — keep downloaded copies as safe as the server itself.
+      credentials - keep downloaded copies as safe as the server itself.
     </div>
     {% endif %}
 
     {% if card == 'Access' %}
-    {# where a new HTTPS port stands — filled by the script (port_apply.state) #}
+    {# where a new HTTPS port stands - filled by the script (port_apply.state) #}
     <div id="portState" class="set-alert port-state" aria-live="polite"></div>
     <div class="set-row">
       <div>
@@ -171,7 +171,7 @@
         <div class="set-help">The port this NetRollout process listens on; nginx forwards to it. Set at install.</div>
       </div>
       <div>
-        <input type="text" class="form-control form-control-sm set-input" value="{{ app_port if app_port else '—' }}"
+        <input type="text" class="form-control form-control-sm set-input" value="{{ app_port if app_port else '-' }}"
                disabled aria-label="Internal app port (read-only)">
       </div>
     </div>
@@ -184,12 +184,12 @@
     </div>
     <div id="testResult" class="test-result" aria-live="polite"></div>
 
-    {# nginx's last verdict + the certificate in use — filled by the script (proxy_config.overview) #}
+    {# nginx's last verdict + the certificate in use - filled by the script (proxy_config.overview) #}
     <div id="accessStatus" class="access-status" aria-live="polite"></div>
 
     <div class="set-note">
       <i class="bi bi-info-circle me-1"></i>
-      A new hostname is applied by NetRollout's nginx at once, and its result is shown when you save —
+      A new hostname is applied by NetRollout's nginx at once, and its result is shown when you save -
       if anything can't be applied, nothing changes and you're told why. Behind your own reverse proxy
       instead, update that proxy yourself.
     </div>
@@ -212,7 +212,7 @@
 {% include '_access_status.html' %}
 <script>
 (() => {
-  // The registry and rules as the server enforces them — the page checks the
+  // The registry and rules as the server enforces them - the page checks the
   // same things before sending; the server checks again (authoritative).
   let SETTINGS = {{ settings | tojson }};
   const RULES = {{ rules | tojson }};
@@ -325,7 +325,7 @@
 
   // ── HTTPS port: applied by the server's port helper (src/webapp/port_apply.py).
   // A trial opens the new port next to the current one; the page served on the
-  // new port confirms it — unconfirmed, the helper goes back.
+  // new port confirms it - unconfirmed, the helper goes back.
   const portBox = document.getElementById('portState');
   let portTimer = null, probedId = null;
   const onPort = p => `https://${location.hostname}:${p}`;
@@ -343,14 +343,14 @@
       html = `Opening port ${p.saved}… NetRollout is unavailable for a few seconds while nginx restarts.`;
     } else if (s === 'no_helper_answer') {
       icon = 'bi-exclamation-triangle';
-      html = `The server hasn't picked up port ${p.saved} — check <code>netrollout status</code> on the server. ` +
+      html = `The server hasn't picked up port ${p.saved} - check <code>netrollout status</code> on the server. ` +
              `NetRollout stays on port ${p.serving}.`;
     } else if (s === 'trying') {
       const url = onPort(p.trying) + '/admin/settings?confirm_port=' + encodeURIComponent(p.id);
       const left = p.deadline ? Math.max(0, Math.round(p.deadline - Date.now() / 1000)) : null;
       icon = 'bi-signpost-split';
       html = `Port ${p.trying} is open next to port ${p.serving}. <a href="${nrEscape(url)}">Open NetRollout on port ${p.trying}</a> ` +
-             `to keep it${left !== null ? ` (${left} s left)` : ''} — if it doesn't open (e.g. a firewall blocks it), ` +
+             `to keep it${left !== null ? ` (${left} s left)` : ''} - if it doesn't open (e.g. a firewall blocks it), ` +
              `port ${p.serving} stays.`;
       // reachable from this browser → go there; the page there confirms
       if (probedId !== p.id) {
@@ -366,7 +366,7 @@
              `NetRollout stays on port ${p.serving}. ` +
              '<button type="button" class="btn btn-sm btn-outline-warning" data-port-retry>Try again</button>';
     } else {
-      html = `Port change: unknown state (${nrEscape(s)}) — check <code>netrollout status</code> on the server.`;
+      html = `Port change: unknown state (${nrEscape(s)}) - check <code>netrollout status</code> on the server.`;
     }
     portBox.className = 'set-alert show port-state ' + kind;
     portBox.innerHTML = `<i class="bi ${icon} me-1"></i>` + html;
@@ -444,8 +444,8 @@
       const proxy = data.proxy, proxyWarn = proxy && proxy.state === 'no_answer';
       if (proxy) msg += ' ' + {
         applied: 'nginx applied it' + (proxy.message ? ' (' + nrEscape(proxy.message) + ')' : '') + '.',
-        not_managed: 'Your own reverse proxy serves NetRollout — update it for the new hostname.',
-        no_answer: "nginx didn't confirm within a few seconds — check <code>netrollout status</code> on the server.",
+        not_managed: 'Your own reverse proxy serves NetRollout - update it for the new hostname.',
+        no_answer: "nginx didn't confirm within a few seconds - check <code>netrollout status</code> on the server.",
       }[proxy.state] || '';
       showAlert((data.restart_pending || []).length || proxyWarn ? 'warn' : 'success', msg);
     } else if (resp.status === 422) {
@@ -466,7 +466,7 @@
     history.replaceState(null, '', location.pathname);
     post('/admin/settings/port/confirm', {id: confirmId}).then(({resp, data}) => {
       if (resp.ok && data.status === 'ok') {
-        showAlert('success', `<i class="bi bi-check-circle me-1"></i>Port ${nrEscape(location.port || 443)} kept — ` +
+        showAlert('success', `<i class="bi bi-check-circle me-1"></i>Port ${nrEscape(location.port || 443)} kept - ` +
           `NetRollout is now at <code>${nrEscape(location.origin)}</code>.`);
         renderPort(data.port);
       } else {
@@ -523,7 +523,8 @@
 
   // ── Backups: the list, Back up now, Download, Delete (admin_backups.py) ──
   const KIND = {manual: 'manual', scheduled: 'scheduled', 'before-restore': 'before restore',
-                'before-update': 'before update'};
+                'before-upgrade': 'before upgrade',
+                'before-update': 'before upgrade'};   // BRIDGE(rc4): remove in rc6 - 'before-update'
   const size = n => n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB';
   const when = iso => iso ? new Date(iso).toLocaleString([], {dateStyle: 'medium', timeStyle: 'short'}) : null;
   const rowOf = key => document.querySelector(`.set-row[data-key="${key}"]`);
@@ -540,7 +541,7 @@
     next.textContent = b.next ? `Next scheduled backup: ${when(b.next)}` : 'Scheduled backups are off.';
     if (b.last && b.last.ok) {
       last.className = 'set-alert show success bk-last';
-      last.innerHTML = `<i class="bi bi-check-circle me-1"></i>Last scheduled backup: ${nrEscape(when(b.last.time))} — OK.`;
+      last.innerHTML = `<i class="bi bi-check-circle me-1"></i>Last scheduled backup: ${nrEscape(when(b.last.time))} - OK.`;
     } else if (b.last) {
       last.className = 'set-alert show error bk-last';
       last.innerHTML = `<i class="bi bi-exclamation-triangle me-1"></i>The last scheduled backup failed ` +
@@ -555,7 +556,7 @@
         (x.problem ? `<span class="bk-bad" title="${nrEscape(x.problem)}">damaged</span> ` + nrEscape(x.name)
                    : nrEscape(when(x.created))) + '</td>' +
         `<td><span class="bk-kind ${kindClass(x.kind)}">${nrEscape(KIND[x.kind] || x.kind)}</span></td>` +
-        `<td>${nrEscape(x.version || '—')}</td><td class="num">${size(x.size)}</td><td class="acts">` +
+        `<td>${nrEscape(x.version || '-')}</td><td class="num">${size(x.size)}</td><td class="acts">` +
         `<a class="btn btn-sm btn-outline-secondary" href="/admin/backups/${encodeURIComponent(x.name)}" ` +
         `title="Download ${nrEscape(x.name)}" aria-label="Download ${nrEscape(x.name)}"><i class="bi bi-download"></i></a>` +
         `<button type="button" class="btn btn-sm btn-outline-danger" data-backup-delete="${nrEscape(x.name)}" ` +

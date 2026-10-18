@@ -1,4 +1,4 @@
-"""Stage 4b: every supported platform — how the push finishes, how a refused
+"""Stage 4b: every supported platform - how the push finishes, how a refused
 command is recognised, and the verify verdicts against the config as each
 platform prints it (fixtures approximate real output; the EVE-NG round is
 the real-device check)."""
@@ -863,7 +863,7 @@ def test_a_failed_save_is_reported_as_not_saved():
 	                                  "Use the command 'lock database override'")
 	logger = fresh_logger()
 	assert push("checkpoint_gaia", conn, logger=logger).applied
-	assert "ACTION NEEDED — 10.0.0.1:22: the change is live but NOT saved" in log_of(logger)
+	assert "ACTION NEEDED - 10.0.0.1:22: the change is live but NOT saved" in log_of(logger)
 
 
 def test_a_successful_save_says_nothing_extra():
@@ -1055,7 +1055,7 @@ def test_manual_cases_are_flagged_action_needed(device_type, setup, words):
 	with patch("netmiko.ConnectHandler", return_value=conn):
 		engine.run(threading.Event(), logger)
 	log = log_of(logger)
-	flagged = [l for l in log.splitlines() if "ACTION NEEDED — 10.0.0.1:22:" in l]
+	flagged = [l for l in log.splitlines() if "ACTION NEEDED - 10.0.0.1:22:" in l]
 	assert flagged and words in flagged[0]
 	assert "ACTION NEEDED on 1 device (10.0.0.1:22)" in log     # the summary
 

@@ -162,7 +162,7 @@ def build_jobs(result_rows: Iterable[DeviceResult],
 					"action_needed": r.action_needed,
 					"commands_sent": r.commands_sent,
 					"commands_verified": r.commands_verified,
-					# flags only — the config itself is fetched on demand by
+					# flags only - the config itself is fetched on demand by
 					# config_diff, never shipped with the page
 					"has_config": r.fetched_config is not None,
 					"config_expired": config_expired(r, snapshot_days)

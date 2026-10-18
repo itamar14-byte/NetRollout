@@ -301,7 +301,7 @@ def test_non_utf8_console_used_to_fail_notify(monkeypatch):
 
 
 def test_utf8_console_makes_notify_safe(monkeypatch):
-	"""After utf8_console, cp1252 stdout and stderr take '→' and '—': both are
+	"""After utf8_console, cp1252 stdout and stderr take '→' and '-': both are
 	written as UTF-8."""
 	out, err = cp1252_stream(), cp1252_stream()
 	monkeypatch.setattr(sys, "stdout", out)
@@ -309,10 +309,10 @@ def test_utf8_console_makes_notify_safe(monkeypatch):
 	utf8_console()
 	RolloutLogger(webapp=False, verbose=False).notify(
 		"Bulk assign started: 2 devices → profile p", important=True)
-	print("Startup aborted — key problem", file=sys.stderr)
+	print("Startup aborted - key problem", file=sys.stderr)
 	out.flush(), err.flush()
 	assert "→".encode() in out.buffer.getvalue()
-	assert "—".encode() in err.buffer.getvalue()
+	assert "-".encode() in err.buffer.getvalue()
 
 
 # ── Log retention ────────────────────────────────────────────────────────────

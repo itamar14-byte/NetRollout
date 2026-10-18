@@ -1,5 +1,5 @@
 """System Settings → Backups: Back up now, the list, Download, Delete
-(admins only, audited) and the scheduled backups with their retention —
+(admins only, audited) and the scheduled backups with their retention -
 against the test database, into a scratch backups folder."""
 import zipfile
 from datetime import datetime, timedelta
@@ -146,7 +146,7 @@ def test_a_failed_scheduled_backup_is_reported_audited_and_retried(
 	status = backup_schedule.tick(app.backend, now)
 	assert status == {"time": "2026-10-05T02:01:00", "ok": False, "file": None,
 	                  "message": "disk full"}
-	assert "ACTION NEEDED — scheduled backup failed: disk full" in capsys.readouterr().out
+	assert "ACTION NEEDED - scheduled backup failed: disk full" in capsys.readouterr().out
 	assert actions(session_scope) == [("backup.failed", "scheduler", False, None)]
 	assert backup_schedule.tick(app.backend, now + timedelta(minutes=5)) is None
 	monkeypatch.undo()

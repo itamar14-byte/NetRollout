@@ -34,7 +34,7 @@ loki.process "netrollout" {
     }
   }
 
-  // The entry's own time — local time (TZ), as the app writes it
+  // The entry's own time - local time (TZ), as the app writes it
   stage.regex {
     expression = "^(?P<log_time>\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2})"
   }

@@ -1,7 +1,7 @@
 """The app's side of the port helper contract (src/setup/port.py has the
 helper's; overview: docs/architecture.md §9).
 
-The HTTPS port is published by Docker, so a new one needs nginx recreated —
+The HTTPS port is published by Docker, so a new one needs nginx recreated -
 done on the host by the port helper, never by the app (no Docker access
 here). The app only writes requests and reads the helper's answers:
 
@@ -159,7 +159,7 @@ def published_port() -> int:
 
 
 def request_port(port: int) -> Callable[[], None]:
-	"""Ask for `port` (a new request id each time — also for "Try again").
+	"""Ask for `port` (a new request id each time - also for "Try again").
 
 	:returns: undo(), which puts the previous request back
 	:raises ValueError: an invalid port
@@ -180,7 +180,7 @@ def request_port(port: int) -> Callable[[], None]:
 def confirm(apply_id: str, reached_port: int) -> str | None:
 	"""An admin's browser reached NetRollout on `reached_port` during the
 	trial `apply_id`: tell the helper to keep the new port. (`reached_port`
-	comes from the request's Host header — it can only fool the admin sending
+	comes from the request's Host header - it can only fool the admin sending
 	it, which proves nothing to anyone else anyway.)
 
 	:returns: None when confirmed, else why it can't be"""
@@ -189,7 +189,7 @@ def confirm(apply_id: str, reached_port: int) -> str | None:
 		return "There is no port change waiting for confirmation."
 	if _port(status.trying) != reached_port:
 		return (f"Open NetRollout on port {status.trying} to confirm "
-		        f"— this page came through port {reached_port}.")
+		        f"- this page came through port {reached_port}.")
 	if status.deadline and time.time() > float(status.deadline):
 		return "Too late: the trial ended, the previous port is back."
 	site_env.update({site_env.PORT_CONFIRMED: apply_id})

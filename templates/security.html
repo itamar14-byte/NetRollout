@@ -1,5 +1,5 @@
 {% extends "operator_base.html" %}
-{% block title %}Security Profiles — NetRollout{% endblock %}
+{% block title %}Security Profiles - NetRollout{% endblock %}
 {% block page_title %}Security Profiles{% endblock %}
 
 {% block extra_style %}
@@ -519,7 +519,7 @@
 <script>
 let activeProfileId = null;
 
-// All inventory devices — used for the split assign view
+// All inventory devices - used for the split assign view
 {% set ns = namespace(all_devs=[]) %}
 {% for d in devices %}
 {% set ns.all_devs = ns.all_devs + [{"id": d.id|string, "label": d.label, "ip": d.ip, "device_type": d.device_type, "is_global": d.is_global, "sec_profile_id": my_profile_ids.get(d.id|string, "")}] %}
@@ -556,7 +556,7 @@ document.querySelectorAll('.profile-card').forEach(card => {
 // ── Edit modal ──
 function openEdit(profile) {
     document.getElementById('editModalTitle').textContent =
-        'Edit — ' + (profile.label || profile.username);
+        'Edit - ' + (profile.label || profile.username);
     document.getElementById('editLabel').value    = profile.label || '';
     document.getElementById('editUsername').value = profile.username;
     document.getElementById('editPassword').value       = '';
@@ -599,7 +599,7 @@ function openDevices(profile) {
     activeDevicesProfileId = profile.id;
     partSaved = false;
     document.getElementById('devicesModalTitle').textContent =
-        (profile.label || profile.username) + ' — Attached Devices';
+        (profile.label || profile.username) + ' - Attached Devices';
     document.getElementById('devicesError').style.display = 'none';
 
     const mine = d => d.sec_profile_id === profile.id;
@@ -628,7 +628,7 @@ function openDevices(profile) {
 }
 
 // Added devices move to this profile; removed ones are left with none.
-// Two calls — both are idempotent, so retrying after a partial save is safe.
+// Two calls - both are idempotent, so retrying after a partial save is safe.
 async function saveAssignments() {
     const btn    = document.getElementById('saveAssignBtn');
     const errBox = document.getElementById('devicesError');
@@ -739,7 +739,7 @@ document.addEventListener('DOMContentLoaded', initTestDevSelect);
 function openTest(profile) {
     activeProfileId = profile.id;
     document.getElementById('testModalTitle').textContent =
-        'Test — ' + (profile.label || profile.username);
+        'Test - ' + (profile.label || profile.username);
 
     const result = document.getElementById('testResult');
     result.className = 'test-result';
@@ -796,7 +796,7 @@ async function runTest() {
 
     } catch (e) {
         result.className = 'test-result error';
-        result.innerHTML = '<i class="bi bi-x-circle me-2"></i>Request failed — server unreachable';
+        result.innerHTML = '<i class="bi bi-x-circle me-2"></i>Request failed - server unreachable';
         result.style.display = 'block';
     } finally {
         btn.disabled = false;

@@ -243,15 +243,15 @@ def mappings_bulk_assign() -> ResponseReturnValue:
 	Assigns a list of inventory devices to a variable mapping via the
 	many-to-many join table.
 	Accepts a JSON body with mapping_id, device_ids (to assign) and
-	remove_ids (to unassign) — at least one list must be non-empty.
+	remove_ids (to unassign) - at least one list must be non-empty.
 	Removal only drops this mapping's join rows: the mapping is the user's
 	own, so other users' bindings on the same (global) device are untouched,
 	and no visibility or eligibility check applies.
 	For each device to assign, three checks are enforced before appending:
-	  1. Visibility — the device must belong to current_user or be global
-	  2. Eligibility — the device's values as the user sees them
+	  1. Visibility - the device must belong to current_user or be global
+	  2. Eligibility - the device's values as the user sees them
 	     (InventoryView.attributes) must contain mapping.property_name
-	  3. Duplicate — the device must not already be assigned to this mapping
+	  3. Duplicate - the device must not already be assigned to this mapping
 	Invalid or ineligible device IDs are silently skipped.
 	The mapping ownership check is done once before the loop.
 	"""
@@ -259,7 +259,7 @@ def mappings_bulk_assign() -> ResponseReturnValue:
 	                       prefix="bulk_var_assign",
 	                       job_id=str(uuid.uuid4())[:8])
 
-	# Parse JSON body — bail immediately if malformed or missing
+	# Parse JSON body - bail immediately if malformed or missing
 	data = request.get_json(silent=True)
 	if not data:
 		logger.notify("Bulk mapping assign failed: invalid request", Tone.ERROR,
@@ -274,7 +274,7 @@ def mappings_bulk_assign() -> ResponseReturnValue:
 		              important=True)
 		return err("No devices provided")
 
-	# mapping_id comes from JSON, not a URL parameter — manual UUID cast needed
+	# mapping_id comes from JSON, not a URL parameter - manual UUID cast needed
 	try:
 		parsed_mapping_id = uuid.UUID(str(mapping_id))
 	except (ValueError, TypeError):
@@ -284,7 +284,7 @@ def mappings_bulk_assign() -> ResponseReturnValue:
 
 	with current_app.backend.postgres.get_session() as db_session:
 		view = InventoryView(db_session, viewer())
-		# Ownership check on mapping — done once before the loop
+		# Ownership check on mapping - done once before the loop
 		mapping = db_session.query(VariableMapping).filter_by(
 			id=parsed_mapping_id, user_id=current_user.id).first()
 		if not mapping:
@@ -314,7 +314,7 @@ def mappings_bulk_assign() -> ResponseReturnValue:
 
 		assigned, skipped = 0, 0
 		for device_id_str in device_ids:
-			# Parse each device UUID — skip silently if malformed
+			# Parse each device UUID - skip silently if malformed
 			try:
 				device = view.get_visible(uuid.UUID(str(device_id_str)))
 			except (ValueError, TypeError):
@@ -325,14 +325,14 @@ def mappings_bulk_assign() -> ResponseReturnValue:
 				logger.notify(f"Device {device_id_str}: not found", Tone.ERROR)
 				skipped += 1
 				continue
-			# Eligibility check — device must have the mapped attribute set,
+			# Eligibility check - device must have the mapped attribute set,
 			# and the value must be truthy (empty string/list would produce
 			# garbage substitution at rollout time)
 			if not mapping_resolvable(
 					view.attributes([device])[device.id],
 					mapping.property_name, mapping.index):
 				logger.notify(
-					f"{device.label} ({device.ip}): ineligible — missing attribute '{mapping.property_name}'",
+					f"{device.label} ({device.ip}): ineligible - missing attribute '{mapping.property_name}'",
 					Tone.WARNING)
 				skipped += 1
 				continue

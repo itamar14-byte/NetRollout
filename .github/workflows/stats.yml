@@ -1,7 +1,7 @@
 # Download counts, daily: every release file's downloads (GitHub keeps only a
 # running total per file) and each image's Docker Hub pulls, appended as dated
 # rows to downloads.csv on the `stats` branch - so the history is kept. The
-# counts include updates (NetRollout Manager and the Linux update download the
+# counts include upgrades (NetRollout Manager and the Linux upgrade download the
 # same files): copies fetched, not new users. Runnable by hand too.
 name: Download stats
 
@@ -39,7 +39,7 @@ jobs:
               "- \`source\`: \`github\` (a release file's downloads) or \`dockerhub\` (an image's pulls)" \
               "- \`name\`: \`<tag>/<file>\`, or the image" \
               "- \`count\`: the running total that day - a day's downloads are the difference from the day before" "" \
-              "The counts include updates (NetRollout Manager and the Linux update download the same files)." > README.md
+              "The counts include upgrades (NetRollout Manager and the Linux upgrade download the same files)." > README.md
           fi
       - name: Count
         env:

@@ -4,7 +4,7 @@ restored backup's encryption key into .env (restore_key), and the
 `netrollout status` report (status). The scripts gather what only the host
 sees (busy ports, the containers' states, whether the address answers from
 this computer) and pass it in; .env is only ever edited through env.py.
-An update's direction and .env: update.py."""
+An upgrade's direction and .env: update.py."""
 import datetime
 import json
 import urllib.error
@@ -65,8 +65,8 @@ def prepare_start(busy: dict[int, str], server_ips: list[str]) -> list[str]:
 # ── after a restore ──
 
 def restore_key() -> str:
-	"""The restored backup's encryption key into .env — the saved credentials
-	were encrypted with it — and the hand-over file removed. Returns what to
+	"""The restored backup's encryption key into .env - the saved credentials
+	were encrypted with it - and the hand-over file removed. Returns what to
 	say. :raises ValueError: no key handed over, or not a key"""
 	path = runtime.backups_dir() / RESTORED_KEY
 	try:

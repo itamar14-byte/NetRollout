@@ -1,5 +1,5 @@
 {% extends "admin.html" %}
-{% block title %}Audit Logs — NetRollout{% endblock %}
+{% block title %}Audit Logs - NetRollout{% endblock %}
 
 {% block admin_content %}
 <div class="nr-card">
@@ -124,7 +124,7 @@
             </td>
 
             <td style="font-family:'JetBrains Mono',monospace; font-size:0.72rem; color:var(--nr-text-muted);">
-              {{ e.ip_address or '—' }}
+              {{ e.ip_address or '-' }}
             </td>
 
             <td class="gear-cell">
@@ -315,7 +315,7 @@
     let parsed = null;
     try { parsed = JSON.parse(rawDetail); } catch(e) { parsed = rawDetail; }
 
-    document.getElementById('detailModalTitle').textContent = 'Entry — ' + ts;
+    document.getElementById('detailModalTitle').textContent = 'Entry - ' + ts;
 
     // Build metadata rows from table cells (their text, set as text)
     const cells = _activeRow.querySelectorAll('td');

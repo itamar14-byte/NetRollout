@@ -425,7 +425,7 @@ CONNECT_TIMEOUT = 3
 SOCKET_TIMEOUT = 15  # > orchestration._BLPOP_TIMEOUT (enforced by a test)
 
 # "Redis is unavailable": a refusing host raises ConnectionError, an
-# unreachable one raises TimeoutError — which is NOT a ConnectionError
+# unreachable one raises TimeoutError - which is NOT a ConnectionError
 # subclass. Catch both wherever Redis being down should be survivable.
 REDIS_UNAVAILABLE = (redis.exceptions.ConnectionError,
 					 redis.exceptions.TimeoutError)
@@ -498,7 +498,7 @@ class RedisConnection(ServiceConnection[RedisConfig]):
 		"""A client with short timeouts and one retry, not connected yet."""
 		# Without explicit timeouts an unreachable (silent) host costs the OS
 		# connect timeout on every attempt, times redis-py's default retries
-		# — ~20s per request. SOCKET_TIMEOUT must stay above the
+		# - ~20s per request. SOCKET_TIMEOUT must stay above the
 		# dispatcher's BLPOP wait, which blocks by design.
 		return redis.from_url(config.get_url(),
 							  socket_connect_timeout=CONNECT_TIMEOUT,

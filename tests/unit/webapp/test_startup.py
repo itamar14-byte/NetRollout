@@ -118,10 +118,10 @@ def test_probe_matches_our_token_over_self_signed_tls(tmp_path):
 
 @pytest.mark.parametrize("response,reason", [
 	(json_body("b" * 32), "it forwards to a different NetRollout instance"),
-	((404, {}, b"not found"), "HTTP 404 — something other than NetRollout answers there"),
+	((404, {}, b"not found"), "HTTP 404 - something other than NetRollout answers there"),
 	((200, {}, b"<html>"), "something other than NetRollout answers there"),
-	((502, {}, b"bad gateway"), "502 Bad Gateway — nginx is up but not forwarding to this app's port"),
-	((301, {"Location": "https://x/"}, b""), "301 redirect to https://x/ — use that address as the Public URL"),
+	((502, {}, b"bad gateway"), "502 Bad Gateway - nginx is up but not forwarding to this app's port"),
+	((301, {"Location": "https://x/"}, b""), "301 redirect to https://x/ - use that address as the Public URL"),
 ])
 def test_probe_reports_why(response, reason):
 	"""A probe that doesn't find our token says why: another instance's token, an HTTP
@@ -151,7 +151,7 @@ def test_probe_tls_against_plain_http_and_nothing_listening():
 
 # ── The message ─────────────────────────────────────────────────────────────
 
-OK, FAIL = Probe(True, ""), Probe(False, "HTTP 404 — something else")
+OK, FAIL = Probe(True, ""), Probe(False, "HTTP 404 - something else")
 
 
 def test_message_when_verified():

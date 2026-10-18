@@ -122,7 +122,7 @@ def register_auth(app: NetRolloutApp) -> None:
 		if request.endpoint == "system.grafana_auth":
 			return Response(status=401)           # nginx: only a status
 		if Caller.SESSION_CHECK.wants_json():
-			return err("Your session has ended — sign in again", 401,
+			return err("Your session has ended - sign in again", 401,
 			           redirect=url_for("auth.home"))
 		flash(f"You were signed out after {current_app.sessions.idle_seconds() // 60} minutes "
 		      f"without activity." if reason == "idle" else
@@ -193,7 +193,7 @@ def register_handlers(app: Flask, backend: BackendServices) -> None:
 
 	@app.errorhandler(InvalidEncryptionKeyError)
 	def handle_invalid_encryption_key(e: Exception) -> ResponseReturnValue:
-		"""Stored credentials can't be decrypted with the configured key —
+		"""Stored credentials can't be decrypted with the configured key -
 		fail the request cleanly instead of a bare 500. Admins get the fix;
 		everyone else is told to contact one. The server log always gets it
 		too: a failure at 2FA sign-in means no admin can see the page."""
@@ -222,7 +222,7 @@ def register_handlers(app: Flask, backend: BackendServices) -> None:
 
 def _decrypt_area(endpoint: str | None, blueprint: str | None) -> str:
 	"""Which stored secret a failed decrypt most likely belongs to, from where
-	it happened — so the page can say what to re-enter."""
+	it happened - so the page can say what to re-enter."""
 	if endpoint == "auth.otp_verify":
 		return "2fa"
 	if blueprint in ("auth", "admin_servers", "admin_ldap"):

@@ -1,6 +1,6 @@
 # NetRollout admin guide
 
-This guide is for whoever runs a NetRollout installation day to day: starting and stopping it, updating it, backing it up, and managing users, settings, certificates, monitoring and the database. It assumes NetRollout is already installed. To install it, see the [installation guide](install.md). For using NetRollout to configure devices, see the [user guide](user-guide.md).
+This guide is for whoever runs a NetRollout installation day to day: starting and stopping it, upgrading it, backing it up, and managing users, settings, certificates, monitoring and the database. It assumes NetRollout is already installed. To install it, see the [installation guide](install.md). For using NetRollout to configure devices, see the [user guide](user-guide.md).
 
 ## Contents
 
@@ -9,7 +9,7 @@ This guide is for whoever runs a NetRollout installation day to day: starting an
 - [The command line](#the-command-line)
 - [Manager and command line side by side](#manager-and-command-line-side-by-side)
 - [Administration](#administration)
-- [Updating NetRollout](#updating-netrollout)
+- [Upgrading NetRollout](#upgrading-netrollout)
 - [Backups](#backups)
 - [Restoring a backup](#restoring-a-backup)
 - [The HTTPS port](#the-https-port)
@@ -63,7 +63,7 @@ Everything that belongs to an installation is in its install folder (`C:\NetRoll
 | `.env` | Every secret of the installation: the database, Redis and Grafana passwords, the session key, and **the encryption key for stored device credentials**. Hidden on Windows; readable by root only on Linux. Don't edit it: settings live in System Settings and the scripts keep the rest up to date. |
 | `config/` | Files the app writes: `runtime.env` (only after a database move or Redis switch), `nginx/site.env` (hostname and port for nginx), port-change state. |
 | `certs/` | The TLS certificate and key nginx serves. |
-| `logs/` | Rollout logs, and on Windows the install, update and port helper logs. |
+| `logs/` | Rollout logs, and on Windows the install, upgrade and port helper logs. |
 | `backups/` | Backups, scheduled and manual. |
 | Docker volumes `netrollout_postgres`, `netrollout_redis`, `netrollout_grafana`, `netrollout_prometheus`, `netrollout_loki`, `netrollout_alloy` | The database, Redis, and the monitoring data. |
 
@@ -85,7 +85,7 @@ The Manager checks NetRollout's health every 15 seconds.
 | Light | State | Typical message below it |
 |---|---|---|
 | Green | **Running** | `Ready`, or `2 rollouts running` |
-| Amber | **Needs attention** | `The database or Redis isn't reachable - see Status`; `Answers with an error (502) - see Status`; `The update to 1.0.1 didn't finish - click Finish update`; or `Port 443 is taken by <program>. Close it and click Start - or click Change port... to use another port for NetRollout.` |
+| Amber | **Needs attention** | `The database or Redis isn't reachable - see Status`; `Answers with an error (502) - see Status`; `The upgrade to 1.0.1 didn't finish - click Finish upgrade`; or `Port 443 is taken by <program>. Close it and click Start - or click Change port... to use another port for NetRollout.` |
 | Red | **Stopped** | `Not running`, or `Not installed here - run NetRollout Setup` |
 | Grey | **Checking...** | |
 
@@ -96,33 +96,33 @@ The address under the message opens NetRollout in your browser.
 | Button | What it does |
 |---|---|
 | **Open NetRollout** | Opens NetRollout in your browser. |
-| **Start** | Starts NetRollout (`netrollout start`). Greyed while it's already running. If an update didn't finish, the button reads **Finish update** and finishes it first. |
+| **Start** | Starts NetRollout (`netrollout start`). Greyed while it's already running. If an upgrade didn't finish, the button reads **Finish upgrade** and finishes it first. |
 | **Stop** | Stops NetRollout (`netrollout stop`). Greyed while it's stopped. If rollouts are running, it lists them and asks: **Wait for them** (up to 10 minutes; new rollouts are paused meanwhile), **Cancel all now** (devices not reached yet are skipped; a device being configured finishes), or **Don't stop**. |
 | **Change port...** | Moves NetRollout to another HTTPS port. Enabled only while another program holds NetRollout's port. Otherwise, change the port in System Settings → HTTPS port (hover over the greyed button to see this). See [The HTTPS port](#the-https-port). |
 | **Status** | Checks everything and says what to do about any problem (`netrollout status`). |
 | **Logs** | Shows the app's recent log lines. |
 | **Back up** | Makes a backup now (`netrollout backup`). |
 | **Restore...** | Picks a backup in the `backups` folder, asks for confirmation, and restores it (`netrollout restore`). See [Restoring a backup](#restoring-a-backup). |
-| **Update** | Checks for a newer NetRollout and offers to update. See [Updating NetRollout](#updating-netrollout). |
+| **Upgrade** | Checks for a newer NetRollout and offers to upgrade. See [Upgrading NetRollout](#upgrading-netrollout). |
 
 Hover over a greyed **Start** or **Stop** to see why it's greyed. The panel below the buttons shows the output of each action. Only one action runs at a time.
 
 ### The tray
 
-The Manager keeps an icon in the notification area, with the status light as a dot. Click it to open the window. Its menu has **Open NetRollout**, **Show NetRollout Manager**, **Start**, **Stop**, **Check for updates**, **Check for updates daily**, **Uninstall NetRollout...** and **Exit**.
+The Manager keeps an icon in the notification area, with the status light as a dot. Click it to open the window. Its menu has **Open NetRollout**, **Show NetRollout Manager**, **Start**, **Stop**, **Check for upgrades**, **Check for upgrades daily**, **Uninstall NetRollout...** and **Exit**.
 
 If you ticked "tray at sign-in" during Setup, the Manager starts hidden in the tray when you sign in to Windows (`NetRollout Manager.exe --tray`). Starting the Manager again brings the running one's window forward; there is one Manager per install folder.
 
-### Update checks and their settings
+### Upgrade checks and their settings
 
-The Manager checks for a newer version a minute after it starts and then once a day, and announces one in the tray once a day. Turn this off with **Check for updates daily** in the tray menu or the update window.
+The Manager checks for a newer version a minute after it starts and then once a day, and announces one in the tray once a day. Turn this off with **Check for upgrades daily** in the tray menu or the upgrade window.
 
 Its settings are in the registry, under `HKEY_CURRENT_USER\Software\NetRollout\Manager`:
 
 | Value | Type | Meaning |
 |---|---|---|
 | `DailyCheck` | DWORD | `1` checks daily (the default), `0` doesn't. |
-| `UpdateFeed` | String | Where to look for releases instead of GitHub: an `http(s)` URL or a file path, holding release JSON in the same format as GitHub's releases API (one release, or a list). The download links in it may be `http(s)` or `file`. Use it for an internal mirror. |
+| `UpgradeFeed` | String | Where to look for releases instead of GitHub: an `http(s)` URL or a file path, holding release JSON in the same format as GitHub's releases API (one release, or a list). The download links in it may be `http(s)` or `file`. Use it for an internal mirror. |
 | `Announced` | String | The last version announced in the tray. Written by the Manager. |
 
 ### The port helper
@@ -137,7 +137,7 @@ On Windows, `bin\netrollout.bat` in the install folder runs `bin\manage.ps1`. If
 
 | Command | What it does |
 |---|---|
-| `netrollout start` | Starts NetRollout and opens it in the browser. Checks Docker and the ports first; if another program holds the HTTPS port, it names it and starts nothing. If NetRollout is already running and healthy, it says so. If an update didn't finish, it finishes it first. Also repairs a half-started installation. |
+| `netrollout start` | Starts NetRollout and opens it in the browser. Checks Docker and the ports first; if another program holds the HTTPS port, it names it and starts nothing. If NetRollout is already running and healthy, it says so. If an upgrade didn't finish, it finishes it first. Also repairs a half-started installation. |
 | `netrollout stop` | Stops NetRollout. Running rollouts finish first (up to 10 minutes). If rollouts are running, it lists them and asks: **[W]ait**, **[C]ancel them all now**, or **[D]on't stop**. |
 | `netrollout status` | Checks the containers, the address, the HTTPS port and the backups, and says what to do about anything wrong. Exit code 0 when all is well. |
 | `netrollout open` | Opens NetRollout in the browser. |
@@ -153,7 +153,7 @@ On Windows, `bin\netrollout.bat` in the install folder runs `bin\manage.ps1`. If
 
 Add `-NoBrowser` to `start` to skip opening the browser.
 
-Installing, updating and uninstalling are done by NetRollout Setup and by Windows' **Settings → Apps**, not by these commands. The script has further commands that Setup and the Manager run; they aren't meant to be run by hand.
+Installing, upgrading and uninstalling are done by NetRollout Setup and by Windows' **Settings → Apps**, not by these commands. The script has further commands that Setup and the Manager run; they aren't meant to be run by hand.
 
 ### Linux: `netrollout.sh`
 
@@ -173,21 +173,21 @@ Run it with no command for a numbered menu:
   5  Logs
   6  Back up
   7  Restore a backup
-  8  Update
+  8  Upgrade
   9  Change the HTTPS port (when its port is taken)
   0  Exit
 ```
 
 | Command | What it does |
 |---|---|
-| `start` | Starts NetRollout. As on Windows: checks Docker and the ports, says if it's already running, finishes an unfinished update first. |
+| `start` | Starts NetRollout. As on Windows: checks Docker and the ports, says if it's already running, finishes an unfinished upgrade first. |
 | `stop` | Stops NetRollout. Running rollouts finish first; if there are any, it lists them and asks **[W]ait**, **[C]ancel them all now** or **[D]on't stop**. |
 | `status` | Checks everything and says what to do about any problem. |
 | `open` | Prints the address, and opens the browser on a desktop. |
 | `logs [service]` | The last 100 log lines of a container (`app` by default). |
 | `backup` | Makes a backup now, into `backups/`. |
 | `restore <file>` | Restores a backup, after asking. `--no-safety-backup` skips the backup of the current state. |
-| `update` | Updates to the newest release. See [Updating NetRollout](#updating-netrollout). |
+| `upgrade` | Upgrades to the newest release. See [Upgrading NetRollout](#upgrading-netrollout). |
 | `apply` | Applies an HTTPS port saved in System Settings. A systemd path unit does this by itself; run it by hand on a system without systemd. |
 | `port <N>` | Moves NetRollout to port N, when its port is taken. |
 | `reset-admin` | When no administrator can sign in: enables the factory `admin`, turns its 2FA off, clears its failed sign-ins and lock, and signs it out everywhere. Asks first. `--new-password` also sets a temporary password, shown once. Not in the menu. |
@@ -198,16 +198,16 @@ Options:
 
 | Option | Applies to | Meaning |
 |---|---|---|
-| `--yes` | any | Unattended: no questions. With `stop` and `update`, running rollouts are waited for. |
+| `--yes` | any | Unattended: no questions. With `stop` and `upgrade`, running rollouts are waited for. |
 | `--no-browser` | `start` | Don't open the browser. |
 | `--no-safety-backup` | `restore` | Don't back up the current state first. |
 | `--new-password` | `reset-admin` | Also set a temporary password for `admin`, shown once. |
 | `--delete-data`, `--keep-data` | `uninstall` | Delete or keep the data without asking. |
 | `--delete-backups` | `uninstall` | With `--delete-data`, delete the backups too. Otherwise they're kept. |
 | `--remove-files` | `uninstall` | Remove the scripts and compose files too. |
-| `--version X`, `--from <zip>`, `--feed <url\|file>`, `--check` | `update` | See [Updating on Linux](#updating-on-linux). |
+| `--version X`, `--from <zip>`, `--feed <url\|file>`, `--check` | `upgrade` | See [Upgrading on Linux](#upgrading-on-linux). |
 
-The Linux script has no `rollouts` or `stop-now` command; `stop` and `update` show the rollouts and ask instead.
+The Linux script has no `rollouts` or `stop-now` command; `stop` and `upgrade` show the rollouts and ask instead.
 
 To uninstall on Windows, or for what an uninstall keeps, see [Uninstalling](install.md#uninstall).
 
@@ -218,22 +218,22 @@ Everything NetRollout Manager does runs `manage.ps1` underneath, so each button 
 | NetRollout Manager (Windows) | Windows command | Linux command | What it does |
 |---|---|---|---|
 | **Open NetRollout**, the address link, tray **Open NetRollout** | `netrollout open` | `sudo ./bin/netrollout.sh open` | Opens NetRollout in the browser (Linux: prints the address, and opens a browser on a desktop). |
-| **Start**, tray **Start** | `netrollout start` | `sudo ./bin/netrollout.sh start` | Starts NetRollout; finishes an unfinished update first. |
-| **Finish update** (the **Start** button while an update is unfinished) | `netrollout start` | `sudo ./bin/netrollout.sh start` | Finishes the update, then starts. |
+| **Start**, tray **Start** | `netrollout start` | `sudo ./bin/netrollout.sh start` | Starts NetRollout; finishes an unfinished upgrade first. |
+| **Finish upgrade** (the **Start** button while an upgrade is unfinished) | `netrollout start` | `sudo ./bin/netrollout.sh start` | Finishes the upgrade, then starts. |
 | **Stop**, tray **Stop** | `netrollout stop` | `sudo ./bin/netrollout.sh stop` | Stops NetRollout; running rollouts finish first, or are cancelled if you choose. |
 | **Status** | `netrollout status` | `sudo ./bin/netrollout.sh status` | Checks everything and says what to do. |
 | **Logs** | `netrollout logs [service]` | `sudo ./bin/netrollout.sh logs [service]` | Recent log lines. The Manager shows the app's only; the command takes any container. |
 | **Back up** | `netrollout backup` | `sudo ./bin/netrollout.sh backup` | Makes a backup now. |
 | **Restore...** | `netrollout restore <file>` | `sudo ./bin/netrollout.sh restore <file>` | Restores a backup. The Manager offers a file picker in `backups\` and always backs up the current state first. |
-| **Update**, tray **Check for updates** | None: run the newer NetRollout Setup | `sudo ./bin/netrollout.sh update` | Updates to a newer release. On Windows, the Manager downloads and runs Setup. |
+| **Upgrade**, tray **Check for upgrades** | None: run the newer NetRollout Setup | `sudo ./bin/netrollout.sh upgrade` | Upgrades to a newer release. On Windows, the Manager downloads and runs Setup. |
 | **Change port...** | `netrollout port <N>` | `sudo ./bin/netrollout.sh port <N>` | Moves NetRollout to another HTTPS port while its own is taken. |
 | Status light (port taken) | `netrollout port-check` | None (`status` reports it) | Whether nginx holds the HTTPS port, and if not, who does. |
-| The rollouts list shown by **Stop** and **Update** | `netrollout rollouts` | None (`stop` and `update` show it) | The rollouts running or queued. |
-| **Cancel all now** in that list | `netrollout stop-now` | None (answer **C** at `stop` or `update`) | Cancels the running rollouts at once during a stop. |
+| The rollouts list shown by **Stop** and **Upgrade** | `netrollout rollouts` | None (`stop` and `upgrade` show it) | The rollouts running or queued. |
+| **Cancel all now** in that list | `netrollout stop-now` | None (answer **C** at `stop` or `upgrade`) | Cancels the running rollouts at once during a stop. |
 | None: the port helper runs it | `netrollout apply` | `sudo ./bin/netrollout.sh apply` | Applies an HTTPS port saved in System Settings. |
 | None (host only) | `netrollout reset-admin` | `sudo ./bin/netrollout.sh reset-admin` | Makes the factory `admin` usable again when no administrator can sign in. |
 | Tray **Uninstall NetRollout...** | None: Windows **Settings → Apps** | `sudo ./bin/netrollout.sh uninstall` | Removes NetRollout, keeping or deleting the data. |
-| Tray **Check for updates daily** | None (registry value `DailyCheck`) | None | The daily update check. |
+| Tray **Check for upgrades daily** | None (registry value `DailyCheck`) | None | The daily upgrade check. |
 | None | None | The menu: `sudo ./bin/netrollout.sh` | A numbered menu of the common commands. |
 
 ## Administration
@@ -252,12 +252,12 @@ Administrators move between the two views with the switch at the top right of ev
 
 Below the groups, **Restart server** restarts NetRollout. See [Restart, stop and maintenance](#restart-stop-and-maintenance). When a changed setting needs a restart, the sidebar says **Restart required** and names it.
 
-## Updating NetRollout
+## Upgrading NetRollout
 
-Every update follows the same steps:
+Every upgrade follows the same steps:
 
 1. **Check the version.** The installed version decides whether the new one is newer. The same version or an older one is refused, and nothing changes. Downgrades aren't supported.
-2. **Back up.** A `before-update` backup is made by the installed version, so you can restore it into that version if you need to go back.
+2. **Back up.** A `before-upgrade` backup is made by the installed version (`before-update` if that version predates the name), so you can restore it into that version if you need to go back.
 3. **Replace the files** (scripts, compose files, `deploy/`, `VERSION`).
 4. **Download the new images** while the old version keeps running.
 5. **Update the settings** in `.env` with anything the new version needs.
@@ -272,38 +272,38 @@ An installation follows the channel of the version it runs:
 
 Versions compare as Python versions do: `1.0.0.dev0` < `1.0.0rc1` < `1.0.0rc2` < `1.0.0`.
 
-### Updating on Windows
+### Upgrading on Windows
 
 Use either:
 
-- **NetRollout Manager → Update** (or **Check for updates** in the tray). If a newer version exists, a window shows its release notes, a **View release on GitHub** link and what will happen. Select **Update now**. The Manager downloads the new NetRollout Setup to your temporary folder, checks it against the release's `SHA256SUMS` (a mismatch is deleted), and runs it silently. If rollouts are running, it first asks whether to wait for them or cancel them. The Manager closes during the update and opens again when it's done, showing the last line of `logs\update.log`.
-- **Run the newer NetRollout Setup yourself.** It finds the installation and shows "Ready to update" with the two versions. Select **Update**.
+- **NetRollout Manager → Upgrade** (or **Check for upgrades** in the tray). If a newer version exists, a window shows its release notes, a **View release on GitHub** link and what will happen. Select **Upgrade now**. The Manager downloads the new NetRollout Setup to your temporary folder, checks it against the release's `SHA256SUMS` (a mismatch is deleted), and runs it silently. If rollouts are running, it first asks whether to wait for them or cancel them. The Manager closes during the upgrade and opens again when it's done, showing the last line of `logs\upgrade.log`.
+- **Run the newer NetRollout Setup yourself.** It finds the installation and shows "Ready to upgrade" with the two versions. Select **Upgrade**.
 
-The update's log is `logs\update.log` in the install folder.
+The upgrade's log is `logs\upgrade.log` in the install folder.
 
-### Updating on Linux
+### Upgrading on Linux
 
 ```bash
-sudo ./bin/netrollout.sh update [--version X] [--from <zip>] [--feed <url|file>] [--check] [--yes]
+sudo ./bin/netrollout.sh upgrade [--version X] [--from <zip>] [--feed <url|file>] [--check] [--yes]
 ```
 
 | Option | Meaning |
 |---|---|
-| (none) | Update to the newest release on your channel, from GitHub. |
-| `--version X` | Update to version X instead of the newest. |
-| `--from <zip>` | Update from a `netrollout-<version>-linux.zip` you downloaded, for a server without internet access to GitHub. If a `SHA256SUMS` file sits next to the zip, the zip is checked against it. |
+| (none) | Upgrade to the newest release on your channel, from GitHub. |
+| `--version X` | Upgrade to version X instead of the newest. |
+| `--from <zip>` | Upgrade from a `netrollout-<version>-linux.zip` you downloaded, for a server without internet access to GitHub. If a `SHA256SUMS` file sits next to the zip, the zip is checked against it. |
 | `--feed <url\|file>` | Look for releases in a mirror's JSON (GitHub's release format: one release or a list) instead of GitHub. A file must be inside the install folder. |
 | `--check` | Only say what's available, with its release notes. Nothing changes. |
 | `--yes` | Don't ask. |
 
-The script downloads the release zip and `SHA256SUMS`, checks the zip, shows the release notes, asks for confirmation, makes the `before-update` backup, replaces the files and hands over to the new version's script to finish.
+The script downloads the release zip and `SHA256SUMS`, checks the zip, shows the release notes, asks for confirmation, makes the `before-upgrade` backup, replaces the files and hands over to the new version's script to finish.
 
-The release notes are shown under `What's new in NetRollout <version>:`, up to their first 30 lines, followed by `Full notes: <link>` to the release's page when the release has one. An update `--from` a zip has no notes to show. Updating from 1.0.0rc1 shows none either: the installed version shows them, and 1.0.0rc1 didn't yet.
+The release notes are shown under `What's new in NetRollout <version>:`, up to their first 30 lines, followed by `Full notes: <link>` to the release's page when the release has one. An upgrade `--from` a zip has no notes to show. Upgrading from 1.0.0rc1 shows none either: the installed version shows them, and 1.0.0rc1 didn't yet.
 
 > [!NOTE]
-> An update also needs the new version's Docker images, `itamarweinstein/netrollout` and `itamarweinstein/netrollout-nginx`, which it pulls from Docker Hub. A server that can't reach Docker Hub needs them loaded beforehand: see [Updating from an internal mirror](#updating-from-an-internal-mirror).
+> An upgrade also needs the new version's Docker images, `itamarweinstein/netrollout` and `itamarweinstein/netrollout-nginx`, which it pulls from Docker Hub. A server that can't reach Docker Hub needs them loaded beforehand: see [Upgrading from an internal mirror](#upgrading-from-an-internal-mirror).
 
-### Updating from an internal mirror
+### Upgrading from an internal mirror
 
 NetRollout needs the internet only to download releases. In a network without access to GitHub or Docker Hub, you provide both from inside. There are three parts: the release files, a feed that describes them, and the Docker images.
 
@@ -320,7 +320,7 @@ Then, in `feed.json`, replace each asset's `browser_download_url` with the addre
 ```json
 {
   "tag_name": "v1.0.0",
-  "body": "The release notes, shown in the update window.",
+  "body": "The release notes, shown in the upgrade window.",
   "html_url": "https://mirror.corp.local/netrollout/",
   "draft": false,
   "assets": [
@@ -335,21 +335,21 @@ Then, in `feed.json`, replace each asset's `browser_download_url` with the addre
 
 **3. Point NetRollout at the feed.**
 
-- **Windows:** set the `UpdateFeed` value for the user who runs NetRollout Manager. It takes a URL or a file path:
+- **Windows:** set the `UpgradeFeed` value for the user who runs NetRollout Manager. It takes a URL or a file path:
 
   ```powershell
   New-Item -Path HKCU:\Software\NetRollout\Manager -Force | Out-Null
-  Set-ItemProperty -Path HKCU:\Software\NetRollout\Manager -Name UpdateFeed -Value "https://mirror.corp.local/netrollout/feed.json"
+  Set-ItemProperty -Path HKCU:\Software\NetRollout\Manager -Name UpgradeFeed -Value "https://mirror.corp.local/netrollout/feed.json"
   ```
 
-  From then on, **Update** and the daily check look there instead of GitHub. Remove the value to go back to GitHub.
-- **Linux:** pass the feed to each update. A file must be inside the install folder:
+  From then on, **Upgrade** and the daily check look there instead of GitHub. Remove the value to go back to GitHub.
+- **Linux:** pass the feed to each upgrade. A file must be inside the install folder:
 
   ```bash
-  sudo ./bin/netrollout.sh update --feed https://mirror.corp.local/netrollout/feed.json
+  sudo ./bin/netrollout.sh upgrade --feed https://mirror.corp.local/netrollout/feed.json
   ```
 
-  For a single update without a feed, `update --from <zip>` with `SHA256SUMS` next to the zip does the same.
+  For a single upgrade without a feed, `upgrade --from <zip>` with `SHA256SUMS` next to the zip does the same.
 
 **4. The Docker images.** Each release names exact image versions. List them from the new release's compose files, with the version set:
 
@@ -360,7 +360,7 @@ NETROLLOUT_VERSION=<version> docker compose -f compose.yaml -f compose.http.yaml
 For 1.0.0rc4 that's `itamarweinstein/netrollout`, `itamarweinstein/netrollout-nginx`, `postgres`, `redis`, and with monitoring `grafana/grafana`, `grafana/loki`, `grafana/alloy` and `prom/prometheus`. Provide them in one of two ways:
 
 - **A registry mirror.** If your organisation runs a pull-through cache for Docker Hub (Harbor, Nexus or Artifactory, for example), add it to Docker's `registry-mirrors` setting (Docker Desktop: **Settings → Docker Engine**; Linux: `/etc/docker/daemon.json`). Docker then fetches every image through it, and nothing else changes.
-- **Offline.** On a computer with internet access, pull each image and save them to one file, then load it on the server before the update:
+- **Offline.** On a computer with internet access, pull each image and save them to one file, then load it on the server before the upgrade:
 
   ```bash
   docker save -o netrollout-images.tar <image> <image> ...   # on the connected computer, after docker pull
@@ -369,15 +369,15 @@ For 1.0.0rc4 that's `itamarweinstein/netrollout`, `itamarweinstein/netrollout-ng
 
   NetRollout uses an image that is already on the server instead of downloading it.
 
-### An update that didn't finish
+### An upgrade that didn't finish
 
-If an update stops after its files were replaced (for example the images couldn't be downloaded), NetRollout records it as unfinished and never starts the new version half-updated:
+If an upgrade stops after its files were replaced (for example the images couldn't be downloaded), NetRollout records it as unfinished and never starts the new version half-upgraded:
 
-- `netrollout status` says the update didn't finish.
-- On Windows, the Manager shows **Needs attention** and its **Start** button reads **Finish update**.
-- Running `netrollout start` (Windows) or `sudo ./bin/netrollout.sh start` (Linux), or running Setup again, finishes the update. Steps already done, such as the backup, aren't repeated.
+- `netrollout status` says the upgrade didn't finish.
+- On Windows, the Manager shows **Needs attention** and its **Start** button reads **Finish upgrade**.
+- Running `netrollout start` (Windows) or `sudo ./bin/netrollout.sh start` (Linux), or running Setup again, finishes the upgrade. Steps already done, such as the backup, aren't repeated.
 
-Fix the cause the update reported, then finish it.
+Fix the cause the upgrade reported, then finish it.
 
 ## Backups
 
@@ -402,7 +402,8 @@ The backup runs through the app's own database connection, so it works whether N
 | `scheduled` | The schedule in System Settings | Yes: only the newest **Keep** are kept |
 | `manual` | **Back up now**, the Manager's **Back up**, `netrollout backup` | No |
 | `before-restore` | A restore, of the state it replaces | No |
-| `before-update` | An update, of the version it replaces | No |
+| `before-upgrade` | An upgrade, of the version it replaces | No |
+| `before-update` | The same, made by an earlier version of NetRollout (the name before `before-upgrade`) | No |
 | `before-move` | A database move, of the data it copies | No |
 
 ### The schedule
@@ -608,7 +609,7 @@ The LDAP explorer's import can do the same for a whole directory move: tick **Re
 
 - A session ends after a period without activity: **Sign out after inactivity** in System Settings, 15 minutes by default (5 to 480). Users get a warning a minute before. Automatic refreshes and live logs don't count as activity.
 - However active, everyone signs in again after 12 hours.
-- **Every restart or update of NetRollout signs everyone out.**
+- **Every restart or upgrade of NetRollout signs everyone out.**
 - **Administration → Live Sessions** lists who is signed in, local and LDAP (**Remote Sessions**). **Kick** signs one user out everywhere; **Kick All** does it for everyone in that table except you.
 
 ## System Settings reference
@@ -754,7 +755,7 @@ The server's timezone for both is the one chosen at install (`TZ` in `.env`).
 | A container's output | `netrollout logs [service]` (Windows) or `sudo ./bin/netrollout.sh logs [service]` (Linux): the last 100 lines. `app` by default. |
 | Each rollout's log | `logs/rollout_<YYYYMMDD>_<HHMMSS>_<job id>.log`, also available as **Download Log** in Results. |
 | Results that couldn't be saved to the database | `logs/unsaved-results-<job id>.json`, with an `ACTION NEEDED` line in the app's output. |
-| Windows Setup | `logs\install.log`, `logs\update.log` |
+| Windows Setup | `logs\install.log`, `logs\upgrade.log` |
 | Windows port helper | `logs\port-helper.log` |
 
 Rollout logs are redacted: values after words such as `password`, `secret` or `community` are written as `<redacted>`.

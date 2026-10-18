@@ -4,14 +4,14 @@
 #
 #   sudo ./bin/install.sh                      install in this folder
 #   sudo ./bin/netrollout.sh start | stop | status | open | logs [service] |
-#                            backup | restore <file> | update | apply | port <N> |
+#                            backup | restore <file> | upgrade | apply | port <N> |
 #                            reset-admin [--new-password] | uninstall | help
 #   sudo ./bin/netrollout.sh                   the menu
 #
 # The install folder is this script's parent folder. The script does what
 # needs this machine (checks, Docker, owners) and leaves the thinking to the
 # setup core inside the app image (python -m src.setup, docs/architecture.md §9).
-# The whole body is one function, read before it runs, so `update` can
+# The whole body is one function, read before it runs, so `upgrade` can
 # replace this file safely.
 
 main() {
@@ -25,14 +25,15 @@ UNIT="netrollout-port-$PROJECT"               # the port helper's systemd units
 APP_IMAGE="itamarweinstein/netrollout:$VERSION"
 IMAGE_VERSION=""      # compose's images of another version (a kept install's backup)
 ENV_FILE="$ROOT/.env"
-# an update's second half (update-finish) hasn't finished while this is here
+# an upgrade's second half (upgrade-finish) hasn't finished while this is here
 # (and names this folder's VERSION): start (and install) finish it
-MARKER="$ROOT/.update-pending"
+MARKER="$ROOT/.upgrade-pending"
+OLD_MARKER="$ROOT/.update-pending"   # BRIDGE(rc4): remove in rc6 - the marker rc4's script writes
 # the folder whose data an uninstall kept (the volumes are the project's,
 # not the folder's: an install elsewhere would reuse them)
 KEPT_RECORD=/etc/netrollout/kept-data
 APP_UID=10001                                  # the app container's user
-# what a release brings: an update replaces these, an uninstall removes them
+# what a release brings: an upgrade replaces these, an uninstall removes them
 RELEASE_ITEMS=(bin compose.yaml compose.http.yaml deploy VERSION LICENSE README.md)
 
 # ── options ──────────────────────────────────────────────────────────────────
@@ -76,8 +77,9 @@ case "$COMMAND" in
 	logs) need_installed; need_docker; compose logs --tail 100 --no-log-prefix "${SERVICE:-app}" ;;
 	backup) do_backup ;;
 	restore) do_restore ;;
-	update) do_update ;;
-	update-finish) do_update_finish ;;     # the new script, run by update
+	upgrade) do_update ;;
+	upgrade-finish) do_update_finish ;;    # the new script, run by upgrade
+	update-finish) do_update_finish ;;     # BRIDGE(rc4): remove in rc6 - rc4's update execs the new script so
 	apply) do_apply ;;
 	port) do_port_by_hand ;;
 	reset-admin) do_reset_admin ;;
@@ -95,7 +97,7 @@ good() { printf '\033[32m   %s\033[0m\n' "$*"; }
 warn() { printf '\033[33m   %s\033[0m\n' "$*"; }
 fail() {
 	printf '\n\033[31m%s\033[0m\n' "$1" >&2
-	# a stop or update that may have asked for a stop now isn't happening: a
+	# a stop or upgrade that may have asked for a stop now isn't happening: a
 	# later stop waits for the rollouts again (nothing asked: nothing changes)
 	if [ -n "${CLEAR_STOP_NOW:-}" ]; then
 		compose exec -T app python -m src.jobs stop-now --clear >/dev/null 2>&1 || true
@@ -248,37 +250,48 @@ setup_core() {
 # A key's value in .env (its last line wins, as for compose)
 env_value() { sed -n "s/^$1=//p" "$ENV_FILE" | tail -1; }
 
-# The version .env was last set up by: its "# Updated to NetRollout X on ..."
-# line (setup upgrade), else the installer's "# NetRollout X — written by the
+# The version .env was last set up by: its "# Upgraded to NetRollout X on ..."
+# line (setup upgrade), else the installer's "# NetRollout X - written by the
 # installer"; empty when it has neither (an early install)
 kept_version() {
 	local v
-	v="$(sed -n 's/^# Updated to NetRollout \([^ ]*\) .*/\1/p' "$ENV_FILE" | tail -1)"
+	# BRIDGE(rc4): remove in rc6 - the second expression: rc4's "# Updated to NetRollout X" stamp
+	v="$(sed -n -e 's/^# Upgraded to NetRollout \([^ ]*\) .*/\1/p' \
+		-e 's/^# Updated to NetRollout \([^ ]*\) .*/\1/p' "$ENV_FILE" | tail -1)"
 	[ -n "$v" ] || v="$(sed -n 's/^# NetRollout \([^ ]*\) .*written by the installer.*/\1/p' "$ENV_FILE" | tail -1)"
 	printf '%s' "$v"
 }
 
-# The unfinished update this folder's files are for: its version - the
-# marker naming this VERSION; empty: none, or a stale one (an update stopped
+# The marker in this folder, nothing when there is none
+marker_path() {
+	if [ -f "$MARKER" ]; then printf '%s' "$MARKER"
+	elif [ -f "$OLD_MARKER" ]; then printf '%s' "$OLD_MARKER"   # BRIDGE(rc4): remove in rc6
+	fi
+}
+
+# The unfinished upgrade this folder's files are for: its version - the
+# marker naming this VERSION; empty: none, or a stale one (an upgrade stopped
 # before its files were replaced names a version not here)
 pending_update() {
-	local v=""
-	if [ -n "$VERSION" ] && [ -f "$MARKER" ]; then
-		v="$(sed -n 's/^version=//p' "$MARKER" | tail -1 | tr -d ' \r')"
+	local v="" file
+	file="$(marker_path)"
+	if [ -n "$VERSION" ] && [ -n "$file" ]; then
+		v="$(sed -n 's/^version=//p' "$file" | tail -1 | tr -d ' \r')"
 	fi
 	if [ "$v" = "$VERSION" ]; then printf '%s' "$v"; fi
 }
 
-# The marker, written before an update's second half can start: the version
+# The marker, written before an upgrade's second half can start: the version
 # it brings, and whether the kept data's backup is still owed.
 #   write_marker <version> [backup-first]
 write_marker() {
 	{
-		printf "# NetRollout's update to %s hasn't finished while this file is here:\n" "$1"
+		printf "# NetRollout's upgrade to %s hasn't finished while this file is here:\n" "$1"
 		printf '# netrollout.sh start (or install.sh) finishes it\n'
 		printf 'version=%s\nstarted=%s\n' "$1" "$(date '+%Y-%m-%d %H:%M')"
 		if [ "${2:-}" = backup-first ]; then printf 'backup-first=yes\n'; fi
 	} > "$MARKER"
+	rm -f "$OLD_MARKER"   # BRIDGE(rc4): remove in rc6 - rc4's marker, carried over above
 }
 
 # The kept-data record: write_record (uninstall --keep-data), record_value
@@ -322,7 +335,7 @@ refuse_over_kept() {
 	local folder version dirs dir usable=""
 	folder="$(record_value folder)"; version="$(record_value version)"
 	if [ -n "$folder" ] && [ "$folder" != "$ROOT" ] && [ -f "$folder/.env" ]; then
-		fail "NetRollout's data is kept in $folder${version:+ (version $version)}. Run the install there to update it, or start fresh: sudo $BIN/install.sh --start-fresh (deletes the kept data; its backups are kept)." 2
+		fail "NetRollout's data is kept in $folder${version:+ (version $version)}. Run the install there to upgrade it, or start fresh: sudo $BIN/install.sh --start-fresh (deletes the kept data; its backups are kept)." 2
 	fi
 	if [ -n "$(project_volumes)" ]; then
 		dirs="$(project_folders | paste -sd' ' -)"
@@ -332,7 +345,7 @@ refuse_over_kept() {
 		fi
 		# no known folder holds its .env - never assumed gone (an rc1 uninstall
 		# recorded none): Windows' Setup says the same
-		fail "NetRollout's data from an earlier install is still in Docker, but no known folder holds its .env${folder:+ (not $folder)}. Nothing was installed. If it's in another folder, run that folder's bin/install.sh: NetRollout is updated or started there with its data. If that folder is gone, start fresh: sudo $BIN/install.sh --start-fresh deletes it (can't be undone; backups in a folder you still have are kept)." 2
+		fail "NetRollout's data from an earlier install is still in Docker, but no known folder holds its .env${folder:+ (not $folder)}. Nothing was installed. If it's in another folder, run that folder's bin/install.sh: NetRollout is upgraded or started there with its data. If that folder is gone, start fresh: sudo $BIN/install.sh --start-fresh deletes it (can't be undone; backups in a folder you still have are kept)." 2
 	fi
 	# a record whose data is gone (deleted by hand) says nothing any more
 	if [ -n "$folder" ]; then rm -f "$KEPT_RECORD"; fi
@@ -342,7 +355,7 @@ refuse_over_kept() {
 # install --start-fresh: the kept data deleted first (asked unless --yes) -
 # what Windows' Setup "Start fresh" deletes: the project's containers,
 # volumes and network by compose's label, then - only once no volume is
-# left - .env, config, certs, logs and the update marker of the folders it
+# left - .env, config, certs, logs and the upgrade marker of the folders it
 # was kept for (the record's, the containers', this one). The backups stay.
 # Refused, nothing deleted, while any of the project's containers runs.
 start_fresh() {
@@ -378,7 +391,8 @@ start_fresh() {
 		fail "Docker didn't delete all of NetRollout's volumes (above) - nothing else was deleted, nothing was installed." 1
 	fi
 	for dir in $folders; do
-		rm -rf "${dir:?}/.env" "$dir/config" "$dir/certs" "$dir/logs" "$dir/.update-pending"
+		rm -rf "${dir:?}/.env" "$dir/config" "$dir/certs" "$dir/logs" "$dir/.upgrade-pending"
+		rm -f "$dir/.update-pending"   # BRIDGE(rc4): remove in rc6 - rc4's marker
 	done
 	rm -f "$KEPT_RECORD"
 	good "The kept data is deleted - backups stay in their folders' backups/."
@@ -478,11 +492,11 @@ do_start() {
 	else warn "NetRollout runs, but $(address) didn't answer from this machine yet - see: netrollout status"; fi
 }
 
-# start with an unfinished update here: the update's second half first (its
+# start with an unfinished upgrade here: the upgrade's second half first (its
 # restart is the start) - never the new version without setup upgrade
 start_or_finish() {
 	if [ -n "$(pending_update)" ]; then
-		step "The update to NetRollout $VERSION didn't finish - finishing it first"
+		step "The upgrade to NetRollout $VERSION didn't finish - finishing it first"
 		do_update_finish
 	elif docker info >/dev/null 2>&1 && all_running; then
 		good "NetRollout is already running: $(address)"
@@ -550,8 +564,8 @@ NOTICE
 # .env already here - kept by `uninstall --keep-data` (which promises this),
 # or installed already: brought back with its own settings, on this release.
 # The version .env was last set up by decides: the same one starts as it was;
-# an older one is updated (checked by its image, a backup by it, then the
-# update's own steps); a newer one is refused - no downgrades, nothing changed.
+# an older one is upgraded (checked by its image, a backup by it, then the
+# upgrade's own steps); a newer one is refused - no downgrades, nothing changed.
 install_over_kept() {
 	local kept old judge code=0 out have_old=""
 	need_docker
@@ -559,7 +573,7 @@ install_over_kept() {
 	[ ${#ANSWERS[@]} -eq 0 ] ||
 		warn "The answers given aren't applied to an existing install - change them in System Settings."
 	if [ -n "$(pending_update)" ]; then
-		step "The update to NetRollout $VERSION didn't finish - finishing it now"
+		step "The upgrade to NetRollout $VERSION didn't finish - finishing it now"
 		do_update_finish
 		return
 	fi
@@ -573,10 +587,10 @@ install_over_kept() {
 	if [ -n "$kept" ]; then
 		old="itamarweinstein/netrollout:$kept"
 		if docker image inspect "$old" >/dev/null 2>&1 || docker pull -q "$old" >/dev/null 2>&1; then have_old=1; fi
-		# the kept version decides, as an update's installed version does (its
+		# the kept version decides, as an upgrade's installed version does (its
 		# image gone: this one - the versions compare the same way)
 		judge="$APP_IMAGE"; [ -z "$have_old" ] || judge="$old"
-		step "Checking the update: NetRollout $kept (its settings and data, kept in $ROOT) -> $VERSION"
+		step "Checking the upgrade: NetRollout $kept (its settings and data, kept in $ROOT) -> $VERSION"
 		out="$(docker run --rm "$judge" python -m src.setup check-update --installed "$kept" --new "$VERSION" 2>&1)" || code=$?
 		if [ "$code" -eq 2 ] && printf '%s' "$out" | grep -q 'the same version'; then
 			good "NetRollout's settings and data are already in $ROOT - starting it with them."
@@ -585,11 +599,11 @@ install_over_kept() {
 		fi
 		[ "$code" -ne 2 ] || { show "$out"; fail "Nothing was changed." 2; }
 		[ "$code" -eq 0 ] || { show "$out"; fail "Couldn't compare the versions ($judge didn't run) - nothing was changed."; }
-		[ -n "$have_old" ] || fail "NetRollout $kept's image ($old) isn't on this machine and couldn't be downloaded - it makes the backup before the update (one NetRollout $kept can restore). Nothing was changed. Check the internet connection, then run the install again."
+		[ -n "$have_old" ] || fail "NetRollout $kept's image ($old) isn't on this machine and couldn't be downloaded - it makes the backup before the upgrade (one NetRollout $kept can restore). Nothing was changed. Check the internet connection, then run the install again."
 	else
-		warn "$ENV_FILE doesn't say which version set it up (an early install): taken as an older version and updated. The backup before the update is made by NetRollout $VERSION - it restores into $VERSION, not into the earlier version."
+		warn "$ENV_FILE doesn't say which version set it up (an early install): taken as an older version and upgraded. The backup before the upgrade is made by NetRollout $VERSION - it restores into $VERSION, not into the earlier version."
 	fi
-	# the update's own steps, the backup by the kept version first; resumable
+	# the upgrade's own steps, the backup by the kept version first; resumable
 	# (start or this install again) until its restart worked
 	write_marker "$VERSION" backup-first
 	do_update_finish
@@ -609,11 +623,11 @@ running_rollouts() {
 # fails when it can't say (not running, a version without the command)
 rollouts_list() { compose exec -T app python -m src.jobs rollouts 2>/dev/null; }
 
-# Before a stop or an update: the rollouts running or queued and - asked here,
+# Before a stop or an upgrade: the rollouts running or queued and - asked here,
 # not with --yes, nor with "shown" - wait for them (up to the drain deadline),
 # cancel them all now (the app's drain cancels them at once: devices being
 # configured finish, results recorded), or don't. Returns 1: don't stop.
-#   confirm_rollouts stop|update [shown]
+#   confirm_rollouts stop|upgrade [shown]
 confirm_rollouts() {
 	local list a out
 	if ! list="$(rollouts_list)"; then running_rollouts; return 0; fi   # an older version: the count
@@ -667,7 +681,19 @@ backup_create() {
 		out="$(compose up -d --wait postgres 2>&1)" || { show "$out"; fail "The database didn't start - see above."; }
 		out="$(compose run --rm --no-deps app python -m src.backup create --kind "$1" 2>&1)" || code=$?
 	fi
-	show "$out"
+	# BRIDGE(rc4): remove in rc6 - before-upgrade refused (exit 2): an older version, asked again
+	if [ "$code" -ne 2 ] || [ "$1" != before-upgrade ]; then show "$out"; fi
+	return "$code"
+}
+
+# The backup before an upgrade: kind before-upgrade - an older NetRollout
+# (rc4 and before) doesn't know it (argparse: exit 2; create never exits 2
+# otherwise) and makes its before-update instead
+backup_before_upgrade() {
+	local code=0
+	backup_create before-upgrade || code=$?
+	# BRIDGE(rc4): remove in rc6 - rc4's kind
+	if [ "$code" -eq 2 ]; then code=0; backup_create before-update || code=$?; fi
 	return "$code"
 }
 
@@ -795,7 +821,7 @@ do_reset_admin() {
 	[ "$code" -eq 0 ] || fail "The factory admin wasn't reset - see above."
 }
 
-# ── update (the release: python -m src.setup release, in the app image) ─────
+# ── upgrade (the release: python -m src.setup release, in the app image) ────
 # a feed file must be where the setup core sees it: inside this folder
 in_container() {
 	case "$1" in
@@ -807,14 +833,14 @@ in_container() {
 
 do_update() {
 	need_installed; need_root; need_docker; CLEAR_STOP_NOW=1
-	local stage="$ROOT/.update" out code=0 new folder item
-	local args=(--out /install/.update)
-	rm -rf "$stage"; mkdir -p "$stage"
+	local stage="$ROOT/.upgrade" out code=0 new folder item
+	local args=(--out /install/.upgrade)
+	rm -rf "$stage" "$ROOT/.update"; mkdir -p "$stage"   # BRIDGE(rc4): remove in rc6 - .update: rc4's staging folder
 	if [ -n "$FROM_ZIP" ]; then
 		[ -f "$FROM_ZIP" ] || fail "No such file: $FROM_ZIP"
 		cp -f "$FROM_ZIP" "$stage/"
 		if [ -f "$(dirname "$FROM_ZIP")/SHA256SUMS" ]; then cp -f "$(dirname "$FROM_ZIP")/SHA256SUMS" "$stage/"; fi
-		args+=(--from-zip "/install/.update/$(basename "$FROM_ZIP")")
+		args+=(--from-zip "/install/.upgrade/$(basename "$FROM_ZIP")")
 	fi
 	if [ -n "$WANTED" ]; then args+=(--release-version "$WANTED"); fi
 	if [ -n "$FEED" ]; then args+=(--feed "$(in_container "$FEED")"); fi
@@ -827,7 +853,7 @@ do_update() {
 	if [ "$code" -ne 0 ]; then show "$out"; rm -rf "$stage"; fail "Nothing was changed."; fi
 	new="$(printf '%s\n' "$out" | sed -n 's/^version=//p' | tail -1)"
 	folder="$stage/netrollout"
-	step "Checking the update: NetRollout $VERSION -> $new"
+	step "Checking the upgrade: NetRollout $VERSION -> $new"
 	code=0; out="$(docker run --rm "$APP_IMAGE" python -m src.setup check-update --installed "$VERSION" --new "$new" 2>&1)" || code=$?
 	if [ "$code" -eq 2 ]; then show "$out"; rm -rf "$stage"; fail "Nothing was changed." 2
 	elif [ "$code" -ne 0 ]; then warn "Couldn't compare the versions ($APP_IMAGE didn't run) - continuing."; fi
@@ -838,14 +864,14 @@ do_update() {
 	fi
 	if [ -n "$INTERACTIVE" ]; then
 		local a=""
-		read -r -p "Update to NetRollout $new? A backup is made first; then about a minute without NetRollout, and everyone signs in again. [y/N] " a || true
+		read -r -p "Upgrade to NetRollout $new? A backup is made first; then about a minute without NetRollout, and everyone signs in again. [y/N] " a || true
 		case "$a" in y|Y|yes) ;; *) rm -rf "$stage"; fail "Nothing was changed." 2 ;; esac
 	fi
-	confirm_rollouts update || { rm -rf "$stage"; fail "Nothing was changed." 2; }
+	confirm_rollouts upgrade || { rm -rf "$stage"; fail "Nothing was changed." 2; }
 	step "Backing up first"
-	backup_create before-update || { rm -rf "$stage"; fail "Couldn't back up - nothing was changed. Fix it (above), then update again."; }
+	backup_before_upgrade || { rm -rf "$stage"; fail "Couldn't back up - nothing was changed. Fix it (above), then upgrade again."; }
 	step "Putting NetRollout $new's files in place"
-	# from here on the update counts as unfinished until update-finish has run
+	# from here on the upgrade counts as unfinished until upgrade-finish has run
 	write_marker "$new"
 	for item in "${RELEASE_ITEMS[@]}"; do
 		[ -e "$folder/$item" ] || continue
@@ -855,46 +881,46 @@ do_update() {
 	chmod +x "$ROOT"/bin/*.sh
 	# the new script finishes: its own steps, its own version (this one was
 	# read whole before it ran, so replacing it underneath is safe)
-	exec "$ROOT/bin/netrollout.sh" update-finish --no-browser
+	exec "$ROOT/bin/netrollout.sh" upgrade-finish --no-browser
 }
 
-# The new version's script, after update put its files in place (or install
+# The new version's script, after upgrade put its files in place (or install
 # over kept data of an older version): the new images while the old version
 # keeps running, the kept data's backup when owed, .env up to date, the
-# restart. Resumable: the marker says the update is unfinished until the
+# restart. Resumable: the marker says the upgrade is unfinished until the
 # restart worked (start finishes it), and whether the backup is still owed.
 do_update_finish() {
 	need_installed; need_root; need_docker; CLEAR_STOP_NOW=1
-	local out owed="" kept old back="The backup made before the update is in $ROOT/backups (...-before-update.zip)."
-	if [ -n "$(pending_update)" ] && grep -qx 'backup-first=yes' "$MARKER"; then owed=backup-first; fi
+	local out owed="" kept old back="The backup made before the upgrade is in $ROOT/backups (...-before-upgrade.zip)."
+	if [ -n "$(pending_update)" ] && grep -qx 'backup-first=yes' "$(marker_path)"; then owed=backup-first; fi
 	write_marker "$VERSION" "$owed"
 	step "Downloading NetRollout $VERSION (it keeps running meanwhile)"
 	# failures of others' images surface at the start; ours are checked here
 	compose pull --quiet --ignore-pull-failures >/dev/null 2>&1 || true
-	our_images ", then: sudo $BIN/netrollout.sh start (it finishes the update)" "$back"
+	our_images ", then: sudo $BIN/netrollout.sh start (it finishes the upgrade)" "$back"
 	if [ -n "$owed" ]; then
 		kept="$(kept_version)"
 		if [ -n "$kept" ]; then
 			old="itamarweinstein/netrollout:$kept"
 			docker image inspect "$old" >/dev/null 2>&1 || docker pull -q "$old" >/dev/null 2>&1 ||
-				fail "NetRollout $kept's image ($old) isn't on this machine and couldn't be downloaded - it makes the backup before the update. NetRollout wasn't started; its data is as NetRollout $kept left it. Check the internet connection, then: sudo $BIN/netrollout.sh start (it finishes the update)."
+				fail "NetRollout $kept's image ($old) isn't on this machine and couldn't be downloaded - it makes the backup before the upgrade. NetRollout wasn't started; its data is as NetRollout $kept left it. Check the internet connection, then: sudo $BIN/netrollout.sh start (it finishes the upgrade)."
 		fi
 		set_owners
 		step "Backing up first (the data NetRollout ${kept:-had} left here)"
 		IMAGE_VERSION="$kept"     # by the version that wrote the data (none known: this one)
-		backup_create before-update || fail "Couldn't back up - NetRollout wasn't started and its data wasn't changed. Fix it (above), then: sudo $BIN/netrollout.sh start (it finishes the update)."
+		backup_before_upgrade || fail "Couldn't back up - NetRollout wasn't started and its data wasn't changed. Fix it (above), then: sudo $BIN/netrollout.sh start (it finishes the upgrade)."
 		IMAGE_VERSION=""
 		write_marker "$VERSION"   # the backup is made: not again on a resume
 	fi
 	step "Updating the settings"
-	out="$(setup_core upgrade 2>&1)" || { show "$out"; fail "The update stopped before the restart - see above. $back"; }
+	out="$(setup_core upgrade 2>&1)" || { show "$out"; fail "The upgrade stopped before the restart - see above. $back"; }
 	show "$out"
-	confirm_rollouts update shown     # asked before the files were replaced
+	confirm_rollouts upgrade shown    # asked before the files were replaced
 	step "Restarting on the new version (about a minute; running rollouts finish first)"
 	do_start
-	rm -f "$MARKER"
-	rm -rf "$ROOT/.update"
-	good "Updated to NetRollout $VERSION. Everyone signs in again."
+	rm -f "$MARKER" "$OLD_MARKER"             # BRIDGE(rc4): remove in rc6 - $OLD_MARKER
+	rm -rf "$ROOT/.upgrade" "$ROOT/.update"   # BRIDGE(rc4): remove in rc6 - .update
+	good "Upgraded to NetRollout $VERSION. Everyone signs in again."
 }
 
 # ── the port helper (System Settings -> HTTPS port) ──────────────────────────
@@ -1120,7 +1146,7 @@ do_status() {
 	# first: the new version's image may not be here yet (the report needs it)
 	pending="$(pending_update)"
 	if [ -n "$pending" ]; then
-		printf '\033[33m%s\033[0m\n' "Update:       the update to NetRollout $pending DIDN'T FINISH - run: sudo $BIN/netrollout.sh start (it finishes the update, then starts)"
+		printf '\033[33m%s\033[0m\n' "Upgrade:      the upgrade to NetRollout $pending DIDN'T FINISH - run: sudo $BIN/netrollout.sh start (it finishes the upgrade, then starts)"
 	fi
 	need_docker
 	states="$(compose ps -a --format '{{.Service}}={{.State}}/{{.Health}}' 2>/dev/null | sed 's|/$||' | paste -sd, -)"
@@ -1160,7 +1186,7 @@ do_uninstall() {
 	fi
 	if [ -n "$delete" ]; then
 		rm -rf "$ENV_FILE" "$ROOT/config" "$ROOT/certs" "$ROOT/logs"
-		rm -f "$MARKER"
+		rm -f "$MARKER" "$OLD_MARKER"   # BRIDGE(rc4): remove in rc6 - $OLD_MARKER
 		clear_record
 		if [ -n "$delete_backups" ]; then rm -rf "$ROOT/backups"; fi
 		if [ -d "$ROOT/backups" ]; then
@@ -1176,7 +1202,7 @@ do_uninstall() {
 	fi
 	if [ -n "$remove_files" ]; then
 		local item
-		for item in "${RELEASE_ITEMS[@]}" .update; do
+		for item in "${RELEASE_ITEMS[@]}" .upgrade .update; do   # BRIDGE(rc4): remove in rc6 - .update
 			rm -rf "${ROOT:?}/$item"
 		done
 		if rmdir "$ROOT" 2>/dev/null; then good "$ROOT is removed."
@@ -1195,7 +1221,7 @@ show_help() {
 	say "  sudo $BIN/netrollout.sh logs [service]  recent log lines (app, nginx, postgres, ...)"
 	say "  sudo $BIN/netrollout.sh backup          back up now (into $ROOT/backups)"
 	say "  sudo $BIN/netrollout.sh restore <file>  put NetRollout back to a backup (asks first)"
-	say "  sudo $BIN/netrollout.sh update          update to the newest release (asks first; --check only looks)"
+	say "  sudo $BIN/netrollout.sh upgrade         upgrade to the newest release (asks first; --check only looks)"
 	say "  sudo $BIN/netrollout.sh apply           apply an HTTPS port saved in System Settings (systemd does it by itself)"
 	say "  sudo $BIN/netrollout.sh port <N>        move NetRollout to port N when its port is taken (else: System Settings)"
 	say "  sudo $BIN/netrollout.sh reset-admin     no administrator can sign in: the factory admin enabled, its 2FA off,"
@@ -1210,8 +1236,8 @@ show_help() {
 	say "  --no-browser   --no-safety-backup (restore)   --new-password (reset-admin)"
 	say "  uninstall: --delete-data / --keep-data, --delete-backups (with --delete-data; else kept),"
 	say "             --remove-files (the scripts and compose files too)"
-	say "  update: --version X (not the latest)  --from <zip> (offline; checked against a SHA256SUMS next to it)"
-	say "          --feed <url|file> (a mirror's release JSON: one release or a list)  --check"
+	say "  upgrade: --version X (not the latest)  --from <zip> (offline; checked against a SHA256SUMS next to it)"
+	say "           --feed <url|file> (a mirror's release JSON: one release or a list)  --check"
 }
 
 show_menu() {
@@ -1233,7 +1259,7 @@ show_menu() {
 		say "  5  Logs"
 		say "  6  Back up"
 		say "  7  Restore a backup"
-		say "  8  Update"
+		say "  8  Upgrade"
 		say "  9  Change the HTTPS port (when its port is taken)"
 		say "  0  Exit"
 		say ""
@@ -1255,7 +1281,7 @@ show_menu() {
 			     read -r -p " File name (or a path; Enter: back to the menu): " SERVICE || exit 0
 			     [ -n "$SERVICE" ] || exit 0
 			     do_restore ) || true ;;
-			8) ( COMMAND=update; do_update ) || true ;;
+			8) ( COMMAND=upgrade; do_update ) || true ;;
 			9) ( COMMAND=port
 			     need_installed
 			     read -r -p " The new HTTPS port (Enter: back to the menu): " SERVICE || exit 0

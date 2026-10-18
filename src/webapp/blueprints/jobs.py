@@ -89,7 +89,7 @@ def load_dashboard_data(picked: str | None) -> dict[str, Any]:
 		mapping_count = len(user.variable_mappings)
 		jobs_results = user.results
 
-		# KPI data — scoped to kpi_user_id (may differ from current user for admin)
+		# KPI data - scoped to kpi_user_id (may differ from current user for admin)
 		kpi_results_30d = JobResults(db_session, me).recent(kpi_user_id)
 		kpi_label_map = InventoryView(db_session, Viewer(kpi_user_id)).label_map(
 			LabelScope.VISIBLE)
@@ -133,7 +133,7 @@ def build_job_dict(job_id: str, usernames: dict[str, str]) -> dict[str, Any]:
 		"status": meta.status if meta and meta.status else "unknown",
 		"created_at": meta.created_at if meta else "",
 		"device_count": row.devices if row else 0,
-		"started_at": row.clock if row else "—",
+		"started_at": row.clock if row else "-",
 		"started_at_iso": row.started or "" if row else "",
 		"owner": usernames.get(meta.user_id, "unknown") if meta else "unknown"
 	}
@@ -341,7 +341,7 @@ def config_diff(job_id: uuid.UUID, device_ip: str) -> ResponseReturnValue:
 	if snapshot is None:
 		return err("Not found", 404)
 	if snapshot.config is None:
-		return err(f"Config snapshot no longer available — snapshots are "
+		return err(f"Config snapshot no longer available - snapshots are "
 		           f"kept {current_app.backend.settings.get('config_snapshot_retention_days')} "
 		           f"days", 410)
 	# The engine's own matcher, so the page can't disagree with the rollout
@@ -358,7 +358,7 @@ def config_diff(job_id: uuid.UUID, device_ip: str) -> ResponseReturnValue:
 def job_summary(job_id: uuid.UUID) -> ResponseReturnValue:
 	"""A finished job in a few lines, for the completion card on Active Jobs.
 	404 until its results are stored (the log stream can end a moment
-	before) — the card retries."""
+	before) - the card retries."""
 	with current_app.backend.postgres.get_session() as db_session:
 		summary = JobResults(db_session, viewer()).summary(job_id)
 	if summary is None:

@@ -3,14 +3,14 @@
 Once Waitress answers, a background thread checks the Public URL in two
 steps and prints the address people should use:
 
-1. local proxy — nginx on this machine (loopback, the Public URL's port, its
+1. local proxy - nginx on this machine (loopback, the Public URL's port, its
    hostname as SNI and Host) returns our per-run instance token;
-2. public URL  — the token comes back through the Public URL itself.
+2. public URL  - the token comes back through the Public URL itself.
 
 The token is what proves identity: an unrelated nginx, or nginx forwarding
 to another NetRollout, can't return it. Certificates aren't verified (this
 checks identity, not trust). Requests use http.client, which never goes
-through an HTTP proxy — a corporate proxy would otherwise answer for us.
+through an HTTP proxy - a corporate proxy would otherwise answer for us.
 """
 import http.client
 import json
@@ -39,9 +39,9 @@ READY_TIMEOUT = 60.0
 OPEN_BROWSER_ENV = "NETROLLOUT_OPEN_BROWSER"
 RELAUNCH_ENV = "NETROLLOUT_RELAUNCH"   # set by the admin Restart relaunch
 # While no hostname is set: where nginx serves on this machine (dev, a fresh
-# install) — the address the dev stack and the installer's certificate cover
+# install) - the address the dev stack and the installer's certificate cover
 DEFAULT_PUBLIC_URL = "https://localhost"
-DEFAULT_SOURCE = "the default — no hostname set in System Settings"
+DEFAULT_SOURCE = "the default - no hostname set in System Settings"
 
 
 def new_instance_token() -> str:
@@ -52,7 +52,7 @@ def new_instance_token() -> str:
 
 def resolve_public_url(setting: str | None = None, port: int = 443) -> tuple[str, str]:
 	"""(url, source). The URL built from System Settings (hostname + HTTPS
-	port; install values are seeded into those rows) — or, while no hostname
+	port; install values are seeded into those rows) - or, while no hostname
 	is set, https://localhost on `port` (the dev stack's nginx: 8443)."""
 	if setting:
 		return setting.rstrip("/"), "from System Settings"
@@ -73,7 +73,7 @@ def probe(url: str, token: str, connect_host: str | None = None,
           timeout: float = PROBE_TIMEOUT) -> Probe:
 	"""Fetch INSTANCE_PATH through `url` and compare the token.
 	connect_host: open the TCP connection there (e.g. 127.0.0.1) while still
-	presenting the URL's hostname as SNI and Host — so a multi-vhost nginx
+	presenting the URL's hostname as SNI and Host - so a multi-vhost nginx
 	routes it to the right server block."""
 	parts = urlsplit(url)
 	if parts.scheme not in ("http", "https") or not parts.hostname:
@@ -116,14 +116,14 @@ def probe(url: str, token: str, connect_host: str | None = None,
 	except (OSError, http.client.HTTPException) as e:
 		return Probe(False, f"request failed ({e.__class__.__name__})")
 	if resp.status == 502:
-		return Probe(False, "502 Bad Gateway — nginx is up but not forwarding "
+		return Probe(False, "502 Bad Gateway - nginx is up but not forwarding "
 		                    "to this app's port")
 	if resp.status in (301, 302, 307, 308):
 		return Probe(False, f"{resp.status} redirect to "
-		                    f"{resp.getheader('Location', '?')} — use that "
+		                    f"{resp.getheader('Location', '?')} - use that "
 		                    f"address as the Public URL")
 	if resp.status != 200:
-		return Probe(False, f"HTTP {resp.status} — something other than "
+		return Probe(False, f"HTTP {resp.status} - something other than "
 		                    f"NetRollout answers there")
 	try:
 		theirs = str(json.loads(body).get("instance", ""))
@@ -148,9 +148,9 @@ def announcement(app_port: int, public_url: str | None, source: str,
                  local: Probe | None, public: Probe | None) -> tuple[str, str]:
 	"""(message, url to open)."""
 	direct = f"http://localhost:{app_port}"
-	fallback = (f"  Local fallback: {direct} — sign-in works from this machine "
+	fallback = (f"  Local fallback: {direct} - sign-in works from this machine "
 	            f"only (the session cookie is HTTPS-only).")
-	# the public step alone proves it — nginx may live on another machine
+	# the public step alone proves it - nginx may live on another machine
 	if public_url and public and public.ok:
 		return (f"Available at {public_url}\n"
 		        f"  (reverse proxy verified; Public URL {source})", public_url)
@@ -166,7 +166,7 @@ def announcement(app_port: int, public_url: str | None, source: str,
 			why += f"; on this machine: {local.reason}"
 		# a wrong port shows up as "couldn't connect"; nginx answering at all
 		# (404, 502, …) means the port was right
-		hint = ("\n  nginx may serve on another name or port — if so, set "
+		hint = ("\n  nginx may serve on another name or port - if so, set "
 		        "the hostname and HTTPS port in System Settings."
 		        if source == DEFAULT_SOURCE and public
 		        and public.unreachable else "")
@@ -185,7 +185,7 @@ def should_open_browser(env: Mapping[str, str] = os.environ, platform: str = sys
                         container: bool | None = None) -> bool:
 	"""Open on a normal launch at a desktop. Not in a container, not on an
 	admin-restart relaunch, not when opted out, not on a Linux machine with
-	no display (a server — webbrowser would fall back to a text browser)."""
+	no display (a server - webbrowser would fall back to a text browser)."""
 	if env.get(OPEN_BROWSER_ENV, "1").strip().lower() in ("0", "false", "no",
 	                                                      "off"):
 		return False
@@ -205,9 +205,9 @@ def container_announcement(public_url: str | None) -> str:
 	nothing is probed here: the installer and `netrollout status` check the
 	address from the host (HEALTH_PATH)."""
 	if public_url:
-		return (f"NetRollout {VERSION} started — expected at {public_url} "
+		return (f"NetRollout {VERSION} started - expected at {public_url} "
 		        f"(`netrollout status` checks it from the host)")
-	return (f"NetRollout {VERSION} started — no hostname set in System "
+	return (f"NetRollout {VERSION} started - no hostname set in System "
 	        f"Settings yet")
 
 
@@ -241,7 +241,7 @@ def start_announcer(token: str, app_port: int,
 			return
 		try:
 			setting = public_setting() if public_setting else None
-		except Exception:   # settings unavailable (e.g. DB down) — use the rest
+		except Exception:   # settings unavailable (e.g. DB down) - use the rest
 			setting = None
 		url, source = resolve_public_url(setting, serving_port())
 		local = public = None

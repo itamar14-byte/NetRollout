@@ -2,7 +2,7 @@
 Windows and Linux (docs/architecture.md §9).
 
 The host scripts (packaging/windows/manage.ps1, packaging/linux/netrollout.sh) do only what
-needs the host — checks, Docker, auto-start — and run this inside the app
+needs the host - checks, Docker, auto-start - and run this inside the app
 image with the install folder mounted (NETROLLOUT_HOME):
 
   python -m src.setup init  --licence-accepted [facts] [answers] [--defaults]
@@ -15,6 +15,6 @@ The licence notice is the scripts' (shown before Docker is even installed);
 init only records that it was accepted.
 
 Exit codes: 0 done (status: all well); 1 invalid input, each reason on its
-own line (status: something is wrong — the report says what to do); 2
+own line (status: something is wrong - the report says what to do); 2
 refused (already installed). Every line printed is meant to be shown as it is,
 in plain ASCII."""

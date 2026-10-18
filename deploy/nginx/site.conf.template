@@ -1,8 +1,8 @@
-# NetRollout site — rendered by netrollout-render.sh (envsubst of the NR_*
+# NetRollout site - rendered by netrollout-render.sh (envsubst of the NR_*
 # values only; nginx's own $variables are left alone). Don't edit the
 # rendered copy: change the template, or the values (env / shared/site.env).
 
-# HTTPS requests that used another name go to the canonical one — not IPs or
+# HTTPS requests that used another name go to the canonical one - not IPs or
 # localhost (the IP is how people get in when DNS doesn't know the name)
 map $host $nr_other_name {
     default                 ${NR_REDIRECT_OTHER_NAMES};
@@ -85,7 +85,7 @@ server {
 
     # Grafana (monitoring profile): signed-in NetRollout admins only. The app
     # answers every request (204 + the username / 401 / 403); Grafana trusts
-    # X-WEBAUTH-USER, which is always set here from that answer — whatever the
+    # X-WEBAUTH-USER, which is always set here from that answer - whatever the
     # browser sent under that name is replaced. Without monitoring there's no
     # Grafana to find and only this location fails.
     location = /_nr_auth/grafana {

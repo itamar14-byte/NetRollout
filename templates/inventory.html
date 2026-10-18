@@ -1,5 +1,5 @@
 {% extends "operator_base.html" %}
-{% block title %}Inventory — NetRollout{% endblock %}
+{% block title %}Inventory - NetRollout{% endblock %}
 {% block page_title %}Inventory{% endblock %}
 
 {% set platforms = [
@@ -75,7 +75,7 @@
     color: var(--nr-text-muted);
     flex-shrink: 0;
 }
-/* Always visible (quiet) — hover-only controls are undiscoverable, and
+/* Always visible (quiet) - hover-only controls are undiscoverable, and
    unreachable on touch screens and by keyboard */
 .card-delete-btn {
     transition: color 0.15s;
@@ -414,7 +414,7 @@
 {#- One inventory card. Global devices are editable only by admins; for
     everyone else the card opens a read-only modal where they can bind
     their own mappings. Mapping chips show only the viewer's own mappings,
-    and the security profile id is exposed to editors only — viewers see
+    and the security profile id is exposed to editors only - viewers see
     the label, never an id they could attach to a device of their own.
     var_maps: the values this user sees - the device's system values and
     the user's own custom ones (InventoryView.attributes). -#}
@@ -461,7 +461,7 @@
             <span class="inv-card-label">{{ device.label }}</span>
 
             {% if device.is_global %}
-            <span class="nr-global-badge" title="Global device — shared by an administrator">
+            <span class="nr-global-badge" title="Global device - shared by an administrator">
                 <i class="bi bi-globe2"></i>GLOBAL
             </span>
             {% endif %}
@@ -471,7 +471,7 @@
                   title="You have no security profile on this device: link one to roll out to it">ACTION NEEDED</span>
             {% endif %}
 
-            <!-- Reachability from NetRollout — filled in after load -->
+            <!-- Reachability from NetRollout - filled in after load -->
             <span class="reach reach--checking" data-reach-for="{{ device.id }}"
                   aria-label="Checking reachability" title="Checking reachability…"><i class="bi bi-arrow-repeat"></i></span>
 
@@ -479,7 +479,7 @@
             <span class="inv-card-ip">{{ device.ip }}</span>
 
             {% if editable %}
-            <!-- Delete icon — hover-reveal, stops card click propagation -->
+            <!-- Delete icon - hover-reveal, stops card click propagation -->
             <button class="card-delete-btn" title="Remove device">
                 <i class="bi bi-trash3"></i>
             </button>
@@ -575,7 +575,7 @@
     <button type="button" class="inv-filter-clear" id="filterClear" hidden>Clear filters</button>
 </div>
 
-<!-- Device card grid — split into sections only when both are non-empty -->
+<!-- Device card grid - split into sections only when both are non-empty -->
 {% set split = global_devices and my_devices %}
 {% for group_name, group_icon, group in [('Global Devices', 'bi-globe2', global_devices), ('My Devices', 'bi-hdd-stack', my_devices)] %}
 {% if group %}
@@ -608,19 +608,19 @@
 <div id="invTooltip" class="inv-tooltip" aria-hidden="true">
     <div class="tt-row">
         <span class="tt-key">IP</span>
-        <span class="tt-val cyan" id="ttIp">—</span>
+        <span class="tt-val cyan" id="ttIp">-</span>
     </div>
     <div class="tt-row">
         <span class="tt-key">TYPE</span>
-        <span class="tt-val" id="ttType">—</span>
+        <span class="tt-val" id="ttType">-</span>
     </div>
     <div class="tt-row">
         <span class="tt-key">PORT</span>
-        <span class="tt-val" id="ttPort">—</span>
+        <span class="tt-val" id="ttPort">-</span>
     </div>
     <div class="tt-row">
         <span class="tt-key">PROFILE</span>
-        <span class="tt-val" id="ttProfile">—</span>
+        <span class="tt-val" id="ttProfile">-</span>
     </div>
     <div class="tt-row">
         <span class="tt-key">STATUS</span>
@@ -1119,7 +1119,7 @@
 
                     <div class="mb-1">
                         <label class="nr-label" for="csvLabel">LABEL
-                            <span class="nr-muted">(optional — applied to all imported devices)</span>
+                            <span class="nr-muted">(optional - applied to all imported devices)</span>
                         </label>
                         <input type="text" class="form-control" id="csvLabel" name="label"
                                placeholder="e.g. Branch Routers">
@@ -1151,7 +1151,7 @@
 </div>
 
 <!-- ══════════════════════════════════════
-     QUICK CREATE — SECURITY PROFILE
+     QUICK CREATE - SECURITY PROFILE
 ══════════════════════════════════════ -->
 <div class="modal fade" id="quickCreateProfileModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
     <div class="modal-dialog modal-dialog-centered" style="max-width:420px;">
@@ -1201,7 +1201,7 @@
 </div>
 
 <!-- ══════════════════════════════════════
-     QUICK CREATE — VARIABLE MAPPING
+     QUICK CREATE - VARIABLE MAPPING
 ══════════════════════════════════════ -->
 <div class="modal fade" id="quickCreateMappingModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="true">
     <div class="modal-dialog modal-dialog-centered" style="max-width:400px;">
@@ -1265,7 +1265,7 @@
 </div>
 
 <!-- ══════════════════════════════════════
-     QUICK CREATE — PROPERTY
+     QUICK CREATE - PROPERTY
 ══════════════════════════════════════ -->
 {% from "_property_modal.html" import property_modal %}
 {% call property_modal(modal_id="quickCreatePropertyModal",
@@ -1297,7 +1297,7 @@ const SYS_PROP_NAMES = new Set({{ sys_props | map(attribute='name') | list | toj
 const QCM_LIST_PROPS = new Set({{ (sys_props + user_props) | selectattr('is_list') | map(attribute='name') | list | tojson }});
 
 // ════════════════════════════════════════
-//  NrSelect — custom dropdown widget
+//  NrSelect - custom dropdown widget
 // ════════════════════════════════════════
 function initNrSelect(containerId) {
     const container = document.getElementById(containerId);
@@ -1475,7 +1475,7 @@ document.getElementById('addDeviceModal').querySelector('form')
     });
 
 // ════════════════════════════════════════
-//  Connection test — Add Device modal
+//  Connection test - Add Device modal
 // ════════════════════════════════════════
 function resetAddTestBtn() {
     const btn    = document.getElementById('addTestBtn');
@@ -1643,7 +1643,7 @@ function showTooltip(card, device) {
     document.getElementById('ttIp').textContent      = device.ip;
     document.getElementById('ttType').textContent    = device.device_type;
     document.getElementById('ttPort').textContent    = device.port;
-    document.getElementById('ttProfile').textContent = device.sec_profile_label || '—';
+    document.getElementById('ttProfile').textContent = device.sec_profile_label || '-';
     const reach = REACH[device.id];
     document.getElementById('ttReach').textContent = reach === undefined
         ? 'Checking…'
@@ -1669,7 +1669,7 @@ function showTooltip(card, device) {
     tooltip.style.width = Math.max(rect.width, 210) + 'px';
     tooltip.style.left  = rect.left + 'px';
 
-    // Position below unless not enough space — use actual tooltip height
+    // Position below unless not enough space - use actual tooltip height
     const ttHeight = tooltip.offsetHeight || 160;
     if (window.innerHeight - rect.bottom < ttHeight + 10) {
         tooltip.style.top = (rect.top - ttHeight - 5) + 'px';
@@ -1687,7 +1687,7 @@ function hideTooltip() {
 
 
 // ════════════════════════════════════════
-//  Reachability (from NetRollout, ip:port) — lazy, after first paint
+//  Reachability (from NetRollout, ip:port) - lazy, after first paint
 // ════════════════════════════════════════
 const REACH = {};  // device id -> status | null (unknown)
 
@@ -1876,7 +1876,7 @@ function openDelete(device) {
 
 
 // ════════════════════════════════════════
-//  Edit modal — reset search on close
+//  Edit modal - reset search on close
 // ════════════════════════════════════════
 document.getElementById('editDeviceModal').addEventListener('hidden.bs.modal', () => {
     const search = document.getElementById('editMappingSearch');
@@ -1891,7 +1891,7 @@ document.getElementById('editDeviceModal').addEventListener('hidden.bs.modal', (
 });
 
 // ════════════════════════════════════════
-//  Quick Create — Security Profile
+//  Quick Create - Security Profile
 // ════════════════════════════════════════
 let _quickProfileTarget = 'add';
 
@@ -1944,7 +1944,7 @@ async function submitQuickCreateProfile() {
 }
 
 // ════════════════════════════════════════
-//  Quick Create — Variable Mapping
+//  Quick Create - Variable Mapping
 // ════════════════════════════════════════
 function openQuickCreateMapping() {
     document.getElementById('qcmToken').value = '';
@@ -2011,7 +2011,7 @@ async function submitQuickCreateMapping() {
         document.getElementById('quickCreateMappingModal')).hide();
 }
 
-//  Add modal — reset on close
+//  Add modal - reset on close
 // ════════════════════════════════════════
 document.getElementById('addDeviceModal').addEventListener('hidden.bs.modal', () => {
     const form = document.getElementById('addDeviceModal').querySelector('form');
@@ -2024,7 +2024,7 @@ document.getElementById('addDeviceModal').addEventListener('hidden.bs.modal', ()
     resetAddTestBtn();
 });
 
-//  Escape handling — close topmost modal tier, child before parent
+//  Escape handling - close topmost modal tier, child before parent
 // ════════════════════════════════════════
 let _quickCreateActive = false;
 
@@ -2057,7 +2057,7 @@ document.addEventListener('keydown', function(e) {
 initIconPicker('qcPropIconPreview', 'qcPropIcon');
 
 // ════════════════════════════════════════
-//  Quick Create — Property
+//  Quick Create - Property
 // ════════════════════════════════════════
 function openQuickCreateProperty() {
     ['qcPropName','qcPropLabel'].forEach(id => document.getElementById(id).value = '');
@@ -2093,7 +2093,7 @@ async function submitQuickCreateProperty() {
     // Inject new field into the custom section of varAttrBody
     let grid = document.getElementById('customPropGrid');
     if (!grid) {
-        // First custom property — create the separator + grid
+        // First custom property - create the separator + grid
         const body = document.getElementById('varAttrBody');
         const sep = document.createElement('div');
         sep.style.cssText = 'border-top:1px solid #1e1e1e; margin:10px 0 8px; display:flex; align-items:center; gap:8px;';

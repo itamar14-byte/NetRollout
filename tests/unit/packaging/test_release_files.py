@@ -167,29 +167,29 @@ def test_the_installers_identity_never_changes():
 	assert "AppId={{{#AppGuid}}" in text and "'{{#AppGuid}}_is1'" in text
 
 
-def test_setup_over_an_install_updates_and_checks_first():
+def test_setup_over_an_install_upgrades_and_checks_first():
 	"""Setup over an install runs, before any file is replaced, the temporary copy's
-	prepare-update (check-update + a before-update backup, pointed at the install), and
-	after the files `update` (which runs `setup upgrade`)."""
+	prepare-upgrade (check-update + a before-upgrade backup, pointed at the install), and
+	after the files `upgrade` (which runs `setup upgrade`)."""
 	text = (ROOT / "packaging" / "windows" / "installer" / "netrollout.iss").read_text(encoding="utf-8")
 	assert "function PrepareToInstall(" in text
-	assert "prepare-update -Yes -InstallDir" in text and r"{tmp}\manage.ps1" in text
-	assert "Args := 'update -Yes -NoBrowser'" in text
+	assert "prepare-upgrade -Yes -InstallDir" in text and r"{tmp}\manage.ps1" in text
+	assert "Args := 'upgrade -Yes -NoBrowser'" in text
 	script = (ROOT / "packaging" / "windows" / "manage.ps1").read_text(encoding="utf-8")
-	assert '"prepare-update" { Invoke-PrepareUpdate; return 0 }' in script
-	assert '"update" { Invoke-Update; return 0 }' in script
-	assert '"check-update",' in script and '(Invoke-BackupCreate "before-update")' in script
+	assert '"prepare-upgrade" { Invoke-PrepareUpdate; return 0 }' in script
+	assert '"upgrade" { Invoke-Update; return 0 }' in script
+	assert '"check-update",' in script and '(Invoke-UpgradeBackup)' in script
 	assert '(Invoke-Setup @("upgrade"))' in script
 
 
-def test_an_update_closes_the_installs_manager_before_the_files():
-	"""PrepareToInstall closes the install's Manager (`--exit`) after the prepare-update
+def test_an_upgrade_closes_the_installs_manager_before_the_files():
+	"""PrepareToInstall closes the install's Manager (`--exit`) after the prepare-upgrade
 	checks, and [Run] starts the helper and the tray again. The tray and the port helper
-	(9.7) hold NetRollout Manager.exe: without closing them a silent update aborts
-	("unable to automatically close all applications") - every update failed so."""
+	(9.7) hold NetRollout Manager.exe: without closing them a silent upgrade aborts
+	("unable to automatically close all applications") - every upgrade failed so."""
 	text = (ROOT / "packaging" / "windows" / "installer" / "netrollout.iss").read_text(encoding="utf-8")
 	prepare = re.search(r"function PrepareToInstall\(.*?\nend;", text, re.S)[0]
-	checks = prepare.index("prepare-update -Yes")
+	checks = prepare.index("prepare-upgrade -Yes")
 	closes = prepare.index("'\\bin\\NetRollout Manager.exe', '--exit'")
 	assert checks < closes
 	assert 'Parameters: "--helper"' in text and 'Parameters: "--tray"' in text
@@ -472,7 +472,7 @@ def test_kept_data_is_announced_in_setups_own_words_naming_the_folder():
 	assert re.search(r"^DirExistsWarning=no$", text, re.M)
 	check = pascal(text, "function CheckKept(")
 	assert "Held := Dir + ' holds NetRollout ' + Kept + ' data kept by an uninstall'" in check
-	assert "'. It will be updated to {#AppVersion} - a backup is made first.'" in check
+	assert "'. It will be upgraded to {#AppVersion} - a backup is made first.'" in check
 	assert "'. It will be started as it was.'" in check
 	assert "Downgrades aren''t supported." in check
 	assert check.count("if CompareText(Dir, AnnouncedDir) <> 0 then") == 2
@@ -533,7 +533,7 @@ def test_every_finished_page_has_its_own_heading():
 	"Completing the NetRollout Setup Wizard"), next to the update's and the
 	not-running one's; kept data started as it was says so instead of admin / admin."""
 	page = pascal(iss_text(), "procedure CurPageChanged(")
-	for heading in ("NetRollout is installed, but not running", "NetRollout is updated", "NetRollout is installed"):
+	for heading in ("NetRollout is installed, but not running", "NetRollout is upgraded", "NetRollout is installed"):
 		assert f"WizardForm.FinishedHeadingLabel.Caption := '{heading}';" in page
 	assert "is running again with the data kept in" in page
 
@@ -560,14 +560,14 @@ def test_an_unfinished_windows_update_is_finished_never_skipped():
 	Setup's "same version" and by start); status names it before needing Docker; deleting
 	the data deletes it."""
 	ps1 = (ROOT / "packaging" / "windows" / "manage.ps1").read_text(encoding="utf-8")
-	assert '$MarkerFile = Join-Path $Root ".update-pending"' in ps1
+	assert '$MarkerFile = Join-Path $Root ".upgrade-pending"' in ps1
 	pending = ps1_function(ps1, "Get-PendingUpdate")
 	assert 'if ($found.Version -ne $Version) { return $null }' in pending
 	write = ps1_function(ps1, "Write-UpdateMarker")
 	assert "Set-Content -Encoding ASCII -Path $MarkerFile" in write
 	assert '"version=$Target"' in write and 'if ($BackupFirst) { $lines += "backup-first=yes" }' in write
 	prepare = ps1_function(ps1, "Invoke-PrepareUpdate")
-	assert prepare.index('(Invoke-BackupCreate "before-update")') < prepare.index("Write-UpdateMarker $NewVersion")
+	assert prepare.index('(Invoke-UpgradeBackup)') < prepare.index("Write-UpdateMarker $NewVersion")
 	assert ps1_function(ps1, "Invoke-PrepareKept").count("Write-UpdateMarker $NewVersion -BackupFirst") == 2
 	update = ps1_function(ps1, "Invoke-Update")
 	assert "$owed = $BackupFirst -or ($pending -and $pending.BackupFirst)" in update
@@ -597,7 +597,7 @@ def test_an_unfinished_linux_update_is_finished_never_skipped():
 	again) finish a pending update instead of starting the new version without `setup
 	upgrade`; status names it before needing Docker; deleting the data deletes it."""
 	sh = (ROOT / "packaging" / "linux" / "netrollout.sh").read_text(encoding="utf-8")
-	assert 'MARKER="$ROOT/.update-pending"' in sh
+	assert 'MARKER="$ROOT/.upgrade-pending"' in sh
 	assert '[ "$v" = "$VERSION" ]' in sh_function(sh, "pending_update")
 	write = sh_function(sh, "write_marker")
 	assert "printf 'version=%s\\nstarted=%s\\n'" in write and "backup-first=yes" in write
@@ -609,7 +609,7 @@ def test_an_unfinished_linux_update_is_finished_never_skipped():
 	finish = sh_function(sh, "do_update_finish")
 	marked = finish.index('write_marker "$VERSION" "$owed"')
 	pull = finish.index("compose pull")
-	backup = finish.index("backup_create before-update")
+	backup = finish.index("backup_before_upgrade")
 	upgrade = finish.index("setup_core upgrade")
 	started = finish.index("do_start")
 	removed = finish.index('rm -f "$MARKER"')
@@ -635,25 +635,25 @@ def test_setup_and_the_manager_finish_an_unfinished_update():
 	Finish update (`update -Yes`), in the window and the tray."""
 	text = iss_text()
 	pending = pascal(text, "function UpdatePending(")
-	assert "'.update-pending'" in pending and "Lines[I] = 'version=' + Version" in pending
+	assert "'.upgrade-pending'" in pending and "Lines[I] = 'version=' + Version" in pending
 	newer = pascal(text, "function NewerThanInstalled:")
 	assert "if (This = Installed) and UpdatePending(InstalledDir, InstalledVersion) then\n\t\tResume := True" in newer
 	assert newer.index("Resume := True") < newer.index("is already installed in")
 	prepare = pascal(text, "function PrepareToInstall(")
-	assert prepare.index("if not Resume then") < prepare.index("prepare-update -Yes")
+	assert prepare.index("if not Resume then") < prepare.index("prepare-upgrade -Yes")
 	assert "'\\bin\\NetRollout Manager.exe', '--exit'" in prepare
 	page = pascal(text, "procedure CurPageChanged(")
-	assert "WizardForm.NextButton.Caption := 'Finish update';" in page
-	assert "if Resume then begin\n\t\tResult := 'Finish the update:'" in pascal(text, "function UpdateReadyMemo(")
-	assert "if UpdateMode or KeptUpdate then begin\n\t\tArgs := 'update -Yes -NoBrowser';" in pascal(text, "function RunSetUp(")
+	assert "WizardForm.NextButton.Caption := 'Finish upgrade';" in page
+	assert "if Resume then begin\n\t\tResult := 'Finish the upgrade:'" in pascal(text, "function UpdateReadyMemo(")
+	assert "if UpdateMode or KeptUpdate then begin\n\t\tArgs := 'upgrade -Yes -NoBrowser';" in pascal(text, "function RunSetUp(")
 	cs = (ROOT / "packaging" / "windows" / "manager" / "NetRolloutManager.cs").read_text(encoding="utf-8")
-	assert 'Value(Path.Combine(Root, ".update-pending"), "version", "")' in cs
+	assert 'Value(Path.Combine(Root, ".upgrade-pending"), "version", "")' in cs
 	assert "pending.Length > 0 && pending == Version ? pending : null" in cs
-	assert "\" didn't finish - click Finish update\")" in cs
-	assert 'Run("update -Yes", "Finishing the update to NetRollout "' in cs
+	assert "\" didn't finish - click Finish upgrade\")" in cs
+	assert 'Run("upgrade -Yes", "Finishing the upgrade to NetRollout "' in cs
 	assert 'startButton = AddButton("Start", delegate { StartOrFinish(); }, false);' in cs
 	assert 'startItem = menu.Items.Add("Start", null, delegate { ShowWindow(); StartOrFinish(); });' in cs
-	assert 'Install.PendingUpdate != null ? "Finish update" : "Start"' in cs
+	assert 'Install.PendingUpdate != null ? "Finish upgrade" : "Start"' in cs
 
 
 def test_a_failed_update_is_told_retry_now_or_setup_again_later():
@@ -664,18 +664,18 @@ def test_a_failed_update_is_told_retry_now_or_setup_again_later():
 	for an update too: its Start became Finish update. The script's own advice agrees."""
 	text = iss_text()
 	later = pascal(text, "function FinishLater:")
-	assert "run this Setup again (the same folder) - it finishes the update" in later
-	assert "click Finish update ' +\n\t\t'in NetRollout Manager." in later
+	assert "run this Setup again (the same folder) - it finishes the upgrade" in later
+	assert "click Finish upgrade ' +\n\t\t'in NetRollout Manager." in later
 	assert "Retry" not in pascal(text, "function NextStep:")
 	assert pascal(text, "function NextStep:").count("'Fix it, then ' + FinishLater") == 2
 	assert "KeptUpdate" not in pascal(text, "function ManagerCanStart:")
-	assert "'Open NetRollout Manager (to finish the update once it''s fixed)'" in pascal(text, "procedure FinishBoxes;")
+	assert "'Open NetRollout Manager (to finish the upgrade once it''s fixed)'" in pascal(text, "procedure FinishBoxes;")
 	post = pascal(text, "procedure CurStepChanged(")
 	assert "'Fix it and click Retry - or Cancel, and later ' + FinishLater" in post
 	assert "MB_RETRYCANCEL" in post
 	ps1 = (ROOT / "packaging" / "windows" / "manage.ps1").read_text(encoding="utf-8")
 	backup = ps1_function(ps1, "Backup-KeptData")
-	assert backup.count("run Setup again, or netrollout start (both finish the update)") == 2
+	assert backup.count("run Setup again, or netrollout start (both finish the upgrade)") == 2
 	assert "then Retry (or run Setup again)" not in ps1
 
 
@@ -695,7 +695,7 @@ def test_kept_data_locks_the_folder_unless_starting_fresh():
 	page = pascal(text, "procedure KeptFolderPage;")
 	assert ("'NetRollout''s data is kept in ' + KeptDir + ' (version ' + Version + '), so NetRollout is ' +\n"
 	        "\t\t'installed there - ' + What") in page
-	assert "'your data is updated to {#AppVersion} (a backup is made first).'" in page
+	assert "'your data is upgraded to {#AppVersion} (a backup is made first).'" in page
 	assert "'it''s started as it was.'" in page
 	assert "FreshBox.Caption := 'Start fresh instead - delete the kept data';" in page
 	assert "your backups in ' +\n\t\tAddBackslash(KeptDir) + 'backups are kept)'" in page
@@ -803,7 +803,7 @@ def test_linux_kept_data_is_recorded_and_locks_other_folders():
 	assert install.index("need_docker") < refuse
 	check = sh_function(sh, "refuse_over_kept")
 	assert ('fail "NetRollout\'s data is kept in $folder${version:+ (version $version)}. Run the install '
-	        'there to update it, or start fresh: sudo $BIN/install.sh --start-fresh (deletes the kept '
+	        'there to upgrade it, or start fresh: sudo $BIN/install.sh --start-fresh (deletes the kept '
 	        'data; its backups are kept)." 2') in check
 	assert 'NetRollout\'s data is kept in Docker volumes from an earlier install' in check
 	assert '[ -n "$(project_volumes)" ]' in check
@@ -824,7 +824,7 @@ def test_linux_start_fresh_deletes_the_kept_data_only_when_asked():
 	assert 'if [ -z "$YES" ]; then' in fresh[running:asked]
 	removed = fresh.index('docker container rm -f "${ids[@]}"')
 	left = fresh.index('if [ -n "$(project_volumes)" ]; then', removed)
-	files = fresh.index('rm -rf "${dir:?}/.env" "$dir/config" "$dir/certs" "$dir/logs" "$dir/.update-pending"')
+	files = fresh.index('rm -rf "${dir:?}/.env" "$dir/config" "$dir/certs" "$dir/logs" "$dir/.upgrade-pending"')
 	assert running < asked < removed < fresh.index('docker volume rm "${ids[@]}"') < left < files
 	assert "backups" not in fresh[files:fresh.index('rm -f "$KEPT_RECORD"')]
 
@@ -1080,7 +1080,7 @@ def test_the_preparation_shows_its_steps_live():
 	assert "if Preparing then PreparePage.Msg2Label.Caption := Line" in pascal(text, "procedure ShowStep(")
 	prepare = pascal(text, "function PrepareToInstall(")
 	assert "Exec(" not in prepare[:prepare.index("{ this install's Manager")]
-	assert "RunPreparation('prepare-update -Yes -InstallDir \"' + InstalledDir + '\" -NewVersion {#AppVersion}'," in prepare
+	assert "RunPreparation('prepare-upgrade -Yes -InstallDir \"' + InstalledDir + '\" -NewVersion {#AppVersion}'," in prepare
 	assert "PreparePage := CreateOutputProgressPage(" in pascal(text, "procedure InitializeWizard;")
 
 
@@ -1139,7 +1139,7 @@ def test_a_damaged_install_is_cleared_and_installed_again():
 	assert clear.index("if Code <> 0 then begin") < clear.index("ForgetDamaged(DamagedDir, DamagedKeep and not FreshStart);")
 	# cleared with its data kept, an update refused after it: the next Setup still finds
 	# the data (recorded as an uninstall that kept it) and isn't told "nothing was changed"
-	update = prepare[prepare.index("if Code <> 0 then begin", prepare.index("RunPreparation('prepare-update")):]
+	update = prepare[prepare.index("if Code <> 0 then begin", prepare.index("RunPreparation('prepare-upgrade")):]
 	assert update.index("if Damaged then Result := 'The damaged install in ' + DamagedDir + ' was cleared") < update.index(
 		"else if KeptUpdate then Result := 'Nothing was changed.'")
 	assert "nothing was ' +\n\t\t\t\t'installed.'" in clear
@@ -1209,3 +1209,108 @@ def test_reset_admin_runs_in_the_apps_container_and_asks_first():
 	assert 'compose run --rm --no-deps -T app "${cli[@]}"' in fn
 	assert "reset-admin" in sh_function(sh, "show_help")
 	assert "reset-admin" not in sh_function(sh, "show_menu")
+
+
+# ── the rc4 bridges (update -> upgrade): an rc4 install upgrades to this version ──
+
+def test_linux_upgrade_finish_answers_to_rc4s_name_too():
+	"""rc4's `update` replaces the files, then execs the NEW script as `update-finish`:
+	netrollout.sh dispatches both upgrade-finish and update-finish (BRIDGE(rc4)) to
+	do_update_finish, and its own upgrade execs the new name."""
+	sh = (ROOT / "packaging" / "linux" / "netrollout.sh").read_text(encoding="utf-8")
+	assert re.search(r"^\tupgrade-finish\) do_update_finish ;;", sh, re.M)
+	assert re.search(r"^\tupdate-finish\) do_update_finish ;;\s+# BRIDGE\(rc4\): remove in rc6", sh, re.M)
+	update = sh_function(sh, "do_update")
+	assert 'exec "$ROOT/bin/netrollout.sh" upgrade-finish --no-browser' in update
+	assert "update-finish" not in update
+
+
+def test_linux_backup_before_an_upgrade_falls_back_to_rc4s_kind():
+	"""The backup before an upgrade asks for before-upgrade; an older image (rc4) doesn't
+	know the kind and refuses it with argparse's exit 2 - then it is asked again for
+	before-update (BRIDGE(rc4)), the first refusal not shown. Both pre-upgrade backups
+	(upgrade's, and upgrade-finish's for kept data) go through it, none asks for a kind
+	directly."""
+	sh = (ROOT / "packaging" / "linux" / "netrollout.sh").read_text(encoding="utf-8")
+	backup = sh_function(sh, "backup_before_upgrade")
+	first = backup.index("backup_create before-upgrade || code=$?")
+	again = backup.index('if [ "$code" -eq 2 ]; then code=0; backup_create before-update || code=$?; fi')
+	assert first < again
+	assert backup.index("# BRIDGE(rc4): remove in rc6") < again
+	assert sh.count("backup_create before-update") == 1 and sh.count("backup_create before-upgrade") == 1
+	create = sh_function(sh, "backup_create")
+	assert 'if [ "$code" -ne 2 ] || [ "$1" != before-upgrade ]; then show "$out"; fi' in create
+	update = sh_function(sh, "do_update")
+	assert 'backup_before_upgrade || { rm -rf "$stage"; fail "Couldn\'t back up' in update
+	finish = sh_function(sh, "do_update_finish")
+	assert "backup_before_upgrade || fail \"Couldn't back up - NetRollout wasn't started" in finish
+	assert "backup_create" not in update and "backup_create" not in finish
+
+
+def test_windows_backup_before_an_upgrade_falls_back_to_rc4s_kind():
+	"""manage.ps1's Invoke-UpgradeBackup does the same: before-upgrade (an exit 2 not
+	shown: -QuietUsage), then, on exit code 2, before-update (BRIDGE(rc4)); both
+	pre-upgrade backups - prepare-upgrade's (Invoke-PrepareUpdate) and kept data's
+	(Backup-KeptData) - use it."""
+	ps1 = (ROOT / "packaging" / "windows" / "manage.ps1").read_text(encoding="utf-8")
+	backup = ps1_function(ps1, "Invoke-UpgradeBackup")
+	first = backup.index('$code = Invoke-BackupCreate "before-upgrade" -QuietUsage')
+	again = backup.index('if ($code -eq 2) { $code = Invoke-BackupCreate "before-update" }')
+	assert first < backup.index("# BRIDGE(rc4): remove in rc6") < again
+	assert "return $code" in backup[again:]
+	assert ps1.count('Invoke-BackupCreate "before-update"') == 1
+	assert ps1.count('Invoke-BackupCreate "before-upgrade"') == 1
+	create = ps1_function(ps1, "Invoke-BackupCreate")
+	assert "if (-not ($QuietUsage -and $r.Code -eq 2)) { Show-Output $r.Output }" in create
+	assert "if ((Invoke-UpgradeBackup) -ne 0) {" in ps1_function(ps1, "Invoke-PrepareUpdate")
+	assert "try { $code = Invoke-UpgradeBackup } finally" in ps1_function(ps1, "Backup-KeptData")
+
+
+def test_setup_reads_both_env_stamps_of_the_kept_version():
+	"""Setup's KeptVersion reads the version after "# Upgraded to NetRollout " (from
+	position 26: the prefix is 25 characters) and, for rc4's .env (BRIDGE(rc4)), after
+	"# Updated to NetRollout " (from position 25: 24 characters)."""
+	kept = pascal(iss_text(), "function KeptVersion(")
+	assert len("# Upgraded to NetRollout ") + 1 == 26 and len("# Updated to NetRollout ") + 1 == 25
+	assert ("if Pos('# Upgraded to NetRollout ', Lines[I]) = 1 then\n"
+	        "\t\t\t\tUpdated := FirstWord(Copy(Lines[I], 26, Length(Lines[I])))") in kept
+	assert ("else if Pos('# Updated to NetRollout ', Lines[I]) = 1 then\n"
+	        "\t\t\t\tUpdated := FirstWord(Copy(Lines[I], 25, Length(Lines[I])))") in kept
+	assert kept.index("// BRIDGE(rc4): remove in rc6") < kept.index("'# Updated to NetRollout '")
+
+
+def test_the_scripts_read_both_env_stamps_of_the_kept_version():
+	"""manage.ps1's Get-KeptVersion and netrollout.sh's kept_version take the version
+	from "# Upgraded to NetRollout X on ..." and from rc4's "# Updated to NetRollout X
+	on ..." (BRIDGE(rc4)). The PowerShell pattern is run here on both stamps."""
+	ps1 = (ROOT / "packaging" / "windows" / "manage.ps1").read_text(encoding="utf-8")
+	kept = ps1_function(ps1, "Get-KeptVersion")
+	pattern = re.search(r'foreach \(\$pattern in "([^"]+)",', kept)[1]
+	assert pattern == r"^# (?:Upgraded|Updated) to NetRollout (\S+) "
+	for stamp in ("# Upgraded to NetRollout 1.0.1 on 2026-11-01 09:30 UTC.",
+	              "# Updated to NetRollout 1.0.0rc4 on 2026-10-18 10:15 UTC."):
+		assert re.match(pattern, stamp)[1] == stamp.split()[4]
+	sh = (ROOT / "packaging" / "linux" / "netrollout.sh").read_text(encoding="utf-8")
+	assert ("v=\"$(sed -n -e 's/^# Upgraded to NetRollout \\([^ ]*\\) .*/\\1/p' \\\n"
+	        "\t\t-e 's/^# Updated to NetRollout \\([^ ]*\\) .*/\\1/p' \"$ENV_FILE\" | tail -1)\"") in sh_function(
+		sh, "kept_version")
+
+
+def test_the_scripts_output_reaches_the_manager_as_utf8():
+	"""manage.ps1 sets [Console]::OutputEncoding to UTF-8 at the top, before anything
+	runs (Windows PowerShell 5.1 writes the console's legacy code page otherwise), and
+	the Manager's two runners of it - NetRolloutManager.cs Run and Rollouts.cs RunScript
+	- decode its redirected output and errors as UTF-8."""
+	ps1 = (ROOT / "packaging" / "windows" / "manage.ps1").read_text(encoding="utf-8")
+	line = "try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false } catch { }"
+	assert re.search(rf"^{re.escape(line)}$", ps1, re.M)
+	assert ps1.index(line) < ps1.index("$Root = ") < ps1.index("\nfunction ")
+	manager = ROOT / "packaging" / "windows" / "manager"
+	for name, header in (("NetRolloutManager.cs", "void Run(string command, string heading"),
+	                     ("Rollouts.cs", "internal static int RunScript(string command, out string output)")):
+		cs = (manager / name).read_text(encoding="utf-8")
+		start = cs.index("new ProcessStartInfo(\"powershell.exe\"", cs.index(header))
+		info = cs[start:cs.index("};", start)]
+		assert "RedirectStandardOutput = true, RedirectStandardError = true," in info, name
+		assert ("StandardOutputEncoding = System.Text.Encoding.UTF8, "
+		        "StandardErrorEncoding = System.Text.Encoding.UTF8") in info, name

@@ -1,5 +1,5 @@
 {% extends "operator_base.html" %}
-{% block title %}Results — NetRollout{% endblock %}
+{% block title %}Results - NetRollout{% endblock %}
 {% block page_title %}Results{% endblock %}
 
 {% block extra_style %}
@@ -496,7 +496,7 @@
                 <span class="status-pill pill-{{ job.status }}">{{ job.status }}</span>
                 {% if job.action_needed %}
                 <span class="action-needed-badge"
-                      title="Something on a device needs a person — open the job">
+                      title="Something on a device needs a person - open the job">
                     <i class="bi bi-exclamation-triangle-fill"></i> Action needed
                 </span>
                 {% endif %}
@@ -552,7 +552,7 @@
             {% elif job.devices | selectattr('config_expired') | list %}
             {# Config snapshots are cleared by the nightly clean-up after CONFIG_SNAPSHOT_RETENTION_DAYS #}
             <span class="job-action-btn is-expired"
-                  title="Config snapshots are kept {{ config_retention_days }} days — this job's have expired">
+                  title="Config snapshots are kept {{ config_retention_days }} days - this job's have expired">
                 <i class="bi bi-clock-history"></i> Verify Diff expired
             </span>
             {% endif %}
@@ -591,11 +591,11 @@
                     </td>
                     <td style="font-family:'JetBrains Mono',monospace;">{{ d.commands_sent }}</td>
                     <td style="font-family:'JetBrains Mono',monospace;">
-                        {% if d.commands_verified is not none %}{{ d.commands_verified }}{% else %}<span class="nr-muted">—</span>{% endif %}
+                        {% if d.commands_verified is not none %}{{ d.commands_verified }}{% else %}<span class="nr-muted">-</span>{% endif %}
                     </td>
                     <td><span class="status-pill pill-{{ d.status }}">{{ d.status }}</span>{% if d.action_needed %}
                         <i class="bi bi-exclamation-triangle-fill ms-1" style="color:#ffb74d;"
-                           title="Action needed — see the box above"></i>{% endif %}</td>
+                           title="Action needed - see the box above"></i>{% endif %}</td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -829,7 +829,7 @@
                         and a removal (<code>no</code> / <code>undo</code> / <code>delete</code> / <code>unset</code>) must be gone.
                         It can mark a command <span class="nr-danger-soft">not configured</span> although it is
                         (abbreviations, values the device rewrites or hides as defaults), or verified because it was already there.
-                        Commands with variables are shown as typed — the rollout log has their result per device.
+                        Commands with variables are shown as typed - the rollout log has their result per device.
                     </span>
                 </div>
                 <!-- Command list -->
@@ -863,7 +863,7 @@
 
 {% block extra_script %}
 <script>
-// ── Fetched configs (verify diff data) — loaded on demand ────────────────────
+// ── Fetched configs (verify diff data) - loaded on demand ────────────────────
 const FETCHED_CONFIGS = {}; // cache: "job_id:ip:port" → config text
 const FETCHED_VERDICTS = {}; // cache: "job_id:ip:port" → [[command, verdict], …] (the server's matcher)
 
@@ -962,7 +962,7 @@ async function showConfigDiff(btn) {
     bootstrap.Modal.getOrCreateInstance(document.getElementById('verifyDiffModal')).show();
 }
 
-// device: {ip, port} — the IP alone is ambiguous when devices share it
+// device: {ip, port} - the IP alone is ambiguous when devices share it
 async function _renderVerifyDiff(device, activeTab) {
     if (activeTab) {
         document.querySelectorAll('#verifyDiffTabs button').forEach(t => {
@@ -1008,7 +1008,7 @@ async function _renderVerifyDiff(device, activeTab) {
         'not configured':   {icon: 'bi-x-circle',     color: '#ef5350', text: '#ef9a9a', bg: 'rgba(239,83,80,0.06)', note: 'not configured'},
         'still configured': {icon: 'bi-x-circle',     color: '#ef5350', text: '#ef9a9a', bg: 'rgba(239,83,80,0.06)', note: 'still configured'},
         'not verifiable':   {icon: 'bi-dash-circle',  color: 'var(--nr-text-faint)', text: 'var(--nr-text-muted)', bg: 'transparent', note: 'not verifiable'},
-        'variable':         {icon: 'bi-question-circle', color: 'var(--nr-text-faint)', text: 'var(--nr-text-muted)', bg: 'transparent', note: 'variable — see the rollout log'},
+        'variable':         {icon: 'bi-question-circle', color: 'var(--nr-text-faint)', text: 'var(--nr-text-muted)', bg: 'transparent', note: 'variable - see the rollout log'},
     };
     verdicts.forEach(([cmd, verdict]) => {
         const look = LOOK[verdict] || LOOK['not verifiable'];

@@ -48,7 +48,7 @@ boot() {
     waited=0
     until [ -s "$certs/fullchain.pem" ] && [ -s "$certs/privkey.pem" ]; do
         [ $((waited % 10)) -eq 0 ] &&
-            log "waiting for the certificate ($certs/fullchain.pem + privkey.pem) — the installer creates it"
+            log "waiting for the certificate ($certs/fullchain.pem + privkey.pem) - the installer creates it"
         sleep 1
         waited=$((waited + 1))
     done

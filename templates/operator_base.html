@@ -242,7 +242,11 @@
             #opSidebar { transform: translateX(-100%); transition: transform 0.25s ease; }
             #opSidebar.expanded { transform: none; box-shadow: 8px 0 24px rgba(0,0,0,0.55); }
             #opMain, #opSidebar.expanded ~ #opMain { margin-left: 0; }
-            .op-topbar { padding: 0.6rem 1rem; }
+            .op-topbar { padding: 0.6rem 1rem; gap: 0.6rem; }
+            /* the page's title gets the room: the logo is in the menu */
+            .op-topbar-logo, .op-topbar-sep { display: none; }
+            .op-topbar > div:first-child { gap: 0.7rem !important; }
+            .op-topbar-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
             .op-content { padding: 1.1rem 1rem; }
             .nr-footer { padding: 1rem; }
             .nr-phone-menu {
@@ -415,9 +419,9 @@
             <button type="button" class="nr-phone-menu" id="phoneMenu" aria-label="Menu"
                     aria-controls="opSidebar">&#9776;</button>
             <img src="{{ url_for('static', filename='logo.svg') }}"
-                 alt="NetRollout"
+                 alt="NetRollout" class="op-topbar-logo"
                  style="height:16px; width:auto; opacity:0.85;">
-            <span style="width:1px; height:14px; background:#2a2a2a; flex-shrink:0;"></span>
+            <span class="op-topbar-sep" style="width:1px; height:14px; background:#2a2a2a; flex-shrink:0;"></span>
             <div class="op-topbar-title">
                 {% block page_title %}{% endblock %}
             </div>
@@ -503,7 +507,7 @@
 </script>
 
 <script>
-// Suppress browser validation tooltips — shake invalid fields on submit instead
+// Suppress browser validation tooltips - shake invalid fields on submit instead
 document.addEventListener('DOMContentLoaded', () => {
     // Mark selects as touched on first interaction so CSS error styling activates
     document.querySelectorAll('select.form-select[required]').forEach(sel => {

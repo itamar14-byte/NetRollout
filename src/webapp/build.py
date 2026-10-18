@@ -120,7 +120,7 @@ def resolve_secret_key(env: Mapping[str, str] | None = None) -> str:
 			".env (the installer generates it). Restore it in .env and start "
 			"again.")
 	# Development: sessions are cleared at every start anyway (SessionStore.clear_all)
-	print("[NetRollout] SECRET_KEY is not set — using a random key for this "
+	print("[NetRollout] SECRET_KEY is not set - using a random key for this "
 	      "run (development only).", flush=True)
 	return secrets.token_hex(32)
 

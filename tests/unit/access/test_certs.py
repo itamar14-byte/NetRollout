@@ -1,6 +1,6 @@
 """src/access/certs.py: the self-signed certificate nginx starts with, and the checks
 an uploaded certificate passes before nginx gets it. Certificates are built
-here — no files from outside, no network."""
+here - no files from outside, no network."""
 import datetime
 import ipaddress
 import os

@@ -79,7 +79,7 @@ jobs:
               sys.exit(f"The tag {ref} doesn't match VERSION ({version}): tag v{version}, or change VERSION first.")
           prerelease = Version(version).is_prerelease
           # the release notes: this version's section of CHANGELOG.md - the
-          # Release page, the Manager's Update window and `update --check`
+          # Release page, the Manager's Upgrade window and `upgrade --check`
           # show them. Once the file exists, a version without a section is
           # refused here, before anything is built.
           try:
@@ -283,11 +283,11 @@ jobs:
               notes += chr(10).join([
                   "", "", "## Download", "",
                   "| | File | |", "| --- | --- | --- |",
-                  f"| **Windows** | [NetRollout-Setup-{version}.exe]({base}NetRollout-Setup-{version}.exe) | Installs and updates NetRollout, Docker included |",
+                  f"| **Windows** | [NetRollout-Setup-{version}.exe]({base}NetRollout-Setup-{version}.exe) | Installs and upgrades NetRollout, Docker included |",
                   f"| **Linux** | [netrollout-{version}-linux.zip]({base}netrollout-{version}-linux.zip) | Unzip, then `sudo ./bin/install.sh` |",
                   f"| **CLI** | [netrollout-cli-{version}.exe]({base}netrollout-cli-{version}.exe) | One-off rollouts from a CSV, nothing to install |",
                   "",
-                  f"Checksums are in [SHA256SUMS]({base}SHA256SUMS). Already installed? NetRollout Manager's **Update**, or `sudo ./bin/netrollout.sh update` on Linux, back up first and update in place.",
+                  f"Checksums are in [SHA256SUMS]({base}SHA256SUMS). Already installed? NetRollout Manager's **Upgrade**, or `sudo ./bin/netrollout.sh upgrade` on Linux, back up first and upgrade in place.",
                   "",
                   f"[Installation guide]({site}docs/install/) and [website]({site}).",
               ])

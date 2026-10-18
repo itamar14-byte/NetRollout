@@ -42,7 +42,7 @@ GRAFANA_TABLES = ("device_results", "job_metadata", "audit_log")
 
 
 def _grant_grafana_read(conn: Connection, role: str = GRAFANA_ROLE) -> bool:
-	"""Exactly GRAFANA_TABLES readable by `role`, in the app's schema —
+	"""Exactly GRAFANA_TABLES readable by `role`, in the app's schema -
 	repeated at every start (a table a migration recreates keeps it). Only
 	where the role exists (the bundled Postgres creates it).
 
@@ -90,7 +90,7 @@ def install(postgres: "PostgresConnection") -> None:
 				session.flush()
 
 		# every setting gets a row (install value or default); existing rows
-		# are never changed — admins change them in System Settings
+		# are never changed - admins change them in System Settings
 		with postgres.get_session() as session:
 			for problem in seed_settings(session):
 				print(f"[NetRollout] {problem}", flush=True)

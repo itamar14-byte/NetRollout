@@ -1,5 +1,5 @@
 """Headless CLI (src/cli.py): argument parsing, prompts, file input, and the
-hand-off to RolloutEngine. The engine and TCP probe are mocked — no devices,
+hand-off to RolloutEngine. The engine and TCP probe are mocked - no devices,
 no network."""
 import json
 import subprocess
@@ -34,7 +34,7 @@ def files(tmp_path):
 @pytest.fixture
 def run_cli(monkeypatch):
 	"""Run cli.main() with argv and scripted input() answers. Returns
-	(exit_code, engine_ctor, prompts) — engine_ctor is the mocked
+	(exit_code, engine_ctor, prompts) - engine_ctor is the mocked
 	RolloutEngine class (None calls when no rollout started). The engine
 	reports every device as `statuses` (default: all success)."""
 	def _run(argv, answers=(), reachable=True, engine_run=None,

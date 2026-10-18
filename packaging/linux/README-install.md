@@ -17,7 +17,7 @@ sudo ./bin/netrollout.sh                  # a numbered menu of the common comman
 sudo ./bin/netrollout.sh status           # is everything well? what to do if not
 sudo ./bin/netrollout.sh start | stop | open | logs
 sudo ./bin/netrollout.sh backup | restore <file>
-sudo ./bin/netrollout.sh update --check   # is a newer release out? (update: install it)
+sudo ./bin/netrollout.sh upgrade --check  # is a newer release out? (upgrade: install it)
 sudo ./bin/netrollout.sh help             # every command and option
 ```
 
@@ -25,7 +25,7 @@ sudo ./bin/netrollout.sh help             # every command and option
 
 - NetRollout: https://github.com/itamar14-byte/NetRollout
 - Installing: https://github.com/itamar14-byte/NetRollout/blob/master/docs/install.md
-- Running it (commands, backups, updates): https://github.com/itamar14-byte/NetRollout/blob/master/docs/admin-guide.md
+- Running it (commands, backups, upgrades): https://github.com/itamar14-byte/NetRollout/blob/master/docs/admin-guide.md
 - Releases: https://github.com/itamar14-byte/NetRollout/releases
 
 ## License

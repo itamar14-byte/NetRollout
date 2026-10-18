@@ -128,7 +128,7 @@ function nrAssignBoard(root, opts) {
                 <span class="nr-board-label">${nrEscape(d.label)}</span>
                 <span class="nr-board-ip">${nrEscape(d.ip)}</span>
             </div>
-            ${d.is_global ? '<span class="nr-global-badge" title="Global device — shared by an administrator"><i class="bi bi-globe2"></i>GLOBAL</span>' : ''}
+            ${d.is_global ? '<span class="nr-global-badge" title="Global device - shared by an administrator"><i class="bi bi-globe2"></i>GLOBAL</span>' : ''}
             ${warn ? `<i class="bi bi-exclamation-triangle-fill nr-board-warn" title="${nrEscape(warn)}"></i>` : ''}
             ${meta ? `<span class="nr-board-meta" title="${nrEscape(meta)}">${nrEscape(meta)}</span>` : ''}
             ${lock ? '<i class="bi bi-lock-fill nr-board-lock"></i>'

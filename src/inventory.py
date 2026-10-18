@@ -49,7 +49,7 @@ from src.rollout.inputs import InputParser
 from src.rollout.log import Tone
 
 
-PROBE_TIMEOUT = 2.0   # seconds; single attempt — this is a status hint
+PROBE_TIMEOUT = 2.0   # seconds; single attempt - this is a status hint
 CACHE_TTL = 60        # seconds
 MAX_PARALLEL = 32
 
@@ -134,7 +134,7 @@ class ReachabilityChecker:
 		:param targets: (ip, port) pairs; the port may come as text
 		:param refresh: ignore the cache and probe everything (Recheck)
 		:param recheck_unreachable: trust cached "reachable" results but
-		 re-probe cached failures — used before blocking a rollout, so a
+		 re-probe cached failures - used before blocking a rollout, so a
 		 device that just came back isn't blocked by a stale result
 		:returns: every target's state, by (ip, port)"""
 		wanted = {(ip, int(port)) for ip, port in targets}
@@ -635,7 +635,7 @@ class InventoryView:
 			device.label = fields.label
 			device.ip = fields.ip
 			device.port = fields.port
-			# warn only when the endpoint changed — not on every save
+			# warn only when the endpoint changed - not on every save
 			shared = None
 			if (device.ip, device.port) != old_endpoint:
 				shared = same_endpoint_warning(self.same_endpoint(
@@ -765,7 +765,7 @@ class _ProfileResolver:
 	A row reuses the user's profile with exactly the same username, password
 	and enable secret; otherwise a new profile is created with a unique label
 	and later rows with the same credentials share it. Existing profiles are
-	never modified. Matching decrypts the user's own profiles in memory only —
+	never modified. Matching decrypts the user's own profiles in memory only -
 	the same exposure as a rollout; nothing is logged or stored in clear."""
 
 	def __init__(self, user_id: uuid.UUID, db_session: Session):
@@ -793,7 +793,7 @@ class _ProfileResolver:
 		return profile
 
 	def created(self) -> list[tuple[uuid.UUID, str]]:
-		"""(id, label) of the profiles this import created — after flush."""
+		"""(id, label) of the profiles this import created - after flush."""
 		return [(p.id, _name(p)) for p in self._created]   # always labelled
 
 	def summary(self) -> list[tuple[str, str]]:
@@ -823,7 +823,7 @@ class _ProfileResolver:
 				what = ("password" if not hmac.compare_digest(
 					other_pw.encode(), password.encode()) else "enable secret")
 				self._warnings.append(
-					f"Created profile '{label}' — your profile "
+					f"Created profile '{label}' - your profile "
 					f"'{_name(other)}' also uses username {username}, with a "
 					f"different {what}. If the CSV has a typo or an old "
 					f"password, fix the row or move the devices to "
@@ -872,7 +872,7 @@ def import_csv(parser: InputParser, device_path: str, user_id: uuid.UUID,
 	:param db_session: the rows are added to it; the caller commits
 	:param label: applied to every device (form label > row label > IP)
 	:param properties: the user's property definitions
-	 ({name, label, is_list}) — see InventoryView.property_defs
+	 ({name, label, is_list}) - see InventoryView.property_defs
 	:param create_profiles: credential columns become security profiles
 	:returns: what was imported, the rows' errors and notices for the page"""
 	report = ImportReport()
@@ -902,12 +902,12 @@ def import_csv(parser: InputParser, device_path: str, user_id: uuid.UUID,
 	columns = _classify_columns(headers, properties or [])
 	if columns.ignored:
 		report.notices.append(("warning",
-			f"Ignored columns: {', '.join(columns.ignored)} — not a property; "
+			f"Ignored columns: {', '.join(columns.ignored)} - not a property; "
 			f"create it under Properties first"))
 	if columns.credentials and not create_profiles:
 		report.notices.append(("info",
 			"Credential columns were not imported (profile creation was "
-			"off) — assign a security profile to the devices"))
+			"off) - assign a security profile to the devices"))
 
 	devices, report.errors = parser.prepare_devices(
 		rows, require_credentials=False, check_reachable=False)

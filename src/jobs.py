@@ -16,7 +16,7 @@ the pending / active counters (the Prometheus gauges); a job's live log
 here too.
 
 `python -m src.jobs rollouts | stop-now [--clear]` (main()): the same keys read from
-outside the app's process - netrollout stop / update and NetRollout Manager
+outside the app's process - netrollout stop / upgrade and NetRollout Manager
 list the rollouts before a stop and may have it cancel them at once.
 
 redis-py types every reply as maybe-awaitable (one signature for its sync and
@@ -49,10 +49,10 @@ from src.rollout.log import KeyValueStore, RolloutLogger, Tone, live_log_keys
 QUEUE = "netrollout:job_queue"
 PENDING = "netrollout:pending_count"
 ACTIVE = "netrollout:active_count"
-# set from outside the app (netrollout stop / update, the Manager): the stop
+# set from outside the app (netrollout stop / upgrade, the Manager): the stop
 # under way cancels the running rollouts now instead of waiting for them
 STOP_NOW = "netrollout:stop_now"
-STOP_NOW_SECONDS = 15 * 60   # an update's download, backup and restart fit in it
+STOP_NOW_SECONDS = 15 * 60   # an upgrade's download, backup and restart fit in it
 
 
 class JobStatus(StrEnum):
@@ -112,7 +112,7 @@ _STATES: dict[JobStatus, str] = {JobStatus.PENDING: "queued", JobStatus.ACTIVE: 
 @dataclass(frozen=True)
 class RolloutRow:
 	"""A running or queued rollout as every list shows it: the waiting
-	lists (a database move, the Restart dialog, netrollout stop / update:
+	lists (a database move, the Restart dialog, netrollout stop / upgrade:
 	RolloutOrchestrator.jobs(), JobStore.rollouts()), Active Jobs and the
 	dashboard's card. Built only by of() - from the job itself or from its
 	Redis hash -, so each shows the same state for a job. Its fields, in
@@ -139,9 +139,9 @@ class RolloutRow:
 
 	@property
 	def clock(self) -> str:
-		""":returns: the start's time of day (HH:MM:SS) for the pages; "—"
+		""":returns: the start's time of day (HH:MM:SS) for the pages; "-"
 		 while queued"""
-		return self.started[11:19] if self.started else "—"
+		return self.started[11:19] if self.started else "-"
 
 	def named(self, user: str) -> dict[str, Any]:
 		""":param user: its owner's username
@@ -178,7 +178,7 @@ class JobStore:
 		self._client.rpush(QUEUE, str(job_id))
 
 	def next_queued(self, timeout: int) -> str | None:
-		"""The next queued entry (as stored — the caller checks it's a job
+		"""The next queued entry (as stored - the caller checks it's a job
 		id), or None after `timeout` seconds."""
 		result = cast(tuple[bytes, bytes] | None, self._client.blpop(QUEUE, timeout=timeout))
 		return None if result is None else _text(result[1])
@@ -216,7 +216,7 @@ class JobStore:
 
 	def reset_stale(self) -> int:
 		"""At startup: no job of this process exists yet, so every job key is
-		left over (a crash, a power loss — a clean stop drains first).
+		left over (a crash, a power loss - a clean stop drains first).
 
 		:returns: how many jobs were cleared"""
 		client = self._client
@@ -229,14 +229,14 @@ class JobStore:
 
 	def request_stop_now(self) -> None:
 		"""Ask the stop / restart under way to cancel the running rollouts now
-		(netrollout stop / update, the Manager); the next start clears it, the
-		scripts clear it when their stop or update doesn't happen
+		(netrollout stop / upgrade, the Manager); the next start clears it, the
+		scripts clear it when their stop or upgrade doesn't happen
 		(clear_stop_now), and it expires after STOP_NOW_SECONDS - else a later
 		stop that chose to wait would cancel at once."""
 		self._client.set(STOP_NOW, "1", ex=STOP_NOW_SECONDS)
 
 	def clear_stop_now(self) -> None:
-		"""The stop or update that asked for a stop now isn't happening: a
+		"""The stop or upgrade that asked for a stop now isn't happening: a
 		later stop waits for the rollouts again."""
 		self._client.delete(STOP_NOW)
 
@@ -274,7 +274,7 @@ class JobStore:
 	def rollouts(self) -> list[RolloutRow]:
 		"""Every job here, oldest first, as RolloutOrchestrator.jobs() gives
 		them - for a process that isn't the one running them (netrollout stop /
-		update, the Manager: python -m src.jobs rollouts)."""
+		upgrade, the Manager: python -m src.jobs rollouts)."""
 		rows: list[tuple[str, RolloutRow]] = []
 		for job_id in self.job_ids():
 			meta = self.meta(job_id)
@@ -312,14 +312,14 @@ QUEUED_CANCEL_REASON = ("Cancelled: NetRollout restarted before this rollout "
 CANCELLED_BEFORE_START = ("Cancelled before it started. Nothing was sent to "
                           "the devices.")
 # what the pages and a queued job's live log say while it waits
-QUEUED_LINE = "Queued — waiting for a free slot"
+QUEUED_LINE = "Queued - waiting for a free slot"
 
 
-DRAINING_MESSAGE = ("NetRollout is stopping or restarting — new rollouts are "
+DRAINING_MESSAGE = ("NetRollout is stopping or restarting - new rollouts are "
                     "paused. Try again once it's back.")
 
 
-PAUSED_MESSAGE = ("NetRollout is moving to another database — new rollouts "
+PAUSED_MESSAGE = ("NetRollout is moving to another database - new rollouts "
                   "are paused. Try again once the move is done.")
 
 
@@ -379,7 +379,7 @@ class RolloutJob:
 		self.started_at = datetime.datetime.now()
 
 		def _engine_run() -> None:
-			# on_complete must always fire — it releases the orchestrator slot.
+			# on_complete must always fire - it releases the orchestrator slot.
 			# An escaped exception here would leak the slot permanently.
 			try:
 				self.results = self._engine.run(self._cancel_flag, self._logger)
@@ -474,7 +474,7 @@ class ResultRecorder:
 
 	def _write(self, job: RolloutJob) -> None:
 		"""Into Postgres, retried; if that keeps failing, into a JSON file in
-		logs/ (ACTION NEEDED on the console) — never dropped."""
+		logs/ (ACTION NEEDED on the console) - never dropped."""
 		completed_at = datetime.datetime.now()
 		error = None
 		for attempt in range(_SAVE_TRIES):
@@ -487,7 +487,7 @@ class ResultRecorder:
 							**result, user_id=job.user_id, job_id=job.job_id,
 							started_at=job.started_at, completed_at=completed_at))
 				return
-			except Exception as e:     # noqa: BLE001 — any failure: keep them
+			except Exception as e:     # noqa: BLE001 - any failure: keep them
 				error = e
 		path = runtime.logs_dir() / f"unsaved-results-{job.job_id}.json"
 		try:   # the last resort: nothing here may raise
@@ -499,7 +499,7 @@ class ResultRecorder:
 			where = f"saved to {path}"
 		except Exception as e:     # noqa: BLE001
 			where = f"and couldn't be written to {path} either ({e})"
-		print(f"[NetRollout] ACTION NEEDED — rollout {job.job_id}: its results "
+		print(f"[NetRollout] ACTION NEEDED - rollout {job.job_id}: its results "
 		      f"couldn't be saved to the database ({error}); {where}",
 		      flush=True)
 
@@ -698,7 +698,7 @@ class RolloutOrchestrator:
 			# Claimed under the lock (RolloutJob.claim), started outside it: drain() and
 			# cancel() claim a queued job under the lock too, so each job is
 			# either run here or recorded as cancelled there. start() isn't
-			# called under the lock — a job that ends at once needs it for its
+			# called under the lock - a job that ends at once needs it for its
 			# cleanup.
 			with self._lock:
 				job = self._jobs.get(job_id)
@@ -728,10 +728,10 @@ class RolloutOrchestrator:
 	def drain(self, deadline: float, report: Callable[[str], None] = print) -> None:
 		"""Stop for a restart or shutdown. New rollouts are refused (submit
 		raises Draining); queued ones are recorded as cancelled; running ones
-		may finish for `deadline` seconds and are then cancelled — a cancel
+		may finish for `deadline` seconds and are then cancelled - a cancel
 		stops devices that haven't connected yet, and the job still records
 		its results; a stop-now request (JobStore.request_stop_now: netrollout
-		stop / update, the Manager) cancels them at once. Returns when no job
+		stop / upgrade, the Manager) cancels them at once. Returns when no job
 		is left (or _CANCEL_WAIT after the cancel) and no finished job is still
 		writing its results (at most _SAVE_WAIT more): the exit that follows
 		must not cut a save.
@@ -744,7 +744,7 @@ class RolloutOrchestrator:
 		for job in queued:
 			self._cancel_queued(job, QUEUED_CANCEL_REASON)
 		if queued:
-			report(f"[NetRollout] {len(queued)} queued rollout(s) cancelled — "
+			report(f"[NetRollout] {len(queued)} queued rollout(s) cancelled - "
 			       f"they hadn't started")
 
 		end = time.monotonic() + deadline
@@ -759,7 +759,7 @@ class RolloutOrchestrator:
 			time.sleep(0.5)
 
 		if running := self.counts()["running"]:
-			report(f"[NetRollout] Cancelling {running} running rollout(s) — "
+			report(f"[NetRollout] Cancelling {running} running rollout(s) - "
 			       f"devices already being configured get up to "
 			       f"{_CANCEL_WAIT}s to finish")
 			with self._lock:
@@ -804,7 +804,7 @@ class RolloutOrchestrator:
 
 	def _finalize(self, job_id: uuid.UUID, was_running: bool = True) -> None:
 		"""A job is over: its results to Postgres, its keys out of Redis, its
-		live log closed. Each step runs even if another failed — a service
+		live log closed. Each step runs even if another failed - a service
 		down at that moment must not lose the results (they go to a file
 		then) nor leave the job "active" forever."""
 		with self._lock:
@@ -832,7 +832,7 @@ class RolloutOrchestrator:
 def with_owners(rollouts: Sequence[RolloutRow],
                 postgres: PostgresConnection) -> list[dict[str, Any]]:
 	"""The waiting lists' rows (a database move, the Restart dialog,
-	netrollout stop / update): each rollout with its owner's username, in one
+	netrollout stop / upgrade): each rollout with its owner's username, in one
 	query.
 
 	:param rollouts: RolloutOrchestrator.jobs() or JobStore.rollouts()
@@ -869,7 +869,7 @@ def rollouts_text(rollouts: Sequence[dict[str, Any]]) -> str:
 
 def main(argv: list[str] | None = None) -> int:
 	"""python -m src.jobs rollouts [--json] | stop-now [--clear] - run in the app's
-	container (docker compose exec app) by netrollout stop / update and
+	container (docker compose exec app) by netrollout stop / upgrade and
 	NetRollout Manager: the running app's rollouts, read from Redis (its
 	JobStore keys, not the orchestrator, which lives in the app's process),
 	and the request that its stop cancel them at once

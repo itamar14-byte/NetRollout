@@ -41,7 +41,7 @@ class Access:
 
 	def save(self, values: dict[str, Any], actor: uuid.UUID | None) -> SaveResult:
 		"""Validate, prepare nginx for a new hostname and the port helper for a
-		new port, save, and wait for nginx's verdict — all or nothing: an
+		new port, save, and wait for nginx's verdict - all or nothing: an
 		invalid value, a certificate that doesn't cover the new name, a file
 		that can't be written, or nginx rejecting the result leaves every
 		setting and file as it was. (A new port is applied later, by the
@@ -80,7 +80,7 @@ class Access:
 		verdict = self.nginx.apply(change, cast(str, host.new))
 		if verdict.rejected:
 			raise SettingsError({"public_hostname":
-				f"nginx rejected the new hostname: {verdict.message} — "
+				f"nginx rejected the new hostname: {verdict.message} - "
 				f"nothing was changed, the previous hostname is back."})
 		return SaveResult(saved, verdict)
 

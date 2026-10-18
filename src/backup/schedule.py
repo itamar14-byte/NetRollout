@@ -3,7 +3,7 @@ from a daemon thread, so they need nothing on the host. The engine is
 src/backup/archive.py.
 
 Every CHECK_SECONDS the thread asks whether a scheduled time has passed
-since the newest scheduled backup in the folder — a time missed while the
+since the newest scheduled backup in the folder - a time missed while the
 server was off is caught up when it's back, once. After a backup, retention
 deletes the oldest scheduled ones beyond `backup_keep`. The outcome of the
 last run is kept next to the backups (BackupFolder.status) for the page; a failure
@@ -105,16 +105,16 @@ def run_scheduled(backend: BackendServices, now: datetime,
 		system_audit(backend, AuditAction.BACKUP_CREATED, label=path.name,
 		             detail={"kind": archive.BackupKind.SCHEDULED, "size": path.stat().st_size,
 		                     "deleted": [p.name for p in gone]})
-	except Exception as e:                  # noqa: BLE001 — reported, retried
+	except Exception as e:                  # noqa: BLE001 - reported, retried
 		message = str(e).splitlines()[0] if str(e) else type(e).__name__
 		status = {"time": now.isoformat(timespec="seconds"), "ok": False,
 		          "file": None, "message": message}
-		print(f"[NetRollout] ACTION NEEDED — scheduled backup failed: {message} "
+		print(f"[NetRollout] ACTION NEEDED - scheduled backup failed: {message} "
 		      f"(retried in {RETRY_SECONDS // 60} minutes)", flush=True)
 		try:
 			system_audit(backend, AuditAction.BACKUP_FAILED, success=False,
 			             detail={"kind": archive.BackupKind.SCHEDULED, "message": message})
-		except Exception:                   # noqa: BLE001 — e.g. the database is down
+		except Exception:                   # noqa: BLE001 - e.g. the database is down
 			pass
 	folder.write_status(status)
 	return status

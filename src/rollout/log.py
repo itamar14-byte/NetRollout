@@ -25,7 +25,7 @@ if TYPE_CHECKING:   # annotations only: the CLI (.exe) has no Redis
 # Default for the "log_retention_days" System Setting (src/db/settings.py);
 # the CLI, which has no database, uses it directly. Log files are kept longer
 # than job records so the logs folder can be browsed for older
-# troubleshooting — the settings rules keep it >= the job retention.
+# troubleshooting - the settings rules keep it >= the job retention.
 LOG_RETENTION_DAYS = 60
 LOG_PRUNE_INTERVAL_HOURS = 24
 
@@ -170,7 +170,7 @@ class LogPruner(runtime.PeriodicTask):
 
 def utf8_console() -> None:
 	"""Make console output UTF-8 and never fatal. Messages contain
-	characters like '→' and '—'; on a non-UTF-8 stdout (redirected output,
+	characters like '→' and '-'; on a non-UTF-8 stdout (redirected output,
 	a Windows service: cp1252) print() raised UnicodeEncodeError and failed
 	the whole request. Called once by each entry point."""
 	for stream in (sys.stdout, sys.stderr):

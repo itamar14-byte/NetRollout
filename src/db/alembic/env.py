@@ -18,7 +18,7 @@ from src.db.connections import PostgresConfig, PostgresConnection
 config = context.config
 
 # When migrations run from the app (db/install.install), the app hands over
-# its live connection: the exact database, credentials and schema it uses —
+# its live connection: the exact database, credentials and schema it uses -
 # including after a Server Management switch. The alembic CLI gets none and
 # builds its own below.
 shared_connection = config.attributes.get("connection")

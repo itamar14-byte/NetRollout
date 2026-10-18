@@ -1,14 +1,21 @@
 # Changelog
 
-All notable changes to NetRollout are recorded in this file. It is for anyone deciding whether to update, and for anyone tracking what changed between releases.
+All notable changes to NetRollout are recorded in this file. It is for anyone deciding whether to upgrade, and for anyone tracking what changed between releases.
 
-The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/), and NetRollout uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html): a `1.0.x` release only fixes bugs and is safe to update to, a `1.x.0` release adds features without breaking anything, and a new major version may need you to act. Version numbers are written the Python way ([PEP 440](https://peps.python.org/pep-0440/)), so a release candidate is `1.0.0rc1`, not `1.0.0-rc.1`. Each major version has a release name; 1.x is **Anycast**.
+The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/), and NetRollout uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html): a `1.0.x` release only fixes bugs and is safe to upgrade to, a `1.x.0` release adds features without breaking anything, and a new major version may need you to act. Version numbers are written the Python way ([PEP 440](https://peps.python.org/pep-0440/)), so a release candidate is `1.0.0rc1`, not `1.0.0-rc.1`. Each major version has a release name; 1.x is **Anycast**.
 
 ## [Unreleased]
 
 ### Changed
 
+- No em dashes anywhere: in the pages, messages, log lines, scripts, NetRollout Manager, Setup and the documentation, a spaced hyphen instead.
+- Moving to a newer version is now called an **upgrade** everywhere, the way network appliances call a new firmware or OS version: NetRollout Manager's **Upgrade** and **Check for upgrades**, Setup's pages, `netrollout.sh upgrade` and `manage.ps1 upgrade` (the old `update` names are gone), `logs\upgrade.log`, the registry value `UpgradeFeed`, and the backup made first, now `…-before-upgrade.zip`. Backups made before this release keep their `before-update` names and restore as before.
 - The LDAP server form's **Bind DN** says it's the service account, and that Active Directory also takes `svc@corp.local` or `CORP\svc` (never the bare name).
+
+### Fixed
+
+- On a phone, the page's title had no room next to the Operations | Administration switch, the administration pages hid it, and the NO DIRECTORY badge broke over two lines. The top bar now gives the title the room (the logo stays in the menu, and the user menu shows a person icon), and badges never break.
+- NetRollout Manager's **Logs** (and other script output it shows) garbled every character that isn't plain English, such as a dash in the app's log lines or a device label in another language: `manage.ps1` now writes UTF-8 and the Manager reads it so.
 
 ## [1.0.0rc4] - 2026-10-18
 

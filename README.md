@@ -44,7 +44,7 @@ It is for network engineers who want a bulk change done and checked without writ
 - **Safe-to-share logs.** Passwords, secrets and SNMP communities in job logs are replaced with `<redacted>`.
 - **Backups.** Scheduled and on-demand backups of the database, certificates, logs and dashboards; restore from the command line.
 - **Monitoring.** Optional Prometheus, Loki and Grafana, with ready-made dashboards for admins.
-- **Updates.** NetRollout Manager (Windows) and `netrollout.sh update` (Linux) download, check and apply a new release, with a backup first.
+- **Upgrades.** NetRollout Manager (Windows) and `netrollout.sh upgrade` (Linux) download, check and apply a new release, with a backup first.
 - **CLI.** `netrollout-cli` runs a one-off rollout from a devices CSV and a commands file. It needs no database and no Docker.
 
 ## Supported platforms
@@ -81,7 +81,7 @@ Verify covers all 12 platforms.
 2. Run it. Setup checks the computer, installs Docker Desktop if it is missing, and asks for a hostname, an HTTPS port and a timezone.
 3. When Setup finishes, open NetRollout in the browser and sign in as `admin` / `admin`. You set a new password at once.
 
-NetRollout Manager (Start Menu, desktop, tray) starts, stops, updates and backs up NetRollout.
+NetRollout Manager (Start Menu, desktop, tray) starts, stops, upgrades and backs up NetRollout.
 
 ### Linux
 
@@ -121,7 +121,7 @@ The guides are also published as a searchable site: [itamar14-byte.github.io/Net
 | Document | For | What it covers |
 | --- | --- | --- |
 | [Installation](docs/install.md) | Admins | Requirements, Windows Setup, Linux install, first sign-in, certificates, uninstall, troubleshooting |
-| [Admin guide](docs/admin-guide.md) | Admins | NetRollout Manager, the `netrollout` commands, updates, backups, users and sign-in, System Settings, monitoring |
+| [Admin guide](docs/admin-guide.md) | Admins | NetRollout Manager, the `netrollout` commands, upgrades, backups, users and sign-in, System Settings, monitoring |
 | [User guide](docs/user-guide.md) | Operators | Inventory, security profiles, variable mappings, rollouts, results, analytics |
 | [CLI](docs/cli.md) | Engineers | `netrollout-cli` flags, input files, exit codes, logs |
 | [Security](docs/security.md) | Reviewers | How NetRollout protects credentials, sessions and data |
@@ -154,7 +154,7 @@ Somewhere along the way, though, I realised this pain point is shared by many pe
 - **A containerised monitoring stack** ships with the app, turning the database, the logs and the rollout metrics into full operational visibility.
 - **Verification** reads each device's running configuration back and checks it against what was requested.
 - **Rollback** sends compensatory commands to the devices a job changed.
-- **A Windows installer and a Linux script** set the whole thing up in Docker and keep it updated.
+- **A Windows installer and a Linux script** set the whole thing up in Docker and upgrade it to new versions.
 - Underneath it all, an **object-oriented architecture** of 65 modules and some 19,000 lines of Python.
 
 The roadmap, the architecture and the design decisions are mine. For the later stages I brought in Claude Code, Anthropic's AI coding assistant, as a pair programmer: it took on much of the testing and the boilerplate, and was a second pair of eyes on my code, which left me free to focus on the design. Along the way, I learned a great deal about a long list of technologies I'd always been curious about, and about the thrill of building.

@@ -2,7 +2,7 @@
 I/O of its own: how a push finishes (the Finish family: save / commit / a
 command / nothing - acting on the session it is handed) and how the config
 prints (PLATFORMS), what a refused command looks like (rejection), and how
-a typed command is found in — or confirmed gone from — a fetched config
+a typed command is found in - or confirmed gone from - a fetched config
 (verify_commands). The SSH conversation is src/rollout/session.py's; the
 web pages use this directly. Adding a vendor: one PLATFORMS row plus a
 fixture in tests/unit/rollout/test_platforms.py."""
@@ -158,11 +158,11 @@ class Commit(Finish):
 		except ReadTimeout:
 			# It may still complete on the device: don't claim either way
 			report.action_needed(device, f"the commit didn't finish within "
-			                     f"{COMMIT_TIMEOUT}s — check on the device "
+			                     f"{COMMIT_TIMEOUT}s - check on the device "
 			                     f"whether it went through (reported as failed)")
 			return False
 		except ValueError as e:
-			report.notify(f"{device.endpoint}: commit failed — nothing was "
+			report.notify(f"{device.endpoint}: commit failed - nothing was "
 			              f"applied. {e}", Tone.ERROR)
 			discarded = False
 			for command in self.discard:
@@ -172,7 +172,7 @@ class Commit(Finish):
 					break
 			if not discarded and not self.reverts_on_failure:
 				report.action_needed(device, "the failed changes may still be "
-				                     "in the candidate configuration — discard "
+				                     "in the candidate configuration - discard "
 				                     "them on the device")
 			conn.exit_config_mode()
 			return False
@@ -210,7 +210,7 @@ PLATFORMS = {
 	"hp_comware": Platform(SaveConfig(), ("display current-configuration",)),
 	# private: our commit can't take other users' pending edits along, and
 	# our rollback can't wipe them (Junos refuses it while someone has
-	# uncommitted shared edits — the device then fails, with the reason)
+	# uncommitted shared edits - the device then fails, with the reason)
 	"juniper_junos": Platform(Commit(discard=("rollback 0",)),
 	                          ("show configuration | display set",), flat=True,
 	                          config_command="configure private"),
@@ -253,7 +253,7 @@ REJECTION_MARKERS = (
 # command.", "RTGRTG0019  OSPF: …" (at the start of a line, so a hostname in
 # the prompt can't match)
 _CODED_ERROR = re.compile(r"^[A-Z]{6}\d{4}\s")
-# Leave or close a config section — they configure nothing
+# Leave or close a config section - they configure nothing
 NAVIGATION = {"exit", "end", "next", "abort", "quit", "return", "top", "up",
               "root",                   # IOS-XR: back to the top of config
               "end-policy", "end-set"}  # IOS-XR: close route-policy / sets
@@ -338,11 +338,11 @@ def _parse_config(config: str) -> _Section:
 def _verify_sectioned(config: str, commands: list[str],
                       blocks: bool = False) -> list[str]:
 	"""Verdicts for an indented config (Cisco-style, FortiOS). Typed commands
-	are flat — the device tracks the mode — so each is placed in its section
+	are flat - the device tracks the mode - so each is placed in its section
 	using the config's own structure: a typed line that is a section there
 	opens it; exit/next close one; a command found only at an outer level
 	leaves the section (as IOS does); one found nowhere stays where it was.
-	blocks (FortiOS): "end" closes only the current config block — elsewhere
+	blocks (FortiOS): "end" closes only the current config block - elsewhere
 	it leaves configuration altogether."""
 	root = _parse_config(config)
 	stack: list[_Section] = []

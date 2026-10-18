@@ -1,4 +1,4 @@
-"""Grafana setup — the grafana-setup service (on the app image: standard
+"""Grafana setup - the grafana-setup service (on the app image: standard
 library only). Applies the layout below at start, then again every
 REAPPLY_SECONDS (a permission changed by hand is put back), and stays running:
 `docker compose up --wait` counts a container that exits as a failure. A new
@@ -18,8 +18,8 @@ organisation role made Editor. The one exception is Grafana's own
 administrator, which this service signs in as: named netrollout-grafana-admin,
 a name NetRollout refuses for its accounts (src/accounts/users.py). Before
 1.0.0rc1 it was "admin" - NetRollout's factory account, which Grafana then
-signed in as its administrator; an install from then has it renamed. Why folders can't separate admins from operators — free Grafana lets
-anyone signed in query every datasource — is in docs/roadmap.md ("Grafana for operators").
+signed in as its administrator; an install from then has it renamed. Why folders can't separate admins from operators - free Grafana lets
+anyone signed in query every datasource - is in docs/roadmap.md ("Grafana for operators").
 
 The files are dashboard v2 resources: one subfolder of the dashboards folder
 per NetRollout subfolder; a dashboard's metadata.name is its stable id.

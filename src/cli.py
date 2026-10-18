@@ -31,7 +31,7 @@ class CliExit(IntEnum):
 def get_args() -> argparse.Namespace:
 	""":returns: the command line's options (--help, --version exit here)"""
 	parser = ArgumentParser(
-		description="NetRollout — push configuration snippets to multiple network devices."
+		description="NetRollout - push configuration snippets to multiple network devices."
 	)
 	parser.add_argument("-d", "--devices",
 	                    help="Path to a CSV file. Required fields: ip, device_type, port, username, password (secret: the enable password, when needed)")
@@ -89,7 +89,7 @@ def rollout(args: argparse.Namespace) -> NoReturn:
 	validator = Validator(logger)
 	parser    = InputParser(validator, logger)
 
-	# Read raw CSV rows and build Device objects directly — no DB, no user
+	# Read raw CSV rows and build Device objects directly - no DB, no user
 	devices_path = devices_path.strip('"')
 	try:
 		with open(devices_path, "r", encoding="utf-8-sig") as f:
@@ -114,7 +114,7 @@ def rollout(args: argparse.Namespace) -> NoReturn:
 		logger.notify(msg, Tone.ERROR)
 
 	if not devices or not commands:
-		abort(logger, "Aborting — no devices or commands to process.")
+		abort(logger, "Aborting - no devices or commands to process.")
 
 	logger.notify("Verify: on" if verify else
 	              "Verify: off (add -vf to check the config after the push)",
@@ -124,7 +124,7 @@ def rollout(args: argparse.Namespace) -> NoReturn:
 		               f"{'s' if len(commands) != 1 else ''} to {len(devices)} "
 		               f"device{'s' if len(devices) != 1 else ''}. Continue? (y/n): ")
 		if answer.strip().lower() != "y":
-			logger.notify("Cancelled — nothing was pushed.", Tone.ERROR)
+			logger.notify("Cancelled - nothing was pushed.", Tone.ERROR)
 			sys.exit(CliExit.NOTHING_APPLIED)
 
 	cancel = threading.Event()
@@ -166,7 +166,7 @@ def ask_path(prompt: str) -> str:
 		path = input(prompt).strip().strip('"')
 		if os.path.isfile(path):
 			return path
-		print(f"File not found: {path or '(nothing entered)'} — try again.")
+		print(f"File not found: {path or '(nothing entered)'} - try again.")
 
 
 def variables_in(commands: list[str]) -> list[str]:

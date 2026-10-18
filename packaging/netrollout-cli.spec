@@ -1,4 +1,4 @@
-# PyInstaller recipe for netrollout-cli.exe — the headless rollout tool as
+# PyInstaller recipe for netrollout-cli.exe - the headless rollout tool as
 # one Windows executable (Python, Netmiko and the rest bundled inside).
 #
 #   pyinstaller --clean --noconfirm packaging/netrollout-cli.spec      (repo root, dev venv)

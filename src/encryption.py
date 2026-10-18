@@ -15,7 +15,7 @@ KEY_DIR = Path.home() / ".netrollout"
 KEY_FILE = KEY_DIR / "encryption.key"
 ENV_VAR = "NETROLLOUT_ENCRYPTION_KEY"
 
-# Set once at startup by init_encryption() — never at import time, so
+# Set once at startup by init_encryption() - never at import time, so
 # importing this module (tests, CLI) has no side effects
 _fernet: Fernet | None = None
 
@@ -61,7 +61,7 @@ def _generate_key() -> bytes:
 		key_file.write(new_key)
 	os.chmod(KEY_FILE, 0o600)
 	print(f"[NetRollout] Encryption key generated and saved to {KEY_FILE}")
-	print("[NetRollout] Keep this file secure — it protects stored credentials.")
+	print("[NetRollout] Keep this file secure - it protects stored credentials.")
 	return new_key
 
 
@@ -85,7 +85,7 @@ def _build_cipher(raw_key: bytes) -> Fernet:
 
 def require_key_in_container() -> None:
 	"""In a container the key must come from the environment: a key file
-	written inside it would vanish with it at the next update, and every
+	written inside it would vanish with it at the next upgrade, and every
 	stored credential with it. Needs no database, so the app checks it before
 	touching one.
 
@@ -124,7 +124,7 @@ def init_encryption(sample_ciphertext: str | None,
 				f"{ENV_VAR} or {KEY_FILE}.")
 		raw_key = _generate_key()
 	elif not db_checked:
-		print("[NetRollout] Database unreachable at startup — encryption key "
+		print("[NetRollout] Database unreachable at startup - encryption key "
 		      "loaded but not verified against stored credentials.", flush=True)
 
 	cipher = _build_cipher(raw_key)
@@ -144,7 +144,7 @@ def _cipher() -> Fernet:
 	""":returns: the cipher loaded at startup
 	:raises RuntimeError: init_encryption hasn't run"""
 	if _fernet is None:
-		raise RuntimeError("Encryption not initialized — init_encryption() must "
+		raise RuntimeError("Encryption not initialized - init_encryption() must "
 		                   "run at startup")
 	return _fernet
 

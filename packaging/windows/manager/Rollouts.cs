@@ -1,4 +1,4 @@
-// NetRollout Manager: the rollouts a Stop or an Update waits for - listed by
+// NetRollout Manager: the rollouts a Stop or an Upgrade waits for - listed by
 // the running app (manage.ps1 rollouts -Json: python -m src.jobs in its
 // container) - and the choice: wait for them, cancel them all now
 // (manage.ps1 stop-now: the app's drain cancels them at once; devices being
@@ -56,7 +56,7 @@ namespace NetRollout
 			catch (Exception) { return null; }
 		}
 
-		// the stop (or update) that follows cancels them at once. Blocks.
+		// the stop (or upgrade) that follows cancels them at once. Blocks.
 		public static bool StopNow()
 		{
 			string output;
@@ -70,7 +70,9 @@ namespace NetRollout
 			var info = new ProcessStartInfo("powershell.exe", Install.PsArgs(command))
 			{
 				UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = Install.Root,
-				RedirectStandardOutput = true, RedirectStandardError = true
+				RedirectStandardOutput = true, RedirectStandardError = true,
+				// manage.ps1 writes UTF-8
+				StandardOutputEncoding = System.Text.Encoding.UTF8, StandardErrorEncoding = System.Text.Encoding.UTF8
 			};
 			output = "";
 			var text = new System.Text.StringBuilder();
@@ -101,16 +103,16 @@ namespace NetRollout
 	}
 
 	// The rollouts running or queued (by, devices, state, started) and the
-	// three ways on: Wait (Enter), Cancel all now, Don't stop / update (Esc)
+	// three ways on: Wait (Enter), Cancel all now, Don't stop / upgrade (Esc)
 	class RolloutsDialog : Form
 	{
 		public RolloutChoice Choice = RolloutChoice.DontStop;
 
-		// action: "stop", "update" or "uninstall"
+		// action: "stop", "upgrade" or "uninstall"
 		public RolloutsDialog(List<RolloutRow> rows, string action)
 		{
-			bool update = action == "update", uninstall = action == "uninstall";
-			Text = update ? "Update NetRollout" : uninstall ? "Uninstall NetRollout" : "Stop NetRollout";
+			bool update = action == "upgrade", uninstall = action == "uninstall";
+			Text = update ? "Upgrade NetRollout" : uninstall ? "Uninstall NetRollout" : "Stop NetRollout";
 			Icon = Install.AppIcon(32);
 			Font = new Font("Segoe UI", 9.5f);
 			ClientSize = new Size(600, 400);
@@ -123,7 +125,7 @@ namespace NetRollout
 				Text = n + " rollout" + (n == 1 ? " is" : "s are") + " running or queued" };
 			var intro = new Label { AutoSize = false, Location = new Point(18, 46), Size = new Size(564, 22),
 				Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right, ForeColor = Color.DimGray,
-				Text = update ? "The update restarts NetRollout. What should happen to them?"
+				Text = update ? "The upgrade restarts NetRollout. What should happen to them?"
 				     : uninstall ? "Uninstalling stops NetRollout first. What should happen to them?"
 				                 : "What should happen to them before NetRollout stops?" };
 			var list = new ListView { View = View.Details, FullRowSelect = true, HeaderStyle = ColumnHeaderStyle.Nonclickable,
@@ -140,12 +142,12 @@ namespace NetRollout
 				Text = "Wait: they finish and are recorded first (up to 10 minutes); new rollouts are paused meanwhile.\r\n\r\n" +
 				       "Cancel all now: devices they haven't reached are skipped; a device being configured finishes " +
 				       "first, and every result is recorded. Queued rollouts are cancelled either way.\r\n\r\n" +
-				       (update ? "Don't update: nothing changes - update later."
+				       (update ? "Don't upgrade: nothing changes - upgrade later."
 				        : uninstall ? "Don't uninstall: nothing changes."
 				                    : "Don't stop: NetRollout keeps running.") };
 			var wait = AddButton("Wait for them", RolloutChoice.Wait, 150);
 			var cancel = AddButton("Cancel all now", RolloutChoice.CancelAll, 140);
-			var dont = AddButton(update ? "Don't update" : uninstall ? "Don't uninstall" : "Don't stop", RolloutChoice.DontStop, 120);
+			var dont = AddButton(update ? "Don't upgrade" : uninstall ? "Don't uninstall" : "Don't stop", RolloutChoice.DontStop, 120);
 			dont.Location = new Point(ClientSize.Width - 18 - dont.Width, 350);
 			cancel.Location = new Point(dont.Left - 10 - cancel.Width, 350);
 			wait.Location = new Point(cancel.Left - 10 - wait.Width, 350);

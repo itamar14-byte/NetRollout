@@ -8,8 +8,8 @@ default; existing rows are never touched. So a fresh install is fully
 populated, an upgrade gains only new settings, and an install keeps its
 values across upgrades until an admin changes them.
 
-The registry here defines each setting — type, range, page text, when a
-change applies, its seed value — and the cross-setting rules. The rules are
+The registry here defines each setting - type, range, page text, when a
+change applies, its seed value - and the cross-setting rules. The rules are
 declarative (left >= / <= right) so the System Settings page can enforce
 exactly the same checks in the browser (rules_for_client) that update()
 enforces on the server.
@@ -227,7 +227,7 @@ SETTINGS: dict[str, Setting] = {s.key: s for s in [
 	        "Retention", 90, minimum=7, maximum=3650,
 	        applies="next nightly clean-up", sql=True),
 	IntSetting("log_retention_days", "Log files",
-	        "Files in the logs/ folder — browsable on the server for "
+	        "Files in the logs/ folder - browsable on the server for "
 	        "troubleshooting after the job record is gone.",
 	        "Retention", LOG_RETENTION_DAYS, minimum=1, maximum=3650,
 	        applies="next daily log clean-up"),
@@ -248,14 +248,14 @@ SETTINGS: dict[str, Setting] = {s.key: s for s in [
 	        "The name people use to open NetRollout, e.g. "
 	        "netrollout.corp.local. Other names that reach the server "
 	        "redirect to it (IP addresses are always served). The certificate "
-	        "must cover it — a self-signed one is reissued automatically. "
+	        "must cover it - a self-signed one is reissued automatically. "
 	        "Empty: no canonical name.",
 	        "Access", "", applies="immediately",
 	        env="NETROLLOUT_PUBLIC_HOSTNAME",
 	        # DNS name or IPv4 address; no scheme, port or path
 	        pattern=r"[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
 	                r"(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*",
-	        pattern_hint="must be a hostname or IP address only — no "
+	        pattern_hint="must be a hostname or IP address only - no "
 	                     "https://, port or path",
 	        placeholder="netrollout.corp.local", max_length=253, lowercase=True),
 	# ── Sessions ──
@@ -290,14 +290,14 @@ SETTINGS: dict[str, Setting] = {s.key: s for s in [
 	                 (Weekday.SUN, "Sunday"))),
 	IntSetting("backup_keep", "Keep",
 	        "How many scheduled backups are kept; older ones are deleted. "
-	        "Backups made by hand, or before a restore or an update, stay "
+	        "Backups made by hand, or before a restore or an upgrade, stay "
 	        "until someone deletes them.",
 	        "Backups", 14, minimum=1, maximum=365,
 	        applies="next scheduled backup"),
 	IntSetting("https_port", "HTTPS port",
 	        "The port people use to reach NetRollout. Saving a new one opens "
 	        "it next to the current one; open NetRollout on the new port to "
-	        "keep it — unconfirmed (e.g. a firewall blocks it), the current "
+	        "keep it - unconfirmed (e.g. a firewall blocks it), the current "
 	        "port stays.",
 	        "Access", 443, minimum=1, maximum=65535,
 	        applies="once confirmed on the new port",
@@ -332,7 +332,7 @@ _OPS = {">=": operator.ge, "<=": operator.le}
 
 RULES: list[Rule] = [
 	Rule("log_retention_days", ">=", "job_retention_days",
-	     "Log files must be kept at least as long as job records — Download "
+	     "Log files must be kept at least as long as job records - Download "
 	     "Log needs the file while the job exists."),
 	Rule("config_snapshot_retention_days", "<=", "job_retention_days",
 	     "Config snapshots can't be kept longer than their job record."),
@@ -375,7 +375,7 @@ def seed_settings(db_session: Session) -> list[str]:
 		if key in SETTINGS:
 			value, problem = SETTINGS[key].coerce(stored)
 			if problem:
-				problems.append(f"setting {key}: stored {problem} — using {value!r}")
+				problems.append(f"setting {key}: stored {problem} - using {value!r}")
 	return problems
 
 
@@ -396,7 +396,7 @@ class Change:
 
 
 class SettingsStore:
-	"""Read and change settings — always the table. `postgres` returns the
+	"""Read and change settings - always the table. `postgres` returns the
 	live connection, looked up per call, so a Server Management database
 	switch is followed."""
 
@@ -430,7 +430,7 @@ class SettingsStore:
 
 	def restart_only_values(self) -> dict[str, Any]:
 		"""Settings that apply after a restart, as the process starts with
-		them. At startup the DB may be unreachable — the defaults then."""
+		them. At startup the DB may be unreachable - the defaults then."""
 		keys = [k for k, s in SETTINGS.items() if s.applies == AFTER_RESTART]
 		try:
 			current = self.values()

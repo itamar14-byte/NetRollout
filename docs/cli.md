@@ -151,7 +151,7 @@ A `$$` that isn't part of a variable, such as `banner motd $$ maintenance $$`, i
 
 ## What happens during a run
 
-1. **Read and check.** The CLI reads the commands file first and stops if it uses [variables](#variables). It then reads the CSV and checks every row (see above). It also probes each device's SSH port with a TCP connection: up to 3 attempts, 5 seconds each, a second apart. Unreachable devices are dropped before anything is pushed and reported as `<ip:port> is not reachable`. If no devices or no commands are left, the run stops with `Aborting — no devices or commands to process.` and exit code 2.
+1. **Read and check.** The CLI reads the commands file first and stops if it uses [variables](#variables). It then reads the CSV and checks every row (see above). It also probes each device's SSH port with a TCP connection: up to 3 attempts, 5 seconds each, a second apart. Unreachable devices are dropped before anything is pushed and reported as `<ip:port> is not reachable`. If no devices or no commands are left, the run stops with `Aborting - no devices or commands to process.` and exit code 2.
 2. **Push.** Up to 10 devices are configured at the same time. On each one, NetRollout enters configuration mode, sends every command, reports any command the device refuses (and still sends the rest), then saves or commits.
 3. **Verify** (with `-vf`). NetRollout reads the configuration of each device the push applied to. It looks for every command in the section where it was typed. A command must be present, and a removal (`no`, `undo`, `delete`, `unset`) must be gone. Navigation and operational commands, such as `exit`, are counted as not verifiable. Verify can mark a command as not configured when it is in fact there, for example a typed abbreviation (`int gi1`), a hashed secret, or a value the device normalises. It can also mark a command as verified because it was already there before the rollout.
 4. **Summary.** Each device gets a status:
@@ -165,7 +165,7 @@ A `$$` that isn't part of a variable, such as `banner motd $$ maintenance $$`, i
 
    The last lines are, for example, `Configuration rollout complete: 10 success, 1 partial, 1 failed (of 12 devices)`, followed by the path of the log file.
 
-**ACTION NEEDED.** Some problems need a person on the device, for example a change that is live but not saved, a commit that timed out, or a shared candidate configuration someone else left uncommitted. These are logged as `ACTION NEEDED — <ip:port>: <what to do>` and counted in the summary (`ACTION NEEDED on 2 devices (...) — see the lines marked ACTION NEEDED`). Search the log for `ACTION NEEDED`.
+**ACTION NEEDED.** Some problems need a person on the device, for example a change that is live but not saved, a commit that timed out, or a shared candidate configuration someone else left uncommitted. These are logged as `ACTION NEEDED - <ip:port>: <what to do>` and counted in the summary (`ACTION NEEDED on 2 devices (...) - see the lines marked ACTION NEEDED`). Search the log for `ACTION NEEDED`.
 
 **Ctrl+C.** The first Ctrl+C during the push cancels the rollout. Devices not yet reached are skipped, and devices being configured are allowed to finish. The summary shows what was done, and the exit code is 130. A second Ctrl+C, or one during Verify, exits at once without waiting for the devices in flight. A Ctrl+C at a question exits with nothing pushed.
 

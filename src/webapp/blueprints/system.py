@@ -21,7 +21,7 @@ bp = Blueprint("system", __name__)
 def grafana_auth() -> Response:
 	"""nginx asks this before every /grafana/ request (auth_request), with the
 	browser's cookies: Grafana is for signed-in admins only. nginx understands
-	only 2xx / 401 / 403 here — a redirect would be a 500 — so this answers
+	only 2xx / 401 / 403 here - a redirect would be a 500 - so this answers
 	with a status, never a page. 204 carries the username, which nginx hands
 	to Grafana (proxy auth) in a header the browser can't set."""
 	# (a deactivated user isn't authenticated: Flask-Login's is_authenticated
@@ -37,7 +37,7 @@ def grafana_auth() -> Response:
 @bp.route(INSTANCE_PATH)
 @during_maintenance
 def instance() -> Response:
-	"""This process's random per-run token — lets the startup check prove the
+	"""This process's random per-run token - lets the startup check prove the
 	reverse proxy forwards to *this* instance. No login, no session write, no
 	DB; the token means nothing outside this process."""
 	return jsonify(instance=current_app.instance_token)
@@ -47,7 +47,7 @@ def instance() -> Response:
 @during_maintenance
 def health() -> ResponseReturnValue:
 	"""For Docker's health check, `compose up --wait`, the installer and
-	`netrollout status` — callers without a browser session. Up/down per
+	`netrollout status` - callers without a browser session. Up/down per
 	service, rollout counts and the version; no hostnames, no error text.
 	200 when Postgres and Redis are both up, else 503."""
 	services = current_app.backend.health()

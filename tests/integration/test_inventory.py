@@ -354,7 +354,7 @@ def test_csv_import_warns_on_same_username_other_password(
 	assert linked(devs["a"].id, user) == core
 	new = profiles[linked(devs["b"].id, user)]
 	assert decrypt(profiles[core].password_secret) == "admin"  # never changed
-	assert any(m.startswith(f"Created profile '{new.label}' — your profile "
+	assert any(m.startswith(f"Created profile '{new.label}' - your profile "
 	                        f"'core' also uses username admin, with a "
 	                        f"different password.") for m in flashes(client))
 	# a second import the same day gets a distinct label

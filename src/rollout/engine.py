@@ -94,7 +94,7 @@ def classify(push: PushResult | None, verify: VerifyResult | None,
 	- verified: every checkable command confirmed and none refused →
 	  success; none confirmed (of some checkable) → failed; else partial.
 	  Commands that can't be checked count as accounted for.
-	- not verified: what the device said while the commands were sent —
+	- not verified: what the device said while the commands were sent -
 	  none refused → success; every configuring one refused → failed;
 	  else partial.
 	- interrupted (the device stopped answering before the last command,
@@ -166,7 +166,7 @@ class Device:
 
 	@property
 	def endpoint(self) -> str:
-		"""ip:port — what identifies a reachable target (the IP alone doesn't:
+		"""ip:port - what identifies a reachable target (the IP alone doesn't:
 		NAT / port forwarding put several devices behind one address)."""
 		return endpoint(self.ip, self.port)
 
@@ -264,7 +264,7 @@ class RolloutEngine:
 		return len(self._devices)
 
 	def cancelled_results(self) -> list[DeviceResultDict]:
-		"""Every device recorded as cancelled — for a job that never
+		"""Every device recorded as cancelled - for a job that never
 		started."""
 		return [DeviceResultDict(device_ip=d.ip, device_port=int(d.port),
 		                         device_type=d.device_type, commands_sent=0,
@@ -293,7 +293,7 @@ class RolloutEngine:
 		try:
 			commands = device.commands_for(self._commands)
 		except SubstitutionError as e:
-			report.notify(f"{device.endpoint} skipped — {e}", Tone.ERROR)
+			report.notify(f"{device.endpoint} skipped - {e}", Tone.ERROR)
 			return PushResult(applied=False, rejected=0)
 		return NetmikoSession(device, report).push(commands)
 
@@ -302,7 +302,7 @@ class RolloutEngine:
 		"""Push every device, max_workers at a time.
 		A cancel stops devices that haven't connected yet; devices already
 		mid-push finish their commands (a half-applied config is worse than
-		either state). Every result is collected — returning at the first
+		either state). Every result is collected - returning at the first
 		cancelled device used to drop the results of devices still in flight,
 		recording them as cancelled although their config was applied.
 
@@ -358,7 +358,7 @@ class RolloutEngine:
 		"""Fetches the device's config and checks every command in it
 		(verify_commands). Called concurrently by _verify.
 		:returns: the counts, the config kept only when something didn't
-		 verify (for Verify Diff) — or None if the config couldn't be fetched"""
+		 verify (for Verify Diff) - or None if the config couldn't be fetched"""
 		try:
 			expected = device.commands_for(self._commands)
 		except SubstitutionError:
@@ -366,9 +366,9 @@ class RolloutEngine:
 		config = NetmikoSession(device, report).fetch_config()
 		if config is None:
 			# Couldn't verify ≠ not configured: the status comes from the push,
-			# but nobody checked the result — say so where it can't be missed
+			# but nobody checked the result - say so where it can't be missed
 			report.action_needed(device, "the change was applied but NOT "
-			                     "verified — its config couldn't be read (the "
+			                     "verified - its config couldn't be read (the "
 			                     "reason is in the log): check it on the device")
 			return None
 		verdicts = verify_commands(device.device_type, config, expected)
@@ -379,7 +379,7 @@ class RolloutEngine:
 			elif verdict == UNVERIFIABLE and \
 					not navigates(first_word(command)):
 				report.notify(f"{device.endpoint}: '{command.strip()}' not "
-				              f"verifiable — it leaves nothing in the config",
+				              f"verifiable - it leaves nothing in the config",
 				              Tone.WARNING)
 		verified = verdicts.count(VERIFIED)
 		checkable = verified + verdicts.count(NOT_CONFIGURED) + \
@@ -446,7 +446,7 @@ class RolloutEngine:
 			count = len(report.needs_action)
 			report.notify(f"ACTION NEEDED on {count} device"
 			              f"{'s' if count != 1 else ''} "
-			              f"({', '.join(sorted(report.needs_action))}) — see the "
+			              f"({', '.join(sorted(report.needs_action))}) - see the "
 			              f"lines marked ACTION NEEDED", Tone.ERROR, important=True)
 		report.notify(
 			f"Please see Execution logs in {os.path.abspath(report.notifier.logfile)}",

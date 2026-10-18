@@ -615,9 +615,9 @@ SESSION_PREFIX = "redis_session:"
 # A session ends after `session_idle_minutes` (System Settings) without user
 # activity, and after ABSOLUTE_SESSION_HOURS however active. Activity is what
 # a person does: a page load, a form, a click that calls the server. What a
-# page does by itself doesn't count — requests marked background (header
+# page does by itself doesn't count - requests marked background (header
 # X-NR-Background: 1, or ?_bg=1 on an automatic reload) and the live log
-# stream — but expiry is checked on every request.
+# stream - but expiry is checked on every request.
 ABSOLUTE_SESSION_HOURS = 12
 SIGNED_IN_AT = "nr_signed_in_at"
 LAST_ACTIVE = "nr_last_active"
@@ -691,7 +691,7 @@ class SessionStore:
 	def end_for(self, user_id: uuid.UUID | str, keep_sid: str | None = None) -> int:
 		"""Sign a user out everywhere (except `keep_sid`, the caller's own
 		session after a password change): every stored session is decoded to
-		find the user's — complete and cheap at this scale.
+		find the user's - complete and cheap at this scale.
 
 		:returns: how many sessions were ended"""
 		client = self._client()
@@ -722,9 +722,9 @@ class SessionStore:
 		return users
 
 	def clear_all(self) -> None:
-		"""Everyone signed out. Every start does it — deliberately (2026-10-04):
+		"""Everyone signed out. Every start does it - deliberately (2026-10-04):
 		a privileged network-management console starts clean after a restart,
-		update or reboot, like a firewall's management plane. Rollouts don't
+		upgrade or reboot, like a firewall's management plane. Rollouts don't
 		depend on sessions (the drain lets them finish). Within a run, sessions
 		end after inactivity (session_idle_minutes) and after
 		ABSOLUTE_SESSION_HOURS (above). Redis being down changes nothing."""

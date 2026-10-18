@@ -1,5 +1,5 @@
 """Server Management → TLS Certificate: an organisation's certificate
-uploaded, or a self-signed one generated — checked first, applied all or
+uploaded, or a self-signed one generated - checked first, applied all or
 nothing (nginx's verdict included), audited."""
 import io
 import json
@@ -9,7 +9,7 @@ import pytest
 from src import runtime
 from src.access import certs, nginx as pc
 from src.db.tables import AuditLog
-from tests.integration.test_admin_settings import admin, proxy  # noqa: F401 — fixtures
+from tests.integration.test_admin_settings import admin, proxy  # noqa: F401 - fixtures
 from tests.unit.access.test_certs import key_pem, make_cert, pem
 
 pytestmark = [pytest.mark.postgres, pytest.mark.redis]

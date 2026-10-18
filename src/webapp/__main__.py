@@ -27,7 +27,7 @@ except StartupError as e:
 	      flush=True)
 	sys.exit(1)
 
-# docker stop / netrollout stop / update: let running rollouts finish (up to
+# docker stop / netrollout stop / upgrade: let running rollouts finish (up to
 # the drain deadline, below compose's stop_grace_period), then exit
 signal.signal(signal.SIGTERM, lambda signum, frame: app.shutdown.begin(
 	drain_seconds(), restart=False))

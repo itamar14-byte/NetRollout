@@ -189,7 +189,7 @@ def ask(question: str, default: str, check: Callable[[str], T], read: Read,
 def collect(facts: Facts, given: dict[str, str], interactive: bool,
             read: Read = input, write: Write = print) -> Answers:
 	"""The answers: given (flags) are checked as they are; the rest asked,
-	or — not interactive — their defaults.
+	or - not interactive - their defaults.
 
 	:param facts: what the host told (its name, timezone, busy ports)
 	:param given: the answers passed as flags, by Answers' field names

@@ -49,7 +49,7 @@ In no particular order.
 
 - **Restore from the web app**: pick a backup in System Settings (or upload one), confirm with your password, and follow the restore's progress in the browser. The app asks the host-side helper to do it (the same way an HTTPS port change works today), because a restore stops NetRollout and only the host can; the app itself keeps no access to Docker. Today a restore runs on the server: NetRollout Manager's **Restore...** or `netrollout restore`.
 - **Signed Windows files**: code signing for NetRollout Setup, NetRollout Manager and the CLI, so Windows stops warning about an unknown publisher.
-- **Linux packages**: `.deb` and `.rpm` packages and a package repository, so NetRollout installs with `apt` / `dnf` and updates with the system. Today's zip and `install.sh` stay complete on their own.
+- **Linux packages**: `.deb` and `.rpm` packages and a package repository, so NetRollout installs with `apt` / `dnf` and upgrades with the system. Today's zip and `install.sh` stay complete on their own.
 - **macOS hosts**: Docker Desktop for Mac runs the same stack; this needs multi-architecture images (amd64 and arm64, also useful for ARM Linux servers) and a portable Linux script.
 - **Isolated networks**: the web pages' third-party assets (Bootstrap, fonts, icons) served from the image instead of a CDN, and moving the images in offline.
 

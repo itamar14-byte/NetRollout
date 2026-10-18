@@ -72,7 +72,7 @@ def tcp_reachable(ip: str, port: int = 22, attempts: int = TCP_RETRIES,
 
 	:returns: whether one of the attempts connected"""
 	for attempt in range(attempts):
-		# a fresh socket per attempt — reusing a failed one raises WinError
+		# a fresh socket per attempt - reusing a failed one raises WinError
 		# 10056 on Windows; create_connection picks IPv4 or IPv6
 		try:
 			with socket.create_connection((ip, port), timeout=timeout):
@@ -114,7 +114,7 @@ def token_problem(token: str) -> str | None:
 
 
 def property_name_problem(property_name: str, allowed: set[str]) -> str | None:
-	""":param allowed: the user's property names — system defaults plus
+	""":param allowed: the user's property names - system defaults plus
 	 their own definitions (webapp: InventoryView.property_defs)
 	:returns: what's wrong with it (for the page), None when it's valid"""
 	if property_name.strip().lower() not in allowed:
@@ -191,7 +191,7 @@ class InputParser:
 	                    check_reachable: bool = True) -> tuple[
 		list[Device], list[str]]:
 		"""Validate raw rows (CSV / form) into Devices.
-		Each row is handled independently — a bad row is reported in `errors`
+		Each row is handled independently - a bad row is reported in `errors`
 		and never aborts the rest. Blank cells are treated as empty values
 		(e.g. a blank enable `secret`), not as missing columns.
 		One CSV format serves both consumers; the flags pick the rules:

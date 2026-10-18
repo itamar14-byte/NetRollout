@@ -2,7 +2,7 @@
 
 New routes are covered automatically: unauthenticated requests must be
 refused (redirect to login), and non-admins must be refused on /admin/*.
-Admin routes are only ever called as non-admins here — they are refused
+Admin routes are only ever called as non-admins here - they are refused
 before their body runs, so /admin/server/restart (os._exit) and the config
 save routes can't fire.
 """
