@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}NetRollout{% endblock %}</title>
     <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='logo.svg') }}">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -234,6 +235,24 @@
             flex-shrink: 0;
         }
 
+        /* ── Phones: no room for the sidebar - it slides in over the page from
+           the topbar's ☰ (.nr-phone-menu), and the paddings shrink ── */
+        .nr-phone-menu { display: none; }
+        @media (max-width: 767.98px) {
+            #opSidebar { transform: translateX(-100%); transition: transform 0.25s ease; }
+            #opSidebar.expanded { transform: none; box-shadow: 8px 0 24px rgba(0,0,0,0.55); }
+            #opMain, #opSidebar.expanded ~ #opMain { margin-left: 0; }
+            .op-topbar { padding: 0.6rem 1rem; }
+            .op-content { padding: 1.1rem 1rem; }
+            .nr-footer { padding: 1rem; }
+            .nr-phone-menu {
+                display: inline-flex; align-items: center; justify-content: center;
+                width: 34px; height: 34px; margin-right: -0.35rem;
+                background: none; border: 1px solid #222; border-radius: 6px;
+                color: #aaa; font-size: 1.1rem; line-height: 1; cursor: pointer;
+            }
+        }
+
         /* Arista's logo is a dark wordmark (VENDOR_LOGOS): white on the dark theme */
         img[src*="Arista-networks-logo"] { filter: brightness(0) invert(1); }
 
@@ -400,7 +419,9 @@
 
     <!-- Topbar -->
     <div class="op-topbar">
-        <div class="d-flex align-items-center gap-3">
+        <div class="d-flex align-items-center gap-3" style="min-width:0;">
+            <button type="button" class="nr-phone-menu" id="phoneMenu" aria-label="Menu"
+                    aria-controls="opSidebar">&#9776;</button>
             <img src="{{ url_for('static', filename='logo.svg') }}"
                  alt="NetRollout"
                  style="height:16px; width:auto; opacity:0.85;">
@@ -413,7 +434,7 @@
     </div>
 
     <!-- Flash messages -->
-    <div class="px-4 pt-3">
+    <div class="px-3 px-md-4 pt-3">
         {% include '_drain_banner.html' %}
         {% include '_maintenance_banner.html' %}
         {% include '_flash.html' %}
@@ -441,16 +462,28 @@
     const sidebar  = document.getElementById("opSidebar");
     const toggle   = document.getElementById("sbToggle");
 
+    // on a phone it slides in over the page, opened from the topbar's ☰, and
+    // isn't remembered (it would cover the next page)
+    const phone = window.matchMedia("(max-width: 767.98px)");
+
     function expandSidebar()  { sidebar.classList.add("expanded"); }
     function collapseSidebar(){ sidebar.classList.remove("expanded"); }
     function toggleSidebar()  { sidebar.classList.toggle("expanded"); saveSidebarState(); }
 
     function saveSidebarState() {
-        localStorage.setItem("opSidebarExpanded", sidebar.classList.contains("expanded"));
+        if (phone.matches) return;
+        try { localStorage.setItem("opSidebarExpanded", sidebar.classList.contains("expanded")); } catch (e) { /* none */ }
     }
 
     // Restore state on load
-    if (localStorage.getItem("opSidebarExpanded") === "true") expandSidebar();
+    try {
+        if (!phone.matches && localStorage.getItem("opSidebarExpanded") === "true") expandSidebar();
+    } catch (e) { /* none */ }
+
+    document.getElementById("phoneMenu").addEventListener("click", function(e) {
+        e.stopPropagation();
+        expandSidebar();
+    });
 
     toggle.addEventListener("click", function(e) {
         e.stopPropagation();

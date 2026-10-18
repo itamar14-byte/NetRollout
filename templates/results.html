@@ -51,6 +51,31 @@
     padding: 14px 18px;
 }
 
+/* Phones: the job and its status on top, then when it started and its
+   numbers, each named (the column headers are hidden) */
+@media (max-width: 767.98px) {
+    .job-summary.col-headers { display: none; }
+    .job-summary {
+        grid-template-columns: repeat(4, minmax(0, auto));
+        grid-template-areas: "job job job status" "started duration devices commands";
+        justify-content: space-between;
+        gap: 10px 14px; padding: 12px 14px;
+    }
+    .job-summary > :nth-child(1) { grid-area: job; min-width: 0; }
+    .job-summary > :nth-child(2) { grid-area: started; }
+    .job-summary > :nth-child(3) { grid-area: duration; }
+    .job-summary > :nth-child(4) { grid-area: devices; }
+    .job-summary > :nth-child(5) { grid-area: commands; }
+    .job-summary > :nth-child(6) { grid-area: status; justify-self: end; }
+    .job-summary > [data-label]::before {
+        content: attr(data-label); display: block; margin-bottom: 2px;
+        font-family: 'Inter', sans-serif; font-size: 0.62rem; font-weight: 500;
+        text-transform: uppercase; letter-spacing: 0.06em; color: var(--nr-text-muted);
+    }
+    .comment-tag { max-width: 100%; }
+    .job-detail { padding: 14px; overflow-x: auto; }
+}
+
 .job-detail {
     display: none;
     border-top: 1px solid #2a2a2a;
@@ -337,7 +362,7 @@
 {% endblock %}
 
 {% block operator_content %}
-<div class="d-flex align-items-center gap-3 mb-4">
+<div class="d-flex align-items-center flex-wrap gap-3 mb-4">
     <div class="nr-badge">RESULTS</div>
     <h4 class="mb-0" style="font-weight:600;">Job History</h4>
     <span style="color:var(--nr-text-muted); font-size:0.85rem;" id="jobCountLabel"
@@ -443,13 +468,13 @@
         </div>
 
         <!-- Started at -->
-        <span style="font-size:0.82rem; color:#aaa;">
+        <span data-label="Started" style="font-size:0.82rem; color:#aaa;">
             {{ job.started_at.strftime('%Y-%m-%d') }}<br>
             <span style="color:var(--nr-text-muted); font-size:0.75rem;">{{ job.started_at.strftime('%H:%M:%S') }}</span>
         </span>
 
         <!-- Duration -->
-        <span style="font-family:'JetBrains Mono',monospace; font-size:0.78rem; color:#888;">
+        <span data-label="Duration" style="font-family:'JetBrains Mono',monospace; font-size:0.78rem; color:#888;">
             {% set delta = (job.completed_at - job.started_at).total_seconds()|int %}
             {% if delta < 60 %}{{ delta }}s
             {% elif delta < 3600 %}{{ (delta // 60) }}m {{ (delta % 60) }}s
@@ -458,10 +483,10 @@
         </span>
 
         <!-- Device count -->
-        <span style="font-size:0.85rem; color:#ccc;">{{ job.device_count }}</span>
+        <span data-label="Devices" style="font-size:0.85rem; color:#ccc;">{{ job.device_count }}</span>
 
         <!-- Commands sent -->
-        <span style="font-family:'JetBrains Mono',monospace; font-size:0.78rem; color:#888;">
+        <span data-label="Commands" style="font-family:'JetBrains Mono',monospace; font-size:0.78rem; color:#888;">
             {{ job.commands_sent }}
         </span>
 
@@ -649,7 +674,7 @@
 </div>
 
 <!-- Column headers -->
-<div class="job-summary mb-1" style="padding: 4px 18px; cursor:default;">
+<div class="job-summary col-headers mb-1" style="padding: 4px 18px; cursor:default;">
     <span class="col-header">Job / Note</span>
     <span class="col-header">Started</span>
     <span class="col-header">Duration</span>
@@ -696,7 +721,7 @@
     </div>
     <div id="my-jobs-body">
         {% if jobs %}
-        <div class="job-summary mb-1" style="padding: 4px 18px; cursor:default;">
+        <div class="job-summary col-headers mb-1" style="padding: 4px 18px; cursor:default;">
             <span class="col-header">Job / Note</span>
             <span class="col-header">Started</span>
             <span class="col-header">Duration</span>
@@ -721,7 +746,7 @@
     </div>
     <div id="other-jobs-body">
         {% if other_jobs %}
-        <div class="job-summary mb-1" style="padding: 4px 18px; cursor:default;">
+        <div class="job-summary col-headers mb-1" style="padding: 4px 18px; cursor:default;">
             <span class="col-header">Job / Owner / Note</span>
             <span class="col-header">Started</span>
             <span class="col-header">Duration</span>

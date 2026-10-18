@@ -4,7 +4,7 @@
 {% macro elapsed(secs) %}{% if secs < 60 %}just now{% elif secs < 3600 %}{{ secs // 60 }}m ago{% elif secs < 86400 %}{{ secs // 3600 }}h {{ (secs % 3600) // 60 }}m ago{% else %}24h+ ago{% endif %}{% endmacro %}
 
 {% block admin_content %}
-<div class="d-flex justify-content-between align-items-start mb-4">
+<div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4">
   <div>
     <div class="nr-badge" style="margin-bottom:0.35rem;">ACCESS</div>
     <h4 class="mb-0 nr-page-title">
@@ -183,6 +183,8 @@
   }
 
   .session-table { width:100%; border-collapse:collapse; }
+  /* Phones: a table too wide scrolls inside its card */
+  @media (max-width: 767.98px) { .session-table { display:block; overflow-x:auto; white-space:nowrap; } }
   .session-table th {
     font-family:'Inter',sans-serif; font-size: 0.6875rem; font-weight:600;
     text-transform:uppercase; letter-spacing:1px; color:var(--nr-text-muted);

@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}Admin Panel — NetRollout{% endblock %}</title>
     <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='logo.svg') }}">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -252,6 +253,29 @@
             flex-shrink: 0;
         }
 
+        /* ── Phones: no room for the sidebar - it slides in over the page from
+           the topbar's ☰ (.nr-phone-menu), and the paddings shrink ── */
+        .nr-phone-menu { display: none; }
+        @media (max-width: 767.98px) {
+            #adminSidebar {
+                position: fixed; top: 0; left: 0; height: 100vh; z-index: 300;
+                transform: translateX(-100%); transition: transform 0.25s ease;
+            }
+            #adminSidebar.expanded { transform: none; box-shadow: 8px 0 24px rgba(0,0,0,0.55); }
+            .adm-topbar { padding: 0.6rem 1rem; }
+            .adm-topbar-left { gap: 0.6rem; }
+            .adm-topbar-sep, .adm-topbar-title { display: none; }
+            .adm-topbar .nr-back-btn { white-space: nowrap; }
+            .adm-content { padding: 1.1rem 1rem; }
+            .nr-footer { padding: 1rem; }
+            .nr-phone-menu {
+                display: inline-flex; align-items: center; justify-content: center;
+                width: 34px; height: 34px; margin-right: 0.15rem;
+                background: none; border: 1px solid #222; border-radius: 6px;
+                color: #aaa; font-size: 1.1rem; line-height: 1; cursor: pointer;
+            }
+        }
+
         .nr-card { position: relative; background: #1a1a1a; border: 1px solid #222; border-radius: 12px; overflow: hidden; box-shadow: 0 0 0 1px rgba(0,188,212,0.1), 0 20px 60px rgba(0,0,0,0.5); transition: box-shadow 0.3s; }
 
         .btn-primary { background: linear-gradient(135deg, #00bcd4, #00acc1) !important; border: none !important; color: #080808 !important; font-family: 'Inter', sans-serif; font-weight: 600; font-size: 0.88rem; border-radius: 6px; transition: all 0.2s; }
@@ -275,6 +299,8 @@
 <!-- Topbar -->
 <div class="adm-topbar">
     <div class="adm-topbar-left">
+        <button type="button" class="nr-phone-menu" id="phoneMenu" aria-label="Menu"
+                aria-controls="adminSidebar">&#9776;</button>
         <a href="{{ url_for('jobs.dashboard') }}" class="nr-back-btn">← Home</a>
         <div class="adm-topbar-sep"></div>
         <span class="adm-topbar-title">Administration</span>
@@ -386,7 +412,7 @@
     <div class="adm-main">
 
         <!-- Flash messages -->
-        <div class="px-4 pt-3">
+        <div class="px-3 px-md-4 pt-3">
             {% include '_drain_banner.html' %}
             {% include '_maintenance_banner.html' %}
             {% include '_flash.html' %}
@@ -415,10 +441,24 @@
     const admSidebar = document.getElementById("adminSidebar");
     const admToggle  = document.getElementById("admToggle");
 
-    function admExpand()   { admSidebar.classList.add("expanded"); localStorage.setItem("admSidebarExpanded","true"); }
-    function admCollapse() { admSidebar.classList.remove("expanded"); localStorage.setItem("admSidebarExpanded","false"); }
+    // on a phone it slides in over the page, opened from the topbar's ☰, and
+    // isn't remembered (it would cover the next page)
+    const admPhone = window.matchMedia("(max-width: 767.98px)");
+    function admRemember(open) {
+        if (admPhone.matches) return;
+        try { localStorage.setItem("admSidebarExpanded", open ? "true" : "false"); } catch (e) { /* none */ }
+    }
+    function admExpand()   { admSidebar.classList.add("expanded"); admRemember(true); }
+    function admCollapse() { admSidebar.classList.remove("expanded"); admRemember(false); }
 
-    if (localStorage.getItem("admSidebarExpanded") === "true") admExpand();
+    try {
+        if (!admPhone.matches && localStorage.getItem("admSidebarExpanded") === "true") admExpand();
+    } catch (e) { /* none */ }
+
+    document.getElementById("phoneMenu").addEventListener("click", function(e) {
+        e.stopPropagation();
+        admExpand();
+    });
 
     admToggle.addEventListener("click", function(e) {
         e.stopPropagation();

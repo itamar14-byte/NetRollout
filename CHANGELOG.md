@@ -22,6 +22,7 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ### Fixed
 
+- On a phone, pages showed a shrunken desktop page (they declared no viewport). Now they fit the screen: the sidebar slides in from a menu button in the top bar, page headers wrap, Inventory's device cards and Results' jobs fit on two lines, Active Jobs' figures go two by two, and wide tables scroll inside their card.
 - A device's Edit window opened with "Enter a valid IPv4 or IPv6 address." under a valid address. Saving worked; the field is now checked when the window fills it in.
 - The Add Device window called the security profile "optional". It's needed to roll out to the device (you can save without one and link it later), and the label now says so.
 - Deleting a security profile: the Delete window said the devices using it had to be reassigned first. Deleting has always gone ahead and unlinked them; the window now says how many devices it's linked to and that they'll need another profile.

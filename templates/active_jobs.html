@@ -173,6 +173,11 @@
     border-right: 1px solid #1e1e1e;
 }
 .stat-chip:last-child { border-right: none; }
+/* Phones: the four figures two by two */
+@media (max-width: 575.98px) {
+    .stat-bar { flex-wrap: wrap; }
+    .stat-bar .stat-chip { flex: 1 1 50%; padding: 0.6rem 0.5rem; border: none !important; margin: 0 !important; }
+}
 .stat-val {
     font-family: 'JetBrains Mono', monospace;
     font-size: 1.4rem;
@@ -254,12 +259,12 @@
 {% block operator_content %}
 
 {# ── Page header ── #}
-<div class="d-flex align-items-start justify-content-between mb-4">
+<div class="d-flex align-items-start justify-content-between flex-wrap gap-3 mb-4">
     <div>
         <div class="nr-badge mb-1">ACTIVE JOBS</div>
         <h4 style="font-weight:600; margin:0;">Running Rollouts</h4>
     </div>
-    <div class="d-flex align-items-center gap-3">
+    <div class="d-flex align-items-center flex-wrap gap-3 text-nowrap">
         <div class="refresh-indicator" id="refreshIndicator">
             <span class="refresh-dot" id="refreshDot"></span>
             <span id="refreshLabel">—</span>
@@ -284,7 +289,7 @@
 
 <div class="nr-card mb-4">
     <div class="nr-card-accent"></div>
-    <div class="d-flex" style="padding:0.25rem 0;">
+    <div class="d-flex stat-bar" style="padding:0.25rem 0;">
         <div class="stat-chip">
             <div class="stat-val" style="{{ 'color:#a5d6a7;' if active_count > 0 else '' }}">
                 {{ active_count }}

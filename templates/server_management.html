@@ -2,7 +2,7 @@
 {% block title %}Server Management — Admin Panel{% endblock %}
 
 {% block admin_content %}
-<div class="d-flex justify-content-between align-items-start mb-4">
+<div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4">
   <div>
     <div class="nr-badge" style="margin-bottom:0.35rem;">SERVER MANAGEMENT</div>
     <h4 class="mb-0 nr-page-title">
@@ -24,7 +24,7 @@
     </div>
 
     <!-- ── Service selector ── -->
-    <div class="d-flex gap-3 mb-4">
+    <div class="d-flex flex-column flex-md-row gap-3 mb-4">
 
       <!-- PostgreSQL button -->
       <div class="db-service-btn" id="svc-postgres" onclick="selectService('postgres')">
@@ -705,6 +705,8 @@
   .cert-result.success { background:rgba(102,187,106,0.07); border:1px solid rgba(102,187,106,0.3); color:#a5d6a7; }
   .cert-result.warn { background:rgba(255,183,77,0.07); border:1px solid rgba(255,183,77,0.3); color:#ffcc80; }
   @media (max-width: 720px) { .cert-files { grid-template-columns:1fr; } }
+  /* Phones: a service's status and mode go under its name */
+  @media (max-width: 575.98px) { .db-service-btn > .d-flex { flex-wrap: wrap; } }
 </style>
 
 {% include '_access_status.html' %}

@@ -91,6 +91,13 @@
     align-items: center;
 }
 .inv-card:hover .card-delete-btn { color: var(--nr-text-muted); }
+/* Phones: the name beside the logo, the badges, reachability and IP on a
+   second line (one line had no room left for the name) */
+@media (max-width: 575.98px) {
+    .inv-card { flex-wrap: wrap; row-gap: 0.4rem; }
+    .inv-card-label { flex: 1 1 calc(100% - 4.5rem); }
+    .inv-card-ip { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}
 .card-delete-btn:hover,
 .card-delete-btn:focus-visible { color: #ef5350 !important; }
 
@@ -483,7 +490,7 @@
 {% endmacro %}
 
 <!-- Header -->
-<div class="d-flex justify-content-between align-items-start mb-4">
+<div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4">
     <div>
         <div class="nr-badge">INVENTORY</div>
         <h4 class="mb-0" style="font-weight:600; font-size:1.15rem;">Device Inventory</h4>
@@ -491,7 +498,7 @@
             {{ devices|length }} device{{ "s" if devices|length != 1 else "" }} {{ "need your security profile" if only_needing else "configured" }}
         </p>
     </div>
-    <div class="d-flex gap-2" style="margin-top:0.2rem;">
+    <div class="d-flex flex-wrap gap-2 text-nowrap" style="margin-top:0.2rem;">
         <button type="button" class="reach-recheck" id="reachRecheck"
                 title="Re-probe every device now" style="align-self:center;">
             <i class="bi bi-arrow-repeat"></i>Recheck
