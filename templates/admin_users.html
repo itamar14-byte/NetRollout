@@ -906,7 +906,7 @@
         const roleSelect = `<select class="form-select form-select-sm gr-role ${g.role === 'admin' ? 'gr-role-admin' : 'gr-role-operator'}"
                   aria-label="Role for members of this group"
                   data-server="${nrEscape(server.id)}" data-group="${nrEscape(g.id)}"
-                  data-role="${nrEscape(g.role)}" onchange="setGroupRole(this)">
+                  data-role="${nrEscape(g.role)}" data-label="${nrEscape(g.label)}" onchange="setGroupRole(this)">
             <option value="operator"${g.role === 'admin' ? '' : ' selected'}>Operator</option>
             <option value="admin"${g.role === 'admin' ? ' selected' : ''}>Admin</option>
           </select>`;
@@ -940,9 +940,13 @@
   }
 
   // A rule's role: the members' roles follow at their next sign-in
-  function setGroupRole(el) {
+  async function setGroupRole(el) {
     const role = el.value;
-    if (role === 'admin' && !confirm('Members of this group become administrators at their next sign-in. Continue?')) {
+    if (role === 'admin' && !await nrConfirm({
+          title: `Make ${el.dataset.label} administrators?`,
+          message: 'Members of this group become administrators at their next sign-in: they get the Admin Panel, '
+                 + "every user's rollouts and results, and System Settings and Server Management.",
+          confirmLabel: 'Make administrators', danger: true})) {
       el.value = el.dataset.role;
       return;
     }
