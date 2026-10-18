@@ -18,6 +18,7 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ### Changed
 
+- Making an LDAP group rule Admin asks in NetRollout's own window (which group, what its members get; Cancel is the default) instead of the browser's.
 - A user signed out by an administrator (Terminate Session, a password reset, being disabled) leaves the page within 5 seconds instead of 30, and at once when they switch back to its tab.
 - The services' console logs (`netrollout logs`) are capped: each rolls over at 10 MB and keeps 3 files, about 30 MB a service. Before, Docker kept them forever, and nginx's grew with every request. NetRollout's own logs (`logs`) are unchanged.
 
