@@ -147,11 +147,11 @@ class Lockout(Enum):
 	DISABLED = "disabled"     # the DISABLE_AFTER-th: the account is disabled
 
 
-def lock_message(minutes: int) -> str:
+def lock_message(seconds: int) -> str:
 	""":returns: what the sign-in page says while a name is stopped
-	 (SignInThrottle) - for every name alike, an account or not"""
-	return (f"Too many failed sign-ins. Try again in {minutes} "
-	        f"minute{'s' if minutes != 1 else ''}.")
+	 (SignInThrottle) - for every name alike, an account or not: the time
+	 left as mm:ss (the page counts it down)"""
+	return f"Too many failed sign-ins. Try again in {seconds // 60:02d}:{seconds % 60:02d}."
 
 
 # The sign-in throttle's Redis keys: signin:fails:<hash> (failures in a row,
@@ -164,7 +164,8 @@ class SignInThrottle:
 	"""Failed sign-ins per typed username, whatever is behind the name - no
 	account, a local one, one from a directory: the MAX_FAILED_PASSWORDS-th
 	failure in a row stops that name for LOCK_MINUTES, and the sign-in page
-	says so ("Too many failed sign-ins. Try again in N minutes."). Every name
+	says so ("Too many failed sign-ins. Try again in 15:00.", counting down
+	to the second the stop ends). Every name
 	is treated alike, so the message tells nothing about which accounts exist.
 	A local account's own lock and disable (Accounts.password_failed) apply
 	on top, silently.
@@ -183,20 +184,19 @@ class SignInThrottle:
 		digest = hashlib.sha256(name.strip().lower().encode()).hexdigest()
 		return f"{THROTTLE_PREFIX}fails:{digest}", f"{THROTTLE_PREFIX}locked:{digest}"
 
-	def minutes_left(self, name: str) -> int | None:
-		""":returns: the minutes the name is still stopped for, rounded up;
-		 None: it isn't"""
+	def seconds_left(self, name: str) -> int | None:
+		""":returns: the seconds the name is still stopped for; None: it isn't"""
 		try:
 			left = self._client().ttl(self._keys(name)[1])
 		except REDIS_UNAVAILABLE:
 			return None
-		return math.ceil(left / 60) if left > 0 else None
+		return left if left > 0 else None
 
 	def failed(self, name: str) -> int | None:
 		"""One more failure for the name.
 
-		:returns: LOCK_MINUTES when this one stops the name (the counted
-		 failures start again); None otherwise"""
+		:returns: the stop's seconds (LOCK_MINUTES) when this one stops the
+		 name (the counted failures start again); None otherwise"""
 		fails, locked = self._keys(name)
 		try:
 			client = self._client()
@@ -212,7 +212,7 @@ class SignInThrottle:
 			pipe.execute()
 		except REDIS_UNAVAILABLE:
 			return None
-		return LOCK_MINUTES
+		return LOCK_MINUTES * 60
 
 	def cleared(self, name: str) -> None:
 		"""The name's failures and any stop forgotten: a right password, an

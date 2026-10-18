@@ -3,6 +3,7 @@ user in a mapped group is created at the first sign-in), 2FA enrolment and
 verification for local users, access requests, the password change, the
 session's time left and the Account page."""
 import base64
+import math
 import uuid
 from datetime import datetime, timezone
 from io import BytesIO
@@ -121,10 +122,10 @@ def login_fail(username: str, reason: str, actor_id: uuid.UUID | None = None,
 	:param detail: added to the audit row's detail (e.g. the directory's error)
 	:returns: the way back to the sign-in page"""
 	if reason in _COUNTED_FAILURES:
-		minutes = current_app.signin_throttle.failed(username)
-		if minutes is not None:
-			message = lock_message(minutes)
-			detail = {**(detail or {}), "name_stopped_minutes": minutes}
+		seconds = current_app.signin_throttle.failed(username)
+		if seconds is not None:
+			message = lock_message(seconds)
+			detail = {**(detail or {}), "name_stopped_minutes": math.ceil(seconds / 60)}
 	flash(message or _LOGIN_FAIL_MESSAGES.get(reason, "Login failed"), "danger")
 	current_app.web.audit(AuditAction.AUTH_LOGIN, success=False, username=username,
 	                      actor_id=actor_id, detail={"reason": reason, **(detail or {})})
@@ -371,10 +372,10 @@ def login(data: Any) -> ResponseReturnValue:
 	username = data["username"]
 	password = data["password"]
 	# a name stopped after too many failures: nothing is looked up or checked
-	minutes = current_app.signin_throttle.minutes_left(username)
-	if minutes is not None:
-		return login_fail(username, "too_many_attempts", message=lock_message(minutes),
-		                  detail={"minutes_left": minutes})
+	seconds = current_app.signin_throttle.seconds_left(username)
+	if seconds is not None:
+		return login_fail(username, "too_many_attempts", message=lock_message(seconds),
+		                  detail={"minutes_left": math.ceil(seconds / 60)})
 	with current_app.backend.postgres.get_session() as db_session:
 		accounts = Accounts(db_session)
 		user = accounts.by_name(username)

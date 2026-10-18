@@ -4,8 +4,8 @@ factory admin is locked again instead, never disabled; LDAP accounts are
 never counted; a right password, an admin's Enable / Reset Password start
 the count again. What the page says comes from the typed name's count
 (SignInThrottle), the same for every name: "Invalid credentials", then at
-the 5th failure "Too many failed sign-ins. Try again in N minutes." - for a
-real account and a name with no account alike."""
+the 5th failure "Too many failed sign-ins. Try again in 15:00." (the time
+left, mm:ss) - for a real account and a name with no account alike."""
 import datetime as dt
 from unittest.mock import patch
 
@@ -54,7 +54,7 @@ def wrong(client, username, times):
 	return shown
 
 
-LOCKED = "Too many failed sign-ins. Try again in 15 minutes."
+LOCKED = "Too many failed sign-ins. Try again in 15:00."
 
 
 def expire_lock(app, session_scope, user):
@@ -216,7 +216,7 @@ def test_the_factory_admin_is_locked_for_15_minutes_not_disabled(
 	client = client_for()
 	shown = wrong(client, "admin", 5)
 	assert shown[:4] == [["Invalid credentials"]] * 4
-	assert shown[4] == ["Too many failed sign-ins. Try again in 15 minutes."]
+	assert shown[4] == [LOCKED]
 	row = db_get(User, factory.id)
 	assert row.is_active is True
 	assert row.locked_until is not None
@@ -224,7 +224,8 @@ def test_the_factory_admin_is_locked_for_15_minutes_not_disabled(
 		("admin", False, {"failed_passwords": 5, "minutes": 15})]
 	resp = login(client, "admin")
 	assert resp.headers["Location"] == "/"
-	assert flashes(client) == ["Too many failed sign-ins. Try again in 15 minutes."]
+	# the time left: the stop began this second or the one before
+	assert flashes(client) in ([LOCKED], ["Too many failed sign-ins. Try again in 14:59."])
 
 
 def test_the_factory_admins_lock_runs_out(client_for, make_user, db_get, session_scope):
@@ -266,9 +267,10 @@ def test_ldap_accounts_are_not_counted(client_for, make_user, db_get, session_sc
 
 
 def test_lock_message_wording():
-	"""The minutes in words: one minute, several minutes."""
-	assert users.lock_message(1) == "Too many failed sign-ins. Try again in 1 minute."
-	assert users.lock_message(15) == "Too many failed sign-ins. Try again in 15 minutes."
+	"""The time left as mm:ss: 15 minutes, a minute and a half, 5 seconds."""
+	assert users.lock_message(900) == "Too many failed sign-ins. Try again in 15:00."
+	assert users.lock_message(90) == "Too many failed sign-ins. Try again in 01:30."
+	assert users.lock_message(5) == "Too many failed sign-ins. Try again in 00:05."
 
 
 def test_any_name_is_stopped_after_five_failures_and_nothing_is_checked(
@@ -294,12 +296,13 @@ def test_any_name_is_stopped_after_five_failures_and_nothing_is_checked(
 	assert shown == wrong(client, "no-such-person", 5) == [["Invalid credentials"]] * 4 + [[LOCKED]]
 
 
-def test_a_stop_says_the_minutes_left_rounded_up(app, client_for):
-	"""A stop with 30 seconds left reads "1 minute"."""
+def test_a_stop_says_the_time_left(app, client_for):
+	"""A stop with 30 seconds left reads "00:30" - the time left, not a new 15
+	minutes."""
 	client = client_for()
 	wrong(client, "someone", 5)
 	app.backend.redis.client.expire(users.SignInThrottle._keys("someone")[1], 30)
-	assert wrong(client, "someone", 1) == [["Too many failed sign-ins. Try again in 1 minute."]]
+	assert wrong(client, "someone", 1) == [["Too many failed sign-ins. Try again in 00:30."]]
 
 
 def test_reset_admin_lifts_the_stop_on_the_factory_admins_name(app, client_for, make_user):
