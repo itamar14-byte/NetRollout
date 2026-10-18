@@ -321,7 +321,7 @@ Open **Launch Rollout**.
    - **Verbose logging**: more detail in the job's log.
 5. Select **Launch Rollout**.
 
-**Launch Rollout** stays disabled while no device is ticked, the same `ip:port` is ticked twice, or a token can't be filled in. When you launch, a device ticked by its name and again by its IP (the name looked up then) is refused the same way. When you launch, NetRollout also checks that every ticked device is reachable from the server. If any isn't, the rollout is refused and the message names the devices; select **Recheck** once they're back.
+**Launch Rollout** stays disabled while no device is ticked, the same `ip:port` is ticked twice, or a token can't be filled in. When you launch, a device ticked by its name and again by its IP (the name looked up then) is refused the same way. That lookup also updates the address NetRollout keeps for each name, so the "already used by" warning follows DNS changes. When you launch, NetRollout also checks that every ticked device is reachable from the server. If any isn't, the rollout is refused and the message names the devices; select **Recheck** once they're back.
 
 ### What happens on each device
 

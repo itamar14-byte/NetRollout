@@ -3,7 +3,7 @@ platform), start; the live log's stream, cancel, and a rollback of a job's
 successful devices."""
 import json
 import uuid
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from itertools import groupby
 from typing import Any
 from urllib.parse import urlsplit
@@ -11,6 +11,7 @@ from urllib.parse import urlsplit
 from flask import Blueprint, render_template, request, flash, redirect, url_for, Response
 from flask.typing import ResponseReturnValue
 from flask_login import current_user, login_required
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.audit import AuditAction
 from src.accounts.users import Viewer
@@ -18,7 +19,7 @@ from src.db.tables import Inventory, JobMetadata, SecurityProfile, User
 from src.inventory import InventoryView, RuleRefused, SecurityProfiles, partition_devices
 from src.jobs import QUEUED_LINE, Draining
 from src.results import JobResults
-from src.rollout.address import is_ip, resolve_many
+from src.rollout.address import is_ip, primary, resolve_many
 from src.rollout.engine import Device, RolloutOptions, endpoint, missing_value
 from src.rollout.inputs import InputParser, command_lines, read_commands
 from src.webapp.app import current_app
@@ -110,7 +111,8 @@ def load_devices(selected_ids: list[uuid.UUID]) -> list[Device]:
 		raise Refused(str(e)) from None
 
 
-def duplicate_targets(devices: list[Device]) -> dict[str, list[str]]:
+def duplicate_targets(devices: list[Device],
+                      found: Mapping[str, list[str] | None]) -> dict[str, list[str]]:
 	"""The same ip:port selected twice is the same box twice (e.g. an own
 	entry and a global entry for one router, or one saved by name and one by
 	its IP): the config would be pushed twice. Names are looked up now (all
@@ -118,8 +120,8 @@ def duplicate_targets(devices: list[Device]) -> dict[str, list[str]]:
 	port are one target; a name that doesn't resolve is compared as written.
 	The same IP on different ports is fine - targets behind NAT.
 
+	:param found: the names' lookups (look_up_names)
 	:returns: ip:port → the labels selected for it, where more than one"""
-	found = resolve_many(d.host for d in devices if not is_ip(d.host))
 	by_target: dict[tuple[str, int], list[Device]] = {}
 	for d in devices:
 		addresses = [d.host] if is_ip(d.host) else (found.get(d.host) or [d.host])
@@ -133,6 +135,30 @@ def duplicate_targets(devices: list[Device]) -> dict[str, list[str]]:
 			reported.add(group)
 			duplicates[endpoint(address, port)] = [d.label or d.ip for d in shared]
 	return duplicates
+
+
+def look_up_names(devices: list[Device]) -> dict[str, list[str] | None]:
+	""":returns: each device hostname's addresses now, by the name connected
+	 to (Device.host); None when it doesn't resolve - all looked up at once,
+	 a bounded wait"""
+	return resolve_many(d.host for d in devices if not is_ip(d.host))
+
+
+def remember_addresses(selected_ids: list[uuid.UUID], devices: list[Device],
+                       found: Mapping[str, list[str] | None]) -> None:
+	"""The launch's lookups saved as the devices' stored addresses, so the
+	"already used by" warning follows DNS changes (a name that didn't
+	resolve keeps its last known address). Never refuses the launch: a
+	failure here is only logged."""
+	addresses = {d.ip: kept for d in devices if not is_ip(d.host)
+	             if (kept := primary(found.get(d.host) or [])) is not None}
+	if not addresses:
+		return
+	try:
+		with current_app.backend.postgres.get_session() as db_session:
+			InventoryView(db_session, viewer()).remember_addresses(selected_ids, addresses)
+	except SQLAlchemyError as e:
+		print(f"[NetRollout] couldn't save the devices' current addresses: {e}", flush=True)
 
 
 def unreachable_devices(devices: list[Device]) -> list[Device]:
@@ -321,7 +347,9 @@ def start_rollout() -> tuple[uuid.UUID, list[Device], str | None]:
 	commands, platform_commands_map, is_multi_platform = parse_commands()
 	devices = load_devices(selected_ids)
 
-	if duplicates := duplicate_targets(devices):
+	found = look_up_names(devices)
+	remember_addresses(selected_ids, devices, found)
+	if duplicates := duplicate_targets(devices, found):
 		raise Refused("The same target was selected more than once - select only one "
 		              "of: " + "; ".join(f"{' / '.join(labels)} ({ep})"
 		                                 for ep, labels in duplicates.items()))

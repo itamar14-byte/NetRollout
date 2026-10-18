@@ -16,7 +16,7 @@ from sqlalchemy import event
 
 from src import runtime
 from src.db.settings import SETTINGS
-from src.db.tables import AuditLog, DeviceCredential, DeviceResult, JobMetadata
+from src.db.tables import AuditLog, DeviceCredential, DeviceResult, Inventory, JobMetadata
 from src.jobs import Draining, RolloutJob
 from src.results import EXPORT_COLUMNS, JOB_STATUSES, job_status
 
@@ -1623,3 +1623,43 @@ def test_results_without_jobs_invite_a_rollout(client_for, make_user):
 	assert "Nothing pushed yet." in html
 	assert "The change window is open" in html
 	assert 'href="/rollout/new"' in html
+
+
+def stored_address(session_scope, device_id):
+	"""The address kept for a device's hostname (inventory.resolved_ip)."""
+	with session_scope() as s:
+		return s.get(Inventory, device_id).resolved_ip
+
+
+def test_a_launch_keeps_a_hostnames_stored_address_current(operator, client_for, make_profile,
+                                                           make_device, captured_submits,
+                                                           monkeypatch, session_scope):
+	"""The name moved in DNS since it was saved: the launch's lookup is
+	saved as its address (the "already used by" warning follows DNS), and
+	the rollout goes ahead."""
+	by_name = make_device(operator.user, ip="core1.corp.local", label="CORE-BY-NAME",
+	                      profile_id=make_profile(operator.user, label="by-name"))
+	with session_scope() as s:
+		s.get(Inventory, by_name).resolved_ip = "10.5.5.1"
+	monkeypatch.setattr("src.webapp.blueprints.rollout.resolve_many",
+	                    lambda hosts: {h: ["2001:db8::9", "10.5.5.9"] for h in hosts})
+	monkeypatch.setattr("src.webapp.blueprints.rollout.unreachable_devices", lambda devices: [])
+	client_for(operator.user).post("/rollout/start", data={
+		"device_ids": [str(by_name)], "manual_commands": "hostname x"})
+	assert len(captured_submits) == 1
+	assert stored_address(session_scope, by_name) == "10.5.5.9"
+
+
+def test_a_launch_keeps_the_last_known_address_when_the_name_doesnt_resolve(
+		operator, client_for, make_profile, make_device, captured_submits, monkeypatch,
+		session_scope):
+	"""A failed lookup at launch leaves the stored address alone."""
+	by_name = make_device(operator.user, ip="core2.corp.local", label="CORE-2",
+	                      profile_id=make_profile(operator.user, label="by-name"))
+	with session_scope() as s:
+		s.get(Inventory, by_name).resolved_ip = "10.5.5.2"
+	monkeypatch.setattr("src.webapp.blueprints.rollout.resolve_many",
+	                    lambda hosts: {h: None for h in hosts})
+	client_for(operator.user).post("/rollout/start", data={
+		"device_ids": [str(by_name)], "manual_commands": "hostname x"})
+	assert stored_address(session_scope, by_name) == "10.5.5.2"

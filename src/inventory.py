@@ -376,6 +376,27 @@ class InventoryView:
 		        .options(selectinload(Inventory.var_mappings))
 		        .all())
 
+	def remember_addresses(self, device_ids: Collection[uuid.UUID],
+	                       addresses: Mapping[str, str]) -> int:
+		"""Keep the stored address of these devices' hostnames current (the
+		"already used by" warning compares it): a rollout's launch looked them
+		up anyway. Visible devices only; nothing else changes on them.
+
+		:param addresses: a saved hostname -> the address kept for it now
+		 (primary); names that didn't resolve aren't in it - their last known
+		 address stays
+		:returns: how many devices' address changed"""
+		if not addresses:
+			return 0
+		changed = 0
+		for row in self.session.query(Inventory).filter(
+				Inventory.id.in_(device_ids), Inventory.ip.in_(addresses),
+				visible_devices_clause(self.viewer.id)):
+			if row.resolved_ip != addresses[row.ip]:
+				row.resolved_ip = addresses[row.ip]
+				changed += 1
+		return changed
+
 	def visible_endpoints(self) -> set[Target]:
 		""":returns: the ip:port of every visible device - a hostname's twice:
 		 as saved, and with the address it resolved to when it was saved"""
