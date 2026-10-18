@@ -747,6 +747,31 @@ def test_localizing_drops_foreign_bindings_and_audits(world, client_for,
 	assert str(world.core) not in html
 
 
+def test_the_localize_entry_says_what_the_other_users_lost(world, client_for,
+                                                           session_scope):
+	"""The `inventory.localize` entry counts what the other users lost on the
+	device: b's profile link and value, c's mapping binding - two users. The
+	admin's own link isn't counted; making it global again records nothing."""
+	client_for(world.b).post(f"/inventory/{world.core}/attributes",
+	                         data={"sec_profile_id": str(world.b_prof)})
+	with session_scope() as s:
+		s.add(DeviceAttribute(device_id=world.core, user_id=world.b.id,
+		                      name="site", value="lab"))
+	admin = client_for(world.admin)
+	form = {**FORM, "label": "CORE-X", "ip": "10.50.0.1",
+	        "sec_profile_id": str(world.admin_prof)}
+	admin.post(f"/inventory/{world.core}/edit", data=form)
+	admin.post(f"/inventory/{world.core}/edit", data={**form, "is_global": "on"})
+	with session_scope() as s:
+		details = {a.action: a.detail for a in s.query(AuditLog).filter(
+			AuditLog.object_id == world.core,
+			AuditLog.action.in_(["inventory.localize", "inventory.globalize"]))}
+	assert details == {
+		"inventory.localize": {"users_affected": 2, "profile_links_removed": 1,
+		                       "attribute_values_removed": 1, "mapping_bindings_removed": 1},
+		"inventory.globalize": None}
+
+
 def test_deleting_a_mapping_keeps_its_devices(world, client_for, db_get):
 	"""Deleting a mapping keeps the devices bound to it (they used to be
 	cascade-deleted)."""

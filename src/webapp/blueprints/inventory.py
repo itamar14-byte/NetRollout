@@ -211,7 +211,8 @@ def inventory_edit(device_id: uuid.UUID) -> ResponseReturnValue:
 	if saved.is_global != saved.was_global:
 		current_app.web.audit(
 			AuditAction.INVENTORY_GLOBALIZE if saved.is_global else AuditAction.INVENTORY_LOCALIZE,
-			object_type="Inventory", object_id=device_id, object_label=saved.label)
+			object_type="Inventory", object_id=device_id, object_label=saved.label,
+			detail=saved.removed.detail() if saved.removed else None)
 	flash(f"{saved.label} updated.", "success")
 	if saved.shared_endpoint:
 		flash(saved.shared_endpoint, "warning")

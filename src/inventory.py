@@ -302,6 +302,23 @@ class SavedDevice:
 	was_global: bool
 	shared_endpoint: str | None   # the warning: other devices on its ip:port
 	unbound: list[str]            # mapping tokens not bound: no value for them
+	# made local: what the other users lost on it; None otherwise
+	removed: RemovedFromOthers | None = None
+
+
+@dataclass(frozen=True)
+class RemovedFromOthers:
+	"""What a device made local took from the users who no longer see it."""
+	users: int               # how many users lost anything on it
+	profile_links: int       # their security profile links
+	attribute_values: int    # their custom attribute values
+	mapping_bindings: int    # their variable mappings bound to it
+
+	def detail(self) -> dict[str, int]:
+		""":returns: the counts for the audit entry"""
+		return {"users_affected": self.users, "profile_links_removed": self.profile_links,
+		        "attribute_values_removed": self.attribute_values,
+		        "mapping_bindings_removed": self.mapping_bindings}
 
 
 class InventoryView:
@@ -523,12 +540,26 @@ class InventoryView:
 				self.session.add(DeviceAttribute(device=device, user_id=self.viewer.id,
 				                                 name=name, value=value))
 
-	def drop_other_users_values(self, device: Inventory) -> None:
-		"""Remove everyone's values on a device but its owner's (it was made
-		local: nobody else can see it - their bindings go too)."""
-		self.session.query(DeviceAttribute).filter(
-			DeviceAttribute.device_id == device.id,
-			DeviceAttribute.user_id != device.user_id).delete(synchronize_session=False)
+	def drop_other_users(self, device: Inventory) -> RemovedFromOthers:
+		"""Remove everyone's links, values and bindings on a device but its
+		owner's (it was made local: nobody else can see it).
+
+		:returns: what was removed, and from how many users"""
+		owner = device.user_id
+		bindings = [m for m in device.var_mappings if m.user_id != owner]
+		device.var_mappings = [m for m in device.var_mappings if m.user_id == owner]
+		values = self.session.query(DeviceAttribute).filter(
+			DeviceAttribute.device_id == device.id, DeviceAttribute.user_id != owner)
+		links = self.session.query(DeviceCredential).filter(
+			DeviceCredential.device_id == device.id, DeviceCredential.user_id != owner)
+		users = ({m.user_id for m in bindings}
+		         | {u for (u,) in values.with_entities(DeviceAttribute.user_id)}
+		         | {u for (u,) in links.with_entities(DeviceCredential.user_id)})
+		return RemovedFromOthers(
+			users=len(users),
+			profile_links=links.delete(synchronize_session=False),
+			attribute_values=values.delete(synchronize_session=False),
+			mapping_bindings=len(bindings))
 
 	def delete_property_values(self, name: str) -> None:
 		"""Remove the viewer's values of one of their properties, on every
@@ -617,19 +648,15 @@ class InventoryView:
 			set_system_values(device, values)
 			self.set_custom_values(device, values, own)
 		unbound = self.bind_mappings(device, mapping_ids) if mapping_ids is not None else []
+		removed = None
 		if was_global and not is_global:
 			# Other users can no longer see this device: it becomes the viewer's
 			# (who made it private), and the others' links, bindings and values
 			# go rather than stay as invisible orphans.
 			device.user_id = self.viewer.id
-			device.var_mappings = [m for m in device.var_mappings
-			                       if m.user_id == device.user_id]
-			self.drop_other_users_values(device)
-			self.session.query(DeviceCredential).filter(
-				DeviceCredential.device_id == device.id,
-				DeviceCredential.user_id != self.viewer.id).delete(synchronize_session=False)
+			removed = self.drop_other_users(device)
 		return SavedDevice(label=device.label, is_global=is_global, was_global=was_global,
-		                   shared_endpoint=shared, unbound=unbound)
+		                   shared_endpoint=shared, unbound=unbound, removed=removed)
 
 
 class SecurityProfiles:
