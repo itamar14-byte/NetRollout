@@ -5,14 +5,11 @@
    true only for the confirm button; Cancel, ×, Escape and a click outside
    answer false. A risky question (danger) is red and starts on Cancel.
    nrAlert(message, title) → Promise, closed by OK. message is text (never
-   HTML). Either may open over another window (Restart's rollout list): that
-   one is dimmed and gets its keyboard focus back after. Included by
-   operator_base.html and admin.html. #}
-<style>
-    /* over another open window: above it and its backdrop */
-    #nrConfirmModal { z-index: 1065; }
-    .modal-backdrop ~ .modal-backdrop { z-index: 1060; }
-</style>
+   HTML). Included by operator_base.html and admin.html, with the stacking
+   below for every window: one opened over another (these, Restart's
+   rollout list, a quick-create profile over Edit device) goes above it and
+   its dimmed backdrop, and the one beneath gets its keyboard focus back
+   after. #}
 <div class="modal fade" id="nrConfirmModal" tabindex="-1" aria-hidden="true" aria-labelledby="nrConfirmTitle">
     <div class="modal-dialog modal-dialog-centered" style="max-width:440px;">
         <div class="modal-content">
@@ -48,11 +45,6 @@ function _nrDialog({title, message, confirmLabel, danger, badge, cancel}) {
     ok.textContent = confirmLabel;
     ok.className = 'btn btn-sm ' + (danger ? 'btn-danger' : 'btn-primary');
     cancelBtn.hidden = !cancel;
-    // Bootstrap keeps the focus inside an open window: the one beneath lets
-    // go while this is up (its focus trap, Bootstrap 5.3's), and takes it back
-    const under = [...document.querySelectorAll('.modal.show')].filter(m => m !== el)
-        .map(m => bootstrap.Modal.getInstance(m)).filter(Boolean);
-    under.forEach(m => m._focustrap && m._focustrap.deactivate());
     const modal = bootstrap.Modal.getOrCreateInstance(el);
     return new Promise(resolve => {
         let answer = false;
@@ -63,12 +55,6 @@ function _nrDialog({title, message, confirmLabel, danger, badge, cancel}) {
             () => (danger && cancel ? cancelBtn : ok).focus(), {once: true});
         el.addEventListener('hidden.bs.modal', () => {
             ok.removeEventListener('click', confirmed);
-            if (under.length) {
-                // closing this one unlocked the page's scroll: still locked under the other
-                document.body.classList.add('modal-open');
-                document.body.style.overflow = 'hidden';
-                under.forEach(m => m._focustrap && m._focustrap.activate());
-            }
             resolve(answer);
         }, {once: true});
         modal.show();
@@ -82,4 +68,36 @@ function nrConfirm({title, message, confirmLabel = 'Continue', danger = false, b
 function nrAlert(message, title = 'Not done') {
     return _nrDialog({title, message, confirmLabel: 'OK', danger: false, badge: 'NOTICE', cancel: false});
 }
+
+// A window opened over another: Bootstrap gives every window the same
+// z-index (1055) and every backdrop 1050, so the new one is placed 10 above
+// the topmost open one, its backdrop just under it - set at every opening:
+// Bootstrap reuses a window's backdrop, so one stacked once would keep its
+// level and cover the window the next time it opens alone. The windows beneath let
+// go of the keyboard focus (their focus trap, Bootstrap 5.3's) while it's
+// up, and the topmost one left takes it back - with the page's scroll still
+// locked, which closing a window undoes.
+document.addEventListener('show.bs.modal', e => {
+    const win = e.target;
+    const under = [...document.querySelectorAll('.modal.show')].filter(m => m !== win);
+    const top = under.length ? Math.max(...under.map(m => parseInt(getComputedStyle(m).zIndex, 10) || 1055)) : null;
+    win.style.zIndex = top === null ? '' : top + 10;
+    under.forEach(m => { const i = bootstrap.Modal.getInstance(m); i && i._focustrap && i._focustrap.deactivate(); });
+    // Bootstrap adds the backdrop right after this event, at the end of <body>
+    setTimeout(() => {
+        const backdrops = document.querySelectorAll('.modal-backdrop');
+        if (backdrops.length) backdrops[backdrops.length - 1].style.zIndex = top === null ? '' : top + 5;
+    });
+});
+document.addEventListener('hidden.bs.modal', e => {
+    e.target.style.zIndex = '';
+    const open = [...document.querySelectorAll('.modal.show')];
+    if (!open.length) return;
+    document.body.classList.add('modal-open');
+    document.body.style.overflow = 'hidden';
+    const topmost = open.reduce((a, b) =>
+        (parseInt(getComputedStyle(b).zIndex, 10) || 0) >= (parseInt(getComputedStyle(a).zIndex, 10) || 0) ? b : a);
+    const i = bootstrap.Modal.getInstance(topmost);
+    if (i && i._focustrap) i._focustrap.activate();
+});
 </script>
