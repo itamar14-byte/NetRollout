@@ -124,10 +124,22 @@ def test_a_window_closes_as_it_opens():
 
 
 def test_the_inventory_tooltip_shows_a_hostnames_address():
-	"""Hovering a device saved by name shows "name (address)" - the address it
-	resolved to at its save or last rollout (resolved_ip); by IP, or a name
-	that didn't resolve, the address alone; the line wraps rather than cuts."""
+	"""Hovering a device saved by name shows "name (address)" - the page's
+	reachability check's address, else the stored one (resolved_ip); by IP,
+	or a name that didn't resolve, the address alone; the line wraps rather
+	than cuts."""
 	source = (TEMPLATES / "inventory.html").read_text(encoding="utf-8")
 	assert '"resolved_ip":           device.resolved_ip or "",' in source
-	assert "device.resolved_ip ? device.ip + ' (' + device.resolved_ip + ')' : device.ip;" in source
+	assert "const live = REACH[device.id], resolved = (live && live.address) || device.resolved_ip;" in source
+	assert "resolved ? device.ip + ' (' + resolved + ')' : device.ip;" in source
 	assert "#ttIp { white-space: normal; overflow-wrap: anywhere; }" in source
+
+
+def test_a_name_that_doesnt_resolve_says_so_where_reachability_shows():
+	"""Not reachable because the name doesn't resolve reads "Not reachable
+	(can't resolve)": the inventory's dot and tooltip, New Rollout's rows."""
+	widgets = (TEMPLATES / "_op_widgets_js.html").read_text(encoding="utf-8")
+	assert "return status && !status.reachable && status.unresolved ? \" (can't resolve)\" : '';" in widgets
+	assert "unknown: 'Reachability unknown'}[state] + nrReachWhy(status);" in widgets
+	assert "(reach.reachable ? 'Reachable' : 'Not reachable') + nrReachWhy(reach)" in 		(TEMPLATES / "inventory.html").read_text(encoding="utf-8")
+	assert '"Not reachable from NetRollout" + nrReachWhy(status)' in 		(TEMPLATES / "new_rollout.html").read_text(encoding="utf-8")

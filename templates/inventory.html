@@ -1657,17 +1657,18 @@ const tooltip = document.getElementById('invTooltip');
 let   ttTimer = null;
 
 function showTooltip(card, device) {
-    // a hostname with the address it last resolved to (at its save or its
-    // last rollout): core1.corp.local (10.0.0.7)
+    // a hostname with its address: the reachability check's on this page
+    // (at most a minute old), else the stored one - core1.corp.local (10.0.0.7)
+    const live = REACH[device.id], resolved = (live && live.address) || device.resolved_ip;
     document.getElementById('ttIp').textContent      =
-        device.resolved_ip ? device.ip + ' (' + device.resolved_ip + ')' : device.ip;
+        resolved ? device.ip + ' (' + resolved + ')' : device.ip;
     document.getElementById('ttType').textContent    = device.device_type;
     document.getElementById('ttPort').textContent    = device.port;
     document.getElementById('ttProfile').textContent = device.sec_profile_label || '-';
     const reach = REACH[device.id];
     document.getElementById('ttReach').textContent = reach === undefined
         ? 'Checking…'
-        : (reach ? (reach.reachable ? 'Reachable' : 'Not reachable') +
+        : (reach ? (reach.reachable ? 'Reachable' : 'Not reachable') + nrReachWhy(reach) +
                    ' · checked ' + nrAgo(reach.checked_at)
                  : 'Unknown');
 

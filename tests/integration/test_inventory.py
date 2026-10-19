@@ -1103,3 +1103,25 @@ def test_a_csv_import_warns_about_a_hostname_of_a_device_already_there(
 	(msg,) = dup_warnings(client)
 	assert msg.startswith("2 imported devices share an ip:port with another device: "
 	                      "core7.corp.local:22, 10.7.8.2:22.")
+
+
+def test_the_pages_reachability_check_keeps_a_hostnames_address_current(
+		client_for, make_user, make_device, session_scope, fake_dns):
+	"""The Inventory page's reachability check resolves a hostname and keeps
+	the address as the device's stored address (the tooltip and the "already
+	used by" warning); its answer carries the address. An IP device is left
+	alone."""
+	user = make_user()
+	by_name = make_device(user, ip="core9.corp.local", label="core9")
+	by_ip = make_device(user, ip="10.9.9.1", label="ip9")
+	with session_scope() as s:
+		s.get(Inventory, by_name).resolved_ip = "10.9.9.200"      # where it was
+	fake_dns["core9.corp.local"] = ["10.9.9.9"]                    # where it is now
+	resp = client_for(user).post("/inventory/reachability",
+	                             json={"device_ids": [str(by_name), str(by_ip)], "refresh": True})
+	statuses = resp.json["statuses"]
+	assert statuses[str(by_name)]["address"] == "10.9.9.9" and statuses[str(by_name)]["reachable"]
+	assert "address" not in statuses[str(by_ip)]
+	with session_scope() as s:
+		assert (s.get(Inventory, by_name).resolved_ip, s.get(Inventory, by_ip).resolved_ip) == \
+			("10.9.9.9", None)

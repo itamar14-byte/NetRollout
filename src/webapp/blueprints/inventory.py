@@ -9,10 +9,11 @@ from typing import Any
 from flask import Blueprint, render_template, request, redirect, flash, url_for
 from flask.typing import ResponseReturnValue
 from flask_login import current_user, login_required
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.audit import AuditAction
 from src.inventory import (DeviceFields, InventoryView, RuleRefused, SecurityProfiles,
-                           form_values, import_csv, partition_devices)
+                           form_values, import_csv, partition_devices, resolved_addresses)
 from src.rollout import inputs
 from src.rollout.address import is_ip, qualify, resolve
 from src.rollout.engine import endpoint
@@ -175,7 +176,8 @@ MAX_REACHABILITY_BATCH = 500
 def inventory_reachability(data: dict[str, Any]) -> ResponseReturnValue:
 	"""Reachability of visible devices from this server (cached briefly;
 	refresh=true re-probes). {"statuses": {device_id: {reachable,
-	checked_at}}}"""
+	checked_at, address (a hostname's)}}}. A hostname's address is kept as
+	the device's stored address (remember_addresses)."""
 	raw_ids = data.get("device_ids") or []
 	if not isinstance(raw_ids, list) or len(raw_ids) > MAX_REACHABILITY_BATCH:
 		return err("Invalid request", 422)
@@ -188,6 +190,12 @@ def inventory_reachability(data: dict[str, Any]) -> ResponseReturnValue:
 		db_session.expunge_all()
 	results = current_app.web.reachability.check(
 		[(r.ip, r.port) for r in rows], refresh=bool(data.get("refresh")))
+	if addresses := resolved_addresses(results):
+		try:
+			with current_app.backend.postgres.get_session() as db_session:
+				InventoryView(db_session, viewer()).remember_addresses(ids, addresses)
+		except SQLAlchemyError as e:      # only the stored address: never the page's answer
+			print(f"[NetRollout] couldn't save the devices' current addresses: {e}", flush=True)
 	return ok(statuses={str(r.id): results[(r.ip, int(r.port))] for r in rows})
 
 

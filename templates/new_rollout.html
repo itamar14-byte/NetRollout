@@ -1159,8 +1159,8 @@
                 row.classList.remove("disabled");
             } else if (state === "down") {
                 down++;
-                setRowTip(row, "Not reachable from NetRollout · checked " +
-                               nrAgo(status.checked_at));
+                setRowTip(row, "Not reachable from NetRollout" + nrReachWhy(status) +
+                               " · checked " + nrAgo(status.checked_at));
             } else {
                 unknown++;
                 setRowTip(row, "Couldn't check reachability - try Recheck");

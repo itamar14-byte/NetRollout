@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from src.inventory import ReachabilityChecker
+from src.inventory import ReachabilityChecker, resolved_addresses
 from src.rollout import address, inputs
 from src.rollout.address import is_hostname, primary, qualify, resolve, resolve_many
 from src.rollout.engine import Device
@@ -210,21 +210,62 @@ def test_the_cli_reports_a_name_that_doesnt_resolve_as_its_row():
 	assert errors == ["ghost.corp.local:22: can't resolve ghost.corp.local"]
 
 
-def test_the_reachability_probe_uses_the_suffix_and_caches_by_the_saved_name():
-	"""A bare name is probed with the suffix; the cache key (and the answer)
-	stays the address as saved, which is what the pages ask about."""
-	fake, probe = FakeRedis(), CountingProbe()
-	checker = ReachabilityChecker(lambda: fake, prober=probe, dns_suffix=lambda: "corp.local")
+def test_the_reachability_probe_resolves_with_the_suffix_and_caches_by_the_saved_name():
+	"""A bare name is looked up with the suffix, then probed on its address;
+	an IP is probed as it is. The cache key (and the answer) stays the
+	address as saved, which is what the pages ask about; the name's answer
+	carries the address it resolved to."""
+	fake, probe, asked = FakeRedis(), CountingProbe(), []
+	checker = ReachabilityChecker(lambda: fake, prober=probe, dns_suffix=lambda: "corp.local",
+	                              resolver=lambda host: asked.append(host) or ["2001:db8::7", "10.0.0.7"])
 	result = checker.check([("core1", 22), ("10.0.0.1", 22)])
-	assert sorted(probe.calls) == [("10.0.0.1", 22), ("core1.corp.local", 22)]
+	assert asked == ["core1.corp.local"]
+	assert sorted(probe.calls) == [("10.0.0.1", 22), ("10.0.0.7", 22)]
 	assert set(result) == {("core1", 22), ("10.0.0.1", 22)}
+	assert result[("core1", 22)]["address"] == "10.0.0.7" and "address" not in result[("10.0.0.1", 22)]
 
 
 def test_the_probe_goes_on_without_the_suffix_when_settings_cant_be_read():
-	"""The setting unreadable (database down): no suffix, still a probe."""
-	fake, probe = FakeRedis(), CountingProbe()
+	"""The setting unreadable (database down): no suffix, still a lookup and
+	a probe."""
+	fake, probe, asked = FakeRedis(), CountingProbe(), []
 
 	def broken():
 		raise RuntimeError("database down")
-	ReachabilityChecker(lambda: fake, prober=probe, dns_suffix=broken).check([("core1", 22)])
-	assert probe.calls == [("core1", 22)]
+	ReachabilityChecker(lambda: fake, prober=probe, dns_suffix=broken,
+	                    resolver=lambda host: asked.append(host) or ["10.0.0.9"]).check([("core1", 22)])
+	assert (asked, probe.calls) == (["core1"], [("10.0.0.9", 22)])
+
+
+def test_a_name_that_doesnt_resolve_is_unreachable_without_a_probe():
+	"""No address, nothing to probe: not reachable, no address in the
+	answer, and marked unresolved (the pages say "can't resolve"); an
+	unreachable IP isn't marked."""
+	fake, probe = FakeRedis(), CountingProbe(down={("10.0.0.9", 22)})
+	result = ReachabilityChecker(lambda: fake, prober=probe, resolver=lambda host: None).check(
+		[("ghost", 22), ("10.0.0.9", 22)])
+	assert probe.calls == [("10.0.0.9", 22)]
+	assert result[("ghost", 22)] == {"reachable": False, "checked_at": result[("ghost", 22)]["checked_at"],
+	                                 "unresolved": True}
+	assert "unresolved" not in result[("10.0.0.9", 22)] and result[("10.0.0.9", 22)]["reachable"] is False
+
+
+def test_a_cached_answer_keeps_the_address_and_asks_no_dns():
+	"""Within the cache's time a second check answers from Redis - the
+	address included - without a lookup or a probe."""
+	fake, probe, asked = FakeRedis(), CountingProbe(), []
+	checker = ReachabilityChecker(lambda: fake, prober=probe,
+	                              resolver=lambda host: asked.append(host) or ["10.0.0.7"])
+	checker.check([("core1.corp.local", 22)])
+	again = checker.check([("core1.corp.local", 22)])
+	assert (len(asked), len(probe.calls)) == (1, 1)
+	assert again[("core1.corp.local", 22)]["address"] == "10.0.0.7"
+
+
+def test_resolved_addresses_maps_each_name_to_its_address():
+	"""What a check resolved, by the name as saved - IPs and names without an
+	address left out (what remember_addresses stores)."""
+	results = {("core1", 22): {"reachable": True, "checked_at": "x", "address": "10.0.0.7"},
+	           ("10.0.0.1", 22): {"reachable": True, "checked_at": "x"},
+	           ("ghost", 22): {"reachable": False, "checked_at": "x"}}
+	assert resolved_addresses(results) == {"core1": "10.0.0.7"}

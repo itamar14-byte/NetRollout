@@ -39,13 +39,19 @@ function nrSetReach(el, status) {
     const icon  = {up: 'bi-circle-fill', down: 'bi-x-circle-fill',
                    unknown: 'bi-question-circle'}[state];
     const label = {up: 'Reachable', down: 'Not reachable',
-                   unknown: 'Reachability unknown'}[state];
+                   unknown: 'Reachability unknown'}[state] + nrReachWhy(status);
     const when  = status ? ' · checked ' + nrAgo(status.checked_at) : '';
     el.className = 'reach reach--' + state;
     el.innerHTML = '<i class="bi ' + icon + '"></i>';
     el.setAttribute('aria-label', label);
     el.title = label + ' from NetRollout' + when;
     return state;
+}
+
+// why a device isn't reachable, when NetRollout knows: a hostname that
+// doesn't resolve - " (can't resolve)"; else ""
+function nrReachWhy(status) {
+    return status && !status.reachable && status.unresolved ? " (can't resolve)" : '';
 }
 
 function nrReachChecking(el) {

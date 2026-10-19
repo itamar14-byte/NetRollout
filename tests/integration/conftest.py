@@ -315,6 +315,18 @@ def unreachable_targets(request, monkeypatch):
 	return down
 
 
+@pytest.fixture(autouse=True)
+def fake_dns(request, monkeypatch):
+	"""The reachability check's lookups never touch the network: a hostname
+	resolves to the addresses a test puts here (name -> [addresses]), else
+	not at all."""
+	table = {}
+	if "app" in request.fixturenames:
+		app = request.getfixturevalue("app")
+		monkeypatch.setattr(app.web.reachability, "_resolve", lambda host: table.get(host))
+	return table
+
+
 @pytest.fixture
 def captured_submits(app, monkeypatch):
 	"""The list of rollouts submitted during the test (one namespace each, with a

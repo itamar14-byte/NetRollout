@@ -43,7 +43,7 @@ from src.db.connections import REDIS_UNAVAILABLE
 from src.db.tables import (DeviceAttribute, DeviceCredential, Inventory, PropertyDefinition,
                            SecurityProfile, VariableMapping)
 from src.encryption import decrypt, encrypt
-from src.rollout.address import is_ip, primary, qualify, resolve_many
+from src.rollout.address import is_ip, primary, qualify, resolve, resolve_many
 from src.rollout.engine import endpoint, mapping_resolvable, Device
 from src.rollout import inputs
 from src.rollout.inputs import InputParser
@@ -94,6 +94,9 @@ class Reach(TypedDict):
 	"""One target's state, as cached and as the pages get it."""
 	reachable: bool
 	checked_at: str               # ISO 8601, UTC
+	# a hostname: the address it resolved to and was probed on
+	address: NotRequired[str]
+	unresolved: NotRequired[bool]  # a hostname that didn't resolve (not reachable)
 
 
 def probe(ip: str, port: int, timeout: float = PROBE_TIMEOUT) -> bool:
@@ -119,18 +122,22 @@ class ReachabilityChecker:
 	def __init__(self, redis_client: Callable[[], redis.Redis],
 	             ttl: int | Callable[[], int] = CACHE_TTL,
 	             prober: Callable[[str, int], bool] = probe,
-	             dns_suffix: Callable[[], str] = lambda: ""):
+	             dns_suffix: Callable[[], str] = lambda: "",
+	             resolver: Callable[[str], list[str] | None] = resolve):
 		""":param redis_client: returns the client in use now - a Redis switch
 		 replaces it, so it's resolved on every use
 		:param ttl: seconds a result is reused - or a callable (the System
 		 Setting), read each time results are cached
 		:param prober: probes one target (a fake in tests)
 		:param dns_suffix: System Settings' DNS suffix, read once per check:
-		 a bare name is probed with it"""
+		 a bare name is probed with it
+		:param resolver: looks a name up (a fake in tests): a hostname is
+		 resolved first and probed on its address, which the result carries"""
 		self._redis = redis_client
 		self._ttl = ttl
 		self._probe = prober
 		self._dns_suffix = dns_suffix
+		self._resolve = resolver
 
 	def check(self, targets: Iterable[tuple[str, int | str]], refresh: bool = False,
 	          recheck_unreachable: bool = False) -> dict[Target, Reach]:
@@ -141,7 +148,9 @@ class ReachabilityChecker:
 		:param recheck_unreachable: trust cached "reachable" results but
 		 re-probe cached failures - used before blocking a rollout, so a
 		 device that just came back isn't blocked by a stale result
-		:returns: every target's state, by (ip, port)"""
+		:returns: every target's state, by (ip, port) - a hostname's with the
+		 address it resolved to, or unresolved (and not reachable) when it
+		 didn't"""
 		wanted = {(ip, int(port)) for ip, port in targets}
 		results = {} if refresh else self._cached(wanted)
 		if recheck_unreachable:
@@ -151,12 +160,32 @@ class ReachabilityChecker:
 			now = datetime.now(timezone.utc).isoformat()
 			suffix = self._current_suffix()
 			with ThreadPoolExecutor(max_workers=min(MAX_PARALLEL, len(todo))) as ex:
-				outcomes = ex.map(lambda t: self._probe(qualify(t[0], suffix), t[1]), todo)
-				fresh: dict[Target, Reach] = {t: {"reachable": ok, "checked_at": now}
-				                              for t, ok in zip(todo, outcomes)}
+				outcomes = ex.map(lambda t: self._probe_one(t, suffix), todo)
+				fresh: dict[Target, Reach] = {}
+				for t, (ok, address) in zip(todo, outcomes):
+					fresh[t] = {"reachable": ok, "checked_at": now}
+					if address is not None:
+						fresh[t]["address"] = address
+					elif not is_ip(t[0]):
+						fresh[t]["unresolved"] = True
 			self._store(fresh)
 			results.update(fresh)
 		return results
+
+	def _probe_one(self, target: Target, suffix: str) -> tuple[bool, str | None]:
+		"""One target: an IP probed as it is; a hostname (the suffix added to a
+		bare one) looked up first, then probed on its address (primary).
+
+		:returns: (reachable, the hostname's address - None for an IP or a
+		 name that didn't resolve)"""
+		host = qualify(target[0], suffix)
+		if is_ip(host):
+			return self._probe(host, target[1]), None
+		found = self._resolve(host)
+		address = primary(found or [])
+		if address is None:
+			return False, None
+		return self._probe(address, target[1]), address
 
 	def _cached(self, targets: set[Target]) -> dict[Target, Reach]:
 		""":returns: the cached states of these targets ({} when Redis is
@@ -198,6 +227,12 @@ class ReachabilityChecker:
 			pipe.execute()
 		except REDIS_UNAVAILABLE:
 			pass
+
+
+def resolved_addresses(results: Mapping[Target, Reach]) -> dict[str, str]:
+	""":returns: each hostname's address from a reachability check, by the
+	 name as saved (InventoryView.remember_addresses)"""
+	return {target[0]: r["address"] for target, r in results.items() if "address" in r}
 
 
 def visible_devices_clause(user_id: uuid.UUID) -> ColumnElement[bool]:
@@ -379,8 +414,10 @@ class InventoryView:
 	def remember_addresses(self, device_ids: Collection[uuid.UUID],
 	                       addresses: Mapping[str, str]) -> int:
 		"""Keep the stored address of these devices' hostnames current (the
-		"already used by" warning compares it): a rollout's launch looked them
-		up anyway. Visible devices only; nothing else changes on them.
+		"already used by" warning and the Inventory tooltip show it): every
+		reachability check looks them up anyway (the page's, at most once a
+		minute per device - the cache -, and a launch's). Visible devices
+		only; nothing else changes on them.
 
 		:param addresses: a saved hostname -> the address kept for it now
 		 (primary); names that didn't resolve aren't in it - their last known

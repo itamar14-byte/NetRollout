@@ -3,7 +3,7 @@ platform), start; the live log's stream, cancel, and a rollback of a job's
 successful devices."""
 import json
 import uuid
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Collection, Iterator, Mapping
 from itertools import groupby
 from typing import Any
 from urllib.parse import urlsplit
@@ -16,10 +16,10 @@ from sqlalchemy.exc import SQLAlchemyError
 from src.audit import AuditAction
 from src.accounts.users import Viewer
 from src.db.tables import Inventory, JobMetadata, SecurityProfile, User
-from src.inventory import InventoryView, RuleRefused, SecurityProfiles, partition_devices
+from src.inventory import InventoryView, RuleRefused, SecurityProfiles, partition_devices, resolved_addresses
 from src.jobs import QUEUED_LINE, Draining
 from src.results import JobResults
-from src.rollout.address import is_ip, primary, resolve_many
+from src.rollout.address import is_ip
 from src.rollout.engine import Device, RolloutOptions, endpoint, missing_value
 from src.rollout.inputs import InputParser, command_lines, read_commands
 from src.webapp.app import current_app
@@ -112,63 +112,50 @@ def load_devices(selected_ids: list[uuid.UUID]) -> list[Device]:
 
 
 def duplicate_targets(devices: list[Device],
-                      found: Mapping[str, list[str] | None]) -> dict[str, list[str]]:
+                      addresses: Mapping[str, str]) -> dict[str, list[str]]:
 	"""The same ip:port selected twice is the same box twice (e.g. an own
 	entry and a global entry for one router, or one saved by name and one by
-	its IP): the config would be pushed twice. Names are looked up now (all
-	at once, a bounded wait), and devices sharing any address on the same
-	port are one target; a name that doesn't resolve is compared as written.
-	The same IP on different ports is fine - targets behind NAT.
+	its IP): the config would be pushed twice. A hostname counts as the
+	address its reachability check resolved it to (at most the cache's age);
+	one without is compared as written. The same IP on different ports is
+	fine - targets behind NAT.
 
-	:param found: the names' lookups (look_up_names)
+	:param addresses: hostname (as saved) -> address (resolved_addresses)
 	:returns: ip:port → the labels selected for it, where more than one"""
 	by_target: dict[tuple[str, int], list[Device]] = {}
 	for d in devices:
-		addresses = [d.host] if is_ip(d.host) else (found.get(d.host) or [d.host])
-		for address in addresses:
-			by_target.setdefault((address, d.port), []).append(d)
+		address = d.host if is_ip(d.host) else addresses.get(d.ip, d.host)
+		by_target.setdefault((address, d.port), []).append(d)
 	duplicates: dict[str, list[str]] = {}
 	reported: set[frozenset[int]] = set()
 	for (address, port), shared in by_target.items():
 		group = frozenset(id(d) for d in shared)
-		if len(group) > 1 and group not in reported:     # a dual-stack name: once
+		if len(group) > 1 and group not in reported:
 			reported.add(group)
 			duplicates[endpoint(address, port)] = [d.label or d.ip for d in shared]
 	return duplicates
 
 
-def look_up_names(devices: list[Device]) -> dict[str, list[str] | None]:
-	""":returns: each device hostname's addresses now, by the name connected
-	 to (Device.host); None when it doesn't resolve - all looked up at once,
-	 a bounded wait"""
-	return resolve_many(d.host for d in devices if not is_ip(d.host))
+def check_reachability(devices: list[Device], device_ids: Collection[uuid.UUID]
+                       ) -> tuple[list[Device], dict[str, str]]:
+	"""Can NetRollout reach the devices now? A cached "reachable" is trusted;
+	a cached failure is probed again, so a device that just came back isn't
+	blocked by a stale result. A hostname is resolved by the check, and its
+	address is kept as the device's stored address (never refusing the
+	launch: a failure there is only logged).
 
-
-def remember_addresses(selected_ids: list[uuid.UUID], devices: list[Device],
-                       found: Mapping[str, list[str] | None]) -> None:
-	"""The launch's lookups saved as the devices' stored addresses, so the
-	"already used by" warning follows DNS changes (a name that didn't
-	resolve keeps its last known address). Never refuses the launch: a
-	failure here is only logged."""
-	addresses = {d.ip: kept for d in devices if not is_ip(d.host)
-	             if (kept := primary(found.get(d.host) or [])) is not None}
-	if not addresses:
-		return
-	try:
-		with current_app.backend.postgres.get_session() as db_session:
-			InventoryView(db_session, viewer()).remember_addresses(selected_ids, addresses)
-	except SQLAlchemyError as e:
-		print(f"[NetRollout] couldn't save the devices' current addresses: {e}", flush=True)
-
-
-def unreachable_devices(devices: list[Device]) -> list[Device]:
-	"""The devices NetRollout can't reach now. A cached "reachable" is
-	trusted; a cached failure is probed again, so a device that just came
-	back isn't blocked by a stale result."""
+	:param device_ids: the devices' rows (for their stored address)
+	:returns: (the unreachable devices, hostname -> its address)"""
 	results = current_app.web.reachability.check(
 		[(d.ip, d.port) for d in devices], recheck_unreachable=True)
-	return [d for d in devices
-	        if not results[(d.ip, int(d.port))]["reachable"]]
+	addresses = resolved_addresses(results)
+	if addresses:
+		try:
+			with current_app.backend.postgres.get_session() as db_session:
+				InventoryView(db_session, viewer()).remember_addresses(device_ids, addresses)
+		except SQLAlchemyError as e:
+			print(f"[NetRollout] couldn't save the devices' current addresses: {e}", flush=True)
+	return [d for d in devices if not results[(d.ip, int(d.port))]["reachable"]], addresses
 
 
 def unreachable_message(devices: list[Device]) -> str:
@@ -347,14 +334,14 @@ def start_rollout() -> tuple[uuid.UUID, list[Device], str | None]:
 	commands, platform_commands_map, is_multi_platform = parse_commands()
 	devices = load_devices(selected_ids)
 
-	found = look_up_names(devices)
-	remember_addresses(selected_ids, devices, found)
-	if duplicates := duplicate_targets(devices, found):
+	# reachability first: it resolves the hostnames the same-target check compares
+	unreachable, addresses = check_reachability(devices, selected_ids)
+	if duplicates := duplicate_targets(devices, addresses):
 		raise Refused("The same target was selected more than once - select only one "
 		              "of: " + "; ".join(f"{' / '.join(labels)} ({ep})"
 		                                 for ep, labels in duplicates.items()))
 
-	if unreachable := unreachable_devices(devices):
+	if unreachable:
 		raise Refused(unreachable_message(unreachable))
 
 	if blocked := unresolved_message(devices, lambda d: command_lines(
@@ -540,7 +527,8 @@ def rollback(job_id: uuid.UUID, data: dict[str, Any]) -> ResponseReturnValue:
 		                                            current_app.web.dns_suffix())
 	except ValueError as e:              # a device without a security profile
 		return err(f"Can't roll back: {e}.", 409)
-	if unreachable := unreachable_devices(devices):
+	unreachable, _ = check_reachability(devices, [row.id for row in rows])
+	if unreachable:
 		return err(unreachable_message(unreachable), 409)
 	if blocked := unresolved_message(devices, lambda d: commands):
 		return err(blocked, 409)

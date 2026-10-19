@@ -182,14 +182,13 @@ def test_same_target_selected_twice_is_refused(operator, client_for,
 
 def test_a_hostname_and_its_ip_are_refused_together(operator, client_for, make_profile,
                                                    make_device, captured_submits,
-                                                   monkeypatch):
+                                                   fake_dns):
 	"""A device saved by name and the same box by IP (the name resolves to
 	it at launch) are one target: refused together, nothing submitted, the
-	flash names both. Looked up at launch, not as saved."""
+	flash names both. Looked up at launch (the reachability check), not as saved."""
 	by_name = make_device(operator.user, ip="core1.corp.local", label="CORE-BY-NAME",
 	                      profile_id=make_profile(operator.user, label="by-name"))
-	monkeypatch.setattr("src.webapp.blueprints.rollout.resolve_many",
-	                    lambda hosts: {h: ["10.0.0.1"] for h in hosts})
+	fake_dns["core1.corp.local"] = ["10.0.0.1"]
 	client = client_for(operator.user)
 	resp = client.post("/rollout/start", data={
 		"device_ids": [str(operator.ios), str(by_name)], "manual_commands": "hostname x"})
@@ -1633,17 +1632,15 @@ def stored_address(session_scope, device_id):
 
 def test_a_launch_keeps_a_hostnames_stored_address_current(operator, client_for, make_profile,
                                                            make_device, captured_submits,
-                                                           monkeypatch, session_scope):
-	"""The name moved in DNS since it was saved: the launch's lookup is
-	saved as its address (the "already used by" warning follows DNS), and
-	the rollout goes ahead."""
+                                                           fake_dns, session_scope):
+	"""The name moved in DNS since it was saved: the launch's reachability
+	check resolves it, and that address is saved (the "already used by"
+	warning follows DNS) - its IPv4 one -, and the rollout goes ahead."""
 	by_name = make_device(operator.user, ip="core1.corp.local", label="CORE-BY-NAME",
 	                      profile_id=make_profile(operator.user, label="by-name"))
 	with session_scope() as s:
 		s.get(Inventory, by_name).resolved_ip = "10.5.5.1"
-	monkeypatch.setattr("src.webapp.blueprints.rollout.resolve_many",
-	                    lambda hosts: {h: ["2001:db8::9", "10.5.5.9"] for h in hosts})
-	monkeypatch.setattr("src.webapp.blueprints.rollout.unreachable_devices", lambda devices: [])
+	fake_dns["core1.corp.local"] = ["2001:db8::9", "10.5.5.9"]
 	client_for(operator.user).post("/rollout/start", data={
 		"device_ids": [str(by_name)], "manual_commands": "hostname x"})
 	assert len(captured_submits) == 1
@@ -1651,15 +1648,13 @@ def test_a_launch_keeps_a_hostnames_stored_address_current(operator, client_for,
 
 
 def test_a_launch_keeps_the_last_known_address_when_the_name_doesnt_resolve(
-		operator, client_for, make_profile, make_device, captured_submits, monkeypatch,
-		session_scope):
-	"""A failed lookup at launch leaves the stored address alone."""
+		operator, client_for, make_profile, make_device, captured_submits, session_scope):
+	"""A failed lookup at launch (the name isn't in fake DNS) leaves the
+	stored address alone."""
 	by_name = make_device(operator.user, ip="core2.corp.local", label="CORE-2",
 	                      profile_id=make_profile(operator.user, label="by-name"))
 	with session_scope() as s:
 		s.get(Inventory, by_name).resolved_ip = "10.5.5.2"
-	monkeypatch.setattr("src.webapp.blueprints.rollout.resolve_many",
-	                    lambda hosts: {h: None for h in hosts})
 	client_for(operator.user).post("/rollout/start", data={
 		"device_ids": [str(by_name)], "manual_commands": "hostname x"})
 	assert stored_address(session_scope, by_name) == "10.5.5.2"

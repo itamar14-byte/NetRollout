@@ -10,7 +10,9 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 - NetRollout Manager's **Upgrade** window shows the release notes formatted, with headings, bullets and bold, instead of their markdown (`##`, `**`). The download links at their end, meant for the release page, are left out.
 - A window closes the way it opens: it slides up while it fades out, instead of vanishing at once.
-- Inventory: hovering a device saved by hostname shows its address too, `core1.corp.local (10.0.0.7)`: the address it resolved to when it was saved or last rolled out to. A long name wraps instead of being cut off.
+- Inventory: hovering a device saved by hostname shows its address too, `core1.corp.local (10.0.0.7)`. A long name wraps instead of being cut off.
+- The reachability check looks hostnames up, at most once a minute per device (its cache), and keeps each one's address. That address stays current for the tooltip and for the "already used by" warning, the way FortiGate keeps FQDN address objects. A rollout uses the same check to refuse a name and its IP together, so it no longer does a lookup of its own.
+- A device whose name doesn't resolve shows **Not reachable (can't resolve)** on its red dot, in its tooltip and in New Rollout.
 
 ## [1.0.0rc6] - 2026-10-18
 
