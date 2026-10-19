@@ -43,6 +43,7 @@ In no particular order.
 **Inventory**
 
 - **Detect the platform**: a **Detect** button in Add Device (once a security profile is chosen) signs in to the device and suggests its platform, which you confirm; the CSV import can do the same for rows without a `device_type`. Built on Netmiko's own detection, which is a good guess rather than an answer (close relatives such as IOS and IOS-XE, or the HP and Aruba switch families, can be confused), so it only ever fills the field in: a wrong platform would mean the wrong save and verify commands.
+- **Discover devices**: give a subnet and a security profile, and NetRollout finds the devices in it: a quick check of which addresses answer on SSH, then a sign-in to each to detect its platform and read its name. You get a list to review, and add the ones you pick to the inventory; nothing is added by itself. Signing in across a subnet is something device logs and security tools notice, and a profile wrong for some devices counts failed logins against it there, so a discovery is admin-only, limited in size and speed, and recorded in the audit log.
 
 **Monitoring**
 
