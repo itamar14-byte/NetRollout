@@ -6,6 +6,10 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ## [Unreleased]
 
+### Fixed
+
+- Windows: NetRollout comes back after a restart even when Docker Desktop's own "Start when you sign in" setting is off. At sign-in, NetRollout's port helper starts Docker Desktop if it isn't running half a minute later; the containers follow Docker. A Docker Desktop you quit later stays quit.
+
 ## [1.0.0rc8] - 2026-10-19
 
 ### Changed

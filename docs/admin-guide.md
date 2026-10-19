@@ -127,7 +127,7 @@ Its settings are in the registry, under `HKEY_CURRENT_USER\Software\NetRollout\M
 
 ### The port helper
 
-The same program also runs headless as the port helper (`NetRollout Manager.exe --helper`), started at Windows sign-in, at the end of Setup and by `netrollout start`. It applies an HTTPS port saved in System Settings. It never shows a window; it writes to `logs\port-helper.log`. See [The HTTPS port](#the-https-port).
+The same program also runs headless as the port helper (`NetRollout Manager.exe --helper`), started at Windows sign-in, at the end of Setup and by `netrollout start`. It applies an HTTPS port saved in System Settings, and at sign-in it starts Docker Desktop if Docker Desktop isn't running half a minute later (Docker's own "Start when you sign in" setting is often off), so NetRollout comes back after a restart. It never shows a window; it writes to `logs\port-helper.log`. See [The HTTPS port](#the-https-port).
 
 ## The command line
 

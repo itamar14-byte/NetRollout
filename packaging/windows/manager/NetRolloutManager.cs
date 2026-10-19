@@ -90,6 +90,7 @@ namespace NetRollout
 					{
 						PortHelper.Log("port helper stopped: " + e.ExceptionObject);
 					};
+					DockerStart.Later();
 					Application.Run(new PortHelper(exitHelper));
 				}
 				return 0;

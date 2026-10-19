@@ -110,7 +110,8 @@ Source: "{#Root}\LICENSE"; Flags: dontcopy
 Name: "{autoprograms}\NetRollout\NetRollout Manager"; Filename: "{app}\bin\NetRollout Manager.exe"; WorkingDir: "{app}"; Comment: "Start, stop and check NetRollout"
 Name: "{autodesktop}\NetRollout Manager"; Filename: "{app}\bin\NetRollout Manager.exe"; WorkingDir: "{app}"; Comment: "Start, stop and check NetRollout"; Tasks: desktopicons
 Name: "{userstartup}\NetRollout Manager"; Filename: "{app}\bin\NetRollout Manager.exe"; Parameters: "--tray"; WorkingDir: "{app}"; Tasks: trayatsignin
-; the port helper (headless): an HTTPS port saved in System Settings is applied by itself
+; the port helper (headless): an HTTPS port saved in System Settings is applied by itself;
+; at sign-in it also starts Docker Desktop when it isn't running (DockerStart.cs)
 Name: "{userstartup}\NetRollout port helper"; Filename: "{app}\bin\NetRollout Manager.exe"; Parameters: "--helper"; WorkingDir: "{app}"; Comment: "Applies an HTTPS port saved in NetRollout's System Settings"
 
 [INI]

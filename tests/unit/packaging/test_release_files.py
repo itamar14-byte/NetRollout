@@ -1261,3 +1261,22 @@ def test_the_upgrade_window_shows_the_notes_formatted():
 	assert "new RichTextBox {" in window
 	assert window.index("notes.HandleCreated += delegate") < window.index("notes.Rtf = ReleaseNotes.ToRtf(release.Notes);")
 	assert '(Join-Path $here "ReleaseNotes.cs")' in (manager / "build.ps1").read_text(encoding="utf-8")
+
+
+def test_the_port_helper_starts_docker_desktop_at_sign_in():
+	"""Docker Desktop starts at sign-in only when its own setting says so; the
+	port helper (started at every sign-in) starts it when it isn't running, half
+	a minute later so Docker's own start goes first, only for an install (.env),
+	and once (not a watch: Docker quit later stays quit). Built into the Manager."""
+	manager = ROOT / "packaging" / "windows" / "manager"
+	start = (manager / "DockerStart.cs").read_text(encoding="utf-8")
+	assert "const int PauseMs = 30000;" in start
+	assert r'@"Docker\Docker\Docker Desktop.exe"' in start
+	now = start[start.index("static void Now()"):]
+	assert now.index("Install.Installed") < now.index('GetProcessesByName("Docker Desktop")') < now.index("Process.Start(")
+	assert "while" not in start and "Timer" not in start
+	main = (manager / "NetRolloutManager.cs").read_text(encoding="utf-8")
+	helper = main[main.index("if (helper)"):]
+	assert helper.index("DockerStart.Later();") < helper.index("Application.Run(new PortHelper(exitHelper));")
+	assert '(Join-Path $here "DockerStart.cs")' in (manager / "build.ps1").read_text(encoding="utf-8")
+	assert r'"{userstartup}\NetRollout port helper"' in (ROOT / "packaging" / "windows" / "installer" / "netrollout.iss").read_text(encoding="utf-8")

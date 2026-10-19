@@ -300,7 +300,7 @@ It asks whether to delete the data (default no), then, if you said yes, whether 
 ## Running on a virtual machine
 
 - **Windows guest:** turn on nested virtualization for the VM (Hyper-V: `Set-VMProcessor -ExposeVirtualizationExtensions $true`; VMware: "Virtualize Intel VT-x/EPT"). Windows 11 also needs vTPM and Secure Boot.
-- **Restarts:** Docker Desktop starts when a user signs in, not at boot. For NetRollout to come back after a reboot on Windows, the account that installed it must sign in, for example with automatic sign-in for a dedicated account. On Linux, Docker Engine starts at boot once enabled (`sudo systemctl enable docker`).
+- **Restarts:** on Windows, NetRollout comes back when the account that installed it signs in: NetRollout's port helper starts Docker Desktop then if it isn't running (whatever Docker's own "Start when you sign in" setting says), and the containers follow Docker. Docker Desktop has no start at boot, so the account must sign in, for example with automatic sign-in for a dedicated account. On Linux, Docker Engine starts at boot once enabled (`sudo systemctl enable docker`).
 - **Firewall:** allow the HTTPS port (and port 80 for the redirect) in the guest and in any firewall in front of it.
 
 ## Troubleshooting
