@@ -252,6 +252,8 @@
     white-space: nowrap;
 }
 .tt-val.cyan { color: #00bcd4; }
+/* the address whole: a long hostname with its resolved address wraps */
+#ttIp { white-space: normal; overflow-wrap: anywhere; }
 
 /* ── Mapping tooltip chips ── */
 .mapping-chip {
@@ -436,6 +438,7 @@
                  "id":                    device.id|string,
                  "label":                 device.label,
                  "ip":                    device.ip,
+                 "resolved_ip":           device.resolved_ip or "",
                  "device_type":           device.device_type,
                  "port":                  device.port,
                  "sec_profile_id":        my_profile.id|string if my_profile else "",
@@ -1654,7 +1657,10 @@ const tooltip = document.getElementById('invTooltip');
 let   ttTimer = null;
 
 function showTooltip(card, device) {
-    document.getElementById('ttIp').textContent      = device.ip;
+    // a hostname with the address it last resolved to (at its save or its
+    // last rollout): core1.corp.local (10.0.0.7)
+    document.getElementById('ttIp').textContent      =
+        device.resolved_ip ? device.ip + ' (' + device.resolved_ip + ')' : device.ip;
     document.getElementById('ttType').textContent    = device.device_type;
     document.getElementById('ttPort').textContent    = device.port;
     document.getElementById('ttProfile').textContent = device.sec_profile_label || '-';

@@ -121,3 +121,13 @@ def test_a_window_closes_as_it_opens():
 	assert ".modal-backdrop" not in core.split(".modal.fade {")[1].split("}")[0]
 	for skeleton in ("operator_base.html", "admin.html", "base.html"):
 		assert "_theme_core_css.html" in (TEMPLATES / skeleton).read_text(encoding="utf-8")
+
+
+def test_the_inventory_tooltip_shows_a_hostnames_address():
+	"""Hovering a device saved by name shows "name (address)" - the address it
+	resolved to at its save or last rollout (resolved_ip); by IP, or a name
+	that didn't resolve, the address alone; the line wraps rather than cuts."""
+	source = (TEMPLATES / "inventory.html").read_text(encoding="utf-8")
+	assert '"resolved_ip":           device.resolved_ip or "",' in source
+	assert "device.resolved_ip ? device.ip + ' (' + device.resolved_ip + ')' : device.ip;" in source
+	assert "#ttIp { white-space: normal; overflow-wrap: anywhere; }" in source
