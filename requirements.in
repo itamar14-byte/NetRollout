@@ -8,6 +8,9 @@ Flask-Login~=0.6.3
 flask-session~=0.8.0
 Werkzeug~=3.1.8
 netmiko~=4.8.0
+# Netmiko's SSH. 4.x on purpose: 5.0 dropped ssh-rsa and the SHA-1 key exchanges,
+# which older devices (IOS 12/15, NX-OS 7) offer alone (docs/security.md: Known limitations)
+paramiko~=4.0.0
 pyotp~=2.10.0
 qrcode~=8.2
 python-dotenv~=1.2.2

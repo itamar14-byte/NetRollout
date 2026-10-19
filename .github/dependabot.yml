@@ -10,6 +10,9 @@ updates:
     groups:
       python:
         patterns: ["*"]
+    ignore:   # Paramiko 4.x on purpose: 5.0 dropped ssh-rsa, which older devices offer alone (requirements.in)
+      - dependency-name: paramiko
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: docker       # the app image's base (Dockerfile)
     directory: /
     schedule:

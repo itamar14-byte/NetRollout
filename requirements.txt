@@ -89,8 +89,9 @@ packaging==26.3
     # via
     #   -r requirements.in
     #   limits
-paramiko==5.0.0
+paramiko==4.0.0
     # via
+    #   -r requirements.in
     #   netmiko
     #   scp
 pillow==12.3.0

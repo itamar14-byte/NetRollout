@@ -14,6 +14,10 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 - **Test Connection** to `localhost`, `127.x` or `::1` explains that this is NetRollout's own server (in Docker, its container), not your computer, instead of testing it.
 - The windows that assign devices (a security profile's devices, a mapping's) have a search box above both columns. It matches name, address or platform as you type and stays set while you move devices across.
 
+### Fixed
+
+- Devices whose SSH offers only an `ssh-rsa` host key, such as NX-OS 7 and IOS 12 or 15, can be reached again. NetRollout's SSH library is pinned to Paramiko 4.x, which still accepts it (and the SHA-1 key exchanges) after every modern algorithm; Paramiko 5 removed them. The low-severity advisory this brings (CVE-2026-44405) and why it's accepted are in the security notes' Known limitations.
+
 ## [1.0.0rc7] - 2026-10-19
 
 ### Changed

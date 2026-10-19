@@ -241,6 +241,7 @@ NetRollout is licensed under the AGPL-3.0. Every page's footer shows the running
 
 | Limitation | Effect | Mitigation |
 |---|---|---|
+| NetRollout's SSH library (Paramiko 4.x) still accepts `ssh-rsa` host keys and the SHA-1 key exchanges ([CVE-2026-44405](https://github.com/advisories/GHSA-r374-rxx8-8654), severity low; Paramiko 5 removed them, and no fixed 4.x exists). It offers them last, only to a device that has nothing newer, and many older devices (IOS 12 and 15, NX-OS 7, older ASA and FortiOS) have nothing newer | With such a device, the SSH session's integrity rests on SHA-1 | Give devices SHA-2 host keys and key exchanges where their software supports them (then NetRollout uses those); keep device management on a trusted network |
 | Device SSH host keys are not verified (Netmiko's defaults: no strict host-key checking, no known-hosts file) | A machine impersonating a device on the path could capture the credentials sent to it | Run NetRollout on a trusted management network |
 | The factory `admin` account's 2FA is off unless it turns it on | By default its password is its only factor | Give it a strong password at first sign-in, turn its 2FA on (My Account), or disable it once personal or directory admin accounts exist; use personal admin accounts day to day |
 | Directory accounts don't use NetRollout's 2FA | Sign-in strength is the directory's | Apply your directory's own policies |

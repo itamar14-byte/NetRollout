@@ -789,4 +789,6 @@ Start with `netrollout status` (or the Manager's **Status**, or `sudo ./bin/netr
 
 For problems at install, NetRollout that can't be found, busy ports, and a `netrollout` command that isn't recognised, see [Troubleshooting](install.md#troubleshooting) in the installation guide.
 
+**Older devices and SSH.** NetRollout reaches devices whose SSH offers only an `ssh-rsa` host key or the SHA-1 key exchanges (IOS 12 and 15, NX-OS 7, older ASA and FortiOS): it uses the modern algorithms when a device has them and these only when it has nothing else. Why it accepts them is in [Known limitations](security.md#known-limitations). A device that can't be reached with `Incompatible ssh peer` or `no acceptable host key` offers none of these either; check its SSH settings.
+
 To report a bug, open an issue at [github.com/itamar14-byte/NetRollout/issues](https://github.com/itamar14-byte/NetRollout/issues). Include the output of `netrollout status` and the relevant log lines; rollout logs are already redacted.
