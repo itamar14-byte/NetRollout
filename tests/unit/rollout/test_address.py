@@ -10,6 +10,7 @@ import pytest
 
 from src.inventory import ReachabilityChecker, resolved_addresses
 from src.rollout import address, inputs
+from src.rollout import address as address_module
 from src.rollout.address import is_hostname, primary, qualify, resolve, resolve_many
 from src.rollout.engine import Device
 from src.rollout.inputs import InputParser, Validator
@@ -269,3 +270,14 @@ def test_resolved_addresses_maps_each_name_to_its_address():
 	           ("10.0.0.1", 22): {"reachable": True, "checked_at": "x"},
 	           ("ghost", 22): {"reachable": False, "checked_at": "x"}}
 	assert resolved_addresses(results) == {"core1": "10.0.0.7"}
+
+
+@pytest.mark.parametrize("address, loopback", [
+	("localhost", True), ("LOCALHOST.", True), ("api.localhost", True), ("127.0.0.1", True),
+	("127.5.6.7", True), ("::1", True), ("10.0.0.1", False), ("minion", False),
+	("localhost.corp.local", False), ("2001:db8::1", False),
+])
+def test_is_loopback(address, loopback):
+	"""localhost (and *.localhost, RFC 6761), 127.0.0.0/8 and ::1 are the
+	server itself; anything else isn't."""
+	assert address_module.is_loopback(address) is loopback

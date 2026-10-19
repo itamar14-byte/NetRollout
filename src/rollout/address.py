@@ -41,6 +41,20 @@ def is_hostname(value: str) -> bool:
 	return all(_LABEL.fullmatch(label) for label in labels) and not labels[-1].isdigit()
 
 
+def is_loopback(address: str) -> bool:
+	"""localhost, 127.x.x.x or ::1 - on the NetRollout server that's the
+	server itself (in Docker: its own container), never a device.
+
+	:returns: whether `address` names it"""
+	name = address.strip().rstrip(".").lower()
+	if name == "localhost" or name.endswith(".localhost"):    # RFC 6761
+		return True
+	try:
+		return ipaddress.ip_address(name).is_loopback
+	except ValueError:
+		return False
+
+
 def is_bare(address: str) -> bool:
 	""":returns: whether `address` is a name without a domain (core1) - the
 	 one kind the DNS suffix is added to (an IPv4 has dots, an IPv6 colons)"""

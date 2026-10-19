@@ -15,7 +15,7 @@ from src.audit import AuditAction
 from src.inventory import (DeviceFields, InventoryView, RuleRefused, SecurityProfiles,
                            form_values, import_csv, partition_devices, resolved_addresses)
 from src.rollout import inputs
-from src.rollout.address import is_ip, qualify, resolve
+from src.rollout.address import is_ip, is_loopback, qualify, resolve
 from src.rollout.engine import endpoint
 from src.rollout.inputs import InputParser, Validator
 from src.rollout.log import RolloutLogger, Tone
@@ -160,7 +160,12 @@ def inventory_test_connection(data: dict[str, Any]) -> ResponseReturnValue:
 	if not inputs.validate_port(port):
 		return err("Port must be between 1 and 65535")
 
-	host = qualify(inputs.normalize_address(ip), current_app.web.dns_suffix())
+	address = inputs.normalize_address(ip)
+	if is_loopback(address):
+		# what's tested is NetRollout's own server, not the computer typing it
+		return err(f"{address} is NetRollout's own server (in Docker, its container), not "
+		           f"your computer or a device - use the device's name or address on the network")
+	host = qualify(address, current_app.web.dns_suffix())
 	if not is_ip(host) and resolve(host) is None:
 		return err(f"Can't resolve {host} from this server")
 	if inputs.tcp_reachable(host, int(port)):

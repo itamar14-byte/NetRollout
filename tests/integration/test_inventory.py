@@ -1125,3 +1125,14 @@ def test_the_pages_reachability_check_keeps_a_hostnames_address_current(
 	with session_scope() as s:
 		assert (s.get(Inventory, by_name).resolved_ip, s.get(Inventory, by_ip).resolved_ip) == \
 			("10.9.9.9", None)
+
+
+@pytest.mark.parametrize("address", ["localhost", "127.0.0.1", "::1"])
+def test_the_connection_test_explains_localhost(client_for, make_user, address):
+	"""Test connection on the server's own address says so - it would test
+	NetRollout itself (its container in Docker), not the computer typing it."""
+	resp = client_for(make_user()).post("/inventory/test_connection",
+	                                    json={"ip": address, "port": "443"})
+	assert (resp.status_code, resp.json["message"]) == (400,
+		f"{address} is NetRollout's own server (in Docker, its container), not your "
+		f"computer or a device - use the device's name or address on the network")
