@@ -190,8 +190,14 @@
 .inv-filter input::placeholder { color: var(--nr-text-muted); }
 .inv-filter input.mono { font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; }
 .inv-filter input::-webkit-search-cancel-button { display: none; }
-#filterPlatform { flex: 0 1 200px; width: auto; height: 31px; font-size: 0.8rem; }
+#filterPlatformWrap { flex: 0 1 200px; min-width: 0; }
+#filterPlatform { width: 100%; height: 31px; font-size: 0.8rem; text-align: left;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #filterPlatform.is-set { border-color: rgba(0,188,212,0.55); color: #00bcd4; }
+/* the platforms to show: any number ticked (none: all) */
+.inv-plat-menu { max-height: 320px; overflow-y: auto; min-width: 100%; }
+.inv-plat-menu .dropdown-item { display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; cursor: pointer; }
+.inv-plat-menu .form-check-input { margin: 0; flex-shrink: 0; }
 .inv-filter-count { font-size: 0.75rem; color: var(--nr-text-muted); white-space: nowrap; }
 .inv-filter-clear {
     background: none; border: none; padding: 0; font-size: 0.75rem; font-weight: 600;
@@ -199,7 +205,7 @@
 }
 .inv-filter-clear:hover { text-decoration: underline; }
 @media (max-width: 575.98px) {
-    .inv-filter, #filterPlatform { flex: 1 1 100%; max-width: none; }
+    .inv-filter, #filterPlatformWrap { flex: 1 1 100%; max-width: none; }
 }
 #editDeviceModal.is-readonly input:disabled { opacity: 0.55; }
 #editDeviceModal.is-readonly .edit-only { display: none !important; }
@@ -569,12 +575,17 @@
         <i class="bi bi-hdd-network"></i>
         <input type="search" id="filterIp" class="mono" placeholder="Address" aria-label="Filter by address (IP or hostname)" autocomplete="off" spellcheck="false">
     </label>
-    <select id="filterPlatform" class="form-select form-select-sm" aria-label="Filter by platform">
-        <option value="">All platforms</option>
-        {% for val, lbl in platforms if val in present %}
-        <option value="{{ val }}">{{ lbl }}</option>
-        {% endfor %}
-    </select>
+    <div class="dropdown" id="filterPlatformWrap">
+        <button type="button" id="filterPlatform" class="form-select form-select-sm"
+                data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false"
+                aria-label="Filter by platform">All platforms</button>
+        <div class="dropdown-menu inv-plat-menu" role="group" aria-label="Platforms to show">
+            {% for val, lbl in platforms if val in present %}
+            <label class="dropdown-item"><input type="checkbox" class="form-check-input" value="{{ val }}"
+                   data-label="{{ lbl }}">{{ lbl }}</label>
+            {% endfor %}
+        </div>
+    </div>
     <span class="inv-filter-count" id="filterCount" aria-live="polite"></span>
     <button type="button" class="inv-filter-clear" id="filterClear" hidden>Clear filters</button>
 </div>
@@ -1736,14 +1747,16 @@ refreshReachability();
 
 
 // ════════════════════════════════════════
-//  Filters: name and IP as typed (case-insensitive, any part), platform exact;
-//  all three together. A section with no match hides, its count follows.
+//  Filters: name and IP as typed (case-insensitive, any part), platforms
+//  ticked (any of them; none: all); all three together. A section with no match hides, its count follows.
 // ════════════════════════════════════════
 (function () {
     const nameIn = document.getElementById('filterName');
     if (!nameIn) return;                     // no devices: no filter bar
     const ipIn     = document.getElementById('filterIp');
     const platIn   = document.getElementById('filterPlatform');
+    const platBoxes = [...document.querySelectorAll('#filterPlatformWrap input[type=checkbox]')];
+    const plats    = () => platBoxes.filter(b => b.checked).map(b => b.value);
     const countEl  = document.getElementById('filterCount');
     const clearBtn = document.getElementById('filterClear');
     const emptyEl  = document.getElementById('filterEmpty');
@@ -1758,17 +1771,18 @@ refreshReachability();
     const KEPT = 'nr-inventory-filters';
     function keep() {
         try {
-            const f = {name: nameIn.value, ip: ipIn.value, plat: platIn.value};
-            if (f.name || f.ip || f.plat) sessionStorage.setItem(KEPT, JSON.stringify(f));
+            const f = {name: nameIn.value, ip: ipIn.value, plats: plats()};
+            if (f.name || f.ip || f.plats.length) sessionStorage.setItem(KEPT, JSON.stringify(f));
             else sessionStorage.removeItem(KEPT);
         } catch (e) { /* no storage: the filters just don't outlive a reload */ }
     }
     try {
         const f = JSON.parse(sessionStorage.getItem(KEPT) || 'null');
-        if (f && !nameIn.value && !ipIn.value && !platIn.value) {
+        if (f && !nameIn.value && !ipIn.value && !plats().length) {
             nameIn.value = f.name || ''; ipIn.value = f.ip || '';
-            // a platform no device has any more isn't in the list: left unset
-            if ([...platIn.options].some(o => o.value === f.plat)) platIn.value = f.plat || '';
+            // a platform no device has any more isn't in the list: left out
+            const kept = new Set(f.plats || []);
+            platBoxes.forEach(b => { b.checked = kept.has(b.value); });
         }
     } catch (e) { /* unreadable: start unfiltered */ }
 
@@ -1776,12 +1790,12 @@ refreshReachability();
         keep();
         const name = nameIn.value.trim().toLowerCase();
         const ip   = ipIn.value.trim().toLowerCase();
-        const plat = platIn.value;
-        const active = !!(name || ip || plat);
+        const chosen = plats();
+        const active = !!(name || ip || chosen.length);
         let shown = 0;
         cards.forEach(c => {
             const match = (!name || c.label.includes(name)) && (!ip || c.ip.includes(ip))
-                          && (!plat || c.type === plat);
+                          && (!chosen.length || chosen.includes(c.type));
             c.col.hidden = !match;
             if (match) shown++;
         });
@@ -1792,13 +1806,16 @@ refreshReachability();
             const count = group.querySelector('.nr-section-count');
             if (count) count.textContent = visible;
         });
-        platIn.classList.toggle('is-set', !!plat);
+        platIn.classList.toggle('is-set', chosen.length > 0);
+        platIn.textContent = !chosen.length ? 'All platforms'
+            : chosen.length === 1 ? platBoxes.find(b => b.checked).dataset.label
+            : chosen.length + ' platforms';
         countEl.textContent = active ? `Showing ${shown} of ${cards.length}` : '';
         clearBtn.hidden = !active;
         emptyEl.hidden = !active || shown > 0;
     }
     function clearAll() {
-        nameIn.value = ''; ipIn.value = ''; platIn.value = '';
+        nameIn.value = ''; ipIn.value = ''; platBoxes.forEach(b => { b.checked = false; });
         apply();
         nameIn.focus();
     }
@@ -1809,7 +1826,7 @@ refreshReachability();
             if (e.key === 'Escape' && input.value) { e.preventDefault(); input.value = ''; apply(); }
         });
     });
-    platIn.addEventListener('change', apply);
+    platBoxes.forEach(b => b.addEventListener('change', apply));
     clearBtn.addEventListener('click', clearAll);
     document.getElementById('filterEmptyClear').addEventListener('click', clearAll);
     apply();   // a value the browser restored on Back

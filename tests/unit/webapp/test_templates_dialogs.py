@@ -154,7 +154,7 @@ def test_the_inventory_filters_outlive_a_reload():
 	(sessionStorage), restored before the first apply, forgotten when empty."""
 	source = (TEMPLATES / "inventory.html").read_text(encoding="utf-8")
 	assert "const KEPT = 'nr-inventory-filters';" in source
-	assert "if (f.name || f.ip || f.plat) sessionStorage.setItem(KEPT, JSON.stringify(f));" in source
+	assert "if (f.name || f.ip || f.plats.length) sessionStorage.setItem(KEPT, JSON.stringify(f));" in source
 	assert "else sessionStorage.removeItem(KEPT);" in source
 	assert "    function apply() {\n        keep();" in source.replace("\r\n", "\n")
 
@@ -172,3 +172,15 @@ def test_the_assign_boards_search_narrows_both_columns_and_survives_moves():
 		source = (TEMPLATES / page).read_text(encoding="utf-8")
 		assert 'class="nr-board-search"' in source
 		assert "search:   document.querySelector('#devicesModal .nr-board-search')," in source
+
+
+def test_the_inventory_platform_filter_takes_several_platforms():
+	"""The platform filter is a list of check boxes (it stays open while
+	ticking): a device shows when its platform is any of the ticked ones,
+	none ticked shows all; the button names one, else counts them."""
+	source = (TEMPLATES / "inventory.html").read_text(encoding="utf-8")
+	assert 'data-bs-toggle="dropdown" data-bs-auto-close="outside"' in source
+	assert '<label class="dropdown-item"><input type="checkbox" class="form-check-input" value="{{ val }}"' in source
+	assert "&& (!chosen.length || chosen.includes(c.type));" in source
+	assert "chosen.length + ' platforms';" in source
+	assert '<select id="filterPlatform"' not in source
