@@ -6,6 +6,10 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ## [Unreleased]
 
+### Changed
+
+- Inventory: the tooltip shows a name saved without a domain the way NetRollout reaches it, with System Settings' **Device DNS suffix**: `core1` reads `core1.corp.local (10.0.0.7)`.
+
 ## [1.0.0rc7] - 2026-10-19
 
 ### Changed

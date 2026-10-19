@@ -124,14 +124,18 @@ def test_a_window_closes_as_it_opens():
 
 
 def test_the_inventory_tooltip_shows_a_hostnames_address():
-	"""Hovering a device saved by name shows "name (address)" - the page's
-	reachability check's address, else the stored one (resolved_ip); by IP,
+	"""Hovering a device saved by name shows "name (address)" - the name as
+	it's reached (a bare one with the DNS suffix), the page's reachability
+	check's address, else the stored one (resolved_ip); by IP,
 	or a name that didn't resolve, the address alone; the line wraps rather
 	than cuts."""
 	source = (TEMPLATES / "inventory.html").read_text(encoding="utf-8")
 	assert '"resolved_ip":           device.resolved_ip or "",' in source
 	assert "const live = REACH[device.id], resolved = (live && live.address) || device.resolved_ip;" in source
-	assert "resolved ? device.ip + ' (' + resolved + ')' : device.ip;" in source
+	assert "resolved ? shown + ' (' + resolved + ')' : shown;" in source
+	# a bare name shown as it's reached: with System Settings' DNS suffix
+	assert "const shown = suffix && !/[.:]/.test(device.ip) ? device.ip + '.' + suffix : device.ip;" in source
+	assert "const DNS_SUFFIX     = {{ (dns_suffix or '') | tojson }};" in source
 	assert "#ttIp { white-space: normal; overflow-wrap: anywhere; }" in source
 
 

@@ -102,6 +102,7 @@ def inventory() -> str:
 	                       sys_props=sys_props,
 	                       user_props=user_props,
 	                       attributes=values,
+	                       dns_suffix=current_app.web.dns_suffix(),
 	                       active_section="inventory")
 
 

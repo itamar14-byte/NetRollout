@@ -1298,6 +1298,8 @@
 <script>
 const VENDOR_LOGOS   = {{ VENDOR_LOGOS | tojson }};   // the platform picker's selected logo
 const PROP_DEFS      = {{ (sys_props + user_props) | tojson }};
+// System Settings' DNS suffix: a bare name is shown as it's reached (src/rollout/address.py qualify)
+const DNS_SUFFIX     = {{ (dns_suffix or '') | tojson }};
 // the device's own (shared) properties; every other attribute is the user's own
 const SYS_PROP_NAMES = new Set({{ sys_props | map(attribute='name') | list | tojson }});
 const QCM_LIST_PROPS = new Set({{ (sys_props + user_props) | selectattr('is_list') | map(attribute='name') | list | tojson }});
@@ -1657,11 +1659,14 @@ const tooltip = document.getElementById('invTooltip');
 let   ttTimer = null;
 
 function showTooltip(card, device) {
-    // a hostname with its address: the reachability check's on this page
-    // (at most a minute old), else the stored one - core1.corp.local (10.0.0.7)
+    // a hostname as it's reached (a bare one with the DNS suffix) and its
+    // address: the reachability check's on this page (at most a minute old),
+    // else the stored one - core1.corp.local (10.0.0.7)
     const live = REACH[device.id], resolved = (live && live.address) || device.resolved_ip;
+    const suffix = DNS_SUFFIX.replace(/^\.+|\.+$/g, '');
+    const shown = suffix && !/[.:]/.test(device.ip) ? device.ip + '.' + suffix : device.ip;
     document.getElementById('ttIp').textContent      =
-        resolved ? device.ip + ' (' + resolved + ')' : device.ip;
+        resolved ? shown + ' (' + resolved + ')' : shown;
     document.getElementById('ttType').textContent    = device.device_type;
     document.getElementById('ttPort').textContent    = device.port;
     document.getElementById('ttProfile').textContent = device.sec_profile_label || '-';
