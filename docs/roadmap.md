@@ -40,6 +40,10 @@ In no particular order.
 - **"Explain this failure"** (optional): a small local AI model on the server that, on request, suggests what went wrong on a failed device. Advisory only: it never decides pass or fail, and nothing leaves the server.
 - **Config drift detection**: an alert when a device's configuration changed outside NetRollout, with the difference (building on Deep Diff).
 
+**Inventory**
+
+- **Detect the platform**: a **Detect** button in Add Device (once a security profile is chosen) signs in to the device and suggests its platform, which you confirm; the CSV import can do the same for rows without a `device_type`. Built on Netmiko's own detection, which is a good guess rather than an answer (close relatives such as IOS and IOS-XE, or the HP and Aruba switch families, can be confused), so it only ever fills the field in: a wrong platform would mean the wrong save and verify commands.
+
 **Monitoring**
 
 - **Grafana for operators**: today Grafana is for admins only, because the free edition lets anyone signed in query every data source. The plan is a separate Grafana organisation for operators that sees only aggregates (counts, rates), never commands, logs or the audit log.
