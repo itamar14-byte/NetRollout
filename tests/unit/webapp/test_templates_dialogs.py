@@ -147,3 +147,28 @@ def test_a_name_that_doesnt_resolve_says_so_where_reachability_shows():
 	assert "unknown: 'Reachability unknown'}[state] + nrReachWhy(status);" in widgets
 	assert "(reach.reachable ? 'Reachable' : 'Not reachable') + nrReachWhy(reach)" in 		(TEMPLATES / "inventory.html").read_text(encoding="utf-8")
 	assert '"Not reachable from NetRollout" + nrReachWhy(status)' in 		(TEMPLATES / "new_rollout.html").read_text(encoding="utf-8")
+
+
+def test_the_inventory_filters_outlive_a_reload():
+	"""A save or delete reloads Inventory: the filters are kept for the tab
+	(sessionStorage), restored before the first apply, forgotten when empty."""
+	source = (TEMPLATES / "inventory.html").read_text(encoding="utf-8")
+	assert "const KEPT = 'nr-inventory-filters';" in source
+	assert "if (f.name || f.ip || f.plat) sessionStorage.setItem(KEPT, JSON.stringify(f));" in source
+	assert "else sessionStorage.removeItem(KEPT);" in source
+	assert "    function apply() {\n        keep();" in source.replace("\r\n", "\n")
+
+
+def test_the_assign_boards_search_narrows_both_columns_and_survives_moves():
+	"""Both assign windows (a profile's devices, a mapping's) have one search
+	box: name, address or platform; the board keeps the query across moves
+	(render reads it) and empties it for a new board; Escape clears it first."""
+	widgets = (TEMPLATES / "_op_widgets_js.html").read_text(encoding="utf-8")
+	assert "const devs = all.filter(matches);" in widgets
+	assert "[d.label, d.ip, d.device_type, (d.device_type || '').replace(/_/g, ' ')]" in widgets
+	assert "opts.search.value = '';" in widgets
+	assert "if (e.key === 'Escape' && opts.search.value) {" in widgets
+	for page in ("security.html", "variable_mappings.html"):
+		source = (TEMPLATES / page).read_text(encoding="utf-8")
+		assert 'class="nr-board-search"' in source
+		assert "search:   document.querySelector('#devicesModal .nr-board-search')," in source

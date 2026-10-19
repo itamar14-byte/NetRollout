@@ -103,6 +103,8 @@ function nrSelectShell(container, filter, modal) {
 //       warn(d, isAssigned) -> text|null, locked(d, isAssigned) -> reason|null
 //       (a locked card can't move), emptyIn, emptyOut() -> text,
 //       legend (element: key for the card edges, filled while changes are staged),
+//       search (an <input>: narrows both columns as typed - name, address or
+//       platform, any part; kept while cards move, emptied for a new board),
 //       onChange(board)
 function nrAssignBoard(root, opts) {
     const byId    = new Map(opts.devices.map(d => [d.id, d]));
@@ -110,6 +112,9 @@ function nrAssignBoard(root, opts) {
     const current = new Set(initial);
     const order   = [...initial, ...opts.pool.filter(id => byId.has(id) && !initial.has(id))];
     let landed = null;
+    let query = '';
+    const matches = d => !query || [d.label, d.ip, d.device_type, (d.device_type || '').replace(/_/g, ' ')]
+        .some(v => (v || '').toLowerCase().includes(query));
 
     function card(d) {
         const isIn  = current.has(d.id);
@@ -147,10 +152,13 @@ function nrAssignBoard(root, opts) {
     function renderCol(key) {
         const col  = root.querySelector(`[data-col="${key}"]`);
         const list = col.querySelector('.nr-board-list');
-        const devs = order.filter(id => (key === 'in') === current.has(id)).map(id => byId.get(id));
-        col.querySelector('.nr-board-count').textContent = devs.length;
+        const all  = order.filter(id => (key === 'in') === current.has(id)).map(id => byId.get(id));
+        const devs = all.filter(matches);
+        col.querySelector('.nr-board-count').textContent =
+            query && devs.length !== all.length ? devs.length + ' of ' + all.length : all.length;
         if (!devs.length) {
-            const text = key === 'in' ? opts.emptyIn : opts.emptyOut();
+            const text = all.length ? 'No device here matches "' + query + '".'
+                       : key === 'in' ? opts.emptyIn : opts.emptyOut();
             list.innerHTML = `<p class="nr-board-empty">${nrEscape(text)}</p>`;
             return;
         }
@@ -192,6 +200,24 @@ function nrAssignBoard(root, opts) {
             if (focus) root.querySelector(`.nr-board-card[data-id="${CSS.escape(id)}"]`)?.focus();
         },
     };
+
+    // The search box: emptied for this board (another profile or mapping);
+    // typing narrows both columns, a move keeps it (render reads `query`)
+    if (opts.search) {
+        opts.search.value = '';
+        opts.search._nrBoardRender = q => { query = q.trim().toLowerCase(); render(); };
+        if (!opts.search._nrBoardWired) {
+            opts.search._nrBoardWired = true;
+            opts.search.addEventListener('input', () => opts.search._nrBoardRender(opts.search.value));
+            // Escape empties the box, rather than closing the window, while it has text
+            opts.search.addEventListener('keydown', e => {
+                if (e.key === 'Escape' && opts.search.value) {
+                    e.preventDefault(); e.stopPropagation();
+                    opts.search.value = ''; opts.search._nrBoardRender('');
+                }
+            });
+        }
+    }
 
     // Listeners are attached once per root and delegate to the live board
     root._nrBoard = board;

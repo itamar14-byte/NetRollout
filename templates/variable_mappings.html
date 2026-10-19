@@ -483,6 +483,11 @@
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body" style="padding:0;">
+                <div class="nr-board-search-wrap">
+                    <i class="bi bi-search" aria-hidden="true"></i>
+                    <input type="search" class="nr-board-search" placeholder="Search name, address or platform"
+                           aria-label="Search devices by name, address or platform" autocomplete="off" spellcheck="false">
+                </div>
                 <div class="nr-board" id="assignBoard">
                     <div class="nr-board-col" data-col="in">
                         <div class="nr-board-head"><span>Assigned</span><span class="nr-board-count"></span></div>
@@ -685,6 +690,7 @@ function openDevices(mapping, assignedDevices) {
         pool:     DEVICES_ALL.filter(d => isResolvable(d) && !assigned.has(d.id)).map(d => d.id),
         logos:    VENDOR_LOGOS,
         legend:   document.getElementById('boardLegend'),
+        search:   document.querySelector('#devicesModal .nr-board-search'),
         meta:     d => getDeviceVal(d),
         warn:     d => isResolvable(d) ? null
                      : 'No value for ' + activeWhere() + ': this device is skipped at rollout',

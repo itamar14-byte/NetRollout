@@ -9,6 +9,8 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 ### Changed
 
 - Inventory: the tooltip shows a name saved without a domain the way NetRollout reaches it, with System Settings' **Device DNS suffix**: `core1` reads `core1.corp.local (10.0.0.7)`.
+- Inventory's filters stay set after a save or a delete (the page reloads); **Clear filters** clears them.
+- The windows that assign devices (a security profile's devices, a mapping's) have a search box above both columns. It matches name, address or platform as you type and stays set while you move devices across.
 
 ## [1.0.0rc7] - 2026-10-19
 

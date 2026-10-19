@@ -203,6 +203,13 @@
         /* ── Assign board (shared): Assigned | Available columns in the
               device-assignment modals. See nrAssignBoard(). ── */
         .nr-board { display: grid; grid-template-columns: 1fr 1fr; }
+        /* the board's search: one box above both columns */
+        .nr-board-search-wrap { position: relative; padding: 0.7rem 1rem 0.2rem; }
+        .nr-board-search-wrap .bi-search { position: absolute; left: 1.6rem; top: 50%; margin-top: 0.25rem;
+            transform: translateY(-50%); color: var(--nr-text-muted); font-size: 0.8rem; pointer-events: none; }
+        .nr-board-search { width: 100%; background: #111; border: 1px solid #242424; border-radius: 6px;
+            color: #ddd; font-size: 0.82rem; padding: 0.4rem 0.7rem 0.4rem 2rem; }
+        .nr-board-search:focus { outline: none; border-color: rgba(0,188,212,0.5); }
         .nr-board-col {
             padding: 1rem 1.25rem; min-width: 0;
             display: flex; flex-direction: column;

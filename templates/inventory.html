@@ -1753,7 +1753,27 @@ refreshReachability();
                  ip: (d.ip || '').toLowerCase(), type: d.device_type };
     });
 
+    // The filters outlive a reload in this tab (a save or delete reloads the
+    // page): kept as typed in sessionStorage, restored before the first apply
+    const KEPT = 'nr-inventory-filters';
+    function keep() {
+        try {
+            const f = {name: nameIn.value, ip: ipIn.value, plat: platIn.value};
+            if (f.name || f.ip || f.plat) sessionStorage.setItem(KEPT, JSON.stringify(f));
+            else sessionStorage.removeItem(KEPT);
+        } catch (e) { /* no storage: the filters just don't outlive a reload */ }
+    }
+    try {
+        const f = JSON.parse(sessionStorage.getItem(KEPT) || 'null');
+        if (f && !nameIn.value && !ipIn.value && !platIn.value) {
+            nameIn.value = f.name || ''; ipIn.value = f.ip || '';
+            // a platform no device has any more isn't in the list: left unset
+            if ([...platIn.options].some(o => o.value === f.plat)) platIn.value = f.plat || '';
+        }
+    } catch (e) { /* unreadable: start unfiltered */ }
+
     function apply() {
+        keep();
         const name = nameIn.value.trim().toLowerCase();
         const ip   = ipIn.value.trim().toLowerCase();
         const plat = platIn.value;
