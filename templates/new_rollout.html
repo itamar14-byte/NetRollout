@@ -70,14 +70,22 @@
     border: none;
 }
 
+/* The logo shows the device's state: its brand colours once it's reachable,
+   grey while it's being checked or when it isn't (the reach icon beside it
+   says which, by shape). Inventory's cards do the same. */
 .device-logo {
     width: 22px;
     height: 22px;
     flex-shrink: 0;
     object-fit: contain;
-    filter: brightness(0) invert(1);
-    opacity: 0.45;
+    filter: grayscale(1);
+    opacity: 0.65;
+    transition: filter 0.3s, opacity 0.3s;
 }
+.device-row:has(.reach--up) .device-logo { filter: brightness(0.95); opacity: 1; }
+/* Arista's dark wordmark stays white in both states (operator_base) */
+.device-logo[src*="Arista-networks-logo"],
+.device-row:has(.reach--up) .device-logo[src*="Arista-networks-logo"] { filter: brightness(0) invert(1); }
 .device-logo-fallback {
     width: 22px;
     height: 22px;
@@ -462,7 +470,7 @@
                                 {# Vendor logo #}
                                 {% if VENDOR_LOGOS.get(device.device_type) %}
                                 <img class="device-logo"
-                                     src="{{ VENDOR_LOGOS[device.device_type] }}/ffffff"
+                                     src="{{ VENDOR_LOGOS[device.device_type] }}"
                                      alt="{{ device.device_type }}"
                                      onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
                                 <span class="device-logo-fallback" style="display:none;">
@@ -728,7 +736,7 @@
 
         const logoUrl = VENDOR_LOGOS[platform];
         const logoHtml = logoUrl
-            ? `<img src="${nrEscape(logoUrl)}/ffffff" alt="${nrEscape(platform)}"
+            ? `<img src="${nrEscape(logoUrl)}" alt="${nrEscape(platform)}"
                     style="width:16px;height:16px;object-fit:contain;
                            filter:brightness(0) invert(1);opacity:0.5;
                            margin-right:0.45rem;"

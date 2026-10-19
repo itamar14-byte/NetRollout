@@ -6,8 +6,13 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ## [Unreleased]
 
+### Changed
+
+- Inventory and New Rollout: a device's vendor logo is in its brand colors while the device is reachable, and grey while it's being checked or when it isn't, so the devices you can roll out to stand out at a glance. New Rollout showed every logo in white before.
+
 ### Fixed
 
+- New Rollout shows the Arista, Aruba and Check Point logos; it showed a generic icon for them.
 - Windows: NetRollout comes back after a restart even when Docker Desktop's own "Start when you sign in" setting is off. At sign-in, NetRollout's port helper starts Docker Desktop if it isn't running half a minute later; the containers follow Docker. A Docker Desktop you quit later stays quit.
 
 ## [1.0.0rc8] - 2026-10-19

@@ -32,12 +32,21 @@
     justify-content: center;
     overflow: hidden;
 }
+/* The logo shows the device's state: its brand colours once it's reachable,
+   grey while it's being checked or when it isn't (the reach icon on the card
+   says which, by shape). New Rollout's rows do the same. */
 .vendor-img {
     width: 22px;
     height: 22px;
     object-fit: contain;
-    filter: brightness(0.85);
+    filter: grayscale(1);
+    opacity: 0.65;
+    transition: filter 0.3s, opacity 0.3s;
 }
+.inv-card:has(.reach--up) .vendor-img { filter: brightness(0.95); opacity: 1; }
+/* Arista's dark wordmark stays white in both states (operator_base) */
+.vendor-img[src*="Arista-networks-logo"],
+.inv-card:has(.reach--up) .vendor-img[src*="Arista-networks-logo"] { filter: brightness(0) invert(1); }
 
 /* ── Inventory card ── */
 .inv-card {

@@ -184,3 +184,20 @@ def test_the_inventory_platform_filter_takes_several_platforms():
 	assert "&& (!chosen.length || chosen.includes(c.type));" in source
 	assert "chosen.length + ' platforms';" in source
 	assert '<select id="filterPlatform"' not in source
+
+
+def test_a_vendor_logo_is_in_colour_only_while_its_device_is_reachable():
+	"""New Rollout's rows and Inventory's cards show a device's logo in its brand
+	colours once its reach icon says reachable, grey (still readable) while it's
+	checked, unreachable or unknown; Arista's dark wordmark stays white in both
+	states. The logo URLs are used as given: Simple Icons' '/ffffff' suffix broke
+	the logos from other sources (Arista, Aruba, Check Point)."""
+	rollout = (TEMPLATES / "new_rollout.html").read_text(encoding="utf-8")
+	inventory = (TEMPLATES / "inventory.html").read_text(encoding="utf-8")
+	for page, logo, holder in ((rollout, ".device-logo", ".device-row"), (inventory, ".vendor-img", ".inv-card")):
+		rule = page[page.index(logo + " {"):]
+		rule = rule[:rule.index("}")]
+		assert "filter: grayscale(1);" in rule and "opacity: 0.65;" in rule
+		assert f"{holder}:has(.reach--up) {logo} {{ filter: brightness(0.95); opacity: 1; }}" in page
+		assert f'{holder}:has(.reach--up) {logo}[src*="Arista-networks-logo"] {{ filter: brightness(0) invert(1); }}' in page
+	assert "/ffffff" not in rollout

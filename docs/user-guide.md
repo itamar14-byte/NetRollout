@@ -196,6 +196,8 @@ Two devices can share an address if their ports differ, for example behind NAT. 
 
 Each card shows whether NetRollout's server can reach the device's `ip:port` over TCP. This is checked from the server, not from your computer, because that's where the push comes from. Results are reused for a short time (60 seconds unless your administrator changed it). Select **Recheck** to probe every device again now.
 
+The device's logo follows it: in its vendor's colors while the device is reachable, grey while it's being checked or when it isn't. New Rollout's device list shows it the same way.
+
 ## Importing devices from a CSV
 
 Select **Import CSV** to add many devices at once. The file is the same devices CSV the [CLI](cli.md#the-devices-csv) uses.
