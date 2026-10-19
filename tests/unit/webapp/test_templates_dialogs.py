@@ -109,3 +109,15 @@ def test_a_connection_tests_result_is_never_cut_off():
 	for status in ("addTestStatus", "editTestStatus"):
 		footer = source[:source.index(f'<div id="{status}"')].rsplit('<div class="modal-footer"', 1)[1]
 		assert "flex-wrap:wrap;" in footer and "<button" not in footer    # the footer's first item
+
+
+def test_a_window_closes_as_it_opens():
+	"""Bootstrap fades a window in 0.15 s but slides it 0.3 s, so a window
+	closing (Escape, a click outside) was gone before the slide showed. The
+	window's fade takes the slide's 0.3 s, in the styles every skeleton loads;
+	the backdrop keeps Bootstrap's (opening waits for it)."""
+	core = (TEMPLATES / "_theme_core_css.html").read_text(encoding="utf-8")
+	assert ".modal.fade { transition: opacity 0.3s ease-out; }" in core
+	assert ".modal-backdrop" not in core.split(".modal.fade {")[1].split("}")[0]
+	for skeleton in ("operator_base.html", "admin.html", "base.html"):
+		assert "_theme_core_css.html" in (TEMPLATES / skeleton).read_text(encoding="utf-8")

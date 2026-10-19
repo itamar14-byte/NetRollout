@@ -9,6 +9,7 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 ### Changed
 
 - NetRollout Manager's **Upgrade** window shows the release notes formatted, with headings, bullets and bold, instead of their markdown (`##`, `**`). The download links at their end, meant for the release page, are left out.
+- A window closes the way it opens: it slides up while it fades out, instead of vanishing at once.
 
 ## [1.0.0rc6] - 2026-10-18
 

@@ -65,6 +65,11 @@
             .nr-user-btn .nr-user-icon { display: inline; }
             .nr-user-btn .nr-user-name { display: none; }
         }
+        /* windows close as they open: Bootstrap fades a window in 0.15 s but
+           slides it 0.3 s, so closing looked instant (gone before the slide
+           showed) - the window's fade takes the slide's time, both ways (the
+           backdrop keeps its own: opening waits for it) */
+        .modal.fade { transition: opacity 0.3s ease-out; }
         /* a badge moves to the next line whole, never broken inside */
         .nr-badge, .no-directory-badge { white-space: nowrap; }
 
