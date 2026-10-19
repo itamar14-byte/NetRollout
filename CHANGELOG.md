@@ -6,6 +6,8 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ## [Unreleased]
 
+## [1.0.0rc8] - 2026-10-19
+
 ### Changed
 
 - Inventory: the tooltip shows a name saved without a domain the way NetRollout reaches it, with System Settings' **Device DNS suffix**: `core1` reads `core1.corp.local (10.0.0.7)`.
@@ -234,7 +236,8 @@ Anycast. The first public release.
 
 - `netrollout-cli` for one-off rollouts from a devices CSV and a commands file, with optional Verify. A standalone Windows `.exe`; no database or Docker needed.
 
-[Unreleased]: https://github.com/itamar14-byte/NetRollout/compare/v1.0.0rc7...HEAD
+[Unreleased]: https://github.com/itamar14-byte/NetRollout/compare/v1.0.0rc8...HEAD
+[1.0.0rc8]: https://github.com/itamar14-byte/NetRollout/compare/v1.0.0rc7...v1.0.0rc8
 [1.0.0rc7]: https://github.com/itamar14-byte/NetRollout/compare/v1.0.0rc6...v1.0.0rc7
 [1.0.0rc6]: https://github.com/itamar14-byte/NetRollout/compare/v1.0.0rc5...v1.0.0rc6
 [1.0.0rc5]: https://github.com/itamar14-byte/NetRollout/compare/v1.0.0rc4...v1.0.0rc5
