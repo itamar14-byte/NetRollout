@@ -9,11 +9,10 @@ from typing import Any
 from flask import Blueprint, render_template, request, redirect, flash, url_for
 from flask.typing import ResponseReturnValue
 from flask_login import current_user, login_required
-from sqlalchemy.exc import SQLAlchemyError
 
 from src.audit import AuditAction
 from src.inventory import (DeviceFields, InventoryView, RuleRefused, SecurityProfiles,
-                           form_values, import_csv, partition_devices, resolved_addresses)
+                           form_values, import_csv, partition_devices)
 from src.rollout import inputs
 from src.rollout.address import is_ip, is_loopback, qualify, resolve
 from src.rollout.engine import endpoint
@@ -194,14 +193,8 @@ def inventory_reachability(data: dict[str, Any]) -> ResponseReturnValue:
 	with current_app.backend.postgres.get_session() as db_session:
 		rows = InventoryView(db_session, viewer()).visible_ids(ids)
 		db_session.expunge_all()
-	results = current_app.web.reachability.check(
-		[(r.ip, r.port) for r in rows], refresh=bool(data.get("refresh")))
-	if addresses := resolved_addresses(results):
-		try:
-			with current_app.backend.postgres.get_session() as db_session:
-				InventoryView(db_session, viewer()).remember_addresses(ids, addresses)
-		except SQLAlchemyError as e:      # only the stored address: never the page's answer
-			print(f"[NetRollout] couldn't save the devices' current addresses: {e}", flush=True)
+	results = current_app.web.check_reachability(
+		[(r.ip, r.port) for r in rows], ids, viewer(), refresh=bool(data.get("refresh")))
 	return ok(statuses={str(r.id): results[(r.ip, int(r.port))] for r in rows})
 
 

@@ -13,13 +13,14 @@ from typing import TYPE_CHECKING, Any, TypeVar, cast
 from flask import Response, flash, g, jsonify, redirect, request, url_for
 from flask.typing import ResponseReturnValue
 from flask_login import current_user
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from src.accounts.users import Viewer
 from src.audit import Actor, AuditAction, AuditTrail
 from src.db.connections import BackendServices
 from src.db.tables import Base, User
-from src.inventory import ReachabilityChecker
+from src.inventory import InventoryView, Reach, ReachabilityChecker, Target, resolved_addresses
 if TYPE_CHECKING:   # annotations only: lifecycle imports this module
 	from src.webapp.lifecycle import Maintenance
 
@@ -207,7 +208,8 @@ def flash_redirect(msg: str, endpoint: str,
 
 class WebServices:
 	"""The web app's services on top of the backend (current_app.web): the
-	audit log and the reachability checks."""
+	audit log and the reachability checks (check_reachability: with the
+	hostnames' addresses kept)."""
 
 	def __init__(self, backend: BackendServices, maintenance: "Maintenance") -> None:
 		""":param maintenance: while it's locked, audit rows are printed, not written"""
@@ -220,6 +222,29 @@ class WebServices:
 			lambda: backend.redis.client,
 			ttl=lambda: backend.settings.get("reachability_cache_seconds"),
 			dns_suffix=self.dns_suffix)
+
+	def check_reachability(self, targets: list[tuple[str, int]], device_ids: list[uuid.UUID],
+	                       viewer: Viewer, refresh: bool = False,
+	                       recheck_unreachable: bool = False) -> dict[Target, Reach]:
+		"""The devices' reachability (ReachabilityChecker.check), and the
+		addresses it resolved kept as the hostnames' stored addresses
+		(InventoryView.remember_addresses: the tooltip and the "already used
+		by" warning follow DNS). A database error there is only logged - the
+		check's answer never depends on it.
+
+		:param targets: the devices' (ip, port)
+		:param device_ids: their rows (for the stored addresses)
+		:param viewer: whose visible devices may be updated
+		:returns: every target's state, by (ip, port)"""
+		results = self.reachability.check(targets, refresh=refresh,
+		                                  recheck_unreachable=recheck_unreachable)
+		if addresses := resolved_addresses(results):
+			try:
+				with self.backend.postgres.get_session() as db_session:
+					InventoryView(db_session, viewer).remember_addresses(device_ids, addresses)
+			except SQLAlchemyError as e:
+				print(f"[NetRollout] couldn't save the devices' current addresses: {e}", flush=True)
+		return results
 
 	def dns_suffix(self) -> str:
 		""":returns: System Settings' DNS suffix - added to a device saved by a

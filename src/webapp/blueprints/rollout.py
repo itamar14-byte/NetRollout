@@ -11,7 +11,6 @@ from urllib.parse import urlsplit
 from flask import Blueprint, render_template, request, flash, redirect, url_for, Response
 from flask.typing import ResponseReturnValue
 from flask_login import current_user, login_required
-from sqlalchemy.exc import SQLAlchemyError
 
 from src.audit import AuditAction
 from src.accounts.users import Viewer
@@ -141,21 +140,14 @@ def check_reachability(devices: list[Device], device_ids: Collection[uuid.UUID]
 	"""Can NetRollout reach the devices now? A cached "reachable" is trusted;
 	a cached failure is probed again, so a device that just came back isn't
 	blocked by a stale result. A hostname is resolved by the check, and its
-	address is kept as the device's stored address (never refusing the
-	launch: a failure there is only logged).
+	address kept as the device's stored address (WebServices.check_reachability).
 
 	:param device_ids: the devices' rows (for their stored address)
 	:returns: (the unreachable devices, hostname -> its address)"""
-	results = current_app.web.reachability.check(
-		[(d.ip, d.port) for d in devices], recheck_unreachable=True)
-	addresses = resolved_addresses(results)
-	if addresses:
-		try:
-			with current_app.backend.postgres.get_session() as db_session:
-				InventoryView(db_session, viewer()).remember_addresses(device_ids, addresses)
-		except SQLAlchemyError as e:
-			print(f"[NetRollout] couldn't save the devices' current addresses: {e}", flush=True)
-	return [d for d in devices if not results[(d.ip, int(d.port))]["reachable"]], addresses
+	results = current_app.web.check_reachability(
+		[(d.ip, d.port) for d in devices], list(device_ids), viewer(), recheck_unreachable=True)
+	return ([d for d in devices if not results[(d.ip, int(d.port))]["reachable"]],
+	        resolved_addresses(results))
 
 
 def unreachable_message(devices: list[Device]) -> str:

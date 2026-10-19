@@ -483,7 +483,7 @@ For each area: what each class is responsible for, who creates it, who calls it,
 | Class | Responsibility | Created by | Called by | Depends on |
 |---|---|---|---|---|
 | `NetRolloutApp` | Flask with the typed services: `backend`, `orchestrator`, `web`, `shutdown`, `maintenance`, `db_move`, `access`, `sessions`, `instance_token`, `settings_started_with`, `app_port`. The pages import its typed `current_app`. | `launch_app()` | every route | all of the above |
-| `WebServices` | The request's audit row (`audit()`: who, from where, printed instead while maintenance blocks writes) and the shared `ReachabilityChecker`. | `launch_app()` (`app.web`) | every route that audits; inventory and rollout (reachability) | `AuditTrail`, `Maintenance`, `ReachabilityChecker` |
+| `WebServices` | The request's audit row (`audit()`: who, from where, printed instead while maintenance blocks writes), the shared `ReachabilityChecker`, and `check_reachability()`: a check whose resolved hostname addresses are kept as the devices' `resolved_ip` (the Inventory page's check and a launch's), and the DNS suffix. | `launch_app()` (`app.web`) | every route that audits; inventory and rollout (reachability) | `AuditTrail`, `Maintenance`, `ReachabilityChecker` |
 | `Caller` | An enum used as a light strategy: which signs (a JSON body, the XHR header, a background request, a method other than GET, the live log stream) make a request a script's in each situation, so an error is answered as JSON or as a page. | enum members | hooks and error handlers (`wants_json()`) | the request |
 | `Shutdown` | This process's stop or restart: at most one, begun once, drain in the background, then exit (or relaunch in development). | `launch_app()` | the SIGTERM handler, the admin Restart route | `RolloutOrchestrator` |
 | `Maintenance` | A database move's waiting and lock: pauses the orchestrator, then the request gate (`register_maintenance`) answers 503; counts requests under way (`enter` / `leave`). | `launch_app()` | `DatabaseMove`, `WebServices`, the gate, the banner | `RolloutOrchestrator` |
@@ -1461,7 +1461,7 @@ Redis holds nothing that must survive: sessions, the job queue, live job state a
 | `job:{id}:history` | list | `LiveLog` | The live log's lines so far. |
 | `job:{id}:logs` | pub/sub channel | `LiveLog` | New lines, published as `<n>\t<line>`, and `__done__` at the end. |
 | `redis_session:{sid}` | string | Flask-Session (`_SafeRedisSessionInterface`) | A signed-in session. `SessionStore` reads them to list or end a user's sessions. |
-| `reach:{ip}:{port}` | string with expiry | `ReachabilityChecker` | A cached TCP reachability probe (the *Reachability cache* setting). |
+| `reach:{ip}:{port}` | string with expiry | `ReachabilityChecker` | A cached TCP reachability probe (the *Reachability cache* setting): reachable, when, and for a hostname the address it resolved to (or `unresolved`). |
 | `signin:fails:{hash}`, `signin:locked:{hash}` | counter, 15-minute expiry; string, 15 minutes | `SignInThrottle` | Failed sign-ins in a row per typed username (any name, an account or not; `{hash}` = SHA-256 of the name lower-cased, so no typed text is stored), and the 15-minute stop the 5th one starts. |
 
 ### Files on disk
