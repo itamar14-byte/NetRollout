@@ -11,6 +11,8 @@ import uuid
 
 import pytest
 
+from src.db.tables import User
+
 pytestmark = [pytest.mark.postgres, pytest.mark.redis]
 
 PUBLIC_ENDPOINTS = {
@@ -97,6 +99,30 @@ def test_public_pages_render(client_for):
 	client = client_for()
 	for path in ("/", "/register"):
 		assert client.get(path).status_code == 200, path
+
+
+def test_the_sign_in_page_sends_a_signed_in_user_on(client_for, make_user):
+	"""Signed in, / is no sign-in page: it goes to the Dashboard, or to the page a
+	safe ?next= names; an unsafe ?next= (another site) still ends on the Dashboard."""
+	client = client_for(make_user())
+	for path, lands in (("/", "/dashboard"), ("/?next=/results", "/results"),
+	                    ("/?next=https://evil.example/x", "/dashboard")):
+		resp = client.get(path)
+		assert resp.status_code == 302 and resp.headers["Location"] == lands, path
+
+
+def test_request_access_is_not_for_a_signed_in_user(app, client_for, make_user):
+	"""Signed in, /register's form and its submission both go to the Dashboard -
+	and no access request is filed."""
+	client = client_for(make_user())
+	page = client.get("/register")
+	assert page.status_code == 302 and page.headers["Location"] == "/dashboard"
+	name = f"r_{uuid.uuid4().hex[:8]}"
+	sent = client.post("/register", data={"username": name, "password": "Passw0rd!x",
+	                                      "email": f"{name}@test.local", "full_name": name})
+	assert sent.status_code == 302 and sent.headers["Location"] == "/dashboard"
+	with app.backend.postgres.get_session() as s:
+		assert s.query(User).filter_by(username=name).count() == 0
 
 
 def test_logout_when_not_logged_in_redirects_home(client_for):

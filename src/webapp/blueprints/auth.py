@@ -339,9 +339,13 @@ def login_ldap_group(username: str, password: str,
 
 
 @bp.route("/")
-def home() -> str:
-	"""The sign-in page; ?next= (a path on this site) is kept for after it."""
+def home() -> ResponseReturnValue:
+	"""The sign-in page; ?next= (a path on this site) is kept for after it.
+	Someone already signed in goes on to that page, else the Dashboard (a
+	sign-in still waiting for its second factor isn't signed in: it stays)."""
 	target = safe_next(request.args.get("next"))
+	if current_user.is_authenticated:
+		return redirect(target or url_for("jobs.dashboard"))
 	if target:
 		session[NEXT_KEY] = target
 	return render_template("index.html")
@@ -396,7 +400,11 @@ def login(data: Any) -> ResponseReturnValue:
 		return login_ldap_group(username, password, db_session)
 
 @bp.route("/register", methods=["GET"])
-def register_form() -> str:
+def register_form() -> ResponseReturnValue:
+	"""Request access - for people without an account: someone signed in goes
+	to the Dashboard."""
+	if current_user.is_authenticated:
+		return redirect(url_for("jobs.dashboard"))
 	return render_template("register.html")
 
 
@@ -404,7 +412,10 @@ def register_form() -> str:
 @with_form("username", "password", "email", "full_name")
 def register(data: Any) -> ResponseReturnValue:
 	"""A person's access request: an operator account waiting for an admin's
-	approval (src/accounts/users.py - the same checks as an admin's Add user)."""
+	approval (src/accounts/users.py - the same checks as an admin's Add user).
+	Someone signed in files none: the Dashboard (an admin adds users there)."""
+	if current_user.is_authenticated:
+		return redirect(url_for("jobs.dashboard"))
 	username = data["username"].strip()
 	with current_app.backend.postgres.get_session() as db_session:
 		try:
