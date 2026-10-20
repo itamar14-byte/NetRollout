@@ -41,8 +41,8 @@ RETENTION_STATEMENTS = {
 		f"WHERE r.job_id = m.job_id)",
 	# clear the payload, keep the row (status/analytics survive)
 	"device_result_config_retention":
-		f"UPDATE device_results SET fetched_config = NULL "
-		f"WHERE fetched_config IS NOT NULL AND "
+		f"UPDATE device_results SET fetched_config = NULL, config_diff = NULL "
+		f"WHERE (fetched_config IS NOT NULL OR config_diff IS NOT NULL) AND "
 		f"{_older_than('completed_at', 'config_snapshot_retention_days')}",
 	"audit_log_retention":
 		f"DELETE FROM audit_log "

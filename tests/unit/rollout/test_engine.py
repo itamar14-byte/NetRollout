@@ -20,8 +20,9 @@ import src.rollout.engine as engine_module
 # bare `import core` would load a second copy of every module (patches and
 # isinstance checks would then silently target the wrong one).
 from src.rollout import inputs
-from src.rollout.engine import (SubstitutionError, VerifyResult, Device, RolloutOptions, RolloutEngine,
+from src.rollout.engine import (SubstitutionError, Device, RolloutOptions, RolloutEngine,
                                 endpoint, classify, mapping_resolvable)
+from src.rollout.evidence import Judgment, Outcome, Verdict
 from src.rollout.inputs import InputParser, Validator
 from src.rollout.log import RolloutLogger
 from src.rollout.platforms import FETCH_TIMEOUT, PLATFORMS
@@ -56,8 +57,9 @@ def connect_params(device):
 
 
 def fetch_config(device, logger):
-	"""The device's config, fetched by its session."""
-	return NetmikoSession(device, RunReport(logger)).fetch_config()
+	"""The device's config, read by its session in a new SSH session (as after a
+	push whose own session lost its prompt)."""
+	return NetmikoSession(device, RunReport(logger))._fetch_new("in a test")
 
 
 def make_options(**kwargs) -> RolloutOptions:
@@ -201,8 +203,9 @@ class TestRolloutEnginePushConfig(unittest.TestCase):
 
 	@patch("netmiko.ConnectHandler")
 	def test_successful_push_no_cancel_signal(self, mock_ch):
-		"""A clean push gives no cancel signal and PushResult(applied, 0 rejected);
-		the config is saved and the connection closed once."""
+		"""A clean push gives no cancel signal and an applied PushResult with
+		the device's reply kept; the config is saved and the connection closed
+		once."""
 		mock_conn = MagicMock()
 		mock_conn.send_config_set.return_value = "ok"
 		mock_ch.return_value = mock_conn
@@ -210,14 +213,16 @@ class TestRolloutEnginePushConfig(unittest.TestCase):
 		engine = self._make_engine()
 		cancelled, push_results = engine._push_config(self.cancel, self.logger)
 		self.assertIs(cancelled, False)
-		self.assertEqual(push_results.get(0), PushResult(applied=True, rejected=0))
+		self.assertTrue(push_results[0].applied)
+		self.assertEqual(push_results[0].replies, (("ok",),))
 		mock_conn.save_config.assert_called_once()
 		mock_conn.disconnect.assert_called_once()
 
 	@patch("netmiko.ConnectHandler")
 	def test_command_error_in_output_continues(self, mock_ch):
 		"""A device answering "Invalid command" doesn't stop the push: both
-		commands are sent and both counted as rejected (applied, 2 rejected)."""
+		commands are sent and each answer is kept with its command (never
+		judged: applied)."""
 		mock_conn = MagicMock()
 		mock_conn.send_config_set.return_value = "Invalid command"
 		mock_ch.return_value = mock_conn
@@ -225,9 +230,10 @@ class TestRolloutEnginePushConfig(unittest.TestCase):
 		engine = self._make_engine(commands=["bad command", "good command"])
 		cancelled, push_results = engine._push_config(self.cancel, self.logger)
 		self.assertIs(cancelled, False)
-		# Both commands were attempted despite first error, both counted
+		# Both commands were attempted despite first error, both answers kept
 		self.assertEqual(mock_conn.send_config_set.call_count, 2)
-		self.assertEqual(push_results[0], PushResult(applied=True, rejected=2))
+		self.assertTrue(push_results[0].applied)
+		self.assertEqual(push_results[0].replies, (("Invalid command",), ("Invalid command",)))
 
 	@patch("netmiko.ConnectHandler")
 	def test_auth_failure_marks_device_failed(self, mock_ch):
@@ -278,8 +284,8 @@ class TestRolloutEnginePushConfig(unittest.TestCase):
 															  self.logger)
 		self.assertIs(cancelled, True)
 		# C (10.0.0.3) started after the cancel: never connected
-		applied = PushResult(applied=True, rejected=0)
-		self.assertEqual(push_results, {0: applied, 1: applied})  # by index
+		self.assertEqual({i: r.applied for i, r in push_results.items()},
+		                 {0: True, 1: True})  # by index
 
 	def test_ctrl_c_skips_the_devices_not_reached_yet(self):
 		"""Ctrl+C in the CLI (KeyboardInterrupt in the waiting thread) cancels:
@@ -296,7 +302,7 @@ class TestRolloutEnginePushConfig(unittest.TestCase):
 			time.sleep(0.2)
 			with lock:
 				pushed.append(device.ip)
-			return PushResult(applied=True, rejected=0)
+			return PushResult(applied=True)
 
 		real = engine_module.as_completed
 		pressed = threading.Event()        # one Ctrl+C, after the first result
@@ -338,78 +344,6 @@ class TestRolloutEnginePushConfig(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# core.py - RolloutEngine._verify
-# ---------------------------------------------------------------------------
-
-class TestRolloutEngineVerify(unittest.TestCase):
-
-	@staticmethod
-	def _make_engine(devices=None, commands=None):
-		"""A verify-on engine for these devices and commands (one cisco_ios device
-		and an ip route by default)."""
-		return RolloutEngine(
-			param=make_options(verify=True),
-			devices=devices or [make_device()],
-			commands=commands or ["ip route 0.0.0.0 0.0.0.0 1.1.1.1"],
-		)
-
-	def setUp(self):
-		self.logger = RolloutLogger(webapp=False, verbose=False)
-
-	def test_command_found_in_config(self):
-		"""A command present in the fetched config verifies (1 of 1), and no
-		config snapshot is kept."""
-		device = make_device()
-		engine = self._make_engine(
-			devices=[device],
-			commands=["ip route 0.0.0.0 0.0.0.0 1.1.1.1"],
-		)
-		with patch.object(NetmikoSession, "fetch_config",
-						  return_value="ip route 0.0.0.0 0.0.0.0 1.1.1.1"):
-			result = engine._verify([0], self.logger)
-		# fully verified -> no config snapshot kept (nothing to diff)
-		self.assertEqual(result[0], VerifyResult(verified=1, checkable=1,
-												 config=None))
-
-	def test_command_not_in_config(self):
-		"""A command missing from the fetched config verifies 0 of 1."""
-		device = make_device()
-		engine = self._make_engine(
-			devices=[device],
-			commands=["ip route 0.0.0.0 0.0.0.0 1.1.1.1"],
-		)
-		with patch.object(NetmikoSession, "fetch_config", return_value="no relevant config"):
-			result = engine._verify([0], self.logger)
-		self.assertEqual((result[0].verified, result[0].checkable), (0, 1))
-
-	def test_config_not_fetched_is_not_a_failure(self):
-		"""A config that can't be fetched gives no verify result (couldn't verify ≠
-		not configured: the status then comes from the push), and the device is
-		flagged "applied but NOT verified" for a person."""
-		device = make_device()
-		engine = self._make_engine(devices=[device])
-		with patch.object(NetmikoSession, "fetch_config", return_value=None):
-			result = engine._verify([0], self.logger)
-		self.assertIsNone(result[0])
-		# ...but nobody checked the result: a person must, and is told so
-		(what,) = engine._report.needs_action[device.endpoint]
-		self.assertIn("applied but NOT verified", what)
-
-	def test_partial_commands_matched(self):
-		"""One of two commands found verifies 1 of 2, and the fetched config is
-		kept for Verify Diff."""
-		device = make_device()
-		commands = ["ip route 0.0.0.0 0.0.0.0 1.1.1.1", "hostname ROUTER"]
-		config = "ip route 0.0.0.0 0.0.0.0 1.1.1.1\nno relevant line"
-		engine = self._make_engine(devices=[device], commands=commands)
-		with patch.object(NetmikoSession, "fetch_config", return_value=config):
-			result = engine._verify([0], self.logger)
-		# mismatch -> config snapshot kept for Verify Diff
-		self.assertEqual(result[0], VerifyResult(verified=1, checkable=2,
-												 config=config))
-
-
-# ---------------------------------------------------------------------------
 # core.py - RolloutEngine.run
 # ---------------------------------------------------------------------------
 
@@ -439,8 +373,8 @@ class TestRolloutEngineRun(unittest.TestCase):
 
 	@patch("netmiko.ConnectHandler")
 	def test_successful_run_without_verify(self, mock_ch):
-		"""A clean push without verify gives one "success" result with
-		commands_verified None."""
+		"""A clean push without verify gives one "not verified" result with
+		commands_verified None (applied; nothing judged it)."""
 		mock_conn = MagicMock()
 		mock_conn.send_config_set.return_value = "ok"
 		mock_ch.return_value = mock_conn
@@ -452,7 +386,7 @@ class TestRolloutEngineRun(unittest.TestCase):
 		)
 		result = engine.run(self.cancel, self.logger)
 		self.assertEqual(len(result), 1)
-		self.assertEqual(result[0]["status"], "success")
+		self.assertEqual(result[0]["status"], "not verified")
 		self.assertIsNone(result[0]["commands_verified"])
 
 	@patch("netmiko.ConnectHandler")
@@ -463,6 +397,7 @@ class TestRolloutEngineRun(unittest.TestCase):
 		after the push - no results recorded)."""
 		mock_conn = MagicMock()
 		mock_conn.send_config_set.return_value = "ok"
+		mock_conn.send_command.return_value = "hostname x"     # the configuration
 		mock_ch.return_value = mock_conn
 		commands = ["hostname x", '""', '" "']
 		for verify in (False, True):
@@ -470,30 +405,15 @@ class TestRolloutEngineRun(unittest.TestCase):
 				devices = [make_device(ip="10.0.0.1"), make_device(ip="10.0.0.2")]
 				engine = RolloutEngine(param=make_options(verify=verify),
 				                       devices=devices, commands=commands)
-				with patch.object(NetmikoSession, "fetch_config",
-				                  return_value="hostname x"):
-					result = engine.run(self.cancel, self.logger)
+				result = engine.run(self.cancel, self.logger)
 				self.assertEqual(sorted(r["device_ip"] for r in result),
 				                 ["10.0.0.1", "10.0.0.2"])
 				self.assertTrue(all(r["commands_sent"] == 3 for r in result))
 
-	def test_verify_names_an_unverifiable_quotes_only_line(self):
-		"""Verify's report of an unverifiable line looks at its first word: a
-		line of only quotes has none, and verify still answers (it used to
-		raise IndexError)."""
-		device = make_device()
-		engine = RolloutEngine(param=make_options(verify=True), devices=[device],
-		                       commands=["hostname x", '""'])
-		with patch.object(NetmikoSession, "fetch_config", return_value="hostname x"), \
-				patch.object(engine_module, "verify_commands",
-				             return_value=["verified", "not verifiable"]):
-			result = engine._verify([0], self.logger)
-		self.assertEqual((result[0].verified, result[0].checkable), (1, 1))
-
 	def test_same_ip_different_ports_get_separate_results(self):
 		"""Two devices on one IP with different ports (e.g. lab nodes
-		port-forwarded behind one host IP) get their own results: 2001 success,
-		2002 failed."""
+		port-forwarded behind one host IP) get their own results: 2001 applied
+		(not verified: no verify), 2002 failed."""
 		def connect(**params):
 			if params["port"] == 2002:
 				raise Exception("connection refused")
@@ -508,7 +428,7 @@ class TestRolloutEngineRun(unittest.TestCase):
 		with patch("netmiko.ConnectHandler", side_effect=connect):
 			result = engine.run(self.cancel, self.logger)
 		by_port = {r["device_port"]: r["status"] for r in result}
-		self.assertEqual(by_port, {2001: "success", 2002: "failed"})
+		self.assertEqual(by_port, {2001: "not verified", 2002: "failed"})
 
 	@patch("netmiko.ConnectHandler")
 	def test_failed_push_marked_in_result(self, mock_ch):
@@ -526,7 +446,7 @@ class TestRolloutEngineRun(unittest.TestCase):
 
 	def test_summary_counts_real_outcomes(self):
 		"""The summary line counts the real outcomes, once and in yellow:
-		"1 success, 1 failed (of 2 devices)" (it used to say "2 devices
+		"1 failed, 1 not verified (of 2 devices)" (it used to say "2 devices
 		configured" whatever happened)."""
 		def connect(**params):
 			if params["port"] == 2002:
@@ -546,8 +466,8 @@ class TestRolloutEngineRun(unittest.TestCase):
 				   if "rollout complete" in c.args[0]]
 		self.assertEqual(len(summary), 1)
 		self.assertEqual(summary[0].args[0],
-						 "Configuration rollout complete: 1 success, "
-						 "1 failed (of 2 devices)")
+						 "Configuration rollout complete: 1 failed, "
+						 "1 not verified (of 2 devices)")
 		self.assertEqual(summary[0].args[1], "yellow")
 
 
@@ -613,36 +533,33 @@ class TestFullRolloutAndVerifyPipeline(unittest.TestCase):
 
 	@patch("netmiko.ConnectHandler")
 	@patch("src.rollout.engine.Device.from_inventory")
-	def test_full_pipeline_config_unreadable_is_action_needed(self, mock_from_inv, mock_netmiko_ch):
-		"""The push works but the verify's config fetch can't log in: the result is
-		"success" from the push, commands_verified None, action_needed "applied but
-		NOT verified", and the log gives the reason and an ACTION NEEDED line."""
+	def test_full_pipeline_config_unreadable_is_not_verified(self, mock_from_inv, mock_netmiko_ch):
+		"""The push works but the configuration can't be read: the commands are
+		still sent, the result is "not verified" (commands_verified None, no
+		transcript), and the log gives the reason."""
 		device = self._make_device()
 		mock_from_inv.return_value = device
 		mock_conn = MagicMock()
 		mock_conn.send_config_set.return_value = "ok"
 		mock_netmiko_ch.return_value = mock_conn
-		mock_conn.__enter__.side_effect = Exception("Authentication failed")
+		mock_conn.send_command.side_effect = Exception("pattern not detected")
 
 		devices = InputParser.import_from_inventory([self._make_inventory_row()], None, {})
 		engine = RolloutEngine(param=make_options(verify=True), devices=devices,
 							   commands=[self.COMMAND])
 		logger = RolloutLogger(webapp=False, verbose=False)
 		(result,) = engine.run(threading.Event(), logger)
-		# status from the push, but flagged for a person: the completion card,
-		# Results and the Dashboard all read action_needed
-		self.assertEqual(result["status"], "success")
+		self.assertEqual(result["status"], "not verified")
 		self.assertIsNone(result["commands_verified"])
-		self.assertIn("applied but NOT verified", result["action_needed"])
+		self.assertIsNone(result["transcript"])
+		mock_conn.send_config_set.assert_called_once()           # still sent
 		with open(logger.logfile, encoding="utf-8") as f:
-			log = f.read()
-		self.assertIn("could not fetch the config", log)       # the reason
-		self.assertIn("ACTION NEEDED", log)
+			self.assertIn("couldn't read the configuration before the push", f.read())
 
 	@patch("netmiko.ConnectHandler")
 	@patch("src.rollout.engine.Device.from_inventory")
 	def test_full_pipeline_push_only_no_verify(self, mock_from_inv, mock_netmiko_ch):
-		"""Push without verify: one "success" result with commands_verified None."""
+		"""Push without verify: one "not verified" result with commands_verified None."""
 		device = self._make_device()
 		mock_from_inv.return_value = device
 
@@ -662,14 +579,14 @@ class TestFullRolloutAndVerifyPipeline(unittest.TestCase):
 		logger = RolloutLogger(webapp=False, verbose=False)
 		result = engine.run(cancel, logger)
 		self.assertEqual(len(result), 1)
-		self.assertEqual(result[0]["status"], "success")
+		self.assertEqual(result[0]["status"], "not verified")
 		self.assertIsNone(result[0]["commands_verified"])
 
 	@patch("netmiko.ConnectHandler")
 	@patch("src.rollout.engine.Device.from_inventory")
-	def test_full_pipeline_verify_fails_command_not_in_config(self, mock_from_inv, mock_netmiko_ch):
-		"""Push, then a fetched config without the command: one "failed" result
-		with 0 commands verified."""
+	def test_full_pipeline_command_not_in_config_is_review(self, mock_from_inv, mock_netmiko_ch):
+		"""Push, then a configuration without the command (nothing changed): not
+		proven either way - one "review" result with 0 commands proven."""
 		device = self._make_device()
 		mock_from_inv.return_value = device
 
@@ -692,7 +609,7 @@ class TestFullRolloutAndVerifyPipeline(unittest.TestCase):
 		logger = RolloutLogger(webapp=False, verbose=False)
 		result = engine.run(cancel, logger)
 		self.assertEqual(len(result), 1)
-		self.assertEqual(result[0]["status"], "failed")
+		self.assertEqual(result[0]["status"], "review")
 		self.assertEqual(result[0]["commands_verified"], 0)
 
 	@patch("netmiko.ConnectHandler")
@@ -725,39 +642,32 @@ class TestFullRolloutAndVerifyPipeline(unittest.TestCase):
 		self.assertEqual([r["status"] for r in result], ["failed"])
 
 
-PUSHED = PushResult(applied=True, rejected=0)
+def judged(*verdicts):
+	""":returns: an outcome with these verdicts, one command each"""
+	return Outcome(tuple(Judgment(f"c{i}", v) for i, v in enumerate(verdicts)), ())
 
 
-@pytest.mark.parametrize("push, verify, expected", [
-	# never started / not applied: nothing counted
-	(None, None, ("cancelled", 0, None)),
-	(PushResult(applied=False, rejected=0), None, ("failed", 0, None)),
-	(PushResult(applied=False, rejected=0), VerifyResult(5, 5, None),
-	 ("failed", 0, None)),
-	# verified: all confirmed, nothing refused
-	(PUSHED, VerifyResult(5, 5, None), ("success", 5, 5)),
-	# ... all confirmed but the device refused one → partial
-	(PushResult(True, 1), VerifyResult(5, 5, None), ("partial", 5, 5)),
-	# none confirmed → failed; some → partial
-	(PUSHED, VerifyResult(0, 5, None), ("failed", 5, 0)),
-	(PUSHED, VerifyResult(3, 5, None), ("partial", 5, 3)),
-	# commands that can't be checked count as accounted for
-	(PUSHED, VerifyResult(2, 3, None), ("partial", 5, 4)),
-	(PUSHED, VerifyResult(3, 3, None), ("success", 5, 5)),
-	# nothing checkable at all: success unless something was refused
-	(PUSHED, VerifyResult(0, 0, None), ("success", 5, 5)),
-	(PushResult(True, 1), VerifyResult(0, 0, None), ("partial", 5, 5)),
-	# not verified: what the device said while the commands were sent
-	(PUSHED, None, ("success", 5, None)),
-	(PushResult(True, 2), None, ("partial", 5, None)),
-	(PushResult(True, 4), None, ("failed", 5, None)),      # every configuring one
-	(PushResult(True, 5), None, ("failed", 5, None)),
+REPLIES = ((), (), ())
+T, P, R, N, V = (Verdict.TOOK_EFFECT, Verdict.IN_PLACE, Verdict.REMOVED,
+                 Verdict.NAVIGATION, Verdict.REVIEW)
+
+
+@pytest.mark.parametrize("push, expected", [
+	(None, ("cancelled", 0, None)),                                         # never started
+	(PushResult(applied=False), ("failed", 0, None)),                        # not applied
+	(PushResult(applied=True, sent=2, interrupted=True, replies=REPLIES[:2]),
+	 ("partial", 2, None)),                                                  # stopped answering
+	(PushResult(applied=True, replies=REPLIES), ("not verified", 3, None)),  # not judged
+	(PushResult(applied=True, replies=REPLIES, outcome=judged(T, P, R)), ("success", 3, 3)),
+	(PushResult(applied=True, replies=REPLIES, outcome=judged(T, N, P)), ("success", 3, 2)),
+	(PushResult(applied=True, replies=REPLIES, outcome=judged(T, V, N)), ("review", 3, 1)),
+	(PushResult(applied=True, replies=REPLIES, outcome=judged(V, V, V)), ("review", 3, 0)),
 ])
-def test_status_rules(push, verify, expected):
-	"""classify gives the expected (status, commands, verified) for each push and
-	verify outcome, with 5 commands of which 4 configure something (one is
-	navigation): not applied, verified, checkable or not, and push-only cases."""
-	assert classify(push, verify, total=5, configuring=4) == expected
+def test_status_rules(push, expected):
+	"""classify gives (status, commands sent, commands proven): cancelled,
+	failed, partial, not verified - and, judged, success when every command is
+	proven or navigation, review when any isn't."""
+	assert classify(push) == expected
 
 
 USER_A, USER_B, USER_C = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
@@ -855,7 +765,7 @@ def test_a_device_with_a_leftover_token_is_skipped_at_push():
 	with patch("netmiko.ConnectHandler") as connect:
 		_, results = engine._push_config(threading.Event(), logger)
 	connect.assert_not_called()
-	assert results[0] == PushResult(applied=False, rejected=0)
+	assert results[0] == PushResult(applied=False)
 
 
 def test_credentials_are_decrypted_from_assigned_profile():
@@ -902,8 +812,10 @@ def test_unresolvable_device_fails_alone_without_ssh(monkeypatch):
 	                       ["hostname $$HOST$$"])
 	conn = MagicMock()
 	conn.send_config_set.return_value = "ok"
-	with patch("netmiko.ConnectHandler", return_value=conn) as connect, \
-			patch.object(NetmikoSession, "fetch_config", return_value="hostname core-x"):
+	reads = iter(["hostname old\n", "hostname core-x\n"])      # before, after
+	conn.send_command.side_effect = lambda command, **_: (
+		"hostname core-x\n" if command == "show startup-config" else next(reads))
+	with patch("netmiko.ConnectHandler", return_value=conn) as connect:
 		results = engine.run(threading.Event(), RolloutLogger(False, False))
 	assert [c.kwargs["ip"] for c in connect.call_args_list] == ["10.0.0.1"]
 	assert {r["device_ip"]: r["status"] for r in results} == \

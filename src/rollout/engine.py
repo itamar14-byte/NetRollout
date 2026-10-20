@@ -1,9 +1,10 @@
 """The rollout engine, shared by the CLI and the web app: push commands to
 many devices over SSH (Netmiko) in parallel, finish each the way its
-platform needs (save / commit / ...), optionally verify against the config
-read back, and classify each device's outcome. Platform knowledge is in
-src/rollout/platforms.py, one device's SSH conversation in
-src/rollout/session.py; this module runs the rollout across the devices."""
+platform needs (save / commit / ...), optionally verify it by the device's
+own configuration before and after (src/rollout/evidence.py), and classify
+each device's outcome. Platform knowledge is in src/rollout/platforms.py,
+one device's SSH conversation in src/rollout/session.py; this module runs
+the rollout across the devices."""
 import os
 import re
 import threading
@@ -17,8 +18,8 @@ from typing import TYPE_CHECKING, Any, NamedTuple, TypedDict
 
 from src import encryption
 from src.rollout.address import qualify
-from src.rollout.log import Tone
-from src.rollout.platforms import NOT_CONFIGURED, STILL_CONFIGURED, UNVERIFIABLE, VERIFIED, first_word, navigates, verify_commands
+from src.rollout.evidence import Judgment, Outcome, Verdict
+from src.rollout.log import Tone, redact
 from src.rollout.session import NetmikoSession, Notifier, PushResult, RunReport
 if TYPE_CHECKING:   # type hints only: the CLI (.exe) must not load the DB stack
 	from src.db.tables import Inventory, SecurityProfile
@@ -75,56 +76,62 @@ class DeviceStatus(StrEnum):
 	is one of them too: src/results.job_status), in the order the summary and
 	the Results filter list them."""
 	SUCCESS = "success"
+	REVIEW = "review"              # verified, but a person must decide something
 	PARTIAL = "partial"
 	FAILED = "failed"
+	NOT_VERIFIED = "not verified"  # applied; verification off, or not possible
 	CANCELLED = "cancelled"
 
 
-class VerifyResult(NamedTuple):
-	"""How verify went on one device."""
-	verified: int        # commands confirmed in the config
-	checkable: int       # commands that can be checked (not navigation /
-	                     # operational)
-	config: str | None   # kept only when something didn't verify
+# the verdicts the configuration proves (the rest is navigation or review)
+CERTAIN = (Verdict.TOOK_EFFECT, Verdict.IN_PLACE, Verdict.REMOVED)
 
 
-def classify(push: PushResult | None, verify: VerifyResult | None,
-             total: int, configuring: int) -> tuple[DeviceStatus, int, int | None]:
+def classify(push: PushResult | None) -> tuple[DeviceStatus, int, int | None]:
 	"""A device's outcome, by these rules:
-	- not applied (no connection, no commit) → failed, nothing counted
-	- verified: every checkable command confirmed and none refused →
-	  success; none confirmed (of some checkable) → failed; else partial.
-	  Commands that can't be checked count as accounted for.
-	- not verified: what the device said while the commands were sent -
-	  none refused → success; every configuring one refused → failed;
-	  else partial.
-	- interrupted (the device stopped answering before the last command,
-	  some commands confirmed) → partial, the commands sent counted.
+	- never started (cancelled first) → cancelled
+	- not applied (no connection, no config mode, a failed commit) → failed
+	- interrupted (the device stopped answering before the last command)
+	  → partial, the commands sent counted
+	- not judged (verification off, or a snapshot couldn't be taken) → not
+	  verified
+	- judged: any command in review → review; else success
 
-	:param push: None if the device never started (cancelled first)
-	:param verify: None when verify was off or the config couldn't be fetched
-	:param total: commands sent
-	:param configuring: those that configure something (not navigation)
-	:returns: (status, commands_sent, commands_verified - None unverified)"""
+	:param push: None if the device never started
+	:returns: (status, commands_sent, commands proven by the configuration -
+	 None when not judged)"""
 	if push is None:
 		return DeviceStatus.CANCELLED, 0, None
 	if not push.applied:
 		return DeviceStatus.FAILED, 0, None
+	sent = len(push.replies)
 	if push.interrupted:
-		# some commands took effect (live, not saved), the rest weren't sent
-		return DeviceStatus.PARTIAL, push.sent or 0, verify.verified if verify is not None else None
-	if verify is not None:
-		if verify.verified == verify.checkable and not push.rejected:
-			status = DeviceStatus.SUCCESS
-		elif verify.verified == 0 and verify.checkable:
-			status = DeviceStatus.FAILED
-		else:
-			status = DeviceStatus.PARTIAL
-		return status, total, verify.verified + total - verify.checkable
-	status = (DeviceStatus.SUCCESS if not push.rejected else
-	          DeviceStatus.FAILED if push.rejected >= configuring
-	          else DeviceStatus.PARTIAL)
-	return status, total, None
+		return DeviceStatus.PARTIAL, push.sent or sent, None
+	if push.outcome is None:
+		return DeviceStatus.NOT_VERIFIED, sent, None
+	proven = sum(1 for j in push.outcome.commands if j.verdict in CERTAIN)
+	status = DeviceStatus.REVIEW if push.outcome.needs_review else DeviceStatus.SUCCESS
+	return status, sent, proven
+
+
+def transcript(outcome: Outcome | None,
+               replies: tuple[tuple[str, ...], ...]) -> dict[str, Any] | None:
+	"""A device's judged push as stored (device_results.transcript): per
+	command its verdict, the device lines it rests on, why, and what the
+	device replied; then the changes no command explains. Redacted as the
+	log is.
+
+	:returns: None when the push wasn't judged"""
+	if outcome is None:
+		return None
+
+	def entry(i: int, j: Judgment) -> dict[str, Any]:
+		return {"command": redact(j.command), "verdict": j.verdict.value,
+		        "evidence": [redact(e) for e in j.evidence], "note": j.note,
+		        "reply": [redact(r) for r in (replies[i] if i < len(replies) else ())]}
+
+	return {"commands": [entry(i, j) for i, j in enumerate(outcome.commands)],
+	        "other_changes": [redact(c) for c in outcome.other_changes]}
 
 
 class DeviceResultDict(TypedDict):
@@ -133,8 +140,10 @@ class DeviceResultDict(TypedDict):
 	device_port: int
 	device_type: str
 	commands_sent: int
-	commands_verified: int | None
-	fetched_config: str | None
+	commands_verified: int | None   # proven by the configuration; None: not judged
+	fetched_config: str | None      # the configuration after, kept for a review
+	config_diff: str | None         # the configuration before → after
+	transcript: dict[str, Any] | None
 	status: str
 	action_needed: str | None   # what only a person can resolve, or None
 
@@ -282,6 +291,7 @@ class RolloutEngine:
 		return [DeviceResultDict(device_ip=d.ip, device_port=int(d.port),
 		                         device_type=d.device_type, commands_sent=0,
 		                         commands_verified=None, fetched_config=None,
+		                         config_diff=None, transcript=None,
 		                         status=DeviceStatus.CANCELLED, action_needed=None)
 		        for d in self._devices]
 
@@ -307,8 +317,27 @@ class RolloutEngine:
 			commands = device.commands_for(self._commands)
 		except SubstitutionError as e:
 			report.notify(f"{device.endpoint} skipped - {e}", Tone.ERROR)
-			return PushResult(applied=False, rejected=0)
-		return NetmikoSession(device, report).push(commands)
+			return PushResult(applied=False)
+		result = NetmikoSession(device, report).push(commands, verify=self._verify_flag)
+		if result.outcome is not None:
+			self._log_outcome(device, result.outcome, report)
+		return result
+
+	@staticmethod
+	def _log_outcome(device: Device, outcome: Outcome, report: RunReport) -> None:
+		"""Each command's verdict with the device line it rests on (or why
+		not), then the changes no command explains."""
+		for j in outcome.commands:
+			if j.verdict == Verdict.NAVIGATION:
+				continue
+			shown = j.evidence[0].strip() if j.evidence else ""
+			detail = "; ".join(part for part in (shown, j.note) if part)
+			report.notify(f"{device.endpoint}: '{j.command.strip()}' {j.verdict}"
+			              + (f" - {detail}" if detail else ""),
+			              Tone.WARNING if j.verdict == Verdict.REVIEW else Tone.SUCCESS)
+		for change in outcome.other_changes:
+			report.notify(f"{device.endpoint}: changed, not by these commands: {change}",
+			              Tone.WARNING)
 
 	def _push_config(self, cancel_event: threading.Event,
 	                 notifier: Notifier) -> tuple[bool, dict[int, PushResult]]:
@@ -366,81 +395,27 @@ class RolloutEngine:
 			executor.shutdown(wait=False, cancel_futures=True)
 		return cancelled, push_results
 
-	def _verify_device(self, device: Device,
-	                   report: RunReport) -> VerifyResult | None:
-		"""Fetches the device's config and checks every command in it
-		(verify_commands). Called concurrently by _verify.
-		:returns: the counts, the config kept only when something didn't
-		 verify (for Verify Diff) - or None if the config couldn't be fetched"""
-		try:
-			expected = device.commands_for(self._commands)
-		except SubstitutionError:
-			return None   # already reported (and the device failed) at the push
-		config = NetmikoSession(device, report).fetch_config()
-		if config is None:
-			# Couldn't verify ≠ not configured: the status comes from the push,
-			# but nobody checked the result - say so where it can't be missed
-			report.action_needed(device, "the change was applied but NOT "
-			                     "verified - its config couldn't be read (the "
-			                     "reason is in the log): check it on the device")
-			return None
-		verdicts = verify_commands(device.device_type, config, expected)
-		for command, verdict in zip(expected, verdicts):
-			if verdict in (NOT_CONFIGURED, STILL_CONFIGURED):
-				report.notify(f"{device.endpoint}: '{command.strip()}' "
-				              f"{verdict}", Tone.ERROR)
-			elif verdict == UNVERIFIABLE and \
-					not navigates(first_word(command)):
-				report.notify(f"{device.endpoint}: '{command.strip()}' not "
-				              f"verifiable - it leaves nothing in the config",
-				              Tone.WARNING)
-		verified = verdicts.count(VERIFIED)
-		checkable = verified + verdicts.count(NOT_CONFIGURED) + \
-			verdicts.count(STILL_CONFIGURED)
-		return VerifyResult(verified=verified, checkable=checkable,
-		                    config=None if verified == checkable else config)
-
-	def _verify(self, indexes: list[int],
-	            notifier: Notifier) -> dict[int, VerifyResult | None]:
-		"""Verifies the devices at `indexes` (those the push applied to)
-		concurrently via ThreadPoolExecutor.
-		:returns: {device index: VerifyResult, or None if not fetched}"""
-		report = self._reporting(notifier)
-		result: dict[int, VerifyResult | None] = {}
-		with ThreadPoolExecutor(max_workers=self._max_workers) as executor:
-			futures = {executor.submit(self._verify_device, self._devices[idx],
-			                           report): idx for idx in indexes}
-			for future in as_completed(futures):
-				result[futures[future]] = future.result()
-		return result
-
 	def _results(self, push_results: dict[int, PushResult],
-	             verify_results: dict[int, VerifyResult | None],
 	             report: RunReport) -> list[DeviceResultDict]:
 		""":returns: each device's outcome (classify), in the devices' order"""
 		results: list[DeviceResultDict] = []
-		total = len(self._commands)
-		# the commands that configure something (not exit / end / next…)
-		configuring = sum(1 for c in self._commands
-		                  if not navigates(first_word(c)))
 		for idx, device in enumerate(self._devices):
 			push = push_results.get(idx)
-			check = verify_results.get(idx) if push and push.applied else None
-			status, commands_sent, commands_verified = classify(
-				push, check, total, configuring)
-			if check is not None:
-				report.notify(f"{device.endpoint}: {check.verified}/"
-				              f"{check.checkable} commands verified"
-				              f"{f' ({total - check.checkable} not verifiable)' if total > check.checkable else ''}",
-				              important=True)
-			results.append(DeviceResultDict(device_ip=device.ip,
-			                                device_port=int(device.port),
-			                                device_type=device.device_type,
-			                                commands_sent=commands_sent,
-			                                commands_verified=commands_verified,
-			                                fetched_config=check.config if check else None,
-			                                status=status,
-			                                action_needed=report.actions(device.endpoint)))
+			status, commands_sent, commands_verified = classify(push)
+			if push is not None and push.outcome is not None:
+				judged = [j for j in push.outcome.commands if j.verdict != Verdict.NAVIGATION]
+				review = sum(1 for j in judged if j.verdict == Verdict.REVIEW)
+				report.notify(f"{device.endpoint}: {len(judged) - review} of {len(judged)} "
+				              f"commands proven by the configuration"
+				              + (f", {review} for review" if review else ""), important=True)
+			results.append(DeviceResultDict(
+				device_ip=device.ip, device_port=int(device.port),
+				device_type=device.device_type, commands_sent=commands_sent,
+				commands_verified=commands_verified,
+				fetched_config=push.after if push and status == DeviceStatus.REVIEW else None,
+				config_diff=push.diff if push else None,
+				transcript=transcript(push.outcome, push.replies) if push else None,
+				status=status, action_needed=report.actions(device.endpoint)))
 		return results
 
 	def _log_summary(self, results: list[DeviceResultDict],
@@ -451,7 +426,8 @@ class RolloutEngine:
 		parts = [f"{counts[s]} {s}" for s in DeviceStatus if counts[s]]
 		ok = counts[DeviceStatus.SUCCESS]
 		color = (Tone.SUCCESS if ok == len(results)
-		         else Tone.ERROR if ok == 0 and not counts[DeviceStatus.PARTIAL] else Tone.WARNING)
+		         else Tone.ERROR if counts[DeviceStatus.FAILED] + counts[DeviceStatus.CANCELLED] == len(results)
+		         else Tone.WARNING)
 		report.notify(f"Configuration rollout complete: "
 		              f"{', '.join(parts)} (of {len(results)} devices)",
 		              color, important=True)
@@ -467,8 +443,8 @@ class RolloutEngine:
 
 	def run(self, cancel_flag: threading.Event, logger: Notifier) -> list[
 		DeviceResultDict]:
-		"""The whole rollout: push, verify what was applied (when on), classify
-		each device, log the summary.
+		"""The whole rollout: push (each device verified in its own session,
+		when on), classify each device, log the summary.
 
 		:param cancel_flag: set to cancel - devices not reached yet are skipped
 		:param logger: where it logs (a RolloutLogger)
@@ -479,17 +455,7 @@ class RolloutEngine:
 		if not (self._devices and self._commands):
 			report.notify("Device input invalid", Tone.ERROR)
 			return []
-		cancelled, push_results = self._push_config(cancel_flag, logger)
-
-		# Verify only what the push applied to
-		applied = [idx for idx, push in push_results.items() if push.applied]
-		verify_results: dict[int, VerifyResult | None] = {}
-		if self._verify_flag and not cancelled and applied:
-			report.notify(
-				"Configuration rollout finished. Initiating verification process",
-				important=True)
-			verify_results = self._verify(applied, logger)
-
-		results = self._results(push_results, verify_results, report)
+		_, push_results = self._push_config(cancel_flag, logger)
+		results = self._results(push_results, report)
 		self._log_summary(results, report)
 		return results

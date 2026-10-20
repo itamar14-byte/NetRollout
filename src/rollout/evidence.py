@@ -22,11 +22,6 @@ NAVIGATION = {"exit", "end", "next", "abort", "quit", "return", "top", "up",
 # A removal: "no X" (Cisco-style), "undo X" (Comware), "unset X" /
 # "delete X" (FortiOS, Junos, PAN-OS, Gaia)
 NEGATION = {"no", "undo", "unset", "delete"}
-# A line the device prints between commands that is a time stamp, not an
-# answer: IOS "*Oct 19 19:17:26.223: …", NX-OS "2026 Oct 19 16:10:28 …"
-_EVENT = re.compile(r"^\*?(\d{4} )?[A-Z][a-z]{2} +\d+ (\d{4} )?\d\d:\d\d:\d\d")
-# Junos's context banner after a command ("[edit interfaces ge-0/0/0]")
-_CONTEXT = re.compile(r"^\[edit( .*)?\]$")
 _WORD = re.compile(r"([a-z]*)(.*)", re.S)
 
 
@@ -247,6 +242,9 @@ class Outcome:
 	changes no command explains (another person, or the device itself)."""
 	commands: tuple[Judgment, ...]
 	other_changes: tuple[str, ...]
+	# the lines the commands rest on, as (section, line): what a save must keep
+	added: tuple[tuple[tuple[str, ...], str], ...] = ()
+	removed: tuple[tuple[tuple[str, ...], str], ...] = ()
 
 	@property
 	def needs_review(self) -> bool:
@@ -312,6 +310,9 @@ class _Judge:
 		self.claims_removed: dict[int, list[int]] = {}
 		# where the command being judged is; None: unknown (anywhere)
 		self.context: list[str] | None = []
+		# commands in review → the section they were in (their evidence is
+		# gathered once every command has claimed its lines)
+		self.reviews: dict[int, Path | None] = {}
 
 	def run(self, commands: list[_Typed]) -> Outcome:
 		results: list[Judgment] = []
@@ -325,7 +326,10 @@ class _Judge:
 				following = next((c.words for c in commands[i + 1:] if not c.navigation), None)
 				results.append(self._setting(i, command, following))
 		self._conflicts(results)
-		return Outcome(tuple(results), self._other_changes())
+		self._review_evidence(results)
+		return Outcome(tuple(results), self._other_changes(),
+		               tuple(self.added[i].key for i in self.claims_added),
+		               tuple(self.removed[i].key for i in self.claims_removed))
 
 	def _navigate(self, command: _Typed) -> None:
 		"""Leave one section, or all of them ("end" closes only the current
@@ -375,7 +379,7 @@ class _Judge:
 			self.context = list(header.inside)
 			return Judgment(command.sent, Verdict.TOOK_EFFECT, (f"+ {header.raw}",),
 			                f"the device named it {header.raw!r}")
-		return self._review(command)
+		return self._review(i, command)
 
 	def _removal(self, i: int, command: _Typed) -> Judgment:
 		target = list(command.words[1:])
@@ -387,15 +391,26 @@ class _Judge:
 		if target and not any(self._at(line, path) and contains(target, line.words)
 		                      for path in self._levels() for line in self.both):
 			return Judgment(command.sent, Verdict.IN_PLACE, (), "already absent")
-		return self._review(command)
+		return self._review(i, command)
 
-	def _review(self, command: _Typed) -> Judgment:
-		""":returns: review, with what changed in the command's section"""
-		here = self._here()
-		changes = tuple([f"+ {line.raw}" for line in self.added if self._at(line, here)][:10]
-		                + [f"- {line.raw}" for line in self.removed if self._at(line, here)][:10])
-		return Judgment(command.sent, Verdict.REVIEW, changes,
-		                "" if changes else "no change in its section")
+	def _review(self, i: int, command: _Typed) -> Judgment:
+		""":returns: review - its evidence (what changed in its section that
+		 no other command accounts for) is added at the end (_review_evidence)"""
+		self.reviews[i] = self._here()
+		return Judgment(command.sent, Verdict.REVIEW)
+
+	def _review_evidence(self, results: list[Judgment]) -> None:
+		"""Each command in review gets the changes in its section that no
+		command claimed - or, when there are none, says so. (A block another
+		command opened doesn't account for its lines here: NX-OS's rewritten
+		"ip address …/32" inside a new interface is this command's evidence.)"""
+		added = [i for i in range(len(self.added)) if i not in self.claims_added]
+		removed = [i for i in range(len(self.removed)) if i not in self.claims_removed]
+		for i, path in self.reviews.items():
+			changes = tuple([f"+ {self.added[a].raw}" for a in added if self._at(self.added[a], path)][:10]
+			                + [f"- {self.removed[r].raw}" for r in removed if self._at(self.removed[r], path)][:10])
+			results[i] = Judgment(results[i].command, Verdict.REVIEW, changes,
+			                      "" if changes else "no change in its section")
 
 	def _enter(self, line: Line, path: Path | None) -> None:
 		"""After a command matched `line`, found at `path`: inside it when it's
@@ -434,10 +449,17 @@ class _Judge:
 					                      "the same change matches another command too")
 
 	def _other_changes(self) -> tuple[str, ...]:
-		""":returns: the changes no command accounts for. Accounted for: a
-		 command's own line, everything under a block it opened or removed,
-		 and a line a claimed one replaced (the same section and leading
-		 words: "snmp-server location a" → "… b", "vlan 1" → "vlan 1,98")"""
+		""":returns: the changes no command accounts for, with their section"""
+		added, removed = self._unexplained()
+		return tuple([f"+ {_where(self.added[i])}{self.added[i].raw}" for i in added]
+		             + [f"- {_where(self.removed[i])}{self.removed[i].raw}" for i in removed])
+
+	def _unexplained(self) -> tuple[list[int], list[int]]:
+		""":returns: the added and removed lines (their indexes) no command
+		 accounts for. Accounted for: a command's own line, everything under
+		 a block it opened or removed, and a line a claimed one replaced (the
+		 same section and leading words: "snmp-server location a" → "… b",
+		 "vlan 1" → "vlan 1,98")"""
 		blocks = {self.added[i].inside for i in self.claims_added} | \
 			{self.removed[i].inside for i in self.claims_removed}
 
@@ -452,11 +474,11 @@ class _Judge:
 					return True
 			return False
 
-		other = [f"+ {_where(line)}{line.raw}" for i, line in enumerate(self.added)
+		added = [i for i, line in enumerate(self.added)
 		         if i not in self.claims_added and not under_block(line)]
-		other += [f"- {_where(line)}{line.raw}" for i, line in enumerate(self.removed)
-		          if i not in self.claims_removed and not under_block(line) and not replaced(line)]
-		return tuple(other)
+		removed = [i for i, line in enumerate(self.removed)
+		           if i not in self.claims_removed and not under_block(line) and not replaced(line)]
+		return added, removed
 
 
 def judge(commands: list[str], before: str, after: str, *, flat: bool = False,
@@ -491,28 +513,3 @@ def judge(commands: list[str], before: str, after: str, *, flat: bool = False,
 
 def _where(line: Line) -> str:
 	return f"{' > '.join(line.path)} > " if line.path else ""
-
-
-def reply(output: str, command: str, prompt: str) -> tuple[list[str], list[str]]:
-	"""What the device said to one command, separated by shape from what
-	isn't an answer: the command's echo, the prompt (with any context:
-	"R1(config-if)#", "FGT1 (global) #"), blank lines, IOS's "^" pointer,
-	Junos's "[edit …]" banner. Time-stamped lines are device events.
-
-	:returns: (the reply's lines, the event lines) - never judged, shown"""
-	said, events = [], []
-	sent = command.strip()
-	base = prompt.strip()
-	for row in output.splitlines():
-		text = row.strip()
-		if not text or set(text) <= {"^"} or _CONTEXT.match(text):
-			continue
-		if sent and text.endswith(sent) and (text == sent or text.startswith(base)):
-			continue
-		if base and text.startswith(base) and text[-1:] in "#>$" and sent not in text:
-			continue
-		if _EVENT.match(text):
-			events.append(text)
-		else:
-			said.append(text)
-	return said, events

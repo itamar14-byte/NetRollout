@@ -105,7 +105,8 @@ class User(Base):
 	variable_mappings: Mapped[list["VariableMapping"]] = relationship(
 		back_populates="user", cascade="all, delete-orphan")
 	results: Mapped[list["DeviceResult"]] = relationship(
-		back_populates="user", cascade="all, delete-orphan")
+		back_populates="user", cascade="all, delete-orphan",
+		foreign_keys="DeviceResult.user_id")
 	job_metadata: Mapped[list["JobMetadata"]] = relationship(
 		back_populates="user",
 		cascade="all, delete-orphan")
@@ -289,18 +290,33 @@ class DeviceResult(Base):
 	                                         server_default="22")
 	device_type: Mapped[str] = mapped_column(String(64), nullable=False)
 	commands_sent: Mapped[int] = mapped_column(Integer, nullable=False)
+	# commands the device's configuration proved (src/rollout/evidence.py);
+	# None: not judged
 	commands_verified: Mapped[int | None] = mapped_column(Integer,
 	                                                      nullable=True)
+	# the configuration after the push, kept for a review (Verify Diff); both
+	# it and the diff go after the config snapshot retention
 	fetched_config: Mapped[str | None] = mapped_column(Text, nullable=True)
+	config_diff: Mapped[str | None] = mapped_column(Text, nullable=True)
+	# per command: as sent, its verdict, the device lines it rests on, the
+	# device's reply; and the changes no command explains (engine.transcript)
+	transcript: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 	status: Mapped[str] = mapped_column(String(64), nullable=False)
 	# What only a person can resolve on the device (e.g. "the change is live
 	# but NOT saved - save it on the device"); shown on the Results page
 	action_needed: Mapped[str | None] = mapped_column(Text, nullable=True)
+	# a review's decision (ReviewOutcome): who, when, why
+	review_outcome: Mapped[str | None] = mapped_column(String(16), nullable=True)
+	review_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+	reviewed_by: Mapped[uuid.UUID | None] = mapped_column(
+		Uuid, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+	reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 	user_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id"),
 	                                           nullable=False)
 
-	user: Mapped["User"] = relationship(back_populates="results")
+	user: Mapped["User"] = relationship(back_populates="results",
+	                                    foreign_keys=[user_id])
 
 
 class JobMetadata(Base):

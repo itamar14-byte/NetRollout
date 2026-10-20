@@ -11,12 +11,13 @@ import pytest
 
 from src.rollout import inputs
 from src.rollout.engine import Device, RolloutEngine, RolloutOptions
+from src.rollout.evidence import Verdict, first_word, judge
 from src.rollout.log import RolloutLogger
-from src.rollout.platforms import COMMIT_TIMEOUT, NOT_CONFIGURED, PLATFORMS, STILL_CONFIGURED, UNVERIFIABLE, VARIABLE, VERIFIED, Commit, NoFinish, RunCommand, SaveConfig, first_word, rejection, verify_commands
-from src.rollout.session import NetmikoSession, PushResult, RunReport
+from src.rollout.platforms import COMMIT_TIMEOUT, PLATFORMS, Commit, NoFinish, RunCommand, SaveConfig
+from src.rollout.session import NetmikoSession, PushResult, RunReport, reply
 
 
-OK, MISSING, STILL, NV = VERIFIED, NOT_CONFIGURED, STILL_CONFIGURED, UNVERIFIABLE
+T, P, N, V = Verdict.TOOK_EFFECT, Verdict.IN_PLACE, Verdict.NAVIGATION, Verdict.REVIEW
 
 
 def test_every_supported_platform_has_a_row():
@@ -24,359 +25,98 @@ def test_every_supported_platform_has_a_row():
 	assert set(PLATFORMS) == set(inputs.SUPPORTED_PLATFORMS)
 
 
-# ── Verify verdicts, per platform ────────────────────────────────────────────
-# (device type, config as the platform prints it, [(typed command, verdict)])
+# ── Each platform's config layout, judged ────────────────────────────────────
+# The configs as each platform prints them (kept from the verify tests the
+# judge replaced): a change written into one, the way the platform would,
+# must be found in its section and attributed to the command - the 9
+# platforms the EVE lab doesn't run get their layout covered here.
 
-IOS_CONFIG = """Building configuration...
+CONFIGS = {
+	'cisco_ios': 'Building configuration...\n\nCurrent configuration : 1980 bytes\n!\nversion 17.3\nhostname r1\n!\nno ip domain lookup\n!\ninterface GigabitEthernet1\n description uplink-to-core\n ip address 10.0.0.1 255.255.255.0\n negotiation auto\n!\ninterface GigabitEthernet2\n no ip address\n shutdown\n!\nrouter bgp 65000\n bgp log-neighbor-changes\n neighbor 10.0.0.2 remote-as 65001\n !\n address-family ipv4\n  network 10.0.0.0 mask 255.255.255.0\n  neighbor 10.0.0.2 activate\n exit-address-family\n!\nip route 0.0.0.0 0.0.0.0 10.0.0.254\nntp server 1.1.1.1\nbanner motd ^C\nAuthorized access only\n^C\n!\nend\n',
+	'cisco_xe': 'Building configuration...\n\nCurrent configuration : 1980 bytes\n!\nversion 17.3\nhostname r1\n!\nno ip domain lookup\n!\ninterface GigabitEthernet1\n description uplink-to-core\n ip address 10.0.0.1 255.255.255.0\n negotiation auto\n!\ninterface GigabitEthernet2\n no ip address\n shutdown\n!\nrouter bgp 65000\n bgp log-neighbor-changes\n neighbor 10.0.0.2 remote-as 65001\n !\n address-family ipv4\n  network 10.0.0.0 mask 255.255.255.0\n  neighbor 10.0.0.2 activate\n exit-address-family\n!\nip route 0.0.0.0 0.0.0.0 10.0.0.254\nntp server 1.1.1.1\nbanner motd ^C\nAuthorized access only\n^C\n!\nend\n',
+	'cisco_nxos': '!Command: show running-config\n!Running configuration last done at: Thu Oct  1 10:00:00 2026\n\nversion 9.3(8) Bios:version\nhostname n1\nfeature ospf\nfeature interface-vlan\n\nvlan 1,10\nvlan 10\n  name users\n\ninterface Vlan10\n  no shutdown\n  ip address 10.10.0.1/24\n\ninterface Ethernet1/1\n  description to-n2\n  switchport access vlan 10\n\ninterface Ethernet1/2\n  shutdown\n\nrouter ospf 1\n  router-id 1.1.1.1\n',
+	'cisco_xr': 'Building configuration...\n!! IOS XR Configuration 7.3.2\n!! Last configuration change at Thu Oct  1 10:00:00 2026 by admin\n!\nhostname x1\ninterface GigabitEthernet0/0/0/0\n description core\n ipv4 address 10.1.1.1 255.255.255.252\n!\ninterface GigabitEthernet0/0/0/1\n shutdown\n!\nrouter ospf 1\n area 0\n  interface GigabitEthernet0/0/0/0\n   cost 10\n  !\n !\n!\nend\n',
+	'arista_eos': '! Command: show running-config\n! device: e1 (vEOS-lab, EOS-4.27.0F)\n!\nhostname e1\n!\ninterface Ethernet1\n   description srv\n   switchport access vlan 20\n!\nip routing\n!\nrouter bgp 65001\n   neighbor 10.0.0.2 remote-as 65002\n!\nend\n',
+	'aruba_aoscx': 'Current configuration:\n!\n!Version ArubaOS-CX GL.10.08.1010\n!export-password: default\nhostname a1\nvlan 1,10\nvlan 10\n    name users\ninterface 1/1/1\n    no shutdown\n    description access\n    vlan access 10\n',
+	'hp_procurve': 'Running configuration:\n\n; J9773A Configuration Editor; Created on release #YA.16.10.0010\n; Ver #14:01.4f.f8.1d.9b.3f.bf.bb.ef.7c.59.fc.6b.fb.9f.fc.ff.ff.37.ef:05\n\nhostname "p1"\nmodule 1 type j9773a\nvlan 1\n   name "DEFAULT_VLAN"\n   untagged 1-23\n   ip address dhcp-bootp\n   exit\nvlan 10\n   name "users"\n   tagged 24\n   exit\n',
+	'hp_comware': '#\n version 7.1.064, Release 0427P22\n#\n sysname c1\n#\nvlan 10\n name users\n#\ninterface GigabitEthernet1/0/1\n port link-mode bridge\n description to-core\n port access vlan 10\n#\ninterface GigabitEthernet1/0/2\n port link-mode bridge\n shutdown\n#\nreturn\n',
+	'juniper_junos': 'set version 21.4R1.12\nset system host-name j1\nset system services ssh\nset interfaces ge-0/0/0 unit 0 family inet address 10.0.0.1/24\nset protocols ospf area 0.0.0.0 interface ge-0/0/0.0\nset routing-options static route 0.0.0.0/0 next-hop 10.0.0.254\n',
+	'paloalto_panos': 'set deviceconfig system hostname fw1\nset network interface ethernet ethernet1/1 layer3 ip 10.0.0.1/24\nset zone trust network layer3 ethernet1/1\n',
+	'checkpoint_gaia': '#\n# Configuration of gw-1\n# Language version: 14.1v1\n#\n# Exported by admin on Thu Oct  1 10:00:00 2026\n#\nset hostname gw-1\nset interface eth1 ipv4-address 10.0.0.1 mask-length 24\nset interface eth1 state on\nadd user ops uid 2001 homedir /home/ops\nset static-route default nexthop gateway address 10.0.0.254 on\n',
+	'fortinet': '#config-version=FGVM64-7.2.4-FW-build1396-230131:opmode=0:vdom=0:user=admin\n#conf_file_ver=12345\n#buildno=1396\n#global_vdom=1\nconfig system global\n    set hostname "fw1"\n    set timezone 28\nend\nconfig system interface\n    edit "port1"\n        set vdom "root"\n        set ip 10.0.0.1 255.255.255.0\n        set allowaccess ping https ssh\n        config ipv6\n            set ip6-address 2001:db8::1/64\n        end\n    next\n    edit "port2"\n        set vdom "root"\n        set ip 10.1.0.1 255.255.255.0\n    next\nend\nconfig firewall address\n    edit "srv1"\n        set subnet 10.2.0.10 255.255.255.255\n    next\nend\n',
+}
 
-Current configuration : 1980 bytes
-!
-version 17.3
-hostname r1
-!
-no ip domain lookup
-!
-interface GigabitEthernet1
- description uplink-to-core
- ip address 10.0.0.1 255.255.255.0
- negotiation auto
-!
-interface GigabitEthernet2
- no ip address
- shutdown
-!
-router bgp 65000
- bgp log-neighbor-changes
- neighbor 10.0.0.2 remote-as 65001
- !
- address-family ipv4
-  network 10.0.0.0 mask 255.255.255.0
-  neighbor 10.0.0.2 activate
- exit-address-family
-!
-ip route 0.0.0.0 0.0.0.0 10.0.0.254
-ntp server 1.1.1.1
-banner motd ^C
-Authorized access only
-^C
-!
-end
-"""
 
-CASES = [
-	("cisco_ios", IOS_CONFIG, [
-		("hostname r1", OK),
-		("interface GigabitEthernet1", OK),
-		("description uplink-to-core", OK),
-		("no shutdown", OK),                            # not shut: in effect
-		("exit", NV),
-		("interface GigabitEthernet2", OK),
-		("description never-applied", MISSING),
-		("no shutdown", STILL),                         # still shut down
-		("router bgp 65000", OK),
-		("address-family ipv4", OK),
-		("neighbor 10.0.0.2 activate", OK),             # inside the AF section
-		("exit-address-family", NV),
-		("neighbor 10.0.0.2 remote-as 65001", OK),      # back at bgp level
-		("ip route 0.0.0.0 0.0.0.0 10.0.0.254", OK),    # global, typed in bgp
-		("no ip domain lookup", OK),                    # shown literally
-		("no ntp server 9.9.9.9", OK),                  # absent: in effect
-		("no ntp server 1.1.1.1", STILL),
-		("end", NV),
-		("write memory", NV),
-	]),
-	("cisco_xe", IOS_CONFIG, [
-		("interface GigabitEthernet1", OK),
-		("ip address 10.0.0.1 255.255.255.0", OK),
-		("ip address 10.9.9.9 255.255.255.0", MISSING),
-	]),
-	("cisco_nxos", """!Command: show running-config
-!Running configuration last done at: Thu Oct  1 10:00:00 2026
-
-version 9.3(8) Bios:version
-hostname n1
-feature ospf
-feature interface-vlan
-
-vlan 1,10
-vlan 10
-  name users
-
-interface Vlan10
-  no shutdown
-  ip address 10.10.0.1/24
-
-interface Ethernet1/1
-  description to-n2
-  switchport access vlan 10
-
-interface Ethernet1/2
-  shutdown
-
-router ospf 1
-  router-id 1.1.1.1
-""", [
-		("feature ospf", OK),
-		("feature bgp", MISSING),
-		("vlan 10", OK),
-		("name users", OK),
-		("interface Vlan10", OK),
-		("no shutdown", OK),                            # NX-OS shows it
-		("shutdown", MISSING),
-		("interface Ethernet1/2", OK),
-		("no shutdown", STILL),
-		("router ospf 1", OK),
-		("router-id 1.1.1.1", OK),
-	]),
-	("cisco_xr", """Building configuration...
-!! IOS XR Configuration 7.3.2
-!! Last configuration change at Thu Oct  1 10:00:00 2026 by admin
-!
-hostname x1
-interface GigabitEthernet0/0/0/0
- description core
- ipv4 address 10.1.1.1 255.255.255.252
-!
-interface GigabitEthernet0/0/0/1
- shutdown
-!
-router ospf 1
- area 0
-  interface GigabitEthernet0/0/0/0
-   cost 10
-  !
- !
-!
-end
-""", [
-		("interface GigabitEthernet0/0/0/0", OK),
-		("description core", OK),
-		("router ospf 1", OK),
-		("area 0", OK),
-		("interface GigabitEthernet0/0/0/0", OK),       # the one inside area 0
-		("cost 10", OK),
-		("cost 20", MISSING),
-		("root", NV),                                   # XR: back to the top
-		("commit", NV),
-	]),
-	("arista_eos", """! Command: show running-config
-! device: e1 (vEOS-lab, EOS-4.27.0F)
-!
-hostname e1
-!
-interface Ethernet1
-   description srv
-   switchport access vlan 20
-!
-ip routing
-!
-router bgp 65001
-   neighbor 10.0.0.2 remote-as 65002
-!
-end
-""", [
-		("interface Ethernet1", OK),
-		("description srv", OK),
-		("switchport access vlan 30", MISSING),
-		("router bgp 65001", OK),
-		("neighbor 10.0.0.2 remote-as 65002", OK),
-		("no ip routing", STILL),
-	]),
-	("aruba_aoscx", """Current configuration:
-!
-!Version ArubaOS-CX GL.10.08.1010
-!export-password: default
-hostname a1
-vlan 1,10
-vlan 10
-    name users
-interface 1/1/1
-    no shutdown
-    description access
-    vlan access 10
-""", [
-		("vlan 10", OK),
-		("name users", OK),
-		("interface 1/1/1", OK),
-		("description access", OK),
-		("no shutdown", OK),
-		("vlan access 20", MISSING),
-	]),
-	("hp_procurve", """Running configuration:
-
-; J9773A Configuration Editor; Created on release #YA.16.10.0010
-; Ver #14:01.4f.f8.1d.9b.3f.bf.bb.ef.7c.59.fc.6b.fb.9f.fc.ff.ff.37.ef:05
-
-hostname "p1"
-module 1 type j9773a
-vlan 1
-   name "DEFAULT_VLAN"
-   untagged 1-23
-   ip address dhcp-bootp
-   exit
-vlan 10
-   name "users"
-   tagged 24
-   exit
-""", [
-		('hostname "p1"', OK),
-		("hostname p1", OK),                            # quotes don't matter
-		("vlan 10", OK),
-		("name users", OK),
-		("tagged 24", OK),
-		("untagged 5", MISSING),
-		("exit", NV),
-	]),
-	("hp_comware", """#
- version 7.1.064, Release 0427P22
-#
- sysname c1
-#
-vlan 10
- name users
-#
-interface GigabitEthernet1/0/1
- port link-mode bridge
- description to-core
- port access vlan 10
-#
-interface GigabitEthernet1/0/2
- port link-mode bridge
- shutdown
-#
-return
-""", [
-		("sysname c1", OK),                             # top level after '#'
-		("vlan 10", OK),
-		("name users", OK),
-		("quit", NV),
-		("interface GigabitEthernet1/0/1", OK),
-		("description to-core", OK),
-		("port access vlan 20", MISSING),
-		("quit", NV),
-		("interface GigabitEthernet1/0/2", OK),
-		("undo shutdown", STILL),                       # Comware's "no"
-		("undo description", OK),                       # none there
-		("return", NV),
-	]),
-	("juniper_junos", """set version 21.4R1.12
-set system host-name j1
-set system services ssh
-set interfaces ge-0/0/0 unit 0 family inet address 10.0.0.1/24
-set protocols ospf area 0.0.0.0 interface ge-0/0/0.0
-set routing-options static route 0.0.0.0/0 next-hop 10.0.0.254
-""", [
-		("set system host-name j1", OK),
-		("edit interfaces ge-0/0/0", NV),
-		("set unit 0 family inet address 10.0.0.1/24", OK),   # relative to edit
-		("set unit 0 family inet address 10.0.9.1/24", MISSING),
-		("top", NV),
-		("delete protocols bgp", OK),                   # absent: in effect
-		("delete system services ssh", STILL),
-		("set routing-options static route 0.0.0.0/0 next-hop 10.0.0.254", OK),
-		("commit", NV),
-	]),
-	("paloalto_panos", """set deviceconfig system hostname fw1
-set network interface ethernet ethernet1/1 layer3 ip 10.0.0.1/24
-set zone trust network layer3 ethernet1/1
-""", [
-		("set deviceconfig system hostname fw1", OK),
-		("edit network interface ethernet ethernet1/1", NV),
-		("set layer3 ip 10.0.0.1/24", OK),
-		("up", NV),
-		("top", NV),
-		("delete zone dmz", OK),
-		("delete zone trust", STILL),
-		("commit", NV),
-	]),
-	("checkpoint_gaia", """#
-# Configuration of gw-1
-# Language version: 14.1v1
-#
-# Exported by admin on Thu Oct  1 10:00:00 2026
-#
-set hostname gw-1
-set interface eth1 ipv4-address 10.0.0.1 mask-length 24
-set interface eth1 state on
-add user ops uid 2001 homedir /home/ops
-set static-route default nexthop gateway address 10.0.0.254 on
-""", [
-		("set hostname gw-1", OK),
-		("set interface eth1 state on", OK),
-		("set interface eth1 comments uplink", MISSING),
-		("add user ops uid 2001 homedir /home/ops", OK),
-		("delete user ops", STILL),                     # still an "add" line
-		("delete user old", OK),
-		("set static-route 10.9.0.0/16 off", OK),            # no such route
-		("set static-route default off", STILL),             # still there
-		("save config", NV),
-	]),
-	("fortinet", """#config-version=FGVM64-7.2.4-FW-build1396-230131:opmode=0:vdom=0:user=admin
-#conf_file_ver=12345
-#buildno=1396
-#global_vdom=1
-config system global
-    set hostname "fw1"
-    set timezone 28
-end
-config system interface
-    edit "port1"
-        set vdom "root"
-        set ip 10.0.0.1 255.255.255.0
-        set allowaccess ping https ssh
-        config ipv6
-            set ip6-address 2001:db8::1/64
-        end
-    next
-    edit "port2"
-        set vdom "root"
-        set ip 10.1.0.1 255.255.255.0
-    next
-end
-config firewall address
-    edit "srv1"
-        set subnet 10.2.0.10 255.255.255.255
-    next
-end
-""", [
-		("config system interface", OK),
-		('edit "port1"', OK),
-		("set allowaccess ping https ssh", OK),
-		("config ipv6", OK),
-		("set ip6-address 2001:db8::1/64", OK),
-		("end", NV),                                    # closes only config ipv6
-		("set description uplink", MISSING),            # still in edit port1
-		("set ip 10.0.0.1 255.255.255.0", OK),          # ...as this one shows
-		("next", NV),
-		("edit port2", OK),                             # unquoted is fine
-		("unset allowaccess", OK),                      # none there
-		("next", NV),
-		("end", NV),
-		("config firewall address", OK),
-		("delete old-srv", OK),
-		("delete srv1", STILL),
-		("end", NV),
-		("config system global", OK),
-		("set hostname fw1", OK),
-	]),
+# (platform, the row the new line goes under - None: appended (flat configs),
+#  the new line as the device prints it, the commands typed, their verdicts)
+INSERTS = [
+	("cisco_ios", "interface GigabitEthernet2", " description new-link",
+	 ["interface GigabitEthernet2", "description new-link", "exit"], [P, T, N]),
+	("cisco_xe", "router bgp 65000", " neighbor 10.0.0.9 remote-as 65009",
+	 ["router bgp 65000", "neighbor 10.0.0.9 remote-as 65009"], [P, T]),
+	("cisco_nxos", "interface Ethernet1/2", "  description spare",
+	 ["int eth1/2", "description spare"], [P, T]),
+	("cisco_xr", "  interface GigabitEthernet0/0/0/0", "   network point-to-point",
+	 ["router ospf 1", "area 0", "interface GigabitEthernet0/0/0/0", "network point-to-point"], [P, P, P, T]),
+	("arista_eos", "router bgp 65001", "   neighbor 10.0.0.3 remote-as 65003",
+	 ["router bgp 65001", "neighbor 10.0.0.3 remote-as 65003"], [P, T]),
+	("aruba_aoscx", "interface 1/1/1", "    mtu 9198", ["interface 1/1/1", "mtu 9198"], [P, T]),
+	("hp_procurve", "vlan 10", "   untagged 5", ["vlan 10", "untagged 5", "exit"], [P, T, N]),
+	("hp_comware", "interface GigabitEthernet1/0/2", " description spare",
+	 ["interface GigabitEthernet1/0/2", "description spare", "quit"], [P, T, N]),
+	("juniper_junos", None, "set system ntp server 10.0.0.5",
+	 ["edit system", "set ntp server 10.0.0.5", "top"], [N, T, N]),
+	("paloalto_panos", None, "set deviceconfig system ntp-servers primary-ntp-server ntp-server-address 10.0.0.5",
+	 ["set deviceconfig system ntp-servers primary-ntp-server ntp-server-address 10.0.0.5"], [T]),
+	("checkpoint_gaia", None, "set ntp server primary 10.0.0.5 version 4",
+	 ["set ntp server primary 10.0.0.5 version 4"], [T]),
+	("fortinet", "config system global", "    set admintimeout 30",
+	 ["config system global", "set admintimeout 30", "end"], [P, T, N]),
 ]
 
 
-@pytest.mark.parametrize("device_type, config, expected", CASES,
-                         ids=[c[0] for c in CASES])
-def test_verdicts(device_type, config, expected):
-	"""On each platform's printed config, every typed command gets its expected verdict:
-	verified, not configured, still configured, or not checkable (navigation, save)."""
-	commands = [command for command, _ in expected]
-	got = verify_commands(device_type, config, commands)
-	assert list(zip(commands, got)) == expected
+def with_line(config, under, line):
+	""":returns: the config with `line` right below the row `under` (exactly that
+	 row, indentation included); appended when under is None"""
+	if under is None:
+		return config.rstrip("\n") + "\n" + line + "\n"
+	rows = config.splitlines()
+	at = rows.index(under) if under in rows else rows.index(under.strip())
+	return "\n".join(rows[:at + 1] + [line] + rows[at + 1:]) + "\n"
 
 
-def test_unresolved_variables_are_not_judged():
-	"""A command still holding a $$VARIABLE$$ gets the VARIABLE verdict, not a judgement."""
-	verdicts = verify_commands("cisco_ios", IOS_CONFIG,
-	                           ["hostname $$HOSTNAME$$", "hostname r1"])
-	assert verdicts == [VARIABLE, OK]
+@pytest.mark.parametrize("device_type, under, line, commands, verdicts", INSERTS,
+                         ids=[i[0] for i in INSERTS])
+def test_a_change_is_found_in_its_section_on_each_platform(device_type, under, line, commands, verdicts):
+	"""On each platform's own layout (sections, FortiOS blocks, Comware's '#',
+	ProCurve's 'exit', flat set lines with Junos' edit path), a new line is the
+	command that made it, and the section it went into is already in place."""
+	platform = PLATFORMS[device_type]
+	before = platform.config(CONFIGS[device_type])
+	after = platform.config(with_line(CONFIGS[device_type], under, line))
+	outcome = judge(commands, before, after, flat=platform.flat, blocks=platform.close_blocks)
+	assert [j.verdict for j in outcome.commands] == verdicts
+	assert outcome.other_changes == ()
+
+
+@pytest.mark.parametrize("device_type", list(CONFIGS))
+def test_nothing_changed_is_never_a_success(device_type):
+	"""The same config before and after: a command that isn't already there
+	exactly is review, never took effect - on every platform."""
+	platform = PLATFORMS[device_type]
+	config = platform.config(CONFIGS[device_type])
+	outcome = judge(["snmp-server location nowhere-at-all"], config, config,
+	                flat=platform.flat, blocks=platform.close_blocks)
+	assert [j.verdict for j in outcome.commands] == [V]
+
+
+def test_ios_framing_is_left_out():
+	"""IOS prints "Building configuration..." and "Current configuration : N
+	bytes" above the config; the count changes with every push - framing, not
+	configuration."""
+	config = PLATFORMS["cisco_ios"].config(CONFIGS["cisco_ios"])
+	assert "Current configuration" not in config and "Building configuration" not in config
+	assert "hostname r1" in config
 
 
 @pytest.mark.parametrize("command, word", [
@@ -389,7 +129,9 @@ def test_first_word_of_a_command(command, word):
 	assert first_word(command) == word
 
 
-# ── A refused command, in each vendor's words ────────────────────────────────
+# ── What a device replies, in each vendor's words ────────────────────────────
+# (kept from the rejection tests the judge replaced: never judged now, but
+# every one of them must reach the log and the device's transcript)
 
 @pytest.mark.parametrize("command, output", [
 	("ip adress 1.1.1.1", "r1(config)#ip adress 1.1.1.1\n                   ^\n% Invalid input detected at '^' marker.\nr1(config)#"),
@@ -405,7 +147,6 @@ def test_first_word_of_a_command(command, word):
 	("sett zone", "Unknown command: sett"),
 	("set interfce eth1", "CLINFR0329  Invalid command:'set interfce eth1'."),  # Gaia
 	("set ipp 1.1.1.1", "command parse error before 'ipp'\nCommand fail. Return code -61"),  # FortiOS
-	# found in the vendor documentation (2026-10-02)
 	("set srcintf LAN", "node_check_object fail! for name LAN\nvalue parse error before 'LAN'"),
 	("set member web", "entry not found in datasource"),
 	('set alias "LAN', "token line: Unmatched double quote."),
@@ -422,27 +163,23 @@ def test_first_word_of_a_command(command, word):
 	("spanning-tree priority", "Incomplete input: priority"),            # ProCurve
 	("interface", "% Command incomplete."),                              # Aruba CX
 ])
-
-def test_rejections_are_recognised(command, output):
-	"""Each vendor's error reply (IOS, NX-OS, EOS, Aruba, ProCurve, Comware, Junos, PAN-OS,
-	Gaia, FortiOS) is recognised as a rejection of the command."""
-	assert rejection(output, command)
-
-
-def test_a_hostname_like_a_gaia_code_isnt_an_error():
-	"""A prompt that looks like a Gaia error code (FWPROD0001>) isn't a rejection."""
-	assert rejection("FWPROD0001> set hostname x", "set hostname x") is None
+def test_every_vendors_error_reaches_the_reply(command, output):
+	"""Each vendor's error (IOS, NX-OS, EOS, Aruba, ProCurve, Comware, Junos,
+	PAN-OS, Gaia, FortiOS) is kept as the device's reply - whatever its words."""
+	said, _ = reply(output, command, "r1")
+	assert said and all(line in output for line in said)
 
 
-@pytest.mark.parametrize("command, output", [
-	("description unknown-host", "r1(config-if)#description unknown-host\nr1(config-if)#"),
-	("set comments invalid-input-filter", "fw1 (port1) # set comments invalid-input-filter\nfw1 (port1) #"),
-	("hostname r2", "r2(config)#"),
+@pytest.mark.parametrize("command, output, prompt", [
+	("description unknown-host", "r1(config-if)#description unknown-host\nr1(config-if)#", "r1"),
+	("set comments invalid-input-filter", "fw1 (port1) # set comments invalid-input-filter\nfw1 (port1) #", "fw1"),
+	("hostname r2", "r2(config)#", "r2"),
 ])
-def test_an_accepted_command_echo_is_not_a_rejection(command, output):
-	"""A command echoed back with error-like words in its own text (unknown, invalid),
-	or a bare new prompt, isn't a rejection."""
-	assert rejection(output, command) is None
+def test_an_accepted_commands_echo_and_prompt_are_no_reply(command, output, prompt):
+	"""A command echoed back with error-like words in its own text, or a bare
+	new prompt (a new hostname's), is no reply."""
+	said, _ = reply(output, command, prompt)
+	assert said == []
 
 
 # ── How the push finishes, per platform ──────────────────────────────────────
@@ -463,7 +200,8 @@ def connection(prompt="r1#", vdoms=False, cfg_save="automatic"):
 	"""A mocked Netmiko connection: accepts every command, shows `prompt`, FortiOS's
 	VDOM flag and cfg-save mode."""
 	conn = MagicMock()
-	conn.send_config_set.return_value = "ok"
+	conn.send_config_set.side_effect = lambda commands, **_: f"{commands[0]}\n{prompt}"
+	conn.base_prompt = prompt.rstrip("#> ")
 	conn.find_prompt.return_value = prompt
 	conn._vdoms = vdoms                        # Netmiko's FortiOS VDOM flag
 	conn.send_command_timing.side_effect = lambda cmd: (
@@ -487,7 +225,7 @@ def test_save_platforms_leave_config_mode_then_save(device_type):
 	"""Every "save" platform leaves config mode, then saves (Aruba CX sends `end` first);
 	the push is applied with nothing rejected."""
 	conn = connection()
-	assert push(device_type, conn) == PushResult(applied=True, rejected=0)
+	assert push(device_type, conn).applied
 	first = [call.send_command_timing("end")] \
 		if device_type == "aruba_aoscx" else []
 	assert finish_calls(conn) == [*first, call.exit_config_mode(),
@@ -519,7 +257,7 @@ def test_junos_failed_commit_rolls_back_and_reports_not_applied():
 	conn = connection()
 	conn.commit.side_effect = ValueError("Commit failed: error: x")
 	result = push("juniper_junos", conn)
-	assert result == PushResult(applied=False, rejected=0)
+	assert not result.applied
 	assert finish_calls(conn) == [
 		call.commit(read_timeout=COMMIT_TIMEOUT),
 		call.send_config_set(["rollback 0"], exit_config_mode=False),
@@ -555,23 +293,25 @@ def test_xr_failed_commit_needs_no_discard_and_no_warning():
 	conn = connection()
 	conn.commit.side_effect = ValueError("Commit failed")
 	logger = fresh_logger()
-	assert push("cisco_xr", conn, logger=logger) == PushResult(applied=False, rejected=0)
+	assert not push("cisco_xr", conn, logger=logger).applied
 	assert finish_calls(conn) == [call.commit(read_timeout=COMMIT_TIMEOUT),
 	                              call.exit_config_mode()]
 	assert "still be in the candidate" not in log_of(logger)
 
 
-def test_junos_failed_commit_whose_rollback_is_refused_asks_to_discard():
-	"""When Junos refuses `rollback 0` after a failed commit, the log says the changes
-	may still be in the candidate configuration - an ACTION NEEDED for the device."""
+def test_junos_failed_commit_shows_the_rollbacks_reply_and_asks_to_check():
+	"""After a failed Junos commit, `rollback 0` is sent and what the device
+	answered is shown - whether it was accepted isn't judged from its words:
+	ACTION NEEDED, check the candidate configuration is empty."""
 	conn = connection()
 	conn.commit.side_effect = ValueError("Commit failed")
 	conn.send_config_set.side_effect = lambda cmds, **kw: (
-		"error: syntax error" if cmds == ["rollback 0"] else "ok")
+		"error: syntax error" if cmds == ["rollback 0"] else f"{cmds[0]}\nr1#")
 	logger = fresh_logger()
 	assert not push("juniper_junos", conn, logger=logger).applied
 	log = log_of(logger)
-	assert "still be in the candidate" in log and "ACTION NEEDED" in log
+	assert "ACTION NEEDED" in log and "check that the candidate configuration is empty" in log
+	assert "'rollback 0' (the device replied: error: syntax error)" in log
 
 
 def test_panos_falls_back_to_loading_the_running_config():
@@ -588,9 +328,11 @@ def test_panos_falls_back_to_loading_the_running_config():
 	assert "discard them on the device" not in log_of(logger)
 
 
-def test_panos_both_discards_refused_says_to_discard_on_the_device():
-	"""When both PAN-OS discards are refused, the push isn't applied and the log says to
-	discard the changes on the device."""
+def test_panos_failed_commit_sends_both_discards_and_asks_to_check():
+	"""After a failed PAN-OS commit both discards are sent, the push isn't
+	applied, and the log shows what the device answered and asks a person to
+	check the candidate (whether a discard was accepted isn't judged from its
+	words)."""
 	conn = connection()
 	conn.commit.side_effect = ValueError("Commit failed")
 	conn.send_config_set.side_effect = lambda cmds, **kw: (
@@ -599,7 +341,7 @@ def test_panos_both_discards_refused_says_to_discard_on_the_device():
 		else "ok")
 	logger = fresh_logger()
 	assert not push("paloalto_panos", conn, logger=logger).applied
-	assert "discard them on the device" in log_of(logger)
+	assert "'revert config' (the device replied: Unknown command), then 'load config from " 	       "running-config.xml' (the device replied: Unknown command) - check that the candidate " 	       "configuration is empty" in log_of(logger)
 
 
 def test_junos_configures_privately():
@@ -639,18 +381,19 @@ def test_gaia_refuses_when_the_expert_shell_stays():
 	for prompt in ("[Expert@gw-1:0]#", "gw-1#"):
 		conn = connection(prompt=prompt)
 		logger = fresh_logger()
-		assert push("checkpoint_gaia", conn, logger=logger) == \
-		       PushResult(applied=False, rejected=0)
+		assert push("checkpoint_gaia", conn, logger=logger) == PushResult(applied=False)
 		conn.send_config_set.assert_not_called()     # nothing was sent
 		assert "wrong shell" in log_of(logger)
 
 
 def test_gaia_saves_with_its_own_command():
-	"""Gaia leaves config mode, then saves with `save config`."""
+	"""Gaia leaves config mode, saves with `save config`, then reads its save
+	state (`show config-state`)."""
 	conn = connection(prompt="gw-1>")
 	assert push("checkpoint_gaia", conn).applied
 	assert finish_calls(conn) == [call.exit_config_mode(),
-	                              call.send_command("save config")]
+	                              call.send_command("save config"),
+	                              call.send_command("show config-state")]
 
 
 def test_fortios_closes_open_blocks_and_saves_nothing():
@@ -667,27 +410,34 @@ def test_fortios_closes_open_blocks_and_saves_nothing():
 	conn.commit.assert_not_called()
 
 
-def test_rejected_commands_are_counted_and_the_rest_still_sent():
-	"""A rejected command is counted (rejected=1) and the following ones are still sent."""
+def test_every_command_is_sent_and_each_reply_kept():
+	"""Whatever the device answers, the following commands are still sent, and
+	each command's reply is kept with it (shown, never judged)."""
 	conn = connection()
-	conn.send_config_set.side_effect = ["% Invalid input detected", "ok", "ok"]
+	conn.send_config_set.side_effect = ["bad\n% Invalid input detected\nr1#", "good 1\nr1#", "good 2\nr1#"]
 	result = push("cisco_ios", conn, commands=("bad", "good 1", "good 2"))
-	assert result == PushResult(applied=True, rejected=1)
+	assert result.applied
+	assert result.replies == (("% Invalid input detected",), (), ())
 	assert conn.send_config_set.call_count == 3
 
 
 # ── The device status ────────────────────────────────────────────────────────
 
-def run(conn, commands, verify, config=None):
-	"""A whole rollout to one IOS device over `conn`, the fetch returning `config` (or
-	raising it): the device's result."""
+def run(conn, commands, verify, before=None, after=None):
+	"""A whole rollout to one IOS device over `conn`: the configuration read
+	before the push is `before`, every read after it `after` (or `before` -
+	raising when one is an exception). The device's result."""
 	device = Device(ip="10.0.0.1", label="d", username="u", password="p",
 	                device_type="cisco_ios", secret="", port=22)
-	conn.__enter__.return_value = conn            # the config fetch
-	if isinstance(config, Exception):
-		conn.send_command.side_effect = config
-	else:
-		conn.send_command.return_value = config or ""
+	reads = iter([before] + [after if after is not None else before] * 5)
+
+	def show(command, **_):
+		value = next(reads)
+		if isinstance(value, Exception):
+			raise value
+		return value or ""
+
+	conn.send_command.side_effect = show
 	engine = RolloutEngine(RolloutOptions(verify=verify), [device], commands)
 	with patch("netmiko.ConnectHandler", return_value=conn):
 		(result,) = engine.run(threading.Event(),
@@ -695,74 +445,79 @@ def run(conn, commands, verify, config=None):
 	return result
 
 
-@pytest.mark.parametrize("replies, status", [
-	(["ok", "ok"], "success"),
-	(["% Invalid input", "ok"], "partial"),
-	(["% Invalid input", "% Invalid input"], "failed"),
-])
-def test_without_verify_the_device_replies_decide(replies, status):
-	"""Without verify, the replies decide: none rejected is success, some partial,
-	all failed."""
+@pytest.mark.parametrize("replies", [["a\nr1#", "b\nr1#"], ["a\n% Invalid input\nr1#", "b\nr1#"]])
+def test_without_verify_a_device_is_not_verified_whatever_it_replied(replies):
+	"""Without verify nothing is judged: an applied device is not verified,
+	whatever the device answered (its replies are kept)."""
 	conn = connection()
 	conn.send_config_set.side_effect = replies
-	assert run(conn, ["a", "b"], verify=False)["status"] == status
+	assert run(conn, ["a", "b"], verify=False)["status"] == "not verified"
 
 
-def test_operational_commands_dont_make_a_verified_device_partial():
-	"""A command verify can't check (`write memory`) leaves the device a success and is
-	counted among the verified commands."""
+def test_a_command_that_leaves_no_trace_is_review():
+	"""A command that changes nothing in the configuration (`write memory`) isn't
+	proven by it: review, with the other command's success counted."""
 	result = run(connection(), ["hostname r1", "write memory"], verify=True,
-	             config="hostname r1\n")
-	assert result["status"] == "success"
-	assert result["commands_verified"] == 2        # 1 verified + 1 not checkable
+	             before="hostname r0\n", after="hostname r1\n")
+	assert result["status"] == "review"
+	assert result["commands_verified"] == 1
+	verdicts = [c["verdict"] for c in result["transcript"]["commands"]]
+	assert verdicts == ["took effect", "review"]
 
 
-def test_a_config_that_cant_be_fetched_isnt_a_failure():
-	"""When the config can't be fetched, the status comes from the push (success) and
-	commands_verified is None."""
+def test_a_config_that_cant_be_read_is_not_verified():
+	"""When the configuration can't be read before the push, the commands are
+	still sent and the device is not verified (commands_verified None)."""
 	result = run(connection(), ["hostname r1"], verify=True,
-	             config=OSError("fetch timed out"))
-	assert result["status"] == "success"            # from the push
+	             before=OSError("fetch timed out"))
+	assert result["status"] == "not verified"
 	assert result["commands_verified"] is None
+	assert result["transcript"] is None
 
 
-@pytest.mark.parametrize("config, status, verified", [
+@pytest.mark.parametrize("after, status, verified", [
 	("hostname r1\nntp server 1.1.1.1\n", "success", 2),
-	("hostname r1\n", "partial", 1),
-	("hostname other\n", "failed", 0),
+	("hostname r1\n", "review", 1),
+	("hostname r0\n", "review", 0),
 ])
-def test_with_verify_the_config_decides(config, status, verified):
-	"""With verify, the fetched config decides: both commands there is success, one
-	partial, none failed, with the verified count."""
+def test_with_verify_the_configuration_decides(after, status, verified):
+	"""With verify, the configuration before and after decides: both commands
+	there is success; anything not proven is review - with the proven count."""
 	result = run(connection(), ["hostname r1", "ntp server 1.1.1.1"],
-	             verify=True, config=config)
+	             verify=True, before="hostname r0\n", after=after)
 	assert (result["status"], result["commands_verified"]) == (status, verified)
 
 
-def test_failed_devices_are_not_verified():
-	"""A device whose push failed (a failed Junos commit) is failed and its config is
-	never fetched."""
+def test_a_verified_device_keeps_its_diff_and_transcript():
+	"""A verified device keeps its configuration diff and its transcript (per
+	command: verdict, evidence, reply); the configuration after only when it's
+	in review."""
+	result = run(connection(), ["hostname r1"], verify=True,
+	             before="hostname r0\n", after="hostname r1\n")
+	assert "-hostname r0" in result["config_diff"] and "+hostname r1" in result["config_diff"]
+	assert result["transcript"]["commands"] == [{"command": "hostname r1", "verdict": "took effect",
+	                                             "evidence": ["+ hostname r1"], "note": "", "reply": []}]
+	assert result["fetched_config"] is None
+
+
+def test_failed_devices_are_not_judged():
+	"""A device whose push failed (a failed Junos commit) is failed; its
+	configuration is read before the push, never after."""
 	conn = connection()
 	conn.commit.side_effect = ValueError("Commit failed")
+	conn.send_command.return_value = "set system host-name j1\n"
 	device = Device(ip="10.0.0.1", label="d", username="u", password="p",
 	                device_type="juniper_junos", secret="", port=22)
 	engine = RolloutEngine(RolloutOptions(verify=True), [device], ["set x"])
-	with patch("netmiko.ConnectHandler", return_value=conn), \
-			patch.object(NetmikoSession, "fetch_config") as fetch:
+	with patch("netmiko.ConnectHandler", return_value=conn):
 		(result,) = engine.run(threading.Event(),
 		                       RolloutLogger(webapp=False, verbose=False))
 	assert result["status"] == "failed"
-	fetch.assert_not_called()
+	shown = [c.args[0] for c in conn.send_command.call_args_list]
+	assert shown == list(PLATFORMS["juniper_junos"].show_config)   # once: before
 
 
 # ── Review fixes ─────────────────────────────────────────────────────────────
-
-def test_a_one_word_command_is_still_seen_as_rejected():
-	"""A complaint ending with a one-word command is a rejection; the same command echoed
-	after a prompt isn't - only its prompt part is the echo."""
-	assert rejection("Invalid input: foo", "foo")
-	assert rejection("r1(config)#foo\nr1(config)#", "foo") is None
-
 
 def test_a_commit_that_outlasts_the_wait_is_reported_honestly():
 	"""A commit that times out is not applied, the log says it didn't finish within the
@@ -784,29 +539,22 @@ def test_the_session_is_closed_when_the_push_fails_half_way():
 	conn.disconnect.assert_called_once()
 
 
-def test_all_real_commands_rejected_is_failed_even_with_navigation():
-	"""Every real command rejected is failed, even though a navigation command (`exit`)
-	was accepted."""
-	conn = connection()
-	conn.send_config_set.side_effect = ["% Invalid input", "% Invalid input", "ok"]
-	result = run(conn, ["bad 1", "bad 2", "exit"], verify=False)
-	assert result["status"] == "failed"
-
-
-# ── The whole flow, per platform ─────────────────────────────────────────────
-
-@pytest.mark.parametrize("device_type, config, expected", CASES,
-                         ids=[c[0] for c in CASES])
-def test_the_whole_rollout_on_each_platform(device_type, config, expected):
-	"""push → the platform's finish → fetch with its show command(s) → the
-	verdicts → the device status, with Netmiko mocked end to end: the status and
-	verified count follow the verdicts, both sessions use the device's port, the
-	platform's show commands are sent, and it commits or saves as its row says."""
-	commands = [command for command, _ in expected]
+@pytest.mark.parametrize("device_type, under, line, commands, verdicts", INSERTS,
+                         ids=[i[0] for i in INSERTS])
+def test_the_whole_rollout_on_each_platform(device_type, under, line, commands, verdicts):
+	"""push → the platform's finish → its configuration read before and after
+	in the same session → the verdicts → the device status, with Netmiko mocked
+	end to end: a change the commands made is success, the session uses the
+	device's port, the platform's show commands are sent, and it commits or
+	saves as its row says."""
+	platform = PLATFORMS[device_type]
+	before, after = CONFIGS[device_type], with_line(CONFIGS[device_type], under, line)
 	conn = connection(prompt={"fortinet": "fw1 #",
 	                          "checkpoint_gaia": "gw-1>"}.get(device_type, "r1#"))
-	conn.__enter__.return_value = conn
-	conn.send_command.return_value = config
+	reads = iter([before] * len(platform.show_config) + [after] * 20)
+	conn.send_command.side_effect = lambda command, **_: (
+		"saved" if command == "show config-state" else
+		after if command == platform.show_saved else next(reads))
 	device = Device(ip="10.0.0.1", label="d", username="u", password="p",
 	                device_type=device_type, secret="", port=2222)
 	engine = RolloutEngine(RolloutOptions(verify=True), [device], commands)
@@ -814,20 +562,15 @@ def test_the_whole_rollout_on_each_platform(device_type, config, expected):
 		(result,) = engine.run(threading.Event(),
 		                       RolloutLogger(webapp=False, verbose=False))
 
-	verdicts = [v for _, v in expected]
-	checkable = sum(v in (OK, MISSING, STILL) for v in verdicts)
-	verified = verdicts.count(OK)
-	assert result["status"] == ("success" if verified == checkable else
-	                            "failed" if verified == 0 else "partial")
-	assert result["commands_verified"] == verified + len(commands) - checkable
-	# both sessions used the device's own port
+	assert result["status"] == "success"
+	assert [c["verdict"] for c in result["transcript"]["commands"]] == [v.value for v in verdicts]
 	assert {c.kwargs["port"] for c in handler.call_args_list} == {2222}
-	platform = PLATFORMS[device_type]
 	shown = [c.args[0] for c in conn.send_command.call_args_list
 	         if c.args and c.args[0] in platform.show_config]
-	assert shown == list(platform.show_config)
+	assert shown == list(platform.show_config) * 2       # before and after
 	assert conn.commit.called == isinstance(platform.finish, Commit)
 	assert conn.save_config.called == isinstance(platform.finish, SaveConfig)
+	assert result["action_needed"] is None               # saved, as checked
 
 
 def test_each_command_is_sent_as_typed_without_reentering_config_mode():
@@ -849,8 +592,7 @@ def test_junos_private_mode_refused_fails_with_the_likely_reason():
 	conn = connection()
 	conn.config_mode.side_effect = netmiko.exceptions.ReadTimeout("pattern not found")
 	logger = fresh_logger()
-	assert push("juniper_junos", conn, logger=logger) == \
-	       PushResult(applied=False, rejected=0)
+	assert push("juniper_junos", conn, logger=logger) == PushResult(applied=False)
 	conn.send_config_set.assert_not_called()
 	assert "uncommitted changes in the shared configuration" in log_of(logger)
 
@@ -880,10 +622,9 @@ def test_xr_route_policy_blocks_close_with_end_policy():
 	after it are found at the top level."""
 	config = ("route-policy PASS\n  pass\nend-policy\n!\n"
 	          "router bgp 65000\n neighbor 10.0.0.2\n  remote-as 65001\n !\n!\n")
-	verdicts = verify_commands("cisco_xr", config, [
-		"route-policy PASS", "pass", "end-policy",
-		"router bgp 65000", "neighbor 10.0.0.2", "remote-as 65001"])
-	assert verdicts == [OK, OK, NV, OK, OK, OK]
+	outcome = judge(["route-policy PASS", "pass", "end-policy",
+	                 "router bgp 65000", "neighbor 10.0.0.2", "remote-as 65001"], "", config)
+	assert [j.verdict for j in outcome.commands] == [T, T, N, T, T, T]
 
 
 
@@ -906,7 +647,7 @@ def test_gaia_fetch_switches_to_clish_too():
 	device = Device(ip="10.0.0.1", label="d", username="u", password="p",
 	                device_type="checkpoint_gaia", secret="", port=22)
 	with patch("netmiko.ConnectHandler", return_value=conn):
-		config = NetmikoSession(device, RunReport(fresh_logger())).fetch_config()
+		config = NetmikoSession(device, RunReport(fresh_logger()))._fetch_new("in a test")
 	assert config == "set hostname gw-1"
 	conn.send_command_timing.assert_any_call("clish")
 
@@ -926,7 +667,7 @@ def test_a_new_hostname_is_saved_from_a_new_session():
 	assert results[0].applied
 	first.save_config.assert_not_called()
 	second.save_config.assert_called_once()
-	assert "saved from a new session" in log_of(logger)
+	assert "'save' sent from a new session" in log_of(logger)
 
 
 def test_a_new_hostname_that_cant_be_saved_says_so():
@@ -980,16 +721,16 @@ def test_a_device_that_stops_answering_mid_list_is_partial_and_not_saved():
 	assert "ACTION NEEDED" in log_of(logger)
 
 
-def test_a_rejection_before_a_mid_list_timeout_still_counts():
-	"""A command refused before the device stopped answering stays counted and
-	logged; one accepted command keeps the device "partial"."""
+def test_a_refusal_before_a_mid_list_timeout_is_kept():
+	"""What the device answered before it stopped answering is kept and logged;
+	the device is "partial" (the commands after it weren't sent)."""
 	commands = ["ntp server bogus", "logging host 1.1.1.1", "crypto key generate rsa",
 	            "snmp-server community x RO"]
 	result, _, _, logger = stops_answering(
 		["% Invalid input detected at '^' marker.", "ok",
 		 netmiko.exceptions.ReadTimeout("no prompt")], commands)
 	assert result["status"] == "partial" and result["commands_sent"] == 3
-	assert "'ntp server bogus' rejected" in log_of(logger)
+	assert "'ntp server bogus' - the device replied: % Invalid input detected at '^' marker." in log_of(logger)
 
 
 def test_a_timeout_on_the_first_command_is_failed():
@@ -1004,15 +745,16 @@ def test_a_timeout_on_the_first_command_is_failed():
 	first.save_config.assert_not_called()
 
 
-def test_a_new_hostname_after_a_rejection_keeps_the_rejection():
-	"""The last command's timeout (a new hostname) is still saved from a new session -
-	but a command refused before it keeps the device "partial" (it was reset to none:
-	"success")."""
-	result, _, handler, _ = stops_answering(
+def test_a_new_hostname_after_a_refusal_keeps_the_reply():
+	"""The last command's timeout (a new hostname) is still saved from a new
+	session; without verify the device is not verified, and what it answered
+	the command before is kept in the log."""
+	result, _, handler, logger = stops_answering(
 		["% Invalid input detected at '^' marker.", netmiko.exceptions.ReadTimeout("prompt")],
 		["ntp server bogus", "hostname r9"])
 	assert handler.call_count == 2                        # saved from a new session
-	assert result["status"] == "partial"
+	assert result["status"] == "not verified"
+	assert "'ntp server bogus' - the device replied: % Invalid input" in log_of(logger)
 
 # ── Cases only a person can resolve: unmistakable, and in the summary ──
 
@@ -1028,7 +770,7 @@ def test_a_new_hostname_after_a_rejection_keeps_the_rejection():
 	                    if cmds[0] in ("revert config",
 	                                   "load config from running-config.xml")
 	                    else "ok")),
-	 "discard them on the device"),
+	 "check that the candidate configuration is empty"),
 	("paloalto_panos",         # commit still running after the wait
 	 lambda c: setattr(c.commit, "side_effect",
 	                   __import__("netmiko").exceptions.ReadTimeout("slow")),
@@ -1073,7 +815,7 @@ def test_no_action_line_when_nothing_needs_a_person():
 
 def test_the_instruction_travels_in_the_device_result():
 	"""The instruction is in the device result's action_needed (what the Results page
-	shows), and the device is still a success: applied, saving is the issue."""
+	shows); the device is applied (not verified: no verify) - saving is the issue."""
 	conn = connection(prompt="gw-1>")
 	conn.send_command.return_value = "CLINFR0771  Config lock is owned by admin."
 	device = Device(ip="10.0.0.1", label="d", username="u", password="p",
@@ -1082,7 +824,7 @@ def test_the_instruction_travels_in_the_device_result():
 	with patch("netmiko.ConnectHandler", return_value=conn):
 		(result,) = engine.run(threading.Event(), fresh_logger())
 	assert result["action_needed"].startswith("the change is live but NOT saved")
-	assert result["status"] == "success"            # applied; saving is the issue
+	assert result["status"] == "not verified"       # applied; saving is the issue
 
 
 def test_no_instruction_in_a_clean_result():

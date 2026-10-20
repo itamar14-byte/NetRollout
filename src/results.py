@@ -44,19 +44,18 @@ def log_file(job_id: uuid.UUID | str) -> str | None:
 
 
 def config_expired(row: DeviceResult, snapshot_days: int) -> bool:
-	"""Whether a device's config snapshot was there and is gone: one is kept
-	only when verify found a mismatch, and the nightly clean-up clears it
-	after the snapshot retention."""
-	verify_mismatch = (row.commands_verified is not None
-	                   and row.commands_verified < row.commands_sent)
+	"""Whether a device's configuration diff was there and is gone: a
+	verified device keeps it, and the nightly clean-up clears it after the
+	config snapshot retention."""
 	too_old = row.completed_at < datetime.now() - timedelta(
 		days=snapshot_days)
-	return verify_mismatch and row.fetched_config is None and too_old
+	return row.transcript is not None and row.config_diff is None and too_old
 
 
 def job_status(rows: Sequence[DeviceResult]) -> DeviceStatus:
 	""":returns: a job's status from its devices': cancelled if any was; failed
-	 if all failed; partial if any failed or was partial; else success"""
+	 if all failed; partial if any failed or was partial; review if any is
+	 in review; not verified if any is; else success"""
 	statuses = {r.status for r in rows}
 	if DeviceStatus.CANCELLED in statuses:
 		return DeviceStatus.CANCELLED
@@ -64,6 +63,10 @@ def job_status(rows: Sequence[DeviceResult]) -> DeviceStatus:
 		return DeviceStatus.FAILED
 	if any(r.status in (DeviceStatus.FAILED, DeviceStatus.PARTIAL) for r in rows):
 		return DeviceStatus.PARTIAL
+	if DeviceStatus.REVIEW in statuses:
+		return DeviceStatus.REVIEW
+	if DeviceStatus.NOT_VERIFIED in statuses:
+		return DeviceStatus.NOT_VERIFIED
 	return DeviceStatus.SUCCESS
 
 
@@ -89,9 +92,17 @@ def job_status_condition(status: str) -> ColumnElement[bool]:
 	if status == DeviceStatus.PARTIAL:
 		return and_(not_(any_device(DeviceStatus.CANCELLED)), not_(all_failed),
 		            any_device(DeviceStatus.FAILED, DeviceStatus.PARTIAL))
+	settled = not_(any_device(DeviceStatus.CANCELLED, DeviceStatus.FAILED,
+	                          DeviceStatus.PARTIAL))
+	if status == DeviceStatus.REVIEW:
+		return and_(settled, any_device(DeviceStatus.REVIEW))
+	if status == DeviceStatus.NOT_VERIFIED:
+		return and_(settled, not_(any_device(DeviceStatus.REVIEW)),
+		            any_device(DeviceStatus.NOT_VERIFIED))
 	if status == DeviceStatus.SUCCESS:
 		return not_(any_device(DeviceStatus.CANCELLED, DeviceStatus.FAILED,
-		                       DeviceStatus.PARTIAL))
+		                       DeviceStatus.PARTIAL, DeviceStatus.REVIEW,
+		                       DeviceStatus.NOT_VERIFIED))
 	raise ValueError(f"no job status {status!r}")
 
 
@@ -164,7 +175,7 @@ def build_jobs(result_rows: Iterable[DeviceResult],
 					"commands_verified": r.commands_verified,
 					# flags only - the config itself is fetched on demand by
 					# config_diff, never shipped with the page
-					"has_config": r.fetched_config is not None,
+					"has_config": r.config_diff is not None or r.fetched_config is not None,
 					"config_expired": config_expired(r, snapshot_days)
 				}
 				for r in rows
@@ -256,10 +267,14 @@ EXPORT_COLUMNS = ["job_id", "note", "owner", "job_status", "started", "completed
 
 @dataclass(frozen=True)
 class ConfigSnapshot:
-	"""A device's fetched config in a job, with the job's commands."""
+	"""A device's verification in a job: the configuration diff, the
+	configuration after (kept for a review), the verdicts the rollout
+	reached, and the job's commands."""
 	config: str | None   # None: the snapshot is gone (or was never kept)
 	commands: list[str]
 	device_type: str
+	diff: str | None = None
+	transcript: dict[str, Any] | None = None
 
 
 class JobResults:
@@ -482,12 +497,13 @@ class JobResults:
 		row = self.session.query(DeviceResult).filter_by(**filters).first()
 		if not row or not self.may_see(row.user_id):
 			return None
-		if row.fetched_config is None:
+		if row.fetched_config is None and row.config_diff is None:
 			return ConfigSnapshot(config=None, commands=[], device_type=row.device_type)
 		meta = self.metadata([job_id]).get(job_id)
 		return ConfigSnapshot(config=row.fetched_config,
 		                      commands=meta.commands if meta else [],
-		                      device_type=row.device_type)
+		                      device_type=row.device_type, diff=row.config_diff,
+		                      transcript=row.transcript)
 
 	def successful_endpoints(self, job_id: uuid.UUID, owner_id: uuid.UUID) -> set[Target]:
 		""":returns: the ip:port of the job's devices configured successfully

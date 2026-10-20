@@ -50,13 +50,17 @@ def test_an_operator_always_sees_their_own():
 # ── KPIs, job status, snapshot expiry ────────────────────────────────────────
 
 def result(status, ip="10.0.0.1", job_id=None, sent=2, verified=None,
-           config=None, age_days=0):
+           config=None, age_days=0, transcript=None, diff=None):
 	"""A stand-in device result row: its own job unless one is given,
-	completed age_days ago."""
+	completed age_days ago; transcript and diff when it was verified."""
 	return SimpleNamespace(
 		status=status, device_ip=ip, job_id=job_id or uuid.uuid4(),
 		commands_sent=sent, commands_verified=verified, fetched_config=config,
+		transcript=transcript, config_diff=diff,
 		completed_at=dt.datetime.now() - dt.timedelta(days=age_days))
+
+
+JUDGED = {"commands": [], "other_changes": []}
 
 
 def test_build_kpi():
@@ -97,6 +101,21 @@ def test_job_status(statuses, expected):
 	assert job_status([result(s) for s in statuses]) == expected
 
 
+@pytest.mark.parametrize("statuses,expected", [
+	(["success", "review"], "review"),
+	(["review", "not verified"], "review"),
+	(["success", "not verified"], "not verified"),
+	(["not verified", "not verified"], "not verified"),
+	(["review", "failed"], "partial"),
+	(["review", "cancelled"], "cancelled"),
+])
+def test_job_status_with_review_and_not_verified(statuses, expected):
+	"""A device in review makes the job review; one not verified makes it not
+	verified (review first) - unless something failed (partial) or was
+	cancelled."""
+	assert job_status([result(s) for s in statuses]) == expected
+
+
 def test_job_status_condition_refuses_an_unknown_status():
 	"""job_status_condition has a condition for every status job_status
 	gives, and refuses any other (no silent "match nothing")."""
@@ -107,39 +126,37 @@ def test_job_status_condition_refuses_an_unknown_status():
 
 
 class TestConfigExpired:
+	"""A verified device keeps its configuration diff (and, in review, the
+	configuration after) until the snapshot retention clears it."""
 	DAYS = SETTINGS["config_snapshot_retention_days"].default
 	OLD = DAYS + 1
 
-	def test_mismatch_past_window_without_config_is_expired(self):
-		"""A verify mismatch older than the snapshot retention, with no config
-		left, is reported as expired."""
-		assert config_expired(result("partial", verified=1, age_days=self.OLD),
-		                      self.DAYS)
+	def test_a_verified_device_past_the_window_without_its_diff_is_expired(self):
+		"""Judged (a transcript), older than the snapshot retention, its diff
+		cleared: reported as expired."""
+		assert config_expired(result("review", verified=1, age_days=self.OLD,
+		                             transcript=JUDGED), self.DAYS)
 
 	def test_within_window_is_not_expired(self):
-		"""A verify mismatch inside the retention window isn't expired."""
-		assert not config_expired(result("partial", verified=1, age_days=1),
-		                          self.DAYS)
+		"""Inside the retention window it isn't expired."""
+		assert not config_expired(result("review", verified=1, age_days=1,
+		                                 transcript=JUDGED), self.DAYS)
 
 	def test_window_follows_the_setting(self):
 		"""The same 3-day-old row is not expired with a 7-day retention and is
 		expired with a 2-day one."""
-		row = result("partial", verified=1, age_days=3)
+		row = result("review", verified=1, age_days=3, transcript=JUDGED)
 		assert not config_expired(row, 7)
 		assert config_expired(row, 2)
 
-	def test_config_still_present_is_not_expired(self):
-		"""An old mismatch whose config snapshot is still stored isn't expired."""
+	def test_diff_still_present_is_not_expired(self):
+		"""An old verified device whose diff is still stored isn't expired."""
 		assert not config_expired(
-			result("partial", verified=1, config="cfg", age_days=self.OLD),
+			result("success", verified=2, age_days=self.OLD, transcript=JUDGED, diff="+x"),
 			self.DAYS)
 
-	def test_fully_verified_never_had_a_snapshot(self):
-		"""An old fully verified result never had a snapshot, so it isn't expired."""
+	def test_a_device_never_judged_never_had_a_snapshot(self):
+		"""Not verified (or a job from before verification by configuration):
+		no transcript, nothing kept - not expired."""
 		assert not config_expired(
-			result("success", verified=2, age_days=self.OLD), self.DAYS)
-
-	def test_verify_not_run_never_had_a_snapshot(self):
-		"""An old result where verify didn't run never had a snapshot: not expired."""
-		assert not config_expired(
-			result("success", verified=None, age_days=self.OLD), self.DAYS)
+			result("not verified", verified=None, age_days=self.OLD), self.DAYS)

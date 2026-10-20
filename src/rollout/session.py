@@ -1,18 +1,24 @@
 """One device's SSH conversation in a rollout (Netmiko): the push - into the
-CLI shell and config mode, the commands line by line, the platform's finish
-- and the config fetch for verify; and the rollout's report (RunReport),
-which the sessions write and the engine reads."""
+CLI shell and config mode, the commands line by line with what the device
+replied to each, the platform's finish - with, when verifying, the
+configuration read before and after it in the same session and the push
+judged by it (src/rollout/evidence.py); and the rollout's report
+(RunReport), which the sessions write and the engine reads."""
 from __future__ import annotations   # type hints are never evaluated
 
-from collections.abc import Iterator
+import difflib
+import re
+from collections import Counter
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, NamedTuple, Protocol, cast
 
 import netmiko
 
 from src.rollout.address import is_ip, resolve
+from src.rollout.evidence import Outcome, judge, parse
 from src.rollout.log import Tone, redact
-from src.rollout.platforms import FETCH_TIMEOUT, PLATFORMS, ConfigSession, Platform, Target, rejection
+from src.rollout.platforms import FETCH_TIMEOUT, PLATFORMS, ConfigSession, Platform, Target
 if TYPE_CHECKING:   # annotations only: engine.py imports this module
 	from src.rollout.engine import Device
 
@@ -59,13 +65,51 @@ class RunReport:
 
 class PushResult(NamedTuple):
 	"""How the push went on one device."""
-	applied: bool    # the change took effect (connected, finished, committed)
-	rejected: int    # commands the device refused
+	applied: bool    # reached the device and finished (connected, committed)
 	# the device stopped answering before the last command: how many were
 	# sent (the one without an answer included); the rest weren't, nothing
 	# was saved
 	sent: int | None = None
 	interrupted: bool = False
+	# per command sent: what the device replied (shown, never judged)
+	replies: tuple[tuple[str, ...], ...] = ()
+	# the push judged by the device's configuration; None: not verified
+	# (verification off, or a snapshot couldn't be taken)
+	outcome: Outcome | None = None
+	diff: str | None = None    # the configuration before → after (unified)
+	after: str | None = None   # the configuration after (Verify Diff)
+
+
+# a line the device prints between commands that is a time stamp, not an
+# answer: IOS "*Oct 19 19:17:26.223: …", NX-OS "2026 Oct 19 16:10:28 …"
+_EVENT = re.compile(r"^\*?(\d{4} )?[A-Z][a-z]{2} +\d+ (\d{4} )?\d\d:\d\d:\d\d")
+# Junos's context banner after a command ("[edit interfaces ge-0/0/0]")
+_CONTEXT = re.compile(r"^\[edit( .*)?\]$")
+
+
+def reply(output: str, command: str, prompt: str) -> tuple[list[str], list[str]]:
+	"""What the device said to one command, told apart by shape from what
+	isn't an answer: the command's echo, the prompt (with any context:
+	"R1(config-if)#", "FGT1 (global) #"), blank lines, IOS's "^" pointer,
+	Junos's "[edit …]" banner. Time-stamped lines are device events.
+
+	:returns: (the reply's lines, the event lines) - shown, never judged"""
+	said, events = [], []
+	sent = command.strip()
+	base = prompt.strip()
+	for row in output.splitlines():
+		text = row.strip()
+		if not text or set(text) <= {"^"} or _CONTEXT.match(text):
+			continue
+		if sent and text.endswith(sent) and (text == sent or text.startswith(base)):
+			continue
+		if base and text.startswith(base) and text[-1:] in "#>$" and sent not in text:
+			continue
+		if _EVENT.match(text):
+			events.append(text)
+		else:
+			said.append(text)
+	return said, events
 
 
 def _connect_args(device: Device) -> dict[str, str | int]:
@@ -104,24 +148,29 @@ def _enter_cli_shell(conn: ConfigSession, platform: Platform) -> str | None:
 	        f"clish")
 
 
-def _fortios_save_if_manual(conn: ConfigSession) -> tuple[bool, str | None]:
+def _said(output: object, command: str) -> str:
+	""":returns: a reply's lines on one line, its echo left out (for a log line)"""
+	return " | ".join(line.strip() for line in str(output).splitlines()
+	                  if line.strip() and line.strip() != command)
+
+
+def _fortios_save_if_manual(conn: ConfigSession) -> str | None:
 	"""FortiOS saves changes automatically unless `cfg-save` is manual (lost
 	at reboot) or revert (undone after a timeout) - then save explicitly.
 	With VDOMs, the setting lives under `config global`.
 
-	:returns: (saved explicitly, the device's complaint if saving failed)"""
+	:returns: the save's reply when it saved explicitly; None when the
+	 device saves by itself"""
 	vdoms = getattr(conn, "_vdoms", False)
 	if vdoms:
 		conn.send_command_timing("config global")
 	mode = conn.send_command_timing("get system global | grep cfg-save")
-	saved, complaint = False, None
+	answer = None
 	if "manual" in mode or "revert" in mode:
-		complaint = rejection(conn.send_command_timing("execute cfg save"),
-		                      "execute cfg save")
-		saved = complaint is None
+		answer = _said(conn.send_command_timing("execute cfg save"), "execute cfg save")
 	if vdoms:
 		conn.send_command_timing("end")
-	return saved, complaint
+	return answer
 
 
 class NetmikoSession:
@@ -146,11 +195,12 @@ class NetmikoSession:
 		finally:
 			conn.disconnect()
 
-	def push(self, commands: list[str]) -> PushResult:
+	def push(self, commands: list[str], verify: bool = False) -> PushResult:
 		"""Push the commands (resolved for this device) over SSH, then finish
 		them the way the platform needs (save, commit, a command or nothing).
-		A command the device refuses is reported with its reply and the rest
-		are still sent.
+		Every command is sent, whatever the device answers; its answer is
+		kept. With verify: the configuration is read before and after, in
+		this session, and the push judged by it (evidence.judge).
 
 		:returns: applied False when nothing took effect (no connection, a
 		 failed commit)"""
@@ -160,9 +210,11 @@ class NetmikoSession:
 			# said as it is - Netmiko would call it a timeout or a socket error
 			report.notify(f"{device.endpoint}: can't resolve {device.host} - check the "
 			              f"name and the DNS this server uses", Tone.ERROR)
-			return PushResult(applied=False, rejected=0)
+			return PushResult(applied=False)
 		commands_sent = False
-		sent = rejected = 0      # commands sent so far, and refused
+		sent = 0      # commands sent so far
+		replies: list[tuple[str, ...]] = []
+		before: str | None = None
 		try:
 			net_connect = netmiko.ConnectHandler(**_connect_args(device))
 			try:
@@ -170,8 +222,10 @@ class NetmikoSession:
 				# Goes into privileged config mode, depending on the platform
 				if problem := _enter_cli_shell(net_connect, platform):
 					report.action_needed(device, f"{problem} (nothing was sent)")
-					return PushResult(applied=False, rejected=0)
+					return PushResult(applied=False)
 				net_connect.enable()
+				if verify:
+					before = self._snapshot(net_connect, "before the push")
 				if platform.config_command:
 					try:
 						net_connect.config_mode(
@@ -183,7 +237,7 @@ class NetmikoSession:
 							f"the shared configuration: commit or discard them "
 							f"(they're someone else's work), then rerun. Nothing "
 							f"was sent ({e})")
-						return PushResult(applied=False, rejected=0)
+						return PushResult(applied=False)
 				else:
 					net_connect.config_mode()
 
@@ -197,13 +251,23 @@ class NetmikoSession:
 					output = net_connect.send_config_set(
 						[command.strip()], enter_config_mode=False,
 						exit_config_mode=False)
-					if complaint := rejection(output, command.strip()):
-						rejected += 1
-						report.notify(f"{device.endpoint}: '{command.strip()}' "
-						              f"rejected - {complaint}", Tone.ERROR)
+					said, events = reply(str(output), command, str(net_connect.base_prompt))
+					replies.append(tuple(said))
+					if said:
+						report.notify(f"{device.endpoint}: '{command.strip()}' - the "
+						              f"device replied: {' | '.join(said)}", Tone.WARNING)
+					for event in events:
+						report.notify(f"{device.endpoint}: device event: {event}")
 
-				applied = self._finish(net_connect)
-				return PushResult(applied=applied, rejected=rejected)
+				if not self._finish(net_connect):
+					return PushResult(applied=False, replies=tuple(replies))
+				if before is None:
+					return PushResult(applied=True, replies=tuple(replies))
+				outcome, diff, after = self._judge(commands, before,
+				                                   lambda why: self._snapshot(net_connect, why),
+				                                   net_connect)
+				return PushResult(applied=True, replies=tuple(replies),
+				                  outcome=outcome, diff=diff, after=after)
 			finally:
 				# Always closed, also when the push fails half-way
 				try:
@@ -215,18 +279,24 @@ class NetmikoSession:
 		# an error message will be printed, and we move to the next device
 		except netmiko.NetMikoAuthenticationException:
 			report.notify(f"{device.ip} authentication failed", Tone.ERROR)
-			return PushResult(applied=False, rejected=0)
+			return PushResult(applied=False)
 		except netmiko.NetmikoTimeoutException:
 			report.notify(f"{device.ip} timed out", Tone.ERROR)
-			return PushResult(applied=False, rejected=0)
+			return PushResult(applied=False)
 		except netmiko.exceptions.ReadTimeout as e:
 			if commands_sent and platform.finish.interruptible and \
 					sent == len(commands):
 				# The last command changed the prompt (e.g. a new hostname):
 				# the commands were applied, but the finish couldn't run in this
-				# session - a fresh one learns the new prompt
+				# session - a fresh one learns the new prompt (and reads the
+				# configuration after, when verifying)
+				replies.append(())
 				self._finish_in_new_session()
-				return PushResult(applied=True, rejected=rejected)
+				if before is None:
+					return PushResult(applied=True, replies=tuple(replies))
+				outcome, diff, after = self._judge(commands, before, self._fetch_new, None)
+				return PushResult(applied=True, replies=tuple(replies),
+				                  outcome=outcome, diff=diff, after=after)
 			if commands_sent and platform.finish.interruptible:
 				# No answer before the last command (a question without a
 				# prompt, a slow command): the rest isn't sent, nothing saved
@@ -238,14 +308,81 @@ class NetmikoSession:
 					   f"live but NOT saved, " if answered else "")
 					+ f"the {len(commands) - sent} after it weren't sent - check "
 					  f"the device, then save the change or remove it"))
-				took_effect = answered - rejected > 0
-				return PushResult(applied=took_effect, rejected=rejected,
-				                  sent=sent, interrupted=True)
+				return PushResult(applied=answered > 0, sent=sent, interrupted=True,
+				                  replies=tuple(replies))
 			report.notify(f"{device.ip} failed: {e}", Tone.ERROR)
-			return PushResult(applied=False, rejected=0)
+			return PushResult(applied=False, replies=tuple(replies))
 		except Exception as e:
 			report.notify(f"{device.ip} failed: {e}", Tone.ERROR)
-			return PushResult(applied=False, rejected=0)
+			return PushResult(applied=False, replies=tuple(replies))
+
+	def _judge(self, commands: list[str], before: str,
+	           snapshot: Callable[[str], str | None],
+	           conn: ConfigSession | None) -> tuple[Outcome | None, str | None, str | None]:
+		"""The push judged by the configuration after it (evidence.judge); one
+		more snapshot only when changes no command explains appear (the
+		device's own churn is told apart from someone else's change); then,
+		on a platform that saves, the save checked.
+
+		:param snapshot: reads the configuration now (the reason in its log)
+		:param conn: the push's session, for the save check; None: no check
+		:returns: (outcome, the before → after diff, the configuration after);
+		 (None, None, None) when the after snapshot couldn't be taken"""
+		platform = self._platform
+		after = snapshot("after the push")
+		if after is None:
+			return None, None, None
+		outcome = judge(commands, before, after, flat=platform.flat,
+		                blocks=platform.close_blocks)
+		if outcome.other_changes:
+			again = snapshot("again, to tell the device's own changes apart")
+			if again is not None:
+				outcome = judge(commands, before, after, flat=platform.flat,
+				                blocks=platform.close_blocks, again=again)
+		if conn is not None:
+			self._check_saved(conn, outcome)
+		diff = "\n".join(difflib.unified_diff(before.splitlines(), after.splitlines(),
+		                                      "before", "after", n=3, lineterm=""))
+		return outcome, diff, after
+
+	def _snapshot(self, conn: ConfigSession, why: str) -> str | None:
+		""":returns: the configuration now, without its framing; None if it
+		 can't be read (said in the log: the device is then not verified)"""
+		device, platform = self._device, self._platform
+		try:
+			output = ""
+			for command in platform.show_config:
+				# text: no parsing is asked for (TextFSM, TTP, Genie)
+				output = cast(str, conn.send_command(command, read_timeout=FETCH_TIMEOUT))
+			return platform.config(output)
+		except Exception as e:
+			self._report.notify(f"{device.endpoint}: couldn't read the configuration "
+			                    f"{why} - not verified ({e})", Tone.ERROR)
+			return None
+
+	def _check_saved(self, conn: ConfigSession, outcome: Outcome) -> None:
+		"""On a platform that shows its saved configuration: every line the
+		push added is in it and every line it removed isn't - else the change
+		is live but would be lost at the next reboot."""
+		platform, device = self._platform, self._device
+		if not platform.show_saved or not (outcome.added or outcome.removed):
+			return
+		try:
+			saved = Counter(line.key for line in parse(
+				cast(str, conn.send_command(platform.show_saved, read_timeout=FETCH_TIMEOUT)),
+				platform.flat))
+		except Exception as e:
+			self._report.notify(f"{device.endpoint}: couldn't read the saved configuration "
+			                    f"to check the save ({e})", Tone.ERROR)
+			return
+		missing = [text for path, text in outcome.added if not saved[(path, text)]]
+		kept = [text for path, text in outcome.removed if saved[(path, text)]]
+		if missing or kept:
+			lines = [f"'{text}' missing" for text in missing[:5]] + \
+				[f"'{text}' still there" for text in kept[:5]]
+			self._report.action_needed(device, f"the change is live but NOT saved - the "
+			                           f"saved configuration differs: {', '.join(lines)}. "
+			                           f"Save it on the device")
 
 	def _finish(self, conn: ConfigSession) -> bool:
 		"""Finish a pushed device the way its platform needs: close FortiOS
@@ -261,31 +398,31 @@ class NetmikoSession:
 			for _ in range(10):
 				if "(" not in conn.find_prompt():
 					break
-				if complaint := rejection(conn.send_command_timing("end"), "end"):
-					report.notify(f"{device.endpoint}: closing a config block "
-					              f"failed - {complaint}", Tone.ERROR)
-			saved, complaint = _fortios_save_if_manual(conn)
-			if complaint:
-				report.action_needed(device, f"cfg-save is not automatic and "
-				                     f"saving failed - run 'execute cfg save' on "
-				                     f"the device, or the change is lost at reboot "
-				                     f"/ reverted ({complaint})")
-			elif saved:
-				report.notify(f"{device.endpoint}: cfg-save is not automatic - "
-				              f"configuration saved", Tone.WARNING)
+				conn.send_command_timing("end")
+			answer = _fortios_save_if_manual(conn)
+			if answer is not None:
+				report.notify(f"{device.endpoint}: cfg-save is not automatic - saved with "
+				              f"'execute cfg save'" + (f" (the device replied: {answer})"
+				                                       if answer else ""), Tone.WARNING)
 		# Before leaving config mode: leaving discards uncommitted changes
 		if not platform.finish.before_leave(conn, report, device):
 			return False
 		if platform.leave_first:
 			conn.send_command_timing(platform.leave_first)
 		conn.exit_config_mode()
-		reply, command = platform.finish.after_leave(conn)
-		# The change is live either way; saving failing (e.g. Gaia's config
-		# lock held by another session) means it's lost at the next reboot
-		if command and isinstance(reply, str) and \
-				(complaint := rejection(reply, command)):
-			report.action_needed(device, f"the change is live but NOT saved - "
-			                     f"save it on the device ({complaint})")
+		answer, command = platform.finish.after_leave(conn)
+		if command and (said := _said(answer, command)):
+			report.notify(f"{device.endpoint}: '{command}' - the device replied: {said}")
+		if platform.saved_state:
+			ask, saved = platform.saved_state
+			state = str(conn.send_command(ask)).strip()
+			if state.lower() != saved:
+				# the change is live either way; unsaved, it's lost at the next
+				# reboot (Gaia: the config lock held by another session)
+				report.action_needed(device, f"the change is live but NOT saved - "
+				                     f"'{ask}' answers {state!r}" + (f" after '{command}' replied: {said}"
+				                                                     if command and said else "")
+				                     + " - save it on the device")
 		return True
 
 	def _finish_in_new_session(self) -> None:
@@ -295,42 +432,31 @@ class NetmikoSession:
 			outcome = self._platform.finish.in_new_session(
 				lambda: netmiko.ConnectHandler(**_connect_args(device)))
 			if outcome is None:
-				report.notify(f"{device.endpoint}: prompt changed after the push "
-				              f"(e.g. a new hostname) - applied", Tone.WARNING)
+				report.notify(f"{device.endpoint}: prompt changed after the push (e.g. "
+				              f"a new hostname)", Tone.WARNING)
 				return
-			reply, command = outcome
-			if isinstance(reply, str) and (complaint := rejection(reply, command)):
-				raise RuntimeError(complaint)
-			report.notify(f"{device.endpoint}: prompt changed after the push (e.g. "
-			              f"a new hostname) - applied, and saved from a new "
-			              f"session", Tone.WARNING)
+			answer, command = outcome
+			said = _said(answer, command)
+			report.notify(f"{device.endpoint}: prompt changed after the push (e.g. a new "
+			              f"hostname) - '{command}' sent from a new session"
+			              + (f" (the device replied: {said})" if said else ""), Tone.WARNING)
 		except Exception as e:
 			report.action_needed(device, f"the change is live but NOT saved - "
 			                     f"save it on the device (the prompt changed "
 			                     f"after the push and saving from a new session "
 			                     f"failed: {e})")
 
-	def fetch_config(self) -> str | None:
-		"""The running config, printed in the syntax engineers type (see
-		PLATFORMS), over the same SSH as the push - the device's port and
-		credentials.
-
-		:returns: the config; None if it can't be fetched (reported in the log)"""
-		device, platform, report = self._device, self._platform, self._report
+	def _fetch_new(self, why: str) -> str | None:
+		"""The configuration now, from a new session (the push's own lost its
+		prompt)."""
+		device, platform = self._device, self._platform
 		try:
 			with netmiko.ConnectHandler(**_connect_args(device)) as conn:
 				if problem := _enter_cli_shell(conn, platform):
-					report.notify(f"could not fetch the config of {device.endpoint} "
-					              f"to verify it: {problem}", Tone.ERROR)
-					return None
+					raise RuntimeError(problem)
 				conn.enable()
-				output = ""
-				for command in platform.show_config:
-					# text: no parsing is asked for (TextFSM, TTP, Genie)
-					output = cast(str, conn.send_command(command,
-					                                     read_timeout=FETCH_TIMEOUT))
-				return output
+				return self._snapshot(conn, why)
 		except Exception as e:
-			report.notify(f"could not fetch the config of {device.endpoint} to "
-			              f"verify it: {e}", Tone.ERROR)
+			self._report.notify(f"{device.endpoint}: couldn't read the configuration "
+			                    f"{why} - not verified ({e})", Tone.ERROR)
 			return None

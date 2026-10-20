@@ -46,16 +46,17 @@ def link_profile(session_scope, device_id, user, profile_id):
 
 
 def add_result(session_scope, user, job_id, ip="10.0.0.1", status="success",
-               verified=None, config=None, age_days=0, commands=None, port=22):
+               verified=None, config=None, age_days=0, commands=None, port=22,
+               transcript=None, diff=None):
 	"""Store a device result for a job (and its job metadata when commands are
-	given), dated age_days ago."""
+	given), dated age_days ago; transcript and diff for a verified device."""
 	when = dt.datetime.now() - dt.timedelta(days=age_days)
 	with session_scope() as s:
 		s.add(DeviceResult(user_id=user.id, job_id=job_id, started_at=when,
 		                   completed_at=when, device_ip=ip, device_port=port,
 		                   device_type="cisco_ios", commands_sent=2,
 		                   commands_verified=verified, fetched_config=config,
-		                   status=status))
+		                   transcript=transcript, config_diff=diff, status=status))
 		if commands is not None:
 			s.add(JobMetadata(job_id=job_id, user_id=user.id, commands=commands))
 
@@ -679,14 +680,15 @@ def test_results_write_an_ipv6_device_in_brackets(operator, client_for, session_
 
 def test_results_show_verify_diff_and_expired_states(operator, client_for,
                                                      session_scope):
-	"""A job with a stored config gets Verify Diff; one older than the snapshot
-	retention shows "Verify Diff expired" once; no config is in the page."""
+	"""A job with a stored config gets Verify Diff; a verified one older than
+	the snapshot retention, its diff cleared, shows "Verify Diff expired"
+	once; no config is in the page."""
 	live, stale = uuid.uuid4(), uuid.uuid4()
-	add_result(session_scope, operator.user, live, status="partial", verified=1,
+	add_result(session_scope, operator.user, live, status="review", verified=1,
 	           config="cfg-live", commands=["a", "b"])
-	add_result(session_scope, operator.user, stale, status="partial",
+	add_result(session_scope, operator.user, stale, status="review",
 	           verified=1, age_days=CONFIG_SNAPSHOT_RETENTION_DAYS + 2,
-	           commands=["a", "b"])
+	           commands=["a", "b"], transcript={"commands": [], "other_changes": []})
 	html = client_for(operator.user).get("/results").get_data(as_text=True)
 	assert f'data-job-id="{live}"' in html
 	assert html.count("Verify Diff expired") == 1
@@ -710,26 +712,27 @@ def test_config_diff_endpoint(operator, client_for, session_scope, make_user):
 	assert other.status_code == 404 and other.json["message"] == "Not found"
 
 
-def test_config_diff_returns_the_engines_verdicts(operator, client_for,
-                                                  session_scope):
-	"""The page shows the server's matcher (sections, removals, variables), not
-	a text search of its own: each command comes back with its verdict."""
+def test_config_diff_returns_the_rollouts_own_verdicts(operator, client_for,
+                                                      session_scope):
+	"""Verify Diff shows what the rollout itself decided (the device's
+	transcript) and the configuration's diff - never a judgement of its own:
+	each command comes back with the verdict the rollout reached."""
 	job = uuid.uuid4()
-	config = ("interface GigabitEthernet1\n description core\n!\n"
-	          "interface GigabitEthernet2\n shutdown\n!\n")
-	commands = ["interface GigabitEthernet1", "description core",
-	            "interface GigabitEthernet2", "no shutdown",
-	            "description $$DESC$$", "write memory"]
-	add_result(session_scope, operator.user, job, status="partial",
-	           verified=3, config=config, commands=commands)
+	transcript = {"commands": [
+		{"command": "interface Loopback98", "verdict": "took effect",
+		 "evidence": ["+ interface Loopback98"], "note": "", "reply": []},
+		{"command": "ntp server 192.0.2.123", "verdict": "review", "evidence": [],
+		 "note": "no change in its section",
+		 "reply": ["% Initialization of NTP failed with status 4."]}],
+		"other_changes": []}
+	add_result(session_scope, operator.user, job, status="review", verified=1,
+	           config="interface Loopback98\n", commands=["interface Loopback98", "ntp server 192.0.2.123"],
+	           transcript=transcript, diff="+interface Loopback98")
 	resp = client_for(operator.user).get(f"/results/config_diff/{job}/10.0.0.1")
-	assert resp.json["verdicts"] == [
-		["interface GigabitEthernet1", "verified"],
-		["description core", "verified"],
-		["interface GigabitEthernet2", "verified"],
-		["no shutdown", "still configured"],
-		["description $$DESC$$", "variable"],
-		["write memory", "not verifiable"]]
+	assert resp.json["verdicts"] == [["interface Loopback98", "took effect"],
+	                                 ["ntp server 192.0.2.123", "review"]]
+	assert resp.json["transcript"] == transcript
+	assert resp.json["diff"] == "+interface Loopback98"
 
 
 def test_results_page_shows_what_needs_a_person(operator, client_for,
@@ -1019,7 +1022,7 @@ def test_results_status_filter_follows_job_status(operator, client_for,
 	"""?status= shows exactly the jobs whose status (job_status, the badge
 	the page shows) is that one - for every mix of 1 to 3 device outcomes;
 	an unknown or empty value shows every job, "All statuses" chosen."""
-	outcomes = ("success", "partial", "failed", "cancelled")
+	outcomes = ("success", "review", "partial", "failed", "not verified", "cancelled")
 	expected = {status: set() for status in JOB_STATUSES}
 	for mix in itertools.chain.from_iterable(
 			itertools.combinations_with_replacement(outcomes, n)

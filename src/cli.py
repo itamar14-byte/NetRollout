@@ -147,7 +147,7 @@ def rollout(args: argparse.Namespace) -> NoReturn:
 		pause()
 	except KeyboardInterrupt:
 		pass                           # the rollout is over: its result stands
-	sys.exit(exit_code(results))
+	sys.exit(exit_code(results, verify=options.verify))
 
 
 def hard_exit(code: int) -> NoReturn:
@@ -193,18 +193,22 @@ def abort(logger: RolloutLogger, message: str) -> NoReturn:
 	sys.exit(CliExit.NOTHING_APPLIED)
 
 
-def exit_code(results: list[DeviceResultDict]) -> CliExit:
+def exit_code(results: list[DeviceResultDict], verify: bool = False) -> CliExit:
 	"""How the run went, for scripts and CI.
 
 	:param results: one per device
-	:returns: 0 = every device succeeded; 1 = mixed (some partial, failed or
-	 cancelled); 2 = nothing applied anywhere (every device failed or was
-	 cancelled - or the run stopped before the push: abort())"""
+	:param verify: whether verification was asked for (-vf)
+	:returns: 0 = every device succeeded (without -vf: applied, not verified);
+	 1 = mixed (some in review, partial, failed, cancelled - or not verified
+	 although -vf asked for it); 2 = nothing applied anywhere (every device
+	 failed or was cancelled - or the run stopped before the push: abort())"""
 	statuses = [r["status"] for r in results]
-	if statuses and all(s == DeviceStatus.SUCCESS for s in statuses):
+	done = (DeviceStatus.SUCCESS,) if verify else (DeviceStatus.SUCCESS, DeviceStatus.NOT_VERIFIED)
+	if statuses and all(s in done for s in statuses):
 		return CliExit.OK
-	return CliExit.MIXED if any(s in (DeviceStatus.SUCCESS, DeviceStatus.PARTIAL)
-	                            for s in statuses) else CliExit.NOTHING_APPLIED
+	applied = (DeviceStatus.SUCCESS, DeviceStatus.REVIEW, DeviceStatus.PARTIAL,
+	           DeviceStatus.NOT_VERIFIED)
+	return CliExit.MIXED if any(s in applied for s in statuses) else CliExit.NOTHING_APPLIED
 
 
 if __name__ == "__main__":

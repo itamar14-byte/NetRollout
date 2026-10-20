@@ -18,7 +18,6 @@ from src.inventory import InventoryView, LabelScope
 from src.jobs import JobStore, RolloutJob
 from src.results import (EXPORT_COLUMNS, JOB_STATUSES, JobFilter, JobPage, JobResults, JobScope,
                          build_job_summaries, build_jobs, build_kpi, log_file)
-from src.rollout.platforms import PLATFORMS, verify_commands
 from src.webapp.app import current_app
 from src.webapp.csv_download import csv_download
 from src.webapp.http import date_arg, ok, err, picked_username, viewer
@@ -329,28 +328,29 @@ def results_export() -> ResponseReturnValue:
 @bp.route("/results/config_diff/<uuid:job_id>/<device_ip>")
 @login_required
 def config_diff(job_id: uuid.UUID, device_ip: str) -> ResponseReturnValue:
-	"""Verify Diff: a device's fetched config with each command's verdict,
-	from the engine's own matcher. ?port= picks one of the devices sharing
-	the IP in the job.
+	"""Verify Diff: a device's configuration before → after with the verdict
+	the rollout reached for each command (its transcript). ?port= picks one
+	of the devices sharing the IP in the job.
 
-	:returns: {config, commands, verdicts: [[command, verdict]]}; 404 (also
-	 for another user's job: it isn't revealed), or 410 once the snapshot is gone"""
+	:returns: {diff, config (kept for a review, else null), commands,
+	 transcript, verdicts: [[command, verdict]]}; 404 (also for another
+	 user's job: it isn't revealed), or 410 once the snapshot is gone"""
 	with current_app.backend.postgres.get_session() as db_session:
 		snapshot = JobResults(db_session, viewer()).config_snapshot(
 			job_id, device_ip, request.args.get("port", type=int))
 	if snapshot is None:
 		return err("Not found", 404)
-	if snapshot.config is None:
+	if snapshot.config is None and snapshot.diff is None:
 		return err(f"Config snapshot no longer available - snapshots are "
 		           f"kept {current_app.backend.settings.get('config_snapshot_retention_days')} "
 		           f"days", 410)
-	# The engine's own matcher, so the page can't disagree with the rollout
-	# (commands with an unresolved $$TOKEN$$ come back "variable": the
-	# rollout log has their verdicts with the device's values)
-	verdicts = verify_commands(snapshot.device_type, snapshot.config, snapshot.commands) \
-		if snapshot.device_type in PLATFORMS else []
-	return ok(config=snapshot.config, commands=snapshot.commands,
-	          verdicts=[[c, v] for c, v in zip(snapshot.commands, verdicts)])
+	# what the rollout itself decided (its transcript), so the page can't
+	# disagree with it; a job from before verification by configuration
+	# has none
+	judged = (snapshot.transcript or {}).get("commands", [])
+	return ok(config=snapshot.config, diff=snapshot.diff, commands=snapshot.commands,
+	          transcript=snapshot.transcript,
+	          verdicts=[[j["command"], j["verdict"]] for j in judged])
 
 
 @bp.route("/results/summary/<uuid:job_id>")

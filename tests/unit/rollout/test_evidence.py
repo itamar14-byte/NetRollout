@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from src.rollout.evidence import Verdict, compare, contains, judge, matches, noise, parse, reply, same_word
+from src.rollout.evidence import Verdict, compare, contains, judge, matches, noise, parse, same_word
 
 LAB = Path(__file__).parent / "lab"
 T, P, R, N, V = Verdict.TOOK_EFFECT, Verdict.IN_PLACE, Verdict.REMOVED, Verdict.NAVIGATION, Verdict.REVIEW
@@ -128,27 +128,6 @@ def test_changes_inside_a_new_block_belong_to_it():
 	assert not any("uuid" in change for change in outcome.other_changes)
 
 
-def test_replies_are_kept_apart_from_echo_and_prompt():
-	"""The reply is what the device said beyond the echo, the prompt and
-	IOS's ^ pointer - for every platform, whatever its wording."""
-	assert reply(recorded("R1/refused-ntp")["replies"][0], "ntp server 192.0.2.123", "R1") == (
-		["% Initialization of NTP failed with status 4.", "%NTP: failed to initialize NTP process"], [])
-	assert reply(recorded("R1/typo")["replies"][0], "foo bar", "R1") == (
-		["% Invalid input detected at '^' marker."], [])
-	assert reply(recorded("FGT1/typo")["replies"][0], "foo bar", "FGT1 ") == (["Unknown action 0"], [])
-	assert reply(recorded("FGT1/named-entry")["replies"][1], "edit nr-test", "FGT1 ") == (
-		["new entry 'nr-test' added"], [])
-	assert reply(recorded("NXOS1/value-new")["replies"][0], "snmp-server location A", "NXOS1") == ([], [])
-	assert reply(recorded("FGT1/value-unset")["replies"][1], "set alias nr-alias", "FGT1 ") == ([], [])
-
-
-def test_time_stamped_lines_are_events_not_replies():
-	"""A syslog line between commands is a device event, kept apart."""
-	output = "ntp server 1.2.3.4\n*Oct 19 19:17:26.223: NTP Core (EMERGENCY): selftest failed\nR1(config)#"
-	assert reply(output, "ntp server 1.2.3.4", "R1") == (
-		[], ["*Oct 19 19:17:26.223: NTP Core (EMERGENCY): selftest failed"])
-
-
 @pytest.mark.parametrize("typed, device, same", [
 	("int", "interface", True), ("lo98", "loopback98", True), ("gi1/0/1", "gigabitethernet1/0/1", True),
 	("add", "address", True), ("ip", "ipv6", False), ("e1", "ethernet1/1", False), ("i", "interface", False),
@@ -196,3 +175,23 @@ def test_compare_counts_repeated_lines():
 	"""The same line twice in a section is two lines."""
 	diff = compare(parse("a\na\n"), parse("a\n"))
 	assert len(diff.removed) == 1 and len(diff.unchanged) == 1
+
+
+def test_a_line_of_only_quotes_is_not_judged():
+	"""A command of only double quotes normalizes to nothing: it isn't judged
+	(navigation), and the commands around it still are."""
+	outcome = judge(["hostname x", '""', '" "'], "hostname w\n", "hostname x\n")
+	assert [j.verdict for j in outcome.commands] == [T, N, N]
+
+
+def test_a_reviews_evidence_leaves_out_what_later_commands_took():
+	"""Found on R1: a refused command followed, in the same rollout, by one that
+	added a line in the same section showed that line as its evidence. The
+	evidence is gathered once every command has claimed its lines."""
+	before = "hostname r1\n"
+	after = "hostname r1\ninterface Loopback96\n ip address 10.96.96.1 255.255.255.255\n"
+	outcome = judge(["ntp server 192.0.2.123", "interface Loopback96",
+	                 "ip address 10.96.96.1 255.255.255.255", "exit"], before, after)
+	ntp = outcome.commands[0]
+	assert (ntp.verdict, ntp.evidence, ntp.note) == (V, (), "no change in its section")
+	assert [j.verdict for j in outcome.commands[1:]] == [T, T, N]
