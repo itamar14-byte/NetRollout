@@ -18,6 +18,8 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 - Without Verify, what a device replied to a command is shown on the CLI's console even without `-v`, and the summary names the devices that replied, so a refused command isn't overlooked. The reply is never judged: the device stays `not verified`.
 - Verification's before → after diff tags each changed line with the command it rests on, or "not by these commands"; the device's own changes (FortiOS's re-encrypted passwords) are behind **Show the device's own changes**.
 - The CLI's exit code: `review` counts as mixed (1); `not verified` is OK (0) only without `-vf`.
+- Rollback starts with **Verify after push** on, as New Rollout does, so an undo is proven like any change; its options are the same switches as New Rollout's. The Verify help on both says what Verify does now.
+- Signed in, the sign-in page and Request access send you on to the Dashboard (or the page `?next=` names).
 - Results' CSV export adds the review decision (`review`, `reviewed_by`, `reviewed_at`, `review_comment`); Analytics and Grafana's Job details know the two new statuses.
 
 - Inventory and New Rollout: a device's vendor logo is in its brand colors while the device is reachable, and grey while it's being checked or when it isn't, so the devices you can roll out to stand out at a glance. New Rollout showed every logo in white before.

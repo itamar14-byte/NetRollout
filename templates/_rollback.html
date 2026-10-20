@@ -34,10 +34,13 @@
                 </textarea>
                 <div class="d-flex gap-3 mt-2">
                     <label class="option-check" style="font-size:0.78rem; color:var(--nr-text-muted); display:flex; align-items:center; gap:0.4rem; cursor:pointer;">
-                        <input type="checkbox" id="rollbackVerify" style="accent-color:#00bcd4;">
+                        <span class="nr-toggle">
+                            <input type="checkbox" id="rollbackVerify">
+                            <span class="nr-toggle-slider"></span>
+                        </span>
                         <i class="bi bi-patch-check nr-accent"></i>
                         Verify after push
-                        <span title="Verification is based on best-effort text matching. Vendors that restructure the config file (e.g. JSON-based platforms) may produce false negatives."
+                        <span title="Reads each device's configuration before and after the push and judges every command by what changed: took effect, already in place or removed - or review when the configuration doesn't prove it either way. Without it, the devices end not verified."
                               style="font-family:'JetBrains Mono',monospace; font-size: 0.6875rem;
                                      color:var(--nr-text-muted); border:1px solid #2a2a2a; border-radius:50%;
                                      width:14px; height:14px; display:inline-flex;
@@ -45,7 +48,10 @@
                                      cursor:help; flex-shrink:0;">?</span>
                     </label>
                     <label class="option-check" style="font-size:0.78rem; color:var(--nr-text-muted); display:flex; align-items:center; gap:0.4rem; cursor:pointer;">
-                        <input type="checkbox" id="rollbackVerbose" style="accent-color:#00bcd4;">
+                        <span class="nr-toggle">
+                            <input type="checkbox" id="rollbackVerbose">
+                            <span class="nr-toggle-slider"></span>
+                        </span>
                         <i class="bi bi-terminal nr-faint"></i>
                         Verbose
                     </label>
@@ -70,7 +76,10 @@
                         <a href="/security" style="color:#ffb74d;">Security Profiles</a> first.
                     </div>
                     <label id="rollbackLinkRow" style="display:none; margin-top:0.5rem; align-items:center; gap:0.4rem; cursor:pointer; color:var(--nr-text-muted);">
-                        <input type="checkbox" id="rollbackLink" checked style="accent-color:#00bcd4;">
+                        <span class="nr-toggle">
+                            <input type="checkbox" id="rollbackLink" checked>
+                            <span class="nr-toggle-slider"></span>
+                        </span>
                         Link it to the device<span id="rollbackLinkPlural"></span> you see, so your next rollouts use it too
                     </label>
                     <div id="rollbackOnceNote" style="display:none; margin-top:0.35rem; color:var(--nr-text-muted);">
@@ -100,7 +109,7 @@
     window.openRollback = function(jobId) {
         document.getElementById("rollbackJobId").value = jobId;
         document.getElementById("rollbackCommands").value = "";
-        document.getElementById("rollbackVerify").checked = false;
+        document.getElementById("rollbackVerify").checked = true;
         document.getElementById("rollbackVerbose").checked = false;
         const err = document.getElementById("rollbackError");
         err.style.display = "none";

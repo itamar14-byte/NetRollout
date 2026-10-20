@@ -470,7 +470,7 @@ NetRollout doesn't guess how to undo a change, and it doesn't restore a saved co
 
 1. Select **Rollback** on the job in Results, or on the completion card in Active Jobs. It's offered only when at least one device ended `success` (a confirmed review counts).
 2. Enter the compensatory commands, one per line. For a job that added `ntp server 192.0.2.123`, that's `no ntp server 192.0.2.123`. You can use tokens.
-3. Choose **Verify after push** and **Verbose**, as for any rollout.
+3. Choose **Verify after push** (on, so the undo is proven like any change) and **Verbose**, as for any rollout.
 4. Select **Execute Rollback**.
 
 What it does exactly:
