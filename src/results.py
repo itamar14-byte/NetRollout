@@ -27,7 +27,7 @@ from src import runtime
 from src.accounts.users import Accounts, Viewer
 from src.db.tables import DeviceResult, JobMetadata
 from src.inventory import InventoryView, LabelScope, Target
-from src.rollout.engine import DeviceStatus, endpoint
+from src.rollout.engine import DeviceStatus, ReviewOutcome, endpoint
 
 
 # what "the last 30 days" means on the dashboard and Analytics
@@ -275,6 +275,56 @@ class ConfigSnapshot:
 	device_type: str
 	diff: str | None = None
 	transcript: dict[str, Any] | None = None
+
+
+class ReviewRefused(ValueError):
+	"""A review decision the device can't take - the reason in words."""
+
+
+# a review decision's comment, at most (the column is text; this keeps it a note)
+REVIEW_COMMENT_MAX = 2000
+
+
+class ResultReviews:
+	"""A person's decision on a device in review: confirmed → success,
+	rejected → failed, with who, when and why kept on the device's result.
+	The job's owner decides, or any admin (JobResults' rule). Works in the
+	caller's session and raises; the route audits."""
+
+	def __init__(self, session: Session, viewer: Viewer) -> None:
+		self.session = session
+		self.viewer = viewer
+
+	def decide(self, job_id: uuid.UUID, ip: str, port: int | None,
+	           outcome: ReviewOutcome, comment: str = "") -> DeviceResult:
+		"""Decide one device of a job.
+
+		:param port: picks one of the devices sharing the IP in the job; None:
+		 the first one
+		:returns: the device's result, decided
+		:raises LookupError: no such device in the job, or the viewer may not
+		 see the job (the same answer: it isn't revealed)
+		:raises ReviewRefused: it isn't in review, or was decided already, or
+		 the comment is too long"""
+		filters: dict[str, Any] = {"job_id": job_id, "device_ip": ip}
+		if port is not None:
+			filters["device_port"] = port
+		row = self.session.query(DeviceResult).filter_by(**filters).first()
+		if row is None or not JobResults(self.session, self.viewer).may_see(row.user_id):
+			raise LookupError(f"no device {ip} in job {job_id}")
+		if row.review_outcome is not None:
+			raise ReviewRefused(f"This device was already {row.review_outcome}.")
+		if row.status != DeviceStatus.REVIEW:
+			raise ReviewRefused(f"This device isn't in review (it's {row.status}).")
+		comment = comment.strip()
+		if len(comment) > REVIEW_COMMENT_MAX:
+			raise ReviewRefused(f"The comment is too long (at most {REVIEW_COMMENT_MAX} characters).")
+		row.status = DeviceStatus.SUCCESS if outcome == ReviewOutcome.CONFIRMED else DeviceStatus.FAILED
+		row.review_outcome = outcome
+		row.review_comment = comment or None
+		row.reviewed_by = self.viewer.id
+		row.reviewed_at = datetime.now()
+		return row
 
 
 class JobResults:

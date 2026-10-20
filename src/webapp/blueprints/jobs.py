@@ -17,10 +17,12 @@ from src.db.tables import User
 from src.inventory import InventoryView, LabelScope
 from src.jobs import JobStore, RolloutJob
 from src.results import (EXPORT_COLUMNS, JOB_STATUSES, JobFilter, JobPage, JobResults, JobScope,
-                         build_job_summaries, build_jobs, build_kpi, log_file)
+                         ResultReviews, ReviewRefused, build_job_summaries, build_jobs, build_kpi,
+                         log_file)
+from src.rollout.engine import ReviewOutcome, endpoint
 from src.webapp.app import current_app
 from src.webapp.csv_download import csv_download
-from src.webapp.http import date_arg, ok, err, picked_username, viewer
+from src.webapp.http import date_arg, ok, err, picked_username, viewer, with_json
 
 
 bp = Blueprint('jobs', __name__)
@@ -351,6 +353,43 @@ def config_diff(job_id: uuid.UUID, device_ip: str) -> ResponseReturnValue:
 	return ok(config=snapshot.config, diff=snapshot.diff, commands=snapshot.commands,
 	          transcript=snapshot.transcript,
 	          verdicts=[[j["command"], j["verdict"]] for j in judged])
+
+
+@bp.route("/results/review/<uuid:job_id>/<device_ip>", methods=["POST"])
+@login_required
+@with_json("outcome")
+def review(job_id: uuid.UUID, device_ip: str, data: dict[str, Any]) -> ResponseReturnValue:
+	"""A device in review decided (JSON {outcome: "confirmed" | "rejected",
+	comment?}): confirmed makes it a success, rejected a failure, kept with
+	who, when and why. The job's owner, or any admin. ?port= picks one of
+	the devices sharing the IP in the job. Audited (rollout.review_confirmed
+	/ _rejected, with the job, the device and the comment).
+
+	:returns: {status, review_outcome, reviewed_at}; 400 for an unknown
+	 outcome, 404 (also for another user's job: it isn't revealed), 409 when
+	 the device isn't in review or was decided already"""
+	try:
+		outcome = ReviewOutcome(data["outcome"])
+	except ValueError:
+		return err("The outcome is confirmed or rejected.", 400)
+	given = data.get("comment")
+	comment = given if isinstance(given, str) else ""
+	port = request.args.get("port", type=int)
+	try:
+		with current_app.backend.postgres.get_session() as db_session:
+			row = ResultReviews(db_session, viewer()).decide(job_id, device_ip, port, outcome, comment)
+			decided = {"status": row.status, "review_outcome": row.review_outcome,
+			           "reviewed_at": row.reviewed_at.isoformat(timespec="seconds") if row.reviewed_at else None}
+			where = endpoint(row.device_ip, row.device_port)
+	except LookupError:
+		return err("Not found", 404)
+	except ReviewRefused as e:
+		return err(str(e), 409)
+	current_app.web.audit(AuditAction.ROLLOUT_REVIEW_CONFIRMED if outcome == ReviewOutcome.CONFIRMED
+	                      else AuditAction.ROLLOUT_REVIEW_REJECTED,
+	                      object_type="job", object_id=job_id, object_label=where,
+	                      detail={"device": where, "comment": comment.strip() or None})
+	return ok(**decided)
 
 
 @bp.route("/results/summary/<uuid:job_id>")

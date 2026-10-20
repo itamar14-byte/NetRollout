@@ -83,6 +83,13 @@ class DeviceStatus(StrEnum):
 	CANCELLED = "cancelled"
 
 
+class ReviewOutcome(StrEnum):
+	"""A person's decision on a device in review (device_results.review_outcome):
+	confirmed makes it a success, rejected a failure."""
+	CONFIRMED = "confirmed"
+	REJECTED = "rejected"
+
+
 # the verdicts the configuration proves (the rest is navigation or review)
 CERTAIN = (Verdict.TOOK_EFFECT, Verdict.IN_PLACE, Verdict.REMOVED)
 

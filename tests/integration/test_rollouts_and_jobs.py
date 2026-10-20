@@ -15,10 +15,12 @@ import pytest
 from sqlalchemy import event
 
 from src import runtime
+from src.accounts.users import Viewer
 from src.db.settings import SETTINGS
 from src.db.tables import AuditLog, DeviceCredential, DeviceResult, Inventory, JobMetadata
 from src.jobs import Draining, RolloutJob
-from src.results import EXPORT_COLUMNS, JOB_STATUSES, job_status
+from src.results import EXPORT_COLUMNS, JOB_STATUSES, JobResults, job_status
+from src.accounts.users import Viewer
 
 pytestmark = [pytest.mark.postgres, pytest.mark.redis]
 
@@ -1661,3 +1663,77 @@ def test_a_launch_keeps_the_last_known_address_when_the_name_doesnt_resolve(
 	client_for(operator.user).post("/rollout/start", data={
 		"device_ids": [str(by_name)], "manual_commands": "hostname x"})
 	assert stored_address(session_scope, by_name) == "10.5.5.2"
+
+
+# ── A device in review, decided by a person ──────────────────────────────────
+
+def review_job(session_scope, user, status="review"):
+	""":returns: a job with one device (10.0.0.1) in `status`"""
+	job = uuid.uuid4()
+	add_result(session_scope, user, job, status=status, verified=1, commands=["a", "b"],
+	           transcript={"commands": [], "other_changes": []}, diff="+a")
+	return job
+
+
+def test_confirming_a_review_makes_it_a_success_on_record(operator, client_for, session_scope):
+	"""Confirm: the device becomes a success, with who and when and the comment
+	kept on its result, and an audit row; it then counts for a rollback."""
+	job = review_job(session_scope, operator.user)
+	resp = client_for(operator.user).post(f"/results/review/{job}/10.0.0.1",
+	                                      json={"outcome": "confirmed", "comment": "NX-OS writes /32"})
+	assert resp.status_code == 200 and resp.json["status"] == "success"
+	with session_scope() as s:
+		row = s.query(DeviceResult).filter_by(job_id=job).one()
+		assert (row.status, row.review_outcome, row.review_comment, row.reviewed_by) == \
+		       ("success", "confirmed", "NX-OS writes /32", operator.user.id)
+		assert row.reviewed_at is not None
+		audit = s.query(AuditLog).filter_by(action="rollout.review_confirmed").one()
+		assert str(audit.object_id) == str(job) and audit.detail["comment"] == "NX-OS writes /32"
+		assert JobResults(s, Viewer(operator.user.id)).successful_endpoints(job, operator.user.id) == {("10.0.0.1", 22)}
+
+
+def test_rejecting_a_review_makes_it_a_failure_on_record(operator, client_for, session_scope):
+	"""Reject: the device becomes failed, decided and audited."""
+	job = review_job(session_scope, operator.user)
+	resp = client_for(operator.user).post(f"/results/review/{job}/10.0.0.1", json={"outcome": "rejected"})
+	assert resp.status_code == 200 and resp.json["status"] == "failed"
+	with session_scope() as s:
+		row = s.query(DeviceResult).filter_by(job_id=job).one()
+		assert (row.status, row.review_outcome, row.review_comment) == ("failed", "rejected", None)
+		assert s.query(AuditLog).filter_by(action="rollout.review_rejected").count() == 1
+
+
+def test_a_review_is_decided_once_and_only_in_review(operator, client_for, session_scope):
+	"""A second decision, or one on a device that isn't in review, is refused
+	(409) with the reason; nothing changes."""
+	client = client_for(operator.user)
+	job = review_job(session_scope, operator.user)
+	assert client.post(f"/results/review/{job}/10.0.0.1", json={"outcome": "confirmed"}).status_code == 200
+	again = client.post(f"/results/review/{job}/10.0.0.1", json={"outcome": "rejected"})
+	assert again.status_code == 409 and "already confirmed" in again.json["message"]
+	settled = review_job(session_scope, operator.user, status="success")
+	other = client.post(f"/results/review/{settled}/10.0.0.1", json={"outcome": "confirmed"})
+	assert other.status_code == 409 and "isn't in review" in other.json["message"]
+	with session_scope() as s:
+		assert s.query(DeviceResult).filter_by(job_id=job).one().status == "success"
+
+
+def test_a_review_is_the_owners_or_an_admins(operator, client_for, session_scope, make_user):
+	"""Another operator gets 404 (the job isn't revealed); an admin may decide
+	anyone's; an unknown outcome is 400."""
+	job = review_job(session_scope, operator.user)
+	stranger = client_for(make_user()).post(f"/results/review/{job}/10.0.0.1", json={"outcome": "confirmed"})
+	assert stranger.status_code == 404
+	admin = client_for(make_user(role="admin"))
+	assert admin.post(f"/results/review/{job}/10.0.0.1", json={"outcome": "maybe"}).status_code == 400
+	assert admin.post(f"/results/review/{job}/10.0.0.1", json={"outcome": "rejected"}).status_code == 200
+
+
+def test_a_review_comment_has_a_limit(operator, client_for, session_scope):
+	"""A comment longer than the limit is refused (409), the device stays in review."""
+	job = review_job(session_scope, operator.user)
+	resp = client_for(operator.user).post(f"/results/review/{job}/10.0.0.1",
+	                                      json={"outcome": "confirmed", "comment": "x" * 2001})
+	assert resp.status_code == 409 and "too long" in resp.json["message"]
+	with session_scope() as s:
+		assert s.query(DeviceResult).filter_by(job_id=job).one().status == "review"

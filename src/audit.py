@@ -82,6 +82,8 @@ class AuditAction(StrEnum):
 	ROLLOUT_START = "rollout.start"
 	ROLLOUT_CANCEL = "rollout.cancel"
 	ROLLOUT_ROLLBACK = "rollout.rollback"
+	ROLLOUT_REVIEW_CONFIRMED = "rollout.review_confirmed"   # a device in review, decided
+	ROLLOUT_REVIEW_REJECTED = "rollout.review_rejected"
 	# the server
 	SETTINGS_UPDATE = "settings.update"
 	SETTINGS_RESET = "settings.reset"
