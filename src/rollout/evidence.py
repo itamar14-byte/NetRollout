@@ -253,63 +253,159 @@ class Outcome:
 		return any(j.verdict == Verdict.REVIEW for j in self.commands)
 
 
-class _Judge:
-	"""One device's push judged against its two snapshots (judge())."""
+@dataclass(frozen=True)
+class _Typed:
+	"""A command as sent, its words as judged (flat configs: extended with
+	the "edit" path), and whether it only moves between sections."""
+	sent: str
+	words: tuple[str, ...]
+	navigation: bool
 
-	def __init__(self, before: list[Line], after: list[Line],
-	             churn: Noise) -> None:
+
+def _typed(commands: list[str], flat: bool) -> list[_Typed]:
+	"""The commands as judged. Flat configs: "edit" / "up" / "top" move the
+	path that relative "set" / "delete" commands extend."""
+	out: list[_Typed] = []
+	prefix: list[tuple[str, ...]] = []
+	for command in commands:
+		typed = tuple(words(command))
+		word = typed[0] if typed else ""
+		if not flat or not typed:
+			out.append(_Typed(command, typed, not typed or navigates(word)))
+		elif word == "edit":
+			prefix.append(typed[1:])
+			out.append(_Typed(command, typed, True))
+		elif word in ("top", "end"):
+			prefix = []
+			out.append(_Typed(command, typed, True))
+		elif navigates(word):
+			prefix = prefix[:-1]
+			out.append(_Typed(command, typed, True))
+		elif word in ("set", "delete"):
+			path = tuple(w for level in prefix for w in level)
+			out.append(_Typed(command, (word, *path, *typed[1:]), False))
+		else:
+			out.append(_Typed(command, typed, False))
+	return out
+
+
+Path = tuple[str, ...]
+
+
+class _Judge:
+	"""One device's push judged against its snapshots (judge()): the diff,
+	which commands claimed which changed lines, and the section each
+	command is in."""
+
+	def __init__(self, before: list[Line], after: list[Line], churn: Noise,
+	             blocks: bool) -> None:
 		diff = compare(before, after)
 		self.added = [line for line in diff.added if not _is_noise(line, churn)]
 		self.removed = [line for line in diff.removed if not _is_noise(line, churn)]
 		self.unchanged = diff.unchanged
-		self.before, self.after = before, after
+		self.both = before + after
+		self.blocks = blocks
 		# sections that have lines under them: a line opening one is a header
-		self.sections = {line.path for line in after} | {line.path for line in before}
-		# claims: line index in added / removed → the commands that rest on it
+		self.sections = {line.path for line in self.both}
+		# claims: line index in added / removed → the commands resting on it
 		self.claims_added: dict[int, list[int]] = {}
 		self.claims_removed: dict[int, list[int]] = {}
+		# where the command being judged is; None: unknown (anywhere)
+		self.context: list[str] | None = []
 
-	def is_header(self, line: Line) -> bool:
-		return line.inside in self.sections
+	def run(self, commands: list[_Typed]) -> Outcome:
+		results: list[Judgment] = []
+		for i, command in enumerate(commands):
+			if command.navigation:
+				self._navigate(command)
+				results.append(Judgment(command.sent, Verdict.NAVIGATION))
+			elif command.words[0] in NEGATION:
+				results.append(self._removal(i, command))
+			else:
+				following = next((c.words for c in commands[i + 1:] if not c.navigation), None)
+				results.append(self._setting(i, command, following))
+		self._conflicts(results)
+		return Outcome(tuple(results), self._other_changes())
 
-	def levels(self, context: list[str] | None) -> list[tuple[str, ...] | None]:
+	def _navigate(self, command: _Typed) -> None:
+		"""Leave one section, or all of them ("end" closes only the current
+		block where blocks are FortiOS's)."""
+		if not command.words:
+			return
+		word = command.words[0]
+		if word in ("return", "root") or (word == "end" and not self.blocks):
+			self.context = []
+		elif self.context:
+			self.context = self.context[:-1]
+
+	def _levels(self) -> list[Path | None]:
 		""":returns: where to look for a command: its section, then each
 		 outer one (IOS leaves a section for a command it finds only
 		 outside); None: anywhere (the section is unknown)"""
-		if context is None:
+		if self.context is None:
 			return [None]
-		return [tuple(context[:level]) for level in range(len(context), -1, -1)]
+		return [tuple(self.context[:level]) for level in range(len(self.context), -1, -1)]
+
+	def _here(self) -> Path | None:
+		return tuple(self.context) if self.context is not None else None
 
 	@staticmethod
-	def at(line: Line, path: tuple[str, ...] | None) -> bool:
+	def _at(line: Line, path: Path | None) -> bool:
 		return path is None or line.path == path
 
-	def find_added(self, command: list[str], path: tuple[str, ...] | None) -> int | None:
-		for index, line in enumerate(self.added):
-			if self.at(line, path) and contains(command, line.words):
-				return index
-		return None
+	def _is_header(self, line: Line) -> bool:
+		return line.inside in self.sections
 
-	def find_in_place(self, command: list[str], path: tuple[str, ...] | None) -> Line | None:
-		for line in self.unchanged:
-			if self.at(line, path) and matches(command, line.words):
-				return line
-		return None
+	def _setting(self, i: int, command: _Typed, following: tuple[str, ...] | None) -> Judgment:
+		typed = list(command.words)
+		for path in self._levels():
+			for index, line in enumerate(self.added):
+				if self._at(line, path) and contains(typed, line.words):
+					self.claims_added.setdefault(index, []).append(i)
+					self._enter(line, path)
+					return Judgment(command.sent, Verdict.TOOK_EFFECT, (f"+ {line.raw}",))
+			for line in self.unchanged:
+				if self._at(line, path) and matches(typed, line.words):
+					self._enter(line, path)
+					return Judgment(command.sent, Verdict.IN_PLACE, (f"  {line.raw}",))
+		opened = self._opened_block(following)
+		if opened is not None:
+			self.claims_added.setdefault(opened, []).append(i)
+			header = self.added[opened]
+			self.context = list(header.inside)
+			return Judgment(command.sent, Verdict.TOOK_EFFECT, (f"+ {header.raw}",),
+			                f"the device named it {header.raw!r}")
+		return self._review(command)
 
-	def find_removed(self, target: list[str], path: tuple[str, ...] | None) -> int | None:
-		for index, line in enumerate(self.removed):
-			if self.at(line, path) and contains(target, line.words):
-				return index
-		return None
+	def _removal(self, i: int, command: _Typed) -> Judgment:
+		target = list(command.words[1:])
+		for path in self._levels():
+			for index, line in enumerate(self.removed):
+				if self._at(line, path) and contains(target, line.words):
+					self.claims_removed.setdefault(index, []).append(i)
+					return Judgment(command.sent, Verdict.REMOVED, (f"- {line.raw}",))
+		if target and not any(self._at(line, path) and contains(target, line.words)
+		                      for path in self._levels() for line in self.both):
+			return Judgment(command.sent, Verdict.IN_PLACE, (), "already absent")
+		return self._review(command)
 
-	def anywhere(self, target: list[str], path: tuple[str, ...] | None) -> bool:
-		""":returns: whether a line with the target's words is in either
-		 snapshot (a removal is "already absent" only if none is)"""
-		return any(self.at(line, path) and contains(target, line.words)
-		           for line in self.before + self.after)
+	def _review(self, command: _Typed) -> Judgment:
+		""":returns: review, with what changed in the command's section"""
+		here = self._here()
+		changes = tuple([f"+ {line.raw}" for line in self.added if self._at(line, here)][:10]
+		                + [f"- {line.raw}" for line in self.removed if self._at(line, here)][:10])
+		return Judgment(command.sent, Verdict.REVIEW, changes,
+		                "" if changes else "no change in its section")
 
-	def opened_block(self, path: tuple[str, ...] | None,
-	                 following: list[str] | None) -> int | None:
+	def _enter(self, line: Line, path: Path | None) -> None:
+		"""After a command matched `line`, found at `path`: inside it when it's
+		a header, else at the level where it was found."""
+		if self._is_header(line):
+			self.context = list(line.inside)
+		else:
+			self.context = list(line.path) if path is None else list(path)
+
+	def _opened_block(self, following: tuple[str, ...] | None) -> int | None:
 		"""A command that matched nothing may have opened a block the device
 		named its own way (FortiOS "edit 0" → "edit 1"): the unclaimed new
 		header in its section whose new lines hold the next command.
@@ -317,42 +413,50 @@ class _Judge:
 		:returns: that header's index in added, or None"""
 		if not following:
 			return None
+		here = self._here()
 		for index, header in enumerate(self.added):
-			if index in self.claims_added or not self.at(header, path) \
-					or not self.is_header(header):
+			if index in self.claims_added or not self._at(header, here) \
+					or not self._is_header(header):
 				continue
-			if any(line.path == header.inside and contains(following, line.words)
+			if any(line.path == header.inside and contains(list(following), line.words)
 			       for line in self.added):
 				return index
 		return None
 
-	def changes_in(self, path: tuple[str, ...] | None) -> tuple[str, ...]:
-		""":returns: the section's changes, as evidence for a review"""
-		return tuple([f"+ {line.raw}" for line in self.added if self.at(line, path)][:10]
-		             + [f"- {line.raw}" for line in self.removed if self.at(line, path)][:10])
+	def _conflicts(self, results: list[Judgment]) -> None:
+		"""One added line resting on two different commands proves neither:
+		both go to review."""
+		for index, claimants in self.claims_added.items():
+			if len({normalize(results[c].command) for c in claimants}) > 1:
+				for c in claimants:
+					results[c] = Judgment(results[c].command, Verdict.REVIEW,
+					                      (f"+ {self.added[index].raw}",),
+					                      "the same change matches another command too")
 
-	def explained(self) -> tuple[set[int], set[int]]:
-		""":returns: the added and removed lines the commands account for:
-		 their own, everything under a block they opened or removed, and a
-		 line a claimed one replaced (the same section and leading words:
-		 "snmp-server location a" → "… b", "vlan 1" → "vlan 1,98")"""
+	def _other_changes(self) -> tuple[str, ...]:
+		""":returns: the changes no command accounts for. Accounted for: a
+		 command's own line, everything under a block it opened or removed,
+		 and a line a claimed one replaced (the same section and leading
+		 words: "snmp-server location a" → "… b", "vlan 1" → "vlan 1,98")"""
 		blocks = {self.added[i].inside for i in self.claims_added} | \
 			{self.removed[i].inside for i in self.claims_removed}
-		under = lambda line: any(line.path[:len(b)] == b for b in blocks)   # noqa: E731
-		added = {i for i, line in enumerate(self.added)
-		         if i in self.claims_added or under(line)}
-		removed = {i for i, line in enumerate(self.removed)
-		           if i in self.claims_removed or under(line)}
-		for i, gone in enumerate(self.removed):
-			if i in removed:
-				continue
-			for j in self.claims_added:
-				new = self.added[j]
+
+		def under_block(line: Line) -> bool:
+			return any(line.path[:len(block)] == block for block in blocks)
+
+		def replaced(gone: Line) -> bool:
+			for i in self.claims_added:
+				new = self.added[i]
 				common = _common_prefix(gone.words, new.words)
 				if new.path == gone.path and (len(common) >= 2 or common == gone.words):
-					removed.add(i)
-					break
-		return added, removed
+					return True
+			return False
+
+		other = [f"+ {_where(line)}{line.raw}" for i, line in enumerate(self.added)
+		         if i not in self.claims_added and not under_block(line)]
+		other += [f"- {_where(line)}{line.raw}" for i, line in enumerate(self.removed)
+		          if i not in self.claims_removed and not under_block(line) and not replaced(line)]
+		return tuple(other)
 
 
 def judge(commands: list[str], before: str, after: str, *, flat: bool = False,
@@ -382,118 +486,11 @@ def judge(commands: list[str], before: str, after: str, *, flat: bool = False,
 	:returns: the verdicts, and the changes no command explains"""
 	b, a = parse(before, flat), parse(after, flat)
 	churn = noise(a, parse(again, flat)) if again is not None else set()
-	j = _Judge(b, a, churn)
-	results: list[Judgment] = []
-	context: list[str] | None = []
-	resolved = _flat_all(commands) if flat else [(c, words(c)) for c in commands]
-	for i, (command, typed) in enumerate(resolved):
-		word = typed[0] if typed else ""
-		if not typed or typed == ["#nav"] or (navigates(word) and not flat):
-			if not flat and typed:
-				leaves_all = word in ("return", "root") or (word == "end" and not blocks)
-				if leaves_all:
-					context = []
-				elif context:
-					context = context[:-1]
-			results.append(Judgment(command, Verdict.NAVIGATION))
-			continue
-		if word in NEGATION:
-			results.append(_judge_removal(j, i, command, typed[1:], context))
-			continue
-		following = next((w for _, w in resolved[i + 1:]
-		                  if w and not navigates(w[0]) and w != ["#nav"]), None)
-		judgment, context = _judge_setting(j, i, command, typed, context, following)
-		results.append(judgment)
-	# one added line resting on two different commands proves neither
-	for index, claimants in j.claims_added.items():
-		if len({normalize(commands[c]) for c in claimants}) > 1:
-			for c in claimants:
-				results[c] = Judgment(commands[c], Verdict.REVIEW, (f"+ {j.added[index].raw}",),
-				                      "the same change matches another command too")
-	added, removed = j.explained()
-	other = tuple([f"+ {_where(line)}{line.raw}" for i, line in enumerate(j.added) if i not in added]
-	              + [f"- {_where(line)}{line.raw}" for i, line in enumerate(j.removed) if i not in removed])
-	return Outcome(tuple(results), other)
+	return _Judge(b, a, churn, blocks).run(_typed(commands, flat))
 
 
 def _where(line: Line) -> str:
 	return f"{' > '.join(line.path)} > " if line.path else ""
-
-
-def _judge_setting(j: _Judge, i: int, command: str, typed: list[str],
-                   context: list[str] | None, following: list[str] | None
-                   ) -> tuple[Judgment, list[str] | None]:
-	for path in j.levels(context):
-		index = j.find_added(typed, path)
-		if index is not None:
-			j.claims_added.setdefault(index, []).append(i)
-			line = j.added[index]
-			return (Judgment(command, Verdict.TOOK_EFFECT, (f"+ {line.raw}",)),
-			        _enter(j, line, context, path))
-		kept = j.find_in_place(typed, path)
-		if kept is not None:
-			return (Judgment(command, Verdict.IN_PLACE, (f"  {kept.raw}",)),
-			        _enter(j, kept, context, path))
-	here = tuple(context) if context is not None else None
-	index = j.opened_block(here, following)
-	if index is not None:
-		j.claims_added.setdefault(index, []).append(i)
-		header = j.added[index]
-		return (Judgment(command, Verdict.TOOK_EFFECT, (f"+ {header.raw}",),
-		                 f"the device named it {header.raw!r}"), list(header.inside))
-	changes = j.changes_in(here)
-	return (Judgment(command, Verdict.REVIEW, changes,
-	                 "" if changes else "no change in its section"), context)
-
-
-def _enter(j: _Judge, line: Line, context: list[str] | None,
-           path: tuple[str, ...] | None) -> list[str] | None:
-	""":returns: the context after a command matched `line` at `path`: inside
-	 it when it's a header, else the level where it was found"""
-	if j.is_header(line):
-		return list(line.inside)
-	return list(line.path) if path is None else list(path)
-
-
-def _judge_removal(j: _Judge, i: int, command: str, target: list[str],
-                   context: list[str] | None) -> Judgment:
-	for path in j.levels(context):
-		index = j.find_removed(target, path)
-		if index is not None:
-			j.claims_removed.setdefault(index, []).append(i)
-			return Judgment(command, Verdict.REMOVED, (f"- {j.removed[index].raw}",))
-	here = tuple(context) if context is not None else None
-	if target and not any(j.anywhere(target, path) for path in j.levels(context)):
-		return Judgment(command, Verdict.IN_PLACE, (), "already absent")
-	changes = j.changes_in(here)
-	return Judgment(command, Verdict.REVIEW, changes,
-	                "" if changes else "no change in its section")
-
-
-def _flat_all(commands: list[str]) -> list[tuple[str, list[str]]]:
-	"""Flat configs: "edit" / "up" / "top" move the prefix that relative
-	"set" / "delete" commands extend; navigation becomes ["#nav"].
-
-	:returns: (command, its full words) in order"""
-	prefix: list[list[str]] = []
-	out: list[tuple[str, list[str]]] = []
-	for command in commands:
-		typed = words(command)
-		word = typed[0] if typed else ""
-		if word == "edit":
-			prefix.append(typed[1:])
-			out.append((command, ["#nav"]))
-		elif word in ("top", "end"):
-			prefix = []
-			out.append((command, ["#nav"]))
-		elif navigates(word):
-			prefix = prefix[:-1]
-			out.append((command, ["#nav"]))
-		elif word in ("set", "delete"):
-			out.append((command, [word, *[w for level in prefix for w in level], *typed[1:]]))
-		else:
-			out.append((command, typed))
-	return out
 
 
 def reply(output: str, command: str, prompt: str) -> tuple[list[str], list[str]]:
