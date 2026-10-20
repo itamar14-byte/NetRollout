@@ -1051,3 +1051,36 @@ def test_a_command_that_gets_no_prompt_keeps_the_devices_question():
 	assert f"(command 2 of 3; its last output: {question})" in result["action_needed"]
 	assert f"'crypto key zeroize rsa' - no prompt came back; the device's last output: " \
 	       f"{question}" in log_of(logger)
+
+
+# ── Without Verify: what a device said is still in sight ─────────────────────
+
+def unverified_rollout(answers):
+	"""One cisco_ios rollout without verify whose device answers each command with
+	`answers` (by command). :returns: (its result, [(line, important)] it logged)"""
+	conn = connection()
+	conn.send_config_set.side_effect = lambda cmds, **kw: answers.get(cmds[0], f"{cmds[0]}\nr1#")
+	notifier = MagicMock(logfile="rollout.log")
+	device = Device(ip="10.0.0.1", label="d", username="u", password="p",
+	                device_type="cisco_ios", secret="", port=22)
+	engine = RolloutEngine(RolloutOptions(verify=False), [device], ["ntp server bogus", "logging host 1.1.1.1"])
+	with patch("netmiko.ConnectHandler", return_value=conn):
+		(result,) = engine.run(threading.Event(), notifier)
+	return result, [(c.args[0], c.kwargs.get("important", False)) for c in notifier.notify.call_args_list]
+
+
+def test_without_verify_a_reply_reaches_the_console_and_the_summary():
+	"""Verify off: a command the device answered (here refused) is logged as
+	important - the CLI shows it without -v - and the summary names the device;
+	the device stays not verified (the reply is never judged). A quiet device
+	isn't named."""
+	result, lines = unverified_rollout({"ntp server bogus": "% Invalid input detected at '^' marker.\nr1(config)#"})
+	assert result["status"] == "not verified"
+	assert ("10.0.0.1:22: 'ntp server bogus' - the device replied: % Invalid input detected at "
+	        "'^' marker.", True) in lines
+	assert ("1 device not verified replied to some commands (10.0.0.1:22) - read the lines "
+	        "marked 'the device replied': NetRollout doesn't judge what a device says, only "
+	        "its configuration", True) in lines
+	# a device that answered nothing gets no such line
+	_, quiet = unverified_rollout({})
+	assert not any("replied to some commands" in line for line, _ in quiet)

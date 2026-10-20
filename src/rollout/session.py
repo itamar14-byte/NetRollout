@@ -250,8 +250,11 @@ class NetmikoSession:
 					said, events = reply(str(output), command, str(net_connect.base_prompt))
 					replies.append(tuple(said))
 					if said:
+						# without verify nothing judges the command: its reply is
+						# all there is to see, so it's shown on the console too
 						report.notify(f"{device.endpoint}: '{command.strip()}' - the "
-						              f"device replied: {' | '.join(said)}", Tone.WARNING)
+						              f"device replied: {' | '.join(said)}", Tone.WARNING,
+						              important=not verify)
 					for event in events:
 						report.notify(f"{device.endpoint}: device event: {event}")
 

@@ -10,7 +10,7 @@ import re
 import threading
 import uuid
 from collections import Counter
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -464,10 +464,12 @@ class RolloutEngine:
 				status=status, action_needed=report.actions(device.endpoint)))
 		return results
 
-	def _log_summary(self, results: list[DeviceResultDict],
-	                 report: RunReport) -> None:
+	def _log_summary(self, results: list[DeviceResultDict], report: RunReport,
+	                 replied: Sequence[str] = ()) -> None:
 		"""Final line, counted from the per-device statuses (it used to
-		report every attempted device as configured)."""
+		report every attempted device as configured).
+
+		:param replied: the devices not judged that replied to a command"""
 		counts = Counter(r["status"] for r in results)
 		parts = [f"{counts[s]} {s}" for s in DeviceStatus if counts[s]]
 		ok = counts[DeviceStatus.SUCCESS]
@@ -495,6 +497,11 @@ class RolloutEngine:
 			       else "verification was off - turn it on (Verify after push; the CLI's -vf) "
 			            "to have NetRollout check the result")
 			report.notify(f"Not verified: {why}", Tone.WARNING, important=True)
+		if replied:
+			report.notify(f"{len(replied)} device{'s' if len(replied) != 1 else ''} not verified "
+			              f"replied to some commands ({', '.join(replied)}) - read the lines "
+			              f"marked 'the device replied': NetRollout doesn't judge what a device "
+			              f"says, only its configuration", Tone.WARNING, important=True)
 		report.notify(
 			f"Please see Execution logs in {os.path.abspath(report.notifier.logfile)}",
 			important=True)
@@ -515,5 +522,10 @@ class RolloutEngine:
 			return []
 		_, push_results = self._push_config(cancel_flag, logger)
 		results = self._results(push_results, report)
-		self._log_summary(results, report)
+		# not judged, but the device said something to a command: named in
+		# the summary (what it said is never judged - it may be "new entry
+		# added" as well as an error)
+		replied = sorted(self._devices[idx].endpoint for idx, push in push_results.items()
+		                 if push.applied and push.outcome is None and any(push.replies))
+		self._log_summary(results, report, replied)
 		return results

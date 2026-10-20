@@ -166,7 +166,7 @@ A `$$` that isn't part of a variable, such as `banner motd $$ maintenance $$`, i
    | `not verified` | The commands were sent and nothing judged them: no `-vf`, or the configuration couldn't be read. |
    | `cancelled` | The device was never started because the run was cancelled with Ctrl+C. |
 
-   The last lines are, for example, `Configuration rollout complete: 10 success, 1 review (of 11 devices)`, then `REVIEW on 1 device (10.0.0.7:22) - NetRollout couldn't prove every command there: check the lines marked review, then decide them on the devices`, and the path of the log file. A command in review is printed even without `-v`, for example:
+   The last lines are, for example, `Configuration rollout complete: 10 success, 1 review (of 11 devices)`, then `REVIEW on 1 device (10.0.0.7:22) - NetRollout couldn't prove every command there: check the lines marked review, then decide them on the devices`, and the path of the log file. Without `-vf`, what a device replied to a command is printed even without `-v`, and the summary names the devices that replied (`1 device not verified replied to some commands (10.0.0.7:22) - read the lines marked 'the device replied'`); the exit code stays `0`, as nothing judged them. A command in review is printed even without `-v`, for example:
 
    ```text
    10.0.0.7:22: 'ntp server 192.0.2.123' review - no change in its section; the device replied: % Initialization of NTP failed with status 4.

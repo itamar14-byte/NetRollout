@@ -361,7 +361,7 @@ How a device's result shows:
 - At least one command in review: `review`.
 - The device's **Verified** count in Results is the number of commands the configuration proved.
 
-Without Verify, or when the configuration can't be read, the device is `not verified`: the commands were sent, and nothing judged them. The device's replies are still in the log.
+Without Verify, or when the configuration can't be read, the device is `not verified`: the commands were sent, and nothing judged them. What the device replied is still logged with each command, and the rollout's summary names every not verified device that replied to something, so a refused command isn't overlooked. NetRollout doesn't decide from a reply whether a command failed (a device also replies when it succeeds, for example FortiOS's `new entry added`): turn Verify on to have the configuration decide.
 
 ### Cancelling
 
