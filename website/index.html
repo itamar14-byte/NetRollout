@@ -4,13 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>NetRollout</title>
-<meta name="description" content="Push configuration changes to many network devices over SSH, verify every command on every device, and keep a record. Self-hosted and open source.">
+<meta name="description" content="Push configuration changes to many network devices over SSH, prove every command by each device's own configuration, and keep a record. Self-hosted and open source.">
 <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
 <link rel="canonical" href="https://itamar14-byte.github.io/NetRollout/">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="NetRollout">
 <meta property="og:title" content="NetRollout: push one change to every device, and prove it landed">
-<meta property="og:description" content="Configuration over SSH to many network devices at once, verified on every device, with a record of every result. Self-hosted and open source.">
+<meta property="og:description" content="Configuration over SSH to many network devices at once, proven by each device's own configuration, with a record of every result. Self-hosted and open source.">
 <meta property="og:url" content="https://itamar14-byte.github.io/NetRollout/">
 <meta property="og:image" content="https://itamar14-byte.github.io/NetRollout/assets/og.png">
 <meta property="og:image:width" content="1200">
@@ -195,7 +195,7 @@ footer p { margin: 0; }
     <div class="hero">
       <div>
         <h1>Push one change to every device, and prove it landed.</h1>
-        <p class="lede">NetRollout sends configuration over SSH to many network devices at once, reads each device's configuration back to verify every command, and keeps a record of the result. Self-hosted and open source, for network engineers and their teams.</p>
+        <p class="lede">NetRollout sends configuration over SSH to many network devices at once and proves every command by the device's own configuration, before and after. What it can't prove, it doesn't guess: it hands it to you with the evidence. Easy to run, and correct because it never claims more than it proved. Self-hosted and open source, for network engineers and their teams.</p>
         <div class="ctas">
           <a class="btn primary" id="heroDownload" href="#download">
             <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v9m0 0-4-4m4 4 4-4M4 16h12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -206,7 +206,7 @@ footer p { margin: 0; }
         <p class="release-line" id="releaseLine"></p>
       </div>
 
-      <div class="device" role="img" aria-label="A 48-port switch whose port lights turn green one by one as a rollout verifies each device, above a console listing the results: 47 success, 1 partial with ACTION NEEDED.">
+      <div class="device" role="img" aria-label="A 48-port switch whose port lights turn green one by one as a rollout verifies each device, above a console listing the results: 47 success, 1 to review.">
         <div class="faceplate">
           <div class="model"><b>access-stack-1</b>48 devices</div>
           <div class="ports" id="ports"></div>
@@ -236,8 +236,8 @@ footer p { margin: 0; }
           <p>Devices run side by side within your limits, and each platform saves or commits in its own way. Watch it live, device by device.</p>
         </li>
         <li>
-          <h3>Verify and keep the record</h3>
-          <p>Each device's configuration is read back and every command checked, removals included. Results, logs and snapshots are stored; roll back from there.</p>
+          <h3>Prove it and keep the record</h3>
+          <p>Each device's configuration, before and after, proves every command, removals included. Whatever it can't prove waits for your decision. Results, logs and snapshots are stored; roll back from there.</p>
         </li>
       </ol>
     </div>
@@ -245,16 +245,17 @@ footer p { margin: 0; }
 
   <section id="verify" class="band" aria-labelledby="verify-title">
     <div class="page">
-      <h2 id="verify-title">Not just sent. Verified.</h2>
-      <p class="intro">After the push, NetRollout reads each device's configuration back and checks every command you typed, in the section it belongs to. Removals are checked too. Anything not found is shown, never buried.</p>
-      <div class="verify" role="img" aria-label="Verify on one Cisco IOS device: three commands verified, including a removal checked as absent; one logging command not found, so the device is partial and its Verify Diff shows the configuration as read.">
-        <div class="line"><span class="prompt">NetRollout&gt;</span> verify 10.20.1.14:22 <span class="dim">(cisco_ios)</span></div>
-        <div class="line">interface Loopback0</div>
-        <div class="line"> ip address 192.0.2.11 255.255.255.255  <span class="dim">in interface Loopback0</span>  <span class="ok">verified</span></div>
-        <div class="line">ntp server 192.0.2.123                  <span class="dim">present</span>                 <span class="ok">verified</span></div>
-        <div class="line">no ntp server 192.0.2.9                 <span class="dim">absent, as asked</span>        <span class="ok">verified</span></div>
-        <div class="line">logging host 192.0.2.50                 <span class="dim">not found</span>               <span class="warn">not verified</span></div>
-        <div class="line sum">3 of 4 verified: <span class="warn">partial</span>  <span class="dim">Verify Diff shows the configuration as read</span></div>
+      <h2 id="verify-title">Not just sent. Proven.</h2>
+      <p class="intro">NetRollout reads each device's configuration before the push and again after it, and compares the device with itself. A command is proven when its line appears, is already there, or is gone as asked, however the device abbreviates or numbers it. No list of error messages decides anything, and a quiet device proves nothing: what the configuration doesn't prove goes to you, with the device's line and its reply.</p>
+      <div class="verify" role="img" aria-label="Verify on one Cisco IOS device: four commands proven by its configuration (took effect, removed, already in place); the NTP server command changed nothing and the device replied that NTP initialization failed, so it waits for a person's review.">
+        <div class="line"><span class="prompt">NetRollout&gt;</span> verify 10.20.1.14:22 <span class="dim">(cisco_ios, before → after)</span></div>
+        <div class="line">int lo0                                 <span class="dim">+ interface Loopback0</span>                    <span class="ok">took effect</span></div>
+        <div class="line"> ip address 192.0.2.11 255.255.255.255  <span class="dim">+ ip address 192.0.2.11 255.255.255.255</span>  <span class="ok">took effect</span></div>
+        <div class="line">no ntp server 192.0.2.9                 <span class="dim">- ntp server 192.0.2.9</span>                   <span class="ok">removed</span></div>
+        <div class="line">logging host 192.0.2.50                 <span class="dim">  logging host 192.0.2.50</span>                <span class="ok">already in place</span></div>
+        <div class="line">ntp server 192.0.2.123                  <span class="dim">no change in its section</span>                 <span class="warn">review</span></div>
+        <div class="line">  <span class="dim">the device replied:</span> <span class="warn">% Initialization of NTP failed with status 4.</span></div>
+        <div class="line sum">4 of 5 proven: <span class="warn">review</span>  <span class="dim">confirm or reject it in Results → Verification</span></div>
       </div>
     </div>
   </section>
@@ -275,7 +276,7 @@ footer p { margin: 0; }
           </figure>
           <figure>
             <img src="docs/images/results.png" alt="The Results page listing finished rollouts and their statuses" loading="lazy" width="1440" height="900">
-            <figcaption>Results: every device's outcome, log and Verify Diff.</figcaption>
+            <figcaption>Results: every device's outcome, log and Verification.</figcaption>
           </figure>
         </div>
       </div>
@@ -316,7 +317,7 @@ footer p { margin: 0; }
       <div class="features">
         <div><h3>Accounts and sign-in</h3><p>Operator and admin roles, local accounts with approval, LDAP with group rules, two-factor sign-in, and lockout after repeated wrong passwords.</p></div>
         <div><h3>Live logs, safe to share</h3><p>Follow every rollout as it runs. Passwords, secrets and SNMP communities are replaced with <code>&lt;redacted&gt;</code> in every log.</p></div>
-        <div><h3>Results and rollback</h3><p>Every device's status, log, configuration snapshot and Verify Diff. Cases only a person can fix are flagged ACTION NEEDED.</p></div>
+        <div><h3>Results, review and rollback</h3><p>Every device's status and log, and its Verification: each command's verdict with the device's line and reply, and the diff with each line's command. Confirm or reject what NetRollout couldn't prove, on record. Cases only a person can fix are flagged ACTION NEEDED.</p></div>
         <div><h3>Audit log</h3><p>Sign-ins, rollouts, setting changes and admin actions, recorded with who and when.</p></div>
         <div><h3>Monitoring</h3><p>Optional Prometheus, Loki and Grafana, with ready-made dashboards for operations, jobs and security.</p></div>
         <div><h3>Backups and upgrades</h3><p>Scheduled backups, one-step restore, and upgrades that back up first and can be finished if interrupted.</p></div>
@@ -393,13 +394,13 @@ footer p { margin: 0; }
   const row = i => {
     const t = types[i % types.length];
     const ep = ip(i).padEnd(15);
-    if (i === WARN) return `<span class="dim">${ep}</span> ${t.padEnd(14)} pushed 2/2    <span class="warn">partial ACTION NEEDED</span>`;
+    if (i === WARN) return `<span class="dim">${ep}</span> ${t.padEnd(14)} saved       proven 1/2    <span class="warn">review</span>`;
     const fin = t === "juniper_junos" ? "committed " : "saved     ";
-    return `<span class="dim">${ep}</span> ${t.padEnd(14)} ${fin}  verified 2/2  <span class="ok">success</span>`;
+    return `<span class="dim">${ep}</span> ${t.padEnd(14)} ${fin}  proven 2/2    <span class="ok">success</span>`;
   };
   const header = `<div class="line"><span class="prompt">NetRollout&gt;</span> rollout "NTP servers" to 48 devices, verify on</div>`;
   const shown = [3, 4, 11, 20, 29, WARN, 44, 47];
-  const summary = `<div class="line sum">47 success   <span class="warn">1 partial</span>   0 failed   <span class="dim">done in 41 s</span></div>`;
+  const summary = `<div class="line sum">47 success   <span class="warn">1 review</span>   0 failed   <span class="dim">done in 41 s</span></div>`;
   const render = upto => {
     consoleEl.innerHTML = header + shown.filter(i => i <= upto).map(i => `<div class="line">${row(i)}</div>`).join("") + (upto >= N - 1 ? summary : "");
   };
