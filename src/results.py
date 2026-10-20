@@ -280,7 +280,7 @@ def contains(text: str) -> str:
 # Results' CSV: one row per device of each job (JobResults.export)
 EXPORT_COLUMNS = ["job_id", "note", "owner", "job_status", "started", "completed", "device",
                   "ip", "port", "platform", "status", "commands_sent", "commands_verified",
-                  "action_needed"]
+                  "action_needed", "review", "reviewed_by", "reviewed_at", "review_comment"]
 
 
 @dataclass(frozen=True)
@@ -485,6 +485,7 @@ class JobResults:
 		notes = {job_id: meta.comment for job_id, meta in
 		         self.metadata(r.job_id for r in rows).items()}
 		owners = self.owner_names(rows)
+		reviewers = self.reviewer_names(rows)
 		jobs = sorted(by_job(rows), key=lambda job: (max(r.completed_at for r in job[1]), job[0]),
 		              reverse=True)
 		stamp = "%Y-%m-%d %H:%M:%S"
@@ -497,8 +498,18 @@ class JobResults:
 				            r.completed_at.strftime(stamp), device_label(labels, r), r.device_ip,
 				            r.device_port, r.device_type, r.status, r.commands_sent,
 				            r.commands_verified if r.commands_verified is not None else "",
-				            r.action_needed or ""])
+				            r.action_needed or "", *self._review_cells(r, reviewers, stamp)])
 		return out
+
+	@staticmethod
+	def _review_cells(row: DeviceResult, reviewers: dict[uuid.UUID, str], stamp: str) -> list[str]:
+		""":returns: the export's review columns: outcome, by, at, comment
+		 (empty when no decision was taken)"""
+		review = review_view(row, reviewers)
+		if review is None:
+			return ["", "", "", ""]
+		return [review["outcome"], review["by"],
+		        row.reviewed_at.strftime(stamp) if row.reviewed_at else "", review["comment"] or ""]
 
 	def owners(self) -> list[tuple[uuid.UUID, str]]:
 		""":returns: (id, username) of every user with a job, by name - an

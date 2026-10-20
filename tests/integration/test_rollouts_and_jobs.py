@@ -1765,3 +1765,22 @@ def test_dashboard_counts_the_users_devices_to_review(operator, client_for, sess
 	review_job(session_scope, operator.user)
 	html = client.get("/dashboard").get_data(as_text=True)
 	assert "2 devices of your rollouts" in html and "/results?status=review" in html
+
+
+def test_results_export_carries_the_review_decision(operator, client_for, session_scope):
+	"""A decided device's export row has its decision - outcome, by whom,
+	when, the comment (formula-escaped like any cell); an undecided one has
+	them empty."""
+	decided = review_job(session_scope, operator.user)
+	open_review = review_job(session_scope, operator.user)
+	client = client_for(operator.user)
+	assert client.post(f"/results/review/{decided}/10.0.0.1",
+	                   json={"outcome": "rejected", "comment": "=old value kept"}).status_code == 200
+	rows = export_rows(client.get("/results/export.csv"))
+	by_job = {r[0]: dict(zip(rows[0], r)) for r in rows[1:]}
+	row = by_job[str(decided)]
+	assert (row["status"], row["review"], row["reviewed_by"], row["review_comment"]) == \
+	       ("failed", "rejected", operator.user.username, "'=old value kept")
+	assert row["reviewed_at"]
+	assert [by_job[str(open_review)][c] for c in ("review", "reviewed_by", "reviewed_at", "review_comment")] == \
+	       ["", "", "", ""]

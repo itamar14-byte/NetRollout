@@ -293,7 +293,8 @@ $(function() {
       {
         id: 'status', label: 'Status', type: 'string',
         input: 'select',
-        values: { success:'Success', failed:'Failed', partial:'Partial', cancelled:'Cancelled' },
+        values: { success:'Success', review:'Review', partial:'Partial', failed:'Failed',
+                  'not verified':'Not verified', cancelled:'Cancelled' },
         operators: ['equal','not_equal']
       },
       {
@@ -422,7 +423,8 @@ async function runQuery() {
       let display = val === null || val === undefined
         ? '<span style="color:var(--nr-text-muted);">-</span>' : nrEscape(val);
       if (c === 'status') {
-        const colors = { success:'#a5d6a7', failed:'#ef9a9a', partial:'#ffe082', cancelled:'#666' };
+        const colors = { success:'#a5d6a7', review:'#ffcc80', failed:'#ef9a9a', partial:'#ffe082',
+                         'not verified':'#b0bec5', cancelled:'#666' };
         display = `<span style="font-family:monospace; color:${colors[val]||'#aaa'};">${nrEscape(val)}</span>`;
       }
       return `<td style="font-size:0.75rem; color:#aaa; white-space:nowrap;">${display}</td>`;

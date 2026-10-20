@@ -142,6 +142,14 @@
                         "success": {
                           "color": "green",
                           "index": 0
+                        },
+                        "review": {
+                          "color": "orange",
+                          "index": 4
+                        },
+                        "not verified": {
+                          "color": "#b0bec5",
+                          "index": 5
                         }
                       }
                     }
