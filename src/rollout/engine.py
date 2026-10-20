@@ -283,6 +283,7 @@ class RolloutEngine:
 		:param commands: pushed in order, $$TOKEN$$s resolved per device"""
 		self._devices = devices
 		self._verify_flag = param.verify
+		self._webapp = param.webapp
 		self._max_workers = param.max_workers
 		self._commands = commands
 		self._report: RunReport | None = None   # the run's, from its logger
@@ -327,21 +328,27 @@ class RolloutEngine:
 			return PushResult(applied=False)
 		result = NetmikoSession(device, report).push(commands, verify=self._verify_flag)
 		if result.outcome is not None:
-			self._log_outcome(device, result.outcome, report)
+			self._log_outcome(device, result.outcome, result.replies, report)
 		return result
 
 	@staticmethod
-	def _log_outcome(device: Device, outcome: Outcome, report: RunReport) -> None:
+	def _log_outcome(device: Device, outcome: Outcome, replies: tuple[tuple[str, ...], ...],
+	                 report: RunReport) -> None:
 		"""Each command's verdict with the device line it rests on (or why
-		not), then the changes no command explains."""
-		for j in outcome.commands:
+		not), then the changes no command explains. A command in review is
+		always shown (the console too, as ACTION NEEDED is), with what the
+		device replied to it."""
+		for i, j in enumerate(outcome.commands):
 			if j.verdict == Verdict.NAVIGATION:
 				continue
+			review = j.verdict == Verdict.REVIEW
 			shown = j.evidence[0].strip() if j.evidence else ""
-			detail = "; ".join(part for part in (shown, j.note) if part)
+			said = " | ".join(replies[i]) if review and i < len(replies) else ""
+			detail = "; ".join(part for part in (shown, j.note, f"the device replied: {said}" if said else "")
+			                   if part)
 			report.notify(f"{device.endpoint}: '{j.command.strip()}' {j.verdict}"
 			              + (f" - {detail}" if detail else ""),
-			              Tone.WARNING if j.verdict == Verdict.REVIEW else Tone.SUCCESS)
+			              Tone.WARNING if review else Tone.SUCCESS, important=review)
 		for change in outcome.other_changes:
 			report.notify(f"{device.endpoint}: changed, not by these commands: {change}",
 			              Tone.WARNING)
@@ -444,6 +451,18 @@ class RolloutEngine:
 			              f"{'s' if count != 1 else ''} "
 			              f"({', '.join(sorted(report.needs_action))}) - see the "
 			              f"lines marked ACTION NEEDED", Tone.ERROR, important=True)
+		review = sorted(endpoint(r["device_ip"], r["device_port"]) for r in results
+		                if r["status"] == DeviceStatus.REVIEW)
+		if review:
+			where = "decide them in Results → Verification" if self._webapp else "decide them on the devices"
+			report.notify(f"REVIEW on {len(review)} device{'s' if len(review) != 1 else ''} "
+			              f"({', '.join(review)}) - NetRollout couldn't prove every command there: "
+			              f"check the lines marked review, then {where}", Tone.WARNING, important=True)
+		if counts[DeviceStatus.NOT_VERIFIED]:
+			why = ("the configuration couldn't be read (the reason is above)" if self._verify_flag
+			       else "verification was off - turn it on (Verify after push; the CLI's -vf) "
+			            "to have NetRollout check the result")
+			report.notify(f"Not verified: {why}", Tone.WARNING, important=True)
 		report.notify(
 			f"Please see Execution logs in {os.path.abspath(report.notifier.logfile)}",
 			important=True)

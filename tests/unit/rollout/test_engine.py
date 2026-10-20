@@ -840,3 +840,49 @@ def test_an_action_needed_text_is_kept_redacted(tmp_path):
 	assert report.actions("10.0.0.1:22") == \
 		"stopped answering after 'set psksecret ENC <redacted>'"
 	assert "abc123" not in (tmp_path / "rollout.log").read_text(encoding="utf-8")
+
+
+def summary_lines(statuses, verify=True, webapp=False):
+	""":returns: the lines the engine's summary logs for devices with these statuses"""
+	engine = RolloutEngine(RolloutOptions(verify=verify, webapp=webapp), [make_device()], ["x"])
+	notifier = MagicMock(logfile="rollout.log")
+	results = [{"device_ip": f"10.0.0.{i}", "device_port": 22, "status": s}
+	           for i, s in enumerate(statuses, 1)]
+	engine._log_summary(results, RunReport(notifier))
+	return [c.args[0] for c in notifier.notify.call_args_list]
+
+
+def test_the_summary_points_at_the_devices_to_review():
+	"""Devices in review are named in one line saying what to check; the web
+	app's says where to decide, the CLI's on the devices."""
+	cli = summary_lines(["review", "success", "review"])
+	assert ("REVIEW on 2 devices (10.0.0.1:22, 10.0.0.3:22) - NetRollout couldn't prove every "
+	        "command there: check the lines marked review, then decide them on the devices") in cli
+	web = summary_lines(["review"], webapp=True)
+	assert any(line.endswith("decide them in Results → Verification") for line in web)
+	assert not any(line.startswith("REVIEW") for line in summary_lines(["success"]))
+
+
+def test_the_summary_says_why_devices_are_not_verified():
+	"""Not verified, said with its reason: verification off (and how to turn it
+	on), or the configuration that couldn't be read."""
+	off = summary_lines(["not verified"], verify=False)
+	assert any("verification was off" in line and "-vf" in line for line in off)
+	on = summary_lines(["not verified"], verify=True)
+	assert any("the configuration couldn't be read" in line for line in on)
+	assert not any(line.startswith("Not verified") for line in summary_lines(["success"]))
+
+
+def test_a_review_verdict_reaches_the_console_with_the_devices_reply():
+	"""A command in review is logged as important (the CLI's console shows it
+	without -v), with its evidence or note and the device's reply; a proven
+	one is logged as usual."""
+	notifier = MagicMock(logfile="x.log")
+	outcome = Outcome((Judgment("ntp server 1.2.3.4", Verdict.REVIEW, (), "no change in its section"),
+	                   Judgment("snmp-server location a", Verdict.TOOK_EFFECT,
+	                            ("+ snmp-server location a",))), ())
+	RolloutEngine._log_outcome(make_device(), outcome, (("% NTP failed",), ()), RunReport(notifier))
+	(review, review_tone), review_kw = notifier.notify.call_args_list[0].args, notifier.notify.call_args_list[0].kwargs
+	assert review == ("192.168.1.1:22: 'ntp server 1.2.3.4' review - no change in its section; "
+	                  "the device replied: % NTP failed") and review_kw["important"] is True
+	assert notifier.notify.call_args_list[1].kwargs["important"] is False
