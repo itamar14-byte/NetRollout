@@ -142,17 +142,32 @@ def build_job_summaries(results: Iterable[DeviceResult]) -> list[dict[str, Any]]
 	return summaries
 
 
+def review_view(row: DeviceResult, reviewers: dict[uuid.UUID, str]) -> dict[str, Any] | None:
+	""":param reviewers: user id → username (whoever decided)
+	:returns: a device's review decision as the pages show it - outcome,
+	 by (a username; "a deleted user" once gone), at, comment; None when
+	 none was taken"""
+	if row.review_outcome is None:
+		return None
+	return {"outcome": row.review_outcome,
+	        "by": reviewers.get(row.reviewed_by, "a deleted user") if row.reviewed_by else "a deleted user",
+	        "at": row.reviewed_at.strftime("%Y-%m-%d %H:%M") if row.reviewed_at else None,
+	        "comment": row.review_comment}
+
+
 def build_jobs(result_rows: Iterable[DeviceResult],
                metadata_by_job: dict[uuid.UUID, JobMetadata],
                endpoint_labels: dict[Target, str], snapshot_days: int,
-               job_owner: str | None = None) -> list[dict[str, Any]]:
+               job_owner: str | None = None,
+               reviewers: dict[uuid.UUID, str] | None = None) -> list[dict[str, Any]]:
 	"""The Results page's jobs: each with its times, status, comment,
 	commands and devices (no configs - fetched on demand by config_diff).
 
 	:param endpoint_labels: (ip, port) → the label to show
 	:param snapshot_days: the config snapshot retention (to say a snapshot
 	 expired)
-	:param job_owner: the owner's username, shown on other users' jobs"""
+	:param job_owner: the owner's username, shown on other users' jobs
+	:param reviewers: user id → username, for the review decisions shown"""
 	out: list[dict[str, Any]] = []
 	for job_id, rows in by_job(result_rows):
 		meta = metadata_by_job.get(job_id)
@@ -176,10 +191,13 @@ def build_jobs(result_rows: Iterable[DeviceResult],
 					# flags only - the config itself is fetched on demand by
 					# config_diff, never shipped with the page
 					"has_config": r.config_diff is not None or r.fetched_config is not None,
-					"config_expired": config_expired(r, snapshot_days)
+					"config_expired": config_expired(r, snapshot_days),
+					"review": review_view(r, reviewers or {}),
 				}
 				for r in rows
-			]
+			],
+			# devices a person must still decide
+			"to_review": sum(1 for r in rows if r.status == DeviceStatus.REVIEW),
 		}
 		if job_owner is not None:
 			entry["job_owner"] = job_owner
@@ -275,6 +293,8 @@ class ConfigSnapshot:
 	device_type: str
 	diff: str | None = None
 	transcript: dict[str, Any] | None = None
+	status: str = ""
+	review: dict[str, Any] | None = None   # review_view(): its decision, when taken
 
 
 class ReviewRefused(ValueError):
@@ -510,6 +530,10 @@ class JobResults:
 		""":returns: user id → username, for these results' owners"""
 		return Accounts(self.session).usernames(r.user_id for r in results)
 
+	def reviewer_names(self, results: Iterable[DeviceResult]) -> dict[uuid.UUID, str]:
+		""":returns: user id → username, for whoever decided these results' reviews"""
+		return Accounts(self.session).usernames(r.reviewed_by for r in results if r.reviewed_by)
+
 	# ── one job ──
 
 	def summary(self, job_id: uuid.UUID) -> dict[str, Any] | None:
@@ -535,7 +559,7 @@ class JobResults:
 
 	def config_snapshot(self, job_id: uuid.UUID, ip: str,
 	                    port: int | None = None) -> ConfigSnapshot | None:
-		"""A device's fetched config in a job (Verify Diff).
+		"""A device's verification in a job (Results → Verification).
 
 		:param port: picks one of the devices sharing the IP in the job;
 		 None: the first one
@@ -550,10 +574,12 @@ class JobResults:
 		if row.fetched_config is None and row.config_diff is None:
 			return ConfigSnapshot(config=None, commands=[], device_type=row.device_type)
 		meta = self.metadata([job_id]).get(job_id)
+		reviewers = Accounts(self.session).usernames([row.reviewed_by] if row.reviewed_by else [])
 		return ConfigSnapshot(config=row.fetched_config,
 		                      commands=meta.commands if meta else [],
 		                      device_type=row.device_type, diff=row.config_diff,
-		                      transcript=row.transcript)
+		                      transcript=row.transcript, status=row.status,
+		                      review=review_view(row, reviewers))
 
 	def successful_endpoints(self, job_id: uuid.UUID, owner_id: uuid.UUID) -> set[Target]:
 		""":returns: the ip:port of the job's devices configured successfully

@@ -30,6 +30,43 @@
 .pill-partial  { background: rgba(255,193,7,0.12);  color: #ffc107; border: 1px solid rgba(255,193,7,0.3); }
 .pill-failed   { background: rgba(244,67,54,0.12);  color: #f44336; border: 1px solid rgba(244,67,54,0.3); }
 .pill-cancelled{ background: rgba(158,158,158,0.12);color: #9e9e9e; border: 1px solid rgba(158,158,158,0.3); }
+/* review: verified, but a person must decide something; not verified: applied,
+   nothing judged it */
+.pill-review   { background: rgba(255,167,38,0.12); color: #ffa726; border: 1px solid rgba(255,167,38,0.35); }
+.pill-not-verified { background: rgba(144,164,174,0.12); color: #b0bec5; border: 1px solid rgba(144,164,174,0.3); }
+button.status-pill { cursor: pointer; }
+button.status-pill:hover { filter: brightness(1.2); }
+.to-review-badge { font-size:0.7rem; font-weight:600; color:#ffa726; white-space:nowrap;
+                   border:1px solid rgba(255,167,38,0.45); border-radius:999px; padding:1px 8px;
+                   background:rgba(255,167,38,0.08); }
+.review-decided { font-size:0.72rem; color:var(--nr-text-muted); margin-left:6px; white-space:nowrap; }
+
+/* ── Verification window: a device's commands, each with its verdict ── */
+.vf-cmd { padding:7px 10px; border-radius:6px; }
+.vf-cmd + .vf-cmd { margin-top:4px; }
+.vf-head { display:flex; align-items:baseline; gap:10px; }
+.vf-head i { flex-shrink:0; font-size:0.95rem; }
+.vf-text { font-family:'JetBrains Mono',monospace; font-size:0.78rem; word-break:break-word; }
+.vf-verdict { margin-left:auto; font-size:0.7rem; white-space:nowrap; color:var(--nr-text-muted); }
+.vf-more { margin:4px 0 0 26px; display:flex; flex-direction:column; gap:2px; }
+.vf-line { font-family:'JetBrains Mono',monospace; font-size:0.74rem; white-space:pre-wrap; word-break:break-word; }
+.vf-line.add { color:#81c784; } .vf-line.del { color:#e57373; } .vf-line.same { color:var(--nr-text-muted); }
+.vf-note { font-size:0.74rem; color:var(--nr-text-muted); font-style:italic; }
+.vf-reply { font-size:0.74rem; color:#ffcc80; }
+.vf-reply code { color:#ffe0b2; background:none; padding:0; }
+.vf-ok     { background:rgba(76,175,80,0.06); }
+.vf-review { background:rgba(255,167,38,0.08); border:1px solid rgba(255,167,38,0.25); }
+.vf-section { font-size:0.72rem; text-transform:uppercase; letter-spacing:0.06em; color:var(--nr-text-muted);
+              margin:16px 0 6px; }
+.vf-diff { background:#0e0e0e; border:1px solid #222; border-radius:6px; padding:8px 10px; max-height:320px;
+           overflow:auto; margin:0; }
+.vf-decide { border:1px solid rgba(255,167,38,0.45); background:rgba(255,167,38,0.07); border-radius:8px;
+             padding:12px 14px; margin-bottom:12px; font-size:0.82rem; color:#ddd; }
+.vf-decide textarea { width:100%; min-height:54px; margin:8px 0; background:#111; color:#ddd;
+                      border:1px solid #2a2a2a; border-radius:6px; font-size:0.8rem; padding:6px 8px; }
+.vf-decided { border:1px solid #2a2a2a; border-radius:8px; padding:10px 14px; margin-bottom:12px;
+              font-size:0.8rem; color:#ccc; }
+
 
 /* ── Job rows ── */
 .job-row {
@@ -493,7 +530,13 @@
         <!-- Status pill (+ action needed) + chevron -->
         <div class="d-flex align-items-center justify-content-between">
             <span class="d-flex flex-column align-items-start gap-1">
-                <span class="status-pill pill-{{ job.status }}">{{ job.status }}</span>
+                <span class="status-pill pill-{{ job.status | replace(' ', '-') }}">{{ job.status }}</span>
+                {% if job.to_review %}
+                <span class="to-review-badge"
+                      title="Devices whose result NetRollout couldn't prove - open the job and decide">
+                    <i class="bi bi-question-circle-fill"></i> {{ job.to_review }} to review
+                </span>
+                {% endif %}
                 {% if job.action_needed %}
                 <span class="action-needed-badge"
                       title="Something on a device needs a person - open the job">
@@ -540,20 +583,20 @@
             </a>
             {% endif %}
             {% set diff_devices = job.devices | selectattr('has_config') | list %}
-            {% if diff_devices %}
             {% set diff_device_data = [] %}
-            {% for d in diff_devices %}{% set _ = diff_device_data.append({'ip': d.ip, 'port': d.port, 'label': d.get('label', d.ip)}) %}{% endfor %}
+            {% for d in diff_devices %}{% set _ = diff_device_data.append({'ip': d.ip, 'port': d.port, 'label': d.get('label', d.ip), 'status': d.status}) %}{% endfor %}
+            {% if diff_devices %}
             <button class="job-action-btn"
                     data-job-id="{{ job.job_id }}"
                     data-devices="{{ diff_device_data | tojson | forceescape }}"
                     onclick="showConfigDiff(this)">
-                <i class="bi bi-shield-exclamation"></i> Verify Diff
+                <i class="bi bi-shield-check"></i> Verification
             </button>
             {% elif job.devices | selectattr('config_expired') | list %}
             {# Config snapshots are cleared by the nightly clean-up after CONFIG_SNAPSHOT_RETENTION_DAYS #}
             <span class="job-action-btn is-expired"
-                  title="Config snapshots are kept {{ config_retention_days }} days - this job's have expired">
-                <i class="bi bi-clock-history"></i> Verify Diff expired
+                  title="Configuration snapshots are kept {{ config_retention_days }} days - this job's have expired">
+                <i class="bi bi-clock-history"></i> Verification expired
             </span>
             {% endif %}
             {# a rollback targets the devices the job configured successfully #}
@@ -593,7 +636,14 @@
                     <td style="font-family:'JetBrains Mono',monospace;">
                         {% if d.commands_verified is not none %}{{ d.commands_verified }}{% else %}<span class="nr-muted">-</span>{% endif %}
                     </td>
-                    <td><span class="status-pill pill-{{ d.status }}">{{ d.status }}</span>{% if d.action_needed %}
+                    <td>{% if d.status == 'review' and d.has_config %}<button type="button"
+                            class="status-pill pill-review" title="Open its verification and decide"
+                            data-job-id="{{ job.job_id }}"
+                            data-devices="{{ diff_device_data | tojson | forceescape }}"
+                            data-ip="{{ d.ip }}" data-port="{{ d.port }}"
+                            onclick="showConfigDiff(this)">review</button>{% else %}<span
+                            class="status-pill pill-{{ d.status | replace(' ', '-') }}">{{ d.status }}</span>{% endif %}{% if d.review %}<span
+                            class="review-decided" title="{{ d.review.comment or '' }}">{{ d.review.outcome }} by {{ d.review.by }}</span>{% endif %}{% if d.action_needed %}
                         <i class="bi bi-exclamation-triangle-fill ms-1" style="color:#ffb74d;"
                            title="Action needed - see the box above"></i>{% endif %}</td>
                 </tr>
@@ -804,14 +854,15 @@
     </div>
 </div>
 
-<!-- Verify Diff modal -->
+<!-- Verification modal: each verified device's commands, judged by its
+     configuration before and after the push, and its diff -->
 <div class="modal fade" id="verifyDiffModal" tabindex="-1">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header" style="border-bottom:1px solid #222; padding-bottom:0;">
                 <div class="d-flex flex-column w-100 gap-0">
                     <div class="d-flex align-items-center justify-content-between mb-2">
-                        <div class="nr-badge">VERIFICATION DIFF</div>
+                        <div class="nr-badge">VERIFICATION</div>
                         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
                     </div>
                     <!-- Tab bar -->
@@ -819,21 +870,19 @@
                 </div>
             </div>
             <div class="modal-body" style="padding:0;">
-                <!-- Disclaimer -->
-                <div style="background:rgba(255,193,7,0.06); border-bottom:1px solid rgba(255,193,7,0.15);
-                            padding:10px 18px; display:flex; align-items:flex-start; gap:10px;">
-                    <i class="bi bi-exclamation-triangle" style="color:#ffc107; font-size:0.9rem; margin-top:1px; flex-shrink:0;"></i>
+                <div style="border-bottom:1px solid #222; padding:10px 18px; display:flex; align-items:flex-start; gap:10px;">
+                    <i class="bi bi-info-circle" style="color:var(--nr-accent); font-size:0.9rem; margin-top:1px; flex-shrink:0;"></i>
                     <span style="font-size:0.75rem; color:#888; line-height:1.5;">
                         <strong style="color:#aaa;">How this is checked.</strong>
-                        Each command is looked up in the section it was typed in: it must be in the device's config,
-                        and a removal (<code>no</code> / <code>undo</code> / <code>delete</code> / <code>unset</code>) must be gone.
-                        It can mark a command <span class="nr-danger-soft">not configured</span> although it is
-                        (abbreviations, values the device rewrites or hides as defaults), or verified because it was already there.
-                        Commands with variables are shown as typed - the rollout log has their result per device.
+                        NetRollout read the device's configuration before and after the push and compared the device
+                        with itself. A command is proven when its words are in a line the push added (or removed, for
+                        <code>no</code> / <code>undo</code> / <code>delete</code> / <code>unset</code>), or already there
+                        unchanged. Anything else - a value the device rewrote, a command that changes nothing - is
+                        <span style="color:#ffa726;">review</span>: decide it with the evidence below. What the device
+                        replied is shown, never used to judge.
                     </span>
                 </div>
-                <!-- Command list -->
-                <div id="verifyDiffList" style="padding:14px 18px; display:flex; flex-direction:column; gap:8px;"></div>
+                <div id="verifyDiffList" style="padding:14px 18px;"></div>
             </div>
         </div>
     </div>
@@ -863,165 +912,238 @@
 
 {% block extra_script %}
 <script>
-// ── Fetched configs (verify diff data) - loaded on demand ────────────────────
-const FETCHED_CONFIGS = {}; // cache: "job_id:ip:port" → config text
-const FETCHED_VERDICTS = {}; // cache: "job_id:ip:port" → [[command, verdict], …] (the server's matcher)
-
-// ── Verify Diff ───────────────────────────────────────────────────────────────
+// ── Verification: each device's judged push, loaded on demand ────────────────
+const VERIFICATIONS = {}; // cache: "job_id:ip:port" → the config_diff answer
 const VD_TAB_THRESHOLD = 5;
 let _verifyDiffJobId = null;
+let _reloadOnClose = false;   // a decision was taken: the page shows it after the window
 
+document.getElementById('verifyDiffModal').addEventListener('hidden.bs.modal', () => {
+    if (_reloadOnClose) location.reload();
+});
+
+// btn: a job's Verification button, or a device's review pill (data-ip / data-port:
+// the tab to open first)
 async function showConfigDiff(btn) {
     _verifyDiffJobId   = btn.dataset.jobId;
     const devices      = JSON.parse(btn.dataset.devices);
-    const deviceIps    = devices.map(d => d.ip);
-    const deviceLabels = devices.map(d => d.label || d.ip);
-
+    const start        = Math.max(0, devices.findIndex(d => d.ip === btn.dataset.ip &&
+                                                           String(d.port) === btn.dataset.port));
     const tabBar = document.getElementById('verifyDiffTabs');
     tabBar.innerHTML = '';
 
-    if (deviceIps.length <= VD_TAB_THRESHOLD) {
-        // ── Tab mode ──
+    if (devices.length <= VD_TAB_THRESHOLD) {
         tabBar.style.cssText = 'display:flex; gap:0; overflow-x:auto;';
-        deviceIps.forEach((ip, i) => {
-            const label = deviceLabels[i] || ip;
+        devices.forEach((device, i) => {
             const tab = document.createElement('button');
-            tab.textContent  = label;
-            tab.title        = ip;
-            tab.dataset.ip   = ip;
+            tab.type = 'button';
+            tab.textContent = device.label || device.ip;
+            if (device.status === 'review') {
+                const dot = document.createElement('i');
+                dot.className = 'bi bi-question-circle-fill ms-1';
+                dot.style.color = '#ffa726';
+                tab.appendChild(dot);
+            }
+            tab.title = device.ip;
             tab.style.cssText =
                 'background:none; border:none; border-bottom:2px solid transparent;' +
                 'padding:6px 14px; font-family:\'JetBrains Mono\',monospace; font-size:0.75rem;' +
                 'color:var(--nr-text-muted); cursor:pointer; white-space:nowrap; transition:color 0.15s, border-color 0.15s;';
-            tab.onmouseenter = () => { if (!tab.classList.contains('vd-active')) tab.style.color = '#aaa'; };
-            tab.onmouseleave = () => { if (!tab.classList.contains('vd-active')) tab.style.color = 'var(--nr-text-muted)'; };
-            tab.onclick = () => _renderVerifyDiff(devices[i], tab);
+            tab.onclick = () => _renderVerifyDiff(device, tab);
             tabBar.appendChild(tab);
         });
-        _renderVerifyDiff(devices[0], tabBar.firstChild);
+        _renderVerifyDiff(devices[start], tabBar.children[start]);
     } else {
-        // ── Dropdown mode ──
         tabBar.style.cssText = 'display:flex; flex-direction:column; gap:6px; padding:0 0 10px;';
-
-        const searchWrap = document.createElement('div');
-        searchWrap.style.cssText = 'position:relative; padding:0 2px;';
         const searchInput = document.createElement('input');
-        searchInput.type        = 'text';
+        searchInput.type = 'text';
         searchInput.placeholder = 'Search device…';
+        searchInput.setAttribute('aria-label', 'Search device');
         searchInput.style.cssText =
             'width:100%; background:#111; border:1px solid #2a2a2a; border-radius:6px;' +
-            'color:#ccc; font-size:0.78rem; padding:5px 10px; outline:none;' +
-            'font-family:\'Inter\',sans-serif;';
-        searchWrap.appendChild(searchInput);
-        tabBar.appendChild(searchWrap);
-
+            'color:#ccc; font-size:0.78rem; padding:5px 10px; outline:none;';
+        tabBar.appendChild(searchInput);
         const listEl = document.createElement('div');
-        listEl.style.cssText =
-            'max-height:140px; overflow-y:auto; display:flex; flex-direction:column; gap:2px; padding:0 2px;';
-
+        listEl.style.cssText = 'max-height:140px; overflow-y:auto; display:flex; flex-direction:column; gap:2px;';
         const buildList = (filter) => {
             listEl.innerHTML = '';
-            deviceIps.forEach((ip, i) => {
-                const label = deviceLabels[i] || ip;
-                const text  = label + ' ' + ip;
-                if (filter && !text.toLowerCase().includes(filter.toLowerCase())) return;
+            devices.forEach((device, i) => {
+                const label = device.label || device.ip;
+                if (filter && !(label + ' ' + device.ip).toLowerCase().includes(filter.toLowerCase())) return;
                 const opt = document.createElement('button');
+                opt.type = 'button';
                 opt.style.cssText =
-                    'background:none; border:none; border-radius:4px; text-align:left;' +
-                    'padding:5px 8px; font-size:0.78rem; cursor:pointer; color:#888;' +
-                    'font-family:\'JetBrains Mono\',monospace; white-space:nowrap;' +
-                    'transition:background 0.1s, color 0.1s;';
-                const labelEl = document.createElement('span');
-                labelEl.style.color = '#ccc';
-                labelEl.textContent = label;
-                opt.append(labelEl);
-                if (label !== ip) {
-                    const ipEl = document.createElement('span');
-                    ipEl.style.cssText = 'color:var(--nr-text-muted); font-size: 0.75rem;';
-                    ipEl.textContent = '(' + ip + ')';
-                    opt.append(' ', ipEl);
-                }
-                opt.onmouseenter = () => { opt.style.background = '#1e1e1e'; opt.style.color = '#ccc'; };
-                opt.onmouseleave = () => { opt.style.background = 'none'; };
+                    'background:none; border:none; border-radius:4px; text-align:left; padding:5px 8px;' +
+                    'font-size:0.78rem; cursor:pointer; color:#ccc; font-family:\'JetBrains Mono\',monospace;';
+                opt.textContent = label + (label !== device.ip ? ' (' + device.ip + ')' : '') +
+                                  (device.status === 'review' ? ' - review' : '');
                 opt.onclick = () => {
                     listEl.querySelectorAll('button').forEach(b => b.style.background = 'none');
                     opt.style.background = 'rgba(0,188,212,0.08)';
-                    _renderVerifyDiff(devices[i], null);
+                    _renderVerifyDiff(device, null);
                 };
                 listEl.appendChild(opt);
             });
         };
-
         buildList('');
         searchInput.addEventListener('input', () => buildList(searchInput.value));
         tabBar.appendChild(listEl);
-        // Auto-select first
-        listEl.firstChild && listEl.firstChild.click();
+        _renderVerifyDiff(devices[start], null);
     }
-
     bootstrap.Modal.getOrCreateInstance(document.getElementById('verifyDiffModal')).show();
 }
 
-// device: {ip, port} - the IP alone is ambiguous when devices share it
+// How each verdict shows (src/rollout/evidence.Verdict)
+const VERDICT_LOOK = {
+    'took effect':      {icon: 'bi-check-circle-fill', color: '#66bb6a', css: 'vf-ok'},
+    'already in place': {icon: 'bi-check-circle',      color: '#66bb6a', css: 'vf-ok'},
+    'removed':          {icon: 'bi-dash-circle-fill',  color: '#66bb6a', css: 'vf-ok'},
+    'review':           {icon: 'bi-question-circle-fill', color: '#ffa726', css: 'vf-review'},
+    'navigation':       {icon: 'bi-arrow-return-left', color: 'var(--nr-text-faint)', css: ''},
+};
+
+function _el(tag, cls, text) {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined) e.textContent = text;
+    return e;
+}
+
+// a device line as evidence: "+ …" added, "- …" removed, "  …" there already
+function _evidenceLine(line) {
+    const kind = line.startsWith('+') ? 'add' : line.startsWith('-') ? 'del' : 'same';
+    return _el('div', 'vf-line ' + kind, line);
+}
+
+// device: {ip, port, label, status} - the IP alone is ambiguous when devices share it
 async function _renderVerifyDiff(device, activeTab) {
     if (activeTab) {
-        document.querySelectorAll('#verifyDiffTabs button').forEach(t => {
-            t.classList.remove('vd-active');
-            t.style.color       = 'var(--nr-text-muted)';
+        document.querySelectorAll('#verifyDiffTabs > button').forEach(t => {
+            t.style.color = 'var(--nr-text-muted)';
             t.style.borderColor = 'transparent';
         });
-        activeTab.classList.add('vd-active');
-        activeTab.style.color       = '#00bcd4';
+        activeTab.style.color = '#00bcd4';
         activeTab.style.borderColor = '#00bcd4';
     }
-
-    const cacheKey = _verifyDiffJobId + ':' + device.ip + ':' + device.port;
-    const list     = document.getElementById('verifyDiffList');
-
-    if (!FETCHED_CONFIGS[cacheKey]) {
-        list.innerHTML = '<div style="padding:1rem; color:var(--nr-text-muted); font-size:0.82rem;">Loading…</div>';
+    const key = _verifyDiffJobId + ':' + device.ip + ':' + device.port;
+    const list = document.getElementById('verifyDiffList');
+    if (!VERIFICATIONS[key]) {
+        list.replaceChildren(_el('div', 'nr-muted', 'Loading…'));
         try {
-            const resp = await fetch(`/results/config_diff/${_verifyDiffJobId}/${device.ip}?port=${device.port}`);
+            const resp = await fetch(`/results/config_diff/${_verifyDiffJobId}/${encodeURIComponent(device.ip)}?port=${device.port}`);
             const data = await resp.json();
             if (data.status === 'error') {
-                list.innerHTML = '<div style="padding:1rem; color:#ef5350; font-size:0.82rem;">' + nrEscape(data.message) + '</div>';
+                list.replaceChildren(_el('div', 'nr-danger', data.message));
                 return;
             }
-            FETCHED_CONFIGS[cacheKey] = data.config || '';
-            FETCHED_VERDICTS[cacheKey] = data.verdicts || [];
+            VERIFICATIONS[key] = data;
         } catch (e) {
-            list.innerHTML = '<div style="padding:1rem; color:#ef5350; font-size:0.82rem;">Failed to load config.</div>';
+            list.replaceChildren(_el('div', 'nr-danger', 'Couldn\'t load the verification.'));
             return;
         }
     }
-
-    const verdicts = FETCHED_VERDICTS[cacheKey] || [];
-    list.innerHTML = '';
-    if (!verdicts.length) {
-        list.innerHTML = '<div style="padding:1rem; color:var(--nr-text-muted); font-size:0.82rem;">' +
-            'Commands for this job are no longer available.</div>';
+    const data = VERIFICATIONS[key];
+    list.replaceChildren();
+    const judged = (data.transcript && data.transcript.commands) || [];
+    if (!judged.length) {
+        list.appendChild(_el('div', 'nr-muted',
+            'This job was verified before NetRollout judged pushes by the configuration: ' +
+            'its results per command are in the rollout log.'));
         return;
     }
-    // The verdicts come from the server's matcher (the one the rollout used)
-    const LOOK = {
-        'verified':         {icon: 'bi-check-circle', color: '#66bb6a', text: '#a5d6a7', bg: 'rgba(76,175,80,0.06)', note: ''},
-        'not configured':   {icon: 'bi-x-circle',     color: '#ef5350', text: '#ef9a9a', bg: 'rgba(239,83,80,0.06)', note: 'not configured'},
-        'still configured': {icon: 'bi-x-circle',     color: '#ef5350', text: '#ef9a9a', bg: 'rgba(239,83,80,0.06)', note: 'still configured'},
-        'not verifiable':   {icon: 'bi-dash-circle',  color: 'var(--nr-text-faint)', text: 'var(--nr-text-muted)', bg: 'transparent', note: 'not verifiable'},
-        'variable':         {icon: 'bi-question-circle', color: 'var(--nr-text-faint)', text: 'var(--nr-text-muted)', bg: 'transparent', note: 'variable - see the rollout log'},
-    };
-    verdicts.forEach(([cmd, verdict]) => {
-        const look = LOOK[verdict] || LOOK['not verifiable'];
-        const row  = document.createElement('div');
-        row.style.cssText = 'display:flex; align-items:center; gap:10px; padding:6px 10px; border-radius:6px; background:' + look.bg;
-        row.innerHTML =
-            '<i class="bi ' + look.icon + '" style="font-size:0.95rem; flex-shrink:0; color:' + look.color + ';"></i>' +
-            '<span style="font-family:\'JetBrains Mono\',monospace; font-size:0.78rem; color:' + look.text + ';">' +
-            nrEscape(cmd) + '</span>' +
-            (look.note ? '<span style="margin-left:auto; font-size:0.7rem; color:var(--nr-text-muted); white-space:nowrap;">' +
-                         look.note + '</span>' : '');
-        list.appendChild(row);
+
+    // the decision: to take, or taken
+    if (data.review) {
+        const box = _el('div', 'vf-decided');
+        box.appendChild(_el('strong', '', data.review.outcome.charAt(0).toUpperCase() + data.review.outcome.slice(1)));
+        box.append(' by ' + data.review.by + (data.review.at ? ' at ' + data.review.at : ''));
+        if (data.review.comment) box.appendChild(_el('div', 'nr-muted mt-1', data.review.comment));
+        list.appendChild(box);
+    } else if (data.device_status === 'review') {
+        const box = _el('div', 'vf-decide');
+        box.appendChild(_el('div', '', 'NetRollout couldn\'t prove every command on this device. Check the ' +
+                                       'evidence below, then decide: the decision is kept with the result.'));
+        const comment = _el('textarea');
+        comment.placeholder = 'Comment (optional) - why, for the record';
+        comment.maxLength = 2000;
+        comment.setAttribute('aria-label', 'Comment on the decision');
+        box.appendChild(comment);
+        const row = _el('div', 'd-flex gap-2 align-items-center');
+        const confirm = _el('button', 'btn btn-sm btn-success', 'Confirm - it took effect');
+        const reject = _el('button', 'btn btn-sm btn-outline-danger', 'Reject - it didn\'t');
+        confirm.type = reject.type = 'button';
+        const said = _el('span', 'nr-muted ms-2');
+        said.setAttribute('role', 'status');
+        row.append(confirm, reject, said);
+        box.appendChild(row);
+        const decide = async (outcome) => {
+            confirm.disabled = reject.disabled = true;
+            said.textContent = 'Saving…';
+            try {
+                const r = await fetch(`/results/review/${_verifyDiffJobId}/${encodeURIComponent(device.ip)}?port=${device.port}`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN},
+                    body: JSON.stringify({outcome: outcome, comment: comment.value}),
+                });
+                const answer = await r.json();
+                if (!r.ok) throw new Error(answer.message || 'Not saved');
+                data.device_status = answer.status;
+                data.review = {outcome: answer.review_outcome, by: 'you',
+                               at: (answer.reviewed_at || '').replace('T', ' ').slice(0, 16),
+                               comment: comment.value.trim() || null};
+                _reloadOnClose = true;
+                _renderVerifyDiff(device, null);
+            } catch (e) {
+                said.textContent = e.message;
+                confirm.disabled = reject.disabled = false;
+            }
+        };
+        confirm.onclick = () => decide('confirmed');
+        reject.onclick = () => decide('rejected');
+        list.appendChild(box);
+    }
+
+    judged.forEach(c => {
+        const look = VERDICT_LOOK[c.verdict] || VERDICT_LOOK.review;
+        const item = _el('div', 'vf-cmd ' + look.css);
+        const head = _el('div', 'vf-head');
+        const icon = _el('i', 'bi ' + look.icon);
+        icon.style.color = look.color;
+        icon.setAttribute('aria-hidden', 'true');
+        head.append(icon, _el('span', 'vf-text', c.command), _el('span', 'vf-verdict', c.verdict));
+        item.appendChild(head);
+        const more = _el('div', 'vf-more');
+        (c.evidence || []).forEach(line => more.appendChild(_evidenceLine(line)));
+        if (c.note) more.appendChild(_el('div', 'vf-note', c.note));
+        if (c.reply && c.reply.length) {
+            const reply = _el('div', 'vf-reply', 'The device replied: ');
+            reply.appendChild(_el('code', '', c.reply.join(' | ')));
+            more.appendChild(reply);
+        }
+        if (more.children.length) item.appendChild(more);
+        list.appendChild(item);
     });
+
+    const other = (data.transcript.other_changes || []);
+    if (other.length) {
+        list.appendChild(_el('div', 'vf-section', 'Changed, not by these commands'));
+        list.appendChild(_el('div', 'vf-note', 'Another person, or the device itself, during the rollout.'));
+        other.forEach(line => list.appendChild(_evidenceLine(line)));
+    }
+    if (data.diff) {
+        const details = _el('details');
+        const summary = _el('summary', 'vf-section', 'The configuration, before → after');
+        summary.style.cursor = 'pointer';
+        details.appendChild(summary);
+        const pre = _el('pre', 'vf-diff');
+        data.diff.split('\n').forEach(line => {
+            const kind = line.startsWith('+') && !line.startsWith('+++') ? 'add'
+                       : line.startsWith('-') && !line.startsWith('---') ? 'del' : 'same';
+            pre.appendChild(_el('div', 'vf-line ' + kind, line));
+        });
+        details.appendChild(pre);
+        list.appendChild(details);
+    }
 }
 
 // ── Copy job ID ──────────────────────────────────────────────────────────────

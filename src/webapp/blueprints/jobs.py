@@ -19,7 +19,7 @@ from src.jobs import JobStore, RolloutJob
 from src.results import (EXPORT_COLUMNS, JOB_STATUSES, JobFilter, JobPage, JobResults, JobScope,
                          ResultReviews, ReviewRefused, build_job_summaries, build_jobs, build_kpi,
                          log_file)
-from src.rollout.engine import ReviewOutcome, endpoint
+from src.rollout.engine import DeviceStatus, ReviewOutcome, endpoint
 from src.webapp.app import current_app
 from src.webapp.csv_download import csv_download
 from src.webapp.http import date_arg, ok, err, picked_username, viewer, with_json
@@ -150,6 +150,8 @@ def dashboard() -> str:
 	job_summaries = build_job_summaries(data["jobs_results"])
 	recent_jobs = job_summaries[:5]
 	total_rollouts = len(job_summaries)
+	# the user's own devices a person must still decide (Results, ?status=review)
+	to_review = sum(1 for r in data["jobs_results"] if r.status == DeviceStatus.REVIEW)
 	last_status = job_summaries[0]["status"] if job_summaries else None
 
 	# ── 30-day KPI strip (scoped) ─────────────────────────────────────────────
@@ -180,6 +182,7 @@ def dashboard() -> str:
 	                       mapping_count=data["mapping_count"],
 	                       total_rollouts=total_rollouts,
 	                       last_status=last_status,
+	                       to_review=to_review,
 	                       kpi=kpi,
 	                       users=users,
 	                       selected_user=selected_user,
@@ -265,10 +268,11 @@ def results() -> str:
 			owners = []
 		endpoint_labels = history.device_labels(mine.results + others.results)
 		metadata_by_job = history.metadata(r.job_id for r in mine.results + others.results)
+		reviewers = history.reviewer_names(mine.results + others.results)
 		db_session.expunge_all()
 
 	jobs = build_jobs(mine.results, metadata_by_job, endpoint_labels,
-	                  snapshot_days)
+	                  snapshot_days, reviewers=reviewers)
 	jobs.sort(key=lambda x: x["completed_at"], reverse=True)
 	other_jobs: list[dict[str, Any]] = []
 	# group the others' results by user_id so each job gets its
@@ -279,7 +283,7 @@ def results() -> str:
 		owner = usernames.get(user_id, "unknown")
 		other_jobs.extend(
 			build_jobs(list(user_rows), metadata_by_job, endpoint_labels,
-			           snapshot_days, job_owner=owner))
+			           snapshot_days, job_owner=owner, reviewers=reviewers))
 	other_jobs.sort(key=lambda x: x["completed_at"], reverse=True)
 
 	return render_template("results.html",
@@ -330,7 +334,7 @@ def results_export() -> ResponseReturnValue:
 @bp.route("/results/config_diff/<uuid:job_id>/<device_ip>")
 @login_required
 def config_diff(job_id: uuid.UUID, device_ip: str) -> ResponseReturnValue:
-	"""Verify Diff: a device's configuration before → after with the verdict
+	"""Verification: a device's configuration before → after with the verdict
 	the rollout reached for each command (its transcript). ?port= picks one
 	of the devices sharing the IP in the job.
 
@@ -351,7 +355,8 @@ def config_diff(job_id: uuid.UUID, device_ip: str) -> ResponseReturnValue:
 	# has none
 	judged = (snapshot.transcript or {}).get("commands", [])
 	return ok(config=snapshot.config, diff=snapshot.diff, commands=snapshot.commands,
-	          transcript=snapshot.transcript,
+	          transcript=snapshot.transcript, device_status=snapshot.status,
+	          review=snapshot.review,
 	          verdicts=[[j["command"], j["verdict"]] for j in judged])
 
 

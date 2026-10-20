@@ -119,6 +119,14 @@
 .status-pill.partial  { background: rgba(255,193,7,0.1);   color: #ffe082; border: 1px solid rgba(255,193,7,0.2); }
 .status-pill.failed   { background: rgba(239,83,80,0.1);   color: #ef9a9a; border: 1px solid rgba(239,83,80,0.2); }
 .status-pill.cancelled{ background: rgba(100,100,100,0.1); color: var(--nr-text-muted);    border: 1px solid rgba(100,100,100,0.2); }
+/* review: verified, a person must decide something; not verified: applied,
+   nothing judged it */
+.status-pill.review       { background: rgba(255,167,38,0.1);  color: #ffcc80; border: 1px solid rgba(255,167,38,0.3); }
+.status-pill.not-verified { background: rgba(144,164,174,0.1); color: #b0bec5; border: 1px solid rgba(144,164,174,0.25); }
+.to-review-note { display:flex; align-items:center; gap:8px; margin-bottom:0.9rem; padding:0.5rem 0.75rem;
+                  border:1px solid rgba(255,167,38,0.4); background:rgba(255,167,38,0.07); border-radius:8px;
+                  color:#ffcc80; font-size:0.8rem; text-decoration:none; }
+.to-review-note:hover { background:rgba(255,167,38,0.12); color:#ffe0b2; }
 
 /* ── System summary panel ── */
 .sys-row {
@@ -259,6 +267,14 @@
             <div class="nr-card-accent"></div>
             <div class="nr-card-body" style="padding:1.5rem;">
 
+                {% if to_review %}
+                <a class="to-review-note" href="{{ url_for('jobs.results', status='review') }}">
+                    <i class="bi bi-question-circle-fill"></i>
+                    {{ to_review }} device{{ 's' if to_review != 1 }} of your rollouts
+                    need{{ 's' if to_review == 1 }} your review - NetRollout couldn't prove the result
+                    <i class="bi bi-arrow-right ms-auto"></i>
+                </a>
+                {% endif %}
                 <div class="d-flex align-items-center justify-content-between mb-3">
                     <div>
                         <div class="nr-badge" style="margin-bottom:0.2rem;">RECENT ACTIVITY</div>
@@ -303,7 +319,7 @@
                             <span class="term bright">{{ job.commands_sent }}</span>
                         </td>
                         <td class="text-center">
-                            <span class="status-pill {{ job.status }}">{{ job.status }}</span>
+                            <span class="status-pill {{ job.status | replace(' ', '-') }}">{{ job.status }}</span>
                             {% if job.action_needed %}
                             <a href="{{ url_for('jobs.results', job=job.job_id) }}" title="Action needed - open the job"
                                style="color:#ffb74d; margin-left:4px;"><i class="bi bi-exclamation-triangle-fill"></i></a>
@@ -362,7 +378,7 @@
                 <div class="sys-row">
                     <a href="{{ url_for('jobs.results') }}" class="nr-label" style="margin-bottom:0; color:inherit; text-decoration:none;" >Last Status</a>
                     {% if last_status %}
-                    <span class="status-pill {{ last_status }}">{{ last_status }}</span>
+                    <span class="status-pill {{ last_status | replace(' ', '-') }}">{{ last_status }}</span>
                     {% else %}
                     <span class="term">-</span>
                     {% endif %}

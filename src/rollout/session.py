@@ -77,7 +77,7 @@ class PushResult(NamedTuple):
 	# (verification off, or a snapshot couldn't be taken)
 	outcome: Outcome | None = None
 	diff: str | None = None    # the configuration before → after (unified)
-	after: str | None = None   # the configuration after (Verify Diff)
+	after: str | None = None   # the configuration after (Results → Verification)
 
 
 # a line the device prints between commands that is a time stamp, not an

@@ -60,6 +60,10 @@
 }
 .status-pill.active  { background:rgba(76,175,80,0.1);  color:#a5d6a7; border:1px solid rgba(76,175,80,0.2); }
 .status-pill.pending { background:rgba(0,188,212,0.08); color:#00bcd4; border:1px solid rgba(0,188,212,0.2); }
+/* review: verified, a person must decide something; not verified: applied,
+   nothing judged it */
+.status-pill.review       { background: rgba(255,167,38,0.1);  color: #ffcc80; border: 1px solid rgba(255,167,38,0.3); }
+.status-pill.not-verified { background: rgba(144,164,174,0.1); color: #b0bec5; border: 1px solid rgba(144,164,174,0.25); }
 /* a queued job says why it waits: a sentence, not a one-word state */
 .status-pill.queued  { text-transform:none; letter-spacing:0.3px; white-space:nowrap; }
 
@@ -641,7 +645,7 @@
             if (!data) await new Promise(res => setTimeout(res, 1000));
         }
         if (!data) return;
-        const parts = ['success', 'partial', 'failed', 'cancelled']
+        const parts = ['success', 'review', 'partial', 'failed', 'not verified', 'cancelled']
             .filter(s => data.counts[s]).map(s => `${data.counts[s]} ${s}`);
         let html =
             `<div class="d-flex align-items-center justify-content-between flex-wrap gap-2">` +
@@ -649,7 +653,7 @@
             `<span><strong>Rollout finished - ${data.comment ? nrEscape(data.comment) + ' ' : ''}` +
             `<span title="${nrEscape(data.job_id)}" style="font-family:'JetBrains Mono',monospace;">` +
             `[${nrEscape(data.job_id.slice(0, 8))}]</span></strong> ` +
-            `<span class="status-pill ${nrEscape(data.status)}">${nrEscape(data.status)}</span> ` +
+            `<span class="status-pill ${nrEscape(data.status.replace(' ', '-'))}">${nrEscape(data.status)}</span> ` +
             `<span class="term muted" style="font-size:0.78rem;">${nrEscape(parts.join(', '))}` +
             ` (of ${data.device_count} device${data.device_count !== 1 ? 's' : ''})</span></span>` +
             `<span class="d-flex gap-2">` +
@@ -658,6 +662,12 @@
                 ? `<button type="button" class="btn btn-sm completion-rollback" ` +
                   `data-job-id="${nrEscape(data.job_id)}" onclick="openRollback(this.dataset.jobId)">` +
                   `<i class="bi bi-arrow-counterclockwise me-1"></i>Rollback</button>`
+                : '') +
+            // devices whose result NetRollout couldn't prove: decided in Results
+            (data.counts.review
+                ? `<a class="btn btn-sm btn-outline-warning" href="${nrEscape(data.results_url)}">` +
+                  `<i class="bi bi-question-circle me-1"></i>Review ${data.counts.review} ` +
+                  `device${data.counts.review !== 1 ? 's' : ''}</a>`
                 : '') +
             `<a class="btn btn-sm btn-outline-info" href="${nrEscape(data.results_url)}">` +
             `<i class="bi bi-clock-history me-1"></i>View in Results</a></span></div>`;

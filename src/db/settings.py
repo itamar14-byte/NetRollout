@@ -218,8 +218,8 @@ SETTINGS: dict[str, Setting] = {s.key: s for s in [
 	        "Retention", 30, minimum=1, maximum=3650,
 	        applies="next nightly clean-up", sql=True),
 	IntSetting("config_snapshot_retention_days", "Config snapshots",
-	        "Running configs fetched by Verify (Verify Diff). The job record "
-	        "itself is kept longer.",
+	        "The configurations Verify read and their diff (Results → Verification). "
+	        "The job record itself is kept longer.",
 	        "Retention", 7, minimum=1, maximum=3650,
 	        applies="next nightly clean-up", sql=True),
 	IntSetting("audit_retention_days", "Audit log",

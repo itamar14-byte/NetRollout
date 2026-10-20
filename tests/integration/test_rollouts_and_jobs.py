@@ -683,7 +683,7 @@ def test_results_write_an_ipv6_device_in_brackets(operator, client_for, session_
 def test_results_show_verify_diff_and_expired_states(operator, client_for,
                                                      session_scope):
 	"""A job with a stored config gets Verify Diff; a verified one older than
-	the snapshot retention, its diff cleared, shows "Verify Diff expired"
+	the snapshot retention, its diff cleared, shows "Verification expired"
 	once; no config is in the page."""
 	live, stale = uuid.uuid4(), uuid.uuid4()
 	add_result(session_scope, operator.user, live, status="review", verified=1,
@@ -693,7 +693,7 @@ def test_results_show_verify_diff_and_expired_states(operator, client_for,
 	           commands=["a", "b"], transcript={"commands": [], "other_changes": []})
 	html = client_for(operator.user).get("/results").get_data(as_text=True)
 	assert f'data-job-id="{live}"' in html
-	assert html.count("Verify Diff expired") == 1
+	assert html.count("Verification expired") == 1
 	assert "cfg-live" not in html  # config no longer shipped with the page
 
 
@@ -1737,3 +1737,31 @@ def test_a_review_comment_has_a_limit(operator, client_for, session_scope):
 	assert resp.status_code == 409 and "too long" in resp.json["message"]
 	with session_scope() as s:
 		assert s.query(DeviceResult).filter_by(job_id=job).one().status == "review"
+
+
+def test_results_show_review_and_not_verified(operator, client_for, session_scope, make_user):
+	"""Results shows a job's devices still to review (a badge), the new
+	statuses as their own pills, a device in review as a button opening its
+	verification, and a decision taken with who took it."""
+	job = review_job(session_scope, operator.user)
+	add_result(session_scope, operator.user, job, ip="10.0.0.2", status="not verified")
+	decided = review_job(session_scope, operator.user)
+	client = client_for(operator.user)
+	assert client.post(f"/results/review/{decided}/10.0.0.1",
+	                   json={"outcome": "confirmed", "comment": "rewritten mask"}).status_code == 200
+	html = client.get("/results").get_data(as_text=True)
+	assert html.count("1 to review") == 1
+	assert 'class="status-pill pill-review"' in html and 'data-ip="10.0.0.1"' in html
+	assert "pill-not-verified" in html
+	assert f'confirmed by {operator.user.username}' in html and 'title="rewritten mask"' in html
+
+
+def test_dashboard_counts_the_users_devices_to_review(operator, client_for, session_scope):
+	"""The dashboard says how many of the user's devices wait for a review,
+	linking to Results filtered on review; none, no note."""
+	client = client_for(operator.user)
+	assert "need your review" not in client.get("/dashboard").get_data(as_text=True)
+	review_job(session_scope, operator.user)
+	review_job(session_scope, operator.user)
+	html = client.get("/dashboard").get_data(as_text=True)
+	assert "2 devices of your rollouts" in html and "/results?status=review" in html

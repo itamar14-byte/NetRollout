@@ -294,7 +294,7 @@ class DeviceResult(Base):
 	# None: not judged
 	commands_verified: Mapped[int | None] = mapped_column(Integer,
 	                                                      nullable=True)
-	# the configuration after the push, kept for a review (Verify Diff); both
+	# the configuration after the push, kept for a review (Results → Verification); both
 	# it and the diff go after the config snapshot retention
 	fetched_config: Mapped[str | None] = mapped_column(Text, nullable=True)
 	config_diff: Mapped[str | None] = mapped_column(Text, nullable=True)
