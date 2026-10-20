@@ -9,7 +9,7 @@
 
 NetRollout pushes configuration snippets to many network devices at once over SSH, judges each device by its own configuration before and after the change, and records every result. You run it as a web app on your own server (Windows or Linux, with Docker), or as a single command-line program for a one-off rollout from a CSV file.
 
-It is for network engineers who want a bulk change done and checked without writing playbooks.
+It is for network engineers who want a bulk change done and checked without writing playbooks. NetRollout does the part a machine does reliably: the push, the snapshots, and proof of each command from the device's own configuration. What the configuration can't prove, it doesn't guess. It hands that to you with the evidence: the command, the device's line, and what the device replied. Easy to run, and correct because it never claims more than it proved.
 
 **[Download](https://itamar14-byte.github.io/NetRollout/#download)** (Windows, Linux, CLI) · **[Website](https://itamar14-byte.github.io/NetRollout/)** · **[Documentation](https://itamar14-byte.github.io/NetRollout/docs/)**
 
