@@ -448,17 +448,17 @@ Confirmed makes the device a `success` (so a rollback includes it), rejected mak
 Some problems can only be fixed by a person on the device. NetRollout marks these **Action needed** in Results and on the dashboard, and writes them in the log as `ACTION NEEDED - <ip:port>: <what to do>`. The job lists each affected device with the action, for example:
 
 - The change is live but **not saved**: save it on the device, or it's lost at the next reboot.
-- A commit didn't finish in time: check on the device whether it went through.
-- A commit failed: NetRollout sent the platform's discard command and shows what the device answered. Check that the **candidate configuration** is empty.
+- A commit didn't finish in time and the configuration still hadn't changed two minutes later: it failed or is still running - check on the device. (With Verify on, NetRollout reads the configuration again from new sessions; a commit that went through after the timeout is judged as usual and needs nothing.)
+- A commit failed: NetRollout sent the platform's discard command, then asked the device what is still in the candidate (Junos `show | compare`, PAN-OS `show config diff`). When the device shows nothing left, nobody needs to act; otherwise this line shows what is left. Check the **candidate configuration**.
 - Configuration mode was refused, usually because another session has uncommitted changes in the shared configuration: commit or discard them, then run the rollout again.
-- The device stopped answering partway through: the log says which commands it received.
+- The device stopped answering partway through: the log says which commands it received, and what the device printed last - often a question it was waiting on, such as `[confirm]`.
 - The account logs in to the wrong shell (for example Check Point's expert shell) and nothing was sent.
 
 ### Job actions
 
 - **See Commands**: the commands as you typed them, before token substitution.
 - **Download Log**: the job's full log as a file. Secrets are redacted: the value after words such as `password`, `secret`, `community` or `psksecret` is written as `<redacted>`, so the log is safe to share. The commands you typed and configuration snapshots are not redacted.
-- **Verification**: per verified device, each command as sent (tokens filled in) with its verdict, the line it rests on and the device's reply; the changes no command explains; and the configuration before and after. Devices in review are decided here (see [Reviewing a device](#reviewing-a-device)). The configuration snapshots are kept for 7 days unless your administrator changed it; after that the button shows **Verification expired**.
+- **Verification**: per verified device, each command as sent (tokens filled in) with its verdict, the line it rests on and the device's reply; the changes no command explains; and the configuration before and after, each changed line tagged with the command it rests on (or "not by these commands"). Lines the device changes by itself on every read, such as FortiOS's re-encrypted passwords, are hidden behind **Show the device's own changes**. Devices in review are decided here (see [Reviewing a device](#reviewing-a-device)). The configuration snapshots are kept for 7 days unless your administrator changed it; after that the button shows **Verification expired**.
 - **Rollback**: see [Rolling back](#rolling-back).
 - **Compare**: tick two jobs, then select **Diff** to see their commands side by side.
 

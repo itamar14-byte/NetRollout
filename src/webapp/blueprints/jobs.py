@@ -19,7 +19,7 @@ from src.jobs import JobStore, RolloutJob
 from src.results import (EXPORT_COLUMNS, JOB_STATUSES, JobFilter, JobPage, JobResults, JobScope,
                          ResultReviews, ReviewRefused, build_job_summaries, build_jobs, build_kpi,
                          log_file)
-from src.rollout.engine import DeviceStatus, ReviewOutcome, endpoint
+from src.rollout.engine import DeviceStatus, ReviewOutcome, diff_tags, endpoint
 from src.webapp.app import current_app
 from src.webapp.csv_download import csv_download
 from src.webapp.http import date_arg, ok, err, picked_username, viewer, with_json
@@ -338,8 +338,9 @@ def config_diff(job_id: uuid.UUID, device_ip: str) -> ResponseReturnValue:
 	the rollout reached for each command (its transcript). ?port= picks one
 	of the devices sharing the IP in the job.
 
-	:returns: {diff, config (kept for a review, else null), commands,
-	 transcript, verdicts: [[command, verdict]]}; 404 (also for another
+	:returns: {diff, diff_tags (per diff line what made it, or null),
+	 config (kept for a review, else null), commands, transcript, verdicts:
+	 [[command, verdict]]}; 404 (also for another
 	 user's job: it isn't revealed), or 410 once the snapshot is gone"""
 	with current_app.backend.postgres.get_session() as db_session:
 		snapshot = JobResults(db_session, viewer()).config_snapshot(
@@ -354,7 +355,9 @@ def config_diff(job_id: uuid.UUID, device_ip: str) -> ResponseReturnValue:
 	# disagree with it; a job from before verification by configuration
 	# has none
 	judged = (snapshot.transcript or {}).get("commands", [])
-	return ok(config=snapshot.config, diff=snapshot.diff, commands=snapshot.commands,
+	return ok(config=snapshot.config, diff=snapshot.diff,
+	          diff_tags=diff_tags(snapshot.diff, snapshot.transcript) if snapshot.diff else None,
+	          commands=snapshot.commands,
 	          transcript=snapshot.transcript, device_status=snapshot.status,
 	          review=snapshot.review,
 	          verdicts=[[j["command"], j["verdict"]] for j in judged])

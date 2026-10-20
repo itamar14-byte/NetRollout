@@ -13,7 +13,8 @@ from src.rollout import inputs
 from src.rollout.engine import Device, RolloutEngine, RolloutOptions
 from src.rollout.evidence import Verdict, first_word, judge
 from src.rollout.log import RolloutLogger
-from src.rollout.platforms import COMMIT_TIMEOUT, PLATFORMS, Commit, NoFinish, RunCommand, SaveConfig
+from src.rollout.platforms import (
+	COMMIT_TIMEOUT, PLATFORMS, Commit, CommitPending, NoFinish, RunCommand, SaveConfig)
 from src.rollout.session import NetmikoSession, PushResult, RunReport, reply
 
 
@@ -252,8 +253,8 @@ def test_commit_platforms_commit_before_leaving_config_mode(device_type):
 
 
 def test_junos_failed_commit_rolls_back_and_reports_not_applied():
-	"""A failed Junos commit is followed by `rollback 0` and leaving config mode; the push
-	is reported not applied."""
+	"""A failed Junos commit is followed by `rollback 0`, `show | compare` (what is
+	left in the candidate) and leaving config mode; the push is reported not applied."""
 	conn = connection()
 	conn.commit.side_effect = ValueError("Commit failed: error: x")
 	result = push("juniper_junos", conn)
@@ -261,7 +262,41 @@ def test_junos_failed_commit_rolls_back_and_reports_not_applied():
 	assert finish_calls(conn) == [
 		call.commit(read_timeout=COMMIT_TIMEOUT),
 		call.send_config_set(["rollback 0"], exit_config_mode=False),
+		call.send_config_set(["show | compare"], exit_config_mode=False),
 		call.exit_config_mode()]
+
+
+def test_a_discard_that_leaves_nothing_pending_needs_no_person():
+	"""After a failed Junos commit, `show | compare` printing nothing but its echo,
+	the `[edit]` banner and the prompt means nothing is left in the candidate: no
+	ACTION NEEDED, and the log says so with the discard's reply."""
+	conn = connection(prompt="u@j1#")
+	conn.commit.side_effect = ValueError("Commit failed")
+	conn.send_config_set.side_effect = lambda cmds, **kw: (
+		"show | compare\n\n[edit]\nu@j1# " if cmds == ["show | compare"]
+		else "load complete\n\n[edit]\nu@j1# " if cmds == ["rollback 0"] else "ok")
+	logger = fresh_logger()
+	assert not push("juniper_junos", conn, logger=logger).applied
+	log = log_of(logger)
+	assert "ACTION NEEDED" not in log
+	assert "'rollback 0' (the device replied: load complete); 'show | compare' shows " \
+	       "nothing left in the candidate" in log
+
+
+def test_a_compare_that_cant_be_sent_asks_a_person():
+	"""When the compare itself fails after the discard, nothing is claimed: ACTION
+	NEEDED, check that the candidate configuration is empty."""
+	conn = connection()
+	conn.commit.side_effect = ValueError("Commit failed")
+
+	def answer(cmds, **kw):
+		if cmds == ["show | compare"]:
+			raise OSError("socket closed")
+		return f"{cmds[0]}\nr1#"
+	conn.send_config_set.side_effect = answer
+	logger = fresh_logger()
+	assert not push("juniper_junos", conn, logger=logger).applied
+	assert "check that the candidate configuration is empty" in log_of(logger)
 
 
 def fresh_logger():
@@ -306,12 +341,16 @@ def test_junos_failed_commit_shows_the_rollbacks_reply_and_asks_to_check():
 	conn = connection()
 	conn.commit.side_effect = ValueError("Commit failed")
 	conn.send_config_set.side_effect = lambda cmds, **kw: (
-		"error: syntax error" if cmds == ["rollback 0"] else f"{cmds[0]}\nr1#")
+		"error: syntax error" if cmds == ["rollback 0"]
+		else "[edit system]\n-  host-name a;\n+  host-name b;" if cmds == ["show | compare"]
+		else f"{cmds[0]}\nr1#")
 	logger = fresh_logger()
 	assert not push("juniper_junos", conn, logger=logger).applied
 	log = log_of(logger)
-	assert "ACTION NEEDED" in log and "check that the candidate configuration is empty" in log
-	assert "'rollback 0' (the device replied: error: syntax error)" in log
+	assert "ACTION NEEDED" in log
+	assert "'rollback 0' (the device replied: error: syntax error), but 'show | compare' " \
+	       "still shows: -  host-name a; | +  host-name b; - check the candidate " \
+	       "configuration on the device" in log
 
 
 def test_panos_falls_back_to_loading_the_running_config():
@@ -338,10 +377,14 @@ def test_panos_failed_commit_sends_both_discards_and_asks_to_check():
 	conn.send_config_set.side_effect = lambda cmds, **kw: (
 		"Unknown command" if cmds[0] in ("revert config",
 		                                 "load config from running-config.xml")
+		else "deviceconfig { system { hostname fw9; } }" if cmds[0] == "run show config diff"
 		else "ok")
 	logger = fresh_logger()
 	assert not push("paloalto_panos", conn, logger=logger).applied
-	assert "'revert config' (the device replied: Unknown command), then 'load config from " 	       "running-config.xml' (the device replied: Unknown command) - check that the candidate " 	       "configuration is empty" in log_of(logger)
+	assert "'revert config' (the device replied: Unknown command), then 'load config from "\
+	       "running-config.xml' (the device replied: Unknown command), but 'run show config " \
+	       "diff' still shows: deviceconfig { system { hostname fw9; } } - check the " \
+	       "candidate configuration on the device" in log_of(logger)
 
 
 def test_junos_configures_privately():
@@ -770,7 +813,7 @@ def test_a_new_hostname_after_a_refusal_keeps_the_reply():
 	                    if cmds[0] in ("revert config",
 	                                   "load config from running-config.xml")
 	                    else "ok")),
-	 "check that the candidate configuration is empty"),
+	 "check the candidate configuration on the device"),
 	("paloalto_panos",         # commit still running after the wait
 	 lambda c: setattr(c.commit, "side_effect",
 	                   __import__("netmiko").exceptions.ReadTimeout("slow")),
@@ -925,10 +968,86 @@ def test_a_commit_without_a_discard_that_fails_asks_to_discard():
 
 
 def test_a_commit_that_outlasts_the_wait_stays_in_config_mode_untouched():
-	"""A commit still running after the wait: not applied, an ACTION NEEDED to check the
-	device - and nothing else sent (no discard, config mode not left)."""
+	"""A commit still running after the wait claims nothing (CommitPending: the session
+	decides by the configuration) - and nothing else is sent (no discard, config mode not
+	left)."""
 	conn, report = MagicMock(), Recorder()
 	conn.commit.side_effect = netmiko.exceptions.ReadTimeout("slow")
-	assert Commit(discard=("rollback 0",)).before_leave(conn, report, TARGET) is False
+	with pytest.raises(CommitPending):
+		Commit(discard=("rollback 0",)).before_leave(conn, report, TARGET)
 	assert conn.method_calls == [call.commit(read_timeout=COMMIT_TIMEOUT)]
-	assert "didn't finish within" in report.actions[0][1]
+	assert report.actions == []
+
+
+def slow_commit(configs):
+	"""One verified Junos rollout of `set x` whose commit times out; the configuration
+	reads give `configs` in turn (before, then each new session's). :returns: (its result,
+	the log, the waits between the reads)"""
+	conn = connection(prompt="u@j1#")
+	conn.__enter__.return_value = conn
+	conn.commit.side_effect = netmiko.exceptions.ReadTimeout("slow")
+	reads = iter(configs)
+	conn.send_command.side_effect = lambda command, **kw: next(reads)
+	logger = fresh_logger()
+	device = Device(ip="10.0.0.1", label="d", username="u", password="p",
+	                device_type="juniper_junos", secret="", port=22)
+	engine = RolloutEngine(RolloutOptions(verify=True), [device], ["set x"])
+	with patch("netmiko.ConnectHandler", return_value=conn), \
+			patch("src.rollout.session.time.sleep") as wait:
+		(result,) = engine.run(threading.Event(), logger)
+	return result, log_of(logger), [c.args[0] for c in wait.call_args_list]
+
+
+def test_a_slow_commit_that_went_through_is_judged_by_the_configuration():
+	"""A commit that times out, after which a new session finds the configuration
+	changed: the push went through - judged as usual (success), no ACTION NEEDED."""
+	before, after = "set system host-name j1\n", "set system host-name j1\nset x\n"
+	result, log, waits = slow_commit([before, before, after])
+	assert waits == [30]                                  # found on the second read
+	assert result["status"] == "success"
+	assert [c["verdict"] for c in result["transcript"]["commands"]] == ["took effect"]
+	assert result["action_needed"] is None
+	assert "the commit didn't finish within 300s, and the configuration has changed since" in log
+
+
+def test_a_slow_commit_that_changed_nothing_is_failed_for_a_person():
+	"""A commit that times out and whose configuration still hasn't changed after every
+	check: failed, with an ACTION NEEDED saying it failed or is still running."""
+	before = "set system host-name j1\n"
+	result, _, waits = slow_commit([before] * 6)
+	assert waits == [30] * 4                              # 5 reads, 30 s apart
+	assert result["status"] == "failed"
+	assert "still hadn't changed 120s later - it failed or is still running" in result["action_needed"]
+
+
+def test_a_command_that_gets_no_prompt_keeps_the_devices_question():
+	"""A command whose answer is a question (no prompt comes back) times out: what the
+	device printed is kept from the session's record - logged, in the ACTION NEEDED and
+	as the command's reply."""
+	first = connection()
+	opened = {}
+
+	def connect(**kwargs):
+		opened.update(kwargs)
+		return first
+
+	def send(cmds, **kw):
+		if cmds == ["crypto key zeroize rsa"]:
+			opened["session_log"].write(
+				b"crypto key zeroize rsa\n% All keys will be removed.\n"
+				b"Do you really want to remove these keys? [yes/no]: ")
+			raise netmiko.exceptions.ReadTimeout("no prompt")
+		return f"{cmds[0]}\nr1#"
+	first.send_config_set.side_effect = send
+	logger = fresh_logger()
+	device = Device(ip="10.0.0.1", label="d", username="u", password="p",
+	                device_type="cisco_ios", secret="", port=22)
+	engine = RolloutEngine(RolloutOptions(), [device],
+	                       ["logging host 1.1.1.1", "crypto key zeroize rsa", "ntp server 2.2.2.2"])
+	with patch("netmiko.ConnectHandler", side_effect=connect):
+		(result,) = engine.run(threading.Event(), logger)
+	question = "% All keys will be removed. | Do you really want to remove these keys? [yes/no]:"
+	assert result["status"] == "partial"
+	assert f"(command 2 of 3; its last output: {question})" in result["action_needed"]
+	assert f"'crypto key zeroize rsa' - no prompt came back; the device's last output: " \
+	       f"{question}" in log_of(logger)

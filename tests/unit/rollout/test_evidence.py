@@ -4,13 +4,16 @@ full before / after snapshots, each command's raw reply, a second after
 snapshot; secrets replaced by consistent <secret-N> placeholders): a verdict
 is certain only where the device's own configuration proves it, everything
 else is review - with no keyword, no threshold, no vendor rewrite rule."""
+import difflib
 import gzip
 import json
 from pathlib import Path
 
 import pytest
 
+from src.rollout.engine import diff_tags, transcript
 from src.rollout.evidence import Verdict, compare, contains, judge, matches, noise, parse, same_word
+from src.rollout.platforms import PLATFORMS
 
 LAB = Path(__file__).parent / "lab"
 T, P, R, N, V = Verdict.TOOK_EFFECT, Verdict.IN_PLACE, Verdict.REMOVED, Verdict.NAVIGATION, Verdict.REVIEW
@@ -195,3 +198,93 @@ def test_a_reviews_evidence_leaves_out_what_later_commands_took():
 	ntp = outcome.commands[0]
 	assert (ntp.verdict, ntp.evidence, ntp.note) == (V, (), "no change in its section")
 	assert [j.verdict for j in outcome.commands[1:]] == [T, T, N]
+
+
+# ── Every changed line, with what made it (Results → Verification's diff) ──
+
+def by(outcome, sign, text):
+	""":returns: the one change of `text` (sign "+" / "-")"""
+	(change,) = [c for c in outcome.changes if c.sign == sign and c.line == text]
+	return change
+
+
+def test_each_changed_line_names_the_command_it_rests_on():
+	"""R1 snmp-server location A → B: the new line rests on the command, and so
+	does the removed A it replaced."""
+	r, outcome = judged("R1/value-replaced")
+	assert by(outcome, "+", "snmp-server location B").by == (0,)
+	assert by(outcome, "-", "snmp-server location A").by == (0,)
+
+
+def test_lines_inside_a_new_block_belong_to_the_command_that_opened_it():
+	"""FortiOS's own "set uuid" in a new entry is tagged with the "edit" that
+	opened it."""
+	r, outcome = judged("FGT1/named-entry")
+	(uuid,) = [c for c in outcome.changes if c.line.startswith("set uuid")]
+	assert uuid.by == (1,) and not uuid.device
+
+
+def test_a_rewritten_line_is_tagged_as_the_evidence_of_its_review():
+	"""NX-OS's "/32" sits in the block "interface loopback98" opened, and is the
+	evidence of the "ip address … 255.255.255.255" command in review."""
+	r, outcome = judged("NXOS1/mask-rewritten")
+	line = by(outcome, "+", "ip address 10.98.98.2/32")
+	assert line.by == (0,) and line.review == (1,)
+	assert line.section == "interface loopback98 > "
+
+
+def test_the_devices_own_churn_is_kept_apart_not_dropped():
+	"""FortiOS's 44 re-encrypted passwords are in the changes as the device's
+	own (shown behind a switch), never as another person's change."""
+	r, outcome = judged("FGT1/named-entry")
+	churn = [c for c in outcome.changes if c.device]
+	assert len(churn) == 44 and all(not c.by for c in churn)
+	assert outcome.other_changes == ()
+
+
+def test_other_changes_are_exactly_the_lines_nobody_made():
+	"""Across the whole lab corpus, "changed, not by these commands" is the
+	changes with no command and not the device's."""
+	for case, _, _ in CASES:
+		_, outcome = judged(case)
+		assert outcome.other_changes == tuple(
+			f"{c.sign} {c.section}{c.line}" for c in outcome.changes if not c.by and not c.device), case
+
+
+def test_the_stored_diff_finds_every_lines_tag_secrets_included():
+	"""The Verification window's diff (stored as the device printed it) gets
+	every configuration line's tag from the transcript (stored redacted): FortiOS's
+	44 re-encrypted "set password" lines are found as the device's own, the
+	new entry's lines as its commands'."""
+	r = recorded("FGT1/named-entry")
+	platform = PLATFORMS["fortinet"]
+	before, after = platform.config(r["before"]), platform.config(r["after"])
+	outcome = judge(r["commands"], before, after, blocks=True, again=platform.config(r["after_again"]))
+	diff = "\n".join(difflib.unified_diff(before.splitlines(), after.splitlines(),
+	                                      "before", "after", n=3, lineterm=""))
+	tags = diff_tags(diff, transcript(outcome, ()))
+	changed = [(line, tag) for line, tag in zip(diff.splitlines(), tags)
+	           if line[:1] in "+-" and line[:3] not in ("+++", "---")]
+	# the grammar's skipped lines aren't configuration: no tag (the file's
+	# version comment, the block's closing "next")
+	assert [line for line, tag in changed if tag is None] == [
+		"-#conf_file_ver=512419663302546", "+#conf_file_ver=512432548204437", "+    next"]
+	assert sum(1 for _, tag in changed if tag and tag["device"]) == 44
+	assert [tag["by"] for line, tag in changed if tag and "set subnet" in line] == [[2]]
+
+
+def test_a_line_repeated_in_two_sections_takes_its_own_tag():
+	"""The same text changed in two sections: each diff line takes the next
+	change of that text, in order."""
+	stored = {"changes": [{"sign": "+", "line": "shutdown", "section": "interface a > ", "by": [1],
+	                       "review": [], "device": False},
+	                      {"sign": "+", "line": "shutdown", "section": "interface b > ", "by": [3],
+	                       "review": [], "device": False}]}
+	diff = "--- before\n+++ after\n@@ -1 +1 @@\n interface a\n+ shutdown\n interface b\n+ shutdown"
+	tags = diff_tags(diff, stored)
+	assert [t and t["by"] for t in tags] == [None, None, None, None, [1], None, [3]]
+
+
+def test_a_transcript_from_before_the_tags_gives_none():
+	"""A row judged before the changes were kept: no tags (the plain diff)."""
+	assert diff_tags("+ x", {"commands": [], "other_changes": []}) is None

@@ -125,8 +125,8 @@ def transcript(outcome: Outcome | None,
                replies: tuple[tuple[str, ...], ...]) -> dict[str, Any] | None:
 	"""A device's judged push as stored (device_results.transcript): per
 	command its verdict, the device lines it rests on, why, and what the
-	device replied; then the changes no command explains. Redacted as the
-	log is.
+	device replied; then the changes no command explains, and every changed
+	line with what made it. Redacted as the log is.
 
 	:returns: None when the push wasn't judged"""
 	if outcome is None:
@@ -138,7 +138,39 @@ def transcript(outcome: Outcome | None,
 		        "reply": [redact(r) for r in (replies[i] if i < len(replies) else ())]}
 
 	return {"commands": [entry(i, j) for i, j in enumerate(outcome.commands)],
-	        "other_changes": [redact(c) for c in outcome.other_changes]}
+	        "other_changes": [redact(c) for c in outcome.other_changes],
+	        # every changed line: the commands it rests on (their positions
+	        # above), none (another person) or the device's own churn
+	        "changes": [{"sign": c.sign, "line": redact(c.line), "section": redact(c.section),
+	                     "by": list(c.by), "review": list(c.review), "device": c.device}
+	                    for c in outcome.changes]}
+
+
+def diff_tags(diff: str, stored: dict[str, Any] | None) -> list[dict[str, Any] | None] | None:
+	"""Each line of a stored before → after diff with what made it, from the
+	transcript's changes. Matched by the line as the transcript keeps it
+	(redacted: a secret line in the diff matches its "<redacted>" twin), in
+	order, so a line repeated in two sections takes its own change.
+
+	:param stored: the device's transcript
+	:returns: per diff line its change ({sign, line, section, by, review,
+	 device}) or None (context, headers); None when the transcript has no
+	 changes (judged before they were kept)"""
+	changes = (stored or {}).get("changes")
+	if changes is None:
+		return None
+	waiting: dict[str, list[dict[str, Any]]] = {}
+	for change in changes:
+		waiting.setdefault(change["sign"] + change["line"].strip(), []).append(change)
+	tags: list[dict[str, Any] | None] = []
+	for line in diff.splitlines():
+		sign = line[:1]
+		if sign not in "+-" or line[:3] in ("+++", "---"):
+			tags.append(None)
+			continue
+		queue = waiting.get(sign + redact(line[1:]).strip())
+		tags.append(queue.pop(0) if queue else None)
+	return tags
 
 
 class DeviceResultDict(TypedDict):

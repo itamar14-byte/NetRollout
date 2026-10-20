@@ -7,7 +7,9 @@ judged by it (src/rollout/evidence.py); and the rollout's report
 from __future__ import annotations   # type hints are never evaluated
 
 import difflib
+import io
 import re
+import time
 from collections import Counter
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -18,7 +20,8 @@ import netmiko
 from src.rollout.address import is_ip, resolve
 from src.rollout.evidence import Outcome, judge, parse
 from src.rollout.log import Tone, redact
-from src.rollout.platforms import FETCH_TIMEOUT, PLATFORMS, ConfigSession, Platform, Target
+from src.rollout.platforms import (
+	COMMIT_TIMEOUT, FETCH_TIMEOUT, PLATFORMS, CommitPending, ConfigSession, Platform, Target, reply)
 if TYPE_CHECKING:   # annotations only: engine.py imports this module
 	from src.rollout.engine import Device
 
@@ -63,6 +66,12 @@ class RunReport:
 		return "\n".join(self.needs_action.get(endpoint, [])) or None
 
 
+# a commit that timed out: how many times the configuration is read (a new
+# session each) to see whether it went through, and how far apart
+COMMIT_CHECKS = 5
+COMMIT_CHECK_EVERY = 30
+
+
 class PushResult(NamedTuple):
 	"""How the push went on one device."""
 	applied: bool    # reached the device and finished (connected, committed)
@@ -80,36 +89,14 @@ class PushResult(NamedTuple):
 	after: str | None = None   # the configuration after (Results → Verification)
 
 
-# a line the device prints between commands that is a time stamp, not an
-# answer: IOS "*Oct 19 19:17:26.223: …", NX-OS "2026 Oct 19 16:10:28 …"
-_EVENT = re.compile(r"^\*?(\d{4} )?[A-Z][a-z]{2} +\d+ (\d{4} )?\d\d:\d\d:\d\d")
-# Junos's context banner after a command ("[edit interfaces ge-0/0/0]")
-_CONTEXT = re.compile(r"^\[edit( .*)?\]$")
-
-
-def reply(output: str, command: str, prompt: str) -> tuple[list[str], list[str]]:
-	"""What the device said to one command, told apart by shape from what
-	isn't an answer: the command's echo, the prompt (with any context:
-	"R1(config-if)#", "FGT1 (global) #"), blank lines, IOS's "^" pointer,
-	Junos's "[edit …]" banner. Time-stamped lines are device events.
-
-	:returns: (the reply's lines, the event lines) - shown, never judged"""
-	said, events = [], []
-	sent = command.strip()
-	base = prompt.strip()
-	for row in output.splitlines():
-		text = row.strip()
-		if not text or set(text) <= {"^"} or _CONTEXT.match(text):
-			continue
-		if sent and text.endswith(sent) and (text == sent or text.startswith(base)):
-			continue
-		if base and text.startswith(base) and text[-1:] in "#>$" and sent not in text:
-			continue
-		if _EVENT.match(text):
-			events.append(text)
-		else:
-			said.append(text)
-	return said, events
+def _clear(conn: ConfigSession, channel: io.BytesIO) -> None:
+	"""Empty the session's record before the next command (it keeps only
+	what one command printed)."""
+	log = getattr(conn, "session_log", None)
+	if log is not None:
+		log.flush()
+	channel.seek(0)
+	channel.truncate()
 
 
 def _connect_args(device: Device) -> dict[str, str | int]:
@@ -215,8 +202,12 @@ class NetmikoSession:
 		sent = 0      # commands sent so far
 		replies: list[tuple[str, ...]] = []
 		before: str | None = None
+		# what the device printed, kept in memory (Netmiko leaves passwords
+		# out): a command that gets no prompt back loses its output with the
+		# timeout - this keeps it (a question such as "[confirm]")
+		channel = io.BytesIO()
 		try:
-			net_connect = netmiko.ConnectHandler(**_connect_args(device))
+			net_connect = netmiko.ConnectHandler(**_connect_args(device), session_log=channel)
 			try:
 				report.notify(f"{device.ip} connected successfully", Tone.SUCCESS)
 				# Goes into privileged config mode, depending on the platform
@@ -248,9 +239,14 @@ class NetmikoSession:
 					# as typed. Netmiko's default re-checks config mode per call,
 					# and drivers that only recognise their top-level config
 					# prompt (Aruba CX: "(config)#") then fail inside a section
-					output = net_connect.send_config_set(
-						[command.strip()], enter_config_mode=False,
-						exit_config_mode=False)
+					_clear(net_connect, channel)
+					try:
+						output = net_connect.send_config_set(
+							[command.strip()], enter_config_mode=False,
+							exit_config_mode=False)
+					except netmiko.exceptions.ReadTimeout:
+						replies.append(tuple(self._last_output(net_connect, channel, command)))
+						raise
 					said, events = reply(str(output), command, str(net_connect.base_prompt))
 					replies.append(tuple(said))
 					if said:
@@ -259,8 +255,11 @@ class NetmikoSession:
 					for event in events:
 						report.notify(f"{device.endpoint}: device event: {event}")
 
-				if not self._finish(net_connect):
-					return PushResult(applied=False, replies=tuple(replies))
+				try:
+					if not self._finish(net_connect):
+						return PushResult(applied=False, replies=tuple(replies))
+				except CommitPending:
+					return self._after_slow_commit(commands, before, tuple(replies))
 				if before is None:
 					return PushResult(applied=True, replies=tuple(replies))
 				outcome, diff, after = self._judge(commands, before,
@@ -290,7 +289,6 @@ class NetmikoSession:
 				# the commands were applied, but the finish couldn't run in this
 				# session - a fresh one learns the new prompt (and reads the
 				# configuration after, when verifying)
-				replies.append(())
 				self._finish_in_new_session()
 				if before is None:
 					return PushResult(applied=True, replies=tuple(replies))
@@ -301,9 +299,11 @@ class NetmikoSession:
 				# No answer before the last command (a question without a
 				# prompt, a slow command): the rest isn't sent, nothing saved
 				answered = sent - 1
+				last = " | ".join(replies[-1]) if replies and replies[-1] else ""
 				report.action_needed(device, (
 					f"stopped answering after '{commands[sent - 1].strip()}' "
-					f"(command {sent} of {len(commands)}): "
+					f"(command {sent} of {len(commands)}"
+					+ (f"; its last output: {last}" if last else "") + "): "
 					+ (f"the {answered} before it {'is' if answered == 1 else 'are'} "
 					   f"live but NOT saved, " if answered else "")
 					+ f"the {len(commands) - sent} after it weren't sent - check "
@@ -315,6 +315,64 @@ class NetmikoSession:
 		except Exception as e:
 			report.notify(f"{device.ip} failed: {e}", Tone.ERROR)
 			return PushResult(applied=False, replies=tuple(replies))
+
+	def _last_output(self, conn: ConfigSession, channel: io.BytesIO,
+	                 command: str) -> list[str]:
+		"""What the device printed to a command that got no prompt back (a
+		question, a slow command), from the session's own record - logged.
+
+		:returns: its lines, the echo and prompt left out"""
+		log = getattr(conn, "session_log", None)
+		if log is not None:
+			log.flush()
+		said, _ = reply(channel.getvalue().decode("utf-8", "replace"), command,
+		                str(getattr(conn, "base_prompt", "")))
+		if said:
+			self._report.notify(f"{self._device.endpoint}: '{command.strip()}' - no prompt "
+			                    f"came back; the device's last output: {' | '.join(said)}",
+			                    Tone.WARNING)
+		return said
+
+	def _after_slow_commit(self, commands: list[str], before: str | None,
+	                       replies: tuple[tuple[str, ...], ...]) -> PushResult:
+		"""A commit that didn't answer in time, decided by the configuration
+		read from new sessions: changed → it went through (judged as usual);
+		unchanged after COMMIT_CHECKS reads → failed, a person checks (it may
+		still be running). Without verify there is nothing to compare with.
+
+		:param before: the configuration before the push; None: not verifying"""
+		device, report = self._device, self._report
+		waited = f"the commit didn't finish within {COMMIT_TIMEOUT}s"
+		if before is None:
+			report.action_needed(device, f"{waited} - check on the device whether "
+			                     f"it went through (reported as failed)")
+			return PushResult(applied=False, replies=replies)
+		flat = self._platform.flat
+		was = [line.key for line in parse(before, flat)]
+		for check in range(COMMIT_CHECKS):
+			if check:
+				time.sleep(COMMIT_CHECK_EVERY)
+			after = self._fetch_new("after the slow commit")
+			if after is None:
+				break
+			if [line.key for line in parse(after, flat)] != was:
+				report.notify(f"{device.endpoint}: {waited}, and the configuration has "
+				              f"changed since - judged by it", Tone.WARNING)
+				first = [after]
+				outcome, diff, after = self._judge(
+					commands, before, lambda why: first.pop() if first else self._fetch_new(why),
+					None)
+				return PushResult(applied=True, replies=replies, outcome=outcome,
+				                  diff=diff, after=after)
+		else:
+			report.action_needed(device, f"{waited} and the configuration still hadn't "
+			                     f"changed {(COMMIT_CHECKS - 1) * COMMIT_CHECK_EVERY}s later - "
+			                     f"it failed or is still running: check on the device "
+			                     f"(reported as failed)")
+			return PushResult(applied=False, replies=replies)
+		report.action_needed(device, f"{waited} - check on the device whether it went "
+		                     f"through (reported as failed)")
+		return PushResult(applied=False, replies=replies)
 
 	def _judge(self, commands: list[str], before: str,
 	           snapshot: Callable[[str], str | None],

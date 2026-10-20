@@ -237,6 +237,19 @@ class Judgment:
 
 
 @dataclass(frozen=True)
+class Change:
+	"""One line the push changed in the configuration, and what made it:
+	the commands it rests on (their positions in the push), nobody among
+	them (another person), or the device itself (its own churn)."""
+	sign: str                # "+" added, "-" removed
+	line: str                # as the device prints it
+	section: str             # its section headers, "a > b > " ("" at the top)
+	by: tuple[int, ...] = ()
+	device: bool = False
+	review: tuple[int, ...] = ()   # the commands in review it's evidence for
+
+
+@dataclass(frozen=True)
 class Outcome:
 	"""A device's judged push: a verdict per command, in order, and the
 	changes no command explains (another person, or the device itself)."""
@@ -245,6 +258,8 @@ class Outcome:
 	# the lines the commands rest on, as (section, line): what a save must keep
 	added: tuple[tuple[tuple[str, ...], str], ...] = ()
 	removed: tuple[tuple[tuple[str, ...], str], ...] = ()
+	# every changed line, added then removed, then the device's churn
+	changes: tuple[Change, ...] = ()
 
 	@property
 	def needs_review(self) -> bool:
@@ -300,6 +315,8 @@ class _Judge:
 		diff = compare(before, after)
 		self.added = [line for line in diff.added if not _is_noise(line, churn)]
 		self.removed = [line for line in diff.removed if not _is_noise(line, churn)]
+		self.churned = [("+", line) for line in diff.added if _is_noise(line, churn)] + \
+			[("-", line) for line in diff.removed if _is_noise(line, churn)]
 		self.unchanged = diff.unchanged
 		self.both = before + after
 		self.blocks = blocks
@@ -313,6 +330,10 @@ class _Judge:
 		# commands in review → the section they were in (their evidence is
 		# gathered once every command has claimed its lines)
 		self.reviews: dict[int, Path | None] = {}
+		# line index in added / removed → the commands in review it's
+		# evidence for
+		self.evidence_added: dict[int, list[int]] = {}
+		self.evidence_removed: dict[int, list[int]] = {}
 
 	def run(self, commands: list[_Typed]) -> Outcome:
 		results: list[Judgment] = []
@@ -327,9 +348,13 @@ class _Judge:
 				results.append(self._setting(i, command, following))
 		self._conflicts(results)
 		self._review_evidence(results)
-		return Outcome(tuple(results), self._other_changes(),
+		changes = self._changes()
+		other = tuple(f"{c.sign} {c.section}{c.line}" for c in changes
+		              if not c.by and not c.device)
+		return Outcome(tuple(results), other,
 		               tuple(self.added[i].key for i in self.claims_added),
-		               tuple(self.removed[i].key for i in self.claims_removed))
+		               tuple(self.removed[i].key for i in self.claims_removed),
+		               changes)
 
 	def _navigate(self, command: _Typed) -> None:
 		"""Leave one section, or all of them ("end" closes only the current
@@ -407,8 +432,14 @@ class _Judge:
 		added = [i for i in range(len(self.added)) if i not in self.claims_added]
 		removed = [i for i in range(len(self.removed)) if i not in self.claims_removed]
 		for i, path in self.reviews.items():
-			changes = tuple([f"+ {self.added[a].raw}" for a in added if self._at(self.added[a], path)][:10]
-			                + [f"- {self.removed[r].raw}" for r in removed if self._at(self.removed[r], path)][:10])
+			shown_added = [a for a in added if self._at(self.added[a], path)][:10]
+			shown_removed = [r for r in removed if self._at(self.removed[r], path)][:10]
+			for a in shown_added:
+				self.evidence_added.setdefault(a, []).append(i)
+			for r in shown_removed:
+				self.evidence_removed.setdefault(r, []).append(i)
+			changes = tuple([f"+ {self.added[a].raw}" for a in shown_added]
+			                + [f"- {self.removed[r].raw}" for r in shown_removed])
 			results[i] = Judgment(results[i].command, Verdict.REVIEW, changes,
 			                      "" if changes else "no change in its section")
 
@@ -448,37 +479,45 @@ class _Judge:
 					                      (f"+ {self.added[index].raw}",),
 					                      "the same change matches another command too")
 
-	def _other_changes(self) -> tuple[str, ...]:
-		""":returns: the changes no command accounts for, with their section"""
-		added, removed = self._unexplained()
-		return tuple([f"+ {_where(self.added[i])}{self.added[i].raw}" for i in added]
-		             + [f"- {_where(self.removed[i])}{self.removed[i].raw}" for i in removed])
+	def _changes(self) -> tuple[Change, ...]:
+		""":returns: every changed line with the commands that account for it
+		 (and those in review it's evidence for).
+		 Accounted for: a command's own line, everything under a block it
+		 opened or removed, and a line a claimed one replaced (the same
+		 section and leading words: "snmp-server location a" → "… b",
+		 "vlan 1" → "vlan 1,98"). None of these: another person's change.
+		 The device's churn last."""
+		owners: dict[Path, set[int]] = {}
+		for claims, lines in ((self.claims_added, self.added),
+		                      (self.claims_removed, self.removed)):
+			for index, who in claims.items():
+				owners.setdefault(lines[index].inside, set()).update(who)
 
-	def _unexplained(self) -> tuple[list[int], list[int]]:
-		""":returns: the added and removed lines (their indexes) no command
-		 accounts for. Accounted for: a command's own line, everything under
-		 a block it opened or removed, and a line a claimed one replaced (the
-		 same section and leading words: "snmp-server location a" → "… b",
-		 "vlan 1" → "vlan 1,98")"""
-		blocks = {self.added[i].inside for i in self.claims_added} | \
-			{self.removed[i].inside for i in self.claims_removed}
+		def by_block(line: Line) -> set[int]:
+			return {c for block, who in owners.items()
+			        if line.path[:len(block)] == block for c in who}
 
-		def under_block(line: Line) -> bool:
-			return any(line.path[:len(block)] == block for block in blocks)
-
-		def replaced(gone: Line) -> bool:
-			for i in self.claims_added:
-				new = self.added[i]
+		def replaced_by(gone: Line) -> set[int]:
+			found: set[int] = set()
+			for index, who in self.claims_added.items():
+				new = self.added[index]
 				common = _common_prefix(gone.words, new.words)
 				if new.path == gone.path and (len(common) >= 2 or common == gone.words):
-					return True
-			return False
+					found.update(who)
+			return found
 
-		added = [i for i, line in enumerate(self.added)
-		         if i not in self.claims_added and not under_block(line)]
-		removed = [i for i, line in enumerate(self.removed)
-		           if i not in self.claims_removed and not under_block(line) and not replaced(line)]
-		return added, removed
+		changes = [Change("+", line.raw, _where(line),
+		                  tuple(sorted(set(self.claims_added.get(index, ())) or by_block(line))),
+		                  review=tuple(self.evidence_added.get(index, ())))
+		           for index, line in enumerate(self.added)]
+		changes += [Change("-", line.raw, _where(line),
+		                   tuple(sorted(set(self.claims_removed.get(index, ()))
+		                                or by_block(line) or replaced_by(line))),
+		                   review=tuple(self.evidence_removed.get(index, ())))
+		            for index, line in enumerate(self.removed)]
+		changes += [Change(sign, line.raw, _where(line), device=True)
+		            for sign, line in self.churned]
+		return tuple(changes)
 
 
 def judge(commands: list[str], before: str, after: str, *, flat: bool = False,

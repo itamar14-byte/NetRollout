@@ -3,9 +3,12 @@ I/O of its own: its grammar - how a push finishes (the Finish family: save /
 commit / a command / nothing - acting on the session it is handed), how its
 config prints and is read back (PLATFORMS), what frames that output. Never
 what its messages mean: a push is judged by the device's own configuration
-(src/rollout/evidence.py). The SSH conversation is src/rollout/session.py's.
+(src/rollout/evidence.py); what a device says is told apart from its echo
+and prompt by shape (reply), shown, never judged. The SSH conversation is
+src/rollout/session.py's.
 Adding a vendor: one PLATFORMS row plus a fixture in
 tests/unit/rollout/test_platforms.py."""
+import re
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from contextlib import AbstractContextManager
@@ -15,6 +18,38 @@ from typing import Any, Protocol
 from netmiko.exceptions import ReadTimeout
 
 from src.rollout.log import Tone
+
+
+# a line the device prints between commands that is a time stamp, not an
+# answer: IOS "*Oct 19 19:17:26.223: …", NX-OS "2026 Oct 19 16:10:28 …"
+_EVENT = re.compile(r"^\*?(\d{4} )?[A-Z][a-z]{2} +\d+ (\d{4} )?\d\d:\d\d:\d\d")
+# Junos's context banner after a command ("[edit interfaces ge-0/0/0]")
+_CONTEXT = re.compile(r"^\[edit( .*)?\]$")
+
+
+def reply(output: str, command: str, prompt: str) -> tuple[list[str], list[str]]:
+	"""What the device said to one command, told apart by shape from what
+	isn't an answer: the command's echo, the prompt (with any context:
+	"R1(config-if)#", "FGT1 (global) #"), blank lines, IOS's "^" pointer,
+	Junos's "[edit …]" banner. Time-stamped lines are device events.
+
+	:returns: (the reply's lines, the event lines) - shown, never judged"""
+	said, events = [], []
+	sent = command.strip()
+	base = prompt.strip()
+	for row in output.splitlines():
+		text = row.strip()
+		if not text or set(text) <= {"^"} or _CONTEXT.match(text):
+			continue
+		if sent and text.endswith(sent) and (text == sent or text.startswith(base)):
+			continue
+		if base and text.startswith(base) and text[-1:] in "#>$" and sent not in text:
+			continue
+		if _EVENT.match(text):
+			events.append(text)
+		else:
+			said.append(text)
+	return said, events
 
 
 class ConfigSession(Protocol):
@@ -132,19 +167,29 @@ class NoFinish(Finish):
 		return None
 
 
+class CommitPending(Exception):
+	"""The commit didn't answer within COMMIT_TIMEOUT: it may still be
+	running on the device. Nothing is claimed from the timeout - the session
+	decides by the configuration."""
+
+
 class Commit(Finish):
 	"""commit() before leaving config mode (leaving discards uncommitted
 	changes).
 
 	:param discard: after a failed commit, the commands that drop the
 	 candidate - all sent in order (whether one was accepted isn't judged
-	 from its wording: the device's replies are shown, a person confirms)
+	 from its wording: the device's replies are shown)
+	:param pending: the command that shows what is still in the candidate
+	 (Junos `show | compare`): no output means nothing is left - a state
+	 read, not a message interpreted; "" - a person checks
 	:param reverts_on_failure: the platform drops a failed commit by itself
 	 (IOS XR): no discard needed, nothing left to check"""
 
-	def __init__(self, discard: tuple[str, ...] = (),
+	def __init__(self, discard: tuple[str, ...] = (), pending: str = "",
 	             reverts_on_failure: bool = False) -> None:
 		self.discard = discard
+		self.pending = pending
 		self.reverts_on_failure = reverts_on_failure
 
 	@property
@@ -156,26 +201,32 @@ class Commit(Finish):
 		try:
 			conn.commit(read_timeout=COMMIT_TIMEOUT)
 		except ReadTimeout:
-			# It may still complete on the device: don't claim either way
-			report.action_needed(device, f"the commit didn't finish within "
-			                     f"{COMMIT_TIMEOUT}s - check on the device "
-			                     f"whether it went through (reported as failed)")
-			return False
+			# It may still complete on the device: the configuration decides
+			raise CommitPending from None
 		except ValueError as e:
 			report.notify(f"{device.endpoint}: commit failed - nothing was "
 			              f"applied. {e}", Tone.ERROR)
 			if self.discard:
-				prompt = str(getattr(conn, "base_prompt", "")).strip()
+				prompt = str(getattr(conn, "base_prompt", ""))
 				replies = []
 				for command in self.discard:
-					reply = conn.send_config_set([command], exit_config_mode=False)
-					said = " ".join(line.strip() for line in str(reply).splitlines()
-					                if line.strip() and command not in line
-					                and not (prompt and line.strip().startswith(prompt)))
-					replies.append(f"'{command}'" + (f" (the device replied: {said})" if said else ""))
-				report.action_needed(device, "the commit failed and the failed changes "
-				                     f"were discarded with {', then '.join(replies)} - "
-				                     "check that the candidate configuration is empty")
+					said, _ = reply(str(conn.send_config_set([command], exit_config_mode=False)),
+					                command, prompt)
+					replies.append(f"'{command}'" + (f" (the device replied: {' '.join(said)})"
+					                                 if said else ""))
+				discarded = (f"the commit failed and the failed changes were discarded "
+				             f"with {', then '.join(replies)}")
+				left = self._left(conn, prompt)
+				if left is None:
+					report.action_needed(device, f"{discarded} - check that the candidate "
+					                     f"configuration is empty")
+				elif left:
+					report.action_needed(device, f"{discarded}, but '{self.pending}' still "
+					                     f"shows: {' | '.join(left[:10])} - check the candidate "
+					                     f"configuration on the device")
+				else:
+					report.notify(f"{device.endpoint}: {discarded}; '{self.pending}' shows "
+					              f"nothing left in the candidate", Tone.WARNING)
 			elif not self.reverts_on_failure:
 				report.action_needed(device, "the failed changes may still be "
 				                     "in the candidate configuration - discard "
@@ -186,6 +237,19 @@ class Commit(Finish):
 
 	def after_leave(self, conn: ConfigSession) -> tuple[Any, str]:
 		return "", ""
+
+	def _left(self, conn: ConfigSession, prompt: str) -> list[str] | None:
+		""":returns: what the candidate still holds after the discard (its
+		 lines; [] - nothing); None when the platform has no such command or
+		 it couldn't be sent"""
+		if not self.pending:
+			return None
+		try:
+			output = conn.send_config_set([self.pending], exit_config_mode=False)
+		except Exception:
+			return None
+		said, _ = reply(str(output), self.pending, prompt)
+		return said
 
 
 @dataclass(frozen=True)
@@ -238,13 +302,14 @@ PLATFORMS = {
 	# private: our commit can't take other users' pending edits along, and
 	# our rollback can't wipe them (Junos refuses it while someone has
 	# uncommitted shared edits - the device then fails, with the reason)
-	"juniper_junos": Platform(Commit(discard=("rollback 0",)),
+	"juniper_junos": Platform(Commit(discard=("rollback 0",), pending="show | compare"),
 	                          ("show configuration | display set",), flat=True,
 	                          config_command="configure private"),
 	# revert config (8.0+); loading the running config into the candidate
 	# discards too, also on older releases
 	"paloalto_panos": Platform(Commit(discard=(
-		"revert config", "load config from running-config.xml")),
+		"revert config", "load config from running-config.xml"),
+		pending="run show config diff"),
 		("set cli config-output-format set", "show config running"), flat=True),
 	# An account whose shell is expert (bash) would take every "set …" as
 	# bash's own set builtin (nothing configured, nothing refused): switch to
