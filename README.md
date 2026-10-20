@@ -7,7 +7,7 @@
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
 [![Docker Hub](https://img.shields.io/badge/docker%20hub-itamarweinstein%2Fnetrollout-2496ED?logo=docker&logoColor=white)](https://hub.docker.com/r/itamarweinstein/netrollout)
 
-NetRollout pushes configuration snippets to many network devices at once over SSH, reads each device's configuration back to verify the change, and records every result. You run it as a web app on your own server (Windows or Linux, with Docker), or as a single command-line program for a one-off rollout from a CSV file.
+NetRollout pushes configuration snippets to many network devices at once over SSH, judges each device by its own configuration before and after the change, and records every result. You run it as a web app on your own server (Windows or Linux, with Docker), or as a single command-line program for a one-off rollout from a CSV file.
 
 It is for network engineers who want a bulk change done and checked without writing playbooks.
 
@@ -33,9 +33,9 @@ It is for network engineers who want a bulk change done and checked without writ
 
 - **Bulk push.** Send the same commands to many devices in parallel, with per-job and per-device concurrency limits.
 - **12 platforms.** Cisco, Juniper, Arista, Aruba, HP, Palo Alto, Check Point and Fortinet, through [Netmiko](https://github.com/ktbyers/netmiko). Each platform saves or commits the change in its own way.
-- **Verify.** After the push, NetRollout reads each device's configuration and checks every command, including `no` / `undo` / `delete` / `unset` removals. Verify is on by default in the web app.
+- **Verify.** NetRollout reads each device's configuration before and after the push and judges every command by what changed on the device, not by what it printed: took effect, already in place, removed - or, when the configuration doesn't prove it, **review**, decided by a person with the evidence in front of them. No list of error messages, no guessing. Verify is on by default in the web app.
 - **Live log.** Watch a rollout as it runs, device by device. Cancel a queued or running job.
-- **Results and rollback.** Every device's outcome is stored, with a status, the log, a configuration snapshot and a Verify Diff. Cases that need a person are flagged as `ACTION NEEDED`. You can roll back a finished job from its results.
+- **Results and rollback.** Every device's outcome is stored, with a status, the log, each command's verdict with its evidence and the device's reply, and the configuration before and after. Devices in review are confirmed or rejected on record; cases that need a person on the device are flagged as `ACTION NEEDED`. You can roll back a finished job from its results.
 - **Inventory.** Keep devices with labels and attributes, import them from CSV, and store credentials as encrypted security profiles.
 - **Variable mappings.** A `$$TOKEN$$` in your commands is filled in per device from a device property, so one snippet fits many devices.
 - **Accounts.** Operator and admin roles, local accounts with approval, LDAP sign-in, and two-factor authentication (TOTP).
@@ -152,7 +152,7 @@ Somewhere along the way, though, I realised this pain point is shared by many pe
 - **PostgreSQL** holds the devices, their credentials (encrypted, in security profiles) and the rollouts you build and launch.
 - **Redis** keeps the job queue and user sessions, so many rollouts run at once and every job's log streams live.
 - **A containerised monitoring stack** ships with the app, turning the database, the logs and the rollout metrics into full operational visibility.
-- **Verification** reads each device's running configuration back and checks it against what was requested.
+- **Verification** compares each device's configuration before and after the push, and hands whatever it can't prove to a person.
 - **Rollback** sends compensatory commands to the devices a job changed.
 - **A Windows installer and a Linux script** set the whole thing up in Docker and upgrade it to new versions.
 - Underneath it all, an **object-oriented architecture** of 65 modules and some 19,000 lines of Python.

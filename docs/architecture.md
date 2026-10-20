@@ -164,9 +164,10 @@ Shared by the CLI and the web app, and free of the web stack: it imports the dat
 
 | Module | Job | Main names |
 |---|---|---|
-| `engine.py` | Runs one rollout: devices in parallel, the push, verify, the status of each device. | `Device` (a target: address, decrypted credentials, its mappings; `from_inventory()`, `unresolved()`, `commands_for()`), `RolloutEngine` (`run()`, `cancelled_results()`), `RolloutOptions`, `classify()` (the status rules), `VerifyResult`, `DeviceResultDict`, `DeviceStatus`, `SubstitutionError`, `endpoint()` (`ip:port`, IPv6 as `[addr]:port`) |
-| `session.py` | One device's SSH conversation: connect, push line by line, finish the platform's way, fetch the configuration. | `NetmikoSession` (`connect()`, `push()`, `fetch_config()`), `RunReport` (what a rollout tells, and what only a person can resolve), `PushResult`, the `Notifier` Protocol |
-| `platforms.py` | What NetRollout knows about each platform, with no I/O of its own: how a push takes effect, how the config is printed, how a refusal looks, and verify. | `PLATFORMS` (one `Platform` row per Netmiko device type), the `Finish` family (`SaveConfig`, `Commit`, `RunCommand`, `NoFinish`), the `ConfigSession` / `Target` / `Report` Protocols, `rejection()`, `verify_commands()` |
+| `engine.py` | Runs one rollout: devices in parallel, the push (each device verified in its session), the status of each device, the summary. | `Device` (a target: address, decrypted credentials, its mappings; `from_inventory()`, `unresolved()`, `commands_for()`), `RolloutEngine` (`run()`, `cancelled_results()`), `RolloutOptions`, `classify()` (the status rules), `transcript()` (a judged push as stored), `DeviceResultDict`, `DeviceStatus`, `ReviewOutcome`, `SubstitutionError`, `endpoint()` (`ip:port`, IPv6 as `[addr]:port`) |
+| `session.py` | One device's SSH conversation: connect; with Verify, read the configuration; push line by line, keeping each reply; finish the platform's way; read the configuration again and have the push judged. | `NetmikoSession` (`connect()`, `push()`), `reply()` (a command's answer told apart from its echo and the prompt), `RunReport` (what a rollout tells, and what only a person can resolve), `PushResult`, the `Notifier` Protocol |
+| `evidence.py` | The judge, with no I/O: a configuration parsed by the platform's grammar, two snapshots compared, each command given a verdict with the device lines it rests on. | `judge()`, `Verdict`, `Judgment`, `Outcome`, `parse()`, `compare()`, `noise()`, `same_word()` / `contains()` / `matches()` (how a typed command meets a device line), `navigates()`, `NEGATION` |
+| `platforms.py` | What NetRollout knows about each platform, with no I/O of its own: its grammar - how a push takes effect, how the configuration is printed and framed, how it is read back and saved. | `PLATFORMS` (one `Platform` row per Netmiko device type: show and saved-config commands, flat or indented, framing, save state), the `Finish` family (`SaveConfig`, `Commit`, `RunCommand`, `NoFinish`), the `ConfigSession` / `Target` / `Report` Protocols |
 | `address.py` | A device's address: an IP or a hostname. No project imports (the session, the engine and the input checks use it). | `is_ip`, `is_hostname`, `is_bare`, `qualify()` (a bare name + System Settings' DNS suffix), `resolve()` / `resolve_many()` (lookups with a bounded wait: None when a name doesn't resolve in time) |
 | `inputs.py` | Input checks as functions, and the CLI / CSV-import files. | `validate_address`, `normalize_address`, `validate_ip`, `normalize_ip`, `validate_port`, `validate_platform`, `tcp_reachable`, `token_problem`, `property_name_problem`, `index_problem`, `SUPPORTED_PLATFORMS`; `Validator` and `InputParser` (the devices CSV, the commands file) |
 | `log.py` | The rollout log: one file per rollout, echoed to a console or to the live log in Redis; redaction; log pruning. | `RolloutLogger`, the `Echo` Protocol with `Console` and `LiveLog`, the `KeyValueStore` Protocol, `Tone`, `redact()`, `live_log_keys()`, `LogPruner` |
@@ -251,7 +252,7 @@ What installing and running NetRollout decides and writes, once for Windows and 
 | File | Blueprint (prefix) | The page | Routes |
 |---|---|---|---|
 | `auth.py` | `auth` (none) | Sign-in (local, LDAP, 2FA enrol and verify), Request access, sign-out, the Account page, the password change, the session check. | `/`, `/login` (GET, POST), `/register` (GET, POST), `/otp_enroll`, `/otp_verify`, `/logout`, `/account`, `/account/password` (forced or voluntary change), `/account/session` (the idle-timeout script's check) |
-| `jobs.py` | `jobs` (none) | Dashboard, Active Jobs, Results (with Verify Diff, the job summary card and Download Log). | `/dashboard`, `/active_jobs`, `/results` (`?job=<id>` opens that job), `/results/config_diff/<job_id>/<device_ip>`, `/results/summary/<job_id>`, `/results/download_log/<job_id>` |
+| `jobs.py` | `jobs` (none) | Dashboard, Active Jobs, Results (with Verification, a review's decision, the job summary card and Download Log). | `/dashboard`, `/active_jobs`, `/results` (`?job=<id>` opens that job), `/results/config_diff/<job_id>/<device_ip>` (Verification), `/results/review/<job_id>/<device_ip>` (POST: confirm or reject), `/results/summary/<job_id>`, `/results/download_log/<job_id>` |
 | `rollout.py` | `rollout` (`/rollout`) | New rollout, start, cancel, the live log stream (SSE), rollback. | `/new`, `/start`, `/cancel`, `/stream/<job_id>`, `/rollback/<job_id>` |
 | `inventory.py` | `inventory` (`/inventory`) | Devices: create, edit, delete, the user's own attribute values, connection test, reachability, CSV import, bulk profile assignment. | list, `/create`, `/test_connection`, `/reachability`, `/<id>/edit`, `/<id>/attributes`, `/<id>/delete`, `/import_csv`, `/bulk_assign` |
 | `security.py` | `security` (`/security`) | Security profiles (the credentials devices are reached with), their test. | list, `/create`, `/quick_create`, `/<id>/edit`, `/<id>/delete`, `/<id>/test` |
@@ -369,7 +370,7 @@ The rules that keep it this way:
 
 ### Design rules
 
-- **A class only for a real thing with state and behaviour.** A rule without state stays a function: the input checks, `classify()`, `verify_commands()`, `job_status()`, the password rule, the backup schedule's `due()`, the port helper's `next_step()`, and the file protocols of `site.env` and nginx's `status.json`.
+- **A class only for a real thing with state and behaviour.** A rule without state stays a function: the input checks, `classify()`, `compare()` and `noise()`, `job_status()`, the password rule, the backup schedule's `due()`, the port helper's `next_step()`, and the file protocols of `site.env` and nginx's `status.json`.
 - **An ABC when NetRollout owns the whole family and the base shares code** (`Finish`, `Certificate`, `Setting`, `ServiceConnection`, `PeriodicTask`). An incomplete subclass fails when it is created, not in production.
 - **A Protocol when the implementer is foreign or a test fake stands in**: `ConfigSession` (Netmiko's connection), `KeyValueStore` (redis-py), `SessionSerializer` (flask-session), `Echo`, `Notifier`. Structural, checked by mypy, nothing shared at run time.
 - **A `Callable` for a one-call contract**: `hold` (may a background task run now?), `retention_days`, and the per-call `postgres` / Redis lookups that follow a database move or a Redis switch.
@@ -409,7 +410,7 @@ The rules that keep it this way:
 | Splitting `InputParser` into CSV and form parsers | No form uses it; the web app builds devices from inventory rows. |
 | A `Deployment` ABC, an OS strategy, a "Server" facade | Each would only forward to one-line decisions or to small classes that are already cohesive. |
 
-What stays procedural on purpose: route functions; pure rules and text algorithms (`classify`, `verify_commands`, `rejection`, the input checks, the password rule, `due`, `next_step`); data tables (`PLATFORMS`, `SETTINGS`, `RETENTION_STATEMENTS`); one-shot flows and entry points (`install()`, backup `create` and `restore`, the release download, `cli.py`, `python -m src.setup` and `python -m src.backup`, the migrations); single-purpose modules (`encryption.py`, `runtime.py`, `site_env.py`).
+What stays procedural on purpose: route functions; pure rules and text algorithms (`classify`, `parse`, `compare`, `noise`, `reply`, the input checks, the password rule, `due`, `next_step`); data tables (`PLATFORMS`, `SETTINGS`, `RETENTION_STATEMENTS`); one-shot flows and entry points (`install()`, backup `create` and `restore`, the release download, `cli.py`, `python -m src.setup` and `python -m src.backup`, the migrations); single-purpose modules (`encryption.py`, `runtime.py`, `site_env.py`).
 
 ### The main classes and how they work together
 
@@ -419,9 +420,11 @@ For each area: what each class is responsible for, who creates it, who calls it,
 
 | Class | Responsibility | Created by | Called by | Depends on |
 |---|---|---|---|---|
-| `RolloutEngine` | One rollout: pushes to its devices in a thread pool, verifies, classifies, logs the summary. Holds no state between runs: the cancel flag and the logger are arguments of `run()`. | `RolloutOrchestrator.submit()` (web), `cli.rollout()` (CLI) | `RolloutJob`'s thread, the CLI | `Device`, `NetmikoSession`, `RunReport`, `verify_commands()`, `classify()` |
+| `RolloutEngine` | One rollout: pushes to its devices in a thread pool (each verified in its session), logs each verdict, classifies, logs the summary. Holds no state between runs: the cancel flag and the logger are arguments of `run()`. | `RolloutOrchestrator.submit()` (web), `cli.rollout()` (CLI) | `RolloutJob`'s thread, the CLI | `Device`, `NetmikoSession`, `RunReport`, `classify()`, `transcript()` |
 | `Device` | A target: address, platform, decrypted credentials, the rolling-out user's token mappings and the attribute values they read. `commands_for()` fills the tokens; `unresolved()` says what can't be filled. | `Device.from_inventory()` through `InputParser.import_from_inventory()` (web routes: New Rollout, rollback), `InputParser.prepare_devices()` (CLI) | `RolloutEngine`, `NetmikoSession`, the routes (unresolved tokens) | `encryption.decrypt()`, an `Inventory` row (type only) |
-| `NetmikoSession` | One device's SSH conversation: `connect()` (also used by the connection tests), `push()` into config mode line by line then the platform's finish, `fetch_config()`. | `RolloutEngine`, once for the push and once for verify, per device | `RolloutEngine` | Netmiko (as `ConfigSession`), `Platform` / `Finish` from `PLATFORMS`, `RunReport`, `rejection()` |
+| `NetmikoSession` | One device's SSH conversation: `connect()` (also used by the connection tests); `push()`: with Verify the configuration read before, config mode line by line with each reply kept, the platform's finish, the configuration read after (once more when unexplained changes appear) and judged, the save checked. | `RolloutEngine`, once per device | `RolloutEngine` | Netmiko (as `ConfigSession`), `Platform` / `Finish` from `PLATFORMS`, `RunReport`, `judge()` |
+| `_Judge` (`evidence.py`, behind `judge()`) | One device's push judged: the diff of its two snapshots (the device's own churn left out), which command claimed which changed line, the section each command is in, the evidence of each review. | `judge()` | `NetmikoSession` | `parse()`, `compare()`, `contains()` / `matches()` |
+| `ResultReviews` (`results.py`) | A person's decision on a device in review: confirmed → `success`, rejected → `failed`, with who, when and the comment, once. Raises `ReviewRefused` / `LookupError`; the route audits. | the `/results/review/…` route | the route | `JobResults.may_see()` |
 | `RunReport` | What a rollout tells: forwards log lines (redacted) to its `Notifier`, and collects per endpoint what only a person can resolve. | `RolloutEngine.run()` | `NetmikoSession`, the `Finish` strategies (as `Report`) | a `Notifier` |
 | `Platform` + `Finish` (`SaveConfig`, `Commit`, `RunCommand`, `NoFinish`) | Platform knowledge with no I/O of its own: how a change takes effect (`before_leave`, `after_leave`, `in_new_session`, acting on the session they are handed), the show command, flat or indented config, shell quirks. | Module constant `PLATFORMS` | `NetmikoSession` | `ConfigSession`, `Report`, `Target` Protocols |
 | `RolloutLogger` | One rollout's log file, every line redacted; the notable lines also through its one `Echo`. Satisfies `Notifier`. | `RolloutJob` (web), `cli.rollout()`, and the CSV import / bulk-assign routes for their own reports | `RunReport`, `RolloutEngine`, `Validator`, `InputParser` | `Echo`, `redact()`, `runtime.logs_dir()` |
@@ -508,7 +511,7 @@ sequenceDiagram
     C->>R: RolloutEngine(options, devices, commands)
     C->>R: run(cancel_flag, logger)
     loop each device, in parallel
-        R->>N: push(commands), then fetch_config() with Verify
+        R->>N: push(commands, verify): snapshots before and after, judged
         N->>L: notify through RunReport (redacted)
     end
     R-->>C: one DeviceResultDict per device
@@ -573,8 +576,21 @@ classDiagram
     }
     class NetmikoSession {
         +connect(device)$
-        +push(commands) PushResult
-        +fetch_config() str
+        +push(commands, verify) PushResult
+    }
+    class Outcome {
+        <<dataclass>>
+        +commands tuple~Judgment~
+        +other_changes tuple
+        +needs_review bool
+    }
+    class Verdict {
+        <<enumeration>>
+        took effect
+        already in place
+        removed
+        navigation
+        review
     }
     class RunReport {
         +notify(text, tone, important)
@@ -598,6 +614,9 @@ classDiagram
         +finish Finish
         +show_config tuple
         +flat bool
+        +framing tuple
+        +show_saved str
+        +config(output) str
     }
     class Finish {
         <<abstract>>
@@ -648,6 +667,8 @@ classDiagram
     NetmikoSession --> RunReport
     NetmikoSession --> Platform
     NetmikoSession ..> ConfigSession : drives
+    NetmikoSession ..> Outcome : judge() before / after
+    Outcome ..> Verdict
     RunReport --> Notifier
     Platform *-- Finish
     Finish <|-- SaveConfig
@@ -1041,13 +1062,16 @@ sequenceDiagram
     D->>J: start(on_complete)
     J->>E: run(cancel_flag, logger)
     par each device, up to the parallelism setting
-        E->>N: push(commands for this device)
-        N->>N: config mode, one line at a time, refusals logged
+        E->>N: push(commands for this device, verify)
+        opt Verify on
+            N->>N: read the configuration (before)
+        end
+        N->>N: config mode, one line at a time, each reply kept
         N->>N: the platform's Finish: save, commit, command or nothing
         opt Verify on
-            E->>N: fetch_config()
-            E->>E: verify_commands, then classify
+            N->>N: read it again (after), judge() and check the save
         end
+        E->>E: classify
         N->>L: notify (log file, live log)
     end
     E-->>J: one result per device
@@ -1308,6 +1332,10 @@ erDiagram
         string status
         text action_needed
         text fetched_config
+        text config_diff
+        json transcript
+        string review_outcome
+        uuid reviewed_by FK
     }
     job_metadata {
         uuid id PK
@@ -1353,7 +1381,7 @@ erDiagram
 | `variable_mappings` | A `$$TOKEN$$` bound to a property name (and an index for list properties), and the devices it applies to (`var_mapping_to_devices`). The join table is shared across users because of global devices, so a rollout applies only the rolling-out user's mappings. |
 | `property_definition` | A user's own custom properties (name, label, icon, list or not). |
 | `device_attributes` | One user's value of one of their custom properties on one device. Unique per device, user and name; deleted with the device, the user or the property. |
-| `device_results` | One row per device per job: status (`success`, `partial`, `failed`, `cancelled`), commands sent and verified, `action_needed` (what only a person can resolve), and `fetched_config` (the running configuration Verify read, kept only when some commands didn't verify, for the Verify Diff). There is no job table: `job_id` groups the rows. |
+| `device_results` | One row per device per job: status (`success`, `review`, `partial`, `failed`, `not verified`, `cancelled`), commands sent and proven, `action_needed` (what only a person can resolve), the verification (`transcript`: each command's verdict, evidence and reply; `config_diff`; `fetched_config`, the configuration after, kept for a review) and a review's decision (`review_outcome`, `review_comment`, `reviewed_by`, `reviewed_at`). There is no job table: `job_id` groups the rows. |
 | `job_metadata` | One row per job: the commands as typed (before token substitution) and the comment. Deleted once its job's results are gone. |
 | `audit_log` | Who did what, when, from which address, with what outcome. `actor_username` and `object_label` are copied in, so a row survives the user's or the object's deletion. |
 | `ldap_servers`, `ldap_groups` | Directory servers (bind type `anonymous`, `simple` or `regular` with a service account; bind password encrypted) and the groups whose direct members are given an account on their first sign-in; a group's `role` (operator or admin) decides its members' role at every sign-in (admin if any matching active rule gives it). |
@@ -1407,10 +1435,14 @@ erDiagram
 | | `device_ip`, `device_type` | string(64) | |
 | | `device_port` | int | Server default 22 |
 | | `commands_sent` | int | |
-| | `commands_verified` | int | Commands confirmed plus those that can't be checked (navigation, operational); null when Verify didn't run or the config couldn't be fetched |
-| | `status` | string(64) | `success`, `partial`, `failed`, `cancelled` |
+| | `commands_verified` | int | Commands the configuration proved (took effect, already in place, removed); null when not judged |
+| | `status` | string(64) | `success`, `review`, `partial`, `failed`, `not verified`, `cancelled` |
 | | `action_needed` | text | Nullable |
-| | `fetched_config` | text | Nullable; cleared after *Config snapshots* (the page then says the Verify Diff expired) |
+| | `fetched_config` | text | Nullable: the configuration after the push, kept for a device in review; cleared after *Config snapshots* |
+| | `config_diff` | text | Nullable: the configuration before → after (unified); cleared after *Config snapshots* (the page then says Verification expired) |
+| | `transcript` | JSON | Nullable: `{commands: [{command, verdict, evidence, note, reply}], other_changes}`, redacted; null when not judged |
+| | `review_outcome`, `review_comment` | string(16), text | Nullable: `confirmed` / `rejected` and why |
+| | `reviewed_by`, `reviewed_at` | UUID (users, `SET NULL`), datetime | Nullable |
 | `job_metadata` | `id`, `user_id`, `job_id` | UUID | `job_id` a soft reference |
 | | `commands` | JSON | The command list before substitution |
 | | `comment` | string(255) | Nullable |
@@ -1560,42 +1592,60 @@ Everything that shows or redirects to an address uses `serving_port()` (the help
 `RolloutEngine(options, devices, commands).run(cancel_flag, logger)` runs the devices in a thread pool (`max_workers` = the *Devices in parallel per job* setting for the web app). For each device:
 
 1. **Substitute tokens.** `Device.commands_for()` replaces each `$$TOKEN$$` from the user's variable mappings and the device's attribute values; `unresolved()` lists what can't be filled (the routes refuse such a rollout before queueing it, and the push checks again).
-2. **Push.** `NetmikoSession(device, report).push(commands)` enters the CLI shell and config mode once (Junos uses `configure private`), then sends one command at a time exactly as typed (`send_config_set(…, enter_config_mode=False)`). A refused command (`rejection()`: one list of vendor error strings, the command's own echo skipped) is logged with the device's reply, and the rest are still sent. A typed `end` followed by more config commands is refused, as on the device. A prompt that changes mid-push (a new hostname) ends that session; the finish then runs from a fresh one.
+2. **Push.** `NetmikoSession(device, report).push(commands, verify)` enters the CLI shell; with Verify it reads the configuration (`show_config`, without the platform's `framing`); then config mode once (Junos uses `configure private`), and one command at a time exactly as typed (`send_config_set(…, enter_config_mode=False)`). What the device answers is told apart by shape (`reply()`: the echo, the prompt, IOS's `^`, Junos' `[edit]` left out; time-stamped lines are device events), logged with its command and kept - never judged - and the rest are still sent. A typed `end` followed by more config commands is refused, as on the device. A prompt that changes mid-push (a new hostname) ends that session; the finish then runs from a fresh one.
 3. **Finish the platform's way** (the `Finish` strategy on the platform's `PLATFORMS` row):
 
 | Finish | Platforms | What it does |
 |---|---|---|
 | `SaveConfig` | `cisco_ios`, `cisco_xe`, `cisco_nxos`, `arista_eos`, `aruba_aoscx`, `hp_procurve`, `hp_comware` | `save_config()` after leaving config mode. Aruba CX sends `end` first (Netmiko only recognises `(config)#`). |
-| `Commit` | `juniper_junos`, `paloalto_panos`, `cisco_xr` | `commit()` before leaving config mode (leaving discards uncommitted changes), up to 300 s. A failed commit is a failure; the candidate is discarded (Junos `rollback 0`; PAN-OS `revert config`, else `load config from running-config.xml`; IOS XR reverts by itself). |
-| `RunCommand("save config")` | `checkpoint_gaia` | Runs `save config` after leaving config mode. An account that lands in expert (bash) is switched to `clish` first, or the device is refused. |
+| `Commit` | `juniper_junos`, `paloalto_panos`, `cisco_xr` | `commit()` before leaving config mode (leaving discards uncommitted changes), up to 300 s. A failed commit is a failure; the discard commands are sent (Junos `rollback 0`; PAN-OS `revert config`, then `load config from running-config.xml`) and their replies shown in an ACTION NEEDED asking to check the candidate - whether one was accepted isn't judged from its words. IOS XR reverts by itself. |
+| `RunCommand("save config")` | `checkpoint_gaia` | Runs `save config` after leaving config mode, then reads the save state (`show config-state`: `saved` or not - a value, as FortiOS's cfg-save mode is). An account that lands in expert (bash) is switched to `clish` first, or the device is refused. |
 | `NoFinish` | `fortinet` | The change is live as typed. Any open config block is closed with `end`; `execute cfg save` runs when FortiOS is in manual or revert save mode. |
 
-4. **Verify** (optional, only on devices the push applied to): `fetch_config()` reads the configuration with the platform's show command, and `verify_commands(device_type, config, commands)` gives each command a verdict: verified, not configured, still configured (a removal that didn't take), or not verifiable (navigation such as `exit` or `end`, operational commands such as `write memory` or `commit`). Indented configurations (Cisco style, FortiOS) are parsed into sections, and each typed command is placed in its section from the configuration's own structure. Flat configurations (Junos `display set`, PAN-OS set format, Gaia) are matched line by line with the `edit` / `up` / `top` prefix. `no`, `undo`, `unset` and `delete` pass when the setting is gone. A configuration that can't be fetched means "couldn't verify", not "failed". The Verify Diff page uses the same function, so it can't disagree with the rollout.
+4. **Verify** (with Verify on, in the same session after the finish): the configuration is read again and `judge(commands, before, after)` (`src/rollout/evidence.py`) gives each command a verdict from the device's own configuration - see *Verification by configuration* below. When changes no command explains appear, one more snapshot is read and what differs between the last two (the device's own churn) is left out. On a platform with `show_saved`, every line the push added must be in the saved configuration, else ACTION NEEDED "live but NOT saved". A snapshot that can't be read leaves the device `not verified`.
 5. **Classify** (`classify()`):
 
 | Status | When |
 |---|---|
 | `cancelled` | The device never started (the rollout was cancelled first). |
-| `failed` | Nothing applied (no connection, a failed commit), or with Verify none of the checkable commands confirmed, or without Verify every configuring command refused. |
-| `partial` | Some commands confirmed or accepted, some not; or the device stopped answering mid-push. |
-| `success` | With Verify, every checkable command confirmed and none refused; without Verify, none refused. |
+| `failed` | Nothing applied: no connection, login or config mode refused, a failed commit (or later, a person rejected its review). |
+| `partial` | The device stopped answering mid-push: some commands sent, the rest not. |
+| `not verified` | Applied, not judged: Verify off, or a snapshot couldn't be read. |
+| `review` | Judged, and at least one command not proven either way. |
+| `success` | Judged, every command proven (or later, a person confirmed its review). |
 
-**ACTION NEEDED.** What only a person can resolve is reported per device by `RunReport.action_needed()`: Junos refusing private mode while someone has uncommitted shared edits, a refused save (for example a Gaia configuration lock), a commit still running after the timeout, PAN-OS changes left in the candidate, Gaia stuck in expert mode, a refused FortiOS `execute cfg save`, or a device whose configuration couldn't be read for Verify. Each becomes one `ACTION NEEDED - <ip:port>: …` line in the log, is counted in the rollout's summary, and is stored in `device_results.action_needed` for the Results page, the completion card and the dashboard.
+#### Verification by configuration
 
-**Redaction.** Every log line (the file, Download Log, the live log, the console) and every stored ACTION NEEDED text passes `rollout/log.redact()`: the value after a secret-bearing word (`password`, `secret`, `community`, `pre-shared-key`, `psksecret`, `key-string`, `authentication-key`, Junos `encrypted-password`, PAN-OS `phash`, Gaia `password-hash`, and others; `key`, `auth` and `priv` only with a type before the value or a quoted value) becomes `<redacted>`. The keyword and an encryption type stay. The commands as typed (`job_metadata.commands`) and config snapshots (`fetched_config`) are not redacted.
+**The principle.** The device's own output is the source of truth. NetRollout compares the device with itself - its configuration before and after the push - and states only what that comparison proves; what it doesn't prove goes to a person (`review`), with the evidence. What the device printed is kept as the reason, never used as evidence: no list of error messages decides anything, and silence proves nothing. Platform knowledge is grammar only (how a configuration is laid out, which words open or leave a block, how a removal is written, how the configuration is read, framed and saved), never what a message means or how a value is rewritten. Every vendor quirk is decided against this rule, not with another list.
 
-**Known limits of Verify**: typed abbreviations (`int gi1`), values the device rewrites (hashed secrets, normalised values such as Junos `area 0` shown as `0.0.0.0`, Comware VLAN ranges, defaults FortiOS `show` omits), settings that were already there before the rollout, multi-line banners, and compound PAN-OS `set` lines (PAN-OS prints one setting per line). A structural diff is on the [roadmap](roadmap.md).
+**How `judge()` works.** Both snapshots are parsed by the platform's grammar into lines with their sections (indented sections; FortiOS blocks; flat `set` lines; comment lines and block-closing lines left out) and compared within sections (`compare()`: added, removed, unchanged). Each typed command is placed in its section by the commands before it (a header opens one, navigation leaves it, IOS leaves a section for a command found only outside), then:
 
-**Adding a platform** is one `PLATFORMS` row in `src/rollout/platforms.py` (its `Finish`, show command, flat or indented, any shell or config-mode quirk) and a fixture in `tests/unit/rollout/test_platforms.py`. `SUPPORTED_PLATFORMS` is derived from `PLATFORMS`.
+| Verdict | Proven by |
+|---|---|
+| `took effect` | All the command's words are in a line the push added there, in order (`contains()`: the device may add words - a sequence number, quotes - and words match by `same_word()`: equal, or an abbreviation whose letters are a prefix and whose number is equal). |
+| `already in place` | An unchanged line there is exactly the command (`matches()`: no extra words - an unchanged `ip address X M secondary` is not `ip address X M`). A removal: no line there has its words, before or after. |
+| `removed` | A removal (`no`, `undo`, `unset`, `delete`) whose words are in a line the push removed. |
+| `took effect` (block) | A command that matched nothing but whose next command is in a new block the device named its own way (FortiOS `edit 0` → `edit 1`). |
+| `review` | Anything else, or one added line claimed by two different commands. Its evidence is the section's changes no command claimed, or "no change in its section". |
+
+Changes no command accounts for (a command's own line, everything under a block it opened or removed, a line a claimed one replaced) are `other_changes`. The device's churn (`noise()`: two snapshots in a row, each changed line described by its section and the words it kept - FortiOS re-encrypts every `set password ENC` on each read) is left out before judging. The verdicts, evidence and replies are stored per device (`transcript()`), so Results shows exactly what the rollout decided. The lab corpus behind the tests (`tests/unit/rollout/lab/`: IOS 12.4, NX-OS 7.3, FortiOS 7.2, real snapshots and replies) is also the evaluation set for the review assistant on the [roadmap](roadmap.md).
+
+**ACTION NEEDED.** What only a person can resolve is reported per device by `RunReport.action_needed()`: Junos refusing private mode while someone has uncommitted shared edits, a refused save (for example a Gaia configuration lock), a commit still running after the timeout, a failed commit's candidate to check, Gaia stuck in expert mode, or a change live but missing from the saved configuration. Each becomes one `ACTION NEEDED - <ip:port>: …` line in the log, is counted in the rollout's summary, and is stored in `device_results.action_needed` for the Results page, the completion card and the dashboard.
+
+**Redaction.** Every log line (the file, Download Log, the live log, the console), every stored ACTION NEEDED text and every transcript entry (command, evidence, reply) passes `rollout/log.redact()`: the value after a secret-bearing word (`password`, `secret`, `community`, `pre-shared-key`, `psksecret`, `key-string`, `authentication-key`, Junos `encrypted-password`, PAN-OS `phash`, Gaia `password-hash`, and others; `key`, `auth` and `priv` only with a type before the value or a quoted value) becomes `<redacted>`. The keyword and an encryption type stay. The commands as typed (`job_metadata.commands`) and config snapshots (`fetched_config`, `config_diff`) are not redacted.
+
+**Known limits of Verify**: values the device stores in its own form (NX-OS's `/32` for a mask, hashed secrets, Junos `area 0` shown as `0.0.0.0`, a value back to a default FortiOS `show` omits) and commands that leave nothing in the configuration (`crypto key generate`) go to review, never to a false success or failure; another person's change to the same section during the seconds between the snapshots would be attributed to the rollout; a FortiOS password the push changes is learned as churn and goes to review. The review assistant on the [roadmap](roadmap.md) is aimed at the routine reviews.
+
+**Adding a platform** is one `PLATFORMS` row in `src/rollout/platforms.py` (its `Finish`, show command, flat or indented, framing, saved-config command, any shell or config-mode quirk) and a layout fixture in `tests/unit/rollout/test_platforms.py` (`CONFIGS`, `INSERTS`: a change in its own layout is found and attributed) - better, recorded snapshots from a real device in `tests/unit/rollout/lab/`. `SUPPORTED_PLATFORMS` is derived from `PLATFORMS`.
 
 **The engine's data types** (`src/rollout/engine.py`, runtime only, no database coupling):
 
 | Type | Fields |
 |---|---|
-| `RolloutOptions` | `verify` (run Verify after the push), `verbose` (show every message), `webapp` (log for the page as HTML, not a console), `max_workers` (devices at the same time, default 10) |
+| `RolloutOptions` | `verify` (judge each push by the configuration before and after), `verbose` (show every message), `webapp` (log for the page as HTML, not a console), `max_workers` (devices at the same time, default 10) |
 | `Device` | `ip` (an IP or a hostname, as saved), `dns_suffix` and `host` (what's connected to: a bare name with the suffix), `label`, `username`, `password` and `secret` (decrypted, hidden from `repr`), `device_type`, `port`, `var_map_subs` (`$$TOKEN$$` to the property name and list index, the rolling-out user's mappings only), `extra` (the attribute values that user sees); `endpoint` is `ip:port`, which identifies a target (several devices can share an IP behind NAT) |
-| `DeviceResultDict` | `device_ip`, `device_port`, `device_type`, `commands_sent`, `commands_verified`, `fetched_config`, `status`, `action_needed`: a `device_results` row's fields |
-| `PushResult`, `VerifyResult` | How the push went (applied, commands sent, refusals, interrupted) and how Verify went (verified, checkable, the config kept when something didn't verify); `classify()` reads both |
+| `DeviceResultDict` | `device_ip`, `device_port`, `device_type`, `commands_sent`, `commands_verified`, `fetched_config`, `config_diff`, `transcript`, `status`, `action_needed`: a `device_results` row's fields |
+| `PushResult` | How the push went: applied, interrupted (and how many were sent), each command's reply, the `Outcome` (None: not verified), the diff and the configuration after; `classify()` reads it |
 
 ### 10.2 Jobs and orchestration
 
@@ -1676,7 +1726,7 @@ The nightly clean-up runs in the app (`src/db/retention.py`, `NightlyCleanUp`, a
 |---|---|---|
 | `device_result_retention` | Delete old `device_results` rows | Job records (30 days) |
 | `job_metadata_retention` | Delete `job_metadata` rows whose job has no results left | Job records (30 days) |
-| `device_result_config_retention` | Set `fetched_config` to NULL, keep the row | Config snapshots (7 days) |
+| `device_result_config_retention` | Set `fetched_config` and `config_diff` to NULL, keep the row (and its transcript) | Config snapshots (7 days) |
 | `audit_log_retention` | Delete old `audit_log` rows | Audit log (90 days) |
 
 The last outcome is in `config/retention-status.json`, shown on System Settings. Log files are pruned separately by `LogPruner` (daily, the *Log files* setting, default 60 days); the CLI prunes once per run.
@@ -1803,7 +1853,7 @@ How to run the tests is in [CONTRIBUTING.md](../CONTRIBUTING.md). The strategy:
 
 | Level | Where | What it proves | Needs |
 |---|---|---|---|
-| Unit | `tests/unit/`, mirroring `src/` | Rules and algorithms in isolation: the platforms' verify and rejection fixtures, `classify`, the input checks, redaction, the settings registry, the setup core's decisions, the release contract, the CLI's import isolation. | Nothing: hermetic. |
+| Unit | `tests/unit/`, mirroring `src/` | Rules and algorithms in isolation: the judge on the lab corpus and on every platform's layout, each vendor's error replies, `classify`, the input checks, redaction, the settings registry, the setup core's decisions, the release contract, the CLI's import isolation. | Nothing: hermetic. |
 | Integration | `tests/integration/`, by page or subsystem | Routes, services and the database together, on a real PostgreSQL (a scratch `rollout_test` database) and Redis (a separate db number): every page, the route matrix (sign-in and admin rules on every route), maintenance mode over the whole URL map, real database moves on scratch databases, backups and restores, the Redis switch. LDAP tests start a throwaway OpenLDAP container. | PostgreSQL and Redis; tests are skipped with a reason when a service is down. |
 | End to end | `tests/e2e/` | An install the way it reaches people: a scratch folder from `SHIPPED`, the setup core's `init` and `prepare-start` as the Linux script runs them, the images by tag, `docker compose up --wait` with monitoring under the project `nre2e` (ports 18443 and 18080). Checked from outside with the standard library: health, TLS names, redirects, the unbuffered stream, the database logins' rights, the first sign-in's password gate, Grafana's admins-only access, nginx applying or refusing a changed `site.env` without a restart, the image's contents. | Docker; opt-in with `NETROLLOUT_E2E=1`. |
 

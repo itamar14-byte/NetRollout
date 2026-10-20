@@ -60,7 +60,7 @@ python -m src.cli  [-d DEVICES] [-c COMMANDS] [-vf] [-v] [--version] [-h]
 |---|---|
 | `-d`, `--devices` *path* | The devices CSV. If you leave it out, the CLI asks for it. |
 | `-c`, `--commands` *path* | The commands file (`.txt`). If you leave it out, the CLI asks for it. |
-| `-vf`, `--verify` | Verify after the push: read each device's configuration back and check every command. Off unless you give it, or answer yes when asked. |
+| `-vf`, `--verify` | Verify: read each device's configuration before and after the push and judge every command by what changed. Off unless you give it, or answer yes when asked. |
 | `-v`, `--verbose` | Print the log to the console as well. The log file is always written either way. |
 | `--version` | Print the version (`NetRollout CLI <version>`) and exit. |
 | `-h`, `--help` | Print the help and exit. |
@@ -153,18 +153,24 @@ A `$$` that isn't part of a variable, such as `banner motd $$ maintenance $$`, i
 ## What happens during a run
 
 1. **Read and check.** The CLI reads the commands file first and stops if it uses [variables](#variables). It then reads the CSV and checks every row (see above). It also probes each device's SSH port with a TCP connection: up to 3 attempts, 5 seconds each, a second apart. Unreachable devices are dropped before anything is pushed and reported as `<ip:port> is not reachable`. If no devices or no commands are left, the run stops with `Aborting - no devices or commands to process.` and exit code 2.
-2. **Push.** Up to 10 devices are configured at the same time. On each one, NetRollout enters configuration mode, sends every command, reports any command the device refuses (and still sends the rest), then saves or commits.
-3. **Verify** (with `-vf`). NetRollout reads the configuration of each device the push applied to. It looks for every command in the section where it was typed. A command must be present, and a removal (`no`, `undo`, `delete`, `unset`) must be gone. Navigation and operational commands, such as `exit`, are counted as not verifiable. Verify can mark a command as not configured when it is in fact there, for example a typed abbreviation (`int gi1`), a hashed secret, or a value the device normalises. It can also mark a command as verified because it was already there before the rollout.
+2. **Push.** Up to 10 devices are configured at the same time. On each one, NetRollout enters configuration mode and sends every command, whatever the device answers; each answer is logged with its command. Then it saves or commits.
+3. **Verify** (with `-vf`). NetRollout reads each device's configuration before the push and again after it, in the same session, and judges every command by what changed: **took effect** (its words are in a line the push added), **already in place** (exactly that line was there, unchanged), **removed** (a `no` / `undo` / `delete` / `unset` whose line the push removed), or **review** when the configuration doesn't prove it either way - a value the device stored in its own form, or no change at all (a refused command, a typo). What the device replied is shown next to the verdict, never used to judge it. The [user guide](user-guide.md#verify) has the rules.
 4. **Summary.** Each device gets a status:
 
    | Status | Meaning |
    |---|---|
-   | `success` | Every command was accepted. With Verify, every checkable command was also confirmed in the config. |
-   | `partial` | Some commands were refused or not confirmed. Also used when the device stopped answering partway through. |
-   | `failed` | Nothing took effect: no connection, a failed commit, or every configuring command refused. With Verify, none were confirmed. |
+   | `success` | Verify on: the configuration proved every command. |
+   | `review` | Verify on: the configuration didn't prove every command. The console shows each one in review, with the line it rests on and the device's reply - check them on the device. |
+   | `partial` | The device stopped answering partway through. |
+   | `failed` | Nothing took effect: no connection, login or configuration mode refused, a failed commit. |
+   | `not verified` | The commands were sent and nothing judged them: no `-vf`, or the configuration couldn't be read. |
    | `cancelled` | The device was never started because the run was cancelled with Ctrl+C. |
 
-   The last lines are, for example, `Configuration rollout complete: 10 success, 1 partial, 1 failed (of 12 devices)`, followed by the path of the log file.
+   The last lines are, for example, `Configuration rollout complete: 10 success, 1 review (of 11 devices)`, then `REVIEW on 1 device (10.0.0.7:22) - NetRollout couldn't prove every command there: check the lines marked review, then decide them on the devices`, and the path of the log file. A command in review is printed even without `-v`, for example:
+
+   ```text
+   10.0.0.7:22: 'ntp server 192.0.2.123' review - no change in its section; the device replied: % Initialization of NTP failed with status 4.
+   ```
 
 **ACTION NEEDED.** Some problems need a person on the device, for example a change that is live but not saved, a commit that timed out, or a shared candidate configuration someone else left uncommitted. These are logged as `ACTION NEEDED - <ip:port>: <what to do>` and counted in the summary (`ACTION NEEDED on 2 devices (...) - see the lines marked ACTION NEEDED`). Search the log for `ACTION NEEDED`.
 
@@ -174,12 +180,12 @@ A `$$` that isn't part of a variable, such as `banner motd $$ maintenance $$`, i
 
 | Code | Name | Meaning |
 |---|---|---|
-| `0` | OK | Every device succeeded. |
-| `1` | Mixed | At least one device succeeded or was partial, and at least one wasn't a success. |
-| `2` | Nothing applied | No device succeeded or was partial. Also used when the run stopped before the push: a missing file, commands that use variables, no valid devices or commands left, a "no" at the confirmation, or the input ending at a question. |
+| `0` | OK | Every device succeeded. Without `-vf`: every device was sent the commands (not verified). |
+| `1` | Mixed | Some device in review, partial, failed or cancelled - or not verified although `-vf` asked for it - next to others that took the change. |
+| `2` | Nothing applied | No device took the change (every one failed or was cancelled). Also used when the run stopped before the push: a missing file, commands that use variables, no valid devices or commands left, a "no" at the confirmation, or the input ending at a question. |
 | `130` | Interrupted | Ctrl+C. |
 
-In a script, treat anything other than `0` as needing a look at the log.
+In a script, treat anything other than `0` as needing a look at the log. Pass `-vf` in scripts: without it, `0` means the commands were sent, not that they took effect.
 
 ## Logs
 

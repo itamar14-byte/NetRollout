@@ -53,9 +53,9 @@ NetRollout keeps what it needs to run rollouts and to show what happened, and de
 | Device credentials (username in clear; password and enable secret encrypted) | PostgreSQL `security_profiles` | To log in to devices | Until deleted |
 | Accounts (username, email, full name, role, password hash, encrypted TOTP secret) | PostgreSQL `users` | Sign-in and permissions | Until deleted |
 | LDAP server settings (bind password encrypted) and group mappings | PostgreSQL `ldap_servers`, `ldap_groups` | Directory sign-in | Until deleted |
-| Per-device results (status, counts, what needs action) | PostgreSQL `device_results` | Results page, analytics, rollback | 30 days by default (*Job records*) |
+| Per-device results (status, counts, what needs action, a review's decision), and each verified command's verdict with its evidence and the device's reply (`transcript`, redacted) | PostgreSQL `device_results` | Results page, analytics, rollback, review | 30 days by default (*Job records*) |
 | The commands as typed and a comment, per job | PostgreSQL `job_metadata` | Results, rollback | With the job's results |
-| Running-configuration snapshots, only for devices where some commands didn't verify | PostgreSQL `device_results.fetched_config` | Verify Diff | 7 days by default (*Config snapshots*) |
+| Running-configuration snapshots: each verified device's before → after diff, and the configuration after for a device in review | PostgreSQL `device_results.config_diff`, `fetched_config` | Results → Verification | 7 days by default (*Config snapshots*) |
 | Audit log | PostgreSQL `audit_log` | Accountability | 90 days by default (minimum 7) |
 | Rollout log files (redacted) | `logs/` | Troubleshooting, Download Log | 60 days by default (*Log files*) |
 | Sessions, job queue, live job state, live logs, reachability cache | Redis | Short-lived state | Cleared at every app start |
@@ -209,12 +209,12 @@ The optional monitoring profile adds Grafana, served by nginx at `/grafana/` to 
 
 ## Logs and redaction
 
-Rollout logs are designed to be shareable, for example attached to a bug report. Every log line (the log file, Download Log, the live log in the browser, the CLI's console) and every stored ACTION NEEDED text passes `redact()` (`src/rollout/log.py`): the value after a secret-bearing keyword becomes `<redacted>`. The keywords cover the supported platforms' syntaxes, among them `password`, `secret`, `community`, `pre-shared-key`, `psksecret`, `key-string`, `authentication-key`, `encrypted-password`, `phash` and `password-hash` (and `key`, `auth`, `priv` when followed by an encryption type or a quoted value). The keyword and the encryption type stay, which helps debugging.
+Rollout logs are designed to be shareable, for example attached to a bug report. Every log line (the log file, Download Log, the live log in the browser, the CLI's console) and every stored ACTION NEEDED text and verification transcript (each command as sent, the device lines it rests on, the device's reply) passes `redact()` (`src/rollout/log.py`): the value after a secret-bearing keyword becomes `<redacted>`. The keywords cover the supported platforms' syntaxes, among them `password`, `secret`, `community`, `pre-shared-key`, `psksecret`, `key-string`, `authentication-key`, `encrypted-password`, `phash` and `password-hash` (and `key`, `auth`, `priv` when followed by an encryption type or a quoted value). The keyword and the encryption type stay, which helps debugging.
 
 **Not redacted**, by design:
 
 - **The commands as typed** (`job_metadata.commands`): shown on the Results page to the job's owner and admins, and needed for a rollback. If a command contains a secret, that job's record contains it.
-- **Configuration snapshots** (`device_results.fetched_config`): the device's own running configuration, kept for Verify Diff only for devices where some commands didn't verify, and cleared after the *Config snapshots* period (default 7 days). Devices usually show secrets hashed or encrypted, but this depends on the platform and its configuration.
+- **Configuration snapshots** (`device_results.config_diff`, `fetched_config`): the device's own configuration - for every verified device the diff before → after, and for a device in review the configuration after - shown in Results → Verification and cleared after the *Config snapshots* period (default 7 days). Devices usually show secrets hashed or encrypted, but this depends on the platform and its configuration.
 
 NetRollout never writes stored device credentials to its logs.
 

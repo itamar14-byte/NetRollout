@@ -5,19 +5,15 @@ This page lists what may come after NetRollout 1.0.0, for users deciding whether
 > [!NOTE]
 > These are intentions, not promises. NetRollout has one maintainer; the order and the contents can change, and items can be dropped. Every 1.x release is a minor or patch release of 1.x (*Anycast*): no breaking changes. See [CONTRIBUTING.md](../CONTRIBUTING.md#versioning) for how versions are numbered.
 
-## 1.1: Deep Diff
+## 1.1: a review assistant
 
-Today, Verify reads each device's configuration after the push and checks every command against it, section by section. That is fast (one connection per device) and catches most problems, but it can't tell two things apart:
+Since 1.0.0, Verify judges each device by its own configuration before and after the push, and anything the configuration doesn't prove goes to a person as **review** (see [Verify](user-guide.md#verify)). Most reviews are routine: a device stored a value in its own form (`255.255.255.255` written as `/32`, a secret hashed), and the evidence shows it at a glance. The assistant takes those off your hands, without making the result less predictable:
 
-- A line that was already in the configuration before the rollout still counts as verified.
-- Typed abbreviations (`int gi0/1`) and values the device rewrites (hashed secrets, reformatting, hidden defaults) can show as not configured.
-
-Deep Diff compares the configuration **before and after** the push instead:
-
-- A **Deep Diff** option on New Rollout, next to Verify (available only when Verify is on). It fetches the configuration before the push and again after it, so it takes longer.
-- Results store both configurations and show a full before/after diff. Without Deep Diff, the current commands-versus-configuration view stays.
-- The comparison is hierarchy-aware, using [hier_config](https://github.com/netdevops/hier_config), with [netutils](https://github.com/networktocode/netutils) normalising names such as interface abbreviations. Junos can use its own commit diff (`show | compare rollback 1`).
-- The pass/fail result stays: a command that appears in the diff came from this push.
+- **Only for reviews.** It never touches a verdict the configuration proved.
+- **A small model on the server.** It sees the platform, the command, the section's before and after, and what the device replied; nothing leaves the server. It runs in its own container, optional, like monitoring.
+- **Cited evidence, checked.** It suggests confirm or reject and names the exact device lines it rests on. NetRollout checks those lines exist in the configuration and the replies; a suggestion that cites something else, or that isn't sure, stays a plain review.
+- **Labelled and overridable.** A suggestion says it came from the model, and a person can still decide otherwise. Whether suggestions are applied by themselves or wait for a click is the administrator's choice.
+- **Measured first.** It ships with a test set of real before/after cases from the supported platforms, and its accuracy on them is published with each version of the model.
 
 ## Notifications and ChatOps (a 1.x minor release)
 
@@ -38,7 +34,7 @@ In no particular order.
 **Rollouts and results**
 
 - **"Explain this failure"** (optional): a small local AI model on the server that, on request, suggests what went wrong on a failed device. Advisory only: it never decides pass or fail, and nothing leaves the server.
-- **Config drift detection**: an alert when a device's configuration changed outside NetRollout, with the difference (building on Deep Diff).
+- **Config drift detection**: an alert when a device's configuration changed outside NetRollout, with the difference (building on Verify's before/after comparison).
 
 **Inventory**
 

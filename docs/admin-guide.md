@@ -618,7 +618,7 @@ The LDAP explorer's import can do the same for a whole directory move: tick **Re
 | Card | Setting | Default | Range | What it does | Takes effect |
 |---|---|---|---|---|---|
 | Retention | **Job records** | 30 days | 1 – 3650 | How long a rollout's results and commands are kept (Results, Download Log). | Next nightly clean-up |
-| Retention | **Config snapshots** | 7 days | 1 – 3650 | How long the configurations fetched by Verify are kept (Verify Diff). | Next nightly clean-up |
+| Retention | **Config snapshots** | 7 days | 1 – 3650 | How long the configurations Verify read are kept: each verified device's diff, and the configuration after for a device in review (Results → Verification). The verdicts themselves stay with the job record. | Next nightly clean-up |
 | Retention | **Audit log** | 90 days | 7 – 3650 | How long audit log entries are kept. | Next nightly clean-up |
 | Retention | **Log files** | 60 days | 1 – 3650 | How long files in `logs/` are kept. | Next daily log clean-up |
 | Rollouts | **Concurrent rollout jobs** | 4 | 1 – 32 | How many rollouts run at the same time; more wait in the queue. | After restart |
@@ -739,7 +739,7 @@ The **nightly clean-up** runs inside NetRollout at 03:00 server time, on whichev
 | Data | Kept for (default) | Setting |
 |---|---|---|
 | Job records (results, metadata) | 30 days | **Job records** |
-| Configuration snapshots from Verify | 7 days | **Config snapshots** |
+| Configuration snapshots from Verify (the before → after diff; the configuration after, for a device in review) | 7 days | **Config snapshots** |
 | Audit log entries | 90 days | **Audit log** |
 
 A clean-up missed while the server was off runs once when it's back; a failed one is retried after an hour. The Retention card in System Settings shows the last clean-up and what it removed.
@@ -790,5 +790,7 @@ Start with `netrollout status` (or the Manager's **Status**, or `sudo ./bin/netr
 For problems at install, NetRollout that can't be found, busy ports, and a `netrollout` command that isn't recognised, see [Troubleshooting](install.md#troubleshooting) in the installation guide.
 
 **Older devices and SSH.** NetRollout reaches devices whose SSH offers only an `ssh-rsa` host key or the SHA-1 key exchanges (IOS 12 and 15, NX-OS 7, older ASA and FortiOS): it uses the modern algorithms when a device has them and these only when it has nothing else. Why it accepts them is in [Known limitations](security.md#known-limitations). A device that can't be reached with `Incompatible ssh peer` or `no acceptable host key` offers none of these either; check its SSH settings.
+
+**Devices in review.** A device whose result the configuration doesn't prove waits in `review` for its rollout's owner or an administrator (Results → Verification). Reviews that keep coming from the same platform and command usually mean the device writes the value in its own form (a mask as a prefix, a hashed secret): typing it the way the device stores it makes those rollouts prove themselves. Each decision is in the audit log (`rollout.review_confirmed` / `rollout.review_rejected`).
 
 To report a bug, open an issue at [github.com/itamar14-byte/NetRollout/issues](https://github.com/itamar14-byte/NetRollout/issues). Include the output of `netrollout status` and the relevant log lines; rollout logs are already redacted.

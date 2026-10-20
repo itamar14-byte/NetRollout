@@ -40,7 +40,7 @@ flowchart LR
 3. **A property** is a kind of per-device value, such as `hostname` or `loopback_ip`. Its value on one device is an **attribute** of that device.
 4. **A variable mapping** binds a token, such as `$$LOOPBACK$$`, to a property, and is assigned to the devices it applies to.
 5. **A rollout** sends your commands to the devices you tick. On each device, every `$$TOKEN$$` is replaced by that device's value, through your mapping. If a token can't be filled in on a device, the rollout won't start until you fix it.
-6. **Results** keep each device's outcome, the log, what Verify found, and a way to roll back.
+6. **Results** keep each device's outcome, the log, each command's verdict with its evidence, and a way to roll back.
 
 Commands without tokens need only devices and security profiles. Properties and mappings matter only when the same commands must carry different values per device.
 
@@ -319,7 +319,7 @@ Open **Launch Rollout**.
 2. **Commands.** Give the commands for the devices you ticked, one per line, as you would type them in configuration mode. Choose **Paste** to type them, or **File** to load a `.txt` file. Don't add `configure terminal`, `write memory` or `commit`: NetRollout enters configuration mode and saves or commits the way each platform needs. If you tick devices of more than one platform, you see **Multiple platforms selected**, and you give one command set per platform.
 3. **Rollout Note** (optional): up to 255 characters, such as a change or ticket number. It's shown in Results.
 4. **Options:**
-   - **Verify after push** (on by default): after the push, NetRollout reads each device's configuration and checks every command. See [Verify](#verify).
+   - **Verify after push** (on by default): NetRollout reads each device's configuration before and after the push and judges every command by what changed. See [Verify](#verify).
    - **Verbose logging**: more detail in the job's log.
 5. Select **Launch Rollout**.
 
@@ -327,10 +327,10 @@ Open **Launch Rollout**.
 
 ### What happens on each device
 
-1. NetRollout connects over SSH and enters configuration mode.
-2. It sends the commands in order. If the device refuses a command, the reply is logged and the remaining commands are still sent.
+1. NetRollout connects over SSH. With Verify on, it reads the device's configuration first.
+2. It enters configuration mode and sends the commands in order. Whatever the device answers, the remaining commands are still sent, and each answer is kept with its command.
 3. It finishes the change the way the platform needs: it saves the configuration, commits, or does nothing on platforms where changes are live. See [Supported platforms](#supported-platforms).
-4. With Verify on, it reads the configuration back and checks each command.
+4. With Verify on, it reads the configuration again, in the same session, and judges each command by what changed.
 
 A rollout configures several devices in parallel: 10 at a time unless your administrator changed it.
 
@@ -340,31 +340,28 @@ NetRollout runs a limited number of rollouts at once: 4 unless your administrato
 
 ### Verify
 
-With **Verify after push**, NetRollout checks the change on each device after the push has finished (and been saved or committed):
+With **Verify after push**, NetRollout judges each device by its own configuration, not by what the device printed. It reads the configuration before the push and again after it (saved or committed), compares the two, and gives each command a verdict:
 
-1. It reads the device's configuration back over SSH, with the platform's own command (for example `show configuration | display set` on JunOS).
-2. It places each command you typed in its section. A command typed under `interface GigabitEthernet0/1` is looked for under that interface, not anywhere in the file.
-3. It checks each command:
-   - A configuration command must be present.
-   - A removal (`no`, `undo`, `delete`, `unset`) must be gone.
-   - Navigation and operational commands, such as `exit`, `write memory` and `commit`, are marked not verifiable and don't count against the device.
+| Verdict | When |
+|---|---|
+| **took effect** | The command's words are in a line the push added, in order. The device may add words of its own (a sequence number, quotes) and may abbreviate differently: `int lo98` matches `interface Loopback98`. |
+| **already in place** | The configuration already had exactly that line, unchanged. Running the same rollout twice gives this. |
+| **removed** | A removal (`no`, `undo`, `delete`, `unset`) whose words are in a line the push removed. A removal of something that was never there is **already in place** ("already absent"). |
+| **review** | The configuration doesn't prove it either way: the device stored the value in its own form (NX-OS writes `ip address 10.0.0.1 255.255.255.255` as `ip address 10.0.0.1/32`, secrets are stored hashed), nothing changed (a refused command, a typo, a value back to its default, a command that leaves nothing in the configuration such as `crypto key generate`), or one changed line could belong to two of your commands. A person decides: see [Reviewing a device](#reviewing-a-device). |
 
-Each device is checked against its own commands, with its tokens filled in. Only devices the push applied to are verified. If you cancel the rollout, nothing is verified. If a device's configuration can't be read, its status comes from the push alone, and it's marked **ACTION NEEDED**: the change was applied but not verified, so check it on the device.
+Commands that only move between sections (`exit`, `end`, `next`) aren't judged. A command that opens a section the device names its own way (FortiOS `edit 0` becomes `edit 1`) is matched by the section it opened.
 
-How the result shows:
+What the device replied to each command is kept and shown next to its verdict, as the reason, but it never decides the verdict: an error message can't make a command fail, and a quiet device can't make it succeed. Changes no command explains (another person, or the device itself) are listed apart, as **changed, not by these commands**. Some devices change their own configuration on every read (FortiOS encrypts every stored password anew each time): when changes like that appear, NetRollout reads the configuration once more and leaves out what changed by itself.
 
-- The device's **Verified** count in Results is the number of commands confirmed (commands that can't be checked are counted as accounted for).
-- Every checkable command confirmed, and none refused: `success`.
-- None confirmed: `failed`.
-- Some confirmed: `partial`.
-- Where something didn't verify, NetRollout keeps the configuration it read, and **Verify Diff** in Results shows it with the verdict for each command. The rollout log lists each command not found too.
+Each device is judged against its own commands, with its tokens filled in. On platforms that save, NetRollout also checks that the lines the push added are in the saved configuration; if not, the device gets an **ACTION NEEDED**: the change is live but not saved.
 
-Without Verify, the status comes only from what the device said while the commands were sent: no refusals is `success`, every configuring command refused is `failed`, anything between is `partial`.
+How a device's result shows:
 
-Verify compares text, so it can be wrong in two ways:
+- Every command proven (took effect, already in place, or removed): `success`.
+- At least one command in review: `review`.
+- The device's **Verified** count in Results is the number of commands the configuration proved.
 
-- It can report a command as **not configured** although it is. This happens with typed abbreviations (`int gi1`), values the device rewrites (hashed secrets, normalised values) and defaults the device doesn't show.
-- It can report a command as **verified** because it was already there before the rollout.
+Without Verify, or when the configuration can't be read, the device is `not verified`: the commands were sent, and nothing judged them. The device's replies are still in the log.
 
 ### Cancelling
 
@@ -381,11 +378,11 @@ When you select **Launch Rollout**, NetRollout takes you to **Active Jobs**, wit
 
 For each job:
 
-- **Log** opens the live log under the job's row. It streams the job's log lines as they happen: each device connecting, each command refused, the save or commit, Verify's findings, any **ACTION NEEDED** line and the final summary. Opening it later shows the lines so far first. A queued job's log starts with "Queued - waiting for a free slot" and waits for it to start.
+- **Log** opens the live log under the job's row. It streams the job's log lines as they happen: each device connecting, what each device replied to a command, the save or commit, each command's verdict, any **ACTION NEEDED** line and the final summary. Opening it later shows the lines so far first. A queued job's log starts with "Queued - waiting for a free slot" and waits for it to start.
 - **Cancel** cancels it (see [Cancelling](#cancelling)).
 - **Rollback** is greyed while the rollout runs.
 
-When the rollout ends with its log open, a card shows the outcome: the job's status, the count per status, any **Action needed** devices with what to do, **Rollback** (when at least one device succeeded) and **View in Results**.
+When the rollout ends with its log open, a card shows the outcome: the job's status, the count per status, any **Action needed** devices with what to do, **Review N devices** when some are in review, **Rollback** (when at least one device succeeded) and **View in Results**.
 
 The **dashboard** also shows your running or queued rollout, with its elapsed time, **Cancel** and **▶ Watch live**, which opens Active Jobs with that rollout's live log already open.
 
@@ -395,7 +392,7 @@ The live log is a convenience. If it drops ("Stream ended."), the job carries on
 
 Every rollout writes a log file on the server, whether or not you watch it live.
 
-- **Download Log**, on the job in Results, downloads it. It's the same text as the live log: every device's connection, the commands refused and the device's replies, the save or commit, Verify's verdict on each command that didn't verify, the **ACTION NEEDED** lines and the summary. **Verbose logging** adds more detail.
+- **Download Log**, on the job in Results, downloads it. It's the same text as the live log: every device's connection, what each device replied, the save or commit, each command's verdict with the line it rests on, the **ACTION NEEDED** and **REVIEW** lines and the summary. **Verbose logging** adds more detail.
 - Secrets are redacted. The value after words such as `password`, `secret`, `community`, `key-string` or `psksecret` is written as `<redacted>`, in the file and in the live log, so a log is safe to attach to a ticket.
 - You can download the logs of your own jobs; administrators can download any job's.
 - Log files are kept 60 days by default. Administrators find them in the server's `logs` folder; see [Logs](admin-guide.md#logs) in the admin guide.
@@ -410,9 +407,9 @@ Each row shows the job, its note, when it started, how long it took, the number 
 
 The filters above the list cover every job, not only the page shown. **Note** and **Device name or IP** match any part as you type, and keep the whole job (all its devices). Pick a status, and a **From** / **To** day the job started on (both included). In **All Users**, administrators can also pick one user. **Clear filters** shows everything again, and Escape empties the box you're in.
 
-**Export CSV** downloads every job the filters let through, one row per device: the job, its note, owner and status, when the device started and finished, the device's name, IP, port and platform, its status, the commands sent and verified, and any ACTION NEEDED. It holds your own jobs, or everyone's in an administrator's **All Users** view. The commands typed and config snapshots aren't in it. Each export is recorded in the audit log.
+**Export CSV** downloads every job the filters let through, one row per device: the job, its note, owner and status, when the device started and finished, the device's name, IP, port and platform, its status, the commands sent and verified, any ACTION NEEDED, and the review decision (outcome, by whom, when, the comment). It holds your own jobs, or everyone's in an administrator's **All Users** view. The commands typed and config snapshots aren't in it. Each export is recorded in the audit log.
 
-Open a job to see each device: IP and port, platform, commands **Sent**, commands **Verified** and the device's **Status**.
+Open a job to see each device: IP and port, platform, commands **Sent**, commands **Verified** and the device's **Status**. A job with devices still to decide shows **N to review** next to its status, and the dashboard says how many of your devices wait for a review.
 
 ### Statuses
 
@@ -420,9 +417,11 @@ Each device gets one of these:
 
 | Status | Meaning |
 |---|---|
-| `success` | Every command was accepted. With Verify, every checkable command was also confirmed in the configuration. |
-| `partial` | Some commands were refused or not confirmed, or the device stopped answering partway through. Some of the change took effect. |
-| `failed` | Nothing took effect: no connection, a failed commit, or every configuring command refused. With Verify, none were confirmed. |
+| `success` | The configuration proved every command (Verify on), or a person confirmed a device in review. |
+| `review` | The configuration didn't prove every command: a person decides. See [Reviewing a device](#reviewing-a-device). |
+| `partial` | The device stopped answering partway through: some commands were sent, the rest weren't. |
+| `failed` | Nothing took effect: no connection, login or configuration mode refused, a failed commit - or a person rejected a device in review. |
+| `not verified` | The commands were sent, but nothing judged them: Verify was off, or the configuration couldn't be read (the log says why). |
 | `cancelled` | The rollout was cancelled before this device was started. |
 
 A job's status comes from its devices:
@@ -430,7 +429,19 @@ A job's status comes from its devices:
 - `cancelled` if any device was cancelled
 - otherwise `failed` if every device failed
 - otherwise `partial` if any device failed or was partial
+- otherwise `review` if any device is in review
+- otherwise `not verified` if any device is
 - otherwise `success`
+
+### Reviewing a device
+
+A device in `review` waits for a person: NetRollout couldn't prove every command, and won't guess. The job's owner or any administrator decides it:
+
+1. Open the job in Results and select the device's **review** status, or **Verification**.
+2. The **Verification** window shows each command with its verdict, the line it rests on (or "no change in its section"), and what the device replied. For example: `ip address 10.0.0.1 255.255.255.255` in review, with `+ ip address 10.0.0.1/32` - the device wrote your mask as a prefix. Or `ntp server 192.0.2.123` in review, no change, the device replied `% Initialization of NTP failed`.
+3. Select **Confirm - it took effect** or **Reject - it didn't**, with a comment if you like.
+
+Confirmed makes the device a `success` (so a rollback includes it), rejected makes it `failed`. The decision is kept with the result - who, when and the comment - shown in Results and in the export, and recorded in the audit log. A device is decided once.
 
 ### ACTION NEEDED
 
@@ -438,7 +449,7 @@ Some problems can only be fixed by a person on the device. NetRollout marks thes
 
 - The change is live but **not saved**: save it on the device, or it's lost at the next reboot.
 - A commit didn't finish in time: check on the device whether it went through.
-- A failed change may still be in the **candidate configuration**: discard it on the device.
+- A commit failed: NetRollout sent the platform's discard command and shows what the device answered. Check that the **candidate configuration** is empty.
 - Configuration mode was refused, usually because another session has uncommitted changes in the shared configuration: commit or discard them, then run the rollout again.
 - The device stopped answering partway through: the log says which commands it received.
 - The account logs in to the wrong shell (for example Check Point's expert shell) and nothing was sent.
@@ -447,7 +458,7 @@ Some problems can only be fixed by a person on the device. NetRollout marks thes
 
 - **See Commands**: the commands as you typed them, before token substitution.
 - **Download Log**: the job's full log as a file. Secrets are redacted: the value after words such as `password`, `secret`, `community` or `psksecret` is written as `<redacted>`, so the log is safe to share. The commands you typed and configuration snapshots are not redacted.
-- **Verify Diff**: for devices where something didn't verify, the device's configuration as NetRollout read it, with the verdict for each command. Commands with tokens are shown as typed; the log has their verdict per device. Snapshots are kept for 7 days unless your administrator changed it. After that the button shows **Verify Diff expired**.
+- **Verification**: per verified device, each command as sent (tokens filled in) with its verdict, the line it rests on and the device's reply; the changes no command explains; and the configuration before and after. Devices in review are decided here (see [Reviewing a device](#reviewing-a-device)). The configuration snapshots are kept for 7 days unless your administrator changed it; after that the button shows **Verification expired**.
 - **Rollback**: see [Rolling back](#rolling-back).
 - **Compare**: tick two jobs, then select **Diff** to see their commands side by side.
 
@@ -457,14 +468,14 @@ Job records are kept for 30 days unless your administrator changed it.
 
 NetRollout doesn't guess how to undo a change, and it doesn't restore a saved configuration. A rollback is a new rollout of **compensatory commands that you write**, sent to the devices the original job configured **successfully**.
 
-1. Select **Rollback** on the job in Results, or on the completion card in Active Jobs. It's offered only when at least one device ended `success`.
+1. Select **Rollback** on the job in Results, or on the completion card in Active Jobs. It's offered only when at least one device ended `success` (a confirmed review counts).
 2. Enter the compensatory commands, one per line. For a job that added `ntp server 192.0.2.123`, that's `no ntp server 192.0.2.123`. You can use tokens.
 3. Choose **Verify after push** and **Verbose**, as for any rollout.
 4. Select **Execute Rollback**.
 
 What it does exactly:
 
-- **Which devices**: those that ended `success` in the original job, matched by `ip:port` among the devices the job's owner can see today (their own entry preferred over a global one with the same address). Devices that ended `partial`, `failed` or `cancelled` are left out: check and fix them by hand, or with a new rollout. A device deleted since the job is left out.
+- **Which devices**: those that ended `success` in the original job (including reviews a person confirmed), matched by `ip:port` among the devices the job's owner can see today (their own entry preferred over a global one with the same address). Devices that ended `review`, `partial`, `failed`, `not verified` or `cancelled` are left out: check and fix them by hand, or with a new rollout. A device deleted since the job is left out.
 - **Which commands**: the same commands to every one of those devices, whatever their platform.
 - **Whose credentials**: yours, never the job owner's. NetRollout logs in with your own profile on each device. If you have no profile on some devices, the rollback window lists them and asks you to pick one of your profiles. **Link it to the device** (ticked by default) keeps it as your profile for those devices, for next time. An administrator rolling back someone else's job may hit that person's private devices: the profile picked is used for this rollback only, since you can't link to a device that isn't yours.
 - **Whose values**: the job owner's. Their mappings and values fill in the tokens, so the rollback targets what the job configured. Values are read when you start the rollback, not taken from the original job, so check they still reflect the network.
