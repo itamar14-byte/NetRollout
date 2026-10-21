@@ -359,7 +359,7 @@ def config_diff(job_id: uuid.UUID, device_ip: str) -> ResponseReturnValue:
 	          diff_tags=diff_tags(snapshot.diff, snapshot.transcript) if snapshot.diff else None,
 	          commands=snapshot.commands,
 	          transcript=snapshot.transcript, device_status=snapshot.status,
-	          review=snapshot.review, decidable=snapshot.decidable,
+	          review=snapshot.review, decidable=snapshot.decidable, alike=list(snapshot.alike),
 	          verdicts=[[j["command"], j["verdict"]] for j in judged])
 
 
@@ -368,13 +368,16 @@ def config_diff(job_id: uuid.UUID, device_ip: str) -> ResponseReturnValue:
 @with_json("outcome")
 def review(job_id: uuid.UUID, device_ip: str, data: dict[str, Any]) -> ResponseReturnValue:
 	"""A device with commands in review or rejected decided (JSON {outcome:
-	"confirmed" | "rejected", comment?}): confirmed makes it a success,
-	rejected partial (other commands proven) or failed, kept with who, when
-	and why. The job's owner, or any admin. ?port= picks one of
+	"confirmed" | "rejected", comment?, alike?}): confirmed makes it a
+	success, rejected partial (other commands proven) or failed, kept with
+	who, when and why. alike: true decides the job's other devices awaiting
+	a decision with the same commands, verdicts and replies the same way
+	(each its own record and audit row). The job's owner, or any admin. ?port= picks one of
 	the devices sharing the IP in the job. Audited (rollout.review_confirmed
 	/ _rejected, with the job, the device and the comment).
 
-	:returns: {status, review_outcome, reviewed_at}; 400 for an unknown
+	:returns: {status, review_outcome, reviewed_at, alike: [ip:port decided
+	 with it]}; 400 for an unknown
 	 outcome, 404 (also for another user's job: it isn't revealed), 409 when
 	 the device has nothing to decide or was decided already"""
 	try:
@@ -386,18 +389,24 @@ def review(job_id: uuid.UUID, device_ip: str, data: dict[str, Any]) -> ResponseR
 	port = request.args.get("port", type=int)
 	try:
 		with current_app.backend.postgres.get_session() as db_session:
-			row = ResultReviews(db_session, viewer()).decide(job_id, device_ip, port, outcome, comment)
+			reviews = ResultReviews(db_session, viewer())
+			row = reviews.decide(job_id, device_ip, port, outcome, comment)
+			others = reviews.decide_alike(row, outcome, comment) if data.get("alike") is True else []
+			alike = [endpoint(r.device_ip, r.device_port) for r in others]
 			decided = {"status": row.status, "review_outcome": row.review_outcome,
-			           "reviewed_at": row.reviewed_at.isoformat(timespec="seconds") if row.reviewed_at else None}
+			           "reviewed_at": row.reviewed_at.isoformat(timespec="seconds") if row.reviewed_at else None,
+			           "alike": alike}
 			where = endpoint(row.device_ip, row.device_port)
 	except LookupError:
 		return err("Not found", 404)
 	except ReviewRefused as e:
 		return err(str(e), 409)
-	current_app.web.audit(AuditAction.ROLLOUT_REVIEW_CONFIRMED if outcome == ReviewOutcome.CONFIRMED
-	                      else AuditAction.ROLLOUT_REVIEW_REJECTED,
-	                      object_type="job", object_id=job_id, object_label=where,
-	                      detail={"device": where, "comment": comment.strip() or None})
+	for device in [where, *alike]:
+		current_app.web.audit(AuditAction.ROLLOUT_REVIEW_CONFIRMED if outcome == ReviewOutcome.CONFIRMED
+		                      else AuditAction.ROLLOUT_REVIEW_REJECTED,
+		                      object_type="job", object_id=job_id, object_label=device,
+		                      detail={"device": device, "comment": comment.strip() or None,
+		                              **({"with": where} if device != where else {})})
 	return ok(**decided)
 
 

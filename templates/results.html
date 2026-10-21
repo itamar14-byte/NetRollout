@@ -40,6 +40,15 @@ button.status-pill:hover { filter: brightness(1.2); }
                    border:1px solid rgba(255,167,38,0.45); border-radius:999px; padding:1px 8px;
                    background:rgba(255,167,38,0.08); }
 .review-decided { font-size:0.72rem; color:var(--nr-text-muted); margin-left:6px; white-space:nowrap; }
+/* a device not judged that replied: what it said is one click away (never a verdict) */
+.replied-note { margin-left:6px; font:500 0.7rem 'JetBrains Mono',monospace; color:#ffcc80; background:none;
+                border:1px dashed #b26500; border-radius:999px; padding:1px 8px; cursor:pointer; white-space:nowrap; }
+.replied-note:hover, .replied-note:focus-visible { background:rgba(255,167,38,0.08); }
+.rp-cmd { font-family:'JetBrains Mono',monospace; font-size:0.8rem; color:var(--nr-text); }
+.rp-said { font-family:'JetBrains Mono',monospace; font-size:0.78rem; color:#ffcc80; margin:2px 0 10px 16px;
+           white-space:pre-wrap; word-break:break-word; }
+.vf-alike { display:flex; gap:8px; align-items:flex-start; font-size:0.78rem; color:var(--nr-text-muted); }
+.vf-alike input { margin-top:3px; accent-color:#00bcd4; }
 
 /* ── Verification window: a device's commands, each with its verdict ── */
 .vf-cmd { padding:7px 10px; border-radius:6px; }
@@ -649,7 +658,11 @@ button.status-pill:hover { filter: brightness(1.2); }
                             data-ip="{{ d.ip }}" data-port="{{ d.port }}"
                             onclick="showConfigDiff(this)">{{ d.status }}</button>{% else %}<span
                             class="status-pill pill-{{ d.status | replace(' ', '-') }}">{{ d.status }}</span>{% endif %}{% if d.review %}<span
-                            class="review-decided" title="{{ d.review.comment or '' }}">{{ d.review.outcome }} by {{ d.review.by }}</span>{% endif %}{% if d.action_needed %}
+                            class="review-decided" title="{{ d.review.comment or '' }}">{{ d.review.outcome }} by {{ d.review.by }}</span>{% endif %}{% if d.replies %}<button
+                            type="button" class="replied-note" title="What the device replied - not judged"
+                            data-replies="{{ d.replies | tojson | forceescape }}"
+                            data-device="{{ d.get('label', d.ip) }}" data-status="{{ d.status }}"
+                            onclick="showReplies(this)">replied {{ d.replies | length }}</button>{% endif %}{% if d.action_needed %}
                         <i class="bi bi-exclamation-triangle-fill ms-1" style="color:#ffb74d;"
                            title="Action needed - see the box above"></i>{% endif %}</td>
                 </tr>
@@ -862,6 +875,22 @@ button.status-pill:hover { filter: brightness(1.2); }
 
 <!-- Verification modal: each verified device's commands, judged by its
      configuration before and after the push, and its diff -->
+<div class="modal fade" id="repliesModal" tabindex="-1" aria-labelledby="repliesTitle">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header" style="border-bottom:1px solid #222;">
+                <div class="nr-badge" id="repliesTitle">WHAT THE DEVICE REPLIED</div>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="nr-muted mb-1" id="repliesDevice" style="font-family:'JetBrains Mono',monospace; font-size:0.8rem;"></div>
+                <div class="vf-note mb-3" id="repliesWhy" style="font-size:0.78rem; color:#9e9e9e; font-style:italic;"></div>
+                <div id="repliesList"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <div class="modal fade" id="verifyDiffModal" tabindex="-1">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
@@ -923,6 +952,24 @@ button.status-pill:hover { filter: brightness(1.2); }
 const VERIFICATIONS = {}; // cache: "job_id:ip:port" → the config_diff answer
 const VD_TAB_THRESHOLD = 5;
 let _verifyDiffJobId = null;
+// A device not judged: what it replied, command by command (device_results.replies)
+function showReplies(btn) {
+    const replies = JSON.parse(btn.dataset.replies || '[]');
+    document.getElementById('repliesDevice').textContent = btn.dataset.device;
+    document.getElementById('repliesWhy').textContent = (btn.dataset.status === 'partial'
+        ? 'Not judged: the device stopped answering before the end.'
+        : 'Not judged: Verify was off for this rollout, or the configuration couldn\'t be read.') +
+        ' A device also replies when a command works (FortiOS: "new entry added"), so read what it said - ' +
+        'or run it again with Verify on to have the configuration decide.';
+    const list = document.getElementById('repliesList');
+    list.replaceChildren();
+    replies.forEach(r => {
+        list.appendChild(_el('div', 'rp-cmd', r.command));
+        list.appendChild(_el('div', 'rp-said', (r.reply || []).join('\n')));
+    });
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('repliesModal')).show();
+}
+
 let _reloadOnClose = false;   // a decision was taken: the page shows it after the window
 
 document.getElementById('verifyDiffModal').addEventListener('hidden.bs.modal', () => {
@@ -1067,6 +1114,9 @@ async function _renderVerifyDiff(device, activeTab) {
         box.appendChild(_el('strong', '', data.review.outcome.charAt(0).toUpperCase() + data.review.outcome.slice(1)));
         box.append(' by ' + data.review.by + (data.review.at ? ' at ' + data.review.at : ''));
         if (data.review.comment) box.appendChild(_el('div', 'nr-muted mt-1', data.review.comment));
+        if (data.review.alike && data.review.alike.length) {
+            box.appendChild(_el('div', 'nr-muted mt-1', 'Decided with it: ' + data.review.alike.join(', ')));
+        }
         list.appendChild(box);
     } else if (data.decidable) {
         const box = _el('div', 'vf-decide');
@@ -1082,6 +1132,19 @@ async function _renderVerifyDiff(device, activeTab) {
         comment.maxLength = 2000;
         comment.setAttribute('aria-label', 'Comment on the decision');
         box.appendChild(comment);
+        // the job's other devices awaiting a decision with the same commands,
+        // verdicts and replies: decided the same way on request
+        const alike = data.alike || [];
+        const together = _el('input');
+        if (alike.length) {
+            const label = _el('label', 'vf-alike');
+            together.type = 'checkbox';
+            const shown = alike.slice(0, 6).join(', ') + (alike.length > 6 ? ', …' : '');
+            label.append(together, _el('span', '', `Also decide the ${alike.length} other device` +
+                `${alike.length !== 1 ? 's' : ''} in this job with the same commands, verdicts and replies ` +
+                `(${shown}) - each gets its own record.`));
+            box.appendChild(label);
+        }
         const row = _el('div', 'd-flex gap-2 align-items-center');
         const confirm = _el('button', 'btn btn-sm btn-success', 'Confirm - it took effect');
         const reject = _el('button', 'btn btn-sm btn-outline-danger', 'Reject - it didn\'t');
@@ -1097,14 +1160,20 @@ async function _renderVerifyDiff(device, activeTab) {
                 const r = await fetch(`/results/review/${_verifyDiffJobId}/${encodeURIComponent(device.ip)}?port=${device.port}`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN},
-                    body: JSON.stringify({outcome: outcome, comment: comment.value}),
+                    body: JSON.stringify({outcome: outcome, comment: comment.value,
+                                          alike: alike.length > 0 && together.checked}),
                 });
                 const answer = await r.json();
                 if (!r.ok) throw new Error(answer.message || 'Not saved');
                 data.device_status = answer.status;
                 data.review = {outcome: answer.review_outcome, by: 'you',
                                at: (answer.reviewed_at || '').replace('T', ' ').slice(0, 16),
-                               comment: comment.value.trim() || null};
+                               comment: comment.value.trim() || null,
+                               alike: answer.alike || []};
+                // the devices decided with it: read again when opened
+                Object.keys(VERIFICATIONS).forEach(k => {
+                    if (k.startsWith(_verifyDiffJobId + ':') && k !== key) delete VERIFICATIONS[k];
+                });
                 _reloadOnClose = true;
                 _renderVerifyDiff(device, null);
             } catch (e) {

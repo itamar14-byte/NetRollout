@@ -149,6 +149,16 @@ def awaiting_decision(row: DeviceResult) -> bool:
 	return row.review_outcome is None and needs_decision(row.transcript)
 
 
+def decision_signature(row: DeviceResult) -> tuple[tuple[str, str, tuple[str, ...]], ...]:
+	""":returns: what a person decides on a device: each command in review or
+	 rejected, with its verdict and what the device replied - devices of a
+	 job with the same signature may be decided together (as sent: a token
+	 filled in differently makes it another signature)"""
+	return tuple((c.get("command", ""), c.get("verdict", ""), tuple(c.get("reply") or ()))
+	             for c in (row.transcript or {}).get("commands", ())
+	             if c.get("verdict") in ("review", "rejected"))
+
+
 def review_view(row: DeviceResult, reviewers: dict[uuid.UUID, str]) -> dict[str, Any] | None:
 	""":param reviewers: user id → username (whoever decided)
 	:returns: a device's review decision as the pages show it - outcome,
@@ -201,6 +211,8 @@ def build_jobs(result_rows: Iterable[DeviceResult],
 					"config_expired": config_expired(r, snapshot_days),
 					"review": review_view(r, reviewers or {}),
 					"decide": awaiting_decision(r),
+					# not judged: what it replied ([{command, reply}])
+					"replies": r.replies or [],
 				}
 				for r in rows
 			],
@@ -287,7 +299,7 @@ def contains(text: str) -> str:
 
 # Results' CSV: one row per device of each job (JobResults.export)
 EXPORT_COLUMNS = ["job_id", "note", "owner", "job_status", "started", "completed", "device",
-                  "ip", "port", "platform", "status", "commands_sent", "commands_verified",
+                  "ip", "port", "platform", "status", "commands_sent", "commands_verified", "replied",
                   "action_needed", "review", "reviewed_by", "reviewed_at", "review_comment"]
 
 
@@ -304,6 +316,9 @@ class ConfigSnapshot:
 	status: str = ""
 	review: dict[str, Any] | None = None   # review_view(): its decision, when taken
 	decidable: bool = False                # awaiting_decision()
+	# the job's other devices awaiting a decision with the same signature
+	# (decision_signature), as ip:port - decided with it on request
+	alike: tuple[str, ...] = ()
 
 
 class ReviewRefused(ValueError):
@@ -325,6 +340,30 @@ class ResultReviews:
 	def __init__(self, session: Session, viewer: Viewer) -> None:
 		self.session = session
 		self.viewer = viewer
+
+	@staticmethod
+	def alike(session: Session, row: DeviceResult) -> list[DeviceResult]:
+		""":returns: the job's other devices awaiting a decision whose
+		 signature is row's (decision_signature) - none when row has nothing
+		 to decide"""
+		if not needs_decision(row.transcript):
+			return []
+		signature = decision_signature(row)
+		others = session.query(DeviceResult).filter(DeviceResult.job_id == row.job_id,
+		                                            DeviceResult.id != row.id).all()
+		return sorted((r for r in others if awaiting_decision(r) and decision_signature(r) == signature),
+		              key=lambda r: (r.device_ip, r.device_port))
+
+	def decide_alike(self, row: DeviceResult, outcome: ReviewOutcome, comment: str = "") -> list[DeviceResult]:
+		"""The same decision for the job's other devices awaiting one with the
+		same signature as row (just decided) - each its own record, with who,
+		when and the comment.
+
+		:returns: the devices decided"""
+		others = self.alike(self.session, row)
+		for other in others:
+			self._settle(other, outcome, comment.strip())
+		return others
 
 	def decide(self, job_id: uuid.UUID, ip: str, port: int | None,
 	           outcome: ReviewOutcome, comment: str = "") -> DeviceResult:
@@ -350,13 +389,16 @@ class ResultReviews:
 		comment = comment.strip()
 		if len(comment) > REVIEW_COMMENT_MAX:
 			raise ReviewRefused(f"The comment is too long (at most {REVIEW_COMMENT_MAX} characters).")
+		self._settle(row, outcome, comment)
+		return row
+
+	def _settle(self, row: DeviceResult, outcome: ReviewOutcome, comment: str) -> None:
 		row.status = DeviceStatus.SUCCESS if outcome == ReviewOutcome.CONFIRMED else \
 			DeviceStatus.PARTIAL if row.commands_verified else DeviceStatus.FAILED
 		row.review_outcome = outcome
 		row.review_comment = comment or None
 		row.reviewed_by = self.viewer.id
 		row.reviewed_at = datetime.now()
-		return row
 
 
 class JobResults:
@@ -510,6 +552,7 @@ class JobResults:
 				            r.completed_at.strftime(stamp), device_label(labels, r), r.device_ip,
 				            r.device_port, r.device_type, r.status, r.commands_sent,
 				            r.commands_verified if r.commands_verified is not None else "",
+				            len(r.replies) if r.replies else "",
 				            r.action_needed or "", *self._review_cells(r, reviewers, stamp)])
 		return out
 
@@ -604,7 +647,9 @@ class JobResults:
 		                      device_type=row.device_type, diff=row.config_diff,
 		                      transcript=row.transcript, status=row.status,
 		                      review=review_view(row, reviewers),
-		                      decidable=awaiting_decision(row))
+		                      decidable=awaiting_decision(row),
+		                      alike=tuple(endpoint(r.device_ip, r.device_port)
+		                                  for r in ResultReviews.alike(self.session, row)))
 
 	def configured_endpoints(self, job_id: uuid.UUID, owner_id: uuid.UUID) -> set[Target]:
 		""":returns: the ip:port of the job's devices configured - successfully,

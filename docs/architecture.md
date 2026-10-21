@@ -1338,6 +1338,7 @@ erDiagram
         text fetched_config
         text config_diff
         json transcript
+        json replies
         string review_outcome
         uuid reviewed_by FK
     }
@@ -1445,6 +1446,7 @@ erDiagram
 | | `fetched_config` | text | Nullable: the configuration after the push, kept for a device in review; cleared after *Config snapshots* |
 | | `config_diff` | text | Nullable: the configuration before → after (unified); cleared after *Config snapshots* (the page then says Verification expired) |
 | | `transcript` | JSON | Nullable: `{commands: [{command, verdict, evidence, note, reply}], other_changes}`, redacted; null when not judged |
+| | `replies` | JSON | Nullable: a device not judged, what it replied - `[{command, reply: [lines]}]` for the commands it answered, redacted (`engine.replied`); null when judged (the transcript has them) or silent. Revision `v1_0_0_replies` |
 | | `review_outcome`, `review_comment` | string(16), text | Nullable: `confirmed` / `rejected` and why |
 | | `reviewed_by`, `reviewed_at` | UUID (users, `SET NULL`), datetime | Nullable |
 | `job_metadata` | `id`, `user_id`, `job_id` | UUID | `job_id` a soft reference |
@@ -1618,7 +1620,7 @@ Everything that shows or redirects to an address uses `serving_port()` (the help
 | `review` | Judged, a command not proven either way, none rejected. |
 | `success` | Judged, every command proven (exec commands aside), or later, a person confirmed it. |
 
-A judged device holding a command in review or rejected awaits a person (`engine.needs_decision`, `results.awaiting_decision`): Results counts it "to decide", the dashboard too; `ResultReviews.decide` confirms (→ success) or rejects (→ partial when commands were proven, else failed) - never an interrupted partial, which has no transcript. A rollback targets success and partial devices (`JobResults.configured_endpoints`).
+A judged device holding a command in review or rejected awaits a person (`engine.needs_decision`, `results.awaiting_decision`): Results counts it "to decide", the dashboard too; `ResultReviews.decide` confirms (→ success) or rejects (→ partial when commands were proven, else failed) - never an interrupted partial, which has no transcript. A rollback targets success and partial devices (`JobResults.configured_endpoints`). Devices of a job awaiting the same decision - the same `decision_signature`: each command in review or rejected, its verdict and the device's reply, as sent - are offered together in the window (`ResultReviews.alike`); `alike: true` on the decision decides them the same way (`decide_alike`), each with its own record and audit row.
 
 #### Verification by configuration
 
@@ -1655,7 +1657,7 @@ Every changed line is a `Change` with what made it: the commands it rests on (it
 |---|---|
 | `RolloutOptions` | `verify` (judge each push by the configuration before and after), `verbose` (show every message), `webapp` (log for the page as HTML, not a console), `max_workers` (devices at the same time, default 10) |
 | `Device` | `ip` (an IP or a hostname, as saved), `dns_suffix` and `host` (what's connected to: a bare name with the suffix), `label`, `username`, `password` and `secret` (decrypted, hidden from `repr`), `device_type`, `port`, `var_map_subs` (`$$TOKEN$$` to the property name and list index, the rolling-out user's mappings only), `extra` (the attribute values that user sees); `endpoint` is `ip:port`, which identifies a target (several devices can share an IP behind NAT) |
-| `DeviceResultDict` | `device_ip`, `device_port`, `device_type`, `commands_sent`, `commands_verified`, `fetched_config`, `config_diff`, `transcript`, `status`, `action_needed`: a `device_results` row's fields |
+| `DeviceResultDict` | `device_ip`, `device_port`, `device_type`, `commands_sent`, `commands_verified`, `fetched_config`, `config_diff`, `transcript`, `replies`, `status`, `action_needed`: a `device_results` row's fields |
 | `PushResult` | How the push went: applied, interrupted (and how many were sent), each command's reply, the `Outcome` (None: not verified), the diff and the configuration after; `classify()` reads it |
 
 ### 10.2 Jobs and orchestration

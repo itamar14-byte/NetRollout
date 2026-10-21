@@ -1208,3 +1208,25 @@ def test_a_device_with_a_rejected_command_and_a_proven_one_is_partial():
 	                              "hostname r1\n", "hostname r1\n", replies)
 	assert (result["status"], result["commands_verified"]) == ("partial", 1)
 	assert [c["verdict"] for c in result["transcript"]["commands"]] == ["took effect", "rejected"]
+
+
+# ── B: what a device not judged replied, stored for Results ──
+
+def test_without_verify_the_replies_are_stored_redacted_for_the_commands_answered():
+	"""Not judged: each command the device answered with its reply - redacted as
+	the log is (the command too); a command it was silent to isn't listed."""
+	conn = connection()
+	conn.send_config_set.side_effect = ["a\nr1#", "snmp-server community s3cret RO\n% Invalid input\nr1#"]
+	result = run(conn, ["a", "snmp-server community s3cret RO"], verify=False)
+	assert result["replies"] == [{"command": "snmp-server community <redacted> RO",
+	                              "reply": ["% Invalid input"]}]
+
+
+def test_a_silent_device_or_a_judged_one_stores_no_replies():
+	"""Nothing to show when the device said nothing; a judged device's replies
+	are in its transcript already."""
+	assert run(connection(), ["a", "b"], verify=False)["replies"] is None
+	conn = connection()
+	conn.send_config_set.side_effect = ["hostname r1\n% note\nr1#"]
+	judged = run(conn, ["hostname r1"], verify=True, before="hostname r0\n", after="hostname r1\n")
+	assert judged["replies"] is None and judged["transcript"]["commands"][0]["reply"] == ["% note"]

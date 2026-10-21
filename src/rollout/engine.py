@@ -125,6 +125,22 @@ def classify(push: PushResult | None) -> tuple[DeviceStatus, int, int | None]:
 	return status, sent, proven
 
 
+def replied(push: PushResult | None, commands: Sequence[str]) -> list[dict[str, Any]] | None:
+	"""What a device that wasn't judged replied, as stored
+	(device_results.replies): each command it answered with its reply's
+	lines, redacted as the log is. Shown, not judged - without the
+	configuration a refusal can't be told from a notice.
+
+	:param commands: the commands as sent to this device
+	:returns: None when the push was judged (its transcript has the replies)
+	 or the device said nothing"""
+	if push is None or push.outcome is not None:
+		return None
+	answered = [{"command": redact(command), "reply": [redact(line) for line in said]}
+	            for command, said in zip(commands, push.replies) if said]
+	return answered or None
+
+
 def needs_decision(transcript: dict[str, Any] | None) -> bool:
 	""":returns: whether a judged device holds a command a person may
 	 overturn or must decide - rejected or in review (an interrupted or
@@ -197,6 +213,7 @@ class DeviceResultDict(TypedDict):
 	fetched_config: str | None      # the configuration after, kept for a review
 	config_diff: str | None         # the configuration before → after
 	transcript: dict[str, Any] | None
+	replies: list[dict[str, Any]] | None   # a device not judged: what it replied (replied())
 	status: str
 	action_needed: str | None   # what only a person can resolve, or None
 
@@ -345,7 +362,7 @@ class RolloutEngine:
 		return [DeviceResultDict(device_ip=d.ip, device_port=int(d.port),
 		                         device_type=d.device_type, commands_sent=0,
 		                         commands_verified=None, fetched_config=None,
-		                         config_diff=None, transcript=None,
+		                         config_diff=None, transcript=None, replies=None,
 		                         status=DeviceStatus.CANCELLED, action_needed=None)
 		        for d in self._devices]
 
@@ -482,8 +499,17 @@ class RolloutEngine:
 					push.outcome.needs_review or push.outcome.rejected) else None,
 				config_diff=push.diff if push else None,
 				transcript=transcript(push.outcome, push.replies) if push else None,
+				replies=replied(push, self._sent(device)) if push and any(push.replies) else None,
 				status=status, action_needed=report.actions(device.endpoint)))
 		return results
+
+	def _sent(self, device: Device) -> list[str]:
+		""":returns: the commands as sent to the device (its tokens filled
+		 in); [] when they can't be (it was skipped)"""
+		try:
+			return device.commands_for(self._commands)
+		except SubstitutionError:
+			return []
 
 	def _log_summary(self, results: list[DeviceResultDict], report: RunReport,
 	                 replied: Sequence[str] = ()) -> None:

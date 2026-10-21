@@ -301,6 +301,10 @@ class DeviceResult(Base):
 	# per command: as sent, its verdict, the device lines it rests on, the
 	# device's reply; and the changes no command explains (engine.transcript)
 	transcript: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+	# a device not judged: what it replied, per command it answered
+	# ([{command, reply: [lines]}], redacted; engine.replied); None: it
+	# was judged (its transcript has the replies) or said nothing
+	replies: Mapped[list | None] = mapped_column(JSON, nullable=True)
 	status: Mapped[str] = mapped_column(String(64), nullable=False)
 	# What only a person can resolve on the device (e.g. "the change is live
 	# but NOT saved - save it on the device"); shown on the Results page

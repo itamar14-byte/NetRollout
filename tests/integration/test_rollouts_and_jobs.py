@@ -49,16 +49,17 @@ def link_profile(session_scope, device_id, user, profile_id):
 
 def add_result(session_scope, user, job_id, ip="10.0.0.1", status="success",
                verified=None, config=None, age_days=0, commands=None, port=22,
-               transcript=None, diff=None):
+               transcript=None, diff=None, replies=None):
 	"""Store a device result for a job (and its job metadata when commands are
-	given), dated age_days ago; transcript and diff for a verified device."""
+	given), dated age_days ago; transcript and diff for a verified device,
+	replies for one not judged."""
 	when = dt.datetime.now() - dt.timedelta(days=age_days)
 	with session_scope() as s:
 		s.add(DeviceResult(user_id=user.id, job_id=job_id, started_at=when,
 		                   completed_at=when, device_ip=ip, device_port=port,
 		                   device_type="cisco_ios", commands_sent=2,
 		                   commands_verified=verified, fetched_config=config,
-		                   transcript=transcript, config_diff=diff, status=status))
+		                   transcript=transcript, config_diff=diff, replies=replies, status=status))
 		if commands is not None:
 			s.add(JobMetadata(job_id=job_id, user_id=user.id, commands=commands))
 
@@ -1667,14 +1668,21 @@ def test_a_launch_keeps_the_last_known_address_when_the_name_doesnt_resolve(
 
 # ── A device in review, decided by a person ──────────────────────────────────
 
+def judged_as(verdicts, reply=()):
+	""":returns: a transcript of commands a, b, … judged `verdicts`, the last one
+	answered `reply`"""
+	commands = [{"command": c, "verdict": v, "evidence": [], "note": "", "reply": []}
+	            for c, v in zip("abcdef", verdicts)]
+	commands[-1]["reply"] = list(reply)
+	return {"commands": commands, "other_changes": []}
+
+
 def review_job(session_scope, user, status="review", verdicts=("took effect", "review"), verified=1):
 	""":returns: a job with one device (10.0.0.1) in `status`, its two commands
 	judged `verdicts` (as a judged device stores them), `verified` proven"""
 	job = uuid.uuid4()
-	commands = [{"command": c, "verdict": v, "evidence": [], "note": "", "reply": []}
-	            for c, v in zip(("a", "b"), verdicts)]
 	add_result(session_scope, user, job, status=status, verified=verified, commands=["a", "b"],
-	           transcript={"commands": commands, "other_changes": []}, diff="+a")
+	           transcript=judged_as(verdicts), diff="+a")
 	return job
 
 
@@ -1819,3 +1827,70 @@ def test_results_export_carries_the_review_decision(operator, client_for, sessio
 	assert row["reviewed_at"]
 	assert [by_job[str(open_review)][c] for c in ("review", "reviewed_by", "reviewed_at", "review_comment")] == \
 	       ["", "", "", ""]
+
+
+# ── Deciding alike devices together; what a device not judged replied ──
+
+def bulk_job(session_scope, user):
+	""":returns: a job: 10.0.0.1-3 with b rejected and the same reply, 10.0.0.4
+	with another reply, 10.0.0.5 in review"""
+	job = uuid.uuid4()
+	same = judged_as(("took effect", "rejected"), ["% Invalid input"])
+	for ip in ("10.0.0.1", "10.0.0.2", "10.0.0.3"):
+		add_result(session_scope, user, job, ip=ip, status="partial", verified=1, transcript=same, diff="+a",
+		           commands=["a", "b"] if ip == "10.0.0.1" else None)
+	add_result(session_scope, user, job, ip="10.0.0.4", status="partial", verified=1, diff="+a",
+	           transcript=judged_as(("took effect", "rejected"), ["% Incomplete command"]))
+	add_result(session_scope, user, job, ip="10.0.0.5", status="review", verified=1, diff="+a",
+	           transcript=judged_as(("took effect", "review")))
+	return job
+
+
+def test_the_verification_names_the_devices_awaiting_the_same_decision(operator, client_for, session_scope):
+	"""Same commands, verdicts and replies: offered together - another reply, or
+	review instead of rejected, isn't the same decision."""
+	job = bulk_job(session_scope, operator.user)
+	data = client_for(operator.user).get(f"/results/config_diff/{job}/10.0.0.1").json
+	assert data["alike"] == ["10.0.0.2:22", "10.0.0.3:22"]
+
+
+def test_deciding_alike_devices_records_each_one(operator, client_for, session_scope):
+	"""alike: true confirms the device and the ones like it - each with its own
+	decision and audit row; the others stay to decide."""
+	job = bulk_job(session_scope, operator.user)
+	resp = client_for(operator.user).post(f"/results/review/{job}/10.0.0.1",
+	                                      json={"outcome": "confirmed", "comment": "keys", "alike": True})
+	assert resp.status_code == 200 and resp.json["alike"] == ["10.0.0.2:22", "10.0.0.3:22"]
+	with session_scope() as s:
+		rows = {r.device_ip: r for r in s.query(DeviceResult).filter_by(job_id=job)}
+		assert [(rows[ip].status, rows[ip].review_outcome, rows[ip].review_comment) for ip in
+		        ("10.0.0.1", "10.0.0.2", "10.0.0.3")] == [("success", "confirmed", "keys")] * 3
+		assert (rows["10.0.0.4"].review_outcome, rows["10.0.0.5"].review_outcome) == (None, None)
+		audits = s.query(AuditLog).filter_by(action="rollout.review_confirmed").all()
+		assert sorted(a.object_label for a in audits) == ["10.0.0.1:22", "10.0.0.2:22", "10.0.0.3:22"]
+
+
+def test_without_alike_only_the_device_is_decided(operator, client_for, session_scope):
+	job = bulk_job(session_scope, operator.user)
+	resp = client_for(operator.user).post(f"/results/review/{job}/10.0.0.1", json={"outcome": "rejected"})
+	assert resp.json["alike"] == []
+	with session_scope() as s:
+		assert s.query(DeviceResult).filter(DeviceResult.job_id == job,
+		                                    DeviceResult.review_outcome.isnot(None)).count() == 1
+
+
+def test_results_show_what_a_device_not_judged_replied(operator, client_for, session_scope):
+	"""A not verified device that replied: a "replied N" note carrying its replies
+	(escaped in the attribute); a quiet one has none. The export counts them."""
+	job = uuid.uuid4()
+	add_result(session_scope, operator.user, job, ip="10.0.0.1", status="not verified", commands=["a", "b"],
+	           replies=[{"command": "ntp server 192.0.2.1", "reply": ["% <NTP> failed"]}])
+	add_result(session_scope, operator.user, job, ip="10.0.0.2", status="not verified")
+	client = client_for(operator.user)
+	html = client.get("/results").get_data(as_text=True)
+	assert html.count('class="replied-note"') == 1 and ">replied 1</button>" in html
+	escaped = chr(92) + "u003cNTP" + chr(92) + "u003e"   # tojson escapes < and >
+	assert escaped in html and "% <NTP> failed" not in html
+	rows = export_rows(client.get("/results/export.csv"))
+	by_ip = {r[rows[0].index("ip")]: dict(zip(rows[0], r)) for r in rows[1:]}
+	assert (by_ip["10.0.0.1"]["replied"], by_ip["10.0.0.2"]["replied"]) == ("1", "")

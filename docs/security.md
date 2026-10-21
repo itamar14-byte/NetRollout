@@ -53,7 +53,7 @@ NetRollout keeps what it needs to run rollouts and to show what happened, and de
 | Device credentials (username in clear; password and enable secret encrypted) | PostgreSQL `security_profiles` | To log in to devices | Until deleted |
 | Accounts (username, email, full name, role, password hash, encrypted TOTP secret) | PostgreSQL `users` | Sign-in and permissions | Until deleted |
 | LDAP server settings (bind password encrypted) and group mappings | PostgreSQL `ldap_servers`, `ldap_groups` | Directory sign-in | Until deleted |
-| Per-device results (status, counts, what needs action, a review's decision), and each verified command's verdict with its evidence and the device's reply (`transcript`, redacted) | PostgreSQL `device_results` | Results page, analytics, rollback, review | 30 days by default (*Job records*) |
+| Per-device results (status, counts, what needs action, a review's decision), and each verified command's verdict with its evidence and the device's reply (`transcript`, redacted); for a device not judged, what it replied (`replies`, redacted) | PostgreSQL `device_results` | Results page, analytics, rollback, review | 30 days by default (*Job records*) |
 | The commands as typed and a comment, per job | PostgreSQL `job_metadata` | Results, rollback | With the job's results |
 | Running-configuration snapshots: each verified device's before → after diff, and the configuration after for a device in review | PostgreSQL `device_results.config_diff`, `fetched_config` | Results → Verification | 7 days by default (*Config snapshots*) |
 | Audit log | PostgreSQL `audit_log` | Accountability | 90 days by default (minimum 7) |
@@ -209,7 +209,7 @@ The optional monitoring profile adds Grafana, served by nginx at `/grafana/` to 
 
 ## Logs and redaction
 
-Rollout logs are designed to be shareable, for example attached to a bug report. Every log line (the log file, Download Log, the live log in the browser, the CLI's console) and every stored ACTION NEEDED text and verification transcript (each command as sent, the device lines it rests on, the device's reply) passes `redact()` (`src/rollout/log.py`): the value after a secret-bearing keyword becomes `<redacted>`. The keywords cover the supported platforms' syntaxes, among them `password`, `secret`, `community`, `pre-shared-key`, `psksecret`, `key-string`, `authentication-key`, `encrypted-password`, `phash` and `password-hash` (and `key`, `auth`, `priv` when followed by an encryption type or a quoted value). The keyword and the encryption type stay, which helps debugging.
+Rollout logs are designed to be shareable, for example attached to a bug report. Every log line (the log file, Download Log, the live log in the browser, the CLI's console) and every stored ACTION NEEDED text, verification transcript (each command as sent, the device lines it rests on, the device's reply) and stored reply of a device not judged passes `redact()` (`src/rollout/log.py`): the value after a secret-bearing keyword becomes `<redacted>`. The keywords cover the supported platforms' syntaxes, among them `password`, `secret`, `community`, `pre-shared-key`, `psksecret`, `key-string`, `authentication-key`, `encrypted-password`, `phash` and `password-hash` (and `key`, `auth`, `priv` when followed by an encryption type or a quoted value). The keyword and the encryption type stay, which helps debugging.
 
 **Not redacted**, by design:
 

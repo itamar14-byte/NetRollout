@@ -364,7 +364,7 @@ How a device's result shows:
 - Otherwise at least one command in review: `review`.
 - The device's **Verified** count in Results is the number of commands the configuration proved.
 
-Without Verify, or when the configuration can't be read, the device is `not verified`: the commands were sent, and nothing judged them. What the device replied is still logged with each command, and the rollout's summary names every not verified device that replied to something, so a refused command isn't overlooked. Without the configuration NetRollout can't tell a refusal from a notice (a device also replies when it succeeds, for example FortiOS's `new entry added`): turn Verify on to have the configuration decide.
+Without Verify, or when the configuration can't be read, the device is `not verified`: the commands were sent, and nothing judged them. What the device replied is still logged with each command, the rollout's summary names every not verified device that replied to something, and in Results such a device carries a dashed **replied N** note that opens what it said, command by command - so a refused command isn't overlooked. Without the configuration NetRollout can't tell a refusal from a notice (a device also replies when it succeeds, for example FortiOS's `new entry added`): turn Verify on to have the configuration decide.
 
 ### Cancelling
 
@@ -410,7 +410,7 @@ Each row shows the job, its note, when it started, how long it took, the number 
 
 The filters above the list cover every job, not only the page shown. **Note** and **Device name or IP** match any part as you type, and keep the whole job (all its devices). Pick a status, and a **From** / **To** day the job started on (both included). In **All Users**, administrators can also pick one user. **Clear filters** shows everything again, and Escape empties the box you're in.
 
-**Export CSV** downloads every job the filters let through, one row per device: the job, its note, owner and status, when the device started and finished, the device's name, IP, port and platform, its status, the commands sent and verified, any ACTION NEEDED, and the review decision (outcome, by whom, when, the comment). It holds your own jobs, or everyone's in an administrator's **All Users** view. The commands typed and config snapshots aren't in it. Each export is recorded in the audit log.
+**Export CSV** downloads every job the filters let through, one row per device: the job, its note, owner and status, when the device started and finished, the device's name, IP, port and platform, its status, the commands sent and verified, **replied** (for a device not judged: how many commands it answered), any ACTION NEEDED, and the review decision (outcome, by whom, when, the comment). It holds your own jobs, or everyone's in an administrator's **All Users** view. The commands typed and config snapshots aren't in it. Each export is recorded in the audit log.
 
 Open a job to see each device: IP and port, platform, commands **Sent**, commands **Verified** and the device's **Status**. A job with devices still to decide shows **N to review** next to its status, and the dashboard says how many of your devices wait for a review.
 
@@ -443,6 +443,8 @@ A device with a command in review waits for a person: NetRollout couldn't prove 
 1. Open the job in Results and select the device's status, or **Verification**.
 2. The **Verification** window shows each command with its verdict, the line it rests on (or "no change in its section"), and what the device replied. For example: `ip address 10.0.0.1 255.255.255.255` in review, with `+ ip address 10.0.0.1/32` - the device wrote your mask as a prefix. Or `ntp server 192.0.2.123` in review, no change, the device replied `% Initialization of NTP failed`.
 3. Select **Confirm - it took effect** or **Reject - it didn't**, with a comment if you like.
+
+When other devices in the same job await the same decision - the same commands, the same verdicts, the same replies (a token filled in differently makes it a different decision) - the window offers **Also decide the N other devices …** (unticked): one decision, each device its own record and audit row.
 
 Confirmed makes the device a `success`; rejected makes it `partial` when another of its commands was proven, else `failed`. A rollback includes `success` and `partial` devices (some of a partial device's commands took effect). The decision is kept with the result - who, when and the comment - shown in Results and in the export, and recorded in the audit log. A device is decided once.
 
