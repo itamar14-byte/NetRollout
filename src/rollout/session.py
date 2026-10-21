@@ -302,15 +302,15 @@ class NetmikoSession:
 			report.action_needed(device, f"{waited} - check on the device whether "
 			                     f"it went through (reported as failed)")
 			return PushResult(applied=False, replies=replies)
-		flat = self._platform.flat
-		was = [line.key for line in parse(before, flat)]
+		flat, navigation = self._platform.flat, self._platform.navigation
+		was = [line.key for line in parse(before, flat, navigation)]
 		for check in range(COMMIT_CHECKS):
 			if check:
 				time.sleep(COMMIT_CHECK_EVERY)
 			after = self._fetch_new("after the slow commit")
 			if after is None:
 				break
-			if [line.key for line in parse(after, flat)] != was:
+			if [line.key for line in parse(after, flat, navigation)] != was:
 				report.notify(f"{device.endpoint}: {waited}, and the configuration has "
 				              f"changed since - judged by it", Tone.WARNING)
 				first = [after]
@@ -351,9 +351,7 @@ class NetmikoSession:
 		after = snapshot("after the push")
 		if after is None:
 			return None, None, None
-		grammar: dict[str, Any] = {"flat": platform.flat, "blocks": platform.close_blocks,
-		                           "replied": [bool(r) for r in replies],
-		                           "exec_words": platform.exec_words}
+		grammar: dict[str, Any] = {**platform.grammar, "replied": [bool(r) for r in replies]}
 		outcome = judge(commands, before, after, **grammar)
 		if outcome.other_changes:
 			again = snapshot("again, to tell the device's own changes apart")
@@ -417,7 +415,8 @@ class NetmikoSession:
 		if not platform.show_saved or not (outcome.added or outcome.removed):
 			return
 		try:
-			saved = Counter(line.key for line in parse(platform.read_saved(conn), platform.flat))
+			saved = Counter(line.key for line in parse(platform.read_saved(conn), platform.flat,
+			                                           platform.navigation))
 		except Exception as e:
 			self._report.notify(f"{device.endpoint}: couldn't read the saved configuration "
 			                    f"to check the save ({e})", Tone.ERROR)

@@ -60,8 +60,8 @@ def judged(path: Path) -> tuple[dict, Outcome, list[list[str]]]:
 	said = [reply(out, cmd, r["prompt"], platform.events)[0] for out, cmd in zip(r["replies"], r["commands"])]
 	defaults = "\n".join(platform.config(v) for v in r["defaults"].values()) if r.get("defaults") else None
 	outcome = judge(r["commands"], platform.config(r["before"]), platform.config(r["after"]),
-	                flat=platform.flat, blocks=platform.close_blocks, again=platform.config(r["after_again"]),
-	                replied=[bool(s) for s in said], exec_words=platform.exec_words, defaults=defaults)
+	                again=platform.config(r["after_again"]), replied=[bool(s) for s in said],
+	                defaults=defaults, **platform.grammar)
 	return r, outcome, said
 
 

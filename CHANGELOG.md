@@ -29,6 +29,7 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ### Fixed
 
+- Each platform is one class holding everything about it - its grammar and how a session is brought to speak it (shell, privilege, modes, output format, the finish). PAN-OS reads its configuration as set lines in configure mode, the documented way (set format first); IOS-XR switches off the time stamp above every show; HP Comware stays in user view until configuration (Netmiko's "enable" for it is system-view). Each platform's own navigation and removal words reach the judge.
 - Check Point Gaia: NetRollout no longer asks Netmiko for enable mode, which on Gaia is the expert shell (bash, where every `set` is bash's own) - in the push's session and any new one.
 - HP Comware: its bracketed prompts (`[HP-GigabitEthernet1/0/1]`, `<HP>`) and the echo after them are no longer taken for the device's reply.
 - Junos and PAN-OS: a command after `top` or `up` on the same line (`top set system host-name x`) is judged instead of passing as navigation; after a plain `up` the path counts as unknown.

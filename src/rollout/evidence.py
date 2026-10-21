@@ -13,16 +13,18 @@ from __future__ import annotations
 
 import re
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 
-# Leave or close a config section - they configure nothing
+# Leave or close a config section - they configure nothing (every
+# platform's; each platform declares its own - PLATFORMS' navigation)
 NAVIGATION = {"exit", "end", "next", "abort", "quit", "return", "top", "up",
               "root",                   # IOS-XR: back to the top of config
               "end-policy", "end-set", "end-group"}  # IOS-XR: close route-policy / sets / groups
 # A removal: "no X" (Cisco-style), "undo X" (Comware), "unset X" /
-# "delete X" (FortiOS, Junos, PAN-OS, Gaia)
+# "delete X" (FortiOS, Junos, PAN-OS, Gaia) - every platform's; each
+# platform declares its own (PLATFORMS' negation)
 NEGATION = {"no", "undo", "unset", "delete"}
 _WORD = re.compile(r"([a-z]*)(.*)", re.S)
 
@@ -51,10 +53,11 @@ def first_word(command: str) -> str:
 	return (normalize(command).split() or [""])[0]
 
 
-def navigates(word: str) -> bool:
-	""":returns: whether a command's first word only moves between config
+def navigates(word: str, navigation: Collection[str] = NAVIGATION) -> bool:
+	""":param navigation: the platform's navigation words
+	:returns: whether a command's first word only moves between config
 	 modes (exit, end, quit, … - also IOS exit-address-family, exit-vrf)"""
-	return word in NAVIGATION or word.startswith("exit-")
+	return word in navigation or word.startswith("exit-")
 
 
 def words(text: str) -> list[str]:
@@ -123,14 +126,16 @@ class Line:
 		return (*self.path, self.text)
 
 
-def parse(config: str, flat: bool = False) -> list[Line]:
+def parse(config: str, flat: bool = False, navigation: Collection[str] = NAVIGATION) -> list[Line]:
 	"""The config as lines with their sections. Indented configs nest by
 	indentation; comment lines ('!', '#') are left out, at column 0 also
 	closing any open section (Comware indents its top-level lines after
 	'#'); block-closing lines (FortiOS "next" / "end") are left out. A flat
 	config (one full "set …" line per setting) has no sections.
 
-	:param flat: Junos display set, PAN-OS set format, Gaia"""
+	:param flat: Junos display set, PAN-OS set format, Gaia
+	:param navigation: the platform's navigation words (its block-closing
+	 lines are left out)"""
 	lines: list[Line] = []
 	stack: list[tuple[int, str]] = []
 	for row in config.splitlines():
@@ -148,7 +153,7 @@ def parse(config: str, flat: bool = False) -> list[Line]:
 		while stack and stack[-1][0] >= indent:
 			stack.pop()
 		text = normalize(raw)
-		if navigates(first_word(raw)):
+		if navigates(first_word(raw), navigation):
 			continue
 		lines.append(Line(tuple(t for _, t in stack), text, raw))
 		stack.append((indent, text))
@@ -302,7 +307,8 @@ class _Typed:
 	exec_: bool = False
 
 
-def _typed(commands: list[str], flat: bool, exec_words: Sequence[str] = ()) -> list[_Typed]:
+def _typed(commands: list[str], flat: bool, exec_words: Sequence[str] = (),
+           navigation: Collection[str] = NAVIGATION) -> list[_Typed]:
 	"""The commands as judged. Flat configs (Junos, PAN-OS): "edit" / "exit"
 	/ "top" move the path that relative "set" / "delete" commands extend;
 	"up" climbs hierarchy levels, which the path's words can't count - after
@@ -310,7 +316,8 @@ def _typed(commands: list[str], flat: bool, exec_words: Sequence[str] = ()) -> l
 	their own words. A command after "top" / "up [N]" on the same line runs
 	there and is judged.
 
-	:param exec_words: the platform's exec commands' first words"""
+	:param exec_words: the platform's exec commands' first words
+	:param navigation: the platform's navigation words"""
 	out: list[_Typed] = []
 	prefix: list[tuple[str, ...]] | None = []
 	for command in commands:
@@ -319,7 +326,7 @@ def _typed(commands: list[str], flat: bool, exec_words: Sequence[str] = ()) -> l
 		if word and word in exec_words:
 			out.append(_Typed(command, typed, False, True))
 		elif not flat or not typed:
-			out.append(_Typed(command, typed, not typed or navigates(word)))
+			out.append(_Typed(command, typed, not typed or navigates(word, navigation)))
 		elif word in ("top", "up") and len(typed) > 1 and not (word == "up" and len(typed) == 2
 		                                                         and typed[1].isdigit()):
 			# "top set system host-name x", "up 2 activate system": the rest runs there
@@ -335,7 +342,7 @@ def _typed(commands: list[str], flat: bool, exec_words: Sequence[str] = ()) -> l
 		elif word == "up":
 			prefix = None
 			out.append(_Typed(command, typed, True))
-		elif navigates(word):
+		elif navigates(word, navigation):
 			prefix = prefix[:-1] if prefix is not None else None
 			out.append(_Typed(command, typed, True))
 		elif word in ("set", "delete"):
@@ -356,8 +363,10 @@ class _Judge:
 
 	def __init__(self, before: list[Line], after: list[Line], churn: Noise,
 	             blocks: bool, replied: Sequence[bool] = (),
-	             view: list[Line] | None = None) -> None:
+	             view: list[Line] | None = None,
+	             negation: Collection[str] = NEGATION) -> None:
 		diff = compare(before, after)
+		self.negation = negation
 		self.replied = replied
 		# the configuration shown with its defaults (None: not fetched)
 		self.view = view or []
@@ -394,7 +403,7 @@ class _Judge:
 			elif command.navigation:
 				self._navigate(command)
 				results.append(Judgment(command.sent, Verdict.NAVIGATION))
-			elif command.words[0] in NEGATION:
+			elif command.words[0] in self.negation:
 				results.append(self._removal(i, command))
 			else:
 				following = next((c.words for c in commands[i + 1:]
@@ -458,7 +467,7 @@ class _Judge:
 		# domain lookup" took effect - a default the device doesn't print)
 		for path in self._levels():
 			for index, line in enumerate(self.removed):
-				if self._at(line, path) and line.words[:1] and line.words[0] in NEGATION \
+				if self._at(line, path) and line.words[:1] and line.words[0] in self.negation \
 						and matches(typed, line.words[1:]):
 					self.claims_removed.setdefault(index, []).append(i)
 					return Judgment(command.sent, Verdict.TOOK_EFFECT, (f"- {line.raw}",),
@@ -655,7 +664,8 @@ class _Judge:
 def judge(commands: list[str], before: str, after: str, *, flat: bool = False,
           blocks: bool = False, again: str | None = None,
           replied: Sequence[bool] = (), exec_words: Sequence[str] = (),
-          defaults: str | None = None) -> Outcome:
+          defaults: str | None = None, navigation: Collection[str] = NAVIGATION,
+          negation: Collection[str] = NEGATION) -> Outcome:
 	"""Judge a push by the device's configuration before and after it.
 
 	Each command is placed in its section by the commands before it (a
@@ -693,11 +703,14 @@ def judge(commands: list[str], before: str, after: str, *, flat: bool = False,
 	:param exec_words: the platform's exec commands' first words
 	:param defaults: the configuration shown with its defaults, for the
 	 unproven commands' sections (Platform.defaults); None: not fetched
+	:param navigation: the platform's navigation words
+	:param negation: the platform's removal words
 	:returns: the verdicts, and the changes no command explains"""
-	b, a = parse(before, flat), parse(after, flat)
-	churn = noise(a, parse(again, flat)) if again is not None else set()
-	view = parse(defaults, flat) if defaults else None
-	return _Judge(b, a, churn, blocks, replied, view).run(_typed(commands, flat, exec_words))
+	b, a = parse(before, flat, navigation), parse(after, flat, navigation)
+	churn = noise(a, parse(again, flat, navigation)) if again is not None else set()
+	view = parse(defaults, flat, navigation) if defaults else None
+	return _Judge(b, a, churn, blocks, replied, view, negation).run(
+		_typed(commands, flat, exec_words, navigation))
 
 
 def _where(line: Line) -> str:

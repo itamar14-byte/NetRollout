@@ -12,11 +12,12 @@ import re
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable
 from contextlib import AbstractContextManager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Protocol, cast
 
 from netmiko.exceptions import ReadTimeout
 
+from src.rollout.evidence import NAVIGATION, NEGATION
 from src.rollout.log import Tone
 
 
@@ -326,6 +327,11 @@ def fortios_blocks(sections: Iterable[Section]) -> list[str]:
 	return fetches
 
 
+# The grammar table's columns (Platform.row; the user guide and the design
+# report show it)
+COLUMNS = ("read", "left_out", "saved", "layout", "navigation", "removal", "exec", "defaults", "events")
+
+
 def one_line(output: object, command: str) -> str:
 	""":returns: a reply's lines on one line, its echo left out (for a log line)"""
 	return " | ".join(line.strip() for line in str(output).splitlines()
@@ -346,6 +352,10 @@ class Platform:
 	show_config: tuple[str, ...] = ("show running-config",)
 	flat: bool = False         # one "set …" line per setting, no sections
 	close_blocks: bool = False  # FortiOS: an open config block is discarded
+	# the words that leave or close a section, and that remove (evidence's
+	# NAVIGATION / NEGATION are every platform's together)
+	navigation: frozenset[str] = frozenset(NAVIGATION)
+	negation: frozenset[str] = frozenset(NEGATION)
 	# lines show_config prints that aren't the configuration and change by
 	# themselves (IOS "Current configuration : 1290 bytes", IOS-XR's time
 	# stamp above every show's output): a line matching it is left out
@@ -360,6 +370,30 @@ class Platform:
 	defaults: DefaultsFetch = no_defaults
 	# the shapes of a logged event line (EVENTS and the platform's own)
 	events: re.Pattern[str] = EVENTS
+	# section 5's row (row()): what can't be read off the fields above, in
+	# words (read, left_out, saved, events; any column may be said
+	# differently), and where each column's fact comes from - "lab"
+	# (verified on a device), "doc" (documented), "inferred", "unverified"
+	about: dict[str, str] = field(default_factory=dict)
+	sources: dict[str, str] = field(default_factory=dict)
+
+	def row(self) -> dict[str, str]:
+		""":returns: the platform's row in the grammar table (COLUMNS), in
+		 words - each column also has its source in `sources`"""
+		layout = ("flat set lines" if self.flat else "config / edit blocks" if self.close_blocks
+		          else "indented sections")
+		derived = {"read": " / ".join(self.show_config), "layout": layout,
+		           "navigation": ", ".join(sorted(self.navigation)) or "none (no configuration mode)",
+		           "removal": ", ".join(sorted(self.negation)), "exec": ", ".join(self.exec_words),
+		           "defaults": " / ".join(self.defaults([()])) or "none"}
+		return {column: self.about.get(column, derived.get(column, "")) for column in COLUMNS}
+
+	@property
+	def grammar(self) -> dict[str, Any]:
+		""":returns: the judge's grammar arguments for this platform
+		 (evidence.judge: flat, blocks, exec words, navigation, removals)"""
+		return {"flat": self.flat, "blocks": self.close_blocks, "exec_words": self.exec_words,
+		        "navigation": self.navigation, "negation": self.negation}
 
 	def config(self, output: str) -> str:
 		""":returns: show_config's output without its framing lines"""
@@ -420,6 +454,52 @@ class Platform:
 
 		:returns: (the command asked, its answer) when it isn't; None when
 		 it is, or the platform has no such state"""
+		return None
+
+
+@dataclass(frozen=True)
+class PanOS(Platform):
+	"""PAN-OS: the configuration as set lines is a configure-mode "show"
+	once the session's output format is set - the documented way (the
+	operational "show config running" isn't documented to honour it). In
+	configure mode "show" prints the candidate: before the push, the
+	running configuration plus anyone's pending edits; after our commit,
+	the running one - pending edits are in both reads, never taken for
+	ours. No enable step (Netmiko: NoEnable). Not yet run on a device."""
+
+	def prepare(self, conn: ConfigSession) -> str | None:
+		conn.send_command("set cli config-output-format set")
+		return None
+
+	def read_config(self, conn: ConfigSession) -> str:
+		conn.config_mode()
+		try:
+			output = cast(str, conn.send_command("show", read_timeout=FETCH_TIMEOUT))
+		finally:
+			conn.exit_config_mode()
+		return self.config(output)
+
+
+@dataclass(frozen=True)
+class IosXr(Platform):
+	"""IOS-XR prints a time stamp above every show's output ("Thu Oct 21
+	10:00:00.123 UTC"): switched off for the session, as Oxidized does - the
+	framing pattern stays for a device that ignores it. No enable step
+	(Netmiko: NoEnable)."""
+
+	def prepare(self, conn: ConfigSession) -> str | None:
+		conn.send_command("terminal exec prompt no-timestamp")
+		return None
+
+
+@dataclass(frozen=True)
+class Comware(Platform):
+	"""HP Comware has no enable step: Netmiko's enable() for it is
+	"system-view", its configuration view. The session stays in user view
+	until enter_config ("display" and "save" work in any view; Netmiko's
+	save_config enters system-view itself)."""
+
+	def prepare(self, conn: ConfigSession) -> str | None:
 		return None
 
 
@@ -518,67 +598,151 @@ _XR_FRAMING = re.compile(r"Building configuration|[A-Z][a-z]{2} [A-Z][a-z]{2} +\
 # Every row declares its grammar in full: exec words, how it shows its
 # defaults (no_defaults where there's no documented or verified way: those
 # commands stay in review), the shapes of its event lines.
+# Each platform's words that leave or close a section, and that remove.
+# "quit" closes IOS's "crypto pki certificate chain"; IOS-XR closes
+# route-policies, sets and groups at column 0; Junos / PAN-OS "edit" is
+# followed by _typed; Gaia has no configuration mode
+_CISCO_NAV = frozenset({"exit", "end", "quit"})
+_XR_NAV = frozenset({"exit", "end", "root", "abort", "end-policy", "end-set", "end-group"})
+_COMWARE_NAV = frozenset({"quit", "return"})
+_SET_NAV = frozenset({"exit", "quit", "top", "up"})
+_FORTIOS_NAV = frozenset({"next", "end", "abort"})
+_NO, _UNDO, _DELETE = frozenset({"no"}), frozenset({"undo"}), frozenset({"delete"})
+
 _CISCO_EXEC = ("do",)
 # NX-OS, EOS and AOS-CX run exec commands in config mode without "do" (EOS
 # and AOS-CX documented; AOS-CX: "with or without using the do command")
 _CONFIG_EXEC = ("do", "show", "copy", "write", "ping", "traceroute", "clear")
 _RUN_ALL = whole_config("show running-config all")
 
-PLATFORMS = {
+PLATFORMS: dict[str, Platform] = {
 	# IOS, IOS-XE, NX-OS: "show running-config all" verified in the lab (IOS
 	# 12.4, NX-OS 7.3); IOS-XE documented as IOS
-	"cisco_ios": Platform(SaveConfig(), framing=_IOS_FRAMING, show_saved="show startup-config",
-	                      exec_words=_CISCO_EXEC, defaults=_RUN_ALL),
-	"cisco_xe": Platform(SaveConfig(), framing=_IOS_FRAMING, show_saved="show startup-config",
-	                     exec_words=_CISCO_EXEC, defaults=_RUN_ALL),
-	"cisco_nxos": Platform(SaveConfig(), show_saved="show startup-config",
-	                       exec_words=_CONFIG_EXEC, defaults=_RUN_ALL),
+	"cisco_ios": Platform(
+		SaveConfig(), framing=_IOS_FRAMING, show_saved="show startup-config",
+		exec_words=_CISCO_EXEC, defaults=_RUN_ALL, navigation=_CISCO_NAV, negation=_NO,
+		about={"left_out": "Current configuration : N; ntp clock-period (written by IOS, drifts)",
+		       "saved": "write mem; show startup-config",
+		       "events": "*/. time stamps, uptime stamps, sequence numbers, %FAC-N-MNEMONIC"},
+		sources={"read": "lab", "left_out": "doc", "saved": "doc", "layout": "lab", "navigation": "doc",
+		         "removal": "lab", "exec": "lab", "defaults": "lab", "events": "doc"}),
+	"cisco_xe": Platform(
+		SaveConfig(), framing=_IOS_FRAMING, show_saved="show startup-config",
+		exec_words=_CISCO_EXEC, defaults=_RUN_ALL, navigation=_CISCO_NAV, negation=_NO,
+		about={"left_out": "as IOS", "saved": "write mem; show startup-config", "events": "as IOS"},
+		sources={"read": "doc", "left_out": "doc", "saved": "doc", "layout": "doc", "navigation": "doc",
+		         "removal": "doc", "exec": "doc", "defaults": "doc", "events": "doc"}),
+	"cisco_nxos": Platform(
+		SaveConfig(), show_saved="show startup-config",
+		exec_words=_CONFIG_EXEC, defaults=_RUN_ALL, navigation=_CISCO_NAV, negation=_NO,
+		about={"left_out": "nothing (its header lines are ! comments)",
+		       "saved": "copy running-config startup-config; show startup-config",
+		       "exec": "do, show (lab); copy, write, ping, traceroute, clear (inferred)",
+		       "events": "2026 Oct 21 10:00:00 … %ETHPORT-5-IF_UP"},
+		sources={"read": "lab", "left_out": "lab", "saved": "doc", "layout": "lab", "navigation": "doc",
+		         "removal": "lab", "exec": "lab", "defaults": "lab", "events": "lab"}),
 	# a failed commit reverts the running config; leaving config mode
 	# (Netmiko answers "no" to "commit them?") drops the pending changes.
 	# No documented defaults view
-	"cisco_xr": Platform(Commit(reverts_on_failure=True), framing=_XR_FRAMING,
-	                     exec_words=("do", "show"), events=_XR_EVENTS),
+	"cisco_xr": IosXr(
+		Commit(reverts_on_failure=True), framing=_XR_FRAMING,
+		exec_words=("do", "show"), events=_XR_EVENTS, navigation=_XR_NAV, negation=_NO,
+		about={"left_out": "the time stamp above every show (switched off: terminal exec prompt "
+		                   "no-timestamp)",
+		       "saved": "commit (atomic: a failure reverts); no startup configuration",
+		       "defaults": "none (none documented)",
+		       "events": "RP/0/RP0/CPU0:Oct 21 10:00:00.123 UTC: … (a year first: inferred)"},
+		sources={"read": "doc", "left_out": "doc", "saved": "doc", "layout": "doc", "navigation": "doc",
+		         "removal": "doc", "exec": "doc", "defaults": "unverified", "events": "doc"}),
 	# "show running-config all": EOS (Ansible's eos_config defaults; Arista
 	# also documents "show active all"), AOS-CX ("all: Shows all default
 	# values for the current running configuration")
-	"arista_eos": Platform(SaveConfig(), show_saved="show startup-config",
-	                       exec_words=_CONFIG_EXEC, defaults=_RUN_ALL),
-	"aruba_aoscx": AosCx(SaveConfig(), show_saved="show startup-config",
-	                        exec_words=_CONFIG_EXEC, defaults=_RUN_ALL),
+	"arista_eos": Platform(
+		SaveConfig(), show_saved="show startup-config",
+		exec_words=_CONFIG_EXEC, defaults=_RUN_ALL, navigation=_CISCO_NAV, negation=_NO,
+		about={"left_out": "nothing (! comments)", "saved": "copy running-config startup-config",
+		       "events": "Oct 21 10:00:00 sw1 Ebra: %LINEPROTO-5-UPDOWN; ISO stamps"},
+		sources={"read": "doc", "left_out": "doc", "saved": "doc", "layout": "doc", "navigation": "doc",
+		         "removal": "doc", "exec": "doc", "defaults": "doc", "events": "doc"}),
+	"aruba_aoscx": AosCx(
+		SaveConfig(), show_saved="show startup-config",
+		exec_words=_CONFIG_EXEC, defaults=_RUN_ALL, navigation=_CISCO_NAV, negation=_NO,
+		about={"left_out": "nothing (Current configuration: never changes)",
+		       "saved": "copy running-config startup-config ('end' first to leave config mode)",
+		       "events": "ISO stamps"},
+		sources={"read": "doc", "left_out": "doc", "saved": "doc", "layout": "doc", "navigation": "doc",
+		         "removal": "doc", "exec": "doc", "defaults": "doc", "events": "inferred"}),
 	# ProCurve's config levels have the Operator and Manager commands; no
 	# defaults view (every view shows only what differs from the default)
-	"hp_procurve": Platform(SaveConfig(), show_saved="show config",
-	                        exec_words=("show", "write", "ping", "copy", "traceroute", "boot", "reload"),
-	                        events=_PROCURVE_EVENTS),
+	"hp_procurve": Platform(
+		SaveConfig(), show_saved="show config",
+		exec_words=("show", "write", "ping", "copy", "traceroute", "boot", "reload"),
+		events=_PROCURVE_EVENTS, navigation=_CISCO_NAV, negation=_NO,
+		about={"left_out": "nothing (its header changes only with firmware)",
+		       "saved": "write memory; show config", "layout": "indented sections, closed by exit",
+		       "defaults": "none (every view shows only non-defaults)",
+		       "events": "I 10/21/26 10:00:00 … (the event log's shape)"},
+		sources={"read": "doc", "left_out": "inferred", "saved": "doc", "layout": "doc", "navigation": "doc",
+		         "removal": "doc", "exec": "doc", "defaults": "doc", "events": "doc"}),
 	# Comware: display / save in any view (ping / tracert too on V7);
 	# "display current-configuration" has no "all" in V7 - not relied on
-	"hp_comware": Platform(SaveConfig(), ("display current-configuration",),
-	                       show_saved="display saved-configuration",
-	                       exec_words=("display", "save", "ping", "tracert"), events=_COMWARE_EVENTS),
-	# private: our commit can't take other users' pending edits along, and
-	# our rollback can't wipe them (Junos refuses it while someone has
-	# uncommitted shared edits - the device then fails, with the reason).
+	"hp_comware": Comware(
+		SaveConfig(), ("display current-configuration",), show_saved="display saved-configuration",
+		exec_words=("display", "save", "ping", "tracert"), events=_COMWARE_EVENTS,
+		navigation=_COMWARE_NAV, negation=_UNDO,
+		about={"left_out": "nothing", "saved": "save force; display saved-configuration",
+		       "layout": "views, # separators", "exec": "display, save (doc); ping, tracert (inferred)",
+		       "defaults": "none (no 'all' in V7)", "events": "%Oct 21 … / #… traps / %0.1… before the clock"},
+		sources={"read": "doc", "left_out": "doc", "saved": "doc", "layout": "doc", "navigation": "doc",
+		         "removal": "doc", "exec": "doc", "defaults": "doc", "events": "doc"}),
 	# configuration mode's own non-configuration commands: run, show, status,
 	# help, save (to a file); defaults aren't shown as set lines
-	"juniper_junos": Junos(Commit(discard=("rollback 0",), pending="show | compare"),
-	                       ("show configuration | display set",), flat=True,
-	                       exec_words=("run", "show", "status", "help", "save")),
+	"juniper_junos": Junos(
+		Commit(discard=("rollback 0",), pending="show | compare"), ("show configuration | display set",),
+		flat=True, exec_words=("run", "show", "status", "help", "save"),
+		navigation=_SET_NAV, negation=_DELETE,
+		about={"left_out": "nothing (## comments)",
+		       "saved": "commit in configure private; discard rollback 0, check show | compare",
+		       "navigation": "edit, exit, quit, top, up (the path unknown after up)",
+		       "events": "Message from syslogd@…"},
+		sources={"read": "doc", "left_out": "doc", "saved": "doc", "layout": "doc", "navigation": "doc",
+		         "removal": "doc", "exec": "doc", "defaults": "doc", "events": "inferred"}),
 	# revert config (8.0+); loading the running config into the candidate
-	# discards too, also on older releases
-	"paloalto_panos": Platform(Commit(discard=(
-		"revert config", "load config from running-config.xml"),
-		pending="run show config diff"),
-		("set cli config-output-format set", "show config running"), flat=True,
-		exec_words=("run", "show", "check", "validate", "find", "save")),
-	# An account whose shell is expert (bash) would take every "set …" as
-	# bash's own set builtin (nothing configured, nothing refused): switch to
-	# clish first, or refuse - and never enable() (its expert shell). "lock
-	# database override" opens most snippets
-	"checkpoint_gaia": Gaia(RunCommand("save config"), ("show configuration",), flat=True,
-	                        exec_words=("show", "lock", "unlock", "save")),
-	"fortinet": FortiOS(NoFinish(), ("show",), close_blocks=True,
-	                     exec_words=("get", "show", "execute", "diagnose", "tree", "sudo", "fnsysctl"),
-	                     defaults=fortios_blocks),
+	# discards too, also on older releases. Both act on the shared candidate
+	"paloalto_panos": PanOS(
+		Commit(discard=("revert config", "load config from running-config.xml"),
+		       pending="run show config diff"),
+		("show",), flat=True, framing=re.compile(r"\[edit"),
+		exec_words=("run", "show", "check", "validate", "find", "save"),
+		navigation=_SET_NAV, negation=_DELETE,
+		about={"read": "set cli config-output-format set, then configure / show (the candidate)",
+		       "left_out": "the [edit] banner",
+		       "saved": "commit; discard revert config, check run show config diff (the shared candidate)",
+		       "navigation": "edit, exit, quit, top, up (the path unknown after up)",
+		       "events": "none known"},
+		sources={"read": "unverified", "left_out": "doc", "saved": "doc", "layout": "doc", "navigation": "doc",
+		         "removal": "doc", "exec": "doc", "defaults": "doc", "events": "unverified"}),
+	# "lock database override" opens most snippets
+	"checkpoint_gaia": Gaia(
+		RunCommand("save config"), ("show configuration",), flat=True,
+		exec_words=("show", "lock", "unlock", "save"), navigation=frozenset(), negation=_DELETE,
+		about={"left_out": "nothing (# header)",
+		       "saved": "save config; show config-state's last line = saved; never enable() (the expert shell)",
+		       "layout": "flat set / add lines", "events": "Broadcast message from …"},
+		sources={"read": "doc", "left_out": "doc", "saved": "doc", "layout": "doc", "navigation": "doc",
+		         "removal": "doc", "exec": "doc", "defaults": "doc", "events": "inferred"}),
+	# Netmiko sets the console output to "standard" for the session (when it
+	# was "more") and puts it back at logout - the same in both reads
+	"fortinet": FortiOS(
+		NoFinish(), ("show",), close_blocks=True,
+		exec_words=("get", "show", "execute", "diagnose", "tree", "sudo", "fnsysctl"),
+		defaults=fortios_blocks, navigation=_FORTIOS_NAV, negation=frozenset({"unset", "delete"}),
+		about={"left_out": "nothing (#config-version comments)",
+		       "saved": "live; execute cfg save when cfg-save is manual / revert",
+		       "defaults": "show full-configuration <section> (not under vdom / global)",
+		       "events": "none seen"},
+		sources={"read": "lab", "left_out": "lab", "saved": "doc", "layout": "lab", "navigation": "doc",
+		         "removal": "lab", "exec": "lab", "defaults": "lab", "events": "lab"}),
 }
 
 # PAN-OS commits can take minutes; Netmiko waits 120 s by default

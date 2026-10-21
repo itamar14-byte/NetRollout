@@ -167,12 +167,15 @@ class TestDeviceFetchConfig(unittest.TestCase):
 	@patch("netmiko.ConnectHandler")
 	def test_every_platform_has_a_show_command(self, mock_ch):
 		"""For every platform in PLATFORMS, fetch_config sends exactly that
-		platform's show_config commands, in order."""
+		platform's show_config commands, in order - after its session
+		preparation's own (IOS-XR: the time stamp off; PAN-OS: set format)."""
+		prepared = {"cisco_xr": ["terminal exec prompt no-timestamp"],
+		            "paloalto_panos": ["set cli config-output-format set"]}
 		for device_type, platform in PLATFORMS.items():
 			conn = self._connection(mock_ch, output="set x")
 			fetch_config(make_device(device_type=device_type), self.logger)
 			sent = [c.args[0] for c in conn.send_command.call_args_list]
-			self.assertEqual(sent, list(platform.show_config), device_type)
+			self.assertEqual(sent, prepared.get(device_type, []) + list(platform.show_config), device_type)
 
 	@patch("netmiko.ConnectHandler")
 	def test_returns_none_on_connection_exception(self, mock_ch):

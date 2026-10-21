@@ -2,8 +2,10 @@
 command is recognised, and the verify verdicts against the config as each
 platform prints it (fixtures approximate real output; the EVE-NG round is
 the real-device check)."""
+import re
 import threading
 import uuid
+from pathlib import Path
 from unittest.mock import MagicMock, call, patch
 
 import netmiko
@@ -14,8 +16,8 @@ from src.rollout.engine import Device, RolloutEngine, RolloutOptions
 from src.rollout.evidence import Verdict, first_word, judge
 from src.rollout.log import RolloutLogger
 from src.rollout.platforms import (
-	COMMIT_TIMEOUT, EVENTS, PLATFORMS, Commit, CommitPending, NoFinish, RunCommand, SaveConfig, fortios_blocks,
-	no_defaults)
+	COLUMNS, COMMIT_TIMEOUT, EVENTS, FETCH_TIMEOUT, PLATFORMS, Commit, CommitPending, NoFinish, RunCommand,
+	SaveConfig, fortios_blocks, no_defaults)
 from src.rollout.session import NetmikoSession, PushResult, RunReport, _new_session, reply
 
 
@@ -212,13 +214,15 @@ def connection(prompt="r1#", vdoms=False, cfg_save="automatic"):
 
 
 def finish_calls(conn):
-	"""The calls that finish the push (commit, save, leaving config mode, sends), minus
-	the pushed command itself."""
-	return [c for c in conn.method_calls
+	"""The calls that finish the push (commit, save, leaving config mode, sends): those
+	after the pushed command (before it, the session's preparation - IOS-XR's and
+	PAN-OS's send commands of their own)."""
+	pushed = call.send_config_set(["hostname x"], enter_config_mode=False, exit_config_mode=False)
+	calls = conn.method_calls
+	after = calls[calls.index(pushed) + 1:] if pushed in calls else calls
+	return [c for c in after
 	        if c[0] in ("commit", "exit_config_mode", "save_config",
-	                    "send_command", "send_config_set", "send_command_timing")
-	        and c != call.send_config_set(["hostname x"], enter_config_mode=False,
-	                                    exit_config_mode=False)]
+	                    "send_command", "send_config_set", "send_command_timing")]
 
 
 @pytest.mark.parametrize("device_type", [t for t, p in PLATFORMS.items()
@@ -583,6 +587,11 @@ def test_the_session_is_closed_when_the_push_fails_half_way():
 	conn.disconnect.assert_called_once()
 
 
+# what a platform's session preparation sends before anything else (Platform.prepare)
+PREPARATION = {"cisco_xr": ("terminal exec prompt no-timestamp",),
+               "paloalto_panos": ("set cli config-output-format set",)}
+
+
 @pytest.mark.parametrize("device_type, under, line, commands, verdicts", INSERTS,
                          ids=[i[0] for i in INSERTS])
 def test_the_whole_rollout_on_each_platform(device_type, under, line, commands, verdicts):
@@ -597,6 +606,7 @@ def test_the_whole_rollout_on_each_platform(device_type, under, line, commands, 
 	                          "checkpoint_gaia": "gw-1>"}.get(device_type, "r1#"))
 	reads = iter([before] * len(platform.show_config) + [after] * 20)
 	conn.send_command.side_effect = lambda command, **_: (
+		"" if command in PREPARATION.get(device_type, ()) else
 		"saved" if command == "show config-state" else
 		after if command == platform.show_saved else next(reads))
 	device = Device(ip="10.0.0.1", label="d", username="u", password="p",
@@ -1331,3 +1341,82 @@ def test_flat_paths_after_top_and_up(commands, judged):
 	as navigation; "up" climbs levels the path's words can't count."""
 	typed = evidence._typed(commands, flat=True)
 	assert typed[-1].words == judged and not typed[-1].navigation
+
+
+# ── each platform a dialect class: its row, its session, its words ──
+
+def test_every_platform_fills_its_row_with_a_source_for_each_column():
+	"""Section 5's table comes from the classes: every column said, every fact's
+	source named (lab / doc / inferred / unverified)."""
+	for name, platform in PLATFORMS.items():
+		row = platform.row()
+		assert set(row) == set(COLUMNS) and all(row.values()), name
+		assert set(platform.sources) == set(COLUMNS), name
+		assert set(platform.sources.values()) <= {"lab", "doc", "inferred", "unverified"}, name
+
+
+def test_panos_reads_set_lines_in_configure_mode():
+	"""The session's output format set once at the start, then each read in
+	configure mode - "show", then out again; its [edit] banner left out."""
+	conn = MagicMock()
+	conn.send_command.side_effect = lambda command, **_: (
+		"[edit]\nset deviceconfig system hostname fw1\n[edit]" if command == "show" else "")
+	panos = PLATFORMS["paloalto_panos"]
+	assert panos.prepare(conn) is None
+	assert panos.read_config(conn) == "set deviceconfig system hostname fw1"
+	assert conn.method_calls == [call.send_command("set cli config-output-format set"), call.config_mode(),
+	                             call.send_command("show", read_timeout=FETCH_TIMEOUT), call.exit_config_mode()]
+
+
+def test_panos_leaves_configure_mode_even_when_the_read_fails():
+	conn = MagicMock()
+	conn.send_command.side_effect = OSError("timed out")
+	with pytest.raises(OSError):
+		PLATFORMS["paloalto_panos"].read_config(conn)
+	conn.exit_config_mode.assert_called_once()
+
+
+@pytest.mark.parametrize("device_type, calls", [
+	("cisco_xr", [call.send_command("terminal exec prompt no-timestamp")]),
+	("hp_comware", []),                       # its enable() is system-view: never
+	("cisco_ios", [call.enable()]),
+])
+def test_each_platform_prepares_its_session_its_own_way(device_type, calls):
+	conn = MagicMock()
+	assert PLATFORMS[device_type].prepare(conn) is None
+	assert conn.method_calls == calls
+
+
+@pytest.mark.parametrize("device_type, removal", [
+	("cisco_ios", "no snmp-server location"), ("hp_comware", "undo snmp-agent sys-info location"),
+	("juniper_junos", "delete snmp location"), ("fortinet", "unset alias")])
+def test_each_platforms_own_removal_words_reach_the_judge(device_type, removal):
+	"""A removal is the platform's own word: "undo" on Comware, not on IOS."""
+	platform = PLATFORMS[device_type]
+	word = removal.split()[0]
+	assert word in platform.negation
+	others = {"no", "undo", "delete", "unset"} - set(platform.negation)
+	config = "hostname x\n"
+	for other in others:
+		# another platform's removal word is no removal here: not "already absent"
+		judged = judge([f"{other} {removal.split(' ', 1)[1]}"], config, config, **platform.grammar)
+		assert judged.commands[0].note != "already absent", (device_type, other)
+	assert judge([removal], config, config, **platform.grammar).commands[0].note == "already absent"
+
+
+def test_the_user_guide_table_says_what_the_classes_declare():
+	"""The user guide's platform table: each platform's exec words and defaults
+	view, as its class declares them."""
+	guide = (Path(__file__).parents[3] / "docs" / "user-guide.md").read_text(encoding="utf-8")
+	rows = {line.split("|")[1].strip().strip("`"): line.split("|")
+	        for line in guide.splitlines() if line.startswith("| `") and line.count("|") == 6}
+	for name, platform in PLATFORMS.items():
+		cells = rows[name]
+		assert re.findall(r"`([^`]+)`", cells[5]) == list(platform.exec_words), name
+		shown = re.findall(r"`([^`]+)`", cells[4])
+		if platform.defaults is no_defaults:
+			assert cells[4].strip() == "none", name
+		elif platform.defaults is fortios_blocks:
+			assert shown == ["show full-configuration <section>"], name
+		else:
+			assert shown == platform.defaults([()]), name
