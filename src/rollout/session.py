@@ -8,12 +8,11 @@ from __future__ import annotations   # type hints are never evaluated
 
 import difflib
 import io
-import re
 import time
 from collections import Counter
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any, NamedTuple, Protocol, cast
+from typing import TYPE_CHECKING, Any, NamedTuple, Protocol
 
 import netmiko
 
@@ -21,8 +20,8 @@ from src.rollout.address import is_ip, resolve
 from src.rollout.evidence import Outcome, judge, parse
 from src.rollout.log import Tone, redact
 from src.rollout.platforms import (
-	COMMIT_TIMEOUT, DEFAULTS_MAX_LINES, FETCH_TIMEOUT, PLATFORMS, CommitPending, ConfigSession, Platform,
-	Target, reply)
+	COMMIT_TIMEOUT, DEFAULTS_MAX_LINES, PLATFORMS, CommitPending, ConfigSession, Platform, Target, one_line,
+	reply)
 if TYPE_CHECKING:   # annotations only: engine.py imports this module
 	from src.rollout.engine import Device
 
@@ -112,75 +111,15 @@ def _connect_args(device: Device) -> dict[str, str | int]:
 	}
 
 
-def _ready(conn: ConfigSession, platform: Platform) -> str | None:
-	"""A session made ready for commands: out of a wrong login shell, then
-	privileged where the platform has an enable step (Platform.enables).
-
-	:returns: the problem if the CLI shell couldn't be reached, else None"""
-	if problem := _enter_cli_shell(conn, platform):
-		return problem
-	if platform.enables:
-		conn.enable()
-	return None
-
-
 @contextmanager
 def _new_session(device: Device, platform: Platform) -> Iterator[ConfigSession]:
-	""":returns: a new session to the device, ready for commands (_ready)
-	:raises RuntimeError: the CLI shell couldn't be reached"""
+	""":returns: a new session to the device, ready for commands
+	 (Platform.prepare)
+	:raises RuntimeError: it couldn't be made ready"""
 	with netmiko.ConnectHandler(**_connect_args(device)) as conn:
-		if problem := _ready(conn, platform):
+		if problem := platform.prepare(conn):
 			raise RuntimeError(problem)
 		yield conn
-
-
-def _enter_cli_shell(conn: ConfigSession, platform: Platform) -> str | None:
-	"""Leave a wrong login shell (Gaia expert / bash) for the CLI.
-
-	:returns: the problem if the CLI shell couldn't be reached, else None"""
-	if not platform.wrong_shell:
-		return None
-
-	def wrong(prompt: str) -> bool:
-		prompt = prompt.strip().lower()
-		return any(prompt.endswith(m) if m == "#" else m in prompt
-		           for m in platform.wrong_shell)
-
-	if not wrong(conn.find_prompt()):
-		return None
-	if platform.cli_shell:
-		conn.send_command_timing(platform.cli_shell)
-		conn.set_base_prompt()
-		if not wrong(conn.find_prompt()):
-			return None
-	return (f"the account logs in to the wrong shell and "
-	        f"'{platform.cli_shell or '?'}' didn't leave it - set its shell to "
-	        f"clish")
-
-
-def _said(output: object, command: str) -> str:
-	""":returns: a reply's lines on one line, its echo left out (for a log line)"""
-	return " | ".join(line.strip() for line in str(output).splitlines()
-	                  if line.strip() and line.strip() != command)
-
-
-def _fortios_save_if_manual(conn: ConfigSession) -> str | None:
-	"""FortiOS saves changes automatically unless `cfg-save` is manual (lost
-	at reboot) or revert (undone after a timeout) - then save explicitly.
-	With VDOMs, the setting lives under `config global`.
-
-	:returns: the save's reply when it saved explicitly; None when the
-	 device saves by itself"""
-	vdoms = getattr(conn, "_vdoms", False)
-	if vdoms:
-		conn.send_command_timing("config global")
-	mode = conn.send_command_timing("get system global | grep cfg-save")
-	answer = None
-	if "manual" in mode or "revert" in mode:
-		answer = _said(conn.send_command_timing("execute cfg save"), "execute cfg save")
-	if vdoms:
-		conn.send_command_timing("end")
-	return answer
 
 
 class NetmikoSession:
@@ -233,26 +172,15 @@ class NetmikoSession:
 			net_connect = netmiko.ConnectHandler(**_connect_args(device), session_log=channel)
 			try:
 				report.notify(f"{device.ip} connected successfully", Tone.SUCCESS)
-				# Goes into privileged config mode, depending on the platform
-				if problem := _ready(net_connect, platform):
+				# the session brought to speak the platform's language
+				if problem := platform.prepare(net_connect):
 					report.action_needed(device, f"{problem} (nothing was sent)")
 					return PushResult(applied=False)
 				if verify:
 					before = self._snapshot(net_connect, "before the push")
-				if platform.config_command:
-					try:
-						net_connect.config_mode(
-							config_command=platform.config_command)
-					except (ValueError, netmiko.exceptions.ReadTimeout) as e:
-						report.action_needed(
-							device, f"'{platform.config_command}' was refused - "
-							f"usually another session has uncommitted changes in "
-							f"the shared configuration: commit or discard them "
-							f"(they're someone else's work), then rerun. Nothing "
-							f"was sent ({e})")
-						return PushResult(applied=False)
-				else:
-					net_connect.config_mode()
+				if problem := platform.enter_config(net_connect):
+					report.action_needed(device, problem)
+					return PushResult(applied=False)
 
 				for command in commands:
 					commands_sent = True
@@ -452,16 +380,12 @@ class NetmikoSession:
 		:returns: the views, one after the other; None: not read"""
 		device, platform = self._device, self._platform
 
-		def read(session: ConfigSession) -> str:
-			return "\n".join(platform.config(cast(str, session.send_command(
-				fetch, read_timeout=FETCH_TIMEOUT))) for fetch in fetches)
-
 		try:
 			if conn is not None:
-				view = read(conn)
+				view = platform.read_defaults(conn, fetches)
 			else:
 				with _new_session(device, platform) as new:
-					view = read(new)
+					view = platform.read_defaults(new, fetches)
 		except Exception as e:
 			self._report.notify(f"{device.endpoint}: couldn't read the configuration with "
 			                    f"its defaults ({e}) - unproven commands stay so", Tone.WARNING)
@@ -479,11 +403,7 @@ class NetmikoSession:
 		 can't be read (said in the log: the device is then not verified)"""
 		device, platform = self._device, self._platform
 		try:
-			output = ""
-			for command in platform.show_config:
-				# text: no parsing is asked for (TextFSM, TTP, Genie)
-				output = cast(str, conn.send_command(command, read_timeout=FETCH_TIMEOUT))
-			return platform.config(output)
+			return platform.read_config(conn)
 		except Exception as e:
 			self._report.notify(f"{device.endpoint}: couldn't read the configuration "
 			                    f"{why} - not verified ({e})", Tone.ERROR)
@@ -497,9 +417,7 @@ class NetmikoSession:
 		if not platform.show_saved or not (outcome.added or outcome.removed):
 			return
 		try:
-			saved = Counter(line.key for line in parse(
-				cast(str, conn.send_command(platform.show_saved, read_timeout=FETCH_TIMEOUT)),
-				platform.flat))
+			saved = Counter(line.key for line in parse(platform.read_saved(conn), platform.flat))
 		except Exception as e:
 			self._report.notify(f"{device.endpoint}: couldn't read the saved configuration "
 			                    f"to check the save ({e})", Tone.ERROR)
@@ -514,46 +432,31 @@ class NetmikoSession:
 			                           f"Save it on the device")
 
 	def _finish(self, conn: ConfigSession) -> bool:
-		"""Finish a pushed device the way its platform needs: close FortiOS
-		blocks (saving when cfg-save isn't automatic), then the platform's
-		Finish around leaving config mode.
+		"""Finish a pushed device the way its platform needs: what it needs
+		done in config mode first (FortiOS: close blocks, save when cfg-save
+		isn't automatic), the Finish around leaving config mode, then its
+		save state where it tells one.
 
 		:param conn: the push's open session
 		:returns: False if the change didn't take effect (a failed commit)"""
 		device, platform, report = self._device, self._platform, self._report
-		if platform.close_blocks:
-			# FortiOS applies a block at "end"; one left open is discarded
-			# (and Netmiko's own cleanup would run inside it)
-			for _ in range(10):
-				if "(" not in conn.find_prompt():
-					break
-				conn.send_command_timing("end")
-			answer = _fortios_save_if_manual(conn)
-			if answer is not None:
-				report.notify(f"{device.endpoint}: cfg-save is not automatic - saved with "
-				              f"'execute cfg save'" + (f" (the device replied: {answer})"
-				                                       if answer else ""), Tone.WARNING)
+		platform.before_finish(conn, report, device)
 		# Before leaving config mode: leaving discards uncommitted changes
 		if not platform.finish.before_leave(conn, report, device):
 			return False
-		if platform.leave_first:
-			conn.send_command_timing(platform.leave_first)
-		conn.exit_config_mode()
+		platform.leave_config(conn)
 		answer, command = platform.finish.after_leave(conn)
-		if command and (said := _said(answer, command)):
+		said = one_line(answer, command) if command else ""
+		if said:
 			report.notify(f"{device.endpoint}: '{command}' - the device replied: {said}")
-		if platform.saved_state:
-			ask, saved = platform.saved_state
-			# the last line answers: a notice may come first (Gaia's
-			# "CLINFR0771 Config lock is owned by admin")
-			state = (str(conn.send_command(ask)).strip().splitlines() or [""])[-1].strip()
-			if state.lower() != saved:
-				# the change is live either way; unsaved, it's lost at the next
-				# reboot (Gaia: the config lock held by another session)
-				report.action_needed(device, f"the change is live but NOT saved - "
-				                     f"'{ask}' answers {state!r}" + (f" after '{command}' replied: {said}"
-				                                                     if command and said else "")
-				                     + " - save it on the device")
+		if unsaved := platform.unsaved(conn):
+			# the change is live either way; unsaved, it's lost at the next
+			# reboot (Gaia: the config lock held by another session)
+			ask, state = unsaved
+			report.action_needed(device, f"the change is live but NOT saved - "
+			                     f"'{ask}' answers {state!r}" + (f" after '{command}' replied: {said}"
+			                                                     if said else "")
+			                     + " - save it on the device")
 		return True
 
 	def _finish_in_new_session(self) -> None:
@@ -567,7 +470,7 @@ class NetmikoSession:
 				              f"a new hostname)", Tone.WARNING)
 				return
 			answer, command = outcome
-			said = _said(answer, command)
+			said = one_line(answer, command)
 			report.notify(f"{device.endpoint}: prompt changed after the push (e.g. a new "
 			              f"hostname) - '{command}' sent from a new session"
 			              + (f" (the device replied: {said})" if said else ""), Tone.WARNING)

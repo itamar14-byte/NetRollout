@@ -13,7 +13,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
 from netmiko.exceptions import ReadTimeout
 
@@ -326,19 +326,26 @@ def fortios_blocks(sections: Iterable[Section]) -> list[str]:
 	return fetches
 
 
+def one_line(output: object, command: str) -> str:
+	""":returns: a reply's lines on one line, its echo left out (for a log line)"""
+	return " | ".join(line.strip() for line in str(output).splitlines()
+	                  if line.strip() and line.strip() != command)
+
+
 @dataclass(frozen=True)
 class Platform:
-	"""How a platform finishes a push and prints its config in the syntax
-	engineers type - its grammar, never what its messages mean."""
+	"""One platform's whole dialect: its grammar (how its configuration is
+	laid out and read, which words navigate, remove or run exec commands,
+	what its log lines look like, how it shows defaults) and how a session
+	is brought to speak it - the shell, privilege and modes (prepare,
+	read_config, enter_config, leave_config), the finish. Never what its
+	messages mean. The base is the common case; a platform that differs
+	overrides only that (Gaia, Junos, AosCx, FortiOS). Its methods act on
+	the session they are handed - no I/O of their own."""
 	finish: Finish
 	show_config: tuple[str, ...] = ("show running-config",)
 	flat: bool = False         # one "set …" line per setting, no sections
 	close_blocks: bool = False  # FortiOS: an open config block is discarded
-	config_command: str = ""   # instead of the driver's default config mode
-	leave_first: str = ""      # sent before leaving config mode (Aruba CX:
-	                           # Netmiko only recognises "(config)#")
-	wrong_shell: tuple[str, ...] = ()  # prompt marks of the wrong shell…
-	cli_shell: str = ""                # …and the command that leaves it
 	# lines show_config prints that aren't the configuration and change by
 	# themselves (IOS "Current configuration : 1290 bytes", IOS-XR's time
 	# stamp above every show's output): a line matching it is left out
@@ -346,18 +353,11 @@ class Platform:
 	# the saved configuration, to check a save kept the change; "" when the
 	# platform has none to show (a commit is the save; FortiOS saves itself)
 	show_saved: str = ""
-	# a command whose answer is the save state, and the value meaning saved
-	# (Gaia: "show config-state" → "saved" / "unsaved") - a value read, as
-	# FortiOS's cfg-save mode is, never a message interpreted
-	saved_state: tuple[str, str] | None = None
 	# first words that run an exec command from config mode (IOS "do show
 	# …", FortiOS "get …"): not configuration - shown, never judged
 	exec_words: tuple[str, ...] = ()
 	# how the configuration prints with its defaults (DefaultsFetch)
 	defaults: DefaultsFetch = no_defaults
-	# whether the CLI has an enable step (Netmiko's enable()); Gaia's is its
-	# expert shell - bash, where every "set" is bash's own: never entered
-	enables: bool = True
 	# the shapes of a logged event line (EVENTS and the platform's own)
 	events: re.Pattern[str] = EVENTS
 
@@ -368,6 +368,146 @@ class Platform:
 		framing = self.framing
 		return "\n".join(line for line in output.splitlines()
 		                 if not framing.match(line.strip()))
+
+	# ── how a session is brought to speak it ──
+
+	def prepare(self, conn: ConfigSession) -> str | None:
+		"""Right after login: the session made ready for commands - here,
+		privileged (Netmiko's enable()).
+
+		:returns: the problem when it can't be (nothing is sent then)"""
+		conn.enable()
+		return None
+
+	def read_config(self, conn: ConfigSession) -> str:
+		""":returns: the configuration now, in the form the judge reads,
+		 its framing left out (out of config mode)
+		:raises: Netmiko's errors when it can't be read"""
+		output = ""
+		for command in self.show_config:
+			# text: no parsing is asked for (TextFSM, TTP, Genie)
+			output = cast(str, conn.send_command(command, read_timeout=FETCH_TIMEOUT))
+		return self.config(output)
+
+	def read_saved(self, conn: ConfigSession) -> str:
+		""":returns: the saved configuration (show_saved; the platform has one)"""
+		return cast(str, conn.send_command(self.show_saved, read_timeout=FETCH_TIMEOUT))
+
+	def read_defaults(self, conn: ConfigSession, fetches: list[str]) -> str:
+		""":returns: the configuration shown with its defaults, for the
+		 commands the defaults fetch named (one view after the other)"""
+		return "\n".join(self.config(cast(str, conn.send_command(fetch, read_timeout=FETCH_TIMEOUT)))
+		                 for fetch in fetches)
+
+	def enter_config(self, conn: ConfigSession) -> str | None:
+		"""Into configuration mode, where the commands go as typed.
+
+		:returns: the problem when it was refused (nothing is sent then)"""
+		conn.config_mode()
+		return None
+
+	def before_finish(self, conn: ConfigSession, report: Report, device: Target) -> None:
+		"""After the last command, before the finish: what the platform needs
+		done in configuration mode first (nothing here)."""
+
+	def leave_config(self, conn: ConfigSession) -> None:
+		"""Out of configuration mode (after the finish's before_leave)."""
+		conn.exit_config_mode()
+
+	def unsaved(self, conn: ConfigSession) -> tuple[str, str] | None:
+		"""After the finish, where the platform tells its save state by a
+		value: whether the change is saved.
+
+		:returns: (the command asked, its answer) when it isn't; None when
+		 it is, or the platform has no such state"""
+		return None
+
+
+@dataclass(frozen=True)
+class Gaia(Platform):
+	"""Check Point Gaia (clish). An account whose login shell is expert
+	(bash) would take every "set …" as bash's own set builtin - nothing
+	configured, nothing refused: the session leaves it for clish, or the
+	device is refused. Netmiko's enable() is that expert shell: never
+	called. Saved or not is a value: "show config-state" → saved / unsaved."""
+	wrong_shell: tuple[str, ...] = ("expert@", "#")   # the prompt marks of bash…
+	cli_shell: str = "clish"                           # …and what leaves it
+	saved_state: tuple[str, str] = ("show config-state", "saved")
+
+	def prepare(self, conn: ConfigSession) -> str | None:
+		if not self._in_bash(conn.find_prompt()):
+			return None
+		conn.send_command_timing(self.cli_shell)
+		conn.set_base_prompt()
+		if not self._in_bash(conn.find_prompt()):
+			return None
+		return (f"the account logs in to the wrong shell and '{self.cli_shell}' didn't "
+		        f"leave it - set its shell to clish")
+
+	def _in_bash(self, prompt: str) -> bool:
+		prompt = prompt.strip().lower()
+		return any(prompt.endswith(m) if m == "#" else m in prompt for m in self.wrong_shell)
+
+	def unsaved(self, conn: ConfigSession) -> tuple[str, str] | None:
+		ask, saved = self.saved_state
+		# the last line answers: a notice may come first ("CLINFR0771 Config
+		# lock is owned by admin")
+		state = (str(conn.send_command(ask)).strip().splitlines() or [""])[-1].strip()
+		return None if state.lower() == saved else (ask, state)
+
+
+@dataclass(frozen=True)
+class Junos(Platform):
+	"""Junos: "configure private" - our commit can't take other users'
+	pending edits along, and our rollback can't wipe them. Junos refuses it
+	while someone has uncommitted shared edits: the device then fails, with
+	the reason."""
+	config_command: str = "configure private"
+
+	def enter_config(self, conn: ConfigSession) -> str | None:
+		try:
+			conn.config_mode(config_command=self.config_command)
+		except (ValueError, ReadTimeout) as e:
+			return (f"'{self.config_command}' was refused - usually another session has "
+			        f"uncommitted changes in the shared configuration: commit or discard "
+			        f"them (they're someone else's work), then rerun. Nothing was sent ({e})")
+		return None
+
+
+@dataclass(frozen=True)
+class AosCx(Platform):
+	"""Aruba AOS-CX: Netmiko recognises only its top-level "(config)#" prompt -
+	from a section, "end" first, or leaving config mode sends nothing."""
+
+	def leave_config(self, conn: ConfigSession) -> None:
+		conn.send_command_timing("end")
+		conn.exit_config_mode()
+
+
+@dataclass(frozen=True)
+class FortiOS(Platform):
+	"""FortiOS: a config block applies at "end" - one left open is discarded
+	(and Netmiko's own cleanup would run inside it): closed before the
+	finish. Changes are saved automatically unless cfg-save is manual (lost
+	at reboot) or revert (undone after a timeout) - then saved explicitly,
+	under "config global" with VDOMs."""
+
+	def before_finish(self, conn: ConfigSession, report: Report, device: Target) -> None:
+		for _ in range(10):
+			if "(" not in conn.find_prompt():
+				break
+			conn.send_command_timing("end")
+		vdoms = getattr(conn, "_vdoms", False)
+		if vdoms:
+			conn.send_command_timing("config global")
+		mode = conn.send_command_timing("get system global | grep cfg-save")
+		if "manual" in mode or "revert" in mode:
+			answer = one_line(conn.send_command_timing("execute cfg save"), "execute cfg save")
+			report.notify(f"{device.endpoint}: cfg-save is not automatic - saved with "
+			              f"'execute cfg save'" + (f" (the device replied: {answer})" if answer else ""),
+			              Tone.WARNING)
+		if vdoms:
+			conn.send_command_timing("end")
 
 
 # "ntp clock-period N" is written by classic IOS itself and drifts
@@ -403,7 +543,7 @@ PLATFORMS = {
 	# values for the current running configuration")
 	"arista_eos": Platform(SaveConfig(), show_saved="show startup-config",
 	                       exec_words=_CONFIG_EXEC, defaults=_RUN_ALL),
-	"aruba_aoscx": Platform(SaveConfig(), leave_first="end", show_saved="show startup-config",
+	"aruba_aoscx": AosCx(SaveConfig(), show_saved="show startup-config",
 	                        exec_words=_CONFIG_EXEC, defaults=_RUN_ALL),
 	# ProCurve's config levels have the Operator and Manager commands; no
 	# defaults view (every view shows only what differs from the default)
@@ -420,10 +560,9 @@ PLATFORMS = {
 	# uncommitted shared edits - the device then fails, with the reason).
 	# configuration mode's own non-configuration commands: run, show, status,
 	# help, save (to a file); defaults aren't shown as set lines
-	"juniper_junos": Platform(Commit(discard=("rollback 0",), pending="show | compare"),
-	                          ("show configuration | display set",), flat=True,
-	                          config_command="configure private",
-	                          exec_words=("run", "show", "status", "help", "save")),
+	"juniper_junos": Junos(Commit(discard=("rollback 0",), pending="show | compare"),
+	                       ("show configuration | display set",), flat=True,
+	                       exec_words=("run", "show", "status", "help", "save")),
 	# revert config (8.0+); loading the running config into the candidate
 	# discards too, also on older releases
 	"paloalto_panos": Platform(Commit(discard=(
@@ -435,12 +574,9 @@ PLATFORMS = {
 	# bash's own set builtin (nothing configured, nothing refused): switch to
 	# clish first, or refuse - and never enable() (its expert shell). "lock
 	# database override" opens most snippets
-	"checkpoint_gaia": Platform(RunCommand("save config"),
-	                            ("show configuration",), flat=True,
-	                            wrong_shell=("expert@", "#"), cli_shell="clish",
-	                            saved_state=("show config-state", "saved"),
-	                            exec_words=("show", "lock", "unlock", "save"), enables=False),
-	"fortinet": Platform(NoFinish(), ("show",), close_blocks=True,
+	"checkpoint_gaia": Gaia(RunCommand("save config"), ("show configuration",), flat=True,
+	                        exec_words=("show", "lock", "unlock", "save")),
+	"fortinet": FortiOS(NoFinish(), ("show",), close_blocks=True,
 	                     exec_words=("get", "show", "execute", "diagnose", "tree", "sudo", "fnsysctl"),
 	                     defaults=fortios_blocks),
 }
