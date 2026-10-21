@@ -288,3 +288,128 @@ def test_a_line_repeated_in_two_sections_takes_its_own_tag():
 def test_a_transcript_from_before_the_tags_gives_none():
 	"""A row judged before the changes were kept: no tags (the plain diff)."""
 	assert diff_tags("+ x", {"commands": [], "other_changes": []}) is None
+
+
+# ── v4.2: rejected, exec commands, negations, the defaults view ──
+
+IOS_LO = "hostname R1\ninterface Loopback1\n ip address 1.1.1.1 255.255.255.255\n"
+
+
+def test_unproven_and_replied_is_rejected_unproven_and_silent_stays_review():
+	"""Whether the device replied decides between rejected and review - not what
+	it said: the same unchanged configuration, a reply or none."""
+	replied = judge(["ntp server 192.0.2.1"], IOS_LO, IOS_LO, replied=[True]).commands[0]
+	silent = judge(["ntp server 192.0.2.1"], IOS_LO, IOS_LO, replied=[False]).commands[0]
+	assert (replied.verdict, replied.note) == (Verdict.REJECTED, "not proven by the configuration")
+	assert (silent.verdict, silent.note) == (Verdict.REVIEW, "no change in its section")
+
+
+def test_a_proven_command_stays_proven_whatever_the_device_said():
+	"""A reply never overrides the configuration (FortiOS's "new entry added")."""
+	after = IOS_LO + "snmp-server location A\n"
+	j = judge(["snmp-server location A"], IOS_LO, after, replied=[True]).commands[0]
+	assert j.verdict == Verdict.TOOK_EFFECT
+
+
+def test_a_reply_to_the_closing_command_rejects_the_silent_unproven_commands_of_its_block():
+	"""FortiOS discards a new entry at "next" when it lacks a required value: the
+	silent "set comment" is rejected with the block, the earlier block's command not."""
+	before = "config system global\n    set hostname F\nend\nconfig firewall address\nend\n"
+	after = "config system global\n    set hostname G\nend\nconfig firewall address\nend\n"
+	cmds = ["config system global", "set hostname G", "end",
+	        "config firewall address", "edit nr", "set comment x", "next", "end"]
+	outcome = judge(cmds, before, after, blocks=True,
+	                replied=[False, False, False, False, True, False, True, False])
+	verdicts = [j.verdict for j in outcome.commands]
+	assert verdicts[1] == Verdict.TOOK_EFFECT
+	assert verdicts[4:6] == [Verdict.REJECTED, Verdict.REJECTED]
+	assert outcome.commands[4].note == "not proven by the configuration"
+	assert outcome.commands[5].note == ("not proven by the configuration; the device replied "
+	                                    "when its block closed ('next')")
+
+
+def test_exec_commands_are_not_configuration_and_keep_the_section():
+	"""The platform's exec words: not judged (reply or not), and a command after
+	one is still judged in its section."""
+	after = IOS_LO.replace(" ip address", " description x\n ip address")
+	outcome = judge(["interface Loopback1", "do show clock", "description x"], IOS_LO, after,
+	                replied=[False, True, False], exec_words=("do",))
+	assert [j.verdict for j in outcome.commands] == [Verdict.IN_PLACE, Verdict.EXEC, Verdict.TOOK_EFFECT]
+	assert not outcome.rejected and not outcome.needs_review
+
+
+def test_a_removal_that_finds_nothing_is_already_absent_only_when_the_device_was_silent():
+	"""A mistyped removal finds nothing to remove either - and the device objects."""
+	silent = judge(["no snmp-server contact"], IOS_LO, IOS_LO, replied=[False]).commands[0]
+	typo = judge(["no ip domain-lokup"], IOS_LO, IOS_LO, replied=[True]).commands[0]
+	assert (silent.verdict, silent.note) == (Verdict.IN_PLACE, "already absent")
+	assert typo.verdict == Verdict.REJECTED
+
+
+def test_a_negation_the_device_keeps_as_a_line_is_proven_by_it():
+	"""IOS prints "no ip redirects": added by the push → took effect, already
+	there → in place (it was review before)."""
+	after = IOS_LO.replace(" ip address", " no ip redirects\n ip address")
+	added = judge(["interface Loopback1", "no ip redirects"], IOS_LO, after).commands[1]
+	there = judge(["interface Loopback1", "no ip redirects"], after, after).commands[1]
+	assert (added.verdict, added.evidence) == (Verdict.TOOK_EFFECT, ("+ no ip redirects",))
+	assert (there.verdict, there.evidence) == (Verdict.IN_PLACE, ("  no ip redirects",))
+
+
+def test_a_setting_is_proven_by_its_negation_removed():
+	"""IOS hides "ip domain lookup" (the default) - the push removing "no ip domain
+	lookup" proves it; a different command isn't proven by that line."""
+	before = IOS_LO + "no ip domain lookup\n"
+	j = judge(["ip domain lookup"], before, IOS_LO).commands[0]
+	other = judge(["ip domain list x"], before, IOS_LO).commands[0]
+	assert (j.verdict, j.evidence, j.note) == (Verdict.TOOK_EFFECT, ("- no ip domain lookup",),
+	                                           "its negation was removed")
+	assert other.verdict == Verdict.REVIEW
+
+
+def test_two_commands_resting_on_one_removed_line_are_both_review():
+	before = IOS_LO + "no ip domain lookup\n"
+	outcome = judge(["ip domain lookup", "ip dom lookup"], before, IOS_LO)
+	assert outcome.commands[0].verdict == Verdict.REVIEW
+	assert outcome.commands[0].note == "the same change matches another command too"
+
+
+def test_the_defaults_view_proves_exactly_a_line_of_the_commands_section():
+	"""In place by the configuration shown with defaults - in its own section only
+	(the same line elsewhere proves nothing), and exactly (no longer line)."""
+	view = IOS_LO + " ip redirects\ninterface Loopback2\n shutdown\n"
+	proven = judge(["interface Loopback1", "ip redirects"], IOS_LO, IOS_LO, defaults=view).commands[1]
+	elsewhere = judge(["interface Loopback2", "ip redirects"], IOS_LO + "interface Loopback2\n",
+	                  IOS_LO + "interface Loopback2\n", defaults=view).commands[1]
+	shorter = judge(["interface Loopback1", "ip"], IOS_LO, IOS_LO, defaults=view).commands[1]
+	assert (proven.verdict, proven.evidence, proven.note) == (
+		Verdict.IN_PLACE, ("  ip redirects",), "shown with the device's defaults")
+	assert shorter.verdict == Verdict.REVIEW
+	assert elsewhere.verdict == Verdict.REVIEW
+
+
+def test_the_defaults_view_shows_an_empty_section_as_one():
+	"""A new interface with nothing under it isn't a section in the plain
+	configuration; the defaults view shows it is, so its command is looked up there."""
+	after = IOS_LO + "interface Loopback95\n"
+	view = after + " no shutdown\n"
+	outcome = judge(["interface Loopback95", "no shutdown"], IOS_LO, after, defaults=view)
+	assert [j.verdict for j in outcome.commands] == [Verdict.TOOK_EFFECT, Verdict.IN_PLACE]
+
+
+def test_the_defaults_view_is_looked_up_before_a_reply_rejects():
+	"""FortiOS warns on "set admin-sport 443" although it's taken: the defaults
+	view proves it, so the warning doesn't reject it."""
+	before = after = "config system global\n    set hostname F\nend\n"
+	view = "config system global\n    set admin-sport 443\nend\n"
+	cmds = ["config system global", "set admin-sport 443", "end"]
+	j = judge(cmds, before, after, blocks=True, replied=[False, True, False], defaults=view).commands[1]
+	assert j.verdict == Verdict.IN_PLACE
+
+
+def test_unproven_lists_the_sections_as_the_device_printed_them():
+	"""What a defaults fetch asks for: the headers' raw text (quotes kept), once each."""
+	before = 'config firewall address\n    edit "My Addr"\n        set comment a\n    next\nend\n'
+	cmds = ["config firewall address", 'edit "My Addr"', "set color 3", "set color 4", "next", "end"]
+	outcome = judge(cmds, before, before, blocks=True)
+	assert outcome.unproven == [("config firewall address", 'edit "My Addr"')]

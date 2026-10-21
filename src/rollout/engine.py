@@ -102,7 +102,8 @@ def classify(push: PushResult | None) -> tuple[DeviceStatus, int, int | None]:
 	  → partial, the commands sent counted
 	- not judged (verification off, or a snapshot couldn't be taken) → not
 	  verified
-	- judged: any command in review → review; else success
+	- judged: any command rejected → partial when another was proven, else
+	  failed; any in review → review; else success
 
 	:param push: None if the device never started
 	:returns: (status, commands_sent, commands proven by the configuration -
@@ -117,8 +118,21 @@ def classify(push: PushResult | None) -> tuple[DeviceStatus, int, int | None]:
 	if push.outcome is None:
 		return DeviceStatus.NOT_VERIFIED, sent, None
 	proven = sum(1 for j in push.outcome.commands if j.verdict in CERTAIN)
-	status = DeviceStatus.REVIEW if push.outcome.needs_review else DeviceStatus.SUCCESS
+	if push.outcome.rejected:
+		status = DeviceStatus.PARTIAL if proven else DeviceStatus.FAILED
+	else:
+		status = DeviceStatus.REVIEW if push.outcome.needs_review else DeviceStatus.SUCCESS
 	return status, sent, proven
+
+
+def needs_decision(transcript: dict[str, Any] | None) -> bool:
+	""":returns: whether a judged device holds a command a person may
+	 overturn or must decide - rejected or in review (an interrupted or
+	 unjudged device has no transcript)"""
+	if not transcript:
+		return False
+	return any(c.get("verdict") in (Verdict.REVIEW, Verdict.REJECTED)
+	           for c in transcript.get("commands", ()))
 
 
 def transcript(outcome: Outcome | None,
@@ -373,14 +387,17 @@ class RolloutEngine:
 		for i, j in enumerate(outcome.commands):
 			if j.verdict == Verdict.NAVIGATION:
 				continue
-			review = j.verdict == Verdict.REVIEW
+			unproven = j.verdict in (Verdict.REVIEW, Verdict.REJECTED)
 			shown = j.evidence[0].strip() if j.evidence else ""
-			said = " | ".join(replies[i]) if review and i < len(replies) else ""
+			said = " | ".join(replies[i]) if i < len(replies) and \
+				(unproven or j.verdict == Verdict.EXEC) else ""
 			detail = "; ".join(part for part in (shown, j.note, f"the device replied: {said}" if said else "")
 			                   if part)
+			tone = Tone.ERROR if j.verdict == Verdict.REJECTED else \
+				Tone.WARNING if j.verdict == Verdict.REVIEW else \
+				Tone.INFO if j.verdict == Verdict.EXEC else Tone.SUCCESS
 			report.notify(f"{device.endpoint}: '{j.command.strip()}' {j.verdict}"
-			              + (f" - {detail}" if detail else ""),
-			              Tone.WARNING if review else Tone.SUCCESS, important=review)
+			              + (f" - {detail}" if detail else ""), tone, important=unproven)
 		for change in outcome.other_changes:
 			report.notify(f"{device.endpoint}: changed, not by these commands: {change}",
 			              Tone.WARNING)
@@ -449,16 +466,20 @@ class RolloutEngine:
 			push = push_results.get(idx)
 			status, commands_sent, commands_verified = classify(push)
 			if push is not None and push.outcome is not None:
-				judged = [j for j in push.outcome.commands if j.verdict != Verdict.NAVIGATION]
+				judged = [j for j in push.outcome.commands
+				          if j.verdict not in (Verdict.NAVIGATION, Verdict.EXEC)]
+				rejected = sum(1 for j in judged if j.verdict == Verdict.REJECTED)
 				review = sum(1 for j in judged if j.verdict == Verdict.REVIEW)
-				report.notify(f"{device.endpoint}: {len(judged) - review} of {len(judged)} "
+				report.notify(f"{device.endpoint}: {len(judged) - rejected - review} of {len(judged)} "
 				              f"commands proven by the configuration"
+				              + (f", {rejected} rejected" if rejected else "")
 				              + (f", {review} for review" if review else ""), important=True)
 			results.append(DeviceResultDict(
 				device_ip=device.ip, device_port=int(device.port),
 				device_type=device.device_type, commands_sent=commands_sent,
 				commands_verified=commands_verified,
-				fetched_config=push.after if push and status == DeviceStatus.REVIEW else None,
+				fetched_config=push.after if push and push.outcome is not None and (
+					push.outcome.needs_review or push.outcome.rejected) else None,
 				config_diff=push.diff if push else None,
 				transcript=transcript(push.outcome, push.replies) if push else None,
 				status=status, action_needed=report.actions(device.endpoint)))
@@ -485,6 +506,17 @@ class RolloutEngine:
 			              f"{'s' if count != 1 else ''} "
 			              f"({', '.join(sorted(report.needs_action))}) - see the "
 			              f"lines marked ACTION NEEDED", Tone.ERROR, important=True)
+		rejected = sorted(endpoint(r["device_ip"], r["device_port"]) for r in results
+		                  if any(c["verdict"] == Verdict.REJECTED
+		                         for c in (r.get("transcript") or {}).get("commands", ())))
+		if rejected:
+			where = ("confirm it in Results → Verification" if self._webapp
+			         else "check it on the device")
+			report.notify(f"REJECTED commands on {len(rejected)} device{'s' if len(rejected) != 1 else ''} "
+			              f"({', '.join(rejected)}) - not in the configuration, and the device replied: "
+			              f"see the lines marked rejected. A command whose effect isn't kept in the "
+			              f"configuration (generating keys) is rejected too - {where}",
+			              Tone.ERROR, important=True)
 		review = sorted(endpoint(r["device_ip"], r["device_port"]) for r in results
 		                if r["status"] == DeviceStatus.REVIEW)
 		if review:
@@ -500,8 +532,8 @@ class RolloutEngine:
 		if replied:
 			report.notify(f"{len(replied)} device{'s' if len(replied) != 1 else ''} not verified "
 			              f"replied to some commands ({', '.join(replied)}) - read the lines "
-			              f"marked 'the device replied': NetRollout doesn't judge what a device "
-			              f"says, only its configuration", Tone.WARNING, important=True)
+			              f"marked 'the device replied': without Verify NetRollout can't tell a "
+			              f"refusal from a notice", Tone.WARNING, important=True)
 		report.notify(
 			f"Please see Execution logs in {os.path.abspath(report.notifier.logfile)}",
 			important=True)

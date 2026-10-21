@@ -14,7 +14,8 @@ from src.rollout.engine import Device, RolloutEngine, RolloutOptions
 from src.rollout.evidence import Verdict, first_word, judge
 from src.rollout.log import RolloutLogger
 from src.rollout.platforms import (
-	COMMIT_TIMEOUT, PLATFORMS, Commit, CommitPending, NoFinish, RunCommand, SaveConfig)
+	COMMIT_TIMEOUT, EVENTS, PLATFORMS, Commit, CommitPending, NoFinish, RunCommand, SaveConfig, fortios_blocks,
+	no_defaults)
 from src.rollout.session import NetmikoSession, PushResult, RunReport, reply
 
 
@@ -1079,8 +1080,131 @@ def test_without_verify_a_reply_reaches_the_console_and_the_summary():
 	assert ("10.0.0.1:22: 'ntp server bogus' - the device replied: % Invalid input detected at "
 	        "'^' marker.", True) in lines
 	assert ("1 device not verified replied to some commands (10.0.0.1:22) - read the lines "
-	        "marked 'the device replied': NetRollout doesn't judge what a device says, only "
-	        "its configuration", True) in lines
+	        "marked 'the device replied': without Verify NetRollout can't tell a refusal "
+	        "from a notice", True) in lines
 	# a device that answered nothing gets no such line
 	_, quiet = unverified_rollout({})
 	assert not any("replied to some commands" in line for line, _ in quiet)
+
+
+# ── v4.2: each platform's grammar declared in full ──
+
+def test_every_platform_declares_its_exec_words_defaults_and_event_shapes():
+	"""All 12 rows say it - a platform with no way to show defaults says so
+	(no_defaults: its unproven commands stay in review)."""
+	for name, platform in PLATFORMS.items():
+		assert platform.exec_words, name
+		assert callable(platform.defaults), name
+		assert platform.events.match("*Oct 19 19:17:26.223: %LINK-3-UPDOWN: x"), name
+	assert [n for n, p in PLATFORMS.items() if p.defaults is no_defaults] == [
+		"cisco_xr", "hp_procurve", "hp_comware", "juniper_junos", "paloalto_panos", "checkpoint_gaia"]
+	assert PLATFORMS["cisco_ios"].defaults([("interface Loopback1",)]) == ["show running-config all"]
+
+
+def test_no_exec_word_begins_a_configuration_command_of_its_platform():
+	"""An exec word hides a command from judging: none of the words is the
+	first word of a configuration command typed in the lab corpus."""
+	typed = {"cisco_ios": ["interface", "ip", "no", "snmp-server", "username", "ntp", "crypto", "description"],
+	         "cisco_nxos": ["interface", "ip", "no", "snmp-server", "feature", "vlan", "username"],
+	         "fortinet": ["config", "edit", "set", "unset", "delete", "next", "end"]}
+	for name, words in typed.items():
+		assert not set(words) & set(PLATFORMS[name].exec_words), name
+
+
+def test_fortios_defaults_are_fetched_per_block_with_names_as_printed():
+	sections = [("config system global",), ("config firewall address", 'edit "My Addr"'),
+	            ("config system global",), ("config vdom", "edit root"),
+	            ("config system interface", 'edit "port1"', "config ipv6"), ()]
+	assert fortios_blocks(sections) == ["show full-configuration system global",
+	                                    'show full-configuration firewall address "My Addr"']
+
+
+@pytest.mark.parametrize("line, event", [
+	("*Oct 19 19:17:26.223: %LINK-3-UPDOWN: Interface Loopback99, changed state to up", True),
+	("*00:12:34: %LINK-3-UPDOWN: Interface Loopback99, changed state to up", True),
+	("1w2d: %SYS-5-CONFIG_I: Configured from console", True),
+	("%LINEPROTO-5-UPDOWN: Line protocol on Interface Loopback99, changed state to up", True),
+	("2026 Oct 19 16:10:28 NXOS1 %ETHPORT-5-IF_UP: Interface loopback95 is up", True),
+	("2026-10-21T10:00:00.123+00:00 sw1 Ebra: link up", True),
+	# answers - never events
+	("% Initialization of NTP failed with status 4.", False),
+	("%NTP: failed to initialize NTP process", False),
+	("% Invalid input detected at '^' marker.", False),
+	("Unknown action 0", False),
+])
+def test_event_shapes(line, event):
+	assert bool(EVENTS.match(line)) is event
+
+
+@pytest.mark.parametrize("platform, line", [
+	("hp_comware", "%Oct 21 10:00:00:123 2026 HP IFNET/3/PHY_UPDOWN: Physical state on the interface changed"),
+	("hp_procurve", "I 10/21/26 10:00:00 00076 ports: port 1 is now on-line"),
+	("cisco_xr", "RP/0/RP0/CPU0:Oct 21 10:00:00.123 UTC: ifmgr[257]: %PKT_INFRA-LINK-3-UPDOWN : x"),
+])
+def test_a_platforms_own_event_shapes(platform, line):
+	"""Told apart as an event on its platform - so a log line arriving with the
+	next command's output is never taken for that command's reply."""
+	said, events = reply(f"x\n{line}\nR1#", "x", "R1", PLATFORMS[platform].events)
+	assert (said, events) == ([], [line])
+
+
+def run_with_defaults(commands, before, after, defaults, replies=None):
+	"""A verified rollout to one IOS device whose "show running-config all"
+	answers `defaults` (a value, or an exception raised). The device's result
+	and the commands its configuration was read with."""
+	conn = connection()
+	if replies is not None:
+		conn.send_config_set.side_effect = replies
+	reads = iter([before] + [after] * 5)
+	sent = []
+
+	def show(command, **_):
+		sent.append(command)
+		if command == "show running-config all":
+			if isinstance(defaults, Exception):
+				raise defaults
+			return defaults
+		return next(reads)
+
+	conn.send_command.side_effect = show
+	device = Device(ip="10.0.0.1", label="d", username="u", password="p",
+	                device_type="cisco_ios", secret="", port=22)
+	engine = RolloutEngine(RolloutOptions(verify=True), [device], commands)
+	with patch("netmiko.ConnectHandler", return_value=conn):
+		(result,) = engine.run(threading.Event(), RolloutLogger(webapp=False, verbose=False))
+	return result, sent
+
+
+LO = "interface Loopback1\n ip address 1.1.1.1 255.255.255.255\n"
+
+
+def test_the_defaults_are_read_only_when_a_command_is_left_unproven():
+	result, sent = run_with_defaults(["hostname r1"], "hostname r0\n", "hostname r1\n", "unused")
+	assert result["status"] == "success" and "show running-config all" not in sent
+
+
+def test_an_unproven_command_is_proven_by_the_configuration_with_defaults():
+	"""IOS hides "ip redirects" (its default): read with defaults, it's in place."""
+	result, sent = run_with_defaults(["interface Loopback1", "ip redirects"], LO, LO,
+	                                 LO.replace(" ip address", " ip redirects\n ip address"))
+	assert sent.count("show running-config all") == 1
+	assert (result["status"], result["commands_verified"]) == ("success", 2)
+	assert result["transcript"]["commands"][1]["note"] == "shown with the device's defaults"
+
+
+@pytest.mark.parametrize("defaults", [OSError("timed out"), "x\n" * 50_001], ids=["unreadable", "too long"])
+def test_defaults_that_cant_be_read_or_are_too_long_leave_the_command_as_it_was(defaults):
+	"""Unreadable, or longer than DEFAULTS_MAX_LINES: not judged - the command
+	stays unproven (review), the device verified all the same."""
+	result, _ = run_with_defaults(["interface Loopback1", "ip redirects"], LO, LO, defaults)
+	assert result["status"] == "review"
+
+
+def test_a_device_with_a_rejected_command_and_a_proven_one_is_partial():
+	"""Some commands proven, one rejected (the device replied, nothing shows it):
+	partial - failed only when nothing was proven."""
+	replies = ["hostname r1\nr1#", "ntp server 1.1.1.1\n% NTP failed\nr1#"]
+	result, _ = run_with_defaults(["hostname r1", "ntp server 1.1.1.1"], "hostname r0\n",
+	                              "hostname r1\n", "hostname r1\n", replies)
+	assert (result["status"], result["commands_verified"]) == ("partial", 1)
+	assert [c["verdict"] for c in result["transcript"]["commands"]] == ["took effect", "rejected"]

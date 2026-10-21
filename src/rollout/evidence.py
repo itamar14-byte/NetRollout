@@ -1,7 +1,8 @@
 """Judging a push by the device itself: its configuration before and after
 the commands, compared - no I/O. What the comparison proves is reported as
-fact; what it doesn't prove goes to a person (review). What the device
-printed is kept as the reason (reply), never used as evidence.
+fact. A command it doesn't prove is rejected when the device replied to it
+(whether it replied counts, its wording never), else it goes to a person
+(review): NetRollout says what it knows and says when it can't know.
 
 The only platform knowledge used here is grammar: how a config is laid out
 (indented sections, FortiOS blocks, flat "set" lines), which command words
@@ -12,7 +13,8 @@ from __future__ import annotations
 
 import re
 from collections import Counter
-from dataclasses import dataclass
+from collections.abc import Sequence
+from dataclasses import dataclass, field
 from enum import StrEnum
 
 # Leave or close a config section - they configure nothing
@@ -33,6 +35,8 @@ class Verdict(StrEnum):
 	REMOVED = "removed"              # a removal, in a line the push removed
 	NAVIGATION = "navigation"        # opens/leaves nothing judged (exit, end…)
 	REVIEW = "review"                # not proven either way: a person decides
+	REJECTED = "rejected"            # not proven, and the device replied to it
+	EXEC = "not a configuration command"  # an exec command (do show…): shown
 
 
 def normalize(line: str) -> str:
@@ -182,6 +186,10 @@ def compare(before: list[Line], after: list[Line]) -> Diff:
 
 
 Noise = set[tuple[tuple[str, ...], tuple[str, ...]]]
+# why two commands resting on one changed line are both in review
+CONFLICT = "the same change matches another command too"
+# a rejected command's note (what the device replied is shown beside it)
+UNPROVEN = "not proven by the configuration"
 
 
 def noise(after: list[Line], again: list[Line]) -> Noise:
@@ -234,6 +242,9 @@ class Judgment:
 	verdict: Verdict
 	evidence: tuple[str, ...] = ()
 	note: str = ""
+	# where it was judged, its headers as the device printed them - for an
+	# unproven command, the section a defaults fetch asks for (not stored)
+	section: tuple[str, ...] | None = field(default=(), compare=False)
 
 
 @dataclass(frozen=True)
@@ -265,6 +276,21 @@ class Outcome:
 	def needs_review(self) -> bool:
 		return any(j.verdict == Verdict.REVIEW for j in self.commands)
 
+	@property
+	def rejected(self) -> bool:
+		return any(j.verdict == Verdict.REJECTED for j in self.commands)
+
+	@property
+	def unproven(self) -> list[tuple[str, ...]]:
+		""":returns: the sections of the commands the configuration didn't
+		 prove (review or rejected), once each - where a view with the
+		 device's defaults may prove them (an unknown section: none)"""
+		sections: list[tuple[str, ...]] = []
+		for j in self.commands:
+			if j.verdict in (Verdict.REVIEW, Verdict.REJECTED) and j.section is not None 					and j.section not in sections:
+				sections.append(j.section)
+		return sections
+
 
 @dataclass(frozen=True)
 class _Typed:
@@ -273,17 +299,22 @@ class _Typed:
 	sent: str
 	words: tuple[str, ...]
 	navigation: bool
+	exec_: bool = False
 
 
-def _typed(commands: list[str], flat: bool) -> list[_Typed]:
+def _typed(commands: list[str], flat: bool, exec_words: Sequence[str] = ()) -> list[_Typed]:
 	"""The commands as judged. Flat configs: "edit" / "up" / "top" move the
-	path that relative "set" / "delete" commands extend."""
+	path that relative "set" / "delete" commands extend.
+
+	:param exec_words: the platform's exec commands' first words"""
 	out: list[_Typed] = []
 	prefix: list[tuple[str, ...]] = []
 	for command in commands:
 		typed = tuple(words(command))
 		word = typed[0] if typed else ""
-		if not flat or not typed:
+		if word and word in exec_words:
+			out.append(_Typed(command, typed, False, True))
+		elif not flat or not typed:
 			out.append(_Typed(command, typed, not typed or navigates(word)))
 		elif word == "edit":
 			prefix.append(typed[1:])
@@ -311,8 +342,12 @@ class _Judge:
 	command is in."""
 
 	def __init__(self, before: list[Line], after: list[Line], churn: Noise,
-	             blocks: bool) -> None:
+	             blocks: bool, replied: Sequence[bool] = (),
+	             view: list[Line] | None = None) -> None:
 		diff = compare(before, after)
+		self.replied = replied
+		# the configuration shown with its defaults (None: not fetched)
+		self.view = view or []
 		self.added = [line for line in diff.added if not _is_noise(line, churn)]
 		self.removed = [line for line in diff.removed if not _is_noise(line, churn)]
 		self.churned = [("+", line) for line in diff.added if _is_noise(line, churn)] + \
@@ -321,7 +356,10 @@ class _Judge:
 		self.both = before + after
 		self.blocks = blocks
 		# sections that have lines under them: a line opening one is a header
-		self.sections = {line.path for line in self.both}
+		# (the defaults view shows an empty one's: "interface loopback95")
+		self.sections = {line.path for line in self.both + self.view}
+		# a header's text as the device printed it, by the path it opens
+		self.raw = {line.inside: line.raw for line in self.both}
 		# claims: line index in added / removed → the commands resting on it
 		self.claims_added: dict[int, list[int]] = {}
 		self.claims_removed: dict[int, list[int]] = {}
@@ -338,16 +376,22 @@ class _Judge:
 	def run(self, commands: list[_Typed]) -> Outcome:
 		results: list[Judgment] = []
 		for i, command in enumerate(commands):
-			if command.navigation:
+			if command.exec_:
+				results.append(Judgment(command.sent, Verdict.EXEC))
+			elif command.navigation:
 				self._navigate(command)
 				results.append(Judgment(command.sent, Verdict.NAVIGATION))
 			elif command.words[0] in NEGATION:
 				results.append(self._removal(i, command))
 			else:
-				following = next((c.words for c in commands[i + 1:] if not c.navigation), None)
+				following = next((c.words for c in commands[i + 1:]
+				                  if not c.navigation and not c.exec_), None)
 				results.append(self._setting(i, command, following))
 		self._conflicts(results)
+		if self.view:
+			self._defaults(results, commands, self.view)
 		self._review_evidence(results)
+		self._replied(results, commands)
 		changes = self._changes()
 		other = tuple(f"{c.sign} {c.section}{c.line}" for c in changes
 		              if not c.by and not c.device)
@@ -397,6 +441,15 @@ class _Judge:
 				if self._at(line, path) and matches(typed, line.words):
 					self._enter(line, path)
 					return Judgment(command.sent, Verdict.IN_PLACE, (f"  {line.raw}",))
+		# the push removed its negation ("no ip domain lookup" gone: "ip
+		# domain lookup" took effect - a default the device doesn't print)
+		for path in self._levels():
+			for index, line in enumerate(self.removed):
+				if self._at(line, path) and line.words[:1] and line.words[0] in NEGATION \
+						and matches(typed, line.words[1:]):
+					self.claims_removed.setdefault(index, []).append(i)
+					return Judgment(command.sent, Verdict.TOOK_EFFECT, (f"- {line.raw}",),
+					                "its negation was removed")
 		opened = self._opened_block(following)
 		if opened is not None:
 			self.claims_added.setdefault(opened, []).append(i)
@@ -407,22 +460,44 @@ class _Judge:
 		return self._review(i, command)
 
 	def _removal(self, i: int, command: _Typed) -> Judgment:
+		"""A removal: a line it removed; or, where the device keeps the
+		negation as a line of its own (IOS "no ip redirects"), that line
+		added or already there; or nothing there to remove - certain only
+		when the device said nothing (a mistyped removal finds nothing
+		either, and the device objects)."""
 		target = list(command.words[1:])
+		typed = list(command.words)
 		for path in self._levels():
 			for index, line in enumerate(self.removed):
 				if self._at(line, path) and contains(target, line.words):
 					self.claims_removed.setdefault(index, []).append(i)
 					return Judgment(command.sent, Verdict.REMOVED, (f"- {line.raw}",))
-		if target and not any(self._at(line, path) and contains(target, line.words)
-		                      for path in self._levels() for line in self.both):
+		for path in self._levels():
+			for index, line in enumerate(self.added):
+				if self._at(line, path) and contains(typed, line.words):
+					self.claims_added.setdefault(index, []).append(i)
+					return Judgment(command.sent, Verdict.TOOK_EFFECT, (f"+ {line.raw}",))
+			for line in self.unchanged:
+				if self._at(line, path) and matches(typed, line.words):
+					return Judgment(command.sent, Verdict.IN_PLACE, (f"  {line.raw}",))
+		if target and not self._said(i) and \
+				not any(self._at(line, path) and contains(target, line.words)
+				        for path in self._levels() for line in self.both):
 			return Judgment(command.sent, Verdict.IN_PLACE, (), "already absent")
 		return self._review(i, command)
+
+	def _said(self, i: int) -> bool:
+		""":returns: whether the device replied to command i"""
+		return i < len(self.replied) and self.replied[i]
 
 	def _review(self, i: int, command: _Typed) -> Judgment:
 		""":returns: review - its evidence (what changed in its section that
 		 no other command accounts for) is added at the end (_review_evidence)"""
-		self.reviews[i] = self._here()
-		return Judgment(command.sent, Verdict.REVIEW)
+		here = self._here()
+		self.reviews[i] = here
+		section = None if here is None else \
+			tuple(self.raw.get(here[:k + 1], here[k]) for k in range(len(here)))
+		return Judgment(command.sent, Verdict.REVIEW, section=section)
 
 	def _review_evidence(self, results: list[Judgment]) -> None:
 		"""Each command in review gets the changes in its section that no
@@ -441,7 +516,8 @@ class _Judge:
 			changes = tuple([f"+ {self.added[a].raw}" for a in shown_added]
 			                + [f"- {self.removed[r].raw}" for r in shown_removed])
 			results[i] = Judgment(results[i].command, Verdict.REVIEW, changes,
-			                      "" if changes else "no change in its section")
+			                      "" if changes else "no change in its section",
+			                      section=results[i].section)
 
 	def _enter(self, line: Line, path: Path | None) -> None:
 		"""After a command matched `line`, found at `path`: inside it when it's
@@ -470,14 +546,57 @@ class _Judge:
 		return None
 
 	def _conflicts(self, results: list[Judgment]) -> None:
-		"""One added line resting on two different commands proves neither:
+		"""One changed line resting on two different commands proves neither:
 		both go to review."""
-		for index, claimants in self.claims_added.items():
-			if len({normalize(results[c].command) for c in claimants}) > 1:
-				for c in claimants:
-					results[c] = Judgment(results[c].command, Verdict.REVIEW,
-					                      (f"+ {self.added[index].raw}",),
-					                      "the same change matches another command too")
+		for claims, lines, sign in ((self.claims_added, self.added, "+"),
+		                            (self.claims_removed, self.removed, "-")):
+			for index, claimants in claims.items():
+				if len({normalize(results[c].command) for c in claimants}) > 1:
+					for c in claimants:
+						results[c] = Judgment(results[c].command, Verdict.REVIEW,
+						                      (f"{sign} {lines[index].raw}",), CONFLICT,
+						                      section=results[c].section)
+
+	def _defaults(self, results: list[Judgment], commands: list[_Typed],
+	              view: list[Line]) -> None:
+		"""Commands the plain configuration didn't prove, looked up in the
+		configuration shown with its defaults: a line there, in the
+		command's section, that is exactly the command → in place (the
+		configuration holds it now; whether the push caused it isn't
+		claimed)."""
+		for i, path in list(self.reviews.items()):
+			if path is None or results[i].note == CONFLICT:
+				continue
+			typed = list(commands[i].words)
+			line = next((line for line in view if line.path == path
+			             and matches(typed, line.words)), None)
+			if line is not None:
+				del self.reviews[i]
+				results[i] = Judgment(results[i].command, Verdict.IN_PLACE, (f"  {line.raw}",),
+				                      "shown with the device's defaults")
+
+	def _replied(self, results: list[Judgment], commands: list[_Typed]) -> None:
+		"""What the configuration didn't prove, and the device replied to,
+		is rejected - its reply's presence, never its wording. A reply to
+		the command that closed a block (FortiOS "next" refusing a whole new
+		entry) counts for the silent unproven commands since the previous
+		one."""
+		for i, j in enumerate(results):
+			if j.verdict == Verdict.REVIEW and self._said(i):
+				results[i] = Judgment(j.command, Verdict.REJECTED, j.evidence, UNPROVEN,
+				                      section=j.section)
+		start = 0
+		for k, command in enumerate(commands):
+			if not command.navigation:
+				continue
+			if self._said(k):
+				for i in range(start, k):
+					j = results[i]
+					if j.verdict == Verdict.REVIEW:
+						results[i] = Judgment(j.command, Verdict.REJECTED, j.evidence,
+						                      f"{UNPROVEN}; the device replied when its block "
+						                      f"closed ('{commands[k].sent.strip()}')", section=j.section)
+			start = k + 1
 
 	def _changes(self) -> tuple[Change, ...]:
 		""":returns: every changed line with the commands that account for it
@@ -521,7 +640,9 @@ class _Judge:
 
 
 def judge(commands: list[str], before: str, after: str, *, flat: bool = False,
-          blocks: bool = False, again: str | None = None) -> Outcome:
+          blocks: bool = False, again: str | None = None,
+          replied: Sequence[bool] = (), exec_words: Sequence[str] = (),
+          defaults: str | None = None) -> Outcome:
 	"""Judge a push by the device's configuration before and after it.
 
 	Each command is placed in its section by the commands before it (a
@@ -536,7 +657,17 @@ def judge(commands: list[str], before: str, after: str, *, flat: bool = False,
 	- a command that matched nothing but whose next command is in a new
 	  block the device named its own way took effect as that block's header
 	  (FortiOS "edit 0" → "edit 1");
-	- review: anything else, or one added line claimed by two different
+	- a negation the device keeps as a line ("no ip redirects") took effect
+	  or is in place by that line; a setting took effect when the push
+	  removed its negation ("no ip domain lookup" gone);
+	- already absent (a removal): nothing there to remove, and the device
+	  said nothing;
+	- in place by the device's defaults: unproven, but exactly a line of its
+	  section in the configuration shown with defaults;
+	- rejected: unproven, and the device replied - to it, or to the command
+	  that closed its block;
+	- not a configuration command: the platform's exec words (do, get, …);
+	- review: anything else, or one changed line claimed by two different
 	  commands - with the section's changes as evidence.
 
 	:param commands: as sent to this device (tokens resolved)
@@ -544,10 +675,16 @@ def judge(commands: list[str], before: str, after: str, *, flat: bool = False,
 	:param blocks: FortiOS - "end" closes the current config block only
 	:param again: a second snapshot taken right after the after one: its
 	 differences from it are the device's own churn, left out
+	:param replied: per command, whether the device replied (platforms.reply
+	 had lines for it); none given: silent
+	:param exec_words: the platform's exec commands' first words
+	:param defaults: the configuration shown with its defaults, for the
+	 unproven commands' sections (Platform.defaults); None: not fetched
 	:returns: the verdicts, and the changes no command explains"""
 	b, a = parse(before, flat), parse(after, flat)
 	churn = noise(a, parse(again, flat)) if again is not None else set()
-	return _Judge(b, a, churn, blocks).run(_typed(commands, flat))
+	view = parse(defaults, flat) if defaults else None
+	return _Judge(b, a, churn, blocks, replied, view).run(_typed(commands, flat, exec_words))
 
 
 def _where(line: Line) -> str:

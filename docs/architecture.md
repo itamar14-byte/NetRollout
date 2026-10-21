@@ -583,6 +583,8 @@ classDiagram
         +commands tuple~Judgment~
         +other_changes tuple
         +needs_review bool
+        +rejected bool
+        +unproven list
     }
     class Verdict {
         <<enumeration>>
@@ -591,6 +593,8 @@ classDiagram
         removed
         navigation
         review
+        rejected
+        not a configuration command
     }
     class RunReport {
         +notify(text, tone, important)
@@ -1592,7 +1596,7 @@ Everything that shows or redirects to an address uses `serving_port()` (the help
 `RolloutEngine(options, devices, commands).run(cancel_flag, logger)` runs the devices in a thread pool (`max_workers` = the *Devices in parallel per job* setting for the web app). For each device:
 
 1. **Substitute tokens.** `Device.commands_for()` replaces each `$$TOKEN$$` from the user's variable mappings and the device's attribute values; `unresolved()` lists what can't be filled (the routes refuse such a rollout before queueing it, and the push checks again).
-2. **Push.** `NetmikoSession(device, report).push(commands, verify)` enters the CLI shell; with Verify it reads the configuration (`show_config`, without the platform's `framing`); then config mode once (Junos uses `configure private`), and one command at a time exactly as typed (`send_config_set(…, enter_config_mode=False)`). What the device answers is told apart by shape (`reply()`: the echo, the prompt, IOS's `^`, Junos' `[edit]` left out; time-stamped lines are device events), logged with its command and kept - never judged - and the rest are still sent. A typed `end` followed by more config commands is refused, as on the device. A prompt that changes mid-push (a new hostname) ends that session; the finish then runs from a fresh one.
+2. **Push.** `NetmikoSession(device, report).push(commands, verify)` enters the CLI shell; with Verify it reads the configuration (`show_config`, without the platform's `framing`); then config mode once (Junos uses `configure private`), and one command at a time exactly as typed (`send_config_set(…, enter_config_mode=False)`). What the device answers is told apart by shape (`reply()`: the echo, the prompt, IOS's `^`, Junos' `[edit]` left out; lines of the platform's event shapes - `Platform.events`: time stamps, uptime stamps, syslog mnemonics, Comware / ProCurve / IOS-XR forms - are device events), logged with its command and kept, and the rest are still sent. Whether a command got a reply is passed to the judge; its wording never is. A typed `end` followed by more config commands is refused, as on the device. A prompt that changes mid-push (a new hostname) ends that session; the finish then runs from a fresh one.
 3. **Finish the platform's way** (the `Finish` strategy on the platform's `PLATFORMS` row):
 
 | Finish | Platforms | What it does |
@@ -1602,31 +1606,38 @@ Everything that shows or redirects to an address uses `serving_port()` (the help
 | `RunCommand("save config")` | `checkpoint_gaia` | Runs `save config` after leaving config mode, then reads the save state (`show config-state`: `saved` or not - a value, as FortiOS's cfg-save mode is). An account that lands in expert (bash) is switched to `clish` first, or the device is refused. |
 | `NoFinish` | `fortinet` | The change is live as typed. Any open config block is closed with `end`; `execute cfg save` runs when FortiOS is in manual or revert save mode. |
 
-4. **Verify** (with Verify on, in the same session after the finish): the configuration is read again and `judge(commands, before, after)` (`src/rollout/evidence.py`) gives each command a verdict from the device's own configuration - see *Verification by configuration* below. When changes no command explains appear, one more snapshot is read and what differs between the last two (the device's own churn) is left out. On a platform with `show_saved`, every line the push added must be in the saved configuration, else ACTION NEEDED "live but NOT saved". A snapshot that can't be read leaves the device `not verified`.
+4. **Verify** (with Verify on, in the same session after the finish): the configuration is read again and `judge(commands, before, after, replied=…, exec_words=…)` (`src/rollout/evidence.py`) gives each command a verdict from the device's own configuration - see *Verification by configuration* below. When changes no command explains appear, one more snapshot is read and what differs between the last two (the device's own churn) is left out. When commands are left unproven and the platform can show its configuration with defaults (`Platform.defaults`: `whole_config("show running-config all")`, FortiOS `fortios_blocks` - `show full-configuration <section>` per section in question - or `no_defaults`), that view is read once (`NetmikoSession._defaults`; at most `DEFAULTS_MAX_LINES`; unreadable or too long: nothing changes) and the push judged again with it. On a platform with `show_saved`, every line the push added must be in the saved configuration, else ACTION NEEDED "live but NOT saved". A snapshot that can't be read leaves the device `not verified`.
 5. **Classify** (`classify()`):
 
 | Status | When |
 |---|---|
 | `cancelled` | The device never started (the rollout was cancelled first). |
-| `failed` | Nothing applied: no connection, login or config mode refused, a failed commit (or later, a person rejected its review). |
-| `partial` | The device stopped answering mid-push: some commands sent, the rest not. |
+| `failed` | Nothing applied: no connection, login or config mode refused, a failed commit. Judged: a command rejected and none proven. Or later, a person rejected its review with nothing proven. |
+| `partial` | The device stopped answering mid-push: some commands sent, the rest not (no transcript). Judged: a command rejected and another proven (or a person rejected its review). |
 | `not verified` | Applied, not judged: Verify off, or a snapshot couldn't be read. |
-| `review` | Judged, and at least one command not proven either way. |
-| `success` | Judged, every command proven (or later, a person confirmed its review). |
+| `review` | Judged, a command not proven either way, none rejected. |
+| `success` | Judged, every command proven (exec commands aside), or later, a person confirmed it. |
+
+A judged device holding a command in review or rejected awaits a person (`engine.needs_decision`, `results.awaiting_decision`): Results counts it "to decide", the dashboard too; `ResultReviews.decide` confirms (→ success) or rejects (→ partial when commands were proven, else failed) - never an interrupted partial, which has no transcript. A rollback targets success and partial devices (`JobResults.configured_endpoints`).
 
 #### Verification by configuration
 
-**The principle.** The device's own output is the source of truth. NetRollout compares the device with itself - its configuration before and after the push - and states only what that comparison proves; what it doesn't prove goes to a person (`review`), with the evidence. What the device printed is kept as the reason, never used as evidence: no list of error messages decides anything, and silence proves nothing. Platform knowledge is grammar only (how a configuration is laid out, which words open or leave a block, how a removal is written, how the configuration is read, framed and saved), never what a message means or how a value is rewritten. Every vendor quirk is decided against this rule, not with another list.
+**The principle.** The device's own output is the source of truth. NetRollout compares the device with itself - its configuration before and after the push - and states what that comparison proves; a command it doesn't prove is `rejected` when the device replied to it, else it goes to a person (`review`), with the evidence: it says something whenever it can, and says when it can't know. That the device replied counts; what it said never does: no list of error messages decides anything, and silence proves nothing. Platform knowledge is grammar only (how a configuration is laid out, which words open or leave a block, how a removal is written, how the configuration is read, framed and saved), never what a message means or how a value is rewritten. Every vendor quirk is decided against this rule, not with another list.
 
 **How `judge()` works.** Both snapshots are parsed by the platform's grammar into lines with their sections (indented sections; FortiOS blocks; flat `set` lines; comment lines and block-closing lines left out) and compared within sections (`compare()`: added, removed, unchanged). Each typed command is placed in its section by the commands before it (a header opens one, navigation leaves it, IOS leaves a section for a command found only outside), then:
 
 | Verdict | Proven by |
 |---|---|
 | `took effect` | All the command's words are in a line the push added there, in order (`contains()`: the device may add words - a sequence number, quotes - and words match by `same_word()`: equal, or an abbreviation whose letters are a prefix and whose number is equal). |
-| `already in place` | An unchanged line there is exactly the command (`matches()`: no extra words - an unchanged `ip address X M secondary` is not `ip address X M`). A removal: no line there has its words, before or after. |
+| `already in place` | An unchanged line there is exactly the command (`matches()`: no extra words - an unchanged `ip address X M secondary` is not `ip address X M`). A removal: no line there has its words, before or after, **and the device said nothing** (a mistyped removal finds nothing either - and the device objects). |
 | `removed` | A removal (`no`, `undo`, `unset`, `delete`) whose words are in a line the push removed. |
+| `took effect` / `already in place` (a kept negation) | A removal the device keeps as a line of its own (IOS `no ip redirects`): that line added, or unchanged. |
+| `took effect` (negation removed) | A setting the device doesn't print, proven by the push removing its negation (`ip domain lookup`: `no ip domain lookup` gone). |
 | `took effect` (block) | A command that matched nothing but whose next command is in a new block the device named its own way (FortiOS `edit 0` → `edit 1`). |
-| `review` | Anything else, or one added line claimed by two different commands. Its evidence is the section's changes no command claimed, or "no change in its section". |
+| `already in place` (defaults) | Unproven by the plain configuration, but exactly a line of its section in the configuration shown with defaults (`_defaults()`, the view the session read; the view also shows an empty section as one - a new interface with nothing under it). |
+| `rejected` | Still unproven, and the device replied to it - or to the navigation command that closed its block, for the silent unproven commands since the previous one (FortiOS discards a new entry at `next`). Applied after the defaults, so a command the defaults prove is never rejected by a warning. |
+| `not a configuration command` | The platform's exec words (`Platform.exec_words`: `do`; NX-OS / EOS / IOS-XR / AOS-CX also `show`, `copy`, `write`, `ping`; FortiOS `get`, `show`, `execute`, `diagnose`; …): not judged, the section kept. |
+| `review` | Anything else, or one changed line (added or removed) claimed by two different commands. Its evidence is the section's changes no command claimed, or "no change in its section". |
 
 Every changed line is a `Change` with what made it: the commands it rests on (its own line, everything under a block one opened or removed, a line a claimed one replaced), the commands in review it's evidence for, or nobody - those are `other_changes`. The device's churn is kept as `Change(device=True)`, not dropped, so Results → Verification can tag each line of the stored diff (`engine.diff_tags`, matched by the redacted line the transcript keeps) and hide the churn behind a switch. The device's churn (`noise()`: two snapshots in a row, each changed line described by its section and the words it kept - FortiOS re-encrypts every `set password ENC` on each read) is left out before judging. The verdicts, evidence and replies are stored per device (`transcript()`), so Results shows exactly what the rollout decided. The lab corpus behind the tests (`tests/unit/rollout/lab/`: IOS 12.4, NX-OS 7.3, FortiOS 7.2, real snapshots and replies) is also the evaluation set for the review assistant on the [roadmap](roadmap.md).
 
@@ -1634,9 +1645,9 @@ Every changed line is a `Change` with what made it: the commands it rests on (it
 
 **Redaction.** Every log line (the file, Download Log, the live log, the console), every stored ACTION NEEDED text and every transcript entry (command, evidence, reply) passes `rollout/log.redact()`: the value after a secret-bearing word (`password`, `secret`, `community`, `pre-shared-key`, `psksecret`, `key-string`, `authentication-key`, Junos `encrypted-password`, PAN-OS `phash`, Gaia `password-hash`, and others; `key`, `auth` and `priv` only with a type before the value or a quoted value) becomes `<redacted>`. The keyword and an encryption type stay. The commands as typed (`job_metadata.commands`) and config snapshots (`fetched_config`, `config_diff`) are not redacted.
 
-**Known limits of Verify**: values the device stores in its own form (NX-OS's `/32` for a mask, hashed secrets, Junos `area 0` shown as `0.0.0.0`, a value back to a default FortiOS `show` omits) and commands that leave nothing in the configuration (`crypto key generate`) go to review, never to a false success or failure; another person's change to the same section during the seconds between the snapshots would be attributed to the rollout; a FortiOS password the push changes is learned as churn and goes to review. The review assistant on the [roadmap](roadmap.md) is aimed at the routine reviews.
+**Known limits of Verify**: values the device stores in its own form (NX-OS's `/32` for a mask, hashed secrets, Junos `area 0` shown as `0.0.0.0`) go to review, never to a false success; a command whose effect isn't kept in the configuration (`crypto key generate`), or one the device accepts with a notice although the configuration doesn't show it (IOS-XE's deprecated `ip domain-name`, hashed-secret warnings), is rejected - a person confirms it; a FortiOS delete of an entry that isn't there is rejected (the device refused it, though the state is as asked); on a platform with no defaults view a value back to its default stays in review; another person's change to the same section during the seconds between the snapshots would be attributed to the rollout; a FortiOS password the push changes is learned as churn and goes to review. The review assistant on the [roadmap](roadmap.md) is aimed at the routine reviews.
 
-**Adding a platform** is one `PLATFORMS` row in `src/rollout/platforms.py` (its `Finish`, show command, flat or indented, framing, saved-config command, any shell or config-mode quirk) and a layout fixture in `tests/unit/rollout/test_platforms.py` (`CONFIGS`, `INSERTS`: a change in its own layout is found and attributed) - better, recorded snapshots from a real device in `tests/unit/rollout/lab/`. `SUPPORTED_PLATFORMS` is derived from `PLATFORMS`.
+**Adding a platform** is one `PLATFORMS` row in `src/rollout/platforms.py` (its `Finish`, show command, flat or indented, framing, saved-config command, any shell or config-mode quirk, and always its exec words, its defaults view - `no_defaults` when there's none - and its event shapes) and a layout fixture in `tests/unit/rollout/test_platforms.py` (`CONFIGS`, `INSERTS`: a change in its own layout is found and attributed) - better, recorded snapshots from a real device in `tests/unit/rollout/lab/`. `SUPPORTED_PLATFORMS` is derived from `PLATFORMS`.
 
 **The engine's data types** (`src/rollout/engine.py`, runtime only, no database coupling):
 

@@ -10,7 +10,7 @@ Adding a vendor: one PLATFORMS row plus a fixture in
 tests/unit/rollout/test_platforms.py."""
 import re
 from abc import ABC, abstractmethod
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -20,20 +20,38 @@ from netmiko.exceptions import ReadTimeout
 from src.rollout.log import Tone
 
 
-# a line the device prints between commands that is a time stamp, not an
-# answer: IOS "*Oct 19 19:17:26.223: …", NX-OS "2026 Oct 19 16:10:28 …"
-_EVENT = re.compile(r"^\*?(\d{4} )?[A-Z][a-z]{2} +\d+ (\d{4} )?\d\d:\d\d:\d\d")
+# A line the device prints between commands that is a logged event, not an
+# answer - told apart by its shape: a time stamp first (IOS "*Oct 19
+# 19:17:26.223: …", NX-OS / EOS "2026 Oct 19 16:10:28 …", ISO "2026-10-19T…"),
+# or an uptime stamp before a syslog message (IOS "*00:12:34: %LINK-3-…",
+# "1w2d: %…"), or a syslog message itself ("%LINK-3-UPDOWN: …": facility,
+# severity digit, mnemonic). Per-platform shapes extend it (PLATFORMS' events).
+_TIME_STAMP = r"\*?(\d{4} )?[A-Z][a-z]{2} +\d+ (\d{4} )?\d\d:\d\d:\d\d"
+_ISO_STAMP = r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d"
+_UPTIME_SYSLOG = r"\*?(\d+:\d\d:\d\d|\d+[ywdh]\d+[wdhm])(\.\d+)?: +%"
+_SYSLOG = r"%[A-Z][A-Z0-9_]*-\d-[A-Z0-9_]+:"
+_SHAPES = f"{_TIME_STAMP}|{_ISO_STAMP}|{_UPTIME_SYSLOG}|{_SYSLOG}"
+EVENTS = re.compile(rf"^({_SHAPES})")
+# Comware "%Oct 21 10:00:00:123 2026 HP IFNET/3/PHY_UPDOWN: …"; ProCurve
+# "I 10/21/26 10:00:00 00076 ports: …"; IOS-XR "RP/0/RP0/CPU0:Oct 21 10:00:00…"
+_COMWARE_EVENTS = re.compile(rf"^({_SHAPES}|%[A-Z][a-z]{{2}} +\d+ \d\d:\d\d:\d\d)")
+_PROCURVE_EVENTS = re.compile(rf"^({_SHAPES}|[IWMDE] \d\d/\d\d/\d\d \d\d:\d\d:\d\d)")
+_XR_EVENTS = re.compile(rf"^({_SHAPES}|[A-Z]+/\d+/[^:\s]+:[A-Z][a-z]{{2}} +\d+ )")
 # Junos's context banner after a command ("[edit interfaces ge-0/0/0]")
 _CONTEXT = re.compile(r"^\[edit( .*)?\]$")
 
 
-def reply(output: str, command: str, prompt: str) -> tuple[list[str], list[str]]:
+def reply(output: str, command: str, prompt: str,
+          shapes: re.Pattern[str] = EVENTS) -> tuple[list[str], list[str]]:
 	"""What the device said to one command, told apart by shape from what
 	isn't an answer: the command's echo, the prompt (with any context:
 	"R1(config-if)#", "FGT1 (global) #"), blank lines, IOS's "^" pointer,
-	Junos's "[edit …]" banner. Time-stamped lines are device events.
+	Junos's "[edit …]" banner. Lines of the platform's event shapes are
+	device events.
 
-	:returns: (the reply's lines, the event lines) - shown, never judged"""
+	:param shapes: the platform's event shapes (Platform.events)
+	:returns: (the reply's lines, the event lines) - whether there is a
+	 reply counts in the judgment, its wording never"""
 	said, events = [], []
 	sent = command.strip()
 	base = prompt.strip()
@@ -45,7 +63,7 @@ def reply(output: str, command: str, prompt: str) -> tuple[list[str], list[str]]
 			continue
 		if base and text.startswith(base) and text[-1:] in "#>$" and sent not in text:
 			continue
-		if _EVENT.match(text):
+		if shapes.match(text):
 			events.append(text)
 		else:
 			said.append(text)
@@ -252,6 +270,53 @@ class Commit(Finish):
 		return said
 
 
+# A section as the device printed its headers ("interface Loopback95";
+# FortiOS "config firewall address", 'edit "nr def"'); () at the top
+Section = tuple[str, ...]
+# The commands that print the configuration with the values left at their
+# defaults - which the plain configuration hides (FortiOS "set admintimeout
+# 5", NX-OS "no shutdown") - for these sections; [] when the platform has no
+# way. Asked only for the sections of commands the plain configuration
+# didn't prove (evidence.Outcome.unproven)
+DefaultsFetch = Callable[[Iterable[Section]], list[str]]
+# What a defaults fetch may print and still be judged (lines)
+DEFAULTS_MAX_LINES = 50_000
+
+
+def no_defaults(sections: Iterable[Section]) -> list[str]:
+	"""No documented or verified way: those commands stay in review."""
+	return []
+
+
+def whole_config(command: str) -> DefaultsFetch:
+	""":returns: one command printing the whole configuration with defaults
+	 (IOS "show running-config all"), whatever the sections"""
+	return lambda sections: [command]
+
+
+def fortios_blocks(sections: Iterable[Section]) -> list[str]:
+	"""FortiOS: "show full-configuration <path>" per config block - the
+	whole one is tens of thousands of lines. The path from the block's
+	"config …" and "edit …" headers as printed (names keep their quotes); a
+	deeper section, or one under "config vdom", has none."""
+	fetches: list[str] = []
+	for path in sections:
+		if not path or len(path) > 2:
+			continue
+		head = path[0].split(None, 1)
+		if len(head) < 2 or head[0].lower() != "config" or head[1].lower().startswith("vdom"):
+			continue
+		command = f"show full-configuration {head[1]}"
+		if len(path) == 2:
+			entry = path[1].split(None, 1)
+			if len(entry) < 2 or entry[0].lower() != "edit":
+				continue
+			command += f" {entry[1]}"
+		if command not in fetches:
+			fetches.append(command)
+	return fetches
+
+
 @dataclass(frozen=True)
 class Platform:
 	"""How a platform finishes a push and prints its config in the syntax
@@ -276,6 +341,13 @@ class Platform:
 	# (Gaia: "show config-state" → "saved" / "unsaved") - a value read, as
 	# FortiOS's cfg-save mode is, never a message interpreted
 	saved_state: tuple[str, str] | None = None
+	# first words that run an exec command from config mode (IOS "do show
+	# …", FortiOS "get …"): not configuration - shown, never judged
+	exec_words: tuple[str, ...] = ()
+	# how the configuration prints with its defaults (DefaultsFetch)
+	defaults: DefaultsFetch = no_defaults
+	# the shapes of a logged event line (EVENTS and the platform's own)
+	events: re.Pattern[str] = EVENTS
 
 	def config(self, output: str) -> str:
 		""":returns: show_config's output without its framing lines"""
@@ -287,38 +359,65 @@ class Platform:
 
 _IOS_FRAMING = ("Building configuration", "Current configuration :")
 
+# Every row declares its grammar in full: exec words, how it shows its
+# defaults (no_defaults where there's no documented or verified way: those
+# commands stay in review), the shapes of its event lines.
+_CISCO_EXEC = ("do",)
+# NX-OS, EOS, IOS-XR, AOS-CX run exec commands in config mode without "do"
+_CONFIG_EXEC = ("do", "show", "copy", "write", "ping")
+_RUN_ALL = whole_config("show running-config all")
+
 PLATFORMS = {
-	"cisco_ios": Platform(SaveConfig(), framing=_IOS_FRAMING, show_saved="show startup-config"),
-	"cisco_xe": Platform(SaveConfig(), framing=_IOS_FRAMING, show_saved="show startup-config"),
-	"cisco_nxos": Platform(SaveConfig(), show_saved="show startup-config"),
+	# IOS, IOS-XE, NX-OS: "show running-config all" verified in the lab (IOS
+	# 12.4, NX-OS 7.3); IOS-XE documented as IOS
+	"cisco_ios": Platform(SaveConfig(), framing=_IOS_FRAMING, show_saved="show startup-config",
+	                      exec_words=_CISCO_EXEC, defaults=_RUN_ALL),
+	"cisco_xe": Platform(SaveConfig(), framing=_IOS_FRAMING, show_saved="show startup-config",
+	                     exec_words=_CISCO_EXEC, defaults=_RUN_ALL),
+	"cisco_nxos": Platform(SaveConfig(), show_saved="show startup-config",
+	                       exec_words=_CONFIG_EXEC, defaults=_RUN_ALL),
 	# a failed commit reverts the running config; leaving config mode
-	# (Netmiko answers "no" to "commit them?") drops the pending changes
-	"cisco_xr": Platform(Commit(reverts_on_failure=True)),
-	"arista_eos": Platform(SaveConfig(), show_saved="show startup-config"),
-	"aruba_aoscx": Platform(SaveConfig(), leave_first="end", show_saved="show startup-config"),
-	"hp_procurve": Platform(SaveConfig(), show_saved="show config"),
+	# (Netmiko answers "no" to "commit them?") drops the pending changes.
+	# No documented defaults view
+	"cisco_xr": Platform(Commit(reverts_on_failure=True), exec_words=_CONFIG_EXEC, events=_XR_EVENTS),
+	# EOS: "show running-config all" documented; AOS-CX: the command exists,
+	# what it adds isn't documented - a fetch that proves nothing changes nothing
+	"arista_eos": Platform(SaveConfig(), show_saved="show startup-config",
+	                       exec_words=_CONFIG_EXEC, defaults=_RUN_ALL),
+	"aruba_aoscx": Platform(SaveConfig(), leave_first="end", show_saved="show startup-config",
+	                        exec_words=_CONFIG_EXEC, defaults=_RUN_ALL),
+	# ProCurve runs show / write in its config context; no defaults view
+	"hp_procurve": Platform(SaveConfig(), show_saved="show config",
+	                        exec_words=("show", "write"), events=_PROCURVE_EVENTS),
+	# Comware: display / save in any view; "display current-configuration
+	# all" only on some releases - not relied on
 	"hp_comware": Platform(SaveConfig(), ("display current-configuration",),
-	                       show_saved="display saved-configuration"),
+	                       show_saved="display saved-configuration",
+	                       exec_words=("display", "save"), events=_COMWARE_EVENTS),
 	# private: our commit can't take other users' pending edits along, and
 	# our rollback can't wipe them (Junos refuses it while someone has
-	# uncommitted shared edits - the device then fails, with the reason)
+	# uncommitted shared edits - the device then fails, with the reason).
+	# "run" / "show" in configuration mode; defaults aren't shown as set lines
 	"juniper_junos": Platform(Commit(discard=("rollback 0",), pending="show | compare"),
 	                          ("show configuration | display set",), flat=True,
-	                          config_command="configure private"),
+	                          config_command="configure private", exec_words=("run", "show")),
 	# revert config (8.0+); loading the running config into the candidate
 	# discards too, also on older releases
 	"paloalto_panos": Platform(Commit(discard=(
 		"revert config", "load config from running-config.xml"),
 		pending="run show config diff"),
-		("set cli config-output-format set", "show config running"), flat=True),
+		("set cli config-output-format set", "show config running"), flat=True,
+		exec_words=("run", "show")),
 	# An account whose shell is expert (bash) would take every "set …" as
 	# bash's own set builtin (nothing configured, nothing refused): switch to
-	# clish first, or refuse
+	# clish first, or refuse. "lock database override" opens most snippets
 	"checkpoint_gaia": Platform(RunCommand("save config"),
 	                            ("show configuration",), flat=True,
 	                            wrong_shell=("expert@", "#"), cli_shell="clish",
-	                            saved_state=("show config-state", "saved")),
-	"fortinet": Platform(NoFinish(), ("show",), close_blocks=True),
+	                            saved_state=("show config-state", "saved"),
+	                            exec_words=("show", "lock")),
+	"fortinet": Platform(NoFinish(), ("show",), close_blocks=True,
+	                     exec_words=("get", "show", "execute", "diagnose"), defaults=fortios_blocks),
 }
 
 # PAN-OS commits can take minutes; Netmiko waits 120 s by default

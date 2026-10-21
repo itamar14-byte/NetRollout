@@ -61,6 +61,7 @@ button.status-pill:hover { filter: brightness(1.2); }
 .vf-reply code { color:#ffe0b2; background:none; padding:0; }
 .vf-ok     { background:rgba(76,175,80,0.06); }
 .vf-review { background:rgba(255,167,38,0.08); border:1px solid rgba(255,167,38,0.25); }
+.vf-rejected { background:rgba(239,83,80,0.08); border:1px solid rgba(239,83,80,0.28); }
 .vf-section { font-size:0.72rem; text-transform:uppercase; letter-spacing:0.06em; color:var(--nr-text-muted);
               margin:16px 0 6px; }
 .vf-diff { background:#0e0e0e; border:1px solid #222; border-radius:6px; padding:8px 10px; max-height:320px;
@@ -538,8 +539,8 @@ button.status-pill:hover { filter: brightness(1.2); }
                 <span class="status-pill pill-{{ job.status | replace(' ', '-') }}">{{ job.status }}</span>
                 {% if job.to_review %}
                 <span class="to-review-badge"
-                      title="Devices whose result NetRollout couldn't prove - open the job and decide">
-                    <i class="bi bi-question-circle-fill"></i> {{ job.to_review }} to review
+                      title="Devices with commands NetRollout couldn't prove, or rejected - open the job and decide">
+                    <i class="bi bi-question-circle-fill"></i> {{ job.to_review }} to decide
                 </span>
                 {% endif %}
                 {% if job.action_needed %}
@@ -589,7 +590,7 @@ button.status-pill:hover { filter: brightness(1.2); }
             {% endif %}
             {% set diff_devices = job.devices | selectattr('has_config') | list %}
             {% set diff_device_data = [] %}
-            {% for d in diff_devices %}{% set _ = diff_device_data.append({'ip': d.ip, 'port': d.port, 'label': d.get('label', d.ip), 'status': d.status}) %}{% endfor %}
+            {% for d in diff_devices %}{% set _ = diff_device_data.append({'ip': d.ip, 'port': d.port, 'label': d.get('label', d.ip), 'status': d.status, 'decide': d.decide}) %}{% endfor %}
             {% if diff_devices %}
             <button class="job-action-btn"
                     data-job-id="{{ job.job_id }}"
@@ -641,12 +642,12 @@ button.status-pill:hover { filter: brightness(1.2); }
                     <td style="font-family:'JetBrains Mono',monospace;">
                         {% if d.commands_verified is not none %}{{ d.commands_verified }}{% else %}<span class="nr-muted">-</span>{% endif %}
                     </td>
-                    <td>{% if d.status == 'review' and d.has_config %}<button type="button"
-                            class="status-pill pill-review" title="Open its verification and decide"
+                    <td>{% if d.decide and d.has_config %}<button type="button"
+                            class="status-pill pill-{{ d.status | replace(' ', '-') }}" title="Open its verification and decide"
                             data-job-id="{{ job.job_id }}"
                             data-devices="{{ diff_device_data | tojson | forceescape }}"
                             data-ip="{{ d.ip }}" data-port="{{ d.port }}"
-                            onclick="showConfigDiff(this)">review</button>{% else %}<span
+                            onclick="showConfigDiff(this)">{{ d.status }}</button>{% else %}<span
                             class="status-pill pill-{{ d.status | replace(' ', '-') }}">{{ d.status }}</span>{% endif %}{% if d.review %}<span
                             class="review-decided" title="{{ d.review.comment or '' }}">{{ d.review.outcome }} by {{ d.review.by }}</span>{% endif %}{% if d.action_needed %}
                         <i class="bi bi-exclamation-triangle-fill ms-1" style="color:#ffb74d;"
@@ -882,9 +883,10 @@ button.status-pill:hover { filter: brightness(1.2); }
                         NetRollout read the device's configuration before and after the push and compared the device
                         with itself. A command is proven when its words are in a line the push added (or removed, for
                         <code>no</code> / <code>undo</code> / <code>delete</code> / <code>unset</code>), or already there
-                        unchanged. Anything else - a value the device rewrote, a command that changes nothing - is
-                        <span style="color:#ffa726;">review</span>: decide it with the evidence below. What the device
-                        replied is shown, never used to judge.
+                        unchanged, or shown with the device's defaults. A command the configuration doesn't show is
+                        <span style="color:#ef5350;">rejected</span> when the device replied to it, else
+                        <span style="color:#ffa726;">review</span> - a value the device rewrote: decide it with the
+                        evidence below. That the device replied counts, never what it said.
                     </span>
                 </div>
                 <div id="verifyDiffList" style="padding:14px 18px;"></div>
@@ -943,7 +945,7 @@ async function showConfigDiff(btn) {
             const tab = document.createElement('button');
             tab.type = 'button';
             tab.textContent = device.label || device.ip;
-            if (device.status === 'review') {
+            if (device.decide) {
                 const dot = document.createElement('i');
                 dot.className = 'bi bi-question-circle-fill ms-1';
                 dot.style.color = '#ffa726';
@@ -981,7 +983,7 @@ async function showConfigDiff(btn) {
                     'background:none; border:none; border-radius:4px; text-align:left; padding:5px 8px;' +
                     'font-size:0.78rem; cursor:pointer; color:#ccc; font-family:\'JetBrains Mono\',monospace;';
                 opt.textContent = label + (label !== device.ip ? ' (' + device.ip + ')' : '') +
-                                  (device.status === 'review' ? ' - review' : '');
+                                  (device.decide ? ' - to decide' : '');
                 opt.onclick = () => {
                     listEl.querySelectorAll('button').forEach(b => b.style.background = 'none');
                     opt.style.background = 'rgba(0,188,212,0.08)';
@@ -1004,6 +1006,8 @@ const VERDICT_LOOK = {
     'already in place': {icon: 'bi-check-circle',      color: '#66bb6a', css: 'vf-ok'},
     'removed':          {icon: 'bi-dash-circle-fill',  color: '#66bb6a', css: 'vf-ok'},
     'review':           {icon: 'bi-question-circle-fill', color: '#ffa726', css: 'vf-review'},
+    'rejected':         {icon: 'bi-x-circle-fill',     color: '#ef5350', css: 'vf-rejected'},
+    'not a configuration command': {icon: 'bi-terminal', color: 'var(--nr-text-faint)', css: ''},
     'navigation':       {icon: 'bi-arrow-return-left', color: 'var(--nr-text-faint)', css: ''},
 };
 
@@ -1064,10 +1068,15 @@ async function _renderVerifyDiff(device, activeTab) {
         box.append(' by ' + data.review.by + (data.review.at ? ' at ' + data.review.at : ''));
         if (data.review.comment) box.appendChild(_el('div', 'nr-muted mt-1', data.review.comment));
         list.appendChild(box);
-    } else if (data.device_status === 'review') {
+    } else if (data.decidable) {
         const box = _el('div', 'vf-decide');
-        box.appendChild(_el('div', '', 'NetRollout couldn\'t prove every command on this device. Check the ' +
-                                       'evidence below, then decide: the decision is kept with the result.'));
+        const rejected = judged.some(c => c.verdict === 'rejected');
+        box.appendChild(_el('div', '', rejected
+            ? 'Rejected: the configuration doesn\'t show these commands, and the device replied (its reply ' +
+              'is with each). If the device did take them - a command whose effect isn\'t kept in the ' +
+              'configuration, such as generating keys - confirm. The decision is kept with the result.'
+            : 'NetRollout couldn\'t prove every command on this device. Check the evidence below, then ' +
+              'decide: the decision is kept with the result.'));
         const comment = _el('textarea');
         comment.placeholder = 'Comment (optional) - why, for the record';
         comment.maxLength = 2000;

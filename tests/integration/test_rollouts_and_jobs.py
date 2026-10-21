@@ -1667,11 +1667,14 @@ def test_a_launch_keeps_the_last_known_address_when_the_name_doesnt_resolve(
 
 # ── A device in review, decided by a person ──────────────────────────────────
 
-def review_job(session_scope, user, status="review"):
-	""":returns: a job with one device (10.0.0.1) in `status`"""
+def review_job(session_scope, user, status="review", verdicts=("took effect", "review"), verified=1):
+	""":returns: a job with one device (10.0.0.1) in `status`, its two commands
+	judged `verdicts` (as a judged device stores them), `verified` proven"""
 	job = uuid.uuid4()
-	add_result(session_scope, user, job, status=status, verified=1, commands=["a", "b"],
-	           transcript={"commands": [], "other_changes": []}, diff="+a")
+	commands = [{"command": c, "verdict": v, "evidence": [], "note": "", "reply": []}
+	            for c, v in zip(("a", "b"), verdicts)]
+	add_result(session_scope, user, job, status=status, verified=verified, commands=["a", "b"],
+	           transcript={"commands": commands, "other_changes": []}, diff="+a")
 	return job
 
 
@@ -1689,31 +1692,61 @@ def test_confirming_a_review_makes_it_a_success_on_record(operator, client_for, 
 		assert row.reviewed_at is not None
 		audit = s.query(AuditLog).filter_by(action="rollout.review_confirmed").one()
 		assert str(audit.object_id) == str(job) and audit.detail["comment"] == "NX-OS writes /32"
-		assert JobResults(s, Viewer(operator.user.id)).successful_endpoints(job, operator.user.id) == {("10.0.0.1", 22)}
+		assert JobResults(s, Viewer(operator.user.id)).configured_endpoints(job, operator.user.id) == {("10.0.0.1", 22)}
 
 
-def test_rejecting_a_review_makes_it_a_failure_on_record(operator, client_for, session_scope):
-	"""Reject: the device becomes failed, decided and audited."""
-	job = review_job(session_scope, operator.user)
+@pytest.mark.parametrize("verified, status", [(1, "partial"), (0, "failed")])
+def test_rejecting_a_review_makes_it_partial_or_failed_on_record(operator, client_for, session_scope,
+                                                                verified, status):
+	"""Reject: partial when another command was proven, failed when none was;
+	decided and audited."""
+	job = review_job(session_scope, operator.user, verified=verified)
 	resp = client_for(operator.user).post(f"/results/review/{job}/10.0.0.1", json={"outcome": "rejected"})
-	assert resp.status_code == 200 and resp.json["status"] == "failed"
+	assert resp.status_code == 200 and resp.json["status"] == status
 	with session_scope() as s:
 		row = s.query(DeviceResult).filter_by(job_id=job).one()
-		assert (row.status, row.review_outcome, row.review_comment) == ("failed", "rejected", None)
+		assert (row.status, row.review_outcome, row.review_comment) == (status, "rejected", None)
 		assert s.query(AuditLog).filter_by(action="rollout.review_rejected").count() == 1
 
 
-def test_a_review_is_decided_once_and_only_in_review(operator, client_for, session_scope):
-	"""A second decision, or one on a device that isn't in review, is refused
-	(409) with the reason; nothing changes."""
+@pytest.mark.parametrize("status, verified", [("partial", 1), ("failed", 0)])
+def test_a_device_with_a_rejected_command_can_be_confirmed(operator, client_for, session_scope, status, verified):
+	"""A rejection may be false (a command whose effect isn't kept in the
+	configuration): the device - partial or failed by it - is confirmed like a
+	review, becomes a success and then counts for a rollback."""
+	job = review_job(session_scope, operator.user, status=status, verdicts=("took effect", "rejected"),
+	                 verified=verified)
+	resp = client_for(operator.user).post(f"/results/review/{job}/10.0.0.1",
+	                                      json={"outcome": "confirmed", "comment": "keys generated"})
+	assert resp.status_code == 200 and resp.json["status"] == "success"
+
+
+def test_a_partial_device_counts_for_a_rollback(operator, session_scope):
+	"""Some of a partial device's commands took effect: a rollback targets it,
+	as it does a success - not a failed one."""
+	job = uuid.uuid4()
+	for ip, status in (("10.0.0.1", "success"), ("10.0.0.2", "partial"), ("10.0.0.3", "failed")):
+		add_result(session_scope, operator.user, job, ip=ip, status=status)
+	with session_scope() as s:
+		assert JobResults(s, Viewer(operator.user.id)).configured_endpoints(job, operator.user.id) == {
+			("10.0.0.1", 22), ("10.0.0.2", 22)}
+
+
+def test_a_review_is_decided_once_and_only_with_something_to_decide(operator, client_for, session_scope):
+	"""A second decision, or one on a device with nothing in review or
+	rejected, is refused (409) with the reason; nothing changes."""
 	client = client_for(operator.user)
 	job = review_job(session_scope, operator.user)
 	assert client.post(f"/results/review/{job}/10.0.0.1", json={"outcome": "confirmed"}).status_code == 200
 	again = client.post(f"/results/review/{job}/10.0.0.1", json={"outcome": "rejected"})
 	assert again.status_code == 409 and "already confirmed" in again.json["message"]
-	settled = review_job(session_scope, operator.user, status="success")
+	settled = review_job(session_scope, operator.user, status="success", verdicts=("took effect", "took effect"))
 	other = client.post(f"/results/review/{settled}/10.0.0.1", json={"outcome": "confirmed"})
-	assert other.status_code == 409 and "isn't in review" in other.json["message"]
+	assert other.status_code == 409 and "has nothing to decide" in other.json["message"]
+	interrupted = uuid.uuid4()
+	add_result(session_scope, operator.user, interrupted, status="partial", commands=["a"])
+	gone = client.post(f"/results/review/{interrupted}/10.0.0.1", json={"outcome": "confirmed"})
+	assert gone.status_code == 409 and "has nothing to decide" in gone.json["message"]
 	with session_scope() as s:
 		assert s.query(DeviceResult).filter_by(job_id=job).one().status == "success"
 
@@ -1750,21 +1783,23 @@ def test_results_show_review_and_not_verified(operator, client_for, session_scop
 	assert client.post(f"/results/review/{decided}/10.0.0.1",
 	                   json={"outcome": "confirmed", "comment": "rewritten mask"}).status_code == 200
 	html = client.get("/results").get_data(as_text=True)
-	assert html.count("1 to review") == 1
+	assert html.count("1 to decide") == 1
 	assert 'class="status-pill pill-review"' in html and 'data-ip="10.0.0.1"' in html
 	assert "pill-not-verified" in html
 	assert f'confirmed by {operator.user.username}' in html and 'title="rewritten mask"' in html
 
 
-def test_dashboard_counts_the_users_devices_to_review(operator, client_for, session_scope):
-	"""The dashboard says how many of the user's devices wait for a review,
-	linking to Results filtered on review; none, no note."""
+def test_dashboard_counts_the_users_devices_to_decide(operator, client_for, session_scope):
+	"""The dashboard says how many of the user's devices wait for a decision -
+	in review, or partial / failed by a rejected command - linking to Results;
+	none, no note."""
 	client = client_for(operator.user)
-	assert "need your review" not in client.get("/dashboard").get_data(as_text=True)
+	assert "need your decision" not in client.get("/dashboard").get_data(as_text=True)
 	review_job(session_scope, operator.user)
-	review_job(session_scope, operator.user)
+	review_job(session_scope, operator.user, status="partial", verdicts=("took effect", "rejected"))
+	review_job(session_scope, operator.user, status="success", verdicts=("took effect", "took effect"))
 	html = client.get("/dashboard").get_data(as_text=True)
-	assert "2 devices of your rollouts" in html and "/results?status=review" in html
+	assert "2 devices of your rollouts" in html and "need your decision" in html
 
 
 def test_results_export_carries_the_review_decision(operator, client_for, session_scope):
@@ -1780,7 +1815,7 @@ def test_results_export_carries_the_review_decision(operator, client_for, sessio
 	by_job = {r[0]: dict(zip(rows[0], r)) for r in rows[1:]}
 	row = by_job[str(decided)]
 	assert (row["status"], row["review"], row["reviewed_by"], row["review_comment"]) == \
-	       ("failed", "rejected", operator.user.username, "'=old value kept")
+	       ("partial", "rejected", operator.user.username, "'=old value kept")
 	assert row["reviewed_at"]
 	assert [by_job[str(open_review)][c] for c in ("review", "reviewed_by", "reviewed_at", "review_comment")] == \
 	       ["", "", "", ""]

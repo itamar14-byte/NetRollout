@@ -458,7 +458,7 @@ def rollback(job_id: uuid.UUID, data: dict[str, Any]) -> ResponseReturnValue:
 		owner_name = owner.username if owner else None
 		# the owner's devices and values, as they see them
 		owner_view = InventoryView(db_session, Viewer.of(owner) if owner else Viewer(owner_id))
-		successful = history.successful_endpoints(job_id, owner_id)
+		successful = history.configured_endpoints(job_id, owner_id)
 
 		candidates = owner_view.visible(ips={ip for ip, _ in successful})
 		# Match on ip:port (the target), not IP alone - devices behind one

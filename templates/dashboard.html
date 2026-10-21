@@ -268,10 +268,10 @@
             <div class="nr-card-body" style="padding:1.5rem;">
 
                 {% if to_review %}
-                <a class="to-review-note" href="{{ url_for('jobs.results', status='review') }}">
+                <a class="to-review-note" href="{{ url_for('jobs.results') }}">
                     <i class="bi bi-question-circle-fill"></i>
                     {{ to_review }} device{{ 's' if to_review != 1 }} of your rollouts
-                    need{{ 's' if to_review == 1 }} your review - NetRollout couldn't prove the result
+                    need{{ 's' if to_review == 1 }} your decision - commands NetRollout couldn't prove, or rejected
                     <i class="bi bi-arrow-right ms-auto"></i>
                 </a>
                 {% endif %}

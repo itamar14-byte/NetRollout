@@ -13,7 +13,7 @@ import time
 from collections import Counter
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, NamedTuple, Protocol, cast
+from typing import TYPE_CHECKING, Any, NamedTuple, Protocol, cast
 
 import netmiko
 
@@ -21,7 +21,8 @@ from src.rollout.address import is_ip, resolve
 from src.rollout.evidence import Outcome, judge, parse
 from src.rollout.log import Tone, redact
 from src.rollout.platforms import (
-	COMMIT_TIMEOUT, FETCH_TIMEOUT, PLATFORMS, CommitPending, ConfigSession, Platform, Target, reply)
+	COMMIT_TIMEOUT, DEFAULTS_MAX_LINES, FETCH_TIMEOUT, PLATFORMS, CommitPending, ConfigSession, Platform,
+	Target, reply)
 if TYPE_CHECKING:   # annotations only: engine.py imports this module
 	from src.rollout.engine import Device
 
@@ -247,7 +248,8 @@ class NetmikoSession:
 					except netmiko.exceptions.ReadTimeout:
 						replies.append(tuple(self._last_output(net_connect, channel, command)))
 						raise
-					said, events = reply(str(output), command, str(net_connect.base_prompt))
+					said, events = reply(str(output), command, str(net_connect.base_prompt),
+					                     self._platform.events)
 					replies.append(tuple(said))
 					if said:
 						# without verify nothing judges the command: its reply is
@@ -265,7 +267,7 @@ class NetmikoSession:
 					return self._after_slow_commit(commands, before, tuple(replies))
 				if before is None:
 					return PushResult(applied=True, replies=tuple(replies))
-				outcome, diff, after = self._judge(commands, before,
+				outcome, diff, after = self._judge(commands, before, tuple(replies),
 				                                   lambda why: self._snapshot(net_connect, why),
 				                                   net_connect)
 				return PushResult(applied=True, replies=tuple(replies),
@@ -295,7 +297,8 @@ class NetmikoSession:
 				self._finish_in_new_session()
 				if before is None:
 					return PushResult(applied=True, replies=tuple(replies))
-				outcome, diff, after = self._judge(commands, before, self._fetch_new, None)
+				outcome, diff, after = self._judge(commands, before, tuple(replies),
+				                                   self._fetch_new, None)
 				return PushResult(applied=True, replies=tuple(replies),
 				                  outcome=outcome, diff=diff, after=after)
 			if commands_sent and platform.finish.interruptible:
@@ -329,7 +332,7 @@ class NetmikoSession:
 		if log is not None:
 			log.flush()
 		said, _ = reply(channel.getvalue().decode("utf-8", "replace"), command,
-		                str(getattr(conn, "base_prompt", "")))
+		                str(getattr(conn, "base_prompt", "")), self._platform.events)
 		if said:
 			self._report.notify(f"{self._device.endpoint}: '{command.strip()}' - no prompt "
 			                    f"came back; the device's last output: {' | '.join(said)}",
@@ -363,8 +366,8 @@ class NetmikoSession:
 				              f"changed since - judged by it", Tone.WARNING)
 				first = [after]
 				outcome, diff, after = self._judge(
-					commands, before, lambda why: first.pop() if first else self._fetch_new(why),
-					None)
+					commands, before, replies,
+					lambda why: first.pop() if first else self._fetch_new(why), None)
 				return PushResult(applied=True, replies=replies, outcome=outcome,
 				                  diff=diff, after=after)
 		else:
@@ -378,33 +381,80 @@ class NetmikoSession:
 		return PushResult(applied=False, replies=replies)
 
 	def _judge(self, commands: list[str], before: str,
+	           replies: tuple[tuple[str, ...], ...],
 	           snapshot: Callable[[str], str | None],
 	           conn: ConfigSession | None) -> tuple[Outcome | None, str | None, str | None]:
 		"""The push judged by the configuration after it (evidence.judge); one
 		more snapshot only when changes no command explains appear (the
-		device's own churn is told apart from someone else's change); then,
-		on a platform that saves, the save checked.
+		device's own churn is told apart from someone else's change); the
+		configuration with its defaults only when commands are left unproven
+		and the platform can show it; then, on a platform that saves, the
+		save checked.
 
+		:param replies: what the device said to each command (whether it said
+		 anything counts)
 		:param snapshot: reads the configuration now (the reason in its log)
-		:param conn: the push's session, for the save check; None: no check
+		:param conn: the push's session, for the save check and the defaults;
+		 None: from a new session, no save check
 		:returns: (outcome, the before → after diff, the configuration after);
 		 (None, None, None) when the after snapshot couldn't be taken"""
 		platform = self._platform
 		after = snapshot("after the push")
 		if after is None:
 			return None, None, None
-		outcome = judge(commands, before, after, flat=platform.flat,
-		                blocks=platform.close_blocks)
+		grammar: dict[str, Any] = {"flat": platform.flat, "blocks": platform.close_blocks,
+		                           "replied": [bool(r) for r in replies],
+		                           "exec_words": platform.exec_words}
+		outcome = judge(commands, before, after, **grammar)
 		if outcome.other_changes:
 			again = snapshot("again, to tell the device's own changes apart")
 			if again is not None:
-				outcome = judge(commands, before, after, flat=platform.flat,
-				                blocks=platform.close_blocks, again=again)
+				grammar["again"] = again
+				outcome = judge(commands, before, after, **grammar)
+		fetches = platform.defaults(outcome.unproven) if outcome.unproven else []
+		if fetches:
+			view = self._defaults(conn, fetches)
+			if view is not None:
+				outcome = judge(commands, before, after, defaults=view, **grammar)
 		if conn is not None:
 			self._check_saved(conn, outcome)
 		diff = "\n".join(difflib.unified_diff(before.splitlines(), after.splitlines(),
 		                                      "before", "after", n=3, lineterm=""))
 		return outcome, diff, after
+
+	def _defaults(self, conn: ConfigSession | None, fetches: list[str]) -> str | None:
+		"""The configuration shown with its defaults (Platform.defaults), for
+		commands the plain one didn't prove - in the push's session, else a
+		new one. Logged; when it can't be read, or is too long to judge
+		(DEFAULTS_MAX_LINES), those commands stay as they are.
+
+		:returns: the views, one after the other; None: not read"""
+		device, platform = self._device, self._platform
+
+		def read(session: ConfigSession) -> str:
+			return "\n".join(platform.config(cast(str, session.send_command(
+				fetch, read_timeout=FETCH_TIMEOUT))) for fetch in fetches)
+
+		try:
+			if conn is not None:
+				view = read(conn)
+			else:
+				with netmiko.ConnectHandler(**_connect_args(device)) as new:
+					if problem := _enter_cli_shell(new, platform):
+						raise RuntimeError(problem)
+					new.enable()
+					view = read(new)
+		except Exception as e:
+			self._report.notify(f"{device.endpoint}: couldn't read the configuration with "
+			                    f"its defaults ({e}) - unproven commands stay so", Tone.WARNING)
+			return None
+		if len(view.splitlines()) > DEFAULTS_MAX_LINES:
+			self._report.notify(f"{device.endpoint}: the configuration with its defaults is "
+			                    f"over {DEFAULTS_MAX_LINES} lines - not judged", Tone.WARNING)
+			return None
+		self._report.notify(f"{device.endpoint}: read the configuration with its defaults "
+		                    f"for the unproven commands ({' / '.join(fetches)})")
+		return view
 
 	def _snapshot(self, conn: ConfigSession, why: str) -> str | None:
 		""":returns: the configuration now, without its framing; None if it

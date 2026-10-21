@@ -154,22 +154,23 @@ A `$$` that isn't part of a variable, such as `banner motd $$ maintenance $$`, i
 
 1. **Read and check.** The CLI reads the commands file first and stops if it uses [variables](#variables). It then reads the CSV and checks every row (see above). It also probes each device's SSH port with a TCP connection: up to 3 attempts, 5 seconds each, a second apart. Unreachable devices are dropped before anything is pushed and reported as `<ip:port> is not reachable`. If no devices or no commands are left, the run stops with `Aborting - no devices or commands to process.` and exit code 2.
 2. **Push.** Up to 10 devices are configured at the same time. On each one, NetRollout enters configuration mode and sends every command, whatever the device answers; each answer is logged with its command. Then it saves or commits.
-3. **Verify** (with `-vf`). NetRollout reads each device's configuration before the push and again after it, in the same session, and judges every command by what changed: **took effect** (its words are in a line the push added), **already in place** (exactly that line was there, unchanged), **removed** (a `no` / `undo` / `delete` / `unset` whose line the push removed), or **review** when the configuration doesn't prove it either way - a value the device stored in its own form, or no change at all (a refused command, a typo). What the device replied is shown next to the verdict, never used to judge it. The [user guide](user-guide.md#verify) has the rules.
+3. **Verify** (with `-vf`). NetRollout reads each device's configuration before the push and again after it, in the same session, and judges every command by what changed: **took effect** (its words are in a line the push added), **already in place** (exactly that line was there, unchanged - or shown with the device's defaults), **removed** (a `no` / `undo` / `delete` / `unset` whose line the push removed), **rejected** (the configuration doesn't show it and the device replied - a refused command, a typo), or **review** when nothing proves it either way (a value the device stored in its own form, the device silent). An exec command (`do show …`) is **not a configuration command**. What the device replied is shown next to the verdict: that it replied counts, never what it said. The [user guide](user-guide.md#verify) has the rules.
 4. **Summary.** Each device gets a status:
 
    | Status | Meaning |
    |---|---|
    | `success` | Verify on: the configuration proved every command. |
-   | `review` | Verify on: the configuration didn't prove every command. The console shows each one in review, with the line it rests on and the device's reply - check them on the device. |
-   | `partial` | The device stopped answering partway through. |
-   | `failed` | Nothing took effect: no connection, login or configuration mode refused, a failed commit. |
+   | `review` | Verify on: a command not proven either way, none rejected. The console shows each one in review, with the line it rests on - check them on the device. |
+   | `partial` | Verify on: some commands proven, some rejected. Or the device stopped answering partway through. |
+   | `failed` | Nothing took effect: no connection, login or configuration mode refused, a failed commit - or, with Verify, every judged command rejected. |
    | `not verified` | The commands were sent and nothing judged them: no `-vf`, or the configuration couldn't be read. |
    | `cancelled` | The device was never started because the run was cancelled with Ctrl+C. |
 
-   The last lines are, for example, `Configuration rollout complete: 10 success, 1 review (of 11 devices)`, then `REVIEW on 1 device (10.0.0.7:22) - NetRollout couldn't prove every command there: check the lines marked review, then decide them on the devices`, and the path of the log file. Without `-vf`, what a device replied to a command is printed even without `-v`, and the summary names the devices that replied (`1 device not verified replied to some commands (10.0.0.7:22) - read the lines marked 'the device replied'`); the exit code stays `0`, as nothing judged them. A command in review is printed even without `-v`, for example:
+   The last lines are, for example, `Configuration rollout complete: 9 success, 1 partial, 1 review (of 11 devices)`, then `REJECTED commands on 1 device (10.0.0.7:22) - not in the configuration, and the device replied: see the lines marked rejected. A command whose effect isn't kept in the configuration (generating keys) is rejected too - check it on the device`, `REVIEW on 1 device (10.0.0.8:22) - NetRollout couldn't prove every command there: check the lines marked review, then decide them on the devices`, and the path of the log file. Without `-vf`, what a device replied to a command is printed even without `-v`, and the summary names the devices that replied (`1 device not verified replied to some commands (10.0.0.7:22) - read the lines marked 'the device replied'`); the exit code stays `0`, as nothing judged them. A rejected command and a command in review are printed even without `-v`, for example (R1, IOS 12.4, a real run):
 
    ```text
-   10.0.0.7:22: 'ntp server 192.0.2.123' review - no change in its section; the device replied: % Initialization of NTP failed with status 4.
+   10.10.10.11:22: 'ntp server 192.0.2.123' rejected - not proven by the configuration; the device replied: % Initialization of NTP failed with status 4. | %NTP: failed to initialize NTP process
+   10.10.10.11:22: 5 of 7 commands proven by the configuration, 2 rejected
    ```
 
 **ACTION NEEDED.** Some problems need a person on the device, for example a change that is live but not saved, a commit that timed out, or a shared candidate configuration someone else left uncommitted. These are logged as `ACTION NEEDED - <ip:port>: <what to do>` and counted in the summary (`ACTION NEEDED on 2 devices (...) - see the lines marked ACTION NEEDED`). Search the log for `ACTION NEEDED`.

@@ -21,7 +21,7 @@ import src.rollout.engine as engine_module
 # isinstance checks would then silently target the wrong one).
 from src.rollout import inputs
 from src.rollout.engine import (SubstitutionError, Device, RolloutOptions, RolloutEngine,
-                                endpoint, classify, mapping_resolvable)
+                                endpoint, classify, mapping_resolvable, needs_decision)
 from src.rollout.evidence import Judgment, Outcome, Verdict
 from src.rollout.inputs import InputParser, Validator
 from src.rollout.log import RolloutLogger
@@ -585,13 +585,14 @@ class TestFullRolloutAndVerifyPipeline(unittest.TestCase):
 	@patch("netmiko.ConnectHandler")
 	@patch("src.rollout.engine.Device.from_inventory")
 	def test_full_pipeline_command_not_in_config_is_review(self, mock_from_inv, mock_netmiko_ch):
-		"""Push, then a configuration without the command (nothing changed): not
-		proven either way - one "review" result with 0 commands proven."""
+		"""Push, then a configuration without the command (nothing changed), the
+		device silent (only its echo): not proven either way - one "review"
+		result with 0 commands proven."""
 		device = self._make_device()
 		mock_from_inv.return_value = device
 
 		mock_conn = MagicMock()
-		mock_conn.send_config_set.return_value = "ok"
+		mock_conn.send_config_set.return_value = self.COMMAND
 		mock_netmiko_ch.return_value = mock_conn
 
 		mock_conn.__enter__.return_value = mock_conn      # the config fetch
@@ -611,6 +612,28 @@ class TestFullRolloutAndVerifyPipeline(unittest.TestCase):
 		self.assertEqual(len(result), 1)
 		self.assertEqual(result[0]["status"], "review")
 		self.assertEqual(result[0]["commands_verified"], 0)
+
+	@patch("netmiko.ConnectHandler")
+	@patch("src.rollout.engine.Device.from_inventory")
+	def test_full_pipeline_unproven_command_the_device_replied_to_fails(self, mock_from_inv, mock_netmiko_ch):
+		"""Push, nothing changed in the configuration, and the device answered the
+		command: rejected - with no other command proven the device failed,
+		0 commands proven, and its transcript says rejected."""
+		device = self._make_device()
+		mock_from_inv.return_value = device
+
+		mock_conn = MagicMock()
+		mock_conn.send_config_set.return_value = f"{self.COMMAND}\n% Invalid next hop"
+		mock_netmiko_ch.return_value = mock_conn
+		mock_conn.__enter__.return_value = mock_conn
+		mock_conn.send_command.return_value = "no relevant config"
+
+		devices = InputParser.import_from_inventory([self._make_inventory_row()], None, {})
+		engine = RolloutEngine(param=make_options(verify=True), devices=devices, commands=[self.COMMAND])
+		result = engine.run(threading.Event(), RolloutLogger(webapp=False, verbose=False))
+		self.assertEqual(result[0]["status"], "failed")
+		self.assertEqual(result[0]["commands_verified"], 0)
+		self.assertEqual(result[0]["transcript"]["commands"][0]["verdict"], "rejected")
 
 	@patch("netmiko.ConnectHandler")
 	@patch("src.rollout.engine.Device.from_inventory")
@@ -648,8 +671,8 @@ def judged(*verdicts):
 
 
 REPLIES = ((), (), ())
-T, P, R, N, V = (Verdict.TOOK_EFFECT, Verdict.IN_PLACE, Verdict.REMOVED,
-                 Verdict.NAVIGATION, Verdict.REVIEW)
+T, P, R, N, V, X, E = (Verdict.TOOK_EFFECT, Verdict.IN_PLACE, Verdict.REMOVED,
+                       Verdict.NAVIGATION, Verdict.REVIEW, Verdict.REJECTED, Verdict.EXEC)
 
 
 @pytest.mark.parametrize("push, expected", [
@@ -662,12 +685,29 @@ T, P, R, N, V = (Verdict.TOOK_EFFECT, Verdict.IN_PLACE, Verdict.REMOVED,
 	(PushResult(applied=True, replies=REPLIES, outcome=judged(T, N, P)), ("success", 3, 2)),
 	(PushResult(applied=True, replies=REPLIES, outcome=judged(T, V, N)), ("review", 3, 1)),
 	(PushResult(applied=True, replies=REPLIES, outcome=judged(V, V, V)), ("review", 3, 0)),
+	(PushResult(applied=True, replies=REPLIES, outcome=judged(T, X, N)), ("partial", 3, 1)),
+	(PushResult(applied=True, replies=REPLIES, outcome=judged(T, X, V)), ("partial", 3, 1)),
+	(PushResult(applied=True, replies=REPLIES, outcome=judged(X, V, N)), ("failed", 3, 0)),
+	(PushResult(applied=True, replies=REPLIES, outcome=judged(T, E, N)), ("success", 3, 1)),
 ])
 def test_status_rules(push, expected):
 	"""classify gives (status, commands sent, commands proven): cancelled,
 	failed, partial, not verified - and, judged, success when every command is
-	proven or navigation, review when any isn't."""
+	proven or navigation (or an exec command), review when any isn't; a rejected
+	command makes it partial when another was proven, else failed."""
 	assert classify(push) == expected
+
+
+@pytest.mark.parametrize("transcript, expected", [
+	(None, False),
+	({"commands": [{"verdict": "took effect"}, {"verdict": "not a configuration command"}]}, False),
+	({"commands": [{"verdict": "took effect"}, {"verdict": "review"}]}, True),
+	({"commands": [{"verdict": "rejected"}]}, True),
+])
+def test_needs_decision(transcript, expected):
+	"""A person decides a judged device with a command in review or rejected -
+	never one without a transcript (interrupted, not judged)."""
+	assert needs_decision(transcript) is expected
 
 
 USER_A, USER_B, USER_C = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()

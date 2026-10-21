@@ -27,7 +27,7 @@ from src import runtime
 from src.accounts.users import Accounts, Viewer
 from src.db.tables import DeviceResult, JobMetadata
 from src.inventory import InventoryView, LabelScope, Target
-from src.rollout.engine import DeviceStatus, ReviewOutcome, endpoint
+from src.rollout.engine import DeviceStatus, ReviewOutcome, endpoint, needs_decision
 
 
 # what "the last 30 days" means on the dashboard and Analytics
@@ -142,6 +142,13 @@ def build_job_summaries(results: Iterable[DeviceResult]) -> list[dict[str, Any]]
 	return summaries
 
 
+def awaiting_decision(row: DeviceResult) -> bool:
+	""":returns: whether a person still has a device's result to decide: a
+	 command in review, or rejected (a false rejection is overturned the
+	 same way), and no decision taken"""
+	return row.review_outcome is None and needs_decision(row.transcript)
+
+
 def review_view(row: DeviceResult, reviewers: dict[uuid.UUID, str]) -> dict[str, Any] | None:
 	""":param reviewers: user id → username (whoever decided)
 	:returns: a device's review decision as the pages show it - outcome,
@@ -193,11 +200,12 @@ def build_jobs(result_rows: Iterable[DeviceResult],
 					"has_config": r.config_diff is not None or r.fetched_config is not None,
 					"config_expired": config_expired(r, snapshot_days),
 					"review": review_view(r, reviewers or {}),
+					"decide": awaiting_decision(r),
 				}
 				for r in rows
 			],
 			# devices a person must still decide
-			"to_review": sum(1 for r in rows if r.status == DeviceStatus.REVIEW),
+			"to_review": sum(1 for r in rows if awaiting_decision(r)),
 		}
 		if job_owner is not None:
 			entry["job_owner"] = job_owner
@@ -295,6 +303,7 @@ class ConfigSnapshot:
 	transcript: dict[str, Any] | None = None
 	status: str = ""
 	review: dict[str, Any] | None = None   # review_view(): its decision, when taken
+	decidable: bool = False                # awaiting_decision()
 
 
 class ReviewRefused(ValueError):
@@ -306,8 +315,10 @@ REVIEW_COMMENT_MAX = 2000
 
 
 class ResultReviews:
-	"""A person's decision on a device in review: confirmed → success,
-	rejected → failed, with who, when and why kept on the device's result.
+	"""A person's decision on a device whose result holds commands in review
+	or rejected: confirmed → success; rejected → partial when other
+	commands were proven, else failed; with who, when and why kept on the
+	device's result.
 	The job's owner decides, or any admin (JobResults' rule). Works in the
 	caller's session and raises; the route audits."""
 
@@ -324,8 +335,8 @@ class ResultReviews:
 		:returns: the device's result, decided
 		:raises LookupError: no such device in the job, or the viewer may not
 		 see the job (the same answer: it isn't revealed)
-		:raises ReviewRefused: it isn't in review, or was decided already, or
-		 the comment is too long"""
+		:raises ReviewRefused: it has nothing to decide (no command in review
+		 or rejected), or was decided already, or the comment is too long"""
 		filters: dict[str, Any] = {"job_id": job_id, "device_ip": ip}
 		if port is not None:
 			filters["device_port"] = port
@@ -334,12 +345,13 @@ class ResultReviews:
 			raise LookupError(f"no device {ip} in job {job_id}")
 		if row.review_outcome is not None:
 			raise ReviewRefused(f"This device was already {row.review_outcome}.")
-		if row.status != DeviceStatus.REVIEW:
-			raise ReviewRefused(f"This device isn't in review (it's {row.status}).")
+		if not needs_decision(row.transcript):
+			raise ReviewRefused(f"This device has nothing to decide (it's {row.status}).")
 		comment = comment.strip()
 		if len(comment) > REVIEW_COMMENT_MAX:
 			raise ReviewRefused(f"The comment is too long (at most {REVIEW_COMMENT_MAX} characters).")
-		row.status = DeviceStatus.SUCCESS if outcome == ReviewOutcome.CONFIRMED else DeviceStatus.FAILED
+		row.status = DeviceStatus.SUCCESS if outcome == ReviewOutcome.CONFIRMED else \
+			DeviceStatus.PARTIAL if row.commands_verified else DeviceStatus.FAILED
 		row.review_outcome = outcome
 		row.review_comment = comment or None
 		row.reviewed_by = self.viewer.id
@@ -549,8 +561,8 @@ class JobResults:
 
 	def summary(self, job_id: uuid.UUID) -> dict[str, Any] | None:
 		"""A finished job in a few lines (the completion card): job_id,
-		comment, status, device_count, counts by status, action_needed
-		[{device, text}].
+		comment, status, device_count, counts by status, to_decide (devices
+		awaiting a person), action_needed [{device, text}].
 
 		:returns: the summary; None until its results are stored, or when
 		 the viewer may not see it"""
@@ -565,6 +577,7 @@ class JobResults:
 			counts[r.status] = counts.get(r.status, 0) + 1
 		return {"job_id": str(job_id), "comment": meta.comment if meta else None,
 		        "status": job_status(rows), "device_count": len(rows), "counts": counts,
+		        "to_decide": sum(1 for r in rows if awaiting_decision(r)),
 		        "action_needed": [{"device": device_label(labels, r), "text": r.action_needed}
 		                          for r in rows if r.action_needed]}
 
@@ -590,13 +603,16 @@ class JobResults:
 		                      commands=meta.commands if meta else [],
 		                      device_type=row.device_type, diff=row.config_diff,
 		                      transcript=row.transcript, status=row.status,
-		                      review=review_view(row, reviewers))
+		                      review=review_view(row, reviewers),
+		                      decidable=awaiting_decision(row))
 
-	def successful_endpoints(self, job_id: uuid.UUID, owner_id: uuid.UUID) -> set[Target]:
-		""":returns: the ip:port of the job's devices configured successfully
-		 (what a rollback targets)"""
-		rows = self.session.query(DeviceResult.device_ip, DeviceResult.device_port).filter_by(
-			user_id=owner_id, job_id=job_id, status=DeviceStatus.SUCCESS.value).all()
+	def configured_endpoints(self, job_id: uuid.UUID, owner_id: uuid.UUID) -> set[Target]:
+		""":returns: the ip:port of the job's devices configured - successfully,
+		 or in part (some of a partial device's commands took effect): what a
+		 rollback targets"""
+		rows = self.session.query(DeviceResult.device_ip, DeviceResult.device_port).filter(
+			DeviceResult.user_id == owner_id, DeviceResult.job_id == job_id,
+			DeviceResult.status.in_((DeviceStatus.SUCCESS.value, DeviceStatus.PARTIAL.value))).all()
 		return {(ip, port) for ip, port in rows}
 
 	# ── all time ──

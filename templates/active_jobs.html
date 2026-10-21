@@ -657,17 +657,17 @@
             `<span class="term muted" style="font-size:0.78rem;">${nrEscape(parts.join(', '))}` +
             ` (of ${data.device_count} device${data.device_count !== 1 ? 's' : ''})</span></span>` +
             `<span class="d-flex gap-2">` +
-            // a rollback targets the devices it configured successfully
-            (data.counts.success
+            // a rollback targets the devices it configured, fully or in part
+            (data.counts.success || data.counts.partial
                 ? `<button type="button" class="btn btn-sm completion-rollback" ` +
                   `data-job-id="${nrEscape(data.job_id)}" onclick="openRollback(this.dataset.jobId)">` +
                   `<i class="bi bi-arrow-counterclockwise me-1"></i>Rollback</button>`
                 : '') +
-            // devices whose result NetRollout couldn't prove: decided in Results
-            (data.counts.review
+            // devices with commands in review or rejected: decided in Results
+            (data.to_decide
                 ? `<a class="btn btn-sm btn-outline-warning" href="${nrEscape(data.results_url)}">` +
-                  `<i class="bi bi-question-circle me-1"></i>Review ${data.counts.review} ` +
-                  `device${data.counts.review !== 1 ? 's' : ''}</a>`
+                  `<i class="bi bi-question-circle me-1"></i>Decide ${data.to_decide} ` +
+                  `device${data.to_decide !== 1 ? 's' : ''}</a>`
                 : '') +
             `<a class="btn btn-sm btn-outline-info" href="${nrEscape(data.results_url)}">` +
             `<i class="bi bi-clock-history me-1"></i>View in Results</a></span></div>`;

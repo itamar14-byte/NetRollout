@@ -17,8 +17,8 @@ from src.db.tables import User
 from src.inventory import InventoryView, LabelScope
 from src.jobs import JobStore, RolloutJob
 from src.results import (EXPORT_COLUMNS, JOB_STATUSES, JobFilter, JobPage, JobResults, JobScope,
-                         ResultReviews, ReviewRefused, build_job_summaries, build_jobs, build_kpi,
-                         log_file)
+                         ResultReviews, ReviewRefused, awaiting_decision, build_job_summaries, build_jobs,
+                         build_kpi, log_file)
 from src.rollout.engine import DeviceStatus, ReviewOutcome, diff_tags, endpoint
 from src.webapp.app import current_app
 from src.webapp.csv_download import csv_download
@@ -150,8 +150,8 @@ def dashboard() -> str:
 	job_summaries = build_job_summaries(data["jobs_results"])
 	recent_jobs = job_summaries[:5]
 	total_rollouts = len(job_summaries)
-	# the user's own devices a person must still decide (Results, ?status=review)
-	to_review = sum(1 for r in data["jobs_results"] if r.status == DeviceStatus.REVIEW)
+	# the user's own devices a person must still decide (in review, or rejected)
+	to_review = sum(1 for r in data["jobs_results"] if awaiting_decision(r))
 	last_status = job_summaries[0]["status"] if job_summaries else None
 
 	# ── 30-day KPI strip (scoped) ─────────────────────────────────────────────
@@ -359,7 +359,7 @@ def config_diff(job_id: uuid.UUID, device_ip: str) -> ResponseReturnValue:
 	          diff_tags=diff_tags(snapshot.diff, snapshot.transcript) if snapshot.diff else None,
 	          commands=snapshot.commands,
 	          transcript=snapshot.transcript, device_status=snapshot.status,
-	          review=snapshot.review,
+	          review=snapshot.review, decidable=snapshot.decidable,
 	          verdicts=[[j["command"], j["verdict"]] for j in judged])
 
 
@@ -367,15 +367,16 @@ def config_diff(job_id: uuid.UUID, device_ip: str) -> ResponseReturnValue:
 @login_required
 @with_json("outcome")
 def review(job_id: uuid.UUID, device_ip: str, data: dict[str, Any]) -> ResponseReturnValue:
-	"""A device in review decided (JSON {outcome: "confirmed" | "rejected",
-	comment?}): confirmed makes it a success, rejected a failure, kept with
-	who, when and why. The job's owner, or any admin. ?port= picks one of
+	"""A device with commands in review or rejected decided (JSON {outcome:
+	"confirmed" | "rejected", comment?}): confirmed makes it a success,
+	rejected partial (other commands proven) or failed, kept with who, when
+	and why. The job's owner, or any admin. ?port= picks one of
 	the devices sharing the IP in the job. Audited (rollout.review_confirmed
 	/ _rejected, with the job, the device and the comment).
 
 	:returns: {status, review_outcome, reviewed_at}; 400 for an unknown
 	 outcome, 404 (also for another user's job: it isn't revealed), 409 when
-	 the device isn't in review or was decided already"""
+	 the device has nothing to decide or was decided already"""
 	try:
 		outcome = ReviewOutcome(data["outcome"])
 	except ValueError:

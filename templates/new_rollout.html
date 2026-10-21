@@ -655,7 +655,7 @@
                             <i class="bi bi-patch-check nr-accent"></i>
                             Verify after push
                             <span class="tooltip-q">?
-                                <span class="tip-text">NetRollout reads each device's configuration before and after the push and judges every command by what changed: <strong>took effect</strong>, <strong>already in place</strong> or <strong>removed</strong> - or <strong>review</strong> when the configuration doesn't prove it either way (a value the device stores in its own form, a command it refused). What a device replies is shown, never used to judge. Without Verify, devices end <strong>not verified</strong>.</span>
+                                <span class="tip-text">NetRollout reads each device's configuration before and after the push and judges every command by what changed: <strong>took effect</strong>, <strong>already in place</strong> or <strong>removed</strong> - <strong>rejected</strong> when the configuration doesn't show it and the device replied (a refused command, a typo), or <strong>review</strong> when nothing proves it either way (a value the device stores in its own form). That a device replied counts, never what it said. Without Verify, devices end <strong>not verified</strong>.</span>
                             </span>
                         </label>
                         <label class="option-check">

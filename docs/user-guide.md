@@ -340,28 +340,31 @@ NetRollout runs a limited number of rollouts at once: 4 unless your administrato
 
 ### Verify
 
-With **Verify after push**, NetRollout judges each device by its own configuration, not by what the device printed. It reads the configuration before the push and again after it (saved or committed), compares the two, and gives each command a verdict:
+With **Verify after push**, NetRollout judges each device by its own configuration. It reads the configuration before the push and again after it (saved or committed), compares the two, and gives each command a verdict. It says what the configuration proves, rejects what the configuration doesn't show when the device objected, and says when it can't know:
 
 | Verdict | When |
 |---|---|
-| **took effect** | The command's words are in a line the push added, in order. The device may add words of its own (a sequence number, quotes) and may abbreviate differently: `int lo98` matches `interface Loopback98`. |
-| **already in place** | The configuration already had exactly that line, unchanged. Running the same rollout twice gives this. |
-| **removed** | A removal (`no`, `undo`, `delete`, `unset`) whose words are in a line the push removed. A removal of something that was never there is **already in place** ("already absent"). |
-| **review** | The configuration doesn't prove it either way: the device stored the value in its own form (NX-OS writes `ip address 10.0.0.1 255.255.255.255` as `ip address 10.0.0.1/32`, secrets are stored hashed), nothing changed (a refused command, a typo, a value back to its default, a command that leaves nothing in the configuration such as `crypto key generate`), or one changed line could belong to two of your commands. A person decides: see [Reviewing a device](#reviewing-a-device). |
+| **took effect** | The command's words are in a line the push added, in order. The device may add words of its own (a sequence number, quotes) and may abbreviate differently: `int lo98` matches `interface Loopback98`. A negation the device keeps as a line (`no ip redirects`) takes effect by that line; a setting the device doesn't print takes effect when the push removed its negation (`ip domain lookup`: the line `no ip domain lookup` is gone). |
+| **already in place** | The configuration already had exactly that line, unchanged - running the same rollout twice gives this. Or, for a command the plain configuration doesn't show, the configuration **shown with its defaults** has exactly that line in its section (FortiOS `set admintimeout 5`, NX-OS `no shutdown`): NetRollout reads that view only for the commands left unproven, on the platforms that have one (see [Supported platforms](#supported-platforms)). |
+| **removed** | A removal (`no`, `undo`, `delete`, `unset`) whose words are in a line the push removed. A removal of something that was never there, with the device silent, is **already in place** ("already absent"). |
+| **rejected** | The configuration doesn't show the command, and the device replied to it - or to the command that closed its block (FortiOS throws a whole new entry away at `next` when a required value is missing). What the device said is shown with it; *that* it replied decides, never its wording. A command whose effect isn't kept in the configuration (`crypto key generate`) is rejected too: confirm it in Results. |
+| **review** | The configuration doesn't prove it either way, and the device said nothing: it stored the value in its own form (NX-OS writes `ip address 10.0.0.1 255.255.255.255` as `ip address 10.0.0.1/32`; a secret is stored hashed; IOS 12.4 writes `ip domain-name` as `ip domain name`), a default the platform can't show, or one changed line could belong to two of your commands. A person decides: see [Reviewing a device](#reviewing-a-device). |
+| **not a configuration command** | An exec command run from configuration mode (`do show …`; FortiOS `get …`; NX-OS `show …`): its output is shown, it isn't judged. |
 
 Commands that only move between sections (`exit`, `end`, `next`) aren't judged. A command that opens a section the device names its own way (FortiOS `edit 0` becomes `edit 1`) is matched by the section it opened.
 
-What the device replied to each command is kept and shown next to its verdict, as the reason, but it never decides the verdict: an error message can't make a command fail, and a quiet device can't make it succeed. Changes no command explains (another person, or the device itself) are listed apart, as **changed, not by these commands**. Some devices change their own configuration on every read (FortiOS encrypts every stored password anew each time): when changes like that appear, NetRollout reads the configuration once more and leaves out what changed by itself.
+What the device replied to each command is kept and shown next to its verdict. Whether it replied counts only for a command the configuration doesn't prove (rejected rather than review); its words never decide anything, and a reply never overrides the configuration (FortiOS's `new entry added` next to a command that took effect). Changes no command explains (another person, or the device itself) are listed apart, as **changed, not by these commands**. Some devices change their own configuration on every read (FortiOS encrypts every stored password anew each time): when changes like that appear, NetRollout reads the configuration once more and leaves out what changed by itself.
 
 Each device is judged against its own commands, with its tokens filled in. On platforms that save, NetRollout also checks that the lines the push added are in the saved configuration; if not, the device gets an **ACTION NEEDED**: the change is live but not saved.
 
 How a device's result shows:
 
 - Every command proven (took effect, already in place, or removed): `success`.
-- At least one command in review: `review`.
+- At least one command rejected: `partial` when another command was proven, `failed` when none was.
+- Otherwise at least one command in review: `review`.
 - The device's **Verified** count in Results is the number of commands the configuration proved.
 
-Without Verify, or when the configuration can't be read, the device is `not verified`: the commands were sent, and nothing judged them. What the device replied is still logged with each command, and the rollout's summary names every not verified device that replied to something, so a refused command isn't overlooked. NetRollout doesn't decide from a reply whether a command failed (a device also replies when it succeeds, for example FortiOS's `new entry added`): turn Verify on to have the configuration decide.
+Without Verify, or when the configuration can't be read, the device is `not verified`: the commands were sent, and nothing judged them. What the device replied is still logged with each command, and the rollout's summary names every not verified device that replied to something, so a refused command isn't overlooked. Without the configuration NetRollout can't tell a refusal from a notice (a device also replies when it succeeds, for example FortiOS's `new entry added`): turn Verify on to have the configuration decide.
 
 ### Cancelling
 
@@ -435,13 +438,13 @@ A job's status comes from its devices:
 
 ### Reviewing a device
 
-A device in `review` waits for a person: NetRollout couldn't prove every command, and won't guess. The job's owner or any administrator decides it:
+A device with a command in review waits for a person: NetRollout couldn't prove it, and won't guess. A device with a rejected command (`partial` or `failed`) can be decided the same way, so a false rejection has a way back. Results counts both as **to decide**, and so does the dashboard. The job's owner or any administrator decides:
 
-1. Open the job in Results and select the device's **review** status, or **Verification**.
+1. Open the job in Results and select the device's status, or **Verification**.
 2. The **Verification** window shows each command with its verdict, the line it rests on (or "no change in its section"), and what the device replied. For example: `ip address 10.0.0.1 255.255.255.255` in review, with `+ ip address 10.0.0.1/32` - the device wrote your mask as a prefix. Or `ntp server 192.0.2.123` in review, no change, the device replied `% Initialization of NTP failed`.
 3. Select **Confirm - it took effect** or **Reject - it didn't**, with a comment if you like.
 
-Confirmed makes the device a `success` (so a rollback includes it), rejected makes it `failed`. The decision is kept with the result - who, when and the comment - shown in Results and in the export, and recorded in the audit log. A device is decided once.
+Confirmed makes the device a `success`; rejected makes it `partial` when another of its commands was proven, else `failed`. A rollback includes `success` and `partial` devices (some of a partial device's commands took effect). The decision is kept with the result - who, when and the comment - shown in Results and in the export, and recorded in the audit log. A device is decided once.
 
 ### ACTION NEEDED
 
@@ -498,19 +501,21 @@ Administrators can choose **VIEW AS** to see another user's numbers.
 
 ## Supported platforms
 
-| Device type | Platform | How NetRollout finishes the change |
-|---|---|---|
-| `cisco_ios` | Cisco IOS | Saves the configuration |
-| `cisco_xe` | Cisco IOS XE | Saves the configuration |
-| `cisco_nxos` | Cisco NX-OS | Saves the configuration |
-| `cisco_xr` | Cisco IOS-XR | Commits. A failed commit leaves the running configuration unchanged. |
-| `arista_eos` | Arista EOS | Saves the configuration |
-| `aruba_aoscx` | Aruba AOS-CX | Saves the configuration |
-| `hp_procurve` | HP ProCurve | Saves the configuration |
-| `hp_comware` | HP Comware | Saves the configuration |
-| `juniper_junos` | Juniper JunOS | Commits, in `configure private` |
-| `paloalto_panos` | Palo Alto PAN-OS | Commits |
-| `checkpoint_gaia` | Check Point Gaia | Runs `save config` (in clish) |
-| `fortinet` | Fortinet FortiOS | Nothing to save: changes are live. NetRollout closes any `config` block left open. |
+| Device type | Platform | How NetRollout finishes the change | Defaults read with (Verify) | Not configuration commands |
+|---|---|---|---|---|
+| `cisco_ios` | Cisco IOS | Saves the configuration | `show running-config all` | `do` |
+| `cisco_xe` | Cisco IOS XE | Saves the configuration | `show running-config all` | `do` |
+| `cisco_nxos` | Cisco NX-OS | Saves the configuration | `show running-config all` | `do`, `show`, `copy`, `write`, `ping` |
+| `cisco_xr` | Cisco IOS-XR | Commits. A failed commit leaves the running configuration unchanged. | none | `do`, `show`, `copy`, `write`, `ping` |
+| `arista_eos` | Arista EOS | Saves the configuration | `show running-config all` | `do`, `show`, `copy`, `write`, `ping` |
+| `aruba_aoscx` | Aruba AOS-CX | Saves the configuration | `show running-config all` | `do`, `show`, `copy`, `write`, `ping` |
+| `hp_procurve` | HP ProCurve | Saves the configuration | none | `show`, `write` |
+| `hp_comware` | HP Comware | Saves the configuration | none | `display`, `save` |
+| `juniper_junos` | Juniper JunOS | Commits, in `configure private` | none | `run`, `show` |
+| `paloalto_panos` | Palo Alto PAN-OS | Commits | none | `run`, `show` |
+| `checkpoint_gaia` | Check Point Gaia | Runs `save config` (in clish) | none | `show`, `lock` |
+| `fortinet` | Fortinet FortiOS | Nothing to save: changes are live. NetRollout closes any `config` block left open. | `show full-configuration <section>` | `get`, `show`, `execute`, `diagnose` |
+
+**Defaults read with**: how NetRollout reads the configuration with its default values, for the commands the plain configuration doesn't show - only when such a command is left; *none*: the platform has no documented way, and those commands stay in review. Verified on IOS 12.4, NX-OS 7.3 and FortiOS 7.2; EOS from its documentation; AOS-CX has the command but its output isn't documented (a view that proves nothing changes nothing).
 
 Not every platform has been tested on real devices yet. The [README](../README.md) shows which have been confirmed. Try a new command set on a lab device first.
