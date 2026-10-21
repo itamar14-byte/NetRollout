@@ -29,6 +29,12 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ### Fixed
 
+- Check Point Gaia: NetRollout no longer asks Netmiko for enable mode, which on Gaia is the expert shell (bash, where every `set` is bash's own) - in the push's session and any new one.
+- HP Comware: its bracketed prompts (`[HP-GigabitEthernet1/0/1]`, `<HP>`) and the echo after them are no longer taken for the device's reply.
+- Junos and PAN-OS: a command after `top` or `up` on the same line (`top set system host-name x`) is judged instead of passing as navigation; after a plain `up` the path counts as unknown.
+- IOS-XR's time stamp above every show's output, and classic IOS's drifting `ntp clock-period`, no longer count as configuration changes.
+- More log-line shapes are told apart from replies: IOS's `.`-stamped and sequence-numbered lines, Comware's trap and boot stamps, IOS-XR with a year, `Message from syslogd@…` and `Broadcast message from …`.
+- Each platform's exec commands completed from its documentation (ProCurve `ping` / `copy` / `reload`, PAN-OS `check` / `validate`, Junos `status` / `save`, FortiOS `tree` / `sudo`, …); `write` dropped for IOS-XR, which has no such command. IOS-XR's `end-group` closes a block. Gaia's save state is read from the last line of `show config-state`. FortiOS `config global` has no defaults path.
 - New Rollout shows the Arista, Aruba and Check Point logos; it showed a generic icon for them.
 - Windows: NetRollout comes back after a restart even when Docker Desktop's own "Start when you sign in" setting is off. At sign-in, NetRollout's port helper starts Docker Desktop if it isn't running half a minute later; the containers follow Docker. A Docker Desktop you quit later stays quit.
 

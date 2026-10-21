@@ -20,7 +20,7 @@ from enum import StrEnum
 # Leave or close a config section - they configure nothing
 NAVIGATION = {"exit", "end", "next", "abort", "quit", "return", "top", "up",
               "root",                   # IOS-XR: back to the top of config
-              "end-policy", "end-set"}  # IOS-XR: close route-policy / sets
+              "end-policy", "end-set", "end-group"}  # IOS-XR: close route-policy / sets / groups
 # A removal: "no X" (Cisco-style), "undo X" (Comware), "unset X" /
 # "delete X" (FortiOS, Junos, PAN-OS, Gaia)
 NEGATION = {"no", "undo", "unset", "delete"}
@@ -303,12 +303,16 @@ class _Typed:
 
 
 def _typed(commands: list[str], flat: bool, exec_words: Sequence[str] = ()) -> list[_Typed]:
-	"""The commands as judged. Flat configs: "edit" / "up" / "top" move the
-	path that relative "set" / "delete" commands extend.
+	"""The commands as judged. Flat configs (Junos, PAN-OS): "edit" / "exit"
+	/ "top" move the path that relative "set" / "delete" commands extend;
+	"up" climbs hierarchy levels, which the path's words can't count - after
+	it the path is unknown until "top", and relative commands are judged by
+	their own words. A command after "top" / "up [N]" on the same line runs
+	there and is judged.
 
 	:param exec_words: the platform's exec commands' first words"""
 	out: list[_Typed] = []
-	prefix: list[tuple[str, ...]] = []
+	prefix: list[tuple[str, ...]] | None = []
 	for command in commands:
 		typed = tuple(words(command))
 		word = typed[0] if typed else ""
@@ -316,17 +320,26 @@ def _typed(commands: list[str], flat: bool, exec_words: Sequence[str] = ()) -> l
 			out.append(_Typed(command, typed, False, True))
 		elif not flat or not typed:
 			out.append(_Typed(command, typed, not typed or navigates(word)))
+		elif word in ("top", "up") and len(typed) > 1 and not (word == "up" and len(typed) == 2
+		                                                         and typed[1].isdigit()):
+			# "top set system host-name x", "up 2 activate system": the rest runs there
+			rest = typed[2:] if word == "up" and typed[1].isdigit() else typed[1:]
+			out.append(_Typed(command, rest, not rest))
 		elif word == "edit":
-			prefix.append(typed[1:])
+			if prefix is not None:
+				prefix.append(typed[1:])
 			out.append(_Typed(command, typed, True))
 		elif word in ("top", "end"):
 			prefix = []
 			out.append(_Typed(command, typed, True))
+		elif word == "up":
+			prefix = None
+			out.append(_Typed(command, typed, True))
 		elif navigates(word):
-			prefix = prefix[:-1]
+			prefix = prefix[:-1] if prefix is not None else None
 			out.append(_Typed(command, typed, True))
 		elif word in ("set", "delete"):
-			path = tuple(w for level in prefix for w in level)
+			path = tuple(w for level in prefix for w in level) if prefix is not None else ()
 			out.append(_Typed(command, (word, *path, *typed[1:]), False))
 		else:
 			out.append(_Typed(command, typed, False))

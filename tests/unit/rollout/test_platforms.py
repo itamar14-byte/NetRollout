@@ -9,14 +9,14 @@ from unittest.mock import MagicMock, call, patch
 import netmiko
 import pytest
 
-from src.rollout import inputs
+from src.rollout import evidence, inputs
 from src.rollout.engine import Device, RolloutEngine, RolloutOptions
 from src.rollout.evidence import Verdict, first_word, judge
 from src.rollout.log import RolloutLogger
 from src.rollout.platforms import (
 	COMMIT_TIMEOUT, EVENTS, PLATFORMS, Commit, CommitPending, NoFinish, RunCommand, SaveConfig, fortios_blocks,
 	no_defaults)
-from src.rollout.session import NetmikoSession, PushResult, RunReport, reply
+from src.rollout.session import NetmikoSession, PushResult, RunReport, _new_session, reply
 
 
 T, P, N, V = Verdict.TOOK_EFFECT, Verdict.IN_PLACE, Verdict.NAVIGATION, Verdict.REVIEW
@@ -920,14 +920,15 @@ def test_the_finish_after_leaving_config_mode():
 
 
 def test_finishing_in_a_new_session():
-	"""From a fresh session, SaveConfig and RunCommand enable then finish as after
-	leaving config mode; NoFinish opens no session and answers None."""
+	"""From a fresh session (made ready by its connect - enabled where the
+	platform has the step), SaveConfig and RunCommand finish as after leaving
+	config mode; NoFinish opens no session and answers None."""
 	conn = MagicMock()
 	conn.__enter__.return_value = conn
 	conn.save_config.return_value = "[OK]"
 	connect = MagicMock(return_value=conn)
 	assert SaveConfig().in_new_session(connect) == ("[OK]", "save")
-	assert [c[0] for c in conn.method_calls] == ["enable", "save_config"]
+	assert [c[0] for c in conn.method_calls] == ["save_config"]
 	assert RunCommand("save config").in_new_session(connect)[1] == "save config"
 	unused = MagicMock()
 	assert NoFinish().in_new_session(unused) is None
@@ -1230,3 +1231,103 @@ def test_a_silent_device_or_a_judged_one_stores_no_replies():
 	conn.send_config_set.side_effect = ["hostname r1\n% note\nr1#"]
 	judged = run(conn, ["hostname r1"], verify=True, before="hostname r0\n", after="hostname r1\n")
 	assert judged["replies"] is None and judged["transcript"]["commands"][0]["reply"] == ["% note"]
+
+
+
+# ── each platform's grammar, as researched (2026-10-21) ──
+
+@pytest.mark.parametrize("device_type, enabled", [("cisco_ios", True), ("checkpoint_gaia", False)])
+def test_a_session_enables_only_where_the_platform_has_the_step(device_type, enabled):
+	"""Gaia's enable() is its expert shell (bash, where every "set" is bash's
+	own): never called - in the push's session or a new one."""
+	conn = connection(prompt="gw>" if device_type == "checkpoint_gaia" else "r1#")
+	conn.__enter__.return_value = conn
+	device = Device(ip="10.0.0.1", label="d", username="u", password="p",
+	                device_type=device_type, secret="s", port=22)
+	with patch("netmiko.ConnectHandler", return_value=conn):
+		push(device_type, conn)
+		with _new_session(device, PLATFORMS[device_type]):
+			pass
+	assert (call.enable() in conn.method_calls) is enabled
+
+
+@pytest.mark.parametrize("output, command, said", [
+	# Comware: the echo after the bracketed prompt, the prompts themselves
+	("[HP]interface GigabitEthernet1/0/1\n[HP-GigabitEthernet1/0/1]", "interface GigabitEthernet1/0/1", []),
+	("<HP>display clock\n10:00:00 UTC Wed 10/21/2026\n<HP>", "display clock", ["10:00:00 UTC Wed 10/21/2026"]),
+	("[HP-GigabitEthernet1/0/1]ip address 1.1.1.1 255.0.255.0\n % Invalid mask\n[HP-GigabitEthernet1/0/1]",
+	 "ip address 1.1.1.1 255.0.255.0", ["% Invalid mask"]),
+])
+def test_comware_prompts_and_echoes_are_not_replies(output, command, said):
+	assert reply(output, command, "HP", PLATFORMS["hp_comware"].events)[0] == said
+
+
+@pytest.mark.parametrize("line", [
+	".Oct 21 10:00:00.123: %LINK-3-UPDOWN: Interface Loopback1, changed state to up",
+	"000123: *Oct 21 10:00:00.123: %SYS-5-CONFIG_I: Configured from console",
+	"000124: 00:12:34: %LINK-3-UPDOWN: Interface Loopback1, changed state to up",
+	"Message from syslogd@vmx1 at Oct 21 10:00:00  ...",
+	"Broadcast message from admin@gw (somewhere) (Wed Oct 21 10:00:00 2026):",
+])
+def test_more_event_shapes(line):
+	assert EVENTS.match(line)
+
+
+@pytest.mark.parametrize("platform, line", [
+	("hp_comware", "#Apr  2 08:26:36:875 2005 HP DEVM/1/REBOOT: Reboot device by command."),
+	("hp_comware", "%0.109391473 HP SHELL/5/SHELL_LOGIN: Console logged in."),
+	("cisco_xr", "RP/0/RP0/CPU0:2026 Oct 21 10:00:00.123 UTC: ifmgr[257]: %PKT_INFRA-LINK-3-UPDOWN : x"),
+])
+def test_more_platform_event_shapes(platform, line):
+	assert PLATFORMS[platform].events.match(line)
+
+
+def test_comware_errors_stay_replies():
+	"""Its refusals start with "%" too - never taken for events."""
+	assert not PLATFORMS["hp_comware"].events.match("% Unrecognized command found at '^' position.")
+
+
+@pytest.mark.parametrize("platform, output, kept", [
+	("cisco_xr", "Thu Oct 21 10:00:00.123 UTC\nBuilding configuration...\n!! IOS XR Configuration 7.3.2\nhostname xr1",
+	 "!! IOS XR Configuration 7.3.2\nhostname xr1"),
+	("cisco_ios", "Building configuration...\nCurrent configuration : 1290 bytes\nntp clock-period 17180012\nhostname r1",
+	 "hostname r1"),
+])
+def test_lines_that_change_by_themselves_are_framing(platform, output, kept):
+	"""IOS-XR stamps every show's output; classic IOS writes a drifting ntp
+	clock-period - neither is a change."""
+	assert PLATFORMS[platform].config(output) == kept
+
+
+def test_fortios_global_has_no_defaults_path():
+	assert fortios_blocks([("config global",), ("config system global",)]) == [
+		"show full-configuration system global"]
+
+
+def test_gaias_save_state_is_its_last_line():
+	"""A notice may come first ("CLINFR0771 Config lock is owned by admin")."""
+	conn = connection(prompt="gw>")
+	conn.send_command.side_effect = lambda cmd, **_: (
+		"CLINFR0771 Config lock is owned by admin\nsaved" if cmd == "show config-state" else "")
+	report = MagicMock()
+	device = Device(ip="10.0.0.1", label="d", username="u", password="p",
+	                device_type="checkpoint_gaia", secret="", port=22)
+	assert NetmikoSession(device, report)._finish(conn) is True
+	report.action_needed.assert_not_called()
+
+
+@pytest.mark.parametrize("commands, judged", [
+	# "top <command>" runs it at the top: judged by its own (absolute) words
+	(["edit interfaces ge-0/0/0", "top set system host-name x"], ("set", "system", "host-name", "x")),
+	# "up [N] <command>": judged by its own words
+	(["edit interfaces ge-0/0/0 unit 0", "up 2 set description y"], ("set", "description", "y")),
+	# after a plain "up" the path is unknown: a relative command keeps its own words
+	(["edit interfaces ge-0/0/0 unit 0", "up", "set mtu 9000"], ("set", "mtu", "9000")),
+	# a known path still extends it
+	(["edit interfaces ge-0/0/0", "set mtu 9000"], ("set", "interfaces", "ge-0/0/0", "mtu", "9000")),
+])
+def test_flat_paths_after_top_and_up(commands, judged):
+	"""Junos / PAN-OS: a command riding on "top" / "up" is judged, never skipped
+	as navigation; "up" climbs levels the path's words can't count."""
+	typed = evidence._typed(commands, flat=True)
+	assert typed[-1].words == judged and not typed[-1].navigation

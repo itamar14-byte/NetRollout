@@ -507,17 +507,19 @@ Administrators can choose **VIEW AS** to see another user's numbers.
 |---|---|---|---|---|
 | `cisco_ios` | Cisco IOS | Saves the configuration | `show running-config all` | `do` |
 | `cisco_xe` | Cisco IOS XE | Saves the configuration | `show running-config all` | `do` |
-| `cisco_nxos` | Cisco NX-OS | Saves the configuration | `show running-config all` | `do`, `show`, `copy`, `write`, `ping` |
-| `cisco_xr` | Cisco IOS-XR | Commits. A failed commit leaves the running configuration unchanged. | none | `do`, `show`, `copy`, `write`, `ping` |
-| `arista_eos` | Arista EOS | Saves the configuration | `show running-config all` | `do`, `show`, `copy`, `write`, `ping` |
-| `aruba_aoscx` | Aruba AOS-CX | Saves the configuration | `show running-config all` | `do`, `show`, `copy`, `write`, `ping` |
-| `hp_procurve` | HP ProCurve | Saves the configuration | none | `show`, `write` |
-| `hp_comware` | HP Comware | Saves the configuration | none | `display`, `save` |
-| `juniper_junos` | Juniper JunOS | Commits, in `configure private` | none | `run`, `show` |
-| `paloalto_panos` | Palo Alto PAN-OS | Commits | none | `run`, `show` |
-| `checkpoint_gaia` | Check Point Gaia | Runs `save config` (in clish) | none | `show`, `lock` |
-| `fortinet` | Fortinet FortiOS | Nothing to save: changes are live. NetRollout closes any `config` block left open. | `show full-configuration <section>` | `get`, `show`, `execute`, `diagnose` |
+| `cisco_nxos` | Cisco NX-OS | Saves the configuration | `show running-config all` | `do`, `show`, `copy`, `write`, `ping`, `traceroute`, `clear` |
+| `cisco_xr` | Cisco IOS-XR | Commits. A failed commit leaves the running configuration unchanged. | none | `do`, `show` |
+| `arista_eos` | Arista EOS | Saves the configuration | `show running-config all` | `do`, `show`, `copy`, `write`, `ping`, `traceroute`, `clear` |
+| `aruba_aoscx` | Aruba AOS-CX | Saves the configuration | `show running-config all` | `do`, `show`, `copy`, `write`, `ping`, `traceroute`, `clear` |
+| `hp_procurve` | HP ProCurve | Saves the configuration | none | `show`, `write`, `ping`, `copy`, `traceroute`, `boot`, `reload` |
+| `hp_comware` | HP Comware | Saves the configuration | none | `display`, `save`, `ping`, `tracert` |
+| `juniper_junos` | Juniper JunOS | Commits, in `configure private` | none | `run`, `show`, `status`, `help`, `save` |
+| `paloalto_panos` | Palo Alto PAN-OS | Commits | none | `run`, `show`, `check`, `validate`, `find`, `save` |
+| `checkpoint_gaia` | Check Point Gaia | Runs `save config` (in clish) | none | `show`, `lock`, `unlock`, `save` |
+| `fortinet` | Fortinet FortiOS | Nothing to save: changes are live. NetRollout closes any `config` block left open. | `show full-configuration <section>` | `get`, `show`, `execute`, `diagnose`, `tree`, `sudo`, `fnsysctl` |
 
-**Defaults read with**: how NetRollout reads the configuration with its default values, for the commands the plain configuration doesn't show - only when such a command is left; *none*: the platform has no documented way, and those commands stay in review. Verified on IOS 12.4, NX-OS 7.3 and FortiOS 7.2; EOS from its documentation; AOS-CX has the command but its output isn't documented (a view that proves nothing changes nothing).
+**Defaults read with**: how NetRollout reads the configuration with its default values, for the commands the plain configuration doesn't show - only when such a command is left; *none*: the platform has no documented way, and those commands stay in review. Verified on IOS 12.4, NX-OS 7.3 and FortiOS 7.2; EOS and AOS-CX from their documentation (AOS-CX: "all: Shows all default values for the current running configuration").
+
+A few removal-like commands have no removal rule and stay in review when the configuration doesn't show them: `default <command>` (IOS, NX-OS, EOS), Junos `deactivate` / `activate`, FortiOS `purge` / `clear` / `unselect`. On PAN-OS a failed commit's discard (`revert config`) and the commit itself act on the shared candidate, so another administrator's uncommitted changes are reverted or committed with yours - push to PAN-OS when nobody else has pending changes.
 
 Not every platform has been tested on real devices yet. The [README](../README.md) shows which have been confirmed. Try a new command set on a lab device first.

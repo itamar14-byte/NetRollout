@@ -112,6 +112,28 @@ def _connect_args(device: Device) -> dict[str, str | int]:
 	}
 
 
+def _ready(conn: ConfigSession, platform: Platform) -> str | None:
+	"""A session made ready for commands: out of a wrong login shell, then
+	privileged where the platform has an enable step (Platform.enables).
+
+	:returns: the problem if the CLI shell couldn't be reached, else None"""
+	if problem := _enter_cli_shell(conn, platform):
+		return problem
+	if platform.enables:
+		conn.enable()
+	return None
+
+
+@contextmanager
+def _new_session(device: Device, platform: Platform) -> Iterator[ConfigSession]:
+	""":returns: a new session to the device, ready for commands (_ready)
+	:raises RuntimeError: the CLI shell couldn't be reached"""
+	with netmiko.ConnectHandler(**_connect_args(device)) as conn:
+		if problem := _ready(conn, platform):
+			raise RuntimeError(problem)
+		yield conn
+
+
 def _enter_cli_shell(conn: ConfigSession, platform: Platform) -> str | None:
 	"""Leave a wrong login shell (Gaia expert / bash) for the CLI.
 
@@ -212,10 +234,9 @@ class NetmikoSession:
 			try:
 				report.notify(f"{device.ip} connected successfully", Tone.SUCCESS)
 				# Goes into privileged config mode, depending on the platform
-				if problem := _enter_cli_shell(net_connect, platform):
+				if problem := _ready(net_connect, platform):
 					report.action_needed(device, f"{problem} (nothing was sent)")
 					return PushResult(applied=False)
-				net_connect.enable()
 				if verify:
 					before = self._snapshot(net_connect, "before the push")
 				if platform.config_command:
@@ -439,10 +460,7 @@ class NetmikoSession:
 			if conn is not None:
 				view = read(conn)
 			else:
-				with netmiko.ConnectHandler(**_connect_args(device)) as new:
-					if problem := _enter_cli_shell(new, platform):
-						raise RuntimeError(problem)
-					new.enable()
+				with _new_session(device, platform) as new:
 					view = read(new)
 		except Exception as e:
 			self._report.notify(f"{device.endpoint}: couldn't read the configuration with "
@@ -526,7 +544,9 @@ class NetmikoSession:
 			report.notify(f"{device.endpoint}: '{command}' - the device replied: {said}")
 		if platform.saved_state:
 			ask, saved = platform.saved_state
-			state = str(conn.send_command(ask)).strip()
+			# the last line answers: a notice may come first (Gaia's
+			# "CLINFR0771 Config lock is owned by admin")
+			state = (str(conn.send_command(ask)).strip().splitlines() or [""])[-1].strip()
 			if state.lower() != saved:
 				# the change is live either way; unsaved, it's lost at the next
 				# reboot (Gaia: the config lock held by another session)
@@ -541,7 +561,7 @@ class NetmikoSession:
 		device, report = self._device, self._report
 		try:
 			outcome = self._platform.finish.in_new_session(
-				lambda: netmiko.ConnectHandler(**_connect_args(device)))
+				lambda: _new_session(device, self._platform))
 			if outcome is None:
 				report.notify(f"{device.endpoint}: prompt changed after the push (e.g. "
 				              f"a new hostname)", Tone.WARNING)
@@ -562,10 +582,7 @@ class NetmikoSession:
 		prompt)."""
 		device, platform = self._device, self._platform
 		try:
-			with netmiko.ConnectHandler(**_connect_args(device)) as conn:
-				if problem := _enter_cli_shell(conn, platform):
-					raise RuntimeError(problem)
-				conn.enable()
+			with _new_session(device, platform) as conn:
 				return self._snapshot(conn, why)
 		except Exception as e:
 			self._report.notify(f"{device.endpoint}: couldn't read the configuration "
