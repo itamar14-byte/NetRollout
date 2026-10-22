@@ -39,6 +39,8 @@
             transform: translateX(16px);
             background: #00bcd4;
         }
+        /* an option's icon next to its toggle: faint while off, cyan while on */
+        .option-check:has(.nr-toggle input:checked) > i { color:#00bcd4; }
 
         /* ── Global device badge + device section headers (shared) ── */
         .nr-global-badge {
