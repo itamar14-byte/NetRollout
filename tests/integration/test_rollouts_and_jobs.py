@@ -1311,6 +1311,52 @@ def test_log_download_is_owner_only(operator, client_for, session_scope,
 		f"/results/download_log/{job}").status_code == 404
 
 
+def write_log(job, body):
+	""":returns: the job's rollout log file, written with body"""
+	os.makedirs(runtime.logs_dir(), exist_ok=True)
+	path = os.path.join(runtime.logs_dir(), f"rollout_20260101_000000_{job}.log")
+	with open(path, "w", encoding="utf-8") as f:
+		f.write(body)
+	return path
+
+
+def test_view_log_shows_the_lines_to_the_owner_and_admins_only(operator, client_for, session_scope, make_user):
+	"""View Log: the job's lines as written (already redacted) for its owner and
+	any admin; another operator gets 404, a job without its log too."""
+	job = uuid.uuid4()
+	add_result(session_scope, operator.user, job)
+	write_log(job, "2026-01-01 00:00:00\tStarting configuration rollout\n"
+	               "2026-01-01 00:00:01\t10.0.0.1:22: 'snmp-server community <redacted> RO' took effect\n")
+	data = client_for(operator.user).get(f"/results/log/{job}").json
+	assert data["lines"] == ["2026-01-01 00:00:00\tStarting configuration rollout",
+	                         "2026-01-01 00:00:01\t10.0.0.1:22: 'snmp-server community <redacted> RO' took effect"]
+	assert (data["total"], data["name"]) == (2, f"rollout_20260101_000000_{job}.log")
+	assert client_for(make_user(role="admin")).get(f"/results/log/{job}").status_code == 200
+	assert client_for(make_user()).get(f"/results/log/{job}").status_code == 404
+	gone = uuid.uuid4()
+	add_result(session_scope, operator.user, gone)
+	assert client_for(operator.user).get(f"/results/log/{gone}").status_code == 404
+
+
+def test_view_log_shows_a_long_logs_last_lines(operator, client_for, session_scope, monkeypatch):
+	job = uuid.uuid4()
+	add_result(session_scope, operator.user, job)
+	write_log(job, "".join(f"line {n}\n" for n in range(10)))
+	monkeypatch.setattr("src.webapp.blueprints.jobs.LOG_VIEW_LINES", 3)
+	data = client_for(operator.user).get(f"/results/log/{job}").json
+	assert (data["lines"], data["total"]) == (["line 7", "line 8", "line 9"], 10)
+
+
+def test_results_offer_view_log_where_the_log_is(operator, client_for, session_scope):
+	"""A job with its log file has View Log (and Download Log); one without has neither."""
+	with_log, without = uuid.uuid4(), uuid.uuid4()
+	add_result(session_scope, operator.user, with_log)
+	add_result(session_scope, operator.user, without)
+	write_log(with_log, "x\n")
+	html = client_for(operator.user).get("/results").get_data(as_text=True)
+	assert html.count('onclick="showLog(this)"') == 1 and f'data-job-id="{with_log}"' in html
+
+
 def _register_job_meta(app, user, job_id):
 	"""Register a job as active for the user in Redis, as the orchestrator does."""
 	client = app.backend.redis.client

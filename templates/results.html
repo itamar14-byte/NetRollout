@@ -44,9 +44,18 @@ button.status-pill:hover { filter: brightness(1.2); }
 .replied-note { margin-left:6px; font:500 0.7rem 'JetBrains Mono',monospace; color:#ffcc80; background:none;
                 border:1px dashed #b26500; border-radius:999px; padding:1px 8px; cursor:pointer; white-space:nowrap; }
 .replied-note:hover, .replied-note:focus-visible { background:rgba(255,167,38,0.08); }
+/* View Log: the job's log in the page, filterable */
+.lv-filter { width:100%; background:#111; border:1px solid #2a2a2a; border-radius:6px;
+             color:#ccc; font-size:0.8rem; padding:6px 10px; }
+.lv-lines { margin:0; max-height:62vh; overflow:auto; font:0.76rem/1.5 'JetBrains Mono',monospace; white-space:pre-wrap;
+            word-break:break-word; background:#0d0d0d; border:1px solid #222;
+            border-radius:6px; padding:10px 12px; }
+.lv-time { color:var(--nr-text-faint); margin-right:10px; }
+.lv-action { color:#ef5350; }
 .rp-cmd { font-family:'JetBrains Mono',monospace; font-size:0.8rem; color:var(--nr-text); }
 .rp-said { font-family:'JetBrains Mono',monospace; font-size:0.78rem; color:#ffcc80; margin:2px 0 10px 16px;
            white-space:pre-wrap; word-break:break-word; }
+.vf-mixed { font-size:0.78rem; color:#ffcc80; border-left:2px solid #b26500; padding-left:8px; }
 .vf-alike { display:flex; gap:8px; align-items:flex-start; font-size:0.78rem; color:var(--nr-text-muted); }
 .vf-alike input { margin-top:3px; accent-color:#00bcd4; }
 
@@ -592,6 +601,11 @@ button.status-pill:hover { filter: brightness(1.2); }
             </button>
             {% endif %}
             {% if job.has_log %}
+            <button type="button" class="job-action-btn" data-job-id="{{ job.job_id }}"
+                    data-download="{{ url_for('jobs.download_log', job_id=job.job_id) }}"
+                    onclick="showLog(this)">
+                <i class="bi bi-journal-text"></i> View Log
+            </button>
             <a class="job-action-btn"
                href="{{ url_for('jobs.download_log', job_id=job.job_id) }}">
                 <i class="bi bi-download"></i> Download Log
@@ -875,6 +889,26 @@ button.status-pill:hover { filter: brightness(1.2); }
 
 <!-- Verification modal: each verified device's commands, judged by its
      configuration before and after the push, and its diff -->
+<div class="modal fade" id="logModal" tabindex="-1" aria-labelledby="logTitle">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header" style="border-bottom:1px solid #222;">
+                <div class="nr-badge" id="logTitle">ROLLOUT LOG</div>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body d-flex flex-column gap-2">
+                <div class="d-flex gap-2 align-items-center">
+                    <input type="search" class="lv-filter" id="logFilter" placeholder="Filter lines - a device's address, a command, a word"
+                           aria-label="Filter the log's lines">
+                    <a class="job-action-btn" id="logDownload" href="#"><i class="bi bi-download"></i> Download</a>
+                </div>
+                <div class="nr-muted" id="logInfo" style="font-size:0.75rem;" role="status"></div>
+                <pre class="lv-lines" id="logLines"></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
 <div class="modal fade" id="repliesModal" tabindex="-1" aria-labelledby="repliesTitle">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
@@ -952,6 +986,57 @@ button.status-pill:hover { filter: brightness(1.2); }
 const VERIFICATIONS = {}; // cache: "job_id:ip:port" → the config_diff answer
 const VD_TAB_THRESHOLD = 5;
 let _verifyDiffJobId = null;
+// View Log: the job's log in the page (its lines as written - redacted), filterable
+let _logLines = [];
+function _renderLog() {
+    const want = document.getElementById('logFilter').value.trim().toLowerCase();
+    const box = document.getElementById('logLines');
+    const shown = want ? _logLines.filter(l => l.toLowerCase().includes(want)) : _logLines;
+    const frag = document.createDocumentFragment();
+    shown.forEach(line => {
+        const tab = line.indexOf('\t');
+        const row = document.createElement('div');
+        if (tab > 0) {
+            row.appendChild(_el('span', 'lv-time', line.slice(0, tab)));
+            row.appendChild(document.createTextNode(line.slice(tab + 1)));
+        } else {
+            row.textContent = line;
+        }
+        if (line.includes('ACTION NEEDED')) row.className = 'lv-action';
+        frag.appendChild(row);
+    });
+    box.replaceChildren(frag);
+    const info = document.getElementById('logInfo');
+    info.textContent = info.dataset.base + (want ? ` - ${shown.length} matching` : '');
+}
+
+async function showLog(btn) {
+    const box = document.getElementById('logLines');
+    const info = document.getElementById('logInfo');
+    document.getElementById('logFilter').value = '';
+    document.getElementById('logDownload').href = btn.dataset.download;
+    box.replaceChildren(_el('div', 'nr-muted', 'Loading…'));
+    info.dataset.base = '';
+    info.textContent = '';
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('logModal')).show();
+    try {
+        const resp = await fetch(`/results/log/${btn.dataset.jobId}`);
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.message || 'Couldn\'t load the log.');
+        _logLines = data.lines;
+        info.dataset.base = data.name + ' - ' + data.total + ' line' + (data.total !== 1 ? 's' : '') +
+            (data.total > data.lines.length ? ` (the last ${data.lines.length} shown - Download for all)` : '');
+        _renderLog();
+    } catch (e) {
+        _logLines = [];
+        box.replaceChildren(_el('div', 'nr-danger', e.message));
+    }
+}
+document.addEventListener('DOMContentLoaded', () => {
+    const filter = document.getElementById('logFilter');
+    if (filter) filter.addEventListener('input', _renderLog);
+});
+
 // A device not judged: what it replied, command by command (device_results.replies)
 function showReplies(btn) {
     const replies = JSON.parse(btn.dataset.replies || '[]');
@@ -1127,6 +1212,13 @@ async function _renderVerifyDiff(device, activeTab) {
               'configuration, such as generating keys - confirm. The decision is kept with the result.'
             : 'NetRollout couldn\'t prove every command on this device. Check the evidence below, then ' +
               'decide: the decision is kept with the result.'));
+        // one decision covers all of them: say so when they differ in kind
+        if (rejected && judged.some(c => c.verdict === 'review')) {
+            box.appendChild(_el('div', 'vf-mixed',
+                'This device has a command in review and a rejected one, and one decision covers both: ' +
+                'Confirm says they all took effect; Reject leaves it partial (another command was proven) or ' +
+                'failed. Say which was which in the comment.'));
+        }
         const comment = _el('textarea');
         comment.placeholder = 'Comment (optional) - why, for the record';
         comment.maxLength = 2000;

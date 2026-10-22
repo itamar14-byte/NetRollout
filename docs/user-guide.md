@@ -395,7 +395,7 @@ The live log is a convenience. If it drops ("Stream ended."), the job carries on
 
 Every rollout writes a log file on the server, whether or not you watch it live.
 
-- **Download Log**, on the job in Results, downloads it. It's the same text as the live log: every device's connection, what each device replied, the save or commit, each command's verdict with the line it rests on, the **ACTION NEEDED** and **REVIEW** lines and the summary. **Verbose logging** adds more detail.
+- **View Log**, on the job in Results, opens it in the page, with a filter box: type a device's address, a command or a word to see only those lines (the last 20,000 lines of a longer log; Download for all). **Download Log** downloads it. It's the same text as the live log: every device's connection, what each device replied, the save or commit, each command's verdict with the line it rests on, the **ACTION NEEDED** and **REVIEW** lines and the summary. **Verbose logging** adds more detail.
 - Secrets are redacted. The value after words such as `password`, `secret`, `community`, `key-string` or `psksecret` is written as `<redacted>`, in the file and in the live log, so a log is safe to attach to a ticket.
 - You can download the logs of your own jobs; administrators can download any job's.
 - Log files are kept 60 days by default. Administrators find them in the server's `logs` folder; see [Logs](admin-guide.md#logs) in the admin guide.
@@ -462,7 +462,7 @@ Some problems can only be fixed by a person on the device. NetRollout marks thes
 ### Job actions
 
 - **See Commands**: the commands as you typed them, before token substitution.
-- **Download Log**: the job's full log as a file. Secrets are redacted: the value after words such as `password`, `secret`, `community` or `psksecret` is written as `<redacted>`, so the log is safe to share. The commands you typed and configuration snapshots are not redacted.
+- **View Log**: the job's log in a window on the page, filterable. **Download Log**: the job's full log as a file. Secrets are redacted: the value after words such as `password`, `secret`, `community` or `psksecret` is written as `<redacted>`, so the log is safe to share. The commands you typed and configuration snapshots are not redacted.
 - **Verification**: per verified device, each command as sent (tokens filled in) with its verdict, the line it rests on and the device's reply; the changes no command explains; and the configuration before and after, each changed line tagged with the command it rests on (or "not by these commands"). Lines the device changes by itself on every read, such as FortiOS's re-encrypted passwords, are hidden behind **Show the device's own changes**. Devices in review are decided here (see [Reviewing a device](#reviewing-a-device)). The configuration snapshots are kept for 7 days unless your administrator changed it; after that the button shows **Verification expired**.
 - **Rollback**: see [Rolling back](#rolling-back).
 - **Compare**: tick two jobs, then select **Diff** to see their commands side by side.

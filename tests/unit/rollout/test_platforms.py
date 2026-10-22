@@ -16,8 +16,8 @@ from src.rollout.engine import Device, RolloutEngine, RolloutOptions
 from src.rollout.evidence import Verdict, first_word, judge
 from src.rollout.log import RolloutLogger
 from src.rollout.platforms import (
-	COLUMNS, COMMIT_TIMEOUT, EVENTS, FETCH_TIMEOUT, PLATFORMS, Commit, CommitPending, NoFinish, RunCommand,
-	SaveConfig, fortios_blocks, no_defaults)
+	COLUMNS, COMMIT_TIMEOUT, EVENTS, FETCH_TIMEOUT, PLATFORMS, PROGRESS, Commit, CommitPending, NoFinish, RunCommand,
+	SaveConfig, fortios_blocks, no_defaults, one_line)
 from src.rollout.session import NetmikoSession, PushResult, RunReport, _new_session, reply
 
 
@@ -1420,3 +1420,27 @@ def test_the_user_guide_table_says_what_the_classes_declare():
 			assert shown == ["show full-configuration <section>"], name
 		else:
 			assert shown == platform.defaults([()]), name
+
+
+# ── progress bars (NX-OS's copy running-config startup-config) ──
+
+NXOS_SAVE = ("copy running-config startup-config\n[#                                       ]   1%\n"
+             "[##########                              ]  25%\n[########################################] 100%\n"
+             "Copy complete.\nNXOS1#")
+
+
+def test_a_progress_bar_is_not_logged_frame_by_frame():
+	"""NX-OS redraws its save's bar a hundred times: the log line keeps what it
+	said, not the frames."""
+	assert one_line(NXOS_SAVE, "save") == "copy running-config startup-config | Copy complete. | NXOS1#"
+
+
+def test_a_progress_bar_is_not_a_reply():
+	said, events = reply(NXOS_SAVE, "copy running-config startup-config", "NXOS1")
+	assert (said, events) == (["Copy complete."], [])
+
+
+@pytest.mark.parametrize("line", ["[ 41%]", "[#] x 41%", "% Invalid input detected at '^' marker.", "41%"])
+def test_only_a_bars_shape_is_a_progress_frame(line):
+	"""Anything else stays an answer."""
+	assert not PROGRESS.match(line)

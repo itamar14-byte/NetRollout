@@ -45,6 +45,10 @@ EVENTS = re.compile(rf"^({_SHAPES})")
 _COMWARE_EVENTS = re.compile(rf"^({_SHAPES}|[%#*][A-Z][a-z]{{2}} +\d+ \d\d:\d\d:\d\d|%\d+\.\d+ )")
 _PROCURVE_EVENTS = re.compile(rf"^({_SHAPES}|[IWMDE] \d\d/\d\d/\d\d \d\d:\d\d:\d\d)")
 _XR_EVENTS = re.compile(rf"^({_SHAPES}|[A-Z]+/\d+/[^:\s]+:(\d{{4}} )?[A-Z][a-z]{{2}} +\d+ )")
+# A progress bar's frame, redrawn many times while a device works (NX-OS's
+# copy running-config startup-config: "[######          ]  41%") - its shape:
+# only bar characters and a percentage; not an answer, not worth a log line
+PROGRESS = re.compile(r"^\[[#=*>.\s-]*\]\s*\d{1,3}%(\s*\|?\s*\[[#=*>.\s-]*\]\s*\d{1,3}%)*$")
 # Junos's context banner after a command ("[edit interfaces ge-0/0/0]")
 _CONTEXT = re.compile(r"^\[edit( .*)?\]$")
 
@@ -65,7 +69,7 @@ def reply(output: str, command: str, prompt: str,
 	base = prompt.strip()
 	for row in output.splitlines():
 		text = row.strip()
-		if not text or set(text) <= {"^"} or _CONTEXT.match(text):
+		if not text or set(text) <= {"^"} or _CONTEXT.match(text) or PROGRESS.match(text):
 			continue
 		# Comware's prompts are bracketed ("[HP-GigabitEthernet1/0/1]", "<HP>")
 		bare = text.lstrip("[<")
@@ -333,9 +337,10 @@ COLUMNS = ("read", "left_out", "saved", "layout", "navigation", "removal", "exec
 
 
 def one_line(output: object, command: str) -> str:
-	""":returns: a reply's lines on one line, its echo left out (for a log line)"""
+	""":returns: a reply's lines on one line, its echo and progress-bar frames
+	 left out (for a log line)"""
 	return " | ".join(line.strip() for line in str(output).splitlines()
-	                  if line.strip() and line.strip() != command)
+	                  if line.strip() and line.strip() != command and not PROGRESS.match(line.strip()))
 
 
 @dataclass(frozen=True)

@@ -423,17 +423,46 @@ def job_summary(job_id: uuid.UUID) -> ResponseReturnValue:
 	return ok(**summary, results_url=url_for("jobs.results", job=str(job_id)))
 
 
+# a log shown in the page, at most (a longer one: its last lines, and Download Log)
+LOG_VIEW_LINES = 20_000
+
+
+def _viewer_may_read_log(job_id: uuid.UUID) -> bool:
+	""":returns: whether the viewer may read the job's log - its owner's, or
+	 any for an admin (even of a job whose results weren't stored)"""
+	if viewer().is_admin:
+		return True
+	with current_app.backend.postgres.get_session() as db_session:
+		return JobResults(db_session, viewer()).get_accessible(job_id) is not None
+
+
 @bp.route("/results/download_log/<uuid:job_id>")
 @login_required
 def download_log(job_id: uuid.UUID) -> ResponseReturnValue:
 	"""The job's rollout log file - its owner's, or any for an admin (even of
 	a job whose results weren't stored)."""
-	if not viewer().is_admin:
-		with current_app.backend.postgres.get_session() as db_session:
-			owned = JobResults(db_session, viewer()).get_accessible(job_id) is not None
-		if not owned:
-			return Response("Not found", status=404)
+	if not _viewer_may_read_log(job_id):
+		return Response("Not found", status=404)
 	path = log_file(job_id)
 	if path is None:
 		return Response("Log file not found", status=404)
 	return send_file(path, as_attachment=True, download_name=os.path.basename(path))
+
+
+@bp.route("/results/log/<uuid:job_id>")
+@login_required
+def view_log(job_id: uuid.UUID) -> ResponseReturnValue:
+	"""The job's rollout log, for reading in the page (View Log): its lines -
+	redacted as every log line is - the last LOG_VIEW_LINES when it's longer.
+	The same rule as Download Log.
+
+	:returns: {name, lines, total}; 404 when the viewer may not see the job,
+	 or its log is gone"""
+	if not _viewer_may_read_log(job_id):
+		return err("Not found", 404)
+	path = log_file(job_id)
+	if path is None:
+		return err("The log file is gone - logs are kept 60 days", 404)
+	with open(path, encoding="utf-8", errors="replace") as f:
+		lines = f.read().splitlines()
+	return ok(name=os.path.basename(path), lines=lines[-LOG_VIEW_LINES:], total=len(lines))

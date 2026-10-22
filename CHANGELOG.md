@@ -6,6 +6,14 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ## [Unreleased]
 
+### Added
+
+- **View Log** in Results: a job's rollout log in a window on the page, with a filter box (a device's address, a command, a word), next to Download Log - the same rule: its owner, or any administrator.
+
+### Fixed
+
+- A progress bar a device redraws while it works (NX-OS's `copy running-config startup-config`) is no longer logged frame by frame, nor taken for a reply: the log line keeps what the device said ("Copy complete.").
+
 ## [1.0.0rc9] - 2026-10-22
 
 ### Changed
