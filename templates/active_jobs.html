@@ -151,6 +151,10 @@
     max-height: 260px;
     padding: 0.85rem 1.25rem;
 }
+/* the log file, when the job ended before its live log opened */
+.log-file-note { color:var(--nr-text-faint); font-style:italic; margin-bottom:4px; }
+.log-file-time { color:var(--nr-text-faint); margin-right:10px; }
+.log-file-action { color:#ef5350; }
 .log-terminal::-webkit-scrollbar { width: 4px; }
 .log-terminal::-webkit-scrollbar-thumb { background: #1e1e1e; border-radius: 2px; }
 
@@ -612,11 +616,14 @@
             logOut.scrollTop = logOut.scrollHeight;
         };
 
-        es.addEventListener('done', function() {
+        es.addEventListener('done', async function() {
             streamClosedCleanly = true;
             es.close();
             delete openStreams[jobId];
             _resumeRefresh();
+            // nothing came: the job ended before the log opened - its live lines
+            // are gone, so show its log file instead
+            if (!logOut.childElementCount) await showLogFile(jobId, logOut);
             showCompletionCard(jobId, logOut);
         });
 
@@ -631,6 +638,35 @@
             }
         };
     };
+
+    /* ── A finished job's log file (View Log's), in place of its live log ── */
+    async function showLogFile(jobId, logOut) {
+        let data = null;
+        try {
+            const resp = await fetch(`/results/log/${jobId}`);
+            if (resp.ok) data = await resp.json();
+        } catch (e) { /* the completion card still comes */ }
+        if (!data || !data.lines.length) return;
+        const note = document.createElement("div");
+        note.className = "log-file-note";
+        note.textContent = "The rollout ended before its log opened - its log file:";
+        logOut.appendChild(note);
+        data.lines.forEach(line => {
+            const row = document.createElement("div");
+            const tab = line.indexOf("	");
+            if (tab > 0) {
+                const time = document.createElement("span");
+                time.className = "log-file-time";
+                time.textContent = line.slice(0, tab);
+                row.append(time, line.slice(tab + 1));
+            } else {
+                row.textContent = line;
+            }
+            if (line.includes("ACTION NEEDED")) row.className = "log-file-action";
+            logOut.appendChild(row);
+        });
+        logOut.scrollTop = logOut.scrollHeight;
+    }
 
     /* ── Completion card: the outcome, without having to open Results ── */
     async function showCompletionCard(jobId, logOut) {
