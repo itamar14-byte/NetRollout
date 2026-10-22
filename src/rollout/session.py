@@ -208,6 +208,9 @@ class NetmikoSession:
 						              important=not verify)
 					for event in events:
 						report.notify(f"{device.endpoint}: device event: {event}")
+				# without verbose the commands aren't logged one by one: this line
+				# keeps the order readable (pushed, then saved, then judged)
+				report.notify(f"{device.endpoint}: pushed {sent} command{'s' if sent != 1 else ''}")
 
 				try:
 					if not self._finish(net_connect):

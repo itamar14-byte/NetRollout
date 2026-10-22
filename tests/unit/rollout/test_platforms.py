@@ -1081,6 +1081,18 @@ def unverified_rollout(answers):
 	return result, [(c.args[0], c.kwargs.get("important", False)) for c in notifier.notify.call_args_list]
 
 
+
+def test_the_log_says_the_commands_were_pushed_before_the_finish():
+	"""Without verbose the commands aren't logged one by one, so the log says
+	"pushed N commands" once they're all sent - after the last reply, before
+	the finish (the save) - in the log file, not on the console."""
+	_, lines = unverified_rollout({"ntp server bogus": "% Invalid input detected at '^' marker.\nr1(config)#"})
+	texts = [line for line, _ in lines]
+	assert ("10.0.0.1:22: pushed 2 commands", False) in lines
+	assert texts.index("10.0.0.1:22: pushed 2 commands") > \
+	       texts.index("10.0.0.1:22: 'ntp server bogus' - the device replied: % Invalid input detected at '^' marker.")
+
+
 def test_without_verify_a_reply_reaches_the_console_and_the_summary():
 	"""Verify off: a command the device answered (here refused) is logged as
 	important - the CLI shows it without -v - and the summary names the device;
