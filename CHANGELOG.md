@@ -6,6 +6,8 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ## [Unreleased]
 
+## [1.0.0rc9] - 2026-10-22
+
 ### Changed
 
 - **Verify judges each device by its own configuration, before and after the push.** NetRollout reads the configuration before the commands and again after the save or commit, in the same session, and compares the device with itself. A command is **took effect** (its words are in a line the push added, however the device abbreviates or numbers it), **already in place**, or **removed** (also by the configuration shown with its defaults, read only for what's left unproven, and by a removed negation) - **rejected** when the configuration doesn't show it and the device replied (to it, or when its block closed), or, when nothing proves it either way, **review**, decided by a person with the evidence. That the device replied counts, never what it said: no list of error messages decides anything, and a quiet device proves nothing. Exec commands (`do show …`, FortiOS `get …`) are shown, not judged. Every platform declares its exec words, its defaults view (or none) and the shape of its log lines. Examples found in the EVE lab, now handled: NX-OS stores `ip address … 255.255.255.255` as `/32` (review with that line as evidence, no longer a false `partial`); IOS refusing `ntp server` and FortiOS answering a typo with `Unknown action 0` (review with the device's reply, no longer a success without Verify); FortiOS `edit 0` becoming `edit 1`; NX-OS ACL entries gaining sequence numbers; a rerun (already in place, no longer "verified" by accident). FortiOS re-encrypts every stored password on each read: that churn is learned on the spot and left out.
@@ -269,7 +271,8 @@ Anycast. The first public release.
 
 - `netrollout-cli` for one-off rollouts from a devices CSV and a commands file, with optional Verify. A standalone Windows `.exe`; no database or Docker needed.
 
-[Unreleased]: https://github.com/itamar14-byte/NetRollout/compare/v1.0.0rc8...HEAD
+[Unreleased]: https://github.com/itamar14-byte/NetRollout/compare/v1.0.0rc9...HEAD
+[1.0.0rc9]: https://github.com/itamar14-byte/NetRollout/compare/v1.0.0rc8...v1.0.0rc9
 [1.0.0rc8]: https://github.com/itamar14-byte/NetRollout/compare/v1.0.0rc7...v1.0.0rc8
 [1.0.0rc7]: https://github.com/itamar14-byte/NetRollout/compare/v1.0.0rc6...v1.0.0rc7
 [1.0.0rc6]: https://github.com/itamar14-byte/NetRollout/compare/v1.0.0rc5...v1.0.0rc6
