@@ -745,8 +745,10 @@
         body.style.display = open ? "" : "none";
     };
 
-    /* ── Arrived to watch one rollout (the dashboard's Watch live): its log open ── */
-    const watchId = new URLSearchParams(window.location.search).get("watch");
+    /* ── Arrived to watch one rollout - the dashboard's Watch live, or just
+          launched (New Rollout lands here): its log open ── */
+    const arrival = new URLSearchParams(window.location.search);
+    const watchId = arrival.get("watch") || arrival.get("new");
     if (watchId) {
         const watchBtn = document.querySelector(`.btn-log[data-job-id="${CSS.escape(watchId)}"]`);
         if (watchBtn && !watchBtn.classList.contains("active")) {
