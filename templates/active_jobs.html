@@ -747,8 +747,8 @@
 
     /* ── Arrived to watch one rollout - the dashboard's Watch live, or just
           launched (New Rollout lands here): its log open ── */
-    const arrival = new URLSearchParams(window.location.search);
-    const watchId = arrival.get("watch") || arrival.get("new");
+    const watchId = new URLSearchParams(window.location.search).get("watch")
+                 || new URLSearchParams(window.location.search).get("new");
     if (watchId) {
         const watchBtn = document.querySelector(`.btn-log[data-job-id="${CSS.escape(watchId)}"]`);
         if (watchBtn && !watchBtn.classList.contains("active")) {

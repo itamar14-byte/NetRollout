@@ -1404,6 +1404,21 @@ def test_the_dashboard_card_offers_watch_live(app, operator, client_for, monkeyp
 	assert "toggleLog(watchBtn)" in active
 
 
+def test_a_launched_rollout_lands_with_its_log_open(app, operator, client_for, monkeypatch):
+	"""New Rollout lands on Active Jobs with ?new=<id> (never the dashboard and
+	its Watch live), so Active Jobs opens that job's log on arrival too - the
+	same way as ?watch=; a short rollout would be over before it was opened."""
+	job = FakeRunningJob(operator.user.id)
+	job.started_at = dt.datetime.now()
+	job.get_device_count = lambda: 1
+	monkeypatch.setitem(app.orchestrator._jobs, job.job_id, job)
+	_register_job_meta(app, operator.user, job.job_id)
+	active = client_for(operator.user).get(f"/active_jobs?new={job.job_id}").get_data(as_text=True)
+	assert f'data-job-id="{job.job_id}"' in active
+	assert '|| new URLSearchParams(window.location.search).get("new");' in active
+	assert "toggleLog(watchBtn)" in active
+
+
 def test_active_jobs_lists_running_job(app, operator, client_for, monkeypatch):
 	"""Active Jobs lists a running job of the user."""
 	job = FakeRunningJob(operator.user.id)
