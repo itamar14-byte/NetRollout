@@ -1186,6 +1186,31 @@ def test_results_filter_by_note_device_and_days(operator, client_for, make_devic
 	assert ">1 matching job</span>" in html and "Clear filters" in html
 
 
+
+def test_results_filter_by_job_id(operator, client_for, session_scope):
+	"""?id= matches part of a job's ID, any case - the 8 characters Results
+	shows are enough - and keeps the whole job; Export CSV holds that job only,
+	audited with the filter. The form has the Job ID box, filled when set."""
+	first = add_noted_job(session_scope, operator.user, "one", ["10.0.0.1", "10.0.0.2"])
+	second = add_noted_job(session_scope, operator.user, "two", ["10.0.0.3"])
+	client = client_for(operator.user)
+
+	def shown(query):
+		return shown_jobs(client.get(f"/results?{query}").get_data(as_text=True))
+
+	short = str(first)[:8]
+	assert shown(f"id={short}") == {str(first)}
+	assert shown(f"id={short.upper()}") == {str(first)}
+	assert shown(f"id={second}") == {str(second)}
+	assert shown("id=not-an-id") == set()
+	rows = export_rows(client.get(f"/results/export.csv?id={short}"))
+	assert [r[0] for r in rows[1:]] == [str(first)] * 2
+	with session_scope() as s:
+		entry = s.query(AuditLog).filter_by(action="results.exported").one()
+		assert entry.detail == {"view": "mine", "job_id": short, "rows": 2}
+	html = client.get(f"/results?id={short}").get_data(as_text=True)
+	assert f'<input type="search" name="id" value="{short}" placeholder="Job ID"' in html
+
 def test_results_export_is_every_job_the_filters_let_through(operator, client_for,
                                                             session_scope):
 	"""Export CSV holds every job the filters let through, not only the page

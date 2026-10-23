@@ -394,6 +394,8 @@ button.status-pill:hover { filter: brightness(1.2); }
     background: var(--nr-surface, #111); border: 1px solid #222; border-radius: 6px;
     padding: 0 0.6rem; height: 31px; margin: 0;
 }
+.res-filter--id { flex-basis: 130px; max-width: 170px; }   /* an ID: 8 characters are enough */
+.res-filter--id input { font-family: 'JetBrains Mono', monospace; }
 .res-filter.is-set { border-color: rgba(0,188,212,0.55); }
 /* the theme's focus ring goes around the whole field, not the bare input inside it */
 .res-filter:has(input:focus-visible) { outline: 2px solid var(--nr-accent); outline-offset: 2px; }
@@ -456,6 +458,11 @@ button.status-pill:hover { filter: brightness(1.2); }
         <i class="bi bi-hdd-network"></i>
         <input type="search" name="device" value="{{ filters.device or '' }}" placeholder="Device name or address"
                aria-label="Filter by device name or address" autocomplete="off" spellcheck="false">
+    </label>
+    <label class="res-filter res-filter--id{{ ' is-set' if filters.job_id }}" title="The job whose ID contains this - its first 8 characters are enough">
+        <i class="bi bi-hash"></i>
+        <input type="search" name="id" value="{{ filters.job_id or '' }}" placeholder="Job ID"
+               aria-label="Filter by job ID" autocomplete="off" spellcheck="false">
     </label>
     <select name="status" class="form-select form-select-sm res-select{{ ' is-set' if filters.status }}"
             aria-label="Filter by status">

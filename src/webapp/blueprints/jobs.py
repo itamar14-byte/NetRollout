@@ -50,7 +50,8 @@ def status_arg(raw: str | None) -> str | None:
 
 def filter_args(is_admin: bool) -> JobFilter:
 	"""Results' filters from the query: ?status, ?note, ?device (part of an
-	IP or a name), ?from and ?to (days), and an admin's ?user (a user id)."""
+	IP or a name), ?id (part of a job's ID - ?job= is the job to show), ?from
+	and ?to (days), and an admin's ?user (a user id)."""
 	owner = None
 	if is_admin:
 		try:
@@ -60,6 +61,7 @@ def filter_args(is_admin: bool) -> JobFilter:
 	return JobFilter(status=status_arg(request.args.get("status")),
 	                 note=request.args.get("note", "").strip() or None,
 	                 device=request.args.get("device", "").strip() or None,
+	                 job_id=request.args.get("id", "").strip() or None,
 	                 since=date_arg("from"), until=date_arg("to"), owner=owner)
 
 

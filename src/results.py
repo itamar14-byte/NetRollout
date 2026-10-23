@@ -20,7 +20,7 @@ from enum import StrEnum
 from itertools import groupby
 from typing import Any
 
-from sqlalchemy import ColumnElement, and_, distinct, func, not_, or_, true, tuple_
+from sqlalchemy import ColumnElement, String, and_, cast, distinct, func, not_, or_, true, tuple_
 from sqlalchemy.orm import Session
 
 from src import runtime
@@ -282,6 +282,7 @@ class JobFilter:
 	status: str | None = None        # one of JOB_STATUSES, as job_status judges it
 	note: str | None = None          # part of the job's note, any case
 	device: str | None = None        # part of one of its devices' IP or name, any case
+	job_id: str | None = None        # part of its ID (Results shows the first 8 characters), any case
 	since: date | None = None        # it started on this day or later
 	until: date | None = None        # it started on this day or earlier
 	owner: uuid.UUID | None = None   # one user's jobs (an admin's all-users view)
@@ -470,6 +471,9 @@ class JobResults:
 			where = and_(where, DeviceResult.job_id.in_(
 				db.query(JobMetadata.job_id).filter(
 					JobMetadata.comment.ilike(contains(filters.note), escape="\\"))))
+		if filters.job_id:
+			where = and_(where, cast(DeviceResult.job_id, String).ilike(
+				contains(filters.job_id), escape="\\"))
 		if filters.device:
 			match: ColumnElement[bool] = DeviceResult.device_ip.ilike(contains(filters.device), escape="\\")
 			named = self._endpoints_named(filters.device)
