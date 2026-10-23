@@ -80,10 +80,11 @@
                             <input type="checkbox" id="rollbackLink" checked>
                             <span class="nr-toggle-slider"></span>
                         </span>
-                        Link it to the device<span id="rollbackLinkPlural"></span> you see, so your next rollouts use it too
+                        {# one span: the label is a flex row, and loose text runs would be spaced and wrapped apart #}
+                        <span>Keep it as your profile for <span id="rollbackLinkWhich" style="font-family:'JetBrains Mono',monospace; color:#ffe0b2;"></span>, so your later rollouts use it too</span>
                     </label>
                     <div id="rollbackOnceNote" style="display:none; margin-top:0.35rem; color:var(--nr-text-muted);">
-                        For another user's own devices it's used for this rollback only.
+                        On another user's own devices it's used for this rollback only, never kept.
                     </div>
                 </div>
                 <input type="hidden" id="rollbackJobId">
@@ -189,7 +190,9 @@
         document.getElementById("rollbackNoProfiles").style.display = profiles.length ? "none" : "block";
         const linkable = devices.filter(d => d.linkable).length;
         document.getElementById("rollbackLinkRow").style.display = linkable ? "flex" : "none";
-        document.getElementById("rollbackLinkPlural").textContent = linkable === 1 ? "" : "s";
+        // named: the list above may hold another user's own devices too (as text)
+        document.getElementById("rollbackLinkWhich").textContent =
+            devices.filter(d => d.linkable).map(d => d.label || d.ip).join(", ");
         document.getElementById("rollbackLink").checked = true;
         document.getElementById("rollbackOnceNote").style.display =
             devices.some(d => !d.linkable) ? "block" : "none";
