@@ -22,7 +22,8 @@
   .set-input.is-invalid { border-color: #ef5350 !important; }
   .set-error { display: none; font-size: 0.78rem; color: #ef9a9a; margin-top: 0.35rem; }
   .set-error.show { display: block; }
-  .set-alert { display: none; border-radius: 8px; padding: 0.7rem 0.9rem; font-size: 0.84rem; margin-bottom: 1.25rem; }
+  .set-alert { display: none; border-radius: 8px; padding: 0.7rem 0.9rem; font-size: 0.84rem; margin-bottom: 1.25rem;
+               scroll-margin-top: 70px; }   /* clear of the sticky top bar (53px) when scrolled to */
   .set-alert.show { display: block; }
   .set-alert.error { background: rgba(239,83,80,0.07); border: 1px solid rgba(239,83,80,0.3); color: #ef9a9a; }
   .set-alert.success { background: rgba(102,187,106,0.07); border: 1px solid rgba(102,187,106,0.3); color: #a5d6a7; }
@@ -261,6 +262,12 @@
   function showAlert(kind, html) {
     alertBox.className = 'set-alert show ' + kind;
     alertBox.innerHTML = html;
+    // it sits at the top: a save made far down the page would go unseen
+    const box = alertBox.getBoundingClientRect();
+    if (box.top < 60 || box.bottom > window.innerHeight) {   // 60: under the sticky top bar
+      const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      alertBox.scrollIntoView({behavior: still ? 'auto' : 'smooth', block: 'start'});
+    }
   }
   function clearAlert() { alertBox.className = 'set-alert'; alertBox.textContent = ''; }
 
