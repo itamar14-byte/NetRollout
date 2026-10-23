@@ -1481,24 +1481,19 @@ def test_the_jobs_screens_say_a_queued_job_is_queued(app, operator, client_for,
 	assert "const jobStart" not in dashboard
 
 
-def test_active_jobs_rollback_waits_for_the_job_to_finish(
+def test_active_jobs_offers_rollback_only_once_the_job_finishes(
 		app, operator, client_for, monkeypatch):
-	"""A running job's Rollback is disabled, inside a wrapper whose tooltip
-	says it's available when the rollout finishes."""
+	"""A running job's row has no Rollback (a rollback targets the devices the
+	job configured, known once it ends); its completion card offers it."""
 	job = FakeRunningJob(operator.user.id)
 	job.started_at = dt.datetime.now()
 	job.get_device_count = lambda: 1
 	monkeypatch.setitem(app.orchestrator._jobs, job.job_id, job)
 	_register_job_meta(app, operator.user, job.job_id)
 	html = client_for(operator.user).get("/active_jobs").get_data(as_text=True)
-	wrapper = re.search(
-		r'<span class="rollback-wait"[^>]*title="([^"]*)">\s*'
-		r'<button type="button" class="job-action-btn btn-rollback" disabled>',
-		html)
-	assert wrapper is not None
-	assert wrapper.group(1) == ("Available when the rollout finishes - then "
-	                            "from the completion card or Results")
-	assert "openRollback('" not in html
+	row = re.search(rf'data-job-id="{job.job_id}".*?</tr>', html, re.S).group(0)
+	assert "Rollback" not in row and "btn-rollback" not in html
+	assert 'class="btn btn-sm completion-rollback"' in html      # the completion card's
 
 
 def test_active_jobs_survives_orphaned_job_meta(app, operator, client_for):
