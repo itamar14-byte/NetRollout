@@ -563,7 +563,8 @@
     window.confirmCancel = async function(form) {
         _pauseRefresh();
         const yes = await nrConfirm({title: 'Cancel this job?', danger: true,
-            message: 'Devices mid-push may be left with partial config.',
+            message: 'Devices it has not reached are skipped. A device already being ' +
+                     'configured finishes its push, save and verification - never cut off halfway.',
             confirmLabel: 'Cancel job', cancelLabel: 'Keep it running'});
         if (yes) form.submit();
         else _resumeRefresh();
