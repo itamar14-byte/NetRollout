@@ -1039,7 +1039,9 @@
                     <div class="d-flex gap-2 align-items-center" style="min-width:0;">
                         <button type="button" class="btn btn-secondary btn-sm"
                                 data-bs-dismiss="modal">Cancel</button>
-                        <button type="button" id="editTestBtn" class="btn btn-secondary btn-sm edit-only"
+                        {# both modes: whether NetRollout reaches the device is worth knowing
+                           before linking a profile to a global one, too #}
+                        <button type="button" id="editTestBtn" class="btn btn-secondary btn-sm"
                                 onclick="testEditConnection()">
                             <i class="bi bi-plug me-1"></i>Test Connection
                         </button>

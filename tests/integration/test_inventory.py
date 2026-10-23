@@ -665,6 +665,18 @@ def test_global_card_is_read_only_for_users(world, client_for):
 	assert 'id="addIsGlobal"' not in html  # toggle is admin-only
 
 
+
+def test_a_user_can_test_a_global_device_s_connection(world, client_for):
+	"""The read-only modal of a global device keeps Test Connection - not hidden
+	with the editing controls (edit-only) - and a user may call the test: it
+	only says whether the port answers from this server, no credentials."""
+	client = client_for(world.b)
+	html = client.get("/inventory").get_data(as_text=True)
+	button = re.search(r'<button type="button" id="editTestBtn" class="([^"]*)"', html)
+	assert button and "edit-only" not in button.group(1).split()
+	resp = client.post("/inventory/test_connection", json={"ip": "127.0.0.1", "port": 22})
+	assert resp.status_code != 403 and "NetRollout's own server" in resp.get_json()["message"]
+
 def test_admin_profile_id_never_exposed_to_users(world, client_for):
 	"""The admin profile's id of a global device never appears in a user's inventory
 	page."""
