@@ -569,7 +569,7 @@
         "kind": "Panel",
         "spec": {
           "id": 13,
-          "title": "Jon Duration Distribution",
+          "title": "Job Duration Distribution",
           "description": "",
           "links": [],
           "data": {
@@ -713,7 +713,7 @@
         "kind": "Panel",
         "spec": {
           "id": 14,
-          "title": "Activity Heatmap ",
+          "title": "Activity Heatmap",
           "description": "",
           "links": [],
           "data": {
@@ -1175,7 +1175,7 @@
         "kind": "Panel",
         "spec": {
           "id": 5,
-          "title": " Avg Job Duration Over Time",
+          "title": "Avg Job Duration Over Time",
           "description": "",
           "links": [],
           "data": {
@@ -1197,7 +1197,7 @@
                         "editorMode": "code",
                         "format": "table",
                         "rawQuery": true,
-                        "rawSql": "SELECT $__timeGroupAlias(started_at,$__interval),\r\nAVG(EXTRACT(EPOCH FROM (completed_at-started_at))) AS avg_duration\r\nFROM device_results WHERE $__timeFilter(started_at) GROUP BY 1 ORDER BY 1",
+                        "rawSql": "SELECT $__timeGroupAlias(started, $__interval), AVG(duration) AS avg_duration FROM (\n  SELECT MIN(started_at) AS started,\n         EXTRACT(EPOCH FROM (MAX(completed_at) - MIN(started_at))) AS duration\n    FROM device_results GROUP BY job_id) jobs\n  WHERE $__timeFilter(started) GROUP BY 1 ORDER BY 1",
                         "sql": {
                           "columns": [
                             {
@@ -1338,7 +1338,7 @@
         "kind": "Panel",
         "spec": {
           "id": 6,
-          "title": " Commands Sent vs Verified",
+          "title": "Commands Sent vs Verified",
           "description": "",
           "links": [],
           "data": {
@@ -1594,7 +1594,7 @@
         "kind": "Panel",
         "spec": {
           "id": 8,
-          "title": " Platform Success Rate",
+          "title": "Platform Success Rate",
           "description": "",
           "links": [],
           "data": {

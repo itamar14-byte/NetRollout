@@ -347,7 +347,7 @@
         "kind": "Panel",
         "spec": {
           "id": 3,
-          "title": " Unique Actors (7d)",
+          "title": "Unique Actors (7d)",
           "description": "",
           "links": [],
           "data": {
@@ -449,7 +449,7 @@
         "kind": "Panel",
         "spec": {
           "id": 4,
-          "title": " Failure Rate (7d)",
+          "title": "Failure Rate (7d)",
           "description": "",
           "links": [],
           "data": {
@@ -562,7 +562,7 @@
         "kind": "Panel",
         "spec": {
           "id": 6,
-          "title": " Audit Events Over Time",
+          "title": "Audit Events Over Time",
           "description": "",
           "links": [],
           "data": {

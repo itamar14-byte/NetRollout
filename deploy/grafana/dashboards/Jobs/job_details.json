@@ -70,7 +70,7 @@
                         "editorMode": "code",
                         "format": "table",
                         "rawQuery": true,
-                        "rawSql": "SELECT status FROM device_results WHERE job_id = '$job_id'::uuid LIMIT 1",
+                        "rawSql": "SELECT CASE\n    WHEN bool_or(status = 'cancelled') THEN 'cancelled'\n    WHEN bool_and(status = 'failed') THEN 'failed'\n    WHEN bool_or(status IN ('failed', 'partial')) THEN 'partial'\n    WHEN bool_or(status = 'review') THEN 'review'\n    WHEN bool_or(status = 'not verified') THEN 'not verified'\n    ELSE 'success'\n  END AS status\n  FROM device_results WHERE job_id = '$job_id'::uuid",
                         "sql": {
                           "columns": [
                             {

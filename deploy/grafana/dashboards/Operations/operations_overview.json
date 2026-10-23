@@ -155,7 +155,7 @@
                         "editorMode": "code",
                         "format": "table",
                         "rawQuery": true,
-                        "rawSql": "SELECT status, COUNT(*) AS count FROM device_results WHERE $__timeFilter(started_at) GROUP BY status",
+                        "rawSql": "SELECT status, COUNT(*) AS count FROM (\n  SELECT MIN(started_at) AS started, CASE\n    WHEN bool_or(status = 'cancelled') THEN 'cancelled'\n    WHEN bool_and(status = 'failed') THEN 'failed'\n    WHEN bool_or(status IN ('failed', 'partial')) THEN 'partial'\n    WHEN bool_or(status = 'review') THEN 'review'\n    WHEN bool_or(status = 'not verified') THEN 'not verified'\n    ELSE 'success'\n  END AS status\n    FROM device_results GROUP BY job_id) jobs\n  WHERE $__timeFilter(started) GROUP BY status ORDER BY count DESC",
                         "sql": {
                           "columns": [
                             {
@@ -615,7 +615,7 @@
         "kind": "Panel",
         "spec": {
           "id": 6,
-          "title": "Devices Reached Today",
+          "title": "Devices Today",
           "description": "",
           "links": [],
           "data": {
@@ -637,7 +637,7 @@
                         "editorMode": "code",
                         "format": "table",
                         "rawQuery": true,
-                        "rawSql": "SELECT COUNT(*) FROM device_results WHERE started_at >= CURRENT_DATE",
+                        "rawSql": "SELECT COUNT(DISTINCT (device_ip, device_port)) FROM device_results\n  WHERE started_at >= CURRENT_DATE",
                         "sql": {
                           "columns": [
                             {
@@ -845,7 +845,7 @@
         "kind": "Panel",
         "spec": {
           "id": 8,
-          "title": "Active Jobs Over Time ",
+          "title": "Active Jobs Over Time",
           "description": "",
           "links": [],
           "data": {
