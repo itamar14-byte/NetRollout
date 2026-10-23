@@ -1130,7 +1130,7 @@ def unverified_rollout(answers):
 
 
 def test_the_log_says_the_commands_were_pushed_before_the_finish():
-	"""Without verbose the commands aren't logged one by one, so the log says
+	"""The commands aren't logged one by one (only replies), so the log says
 	"pushed N commands" once they're all sent - after the last reply, before
 	the finish (the save) - in the log file, not on the console."""
 	_, lines = unverified_rollout({"ntp server bogus": "% Invalid input detected at '^' marker.\nr1(config)#"})
