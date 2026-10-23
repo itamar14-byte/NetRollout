@@ -94,7 +94,7 @@ paramiko==4.0.0
     #   -r requirements.in
     #   netmiko
     #   scp
-pillow==12.3.0
+pillow==13.0.0
     # via -r requirements.in
 prometheus-client==0.26.0
     # via
