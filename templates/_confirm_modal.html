@@ -1,9 +1,11 @@
 {# NetRollout's own question and message windows instead of the browser's
    confirm() / alert() (which a browser lets people switch off for a page -
    then confirm() answers No without asking):
-   nrConfirm({title, message, confirmLabel, danger, badge}) → Promise<bool>,
-   true only for the confirm button; Cancel, ×, Escape and a click outside
-   answer false. A risky question (danger) is red and starts on Cancel.
+   nrConfirm({title, message, confirmLabel, danger, badge, cancelLabel}) →
+   Promise<bool>, true only for the confirm button; Cancel, ×, Escape and a
+   click outside answer false. A risky question (danger) is red and starts on
+   Cancel. cancelLabel names that button where "Cancel" would read as the
+   action itself ("Cancel this job?" → Keep it running).
    nrAlert(message, title) → Promise, closed by OK. message is text (never
    HTML). Included by operator_base.html and admin.html, with the stacking
    below for every window: one opened over another (these, Restart's
@@ -31,7 +33,7 @@
     </div>
 </div>
 <script>
-function _nrDialog({title, message, confirmLabel, danger, badge, cancel}) {
+function _nrDialog({title, message, confirmLabel, danger, badge, cancel, cancelLabel = 'Cancel'}) {
     const el = document.getElementById('nrConfirmModal');
     const ok = document.getElementById('nrConfirmOk');
     const cancelBtn = document.getElementById('nrConfirmCancel');
@@ -45,6 +47,7 @@ function _nrDialog({title, message, confirmLabel, danger, badge, cancel}) {
     ok.textContent = confirmLabel;
     ok.className = 'btn btn-sm ' + (danger ? 'btn-danger' : 'btn-primary');
     cancelBtn.hidden = !cancel;
+    cancelBtn.textContent = cancelLabel;
     const modal = bootstrap.Modal.getOrCreateInstance(el);
     return new Promise(resolve => {
         let answer = false;
@@ -61,8 +64,9 @@ function _nrDialog({title, message, confirmLabel, danger, badge, cancel}) {
     });
 }
 
-function nrConfirm({title, message, confirmLabel = 'Continue', danger = false, badge = 'CONFIRM'}) {
-    return _nrDialog({title, message, confirmLabel, danger, badge, cancel: true});
+function nrConfirm({title, message, confirmLabel = 'Continue', danger = false, badge = 'CONFIRM',
+                    cancelLabel = 'Cancel'}) {
+    return _nrDialog({title, message, confirmLabel, danger, badge, cancel: true, cancelLabel});
 }
 
 function nrAlert(message, title = 'Not done') {

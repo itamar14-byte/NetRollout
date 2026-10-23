@@ -557,15 +557,17 @@
         window._resumeRefresh = function() {};
     }
 
-    /* ── Cancel a job: asked first; no automatic reload while it asks ── */
-    async function confirmCancel(form) {
+    /* ── Cancel a job: asked first; no automatic reload while it asks.
+          On window: the Cancel form's onsubmit calls it (inside this
+          function it was unreachable - every Cancel did nothing) ── */
+    window.confirmCancel = async function(form) {
         _pauseRefresh();
         const yes = await nrConfirm({title: 'Cancel this job?', danger: true,
             message: 'Devices mid-push may be left with partial config.',
-            confirmLabel: 'Cancel job'});
+            confirmLabel: 'Cancel job', cancelLabel: 'Keep it running'});
         if (yes) form.submit();
         else _resumeRefresh();
-    }
+    };
 
     /* ── No automatic reload while the rollback dialog is open ── */
     let rollbackOpen = false;

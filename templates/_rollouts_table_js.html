@@ -20,6 +20,7 @@ function nrRolloutsTable(container, rollouts) {
     container.innerHTML = `<table class="nr-rollouts"><thead><tr><th>By</th><th>Devices</th><th>State</th><th>Started</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
     container.querySelectorAll('[data-job]').forEach(b => b.addEventListener('click', async () => {
         if (!await nrConfirm({title: 'Cancel this rollout?', danger: true, confirmLabel: 'Cancel rollout',
+                              cancelLabel: 'Keep it running',
                               message: 'Devices it has not reached are skipped.'})) return;
         b.disabled = true;
         b.textContent = 'Cancelling…';
