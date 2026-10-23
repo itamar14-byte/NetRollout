@@ -20,10 +20,26 @@ from src.rollout.address import is_ip, resolve
 from src.rollout.evidence import Outcome, judge, parse
 from src.rollout.log import Tone, redact
 from src.rollout.platforms import (
-	COMMIT_TIMEOUT, DEFAULTS_MAX_LINES, PLATFORMS, CommitPending, ConfigSession, Platform, Target, one_line,
-	reply)
+	COMMIT_TIMEOUT, DEFAULTS_MAX_LINES, PLATFORMS, CommitPending, ConfigSession, EnableFailed, Platform, Target,
+	one_line, reply)
 if TYPE_CHECKING:   # annotations only: engine.py imports this module
 	from src.rollout.engine import Device
+
+
+
+def first_line(error: BaseException) -> str:
+	""":returns: an error's first line - Netmiko's add a paragraph of advice
+	 below it, which would break the log's one line per event"""
+	lines = [line.strip() for line in str(error).splitlines() if line.strip()]
+	return lines[0] if lines else type(error).__name__
+
+
+def first_sentence(error: BaseException) -> str:
+	""":returns: an error's first sentence (Netmiko's enable() failure goes on
+	 with "Please ensure you pass the 'secret' argument…")"""
+	line = first_line(error)
+	end = line.find(". ")
+	return line[:end + 1] if end != -1 else line
 
 
 class Notifier(Protocol):
@@ -239,6 +255,11 @@ class NetmikoSession:
 		except netmiko.NetmikoTimeoutException:
 			report.notify(f"{device.ip} timed out", Tone.ERROR)
 			return PushResult(applied=False)
+		except EnableFailed as e:
+			# "secret" last: the log's redaction hides the word after it
+			report.notify(f"{device.ip} couldn't enter enable mode ({first_sentence(e)}) - "
+			              f"check the security profile's enable secret", Tone.ERROR)
+			return PushResult(applied=False)
 		except netmiko.exceptions.ReadTimeout as e:
 			if commands_sent and platform.finish.interruptible and \
 					sent == len(commands):
@@ -268,10 +289,10 @@ class NetmikoSession:
 					  f"the device, then save the change or remove it"))
 				return PushResult(applied=answered > 0, sent=sent, interrupted=True,
 				                  replies=tuple(replies))
-			report.notify(f"{device.ip} failed: {e}", Tone.ERROR)
+			report.notify(f"{device.ip} failed: {first_line(e)}", Tone.ERROR)
 			return PushResult(applied=False, replies=tuple(replies))
 		except Exception as e:
-			report.notify(f"{device.ip} failed: {e}", Tone.ERROR)
+			report.notify(f"{device.ip} failed: {first_line(e)}", Tone.ERROR)
 			return PushResult(applied=False, replies=tuple(replies))
 
 	def _last_output(self, conn: ConfigSession, channel: io.BytesIO,

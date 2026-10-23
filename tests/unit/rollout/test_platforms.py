@@ -14,7 +14,7 @@ import pytest
 from src.rollout import evidence, inputs
 from src.rollout.engine import Device, RolloutEngine, RolloutOptions
 from src.rollout.evidence import Verdict, first_word, judge
-from src.rollout.log import RolloutLogger
+from src.rollout.log import RolloutLogger, redact
 from src.rollout.platforms import (
 	COLUMNS, COMMIT_TIMEOUT, EVENTS, FETCH_TIMEOUT, PLATFORMS, PROGRESS, Commit, CommitPending, NoFinish, RunCommand,
 	SaveConfig, fortios_blocks, no_defaults, one_line)
@@ -1063,6 +1063,53 @@ def test_a_command_that_gets_no_prompt_keeps_the_devices_question():
 	assert f"(command 2 of 3; its last output: {question})" in result["action_needed"]
 	assert f"'crypto key zeroize rsa' - no prompt came back; the device's last output: " \
 	       f"{question}" in log_of(logger)
+
+NETMIKO_ADVICE = ("\n\nPattern not detected: 'r1' in output.\n\nThings you might try to fix this:\n"
+                  "1. Adjust the regex pattern to better identify the terminating string.\n"
+                  "2. Increase the read_timeout to a larger value.\n")
+
+
+def failed_rollout(conn):
+	"""One cisco_ios rollout to a device whose session is `conn`. :returns: (its
+	result, the lines it logged - redacted, as the log file gets them)"""
+	notifier = MagicMock(logfile="rollout.log")
+	device = Device(ip="10.0.0.1", label="d", username="u", password="p",
+	                device_type="cisco_ios", secret="wrong", port=22)
+	engine = RolloutEngine(RolloutOptions(), [device], ["snmp-server contact x"])
+	with patch("netmiko.ConnectHandler", return_value=conn):
+		(result,) = engine.run(threading.Event(), notifier)
+	return result, [redact(c.args[0]) for c in notifier.notify.call_args_list]
+
+
+@pytest.mark.parametrize("error, reason", [
+	# a wrong secret: IOS asks "Password:" again, enable() never sees a prompt
+	(netmiko.exceptions.ReadTimeout(NETMIKO_ADVICE), "Pattern not detected: 'r1' in output."),
+	# the prompt came back unprivileged
+	(ValueError("Failed to enter enable mode. Please ensure you pass the 'secret' argument "
+	            "to ConnectHandler."), "Failed to enter enable mode."),
+])
+def test_a_failed_enable_says_so_on_one_line(error, reason):
+	"""enable() failing - either way Netmiko raises it - ends the device failed
+	before anything is sent, with one log line naming enable mode and the
+	profile's secret, Netmiko's reason in it, readable after redaction."""
+	conn = connection()
+	conn.enable.side_effect = error
+	result, lines = failed_rollout(conn)
+	assert result["status"] == "failed"
+	conn.send_config_set.assert_not_called()
+	assert (f"10.0.0.1 couldn't enter enable mode ({reason}) - check the security "
+	        f"profile's enable secret") in lines
+
+
+def test_a_netmiko_error_is_logged_as_its_first_line():
+	"""Any other error ends the device failed with one log line: the error's
+	first line, not Netmiko's paragraph of advice below it."""
+	conn = connection()
+	conn.send_config_set.side_effect = OSError("Socket is closed\nmore detail\n")
+	result, lines = failed_rollout(conn)
+	assert result["status"] == "failed"
+	assert "10.0.0.1 failed: Socket is closed" in lines
+	assert not any("more detail" in line for line in lines)
 
 
 # ── Without Verify: what a device said is still in sight ─────────────────────

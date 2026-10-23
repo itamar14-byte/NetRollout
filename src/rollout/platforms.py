@@ -343,6 +343,14 @@ def one_line(output: object, command: str) -> str:
 	                  if line.strip() and line.strip() != command and not PROGRESS.match(line.strip()))
 
 
+class EnableFailed(Exception):
+	"""Netmiko's enable() didn't reach privileged mode - a wrong or missing
+	enable secret. Netmiko has no exception of its own for it: a wrong secret
+	makes IOS ask "Password:" again, so no prompt comes (ReadTimeout); a
+	prompt that comes back unprivileged is its ValueError. Its message is
+	Netmiko's."""
+
+
 @dataclass(frozen=True)
 class Platform:
 	"""One platform's whole dialect: its grammar (how its configuration is
@@ -414,8 +422,13 @@ class Platform:
 		"""Right after login: the session made ready for commands - here,
 		privileged (Netmiko's enable()).
 
-		:returns: the problem when it can't be (nothing is sent then)"""
-		conn.enable()
+		:returns: the problem when it can't be (nothing is sent then)
+		:raises EnableFailed: enable() failed - caught right at the call, so
+		 its ReadTimeout / ValueError are told apart from any other"""
+		try:
+			conn.enable()
+		except (ValueError, ReadTimeout) as e:
+			raise EnableFailed(str(e)) from e
 		return None
 
 	def read_config(self, conn: ConfigSession) -> str:
