@@ -20,7 +20,7 @@ from src.jobs import QUEUED_LINE, Draining
 from src.results import JobResults
 from src.rollout.address import is_ip
 from src.rollout.engine import Device, RolloutOptions, endpoint, missing_value
-from src.rollout.inputs import InputParser, command_lines, read_commands
+from src.rollout.inputs import InputParser, command_lines
 from src.webapp.app import current_app
 from src.webapp.http import Refused, ok, err, with_form, with_json, Caller, viewer
 
@@ -30,7 +30,8 @@ bp = Blueprint('rollout', __name__, url_prefix='/rollout')
 def parse_commands() -> tuple[list[str] | None, dict[str, str], bool]:
 	"""The start form's commands. The page sends "platform_commands" (JSON:
 	platform → command text) when the devices are of several platforms;
-	else a commands file or pasted text.
+	else the box's text (manual_commands) - a command file is loaded into
+	the box in the page, seen and editable before Launch, never uploaded.
 
 	:returns: (commands - None for several platforms, platform → command
 	 text, several platforms)
@@ -45,22 +46,10 @@ def parse_commands() -> tuple[list[str] | None, dict[str, str], bool]:
 		# commands is unused in multi-platform mode - each platform has its own
 		return None, platform_commands_map, True
 
-	# 4) Single-platform: file upload or pasted text.
-	commands_file = request.files.get("commands_file")
-	manual_commands = request.form.get("manual_commands", "").strip()
-
-	if commands_file and commands_file.filename:
-		if not commands_file.filename.lower().endswith(".txt"):
-			raise Refused("Command file must be a .txt file.")
-		try:
-			commands = read_commands(commands_file.read())
-		except UnicodeDecodeError:
-			raise Refused("Command file must be valid UTF-8 text.") from None
-	else:
-		commands = command_lines(manual_commands)
-
+	# 4) Single-platform: the box's text
+	commands = command_lines(request.form.get("manual_commands", ""))
 	if not commands:
-		raise Refused("Provide commands by pasting text or uploading a command file.")
+		raise Refused("Provide the commands to push.")
 
 	return commands, {}, False
 

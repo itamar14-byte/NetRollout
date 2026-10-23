@@ -113,8 +113,8 @@ def command_lines(text: str) -> list[str]:
 
 
 def read_commands(data: bytes) -> list[str]:
-	"""The commands of a commands file's bytes (the CLI's file, the web
-	upload): UTF-8 - utf-8-sig, so the BOM Windows Notepad writes doesn't
+	"""The commands of a commands file's bytes (the CLI's file; the web page
+	reads a file in the browser, into its box): UTF-8 - utf-8-sig, so the BOM Windows Notepad writes doesn't
 	stick to the first command -, then command_lines.
 
 	:raises UnicodeDecodeError: not UTF-8 text"""
@@ -287,8 +287,8 @@ class InputParser:
 			for row in raw_devices]
 
 	def parse_commands(self, commands_path: str) -> list[str]:
-		"""The commands of a commands file (read_commands: the web upload's
-		rules).
+		"""The commands of a commands file (read_commands: UTF-8, a BOM
+		dropped).
 
 		:returns: the commands; [] when the file is missing or unreadable (the
 		 reason is logged)"""

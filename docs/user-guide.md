@@ -316,7 +316,7 @@ Open **Launch Rollout**.
 ![The New Rollout page](images/new-rollout.png)
 
 1. **Select Devices.** Tick the devices, or use **Select all**. **Filter by label or IP** narrows the list. A device without your security profile can't be ticked; link one in Inventory. **Recheck** probes reachability again.
-2. **Commands.** Give the commands for the devices you ticked, one per line, as you would type them in configuration mode. Choose **Paste** to type them, or **File** to load a `.txt` file. Don't add `configure terminal`, `write memory` or `commit`: NetRollout enters configuration mode and saves or commits the way each platform needs. If you tick devices of more than one platform, you see **Multiple platforms selected**, and you give one command set per platform.
+2. **Commands.** Give the commands for the devices you ticked, one per line, as you would type them in configuration mode. Type or paste them in the box, or click **Load from file…** to put a `.txt` file's commands in it (UTF-8): you see them, and can edit them, before you launch. Don't add `configure terminal`, `write memory` or `commit`: NetRollout enters configuration mode and saves or commits the way each platform needs. If you tick devices of more than one platform, you see **Multiple platforms selected**, and you give one command set per platform.
 3. **Rollout Note** (optional): up to 255 characters, such as a change or ticket number. It's shown in Results.
 4. **Options:**
    - **Verify after push** (on by default): NetRollout reads each device's configuration before and after the push and judges every command by what changed. See [Verify](#verify).

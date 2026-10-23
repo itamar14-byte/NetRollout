@@ -80,19 +80,25 @@ def test_single_platform_rollout_is_submitted(operator, client_for,
 	assert [d.ip for d in call.devices] == ["10.0.0.1"]
 
 
-def test_a_commands_file_saved_with_a_bom_sends_the_clean_first_command(
-		operator, client_for, captured_submits):
-	"""A commands file saved as "UTF-8 with BOM" (Windows Notepad) is read like
-	the CLI reads it: the BOM is not part of the first command, blank lines
-	are dropped."""
+def test_a_command_file_is_never_uploaded(operator, client_for, captured_submits):
+	"""A command file is loaded into the box in the page - seen and editable
+	before Launch - so the server reads only the box: a file posted on its own
+	starts nothing ("Provide the commands to push.")."""
 	resp = client_for(operator.user).post("/rollout/start", data={
 		"device_ids": [str(operator.ios)],
-		"commands_file": (io.BytesIO("hostname r9\r\n\r\nntp server 1.1.1.1\r\n"
-		                             .encode("utf-8-sig")), "cmds.txt")},
-		content_type="multipart/form-data")
-	assert resp.status_code == 302 and "/active_jobs?new=" in resp.headers["Location"]
-	(call,) = captured_submits
-	assert call.commands == ["hostname r9", "ntp server 1.1.1.1"]
+		"commands_file": (io.BytesIO(b"hostname r9"), "cmds.txt")},
+		content_type="multipart/form-data", follow_redirects=True)
+	assert "Provide the commands to push." in resp.get_data(as_text=True)
+	assert captured_submits == []
+
+
+def test_the_commands_box_loads_a_file_into_itself(operator, client_for):
+	"""New Rollout has no File mode: "Load from file…" puts a file's text in
+	the box (the browser decodes it as UTF-8, a BOM dropped, anything else
+	refused) - the form uploads nothing."""
+	html = client_for(operator.user).get("/rollout/new").get_data(as_text=True)
+	assert "Load from file…" in html and 'new TextDecoder("utf-8", {fatal: true})' in html
+	assert 'enctype="multipart/form-data"' not in html and "commands_file" not in html
 
 
 def test_multi_platform_rollout_submits_one_job_per_platform(

@@ -295,26 +295,21 @@
     letter-spacing: 1.5px;
     text-transform: uppercase;
 }
-.cmd-toggle {
-    display: flex;
-    gap: 0.3rem;
-}
-.cmd-toggle-btn {
+.cmd-load-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
     font-family: 'Inter', sans-serif;
     font-size: 0.75rem;
     padding: 0.22rem 0.6rem;
+    margin: 0;
     border-radius: 5px;
     border: 1px solid #222;
-    background: transparent;
     color: var(--nr-text-muted);
     cursor: pointer;
-    transition: all 0.15s;
+    transition: border-color 0.15s, color 0.15s;
 }
-.cmd-toggle-btn.active {
-    background: rgba(0,188,212,0.08);
-    border-color: rgba(0,188,212,0.25);
-    color: #00bcd4;
-}
+.cmd-load-btn:hover { border-color: rgba(0,188,212,0.3); color: #00bcd4; }
 
 .cmd-textarea {
     width: 100%;
@@ -331,33 +326,14 @@
 }
 .cmd-textarea::placeholder { color: var(--nr-text-muted); }
 
-.cmd-file-zone {
-    display: none;
-    padding: 1.25rem 1rem;
-    text-align: center;
-}
-.cmd-file-label {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.5rem;
+/* what a loaded file put in the box (or why it couldn't) */
+.cmd-loaded {
     font-family: 'Inter', sans-serif;
-    font-size: 0.78rem;
-    color: var(--nr-text-muted);
-    border: 1px dashed #2a2a2a;
-    border-radius: 7px;
-    padding: 0.6rem 1.2rem;
-    cursor: pointer;
-    transition: border-color 0.15s, color 0.15s;
-    width: 100%;
-    justify-content: center;
-}
-.cmd-file-label:hover { border-color: rgba(0,188,212,0.3); color: #00bcd4; }
-.cmd-filename {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.7rem;
+    font-size: 0.72rem;
     color: #4caf50;
-    margin-top: 0.4rem;
+    padding: 0 1rem 0.7rem;
 }
+.cmd-loaded.is-error { color: #ef5350; }
 
 /* ── Options row ── */
 .options-row {
@@ -511,8 +487,7 @@
                             </label>
 {% endmacro %}
 
-<form id="rolloutForm" method="POST" action="{{ url_for('rollout.new_start_rollout') }}"
-      enctype="multipart/form-data" novalidate>
+<form id="rolloutForm" method="POST" action="{{ url_for('rollout.new_start_rollout') }}" novalidate>
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     {# platform_commands is populated by JS for multi-platform mode #}
     <input type="hidden" name="platform_commands" id="platformCommandsInput">
@@ -687,11 +662,7 @@
     const TOKEN_RE = /\$\$[A-Za-z0-9_]{1,64}\$\$/g;
 
     /* ── State ── */
-    let singleFileMode = {};      // platform → "paste"|"file"
     let duplicateCount = 0;       // clashes found by markDuplicateTargets
-    // a command file's text by its file input (none while it's being read);
-    // a block dropped with its platform takes its input and text with it
-    const fileText = new WeakMap();
 
     /* ── Elements ── */
     const form          = document.getElementById("rolloutForm");
@@ -727,10 +698,8 @@
 
     /* ── Build a single command block (its header's name: rebuildCommandBlocks) ── */
     function buildCmdBlock(platform) {
-        const mode = singleFileMode[platform] || "paste";
         const blockId = "cb_" + platform.replace(/[^a-z0-9]/g, "_");
         const taId    = "ta_" + platform.replace(/[^a-z0-9]/g, "_");
-        const fzId    = "fz_" + platform.replace(/[^a-z0-9]/g, "_");
         const fnId    = "fn_" + platform.replace(/[^a-z0-9]/g, "_");
         const fiId    = "fi_" + platform.replace(/[^a-z0-9]/g, "_");
 
@@ -751,66 +720,48 @@
                 <span class="cmd-platform-label" style="display:flex;align-items:center;">
                     ${logoHtml}<span class="cmd-platform-name"></span>
                 </span>
-                <div class="cmd-toggle">
-                    <button type="button" class="cmd-toggle-btn ${mode==="paste"?"active":""}"
-                            data-mode="paste" data-platform="${nrEscape(platform)}">Paste</button>
-                    <button type="button" class="cmd-toggle-btn ${mode==="file"?"active":""}"
-                            data-mode="file" data-platform="${nrEscape(platform)}">File</button>
-                </div>
-            </div>
-            <div style="${mode==="file"?"display:none;":""}">
-                <textarea class="cmd-textarea" id="${taId}"
-                          placeholder="interface GigabitEthernet0/1&#10;  description uplink&#10;  no shutdown"
-                          rows="7"></textarea>
-            </div>
-            <div class="cmd-file-zone" id="${fzId}" style="${mode==="file"?"display:block;":""}">
-                <label class="cmd-file-label" for="${fiId}">
-                    <i class="bi bi-file-earmark-text"></i>
-                    Choose .txt file
+                <label class="cmd-load-btn" for="${fiId}"
+                       title="Put a .txt file's commands in the box - you see and can edit them before Launch">
+                    <i class="bi bi-file-earmark-text"></i>Load from file…
                 </label>
-                <input type="file" id="${fiId}" accept=".txt" style="display:none;">
-                <div class="cmd-filename" id="${fnId}" style="display:none;"></div>
+                <input type="file" id="${fiId}" accept=".txt,text/plain" hidden>
             </div>
+            <textarea class="cmd-textarea" id="${taId}"
+                      placeholder="interface GigabitEthernet0/1&#10;  description uplink&#10;  no shutdown"
+                      rows="7"></textarea>
+            <div class="cmd-loaded" id="${fnId}" hidden></div>
         `;
 
-        /* Toggle paste/file */
-        wrap.querySelectorAll(".cmd-toggle-btn").forEach(btn => {
-            btn.addEventListener("click", () => {
-                const m   = btn.dataset.mode;
-                const plt = btn.dataset.platform;
-                singleFileMode[plt] = m;
-                wrap.querySelectorAll(".cmd-toggle-btn").forEach(b =>
-                    b.classList.toggle("active", b.dataset.mode === m));
-                const ta = wrap.querySelector(`#${taId}`).parentElement;
-                const fz = wrap.querySelector(`#${fzId}`);
-                ta.style.display = m === "paste" ? "" : "none";
-                fz.style.display = m === "file"  ? "block" : "none";
-                updateLaunch();
-            });
-        });
-
-        wrap.querySelector(`#${taId}`).addEventListener("input", updateLaunch);
-
-        /* File name display; its text read for the token check */
+        const ta = wrap.querySelector(`#${taId}`);
         const fi = wrap.querySelector(`#${fiId}`);
         const fn = wrap.querySelector(`#${fnId}`);
+        ta.addEventListener("input", () => { fn.hidden = true; updateLaunch(); });
+
+        /* A command file goes into the box - seen, and editable, before Launch:
+           UTF-8 (a BOM dropped, as Notepad writes one), anything else refused */
         fi.addEventListener("change", async () => {
             const file = fi.files[0];
-            fileText.delete(fi);
-            if (file) {
-                fn.textContent = file.name;
-                fn.style.display = "block";
-            }
-            updateLaunch();             // held while the file is read
+            fi.value = "";              // the same file can be loaded again
             if (!file) return;
-            let text = "";
+            let text;
             try {
-                text = await file.text();
+                text = new TextDecoder("utf-8", {fatal: true}).decode(await file.arrayBuffer());
             } catch (err) {
-                text = "";              // Launch alerts that it can't be read
+                fn.textContent = `${file.name} isn't UTF-8 text - save it as UTF-8 and load it again.`;
+                fn.className = "cmd-loaded is-error";
+                fn.hidden = false;
+                return;
             }
-            if (fi.files[0] !== file) return;   // another file was chosen since
-            fileText.set(fi, text);
+            if (ta.value.trim() && ta.value.trim() !== text.trim()
+                    && !await nrConfirm({title: "Replace the commands?",
+                                         message: `The box already holds commands. Replace them with ${file.name}'s?`,
+                                         confirmLabel: "Replace"})) return;
+            ta.value = text.trim();
+            const count = ta.value.split("\n").filter(line => line.trim()).length;
+            fn.textContent = `Loaded ${file.name} - ${count} command${count !== 1 ? "s" : ""}. ` +
+                             "Check them, edit if needed, then Launch.";
+            fn.className = "cmd-loaded";
+            fn.hidden = false;
             updateLaunch();
         });
 
@@ -826,8 +777,7 @@
         mpWarning.classList.toggle("show", isMulti);
 
         /* A platform still selected keeps its block element as it is - the
-           typed commands, the chosen file (its name, its text in fileText),
-           the listeners; only its name changes. Others go; new ones are built. */
+           typed (or loaded) commands, the listeners; only its name changes. Others go; new ones are built. */
         const kept = {};
         cmdBlocks.querySelectorAll(".cmd-section").forEach(el => { kept[el.id] = el; });
 
@@ -861,32 +811,25 @@
     }
 
     /* ── Launch: held with nothing ticked, a target twice, or a token that
-       can't be filled in (or a command file still being read) ── */
+       can't be filled in ── */
     function updateLaunch() {
         const checked = checkedBoxes();
         const blocked = markUnresolvedTokens(checked);
         submitBtn.disabled = checked.length === 0 || duplicateCount > 0 || blocked > 0;
     }
 
-    /* ── The commands a platform's devices get: its block's pasted text or
-       its command file's; null while the file is being read ── */
+    /* ── The commands a platform's devices get: its block's box (typed or
+       loaded from a file) ── */
     function platformCommands(platform) {
         const suffix = platform.replace(/[^a-z0-9]/g, "_");
-        const block  = document.getElementById("cb_" + suffix);
-        if (!block) return "";
-        if ((singleFileMode[platform] || "paste") === "paste") {
-            return block.querySelector("#ta_" + suffix).value;
-        }
-        const fi = block.querySelector(`input[type="file"]`);
-        if (!fi.files[0]) return "";
-        return fileText.has(fi) ? fileText.get(fi) : null;
+        const box    = document.getElementById("ta_" + suffix);
+        return box ? box.value : "";
     }
 
     /* ── A $$TOKEN$$ in the commands a ticked device gets (its platform's)
        that isn't bound on it, or has no value there (TOKEN_STATES): flag the
        row, name it in the footer and hold Launch until fixed or unticked.
-       The server refuses it too. Returns the number of devices held
-       (a command file still being read counts as one). ── */
+       The server refuses it too. Returns the number of devices held. ── */
     const tokenWarn = document.getElementById("tokenWarning");
     function markUnresolvedTokens(checked) {
         document.querySelectorAll(".device-row").forEach(row => {
@@ -895,14 +838,11 @@
             if (note) { note.hidden = true; note.title = ""; }
         });
         const tokensOf = {};    // platform → its commands' tokens, each once
-        let reading = false;
         const blocked = [];     // [row, problems]
         checked.forEach(cb => {
             const platform = cb.dataset.platform;
             if (!(platform in tokensOf)) {
-                const text = platformCommands(platform);
-                if (text === null) reading = true;
-                tokensOf[platform] = [...new Set((text || "").match(TOKEN_RE) || [])];
+                tokensOf[platform] = [...new Set(platformCommands(platform).match(TOKEN_RE) || [])];
             }
             const row = cb.closest(".device-row");
             const bound = TOKEN_STATES[row.dataset.deviceId] || {};
@@ -927,7 +867,7 @@
                   " (" + row.dataset.endpoint + "): " + problems.join(", ")).join("; ")
             : "";
         tokenWarn.classList.toggle("show", blocked.length > 0);
-        return blocked.length + (reading ? 1 : 0);
+        return blocked.length;
     }
 
     /* ── Same ip:port ticked twice = the same box twice (e.g. your own entry
@@ -1035,7 +975,7 @@
         note.append(message);
         block.appendChild(note);
         block.scrollIntoView({behavior: "smooth", block: "center"});
-        const field = block.querySelector("textarea, input[type=file]");
+        const field = block.querySelector("textarea");
         if (field) field.focus({preventScroll: true});
     }
 
@@ -1055,70 +995,34 @@
                 const blockId = "cb_" + platform.replace(/[^a-z0-9]/g, "_");
                 const taId    = "ta_" + platform.replace(/[^a-z0-9]/g, "_");
                 const block   = document.getElementById(blockId);
-                const mode    = singleFileMode[platform] || "paste";
-
-                if (mode === "paste") {
-                    const text = block.querySelector(`#${taId}`)?.value?.trim();
-                    if (!text) {
-                        commandsError(block, `No commands provided for ${platform}.`);
-                        valid = false;
-                        break;
-                    }
-                    platformCommands[platform] = text;
-                } else {
-                    /* File mode: the file's text joins the JSON like pasted commands */
-                    const fi = block.querySelector(`input[type="file"]`);
-                    if (!fi.files[0]) {
-                        commandsError(block, `No command file selected for ${platform}.`);
-                        valid = false;
-                        break;
-                    }
-                    let text = "";
-                    try {
-                        text = (await fi.files[0].text()).trim();
-                    } catch (err) {
-                        commandsError(block, `The command file for ${platform} could not be read.`);
-                        valid = false;
-                        break;
-                    }
-                    if (!text) {
-                        commandsError(block, `The command file for ${platform} is empty.`);
-                        valid = false;
-                        break;
-                    }
-                    platformCommands[platform] = text;
+                const text = block.querySelector(`#${taId}`)?.value?.trim();
+                if (!text) {
+                    commandsError(block, `No commands provided for ${platform}.`);
+                    valid = false;
+                    break;
                 }
+                platformCommands[platform] = text;
             }
 
             if (!valid) return;
             pcInput.value = JSON.stringify(platformCommands);
         } else {
-            /* Single-platform: use native form fields (manual_commands / commands_file) */
+            /* Single-platform: the box's text as manual_commands */
             pcInput.value = "";
             const platform = keys[0];
             const blockId  = "cb_" + platform.replace(/[^a-z0-9]/g, "_");
             const taId     = "ta_" + platform.replace(/[^a-z0-9]/g, "_");
             const block    = document.getElementById(blockId);
-            const mode     = singleFileMode[platform] || "paste";
-
-            if (mode === "paste") {
-                const text = block.querySelector(`#${taId}`)?.value?.trim();
-                if (!text) { commandsError(block, "No commands provided."); return; }
-                /* Put text into a hidden textarea named manual_commands */
-                let mcField = form.querySelector("textarea[name='manual_commands']");
-                if (!mcField) {
-                    mcField = document.createElement("textarea");
-                    mcField.name = "manual_commands";
-                    mcField.style.display = "none";
-                    form.appendChild(mcField);
-                }
-                mcField.value = text;
-            } else {
-                /* File mode: wire the file input into a proper form field */
-                const fi = block.querySelector(`input[type="file"]`);
-                if (!fi.files[0]) { commandsError(block, "No command file selected."); return; }
-                fi.name = "commands_file";
+            const text = block.querySelector(`#${taId}`)?.value?.trim();
+            if (!text) { commandsError(block, "No commands provided."); return; }
+            let mcField = form.querySelector("textarea[name='manual_commands']");
+            if (!mcField) {
+                mcField = document.createElement("textarea");
+                mcField.name = "manual_commands";
+                mcField.style.display = "none";
+                form.appendChild(mcField);
             }
+            mcField.value = text;
         }
 
         form.submit();
