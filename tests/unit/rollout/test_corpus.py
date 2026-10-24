@@ -150,8 +150,6 @@ def test_proven_by_defaults_negation_or_a_kept_negation(case, command, evidence,
 	assert j.verdict in ACCEPTED and j.evidence == (evidence,) and j.note == note
 
 
-@pytest.mark.xfail(strict=True, reason="known bug: Gaia's delete names ipv4 where its line says ipv4-address - "
-                                       "the removed line isn't matched, so the removal reads as already absent")
 @pytest.mark.parametrize("case, command", [
 	("CP1/delete", "delete host name nrlab ipv4"),
 	("CP1/cleanup", "delete host name nrexec ipv4"),

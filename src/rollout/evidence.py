@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter
-from collections.abc import Collection, Sequence
+from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 
@@ -85,12 +85,21 @@ def _split(word: str) -> tuple[str, str]:
 	return match.group(1), match.group(2)
 
 
-def contains(command: list[str], line: list[str]) -> bool:
+def names(typed: str, device: str) -> bool:
+	"""Whether a removal's word names the device's word: the same word, or
+	the device's word up to its hyphen - Gaia's "delete host name h ipv4"
+	removes "add host name h ipv4-address 192.0.2.1". Only for the lines a
+	push removed; never "ip" → "ipv6-address"."""
+	return same_word(typed, device) or typed == device.split("-", 1)[0]
+
+
+def contains(command: list[str], line: list[str], same: Callable[[str, str], bool] = same_word) -> bool:
 	""":returns: whether all the command's words appear in the line, in
-	 order (the device may add its own: a sequence number, a "secondary")"""
+	 order (the device may add its own: a sequence number, a "secondary")
+	:param same: when a typed word is the line's word"""
 	at = 0
 	for typed in command:
-		while at < len(line) and not same_word(typed, line[at]):
+		while at < len(line) and not same(typed, line[at]):
 			at += 1
 		if at == len(line):
 			return False
@@ -491,7 +500,7 @@ class _Judge:
 		typed = list(command.words)
 		for path in self._levels():
 			for index, line in enumerate(self.removed):
-				if self._at(line, path) and contains(target, line.words):
+				if self._at(line, path) and contains(target, line.words, names):
 					self.claims_removed.setdefault(index, []).append(i)
 					return Judgment(command.sent, Verdict.REMOVED, (f"- {line.raw}",))
 		for path in self._levels():

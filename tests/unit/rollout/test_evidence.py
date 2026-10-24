@@ -165,6 +165,24 @@ def test_a_removal_of_something_never_there_is_already_absent():
 	assert outcome.commands[0].verdict == P and outcome.commands[0].note == "already absent"
 
 
+def test_a_removal_names_a_removed_word_up_to_its_hyphen():
+	"""Gaia: "delete host name h ipv4" removes "add host name h ipv4-address …"."""
+	before = "set hostname CP1\nadd host name h ipv4-address 192.0.2.40\n"
+	outcome = judge(["delete host name h ipv4"], before, "set hostname CP1\n", flat=True)
+	assert outcome.commands[0].verdict == R
+
+
+def test_a_word_up_to_a_hyphen_proves_only_a_removal():
+	"""Only the lines a push removed: an added line needs the device's own words,
+	and "ip" never names "ipv6-address"."""
+	added = judge(["add host name h ipv4"], "set hostname CP1\n",
+	              "set hostname CP1\nadd host name h ipv4-address 192.0.2.40\n", flat=True)
+	assert added.commands[0].verdict != T
+	removed = judge(["delete host name h ip"], "set hostname CP1\nadd host name h ipv6-address 2001:db8::1\n",
+	                "set hostname CP1\n", flat=True)
+	assert removed.commands[0].verdict != R
+
+
 def test_flat_configs_extend_relative_commands_with_their_edit_path():
 	"""Junos / PAN-OS style: "edit" sets the path a relative "set" extends."""
 	before = "set system host-name r1\n"
