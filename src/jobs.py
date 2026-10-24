@@ -336,6 +336,14 @@ class Paused(Draining):
 		super().__init__(PAUSED_MESSAGE)
 
 
+def waited_text(seconds: int) -> str:
+	""":returns: a wait in words - 53 s, 4 min 10 s, 2 min"""
+	minutes, rest = divmod(seconds, 60)
+	if not minutes:
+		return f"{rest} s"
+	return f"{minutes} min {rest} s" if rest else f"{minutes} min"
+
+
 class RolloutJob:
 	"""One rollout: its engine, its log (and live log), its thread, its
 	results."""
@@ -349,6 +357,7 @@ class RolloutJob:
 		:param redis_client: where its live log is (the web app's)"""
 		self.job_id = job_id
 		self.user_id = user_id
+		self.queued_at = datetime.datetime.now()
 		self.started_at: datetime.datetime | None = None
 		self.results: list[DeviceResultDict] = []
 		self._engine = engine
@@ -377,11 +386,17 @@ class RolloutJob:
 		:param on_complete: called with the job's id when it ends, however -
 		 it releases the orchestrator's slot"""
 		self.started_at = datetime.datetime.now()
+		waited = int((self.started_at - self.queued_at).total_seconds())
 
 		def _engine_run() -> None:
 			# on_complete must always fire - it releases the orchestrator slot.
 			# An escaped exception here would leak the slot permanently.
 			try:
+				if waited >= 1:
+					# the log's times start here: say where the time before went
+					self._logger.notify(f"Waited {waited_text(waited)} for a free slot - rollout jobs "
+					                    f"run a few at a time (System Settings: Concurrent "
+					                    f"rollout jobs)", important=True)
 				self.results = self._engine.run(self._cancel_flag, self._logger)
 			except Exception as e:
 				self._logger.notify(f"Rollout aborted: {e}", Tone.ERROR)

@@ -336,7 +336,7 @@ A rollout configures several devices in parallel: 10 at a time unless your admin
 
 ### The queue
 
-NetRollout runs a limited number of rollouts at once: 4 unless your administrator changed it. A rollout launched while all slots are busy waits in a queue and shows **Queued - waiting for a free slot** until one frees up.
+NetRollout runs a limited number of rollouts at once: 4 unless your administrator changed it. A rollout launched while all slots are busy waits in a queue and shows **Queued - waiting for a free slot** until one frees up. When it starts, its log's first line says how long it waited.
 
 ### Verify
 
@@ -519,6 +519,8 @@ Administrators can choose **VIEW AS** to see another user's numbers.
 | `fortinet` | Fortinet FortiOS | Nothing to save: changes are live. NetRollout closes any `config` block left open. | `show full-configuration <section>` | `get`, `show`, `execute`, `diagnose`, `tree`, `sudo`, `fnsysctl` |
 
 **Defaults read with**: how NetRollout reads the configuration with its default values, for the commands the plain configuration doesn't show - only when such a command is left; *none*: the platform has no documented way, and those commands stay in review. Verified on IOS 12.4, NX-OS 7.3 and FortiOS 7.2; EOS and AOS-CX from their documentation (AOS-CX: "all: Shows all default values for the current running configuration").
+
+**Commit platforms take longer.** Junos, IOS-XR and PAN-OS apply a change only when the device commits it, and NetRollout waits for that commit on every device. A Junos or IOS-XR commit takes seconds; a PAN-OS commit recompiles the firewall's whole configuration and often takes a minute or more, even for one line. A slow PAN-OS device is usually committing, not stuck.
 
 A few removal-like commands have no removal rule and stay in review when the configuration doesn't show them: `default <command>` (IOS, NX-OS, EOS), Junos `deactivate` / `activate`, FortiOS `purge` / `clear` / `unselect`. On PAN-OS a failed commit's discard (`revert config`) and the commit itself act on the shared candidate, so another administrator's uncommitted changes are reverted or committed with yours - push to PAN-OS when nobody else has pending changes.
 

@@ -966,3 +966,33 @@ def test_the_orchestrator_lists_a_cancelled_running_job_as_cancelling(make_orche
 		orch._jobs[job.job_id] = job
 	(row,) = orch.jobs()
 	assert (row.state, row.started, row.clock) == ("cancelling", "2026-10-08T14:02:11", "14:02:11")
+
+
+@pytest.mark.parametrize("waited, line", [(53, "Waited 53 s for a free slot"),
+                                          (250, "Waited 4 min 10 s for a free slot"),
+                                          (120, "Waited 2 min for a free slot")])
+def test_a_job_that_waited_for_a_slot_says_so_first(waited, line):
+	"""A job started after waiting in the queue: its log's first line says how
+	long and why (the job's times start when it runs) - before the rollout's own."""
+	engine = MagicMock()
+	engine.run.side_effect = lambda _flag, logger: logger.notify("Starting configuration rollout") or []
+	job = jobs.RolloutJob(uuid.uuid4(), uuid.uuid4(), engine, RolloutOptions())
+	job.queued_at -= dt.timedelta(seconds=waited)
+	job.start(lambda _id: None)
+	job._thread.join(5)
+	with open(job._logger.logfile, encoding="utf-8") as f:
+		lines = f.read().splitlines()
+	assert line in lines[0] and "Concurrent rollout jobs" in lines[0]
+	assert "Starting configuration rollout" in lines[1]
+
+
+def test_a_job_started_at_once_logs_no_wait():
+	"""A free slot: no wait line - the rollout's own line comes first."""
+	engine = MagicMock()
+	engine.run.side_effect = lambda _flag, logger: logger.notify("Starting configuration rollout") or []
+	job = jobs.RolloutJob(uuid.uuid4(), uuid.uuid4(), engine, RolloutOptions())
+	job.start(lambda _id: None)
+	job._thread.join(5)
+	with open(job._logger.logfile, encoding="utf-8") as f:
+		log = f.read()
+	assert "Waited" not in log and "Starting configuration rollout" in log.splitlines()[0]
