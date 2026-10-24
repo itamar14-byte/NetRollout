@@ -761,6 +761,16 @@ def test_an_unchanged_push_says_so_in_its_verification(operator, client_for, ses
 	assert "if (data.diff === '')" in page and "Unchanged: the push added and removed nothing." in page
 
 
+def test_the_verification_diff_marks_lines_that_arent_configuration(operator, client_for):
+	"""A changed line the platform's grammar doesn't read (FortiOS' version comment,
+	a block's closing "next") has no tag from the judge: the window marks it "not
+	configuration" - only where the job's tags were kept, never every line of an
+	older one."""
+	page = client_for(operator.user).get("/results").get_data(as_text=True)
+	assert "} else if (data.diff_tags && kind !== 'same') {" in page
+	assert "row.classList.add('vf-skip');" in page and "'not configuration'" in page
+
+
 def test_results_page_shows_what_needs_a_person(operator, client_for,
                                                 session_scope):
 	"""A device needing a person shows on Results without reading the log: one

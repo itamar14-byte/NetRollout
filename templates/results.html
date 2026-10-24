@@ -71,6 +71,7 @@ button.status-pill:hover { filter: brightness(1.2); }
 .vf-line.add { color:#81c784; } .vf-line.del { color:#e57373; } .vf-line.same { color:var(--nr-text-muted); }
 .vf-by { margin-left:14px; font-size:0.68rem; font-style:italic; color:var(--nr-text-muted); white-space:normal; }
 .vf-line.vf-other .vf-by { color:#ffb74d; }
+.vf-line.vf-skip .vf-by { color:var(--nr-text-muted); font-style:italic; }
 .vf-diff .vf-churn { display:none; opacity:0.55; }
 .vf-diff.show-churn .vf-churn { display:block; }
 .vf-switch { display:flex; gap:6px; align-items:center; font-size:0.74rem; color:var(--nr-text-muted); margin:6px 0; cursor:pointer; }
@@ -1350,6 +1351,11 @@ async function _renderVerifyDiff(device, activeTab) {
                     row.classList.add('vf-other');
                 }
                 row.appendChild(_el('span', 'vf-by', tag));
+            } else if (data.diff_tags && kind !== 'same') {
+                // a changed line the platform's grammar doesn't read as configuration
+                // (a version comment, a block's closing "next"): never judged
+                row.classList.add('vf-skip');
+                row.appendChild(_el('span', 'vf-by', 'not configuration'));
             }
             pre.appendChild(row);
         });
