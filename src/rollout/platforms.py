@@ -9,10 +9,11 @@ src/rollout/session.py's.
 Adding a vendor: one PLATFORMS row plus a fixture in
 tests/unit/rollout/test_platforms.py."""
 import re
+import threading
 import time
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Iterable
-from contextlib import AbstractContextManager
+from collections.abc import Callable, Iterable, Iterator
+from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass, field
 from typing import Any, Protocol, cast
 
@@ -252,11 +253,17 @@ class Commit(Finish):
 			report.notify(f"{device.endpoint}: nothing to commit - '{self.pending}' shows "
 			              f"no change in the candidate", Tone.INFO)
 			return True
+		# a commit gives no output until it ends (a PAN-OS one often a minute or
+		# more): said when it starts, then while it runs (shown in Verbose)
+		report.notify(f"{device.endpoint}: committing - the device applies the change now",
+		              Tone.INFO)
 		try:
-			if self.by_pending:
-				self._commit_by_pending(conn)
-			else:
-				conn.commit(read_timeout=COMMIT_TIMEOUT)
+			with ticking(report, lambda s: f"{device.endpoint}: still committing ({s} s)",
+			             COMMIT_TICK):
+				if self.by_pending:
+					self._commit_by_pending(conn)
+				else:
+					conn.commit(read_timeout=COMMIT_TIMEOUT)
 		except ReadTimeout:
 			# It may still complete on the device: the configuration decides
 			raise CommitPending from None
@@ -396,6 +403,27 @@ COLUMNS = ("read", "left_out", "saved", "layout", "navigation", "removal", "exec
 
 # Netmiko's own heading above a failed commit's output (its ValueError)
 NETMIKO_COMMIT_FAILED = "Commit failed with the following errors:"
+
+
+@contextmanager
+def ticking(report: Report, line: Callable[[int], str], every: float) -> Iterator[None]:
+	"""While the block runs, line(seconds so far) logged every `every`
+	seconds - from a thread of its own (the block is one blocking call);
+	stopped, and nothing more logged, once the block ends."""
+	done = threading.Event()
+	started = time.monotonic()
+
+	def tick() -> None:
+		while not done.wait(every):
+			report.notify(line(int(time.monotonic() - started)), Tone.INFO)
+
+	thread = threading.Thread(target=tick, daemon=True)
+	thread.start()
+	try:
+		yield
+	finally:
+		done.set()
+		thread.join()
 
 
 def one_line(output: object, command: str) -> str:
@@ -841,6 +869,8 @@ PLATFORMS: dict[str, Platform] = {
 
 # PAN-OS commits can take minutes; Netmiko waits 120 s by default
 COMMIT_TIMEOUT = 300
+# While a commit runs: a "still committing" line this often (seconds)
+COMMIT_TICK = 15.0
 # Printing a large firewall config (PAN-OS, FortiOS) takes a while
 FETCH_TIMEOUT = 120
 # After Netmiko's read returns: how long the device must stay quiet for the

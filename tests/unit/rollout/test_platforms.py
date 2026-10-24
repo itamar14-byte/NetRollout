@@ -4,6 +4,7 @@ platform prints it (fixtures approximate real output; the EVE-NG round is
 the real-device check)."""
 import re
 import threading
+import time
 import uuid
 from pathlib import Path
 from unittest.mock import DEFAULT, MagicMock, call, patch
@@ -1076,7 +1077,8 @@ def test_finishing_in_a_new_session():
 
 def test_only_a_commit_acts_before_leaving_config_mode():
 	"""Before leaving config mode the save / command / nothing kinds do nothing and go
-	on (True); a commit that works commits once and goes on, telling nothing."""
+	on (True); a commit that works commits once and goes on, telling only that it
+	commits."""
 	for finish in (SaveConfig(), RunCommand("save config"), NoFinish()):
 		conn, report = MagicMock(), Recorder()
 		assert finish.before_leave(conn, report, TARGET) is True
@@ -1084,7 +1086,8 @@ def test_only_a_commit_acts_before_leaving_config_mode():
 	conn, report = MagicMock(), Recorder()
 	assert Commit(discard=("rollback 0",)).before_leave(conn, report, TARGET) is True
 	assert conn.method_calls == [call.commit(read_timeout=COMMIT_TIMEOUT)]
-	assert (report.lines, report.actions) == ([], [])
+	assert (report.lines, report.actions) == (
+		["10.0.0.1:22: committing - the device applies the change now"], [])
 
 
 def test_a_commit_that_reverts_on_failure_asks_nothing_of_a_person():
@@ -1787,3 +1790,46 @@ def test_a_check_that_fails_logs_only_the_errors_first_line(check):
 	log = log_of(logger)
 	assert "(The command echo was not detected within the read timeout.)" in log
 	assert "Command echo verification" not in log
+
+
+def test_a_commit_says_when_it_starts_and_while_it_runs():
+	"""A commit gives no output until it ends: "committing" when it starts, then
+	"still committing (n s)" every COMMIT_TICK while it runs - and nothing after it
+	ended."""
+	conn, report = MagicMock(), Recorder()
+	conn.commit.side_effect = lambda **_: time.sleep(0.35)
+	with patch("src.rollout.platforms.COMMIT_TICK", 0.1):
+		assert Commit().before_leave(conn, report, TARGET) is True
+	assert report.lines[0] == "10.0.0.1:22: committing - the device applies the change now"
+	ticks = report.lines[1:]
+	assert len(ticks) >= 2 and all(re.fullmatch(r"10\.0\.0\.1:22: still committing \(\d+ s\)", t)
+	                               for t in ticks)
+	time.sleep(0.3)
+	assert report.lines[1:] == ticks           # stopped with the commit
+
+
+def test_a_quick_commit_says_only_that_it_commits():
+	"""A commit that ends before the first tick: the "committing" line alone."""
+	conn, report = MagicMock(), Recorder()
+	assert Commit().before_leave(conn, report, TARGET) is True
+	assert report.lines == ["10.0.0.1:22: committing - the device applies the change now"]
+
+
+def test_a_long_push_reports_its_progress_and_a_quick_one_doesnt():
+	"""Every PROGRESS_EVERY seconds of a push: "pushing - n of N sent" - only when n
+	moved, never the last (the "pushed N commands" line says it); a push that ends
+	sooner logs none."""
+	commands = tuple(f"snmp-server location l{n}" for n in range(10))
+	clock = iter(range(0, 1000, 2))             # each look at the clock: 2 s later
+	logger = fresh_logger()
+	with patch("src.rollout.session._clock", lambda: next(clock)):
+		push("cisco_ios", connection(), commands=commands, logger=logger)
+	lines = [l for l in log_of(logger).splitlines() if "pushing - " in l]
+	counts = [int(re.search(r"pushing - (\d+) of 10 sent", l).group(1)) for l in lines]
+	assert len(counts) >= 2 and counts == sorted(set(counts)) and 10 not in counts
+	assert "pushed 10 commands" in log_of(logger)
+
+	logger = fresh_logger()
+	with patch("src.rollout.session._clock", lambda: 0):
+		push("cisco_ios", connection(), commands=commands, logger=logger)
+	assert "pushing - " not in log_of(logger)

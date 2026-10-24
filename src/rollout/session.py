@@ -27,6 +27,12 @@ if TYPE_CHECKING:   # annotations only: engine.py imports this module
 
 
 
+# During a push: a "pushing - n of N sent" line at most this often
+# (seconds; shown in Verbose) - a push that ends sooner logs none
+PROGRESS_EVERY = 5.0
+_clock = time.monotonic     # the push's clock (a test's own)
+
+
 def first_line(error: BaseException) -> str:
 	""":returns: an error's first line - Netmiko's add a paragraph of advice
 	 below it, which would break the log's one line per event"""
@@ -210,9 +216,14 @@ class NetmikoSession:
 					report.action_needed(device, problem)
 					return PushResult(applied=False)
 
+				progress_at, reported = _clock(), 0     # the last progress line (Verbose)
 				for n, command in enumerate(commands):
 					if n:
 						self._late_reply(net_connect, replies, commands[n - 1], 0)
+						if _clock() - progress_at >= PROGRESS_EVERY and sent != reported:
+							report.notify(f"{device.endpoint}: pushing - {sent} of "
+							              f"{len(commands)} sent")
+							progress_at, reported = _clock(), sent
 					commands_sent = True
 					sent += 1
 					# Config mode was entered above: each command goes in exactly
