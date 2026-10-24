@@ -536,7 +536,10 @@ class _Judge:
 		command opened doesn't account for its lines here: NX-OS's rewritten
 		"ip address …/32" inside a new interface is this command's evidence.)"""
 		added = [i for i in range(len(self.added)) if i not in self.claims_added]
-		removed = [i for i in range(len(self.removed)) if i not in self.claims_removed]
+		# a line a claimed one replaced is that command's ("snmp-server location
+		# a" -> "… b"): never another command's evidence
+		removed = [i for i in range(len(self.removed))
+		           if i not in self.claims_removed and not self._replaced_by(self.removed[i])]
 		for i, path in self.reviews.items():
 			shown_added = [a for a in added if self._at(self.added[a], path)][:10]
 			shown_removed = [r for r in removed if self._at(self.removed[r], path)][:10]
@@ -549,6 +552,18 @@ class _Judge:
 			results[i] = Judgment(results[i].command, Verdict.REVIEW, changes,
 			                      "" if changes else "no change in its section",
 			                      section=results[i].section)
+
+	def _replaced_by(self, gone: Line) -> set[int]:
+		""":returns: the commands whose added line replaced this removed one -
+		 the same section and leading words ("snmp-server location a" ->
+		 "… b", "vlan 1" -> "vlan 1,98")"""
+		found: set[int] = set()
+		for index, who in self.claims_added.items():
+			new = self.added[index]
+			common = _common_prefix(gone.words, new.words)
+			if new.path == gone.path and (len(common) >= 2 or common == gone.words):
+				found.update(who)
+		return found
 
 	def _enter(self, line: Line, path: Path | None) -> None:
 		"""After a command matched `line`, found at `path`: inside it when it's
@@ -647,22 +662,13 @@ class _Judge:
 			return {c for block, who in owners.items()
 			        if line.path[:len(block)] == block for c in who}
 
-		def replaced_by(gone: Line) -> set[int]:
-			found: set[int] = set()
-			for index, who in self.claims_added.items():
-				new = self.added[index]
-				common = _common_prefix(gone.words, new.words)
-				if new.path == gone.path and (len(common) >= 2 or common == gone.words):
-					found.update(who)
-			return found
-
 		changes = [Change("+", line.raw, _where(line),
 		                  tuple(sorted(set(self.claims_added.get(index, ())) or by_block(line))),
 		                  review=tuple(self.evidence_added.get(index, ())))
 		           for index, line in enumerate(self.added)]
 		changes += [Change("-", line.raw, _where(line),
 		                   tuple(sorted(set(self.claims_removed.get(index, ()))
-		                                or by_block(line) or replaced_by(line))),
+		                                or by_block(line) or self._replaced_by(line))),
 		                   review=tuple(self.evidence_removed.get(index, ())))
 		            for index, line in enumerate(self.removed)]
 		changes += [Change(sign, line.raw, _where(line), device=True)

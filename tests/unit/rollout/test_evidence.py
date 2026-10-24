@@ -183,6 +183,19 @@ def test_a_word_up_to_a_hyphen_proves_only_a_removal():
 	assert removed.commands[0].verdict != R
 
 
+def test_a_value_replaced_is_never_another_commands_evidence():
+	"""B4.2 on rc9: "snmp-server location nr-cli-2" replaced "… nr-cli"; the typo next
+	to it was rejected with the old value's removal as its evidence. The removal is
+	the replacing command's - the typo's evidence is empty, its verdict unchanged."""
+	before = "hostname R1\nsnmp-server location nr-cli\n"
+	after = "hostname R1\nsnmp-server location nr-cli-2\n"
+	outcome = judge(["snmp-server location nr-cli-2", "snmp-server locatoin nr-typo"],
+	                before, after, replied=[False, True])
+	good, typo = outcome.commands
+	assert good.verdict == T
+	assert typo.verdict == Verdict.REJECTED and typo.evidence == ()
+
+
 def test_flat_configs_extend_relative_commands_with_their_edit_path():
 	"""Junos / PAN-OS style: "edit" sets the path a relative "set" extends."""
 	before = "set system host-name r1\n"
