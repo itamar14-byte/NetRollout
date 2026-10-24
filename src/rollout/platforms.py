@@ -608,10 +608,12 @@ class Junos(Platform):
 	def enter_config(self, conn: ConfigSession) -> str | None:
 		try:
 			conn.config_mode(config_command=self.config_command)
-		except (ValueError, ReadTimeout) as e:
+		except (ValueError, ReadTimeout):
+			# Netmiko's text (a prompt pattern not found, its advice) means
+			# nothing to the person: the reason is said here
 			return (f"'{self.config_command}' was refused - usually another session has "
 			        f"uncommitted changes in the shared configuration: commit or discard "
-			        f"them (they're someone else's work), then rerun. Nothing was sent ({e})")
+			        f"them (they're someone else's work), then rerun. Nothing was sent.")
 		return None
 
 

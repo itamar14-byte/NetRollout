@@ -1695,3 +1695,59 @@ def test_other_platforms_keep_netmikos_echo_check():
 	push("cisco_ios", conn, commands=("snmp-server contact y",))
 	assert call.send_config_set(["snmp-server contact y"], enter_config_mode=False,
 	                            exit_config_mode=False) in conn.method_calls
+
+
+# Netmiko's errors as it raises them: the reason on one line, then a paragraph of
+# advice for developers ("Things you might try…") a person shouldn't be shown
+NETMIKO_PATTERN = ("Pattern not detected: '(?s:Entering configuration mode.*\].*#)' in output.\n\n"
+                   "Things you might try to fix this:\n"
+                   "1. Adjust the regex pattern to better identify the terminating string.\n"
+                   "2. Increase the read_timeout to a larger value.\n\n"
+                   "You can also look at the Netmiko session_log or debug log for more information.\n")
+NETMIKO_ECHO = ("\n\nThe command echo was not detected within the read timeout.\n\n"
+                "Command echo verification can potentially be disabled by setting either "
+                "cmd_verify=False or by setting global_cmd_verify=False (as an argument to "
+                "ConnectHandler).\n")
+
+
+def test_a_refused_configure_private_says_why_without_netmikos_advice():
+	"""Junos refusing `configure private`: NetRollout's own reason and "Nothing was
+	sent." - not Netmiko's pattern and advice, which mean nothing to the person."""
+	conn = connection()
+	conn.config_mode.side_effect = netmiko.exceptions.ReadTimeout(NETMIKO_PATTERN)
+	logger = fresh_logger()
+	push("juniper_junos", conn, logger=logger)
+	log = log_of(logger)
+	assert "then rerun. Nothing was sent." in log
+	assert "Pattern not detected" not in log and "Things you might try" not in log
+
+
+def session_for(device_type):
+	""":returns: a NetmikoSession of one device, and its rollout log's logger"""
+	logger = fresh_logger()
+	device = Device(ip="10.0.0.1", label="d", username="u", password="p",
+	                device_type=device_type, secret="", port=22)
+	return NetmikoSession(device, RunReport(logger)), logger
+
+
+@pytest.mark.parametrize("check", ["snapshot", "new session", "defaults", "save"])
+def test_a_check_that_fails_logs_only_the_errors_first_line(check):
+	"""A configuration read, a read from a new session, the defaults view and the
+	save check, failing with a Netmiko error: the log line gives its reason (the
+	first line) - never its advice paragraph."""
+	session, logger = session_for("cisco_ios")
+	error = netmiko.exceptions.ReadTimeout(NETMIKO_ECHO)
+	conn = MagicMock()
+	conn.send_command.side_effect = error
+	if check == "snapshot":
+		assert session._snapshot(conn, "after the push") is None
+	elif check == "new session":
+		with patch("src.rollout.session._new_session", side_effect=error):
+			assert session._fetch_new("after the push") is None
+	elif check == "defaults":
+		assert session._defaults(conn, ["show running-config all"]) is None
+	else:
+		session._check_saved(conn, MagicMock())
+	log = log_of(logger)
+	assert "(The command echo was not detected within the read timeout.)" in log
+	assert "Command echo verification" not in log

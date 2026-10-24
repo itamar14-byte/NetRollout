@@ -429,7 +429,7 @@ class NetmikoSession:
 					view = platform.read_defaults(new, fetches)
 		except Exception as e:
 			self._report.notify(f"{device.endpoint}: couldn't read the configuration with "
-			                    f"its defaults ({e}) - unproven commands stay so", Tone.WARNING)
+			                    f"its defaults ({first_line(e)}) - unproven commands stay so", Tone.WARNING)
 			return None
 		if len(view.splitlines()) > DEFAULTS_MAX_LINES:
 			self._report.notify(f"{device.endpoint}: the configuration with its defaults is "
@@ -447,7 +447,7 @@ class NetmikoSession:
 			config = platform.read_config(conn)
 		except Exception as e:
 			self._report.notify(f"{device.endpoint}: couldn't read the configuration "
-			                    f"{why} - not verified ({e})", Tone.ERROR)
+			                    f"{why} - not verified ({first_line(e)})", Tone.ERROR)
 			return None
 		if not config.strip():
 			# no device has an empty configuration: the read went wrong
@@ -487,7 +487,7 @@ class NetmikoSession:
 			                                           platform.navigation))
 		except Exception as e:
 			self._report.notify(f"{device.endpoint}: couldn't read the saved configuration "
-			                    f"to check the save ({e})", Tone.ERROR)
+			                    f"to check the save ({first_line(e)})", Tone.ERROR)
 			return
 		missing = [text for path, text in outcome.added if not saved[(path, text)]]
 		kept = [text for path, text in outcome.removed if saved[(path, text)]]
@@ -556,5 +556,5 @@ class NetmikoSession:
 				return self._snapshot(conn, why)
 		except Exception as e:
 			self._report.notify(f"{device.endpoint}: couldn't read the configuration "
-			                    f"{why} - not verified ({e})", Tone.ERROR)
+			                    f"{why} - not verified ({first_line(e)})", Tone.ERROR)
 			return None
