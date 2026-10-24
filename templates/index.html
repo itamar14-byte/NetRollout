@@ -50,10 +50,10 @@
 
 <!-- Feature pills -->
 <div class="login-features mx-auto">
-  <div class="feature-pill">⚡ Multi-vendor push</div>
-  <div class="feature-pill">✅ Config verification</div>
-  <div class="feature-pill">🔐 TOTP 2FA</div>
-  <div class="feature-pill">📋 Audit trail</div>
+  <div class="feature-pill"><i class="bi bi-diagram-3"></i>12 platforms</div>
+  <div class="feature-pill"><i class="bi bi-shield-check"></i>Verified on the device</div>
+  <div class="feature-pill"><i class="bi bi-arrow-counterclockwise"></i>One-click rollback</div>
+  <div class="feature-pill"><i class="bi bi-journal-text"></i>Full audit trail</div>
 </div>
 
 <style>
@@ -217,9 +217,13 @@
     z-index: 1;
     display: flex;
     justify-content: center;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     gap: 0.5rem;
-    max-width: 500px;
+    max-width: 640px;
+  }
+  /* a phone: the four don't fit on one line */
+  @media (max-width: 640px) {
+    .login-features { flex-wrap: wrap; }
   }
 
   .feature-pill {
@@ -232,7 +236,9 @@
     padding: 0.3rem 0.85rem;
     background: rgba(255,255,255,0.02);
     transition: border-color 0.2s, color 0.2s;
+    white-space: nowrap;
   }
+  .feature-pill i { margin-right: 0.4rem; }
 
   .feature-pill:hover {
     border-color: rgba(0,188,212,0.3);

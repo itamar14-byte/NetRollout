@@ -31,6 +31,7 @@ The first release. Since 1.0.0rc9, seven platforms were run through NetRollout's
 - Active Jobs: a just-launched rollout's log opens on arrival; a log opened after the job ended shows its log file; a running job's row has no Rollback; the cancel question says what cancelling does ("Keep it running"); the local time clock is 24-hour in every locale.
 - The Grafana link opens the dashboards list; Inventory's Test Connection is in a global device's read-only window too; the rollback's keep-my-profile toggle reads as one sentence and names its devices.
 - The README marks seven platforms as tested in a lab; the user guide says which were verified and how long commit platforms take.
+- The sign-in page's highlights: 12 platforms, Verified on the device, One-click rollback, Full audit trail - on one line (two on a phone), with the app's own icons.
 
 ### Fixed
 
