@@ -51,22 +51,22 @@ It is for network engineers who want a bulk change done and checked without writ
 
 NetRollout uses Netmiko's `device_type` names. The finish column says how a pushed change is made permanent.
 
-Most platforms were implemented from vendor documentation and have not yet been confirmed on real equipment. If you run NetRollout against one of them, please tell us whether it worked with the [platform confirmation form](https://github.com/itamar14-byte/NetRollout/issues/new?template=platform_confirmation.yml). Confirmed platforms are marked here as reports come in.
+Seven platforms were tested in a lab: pushes, Verify, refused commands, failed commits and rollbacks, against virtual devices on EVE-NG. The others were implemented from vendor documentation and have not yet been confirmed. If you run NetRollout against any of them on real equipment, please tell us whether it worked with the [platform confirmation form](https://github.com/itamar14-byte/NetRollout/issues/new?template=platform_confirmation.yml). Confirmed platforms are marked here as reports come in.
 
 | Vendor / OS | `device_type` | How a push is finished | Status |
 | --- | --- | --- | --- |
 | Cisco IOS | `cisco_ios` | Save the configuration | Tested in a lab (Cisco IOL on EVE-NG) |
 | Cisco IOS-XE | `cisco_xe` | Save the configuration | Not yet confirmed |
-| Cisco NX-OS | `cisco_nxos` | Save the configuration | Not yet confirmed |
-| Cisco IOS-XR | `cisco_xr` | Commit (a failed commit reverts by itself) | Not yet confirmed |
+| Cisco NX-OS | `cisco_nxos` | Save the configuration | Tested in a lab (NX-OS 7.3 on EVE-NG) |
+| Cisco IOS-XR | `cisco_xr` | Commit (a failed commit reverts by itself) | Tested in a lab (IOS XRv 9000 7.1.1 on EVE-NG) |
 | Arista EOS | `arista_eos` | Save the configuration | Not yet confirmed |
 | Aruba AOS-CX | `aruba_aoscx` | Save the configuration | Not yet confirmed |
 | HP ProCurve | `hp_procurve` | Save the configuration | Not yet confirmed |
 | HP Comware | `hp_comware` | Save the configuration | Not yet confirmed |
-| Juniper JunOS | `juniper_junos` | Commit, in `configure private` (a failed commit is discarded with `rollback 0`) | Not yet confirmed |
-| Palo Alto PAN-OS | `paloalto_panos` | Commit (a failed commit is discarded with `revert config`) | Not yet confirmed |
-| Check Point Gaia | `checkpoint_gaia` | `save config` (switches from expert mode to clish first) | Not yet confirmed |
-| Fortinet FortiOS | `fortinet` | None: the change is live as typed | Not yet confirmed |
+| Juniper JunOS | `juniper_junos` | Commit, in `configure private` (a failed commit is discarded with `rollback 0`) | Tested in a lab (vJunos-switch 24.4 on EVE-NG) |
+| Palo Alto PAN-OS | `paloalto_panos` | Commit (a failed commit is discarded with `revert config`) | Tested in a lab (PAN-OS 11.2 VM on EVE-NG) |
+| Check Point Gaia | `checkpoint_gaia` | `save config` (switches from expert mode to clish first) | Tested in a lab (Gaia R81.20 on EVE-NG) |
+| Fortinet FortiOS | `fortinet` | None: the change is live as typed | Tested in a lab (FortiGate VM 7.2 on EVE-NG) |
 
 Verify covers all 12 platforms.
 
